@@ -1,1 +1,1 @@
-The people positively identified by face recognition are: {names}. Refer to visible people by name.
+The people positively identified by face recognition are: {names}. Refer to them by name in your description — do not write 'a man', 'a woman' or 'a person' for identified people.

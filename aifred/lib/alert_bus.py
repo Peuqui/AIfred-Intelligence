@@ -239,9 +239,12 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
             identities = [identities]
         identities = [str(n).strip() for n in identities if str(n).strip()]
         if identities:
+            # ANS ENDE des Prompts — das 4B-VLM ignoriert die Namens-
+            # Anweisung am Anfang, folgt ihr am Ende zuverlässig
+            # (live verifiziert 23.08.2026).
             from .prompt_loader import get_vision_identity_context_prompt
             prompt = (
-                f"{get_vision_identity_context_prompt(identities)}\n\n{prompt}"
+                f"{prompt}\n\n{get_vision_identity_context_prompt(identities)}"
             )
         # Subjekt-Ansicht (Zoom) zuerst, dann die Weitwinkel-Kontext-Ansicht
         # desselben Moments — das VLM sieht Nahaufnahme UND Szene. Der Crop

@@ -117,9 +117,11 @@ async def analyze_event_with_vlm(
     elif _cls.get("confidence_band") == "known" and _cls.get("matched_name"):
         names = [str(_cls["matched_name"])]
     if names:
+        # Ans Prompt-ENDE — dort befolgt das kleine VLM die Namens-
+        # Anweisung zuverlässig (am Anfang wurde sie ignoriert).
         from .prompt_loader import get_vision_identity_context_prompt
         target_prompt = (
-            f"{get_vision_identity_context_prompt(names)}\n\n{target_prompt}"
+            f"{target_prompt}\n\n{get_vision_identity_context_prompt(names)}"
         )
 
     result = await analyze_sequence(frames, target_prompt, model=str(target_model))
@@ -270,10 +272,11 @@ async def analyze_cluster_with_vlm(
     if is_grayscale_image(frames[0].image_bytes):
         target_prompt = f"{get_vision_ir_context_prompt()}\n\n{target_prompt}"
     if identity_names:
+        # Ans Prompt-ENDE (siehe Einzelbild-Pfad).
         from .prompt_loader import get_vision_identity_context_prompt
         target_prompt = (
+            f"{target_prompt}\n\n"
             f"{get_vision_identity_context_prompt(identity_names)}"
-            f"\n\n{target_prompt}"
         )
 
     result = await analyze_sequence(frames, target_prompt, model=str(target_model))

@@ -1628,11 +1628,13 @@ class VisionWatcher:
             prompt_parts.append(briefing)
         if ir_block:
             prompt_parts.append(ir_block)
-        if identity_block:
-            prompt_parts.append(identity_block)
         # if history_block:
         #     prompt_parts.append(history_block.rstrip())
         prompt_parts.append(base_instruction)
+        # Identitäts-Anweisung ANS ENDE — dort befolgt das kleine VLM
+        # sie zuverlässig (am Anfang wurde sie ignoriert).
+        if identity_block:
+            prompt_parts.append(identity_block)
         prompt = "\n\n".join(prompt_parts)
 
         # Load VLM settings (model, num_ctx, host) from plugin config
