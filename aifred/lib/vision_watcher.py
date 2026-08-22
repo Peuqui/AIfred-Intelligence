@@ -956,7 +956,8 @@ class VisionWatcher:
         started = datetime.now()
         last_active = started
         ticks = 0
-        saved = 0
+        n_face = 0
+        n_person = 0
         try:
             while True:
                 if self._watch_generation.get(source_id, 0) != my_gen:
@@ -976,13 +977,14 @@ class VisionWatcher:
                 if wide_frame.image_bytes:
                     ticks += 1
                     try:
-                        did_save, is_known = await self._persist_burst_tick(
+                        kind, is_known = await self._persist_burst_tick(
                             source_id, config, cluster_id,
                             wide_frame, face_frame,
                             detector, recognizer, person_detector,
                             emit_known_alert=not known_alerted,
                         )
-                        saved += 1 if did_save else 0
+                        n_face += 1 if kind == "face" else 0
+                        n_person += 1 if kind == "person" else 0
                         known_alerted = known_alerted or is_known
                     except Exception as e:  # noqa: BLE001
                         logger.warning("burst tick failed for %s: %s", source_id, e)
@@ -1002,10 +1004,14 @@ class VisionWatcher:
             return
         finally:
             self._burst_tasks.pop(source_id, None)
-        logger.info(
-            "face-hunt burst for %s: %d tick(s), %d frame(s) saved, %.0fs",
-            source_id, ticks, saved,
-            (datetime.now() - started).total_seconds(),
+        # Bilanz ins Debug-Log — im Journal ging die info-Zeile unter,
+        # und genau diese Zahlen beantworten "warum nur N Bilder?".
+        from .logging_utils import log_message
+        dur = (datetime.now() - started).total_seconds()
+        log_message(
+            f"🎬 burst {source_id}: {ticks} ticks → {n_face} face, "
+            f"{n_person} person, {ticks - n_face - n_person} empty "
+            f"({dur:.0f}s)"
         )
 
     async def _persist_burst_tick(
@@ -1020,12 +1026,13 @@ class VisionWatcher:
         person_detector: Any,
         *,
         emit_known_alert: bool,
-    ) -> tuple[bool, bool]:
+    ) -> tuple[str, bool]:
         """Einen Burst-Tick auswerten und — wenn er etwas zeigt —
         persistieren (Bildpaar über die SSoT-Output-Kette, Event im
         Burst-Cluster, bei Gesicht zusätzlich Crop + Live-Publish).
 
-        Returnt ``(gespeichert, known_alert_gefeuert)``.
+        Returnt ``(art, known_alert_gefeuert)`` — ``art`` ist "face",
+        "person" oder "" (Tick verworfen).
         """
         import base64 as _base64
 
@@ -1049,8 +1056,17 @@ class VisionWatcher:
             except Exception as e:  # noqa: BLE001
                 logger.warning("burst person_detect failed: %s", e)
                 persons = []
+            if not persons and face_frame is not wide_frame:
+                # Nacht-/Fern-Fall: auf dem Weitwinkel ist die Person oft zu
+                # klein für den Nano-YOLO — das Tele zeigt sie größer.
+                try:
+                    persons = await asyncio.to_thread(
+                        person_detector.detect, face_frame
+                    )
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("burst zoom person_detect failed: %s", e)
             if not persons:
-                return False, False
+                return "", False
             _, _, frame_path = await self._finalize_output_frame(
                 wide_frame, save=config.save_event_frames,
             )
@@ -1076,7 +1092,7 @@ class VisionWatcher:
                 metadata={"trigger": "edge_ai_burst"},
                 cluster_id=cluster_id,
             )
-            return True, False
+            return "person", False
 
         # Bestes Gesicht dieses Ticks (Band vor Konfidenz).
         best_det = None
@@ -1180,7 +1196,7 @@ class VisionWatcher:
                 store=self._store,
             )
             fired = True
-        return True, fired
+        return "face", fired
 
     async def _count_categories(
         self, frame: "Frame", wanted: set[str],
