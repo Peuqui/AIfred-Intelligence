@@ -39,7 +39,12 @@ CancelCb = Callable[[], Awaitable[bool]]
 
 # Same event types the Casus worker analyses — only these carry a
 # frame_path worth sending to the VLM.
-DEFAULT_EVENT_TYPES = ["motion", "face_known", "face_unsure", "face_unknown"]
+# "person" gehört seit Edge-AI-Trigger + Film-Burst dazu — die Burst-Serie
+# besteht überwiegend aus person-Events; ohne den Typ meldete "Alle
+# analysieren" trotz unbeschriebener Frames "Keine Events zum Analysieren".
+DEFAULT_EVENT_TYPES = [
+    "motion", "person", "face_known", "face_unsure", "face_unknown",
+]
 
 
 @dataclass

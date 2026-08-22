@@ -103,6 +103,25 @@ async def analyze_event_with_vlm(
     if is_grayscale_image(frames[0].image_bytes):
         target_prompt = f"{get_vision_ir_context_prompt()}\n\n{target_prompt}"
 
+    # Sicher erkannte Identität als Fakt voranstellen (SSoT-Template mit
+    # Alert-Pfad und Teleprompter) — sonst beschreibt das VLM "einen Mann",
+    # während das Event längst "Lord Helmchen" heißt. Der faces-Join deckt
+    # auch nachgetaggte Events ab (dort fehlt matched_name).
+    names: list[str] = []
+    _cls = dict(target.get("classification") or {})
+    fid = target.get("face_id")
+    if fid is not None:
+        face = store.get_face_by_id(int(fid))
+        if face and face.get("name"):
+            names = [str(face["name"])]
+    elif _cls.get("confidence_band") == "known" and _cls.get("matched_name"):
+        names = [str(_cls["matched_name"])]
+    if names:
+        from .prompt_loader import get_vision_identity_context_prompt
+        target_prompt = (
+            f"{get_vision_identity_context_prompt(names)}\n\n{target_prompt}"
+        )
+
     result = await analyze_sequence(frames, target_prompt, model=str(target_model))
     description = (result.text or "").strip()
     if not description:
@@ -200,10 +219,18 @@ async def analyze_cluster_with_vlm(
     cap = max_frames or VISION_DESCRIBE_MAX_FRAMES
 
     loaded: list[tuple[datetime, int, bytes, str]] = []
+    identity_names: list[str] = []
     for eid in event_ids:
         ev = store.get_event(int(eid))
         if not ev:
             continue
+        # Sicher erkannte Identitäten des Vorkommnisses (dedupliziert).
+        fid = ev.get("face_id")
+        if fid is not None:
+            face = store.get_face_by_id(int(fid))
+            name = str((face or {}).get("name") or "")
+            if name and name not in identity_names:
+                identity_names.append(name)
         fp = str(ev.get("frame_path") or "")
         if not fp or not Path(fp).exists():
             continue
@@ -242,6 +269,12 @@ async def analyze_cluster_with_vlm(
     from .vision_utils import is_grayscale_image
     if is_grayscale_image(frames[0].image_bytes):
         target_prompt = f"{get_vision_ir_context_prompt()}\n\n{target_prompt}"
+    if identity_names:
+        from .prompt_loader import get_vision_identity_context_prompt
+        target_prompt = (
+            f"{get_vision_identity_context_prompt(identity_names)}"
+            f"\n\n{target_prompt}"
+        )
 
     result = await analyze_sequence(frames, target_prompt, model=str(target_model))
     description = (result.text or "").strip()

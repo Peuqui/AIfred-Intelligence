@@ -24,6 +24,7 @@ def _event_type_badge(event: rx.Var) -> rx.Component:
     return rx.match(
         et,
         ("motion", rx.badge(rx.text(t("casus_badge_motion"), size="1"), color_scheme="blue", variant="soft")),
+        ("person", rx.badge(rx.text(t("casus_badge_person"), size="1"), color_scheme="purple", variant="soft")),
         ("face_known", rx.badge(rx.text(t("casus_badge_face_known"), size="1"), color_scheme="green", variant="soft")),
         ("face_unsure", rx.badge(rx.text(t("casus_badge_face_unsure"), size="1"), color_scheme="amber", variant="soft")),
         ("face_unknown", rx.badge(rx.text(t("casus_badge_face_unknown"), size="1"), color_scheme="gray", variant="soft")),
