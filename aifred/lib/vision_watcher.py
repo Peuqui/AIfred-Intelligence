@@ -751,7 +751,9 @@ class VisionWatcher:
             # Zoom separat stempeln + speichern; der Crop unten kommt aus dem
             # ungestempelten face_frame (sauberes Gesicht).
             if face_frame is not wide_frame:
-                stamped_zoom = await asyncio.to_thread(self._stamp_frame, face_frame)
+                stamped_zoom = await asyncio.to_thread(
+                    self._stamp_frame, face_frame, " · Zoom"
+                )
                 zoom_frame_path = await asyncio.to_thread(self._save_frame, stamped_zoom)
         from .config import EDGE_AI_CONFIRM
         from .vision_alerts import emit_object_alert, emit_person_alert
@@ -1384,13 +1386,18 @@ class VisionWatcher:
             return ""
         return self._clusterer.assign(frame.source_id, frame.timestamp, ph)
 
-    def _stamp_frame(self, frame: "Frame") -> "Frame":
+    def _stamp_frame(self, frame: "Frame", label_suffix: str = "") -> "Frame":
         """Burn the documentation overlay (name + location + capture time)
         into the frame once — at the moment it is taken as an output. The
         same stamped frame then flows to save, VLM and face detection; there
         is no separate clean copy. Motion detection runs upstream on the raw
         stream (it is the trigger, not a consumer of the captured still), so
-        the detector never sees the overlay."""
+        the detector never sees the overlay.
+
+        ``label_suffix``: Zusatz hinter dem Quell-Label — der Dual-Lens-Snap
+        stempelt damit das Tele-Bild als "<Alias> · Zoom", sonst wären Wide
+        und Zoom im Output nicht unterscheidbar (beide gehören zur selben
+        Quelle)."""
         from dataclasses import replace
 
         from .vision_utils import annotate_frame, source_overlay_label
@@ -1398,7 +1405,7 @@ class VisionWatcher:
             frame,
             image_bytes=annotate_frame(
                 frame.image_bytes,
-                source_overlay_label(frame.source_id),
+                source_overlay_label(frame.source_id) + label_suffix,
                 timestamp=frame.timestamp,
             ),
         )

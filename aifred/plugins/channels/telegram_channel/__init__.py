@@ -277,17 +277,31 @@ class TelegramChannel(BaseChannel):
         from ....lib.markdown_render import md_to_plain
         return {"text": md_to_plain(text)}
 
-    async def _deliver(self, bot, chat_id: int, text: str, media: "str | None") -> None:
+    async def _deliver(
+        self, bot, chat_id: int, text: str, media: "str | None",
+        media_context: "str | None" = None,
+    ) -> None:
         """SSOT for the actual Telegram send: attachment+caption when ``media``
         is set (photo for images, document otherwise), else chunked text. Used
         by both the reply path and the telegram_send tool so attachment
         delivery + caption overflow (TD7) + msglog tracking (TD6) live in
-        exactly one place. ``text`` is already formatted by the caller."""
+        exactly one place. ``text`` is already formatted by the caller.
+
+        ``media_context``: zweites Bild desselben Moments (Dual-Lens:
+        Weitwinkel-Szene zur Zoom-Nahaufnahme) — beide gehen als EIN
+        Album raus, Caption am ersten Bild."""
         from ....lib.vision_utils import is_image_file
 
         from ....lib.vision_utils import local_media_path
         local = local_media_path(media)
         url = _photo_url(media)
+        ctx_local = local_media_path(media_context) if media_context else None
+        if media_context and not ctx_local:
+            self.channel_log(
+                f"Telegram Plugin: context attachment missing — sending "
+                f"single photo ({media_context})",
+                "warning",
+            )
         if media and not local and not url:
             # Kein stiller Attachment-Drop: der Pfad existiert nicht (mehr) —
             # Text wird trotzdem zugestellt, aber der Verlust steht im Log.
@@ -297,7 +311,29 @@ class TelegramChannel(BaseChannel):
             )
         sent_ids: list[int] = []
         async with bot:
-            if local or url:
+            if (
+                local and ctx_local
+                and is_image_file(pathlib.Path(local))
+                and is_image_file(pathlib.Path(ctx_local))
+            ):
+                # Dual-Lens-Album: Zoom-Nahaufnahme + Weitwinkel-Szene als
+                # EINE Nachricht; Caption (1024-Cap, TD7) am ersten Bild.
+                from telegram import InputMediaPhoto
+                caption, overflow = text[:1024], text[1024:]
+                with open(local, "rb") as f1, open(ctx_local, "rb") as f2:
+                    msgs = await bot.send_media_group(
+                        chat_id=chat_id,
+                        media=[
+                            InputMediaPhoto(f1, caption=caption),
+                            InputMediaPhoto(f2),
+                        ],
+                    )
+                sent_ids.extend(m.message_id for m in msgs)
+                if overflow:
+                    for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
+                        m = await bot.send_message(chat_id=chat_id, text=chunk)
+                        sent_ids.append(m.message_id)
+            elif local or url:
                 # Telegram hard-caps photo/document captions at 1024 chars.
                 # Send the overflow as follow-up text messages instead of
                 # silently dropping it (TD7).
@@ -337,7 +373,10 @@ class TelegramChannel(BaseChannel):
 
         chat_id = int(outbound.channel_id or original.channel_id)
         text = self.format_outbound(outbound.text)["text"]
-        await self._deliver(bot, chat_id, text, outbound.media)
+        await self._deliver(
+            bot, chat_id, text, outbound.media,
+            media_context=(outbound.metadata or {}).get("media_context"),
+        )
 
         from ....lib.debug_bus import debug
         debug(f"Reply sent to Telegram chat {chat_id}")

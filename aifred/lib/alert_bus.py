@@ -397,6 +397,11 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         "severity": ev.severity,
         "category": ev.category,
     }
+    # Dual-Lens: Weitwinkel-Kontext desselben Moments — Kanäle, die mehrere
+    # Bilder können (Telegram-Album), hängen ihn mit an; andere ignorieren
+    # das Feld stillschweigend (gleiches Muster wie audio_type).
+    if ev.media_context:
+        sink_metadata["media_context"] = ev.media_context
 
     # Sink-Format: "channel" oder "channel:ziel". ziel ist kanalspezifisch —
     # fuer freeecho2 ein room, "@gruppe" oder "*" (Broadcast). Die Expansion
