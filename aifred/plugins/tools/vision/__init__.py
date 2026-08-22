@@ -1003,6 +1003,10 @@ class VisionPlugin:
                 fp = str(ev.get("frame_path") or "")
                 sid = str(ev["source_id"])
                 fid = ev["face_id"]
+                # Dual-Lens-Events tragen den Tele-Snap desselben Moments in
+                # der classification — als eigene URL anbieten, damit der
+                # Assistent Szene (wide) UND Subjekt (zoom) einbetten kann.
+                zfp = str((ev.get("classification") or {}).get("zoom_frame_path") or "")
                 return {
                     "id": ev["id"],
                     "source_id": sid,
@@ -1018,6 +1022,8 @@ class VisionPlugin:
                     # as ![…](image_url) in its reply (and re-analyze it via
                     # vision_analyze).
                     "image_url": get_image_url(Path(fp)) if fp else "",
+                    # Tele-/Zoom-Ansicht desselben Moments ("" wenn keine).
+                    "zoom_image_url": get_image_url(Path(zfp)) if zfp else "",
                     # How many frames this one happening spans.
                     "frames_in_cluster": member_count.get(cid, 1) if cid else 1,
                 }
