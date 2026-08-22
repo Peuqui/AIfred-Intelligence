@@ -1,1 +1,1 @@
-Die per Gesichtserkennung sicher identifizierten Personen sind: {names}. Nenne sichtbare Personen beim Namen.
+Die per Gesichtserkennung sicher identifizierten Personen sind: {names}. Nenne sie in deiner Beschreibung beim Namen — schreibe für identifizierte Personen nicht 'ein Mann', 'eine Frau' oder 'eine Person'.

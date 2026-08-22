@@ -364,6 +364,8 @@
   "casus_tag_cancel": "Cancel",
   "casus_badge_motion": "Motion",
   "casus_badge_person": "Person",
+  "casus_badge_animal": "Animal",
+  "casus_badge_vehicle": "Vehicle",
   "casus_badge_face_known": "Known",
   "casus_badge_face_unsure": "Unsure",
   "casus_badge_face_unknown": "Unknown",

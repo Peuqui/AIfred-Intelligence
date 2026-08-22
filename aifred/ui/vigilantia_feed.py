@@ -61,6 +61,8 @@ def _feed_badge(event: rx.Var) -> rx.Component:
         et,
         ("motion", rx.badge(t("casus_badge_motion"), color_scheme="blue", variant="soft", size="1")),
         ("person", rx.badge(t("casus_badge_person"), color_scheme="purple", variant="soft", size="1")),
+        ("animal", rx.badge(t("casus_badge_animal"), color_scheme="brown", variant="soft", size="1")),
+        ("vehicle", rx.badge(t("casus_badge_vehicle"), color_scheme="cyan", variant="soft", size="1")),
         ("face_known", rx.badge(t("casus_badge_face_known"), color_scheme="green", variant="soft", size="1")),
         ("face_unsure", rx.badge(t("casus_badge_face_unsure"), color_scheme="amber", variant="soft", size="1")),
         ("face_unknown", rx.badge(t("casus_badge_face_unknown"), color_scheme="gray", variant="soft", size="1")),
