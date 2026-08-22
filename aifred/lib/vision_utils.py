@@ -729,7 +729,13 @@ def annotate_frame(
         img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
         text = label or ""
         if timestamp is not None:
-            stamp = timestamp.strftime("%Y-%m-%d %H:%M:%S")
+            # Millisekunden mit einbrennen — Burst-Frames liegen nur
+            # ~500 ms auseinander und wären sonst im Film-Durchblättern
+            # nicht unterscheidbar (gleiche Sekunde, "identischer" Stempel).
+            stamp = (
+                timestamp.strftime("%Y-%m-%d %H:%M:%S")
+                + f".{timestamp.microsecond // 1000:03d}"
+            )
             text = f"{text}  {stamp}" if text else stamp
 
         # Font size scales with image height so it stays readable on a 480p

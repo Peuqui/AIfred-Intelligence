@@ -356,6 +356,7 @@
   "casus_delete_all_confirm": "Really delete?",
   "casus_delete_all_cancel": "Cancel",
   "casus_delete": "Delete event",
+  "casus_film_tooltip": "Watch the film — browse all frames of this happening as a series",
   "casus_tag_button": "+ tag",
   "casus_tag_placeholder": "Pick person",
   "casus_tag_clear": "Clear assignment",

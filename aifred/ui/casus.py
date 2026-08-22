@@ -217,6 +217,19 @@ def _tag_controls(event: rx.Var) -> rx.Component:
                     t("casus_analyze"),
                 ),
             ),
+            # Film: Serie des Vorkommnisses (Burst-Frames) als Slideshow.
+            rx.cond(
+                event["cluster_id"] != "",
+                rx.icon_button(
+                    rx.icon("film", size=14),
+                    on_click=AIState.casus_open_film(eid),
+                    size="1",
+                    variant="soft",
+                    color_scheme="blue",
+                    title=t("casus_film_tooltip"),
+                ),
+                rx.fragment(),
+            ),
             rx.icon_button(
                 rx.icon("trash-2", size=14),
                 on_click=AIState.casus_delete_event(eid),

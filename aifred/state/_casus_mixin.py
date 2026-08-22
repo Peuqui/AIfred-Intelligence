@@ -333,6 +333,8 @@ class CasusMixin(rx.State, mixin=True):
             return
         if self.casus_tag_event_id != 0:
             return  # Tag-Modus aktiv — nachziehen beim nächsten Tick danach
+        if self.casus_image_index >= 0:
+            return  # Slideshow/Film offen — Refresh würde die Liste kapern
         self._casus_last_seen_event_id = latest
         self._refresh_events()
 
@@ -454,10 +456,43 @@ class CasusMixin(rx.State, mixin=True):
         if i < 0 or i >= len(self.casus_events):
             return
         eid = int(self.casus_events[i].get("id", 0))
+        # Gruppiert-Modus: der Klick auf ein Vorkommnis öffnet dessen FILM
+        # (alle Cluster-Bilder chronologisch) — das "+N"-Badge verspricht
+        # genau diese Serie. Die Repräsentanten-Slideshow wäre hier das
+        # falsche Versprechen (sie blättert zum NÄCHSTEN Vorkommnis).
+        if self.casus_cluster_mode:
+            self._open_film(eid)
+            return
         try:
             self.casus_image_index = self.casus_all_ids.index(eid)
         except ValueError:
             self.casus_image_index = -1
+
+    def _open_film(self, event_id: int) -> None:
+        """„Film anschauen": Slideshow über ALLE Bilder des Vorkommnisses
+        (Cluster) dieses Events, chronologisch von Anfang an — die
+        Burst-Serie eines Vorbeigangs als Daumenkino. Nutzt die bestehende
+        Bild-Slideshow; beim nächsten Listen-Refresh (Modal-Interaktion)
+        wird ``casus_all_ids`` ohnehin wieder auf die Filteransicht
+        gesetzt."""
+        try:
+            from ..lib.vision_store import VisionStore
+            store = VisionStore()
+            ev = store.get_event(int(event_id))
+            cid = str((ev or {}).get("cluster_id") or "")
+            ids = store.list_cluster_event_ids(cid)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("casus film open failed: %s", e)
+            return
+        if not ids:
+            ids = [int(event_id)]
+        self.casus_all_ids = ids
+        # Ältestes Bild zuerst — Pfeil rechts spielt den Film vorwärts.
+        self.casus_image_index = len(ids) - 1
+
+    @rx.event
+    def casus_open_film(self, event_id: int) -> None:
+        self._open_film(int(event_id))
 
     @rx.event
     def casus_image_newer(self) -> None:

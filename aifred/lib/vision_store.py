@@ -759,6 +759,31 @@ class VisionStore:
             ).fetchall()
         return [str(r["name"]) for r in rows if r["name"]]
 
+    def list_cluster_event_ids(self, cluster_id: str) -> list[int]:
+        """Alle Event-IDs eines Vorkommnisses (Cluster), neueste zuerst —
+        für die Film-Slideshow im Casus (Serie eines Vorbeigangs).
+
+        Pro Bilddatei EINE ID: der Initial-Trigger schreibt Gesichts- und
+        Personen-Event mit demselben Frame — ohne Dedupe zeigte der Film
+        dasselbe Bild doppelt."""
+        if not cluster_id:
+            return []
+        with self._conn() as conn:
+            rows = conn.execute(
+                "SELECT id, frame_path FROM events WHERE cluster_id = ? "
+                "AND frame_path != '' ORDER BY timestamp DESC, id ASC",
+                (cluster_id,),
+            ).fetchall()
+        seen: set[str] = set()
+        out: list[int] = []
+        for r in rows:
+            fp = str(r["frame_path"])
+            if fp in seen:
+                continue
+            seen.add(fp)
+            out.append(int(r["id"]))
+        return out
+
     def latest_event_id(self) -> int:
         """Höchste Event-ID (0 wenn leer) — billiger Änderungs-Marker für
         UI-Polling (Casus-Auto-Refresh): eine neue ID = neue Events da."""
