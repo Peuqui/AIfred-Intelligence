@@ -71,7 +71,11 @@ async def enroll_face_from_event(
         raise ValueError(f"event {event_id} has no face bbox")
     event_bbox = tuple(int(v) for v in bbox_raw)
 
-    frame_path = str(event.get("frame_path") or "")
+    # Das Frame nehmen, auf dem die Erkennung tatsächlich lief: bei
+    # Edge-AI-Events ist das der Zoom-Snap (classification.zoom_frame_path)
+    # — die gespeicherte Bbox gehört zu DIESEM Bild, und auf dem Weitwinkel
+    # wäre das Gesicht oft zu klein für eine erneute Detektion.
+    frame_path = str(cls.get("zoom_frame_path") or event.get("frame_path") or "")
     if not frame_path or not Path(frame_path).exists():
         raise ValueError("frame no longer on disk (cleanup)")
 
