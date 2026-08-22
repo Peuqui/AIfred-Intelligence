@@ -142,13 +142,14 @@ def _tag_controls(event: rx.Var) -> rx.Component:
     sonst „+ taggen"-Button (nur für face_unknown/face_unsure ohne face_id)."""
     eid = event["id"]
     is_tagging = AIState.casus_tag_event_id == eid
-    # Kandidaten für „+ taggen": ein Event mit Face-Bezug, aber keiner
-    # zugeordneten Identity.
+    # Tag-Knopf für JEDES Event mit Face-Bezug — auch bereits zugeordnete:
+    # sonst wäre eine Zuordnung per UI nie korrigier-/lösbar („Zuordnung
+    # lösen" lebt im Tag-Dropdown).
     can_tag = (
         (event["event_type"] == "face_unknown")
         | (event["event_type"] == "face_unsure")
         | (event["event_type"] == "face_known")
-    ) & (event["face_id"].is_none())
+    )
     return rx.cond(
         is_tagging,
         rx.hstack(
