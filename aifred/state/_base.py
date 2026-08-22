@@ -239,6 +239,14 @@ class AIState(  # type: ignore[misc]
             except Exception:  # noqa: BLE001
                 pass
 
+        # Casus-Modal mit-aktualisieren (gleiches Piggyback-Muster):
+        # billiger max(id)-Check, Neuladen nur wenn neue Events da sind.
+        if getattr(self, "casus_open", False):
+            try:
+                self._casus_poll_new_events()
+            except Exception:  # noqa: BLE001
+                pass
+
         # Check if settings.json was modified (mtime-based, multi-browser safe)
         # Each browser tracks its own last-seen mtime - no race conditions
         import os

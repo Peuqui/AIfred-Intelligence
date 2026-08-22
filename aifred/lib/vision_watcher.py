@@ -122,6 +122,20 @@ class WatchConfig:
     # pollt nur ihren Zustand (siehe ``edge_ai``) und triggert darauf.
     # SSoT der erlaubten Werte: vision_profiles.TRIGGER_MOTION/EDGE_AI.
     trigger_mode: str = "motion"
+    # ── Face-Hunt-Burst (nur Edge-AI-Pfad) ───────────────────────────
+    # Nach einem Personen-Trigger zieht der Burst im Takt von
+    # ``burst_interval_sec`` frische Dual-Snaps und schickt JEDES Bild
+    # durch die Gesichtserkennung — der erste Snap ist systematisch der
+    # schlechteste Moment (PTZ schwenkt/zoomt noch). Der Burst läuft
+    # UNBEGRENZT, solange die Kamera die Person weiter meldet, plus
+    # ``burst_linger_sec`` Nachlauf nach dem letzten aktiven Flag. Jeder
+    # Tick, der etwas zeigt (Gesicht, oder YOLO-Person ohne Gesicht),
+    # wird sofort als Ereignis im Burst-Cluster gespeichert — die
+    # "Film"-Serie eines Vorbeigangs. Alert nur beim ERSTEN sicheren
+    # Gesichts-Match (Upgrade der initialen "Person erkannt"-Meldung —
+    # kein Telegram-Spam). burst_interval_sec <= 0 schaltet den Burst ab.
+    burst_interval_sec: float = 0.5
+    burst_linger_sec: float = 6.0
     # Edge-AI-Poll-Konfiguration (nur bei trigger_mode="edge_ai"):
     #   host, api_port, cred, poll_interval_sec, channel
     edge_ai: dict[str, Any] | None = None
@@ -213,6 +227,8 @@ class VisionWatcher:
         # Batch-Describe muss nicht mehr neu clustern.
         from .vision_cluster import IncrementalClusterer
         self._clusterer = IncrementalClusterer()
+        # Face-Hunt-Burst: max. ein laufender Burst pro Quelle.
+        self._burst_tasks: dict[str, "asyncio.Task[None]"] = {}
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -276,6 +292,9 @@ class VisionWatcher:
             await task
         except asyncio.CancelledError:
             pass
+        burst = self._burst_tasks.pop(source_id, None)
+        if burst is not None and not burst.done():
+            burst.cancel()
         with self._lock:
             self._tasks.pop(source_id, None)
             self._detectors.pop(source_id, None)
@@ -471,7 +490,8 @@ class VisionWatcher:
                 last_seq_processed = latest["seq"]
                 if frame is None:
                     continue
-                frame = self._blackout_frame(frame)
+                # Schwärzen + Stempeln übernimmt die SSoT-Output-Kette
+                # in _run_continuous_vlm_inner.
                 my_gen = self._watch_generation.get(source_id, 0)
                 self._last_vlm_at[source_id] = datetime.now()
                 try:
@@ -512,7 +532,11 @@ class VisionWatcher:
                 last_seq_processed = latest["seq"]
                 if frame is None:
                     continue
-                frame = self._blackout_frame(frame)
+                # Nur Schwärzung, kein Stempel/Save — Detektions-Input
+                # über die SSoT-Kette (läuft im Thread statt im Loop).
+                frame, _, _ = await self._finalize_output_frame(
+                    frame, save=False, stamp=False,
+                )
                 last_face_at = datetime.now()
                 try:
                     await self._run_face_detection(frame, config, motion_event_id=None)
@@ -669,6 +693,30 @@ class VisionWatcher:
             return frame
         return replace(frame, image_bytes=buf.tobytes())
 
+    async def _finalize_output_frame(
+        self, frame: "Frame", *,
+        label_suffix: str = "", save: bool = True, stamp: bool = True,
+    ) -> tuple["Frame", "Frame", str]:
+        """SSoT für JEDES Bild, das die Pipeline als Output verlässt.
+
+        Feste Reihenfolge: Schwärzungs-Maske → Overlay-Stempel → Speichern
+        (alles gebündelt in einem Thread, nichts davon blockiert den Loop).
+
+        Returnt ``(detect_frame, output_frame, path)``:
+
+        * ``detect_frame`` — geschwärzt, UNgestempelt: für Face-/YOLO-
+          Detektion, damit der Stempel-Balken nie in Crops/Embeddings gerät.
+        * ``output_frame`` — geschwärzt + gestempelt (Save/VLM/Alerts);
+          bei ``stamp=False`` identisch mit ``detect_frame``.
+        * ``path`` — Speicherpfad, ``""`` wenn ``save=False``.
+        """
+        def _work() -> tuple["Frame", "Frame", str]:
+            detect = self._blackout_frame(frame)
+            out = self._stamp_frame(detect, label_suffix) if stamp else detect
+            path = self._save_frame(out) if save else ""
+            return detect, out, path
+        return await asyncio.to_thread(_work)
+
     async def _handle_motion_event(
         self,
         frame: "Frame",
@@ -676,13 +724,12 @@ class VisionWatcher:
         config: WatchConfig,
     ) -> None:
         source_id = frame.source_id
-        frame = self._blackout_frame(frame)
-        # Captured as an output now → burn the overlay once. Save, VLM and
-        # face detection downstream all use this one stamped frame.
-        frame = await asyncio.to_thread(self._stamp_frame, frame)
-        frame_path = ""
-        if config.save_event_frames:
-            frame_path = await asyncio.to_thread(self._save_frame, frame)
+        # SSoT-Output-Kette; die Detektionen unten bekommen das
+        # UNgestempelte detect_frame (kein Overlay in Crops/Embeddings),
+        # Save/Cluster laufen auf dem gestempelten Output.
+        detect_frame, frame, frame_path = await self._finalize_output_frame(
+            frame, save=config.save_event_frames,
+        )
         motion_event_id = self._store.add_event(
             source_id=source_id,
             event_type="motion",
@@ -712,11 +759,12 @@ class VisionWatcher:
         )
         if face_active:
             face_found = await self._run_face_detection(
-                frame, config, motion_event_id=motion_event_id, frame_path=frame_path
+                detect_frame, config,
+                motion_event_id=motion_event_id, frame_path=frame_path,
             )
         if config.run_person_detect_on_motion:
             await self._run_person_detection(
-                frame, config, motion_event_id=motion_event_id,
+                detect_frame, config, motion_event_id=motion_event_id,
                 frame_path=frame_path, emit_alert=not face_found,
             )
 
@@ -742,19 +790,18 @@ class VisionWatcher:
         wide_frame, face_frame = await self._edge_ai_synced_frames(
             frame, config, ai_client
         )
-        wide_frame = self._blackout_frame(wide_frame)
-        wide_frame = await asyncio.to_thread(self._stamp_frame, wide_frame)
-        frame_path = ""
+        # SSoT-Output-Kette für beide Linsen. Die Detektionen (YOLO-Confirm,
+        # Gesicht) laufen auf ungestempelten Frames — der Crop unten kommt
+        # weiterhin aus dem rohen face_frame (sauberes Gesicht).
+        detect_wide, wide_frame, frame_path = await self._finalize_output_frame(
+            wide_frame, save=config.save_event_frames,
+        )
         zoom_frame_path = ""
-        if config.save_event_frames:
-            frame_path = await asyncio.to_thread(self._save_frame, wide_frame)
-            # Zoom separat stempeln + speichern; der Crop unten kommt aus dem
-            # ungestempelten face_frame (sauberes Gesicht).
-            if face_frame is not wide_frame:
-                stamped_zoom = await asyncio.to_thread(
-                    self._stamp_frame, face_frame, " · Zoom"
-                )
-                zoom_frame_path = await asyncio.to_thread(self._save_frame, stamped_zoom)
+        if face_frame is not wide_frame:
+            _, _, zoom_frame_path = await self._finalize_output_frame(
+                face_frame, label_suffix=" · Zoom",
+                save=config.save_event_frames,
+            )
         from .config import EDGE_AI_CONFIRM
         from .vision_alerts import emit_object_alert, emit_person_alert
 
@@ -770,7 +817,7 @@ class VisionWatcher:
         # (False, z.B. animal — Nano-YOLO ist da schwach). Alle zu
         # bestätigenden Klassen prüfen wir in EINER YOLO-Inferenz.
         confirm_needed = {c for c in classes if EDGE_AI_CONFIRM.get(c, True)}
-        counts = await self._count_categories(wide_frame, confirm_needed)
+        counts = await self._count_categories(detect_wide, confirm_needed)
 
         def _ok(cls: str) -> bool:
             # bestätigt = der Kamera vertraut (policy False) ODER eigenes
@@ -846,6 +893,294 @@ class VisionWatcher:
                 zoom_frame_path=zoom_frame_path, cluster_id=cid,
                 count=obj_count, timestamp=ts, store=self._store,
             )
+
+        # ── Face-Hunt-Burst ──────────────────────────────────────────
+        # Der Initial-Snap ist systematisch der schlechteste Moment (PTZ
+        # schwenkt/zoomt noch) — der Burst jagt in schneller Folge nach
+        # dem besten Gesicht, solange die Kamera die Person weiter meldet.
+        # Fire-and-forget, max. ein Burst pro Quelle; der Poll-Loop läuft
+        # ungebremst weiter. NUR bei YOLO-bestätigter Person (oder schon
+        # erkanntem Gesicht) — nächtliche IR-Phantome der Kamera sollen
+        # keine minutenlangen Geister-Bursts anwerfen.
+        if (
+            "person" in classes
+            and (face_found or _ok("person"))
+            and config.run_face_detect_on_motion
+            and config.burst_interval_sec > 0
+            and ai_client is not None
+        ):
+            running = self._burst_tasks.get(source_id)
+            if running is None or running.done():
+                my_gen = self._watch_generation.get(source_id, 0)
+                self._burst_tasks[source_id] = asyncio.create_task(
+                    self._face_hunt_burst(
+                        source_id, config, ai_client, cid, my_gen
+                    )
+                )
+
+    async def _face_hunt_burst(
+        self,
+        source_id: str,
+        config: WatchConfig,
+        ai_client: Any,
+        cluster_id: str,
+        my_gen: int,
+    ) -> None:
+        """Film-Burst nach einem Edge-AI-Personen-Trigger.
+
+        Zieht im ``burst_interval_sec``-Takt frische Dual-Snaps, solange
+        die Kamera die Person meldet (+ ``burst_linger_sec`` Nachlauf,
+        unbegrenzte Gesamtdauer). Jeder Tick wird ausgewertet und — wenn
+        er etwas zeigt — als Ereignis im SELBEN Cluster gespeichert:
+
+        * Gesicht gefunden → ``face_*``-Event + Crop (Personarium),
+        * kein Gesicht, aber YOLO sieht eine Person → ``person``-Event,
+        * weder noch (Beet-Frame) → verworfen, nichts auf Disk.
+
+        So entsteht pro Vorbeigang eine durchblätterbare Bildserie
+        („Film") — der Casus gruppiert sie über den Cluster zu EINER
+        Zeile. Der proaktive Alert feuert SOFORT beim ersten sicheren
+        Gesichts-Match (Upgrade der initialen "Person erkannt"-Meldung);
+        alles Weitere drosselt der Alert-Dispatcher — kein Telegram-Spam.
+        """
+        from .frame_sources import Frame as _Frame
+
+        interval = max(0.2, float(config.burst_interval_sec))
+        linger = max(0.0, float(config.burst_linger_sec))
+        detector = self._get_face_detector()
+        recognizer = self._get_face_recognizer()
+        person_detector = self._get_person_detector()
+
+        _band_rank = {"known": 2, "unsure": 1, "unknown": 0}
+        known_alerted = False
+        started = datetime.now()
+        last_active = started
+        ticks = 0
+        saved = 0
+        try:
+            while True:
+                if self._watch_generation.get(source_id, 0) != my_gen:
+                    return  # Watch neu gestartet — Burst verwerfen
+                if (datetime.now() - last_active).total_seconds() >= linger:
+                    break
+                # Leeres Basis-Frame als Fallback-Marker: schlägt der
+                # Wide-Snap fehl, kommt es unverändert zurück (keine Bytes)
+                # → Burst-Tick überspringen statt leere JPEGs decodieren.
+                base = _Frame(
+                    source_id=source_id, timestamp=datetime.now(),
+                    image_bytes=b"",
+                )
+                wide_frame, face_frame = await self._edge_ai_synced_frames(
+                    base, config, ai_client
+                )
+                if wide_frame.image_bytes:
+                    ticks += 1
+                    try:
+                        did_save, is_known = await self._persist_burst_tick(
+                            source_id, config, cluster_id,
+                            wide_frame, face_frame,
+                            detector, recognizer, person_detector,
+                            emit_known_alert=not known_alerted,
+                        )
+                        saved += 1 if did_save else 0
+                        known_alerted = known_alerted or is_known
+                    except Exception as e:  # noqa: BLE001
+                        logger.warning("burst tick failed for %s: %s", source_id, e)
+                # Kamera-Flag prüfen: solange die Person gemeldet wird,
+                # läuft der Burst weiter (last_active wandert mit).
+                try:
+                    ec = config.edge_ai or {}
+                    state = await ai_client.get_ai_state(
+                        int(ec.get("channel", 0))
+                    )
+                    if state.get("person"):
+                        last_active = datetime.now()
+                except Exception:  # noqa: BLE001
+                    pass
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            return
+        finally:
+            self._burst_tasks.pop(source_id, None)
+        logger.info(
+            "face-hunt burst for %s: %d tick(s), %d frame(s) saved, %.0fs",
+            source_id, ticks, saved,
+            (datetime.now() - started).total_seconds(),
+        )
+
+    async def _persist_burst_tick(
+        self,
+        source_id: str,
+        config: WatchConfig,
+        cluster_id: str,
+        wide_frame: "Frame",
+        face_frame: "Frame",
+        detector: Any,
+        recognizer: Any,
+        person_detector: Any,
+        *,
+        emit_known_alert: bool,
+    ) -> tuple[bool, bool]:
+        """Einen Burst-Tick auswerten und — wenn er etwas zeigt —
+        persistieren (Bildpaar über die SSoT-Output-Kette, Event im
+        Burst-Cluster, bei Gesicht zusätzlich Crop + Live-Publish).
+
+        Returnt ``(gespeichert, known_alert_gefeuert)``.
+        """
+        import base64 as _base64
+
+        from .face_crop_store import get_default_store
+        from .vision_event_bus import publish_vlm_event
+
+        _band_rank = {"known": 2, "unsure": 1, "unknown": 0}
+        try:
+            detections = await asyncio.to_thread(detector.detect, face_frame)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("burst face_detect failed: %s", e)
+            detections = []
+
+        if not detections:
+            # Kein Gesicht — zeigt der Tick wenigstens eine Person (auch
+            # abgewandt)? Dann als "Film-Frame" sichern, sonst verwerfen.
+            try:
+                persons = await asyncio.to_thread(
+                    person_detector.detect, wide_frame
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("burst person_detect failed: %s", e)
+                persons = []
+            if not persons:
+                return False, False
+            _, _, frame_path = await self._finalize_output_frame(
+                wide_frame, save=config.save_event_frames,
+            )
+            zoom_frame_path = ""
+            if face_frame is not wide_frame:
+                _, _, zoom_frame_path = await self._finalize_output_frame(
+                    face_frame, label_suffix=" · Zoom",
+                    save=config.save_event_frames,
+                )
+            max_score = max(p.score for p in persons)
+            self._store.add_event(
+                source_id=source_id,
+                event_type="person",
+                timestamp=wide_frame.timestamp,
+                frame_path=frame_path,
+                confidence=float(max_score),
+                classification={
+                    "count": len(persons),
+                    "boxes": [list(p.bbox) for p in persons],
+                    "max_score": max_score,
+                    "zoom_frame_path": zoom_frame_path,
+                },
+                metadata={"trigger": "edge_ai_burst"},
+                cluster_id=cluster_id,
+            )
+            return True, False
+
+        # Bestes Gesicht dieses Ticks (Band vor Konfidenz).
+        best_det = None
+        best_match = None
+        best_key = (-1, -1.0)
+        for det in detections:
+            match = recognizer.match(det.embedding)
+            rank = _band_rank.get(match.confidence_band, 0)
+            score = (
+                float(match.similarity) if rank > 0
+                else float(det.detection_score)
+            )
+            if (rank, score) > best_key:
+                best_key = (rank, score)
+                best_det, best_match = det, match
+        assert best_det is not None and best_match is not None
+        det, match = best_det, best_match
+        event_type = (
+            "face_known" if match.confidence_band == "known"
+            else "face_unknown" if match.confidence_band == "unknown"
+            else "face_unsure"
+        )
+        # Bildpaar über die SSoT-Output-Kette; der Crop kommt aus dem
+        # ungestempelten Zoom-Frame (sauberes Gesicht).
+        _, _, frame_path = await self._finalize_output_frame(
+            wide_frame, save=config.save_event_frames,
+        )
+        zoom_frame_path = ""
+        if face_frame is not wide_frame:
+            _, _, zoom_frame_path = await self._finalize_output_frame(
+                face_frame, label_suffix=" · Zoom",
+                save=config.save_event_frames,
+            )
+        crop_result = get_default_store().save(
+            frame_bytes=face_frame.image_bytes,
+            bbox=tuple(int(v) for v in det.bbox),  # type: ignore[arg-type]
+            source_id=source_id,
+            event_type=event_type,
+            face_id=match.face_id if match.face_id > 0 else None,
+            name=match.name or "",
+            embedding=det.embedding,
+        )
+        crop_url = crop_result.url if crop_result else ""
+        event_id = self._store.add_event(
+            source_id=source_id,
+            event_type=event_type,
+            timestamp=face_frame.timestamp,
+            frame_path=frame_path,
+            face_id=match.face_id if match.face_id > 0 else None,
+            confidence=float(match.similarity),
+            classification={
+                "matched_name": match.name,
+                "confidence_band": match.confidence_band,
+                "detection_score": det.detection_score,
+                "bbox": list(det.bbox),
+                "crop_url": crop_url,
+                "zoom_frame_path": zoom_frame_path,
+            },
+            metadata={
+                "trigger": "edge_ai_burst",
+                "session_id": crop_result.session_id if crop_result else "",
+            },
+            cluster_id=cluster_id,
+        )
+        self._statuses[source_id].face_events += 1  # type: ignore[misc]
+        try:
+            emb_b64 = _base64.b64encode(det.embedding.tobytes()).decode("ascii")
+        except Exception:  # noqa: BLE001
+            emb_b64 = ""
+        publish_vlm_event(source_id, {
+            "id": event_id,
+            "type": event_type,
+            "source_id": source_id,
+            "timestamp": datetime.now().isoformat(timespec="seconds"),
+            "frame_timestamp": face_frame.timestamp.isoformat(timespec="seconds"),
+            "face_id": match.face_id if match.face_id > 0 else 0,
+            "identity_key": crop_result.identity_key if crop_result else "",
+            "session_id": crop_result.session_id if crop_result else "",
+            "name": match.name or "",
+            "similarity": round(float(match.similarity), 3),
+            "confidence_band": match.confidence_band,
+            "crop_url": crop_url,
+            "embedding_b64": emb_b64,
+        })
+        # Sofort-Alert beim ERSTEN sicheren Match des Bursts — das
+        # Informations-Upgrade zur initialen "Person erkannt"-Meldung.
+        fired = False
+        if event_type == "face_known" and emit_known_alert:
+            from .vision_alerts import emit_face_alert
+            await emit_face_alert(
+                source_id=source_id,
+                event_type=event_type,
+                frame_path=frame_path,
+                zoom_frame_path=zoom_frame_path,
+                crop_url=crop_url,
+                cluster_id=cluster_id,
+                names=[match.name] if match.name else [],
+                count=1,
+                similarities=[float(match.similarity)],
+                timestamp=face_frame.timestamp,
+                store=self._store,
+            )
+            fired = True
+        return True, fired
 
     async def _count_categories(
         self, frame: "Frame", wanted: set[str],
@@ -1262,9 +1597,21 @@ class VisionWatcher:
         except Exception as e:  # noqa: BLE001
             logger.debug("identity context lookup failed: %s", e)
 
+        # IR-/Nachtaufnahme → Grauwerte-Warnung (SSoT-Template).
+        ir_block = ""
+        try:
+            from .prompt_loader import get_vision_ir_context_prompt
+            from .vision_utils import is_grayscale_image
+            if is_grayscale_image(frame.image_bytes):
+                ir_block = get_vision_ir_context_prompt()
+        except Exception as e:  # noqa: BLE001
+            logger.debug("ir context check failed: %s", e)
+
         prompt_parts = []
         if briefing:
             prompt_parts.append(briefing)
+        if ir_block:
+            prompt_parts.append(ir_block)
         if identity_block:
             prompt_parts.append(identity_block)
         # if history_block:
@@ -1297,10 +1644,10 @@ class VisionWatcher:
         # VLM es bekam).
         inference_start = datetime.now()
         self._last_vlm_at[source_id] = inference_start
-        # Same single stamped frame as the saved still: the VLM reads name +
-        # location + capture time straight from the image (frame.timestamp is
-        # preserved, so the logging/event timestamps below stay correct).
-        vlm_frame = await asyncio.to_thread(self._stamp_frame, frame)
+        # SSoT-Output-Kette (Schwärzen + Stempeln, kein Save): the VLM reads
+        # name + location + capture time straight from the image
+        # (frame.timestamp is preserved, so the timestamps below stay correct).
+        _, vlm_frame, _ = await self._finalize_output_frame(frame, save=False)
         try:
             result = await analyze_sequence(
                 [vlm_frame],

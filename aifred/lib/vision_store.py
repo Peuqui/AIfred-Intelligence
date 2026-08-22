@@ -759,6 +759,13 @@ class VisionStore:
             ).fetchall()
         return [str(r["name"]) for r in rows if r["name"]]
 
+    def latest_event_id(self) -> int:
+        """Höchste Event-ID (0 wenn leer) — billiger Änderungs-Marker für
+        UI-Polling (Casus-Auto-Refresh): eine neue ID = neue Events da."""
+        with self._conn() as conn:
+            row = conn.execute("SELECT COALESCE(MAX(id), 0) FROM events").fetchone()
+        return int(row[0])
+
     def count_events(
         self,
         *,

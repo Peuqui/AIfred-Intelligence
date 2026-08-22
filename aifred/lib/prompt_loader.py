@@ -853,6 +853,17 @@ def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
         return f.read().strip()
 
 
+def get_vision_ir_context_prompt(lang: Optional[str] = None) -> str:
+    """Kontext-Baustein für Infrarot-/Graustufen-Aufnahmen: verhindert, dass
+    das VLM IR-Helligkeiten als reale Farben beschreibt ("helles T-Shirt").
+    In ``prompts/{lang}/vision/vision_ir_context.txt``."""
+    if lang is None:
+        lang = _current_language
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_ir_context.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
 def get_vision_identity_context_prompt(
     names: list[str], lang: Optional[str] = None
 ) -> str:

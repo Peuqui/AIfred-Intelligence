@@ -97,6 +97,12 @@ async def analyze_event_with_vlm(
     if not frames:
         raise FileNotFoundError(f"frame not on disk: {frame_path}")
 
+    # IR-/Nachtaufnahme → Grauwerte-Warnung voranstellen (SSoT-Template).
+    from .prompt_loader import get_vision_ir_context_prompt
+    from .vision_utils import is_grayscale_image
+    if is_grayscale_image(frames[0].image_bytes):
+        target_prompt = f"{get_vision_ir_context_prompt()}\n\n{target_prompt}"
+
     result = await analyze_sequence(frames, target_prompt, model=str(target_model))
     description = (result.text or "").strip()
     if not description:
@@ -232,6 +238,10 @@ async def analyze_cluster_with_vlm(
     briefing = get_source_briefing(frames[0].source_id)
     if briefing:
         target_prompt = f"{briefing}\n\n{target_prompt}"
+    from .prompt_loader import get_vision_ir_context_prompt
+    from .vision_utils import is_grayscale_image
+    if is_grayscale_image(frames[0].image_bytes):
+        target_prompt = f"{get_vision_ir_context_prompt()}\n\n{target_prompt}"
 
     result = await analyze_sequence(frames, target_prompt, model=str(target_model))
     description = (result.text or "").strip()
