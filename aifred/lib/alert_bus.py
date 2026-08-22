@@ -222,6 +222,13 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
         briefing = get_source_briefing(ev.source_id or "")
         if briefing:
             prompt = f"{briefing}\n\n{prompt}"
+        # IR-/Nachtaufnahme? Dann dem VLM sagen, dass Grauwerte keine
+        # Farben sind — sonst wird dunkle Kleidung als "hell" beschrieben.
+        subject_bytes = frame_file.read_bytes()
+        from .prompt_loader import get_vision_ir_context_prompt
+        from .vision_utils import is_grayscale_image
+        if is_grayscale_image(subject_bytes):
+            prompt = f"{get_vision_ir_context_prompt()}\n\n{prompt}"
         # Personalisierung: hat die Gesichtserkennung eine Person sicher
         # identifiziert (emit_face_alert setzt das nur bei face_known),
         # bekommt das VLM den Namen — so wird aus "ein Mann mit Brille"
@@ -242,7 +249,7 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
         # macht Kontext-Beschreibung, keine Re-Identifikation).
         ts_v = ev.timestamp or _dt.now()
         frames = [Frame(source_id=ev.source_id or "", timestamp=ts_v,
-                        image_bytes=frame_file.read_bytes())]
+                        image_bytes=subject_bytes)]
         if ev.media_context:
             ctx_file = Path(ev.media_context)
             if ctx_file.exists():

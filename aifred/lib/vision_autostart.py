@@ -161,6 +161,12 @@ def _build_background_config(
     _ego = watch.get("motion_ego_shift_px")
     if not isinstance(_ego, (int, float)) or not 0.5 <= _ego <= 50.0:
         _ego = 3.0
+
+    # Face-Hunt-Burst-Parameter (Edge-AI): validiert, sonst Code-Defaults.
+    def _num(key: str, default: float, lo: float, hi: float) -> float:
+        v = watch.get(key)
+        return float(v) if isinstance(v, (int, float)) and lo <= v <= hi else default
+
     base = WatchConfig(
         fps=2.0,  # Hintergrund-Default — niedrig, GPU-schonend
         motion_min_area_ratio=float(mma),
@@ -174,6 +180,8 @@ def _build_background_config(
         run_vlm_on_motion=False,
         run_vlm_continuous=False,
         min_event_interval_sec=float(mies),
+        burst_interval_sec=_num("burst_interval_sec", 0.5, 0.0, 10.0),
+        burst_linger_sec=_num("burst_linger_sec", 6.0, 0.0, 60.0),
     )
     overrides = profile_watch_overrides(source_id, settings, plugin_settings)
     return dataclasses.replace(base, **overrides) if overrides else base

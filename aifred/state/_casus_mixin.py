@@ -60,6 +60,10 @@ class CasusMixin(rx.State, mixin=True):
     # (0 = niemand). Plus aktuell ausgewählte face_id im Dropdown.
     casus_tag_event_id: int = 0
     casus_tag_face_id: str = ""
+    # Auto-Refresh bei offenem Modal: zuletzt gesehene höchste Event-ID
+    # + Poll-Drossel (Backend-Vars, kein Client-Sync).
+    _casus_last_seen_event_id: int = 0
+    _casus_last_poll_ts: float = 0.0
     # Bulk-Delete: zweistufig — erst Button "Alle löschen" → setzt
     # ``casus_confirm_delete_all=True`` und tauscht den Button gegen
     # „Wirklich löschen?" + „Abbrechen", damit nichts versehentlich
@@ -306,6 +310,31 @@ class CasusMixin(rx.State, mixin=True):
     @rx.event
     def casus_cancel_delete_all(self) -> None:
         self.casus_confirm_delete_all = False
+
+    def _casus_poll_new_events(self) -> None:
+        """Vom globalen 500-ms-Tick gerufen (siehe _base): lädt die
+        Ereignisliste nach, sobald NEUE Events in der DB liegen — billiger
+        max(id)-Check, echtes Neuladen nur bei Änderung, und nie während
+        der User gerade eine Zeile taggt (Refresh würde das Dropdown
+        wegreißen)."""
+        if not self.casus_open:
+            return
+        import time
+        now = time.monotonic()
+        if now - self._casus_last_poll_ts < 2.0:
+            return
+        self._casus_last_poll_ts = now
+        try:
+            from ..lib.vision_store import VisionStore
+            latest = VisionStore().latest_event_id()
+        except Exception:  # noqa: BLE001
+            return
+        if latest == self._casus_last_seen_event_id:
+            return
+        if self.casus_tag_event_id != 0:
+            return  # Tag-Modus aktiv — nachziehen beim nächsten Tick danach
+        self._casus_last_seen_event_id = latest
+        self._refresh_events()
 
     def _resolve_casus_filters(self) -> tuple[str | None, list[str], int | None, bool]:
         """Aktive Filter-Vars in Store-Query-Parameter auflösen (SSOT für

@@ -74,6 +74,24 @@ def resolve_source_resolution(
         return 0, 0
 
 
+def is_grayscale_image(jpeg_bytes: bytes) -> bool:
+    """True, wenn das Bild (nahezu) monochrom ist — typisch für Infrarot-
+    Nachtaufnahmen. Kamera-agnostisch über die mittlere Farbsättigung
+    (HSV) eines verkleinerten Thumbnails statt über Hersteller-Flags.
+    Best-effort: nicht dekodierbar → False."""
+    try:
+        import cv2
+        import numpy as np
+        arr = cv2.imdecode(np.frombuffer(jpeg_bytes, np.uint8), cv2.IMREAD_COLOR)
+        if arr is None:
+            return False
+        small = cv2.resize(arr, (64, 64), interpolation=cv2.INTER_AREA)
+        sat = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[:, :, 1]
+        return float(sat.mean()) < 12.0
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def get_source_briefing(source_id: str) -> str:
     """Das per-Kamera-VLM-Briefing (``sources.prompt_context``) — der Text,
     den der User in den Vigilantia-Quellen pflegt. SSoT für alle VLM-Pfade,
