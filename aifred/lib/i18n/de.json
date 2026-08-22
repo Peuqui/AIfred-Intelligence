@@ -356,6 +356,7 @@
   "casus_delete_all_confirm": "Wirklich löschen?",
   "casus_delete_all_cancel": "Abbrechen",
   "casus_delete": "Ereignis löschen",
+  "casus_film_tooltip": "Film anschauen — alle Bilder dieses Vorkommnisses als Serie durchblättern",
   "casus_tag_button": "+ taggen",
   "casus_tag_placeholder": "Person wählen",
   "casus_tag_clear": "Zuordnung lösen",
