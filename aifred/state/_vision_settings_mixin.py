@@ -740,7 +740,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 "label_key": label_key,
                 "sinks": [str(s) for s in (r.get("sinks") or [])],
                 "vlm": r.get("compose") == "vlm",
-                "cooldown": str(int(r.get("min_interval_sec", 300) or 0)),
             })
         self.alert_rules_ui = out
 
@@ -761,7 +760,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 "category": category,
                 "source_id": None,
                 "sinks": [],
-                "min_interval_sec": 300,
             }
             rules.append(rule)
         mutator(rule)
@@ -775,21 +773,15 @@ class VisionSettingsMixin(rx.State, mixin=True):
 
     @rx.event
     def set_alert_rule(self, category: str, field: str, value: Any) -> None:
-        """VLM-Bildbeschreibung an/aus oder Cooldown einer Kategorie ändern."""
-        if field not in ("vlm", "cooldown"):
+        """VLM-Bildbeschreibung einer Kategorie an/aus."""
+        if field != "vlm":
             return
 
         def _mut(rule: dict[str, Any]) -> None:
-            if field == "vlm":
-                if bool(value):
-                    rule["compose"] = "vlm"
-                else:
-                    rule.pop("compose", None)
+            if bool(value):
+                rule["compose"] = "vlm"
             else:
-                try:
-                    rule["min_interval_sec"] = max(0, int(str(value).strip()))
-                except (TypeError, ValueError):
-                    pass
+                rule.pop("compose", None)
 
         self._apply_alert_rule_change(category, _mut)
 

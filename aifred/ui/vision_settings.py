@@ -528,12 +528,11 @@ def _orange_sep() -> rx.Component:
 # untereinander steht (tabellarisch). Die Kanäle-Spalte wächst + bricht intern um.
 _COL_CAT = "0 0 110px"
 _COL_VLM = "0 0 64px"
-_COL_CD = "0 0 92px"
 
 
 def _alert_rule_row(index: int, category: str, label_key: str) -> rx.Component:
     """Eine Regel-Zeile als feste Spalten: Kategorie | Kanäle (je ein Schalter,
-    kanal-agnostisch) | Bild-Text | Cooldown. Gebunden an alert_rules_ui[index]."""
+    kanal-agnostisch) | Bild-Text. Gebunden an alert_rules_ui[index]."""
     r = AIState.alert_rules_ui[index]
     return rx.hstack(
         rx.text(t(label_key), size="2", style={"flex": _COL_CAT}),
@@ -560,22 +559,13 @@ def _alert_rule_row(index: int, category: str, label_key: str) -> rx.Component:
             ),
             style={"flex": _COL_VLM, "display": "flex", "justify_content": "center"},
         ),
-        rx.hstack(
-            rx.input(
-                value=r["cooldown"].to(str),
-                on_change=lambda v: AIState.set_alert_rule(category, "cooldown", v),
-                type="number", size="1", style={"width": "3.5em"},
-            ),
-            rx.text("s", size="1", color="gray"),
-            spacing="1", align="center", justify="center", style={"flex": _COL_CD},
-        ),
         align="center", width="100%", spacing="2",
     )
 
 
 def _alert_rules_section() -> rx.Component:
     """Routing-Regeln: welche Erkennung über welche Kanäle gemeldet wird
-    (+ VLM-Bildbeschreibung + Cooldown). Kanäle kommen kanal-agnostisch aus der
+    (+ VLM-Bildbeschreibung). Kanäle kommen kanal-agnostisch aus der
     Plugin-Registry. Schreibt data/alert_rules.json, lädt den Dispatcher live."""
     return rx.vstack(
         rx.text(t("alert_rules_title"), font_weight="bold", size="3"),
@@ -589,10 +579,6 @@ def _alert_rules_section() -> rx.Component:
             rx.text(
                 t("alert_rules_col_vlm"), size="1", weight="bold", color="gray",
                 style={"flex": _COL_VLM, "text_align": "center"},
-            ),
-            rx.text(
-                t("alert_rules_col_cooldown"), size="1", weight="bold", color="gray",
-                style={"flex": _COL_CD, "text_align": "center"},
             ),
             align="center", width="100%", spacing="2",
         ),

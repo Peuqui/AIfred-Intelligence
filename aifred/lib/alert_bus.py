@@ -2,8 +2,7 @@
 
 Producers (vision, system, scheduler, …) emit a neutral :class:`AlertEvent`.
 The :class:`AlertDispatcher` matches it against central :class:`AlertRule`s,
-throttles (dedup by key + per-rule cooldown + quiet hours), and delivers to
-the rule's sinks.
+throttles (dedup by key + quiet hours), and delivers to the rule's sinks.
 
 Sinks are NOT a separate registry — the single source of truth is the
 channel plugins' existing ``send_reply`` path, wrapped by
@@ -71,7 +70,6 @@ class AlertRule:
     category: str | None = None
     source_id: str | None = None
     min_severity: str = "info"
-    min_interval_sec: float = 0.0                 # cooldown per (rule, dedup_key)
     quiet_hours: tuple[int, int] | None = None    # (start_hour, end_hour), local
     rule_id: str = ""                             # stable id for throttle bookkeeping
     compose: str = ""                             # "template" | "llm"; "" = config default
@@ -98,7 +96,7 @@ class AlertDispatcher:
     """Matches AlertEvents against rules, throttles, and hands each fired rule
     to the deliver function. ``deliver`` defaults to the SSoT path
     (:func:`_default_deliver`); tests inject a fake. State is the last-sent time
-    per ``(rule, dedup_key)``, which drives the cooldown and is pruned bounded.
+    per ``(rule, dedup_key)``, which drives the dedup and is pruned bounded.
     """
 
     def __init__(
@@ -111,12 +109,9 @@ class AlertDispatcher:
         self.rules = list(rules)
         self._deliver = deliver or _default_deliver
         self._last_sent: dict[tuple[str, str], datetime] = {}
-        # How long to remember a fired (rule, dedup_key) — the longer of the
-        # rules' time cooldowns and the cluster-dedup retention. Keeping a key
-        # this long is what makes "one alert per cluster" hold.
-        self._prune_cutoff = max(
-            [r.min_interval_sec for r in self.rules] + [ALERT_DEDUP_RETENTION_SEC]
-        )
+        # How long to remember a fired (rule, dedup_key). Keeping a key this
+        # long is what makes "one alert per cluster" hold.
+        self._prune_cutoff = ALERT_DEDUP_RETENTION_SEC
 
     def _rule_key(self, rule: AlertRule, ev: AlertEvent) -> tuple[str, str]:
         return (rule.rule_id or rule.producer, ev.dedup_key)
@@ -132,26 +127,20 @@ class AlertDispatcher:
         return h >= start or h < end  # window wraps midnight
 
     def _throttled(self, rule: AlertRule, ev: AlertEvent, now: datetime) -> bool:
-        last = self._last_sent.get(self._rule_key(rule, ev))
-        if last is None:
-            return False
         # A non-empty dedup_key identifies one discrete happening (vision:
         # the cluster_id). One alert per happening — every repeat of the SAME
         # key is suppressed for as long as we remember it (see _prune). A new
         # happening carries a new key and alerts immediately. This is "one
         # alert per cluster", independent of any wall-clock window. Keyless
-        # producers fall back to a per-rule time cooldown.
-        if ev.dedup_key:
-            return True
-        if rule.min_interval_sec <= 0:
+        # events are never throttled — every producer keys its events.
+        if not ev.dedup_key:
             return False
-        return (now - last).total_seconds() < rule.min_interval_sec
+        return self._last_sent.get(self._rule_key(rule, ev)) is not None
 
     def _prune(self, now: datetime) -> None:
         """Forget last-sent entries older than the retention window — beyond
-        it they can neither time-throttle a keyless event nor dedup a
-        (deterministic, non-recurring) cluster key, so keeping them just leaks
-        memory."""
+        it they cannot dedup a (deterministic, non-recurring) cluster key
+        anyway, so keeping them just leaks memory."""
         self._last_sent = {
             k: t for k, t in self._last_sent.items()
             if (now - t).total_seconds() < self._prune_cutoff
@@ -458,7 +447,7 @@ def load_rules() -> list[AlertRule]:
         return []
     fields = {
         "producer", "sinks", "category", "source_id", "min_severity",
-        "min_interval_sec", "quiet_hours", "rule_id", "compose",
+        "quiet_hours", "rule_id", "compose",
     }
     rules: list[AlertRule] = []
     for entry in raw:
