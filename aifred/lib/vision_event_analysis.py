@@ -233,19 +233,27 @@ async def analyze_cluster_with_vlm(
             name = str((face or {}).get("name") or "")
             if name and name not in identity_names:
                 identity_names.append(name)
-        fp = str(ev.get("frame_path") or "")
-        if not fp or not Path(fp).exists():
-            continue
-        try:
-            data = Path(fp).read_bytes()
-            ph = phash_bytes(data)
-        except Exception:  # noqa: BLE001
-            continue
         try:
             ts = datetime.fromisoformat(str(ev["timestamp"]))
         except (TypeError, ValueError):
             ts = datetime.now()
-        loaded.append((ts, ph, data, str(ev["source_id"])))
+        # Zoom (Subjekt-Ansicht) VOR dem Weitwinkel — wie im Einzelbild-
+        # und Alert-Pfad: das Tele zeigt die Person groß genug für Details,
+        # das Weitwinkel liefert den Ablauf. Beide gehen in den Keyframe-
+        # Pool; die Auswahl deckelt VISION_DESCRIBE_MAX_FRAMES.
+        cls = dict(ev.get("classification") or {})
+        for fp in (
+            str(cls.get("zoom_frame_path") or ""),
+            str(ev.get("frame_path") or ""),
+        ):
+            if not fp or not Path(fp).exists():
+                continue
+            try:
+                data = Path(fp).read_bytes()
+                ph = phash_bytes(data)
+            except Exception:  # noqa: BLE001
+                continue
+            loaded.append((ts, ph, data, str(ev["source_id"])))
 
     if not loaded:
         raise ValueError("cluster has no readable frames on disk")
