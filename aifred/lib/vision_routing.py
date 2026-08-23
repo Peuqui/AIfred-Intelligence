@@ -140,18 +140,51 @@ def vision_swap_status(
     return find_ollama_equivalent(vision_model, host=host) is not None
 
 
+def vlm_calibration_choices() -> list[dict[str, str]]:
+    """Kalibrierbare Describer — zur Laufzeit entdeckt aus den
+    ``-visiond``-Profilen der llama-swap-Config (SSOT, keine hartkodierte
+    Tabelle mehr). Jedes Profil ``<base>-visiond`` ergibt eine Choice
+    ``{key, model_id, label}``: ``model_id`` ist der Basisname,
+    ``key`` kommt aus :func:`vlm_profile_key`, das Label ist der
+    Basisname (Anzeige in der Kalibrier-Matrix)."""
+    from .config import LLAMASWAP_CONFIG_PATH
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    from .vlm_naming import vlm_profile_key
+    try:
+        models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+    except (OSError, ValueError) as e:
+        logger.warning("vlm choice discovery failed: %s", e)
+        return []
+    from pathlib import Path
+    out: list[dict[str, str]] = []
+    for name in sorted(models):
+        if not name.endswith("-visiond"):
+            continue
+        # Lösch-Fenster: GGUF schon weg, llama-swap-restart (Config-
+        # Cleanup) steht noch aus — so ein Profil ist nicht kalibrierbar.
+        gguf = str(models[name].get("gguf_path") or "")
+        if gguf and not Path(gguf).exists():
+            continue
+        base = name[: -len("-visiond")]
+        out.append({
+            "key": vlm_profile_key(base),
+            "model_id": base,
+            "label": base,
+        })
+    return out
+
+
 def vlm_key_for_model(name: str) -> str:
-    """Kalibrier-Key (z.B. ``qwen3vl8b``) für ein Vision-Modell, oder ``""``.
+    """Kalibrier-Key (z.B. ``qwen3vl4b``) für ein Vision-Modell, oder ``""``.
 
     Matcht ``name`` (jede Backend-Konvention) namens-normalisiert gegen die
-    ``VLM_CALIBRATION_CHOICES``-Tabelle. Der Key benennt das llama-swap-
-    Profil ``<base>-vlm-<key>``, das die VRAM-Reserve für den parallelen
-    Ollama-Side-Channel hält — nur wenn dieses Profil kalibriert ist, läuft
-    eine Bildanfrage wirklich ohne Chat-Modell-Swap.
+    entdeckten Describer (:func:`vlm_calibration_choices`). Der Key benennt
+    das llama-swap-Profil ``<base>-vlm-<key>``, das die VRAM-Reserve für
+    den parallelen Describer hält — nur wenn dieses Profil kalibriert ist,
+    läuft eine Bildanfrage wirklich ohne Chat-Modell-Swap.
     """
-    from .config import VLM_CALIBRATION_CHOICES
     target = _normalize(name)
-    for choice in VLM_CALIBRATION_CHOICES:
+    for choice in vlm_calibration_choices():
         if _normalize(choice.get("model_id", "")) == target:
             return choice.get("key", "")
     return ""

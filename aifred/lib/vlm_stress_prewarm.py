@@ -147,115 +147,134 @@ class _PeakMonitor:
         return self._peak
 
 
+def _free_port() -> int:
+    """Vom OS einen freien TCP-Port erfragen (bind auf Port 0)."""
+    import socket
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("127.0.0.1", 0))
+        return int(s.getsockname()[1])
+
+
 async def stress_prewarm_vlm(
     model: str,
     *,
     num_ctx: int,
     gpu_index: int,
-    host: Optional[str] = None,
     load_timeout_seconds: float = 240.0,
     infer_timeout_seconds: float = 180.0,
 ) -> Optional[int]:
-    """Load ``model`` into Ollama, run a stress inference, return observed
-    peak VRAM in MiB on ``gpu_index``. Returns ``None`` on any failure
-    (caller decides on fallback — e.g. ``VLM_VRAM_BUDGET_MB`` weight × 1.4
-    or a conservative default).
+    """Start the model's llama-swap ``-visiond`` profile as a standalone
+    llama-server on ``gpu_index``, run a stress inference, return the
+    observed peak VRAM in MiB. Returns ``None`` on any failure (caller
+    decides — no reservation is applied then).
 
-    The function leaves the model **unloaded** at exit (``keep_alive=0``)
-    so the subsequent calibration probe sees the full free VRAM again —
-    the *measured peak* (plus caller-side headroom) is what gets subtracted
-    from the budget, not the live VRAM.
+    Runs while llama-swap is STOPPED (calibration phase), so the server
+    is spawned directly from the profile's cmd line. The process is
+    killed at exit, so the subsequent calibration probe sees the full
+    free VRAM again — the *measured peak* (plus caller-side headroom)
+    is what gets subtracted from the budget, not the live VRAM.
     """
-    try:
-        from ollama import AsyncClient
-    except ImportError as e:
-        logger.error("vlm_stress_prewarm: ollama python client missing: %s", e)
-        return None
+    import httpx
 
-    from .config import resolve_vlm_host
-    effective_host = host or resolve_vlm_host()
-    client = AsyncClient(host=effective_host)
+    from .config import LLAMASWAP_CONFIG_PATH
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    # Interne Verifier-Helfer bewusst wiederverwendet (SSOT für
+    # Test-Server-Spawn/Readiness/Kill der Kalibrierung) statt einen
+    # zweiten llama-server-Launcher zu bauen.
+    from .calibration.verifier import _cleanup_log, _kill, _start_server, _wait_ready
+    from .vision_routing import visiond_profile_for
 
-    stress_image_path = _ensure_stress_image()
-    image_b64 = _image_b64(stress_image_path)
-
-    # ── Phase 1: load into VRAM ────────────────────────────────────
-    logger.info(
-        "vlm_stress_prewarm: loading model=%s num_ctx=%d on gpu=%d",
-        model, num_ctx, gpu_index,
-    )
-    try:
-        await asyncio.wait_for(
-            client.generate(
-                model=model,
-                prompt="",
-                keep_alive=-1,
-                options={"num_ctx": num_ctx},
-                stream=False,
-            ),
-            timeout=load_timeout_seconds,
+    profile = visiond_profile_for(model)
+    if not profile:
+        logger.error(
+            "vlm_stress_prewarm: no '-visiond' profile for %s in llama-swap "
+            "config — cannot measure", model,
         )
-    except asyncio.TimeoutError:
-        logger.warning("vlm_stress_prewarm: load timed out after %.0fs", load_timeout_seconds)
         return None
-    except Exception as e:  # noqa: BLE001
-        logger.warning("vlm_stress_prewarm: load failed: %s", e)
+    entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(profile)
+    if not entry or not entry.get("full_cmd"):
+        logger.error("vlm_stress_prewarm: profile %s has no cmd", profile)
         return None
 
-    # ── Phase 2: stress inference + peak monitoring ────────────────
-    stress_prompt = (
-        "Describe this image in extensive detail. Enumerate every visible "
-        "object, color, geometric shape, line and any text fragments you "
-        "can identify. Be thorough — list at least twenty distinct elements "
-        "with their approximate positions."
+    # Auf der Ziel-GPU messen: CUDA_VISIBLE_DEVICES des Profils mit der
+    # UUID von ``gpu_index`` überschreiben (Profil-Env kann eine andere
+    # Karte pinnen als die Kalibrierung gerade vermessen will).
+    env = dict(entry.get("env") or {})
+    uuid = _query_gpu_uuid(gpu_index)
+    if uuid:
+        env["CUDA_VISIBLE_DEVICES"] = uuid
+
+    port = _free_port()
+    logger.info(
+        "vlm_stress_prewarm: starting %s (num_ctx=%d, gpu=%d, port=%d)",
+        profile, num_ctx, gpu_index, port,
     )
+    process = await _start_server(
+        str(entry["full_cmd"]), num_ctx, port, None, env,
+    )
+    if process is None:
+        return None
+
     peak: int = 0
     try:
+        # ── Phase 1: Load + Readiness (Peak schon mitmessen — der
+        # Compute-Buffer wird beim Warmup allokiert). ──────────────────
         async with _PeakMonitor(gpu_index, interval=0.1) as monitor:
-            await asyncio.wait_for(
-                client.generate(
-                    model=model,
-                    prompt=stress_prompt,
-                    images=[image_b64],
-                    keep_alive=-1,
-                    options={
-                        "num_ctx": num_ctx,
-                        "num_predict": 512,
-                        "temperature": 0.7,
-                    },
-                    stream=False,
-                ),
-                timeout=infer_timeout_seconds,
+            ready, reason, _ = await _wait_ready(
+                port, load_timeout_seconds, process,
             )
+            if not ready:
+                logger.warning("vlm_stress_prewarm: server not ready: %s", reason)
+                return None
+
+            # ── Phase 2: Stress-Inferenz (großes Bild + lange Antwort) ─
+            image_b64 = _image_b64(_ensure_stress_image())
+            payload = {
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": (
+                                "Describe this image in extensive detail. "
+                                "Enumerate every visible object, color, "
+                                "geometric shape, line and any text fragments "
+                                "you can identify. Be thorough — list at "
+                                "least twenty distinct elements with their "
+                                "approximate positions."
+                            ),
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/jpeg;base64,{image_b64}",
+                            },
+                        },
+                    ],
+                }],
+                "max_tokens": 512,
+                "temperature": 0.7,
+            }
+            try:
+                async with httpx.AsyncClient() as client:
+                    r = await client.post(
+                        f"http://localhost:{port}/v1/chat/completions",
+                        json=payload,
+                        timeout=infer_timeout_seconds,
+                    )
+                    r.raise_for_status()
+            except (httpx.HTTPError, asyncio.TimeoutError) as e:
+                # Teilmessung schlägt keine Messung — Load-Peak behalten.
+                logger.warning("vlm_stress_prewarm: stress inference failed: %s", e)
         peak = monitor.peak_mb
         logger.info(
             "vlm_stress_prewarm: peak VRAM observed = %d MiB on gpu=%d",
             peak, gpu_index,
         )
-    except asyncio.TimeoutError:
-        logger.warning(
-            "vlm_stress_prewarm: stress inference timed out after %.0fs",
-            infer_timeout_seconds,
-        )
-        # Still return what we measured — partial signal beats none
-        peak = max(peak, _gpu_used_mb(gpu_index))
-    except Exception as e:  # noqa: BLE001
-        logger.warning("vlm_stress_prewarm: stress inference failed: %s", e)
-        peak = max(peak, _gpu_used_mb(gpu_index))
-
-    # ── Phase 3: cleanup — unload so calibration sees free VRAM ────
-    try:
-        await asyncio.wait_for(
-            client.generate(
-                model=model,
-                prompt="",
-                keep_alive=0,
-                stream=False,
-            ),
-            timeout=20.0,
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("vlm_stress_prewarm: unload failed (continuing): %s", e)
+    finally:
+        # ── Phase 3: Server killen → VRAM frei für die Kalibrierung. ──
+        _kill(process)
+        _cleanup_log(process)
 
     return peak if peak > 0 else None
 

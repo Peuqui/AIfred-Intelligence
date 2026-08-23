@@ -719,49 +719,29 @@ EDGE_AI_COCO_MAP = {
     "animal": [14, 15, 16, 17, 18, 19, 20, 21, 22, 23],
 }
 
-# ============================================================
-# VLM VRAM-BUDGET (gemessene Werte pro Modell)
-# ============================================================
-# Tatsächliche VRAM-Belegung in MiB pro Ollama-VLM-Modell. Wird vom
-# Bulk-Worker (Story 4) genutzt, um vor dem Start zu prüfen ob das
-# Modell auf die Ziel-GPU passt. Wenn nicht: Liste verdrängbarer
-# Modelle anzeigen.
-#
-# Werte direkt am laufenden System gemessen via ``nvidia-smi`` nach
-# einem ``prewarm_vlm()``-Call (Ollama-Overhead schon eingerechnet,
-# inklusive Vision-Encoder + KV-Cache bei num_ctx=4096).
-# VLM choices offered in the calibration picker. Each entry creates a
-# ``<base>-vlm-<key>`` YAML variant (and a ``<base>-tts-<engine>-vlm-<key>``
-# combo for every selected TTS engine). 30B is intentionally excluded —
-# its 30.8 GB footprint leaves nothing for the LLM next to it on the V100;
-# users who really want it still get it via ``vision_mode != off`` +
-# ``vlm.model`` in plugin settings (Phase-1 fallback path).
-VLM_CALIBRATION_CHOICES: list[dict[str, str]] = [
-    {
-        "key": "qwen3vl4b",
-        "model_id": "qwen3-vl:4b-instruct-q8_0",
-        "label": "Vigilantia 4B",
-    },
-]
+# Die VLM-Auswahl für den Kalibrier-Picker wird NICHT mehr hier gepflegt:
+# ``vision_routing.vlm_calibration_choices()`` entdeckt sie zur Laufzeit
+# aus den ``-visiond``-Profilen der llama-swap-Config (SSOT). Ein neues
+# VLM = GGUF + mmproj + visiond-Profil — keine Code-Änderung.
 
 
 # Obergrenze für die Pixelzahl, mit der ein Frame ans VLM geht. Frames
 # werden vor dem VLM-Call auf höchstens so viele Gesamtpixel herunter-
 # skaliert (Seitenverhältnis erhalten); kleinere Bilder bleiben unberührt.
 #
-# WARUM: Das VLM beschreibt nur die Szene grob ("Person an der Tür, Garten")
-# — dafür reicht ~1 MP. Volle Sensor-Auflösung kostet bei dynamischen VLMs
-# (Qwen-VL skaliert ~linear mit den Pixeln) nur Vision-Tokens/VRAM/Latenz,
-# ohne die Beschreibung zu verbessern. Die Gesichtserkennung läuft komplett
-# SEPARAT auf dem Vollbild (eigener Pfad im Watcher, eigener Crop-Store) und
-# ist von diesem Downscale NICHT betroffen — Detailerkennung bleibt voll.
+# WARUM 2,1 MP (seit 2026-08-23, vorher 0,8 MP): Die Beschreibungen sollen
+# Personen-Details liefern (Kleidungsart, Aufschriften, Bandagen) — bei
+# 0,8 MP gingen die verloren. 2,1 MP lässt den 1080p-Tele-Snap (2,07 MP,
+# die Subjekt-Ansicht) UNANGETASTET durch und halbiert nur das 4K-Weitwinkel
+# auf ~1080p — mehr Pixel bringen bei Qwen-VL für die Beschreibung kaum
+# noch Detail, kosten aber linear Tokens. Die Gesichtserkennung läuft
+# komplett SEPARAT auf dem Vollbild (eigener Pfad im Watcher, eigener
+# Crop-Store) und ist von diesem Downscale NICHT betroffen.
 #
-# Gemessen qwen3-vl-4b/Ollama: ~985 Vision-Tokens je MP (linear). 0,8 MP
-# (1193×671) ≈ 786 tk/Frame; bei VISION_DESCRIBE_MAX_FRAMES=10 also ~7.860
-# Token für Bilder + ~120 Prompt = ~7.983 (gemessen) → passt in 9216 ctx.
-# 0,8 statt 1,0 MP ist für die Szenenbeschreibung nicht unterscheidbar,
-# spart aber gerade so viel ctx, dass der KV-Cache-Zuwachs minimal bleibt.
-VISION_VLM_MAX_PIXELS = 800_000
+# Gemessen qwen3-vl-4b/Ollama: ~985 Vision-Tokens je MP (linear). 2,07 MP
+# ≈ 2.045 tk/Frame; bei VISION_DESCRIBE_MAX_FRAMES=10 also ~20.500 Token
+# für Bilder + Prompt/Antwort → braucht VLM_NUM_CTX=24576 (siehe dort).
+VISION_VLM_MAX_PIXELS = 2_100_000
 
 # Fixer ``num_ctx`` für ALLE VLM-Anfragen (Chat-Pfad + Vigilantia-
 # Pfad). Keine Calibration, kein Manual-Override — einfach ein
@@ -777,11 +757,13 @@ VISION_VLM_MAX_PIXELS = 800_000
 #
 # Worst Case = VISION_DESCRIBE_MAX_FRAMES Keyframes (NICHT die Cluster-Größe;
 # der Cluster-Pfad sampelt immer max. so viele Keyframes, egal ob 8 oder 51
-# Frames im Cluster). 10 Frames @ 0,8 MP = ~7.983 Token Prompt (gemessen) +
-# Antwort → passt in 9216 mit Puffer. Das sind nur +1024 über dem alten 8192,
-# also minimaler KV-Cache-Zuwachs (~0,15 GB). Wer mehr Frames oder höheres
-# max_pixels fährt, schraubt hier hoch (SSOT). Bei Änderung VLM neu kalibrieren.
-VLM_NUM_CTX = 9216
+# Frames im Cluster). 10 Frames @ 2,07 MP = ~20.500 Token Bilder + Prompt +
+# Antwort → 24576 mit Puffer (seit 2026-08-23, vorher 9216 @ 0,8 MP).
+# KV-Cache-Zuwachs beim 4B-VLM: grob +2 GB gegenüber 9216. Wer mehr Frames
+# oder höheres max_pixels fährt, schraubt hier hoch (SSOT) — und zieht das
+# ``-c`` der ``-visiond``-Profile in der llama-swap config.yaml mit.
+# Bei Änderung VLM neu kalibrieren.
+VLM_NUM_CTX = 24576
 
 # Hard wall-clock ceiling for a single Ollama VLM call (seconds). A VLM
 # request that lands on a GPU finishes in seconds; one that gets evicted

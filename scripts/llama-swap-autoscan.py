@@ -1821,6 +1821,197 @@ def cleanup_stale_config(config_path: Path) -> list[str]:
     return [name for name, _ in stale]
 
 
+# ---------------------------------------------------------------------------
+# Vision-Describer-Profile (-visiond) — Auto-Generierung + Pflege
+# ---------------------------------------------------------------------------
+# Ein Modell mit passendem mmproj-*.gguf ist vision-fähig und bekommt
+# automatisch ein ``<name>-visiond``-Profil (vision-Gruppe, VLM-GPU-Pin).
+# AIfreds Kalibrier-Matrix entdeckt ihre Auswahl aus genau diesen
+# Profilen (vision_routing.vlm_calibration_choices) — damit ist die
+# Kette Datei → Profil → Kalibrier-Zeile komplett selbst-entdeckend.
+
+AIFRED_CONFIG_PY = PROJECT_ROOT / "aifred" / "lib" / "config.py"
+
+_MMPROJ_PRECISION_RE = re.compile(r"-(f16|bf16|f32|q8_0)$", re.IGNORECASE)
+
+
+def read_vlm_num_ctx() -> Optional[int]:
+    """``VLM_NUM_CTX`` aus aifred/lib/config.py lesen (SSOT). Bewusst per
+    Regex statt Import — ein aifred-Import zöge Logging-/App-Seiteneffekte
+    in den Autoscan."""
+    try:
+        m = re.search(
+            r"^VLM_NUM_CTX\s*=\s*(\d+)", AIFRED_CONFIG_PY.read_text(), re.M,
+        )
+    except OSError:
+        return None
+    return int(m.group(1)) if m else None
+
+
+def _find_mmproj_for(gguf_path: Path) -> Optional[Path]:
+    """mmproj-Datei im Verzeichnis des Modells, deren Basisname (ohne
+    ``mmproj-``-Präfix und Präzisions-Suffix) Präfix des Modell-Stems ist.
+    Längster Treffer gewinnt (mmproj-Qwen3.8-27B-F16 ↔
+    Qwen3.8-27B-MTP-UD-Q8_K_XL)."""
+    stem = gguf_path.stem
+    best: Optional[tuple[str, Path]] = None
+    for f in gguf_path.parent.glob("mmproj-*.gguf"):
+        base = _MMPROJ_PRECISION_RE.sub("", f.stem[len("mmproj-"):])
+        if stem == base or stem.startswith(base + "-"):
+            if best is None or len(base) > len(best[0]):
+                best = (base, f)
+    return best[1] if best else None
+
+
+def _vlm_gpu_uuid() -> str:
+    """UUID der VLM-GPU (Side-Channel-Tier) — SSOT vision_gpu_select,
+    standalone importiert (stdlib-only Modul)."""
+    try:
+        import vision_gpu_select
+        idx = vision_gpu_select.pick_vlm_gpu()
+        rows = nvidia_smi.query("uuid", gpu_index=idx)
+        return str(rows[0]["uuid"]) if rows else ""
+    except Exception as e:  # noqa: BLE001
+        print(f"  ⚠ VLM-GPU pin unavailable ({e}) — visiond without pin")
+        return ""
+
+
+def ensure_visiond_profiles(config_path: Path) -> int:
+    """Für jedes Basis-Chat-Modell mit mmproj ein ``-visiond``-Profil
+    anlegen, falls es fehlt. Returnt Anzahl neuer Profile."""
+    ctx = read_vlm_num_ctx()
+    if not ctx:
+        print("  ⚠ VLM_NUM_CTX not readable — skipping visiond generation")
+        return 0
+    model_cmds = _parse_model_cmds(config_path)
+    if not model_cmds:
+        return 0
+    added = 0
+    gpu_uuid: Optional[str] = None  # lazy — nur ermitteln wenn gebraucht
+    content = config_path.read_text()
+    for name, cmd in sorted(model_cmds.items()):
+        if (
+            name.endswith(("-visiond", "-embed", "-speed"))
+            or "-vlm-" in name or "-tts-" in name
+        ):
+            continue
+        gguf = _extract_model_path(cmd)
+        if not gguf or not gguf.exists():
+            continue
+        mmproj = _find_mmproj_for(gguf)
+        if not mmproj:
+            continue
+        profile = f"{name}-visiond"
+        if profile in model_cmds:
+            continue
+        if gpu_uuid is None:
+            gpu_uuid = _vlm_gpu_uuid()
+        block = (
+            f"  {profile}:\n"
+            f"    cmd: {LLAMA_SERVER_BIN} -fit off --port ${{PORT}} "
+            f"--model {gguf} --mmproj {mmproj} -ngl 99 -c {ctx} "
+            f"--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja "
+            f"--no-context-shift --temp 0.8 --top-k 40 --top-p 0.95 "
+            f"--min-p 0.05 --repeat-penalty 1.0\n"
+            f"    ttl: 900\n"
+        )
+        if gpu_uuid:
+            block += f"    env:\n    - CUDA_VISIBLE_DEVICES={gpu_uuid}\n"
+        content = _insert_model_block(content, block)
+        content = _ensure_vision_group_member(content, profile)
+        print(f"  + {profile} (mmproj: {mmproj.name}, ctx {ctx})")
+        added += 1
+    if added:
+        _write_config(config_path, content)
+    return added
+
+
+def _insert_model_block(content: str, block: str) -> str:
+    """Modell-Block ans Ende der models:-Sektion setzen (vor ``groups:``
+    bzw. ans Dateiende, wenn keine groups existieren)."""
+    m = re.search(r"^groups:", content, re.M)
+    if m:
+        return content[: m.start()] + block + content[m.start():]
+    return content.rstrip("\n") + "\n" + block
+
+
+def _ensure_vision_group_member(content: str, profile: str) -> str:
+    """``profile`` in groups.vision.members eintragen (Gruppe bei Bedarf
+    anlegen — non-exclusive + persistent wie die bestehende)."""
+    vision_block = (
+        "  vision:\n    exclusive: false\n    swap: true\n"
+        "    persistent: true\n    members:\n"
+    )
+    if re.search(rf"^    - {re.escape(profile)}$", content, re.M):
+        return content
+    m = re.search(r"^groups:\n", content, re.M)
+    if not m:
+        return content + f"\ngroups:\n{vision_block}    - {profile}\n"
+    vm = re.search(r"^  vision:\n(?:^    .*\n)*", content[m.end():], re.M)
+    if not vm:
+        insert_at = m.end()
+        return (
+            content[:insert_at]
+            + f"{vision_block}    - {profile}\n"
+            + content[insert_at:]
+        )
+    insert_at = m.end() + vm.end()
+    return content[:insert_at] + f"    - {profile}\n" + content[insert_at:]
+
+
+def enforce_visiond_ctx(config_path: Path) -> int:
+    """``-c`` aller ``-visiond``-Profile auf VLM_NUM_CTX ziehen (SSOT in
+    aifred/lib/config.py) — ersetzt das frühere Hand-Nachziehen bei
+    Kontext-Änderungen. Returnt Anzahl angepasster Profile."""
+    ctx = read_vlm_num_ctx()
+    if not ctx:
+        return 0
+    model_cmds = _parse_model_cmds(config_path)
+    content = config_path.read_text()
+    fixed = 0
+    for name, cmd in model_cmds.items():
+        if not name.endswith("-visiond"):
+            continue
+        new_cmd = re.sub(r"(-c )\d+", rf"\g<1>{ctx}", cmd, count=1)
+        if new_cmd != cmd:
+            content = content.replace(cmd, new_cmd)
+            print(f"  ~ {name}: -c → {ctx}")
+            fixed += 1
+    if fixed:
+        _write_config(config_path, content)
+    return fixed
+
+
+def cleanup_stale_vlm_variants(config_path: Path) -> list[str]:
+    """``-vlm-<key>``-Varianten entfernen, deren Describer kein
+    ``-visiond``-Profil mehr hat (VLM gelöscht) — inklusive der
+    Group-Member-Zeilen. Returnt die entfernten Namen."""
+    from vlm_naming import vlm_profile_key
+
+    model_cmds = _parse_model_cmds(config_path)
+    valid_keys = {
+        vlm_profile_key(n[: -len("-visiond")])
+        for n in model_cmds if n.endswith("-visiond")
+    }
+    stale = []
+    for name in model_cmds:
+        m = re.search(r"-vlm-([a-z0-9]+?)(-speed)?$", name)
+        if m and m.group(1) not in valid_keys:
+            stale.append(name)
+    if not stale:
+        return []
+    content = config_path.read_text()
+    for name in stale:
+        content = _remove_model_block(content, name)
+        print(f"  ✗ {name} — describer '-visiond' profile gone")
+    lines = [
+        line for line in content.splitlines(keepends=True)
+        if not any(line.strip() == f"- {n}" for n in stale)
+    ]
+    _write_config(config_path, "".join(lines))
+    return stale
+
+
 def cleanup_skip_list() -> int:
     """Remove skip-list entries for models whose files no longer exist."""
     skip = load_skip_list()
@@ -2114,6 +2305,17 @@ def main() -> None:
     removed_symlinks = cleanup_dead_symlinks()
     stale_models = cleanup_stale_config(LLAMASWAP_CONFIG)
     stale_skip = cleanup_skip_list()
+
+    # Vision-Describer pflegen: Profile für mmproj-Modelle anlegen,
+    # -c auf VLM_NUM_CTX ziehen, Varianten verwaister VLMs entfernen.
+    # Bewusst OHNE config_changed: Groups werden hier gezielt gepflegt,
+    # update_groups_in_yaml soll nicht extra angestoßen werden.
+    print("Maintaining -visiond describer profiles...")
+    visiond_added = ensure_visiond_profiles(LLAMASWAP_CONFIG)
+    visiond_ctx_fixed = enforce_visiond_ctx(LLAMASWAP_CONFIG)
+    stale_vlm_variants = cleanup_stale_vlm_variants(LLAMASWAP_CONFIG)
+    if not (visiond_added or visiond_ctx_fixed or stale_vlm_variants):
+        print("  visiond profiles up to date")
     if removed_symlinks or stale_models or stale_skip:
         total = len(removed_symlinks) + len(stale_models) + stale_skip
         print(f"  → {total} item(s) cleaned up")
@@ -2235,6 +2437,12 @@ def main() -> None:
         parts.append(f"{len(stale_models)} removed")
     if yaml_added:
         parts.append(f"{yaml_added} added")
+    if visiond_added:
+        parts.append(f"{visiond_added} visiond profile(s) added")
+    if visiond_ctx_fixed:
+        parts.append(f"{visiond_ctx_fixed} visiond ctx updated")
+    if stale_vlm_variants:
+        parts.append(f"{len(stale_vlm_variants)} stale -vlm variant(s) removed")
     if cache_added:
         parts.append(f"{cache_added} VRAM cache entries added")
     if parts:
