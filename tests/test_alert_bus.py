@@ -93,13 +93,12 @@ class TestDelivery:
 class TestThrottle:
     """One alert per cluster (dedup_key): the SAME key never re-alerts while
     remembered; a NEW key alerts immediately, regardless of timing. Keyless
-    events fall back to a per-rule time cooldown."""
+    events are never throttled."""
 
-    def _disp(self, calls_deliver, *, min_interval_sec=0.0):
+    def _disp(self, calls_deliver):
         calls, deliver = calls_deliver
         return calls, AlertDispatcher(
-            [AlertRule(producer="vision", sinks=["telegram"],
-                       min_interval_sec=min_interval_sec)],
+            [AlertRule(producer="vision", sinks=["telegram"])],
             deliver=deliver,
         )
 
@@ -126,12 +125,11 @@ class TestThrottle:
         assert asyncio.run(d.emit(_ev(dedup_key="c", timestamp=_T0 + timedelta(seconds=2000)))) == 1
         assert len(calls) == 2
 
-    def test_keyless_uses_time_cooldown(self):
-        # No dedup_key → fall back to the per-rule time window.
-        calls, d = self._disp(_recorder(), min_interval_sec=300)
+    def test_keyless_never_throttled(self):
+        # No dedup_key → no dedup axis, every event fires.
+        calls, d = self._disp(_recorder())
         assert asyncio.run(d.emit(_ev(dedup_key="", timestamp=_T0))) == 1
-        assert asyncio.run(d.emit(_ev(dedup_key="", timestamp=_T0 + timedelta(seconds=60)))) == 0
-        assert asyncio.run(d.emit(_ev(dedup_key="", timestamp=_T0 + timedelta(seconds=301)))) == 1
+        assert asyncio.run(d.emit(_ev(dedup_key="", timestamp=_T0 + timedelta(seconds=1)))) == 1
         assert len(calls) == 2
 
 
