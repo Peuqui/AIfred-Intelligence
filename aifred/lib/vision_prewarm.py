@@ -86,7 +86,8 @@ def get_active_vlm_model() -> str | None:
 def get_active_vlm_key() -> str:
     """Return the short calibration key for the currently active VLM
     (e.g. ``qwen3vl4b``), or empty string when vision is off / the
-    active model is not in :data:`config.VLM_CALIBRATION_CHOICES`.
+    active model has no ``-visiond``-Profil (siehe
+    :func:`vision_routing.vlm_calibration_choices`).
 
     Used by :func:`resolve_variant_suffix` to decide whether a
     ``-vlm-<key>`` (or ``-tts-<engine>-vlm-<key>``) variant should be

@@ -60,29 +60,77 @@ def get_gguf_total_size(gguf_path: Path) -> int:
     return total_size
 
 
+# Architektur-Cache: GGUFReader baut beim Öffnen die KOMPLETTE Feldtabelle
+# (inkl. Tokenizer-Arrays) — ~12 s pro Großmodell. Der Autoscan liest die
+# Architektur aber bei JEDEM llama-swap-Start für alle GGUFs → ohne Cache
+# ~45 s Startverzögerung. Gecacht wird pro Pfad mit (size, mtime) als
+# Invalidierung; ein neues/ersetztes GGUF wird genau einmal geparst.
+_ARCH_CACHE_PATH = Path.home() / ".cache" / "gguf_arch_cache.json"
+
+
+def _arch_cache_load() -> dict:
+    import json
+    try:
+        return dict(json.loads(_ARCH_CACHE_PATH.read_text(encoding="utf-8")))
+    except (OSError, ValueError):
+        return {}
+
+
+def _arch_cache_store(cache: dict) -> None:
+    import json
+    try:
+        _ARCH_CACHE_PATH.parent.mkdir(parents=True, exist_ok=True)
+        _ARCH_CACHE_PATH.write_text(
+            json.dumps(cache, indent=1), encoding="utf-8"
+        )
+    except OSError as e:
+        logger.debug(f"arch cache write failed: {e}")
+
+
 def get_gguf_architecture(gguf_path: Path) -> Optional[str]:
     """``general.architecture`` aus den GGUF-Metadaten (z.B. "qwen3", "bert").
 
     Embedding-Modelle (bert-Familie) tragen hier ihre Nicht-Kausal-
     Architektur — der Autoscan nutzt das, um sie nicht als Chat-Profile
-    anzulegen."""
+    anzulegen. Ergebnis wird pro (Pfad, Größe, mtime) gecacht — siehe
+    ``_ARCH_CACHE_PATH``."""
     if not gguf_path.exists():
         return None
+    stat = gguf_path.stat()
+    key = str(gguf_path)
+    cache = _arch_cache_load()
+    entry = cache.get(key)
+    if (
+        isinstance(entry, dict)
+        and entry.get("size") == stat.st_size
+        and entry.get("mtime") == int(stat.st_mtime)
+    ):
+        return str(entry["arch"]) if entry.get("arch") else None
     try:
         import gguf
 
         with open(gguf_path, "rb") as f:
             reader = gguf.GGUFReader(f)  # type: ignore[arg-type]
             field = reader.fields.get("general.architecture")
-            if field is None:
-                return None
-            return bytes(field.parts[-1]).decode("utf-8", errors="replace")
+            arch = (
+                bytes(field.parts[-1]).decode("utf-8", errors="replace")
+                if field is not None else None
+            )
     except ImportError:
         logger.warning("gguf-py library not installed")
         return None
     except (OSError, ValueError, IndexError) as e:
         logger.error(f"Error reading GGUF architecture {gguf_path}: {e}")
         return None
+    # Auch "kein Feld" (arch=None → "") cachen — für dieselbe Datei ist
+    # das deterministisch; nur echte Lesefehler werden nicht gecacht.
+    cache[key] = {
+        "size": stat.st_size,
+        "mtime": int(stat.st_mtime),
+        "arch": arch or "",
+    }
+    _arch_cache_store(cache)
+    return arch
 
 
 def _scan_gguf_numeric_field(

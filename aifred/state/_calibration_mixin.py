@@ -267,7 +267,8 @@ class CalibrationMixin(rx.State, mixin=True):
             is_vlm_variant_calibrated,
             load_cache,
         )
-        from aifred.lib.config import VLM_CALIBRATION_CHOICES
+        from aifred.lib.vision_routing import vlm_calibration_choices
+        vlm_choices = vlm_calibration_choices()
 
         model_id = self.agent_tuning["aifred"].model_id or ""
         engines = list(installed_gpu_engines())
@@ -306,7 +307,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
         # One row per VLM choice — first cell is VLM-only, then each
         # column is a VLM × TTS combination.
-        for choice in VLM_CALIBRATION_CHOICES:
+        for choice in vlm_choices:
             vlm_key = choice["key"]
             vlm_label = choice["label"]
             cells: list[CalibrationCell] = []
@@ -339,10 +340,10 @@ class CalibrationMixin(rx.State, mixin=True):
         reopen it, the checkboxes are still where the user left them.
         Newly installed engines show up as fresh unchecked entries."""
         from aifred.lib.tts_engines import installed_gpu_engines
-        from aifred.lib.config import VLM_CALIBRATION_CHOICES
+        from aifred.lib.vision_routing import vlm_calibration_choices
         cur = dict(self.calibration_matrix)
         engines = [e.key for e in installed_gpu_engines()]
-        vlm_keys = ["", *(c["key"] for c in VLM_CALIBRATION_CHOICES)]
+        vlm_keys = ["", *(c["key"] for c in vlm_calibration_choices())]
         tts_keys = ["", *engines]
         for v in vlm_keys:
             for t in tts_keys:
@@ -425,13 +426,13 @@ class CalibrationMixin(rx.State, mixin=True):
         failure_status. No-op if the cache has no entry or no failure
         for that id."""
         from aifred.lib.model_vram_cache import load_cache, save_cache
-        from aifred.lib.config import VLM_CALIBRATION_CHOICES
+        from aifred.lib.vision_routing import vlm_calibration_choices
 
         model_id = self.agent_tuning["aifred"].model_id or ""
         if not model_id or "|" not in key:
             return
         vlm_key, tts_key = key.split("|", 1)
-        valid_vlms = {c["key"] for c in VLM_CALIBRATION_CHOICES}
+        valid_vlms = {c["key"] for c in vlm_calibration_choices()}
         if vlm_key and vlm_key not in valid_vlms:
             return
         if vlm_key and tts_key:
@@ -1108,9 +1109,18 @@ class CalibrationMixin(rx.State, mixin=True):
                             f"   ⚠️ Ollama /api/ps returned {_ps.status_code}"
                         )
             except Exception as _e:  # noqa: BLE001
-                self._cal_debug(  # type: ignore[attr-defined]
-                    f"   ⚠️ Ollama unload skipped: {_e}"
-                )
+                # ConnectionRefused heißt schlicht: kein Ollama-Daemon
+                # lauscht — der Normalfall seit der Ollama-Stilllegung,
+                # kein Problem. Andere Fehler weiterhin im Wortlaut zeigen.
+                _msg = str(_e)
+                if "Connection refused" in _msg or "Errno 111" in _msg:
+                    self._cal_debug(  # type: ignore[attr-defined]
+                        "   ℹ️ Ollama not running — unload not needed"
+                    )
+                else:
+                    self._cal_debug(  # type: ignore[attr-defined]
+                        f"   ⚠️ Ollama unload skipped: {_e}"
+                    )
 
             # Stop llama-swap BEFORE the emptiness check — it holds the
             # last chat model resident on the GPUs, so leaving it up makes
@@ -1183,7 +1193,9 @@ class CalibrationMixin(rx.State, mixin=True):
             # ticked doesn't get calibrated. Imports stay here so the
             # downstream loops can still resolve per-VLM reserves.
             from ..lib.vlm_stress_prewarm import resolve_vlm_reserve
-            from ..lib.config import VLM_NUM_CTX, VLM_CALIBRATION_CHOICES
+            from ..lib.config import VLM_NUM_CTX
+            from ..lib.vision_routing import vlm_calibration_choices
+            vlm_choices = vlm_calibration_choices()
 
             # Step 1c: Pre-burn-in for any TTS engine or VLM model that
             # appears in an active matrix cell but has no entry in its
@@ -1203,12 +1215,12 @@ class CalibrationMixin(rx.State, mixin=True):
                 _ek = _eng.key
                 if self.calibration_matrix.get(f"|{_ek}", False):
                     _needed_tts.add(_ek)
-                for _vc in VLM_CALIBRATION_CHOICES:
+                for _vc in vlm_choices:
                     if self.calibration_matrix.get(f"{_vc['key']}|{_ek}", False):
                         _needed_tts.add(_ek)
             _needed_vlms: list[dict[str, str]] = []
             _all_tts_slots = ["", *(_e.key for _e in _engine_list)]
-            for _vc in VLM_CALIBRATION_CHOICES:
+            for _vc in vlm_choices:
                 if any(
                     self.calibration_matrix.get(f"{_vc['key']}|{_t}", False)
                     for _t in _all_tts_slots
@@ -2233,11 +2245,11 @@ class CalibrationMixin(rx.State, mixin=True):
             from ..lib.tts_engines import installed_gpu_engines
             _any_vlm_only = any(
                 self.calibration_matrix.get(f"{c['key']}|", False)
-                for c in VLM_CALIBRATION_CHOICES
+                for c in vlm_choices
             )
             _any_combo = any(
                 self.calibration_matrix.get(f"{c['key']}|{e.key}", False)
-                for c in VLM_CALIBRATION_CHOICES
+                for c in vlm_choices
                 for e in installed_gpu_engines()
             )
             _needs_vlm_setup = (
@@ -2315,7 +2327,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # helper (with tts_gpu_uuid=None so it skips TTS-specific
             # checks and only subtracts the VLM reserve).
             if _any_vlm_only and calibrated_ctx and calibrated_ctx > 0:
-                for vlm_choice in VLM_CALIBRATION_CHOICES:
+                for vlm_choice in vlm_choices:
                     vlm_key = vlm_choice["key"]
                     if not self.calibration_matrix.get(f"{vlm_key}|", False):
                         continue
@@ -2556,7 +2568,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     # Skip engines that have no combo ticked at all
                     if not any(
                         self.calibration_matrix.get(f"{c['key']}|{tts_backend_c}", False)
-                        for c in VLM_CALIBRATION_CHOICES
+                        for c in vlm_choices
                     ):
                         continue
                     tts_label_c = tts_engine_c.label_short
@@ -2566,7 +2578,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     )
                     _tts_uuid_c = get_tts_gpu_uuid()
 
-                    for vlm_choice_c in VLM_CALIBRATION_CHOICES:
+                    for vlm_choice_c in vlm_choices:
                         vlm_key_c = vlm_choice_c["key"]
                         if not self.calibration_matrix.get(f"{vlm_key_c}|{tts_backend_c}", False):
                             continue
