@@ -433,6 +433,25 @@ class CasusMixin(rx.State, mixin=True):
             return ""
         return "/api/vision/frame?id=" + str(self.casus_all_ids[i])
 
+    @rx.var(auto_deps=False, deps=["casus_image_index", "casus_all_ids"])
+    def casus_image_zoom_src(self) -> str:
+        """Zoom-URL des aktuell angezeigten Events — leer, wenn das Event
+        keinen Tele-Snap hat (das Modal zeigt dann nur das Weitwinkel).
+        Der Existenz-Check braucht ohnehin die DB (Primary-Key-Lookup),
+        die URL selbst läuft über den Frame-Endpoint. deps explizit:
+        Reflex' Auto-Analyse scheitert am Import im Funktionskörper."""
+        i = self.casus_image_index
+        if i < 0 or i >= len(self.casus_all_ids):
+            return ""
+        eid = self.casus_all_ids[i]
+        try:
+            from ..lib.vision_store import VisionStore
+            has_zoom = bool(VisionStore().get_event_frame_path(eid, zoom=True))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("casus zoom lookup failed: %s", e)
+            return ""
+        return f"/api/vision/frame?id={eid}&zoom=1" if has_zoom else ""
+
     @rx.var
     def casus_image_counter(self) -> str:
         """Position in der GESAMTEN gefilterten Liste, z.B. „1340 / 1344".
@@ -446,6 +465,34 @@ class CasusMixin(rx.State, mixin=True):
         total = len(self.casus_all_ids)
         return f"{total - self.casus_image_index} / {total}"
 
+    # Klick-Zoom im Bild-Modal: Stufe pro Ansicht (1 = eingepasst,
+    # 2/3 = 200 %/300 % Breite mit Scroll). Klick aufs Bild zykliert
+    # 1 → 2 → 3 → 1; Navigation/Öffnen/Schließen setzt zurück.
+    casus_image_scale_wide: int = 1
+    casus_image_scale_zoom: int = 1
+
+    @rx.event
+    def casus_image_cycle_scale(self, which: str) -> None:
+        """Zoom-Stufe der geklickten Ansicht weiterschalten."""
+        if which == "zoom":
+            self.casus_image_scale_zoom = self.casus_image_scale_zoom % 3 + 1
+        else:
+            self.casus_image_scale_wide = self.casus_image_scale_wide % 3 + 1
+
+    def _casus_reset_image_scale(self) -> None:
+        self.casus_image_scale_wide = 1
+        self.casus_image_scale_zoom = 1
+
+    @rx.var
+    def casus_image_at_newest(self) -> bool:
+        """Steht die Slideshow am jüngsten Bild? → Pfeil rechts ausgrauen."""
+        return self.casus_image_index == 0
+
+    @rx.var
+    def casus_image_at_oldest(self) -> bool:
+        """Steht die Slideshow am ältesten Bild? → Pfeil links ausgrauen."""
+        return self.casus_image_index >= len(self.casus_all_ids) - 1
+
     @rx.event
     def casus_show_image_at(self, index: int) -> None:
         """Event-Frame groß anzeigen (Klick aufs Thumbnail). Der Klick
@@ -455,6 +502,7 @@ class CasusMixin(rx.State, mixin=True):
         i = int(index)
         if i < 0 or i >= len(self.casus_events):
             return
+        self._casus_reset_image_scale()
         eid = int(self.casus_events[i].get("id", 0))
         # Gruppiert-Modus: der Klick auf ein Vorkommnis öffnet dessen FILM
         # (alle Cluster-Bilder chronologisch) — das "+N"-Badge verspricht
@@ -486,6 +534,7 @@ class CasusMixin(rx.State, mixin=True):
             return
         if not ids:
             ids = [int(event_id)]
+        self._casus_reset_image_scale()
         self.casus_all_ids = ids
         # Ältestes Bild zuerst — Pfeil rechts spielt den Film vorwärts.
         self.casus_image_index = len(ids) - 1
@@ -499,6 +548,7 @@ class CasusMixin(rx.State, mixin=True):
         """Neueres Event (Pfeil rechts = Zukunft). ``casus_all_ids`` ist
         neueste-zuerst sortiert → Richtung niedrigerer Index. Stoppt oben."""
         if self.casus_image_index > 0:
+            self._casus_reset_image_scale()
             self.casus_image_index -= 1
 
     @rx.event
@@ -506,11 +556,13 @@ class CasusMixin(rx.State, mixin=True):
         """Älteres Event (Pfeil links = Vergangenheit) → höherer Index.
         Stoppt am Ende der gesamten gefilterten Liste."""
         if self.casus_image_index < len(self.casus_all_ids) - 1:
+            self._casus_reset_image_scale()
             self.casus_image_index += 1
 
     @rx.event
     def casus_close_image(self) -> None:
         """Bild-Modal schließen."""
+        self._casus_reset_image_scale()
         self.casus_image_index = -1
 
     @rx.event

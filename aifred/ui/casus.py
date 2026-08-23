@@ -36,10 +36,12 @@ def _event_type_badge(event: rx.Var) -> rx.Component:
 
 
 def _thumb(event: rx.Var, index: rx.Var) -> rx.Component:
-    """Vorschaubild (40×40), klickbar → Bild-Modal mit dem Vollbild.
+    """Vorschaubilder (je 40×40), klickbar → Bild-Modal mit dem Vollbild.
 
-    Face-Events zeigen den Gesichts-Crop, reine Motion-Events ein
-    verkleinertes Vollbild über den /api/vision/frame-Endpoint (w=80).
+    Erste Kachel: Gesichts-Crop (Face-Events) oder verkleinertes
+    Weitwinkel-Vollbild über den /api/vision/frame-Endpoint (w=80).
+    Daneben — wenn das Event einen Tele-Snap hat — der Zoom als zweite
+    Kachel, damit Weitwinkel und Zoom nebeneinander sichtbar sind.
     Klick öffnet das Modal an diesem Index (von dort per Pfeil blätterbar).
     Nur wenn weder Crop noch Frame existieren, bleibt das Activity-Icon."""
     full_url = "/api/vision/frame?id=" + event["id"].to(str)
@@ -52,35 +54,49 @@ def _thumb(event: rx.Var, index: rx.Var) -> rx.Component:
         "border": "1px solid var(--gray-7)",
         "cursor": "pointer",
     }
-    return rx.cond(
-        event["crop_url"] != "",
-        rx.image(
-            src=event["crop_url"],
-            on_click=AIState.casus_show_image_at(index),
-            style=thumb_style,
-        ),
+    return rx.hstack(
         rx.cond(
-            event["frame_path"] != "",
+            event["crop_url"] != "",
             rx.image(
-                src=full_url + "&w=80",
+                src=event["crop_url"],
                 on_click=AIState.casus_show_image_at(index),
                 style=thumb_style,
             ),
-            rx.box(
-                rx.icon("activity", size=18, color="gray"),
-                style={
-                    "width": "40px",
-                    "height": "40px",
-                    "border_radius": "4px",
-                    "background_color": "var(--gray-3)",
-                    "border": "1px solid var(--gray-7)",
-                    "display": "flex",
-                    "align_items": "center",
-                    "justify_content": "center",
-                    "flex_shrink": "0",
-                },
+            rx.cond(
+                event["frame_path"] != "",
+                rx.image(
+                    src=full_url + "&w=80",
+                    on_click=AIState.casus_show_image_at(index),
+                    style=thumb_style,
+                ),
+                rx.box(
+                    rx.icon("activity", size=18, color="gray"),
+                    style={
+                        "width": "40px",
+                        "height": "40px",
+                        "border_radius": "4px",
+                        "background_color": "var(--gray-3)",
+                        "border": "1px solid var(--gray-7)",
+                        "display": "flex",
+                        "align_items": "center",
+                        "justify_content": "center",
+                        "flex_shrink": "0",
+                    },
+                ),
             ),
         ),
+        rx.cond(
+            event["has_zoom"],
+            rx.image(
+                src=full_url + "&zoom=1&w=80",
+                on_click=AIState.casus_show_image_at(index),
+                style=thumb_style,
+            ),
+            rx.fragment(),
+        ),
+        spacing="1",
+        align="center",
+        style={"flex_shrink": "0"},
     )
 
 
@@ -682,6 +698,57 @@ def _pagination_bar() -> rx.Component:
     )
 
 
+# Geteilter Stil der Overlay-Bilder — max_width setzt der Aufrufer
+# (80vw solo, je 44vw wenn Weitwinkel + Zoom nebeneinander stehen).
+_OVERLAY_IMG_STYLE = {
+    "max_height": "82vh",
+    "object_fit": "contain",
+    "border_radius": "8px",
+    "border": "1px solid var(--gray-6)",
+    "box_shadow": "0 20px 60px rgba(0,0,0,0.6)",
+    "display": "block",
+}
+
+# Rahmen des Scroll-Viewports im vergrößerten Zustand (Stufe 2/3) —
+# der Rahmen wandert vom Bild auf den Viewport, das Bild scrollt darin.
+_OVERLAY_VIEWPORT_STYLE = {
+    "max_height": "82vh",
+    "overflow": "auto",
+    "border_radius": "8px",
+    "border": "1px solid var(--gray-6)",
+    "box_shadow": "0 20px 60px rgba(0,0,0,0.6)",
+}
+
+
+def _overlay_image(
+    src: rx.Var, scale: rx.Var | int, which: str, max_w: str,
+) -> rx.Component:
+    """Eine Overlay-Ansicht (Weitwinkel oder Zoom) mit Klick-Zoom:
+    Stufe 1 passt das Bild ein, Klick schaltet auf 200 % und 300 %
+    Breite (scrollbarer Viewport), der dritte Klick wieder auf
+    eingepasst. ``which`` adressiert die Stufen-Var im State."""
+    def _zoomed(width_pct: str, cursor: str) -> rx.Component:
+        return rx.box(
+            rx.image(
+                src=src,
+                on_click=AIState.casus_image_cycle_scale(which),
+                style={"width": width_pct, "display": "block", "cursor": cursor},
+            ),
+            style={**_OVERLAY_VIEWPORT_STYLE, "width": max_w},
+        )
+
+    return rx.match(
+        scale,
+        (2, _zoomed("200%", "zoom-in")),
+        (3, _zoomed("300%", "zoom-out")),
+        rx.image(
+            src=src,
+            on_click=AIState.casus_image_cycle_scale(which),
+            style={**_OVERLAY_IMG_STYLE, "max_width": max_w, "cursor": "zoom-in"},
+        ),
+    )
+
+
 def _image_overlay() -> rx.Component:
     """Bild-Modal mit Slideshow: zeigt den Event-Frame groß über dem Casus-
     Modal. Pfeil-Buttons (und Pfeiltasten via data-image-nav in custom.js)
@@ -703,22 +770,37 @@ def _image_overlay() -> rx.Component:
                 rx.icon_button(
                     rx.icon("chevron-left", size=30),
                     on_click=AIState.casus_image_older,
+                    disabled=AIState.casus_image_at_oldest,
                     size="3", variant="soft", color_scheme="gray",
                     custom_attrs={"data-image-nav": "older"},
                     style={"flex_shrink": "0", "opacity": "0.85"},
                 ),
                 rx.box(
-                    rx.image(
-                        src=AIState.casus_image_src,
-                        style={
-                            "max_width": "80vw",
-                            "max_height": "82vh",
-                            "object_fit": "contain",
-                            "border_radius": "8px",
-                            "border": "1px solid var(--gray-6)",
-                            "box_shadow": "0 20px 60px rgba(0,0,0,0.6)",
-                            "display": "block",
-                        },
+                    # Weitwinkel + Zoom nebeneinander, wenn das Event einen
+                    # Tele-Snap hat — sonst das Weitwinkel allein in voller
+                    # Breite. Beide Ansichten gehören zum selben Moment;
+                    # Klick aufs jeweilige Bild zoomt es stufenweise.
+                    rx.cond(
+                        AIState.casus_image_zoom_src != "",
+                        rx.hstack(
+                            _overlay_image(
+                                AIState.casus_image_src,
+                                AIState.casus_image_scale_wide,
+                                "wide", "44vw",
+                            ),
+                            _overlay_image(
+                                AIState.casus_image_zoom_src,
+                                AIState.casus_image_scale_zoom,
+                                "zoom", "44vw",
+                            ),
+                            spacing="2",
+                            align="center",
+                        ),
+                        _overlay_image(
+                            AIState.casus_image_src,
+                            AIState.casus_image_scale_wide,
+                            "wide", "80vw",
+                        ),
                     ),
                     rx.icon_button(
                         rx.icon("x", size=18),
@@ -742,6 +824,7 @@ def _image_overlay() -> rx.Component:
                 rx.icon_button(
                     rx.icon("chevron-right", size=30),
                     on_click=AIState.casus_image_newer,
+                    disabled=AIState.casus_image_at_newest,
                     size="3", variant="soft", color_scheme="gray",
                     custom_attrs={"data-image-nav": "newer"},
                     style={"flex_shrink": "0", "opacity": "0.85"},
