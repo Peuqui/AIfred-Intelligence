@@ -253,9 +253,9 @@ def _untagged_card(ev: rx.Var) -> rx.Component:
                             t("personarium_tag_new_person"), value="__new__"
                         ),
                         rx.foreach(
-                            AIState.personarium_faces,
-                            lambda f: rx.select.item(
-                                f["name"], value=f["id"].to(str)
+                            AIState.personarium_tag_options,
+                            lambda opt: rx.select.item(
+                                opt["label"], value=opt["value"]
                             ),
                         ),
                         # popper statt item-aligned: die Liste klappt immer
@@ -299,11 +299,20 @@ def _untagged_card(ev: rx.Var) -> rx.Component:
                 align="center",
                 width="100%",
             ),
-            rx.icon_button(
-                rx.icon("user-plus", size=14),
-                on_click=AIState.personarium_start_tag(eid),
-                size="1", variant="soft", color_scheme="orange",
-                title=t("personarium_tag_button"),
+            rx.hstack(
+                rx.icon_button(
+                    rx.icon("user-plus", size=14),
+                    on_click=AIState.personarium_start_tag(eid),
+                    size="1", variant="soft", color_scheme="orange",
+                    title=t("personarium_tag_button"),
+                ),
+                rx.icon_button(
+                    rx.icon("x", size=14),
+                    on_click=AIState.personarium_dismiss_untagged(eid),
+                    size="1", variant="soft", color_scheme="gray",
+                    title=t("personarium_untagged_dismiss"),
+                ),
+                spacing="1",
             ),
         ),
         spacing="1",
@@ -383,9 +392,21 @@ def personarium_modal() -> rx.Component:
             ),
             rx.divider(),
             # Unzugeordnete Gesichter — Nachtaggen + Embedding-Lernen
-            rx.text(
-                t("personarium_untagged_title"),
-                font_weight="bold", size="3",
+            rx.hstack(
+                rx.text(
+                    t("personarium_untagged_title"),
+                    font_weight="bold", size="3",
+                ),
+                rx.spacer(),
+                rx.button(
+                    rx.icon("scan-face", size=14),
+                    t("personarium_rematch_button"),
+                    on_click=AIState.personarium_rematch_untagged,
+                    loading=AIState.personarium_rematch_busy,
+                    size="1", variant="soft", color_scheme="orange",
+                    title=t("personarium_rematch_hint"),
+                ),
+                align="center", width="100%",
             ),
             rx.text(
                 t("personarium_untagged_help"),
