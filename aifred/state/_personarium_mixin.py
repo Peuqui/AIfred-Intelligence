@@ -49,6 +49,8 @@ class PersonariumMixin(rx.State, mixin=True):
     personarium_tag_new_name: str = ""
     # Läuft gerade ein Enroll (InsightFace auf dem Frame)? → Spinner.
     personarium_tag_busy: bool = False
+    # Läuft gerade der manuelle Re-Match über alle Unzugeordneten?
+    personarium_rematch_busy: bool = False
 
     @rx.event
     def open_personarium(self) -> None:
@@ -79,6 +81,17 @@ class PersonariumMixin(rx.State, mixin=True):
             self.personarium_faces = []
             self.personarium_status = f"⚠️ {e}"
 
+    @rx.var
+    def personarium_tag_options(self) -> list[dict[str, str]]:
+        """Dropdown-Optionen fürs Nachtaggen — value/label Python-seitig
+        als Strings gebaut. Radix-Select vergleicht den kontrollierten Wert
+        strikt (===) mit den Item-Values; ein numerischer Item-Value aus dem
+        Frontend matcht den String im State nie → leerer Trigger."""
+        return [
+            {"value": str(f.get("id", 0)), "label": str(f.get("name", ""))}
+            for f in self.personarium_faces
+        ]
+
     def _reload_personarium_embeddings(self) -> None:
         """Embeddings der gerade verwalteten Identität laden (ohne den
         numpy-Vektor — der gehört nicht in den Reflex-State)."""
@@ -89,6 +102,9 @@ class PersonariumMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_store import VisionStore
             rows = VisionStore().list_embeddings(fid)
+            # Neueste zuerst — ein frisch gelerntes Embedding erscheint
+            # damit sofort vorn im aufgeklappten Grid.
+            rows = sorted(rows, key=lambda r: int(r.get("id") or 0), reverse=True)
             self.personarium_embeddings = [
                 {
                     "id": int(r.get("id") or 0),
@@ -200,30 +216,26 @@ class PersonariumMixin(rx.State, mixin=True):
     # ── Unzugeordnete Gesichter (Nachtaggen + Lernen) ────────────────
 
     def _refresh_personarium_untagged(self) -> None:
-        """face_unknown/face_unsure-Events ohne Identity laden — ein
-        Eintrag pro Vorkommnis (cluster_id-Dedupe), nur mit Crop."""
+        """ALLE face_unknown/face_unsure-Events ohne Identity laden — jede
+        Aufnahme als eigene Karte, ohne Cluster-Dedupe und ohne Deckel.
+        Der Nutzer sieht sofort den kompletten Bestand (das Grid scrollt)
+        und arbeitet ihn ab: Zuordnen lernt genau den geklickten Crop,
+        der Cluster-Sweep räumt sichere Duplikate desselben Vorkommnisses
+        weg, ✕ verwirft das ganze Vorkommnis. Nichts rückt nach —
+        Nachrück-Fenster hatten Karten hinter Karten versteckt."""
         try:
             from ..lib.vision_store import VisionStore
             rows = VisionStore().list_events_with_summary(
                 event_types=["face_unknown", "face_unsure"],
                 unknown_only=True,
-                limit=100,
+                limit=2000,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning("personarium untagged load failed: %s", e)
             self.personarium_untagged = []
             return
-        seen_clusters: set[str] = set()
-        out: list[dict[str, Any]] = []
-        for r in rows:
-            if not r.get("crop_url"):
-                continue
-            cid = str(r.get("cluster_id") or "")
-            if cid:
-                if cid in seen_clusters:
-                    continue
-                seen_clusters.add(cid)
-            out.append({
+        self.personarium_untagged = [
+            {
                 "id": int(r["id"]),
                 "crop_url": str(r["crop_url"]),
                 "event_type": str(r["event_type"]),
@@ -231,10 +243,52 @@ class PersonariumMixin(rx.State, mixin=True):
                 "source_name": str(r.get("source_name") or ""),
                 "date_display": str(r.get("date_display") or ""),
                 "time_display": str(r.get("time_display") or ""),
-            })
-            if len(out) >= 24:
-                break
-        self.personarium_untagged = out
+            }
+            for r in rows
+            if r.get("crop_url") and not r.get("untagged_dismissed")
+        ]
+
+    @rx.event
+    async def personarium_rematch_untagged(self):
+        """Manueller Re-Match (Button überm Grid): alle unzugeordneten
+        Gesichter erneut gegen die aktuelle Embedding-DB erkennen —
+        sichere Treffer werden abgehakt (KEINE neuen Embeddings), der
+        Rest bleibt zum Zuordnen/Verwerfen sichtbar."""
+        self.personarium_rematch_busy = True
+        yield
+        try:
+            from ..lib.face_enroll import rematch_untagged_faces
+            result = await rematch_untagged_faces()
+            by_name = ", ".join(
+                f"{n}: {c}" for n, c in sorted(result["by_name"].items())
+            )
+            rest = int(result["checked"]) - int(result["resolved"])
+            self.personarium_status = (
+                f"✓ {result['resolved']} von {result['checked']} Aufnahmen "
+                f"erkannt und zugeordnet"
+                + (f" ({by_name})" if by_name else "")
+                + (f" — {rest} bleiben unzugeordnet" if rest else "")
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("personarium rematch failed: %s", e)
+            self.personarium_status = f"⚠️ {e}"
+        self.personarium_rematch_busy = False
+        self._refresh_personarium_untagged()
+        self._refresh_personarium_faces()
+
+    @rx.event
+    def personarium_dismiss_untagged(self, event_id: int) -> None:
+        """Genau diese Aufnahme aus den Vorschlägen nehmen (zu schlechter
+        Crop) — das Event bleibt in Casus/Chronik erhalten."""
+        try:
+            from ..lib.vision_store import VisionStore
+            VisionStore().dismiss_untagged_event(int(event_id))
+            self.personarium_status = "✓ Aufnahme verworfen"
+        except Exception as e:  # noqa: BLE001
+            logger.warning("personarium dismiss failed: %s", e)
+            self.personarium_status = f"⚠️ {e}"
+            return
+        self._refresh_personarium_untagged()
 
     @rx.event
     def personarium_start_tag(self, event_id: int) -> None:
@@ -251,10 +305,7 @@ class PersonariumMixin(rx.State, mixin=True):
 
     @rx.event
     def personarium_set_tag_value(self, value: str) -> None:
-        # Radix liefert die item-value je nach Pfad als int (trotz .to(str)
-        # im Frontend) — ohne Cast verwirft Reflex die Zuweisung ans
-        # str-Feld und der Speichern-Klick läuft ins Leere.
-        self.personarium_tag_value = str(value) if value is not None else ""
+        self.personarium_tag_value = value
 
     @rx.event
     def personarium_set_tag_new_name(self, value: str) -> None:
@@ -286,6 +337,12 @@ class PersonariumMixin(rx.State, mixin=True):
                 f"✓ Gesicht als '{result['name']}' gelernt "
                 f"(Qualität {format_number(result['quality'], 2)})"
             )
+            siblings = int(result.get("siblings_resolved") or 0)
+            if siblings:
+                self.personarium_status += (
+                    f" — {siblings} weitere Aufnahme(n) des Vorkommnisses "
+                    f"mit zugeordnet"
+                )
         except Exception as e:  # noqa: BLE001
             logger.warning("personarium tag+learn failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
@@ -297,3 +354,6 @@ class PersonariumMixin(rx.State, mixin=True):
         self.personarium_tag_new_name = ""
         self._refresh_personarium_faces()
         self._refresh_personarium_untagged()
+        # Aufgeklapptes Embedding-Grid sofort nachziehen — das frisch
+        # gelernte Embedding soll ohne Zu-/Aufklappen erscheinen.
+        self._reload_personarium_embeddings()
