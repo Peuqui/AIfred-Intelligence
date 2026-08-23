@@ -729,9 +729,12 @@ class VisionStore:
                 "time_display": time_display,
                 "confidence": float(r["confidence"] or 0.0),
                 "crop_url": str(cls.get("crop_url") or ""),
+                "detection_score": float(cls.get("detection_score") or 0.0),
+                "untagged_dismissed": bool(cls.get("untagged_dismissed")),
                 "confidence_band": str(cls.get("confidence_band") or ""),
                 "matched_name": str(cls.get("matched_name") or ""),
                 "frame_path": str(r["frame_path"] or ""),
+                "has_zoom": bool(cls.get("zoom_frame_path")),
                 "face_id": int(r["face_id"]) if r["face_id"] is not None else None,
                 "face_name": str(r["face_name"]) if r["face_name"] else "",
                 "area_ratio": float(cls.get("area_ratio") or 0.0),
@@ -1098,17 +1101,84 @@ class VisionStore:
             )
             return cur.rowcount > 0
 
-    def get_event_frame_path(self, event_id: int) -> str:
-        """Frame-Pfad (gespeichertes Vollbild) eines Events per ID.
+    def list_untagged_face_events(
+        self,
+        cluster_id: str | None = None,
+        *,
+        exclude_id: int | None = None,
+        include_dismissed: bool = True,
+        limit: int = 2000,
+    ) -> list[dict[str, Any]]:
+        """face_unknown/face_unsure-Events ohne face_id (mit geparster
+        classification/metadata wie ``get_event``) — mit ``cluster_id``
+        auf EIN Vorkommnis begrenzt (Enroll-Cluster-Sweep), ohne über
+        den gesamten Bestand. ``include_dismissed=False`` blendet per ✕
+        verworfene Aufnahmen aus (manueller Re-Match: dessen Bilanz muss
+        zum sichtbaren Grid passen)."""
+        query = (
+            "SELECT * FROM events WHERE face_id IS NULL "
+            "AND event_type IN ('face_unknown', 'face_unsure')"
+        )
+        params: list[Any] = []
+        if cluster_id:
+            query += " AND cluster_id = ?"
+            params.append(cluster_id)
+        if not include_dismissed:
+            query += (
+                " AND COALESCE(json_extract(classification, "
+                "'$.untagged_dismissed'), 0) = 0"
+            )
+        if exclude_id is not None:
+            query += " AND id != ?"
+            params.append(int(exclude_id))
+        query += " ORDER BY timestamp DESC LIMIT ?"
+        params.append(int(limit))
+        with self._conn() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        out: list[dict[str, Any]] = []
+        for r in rows:
+            d = dict(r)
+            d["classification"] = json.loads(d.get("classification") or "{}")
+            d["metadata"] = json.loads(d.get("metadata") or "{}")
+            out.append(d)
+        return out
 
-        Leerer String, wenn das Event nicht existiert oder kein Frame
-        gespeichert wurde. Für den Frame-Serving-Endpoint (Casus-Thumbnail
+    def dismiss_untagged_event(self, event_id: int) -> bool:
+        """GENAU DIESE Aufnahme als „nicht mehr vorschlagen" markieren
+        (``classification.untagged_dismissed``) — das Personarium blendet
+        sie dauerhaft aus, das Event selbst bleibt für Casus/Chronik
+        unangetastet. Bewusst nur das einzelne Event: Im Grid ist jede
+        Aufnahme eine eigene Karte, der Nutzer entscheidet pro Bild."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE events SET classification = "
+                "json_set(COALESCE(classification, '{}'), "
+                "'$.untagged_dismissed', 1) WHERE id = ?",
+                (int(event_id),),
+            )
+            return cur.rowcount > 0
+
+    def get_event_frame_path(self, event_id: int, *, zoom: bool = False) -> str:
+        """Frame-Pfad eines Events per ID — das Weitwinkel-Vollbild oder mit
+        ``zoom=True`` der Tele-Snap (``classification.zoom_frame_path``).
+
+        Leerer String, wenn das Event nicht existiert oder der jeweilige
+        Pfad fehlt. Für den Frame-Serving-Endpoint (Casus-Thumbnail
         + Bild-Modal)."""
         with self._conn() as conn:
             row = conn.execute(
-                "SELECT frame_path FROM events WHERE id = ?", (int(event_id),)
+                "SELECT frame_path, classification FROM events WHERE id = ?",
+                (int(event_id),),
             ).fetchone()
-        return str(row["frame_path"]) if row and row["frame_path"] else ""
+        if row is None:
+            return ""
+        if zoom:
+            try:
+                cls = json.loads(row["classification"] or "{}")
+            except (TypeError, ValueError):
+                return ""
+            return str(cls.get("zoom_frame_path") or "")
+        return str(row["frame_path"]) if row["frame_path"] else ""
 
     def prune_events(self, older_than: datetime) -> int:
         """Lösche Events älter als ``older_than``. Gibt Anzahl gelöschter

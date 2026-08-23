@@ -476,17 +476,18 @@ async def vision_embedding_delete(embedding_id: int) -> SystemActionResponse:
 
 
 @api_app.get("/vision/frame", tags=["Vision"])
-async def vision_frame(id: int, w: int = 0) -> Response:
-    """Gespeichertes Event-Vollbild als JPEG ausliefern.
+async def vision_frame(id: int, w: int = 0, zoom: int = 0) -> Response:
+    """Gespeichertes Event-Bild als JPEG ausliefern.
 
     ``id`` ist die Event-ID, ``w`` ein optionaler Ziel-Breiten-Parameter:
     >0 skaliert serverseitig herunter (Casus-Thumbnail nutzt w=80, das
-    Bild-Modal lädt ohne ``w`` in Vollauflösung). Kein extra Auth-Gate —
-    Zugriff ist von außen ohnehin durch den Basic-Auth-Reverse-Proxy und
-    lokal durch Maschinenzugang geschützt (gleiches Niveau wie die
-    face-crop-Auslieferung unter /_upload)."""
+    Bild-Modal lädt ohne ``w`` in Vollauflösung). ``zoom=1`` liefert statt
+    des Weitwinkels den Tele-Snap des Events (404, wenn keiner existiert).
+    Kein extra Auth-Gate — Zugriff ist von außen ohnehin durch den
+    Basic-Auth-Reverse-Proxy und lokal durch Maschinenzugang geschützt
+    (gleiches Niveau wie die face-crop-Auslieferung unter /_upload)."""
     from ..vision_store import VisionStore
-    path_str = VisionStore().get_event_frame_path(id)
+    path_str = VisionStore().get_event_frame_path(id, zoom=bool(zoom))
     if not path_str:
         raise HTTPException(status_code=404, detail=f"no frame for event {id}")
     frame_file = Path(path_str)
