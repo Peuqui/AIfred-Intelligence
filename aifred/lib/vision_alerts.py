@@ -248,6 +248,7 @@ async def emit_face_alert(
     similarities: list[float] | None = None,
     timestamp: datetime | None = None,
     store: Any = None,
+    dedup_key: str | None = None,
 ) -> None:
     """Emit an aggregated face-band detection as a proactive AlertEvent —
     one per band per happening, only while armed. ``names`` = alle erkannten
@@ -282,7 +283,9 @@ async def emit_face_alert(
         title=title,
         body=body,
         # One alert per happening; fall back to source+type if unclustered.
-        dedup_key=cluster_id or f"{source_id}:{event_type}",
+        # Der Burst-Report übergibt einen eigenen Key (mehrere gewollte
+        # Meldungen pro Vorkommnis: Bilanz + Follow-ups).
+        dedup_key=dedup_key or cluster_id or f"{source_id}:{event_type}",
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         crop_url=crop_url,
@@ -301,6 +304,7 @@ async def emit_person_alert(
     count: int = 1,
     timestamp: datetime | None = None,
     store: Any = None,
+    dedup_key: str | None = None,
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
@@ -322,7 +326,7 @@ async def emit_person_alert(
         title=title,
         body=f"{alias} · {when}",
         # One alert per happening; fall back to source if unclustered.
-        dedup_key=cluster_id or f"{source_id}:person",
+        dedup_key=dedup_key or cluster_id or f"{source_id}:person",
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         timestamp=ts,
@@ -382,3 +386,151 @@ async def emit_object_alert(
         timestamp=ts,
         store=store,
     )
+
+
+# ── Burst-Bilanz ─────────────────────────────────────────────────────
+# Statt Sofort-Alert beim Kamera-Trigger sammelt der Face-Hunt-Burst
+# seine Ticks in einem BurstReport und meldet gebündelt: EINE Bilanz
+# beim Burst-Ende oder spätestens nach der Deadline (bestes Bild des
+# Vorbeigangs, alle erkannten Namen), danach Follow-up-Meldungen nur
+# bei echten Neuigkeiten (neuer Name, Band-Upgrade, mehr Personen).
+
+_BAND_RANK = {"person": 0, "face_unknown": 1, "face_unsure": 2, "face_known": 3}
+
+
+class BurstReport:
+    """Sammelt die Beobachtungen eines Vorbeigangs (Trigger + Burst-Ticks)
+    und verschickt daraus Telegram-Bilanzen. Lebt für die Dauer EINES
+    Bursts (vision_watcher hält ihn pro Quelle)."""
+
+    def __init__(self, source_id: str, cluster_id: str, store: Any) -> None:
+        self.source_id = source_id
+        self.cluster_id = cluster_id
+        self._store = store
+        self.started = datetime.now()
+        # Bester Gesichts-Tick: (band_rank, score) entscheidet; Namen mit
+        # bester Similarity werden über den ganzen Burst gesammelt.
+        self.known_named: dict[str, float] = {}
+        self._best_face: tuple[int, float] = (-1, -1.0)
+        self._best_face_paths: tuple[str, str, str] = ("", "", "")  # frame, zoom, crop
+        self._best_face_band = ""
+        self._face_count_max = 0
+        self._face_sims: list[float] = []
+        # Bester Personen-Tick (kein Gesicht): höchster YOLO-Score.
+        self._best_person: float = -1.0
+        self._best_person_paths: tuple[str, str] = ("", "")
+        self._person_count_max = 0
+        # Versand-Zustand für due()/has_news().
+        self._sent_messages = 0
+        self._sent_band_rank = -1
+        self._sent_names: set[str] = set()
+        self._sent_person_count = 0
+
+    # ── Beobachtungen ────────────────────────────────────────────────
+
+    def observe_face(
+        self, band: str, name: str, similarity: float, det_score: float,
+        frame_path: str, zoom_frame_path: str, crop_url: str,
+        faces_in_tick: int = 1,
+    ) -> None:
+        rank = _BAND_RANK.get(band, 1)
+        if band == "face_known" and name:
+            prev = self.known_named.get(name, 0.0)
+            self.known_named[name] = max(prev, float(similarity))
+        self._face_sims.append(float(similarity))
+        self._face_count_max = max(self._face_count_max, int(faces_in_tick))
+        score = float(similarity) if rank > 1 else float(det_score)
+        if (rank, score) > self._best_face:
+            self._best_face = (rank, score)
+            self._best_face_paths = (frame_path, zoom_frame_path, crop_url)
+            self._best_face_band = band
+
+    def observe_person(
+        self, count: int, score: float, frame_path: str, zoom_frame_path: str,
+    ) -> None:
+        self._person_count_max = max(self._person_count_max, int(count))
+        if float(score) > self._best_person:
+            self._best_person = float(score)
+            self._best_person_paths = (frame_path, zoom_frame_path)
+
+    # ── Versand-Entscheidung ─────────────────────────────────────────
+
+    def _current_band_rank(self) -> int:
+        if self._best_face[0] >= 0:
+            return self._best_face[0]
+        if self._best_person >= 0:
+            return 0
+        return -1
+
+    def has_observations(self) -> bool:
+        return self._current_band_rank() >= 0
+
+    def due(self, deadline_sec: float) -> bool:
+        """Erste Bilanz fällig? (Deadline erreicht, noch nichts gemeldet.)"""
+        if self._sent_messages or not self.has_observations():
+            return False
+        return (datetime.now() - self.started).total_seconds() >= deadline_sec
+
+    def pending_final(self) -> bool:
+        """Beim Burst-Ende: muss noch eine (letzte) Meldung raus?
+        Ja, wenn nie gemeldet wurde oder seit der letzten Meldung
+        Neuigkeiten aufgelaufen sind."""
+        if not self.has_observations():
+            return False
+        return self._sent_messages == 0 or self.has_news()
+
+    def has_news(self) -> bool:
+        """Follow-up nötig? Neuer Name, Band-Upgrade oder mehr Personen
+        gleichzeitig als bisher gemeldet."""
+        if not self._sent_messages:
+            return False
+        if set(self.known_named) - self._sent_names:
+            return True
+        if self._current_band_rank() > self._sent_band_rank:
+            return True
+        return self._person_count_max > max(self._sent_person_count, 1)
+
+    # ── Versand ──────────────────────────────────────────────────────
+
+    async def send(self) -> None:
+        """Bilanz/Follow-up verschicken: bestes Bild + alle Namen. Der
+        dedup_key trägt einen Laufindex — mehrere Meldungen pro
+        Vorkommnis sind hier GEWOLLT (Bilanz + Neuigkeiten)."""
+        if not self.has_observations():
+            return
+        self._sent_messages += 1
+        key = f"{self.cluster_id or self.source_id}:burst-report-{self._sent_messages}"
+        band = self._best_face_band
+        if band:
+            names = list(self.known_named)
+            sims = (
+                list(self.known_named.values()) if names else self._face_sims
+            )
+            frame_path, zoom_path, crop_url = self._best_face_paths
+            await emit_face_alert(
+                source_id=self.source_id,
+                event_type="face_known" if names else band,
+                frame_path=frame_path,
+                zoom_frame_path=zoom_path,
+                crop_url=crop_url,
+                cluster_id=self.cluster_id,
+                names=names,
+                count=max(self._face_count_max, len(names), 1),
+                similarities=sims,
+                store=self._store,
+                dedup_key=key,
+            )
+        else:
+            frame_path, zoom_path = self._best_person_paths
+            await emit_person_alert(
+                source_id=self.source_id,
+                frame_path=frame_path,
+                zoom_frame_path=zoom_path,
+                cluster_id=self.cluster_id,
+                count=max(self._person_count_max, 1),
+                store=self._store,
+                dedup_key=key,
+            )
+        self._sent_band_rank = self._current_band_rank()
+        self._sent_names = set(self.known_named)
+        self._sent_person_count = self._person_count_max

@@ -131,11 +131,15 @@ class WatchConfig:
     # ``burst_linger_sec`` Nachlauf nach dem letzten aktiven Flag. Jeder
     # Tick, der etwas zeigt (Gesicht, oder YOLO-Person ohne Gesicht),
     # wird sofort als Ereignis im Burst-Cluster gespeichert — die
-    # "Film"-Serie eines Vorbeigangs. Alert nur beim ERSTEN sicheren
-    # Gesichts-Match (Upgrade der initialen "Person erkannt"-Meldung —
-    # kein Telegram-Spam). burst_interval_sec <= 0 schaltet den Burst ab.
+    # "Film"-Serie eines Vorbeigangs. Gemeldet wird als BILANZ
+    # (vision_alerts.BurstReport): eine Meldung mit dem besten Bild und
+    # allen erkannten Namen beim Burst-Ende, spätestens aber nach
+    # ``burst_report_deadline_sec``; danach Follow-ups nur bei echten
+    # Neuigkeiten (neuer Name, Band-Upgrade, mehr Personen).
+    # burst_interval_sec <= 0 schaltet den Burst ab.
     burst_interval_sec: float = 0.5
     burst_linger_sec: float = 6.0
+    burst_report_deadline_sec: float = 15.0
     # Edge-AI-Poll-Konfiguration (nur bei trigger_mode="edge_ai"):
     #   host, api_port, cred, poll_interval_sec, channel
     edge_ai: dict[str, Any] | None = None
@@ -227,8 +231,11 @@ class VisionWatcher:
         # Batch-Describe muss nicht mehr neu clustern.
         from .vision_cluster import IncrementalClusterer
         self._clusterer = IncrementalClusterer()
-        # Face-Hunt-Burst: max. ein laufender Burst pro Quelle.
+        # Face-Hunt-Burst: max. ein laufender Burst pro Quelle. Der
+        # zugehörige BurstReport sammelt Trigger + Ticks und verschickt
+        # die Telegram-Bilanz (siehe vision_alerts.BurstReport).
         self._burst_tasks: dict[str, "asyncio.Task[None]"] = {}
+        self._burst_reports: dict[str, Any] = {}
 
     # ── Public API ────────────────────────────────────────────────
 
@@ -833,12 +840,33 @@ class VisionWatcher:
             return "yolo" if cls in confirm_needed else "edge_ai"
 
         # ── person ── Gesicht ZUERST (informativere Meldung als „person").
+        # Bei Burst-Quellen laufen die Personen-/Gesichts-Meldungen als
+        # BILANZ über den BurstReport (bestes Bild statt Trigger-Moment,
+        # alle Namen in einer Meldung) — Sofort-Alerts nur noch dort, wo
+        # kein Burst läuft. Läuft schon ein Burst, füttert der neue
+        # Trigger dessen Report weiter (gleiches Vorkommnis).
+        burst_capable = (
+            "person" in classes
+            and config.run_face_detect_on_motion
+            and config.burst_interval_sec > 0
+            and ai_client is not None
+        )
+        report = None
+        if burst_capable:
+            running = self._burst_tasks.get(source_id)
+            report = (
+                self._burst_reports.get(source_id)
+                if running is not None and not running.done() else None
+            )
+            if report is None:
+                from .vision_alerts import BurstReport
+                report = BurstReport(source_id, cid, self._store)
         face_found = False
         if "person" in classes and config.run_face_detect_on_motion:
             face_found = await self._run_face_detection(
                 face_frame, config, motion_event_id=None,
                 frame_path=frame_path, zoom_frame_path=zoom_frame_path,
-                trigger="edge_ai",
+                trigger="edge_ai", collect=report,
             )
         if "person" in classes:
             if _ok("person"):
@@ -854,7 +882,11 @@ class VisionWatcher:
                                     "zoom_frame_path": zoom_frame_path},
                     metadata={"trigger": "edge_ai"}, cluster_id=cid,
                 )
-                if not face_found:
+                if report is not None:
+                    report.observe_person(
+                        p_count, 0.0, frame_path, zoom_frame_path,
+                    )
+                elif not face_found:
                     await emit_person_alert(
                         source_id=source_id, frame_path=frame_path,
                         zoom_frame_path=zoom_frame_path, cluster_id=cid,
@@ -902,19 +934,14 @@ class VisionWatcher:
         # ungebremst weiter. NUR bei YOLO-bestätigter Person (oder schon
         # erkanntem Gesicht) — nächtliche IR-Phantome der Kamera sollen
         # keine minutenlangen Geister-Bursts anwerfen.
-        if (
-            "person" in classes
-            and (face_found or _ok("person"))
-            and config.run_face_detect_on_motion
-            and config.burst_interval_sec > 0
-            and ai_client is not None
-        ):
+        if burst_capable and (face_found or _ok("person")):
             running = self._burst_tasks.get(source_id)
             if running is None or running.done():
                 my_gen = self._watch_generation.get(source_id, 0)
+                self._burst_reports[source_id] = report
                 self._burst_tasks[source_id] = asyncio.create_task(
                     self._face_hunt_burst(
-                        source_id, config, ai_client, cid, my_gen
+                        source_id, config, ai_client, cid, my_gen, report
                     )
                 )
 
@@ -925,6 +952,7 @@ class VisionWatcher:
         ai_client: Any,
         cluster_id: str,
         my_gen: int,
+        report: Any,
     ) -> None:
         """Film-Burst nach einem Edge-AI-Personen-Trigger.
 
@@ -939,20 +967,22 @@ class VisionWatcher:
 
         So entsteht pro Vorbeigang eine durchblätterbare Bildserie
         („Film") — der Casus gruppiert sie über den Cluster zu EINER
-        Zeile. Der proaktive Alert feuert SOFORT beim ersten sicheren
-        Gesichts-Match (Upgrade der initialen "Person erkannt"-Meldung);
-        alles Weitere drosselt der Alert-Dispatcher — kein Telegram-Spam.
+        Zeile. Gemeldet wird über den ``report`` (BurstReport) als
+        BILANZ: beim Burst-Ende, spätestens aber nach
+        ``burst_report_deadline_sec`` — mit dem besten Bild des
+        Vorbeigangs und allen erkannten Namen. Danach Follow-ups nur
+        bei echten Neuigkeiten (neuer Name, Band-Upgrade, mehr
+        Personen) — kein Telegram-Spam.
         """
         from .frame_sources import Frame as _Frame
 
         interval = max(0.2, float(config.burst_interval_sec))
         linger = max(0.0, float(config.burst_linger_sec))
+        deadline = max(1.0, float(config.burst_report_deadline_sec))
         detector = self._get_face_detector()
         recognizer = self._get_face_recognizer()
         person_detector = self._get_person_detector()
 
-        _band_rank = {"known": 2, "unsure": 1, "unknown": 0}
-        known_alerted = False
         started = datetime.now()
         last_active = started
         ticks = 0
@@ -977,17 +1007,23 @@ class VisionWatcher:
                 if wide_frame.image_bytes:
                     ticks += 1
                     try:
-                        kind, is_known = await self._persist_burst_tick(
+                        kind = await self._persist_burst_tick(
                             source_id, config, cluster_id,
                             wide_frame, face_frame,
                             detector, recognizer, person_detector,
-                            emit_known_alert=not known_alerted,
+                            report=report,
                         )
                         n_face += 1 if kind == "face" else 0
                         n_person += 1 if kind == "person" else 0
-                        known_alerted = known_alerted or is_known
                     except Exception as e:  # noqa: BLE001
                         logger.warning("burst tick failed for %s: %s", source_id, e)
+                # Bilanz fällig (Deadline erreicht) oder Neuigkeiten seit
+                # der letzten Meldung → jetzt melden, Burst läuft weiter.
+                try:
+                    if report.due(deadline) or report.has_news():
+                        await report.send()
+                except Exception as e:  # noqa: BLE001
+                    logger.warning("burst report send failed for %s: %s", source_id, e)
                 # Kamera-Flag prüfen: solange die Person gemeldet wird,
                 # läuft der Burst weiter (last_active wandert mit).
                 try:
@@ -1004,6 +1040,15 @@ class VisionWatcher:
             return
         finally:
             self._burst_tasks.pop(source_id, None)
+            self._burst_reports.pop(source_id, None)
+        # Abschluss-Bilanz (nur normales Burst-Ende — bei Cancel/Restart
+        # oben schon returnt): noch nie gemeldet ODER Neuigkeiten seit
+        # der letzten Meldung → jetzt raus damit.
+        try:
+            if report.pending_final():
+                await report.send()
+        except Exception as e:  # noqa: BLE001
+            logger.warning("burst final report failed for %s: %s", source_id, e)
         # Bilanz ins Debug-Log — im Journal ging die info-Zeile unter,
         # und genau diese Zahlen beantworten "warum nur N Bilder?".
         from .logging_utils import log_message
@@ -1025,14 +1070,15 @@ class VisionWatcher:
         recognizer: Any,
         person_detector: Any,
         *,
-        emit_known_alert: bool,
-    ) -> tuple[str, bool]:
+        report: Any,
+    ) -> str:
         """Einen Burst-Tick auswerten und — wenn er etwas zeigt —
         persistieren (Bildpaar über die SSoT-Output-Kette, Event im
         Burst-Cluster, bei Gesicht zusätzlich Crop + Live-Publish).
+        Beobachtungen fließen in den ``report`` (BurstReport) — die
+        Telegram-Bilanz verschickt der Burst-Loop.
 
-        Returnt ``(art, known_alert_gefeuert)`` — ``art`` ist "face",
-        "person" oder "" (Tick verworfen).
+        Returnt die Art des Ticks: "face", "person" oder "" (verworfen).
         """
         import base64 as _base64
 
@@ -1066,7 +1112,7 @@ class VisionWatcher:
                 except Exception as e:  # noqa: BLE001
                     logger.warning("burst zoom person_detect failed: %s", e)
             if not persons:
-                return "", False
+                return ""
             _, _, frame_path = await self._finalize_output_frame(
                 wide_frame, save=config.save_event_frames,
             )
@@ -1092,7 +1138,10 @@ class VisionWatcher:
                 metadata={"trigger": "edge_ai_burst"},
                 cluster_id=cluster_id,
             )
-            return "person", False
+            report.observe_person(
+                len(persons), float(max_score), frame_path, zoom_frame_path,
+            )
+            return "person"
 
         # Bestes Gesicht dieses Ticks (Band vor Konfidenz).
         best_det = None
@@ -1177,26 +1226,14 @@ class VisionWatcher:
             "crop_url": crop_url,
             "embedding_b64": emb_b64,
         })
-        # Sofort-Alert beim ERSTEN sicheren Match des Bursts — das
-        # Informations-Upgrade zur initialen "Person erkannt"-Meldung.
-        fired = False
-        if event_type == "face_known" and emit_known_alert:
-            from .vision_alerts import emit_face_alert
-            await emit_face_alert(
-                source_id=source_id,
-                event_type=event_type,
-                frame_path=frame_path,
-                zoom_frame_path=zoom_frame_path,
-                crop_url=crop_url,
-                cluster_id=cluster_id,
-                names=[match.name] if match.name else [],
-                count=1,
-                similarities=[float(match.similarity)],
-                timestamp=face_frame.timestamp,
-                store=self._store,
-            )
-            fired = True
-        return "face", fired
+        # Beobachtung in die Bilanz — der Burst-Loop meldet gebündelt
+        # (bestes Bild, alle Namen) statt pro Tick.
+        report.observe_face(
+            event_type, match.name or "", float(match.similarity),
+            float(det.detection_score), frame_path, zoom_frame_path,
+            crop_url, faces_in_tick=len(detections),
+        )
+        return "face"
 
     async def _count_categories(
         self, frame: "Frame", wanted: set[str],
@@ -1344,6 +1381,7 @@ class VisionWatcher:
         frame_path: str = "",
         zoom_frame_path: str = "",
         trigger: str | None = None,
+        collect: Any = None,
     ) -> bool:
         """Eigentliche Face-Detection + Recognition + Event-Publishing.
         Returnt ``True``, wenn mindestens ein Gesicht erkannt wurde (der
@@ -1352,7 +1390,9 @@ class VisionWatcher:
         UND dem Edge-AI-Pfad gerufen. ``motion_event_id`` ist nur gesetzt
         wenn der Aufruf aus einem motion-Event kam. ``trigger`` überschreibt
         den Traceability-Marker im Event-Metadata; ohne Angabe wird er aus
-        ``motion_event_id`` abgeleitet (motion vs continuous)."""
+        ``motion_event_id`` abgeleitet (motion vs continuous). ``collect``
+        (BurstReport): Beobachtungen dorthin statt Sofort-Alerts — die
+        Burst-Bilanz meldet gebündelt."""
         trigger = trigger or ("motion" if motion_event_id else "continuous")
         source_id = frame.source_id
         try:
@@ -1467,6 +1507,17 @@ class VisionWatcher:
                 "crop_url": crop_url,
                 "embedding_b64": emb_b64,
             })
+            if collect is not None:
+                collect.observe_face(
+                    event_type, match.name or "", float(match.similarity),
+                    float(det.detection_score), frame_path, zoom_frame_path,
+                    crop_url, faces_in_tick=len(detections),
+                )
+
+        # Burst-Pfad: Beobachtungen sind im Report gelandet — die Bilanz
+        # meldet gebündelt, hier keine Sofort-Alerts.
+        if collect is not None:
+            return True
 
         # Aggregierte Meldungen — eine pro Band, das im Vorkommnis vorkam.
         # So werden ALLE bekannten Namen genannt (offen, ungedeckelt) und
