@@ -126,9 +126,21 @@ def _range_suffix(similarities: list[float]) -> str:
     return f" ({pct_str})"
 
 
+def _others_suffix(names: list[str], person_count: int) -> str:
+    """Zusatz für benannte Titel, wenn die Objekterkennung MEHR Personen
+    gezählt hat als Gesichter erkannt wurden: „+ 1 weitere Person". Ohne
+    das verschwiegen die Titel jeden Begleiter, dessen Gesicht nie
+    gematcht wurde (Hand vorm Gesicht, abgewandt, verdeckt)."""
+    others = max(0, int(person_count) - len(names))
+    if not names or others <= 0:
+        return ""
+    return (f" + {others} weitere Person" if others == 1
+            else f" + {others} weitere Personen")
+
+
 def _compose(
     event_type: str, alias: str, names: list[str], count: int, ts: datetime,
-    similarities: list[float] | None = None,
+    similarities: list[float] | None = None, person_count: int = 0,
 ) -> tuple[str, str]:
     """User-facing alert text (German — goes to the user's phone).
 
@@ -152,13 +164,14 @@ def _compose(
         unnamed_suffix = _range_suffix(sims)
     if event_type == "face_known":
         if names_str:
-            title = f"👤 {names_str} erkannt"
+            title = f"👤 {names_str} erkannt{_others_suffix(names, person_count)}"
         else:
             title = (f"👤 {count} bekannte Personen erkannt" if count > 1
                      else "👤 Bekannte Person erkannt") + unnamed_suffix
     elif event_type == "face_unsure":
         if names_str:
-            title = f"👤 Mögliche Person(en): {names_str}"
+            title = (f"👤 Mögliche Person(en): {names_str}"
+                     f"{_others_suffix(names, person_count)}")
         else:
             title = (f"👤 {count} unsichere Erkennungen" if count > 1
                      else "👤 Unsichere Erkennung") + unnamed_suffix
@@ -179,6 +192,7 @@ async def _emit(
     frame_path: str,
     zoom_frame_path: str = "",
     crop_url: str = "",
+    extra_crop_urls: list[str] | None = None,
     timestamp: datetime,
     metadata: dict[str, Any] | None = None,
     store: Any = None,
@@ -210,8 +224,12 @@ async def _emit(
                 u = get_image_url(_Path(p))
                 if u and u not in gallery:
                     gallery.append(u)
-        if crop_url and crop_url not in gallery:
-            gallery.append(crop_url)
+        # Kopfausschnitte: der des besten Gesichts zuerst, dann die der
+        # übrigen im Vorkommnis gesehenen Personen — bei mehreren Leuten
+        # zeigt die Galerie so JEDE, nicht nur die am besten erkannte.
+        for u in [crop_url, *(extra_crop_urls or [])]:
+            if u and u not in gallery:
+                gallery.append(u)
 
         session_key, session_title = _session_routing(source_id, store)
         ev = AlertEvent(
@@ -249,11 +267,20 @@ async def emit_face_alert(
     timestamp: datetime | None = None,
     store: Any = None,
     dedup_key: str | None = None,
+    person_count: int = 0,
+    extra_crop_urls: list[str] | None = None,
+    previous_description: str = "",
 ) -> None:
     """Emit an aggregated face-band detection as a proactive AlertEvent —
     one per band per happening, only while armed. ``names`` = alle erkannten
     Namen des Bands (ungedeckelt), ``count`` = Anzahl Gesichter des Bands,
-    ``similarities`` = deren Match-Werte (Konfidenz-Klammer im Titel)."""
+    ``similarities`` = deren Match-Werte (Konfidenz-Klammer im Titel).
+
+    ``person_count``: von der Objekterkennung gezählte Personen (Titel-Zusatz
+    „+ N weitere" und Fakt fürs VLM). ``extra_crop_urls``: Kopfausschnitte
+    ALLER im Vorkommnis gesehenen Personen für die Galerie.
+    ``previous_description``: vorherige Bilanz desselben laufenden
+    Vorkommnisses, an die das VLM anknüpft."""
     if event_type not in _ALERT_EVENT_TYPES:
         return
     if not _vigilantia_armed():
@@ -265,17 +292,27 @@ async def emit_face_alert(
     names = names or []
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
-    title, body = _compose(event_type, alias, names, count, ts, similarities)
+    title, body = _compose(
+        event_type, alias, names, count, ts, similarities, person_count,
+    )
     severity = "warning" if event_type in ("face_unknown", "face_unsure") else "info"
     # Personalisierung: NUR beim sicheren Match (face_known) ALLE Namen
     # an die VLM-Beschreibung durchreichen — dann nennt das VLM jede
     # erkannte Person beim Namen statt "ein Mann mit Brille". Bei unsure/
     # unknown bewusst NICHT: ein eingeflüsterter Name würde das VLM zu
     # einer Falschbehauptung verleiten (Suggestiv-Falle).
-    meta = (
-        {"identity_names": names}
-        if event_type == "face_known" and names else None
-    )
+    meta: dict[str, Any] = {}
+    if event_type == "face_known" and names:
+        meta["identity_names"] = names
+    # Der Cluster als eigenes Feld: der Alert-Pfad beschreibt darüber die
+    # GANZE Bildserie und persistiert die Beschreibung zurück. NICHT über
+    # den dedup_key ableitbar — Burst-Bilanzen hängen dort einen Laufindex an.
+    if cluster_id:
+        meta["cluster_id"] = cluster_id
+    if person_count > 0:
+        meta["person_count"] = person_count
+    if previous_description.strip():
+        meta["previous_description"] = previous_description.strip()
     await _emit(
         source_id=source_id,
         category=event_type,
@@ -289,8 +326,9 @@ async def emit_face_alert(
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         crop_url=crop_url,
+        extra_crop_urls=extra_crop_urls,
         timestamp=ts,
-        metadata=meta,
+        metadata=meta or None,
         store=store,
     )
 
@@ -305,10 +343,14 @@ async def emit_person_alert(
     timestamp: datetime | None = None,
     store: Any = None,
     dedup_key: str | None = None,
+    previous_description: str = "",
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
-    with no recognisable face."""
+    with no recognisable face.
+
+    ``previous_description``: vorherige Bilanz desselben laufenden
+    Vorkommnisses, an die das VLM anknüpft."""
     if not _vigilantia_armed():
         return
     if not _alerts_enabled(source_id, store):
@@ -319,6 +361,13 @@ async def emit_person_alert(
     alias = _source_alias(source_id, store)
     when = ts.strftime("%H:%M")
     title = "🚶 Person erkannt" if count == 1 else f"🚶 {count} Personen erkannt"
+    meta: dict[str, Any] = {}
+    if cluster_id:
+        meta["cluster_id"] = cluster_id
+    if count > 0:
+        meta["person_count"] = count
+    if previous_description.strip():
+        meta["previous_description"] = previous_description.strip()
     await _emit(
         source_id=source_id,
         category="person",
@@ -330,6 +379,7 @@ async def emit_person_alert(
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         timestamp=ts,
+        metadata=meta or None,
         store=store,
     )
 
@@ -384,6 +434,7 @@ async def emit_object_alert(
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         timestamp=ts,
+        metadata={"cluster_id": cluster_id} if cluster_id else None,
         store=store,
     )
 
@@ -416,6 +467,10 @@ class BurstReport:
         self._best_face_band = ""
         self._face_count_max = 0
         self._face_sims: list[float] = []
+        # Bester Kopfausschnitt PRO PERSON: identity_key → (score, crop_url).
+        # So zeigt die Galerie jede gesehene Person, nicht nur die am besten
+        # erkannte — auch die, deren Gesicht nie einem Namen zugeordnet wurde.
+        self._crops_by_identity: dict[str, tuple[float, str]] = {}
         # Bester Personen-Tick (kein Gesicht): höchster YOLO-Score.
         self._best_person: float = -1.0
         self._best_person_paths: tuple[str, str] = ("", "")
@@ -425,13 +480,18 @@ class BurstReport:
         self._sent_band_rank = -1
         self._sent_names: set[str] = set()
         self._sent_person_count = 0
+        self._last_sent_at: datetime | None = None
+        # Zuletzt gemeldete VLM-Beschreibung — die Folge-Bilanz reicht sie
+        # als Historie weiter, damit das VLM an den bisherigen Ablauf
+        # anknüpft statt jedes Mal bei null anzufangen.
+        self._last_description = ""
 
     # ── Beobachtungen ────────────────────────────────────────────────
 
     def observe_face(
         self, band: str, name: str, similarity: float, det_score: float,
         frame_path: str, zoom_frame_path: str, crop_url: str,
-        faces_in_tick: int = 1,
+        faces_in_tick: int = 1, identity_key: str = "",
     ) -> None:
         rank = _BAND_RANK.get(band, 1)
         if band == "face_known" and name:
@@ -439,16 +499,30 @@ class BurstReport:
             self.known_named[name] = max(prev, float(similarity))
         self._face_sims.append(float(similarity))
         self._face_count_max = max(self._face_count_max, int(faces_in_tick))
+        # Bester Ausschnitt je Person — Schlüssel ist die Identität des
+        # Crop-Stores (Name bzw. unknown_N), gewichtet nach Detektionsgüte.
+        key = identity_key or name or crop_url
+        if crop_url and key:
+            prev_crop = self._crops_by_identity.get(key)
+            if prev_crop is None or float(det_score) > prev_crop[0]:
+                self._crops_by_identity[key] = (float(det_score), crop_url)
         score = float(similarity) if rank > 1 else float(det_score)
         if (rank, score) > self._best_face:
             self._best_face = (rank, score)
             self._best_face_paths = (frame_path, zoom_frame_path, crop_url)
             self._best_face_band = band
 
+    def observe_headcount(self, count: int) -> None:
+        """Personenzahl eines Ticks (Objekterkennung) — läuft in JEDEM Tick,
+        auch wenn Gesichter gefunden wurden. Sonst bliebe die Bilanz genau
+        dort blind, wo sie am meisten weiß: Begleiter ohne erkanntes
+        Gesicht tauchten weder im Titel noch im VLM-Prompt auf."""
+        self._person_count_max = max(self._person_count_max, int(count))
+
     def observe_person(
         self, count: int, score: float, frame_path: str, zoom_frame_path: str,
     ) -> None:
-        self._person_count_max = max(self._person_count_max, int(count))
+        self.observe_headcount(count)
         if float(score) > self._best_person:
             self._best_person = float(score)
             self._best_person_paths = (frame_path, zoom_frame_path)
@@ -466,10 +540,14 @@ class BurstReport:
         return self._current_band_rank() >= 0
 
     def due(self, deadline_sec: float) -> bool:
-        """Erste Bilanz fällig? (Deadline erreicht, noch nichts gemeldet.)"""
-        if self._sent_messages or not self.has_observations():
+        """Bilanz fällig? Die erste nach ``deadline_sec`` ab Burst-Beginn,
+        danach fortlaufend im selben Takt, solange der Burst läuft — ein
+        langer Vorbeigang wird so als Serie von Zwischenständen
+        dokumentiert statt in einer Meldung am Ende."""
+        if not self.has_observations():
             return False
-        return (datetime.now() - self.started).total_seconds() >= deadline_sec
+        since = self._last_sent_at or self.started
+        return (datetime.now() - since).total_seconds() >= deadline_sec
 
     def pending_final(self) -> bool:
         """Beim Burst-Ende: muss noch eine (letzte) Meldung raus?
@@ -513,10 +591,13 @@ class BurstReport:
                 frame_path=frame_path,
                 zoom_frame_path=zoom_path,
                 crop_url=crop_url,
+                extra_crop_urls=self._identity_crop_urls(),
                 cluster_id=self.cluster_id,
                 names=names,
                 count=max(self._face_count_max, len(names), 1),
                 similarities=sims,
+                person_count=self._person_count_max,
+                previous_description=self._last_description,
                 store=self._store,
                 dedup_key=key,
             )
@@ -528,9 +609,40 @@ class BurstReport:
                 zoom_frame_path=zoom_path,
                 cluster_id=self.cluster_id,
                 count=max(self._person_count_max, 1),
+                previous_description=self._last_description,
                 store=self._store,
                 dedup_key=key,
             )
         self._sent_band_rank = self._current_band_rank()
         self._sent_names = set(self.known_named)
         self._sent_person_count = self._person_count_max
+        self._last_sent_at = datetime.now()
+        # Beschreibung dieser Bilanz als Historie für die nächste merken.
+        # Der Alert-Pfad schreibt sie in die Cluster-Events zurück — von
+        # dort holen wir sie, statt einen zweiten Rückkanal zu bauen.
+        self._last_description = self._cluster_description()
+
+    def _identity_crop_urls(self) -> list[str]:
+        """Kopfausschnitte aller im Burst gesehenen Personen, beste zuerst.
+        Gedeckelt (``VISION_ALERT_MAX_CROPS``) — bei einem Gesicht, das über
+        viele Ticks nie sicher gematcht wird, legt der Crop-Store mehrere
+        Identitäten an; die Galerie soll davon nicht überlaufen."""
+        from .config import VISION_ALERT_MAX_CROPS
+        ranked = sorted(
+            self._crops_by_identity.values(), key=lambda it: it[0], reverse=True,
+        )
+        return [url for _score, url in ranked[:VISION_ALERT_MAX_CROPS]]
+
+    def _cluster_description(self) -> str:
+        """Die vom Alert-Pfad persistierte VLM-Beschreibung des Clusters."""
+        if not self.cluster_id or self._store is None:
+            return ""
+        try:
+            for eid in self._store.list_cluster_event_ids(self.cluster_id):
+                ev = self._store.get_event(int(eid))
+                desc = str((ev or {}).get("classification", {}).get("description") or "")
+                if desc:
+                    return desc
+        except Exception as e:  # noqa: BLE001
+            logger.warning("burst: reading cluster description failed: %s", e)
+        return ""
