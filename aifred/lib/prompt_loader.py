@@ -892,21 +892,6 @@ def get_vision_headcount_context_prompt(
         return f.read().strip().replace("{count}", str(count))
 
 
-def get_vision_history_context_prompt(
-    previous: str, lang: Optional[str] = None
-) -> str:
-    """Historien-Kontext für Folge-Bilanzen eines noch laufenden
-    Vorkommnisses: die vorherige Beschreibung als Anknüpfungspunkt, mit
-    ausdrücklichem Vorrang der Bilder (sonst zementiert das VLM eigene
-    Fehler über alle Folge-Bilanzen). In
-    ``prompts/{lang}/vision/vision_history_context.txt`` ({previous})."""
-    if lang is None:
-        lang = _current_language
-    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_history_context.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        return f.read().strip().replace("{previous}", previous.strip())
-
-
 def get_vision_continuous_first_prompt(lang: Optional[str] = None) -> str:
     """Prompt für den ersten Continuous-VLM-Call nach Watch-Start (Live-
     Teleprompter, noch keine History). In

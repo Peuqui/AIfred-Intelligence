@@ -269,7 +269,7 @@ async def emit_face_alert(
     dedup_key: str | None = None,
     person_count: int = 0,
     extra_crop_urls: list[str] | None = None,
-    previous_description: str = "",
+    segment_event_ids: list[int] | None = None,
 ) -> None:
     """Emit an aggregated face-band detection as a proactive AlertEvent —
     one per band per happening, only while armed. ``names`` = alle erkannten
@@ -279,8 +279,9 @@ async def emit_face_alert(
     ``person_count``: von der Objekterkennung gezählte Personen (Titel-Zusatz
     „+ N weitere" und Fakt fürs VLM). ``extra_crop_urls``: Kopfausschnitte
     ALLER im Vorkommnis gesehenen Personen für die Galerie.
-    ``previous_description``: vorherige Bilanz desselben laufenden
-    Vorkommnisses, an die das VLM anknüpft."""
+    ``segment_event_ids``: die seit
+    der letzten Bilanz dazugekommenen Events — nur DIESE beschreibt das VLM
+    (Kapitel), und nur an diesen hängt die Beschreibung."""
     if event_type not in _ALERT_EVENT_TYPES:
         return
     if not _vigilantia_armed():
@@ -311,8 +312,8 @@ async def emit_face_alert(
         meta["cluster_id"] = cluster_id
     if person_count > 0:
         meta["person_count"] = person_count
-    if previous_description.strip():
-        meta["previous_description"] = previous_description.strip()
+    if segment_event_ids:
+        meta["segment_event_ids"] = list(segment_event_ids)
     await _emit(
         source_id=source_id,
         category=event_type,
@@ -343,14 +344,13 @@ async def emit_person_alert(
     timestamp: datetime | None = None,
     store: Any = None,
     dedup_key: str | None = None,
-    previous_description: str = "",
+    segment_event_ids: list[int] | None = None,
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
     with no recognisable face.
 
-    ``previous_description``: vorherige Bilanz desselben laufenden
-    Vorkommnisses, an die das VLM anknüpft."""
+"""
     if not _vigilantia_armed():
         return
     if not _alerts_enabled(source_id, store):
@@ -366,8 +366,8 @@ async def emit_person_alert(
         meta["cluster_id"] = cluster_id
     if count > 0:
         meta["person_count"] = count
-    if previous_description.strip():
-        meta["previous_description"] = previous_description.strip()
+    if segment_event_ids:
+        meta["segment_event_ids"] = list(segment_event_ids)
     await _emit(
         source_id=source_id,
         category="person",
@@ -492,10 +492,12 @@ class BurstReport:
         # Cluster bis zu ihrem Versandbeginn — aufgestaute Meldungen wären
         # inhaltlich dieselbe, nur älter.
         self._catch_up = False
-        # Zuletzt gemeldete VLM-Beschreibung — die Folge-Bilanz reicht sie
-        # als Historie weiter, damit das VLM an den bisherigen Ablauf
-        # anknüpft statt jedes Mal bei null anzufangen.
-        self._last_description = ""
+        # Bis zu dieser Event-Id ist das Vorkommnis beschrieben. Jede
+        # Bilanz beschreibt nur die seither dazugekommenen Bilder — sonst
+        # verteilt sich das feste Bild-Budget des VLM über eine immer
+        # längere Zeitspanne und die Beschreibung wird mit jeder Minute
+        # gröber (bei 5 min nur noch alle 30 s ein Bild).
+        self._described_up_to = 0
 
     # ── Beobachtungen ────────────────────────────────────────────────
 
@@ -600,7 +602,17 @@ class BurstReport:
                 # das Intervall; ab Versandende gemessen käme die nächste
                 # Bilanz sofort.
                 self._last_sent_at = datetime.now()
-                await self._send_once()
+                # Kapitel-Grenze JETZT ziehen: was während der Beschreibung
+                # hereinkommt, gehört ins nächste Kapitel (keine doppelt
+                # beschriebenen Bilder).
+                segment_ids = self._next_segment_ids()
+                if segment_ids:
+                    self._described_up_to = max(segment_ids)
+                # Nach der ersten Bilanz ohne neue Bilder gibt es nichts zu
+                # melden — ohne diese Bremse würde die Bilanz stattdessen
+                # das ganze Vorkommnis noch einmal beschreiben.
+                if segment_ids or self._sent_messages == 0:
+                    await self._send_once(segment_ids)
                 if not self._catch_up:
                     break
                 self._catch_up = False
@@ -612,7 +624,7 @@ class BurstReport:
         """Läuft gerade ein Versand (inkl. VLM-Beschreibung)?"""
         return self._sending
 
-    async def _send_once(self) -> None:
+    async def _send_once(self, segment_ids: list[int]) -> None:
         self._sent_messages += 1
         key = f"{self.cluster_id or self.source_id}:burst-report-{self._sent_messages}"
         band = self._best_face_band
@@ -642,7 +654,7 @@ class BurstReport:
                 count=max(self._face_count_max, len(names), 1),
                 similarities=sims,
                 person_count=self._person_count_max,
-                previous_description=self._last_description,
+                segment_event_ids=segment_ids,
                 store=self._store,
                 dedup_key=key,
             )
@@ -654,17 +666,26 @@ class BurstReport:
                 zoom_frame_path=zoom_path,
                 cluster_id=self.cluster_id,
                 count=max(self._person_count_max, 1),
-                previous_description=self._last_description,
+                segment_event_ids=segment_ids,
                 store=self._store,
                 dedup_key=key,
             )
         self._sent_band_rank = sent_band_rank
         self._sent_names = sent_names
         self._sent_person_count = sent_person_count
-        # Beschreibung dieser Bilanz als Historie für die nächste merken.
-        # Der Alert-Pfad schreibt sie in die Cluster-Events zurück — von
-        # dort holen wir sie, statt einen zweiten Rückkanal zu bauen.
-        self._last_description = self._cluster_description()
+
+    def _next_segment_ids(self) -> list[int]:
+        """Die seit der letzten Bilanz dazugekommenen Events dieses
+        Vorkommnisses — das nächste zu beschreibende Kapitel. Leer, wenn
+        nichts Neues da ist — dann gibt es auch nichts zu melden."""
+        if not self.cluster_id or self._store is None:
+            return []
+        try:
+            ids = self._store.list_cluster_event_ids(self.cluster_id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("burst: reading cluster events failed: %s", e)
+            return []
+        return sorted(i for i in ids if int(i) > self._described_up_to)
 
     def _identity_crop_urls(self) -> list[str]:
         """Kopfausschnitte aller im Burst gesehenen Personen, beste zuerst.
@@ -677,16 +698,3 @@ class BurstReport:
         )
         return [url for _score, url in ranked[:VISION_ALERT_MAX_CROPS]]
 
-    def _cluster_description(self) -> str:
-        """Die vom Alert-Pfad persistierte VLM-Beschreibung des Clusters."""
-        if not self.cluster_id or self._store is None:
-            return ""
-        try:
-            for eid in self._store.list_cluster_event_ids(self.cluster_id):
-                ev = self._store.get_event(int(eid))
-                desc = str((ev or {}).get("classification", {}).get("description") or "")
-                if desc:
-                    return desc
-        except Exception as e:  # noqa: BLE001
-            logger.warning("burst: reading cluster description failed: %s", e)
-        return ""

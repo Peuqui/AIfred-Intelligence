@@ -192,26 +192,45 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
     (``vision_event_analysis`` — SSoT für Prompt-Assemblierung, Keyframe-
     Auswahl und Persistierung):
 
-    * ``metadata["cluster_id"]`` gesetzt (Burst/Vorkommnis) → die GANZE
-      Bildserie als zeitliche Keyframe-Sequenz. So beschreibt das VLM den
-      Ablauf und sieht auch Personen, die im Best-Shot-Moment gar nicht
-      im Bild waren.
+    * ``metadata["segment_event_ids"]`` gesetzt (laufender Burst) → NUR
+      die seit der letzten Bilanz dazugekommenen Bilder als Kapitel. Das
+      feste Bild-Budget des VLM verteilt sich damit immer über dieselbe
+      kurze Zeitspanne, statt sich über ein wachsendes Vorkommnis zu
+      verdünnen (bei 5 Minuten sonst nur noch alle 30 s ein Bild).
+    * sonst ``metadata["cluster_id"]`` → die ganze Bildserie als
+      zeitliche Keyframe-Sequenz (Einzel-Trigger ohne Burst).
     * sonst → die Bilder dieses einen Moments (Zoom + Weitwinkel-Kontext).
     """
-    from .vision_event_analysis import analyze_frames_with_vlm, describe_cluster_by_id
+    from .vision_event_analysis import (
+        analyze_cluster_with_vlm,
+        analyze_frames_with_vlm,
+        describe_cluster_by_id,
+    )
 
     identities = ev.metadata.get("identity_names") or []
     if isinstance(identities, str):  # Toleranz für Altformat
         identities = [identities]
     identities = [str(n).strip() for n in identities if str(n).strip()]
     headcount = int(ev.metadata.get("person_count") or 0)
-    history = str(ev.metadata.get("previous_description") or "")
+
+    segment_ids = [int(i) for i in (ev.metadata.get("segment_event_ids") or [])]
+    if segment_ids:
+        try:
+            return await analyze_cluster_with_vlm(
+                segment_ids, headcount=headcount,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "alert: segment VLM describe failed for %s (%d events): %s",
+                ev.source_id, len(segment_ids), e,
+            )
+            return None
 
     cluster_id = str(ev.metadata.get("cluster_id") or "")
     if cluster_id:
         try:
             return await describe_cluster_by_id(
-                cluster_id, headcount=headcount, history=history,
+                cluster_id, headcount=headcount,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(
@@ -250,7 +269,6 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
             source_id=ev.source_id or "",
             identity_names=identities,
             headcount=headcount,
-            history=history,
         )
     except Exception as e:  # noqa: BLE001
         logger.warning("alert: VLM describe failed for %s: %s", ev.source_id, e)
@@ -330,16 +348,28 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         # (mehrere gewollte Meldungen pro Vorkommnis), womit der Key auf
         # keinen Cluster mehr passt und die Beschreibung verloren ging.
         cluster = str(ev.metadata.get("cluster_id") or "")
-        if vlm_desc and ev.producer == "vision" and cluster:
+        segment = [int(i) for i in (ev.metadata.get("segment_event_ids") or [])]
+        if vlm_desc and ev.producer == "vision" and (segment or cluster):
             try:
                 from .vision_store import VisionStore
-                n = VisionStore().apply_cluster_description(
-                    cluster, vlm_desc, "alert-vlm",
-                )
+                store = VisionStore()
+                if segment:
+                    # Kapitel gehört an SEINE Bilder. Über den Cluster
+                    # geschrieben würde jedes Kapitel die vorherigen
+                    # überschreiben — im Casus bliebe nur das letzte.
+                    n = store.apply_description_to_events(
+                        segment, vlm_desc, "alert-vlm",
+                    )
+                    where = f"segment of {len(segment)} event(s)"
+                else:
+                    n = store.apply_cluster_description(
+                        cluster, vlm_desc, "alert-vlm",
+                    )
+                    where = f"cluster {cluster}"
                 if n:
                     logger.info(
                         "alert: persisted VLM description to %d event(s) "
-                        "in cluster %s", n, cluster,
+                        "in %s", n, where,
                     )
             except Exception as e:  # noqa: BLE001
                 logger.warning("alert: persist VLM description failed: %s", e)
