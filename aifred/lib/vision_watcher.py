@@ -945,6 +945,16 @@ class VisionWatcher:
                     )
                 )
 
+    @staticmethod
+    def _log_burst_send_result(task: "asyncio.Task[None]") -> None:
+        """Fehler einer nebenläufigen Bilanz sichtbar machen — ohne
+        done-Callback stirbt die Exception still im Task."""
+        if task.cancelled():
+            return
+        exc = task.exception()
+        if exc is not None:
+            logger.warning("burst report send failed: %s", exc)
+
     async def _face_hunt_burst(
         self,
         source_id: str,
@@ -988,6 +998,9 @@ class VisionWatcher:
         ticks = 0
         n_face = 0
         n_person = 0
+        # Laufende Bilanz-Versände: harte Referenz halten, sonst kann der
+        # GC einen Task mitten in der VLM-Beschreibung einsammeln.
+        pending_sends: set[asyncio.Task[None]] = set()
         try:
             while True:
                 if self._watch_generation.get(source_id, 0) != my_gen:
@@ -1018,12 +1031,19 @@ class VisionWatcher:
                     except Exception as e:  # noqa: BLE001
                         logger.warning("burst tick failed for %s: %s", source_id, e)
                 # Bilanz fällig (Deadline erreicht) oder Neuigkeiten seit
-                # der letzten Meldung → jetzt melden, Burst läuft weiter.
-                try:
-                    if report.due(deadline) or report.has_news():
-                        await report.send()
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("burst report send failed for %s: %s", source_id, e)
+                # der letzten Meldung → melden, Burst läuft weiter.
+                #
+                # NICHT awaiten: eine Bilanz beschreibt die ganze Serie per
+                # VLM und dauert damit länger als das Bilanz-Intervall
+                # (gemessen 17,4 s bei 8 Keyframes / 15 s Deadline). Awaiten
+                # hieße, den Burst genau währenddessen blind zu stellen — es
+                # gingen die Frames verloren, die das Ereignis dokumentieren.
+                # Überlappung verhindert der Report selbst (``is_sending``).
+                if report.due(deadline) or report.has_news():
+                    send_task = asyncio.create_task(report.send())
+                    send_task.add_done_callback(self._log_burst_send_result)
+                    pending_sends.add(send_task)
+                    send_task.add_done_callback(pending_sends.discard)
                 # Kamera-Flag prüfen: solange die Person gemeldet wird,
                 # läuft der Burst weiter (last_active wandert mit).
                 try:
@@ -1037,10 +1057,17 @@ class VisionWatcher:
                     pass
                 await asyncio.sleep(interval)
         except asyncio.CancelledError:
+            for task in pending_sends:
+                task.cancel()
             return
         finally:
             self._burst_tasks.pop(source_id, None)
             self._burst_reports.pop(source_id, None)
+        # Laufende Zwischen-Bilanz erst zu Ende bringen: sie hält die
+        # Historie, an die die Abschluss-Bilanz anknüpft — und
+        # ``pending_final`` kann erst danach beurteilen, was noch offen ist.
+        if pending_sends:
+            await asyncio.gather(*pending_sends, return_exceptions=True)
         # Abschluss-Bilanz (nur normales Burst-Ende — bei Cancel/Restart
         # oben schon returnt): noch nie gemeldet ODER Neuigkeiten seit
         # der letzten Meldung → jetzt raus damit.

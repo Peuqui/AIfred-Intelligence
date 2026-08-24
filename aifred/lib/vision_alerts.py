@@ -481,6 +481,17 @@ class BurstReport:
         self._sent_names: set[str] = set()
         self._sent_person_count = 0
         self._last_sent_at: datetime | None = None
+        # Läuft gerade ein Versand? Eine Bilanz umfasst die VLM-Beschreibung
+        # der ganzen Serie und dauert damit länger als das Bilanz-Intervall
+        # (gemessen 17,4 s bei 8 Keyframes auf dem 4B-Describer, Deadline
+        # 15 s). Ohne diese Sperre liefen Bilanzen übereinander.
+        self._sending = False
+        # Wurde während eines Versands die nächste Bilanz fällig? Dann wird
+        # sie NACHGEHOLT, nicht verworfen. Ein einzelnes Nachhol-Flag statt
+        # einer Warteschlange: jede Bilanz beschreibt ohnehin den kompletten
+        # Cluster bis zu ihrem Versandbeginn — aufgestaute Meldungen wären
+        # inhaltlich dieselbe, nur älter.
+        self._catch_up = False
         # Zuletzt gemeldete VLM-Beschreibung — die Folge-Bilanz reicht sie
         # als Historie weiter, damit das VLM an den bisherigen Ablauf
         # anknüpft statt jedes Mal bei null anzufangen.
@@ -573,12 +584,46 @@ class BurstReport:
     async def send(self) -> None:
         """Bilanz/Follow-up verschicken: bestes Bild + alle Namen. Der
         dedup_key trägt einen Laufindex — mehrere Meldungen pro
-        Vorkommnis sind hier GEWOLLT (Bilanz + Neuigkeiten)."""
+        Vorkommnis sind hier GEWOLLT (Bilanz + Neuigkeiten).
+
+        Läuft bereits ein Versand, wird die Bilanz vorgemerkt und direkt
+        im Anschluss nachgeholt — nie verworfen."""
         if not self.has_observations():
             return
+        if self._sending:
+            self._catch_up = True
+            return
+        self._sending = True
+        try:
+            while True:
+                # Takt ab VERSANDBEGINN: die Beschreibung dauert länger als
+                # das Intervall; ab Versandende gemessen käme die nächste
+                # Bilanz sofort.
+                self._last_sent_at = datetime.now()
+                await self._send_once()
+                if not self._catch_up:
+                    break
+                self._catch_up = False
+        finally:
+            self._sending = False
+            self._catch_up = False
+
+    def is_sending(self) -> bool:
+        """Läuft gerade ein Versand (inkl. VLM-Beschreibung)?"""
+        return self._sending
+
+    async def _send_once(self) -> None:
         self._sent_messages += 1
         key = f"{self.cluster_id or self.source_id}:burst-report-{self._sent_messages}"
         band = self._best_face_band
+        # Stand FESTHALTEN, bevor der Versand (mit VLM-Beschreibung, ~17 s)
+        # beginnt: der Burst tickt derweil weiter. Als „gemeldet" darf nur
+        # gelten, was auch wirklich in dieser Meldung steht — sonst
+        # verschluckt die Bilanz einen Namen, der mitten im Versand
+        # dazukam, und meldet ihn nie nach.
+        sent_band_rank = self._current_band_rank()
+        sent_names = set(self.known_named)
+        sent_person_count = self._person_count_max
         if band:
             names = list(self.known_named)
             sims = (
@@ -613,10 +658,9 @@ class BurstReport:
                 store=self._store,
                 dedup_key=key,
             )
-        self._sent_band_rank = self._current_band_rank()
-        self._sent_names = set(self.known_named)
-        self._sent_person_count = self._person_count_max
-        self._last_sent_at = datetime.now()
+        self._sent_band_rank = sent_band_rank
+        self._sent_names = sent_names
+        self._sent_person_count = sent_person_count
         # Beschreibung dieser Bilanz als Historie für die nächste merken.
         # Der Alert-Pfad schreibt sie in die Cluster-Events zurück — von
         # dort holen wir sie, statt einen zweiten Rückkanal zu bauen.
