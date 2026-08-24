@@ -371,10 +371,15 @@ async def _analyze_via_llamacpp(
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
         )
     content.append({"type": "text", "text": prompt})
+    from .config import VISION_DESCRIBE_MAX_TOKENS
     payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": content}],
         "stream": False,
+        # Antwortlänge deckeln: bei vielen fast gleichen Bildern läuft ein
+        # kleines VLM sonst in eine Wiederholungsschleife bis zum
+        # Kontextende (siehe VISION_DESCRIBE_MAX_TOKENS).
+        "max_tokens": VISION_DESCRIBE_MAX_TOKENS,
         # Bildbeschreibung braucht keine Denk-Phase — Qwen3.x-Templates
         # kennen den Schalter, andere Server ignorieren das Feld einfach.
         "chat_template_kwargs": {"enable_thinking": False},
@@ -397,8 +402,20 @@ async def _analyze_via_llamacpp(
         raise RuntimeError(f"VLM call failed: {e}") from e
     duration_ms = (time.perf_counter() - started) * 1000.0
 
-    message = (data.get("choices") or [{}])[0].get("message") or {}
+    choice = (data.get("choices") or [{}])[0]
+    message = choice.get("message") or {}
     text = str(message.get("content") or "").strip()
+    # Am Limit abgeschnitten? max_tokens ist ein HARTER Schnitt — die
+    # Beschreibung endet dann mitten im Satz. Das darf nicht still
+    # passieren: sichtbar im Log, damit der Deckel nachgezogen werden
+    # kann, falls er echte Beschreibungen kappt statt nur Schleifen.
+    if str(choice.get("finish_reason") or "") == "length":
+        logger.warning(
+            "VLM response hit max_tokens (model=%s, n_frames=%d, %d chars) — "
+            "description is cut off mid-sentence; raise "
+            "VISION_DESCRIBE_MAX_TOKENS if this is not a repetition loop",
+            model, n_frames, len(text),
+        )
     usage = data.get("usage") or {}
     # llama-server liefert ein eigenes timings-Objekt (prompt_ms,
     # predicted_per_second, …) — daraus dieselben Stats-Felder bauen wie
