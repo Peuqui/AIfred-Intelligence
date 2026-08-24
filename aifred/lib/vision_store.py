@@ -1169,6 +1169,43 @@ class VisionStore:
             )
             return cur.rowcount > 0
 
+    def apply_description_to_events(
+        self, event_ids: list[int], description: str, analyzed_by: str,
+    ) -> int:
+        """Beschreibung an GENAU diese Events schreiben. Returnt die Anzahl
+        aktualisierter Zeilen.
+
+        Gegenstück zu :meth:`apply_cluster_description` für abschnittsweise
+        beschriebene Vorkommnisse: ein langer Vorbeigang wird in Kapiteln
+        beschrieben (je ~15 s neue Bilder), und jedes Kapitel gehört an
+        SEINE Bilder. Über den Cluster geschrieben würde jedes neue Kapitel
+        die vorherigen überschreiben — im Casus bliebe nur das letzte."""
+        if not event_ids:
+            return 0
+        analyzed_at = datetime.now().isoformat(timespec="seconds")
+        updated = 0
+        with self._conn() as conn:
+            for eid in event_ids:
+                row = conn.execute(
+                    "SELECT classification FROM events WHERE id = ?", (int(eid),),
+                ).fetchone()
+                if row is None:
+                    continue
+                try:
+                    cls = json.loads(row["classification"] or "{}")
+                except Exception:  # noqa: BLE001
+                    cls = {}
+                cls["description"] = description
+                cls["analyzed_at"] = analyzed_at
+                cls["analyzed_by"] = analyzed_by
+                cls["analyzed_via"] = "segment"
+                conn.execute(
+                    "UPDATE events SET classification = ? WHERE id = ?",
+                    (json.dumps(cls), int(eid)),
+                )
+                updated += 1
+        return updated
+
     def confirm_event_identity(self, event_id: int) -> bool:
         """Die Identität dieser Aufnahme als geklärt markieren
         (``classification.identity_confirmed``) — durch den Nutzer beim

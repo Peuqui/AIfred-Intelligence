@@ -40,7 +40,6 @@ def build_vlm_prompt(
     first_frame_bytes: bytes = b"",
     identity_names: list[str] | None = None,
     headcount: int = 0,
-    history: str = "",
 ) -> str:
     """SSoT für die Prompt-Assemblierung ALLER Vigilantia-Beschreibungen
     (Einzelbild, Cluster-Sequenz, Live-Alert).
@@ -52,14 +51,12 @@ def build_vlm_prompt(
     2. Kamera-Briefing der Quelle (worauf blickt die Kamera),
     3. der Basis-Prompt (Einzelbild oder Sequenz),
     4. Personenzahl aus der Objekterkennung,
-    5. Historie der vorherigen Bilanz (laufendes Vorkommnis),
-    6. sicher erkannte Identitäten — ganz ans ENDE: das 4B-VLM ignoriert
+    5. sicher erkannte Identitäten — ganz ans ENDE: das 4B-VLM ignoriert
        die Namens-Anweisung am Anfang, folgt ihr am Ende zuverlässig
        (live verifiziert 23.08.2026).
     """
     from .prompt_loader import (
         get_vision_headcount_context_prompt,
-        get_vision_history_context_prompt,
         get_vision_identity_context_prompt,
         get_vision_ir_context_prompt,
     )
@@ -74,8 +71,6 @@ def build_vlm_prompt(
         prompt = f"{get_vision_ir_context_prompt()}\n\n{prompt}"
     if headcount > 1:
         prompt = f"{prompt}\n\n{get_vision_headcount_context_prompt(headcount)}"
-    if history.strip():
-        prompt = f"{prompt}\n\n{get_vision_history_context_prompt(history)}"
     names = [str(n).strip() for n in (identity_names or []) if str(n).strip()]
     if names:
         prompt = f"{prompt}\n\n{get_vision_identity_context_prompt(names)}"
@@ -89,7 +84,6 @@ async def analyze_frames_with_vlm(
     source_id: str = "",
     identity_names: list[str] | None = None,
     headcount: int = 0,
-    history: str = "",
     model: str | None = None,
 ) -> str:
     """SSoT-VLM-Call für Vigilantia: Prompt assemblieren (build_vlm_prompt)
@@ -110,7 +104,6 @@ async def analyze_frames_with_vlm(
         first_frame_bytes=frames[0].image_bytes,
         identity_names=identity_names,
         headcount=headcount,
-        history=history,
     )
     result = await analyze_sequence(frames, prompt, model=str(target_model))
     description = (result.text or "").strip()
@@ -270,7 +263,6 @@ async def analyze_cluster_with_vlm(
     model: str | None = None,
     max_frames: int | None = None,
     headcount: int = 0,
-    history: str = "",
 ) -> str:
     """Beschreibt ein Vorkommnis (Cluster) als zeitliche Bildfolge.
 
@@ -282,7 +274,6 @@ async def analyze_cluster_with_vlm(
     (``event_ids[0]``); der Bulk-Worker verteilt sie auf alle Mitglieder.
 
     ``headcount``: von der Objekterkennung gezählte Personen (Alert-Pfad).
-    ``history``: vorherige Bilanz desselben, noch laufenden Vorkommnisses.
     """
     from .config import VISION_DESCRIBE_MAX_FRAMES
     from .frame_sources import Frame
@@ -351,7 +342,6 @@ async def analyze_cluster_with_vlm(
         source_id=frames[0].source_id,
         identity_names=identity_names,
         headcount=headcount,
-        history=history,
         model=str(target_model),
     )
 
@@ -376,7 +366,6 @@ async def describe_cluster_by_id(
     *,
     store: VisionStore | None = None,
     headcount: int = 0,
-    history: str = "",
     model: str | None = None,
 ) -> str:
     """Vorkommnis über seine ``cluster_id`` als Bildfolge beschreiben —
@@ -388,5 +377,5 @@ async def describe_cluster_by_id(
     if not event_ids:
         raise ValueError(f"cluster {cluster_id} has no events with frames")
     return await analyze_cluster_with_vlm(
-        event_ids, store=store, headcount=headcount, history=history, model=model,
+        event_ids, store=store, headcount=headcount, model=model,
     )
