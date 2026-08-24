@@ -184,12 +184,42 @@ def _format(ev: AlertEvent) -> str:
 
 
 async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
-    """Beschreibt den Alert-Frame (``ev.media``) mit dem aktiven VLM und
-    returnt eine kurze Szenenbeschreibung — oder ``None`` bei Fehlschlag
-    (kein Frame, Modell nicht geladen, leere Antwort). Einzelbild über den
-    geteilten VLM-Pfad (``analyze_sequence`` → Downscale auf
-    VISION_VLM_MAX_PIXELS). Stellt das Kamera-Briefing (``prompt_context``)
-    als Kontext voran, damit das VLM weiß, worauf die Kamera blickt."""
+    """Beschreibt das Vorkommnis des Alerts mit dem aktiven VLM und returnt
+    die Szenenbeschreibung — oder ``None`` bei Fehlschlag (kein Frame,
+    Modell nicht geladen, leere Antwort).
+
+    Zwei Fälle, beide über den geteilten Vigilantia-Beschreiber
+    (``vision_event_analysis`` — SSoT für Prompt-Assemblierung, Keyframe-
+    Auswahl und Persistierung):
+
+    * ``metadata["cluster_id"]`` gesetzt (Burst/Vorkommnis) → die GANZE
+      Bildserie als zeitliche Keyframe-Sequenz. So beschreibt das VLM den
+      Ablauf und sieht auch Personen, die im Best-Shot-Moment gar nicht
+      im Bild waren.
+    * sonst → die Bilder dieses einen Moments (Zoom + Weitwinkel-Kontext).
+    """
+    from .vision_event_analysis import analyze_frames_with_vlm, describe_cluster_by_id
+
+    identities = ev.metadata.get("identity_names") or []
+    if isinstance(identities, str):  # Toleranz für Altformat
+        identities = [identities]
+    identities = [str(n).strip() for n in identities if str(n).strip()]
+    headcount = int(ev.metadata.get("person_count") or 0)
+    history = str(ev.metadata.get("previous_description") or "")
+
+    cluster_id = str(ev.metadata.get("cluster_id") or "")
+    if cluster_id:
+        try:
+            return await describe_cluster_by_id(
+                cluster_id, headcount=headcount, history=history,
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning(
+                "alert: cluster VLM describe failed for %s (%s): %s",
+                ev.source_id, cluster_id, e,
+            )
+            return None
+
     if not ev.media:
         return None
     from pathlib import Path
@@ -198,58 +228,30 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
         return None
     try:
         from datetime import datetime as _dt
+
         from .frame_sources import Frame
         from .prompt_loader import get_vision_event_single_prompt
-        from .vision_analyzer import analyze_sequence
-        from .vision_prewarm import get_active_vlm_model
-        from .vision_utils import get_source_briefing
 
-        model = get_active_vlm_model()
-        if not model:
-            return None
-        prompt = get_vision_event_single_prompt().strip()
-        briefing = get_source_briefing(ev.source_id or "")
-        if briefing:
-            prompt = f"{briefing}\n\n{prompt}"
-        # IR-/Nachtaufnahme? Dann dem VLM sagen, dass Grauwerte keine
-        # Farben sind — sonst wird dunkle Kleidung als "hell" beschrieben.
-        subject_bytes = frame_file.read_bytes()
-        from .prompt_loader import get_vision_ir_context_prompt
-        from .vision_utils import is_grayscale_image
-        if is_grayscale_image(subject_bytes):
-            prompt = f"{get_vision_ir_context_prompt()}\n\n{prompt}"
-        # Personalisierung: hat die Gesichtserkennung eine Person sicher
-        # identifiziert (emit_face_alert setzt das nur bei face_known),
-        # bekommt das VLM den Namen — so wird aus "ein Mann mit Brille"
-        # ein "Peuqui sitzt am Schreibtisch". Nur als Fakt vorangestellt,
-        # nicht suggestiv ("prüfe ob…"), das Match steht ja schon fest.
-        identities = ev.metadata.get("identity_names") or []
-        if isinstance(identities, str):  # Toleranz für Altformat
-            identities = [identities]
-        identities = [str(n).strip() for n in identities if str(n).strip()]
-        if identities:
-            # ANS ENDE des Prompts — das 4B-VLM ignoriert die Namens-
-            # Anweisung am Anfang, folgt ihr am Ende zuverlässig
-            # (live verifiziert 23.08.2026).
-            from .prompt_loader import get_vision_identity_context_prompt
-            prompt = (
-                f"{prompt}\n\n{get_vision_identity_context_prompt(identities)}"
-            )
         # Subjekt-Ansicht (Zoom) zuerst, dann die Weitwinkel-Kontext-Ansicht
         # desselben Moments — das VLM sieht Nahaufnahme UND Szene. Der Crop
         # entfällt bewusst (das Gesicht hat InsightFace bereits erkannt; das VLM
         # macht Kontext-Beschreibung, keine Re-Identifikation).
         ts_v = ev.timestamp or _dt.now()
         frames = [Frame(source_id=ev.source_id or "", timestamp=ts_v,
-                        image_bytes=subject_bytes)]
+                        image_bytes=frame_file.read_bytes())]
         if ev.media_context:
             ctx_file = Path(ev.media_context)
             if ctx_file.exists():
                 frames.append(Frame(source_id=ev.source_id or "", timestamp=ts_v,
                                     image_bytes=ctx_file.read_bytes()))
-        result = await analyze_sequence(frames, prompt, model=str(model))
-        desc = (result.text or "").strip()
-        return desc or None
+        return await analyze_frames_with_vlm(
+            frames,
+            base_prompt=get_vision_event_single_prompt(),
+            source_id=ev.source_id or "",
+            identity_names=identities,
+            headcount=headcount,
+            history=history,
+        )
     except Exception as e:  # noqa: BLE001
         logger.warning("alert: VLM describe failed for %s: %s", ev.source_id, e)
         return None
@@ -323,17 +325,21 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         # der Alert hat das VLM ohnehin laufen lassen — so erscheint der
         # Text sofort im Casus-Log UND der nächtliche bulk-describe
         # überspringt diese Events (kein zweiter VLM-Lauf für dasselbe
-        # Vorkommnis). dedup_key IST der cluster_id (siehe vision_alerts).
-        if vlm_desc and ev.producer == "vision" and ev.dedup_key:
+        # Vorkommnis). Der Cluster kommt aus den Metadaten, NICHT aus dem
+        # dedup_key: Burst-Bilanzen hängen dort einen Laufindex an
+        # (mehrere gewollte Meldungen pro Vorkommnis), womit der Key auf
+        # keinen Cluster mehr passt und die Beschreibung verloren ging.
+        cluster = str(ev.metadata.get("cluster_id") or "")
+        if vlm_desc and ev.producer == "vision" and cluster:
             try:
                 from .vision_store import VisionStore
                 n = VisionStore().apply_cluster_description(
-                    ev.dedup_key, vlm_desc, "alert-vlm",
+                    cluster, vlm_desc, "alert-vlm",
                 )
                 if n:
                     logger.info(
                         "alert: persisted VLM description to %d event(s) "
-                        "in cluster %s", n, ev.dedup_key,
+                        "in cluster %s", n, cluster,
                     )
             except Exception as e:  # noqa: BLE001
                 logger.warning("alert: persist VLM description failed: %s", e)

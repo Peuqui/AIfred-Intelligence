@@ -33,6 +33,92 @@ def _load_frame_bytes(frame_path: str) -> bytes:
     return p.read_bytes()
 
 
+def build_vlm_prompt(
+    base_prompt: str,
+    *,
+    source_id: str = "",
+    first_frame_bytes: bytes = b"",
+    identity_names: list[str] | None = None,
+    headcount: int = 0,
+    history: str = "",
+) -> str:
+    """SSoT für die Prompt-Assemblierung ALLER Vigilantia-Beschreibungen
+    (Einzelbild, Cluster-Sequenz, Live-Alert).
+
+    Reihenfolge — jeder Baustein optional:
+
+    1. IR-Warnung, wenn das erste Bild Graustufen ist (sonst wird dunkle
+       Kleidung als „hell" beschrieben),
+    2. Kamera-Briefing der Quelle (worauf blickt die Kamera),
+    3. der Basis-Prompt (Einzelbild oder Sequenz),
+    4. Personenzahl aus der Objekterkennung,
+    5. Historie der vorherigen Bilanz (laufendes Vorkommnis),
+    6. sicher erkannte Identitäten — ganz ans ENDE: das 4B-VLM ignoriert
+       die Namens-Anweisung am Anfang, folgt ihr am Ende zuverlässig
+       (live verifiziert 23.08.2026).
+    """
+    from .prompt_loader import (
+        get_vision_headcount_context_prompt,
+        get_vision_history_context_prompt,
+        get_vision_identity_context_prompt,
+        get_vision_ir_context_prompt,
+    )
+    from .vision_utils import get_source_briefing, is_grayscale_image
+
+    prompt = base_prompt.strip()
+    if source_id:
+        briefing = get_source_briefing(source_id)
+        if briefing:
+            prompt = f"{briefing}\n\n{prompt}"
+    if first_frame_bytes and is_grayscale_image(first_frame_bytes):
+        prompt = f"{get_vision_ir_context_prompt()}\n\n{prompt}"
+    if headcount > 1:
+        prompt = f"{prompt}\n\n{get_vision_headcount_context_prompt(headcount)}"
+    if history.strip():
+        prompt = f"{prompt}\n\n{get_vision_history_context_prompt(history)}"
+    names = [str(n).strip() for n in (identity_names or []) if str(n).strip()]
+    if names:
+        prompt = f"{prompt}\n\n{get_vision_identity_context_prompt(names)}"
+    return prompt
+
+
+async def analyze_frames_with_vlm(
+    frames: list[Any],
+    *,
+    base_prompt: str,
+    source_id: str = "",
+    identity_names: list[str] | None = None,
+    headcount: int = 0,
+    history: str = "",
+    model: str | None = None,
+) -> str:
+    """SSoT-VLM-Call für Vigilantia: Prompt assemblieren (build_vlm_prompt)
+    und die Frames durch ``analyze_sequence`` schicken. Returnt den Text,
+    wirft bei leerer Antwort. Persistiert NICHT — das machen die Caller,
+    die wissen, an welchem Event die Beschreibung hängt."""
+    from .vision_analyzer import analyze_sequence
+    from .vision_prewarm import get_active_vlm_model
+
+    if not frames:
+        raise ValueError("analyze_frames_with_vlm requires at least one frame")
+    target_model = model or get_active_vlm_model()
+    if not target_model:
+        raise RuntimeError("no VLM model configured")
+    prompt = build_vlm_prompt(
+        base_prompt,
+        source_id=source_id,
+        first_frame_bytes=frames[0].image_bytes,
+        identity_names=identity_names,
+        headcount=headcount,
+        history=history,
+    )
+    result = await analyze_sequence(frames, prompt, model=str(target_model))
+    description = (result.text or "").strip()
+    if not description:
+        raise RuntimeError("VLM returned empty response")
+    return description
+
+
 async def analyze_event_with_vlm(
     event_id: int,
     *,
@@ -66,17 +152,12 @@ async def analyze_event_with_vlm(
     # Dispatch + Downscale leben dort, kein eigener Ollama-Call mehr).
     from .frame_sources import Frame
     from .prompt_loader import get_vision_event_single_prompt
-    from .vision_analyzer import analyze_sequence
     from .vision_prewarm import get_active_vlm_model
-    from .vision_utils import get_source_briefing
 
     target_model = model or get_active_vlm_model()
     if not target_model:
         raise RuntimeError("no VLM model configured")
     target_prompt = (prompt or get_vision_event_single_prompt()).strip()
-    briefing = get_source_briefing(str(target.get("source_id") or ""))
-    if briefing:
-        target_prompt = f"{briefing}\n\n{target_prompt}"
 
     try:
         ts = datetime.fromisoformat(str(target.get("timestamp")))
@@ -97,16 +178,9 @@ async def analyze_event_with_vlm(
     if not frames:
         raise FileNotFoundError(f"frame not on disk: {frame_path}")
 
-    # IR-/Nachtaufnahme → Grauwerte-Warnung voranstellen (SSoT-Template).
-    from .prompt_loader import get_vision_ir_context_prompt
-    from .vision_utils import is_grayscale_image
-    if is_grayscale_image(frames[0].image_bytes):
-        target_prompt = f"{get_vision_ir_context_prompt()}\n\n{target_prompt}"
-
-    # Sicher erkannte Identität als Fakt voranstellen (SSoT-Template mit
-    # Alert-Pfad und Teleprompter) — sonst beschreibt das VLM "einen Mann",
-    # während das Event längst "Lord Helmchen" heißt. Der faces-Join deckt
-    # auch nachgetaggte Events ab (dort fehlt matched_name).
+    # Sicher erkannte Identität als Fakt mitgeben — sonst beschreibt das VLM
+    # "einen Mann", während das Event längst "Lord Helmchen" heißt. Der
+    # faces-Join deckt auch nachgetaggte Events ab (dort fehlt matched_name).
     names: list[str] = []
     _cls = dict(target.get("classification") or {})
     fid = target.get("face_id")
@@ -116,18 +190,14 @@ async def analyze_event_with_vlm(
             names = [str(face["name"])]
     elif _cls.get("confidence_band") == "known" and _cls.get("matched_name"):
         names = [str(_cls["matched_name"])]
-    if names:
-        # Ans Prompt-ENDE — dort befolgt das kleine VLM die Namens-
-        # Anweisung zuverlässig (am Anfang wurde sie ignoriert).
-        from .prompt_loader import get_vision_identity_context_prompt
-        target_prompt = (
-            f"{target_prompt}\n\n{get_vision_identity_context_prompt(names)}"
-        )
 
-    result = await analyze_sequence(frames, target_prompt, model=str(target_model))
-    description = (result.text or "").strip()
-    if not description:
-        raise RuntimeError("VLM returned empty response")
+    description = await analyze_frames_with_vlm(
+        frames,
+        base_prompt=target_prompt,
+        source_id=source_id,
+        identity_names=names,
+        model=str(target_model),
+    )
 
     # Beschreibung in classification persistieren — wir mergen mit
     # bestehender classification (crop_url, bbox etc. bleiben erhalten).
@@ -199,6 +269,8 @@ async def analyze_cluster_with_vlm(
     store: VisionStore | None = None,
     model: str | None = None,
     max_frames: int | None = None,
+    headcount: int = 0,
+    history: str = "",
 ) -> str:
     """Beschreibt ein Vorkommnis (Cluster) als zeitliche Bildfolge.
 
@@ -208,11 +280,13 @@ async def analyze_cluster_with_vlm(
     nicht nur ein statisches Einzelbild. Bei einem Mitglied identisch zur
     Einzelbild-Analyse. Persistiert die Beschreibung am Repräsentanten
     (``event_ids[0]``); der Bulk-Worker verteilt sie auf alle Mitglieder.
+
+    ``headcount``: von der Objekterkennung gezählte Personen (Alert-Pfad).
+    ``history``: vorherige Bilanz desselben, noch laufenden Vorkommnisses.
     """
     from .config import VISION_DESCRIBE_MAX_FRAMES
     from .frame_sources import Frame
     from .prompt_loader import get_vision_event_sequence_prompt
-    from .vision_analyzer import analyze_sequence
     from .vision_prewarm import get_active_vlm_model
 
     if not event_ids:
@@ -269,28 +343,17 @@ async def analyze_cluster_with_vlm(
     if not target_model:
         raise RuntimeError("no VLM model configured")
     target_prompt = (prompt or get_vision_event_sequence_prompt()).strip()
-    # Kamera-Briefing der Quelle des Repräsentanten voranstellen — Cluster
-    # sind pro Quelle homogen (cluster_id entsteht pro Source).
-    from .vision_utils import get_source_briefing
-    briefing = get_source_briefing(frames[0].source_id)
-    if briefing:
-        target_prompt = f"{briefing}\n\n{target_prompt}"
-    from .prompt_loader import get_vision_ir_context_prompt
-    from .vision_utils import is_grayscale_image
-    if is_grayscale_image(frames[0].image_bytes):
-        target_prompt = f"{get_vision_ir_context_prompt()}\n\n{target_prompt}"
-    if identity_names:
-        # Ans Prompt-ENDE (siehe Einzelbild-Pfad).
-        from .prompt_loader import get_vision_identity_context_prompt
-        target_prompt = (
-            f"{target_prompt}\n\n"
-            f"{get_vision_identity_context_prompt(identity_names)}"
-        )
-
-    result = await analyze_sequence(frames, target_prompt, model=str(target_model))
-    description = (result.text or "").strip()
-    if not description:
-        raise RuntimeError("VLM returned empty response")
+    # Kamera-Briefing über die Quelle des Repräsentanten — Cluster sind pro
+    # Quelle homogen (cluster_id entsteht pro Source).
+    description = await analyze_frames_with_vlm(
+        frames,
+        base_prompt=target_prompt,
+        source_id=frames[0].source_id,
+        identity_names=identity_names,
+        headcount=headcount,
+        history=history,
+        model=str(target_model),
+    )
 
     repr_id = int(event_ids[0])
     target = store.get_event(repr_id)
@@ -306,3 +369,24 @@ async def analyze_cluster_with_vlm(
         repr_id, len(event_ids), len(frames), target_model, len(description),
     )
     return description
+
+
+async def describe_cluster_by_id(
+    cluster_id: str,
+    *,
+    store: VisionStore | None = None,
+    headcount: int = 0,
+    history: str = "",
+    model: str | None = None,
+) -> str:
+    """Vorkommnis über seine ``cluster_id`` als Bildfolge beschreiben —
+    Einstieg für den Live-Alert-Pfad, der den Cluster kennt, aber keine
+    Event-IDs führt. Wirft ValueError, wenn der Cluster (noch) keine
+    Events mit Frames auf Disk hat."""
+    store = store or VisionStore()
+    event_ids = store.list_cluster_event_ids(cluster_id)
+    if not event_ids:
+        raise ValueError(f"cluster {cluster_id} has no events with frames")
+    return await analyze_cluster_with_vlm(
+        event_ids, store=store, headcount=headcount, history=history, model=model,
+    )

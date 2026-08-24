@@ -1,0 +1,1 @@
+Object detection counted up to {count} people at the same time in this image sequence. Describe each of these people individually — including those only partly visible, obscured, facing away or in the background. If you find fewer people in the images than were counted, describe only the ones you actually see.

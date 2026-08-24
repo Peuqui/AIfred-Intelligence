@@ -1,0 +1,1 @@
+Die Objekterkennung hat in dieser Bildfolge bis zu {count} Personen gleichzeitig gezählt. Beschreibe jede dieser Personen einzeln — auch die, die nur teilweise, verdeckt, abgewandt oder im Hintergrund zu sehen sind. Findest du in den Bildern weniger Personen als gezählt wurden, beschreibe nur die, die du tatsächlich siehst.

@@ -1092,25 +1092,31 @@ class VisionWatcher:
             logger.warning("burst face_detect failed: %s", e)
             detections = []
 
+        # Personen zählen — in JEDEM Tick, auch wenn Gesichter gefunden
+        # wurden. Ein Begleiter, dessen Gesicht nie gematcht wird (Hand
+        # davor, abgewandt, verdeckt), taucht sonst weder im Titel noch im
+        # VLM-Prompt auf; die Bilanz meldete nur den Erkannten.
+        try:
+            persons = await asyncio.to_thread(
+                person_detector.detect, wide_frame
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("burst person_detect failed: %s", e)
+            persons = []
+        if not persons and face_frame is not wide_frame:
+            # Nacht-/Fern-Fall: auf dem Weitwinkel ist die Person oft zu
+            # klein für den Nano-YOLO — das Tele zeigt sie größer.
+            try:
+                persons = await asyncio.to_thread(
+                    person_detector.detect, face_frame
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("burst zoom person_detect failed: %s", e)
+        report.observe_headcount(len(persons))
+
         if not detections:
             # Kein Gesicht — zeigt der Tick wenigstens eine Person (auch
             # abgewandt)? Dann als "Film-Frame" sichern, sonst verwerfen.
-            try:
-                persons = await asyncio.to_thread(
-                    person_detector.detect, wide_frame
-                )
-            except Exception as e:  # noqa: BLE001
-                logger.warning("burst person_detect failed: %s", e)
-                persons = []
-            if not persons and face_frame is not wide_frame:
-                # Nacht-/Fern-Fall: auf dem Weitwinkel ist die Person oft zu
-                # klein für den Nano-YOLO — das Tele zeigt sie größer.
-                try:
-                    persons = await asyncio.to_thread(
-                        person_detector.detect, face_frame
-                    )
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("burst zoom person_detect failed: %s", e)
             if not persons:
                 return ""
             _, _, frame_path = await self._finalize_output_frame(
@@ -1143,27 +1149,45 @@ class VisionWatcher:
             )
             return "person"
 
-        # Bestes Gesicht dieses Ticks (Band vor Konfidenz).
-        best_det = None
-        best_match = None
+        # Alle Gesichter dieses Ticks matchen — nicht nur das beste. Sind
+        # zwei Leute im Bild, braucht die Bilanz von BEIDEN den Kopfaus-
+        # schnitt; das Event selbst hängt weiterhin am besten Gesicht
+        # (Band vor Konfidenz), damit der Casus eine Zeile pro Tick behält.
+        def _event_type_for(band: str) -> str:
+            return (
+                "face_known" if band == "known"
+                else "face_unknown" if band == "unknown"
+                else "face_unsure"
+            )
+
+        crop_store = get_default_store()
+        scored: list[tuple[Any, Any, Any]] = []  # (detection, match, crop)
         best_key = (-1, -1.0)
-        for det in detections:
-            match = recognizer.match(det.embedding)
-            rank = _band_rank.get(match.confidence_band, 0)
+        best_index = 0
+        for index, candidate in enumerate(detections):
+            candidate_match = recognizer.match(candidate.embedding)
+            candidate_crop = crop_store.save(
+                frame_bytes=face_frame.image_bytes,
+                bbox=tuple(int(v) for v in candidate.bbox),  # type: ignore[arg-type]
+                source_id=source_id,
+                event_type=_event_type_for(candidate_match.confidence_band),
+                face_id=(
+                    candidate_match.face_id if candidate_match.face_id > 0 else None
+                ),
+                name=candidate_match.name or "",
+                embedding=candidate.embedding,
+            )
+            scored.append((candidate, candidate_match, candidate_crop))
+            rank = _band_rank.get(candidate_match.confidence_band, 0)
             score = (
-                float(match.similarity) if rank > 0
-                else float(det.detection_score)
+                float(candidate_match.similarity) if rank > 0
+                else float(candidate.detection_score)
             )
             if (rank, score) > best_key:
                 best_key = (rank, score)
-                best_det, best_match = det, match
-        assert best_det is not None and best_match is not None
-        det, match = best_det, best_match
-        event_type = (
-            "face_known" if match.confidence_band == "known"
-            else "face_unknown" if match.confidence_band == "unknown"
-            else "face_unsure"
-        )
+                best_index = index
+        det, match, crop_result = scored[best_index]
+        event_type = _event_type_for(match.confidence_band)
         # Bildpaar über die SSoT-Output-Kette; der Crop kommt aus dem
         # ungestempelten Zoom-Frame (sauberes Gesicht).
         _, _, frame_path = await self._finalize_output_frame(
@@ -1175,15 +1199,6 @@ class VisionWatcher:
                 face_frame, label_suffix=" · Zoom",
                 save=config.save_event_frames,
             )
-        crop_result = get_default_store().save(
-            frame_bytes=face_frame.image_bytes,
-            bbox=tuple(int(v) for v in det.bbox),  # type: ignore[arg-type]
-            source_id=source_id,
-            event_type=event_type,
-            face_id=match.face_id if match.face_id > 0 else None,
-            name=match.name or "",
-            embedding=det.embedding,
-        )
         crop_url = crop_result.url if crop_result else ""
         event_id = self._store.add_event(
             source_id=source_id,
@@ -1226,13 +1241,22 @@ class VisionWatcher:
             "crop_url": crop_url,
             "embedding_b64": emb_b64,
         })
-        # Beobachtung in die Bilanz — der Burst-Loop meldet gebündelt
-        # (bestes Bild, alle Namen) statt pro Tick.
-        report.observe_face(
-            event_type, match.name or "", float(match.similarity),
-            float(det.detection_score), frame_path, zoom_frame_path,
-            crop_url, faces_in_tick=len(detections),
-        )
+        # Beobachtungen in die Bilanz — JEDES Gesicht des Ticks, damit die
+        # Meldung alle Namen und je Person den besten Kopfausschnitt kennt.
+        # Der Burst-Loop meldet daraus gebündelt statt pro Tick.
+        for candidate, candidate_match, candidate_crop in scored:
+            report.observe_face(
+                _event_type_for(candidate_match.confidence_band),
+                candidate_match.name or "",
+                float(candidate_match.similarity),
+                float(candidate.detection_score),
+                frame_path, zoom_frame_path,
+                candidate_crop.url if candidate_crop else "",
+                faces_in_tick=len(detections),
+                identity_key=(
+                    candidate_crop.identity_key if candidate_crop else ""
+                ),
+            )
         return "face"
 
     async def _count_categories(
@@ -1512,6 +1536,7 @@ class VisionWatcher:
                     event_type, match.name or "", float(match.similarity),
                     float(det.detection_score), frame_path, zoom_frame_path,
                     crop_url, faces_in_tick=len(detections),
+                    identity_key=identity_key,
                 )
 
         # Burst-Pfad: Beobachtungen sind im Report gelandet — die Bilanz

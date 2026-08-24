@@ -838,6 +838,12 @@ VISION_CLUSTER_MAX_SECONDS = 300
 # höher gehen heißt num_ctx mitziehen (siehe dort) und ggf. 8B-VLM.
 VISION_DESCRIBE_MAX_FRAMES = 10
 
+# Wie viele Kopfausschnitte eine Burst-Bilanz höchstens mitschickt: einer
+# pro im Vorbeigang gesehener Person, beste Detektion zuerst. Deckel, weil
+# ein nie sicher gematchtes Gesicht über viele Ticks mehrere Crop-Store-
+# Identitäten anlegt — die Galerie soll davon nicht überlaufen.
+VISION_ALERT_MAX_CROPS = 6
+
 # ============================================================
 # PROAKTIVE ALERTS
 # ============================================================
