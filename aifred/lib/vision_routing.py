@@ -109,6 +109,104 @@ def visiond_profile_for(name: str) -> str | None:
     return None
 
 
+def same_model(a: str, b: str) -> bool:
+    """Bezeichnen beide Namen dasselbe Modell? Namens-normalisiert und ohne
+    llama-swap-Varianten-Suffixe, also backend-übergreifend (``Qwen3VL-4B-
+    Instruct-Q8_0`` == ``qwen3-vl:4b-instruct-q8_0``) und variantenblind
+    (``…-tts-qwen3local-speed`` == Basis). SSoT für „ist das Vision-Modell
+    das Chat-Modell?"."""
+    from .vision_utils import strip_variant_suffixes
+    if not a or not b:
+        return False
+    return _normalize(strip_variant_suffixes(a)) == _normalize(
+        strip_variant_suffixes(b)
+    )
+
+
+def active_chat_model() -> str:
+    """Basis-Id des Chat-LLM (Agent ``aifred``) im aktiven Backend.
+
+    Liest ``data/settings.json`` — dieselbe Quelle, aus der der State
+    beim Start sein ``agent_tuning`` füllt. Als Lib-Funktion, damit
+    Beschreibungs-Pfade ohne State-Zugriff wissen, welches Modell den
+    Chat bedient. Leerer String, wenn nichts konfiguriert ist.
+    """
+    import json
+    from .config import DATA_DIR
+    path = DATA_DIR / "settings.json"
+    try:
+        with open(path, encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("settings.json unreadable (%s): %s", path, e)
+        return ""
+    backend = str(data.get("backend_type") or "")
+    models = (data.get("backend_models") or {}).get(backend) or {}
+    return str(models.get("aifred") or "")
+
+
+def loaded_llamaswap_profiles() -> list[str]:
+    """Profil-Ids, die llama-swap gerade geladen hält.
+
+    ``/v1/models`` meldet pro Profil ein ``status.value``; alles außer
+    ``unloaded`` zählt als geladen. Leere Liste heißt „nichts geladen ODER
+    llama-swap nicht erreichbar" — Caller müssen beide Fälle gleich
+    behandeln (nichts, worauf man sich draufsetzen kann).
+    """
+    import httpx
+    from .config import DEFAULT_LLAMACPP_URL
+    base = DEFAULT_LLAMACPP_URL.rstrip("/").removesuffix("/v1")
+    try:
+        resp = httpx.get(f"{base}/v1/models", timeout=5.0)
+        resp.raise_for_status()
+        entries = resp.json().get("data") or []
+    except (httpx.HTTPError, ValueError) as e:
+        logger.warning("llama-swap model status unreadable: %s", e)
+        return []
+    return [
+        str(e.get("id") or "")
+        for e in entries
+        if str((e.get("status") or {}).get("value") or "") != "unloaded"
+    ]
+
+
+def self_describer_profile(vision_model: str) -> str | None:
+    """Profil, über das das Chat-LLM seine eigenen Bilder beschreibt —
+    oder ``None``, wenn dieser Weg nicht offensteht.
+
+    Greift, wenn das eingestellte Vision-Modell dasselbe Modell ist wie
+    das Chat-LLM und dessen llama-swap-Profil einen eigenen Vision-Encoder
+    trägt (``--mmproj``). Dann ist sowohl eine zweite ``-visiond``-Instanz
+    überflüssig (doppelter VRAM für dasselbe Modell) als auch das
+    ``-vlm-``-Reserveprofil (siehe ``_is_self_describer``).
+
+    Zurückgegeben wird das TATSÄCHLICH geladene Profil, nicht die Basis-Id:
+    bedient der Chat gerade eine ``-speed``- oder ``-tts-``-Variante, würde
+    ein Call auf die Basis-Id innerhalb der exklusiven ``main``-Gruppe erst
+    recht einen Swap auslösen. Ist nichts geladen, ist die Basis-Id sicher
+    (es gibt nichts zu verdrängen). Läuft etwas anderes, tritt der
+    Selbst-Describer-Weg NICHT an — dann bleibt es beim Parallel-Profil.
+
+    Modell-agnostisch: entschieden wird über Namens-Gleichheit und die
+    mmproj-Eigenschaft, nicht über Größenklassen.
+    """
+    from .vision_utils import model_has_mmproj
+    chat_model = active_chat_model()
+    if not same_model(vision_model, chat_model):
+        return None
+    if not model_has_mmproj(chat_model):
+        # Chat-LLM ohne eigenen Vision-Encoder (reines Textmodell) — es
+        # kann seine Bilder nicht selbst beschreiben.
+        return None
+    loaded = loaded_llamaswap_profiles()
+    if not loaded:
+        return chat_model
+    for profile in loaded:
+        if same_model(profile, chat_model):
+            return profile
+    return None
+
+
 def vision_swap_status(
     vision_model: str,
     backend_type: str,

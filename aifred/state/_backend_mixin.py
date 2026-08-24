@@ -1117,8 +1117,9 @@ class BackendMixin(rx.State, mixin=True):
         llama-swap verdrängt das Chat-Modell für die Bildanalyse.
         """
         from ..lib.vision_routing import (
-            vision_swap_status, vlm_key_for_model,
+            vision_swap_status, vlm_key_for_model, same_model,
         )
+        from ..lib.vision_utils import model_has_mmproj
         from ..lib.ollama_models import list_ollama_vlm_models
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.calibration.llamaswap_io import parse_llamaswap_config
@@ -1147,6 +1148,14 @@ class BackendMixin(rx.State, mixin=True):
             #     aktuelle Chat-LLM ist kalibriert (sonst fällt AIfred aufs
             #     Base-Profil ohne V100-Reserve zurück → der Side-Channel
             #     findet keinen Platz → doch ein Swap).
+            # (c) Das Chat-LLM SELBST als Describer: kein zweites Modell,
+            #     kein Reserve-Profil — es beschreibt mit seinem eigenen
+            #     Vision-Encoder. Vor (a)/(b) geprüft, denn dann ist das
+            #     -visiond-Profil gar nicht der Weg (siehe
+            #     vision_routing.self_describer_profile).
+            is_self = (
+                same_model(mid, aifred_base) and model_has_mmproj(aifred_base)
+            )
             has_visiond = f"{mid}-visiond" in swap_models
             has_ollama = vision_swap_status(
                 mid, self.backend_id, ollama_names=oll_names
@@ -1157,11 +1166,13 @@ class BackendMixin(rx.State, mixin=True):
                 or f"{aifred_base}-vlm-{key}-speed" in swap_models
             )
             no_swap = has_visiond or (has_ollama and profile_ok)
-            rows.append({
-                "name": display,
-                "badge": "⚡ No Swap" if no_swap else "🔄 Swap",
-                "color": "green" if no_swap else "orange",
-            })
+            if is_self:
+                badge, color = "🧠 Chat-LLM", "green"
+            elif no_swap:
+                badge, color = "⚡ No Swap", "green"
+            else:
+                badge, color = "🔄 Swap", "orange"
+            rows.append({"name": display, "badge": badge, "color": color})
         return rows
 
     async def _detect_vision_models(self) -> None:

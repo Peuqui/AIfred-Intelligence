@@ -687,6 +687,24 @@ def resolve_effective_suffix(
     )
 
 
+def _is_self_describer(base_id: str, vlm_key: str) -> bool:
+    """Ist das eingestellte Vision-Modell das Chat-Modell SELBST?
+
+    Dann beschreibt das Chat-LLM seine Bilder mit dem eigenen Vision-
+    Encoder — es läuft kein zweiter Describer daneben, für den VRAM zu
+    reservieren wäre. Das ``-vlm-<key>``-Profil (kleinerer Kontext
+    zugunsten der Reserve) wäre in dem Fall reine Selbstbeschränkung:
+    das Basis-Profil mit vollem Kontext ist richtig.
+
+    Modell-agnostisch: verglichen werden die deterministischen
+    Describer-Keys, nicht Namen oder Größenklassen.
+    """
+    if not base_id or not vlm_key:
+        return False
+    from ..vlm_naming import vlm_profile_key
+    return vlm_profile_key(base_id) == vlm_key
+
+
 def resolve_variant_suffix(
     config_path: Path,
     base_id: str,
@@ -730,6 +748,11 @@ def resolve_variant_suffix(
     resolver gracefully degrades to the non-speed VLM variant, so an
     un-calibrated combo never breaks resolution.
 
+    Ausnahme vor allen VLM-Regeln: Ist das Vision-Modell das Chat-Modell
+    selbst (:func:`_is_self_describer`), gibt es keinen parallelen
+    Describer und damit nichts zu reservieren — die VLM-Tiers entfallen,
+    das Basis-(bzw. TTS-/Speed-)Profil mit vollem Kontext gewinnt.
+
     ``gpu_tts_engines``: set of engine keys that need the TTS variant
     profile (i.e. share GPU VRAM with the LLM). Engines outside this set
     (Edge / Piper / eSpeak / DashScope) don't have a TTS variant — the
@@ -753,7 +776,9 @@ def resolve_variant_suffix(
         and bool(tts_engine)
         and (gpu_tts_engines is None or tts_engine in gpu_tts_engines)
     )
-    needs_vlm_variant = vlm_active and bool(vlm_key)
+    needs_vlm_variant = vlm_active and bool(vlm_key) and not _is_self_describer(
+        base_id, vlm_key
+    )
 
     # Rule 1: TTS × VLM × Speed — all three active and the combo exists.
     if needs_vlm_variant and needs_tts_variant and speed_on:
