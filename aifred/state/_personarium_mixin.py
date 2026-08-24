@@ -82,6 +82,25 @@ class PersonariumMixin(rx.State, mixin=True):
             self.personarium_status = f"⚠️ {e}"
 
     @rx.var
+    def personarium_untagged_unknown(self) -> list[dict[str, Any]]:
+        """Nachtag-Karten OHNE Kandidaten — niemand erkannt."""
+        return [
+            e for e in self.personarium_untagged
+            if e.get("event_type") != "face_unsure"
+        ]
+
+    @rx.var
+    def personarium_untagged_unsure(self) -> list[dict[str, Any]]:
+        """Nachtag-Karten MIT Kandidaten — die Erkennung vermutet jemanden,
+        traut sich aber nicht. Getrennt vom Rest, weil sonst der Eindruck
+        entsteht, eine längst bekannte Person sei unerkannt geblieben:
+        hier geht es nur um die Bestätigung einer wackligen Aufnahme."""
+        return [
+            e for e in self.personarium_untagged
+            if e.get("event_type") == "face_unsure"
+        ]
+
+    @rx.var
     def personarium_tag_options(self) -> list[dict[str, str]]:
         """Dropdown-Optionen fürs Nachtaggen — value/label Python-seitig
         als Strings gebaut. Radix-Select vergleicht den kontrollierten Wert
@@ -216,7 +235,10 @@ class PersonariumMixin(rx.State, mixin=True):
     # ── Unzugeordnete Gesichter (Nachtaggen + Lernen) ────────────────
 
     def _refresh_personarium_untagged(self) -> None:
-        """ALLE face_unknown/face_unsure-Events ohne Identity laden — jede
+        """ALLE noch nicht geklärten face_unknown/face_unsure-Events laden —
+        einschließlich der unsicheren MIT Kandidat (die tragen bereits eine
+        face_id und fehlten deshalb komplett; ``matched_name`` nennt den
+        Verdacht, den der Nutzer bestätigen oder verwerfen kann). Jede
         Aufnahme als eigene Karte, ohne Cluster-Dedupe und ohne Deckel.
         Der Nutzer sieht sofort den kompletten Bestand (das Grid scrollt)
         und arbeitet ihn ab: Zuordnen lernt genau den geklickten Crop,
@@ -245,7 +267,9 @@ class PersonariumMixin(rx.State, mixin=True):
                 "time_display": str(r.get("time_display") or ""),
             }
             for r in rows
-            if r.get("crop_url") and not r.get("untagged_dismissed")
+            if r.get("crop_url")
+            and not r.get("untagged_dismissed")
+            and not r.get("identity_confirmed")
         ]
 
     @rx.event

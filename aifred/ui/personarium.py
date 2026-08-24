@@ -213,6 +213,31 @@ def _embedding_cell(emb: rx.Var) -> rx.Component:
     )
 
 
+def _untagged_section(
+    cards: rx.Var, title: rx.Var, help_text: rx.Var, icon: str,
+) -> rx.Component:
+    """Ein beschrifteter Block des Nachtag-Grids (Unbekannte bzw. Unsicher
+    Erkannte). Leere Blöcke werden ganz ausgeblendet — eine Überschrift
+    ohne Karten darunter liest sich wie ein Fehler."""
+    return rx.cond(
+        cards.length() > 0,
+        rx.vstack(
+            rx.hstack(
+                rx.icon(icon, size=13, color="gray"),
+                rx.text(title, font_weight="bold", size="2"),
+                rx.badge(cards.length(), variant="soft", size="1"),
+                align="center", spacing="2",
+            ),
+            rx.text(help_text, color="gray", size="1"),
+            rx.flex(
+                rx.foreach(cards, _untagged_card),
+                wrap="wrap", gap="2", width="100%",
+            ),
+            spacing="1", width="100%",
+        ),
+    )
+
+
 def _untagged_card(ev: rx.Var) -> rx.Component:
     """Eine Karte im „Unzugeordnete Gesichter"-Grid: Crop + Zeit/Quelle,
     darunter „zuordnen"-Button bzw. im Tag-Modus Dropdown (+ Name bei
@@ -412,16 +437,26 @@ def personarium_modal() -> rx.Component:
                 t("personarium_untagged_help"),
                 color="gray", size="1",
             ),
+            # Getrennt nach Band: ohne die Überschriften liest sich eine
+            # unsichere Aufnahme wie „diese bekannte Person wurde nicht
+            # erkannt", dabei geht es dort nur ums Bestätigen.
             rx.cond(
                 AIState.personarium_untagged.length() > 0,
-                rx.flex(
-                    rx.foreach(AIState.personarium_untagged, _untagged_card),
-                    wrap="wrap", gap="2",
-                    style={
-                        "width": "100%",
-                        "max_height": "40vh",
-                        "overflow_y": "auto",
-                    },
+                rx.vstack(
+                    _untagged_section(
+                        AIState.personarium_untagged_unknown,
+                        t("personarium_untagged_unknown_title"),
+                        t("personarium_untagged_unknown_help"),
+                        "circle-help",
+                    ),
+                    _untagged_section(
+                        AIState.personarium_untagged_unsure,
+                        t("personarium_untagged_unsure_title"),
+                        t("personarium_untagged_unsure_help"),
+                        "circle-alert",
+                    ),
+                    spacing="3", width="100%",
+                    style={"max_height": "40vh", "overflow_y": "auto"},
                 ),
                 rx.text(
                     t("personarium_untagged_empty"),
