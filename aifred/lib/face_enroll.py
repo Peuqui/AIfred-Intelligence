@@ -104,6 +104,10 @@ async def _match_and_assign(
         if require_face_id is not None and int(match.face_id) != require_face_id:
             continue
         store.set_event_face_id(int(ev["id"]), int(match.face_id))
+        # Auch der sichere Re-Match hakt die Aufnahme ab — sonst käme ein
+        # face_unsure-Event im Nachtag-Grid endlos wieder hoch (dort zählt
+        # der event_type, nicht die inzwischen gesetzte face_id).
+        store.confirm_event_identity(int(ev["id"]))
         resolved[match.name or "?"] = resolved.get(match.name or "?", 0) + 1
     return resolved
 
@@ -214,6 +218,11 @@ async def enroll_face_from_event(
         crop_url=str(cls.get("crop_url") or ""),
     )
     store.set_event_face_id(int(event_id), int(face_id))
+    # Menschliche Bestätigung festhalten: bei face_unsure-Aufnahmen ist die
+    # face_id schon vorher gesetzt (Kandidat der Erkennung), „erledigt"
+    # wäre daran also nicht ablesbar — die Aufnahme käme im Nachtag-Grid
+    # immer wieder hoch.
+    store.confirm_event_identity(int(event_id))
     # Lebende Recognizer informieren — nächstes Frame erkennt die Person.
     bump_enrollment_epoch()
 

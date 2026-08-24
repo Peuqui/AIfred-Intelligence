@@ -658,8 +658,10 @@ class VisionStore:
         Dict mit den UI-relevanten Feldern (Zeit, Quelle, Typ, Confidence,
         Crop-URL aus classification, Face-Name per JOIN, Confidence-Band).
 
-        ``unknown_only=True`` filtert auf ``face_id IS NULL`` — nützlich
-        für den "nachtaggen"-Workflow im Casus-Modal.
+        ``unknown_only=True`` filtert auf „noch nicht vom Menschen
+        bestätigt" (``face_id IS NULL`` ODER ``face_unsure``) — für den
+        "nachtaggen"-Workflow. Bereits bestätigte Aufnahmen erkennt der
+        Caller an ``identity_confirmed``.
         """
         clauses: list[str] = []
         params: list[Any] = []
@@ -674,7 +676,15 @@ class VisionStore:
             clauses.append("e.face_id = ?")
             params.append(face_id)
         if unknown_only:
-            clauses.append("e.face_id IS NULL")
+            # „Noch nicht vom Menschen bestätigt" — NICHT bloß „ohne
+            # face_id": ein face_unsure-Event hat per Definition einen
+            # Kandidaten (die Erkennung vermutet ja jemanden), trägt also
+            # eine face_id und fiel damit komplett aus dem Nachtag-Grid.
+            # Genau diese Grenzfälle sind aber die wertvollsten
+            # Lern-Embeddings und brauchen den menschlichen Blick.
+            clauses.append(
+                "(e.face_id IS NULL OR e.event_type = 'face_unsure')"
+            )
         if since is not None:
             clauses.append("e.timestamp >= ?")
             params.append(since.isoformat(timespec="microseconds"))
@@ -731,6 +741,7 @@ class VisionStore:
                 "crop_url": str(cls.get("crop_url") or ""),
                 "detection_score": float(cls.get("detection_score") or 0.0),
                 "untagged_dismissed": bool(cls.get("untagged_dismissed")),
+                "identity_confirmed": bool(cls.get("identity_confirmed")),
                 "confidence_band": str(cls.get("confidence_band") or ""),
                 "matched_name": str(cls.get("matched_name") or ""),
                 "frame_path": str(r["frame_path"] or ""),
@@ -1154,6 +1165,27 @@ class VisionStore:
                 "UPDATE events SET classification = "
                 "json_set(COALESCE(classification, '{}'), "
                 "'$.untagged_dismissed', 1) WHERE id = ?",
+                (int(event_id),),
+            )
+            return cur.rowcount > 0
+
+    def confirm_event_identity(self, event_id: int) -> bool:
+        """Die Identität dieser Aufnahme als geklärt markieren
+        (``classification.identity_confirmed``) — durch den Nutzer beim
+        Zuordnen oder durch einen sicheren Re-Match. Das Personarium
+        blendet sie damit aus dem Nachtag-Grid aus.
+
+        Nötig für ``face_unsure``-Aufnahmen: die tragen schon vor der
+        Bestätigung eine Kandidaten-``face_id``, an der sich „erledigt"
+        also nicht ablesen lässt. Wie beim Verwerfen bleibt das Event
+        selbst unangetastet — Casus und Chronik sollen weiterhin zeigen,
+        dass die ERKENNUNG unsicher war (``confidence_band``), auch wenn
+        die Identität inzwischen feststeht."""
+        with self._conn() as conn:
+            cur = conn.execute(
+                "UPDATE events SET classification = "
+                "json_set(COALESCE(classification, '{}'), "
+                "'$.identity_confirmed', 1) WHERE id = ?",
                 (int(event_id),),
             )
             return cur.rowcount > 0
