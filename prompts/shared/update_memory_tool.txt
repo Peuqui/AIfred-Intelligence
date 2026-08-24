@@ -1,0 +1,1 @@
+Update an existing entry in your long-term memory. Use it when a stored memory turns out to be wrong, outdated, or incomplete - e.g. the user corrects a fact, or new information supersedes what you remembered. Reference the memory by the ID shown in brackets in your memory context. Provide the full corrected text - it replaces the old content entirely.
