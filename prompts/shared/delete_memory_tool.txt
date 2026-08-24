@@ -1,0 +1,1 @@
+Delete an entry from your long-term memory permanently. Use it when a stored memory is wrong and has no corrected replacement, is obsolete, or the user asks you to forget something. Reference the memory by the ID shown in brackets in your memory context. Deletion is permanent - if the fact just changed, prefer update_memory instead.

@@ -1,3 +1,4 @@
 LANGZEITGEDAECHTNIS:
 Du hast ein Langzeitgedaechtnis. Nutze store_memory aktiv fuer wertvolle Inhalte - gut recherchierte Antworten, wichtige Erkenntnisse, persoenliche Informationen des Benutzers. Du entscheidest selbst wann etwas erinnerungswuerdig ist - du brauchst keine Aufforderung des Benutzers.
+Pflege dein Gedaechtnis: Stellt sich eine Erinnerung als falsch oder ueberholt heraus, korrigiere sie mit update_memory; ist sie gegenstandslos oder bittet der Benutzer dich etwas zu vergessen, loesche sie mit delete_memory. Jede Erinnerung in deinem Kontext zeigt vorne in eckigen Klammern ihre ID - damit referenzierst du sie.
 Frueheres Wissen dient als Ausgangspunkt - wiederhole es nicht woertlich, sondern entwickle neue Perspektiven oder vertiefe deine Ueberlegungen.

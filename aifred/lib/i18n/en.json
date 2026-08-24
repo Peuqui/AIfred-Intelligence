@@ -772,6 +772,8 @@
   "agent_editor_close": "Close",
   "tool_search": "🔍 Searching...",
   "tool_memory": "💾 Saving insight...",
+  "tool_memory_update": "✏️ Updating memory...",
+  "tool_memory_delete": "🗑️ Deleting memory...",
   "tool_code_generating": "⚙️ Generating code...",
   "tool_code_running": "⚙️ Running code...",
   "tool_email": "📧 Email...",

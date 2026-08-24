@@ -103,14 +103,16 @@ def _build_tool_groups() -> list[rx.Component]:
     ctx = PluginContext(agent_id="__build__", lang="de", session_id="", llm_history=[])
     groups: list[rx.Component] = []
 
-    from ...lib.security import TIER_WRITE_DATA
+    from ...lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 
-    # Memory (always first — tier 2 = write data)
+    # Memory (always first — tier 2 = write data, delete = tier 3)
     groups.append(
         rx.vstack(
-            _group_header("Memory", ["store_memory"]),
+            _group_header("Memory", ["store_memory", "update_memory", "delete_memory"]),
             rx.flex(
                 _build_tool_pill("store_memory", tier=TIER_WRITE_DATA),
+                _build_tool_pill("update_memory", tier=TIER_WRITE_DATA),
+                _build_tool_pill("delete_memory", tier=TIER_WRITE_SYSTEM),
                 wrap="wrap", gap="4px",
             ),
             spacing="1", width="100%",

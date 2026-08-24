@@ -103,7 +103,7 @@ class AgentMemory:
                 }],
             )
             log_message(f"AgentMemory({agent_id}): updated existing (dist {existing['distances'][0][0]:.2f}) [{memory_type}] {summary[:60]}")
-            return f"Memory updated: [{memory_type}] {summary}"
+            return f"Memory {old_id[:8]} updated: [{memory_type}] {summary}"
 
         doc_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
@@ -120,8 +120,62 @@ class AgentMemory:
                 "session_id": session_id,
             }],
         )
-        log_message(f"AgentMemory({agent_id}): stored [{memory_type}] {summary[:60]}")
-        return f"Memory stored: [{memory_type}] {summary}"
+        log_message(f"AgentMemory({agent_id}): stored {doc_id[:8]} [{memory_type}] {summary[:60]}")
+        return f"Memory {doc_id[:8]} stored: [{memory_type}] {summary}"
+
+    def _resolve_id(self, agent_id: str, memory_id: str) -> str:
+        """Resolve a full memory ID or unique ID prefix to the stored ID.
+
+        Raises ValueError if the prefix matches zero or multiple entries.
+        """
+        col = self._collection(agent_id)
+        all_ids: list[str] = col.get(include=[])["ids"]
+        matches = [i for i in all_ids if i.startswith(memory_id)]
+        if len(matches) != 1:
+            raise ValueError(
+                f"Memory ID '{memory_id}' matches {len(matches)} entries — "
+                "use the exact ID shown in your memory context"
+            )
+        return matches[0]
+
+    async def update(
+        self, agent_id: str, memory_id: str, content: str, summary: str,
+        memory_type: str = "", session_id: str = "",
+    ) -> str:
+        """Update an existing memory (referenced by ID or unique ID prefix)."""
+        col = self._collection(agent_id)
+        full_id = self._resolve_id(agent_id, memory_id)
+
+        if not memory_type:
+            existing = col.get(ids=[full_id], include=["metadatas"])
+            memory_type = existing["metadatas"][0].get("type", "")  # type: ignore[index]
+
+        now = datetime.now(timezone.utc).isoformat()
+        col.update(
+            ids=[full_id],
+            documents=[summary],
+            metadatas=[{
+                "agent_id": agent_id,
+                "date": now,
+                "type": memory_type,
+                "summary": summary,
+                "content": content,
+                "session_id": session_id,
+            }],
+        )
+        log_message(f"AgentMemory({agent_id}): updated {full_id[:8]} [{memory_type}] {summary[:60]}")
+        return f"Memory {full_id[:8]} updated: [{memory_type}] {summary}"
+
+    async def delete(self, agent_id: str, memory_id: str) -> str:
+        """Delete a memory (referenced by ID or unique ID prefix)."""
+        col = self._collection(agent_id)
+        full_id = self._resolve_id(agent_id, memory_id)
+
+        existing = col.get(ids=[full_id], include=["metadatas"])
+        summary = existing["metadatas"][0].get("summary", "")  # type: ignore[index]
+        col.delete(ids=[full_id])
+        log_message(f"AgentMemory({agent_id}): deleted {full_id[:8]} {summary[:60]}")
+        return f"Memory {full_id[:8]} deleted: {summary}"
 
     def find_by_session(self, agent_id: str, session_id: str) -> list[str]:
         """Find memory IDs for a given session_id."""
@@ -250,10 +304,19 @@ class AgentMemory:
 
     def make_toolkit(self, agent_id: str, session_id: str = "") -> ToolKit:
         """Create a ToolKit with memory tools bound to a specific agent."""
-        from .security import TIER_WRITE_DATA
+        from .security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 
         async def store_memory(content: str, memory_type: str, summary: str) -> str:
             return await self.store(agent_id, content, memory_type, summary, session_id=session_id)
+
+        async def update_memory(memory_id: str, content: str, summary: str, memory_type: str = "") -> str:
+            return await self.update(
+                agent_id, memory_id, content, summary,
+                memory_type=memory_type, session_id=session_id,
+            )
+
+        async def delete_memory(memory_id: str) -> str:
+            return await self.delete(agent_id, memory_id)
 
         return ToolKit(tools=[
             Tool(
@@ -280,6 +343,50 @@ class AgentMemory:
                 },
                 executor=store_memory,
             ),
+            Tool(
+                name="update_memory",
+                tier=TIER_WRITE_DATA,
+                description=load_shared_tool_description("update_memory_tool.txt"),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "memory_id": {
+                            "type": "string",
+                            "description": "ID of the memory to update (shown in brackets in your memory context)",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "The corrected full text (replaces the old content)",
+                        },
+                        "summary": {
+                            "type": "string",
+                            "description": "Updated short summary for later retrieval (1-2 sentences)",
+                        },
+                        "memory_type": {
+                            "type": "string",
+                            "description": "New category (optional, keeps the existing one if omitted)",
+                        },
+                    },
+                    "required": ["memory_id", "content", "summary"],
+                },
+                executor=update_memory,
+            ),
+            Tool(
+                name="delete_memory",
+                tier=TIER_WRITE_SYSTEM,
+                description=load_shared_tool_description("delete_memory_tool.txt"),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "memory_id": {
+                            "type": "string",
+                            "description": "ID of the memory to delete (shown in brackets in your memory context)",
+                        },
+                    },
+                    "required": ["memory_id"],
+                },
+                executor=delete_memory,
+            ),
         ])
 
 
@@ -302,7 +409,7 @@ def format_memory_context(
     semantic_lines: list[str] = []
     for mem in memories:
         date_str = mem["date"][:10] if mem["date"] else "?"
-        line = f"- [{date_str}, {mem['type']}] {mem['summary']}"
+        line = f"- [{mem['id'][:8]} | {date_str}, {mem['type']}] {mem['summary']}"
         detail = ""
         if mem["content"] and mem["content"] != mem["summary"]:
             content_preview = mem["content"][:500]
