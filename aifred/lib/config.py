@@ -838,6 +838,14 @@ VISION_CLUSTER_MAX_SECONDS = 300
 # höher gehen heißt num_ctx mitziehen (siehe dort) und ggf. 8B-VLM.
 VISION_DESCRIBE_MAX_FRAMES = 10
 
+# Obergrenze für die Antwortlänge einer Bildbeschreibung. OHNE Limit
+# generiert ein kleines VLM bei vielen fast identischen Bildern bis zum
+# Kontextende weiter und wiederholt dabei denselben Satz hunderte Male
+# (live gesehen 24.08.2026 mit Qwen3VL-4B: ~10.000 Zeichen Schleife aus
+# 10 Frames im 0,5-s-Abstand). Eine ausführliche Personenbeschreibung
+# braucht ~400 Token; der Rest ist Puffer für volle Szenen.
+VISION_DESCRIBE_MAX_TOKENS = 768
+
 # Wie viele Kopfausschnitte eine Burst-Bilanz höchstens mitschickt: einer
 # pro im Vorbeigang gesehener Person, beste Detektion zuerst. Deckel, weil
 # ein nie sicher gematchtes Gesicht über viele Ticks mehrere Crop-Store-
