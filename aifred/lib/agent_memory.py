@@ -304,7 +304,7 @@ class AgentMemory:
 
     def make_toolkit(self, agent_id: str, session_id: str = "") -> ToolKit:
         """Create a ToolKit with memory tools bound to a specific agent."""
-        from .security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+        from .security import TIER_WRITE_DATA
 
         async def store_memory(content: str, memory_type: str, summary: str) -> str:
             return await self.store(agent_id, content, memory_type, summary, session_id=session_id)
@@ -371,9 +371,13 @@ class AgentMemory:
                 },
                 executor=update_memory,
             ),
+            # Own-memory delete is WRITE_DATA, not WRITE_SYSTEM: update_memory
+            # (tier 2) already replaces content entirely, so a higher delete
+            # tier would protect nothing — and the owner should be able to
+            # say "forget that" via external channels (owner tier = 2).
             Tool(
                 name="delete_memory",
-                tier=TIER_WRITE_SYSTEM,
+                tier=TIER_WRITE_DATA,
                 description=load_shared_tool_description("delete_memory_tool.txt"),
                 parameters={
                     "type": "object",
