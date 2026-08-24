@@ -179,14 +179,25 @@ async def analyze_sequence(
         for f in frames
     ]
 
-    # SSOT-Umleitung auf das -visiond-Describer-Profil (llama-swap
-    # vision-Gruppe, läuft parallel zum Chat-LLM) — deckt ALLE Caller ab:
-    # Vigilantia-Watcher, Türsteher, Event-Analyse, Sandbox, Chat.
-    # Matcht auch Ollama-Schreibweisen (qwen3-vl:4b-…) namens-normalisiert,
-    # der Watcher migriert also ohne Änderung seiner Plugin-Settings.
-    # Ohne passendes Profil bleibt der bisherige Pfad unverändert.
-    from .vision_routing import visiond_profile_for
-    model = visiond_profile_for(model) or model
+    # SSOT-Modellwahl für ALLE Caller (Vigilantia-Watcher, Türsteher,
+    # Event-Analyse, Sandbox, Chat), in dieser Reihenfolge:
+    #
+    # 1. Ist das Vision-Modell das Chat-LLM selbst und bringt es einen
+    #    eigenen Vision-Encoder mit, beschreibt es seine Bilder direkt —
+    #    kein zweiter Load desselben Modells. Achtung: das Chat-Profil
+    #    hat EINEN Slot (-np 1), die Beschreibung serialisiert also mit
+    #    dem Chat. Bewusst so (User-Entscheidung 24.08.2026): doppelter
+    #    VRAM für dasselbe Modell wäre schlimmer, und bei großen
+    #    Modellen passt die Parallel-Instanz ohnehin nicht.
+    # 2. Sonst das schlanke -visiond-Describer-Profil (llama-swap
+    #    vision-Gruppe, exclusive: false) — läuft parallel zum Chat-LLM.
+    #    Matcht auch Ollama-Schreibweisen (qwen3-vl:4b-…), der Watcher
+    #    migriert ohne Änderung seiner Plugin-Settings.
+    # 3. Ohne beides bleibt der bisherige Pfad unverändert.
+    from .vision_routing import self_describer_profile, visiond_profile_for
+    model = (
+        self_describer_profile(model) or visiond_profile_for(model) or model
+    )
 
     # Dispatch (SSOT: model_has_mmproj): llama-swap-Modelle mit nativem
     # Vision-Encoder beschreiben selbst, alles andere geht an Ollama.
