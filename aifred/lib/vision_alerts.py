@@ -202,8 +202,8 @@ async def _emit(
 
     ``media`` (VLM description + single-image channels) is the ZOOM still when
     available — it shows the subject, while the wide-angle latest frame often
-    misses it. ``media_gallery`` carries all three views (wide + zoom + crop)
-    as URLs for the browser session.
+    misses it. ``media_gallery`` carries the wide + zoom views plus one crop
+    per person seen, as URLs for the browser session.
     """
     try:
         from pathlib import Path as _Path
@@ -224,9 +224,12 @@ async def _emit(
                 u = get_image_url(_Path(p))
                 if u and u not in gallery:
                     gallery.append(u)
-        # Kopfausschnitte: der des besten Gesichts zuerst, dann die der
-        # übrigen im Vorkommnis gesehenen Personen — bei mehreren Leuten
-        # zeigt die Galerie so JEDE, nicht nur die am besten erkannte.
+        # Ausschnitte: der des besten Gesichts zuerst, dann die der übrigen
+        # im Vorkommnis gesehenen Personen — bei mehreren Leuten zeigt die
+        # Galerie so JEDE, nicht nur die am besten erkannte. Ungedeckelt:
+        # wer zu sehen war, gehört in die Meldung. Sie stehen in der
+        # Chat-Bubble nebeneinander und brechen um (siehe ``chat-md``-Regel
+        # in custom.css), kosten also kaum Platz.
         for u in [crop_url, *(extra_crop_urls or [])]:
             if u and u not in gallery:
                 gallery.append(u)
@@ -345,11 +348,13 @@ async def emit_person_alert(
     store: Any = None,
     dedup_key: str | None = None,
     segment_event_ids: list[int] | None = None,
+    extra_crop_urls: list[str] | None = None,
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
-    with no recognisable face.
-
+    with no recognisable face. ``extra_crop_urls``: Kopf-/Schulterausschnitte
+    der gezählten Personen — hier die EINZIGE Nahaufnahme, weil ohne Gesicht
+    auch kein Gesichts-Crop existiert.
 """
     if not _vigilantia_armed():
         return
@@ -378,6 +383,7 @@ async def emit_person_alert(
         dedup_key=dedup_key or cluster_id or f"{source_id}:person",
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
+        extra_crop_urls=extra_crop_urls,
         timestamp=ts,
         metadata=meta or None,
         store=store,
@@ -475,6 +481,13 @@ class BurstReport:
         self._best_person: float = -1.0
         self._best_person_paths: tuple[str, str] = ("", "")
         self._person_count_max = 0
+        # Referenz-Tick für die Personen-Ausschnitte: die Bild-Bytes des
+        # Ticks, der die MEISTEN Personen gleichzeitig zeigt, plus deren
+        # Boxen. Nur dieser eine Frame wird beim Versand zugeschnitten —
+        # über Ticks hinweg gibt es ohne Embedding keine Identität, jedes
+        # Sammeln würde dieselbe Person mehrfach in die Galerie legen.
+        self._person_boxes: list[tuple[int, int, int, int]] = []
+        self._person_boxes_frame: bytes = b""
         # Versand-Zustand für due()/has_news().
         self._sent_messages = 0
         self._sent_band_rank = -1
@@ -531,6 +544,21 @@ class BurstReport:
         dort blind, wo sie am meisten weiß: Begleiter ohne erkanntes
         Gesicht tauchten weder im Titel noch im VLM-Prompt auf."""
         self._person_count_max = max(self._person_count_max, int(count))
+
+    def observe_person_boxes(
+        self, frame_bytes: bytes, boxes: list[tuple[int, int, int, int]],
+    ) -> None:
+        """Personenboxen eines Ticks anbieten — der Tick mit den meisten
+        gleichzeitig sichtbaren Personen gewinnt und wird beim Versand zu
+        den Galerie-Ausschnitten. Läuft in JEDEM Tick, auch mit Gesichtern:
+        gerade die Begleiter ohne erkanntes Gesicht sollen ein Bild
+        bekommen."""
+        if not frame_bytes or not boxes:
+            return
+        if len(boxes) <= len(self._person_boxes):
+            return
+        self._person_boxes = list(boxes)
+        self._person_boxes_frame = frame_bytes
 
     def observe_person(
         self, count: int, score: float, frame_path: str, zoom_frame_path: str,
@@ -648,7 +676,9 @@ class BurstReport:
                 frame_path=frame_path,
                 zoom_frame_path=zoom_path,
                 crop_url=crop_url,
-                extra_crop_urls=self._identity_crop_urls(),
+                extra_crop_urls=(
+                    self._identity_crop_urls() + self._person_crop_urls()
+                ),
                 cluster_id=self.cluster_id,
                 names=names,
                 count=max(self._face_count_max, len(names), 1),
@@ -664,6 +694,7 @@ class BurstReport:
                 source_id=self.source_id,
                 frame_path=frame_path,
                 zoom_frame_path=zoom_path,
+                extra_crop_urls=self._person_crop_urls(),
                 cluster_id=self.cluster_id,
                 count=max(self._person_count_max, 1),
                 segment_event_ids=segment_ids,
@@ -689,12 +720,32 @@ class BurstReport:
 
     def _identity_crop_urls(self) -> list[str]:
         """Kopfausschnitte aller im Burst gesehenen Personen, beste zuerst.
-        Gedeckelt (``VISION_ALERT_MAX_CROPS``) — bei einem Gesicht, das über
-        viele Ticks nie sicher gematcht wird, legt der Crop-Store mehrere
-        Identitäten an; die Galerie soll davon nicht überlaufen."""
-        from .config import VISION_ALERT_MAX_CROPS
+        Ungedeckelt — je Identität EIN Ausschnitt, und wer im Vorkommnis
+        war, gehört in die Meldung."""
         ranked = sorted(
             self._crops_by_identity.values(), key=lambda it: it[0], reverse=True,
         )
-        return [url for _score, url in ranked[:VISION_ALERT_MAX_CROPS]]
+        return [url for _score, url in ranked]
+
+    def _person_crop_urls(self) -> list[str]:
+        """Kopf-/Schulterausschnitte ALLER im Referenz-Tick sichtbaren
+        Personen. Ergänzt die Gesichts-Crops um die, die nie erkannt wurden
+        — ohne sie zeigt eine Meldung über vier Personen zwei Gesichter und
+        sonst nichts. Erst hier zugeschnitten, damit der Burst keine
+        Dateien für Ticks anlegt, die nie gemeldet werden."""
+        if not self._person_boxes or not self._person_boxes_frame:
+            return []
+        from .face_crop_store import get_default_store
+        store = get_default_store()
+        urls = []
+        for index, box in enumerate(self._person_boxes):
+            url = store.save_person_crop(
+                frame_bytes=self._person_boxes_frame,
+                bbox=box,
+                source_id=self.source_id,
+                index=index + 1,
+            )
+            if url:
+                urls.append(url)
+        return urls
 

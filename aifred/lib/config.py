@@ -846,11 +846,26 @@ VISION_DESCRIBE_MAX_FRAMES = 10
 # braucht ~400 Token; der Rest ist Puffer für volle Szenen.
 VISION_DESCRIBE_MAX_TOKENS = 768
 
-# Wie viele Kopfausschnitte eine Burst-Bilanz höchstens mitschickt: einer
-# pro im Vorbeigang gesehener Person, beste Detektion zuerst. Deckel, weil
-# ein nie sicher gematchtes Gesicht über viele Ticks mehrere Crop-Store-
-# Identitäten anlegt — die Galerie soll davon nicht überlaufen.
-VISION_ALERT_MAX_CROPS = 6
+# Cosine-Schwelle, ab der zwei Embeddings unbenannter Gesichter als
+# DIESELBE unbekannte Person gelten (Cluster im Face-Crop-Store). Zu hoch
+# angesetzt reißt der Cluster bei jeder Kopfdrehung und dieselbe Person
+# belegt die halbe Galerie mit Duplikaten (live gesehen 25.08.2026: 5 von
+# 6 Crops einer Meldung zeigten eine einzige Frau).
+#
+# An genau diesen Crops nachgemessen: dieselbe Frau über mehrere Ticks
+# 0,456–0,536; sie gegen eine andere Person 0,00 (−0,053 bis 0,061). Die
+# beiden Wolken liegen also weit auseinander, die Schwelle darf mittig
+# dazwischen — 0,35 hat nach unten wie oben rund 0,1 Reserve. Bewusst
+# unterhalb von ``threshold_unsure`` (0,5) des Recognizers: dort wird ein
+# Live-Gesicht gegen ein sauberes Enrollment-Portrait geprüft, hier zwei
+# gleich unsaubere Live-Ansichten gegeneinander.
+VISION_UNKNOWN_CLUSTER_SIM = 0.35
+
+# Kopf-/Schulterausschnitt aus einer YOLO-Personenbox: Anteil der Boxhöhe
+# ab Oberkante. Personen ohne erkanntes Gesicht (abgewandt, Rollstuhl, zu
+# weit weg) bekommen darüber trotzdem einen Galerie-Ausschnitt, der neben
+# den Gesichts-Crops nicht aus dem Rahmen fällt.
+VISION_PERSON_CROP_TOP_RATIO = 0.35
 
 # ============================================================
 # PROAKTIVE ALERTS
