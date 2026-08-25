@@ -1123,6 +1123,7 @@ class VisionWatcher:
         # wurden. Ein Begleiter, dessen Gesicht nie gematcht wird (Hand
         # davor, abgewandt, verdeckt), taucht sonst weder im Titel noch im
         # VLM-Prompt auf; die Bilanz meldete nur den Erkannten.
+        person_frame = wide_frame
         try:
             persons = await asyncio.to_thread(
                 person_detector.detect, wide_frame
@@ -1139,7 +1140,16 @@ class VisionWatcher:
                 )
             except Exception as e:  # noqa: BLE001
                 logger.warning("burst zoom person_detect failed: %s", e)
+            if persons:
+                person_frame = face_frame
         report.observe_headcount(len(persons))
+        # Boxen + Bild für die Galerie-Ausschnitte anbieten: die Bilanz
+        # behält den Tick mit den meisten Personen und schneidet erst beim
+        # Versand zu. So bekommt auch der Begleiter ohne erkanntes Gesicht
+        # ein Bild — bis hier gab es Ausschnitte nur zu Gesichtern.
+        report.observe_person_boxes(
+            person_frame.image_bytes, [p.bbox for p in persons],
+        )
 
         if not detections:
             # Kein Gesicht — zeigt der Tick wenigstens eine Person (auch
@@ -1413,7 +1423,18 @@ class VisionWatcher:
         )
 
         if emit_alert:
+            from .face_crop_store import get_default_store
             from .vision_alerts import emit_person_alert
+            crop_store = get_default_store()
+            crop_urls = [
+                url for index, person in enumerate(persons)
+                if (url := crop_store.save_person_crop(
+                    frame_bytes=frame.image_bytes,
+                    bbox=person.bbox,
+                    source_id=source_id,
+                    index=index + 1,
+                ))
+            ]
             await emit_person_alert(
                 source_id=source_id,
                 frame_path=frame_path,
@@ -1421,6 +1442,7 @@ class VisionWatcher:
                 count=len(persons),
                 timestamp=frame.timestamp,
                 store=self._store,
+                extra_crop_urls=crop_urls,
             )
 
     async def _run_face_detection(

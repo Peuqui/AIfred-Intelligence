@@ -979,10 +979,27 @@ def record_autonomous_turn(
 
     content = text
     if media_gallery:
-        # All views already as URLs (wide + zoom + crop) — embed each so the
-        # browser session shows the full picture, not just one frame.
-        imgs = "".join(f"\n\n![{title}]({u})" for u in media_gallery if u)
-        content = f"{text}{imgs}"
+        # All views already as URLs (wide + zoom + crops) — embed each so the
+        # browser session shows the full picture, not just one frame. Frames
+        # get one paragraph each (full width); the crops share ONE paragraph
+        # so they flow side by side and wrap — a column of head shots pushed
+        # every following message off the screen.
+        from .face_crop_store import FaceCropStore
+
+        frames = [
+            u for u in media_gallery
+            if u and not u.startswith(FaceCropStore.URL_PREFIX)
+        ]
+        crops = [
+            u for u in media_gallery
+            if u and u.startswith(FaceCropStore.URL_PREFIX)
+        ]
+        parts = [f"\n\n![{title}]({u})" for u in frames]
+        if crops:
+            parts.append(
+                "\n\n" + " ".join(f"![{title}]({u})" for u in crops)
+            )
+        content = text + "".join(parts)
     elif media:
         from pathlib import Path
         from .vision_utils import get_image_url

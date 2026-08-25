@@ -18,7 +18,8 @@ forensisch unterscheidbar bleiben sollen.
 * ``face_known`` / ``face_unsure``: ``face_id`` aus dem
   ``vision_store`` ist stabil → eindeutiger Key.
 * ``face_unknown``: kein face_id. Cluster-Matching über das
-  InsightFace-Embedding (cosine sim > ``UNKNOWN_SIM``); ähnliches
+  InsightFace-Embedding (cosine sim > ``VISION_UNKNOWN_CLUSTER_SIM``);
+  ähnliches
   Embedding in einer aktiven Session → gleiche Session. Sonst
   → neue Session.
 
@@ -47,6 +48,14 @@ from threading import Lock
 import cv2
 import numpy as np
 
+# Cluster-Schwelle für unknowns und Kopfanteil der Personenbox — SSOT in
+# der config, weil beide unmittelbar bestimmen, wen eine Alert-Galerie
+# zeigt (und wie oft dieselbe Person doppelt).
+from .config import (
+    VISION_PERSON_CROP_TOP_RATIO,
+    VISION_UNKNOWN_CLUSTER_SIM as UNKNOWN_SIM,
+)
+
 logger = logging.getLogger(__name__)
 
 # Eine Session bricht ab, sobald N Sekunden seit der letzten
@@ -56,9 +65,6 @@ logger = logging.getLogger(__name__)
 # (Person geht raus) triggert eine neue Session.
 SESSION_TIMEOUT_SEC = 10.0
 
-# Cluster-Schwelle für unknowns — hoch genug, dass nur sehr
-# ähnliche Embeddings als „selbe Person" gelten.
-UNKNOWN_SIM = 0.85
 
 # JPEG-Qualität für die Crops; ~5 KB pro Bild bei typischen
 # 100–200 px Kantenlänge nach Bbox + Padding.
@@ -178,6 +184,43 @@ class FaceCropStore:
             band=session.band,
             started_at=session.started_at,
         )
+
+    def save_person_crop(
+        self,
+        *,
+        frame_bytes: bytes,
+        bbox: tuple[int, int, int, int],
+        source_id: str,
+        index: int,
+    ) -> str:
+        """Kopf-/Schulterausschnitt aus einer YOLO-Personenbox ablegen und
+        die served-URL zurückgeben. Für Personen, die im Vorkommnis sichtbar
+        sind, aber nie ein erkanntes Gesicht hatten (abgewandt, verdeckt,
+        zu weit weg) — ohne diesen Weg fehlen sie in der Galerie komplett.
+
+        Anders als ``save()`` ohne Session-Logik: es gibt kein Embedding und
+        damit keine Identity, die über Ticks hinweg wiedererkennbar wäre.
+        Der Caller croppt deshalb genau EINEN Frame pro Meldung, ``index``
+        hält die Personen dieses Frames auseinander. Leere URL bei Fehler
+        (Best-Effort — eine Meldung ohne Crop ist besser als keine)."""
+        try:
+            crop_bytes = _crop_person_from_jpeg(frame_bytes, bbox)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("person crop decode failed for %s: %s", source_id, e)
+            return ""
+        if not crop_bytes:
+            return ""
+        now = datetime.now()
+        ts = now.strftime("%H-%M-%S-") + f"{now.microsecond // 1000:03d}"
+        rel = f"{_slugify_source(source_id)}/{now.strftime('%Y-%m-%d')}/{ts}_person{index}.jpg"
+        abs_path = self._base_dir / rel
+        try:
+            abs_path.parent.mkdir(parents=True, exist_ok=True)
+            abs_path.write_bytes(crop_bytes)
+        except OSError as e:
+            logger.warning("person crop write failed for %s: %s", abs_path, e)
+            return ""
+        return f"{self.URL_PREFIX}/{rel}"
 
     def save_raw(self, jpeg_bytes: bytes, face_id: int) -> str:
         """Ein bereits zugeschnittenes Crop-JPEG ablegen (z.B. aus dem
@@ -334,6 +377,36 @@ def _crop_from_jpeg(jpeg_bytes: bytes, bbox: tuple[int, int, int, int]) -> bytes
     y0 = max(0, y - int(bh * BBOX_PAD_TOP))
     x1 = min(w, x + bw + pad_x)
     y1 = min(h, y + bh + int(bh * BBOX_PAD_BOTTOM))
+    if x1 <= x0 or y1 <= y0:
+        return b""
+    crop = frame[y0:y1, x0:x1]
+    ok, buf = cv2.imencode(".jpg", crop, [cv2.IMWRITE_JPEG_QUALITY, JPEG_QUALITY])
+    if not ok:
+        return b""
+    return bytes(buf)
+
+
+def _crop_person_from_jpeg(
+    jpeg_bytes: bytes, bbox: tuple[int, int, int, int]
+) -> bytes:
+    """Decode JPEG → oberer Teil der Personenbox → re-encode JPEG.
+
+    Nur der Kopf-/Schulterbereich (``VISION_PERSON_CROP_TOP_RATIO`` der
+    Boxhöhe): ein Ganzkörperstreifen wird in der Galerie-Reihe, die alle
+    Ausschnitte auf gleiche Höhe bringt, zu einem unlesbaren Strich.
+    Liefert ``b""`` bei ungültiger Box / Decode-Fehler."""
+    arr = np.frombuffer(jpeg_bytes, dtype=np.uint8)
+    frame = cv2.imdecode(arr, cv2.IMREAD_COLOR)
+    if frame is None:
+        return b""
+    h, w = frame.shape[:2]
+    x, y, bw, bh = bbox
+    head_h = max(1, int(bh * VISION_PERSON_CROP_TOP_RATIO))
+    pad_x = int(bw * BBOX_PAD_X)
+    x0 = max(0, x - pad_x)
+    y0 = max(0, y)
+    x1 = min(w, x + bw + pad_x)
+    y1 = min(h, y + head_h)
     if x1 <= x0 or y1 <= y0:
         return b""
     crop = frame[y0:y1, x0:x1]

@@ -203,6 +203,12 @@ def _agent_bubble(
                 padding="12px 16px 12px 12px",
                 border_radius="6px",
                 width="100%",
+                # Trägt die Regel für Vigilantia-Kopfausschnitte (siehe
+                # custom.css) — an der Bubble statt global, sonst träfe der
+                # Selektor auch Personarium, Casus und Feed. Nicht an
+                # rx.markdown: react-markdown 10 reicht className nicht
+                # mehr ins DOM durch.
+                class_name="chat-md",
             ),
             spacing="2",
             align="start",

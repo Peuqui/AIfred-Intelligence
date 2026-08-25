@@ -982,3 +982,23 @@ tr:hover {
     opacity: 0.5;
     cursor: not-allowed;
 }
+
+/* ============================================================
+   VIGILANTIA — Kopfausschnitte in der Chat-Bubble
+   ============================================================
+   Eine Meldung bringt einen Ausschnitt pro gesehener Person mit
+   (ungedeckelt). Untereinander schöbe das jede folgende Nachricht vom
+   Bildschirm, deshalb stehen sie nebeneinander und brechen um. Die
+   Regel hängt an .chat-md (der Assistant-Bubble), NICHT global an der
+   URL — sonst träfe sie auch Personarium, Casus und den Feed, die
+   ihre Crops mit eigenen Maßen rendern. */
+.chat-md p img[src*="/_upload/face_crops/"] {
+    height: 90px;
+    width: auto;
+    display: inline-block;
+    vertical-align: top;
+    margin: 0 6px 6px 0;
+    border-radius: 4px;
+    border: 1px solid var(--gray-7);
+    object-fit: cover;
+}
