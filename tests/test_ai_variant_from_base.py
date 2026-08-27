@@ -22,7 +22,8 @@ def _gpu(uuid: str, name: str, cc: float, total: int) -> GPU:
 
 def _model(size_mb: float) -> Model:
     return Model(model_id="m", gguf_path=Path("/x.gguf"), native_context=262144,
-                 total_layers=60, size_mb=size_mb, mb_per_layer=size_mb / 60,
+                 total_layers=60, size_mb=size_mb, file_size_mb=size_mb,
+                 mb_per_layer=size_mb / 60,
                  quantization="IQ3_XXS")
 
 
