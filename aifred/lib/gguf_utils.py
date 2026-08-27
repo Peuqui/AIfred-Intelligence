@@ -27,12 +27,52 @@ def _is_numeric_scalar(field) -> bool:  # type: ignore[no-untyped-def]
     return types[-1] in _GGUF_NUMERIC_INT_TYPES
 
 
+# llama.cpp liest Tensoren ab dieser Groesse zeilenweise von der Platte,
+# statt sie in den VRAM zu laden -- ``auto_lazy_min_size`` in
+# llama-model-loader.cpp, Standardmodus ``--tensor-read-lazy auto``.
+# Solche Tensoren zaehlen NICHT zum VRAM-Bedarf. Betrifft die
+# PLE-Tabelle der Qwen4-Architekturen (qwen4exp: 50,7 GiB als EIN Tensor).
+# Voraussetzung ist mmap: ``--load-mode dio`` schaltet den Pfad ab und
+# zwingt den Tensor in den Hauptspeicher.
+GGUF_LAZY_READ_MIN_BYTES = 4 * 1024 ** 3
+
+
+def get_gguf_part_paths(gguf_path: Path) -> List[Path]:
+    """
+    Alle Dateien eines GGUF-Modells, inklusive aller Split-Teile.
+
+    Split-GGUFs folgen dem Muster: model-00001-of-00002.gguf,
+    model-00002-of-00002.gguf. Fuer Einzeldateien ist das Ergebnis die
+    Datei selbst.
+
+    Args:
+        gguf_path: Pfad zur GGUF-Datei (erster Teil bei Split-GGUFs)
+
+    Returns:
+        Liste der vorhandenen Teil-Pfade
+    """
+    import re
+
+    # Match split pattern: *-00001-of-NNNNN.gguf
+    match = re.match(r'^(.+)-(\d{5})-of-(\d{5})\.gguf$', gguf_path.name)
+    if not match:
+        return [gguf_path]
+
+    prefix = match.group(1)
+    total_parts = int(match.group(3))
+    parts: List[Path] = []
+    for i in range(1, total_parts + 1):
+        part_path = gguf_path.parent / f"{prefix}-{i:05d}-of-{total_parts:05d}.gguf"
+        if part_path.exists():
+            parts.append(part_path)
+        else:
+            logger.warning(f"Split GGUF part missing: {part_path}")
+    return parts
+
+
 def get_gguf_total_size(gguf_path: Path) -> int:
     """
     Get total file size for a GGUF model, including all split parts.
-
-    Split GGUFs follow the pattern: model-00001-of-00002.gguf, model-00002-of-00002.gguf
-    This function detects split files and sums all parts.
 
     Args:
         gguf_path: Path to GGUF file (first part for split GGUFs)
@@ -40,24 +80,48 @@ def get_gguf_total_size(gguf_path: Path) -> int:
     Returns:
         Total size in bytes across all parts
     """
-    import re
+    return sum(part.stat().st_size for part in get_gguf_part_paths(gguf_path))
 
-    name = gguf_path.name
-    # Match split pattern: *-00001-of-NNNNN.gguf
-    match = re.match(r'^(.+)-(\d{5})-of-(\d{5})\.gguf$', name)
-    if not match:
-        return gguf_path.stat().st_size
 
-    prefix = match.group(1)
-    total_parts = int(match.group(3))
-    total_size = 0
-    for i in range(1, total_parts + 1):
-        part_path = gguf_path.parent / f"{prefix}-{i:05d}-of-{total_parts:05d}.gguf"
-        if part_path.exists():
-            total_size += part_path.stat().st_size
-        else:
-            logger.warning(f"Split GGUF part missing: {part_path}")
-    return total_size
+def get_gguf_lazy_tensor_bytes(gguf_path: Path) -> int:
+    """
+    Bytes der Tensoren, die llama.cpp on-demand von der Platte liest.
+
+    Diese Tensoren belegen kein VRAM. Wer den VRAM-Bedarf eines Modells
+    schaetzt, muss sie von der Dateigroesse abziehen -- sonst wird der
+    Bedarf um ihre volle Groesse ueberschaetzt (bei Qwen3.8-Flash-Next
+    um 50,7 GiB von 157,5 GB).
+
+    Args:
+        gguf_path: Pfad zur GGUF-Datei (erster Teil bei Split-GGUFs)
+
+    Returns:
+        Summe der Bytes ueber alle Teile; 0 wenn kein Tensor die Schwelle
+        erreicht. Ist die Datei nicht lesbar, wird 0 gemeldet (der
+        VRAM-Bedarf wird dann wie bisher ueberschaetzt, also konservativ).
+    """
+    try:
+        import gguf
+    except ImportError:
+        logger.warning("gguf module not available - lazy tensor size unknown")
+        return 0
+
+    total = 0
+    for part in get_gguf_part_paths(gguf_path):
+        try:
+            reader = gguf.GGUFReader(part)
+        except Exception as exc:
+            logger.warning(f"Cannot read GGUF part {part.name}: {exc}")
+            continue
+        for tensor in reader.tensors:
+            n_bytes = int(tensor.n_bytes)
+            if n_bytes >= GGUF_LAZY_READ_MIN_BYTES:
+                total += n_bytes
+                logger.info(
+                    f"Lazy-read tensor: {tensor.name} "
+                    f"({n_bytes / 1024 ** 3:.1f} GiB) - excluded from VRAM demand"
+                )
+    return total
 
 
 # Architektur-Cache: GGUFReader baut beim Öffnen die KOMPLETTE Feldtabelle

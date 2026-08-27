@@ -191,8 +191,14 @@ async def calibrate_llamacpp_model(
         budget = _replace(budget, gpu_reserve_mb=tuple(reserve_vec))
 
     yield (
-        f"Model: {model.model_id} ({format_number(model.size_mb / 1024, 1)} GB), "
-        f"native context: {format_number(model.native_context)} "
+        f"Model: {model.model_id} "
+        f"({format_number(model.file_size_mb / 1024, 1)} GB Datei"
+        + (
+            f", davon {format_number(model.size_mb / 1024, 1)} GB im VRAM "
+            f"— Rest wird lazy von der Platte gelesen"
+            if model.file_size_mb - model.size_mb > 1.0 else ""
+        )
+        + f"), native context: {format_number(model.native_context)} "
         f"(model = {model.size_mb / sum(gpu_total):.0%} of "
         f"{format_number(sum(gpu_total) / 1024, 1)} GB VRAM)"
     )

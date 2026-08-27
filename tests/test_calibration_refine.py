@@ -313,7 +313,7 @@ def _model():
     from pathlib import Path
     return Model(
         model_id="m", gguf_path=Path("/x.gguf"), native_context=262144,
-        total_layers=TOTAL_LAYERS, size_mb=MODEL_MB,
+        total_layers=TOTAL_LAYERS, size_mb=MODEL_MB, file_size_mb=MODEL_MB,
         mb_per_layer=MODEL_MB / TOTAL_LAYERS, quantization="Q4",
     )
 

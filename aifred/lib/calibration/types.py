@@ -53,7 +53,13 @@ class GPU:
 class Model:
     """GGUF metadata needed for calibration.
 
-    mb_per_layer is the naive average (model_size / total_layers) — good
+    size_mb is the VRAM-relevant size: the file size MINUS tensors that
+    llama.cpp reads lazily from disk (see ``get_gguf_lazy_tensor_bytes``).
+    Those never reach the GPU, so counting them would overstate demand —
+    for Qwen3.8-Flash-Next by 50,7 GiB of 157,5 GB. file_size_mb keeps the
+    raw file size for display.
+
+    mb_per_layer is the naive average (size_mb / total_layers) — good
     enough as a starting estimate for layer-split, but NOT used for VRAM
     projection (that comes from llama-fit-params).
     """
@@ -62,6 +68,7 @@ class Model:
     native_context: int
     total_layers: int
     size_mb: float
+    file_size_mb: float
     mb_per_layer: float
     quantization: str
 
