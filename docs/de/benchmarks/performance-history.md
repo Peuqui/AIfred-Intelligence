@@ -92,6 +92,46 @@ Dense — von der ub-Umstellung bewusst ausgenommen (Messgewinn nur +6–8 %).
 |---|---|---|---|
 | 30.07. | ub 512 (dense) | 2.738–3.211 | 66–92 |
 
+### Qwen3.8-Flash-Next 180B-A4B UD-Q6_K_XL (5 GPUs, ohne Spekulation)
+
+Erstes Modell mit **Lazy-Read-Tensor**: die PLE-Tabelle
+(`per_layer_token_embd.weight`, **50,7 GiB Q8_0 als EIN Tensor**) bleibt auf
+der Platte und wird zeilenweise gelesen. Sie passt auf keine einzelne Karte
+(größte = 48 GB) und lässt sich bei `-sm layer` nicht aufteilen — llama.cpp
+löst das über `TENSOR_READ_LAZY`, was zwingend mmap voraussetzt.
+
+**Folge für die Flags:** `--direct-io` schließt mmap aus und damit Lazy Read;
+die 50,7 GiB gehen dann in den Host-RAM (30 GB vorhanden) → OOM-Kill. Dieses
+Modell braucht `--load-mode auto`, NICHT `dio`. `--mlock` ist wirkungslos:
+beide Flags schreiben dasselbe Feld, der letzte gewinnt.
+
+| Zeitraum | Konfiguration | PP | TG |
+|---|---|---|---|
+| 27.08. | ctx 32K, KV f16, split 12:12:8:8:8, `--load-mode auto` (lazy) | 522 | 35,4 |
+
+Messung: llama-server Port 8099 direkt (nicht über llama-swap), Pin-Order
+GPU0,GPU2,GPU3,GPU1,GPU4. TG = "Erkläre Quantenphysik in 30 Sätzen",
+1200 Token, n=3 ohne Warmlauf (31,8/35,4/35,4). PP = 4.333-Token-Prompt.
+VRAM real 107,5 GB über 5 Karten (Projektion von llama-fit-params punktgenau
+getroffen), Host-RAM 4,5 GB. Ladezeit 4:34–4:45 min.
+
+**Variantenvergleich** (gleiche Hardware, gleicher Prompt):
+
+| Variante | Ergebnis |
+|---|---|
+| `--load-mode auto` + lazy auto | **läuft**, 107,5 GB VRAM / 4,5 GB RAM, 35,4 tok/s |
+| `--tensor-read-lazy off` | **gescheitert** — Tabelle geht in den Host-RAM, bei RSS 17,8 GB abgebrochen |
+| `--load-mode dio` | entfällt — kein mmap ⇒ kein Lazy Read ⇒ wie oben |
+
+Random-Read-Latenz der Modellplatte (USB-NVMe, O_DIRECT, 4 KiB): **209 µs**.
+Hochgerechnet ~1,67 ms je Token für 8 PLE-Lookups, also grob 5 % bei 30 ms
+pro Token. Der Anteil steigt, je schneller das Modell wird.
+
+**MTP ist für dieses Modell in llama.cpp nicht verfuegbar** (arch `qwen4exp`:
+0 nextn/mtp-Tensoren, `supports_mtp_export = False` im Konverter) — im
+Gegensatz zum 27B (arch `qwen35`, 4 MTP-Tensoren). Kein Anbieter-GGUF kann
+das ändern.
+
 ### DeepSeek-V4-Flash-0731 284B-A13B UD-Q4_K_XL (5 GPUs, DSpark)
 
 Erstes Modell mit **Sidecar-Draft** (separates 11-GB-DSpark-GGUF via
