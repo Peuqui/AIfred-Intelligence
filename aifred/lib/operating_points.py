@@ -24,6 +24,8 @@ id AND the ``--served-model-name`` inside cmd (vLLM rejects mismatches).
 """
 
 import logging
+import shlex
+import subprocess
 from pathlib import Path
 
 import yaml
@@ -32,6 +34,34 @@ from .config import LLAMASWAP_CONFIG_PATH, OPERATING_POINTS_DIR
 from .calibration.llamaswap_io import _ensure_in_group, _read_yaml, _write_yaml
 
 logger = logging.getLogger(__name__)
+
+
+def gpu_fingerprint() -> str:
+    """Hardware fingerprint in the autoscan header format
+    (``RTX_8000:49152,...``, PCI order). Operating points are bound to
+    the exact GPU set they were measured on."""
+    out = subprocess.run(
+        ["nvidia-smi", "--query-gpu=name,memory.total",
+         "--format=csv,noheader,nounits"],
+        capture_output=True, text=True, timeout=10, check=True,
+        env={"PATH": "/usr/bin:/usr/local/bin:/bin", "CUDA_DEVICE_ORDER": "PCI_BUS_ID"},
+    ).stdout
+    parts = []
+    for line in out.strip().splitlines():
+        name, total = line.split(", ")
+        for prefix in ("NVIDIA ", "Quadro ", "Tesla "):
+            name = name.removeprefix(prefix)
+        parts.append(f"{name.replace(' ', '_')}:{total}")
+    return ",".join(parts)
+
+
+def _checkpoint_path_from_cmd(cmd: str) -> Path | None:
+    """The --model path from a vLLM cmd (None if the cmd has none)."""
+    tokens = shlex.split(cmd)
+    for i, tok in enumerate(tokens):
+        if tok == "--model" and i + 1 < len(tokens):
+            return Path(tokens[i + 1])
+    return None
 
 
 def list_operating_points() -> dict[str, Path]:
@@ -73,6 +103,28 @@ def apply_operating_point(model_id: str) -> list[str]:
 
     entry = profile["llamaswap"]
     group = profile.get("group", "main")
+
+    # Hardware-bound: a profile measured on a different GPU set must not
+    # be applied — topology and card order would be wrong. Re-measure
+    # (or hand-update the profile) instead.
+    measured_on = profile.get("hardware")
+    if measured_on:
+        current = gpu_fingerprint()
+        if current != measured_on:
+            raise ValueError(
+                f"Hardware changed since the operating point was measured: "
+                f"profile expects [{measured_on}], machine has [{current}]. "
+                f"The operating point must be re-measured."
+            )
+
+    # A profile whose checkpoint is gone must not resurrect a dead entry
+    # (the autoscan prunes such entries — the profile file it cannot see).
+    ckpt = _checkpoint_path_from_cmd(entry["cmd"])
+    if ckpt is not None and not ckpt.exists():
+        raise ValueError(
+            f"Checkpoint for operating point '{model_id}' is gone: {ckpt}. "
+            f"Delete the profile or restore the model."
+        )
 
     config = _read_yaml(LLAMASWAP_CONFIG_PATH)
     models = config.setdefault("models", {})

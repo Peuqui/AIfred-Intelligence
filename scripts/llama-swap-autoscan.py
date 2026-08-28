@@ -1477,6 +1477,121 @@ def append_models_to_yaml(
 
 
 # ---------------------------------------------------------------------------
+# vLLM-Seed-Eintraege (generisch, unkalibriert)
+# ---------------------------------------------------------------------------
+# Analog zum GGUF-Pfad: neue vLLM-Checkpoint-Verzeichnisse (config.json +
+# Safetensors) in MODELS_DIR bekommen einen generischen, rechnerisch
+# bootbaren Eintrag <dirname>-vllm — konservativer Kontext, erste passende
+# Topologie aus der Analyse (KEIN Boot beim Scan). AIfreds Kalibrierung
+# verfeinert per Messung und ersetzt den Seed durch den Betriebspunkt.
+# Kalibrierte Modelle (Betriebspunkt-Profil vorhanden) und bestehende
+# Eintraege werden nie angefasst. Ohne deklarierte vllm_runtime.yaml wird
+# das Seeding komplett uebersprungen — keine geratene Umgebung.
+
+VLLM_SEED_CONTEXT = 8192  # konservativ; die Kalibrierung findet das Maximum
+
+
+def seed_vllm_entries(config_path: Path) -> int:
+    """Generische vLLM-Eintraege fuer neue Checkpoint-Verzeichnisse anlegen."""
+    repo = Path(__file__).resolve().parent.parent
+    runtime_path = repo / "data" / "vllm_runtime.yaml"
+    print("Scanning for vLLM checkpoint directories...")
+    if not runtime_path.exists():
+        print("  ~ no data/vllm_runtime.yaml — vLLM seeding skipped")
+        return 0
+
+    candidates = [
+        d for d in sorted(MODELS_DIR.iterdir())
+        if d.is_dir() and (d / "config.json").exists()
+        and any(d.glob("*.safetensors"))
+    ]
+    if not candidates:
+        print("  no vLLM checkpoint dirs found")
+        return 0
+
+    existing = parse_existing_yaml_models(config_path)
+    profiles_dir = repo / "data" / "operating_points"
+    todo = [
+        d for d in candidates
+        if f"{d.name}-vllm" not in existing
+        and not (profiles_dir / f"{d.name}-vllm.yaml").exists()
+    ]
+    print(f"  {len(candidates)} checkpoint dir(s), {len(todo)} new")
+    if not todo:
+        return 0
+
+    # Schwere Imports erst jetzt (Analyse + Topologie aus der AIfred-Lib —
+    # derselbe Lazy-Pfad, den der VRAM-Cache-Prune bereits nutzt)
+    if str(repo) not in sys.path:
+        sys.path.insert(0, str(repo))
+    import yaml as _yaml
+
+    from aifred.lib.calibration.vllm_flow import (
+        _gmu_for,
+        _smi_index_by_uuid,
+        eligible_gpus,
+        render_llamaswap_entry,
+        side_channel_uuids,
+        topology_ladder,
+    )
+    from aifred.lib.calibration.vllm_model_meta import analyze_checkpoint
+    from aifred.lib.calibration.vllm_probe import VllmSpec, load_vllm_runtime
+
+    runtime = load_vllm_runtime()
+    gpus = eligible_gpus(side_channel_uuids())
+    smi = _smi_index_by_uuid()
+
+    content = config_path.read_text()
+    new_blocks = ""
+    added = 0
+    for ckpt in todo:
+        name = f"{ckpt.name}-vllm"
+        try:
+            meta = analyze_checkpoint(ckpt)
+            rung = next(iter(topology_ladder(meta, gpus, runtime)), None)
+            if rung is None:
+                print(f"  ✗ {name}: no topology fits the eligible GPUs — skipping")
+                continue
+            cand_gpus = [g for g in gpus if smi[g.uuid] in rung.gpu_ids]
+            spec = VllmSpec(
+                checkpoint=ckpt, served_name=name,
+                gpu_ids=rung.gpu_ids, tp=rung.tp, pp=rung.pp,
+                gmu=_gmu_for(cand_gpus),
+                mml=min(meta.native_context or VLLM_SEED_CONTEXT, VLLM_SEED_CONTEXT),
+                block_size=meta.allowed_k_block_sizes()[0],
+                pp_partition=rung.pp_partition,
+                language_model_only=meta.multimodal,
+            )
+            entry = render_llamaswap_entry(spec, ttl=DEFAULT_TTL_LARGE)
+        except Exception as err:  # noqa: BLE001 — ein kaputter Checkpoint
+            # darf die uebrigen Seeds nicht verhindern
+            print(f"  ✗ {name}: analysis failed ({err}) — skipping")
+            continue
+
+        dumped = _yaml.safe_dump(
+            {name: entry}, default_flow_style=False, sort_keys=False,
+            width=10000, allow_unicode=True,
+        )
+        block = "".join(f"  {line}" for line in dumped.splitlines(keepends=True))
+        new_blocks += "  # [autoscan-vllm] generischer Seed — via AIfred-Kalibrierung verfeinern\n"
+        new_blocks += block
+        print(f"  + Seeded: {name} ({rung.label}, ctx {spec.mml:,} — uncalibrated)")
+        added += 1
+
+    if not added:
+        return 0
+
+    groups_match = re.search(r'^groups:', content, re.MULTILINE)
+    if groups_match:
+        insert_pos = groups_match.start()
+        content = content[:insert_pos] + new_blocks + content[insert_pos:]
+    else:
+        content += new_blocks
+    _write_config(config_path, content)
+    return added
+
+
+# ---------------------------------------------------------------------------
 # VRAM cache
 # ---------------------------------------------------------------------------
 
@@ -2416,6 +2531,12 @@ def main() -> None:
             print("Updating VRAM cache...")
             cache_added = update_vram_cache(new_models)
             print()
+
+    # Step 6b: vLLM-Checkpoint-Verzeichnisse → generische Seed-Eintraege
+    vllm_seeded = seed_vllm_entries(LLAMASWAP_CONFIG)
+    if vllm_seeded:
+        config_changed = True
+    print()
 
     # Update groups if config was modified (cleanup or new models)
     if config_changed:

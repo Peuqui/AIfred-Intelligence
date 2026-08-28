@@ -28,6 +28,11 @@ from ..lib.logging_utils import CONSOLE_SEPARATOR, log_message
 # plain list ohne Lock.
 _cal_debug_buffer: list[str] = []
 
+# Ziel einer vLLM-Kalibrierung (Checkpoint, Eintragsname) — vom Guard in
+# calibrate_context gesetzt, vom Impl-Dispatch gelesen. Prozessweit ein
+# Slot ist korrekt: das Kalibrier-Gate erlaubt ohnehin nur einen Lauf.
+_vllm_cal_target: tuple | None = None
+
 
 def _write_variant_cache_entry(
     base_model_id: str, variant_id: str, max_context: int, speed_split: int = 0,
@@ -539,11 +544,16 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("⚠️ No model selected")  # type: ignore[attr-defined]
                 return
 
-            # Static operating point? Then the entry is adopted 1:1 into
-            # the llama-swap config instead of being calibrated (vLLM
-            # deployments etc. — see aifred/lib/operating_points.py).
+            # vLLM-Modelle (erkennbar am Betriebspunkt-Profil): Kalibrieren
+            # heisst IMMER neu vermessen — genau wie bei llama.cpp. Das
+            # Profil ist nur Persistenzformat des Ergebnisses, niemals ein
+            # Grund zum Ueberspringen. Hier wird nur das ZIEL bestimmt
+            # (Checkpoint + Eintragsname); der Lauf selbst dispatcht unten
+            # im Impl auf die vLLM-Suche.
+            global _vllm_cal_target
+            _vllm_cal_target = None
             from ..lib.operating_points import (
-                apply_operating_point,
+                _checkpoint_path_from_cmd,
                 get_operating_point,
             )
             _op_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
@@ -553,9 +563,14 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug(f"❌ Operating point invalid: {op_err}")  # type: ignore[attr-defined]
                 return
             if _op_profile is not None:
-                for _op_msg in apply_operating_point(_op_model_id):
-                    self.add_debug(_op_msg)  # type: ignore[attr-defined]
-                return
+                _op_ckpt = _checkpoint_path_from_cmd(_op_profile["llamaswap"]["cmd"])
+                if _op_ckpt is None or not _op_ckpt.exists():
+                    self.add_debug(  # type: ignore[attr-defined]
+                        f"❌ vLLM checkpoint missing for {_op_model_id} — "
+                        f"cannot re-calibrate ({_op_ckpt})"
+                    )
+                    return
+                _vllm_cal_target = (_op_ckpt, str(_op_model_id))
 
             if self.is_calibrating:
                 self.add_debug("⚠️ Calibration already in progress")  # type: ignore[attr-defined]
@@ -654,6 +669,73 @@ class CalibrationMixin(rx.State, mixin=True):
                 f"{model_id}. The model may fail to start until calibrated."
             )
 
+    async def _calibrate_vllm_impl(self):
+        """vLLM-Betriebspunkt-Suche als Background-Lauf (Paket 3).
+
+        Die blockierende Suche (Boots, Messungen) laeuft in einem Thread;
+        Fortschritt fliesst thread-sicher ueber eine Queue in den
+        Kalibrier-Puffer. Cancel: das prozessweite Gate-Flag reicht bis in
+        die Boot-Warteschleifen der Probe; zusaetzlich haelt ein lokales
+        Stop-Event den Thread an, falls der Wrapper den Generator schliesst
+        BEVOR der Gate-Reset das Cancel-Flag wieder loescht (sonst liefe
+        ein Zombie-Boot weiter).
+        """
+        import asyncio
+        import queue as _queue
+        import threading
+
+        from ..lib.calibration.vllm_flow import calibrate_vllm_checkpoint
+        from ..lib.calibration_gate import is_cancel_requested
+        from ..lib.config import DATA_DIR
+
+        assert _vllm_cal_target is not None
+        checkpoint, entry_name = _vllm_cal_target
+        progress_q: _queue.Queue[str] = _queue.Queue()
+        stop_event = threading.Event()
+        log_dir = DATA_DIR / "logs" / "vllm_calibration" / entry_name
+
+        def _cancelled() -> bool:
+            return stop_event.is_set() or is_cancel_requested()
+
+        def _run():
+            return calibrate_vllm_checkpoint(
+                checkpoint=checkpoint,
+                entry_name=entry_name,
+                log_dir=log_dir,
+                progress=progress_q.put,
+                cancel_check=_cancelled,
+            )
+
+        task = asyncio.create_task(asyncio.to_thread(_run))
+        try:
+            while not task.done():
+                while not progress_q.empty():
+                    self._cal_debug(progress_q.get_nowait())
+                yield
+                await asyncio.sleep(1.0)
+            while not progress_q.empty():
+                self._cal_debug(progress_q.get_nowait())
+            result = task.result()
+            self._cal_debug(
+                f"✅ vLLM calibration done: {result.throughput_tok_s:.1f} tok/s "
+                f"(k-sweep {result.k_sweep}) — profile: {result.profile_path}"
+            )
+        except Exception as e:  # noqa: BLE001 — Background-Lauf: Fehler
+            # muessen als Meldung ankommen, nicht still verschwinden
+            self._cal_debug(f"❌ vLLM calibration failed: {type(e).__name__}: {e}")
+        finally:
+            if not task.done():
+                stop_event.set()
+                try:
+                    await asyncio.wait_for(asyncio.shield(task), timeout=90)
+                except Exception:  # noqa: BLE001 — inkl. Timeout/Thread-Fehler
+                    self._cal_debug(
+                        "⚠️ vLLM calibration thread still winding down — "
+                        "a probe server may linger briefly"
+                    )
+            while not progress_q.empty():
+                self._cal_debug(progress_q.get_nowait())
+
     async def _calibrate_context_impl(self):
         """Eigentlicher Kalibrierlauf (async generator, kein Event-Handler).
 
@@ -663,6 +745,15 @@ class CalibrationMixin(rx.State, mixin=True):
         ``async with self``; Reads laufen auf dem Task-Snapshot.
         """
         # Dispatch to backend-specific calibration
+        if _vllm_cal_target is not None:
+            _inner = self._calibrate_vllm_impl()
+            try:
+                async for _ in _inner:
+                    yield
+            finally:
+                await _inner.aclose()
+            return
+
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
             _inner = self._calibrate_llamacpp()
             try:
