@@ -300,6 +300,18 @@ def find_model_path(tokens: list[str]) -> Path | None:
     return None
 
 
+def is_llama_server_cmd(cmd: str) -> bool:
+    """True wenn das cmd ein llama-server-Aufruf ist. Nur solche Einträge
+    verwaltet dieses Script — fremde Backends (z.B. vLLM-Einträge, deren
+    ``python -m`` sonst als ``-m <Modellpfad>`` fehlgedeutet würde) bleiben
+    komplett unangetastet: kein Prune, keine Normalisierung."""
+    try:
+        tokens = shlex.split(cmd)
+    except ValueError:
+        return False
+    return bool(tokens) and Path(tokens[0]).name == "llama-server"
+
+
 _MMPROJ_PRECISION_RE = re.compile(r"-(?:f16|bf16|f32|q\d+(?:_\w+)?)$", re.IGNORECASE)
 
 
@@ -533,6 +545,8 @@ def cleanup_missing_gguf_models(data: dict) -> list[str]:
         cmd = (models[name] or {}).get("cmd", "")
         if not cmd:
             continue
+        if not is_llama_server_cmd(cmd):
+            continue  # fremdes Backend (z.B. vLLM) — nicht unser Zuständigkeitsbereich
         try:
             model_path = find_model_path(shlex.split(cmd))
         except ValueError:
@@ -652,6 +666,9 @@ def main() -> int:
         cmd = (cfg or {}).get("cmd", "")
         if not cmd:
             continue
+        if not is_llama_server_cmd(cmd):
+            summary.append((name, "extern"))
+            continue
         new_cmd, status = normalize_cmd(cmd, name, mtp_cache)
         if new_cmd != cmd:
             data["models"][name]["cmd"] = new_cmd
@@ -663,7 +680,7 @@ def main() -> int:
     # Status-Übersicht (auch wenn nichts geändert wurde)
     sys.stderr.write("Speculative-Status pro Modell:\n")
     for name, status in summary:
-        symbol = {"MTP": "🚀", "ngram": "📋", "sidecar": "🎯", "skip": "⚠️ "}.get(status, "?")
+        symbol = {"MTP": "🚀", "ngram": "📋", "sidecar": "🎯", "skip": "⚠️ ", "extern": "🔌"}.get(status, "?")
         sys.stderr.write(f"  {symbol} {status:5}  {name}\n")
 
     if changed == 0 and not removed_tts and not removed_gguf:
