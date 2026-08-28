@@ -34,6 +34,31 @@ PROJECT_ROOT = Path(__file__).parent.parent.parent.absolute()  # Go up to repo r
 DATA_DIR = PROJECT_ROOT / "data"
 
 # ============================================================
+# MODEL PATHS (installation-agnostic, overridable via environment)
+# ============================================================
+# MODELS_DIR: local model directory (GGUFs, vLLM checkpoint dirs).
+# SSOT is the env var AIFRED_MODELS_DIR — scripts/llama-swap-autoscan.py
+# reads the same var independently (it must not import aifred.lib, that
+# would trigger Reflex app init).
+MODELS_DIR = Path(os.environ.get("AIFRED_MODELS_DIR", str(Path.home() / "models")))
+
+# HuggingFace hub cache, resolved like huggingface_hub does (HF_HUB_CACHE
+# beats HF_HOME beats the default) — never hardcode ~/.cache paths.
+HF_HUB_CACHE_DIR = Path(
+    os.environ.get("HF_HUB_CACHE")
+    or (
+        str(Path(os.environ["HF_HOME"]) / "hub")
+        if os.environ.get("HF_HOME")
+        else str(Path.home() / ".cache" / "huggingface" / "hub")
+    )
+)
+
+# Static operating points: fully measured llama-swap model entries that
+# the calibration adopts 1:1 instead of calibrating (see
+# aifred/lib/operating_points.py). Hardware-specific → lives in data/.
+OPERATING_POINTS_DIR = DATA_DIR / "operating_points"
+
+# ============================================================
 # BACKEND URL FOR STATIC FILES (HTML Preview, Images)
 # ============================================================
 # With NGINX proxy: Leave empty ("") - NGINX routes /_upload/ to backend

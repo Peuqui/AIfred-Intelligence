@@ -19,6 +19,8 @@ from typing import Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
+from .config import HF_HUB_CACHE_DIR  # noqa: E402
+
 
 def get_model_size_bytes(model_name: str) -> int:
     """
@@ -35,7 +37,7 @@ def get_model_size_bytes(model_name: str) -> int:
     """
     # Convert "cpatonn/Qwen3-30B-A3B" → "models--cpatonn--Qwen3-30B-A3B"
     cache_dir_name = model_name.replace("/", "--")
-    cache_base = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{cache_dir_name}"
+    cache_base = HF_HUB_CACHE_DIR / f"models--{cache_dir_name}"
 
     if not cache_base.exists():
         raise FileNotFoundError(f"Model cache not found: {cache_base}")
@@ -152,7 +154,7 @@ def get_model_native_context(model_name: str) -> int:
     """
     # Convert "Qwen/Qwen3-8B-AWQ" → "models--Qwen--Qwen3-8B-AWQ"
     cache_dir_name = model_name.replace("/", "--")
-    cache_base = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{cache_dir_name}"
+    cache_base = HF_HUB_CACHE_DIR / f"models--{cache_dir_name}"
 
     if not cache_base.exists():
         raise FileNotFoundError(f"Model cache not found: {cache_base}")
@@ -191,7 +193,7 @@ def detect_quantization(model_name: str) -> str:
         Empty string means: Let vLLM auto-detect from config.json
     """
     # Try to read config.json from HuggingFace cache
-    cache_dir = Path.home() / ".cache" / "huggingface" / "hub"
+    cache_dir = HF_HUB_CACHE_DIR
 
     # Convert model name to cache folder format
     # e.g., "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit" -> "models--cpatonn--Qwen3-30B-A3B-Instruct-2507-AWQ-4bit"

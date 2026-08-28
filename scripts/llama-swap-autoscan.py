@@ -13,6 +13,7 @@ Designed to run as ExecStartPre before llama-swap service starts.
 """
 
 import json
+import os
 import re
 import socket
 import subprocess
@@ -29,7 +30,9 @@ import nvidia_smi
 # Configuration
 # ---------------------------------------------------------------------------
 
-MODELS_DIR = Path.home() / "models"
+# SSOT ist die Env-Variable AIFRED_MODELS_DIR (aifred/lib/config.py liest
+# dieselbe — direkter Import wuerde die Reflex-App-Init triggern).
+MODELS_DIR = Path(os.environ.get("AIFRED_MODELS_DIR", str(Path.home() / "models")))
 
 OLLAMA_PATHS = [
     Path("/usr/share/ollama/.ollama/models"),   # System-Service
