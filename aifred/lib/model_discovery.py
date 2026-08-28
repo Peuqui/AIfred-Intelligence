@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Callable, Dict, Optional
 import httpx
 
+from .config import HF_HUB_CACHE_DIR, MODELS_DIR
 from .formatting import format_number
 from .logging_utils import log_message
 from .model_manager import sort_models_grouped
@@ -32,7 +33,7 @@ def discover_huggingface_models(
     Returns:
         Dict mapping model_id to display label with size
     """
-    hf_cache = Path.home() / ".cache" / "huggingface" / "hub"
+    hf_cache = HF_HUB_CACHE_DIR
 
     if not hf_cache.exists():
         log_message("⚠️ HuggingFace cache not found")
@@ -62,6 +63,37 @@ def discover_huggingface_models(
                 result[model_id] = model_id
 
     log_message(f"📂 Found {len(result)} {backend_type}-compatible models ({len(model_dirs)} total in cache)")
+    return result
+
+
+def discover_local_vllm_checkpoints() -> Dict[str, str]:
+    """
+    Discover vLLM-loadable checkpoint directories in MODELS_DIR.
+
+    A vLLM checkpoint dir carries a config.json plus safetensors shards
+    (e.g. the NVFP4 symlink transplants) — GGUF files are llama.cpp
+    territory and stay with the autoscan.
+
+    Returns:
+        Dict mapping directory name to display label with size
+    """
+    if not MODELS_DIR.exists():
+        return {}
+
+    result = {}
+    for model_dir in sorted(MODELS_DIR.iterdir()):
+        if not model_dir.is_dir() or not (model_dir / "config.json").exists():
+            continue
+        shards = list(model_dir.glob("*.safetensors"))
+        if not shards:
+            continue
+        # Symlink transplants: resolve() folgt auf die echten Blobs
+        total_size = sum(p.resolve().stat().st_size for p in shards if p.resolve().exists())
+        size_gb = total_size / (1024**3)
+        result[model_dir.name] = f"{model_dir.name} ({format_number(size_gb, 1)} GB, lokal)"
+
+    if result:
+        log_message(f"📂 Found {len(result)} local vLLM checkpoint dir(s) in {MODELS_DIR}")
     return result
 
 
@@ -196,6 +228,9 @@ def discover_models(
         if not is_compatible_fn:
             raise ValueError("is_compatible_fn required for vLLM")
         unsorted = discover_huggingface_models(backend_type, is_compatible_fn)
+        # Lokale Checkpoint-Verzeichnisse (z.B. Symlink-Transplants unter
+        # MODELS_DIR) ergänzen — der HF-Cache ist nicht die einzige Quelle.
+        unsorted.update(discover_local_vllm_checkpoints())
 
     elif backend_type == "ollama":
         if not backend_url:

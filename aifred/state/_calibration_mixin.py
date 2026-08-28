@@ -539,6 +539,24 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("⚠️ No model selected")  # type: ignore[attr-defined]
                 return
 
+            # Static operating point? Then the entry is adopted 1:1 into
+            # the llama-swap config instead of being calibrated (vLLM
+            # deployments etc. — see aifred/lib/operating_points.py).
+            from ..lib.operating_points import (
+                apply_operating_point,
+                get_operating_point,
+            )
+            _op_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
+            try:
+                _op_profile = get_operating_point(_op_model_id)
+            except ValueError as op_err:
+                self.add_debug(f"❌ Operating point invalid: {op_err}")  # type: ignore[attr-defined]
+                return
+            if _op_profile is not None:
+                for _op_msg in apply_operating_point(_op_model_id):
+                    self.add_debug(_op_msg)  # type: ignore[attr-defined]
+                return
+
             if self.is_calibrating:
                 self.add_debug("⚠️ Calibration already in progress")  # type: ignore[attr-defined]
                 return
