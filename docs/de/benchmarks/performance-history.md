@@ -107,11 +107,34 @@ beide Flags schreiben dasselbe Feld, der letzte gewinnt.
 
 | Zeitraum | Konfiguration | PP | TG |
 |---|---|---|---|
-| 27.08. | ctx 32K, KV f16, split 12:12:8:8:8, `--load-mode auto` (lazy) | 522 | 35,4 |
+| 27.08. | ctx 32K, KV f16, split 12:12:8:8:8, `--load-mode auto` (lazy) | 522 | 35,4* |
+| 28.08. | ctx 256K, split 14:14:4:8:8 (Prod), **wechselnde Prompts** | — | **33,0 ± 0,6** |
 
-Messung: llama-server Port 8099 direkt (nicht über llama-swap), Pin-Order
-GPU0,GPU2,GPU3,GPU1,GPU4. TG = "Erkläre Quantenphysik in 30 Sätzen",
-1200 Token, n=3 ohne Warmlauf (31,8/35,4/35,4). PP = 4.333-Token-Prompt.
+\* Der 27.08.-Wert entstand mit **wiederholt identischem** Prompt. Der
+belastbare Alltagswert ist die 28.08.-Zeile.
+
+Messung: llama-server direkt (nicht über llama-swap), Pin-Order
+GPU0,GPU2,GPU3,GPU1,GPU4. PP = 4.333-Token-Prompt.
+
+**Der Page-Cache bestimmt den Durchsatz.** Die PLE-Tabelle wird lazy
+gelesen; wie schnell das Modell ist, hängt daran, wie viel davon im RAM
+liegt (Sättigung bei 19 GB von 50,7 GB = 37 %):
+
+| Zustand | TG |
+|---|---:|
+| erster Lauf nach dem Laden (kalter Cache) | 22–31 |
+| eingeschwungen, wechselnde Prompts | **33,0** |
+| eingeschwungen, identischer Prompt wiederholt | 35,7 |
+
+Nach jedem Modellstart ist die erste Antwort also die langsamste.
+Mehr RAM wäre der einzige Hebel — im Mini nicht erweiterbar.
+
+**ngram-Spekulation bringt bei Prosa nichts:** 32,3 tok/s mit gegen 33,0
+ohne. Die zwischenzeitlich gemessenen 49,7 tok/s (+39 %) waren ein
+Artefakt wiederholt identischer Prompts bei `temperature 0` — der Drafter
+lernt dabei die eigene Ausgabe auswendig. **Bei Spekulations-Benchmarks
+immer die Prompts variieren.** Ungeprüft bleibt strukturierter Output
+(Code), wo n-Gramme besser treffen könnten.
 VRAM real 107,5 GB über 5 Karten (Projektion von llama-fit-params punktgenau
 getroffen), Host-RAM 4,5 GB. Ladezeit 4:34–4:45 min.
 
