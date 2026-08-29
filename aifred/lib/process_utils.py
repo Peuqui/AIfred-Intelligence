@@ -6,7 +6,7 @@ Provides common functions for:
 - GPU memory cleanup
 - Service management (systemctl)
 
-This module reduces code duplication across state.py and vllm_manager.py.
+This module reduces code duplication across the state mixins.
 """
 
 import os
@@ -125,33 +125,6 @@ def restart_service(service_name: str, check: bool = False) -> bool:
         return False
 
 
-# Process patterns for AIfred backends (centralized constants)
-PROCESS_PATTERNS = {
-    "vllm": "vllm serve",
-}
-
-
-async def stop_backend_process(backend_type: str, wait_for_vram: bool = True) -> bool:
-    """
-    Stop a backend process by backend type.
-
-    Convenience wrapper using PROCESS_PATTERNS.
-
-    Args:
-        backend_type: Backend identifier ("vllm")
-        wait_for_vram: Wait for GPU memory release
-
-    Returns:
-        True if process was stopped
-    """
-    pattern = PROCESS_PATTERNS.get(backend_type)
-    if not pattern:
-        log_message(f"Unknown backend type: {backend_type}")
-        return False
-
-    return await stop_process(pattern, wait_for_vram=wait_for_vram)
-
-
 # ============================================================
 # Docker Container Management
 # ============================================================
@@ -252,15 +225,11 @@ def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
 def _detect_tts_gpu_uuid() -> str:
     """Pick the UUID of the GPU that TTS containers should pin to.
 
-    **Design rule:** the **first card of the side-channel tier** (the
-    compute class below the chat LLM's top tier, Volta+ preferred). When
-    that tier has a second card, the VLM goes there instead
-    (``pick_vlm_gpu``) so TTS and VLM no longer contend for one GPU.
-    With a single side-channel card both co-locate, as before.
-
-    Hardware-agnostic: on 2× RTX 8000 + V100 + 2× P40 this picks the
-    V100 (and so does the VLM — one card in the tier). Add a second
-    V100 and TTS keeps V100 #1 while the VLM moves to V100 #2.
+    **Design rule (2026-08-29):** TTS und VLM teilen sich die gemeinsame
+    Sammelkarte (``pick_side_channel_gpu``) — alle übrigen Karten bleiben
+    für Backend-Topologien frei (z.B. TP2×PP2 bei der vLLM-Kalibration).
+    Ob eine TTS-Engine neben das VLM passt, prüft der Kombi-Kapazitäts-
+    Guard der Kalibration.
 
     Returns ``""`` if NVML / nvidia-smi is unavailable. Caller (TTS
     compose env builder) treats ``""`` as "no GPU pin", which falls
@@ -498,24 +467,8 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
             actions.append("Ollama models unloaded")
         except Exception:
             pass
-    elif backend_type == "vllm":
-        # vLLM: stop via process manager. vllm_manager.stop() is declared
-        # async but does only synchronous work (terminate + wait on the
-        # subprocess), so call the sync core directly. The previous
-        # asyncio.get_event_loop().run_until_complete() raised RuntimeError
-        # when called from an already running event loop and the error was
-        # swallowed by the bare except → vLLM never stopped, VRAM leaked.
-        try:
-            # Die Manager-Instanz lebt im prozessweiten Backend-State —
-            # ein Modul-Attribut ``vllm_manager`` gab es nie (der frühere
-            # Import warf immer ImportError und der Stop lief nie).
-            from ..state._base import _global_backend_state
-            manager = _global_backend_state.get("vllm_manager")
-            if manager is not None:
-                manager._stop_sync()
-                actions.append("vLLM stopped")
-        except Exception as e:
-            log_message(f"⚠️ vLLM stop failed: {e}", "warning")
+    # vLLM-Eintraege laufen unter llama-swap — deren Prozesse stoppt
+    # llama-swap selbst (cmdStop: vllm-swap-stop), kein eigener Zweig.
 
     # 2. Stop TTS containers (skip the one we want to keep + engines
     # whose image isn't installed locally — handled centrally by

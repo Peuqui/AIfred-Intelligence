@@ -1059,11 +1059,12 @@ async def prepare_automatik_llm(
     preload_ctx = num_ctx or AUTOMATIK_LLM_NUM_CTX
 
     try:
-        # Only Ollama and llama.cpp benefit from preloading:
+        # Preload benefits every llama-swap-managed backend:
         # - Ollama: Set num_ctx to avoid 262K default allocation
         # - llama.cpp: Trigger llama-swap cold-start before user's first question
-        # - vLLM: Models stay loaded, no preload needed
-        if backend_type not in ("ollama", "llamacpp"):
+        # - vLLM: Eintraege booten ueber llama-swap on demand (Minuten!) —
+        #   der Preload-Trigger lohnt dort erst recht
+        if backend_type not in ("ollama", "llamacpp", "vllm"):
             yield {"type": "result", "data": (True, 0.0)}
             return
 

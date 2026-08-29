@@ -187,11 +187,14 @@ class AgentConfigMixin(rx.State, mixin=True):
     def _load_agent_reasoning_levels(self, agent: str, model_id: str) -> None:
         """Refresh the agent's ``reasoning_levels`` for a newly selected model
         and clear a selected effort level the new model doesn't support.
-        Levels exist only for llama.cpp models (embedded chat template)."""
+        Levels kommen aus dem Chat-Template des Modells — SSOT ist
+        ``resolve_reasoning_levels`` (GGUF-Einträge: eingebettetes
+        Template; vLLM-Einträge: chat_template.jinja des Checkpoints).
+        Ollama/Cloud-Modelle haben keinen llama-swap-Eintrag → keine Stufen."""
         from ..lib.agent_settings import get_agent_setting, set_agent_setting
         levels: list[str] = []
         default = ""
-        if model_id and self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+        if model_id and self.backend_type in ("llamacpp", "vllm"):  # type: ignore[attr-defined]
             from ..lib.gguf_utils import resolve_reasoning_levels
             from ..lib.model_vram_cache import get_reasoning_default_for_model
             levels = resolve_reasoning_levels(model_id)
@@ -527,6 +530,9 @@ class AgentConfigMixin(rx.State, mixin=True):
                 if model_id:
                     if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
                         ctx = get_llamacpp_calibration(model_id)
+                    elif self.backend_type == "vllm":  # type: ignore[attr-defined]
+                        from ..lib.operating_points import get_vllm_entry_context
+                        ctx = get_vllm_entry_context(model_id)
                     else:
                         ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                     if ctx:

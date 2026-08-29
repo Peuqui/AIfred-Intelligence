@@ -1011,16 +1011,8 @@ class ChatMixin(rx.State, mixin=True):
                 f"if(window.startBrowserStream) startBrowserStream('{self.session_id}');"
             )
 
-            # ============================================================
-            # PHASE 4: vLLM model loading (AFTER user message is visible)
-            # ============================================================
-            if self.backend_type == "vllm":  # type: ignore[attr-defined]
-                from . import _global_backend_state
-                mgr = _global_backend_state.get("vllm_manager")
-                if not (mgr and mgr.is_running()) and self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
-                    self.add_debug(f"🚀 Starting vLLM with {self.agent_tuning["aifred"].model_id}...")  # type: ignore[attr-defined]
-                    yield  # Show debug message while loading
-                await self._ensure_vllm_model()  # type: ignore[attr-defined]
+            # vLLM-Eintraege werden von llama-swap on demand geladen —
+            # kein eigener Lade-Schritt mehr (ehem. PHASE 4, Direkt-Pfad).
 
             # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
             async for _ in self._phase_tts_container_checks():
@@ -1066,8 +1058,8 @@ class ChatMixin(rx.State, mixin=True):
                 # see _vl_choice. Sampling follows the model, not the role.
                 _eff_vl, _vl_bucket = self._vl_choice()  # type: ignore[attr-defined]
 
-                # Cold start warning for llama.cpp
-                if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+                # Cold start warning (llama-swap: llamacpp + vllm)
+                if self.backend_type in ("llamacpp", "vllm"):  # type: ignore[attr-defined]
                     try:
                         running = await self._llamaswap_running_models()
                         if _eff_vl not in running:
@@ -1225,7 +1217,7 @@ class ChatMixin(rx.State, mixin=True):
             # llama-swap loads models on-demand — first request triggers cold start.
             # Check /running BEFORE the first LLM call so the user knows why it's slow.
             # ============================================================
-            if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+            if self.backend_type in ("llamacpp", "vllm"):  # type: ignore[attr-defined]
                 try:
                     running_models = await self._llamaswap_running_models()
                     if effective_auto not in running_models:

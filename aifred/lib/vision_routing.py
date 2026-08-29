@@ -324,7 +324,10 @@ def maybe_route_to_ollama(
     """
     if backend_type not in _ROUTABLE_BACKENDS:
         return backend_url, backend_type, vision_model, False
-    if backend_type == "llamacpp":
+    if backend_type in ("llamacpp", "vllm"):
+        # Beide Backends laufen ueber llama-swap — das -visiond-Profil
+        # (vision-Gruppe, parallel ladbar) ist auch unter vLLM der
+        # bevorzugte Pfad; der Ollama-Side-Channel bleibt Fallback.
         profile = visiond_profile_for(vision_model)
         if profile is not None:
             logger.info(

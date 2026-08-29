@@ -142,6 +142,9 @@ class UIConfigMixin(rx.State, mixin=True):
             if yaml_ctx > 0:
                 return yaml_ctx
             return get_llamacpp_calibration(effective) or 0
+        if self.backend_type == "vllm":  # type: ignore[attr-defined]
+            from ..lib.operating_points import get_vllm_entry_context
+            return get_vllm_entry_context(model_id)
         from ..lib.model_vram_cache import (
             get_ollama_calibrated_max_context,
             get_rope_factor_for_model,

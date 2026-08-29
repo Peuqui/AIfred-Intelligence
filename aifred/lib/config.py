@@ -159,10 +159,12 @@ BACKEND_DEFAULT_MODELS = {
         "vision": "qwen3-vl:4b",                                    # Vision: Qwen3-VL 4B
     },
     "vllm": {
-        "aifred": "cpatonn/Qwen3-30B-A3B-Instruct-2507-AWQ-4bit",   # AIfred Main-LLM: AWQ 4-bit, ~18GB (CONFIRMED)
-        "automatik": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",     # Automatik: AWQ 4-bit, ~2.8GB (CONFIRMED)
-        "sokrates": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",      # Sokrates: AWQ 4-bit, ~2.8GB
-        "salomo": "cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit",        # Salomo: AWQ 4-bit, ~2.8GB
+        # vLLM-Eintraege ("-vllm") sind installationsspezifisch (kalibrierte
+        # Betriebspunkte) — kein sinnvoller Default, User waehlt im Dropdown.
+        "aifred": "",
+        "automatik": "",
+        "sokrates": "",
+        "salomo": "",
         "vision": "",                                                # Vision: Auto-detect
     },
     "llamacpp": {
@@ -223,8 +225,10 @@ CLOUD_API_PROVIDERS = {
 # Default URLs for each backend type (localhost development)
 # Use these constants instead of hardcoding URLs!
 DEFAULT_OLLAMA_URL = "http://localhost:11434"
-DEFAULT_VLLM_URL = "http://localhost:8001/v1"
 DEFAULT_LLAMACPP_URL = os.environ.get("LLAMACPP_URL", "http://localhost:11435/v1")
+# vLLM-Checkpoints laufen als "-vllm"-Eintraege UNTER llama-swap — gleiche
+# URL wie llamacpp; das Backend ist nur eine andere Sicht auf den Katalog.
+DEFAULT_VLLM_URL = DEFAULT_LLAMACPP_URL
 
 # llama-swap / llama-server calibration
 LLAMASWAP_CONFIG_PATH = Path(os.environ.get(
@@ -247,7 +251,7 @@ LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "999
 
 BACKEND_URLS = {
     "ollama": DEFAULT_OLLAMA_URL,
-    "vllm": DEFAULT_VLLM_URL,      # Port 8001 for dev (8000 on production MiniPC)
+    "vllm": DEFAULT_VLLM_URL,      # = llama-swap (vLLM-Eintraege im selben Katalog)
     "llamacpp": DEFAULT_LLAMACPP_URL,  # llama-swap proxy (see docs/en/guides/llamacpp-setup.md)
     "cloud_api": "",  # Dynamic - set based on provider selection
 }
