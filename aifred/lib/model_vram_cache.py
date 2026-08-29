@@ -698,67 +698,6 @@ def get_vllm_calibrations(model_id: str) -> Optional[List[Dict[str, Any]]]:
     return list(calibrations) if isinstance(calibrations, list) else None
 
 
-def interpolate_vllm_context(model_id: str, current_vram_mb: int, tolerance_mb: int = 500) -> Optional[int]:
-    """
-    Get max context for a model at current VRAM level using interpolation
-
-    Args:
-        model_id: The model identifier
-        current_vram_mb: Current free VRAM in MB
-        tolerance_mb: Consider calibration points within ±tolerance_mb as exact matches
-
-    Returns:
-        Interpolated max context tokens, or None if insufficient calibration data
-    """
-    calibrations = get_vllm_calibrations(model_id)
-
-    if not calibrations or len(calibrations) == 0:
-        return None
-
-    # Sort calibrations by VRAM (ascending)
-    sorted_cal = sorted(calibrations, key=lambda x: x["free_vram_mb"])
-
-    # Check for exact match within tolerance
-    for cal in sorted_cal:
-        if abs(cal["free_vram_mb"] - current_vram_mb) <= tolerance_mb:
-            logger.info(f"Exact match: {cal['free_vram_mb']} MB ≈ {current_vram_mb} MB → {cal['max_context']} tokens")
-            return int(cal["max_context"])
-
-    # Interpolation logic (same as old vllm_context_cache.py)
-    if current_vram_mb < sorted_cal[0]["free_vram_mb"]:
-        # Below lowest calibration - extrapolate downward
-        if len(sorted_cal) >= 2:
-            x1, y1 = sorted_cal[0]["free_vram_mb"], sorted_cal[0]["max_context"]
-            x2, y2 = sorted_cal[1]["free_vram_mb"], sorted_cal[1]["max_context"]
-            if x2 == x1:
-                return int(y1)
-            slope = (y2 - y1) / (x2 - x1)
-            interpolated = int(y1 + slope * (current_vram_mb - x1))
-            return max(interpolated, 1024)  # Minimum 1K tokens
-        else:
-            return int(sorted_cal[0]["max_context"])
-
-    elif current_vram_mb > sorted_cal[-1]["free_vram_mb"]:
-        # Above highest calibration - use highest known value
-        return int(sorted_cal[-1]["max_context"])
-
-    else:
-        # Between two calibration points - linear interpolation
-        for i in range(len(sorted_cal) - 1):
-            x1, y1 = sorted_cal[i]["free_vram_mb"], sorted_cal[i]["max_context"]
-            x2, y2 = sorted_cal[i + 1]["free_vram_mb"], sorted_cal[i + 1]["max_context"]
-
-            if x1 <= current_vram_mb <= x2:
-                if x2 == x1:
-                    return int(y1)
-                slope = (y2 - y1) / (x2 - x1)
-                interpolated = int(y1 + slope * (current_vram_mb - x1))
-                logger.info(f"Interpolated: {current_vram_mb} MB → {interpolated} tokens (between {x1} and {x2} MB)")
-                return interpolated
-
-    return None
-
-
 def add_vllm_calibration(
     model_id: str,
     free_vram_mb: int,

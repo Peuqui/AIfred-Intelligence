@@ -2,99 +2,32 @@
 Model Discovery - Backend-agnostic model discovery for AIfred
 
 Provides functions to discover available models from different backends:
-- vLLM: Scan HuggingFace cache
 - Ollama: Query server API
-- llama.cpp: Query llama-swap API
+- llama.cpp: Query llama-swap API (GGUF entries)
+- vLLM: Query llama-swap API (``-vllm`` entries — vLLM-Checkpoints laufen
+  als llama-swap-Einträge, siehe scripts/llama-swap-autoscan.py)
 
 Returns Dict[model_id, display_label] for UI dropdown population.
 """
 
+import json
 from pathlib import Path
-from typing import Callable, Dict, Optional
+from typing import Dict, Optional
 import httpx
 
-from .config import HF_HUB_CACHE_DIR, MODELS_DIR
 from .formatting import format_number
 from .logging_utils import log_message
 from .model_manager import sort_models_grouped
 
-
-def discover_huggingface_models(
-    backend_type: str,
-    is_compatible_fn: Callable[[Path, str], bool]
-) -> Dict[str, str]:
-    """
-    Discover models from HuggingFace cache for vLLM backends.
-
-    Args:
-        backend_type: "vllm"
-        is_compatible_fn: Function(model_dir, backend_type) -> bool
-
-    Returns:
-        Dict mapping model_id to display label with size
-    """
-    hf_cache = HF_HUB_CACHE_DIR
-
-    if not hf_cache.exists():
-        log_message("⚠️ HuggingFace cache not found")
-        return {}
-
-    # Find all model directories (format: models--Org--ModelName)
-    model_dirs = [
-        d for d in hf_cache.iterdir()
-        if d.is_dir() and d.name.startswith("models--")
-    ]
-
-    result = {}
-    for model_dir in model_dirs:
-        if is_compatible_fn(model_dir, backend_type):
-            model_id = model_dir.name.replace("models--", "").replace("--", "/", 1)
-
-            # Calculate size using blob-based calculation
-            try:
-                from .vllm_manager import get_model_size_bytes
-                total_size = get_model_size_bytes(model_id)
-                size_gb = total_size / (1024**3)
-                result[model_id] = f"{model_id} ({format_number(size_gb, 1)} GB)"
-            except OSError as e:
-                # Show without size if blob scan fails (cache entry
-                # without weights, e.g. an aborted download)
-                log_message(f"⚠️ Size calculation failed for {model_id}: {e}")
-                result[model_id] = model_id
-
-    log_message(f"📂 Found {len(result)} {backend_type}-compatible models ({len(model_dirs)} total in cache)")
-    return result
+# Namenskonvention der vLLM-Einträge in der llama-swap-Config — der
+# Autoscan seedet sie als "<checkpoint-dirname>-vllm" (SSOT der Erzeugung:
+# scripts/llama-swap-autoscan.py, seed_vllm_entries).
+VLLM_ENTRY_SUFFIX = "-vllm"
 
 
-def discover_local_vllm_checkpoints() -> Dict[str, str]:
-    """
-    Discover vLLM-loadable checkpoint directories in MODELS_DIR.
-
-    A vLLM checkpoint dir carries a config.json plus safetensors shards
-    (e.g. the NVFP4 symlink transplants) — GGUF files are llama.cpp
-    territory and stay with the autoscan.
-
-    Returns:
-        Dict mapping directory name to display label with size
-    """
-    if not MODELS_DIR.exists():
-        return {}
-
-    result = {}
-    for model_dir in sorted(MODELS_DIR.iterdir()):
-        if not model_dir.is_dir() or not (model_dir / "config.json").exists():
-            continue
-        shards = list(model_dir.glob("*.safetensors"))
-        if not shards:
-            continue
-        # Symlink transplants: resolve() folgt auf die echten Blobs
-        total_size = sum(p.resolve().stat().st_size for p in shards if p.resolve().exists())
-        size_gb = total_size / (1024**3)
-        result[model_dir.name] = f"{model_dir.name} ({format_number(size_gb, 1)} GB, lokal)"
-
-    if result:
-        log_message(f"📂 Found {len(result)} local vLLM checkpoint dir(s) in {MODELS_DIR}")
-    return result
+def is_vllm_entry(model_id: str) -> bool:
+    """True, wenn der llama-swap-Eintrag ein vLLM-Checkpoint ist."""
+    return model_id.endswith(VLLM_ENTRY_SUFFIX)
 
 
 def discover_ollama_models(backend_url: str, timeout: float = 5.0) -> Dict[str, str]:
@@ -128,16 +61,23 @@ def discover_ollama_models(backend_url: str, timeout: float = 5.0) -> Dict[str, 
         return {}
 
 
-def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[str, str]:
+def discover_llamaswap_models(
+    backend_url: str,
+    timeout: float = 10.0,
+    vllm_entries: bool = False,
+) -> Dict[str, str]:
     """
     Discover models from llama-swap via OpenAI-compatible /v1/models endpoint.
 
-    Display format matches Ollama: model_id + file size.
-    llama-swap keys are already descriptive (e.g., "qwen3-30b-a3b-instruct-2507-q8_0").
+    Ein llama-swap-Katalog trägt zwei Modellwelten: GGUF-Einträge
+    (llama.cpp) und ``-vllm``-Einträge (vLLM-Checkpoints). Die Backends
+    zeigen jeweils nur ihre eigene Welt — ``vllm_entries`` wählt sie.
 
     Args:
-        backend_url: llama-swap URL with /v1 suffix (e.g., "http://localhost:8080/v1")
+        backend_url: llama-swap URL with /v1 suffix (e.g., "http://localhost:11435/v1")
         timeout: Request timeout in seconds (higher because llama-swap may cold-start)
+        vllm_entries: False → nur GGUF-Einträge (Backend llama.cpp),
+            True → nur ``-vllm``-Einträge (Backend vLLM)
 
     Returns:
         Dict mapping model_id to display label
@@ -155,7 +95,7 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
         model_ids = [m['id'] for m in data.get("data", [])]
 
         # Get file sizes from llama-swap config
-        model_sizes = _get_llamacpp_model_sizes()
+        model_sizes = _get_llamaswap_model_sizes()
 
         result = {}
         for mid in model_ids:
@@ -164,13 +104,16 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
                 or mid.endswith("-embed") or "-tts-" in mid or "-vlm-" in mid
             ):
                 continue  # Speed/TTS/VLM/Describer/Embed variants are internal; selected automatically
+            if is_vllm_entry(mid) != vllm_entries:
+                continue
             size_gb = model_sizes.get(mid)
             if size_gb is not None:
                 result[mid] = f"{mid} ({format_number(size_gb, 1)} GB)"
             else:
                 result[mid] = mid
 
-        log_message(f"📂 Found {len(result)} llama.cpp models (via llama-swap)")
+        kind = "vLLM" if vllm_entries else "llama.cpp"
+        log_message(f"📂 Found {len(result)} {kind} models (via llama-swap)")
         return result
 
     except httpx.RequestError as e:
@@ -178,12 +121,34 @@ def discover_llamacpp_models(backend_url: str, timeout: float = 10.0) -> Dict[st
         return {}
 
 
-def _get_llamacpp_model_sizes() -> Dict[str, float]:
-    """Get GGUF file sizes for llama-swap models.
+def vllm_checkpoint_size_bytes(checkpoint_dir: Path) -> int:
+    """Gewichtsgröße eines vLLM-Checkpoint-Verzeichnisses in Bytes.
 
-    Draft-sidecar profiles (``--model-draft``, e.g. DSpark) load the
-    draft GGUF alongside the main model on every run — its size counts
-    toward what the profile really costs, so it is included here.
+    Summiert die von ``model.safetensors.index.json`` referenzierten
+    Dateien (dedupliziert, Symlinks aufgelöst — Transplant-Ordner wie
+    MTPQ verlinken in den HF-Cache). Damit zählen nur Gewichte, die der
+    Loader wirklich lädt — nicht referenzierte Alt-Shards (z.B. der
+    ersetzte BF16-Draftkopf) bleiben außen vor. Ohne Index: alle
+    ``*.safetensors`` im Verzeichnis.
+    """
+    index_file = checkpoint_dir / "model.safetensors.index.json"
+    if index_file.exists():
+        weight_map = json.loads(index_file.read_text()).get("weight_map", {})
+        files = {checkpoint_dir / fname for fname in weight_map.values()}
+    else:
+        files = set(checkpoint_dir.glob("*.safetensors"))
+    return sum(
+        p.resolve().stat().st_size for p in files if p.resolve().exists()
+    )
+
+
+def _get_llamaswap_model_sizes() -> Dict[str, float]:
+    """Get model sizes (GB) for llama-swap entries.
+
+    GGUF-Einträge: Dateigröße inkl. Draft-Sidecar (``--model-draft``,
+    z.B. DSpark) — der lädt bei jedem Run mit und zählt zum realen
+    Preis des Profils. ``-vllm``-Einträge: Checkpoint-Verzeichnis über
+    den Safetensors-Index.
     """
     try:
         from .calibration.projection import draft_gguf_path
@@ -194,53 +159,49 @@ def _get_llamacpp_model_sizes() -> Dict[str, float]:
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         result = {}
         for model_id, info in config.items():
-            gguf_path = Path(info["gguf_path"])
-            if not gguf_path.exists():
+            model_path = Path(info["gguf_path"])
+            if not model_path.exists():
                 continue
-            total_bytes = get_gguf_total_size(gguf_path)
-            draft = draft_gguf_path(info["full_cmd"])
-            if draft is not None and draft.exists():
-                total_bytes += get_gguf_total_size(draft)
+            if model_path.is_dir():
+                # vLLM-Eintrag: --model zeigt auf ein Checkpoint-Verzeichnis
+                total_bytes = vllm_checkpoint_size_bytes(model_path)
+            else:
+                total_bytes = get_gguf_total_size(model_path)
+                draft = draft_gguf_path(info["full_cmd"])
+                if draft is not None and draft.exists():
+                    total_bytes += get_gguf_total_size(draft)
             result[model_id] = total_bytes / (1024 ** 3)
         return result
     except OSError as e:
-        log_message(f"⚠️ Could not read GGUF sizes from llama-swap config: {e}")
+        log_message(f"⚠️ Could not read model sizes from llama-swap config: {e}")
         return {}
 
 
 def discover_models(
     backend_type: str,
     backend_url: Optional[str] = None,
-    is_compatible_fn: Optional[Callable[[Path, str], bool]] = None
 ) -> Dict[str, str]:
     """
     Unified model discovery for any backend type.
 
     Args:
         backend_type: "ollama", "vllm", or "llamacpp"
-        backend_url: Required for Ollama and llamacpp backends
-        is_compatible_fn: Required for vLLM backends
+        backend_url: Required (Ollama-URL bzw. llama-swap-URL)
 
     Returns:
         Sorted dict mapping model_id to display label (by family, then size)
     """
-    if backend_type == "vllm":
-        if not is_compatible_fn:
-            raise ValueError("is_compatible_fn required for vLLM")
-        unsorted = discover_huggingface_models(backend_type, is_compatible_fn)
-        # Lokale Checkpoint-Verzeichnisse (z.B. Symlink-Transplants unter
-        # MODELS_DIR) ergänzen — der HF-Cache ist nicht die einzige Quelle.
-        unsorted.update(discover_local_vllm_checkpoints())
-
-    elif backend_type == "ollama":
+    if backend_type == "ollama":
         if not backend_url:
             raise ValueError("backend_url required for Ollama")
         unsorted = discover_ollama_models(backend_url)
 
-    elif backend_type == "llamacpp":
+    elif backend_type in ("llamacpp", "vllm"):
         if not backend_url:
-            raise ValueError("backend_url required for llamacpp")
-        unsorted = discover_llamacpp_models(backend_url)
+            raise ValueError("backend_url required for llama-swap discovery")
+        unsorted = discover_llamaswap_models(
+            backend_url, vllm_entries=(backend_type == "vllm")
+        )
 
     else:
         log_message(f"⚠️ Unknown backend type: {backend_type}")

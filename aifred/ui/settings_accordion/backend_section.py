@@ -229,35 +229,19 @@ def _backend_row() -> rx.Component:
     )
 
 
-def _single_model_warning() -> rx.Component:
-    # Single Model Warning (for backends that can't switch models)
-    return rx.cond(
-        ~AIState.backend_supports_dynamic_models,
-        rx.text(
-            rx.cond(
-                AIState.ui_language == "de",
-                f"\u2139\ufe0f {AIState.backend_type.upper()} kann nur EIN Modell gleichzeitig laden (Haupt- und Automatik-LLM nutzen dasselbe Modell)",
-                f"\u2139\ufe0f {AIState.backend_type.upper()} can only load ONE model at a time (Main and Automatik LLM use the same model)"
-            ),
-            font_size="11px",
-            color="#d4913d",  # Dunkles Orange - gut lesbar
-            line_height="1.5",
-            margin_top="8px",
-        ),
-    )
-
-
 def _calibration_row() -> rx.Component:
-    # Context Calibration Row (Ollama + llama.cpp)
+    # Context Calibration Row (Ollama + llama.cpp + vLLM)
     return rx.cond(
-        (AIState.backend_id == "ollama") | (AIState.backend_id == "llamacpp"),
+        (AIState.backend_id == "ollama")
+        | (AIState.backend_id == "llamacpp")
+        | (AIState.backend_id == "vllm"),
         rx.hstack(
             rx.cond(
                 AIState.backend_id == "llamacpp",
                 # llama.cpp: button opens a picker so the user
                 # can deselect TTS variants for big models.
                 _calibration_picker_button(),
-                # Ollama: no TTS-variant phase → direct click.
+                # Ollama/vLLM: no TTS-variant phase → direct click.
                 rx.hstack(
                     rx.button(
                         rx.cond(

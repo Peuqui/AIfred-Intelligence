@@ -265,9 +265,6 @@ async def _stream_agent_to_history(
     if toolkit:
         state.add_debug(f"🔧 Toolkit: {[t.name for t in toolkit.tools]} for {agent_label}")
 
-    if state.backend_type == "vllm":
-        await state._ensure_vllm_model(model)
-
     # _tts_streaming_wanted includes the per-agent voice toggle — without
     # it a disabled Sokrates/Salomo voice was synthesized anyway.
     if state._tts_streaming_wanted(agent):

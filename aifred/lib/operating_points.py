@@ -64,6 +64,36 @@ def _checkpoint_path_from_cmd(cmd: str) -> Path | None:
     return None
 
 
+def _flag_int_from_cmd(cmd: str, flag: str) -> int | None:
+    """Integer value of ``flag`` in a cmd string (None if absent)."""
+    tokens = shlex.split(cmd)
+    for i, tok in enumerate(tokens):
+        if tok == flag and i + 1 < len(tokens):
+            try:
+                return int(tokens[i + 1])
+            except ValueError:
+                return None
+    return None
+
+
+def get_vllm_entry_context(model_id: str) -> int:
+    """Context limit (``--max-model-len``) of a vLLM llama-swap entry.
+
+    SSOT ist der Eintrag in der llama-swap-Config selbst (dort steht
+    auch bei frisch geseedeten Eintraegen ohne Profil ein Wert); 0 wenn
+    der Eintrag fehlt oder kein --max-model-len traegt.
+    """
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    try:
+        config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+    except OSError:
+        return 0
+    info = config.get(model_id)
+    if not info:
+        return 0
+    return _flag_int_from_cmd(info["full_cmd"], "--max-model-len") or 0
+
+
 def list_operating_points() -> dict[str, Path]:
     """All available operating-point profiles, keyed by entry name."""
     if not OPERATING_POINTS_DIR.exists():

@@ -23,11 +23,10 @@ from ..lib.config import (
     CLOUD_API_PROVIDERS,
 )
 from ..backends.cloud_api import is_cloud_api_configured
-from ..lib.model_manager import sort_models_grouped, is_backend_compatible
+from ..lib.model_manager import sort_models_grouped
 from ..lib.gpu_utils import total_actual_vram_gb
 from ..lib.vector_cache import initialize_vector_cache
 from ..lib.audio_processing import is_whisper_ready
-from ..lib.vllm_manager import vLLMProcessManager
 
 # Module-level globals are in _base.py and re-exported from __init__.py.
 # We import them at usage sites to avoid circular imports.
@@ -78,7 +77,6 @@ class BackendMixin(rx.State, mixin=True):
     model_count: int = 0
     backend_switching: bool = False
     backend_initializing: bool = True
-    vllm_restarting: bool = False
 
     # ── Initialization Flags ──────────────────────────────────────
     _backend_initialized: bool = False
@@ -154,8 +152,12 @@ class BackendMixin(rx.State, mixin=True):
 
     @rx.var
     def backend_supports_dynamic_models(self) -> bool:
-        """Check if current backend supports dynamic model switching."""
-        return self.backend_type != "vllm"
+        """Check if current backend supports dynamic model switching.
+
+        Seit vLLM ueber llama-swap laeuft, koennen ALLE Backends Modelle
+        dynamisch wechseln (llama-swap swappt die Eintraege on demand).
+        """
+        return True
 
     @rx.var
     def backend_label(self) -> str:
@@ -247,11 +249,22 @@ class BackendMixin(rx.State, mixin=True):
             set_agent_setting(self, agent, "max_context", params["max_context"])
             set_agent_setting(self, agent, "is_hybrid", params["is_hybrid"])
             set_agent_setting(self, agent, "supports_thinking", params["supports_thinking"])
-        elif backend == "llamacpp":
+        elif backend in ("llamacpp", "vllm"):
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
                 get_thinking_support_for_model,
             )
+            from ..lib.model_discovery import is_vllm_entry
+            if is_vllm_entry(model_id):
+                # vLLM-Eintrag: Kontext aus dem llama-swap-Entry (SSOT),
+                # keine Speed-Varianten, kein RoPE.
+                from ..lib.operating_points import get_vllm_entry_context
+                set_agent_setting(self, agent, "rope_factor", 1.0)
+                set_agent_setting(self, agent, "is_hybrid", False)
+                set_agent_setting(self, agent, "supports_thinking", get_thinking_support_for_model(model_id))
+                set_agent_setting(self, agent, "has_speed_variant", False)
+                set_agent_setting(self, agent, "max_context", get_vllm_entry_context(model_id))
+                return
             set_agent_setting(self, agent, "rope_factor", 1.0)
             set_agent_setting(self, agent, "is_hybrid", False)
             set_agent_setting(self, agent, "supports_thinking", get_thinking_support_for_model(model_id))
@@ -279,11 +292,11 @@ class BackendMixin(rx.State, mixin=True):
     def _load_all_agent_model_params(self) -> None:
         """Load model parameters for all agents from cache."""
         backend = getattr(self, "backend_type", None) or getattr(self, "backend_id", None)
-        if backend not in ("ollama", "llamacpp"):
+        if backend not in ("ollama", "llamacpp", "vllm"):
             return
 
         for agent, tuning in self.agent_tuning.items():
-            if agent == "vision" and backend != "llamacpp":
+            if agent == "vision" and backend not in ("llamacpp", "vllm"):
                 continue
             self._load_agent_model_params(agent, tuning.model_id)
 
@@ -669,12 +682,6 @@ class BackendMixin(rx.State, mixin=True):
                     if self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined, has-type]
                         self.add_debug(f"⚙️ Using default salomo_model from config.py: {self.agent_tuning["salomo"].model_id}")  # type: ignore[attr-defined, has-type]
 
-                # vLLM can only load ONE model at a time
-                if self.backend_type == "vllm":
-                    if self.automatik_model != self.agent_tuning["aifred"].model:
-                        self.add_debug(f"⚠️ {self.backend_type} can only load one model - using {self.agent_tuning["aifred"].model} for both AIfred and Automatic")  # type: ignore[attr-defined, has-type]
-                        self.automatik_model = self.agent_tuning["aifred"].model
-
                 # Generate internal session ID
                 if not self.session_id:  # type: ignore[attr-defined, has-type]
                     self.session_id = str(uuid.uuid4())  # type: ignore[attr-defined, has-type]
@@ -834,22 +841,6 @@ class BackendMixin(rx.State, mixin=True):
                     tuning.model_id = ""
                     tuning.model = ""
 
-            # vLLM can only load ONE model
-            if self.backend_type == "vllm" and self.automatik_model_id:
-                self.automatik_model = ""
-                self.automatik_model_id = ""
-                _global_backend_state["automatik_model"] = ""
-                _global_backend_state["automatik_model_id"] = ""
-                self._save_settings()  # type: ignore[attr-defined, has-type]
-
-            # Check vLLM manager status
-            if self.backend_type == "vllm":
-                vllm_manager = _global_backend_state.get("vllm_manager")
-                if vllm_manager and vllm_manager.is_running():
-                    self.add_debug("✅ vLLM server already running (restored from global state)")  # type: ignore[attr-defined, has-type]
-                else:
-                    self.add_debug("⚠️ vLLM manager exists but server not running")  # type: ignore[attr-defined, has-type]
-
             # Reset sampling parameters to YAML defaults
             for agent in ["aifred", "sokrates", "salomo"]:
                 self._reset_agent_sampling(agent, include_temperature=False)  # type: ignore[attr-defined]
@@ -878,15 +869,11 @@ class BackendMixin(rx.State, mixin=True):
             # Load models using centralized discovery module
             from ..lib.model_discovery import discover_models
             try:
-                if self.backend_type == "vllm":
-                    self.available_models_dict = discover_models(
-                        self.backend_type,
-                        is_compatible_fn=is_backend_compatible
-                    )
-                    self.available_models = list(self.available_models_dict.values())
-                    self.add_debug(f"📂 Found {len(self.available_models)} {self.backend_type}-compatible models")  # type: ignore[attr-defined, has-type]
-
-                elif self.backend_type == "llamacpp":
+                if self.backend_type in ("llamacpp", "vllm"):
+                    # Beide Backends sind Sichten auf denselben llama-swap-
+                    # Katalog: llamacpp zeigt die GGUF-Eintraege, vllm die
+                    # "-vllm"-Eintraege (vLLM-Checkpoints als llama-swap-
+                    # Eintraege, gestartet/gestoppt von llama-swap selbst).
                     models_dict = discover_models(
                         self.backend_type,
                         backend_url=self.backend_url
@@ -910,7 +897,8 @@ class BackendMixin(rx.State, mixin=True):
                     if models_dict:
                         self.available_models_dict = models_dict
                         self.available_models = list(self.available_models_dict.values())
-                        self.add_debug(f"📂 Found {len(self.available_models)} llama.cpp models")  # type: ignore[attr-defined, has-type]
+                        kind = "vLLM" if self.backend_type == "vllm" else "llama.cpp"
+                        self.add_debug(f"📂 Found {len(self.available_models)} {kind} models")  # type: ignore[attr-defined, has-type]
                     else:
                         self._clear_models_state()
                         self.add_debug(f"⚠️ llama-swap not reachable at {self.backend_url}")  # type: ignore[attr-defined, has-type]
@@ -1025,16 +1013,15 @@ class BackendMixin(rx.State, mixin=True):
 
                 self.add_debug(f"✅ {len(self.available_models)} models available")  # type: ignore[attr-defined, has-type]
                 self.add_debug(f"   {get_agent_label('aifred')}: {aifred_display}")  # type: ignore[attr-defined, has-type]
-                if self.backend_type.lower() != "vllm":
-                    if self.automatik_model_id:
-                        self.add_debug(f"   \u2728 Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")  # type: ignore[attr-defined, has-type]
-                    else:
-                        self.add_debug("   \u2728 Automatic: (= AIfred)")  # type: ignore[attr-defined, has-type]
-                    if self.multi_agent_mode != "standard":  # type: ignore[attr-defined, has-type]
-                        if self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined, has-type]
-                            self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.agent_tuning["sokrates"].model, self.agent_tuning["sokrates"].model_id)}")  # type: ignore[attr-defined, has-type]
-                        if self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined, has-type]
-                            self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.agent_tuning["salomo"].model, self.agent_tuning["salomo"].model_id)}")  # type: ignore[attr-defined, has-type]
+                if self.automatik_model_id:
+                    self.add_debug(f"   \u2728 Automatic: {format_model_with_ctx(self.automatik_model, self.automatik_model_id)}")  # type: ignore[attr-defined, has-type]
+                else:
+                    self.add_debug("   \u2728 Automatic: (= AIfred)")  # type: ignore[attr-defined, has-type]
+                if self.multi_agent_mode != "standard":  # type: ignore[attr-defined, has-type]
+                    if self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined, has-type]
+                        self.add_debug(f"   {get_agent_label('sokrates')}: {format_model_with_ctx(self.agent_tuning["sokrates"].model, self.agent_tuning["sokrates"].model_id)}")  # type: ignore[attr-defined, has-type]
+                    if self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined, has-type]
+                        self.add_debug(f"   {get_agent_label('salomo')}: {format_model_with_ctx(self.agent_tuning["salomo"].model, self.agent_tuning["salomo"].model_id)}")  # type: ignore[attr-defined, has-type]
 
                 # Cache min context limit for session-load display
                 context_limits = []
@@ -1042,6 +1029,9 @@ class BackendMixin(rx.State, mixin=True):
                     if model_id:
                         if self.backend_type == "llamacpp":
                             ctx = get_llamacpp_calibration(model_id)
+                        elif self.backend_type == "vllm":
+                            from ..lib.operating_points import get_vllm_entry_context
+                            ctx = get_vllm_entry_context(model_id)
                         else:
                             ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                         if ctx:
@@ -1106,6 +1096,19 @@ class BackendMixin(rx.State, mixin=True):
     # VISION MODEL DETECTION
     # ================================================================
 
+    def _vision_candidate_catalog(self) -> dict[str, str]:
+        """Katalog der Vision-Kandidaten (id → Anzeige-Label).
+
+        Der Vision-Describer ist ein Side-Channel: unter dem vLLM-Backend
+        kommen die Kandidaten aus der GGUF-Sicht des llama-swap-Katalogs
+        (die Backend-Modellliste enthaelt dort nur -vllm-Eintraege),
+        sonst aus der Backend-Modellliste selbst.
+        """
+        if self.backend_type == "vllm":
+            from ..lib.model_discovery import discover_llamaswap_models
+            return discover_llamaswap_models(self.backend_url, vllm_entries=False)
+        return self.available_models_dict
+
     def _build_vision_rich(
         self, vision_model_ids: List[str]
     ) -> List[Dict[str, str]]:
@@ -1135,11 +1138,12 @@ class BackendMixin(rx.State, mixin=True):
             swap_models = set()
         aifred_base = self.agent_tuning["aifred"].model_id or ""
 
+        catalog = self._vision_candidate_catalog()
         rows: List[Dict[str, str]] = []
         for mid in vision_model_ids:
-            if mid not in self.available_models_dict:
+            if mid not in catalog:
                 continue
-            display = self.available_models_dict.get(mid, mid)
+            display = catalog.get(mid, mid)
             # "No Swap" auf zwei Wegen:
             # (a) -visiond-Describer-Profil in llama-swap (vision-Gruppe,
             #     exclusive: false) — lädt parallel zum Chat-LLM, per
@@ -1176,18 +1180,33 @@ class BackendMixin(rx.State, mixin=True):
         return rows
 
     async def _detect_vision_models(self) -> None:
-        """Detect vision-capable models using backend-specific metadata."""
+        """Detect vision-capable models using backend-specific metadata.
+
+        Der Vision-Describer ist ein Side-Channel (llama.cpp ``-visiond``
+        bzw. Ollama-Daemon), KEIN Buerger des Haupt-Backends — unter dem
+        vLLM-Backend kommen die Kandidaten deshalb backend-uebergreifend
+        aus der GGUF-Sicht des llama-swap-Katalogs (sonst waere dort
+        nichts auswaehlbar; Peuqui 2026-08-29).
+        """
         from . import _global_backend_state
         from ..lib.vision_utils import is_vision_model, is_vision_model_sync
 
         vision_model_ids: list[str] = []
+        candidates: dict[str, str] = self.available_models_dict
 
         if self.backend_type == "cloud_api":
-            for model_id in self.available_models_dict.keys():
+            for model_id in candidates.keys():
+                if is_vision_model_sync(model_id):
+                    vision_model_ids.append(model_id)
+        elif self.backend_type == "vllm":
+            candidates = self._vision_candidate_catalog()
+            # GGUF-Kandidaten → llamacpp-Erkennung (mmproj/Namensmuster),
+            # nicht der HF-config-Pfad des vllm-Zweigs.
+            for model_id in candidates.keys():
                 if is_vision_model_sync(model_id):
                     vision_model_ids.append(model_id)
         else:
-            for model_id, model_display in self.available_models_dict.items():
+            for model_id, model_display in candidates.items():
                 try:
                     if await is_vision_model(self, model_id):
                         vision_model_ids.append(model_id)
@@ -1198,8 +1217,8 @@ class BackendMixin(rx.State, mixin=True):
         _global_backend_state["vision_models_cache"] = vision_model_ids
 
         self.available_vision_models_list = [
-            self.available_models_dict.get(mid, mid) for mid in vision_model_ids
-            if mid in self.available_models_dict
+            candidates.get(mid, mid) for mid in vision_model_ids
+            if mid in candidates
         ]
         _global_backend_state["available_vision_models_list"] = self.available_vision_models_list
 
@@ -1217,16 +1236,16 @@ class BackendMixin(rx.State, mixin=True):
         # Auto-select vision_model if not set or empty
         if (not self.agent_tuning["vision"].model_id or self.agent_tuning["vision"].model_id.strip() == "") and vision_model_ids:
             self.agent_tuning["vision"].model_id = vision_model_ids[0]
-            self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+            self.agent_tuning["vision"].model = candidates.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
             self.add_debug(f"⚙️ Auto-selected vision_model: {self.agent_tuning["vision"].model_id}")  # type: ignore[attr-defined, has-type]
             self._save_settings()  # type: ignore[attr-defined, has-type]
         elif self.agent_tuning["vision"].model_id and vision_model_ids:
             if self.agent_tuning["vision"].model_id in vision_model_ids:
-                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+                self.agent_tuning["vision"].model = candidates.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
             else:
                 self.add_debug(f"⚠️ Saved vision_model '{self.agent_tuning["vision"].model_id}' not found in vision models, auto-selecting...")  # type: ignore[attr-defined, has-type]
                 self.agent_tuning["vision"].model_id = vision_model_ids[0]
-                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+                self.agent_tuning["vision"].model = candidates.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
                 self._save_settings()  # type: ignore[attr-defined, has-type]
 
         if self.agent_tuning["vision"].model_id:
@@ -1237,149 +1256,11 @@ class BackendMixin(rx.State, mixin=True):
         _global_backend_state["vision_model_id"] = self.agent_tuning["vision"].model_id
 
     # ================================================================
-    # vLLM SERVER MANAGEMENT
-    # ================================================================
-
-    async def _start_vllm_server(self, model_id: str = "") -> None:
-        """Start vLLM server process with specified model.
-
-        Args:
-            model_id: Model to load. Empty string = use self.agent_tuning["aifred"].model_id.
-        """
-        from . import _global_backend_state
-
-        startup_model = model_id or self.agent_tuning["aifred"].model_id
-        if not startup_model:
-            self.add_debug("⚠️ No model selected — cannot start vLLM")  # type: ignore[attr-defined, has-type]
-            return
-
-        try:
-            existing_manager = _global_backend_state.get("vllm_manager")
-            if existing_manager and existing_manager.is_running():
-                self.add_debug("✅ vLLM server already running (using existing process)")  # type: ignore[attr-defined, has-type]
-                return
-
-            self.add_debug(f"🚀 Starting vLLM server with {startup_model}...")  # type: ignore[attr-defined, has-type]
-
-            yarn_config = None
-            if self.enable_yarn and self.yarn_factor > 1.0:
-                yarn_config = {
-                    "factor": self.yarn_factor,
-                    "original_max_position_embeddings": self.vllm_native_context
-                }
-                self.add_debug(f"🔧 YaRN: {self.yarn_factor}x scaling ({self.vllm_native_context:,} → {int(self.vllm_native_context * self.yarn_factor):,} tokens)")  # type: ignore[attr-defined, has-type]
-
-            # Get compatible GPU indices for vLLM
-            gpu_info = _global_backend_state.get("gpu_info")
-            vllm_gpu_indices = None
-            if gpu_info and gpu_info.backend_gpu_indices:
-                vllm_gpu_indices = gpu_info.backend_gpu_indices.get("vllm") or None
-                if vllm_gpu_indices and len(vllm_gpu_indices) < gpu_info.gpu_count:
-                    compatible_names = [gpu_info.all_gpu_names[i] for i in vllm_gpu_indices]
-                    compatible_vram = sum(gpu_info.all_gpu_vram_mb[i] for i in vllm_gpu_indices)
-                    self.add_debug(f"🎯 vLLM restricted to GPU {','.join(str(i) for i in vllm_gpu_indices)}: {', '.join(compatible_names)} ({compatible_vram // 1024} GB)")  # type: ignore[attr-defined, has-type]
-
-            vllm_manager = vLLMProcessManager(
-                port=8001,
-                max_model_len=0,
-                gpu_memory_utilization=0.90,
-                yarn_config=yarn_config,
-                gpu_indices=vllm_gpu_indices
-            )
-
-            success, context_info = await vllm_manager.start_with_auto_detection(
-                model=startup_model,
-                timeout=120,
-                feedback_callback=self.add_debug  # type: ignore[attr-defined, has-type]
-            )
-
-            if success and context_info:
-                self.vllm_native_context = context_info["native_context"]
-                self.vllm_max_tokens = context_info["hardware_limit"]
-
-                native = context_info['native_context']
-
-                if "reduced_yarn_factor" in context_info:
-                    reduced_factor = context_info["reduced_yarn_factor"]
-                    self.yarn_factor = reduced_factor
-                    self.yarn_factor_input = f"{reduced_factor:.2f}"
-                    self._save_settings()  # type: ignore[attr-defined, has-type]
-
-                    if native > 0:
-                        self.yarn_max_factor = reduced_factor
-                        self.yarn_max_tested = True
-                        self.add_debug(f"✅ YaRN factor automatically reduced to {reduced_factor:.2f}x (VRAM limit)")  # type: ignore[attr-defined, has-type]
-                        self.add_debug(f"📏 Maximum YaRN factor: ~{self.yarn_max_factor:.1f}x (determined by test)")  # type: ignore[attr-defined, has-type]
-                else:
-                    self.yarn_max_factor = 0.0
-                    self.yarn_max_tested = False
-                    self.yarn_factor_input = f"{self.yarn_factor:.2f}"
-
-                self.add_debug("📊 Context Info:")  # type: ignore[attr-defined, has-type]
-                self.add_debug(f"  • Native: {context_info['native_context']:,} tokens (config.json)")  # type: ignore[attr-defined, has-type]
-                self.add_debug(f"  • Hardware Limit: {context_info['hardware_limit']:,} tokens (VRAM)")  # type: ignore[attr-defined, has-type]
-                self.add_debug(f"  • Used: {context_info['used_context']:,} tokens")  # type: ignore[attr-defined, has-type]
-
-                from ..backends import BackendFactory
-                vllm_backend = BackendFactory.create("vllm", base_url=self.backend_url)
-
-                debug_messages = [
-                    f"📊 Pre-calculated Context Limit: {context_info['hardware_limit']:,} tokens",
-                    f"   Native: {context_info['native_context']:,} tokens (config.json)",
-                    f"   Hardware Limit: {context_info['hardware_limit']:,} tokens (VRAM)",
-                    f"   Used: {context_info['used_context']:,} tokens"
-                ]
-
-                vllm_backend.set_startup_context(  # type: ignore[union-attr]
-                    context=context_info["hardware_limit"],
-                    debug_messages=debug_messages
-                )
-
-                _global_backend_state["vllm_manager"] = vllm_manager
-                self.add_debug("✅ vLLM server ready on port 8001")  # type: ignore[attr-defined, has-type]
-            else:
-                raise RuntimeError("vLLM failed to start with auto-detection")
-
-        except Exception as e:
-            self.add_debug(f"❌ Failed to start vLLM: {e}")  # type: ignore[attr-defined, has-type]
-            _global_backend_state["vllm_manager"] = None
-
-    async def _stop_vllm_server(self) -> None:
-        """Stop vLLM server process gracefully."""
-        from . import _global_backend_state
-
-        vllm_manager = _global_backend_state.get("vllm_manager")
-        if vllm_manager and vllm_manager.is_running():
-            self.add_debug("🛑 Stopping vLLM server...")  # type: ignore[attr-defined, has-type]
-            await vllm_manager.stop()
-            _global_backend_state["vllm_manager"] = None
-            self.add_debug("✅ vLLM server stopped")  # type: ignore[attr-defined, has-type]
-
-    async def _restart_vllm_with_new_config(self) -> None:
-        """Force restart vLLM server with new configuration (model or YaRN changes)."""
-        from . import _global_backend_state
-
-        try:
-            # Force stop + start (even with same model — config changed)
-            await self._stop_vllm_server()
-            await self._start_vllm_server(self.agent_tuning["aifred"].model_id)
-
-            _global_backend_state["aifred_model"] = self.agent_tuning["aifred"].model
-            _global_backend_state["automatik_model"] = self.automatik_model
-
-        except (RuntimeError, OSError) as e:
-            self.add_debug(f"❌ vLLM restart failed: {e}")  # type: ignore[attr-defined, has-type]
-            raise
-
-    # ================================================================
     # BACKEND CLEANUP
     # ================================================================
 
-    async def _cleanup_old_backend(self, old_backend: str) -> None:
+    async def _cleanup_old_backend(self, old_backend: str, new_backend: str) -> None:
         """Clean up resources from previous backend before switching."""
-        from . import _global_backend_state
-        from ..lib.process_utils import stop_backend_process
-
         if old_backend == "ollama":
             self.add_debug("🧹 Unloading Ollama models from VRAM...")  # type: ignore[attr-defined, has-type]
             try:
@@ -1397,15 +1278,12 @@ class BackendMixin(rx.State, mixin=True):
             except (RuntimeError, AttributeError) as e:
                 self.add_debug(f"⚠️ Error unloading Ollama models: {e}")  # type: ignore[attr-defined, has-type]
 
-        elif old_backend == "vllm":
-            self.add_debug("🛑 Stopping vLLM server...")  # type: ignore[attr-defined, has-type]
-            if await stop_backend_process("vllm"):
-                self.add_debug("✅ vLLM server stopped")  # type: ignore[attr-defined, has-type]
-                _global_backend_state["vllm_manager"] = None
-            else:
-                self.add_debug("ℹ️ vLLM server was not running")  # type: ignore[attr-defined, has-type]
-
-        elif old_backend == "llamacpp":
+        elif old_backend in ("llamacpp", "vllm"):
+            # Beide sind Sichten auf denselben llama-swap — beim Wechsel
+            # innerhalb der Familie laeuft der Dienst einfach weiter.
+            if new_backend in ("llamacpp", "vllm"):
+                self.add_debug("ℹ️ llama-swap keeps running (same service)")  # type: ignore[attr-defined, has-type]
+                return
             self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined, has-type]
             from ..lib.process_utils import stop_llama_swap
             if stop_llama_swap():
@@ -1444,7 +1322,7 @@ class BackendMixin(rx.State, mixin=True):
 
             self._save_settings()  # type: ignore[attr-defined, has-type]
 
-            await self._cleanup_old_backend(old_backend)
+            await self._cleanup_old_backend(old_backend, new_backend)
 
             from ..lib.settings import load_settings
             settings = load_settings() or {}
@@ -1486,12 +1364,6 @@ class BackendMixin(rx.State, mixin=True):
             self.agent_tuning["sokrates"].model = target_sokrates_model or ""  # type: ignore[attr-defined, has-type]
             self.agent_tuning["salomo"].model_id = target_salomo_model or ""  # type: ignore[attr-defined, has-type]
             self.agent_tuning["salomo"].model = target_salomo_model or ""  # type: ignore[attr-defined, has-type]
-
-            if new_backend == "vllm":
-                if self.automatik_model_id:
-                    self.add_debug(f"⚠️ {new_backend} can only load one model - Automatic will use AIfred-LLM")  # type: ignore[attr-defined, has-type]
-                self.automatik_model = ""
-                self.automatik_model_id = ""
 
             self.backend_type = new_backend
             self.backend_id = new_backend
@@ -1598,7 +1470,6 @@ class BackendMixin(rx.State, mixin=True):
         """Set selected model and restart backend if needed."""
         from ..lib.vision_utils import is_vision_model
 
-        old_model = self.agent_tuning["aifred"].model
         self.agent_tuning["aifred"].model = model
         self.agent_tuning["aifred"].model_id = self._resolve_model_id(model)
         self.add_debug(f"📝 AIfred-LLM: {model}")  # type: ignore[attr-defined, has-type]
@@ -1653,35 +1524,9 @@ class BackendMixin(rx.State, mixin=True):
             self._reset_agent_sampling("salomo")  # type: ignore[attr-defined]
 
         self._save_settings()  # type: ignore[attr-defined, has-type]
-
-        # vLLM: Force restart backend for model change
-        if self.backend_type == "vllm" and old_model != model:
-            if self.backend_type == "vllm" and self.automatik_model != model:
-                self.automatik_model = model
-
-            if self.backend_type == "vllm":
-                old_yarn_factor = self.yarn_factor
-                if old_yarn_factor != 1.0:
-                    self.yarn_factor = 1.0
-                    self.yarn_factor_input = "1.0"
-                    self.yarn_max_factor = 0.0
-                    self.yarn_max_tested = False
-                    self.add_debug(f"🔄 YaRN factor reset: {old_yarn_factor:.1f}x → 1.0x (new model needs recalibration)")  # type: ignore[attr-defined, has-type]
-
-            self.add_debug("🔄 Backend restart for model switch...")  # type: ignore[attr-defined, has-type]
-
-            self.vllm_restarting = True
-            yield
-
-            try:
-                if self.backend_type == "vllm":
-                    await self._restart_vllm_with_new_config()
-                else:
-                    await self.initialize_backend()
-                self.add_debug(f"✅ New model loaded: {model}")  # type: ignore[attr-defined, has-type]
-            finally:
-                self.vllm_restarting = False
-                yield
+        # vLLM-Eintraege laufen ueber llama-swap: Modellwechsel = Swap beim
+        # naechsten Request, kein Server-Restart noetig.
+        yield
 
     async def set_automatik_model(self, model: str):
         """Set automatik model for decision and query optimization."""
@@ -1690,7 +1535,6 @@ class BackendMixin(rx.State, mixin=True):
         if model == t("sokrates_llm_same", lang=lang):
             model = ""
 
-        old_model = self.automatik_model
         self.automatik_model = model
         self.automatik_model_id = self._resolve_model_id(model)
         self._save_settings()  # type: ignore[attr-defined, has-type]
@@ -1700,11 +1544,6 @@ class BackendMixin(rx.State, mixin=True):
             self._show_model_calibration_info(self.automatik_model_id)  # type: ignore[attr-defined]
         else:
             self.add_debug("⚡ Automatic-LLM: (same as Main-LLM)")  # type: ignore[attr-defined, has-type]
-
-        if self.backend_type == "vllm" and old_model != model:
-            self.add_debug("🔄 Backend restart for Automatic model switch...")  # type: ignore[attr-defined, has-type]
-            await self.initialize_backend()
-            self.add_debug("✅ New Automatic model loaded")  # type: ignore[attr-defined, has-type]
 
     async def set_vision_model(self, model: str):
         """Set vision model for OCR/image analysis."""
@@ -1734,31 +1573,3 @@ class BackendMixin(rx.State, mixin=True):
         async for _ in self.on_load():
             pass
 
-    async def _ensure_vllm_model(self, model_id: str = "") -> None:
-        """Ensure vLLM is running with the specified model.
-
-        - Not running → start with model_id
-        - Running with same model → touch TTL
-        - Running with different model → restart with new model
-
-        Args:
-            model_id: Model to ensure. Empty string = use self.agent_tuning["aifred"].model_id.
-        """
-        from . import _global_backend_state
-
-        target_model = model_id or self.agent_tuning["aifred"].model_id
-        if not target_model:
-            self.add_debug("⚠️ No model selected — cannot start vLLM")  # type: ignore[attr-defined, has-type]
-            return
-
-        existing_manager = _global_backend_state.get("vllm_manager")
-
-        if existing_manager and existing_manager.is_running():
-            if existing_manager.current_model == target_model:
-                existing_manager.touch()  # Same model — just reset TTL
-                return
-            # Different model — stop first, then start with new model
-            self.add_debug(f"🔄 vLLM model switch: {existing_manager.current_model} → {target_model}")  # type: ignore[attr-defined, has-type]
-            await self._stop_vllm_server()
-
-        await self._start_vllm_server(target_model)

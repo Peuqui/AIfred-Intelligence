@@ -72,7 +72,6 @@ _global_backend_state: dict[str, Any] = {
     "automatik_model": None,
     "available_models": [],
     "gpu_info": None,
-    "vllm_manager": None,  # Global vLLM process manager (persists across reloads)
 }
 
 # Lock to prevent race conditions during backend initialization
@@ -611,8 +610,8 @@ class AIState(  # type: ignore[misc]
         fits. The LLM reloads automatically on the next chat request."""
         from ..backends.ollama import wait_for_vram_stable
 
-        if self.backend_type == "llamacpp":
-            # llama-swap: POST /unload stops all running llama-server instances
+        if self.backend_type in ("llamacpp", "vllm"):
+            # llama-swap: POST /unload stops all running instances (incl. vLLM)
             import requests
             from ..lib.config import BACKEND_URLS
             base = BACKEND_URLS["llamacpp"].removesuffix("/v1")
@@ -695,7 +694,7 @@ class AIState(  # type: ignore[misc]
                     # Big file, all GPUs occupied (e.g. big LLM loaded) —
                     # CPU would take >30 min, offer to unload the LLM instead.
                     from ..lib.i18n import t as _t
-                    if allow_unload_prompt and self.backend_type in ("llamacpp", "ollama"):
+                    if allow_unload_prompt and self.backend_type in ("llamacpp", "vllm", "ollama"):
                         # Park context and ask: unload the LLM to free VRAM?
                         # stt_unload_confirm_result() resumes or cleans up.
                         import json as _json
@@ -913,28 +912,9 @@ class AIState(  # type: ignore[misc]
                 self.add_debug(f"⚠️ High YaRN factor ({factor_float}x) may exceed VRAM → possible crash!")
                 self.add_debug("💡 Tip: For VRAM issues, reduce factor or use more GPU RAM")
 
-            # Force restart backend for YaRN change (vLLM)
-            if self.backend_type == "vllm":
-                self.add_debug("🔄 Backend restart for YaRN change...")
-
-                # Show loading spinner
-                self.vllm_restarting = True
-                yield  # Update UI to show spinner
-
-                try:
-                    await self._restart_vllm_with_new_config()
-
-                    # Show actual factor after restart (might have been reduced by auto-calibration)
-                    actual_factor = self.yarn_factor
-                    if actual_factor != factor_float:
-                        self.add_debug(f"✅ Backend restarted (YaRN: {factor_float}x → {actual_factor}x after auto-calibration)")
-                    else:
-                        self.add_debug(f"✅ Backend restarted with YaRN {actual_factor}x")
-
-                finally:
-                    # Hide loading spinner
-                    self.vllm_restarting = False
-                    yield  # Update UI to hide spinner
+            # YaRN gehoerte zum alten Direkt-vLLM-Pfad; unter llama-swap
+            # bestimmen die kalibrierten Betriebspunkte den Kontext.
+            # (Feature-Bewertung verschoben, siehe Backend-Trennungs-Paket.)
 
         except ValueError:
             self.add_debug(f"❌ Invalid YaRN factor: {self.yarn_factor_input}")

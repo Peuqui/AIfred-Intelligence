@@ -243,22 +243,6 @@ class LLMBackend(ABC):
             vLLM:     Returns self._startup_context (set in start_with_model)
         """
 
-    def set_startup_context(self, context: int, debug_messages: List[str]) -> None:
-        """
-        Cache startup context for backends with fixed context (vLLM).
-
-        Called after server startup to cache the calculated context limit.
-        This value is returned by calculate_practical_context() for fixed-context backends.
-
-        Args:
-            context: The calculated context limit in tokens
-            debug_messages: Debug messages from startup (for UI display)
-
-        Note:
-            Default implementation does nothing. Override in fixed-context backends.
-        """
-        # Default: no-op for dynamic backends like Ollama
-
     async def _pre_request_check(self, model: str) -> None:
         """Hook for pre-request validation (e.g. RPC connectivity). Override in subclasses."""
 

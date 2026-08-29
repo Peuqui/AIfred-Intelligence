@@ -46,7 +46,7 @@ def build_llm_options(state: "AIState | None", agent: str, temperature: float, n
     return LLMOptions(
         temperature=temperature,
         enable_thinking=get_agent_setting(state, agent, "thinking", True),
-        supports_thinking=get_agent_setting(state, agent, "supports_thinking", None) if state.backend_type in ("ollama", "llamacpp") else None,
+        supports_thinking=get_agent_setting(state, agent, "supports_thinking", None) if state.backend_type in ("ollama", "llamacpp", "vllm") else None,
         reasoning_effort=get_agent_setting(state, agent, "reasoning_effort", "") or None,
         num_ctx=num_ctx,
         top_k=get_agent_setting(state, agent, "top_k", 40),

@@ -27,8 +27,6 @@ from .backend_section import (
     _calibration_row,
     _cloud_provider_row,
     _language_user_row,
-    _single_model_warning,
-    _yarn_section,
 )
 
 
@@ -44,7 +42,6 @@ def settings_accordion() -> rx.Component:
             content=rx.vstack(
                 _language_user_row(),
                 _backend_row(),
-                _single_model_warning(),
                 _calibration_row(),
                 _cloud_provider_row(),
                 _aifred_model_row(),
@@ -61,7 +58,9 @@ def settings_accordion() -> rx.Component:
                 # Reasoning is now controlled per-agent via aifred_reasoning, sokrates_reasoning, salomo_reasoning
                 # which control BOTH the reasoning prompt AND the enable_thinking flag
 
-                _yarn_section(),
+                # NOTE: _yarn_section() nicht mehr gerendert — YaRN gehörte
+                # zum alten Direkt-vLLM-Pfad; Bewertung verschoben
+                # (Backend-Trennungs-Paket 2026-08-29).
 
                 # TTS/STT Settings
                 rx.divider(margin_top="12px", margin_bottom="12px"),

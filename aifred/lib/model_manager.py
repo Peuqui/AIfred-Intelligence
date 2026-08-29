@@ -6,14 +6,11 @@ State access and can be used independently.
 
 Extracted from state.py (Phase 3.2 Refactoring):
 - sort_models_grouped(): Sort models by family and size
-- is_backend_compatible(): Check model compatibility with backend
 """
 
 import logging
 import re
-import json
 from typing import Dict
-from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -77,71 +74,3 @@ def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
     # Convert back to dict (preserves order in Python 3.7+)
     return {mid: label for mid, label, _, _ in models_with_info}
 
-
-def is_backend_compatible(model_dir: Path, backend: str) -> bool:
-    """
-    Check if model is compatible with backend by reading config.json.
-
-    vLLM supports:
-    - AWQ (quantization_config.quant_method = "awq")
-    - GPTQ (quantization_config.quant_method = "gptq")
-    - compressed-tensors (quantization_config.quant_method = "compressed-tensors")
-    - FP16/BF16 (no quantization_config)
-
-    Does NOT support:
-    - GGUF (Ollama-only)
-    - Non-LLM models (Whisper, Vision, etc.)
-
-    Args:
-        model_dir: Path to the model directory (e.g., from HuggingFace cache)
-        backend: Backend name ("vllm")
-
-    Returns:
-        True if model is compatible with the specified backend
-
-    Example:
-        >>> from pathlib import Path
-        >>> model_path = Path("/home/user/.cache/huggingface/hub/models--Qwen--Qwen2.5-7B-AWQ")
-        >>> is_backend_compatible(model_path, "vllm")
-        True
-    """
-    model_name = model_dir.name.replace("models--", "").replace("--", "/", 1)
-
-    # Exclude non-LLM models by name pattern
-    exclude_patterns = ['whisper', 'faster-whisper', 'table-transformer', 'resnet', 'gguf']
-    if any(pattern in model_name.lower() for pattern in exclude_patterns):
-        return False
-
-    # Try to find config.json in model directory
-    config_paths = list(model_dir.glob("**/config.json"))
-
-    if not config_paths:
-        # No config.json found - skip this model
-        return False
-
-    try:
-        with open(config_paths[0], 'r') as f:
-            config_data = json.load(f)
-
-        # Check if it's a valid LLM config (has model_type)
-        if "model_type" not in config_data:
-            return False
-
-        # Check quantization format
-        if "quantization_config" in config_data:
-            quant_method = config_data["quantization_config"].get("quant_method", "")
-
-            if backend == "vllm":
-                # vLLM supports: awq, gptq, compressed-tensors
-                return quant_method in ["awq", "gptq", "compressed-tensors"]
-        else:
-            # No quantization config
-            if backend == "vllm":
-                # FP16/BF16 (supported by vLLM)
-                return True
-
-    except (OSError, json.JSONDecodeError, AttributeError) as e:
-        logger.warning(f"Failed to parse config.json for model '{model_name}': {e}")
-        return False
-
-    return False

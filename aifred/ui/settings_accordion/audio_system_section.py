@@ -207,11 +207,7 @@ def _restart_buttons() -> rx.Component:
                 rx.cond(
                     AIState.backend_type == "ollama",
                     t("restart_ollama"),
-                    rx.cond(
-                        AIState.backend_type == "vllm",
-                        t("restart_vllm"),
-                        rx.text(f"\U0001f504 {AIState.backend_type.upper()} Neustart")
-                    )
+                    rx.text(f"\U0001f504 {AIState.backend_type.upper()} Neustart")
                 ),
                 on_click=AIState.restart_backend,
                 size="2",

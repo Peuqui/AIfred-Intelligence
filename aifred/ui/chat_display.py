@@ -468,20 +468,11 @@ def chat_history_display() -> rx.Component:
                     color=COLORS["text_secondary"],
                     margin_top="3",
                 ),
-                rx.cond(
-                    AIState.vllm_restarting,
-                    rx.text(
-                        "vLLM wird neu gestartet...",
-                        font_size="14px",
-                        color=COLORS["text_secondary"],
-                        margin_top="3",
-                    ),
-                    rx.text(
-                        "Backend wird gewechselt...",
-                        font_size="14px",
-                        color=COLORS["text_secondary"],
-                        margin_top="3",
-                    ),
+                rx.text(
+                    "Backend wird gewechselt...",
+                    font_size="14px",
+                    color=COLORS["text_secondary"],
+                    margin_top="3",
                 ),
             ),
         ),
@@ -584,8 +575,8 @@ def chat_history_display() -> rx.Component:
     )
 
     chat_content = rx.cond(
-        AIState.backend_initializing | AIState.backend_switching | AIState.vllm_restarting | AIState.is_uploading_image,
-        loading_spinner,  # Show spinner during initialization, backend switch, vLLM restart, or image upload
+        AIState.backend_initializing | AIState.backend_switching | AIState.is_uploading_image,
+        loading_spinner,  # Show spinner during initialization, backend switch, or image upload
         chat_history_box,
     )
 

@@ -187,10 +187,32 @@ class TestMaybeRouteToOllama:
             assert model == "Qwen3VL-4B-Instruct-Q8_0"
             assert rerouted is False
 
-    def test_vllm_with_match_routes(self):
+    def test_vllm_with_visiond_profile_prefers_llamaswap(self):
+        # Backend vLLM laeuft ueber llama-swap — ein -visiond-Profil wird
+        # wie unter llamacpp bevorzugt (parallele vision-Gruppe, kein Swap).
         with patch(
             "aifred.lib.vision_routing.list_ollama_vlm_models",
             return_value=[_ollama("qwen3-vl:4b-instruct-q8_0")],
+        ), patch(
+            "aifred.lib.vision_routing.visiond_profile_for",
+            return_value="Qwen3VL-4B-Instruct-Q8_0-visiond",
+        ):
+            _, btype, model, rerouted = maybe_route_to_ollama(
+                backend_url="http://localhost:8000",
+                backend_type="vllm",
+                vision_model="Qwen3VL-4B-Instruct-Q8_0",
+            )
+            assert btype == "vllm"
+            assert model == "Qwen3VL-4B-Instruct-Q8_0-visiond"
+            assert rerouted is True
+
+    def test_vllm_without_visiond_falls_back_to_ollama(self):
+        with patch(
+            "aifred.lib.vision_routing.list_ollama_vlm_models",
+            return_value=[_ollama("qwen3-vl:4b-instruct-q8_0")],
+        ), patch(
+            "aifred.lib.vision_routing.visiond_profile_for",
+            return_value=None,
         ):
             _, btype, model, rerouted = maybe_route_to_ollama(
                 backend_url="http://localhost:8000",
