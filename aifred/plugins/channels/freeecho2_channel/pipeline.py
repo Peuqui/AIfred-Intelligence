@@ -80,10 +80,9 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
             session_id = route.session_id
         else:
             session_id = _secrets.token_hex(16)
-            # channel-Tag ist Pflicht: ohne es sieht die Session wie eine
-            # interaktive Browser-Session aus und der Login-Autoload
-            # adoptiert sie (Browser und Puck teilen sich dann eine
-            # History) — siehe list_sessions(interactive_only=True).
+            # channel-Tag hält die Herkunft der Session fest (Puck-Raum),
+            # damit in der Session-Liste erkennbar bleibt, dass hier ein
+            # Gerät und nicht der Browser geschrieben hat.
             create_empty_session(
                 session_id, owner=MESSAGE_HUB_OWNER, channel="freeecho2",
             )
