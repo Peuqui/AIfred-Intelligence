@@ -1256,6 +1256,21 @@ VLLM_CONTEXT_SAFETY_PERCENT = 0.02  # 2% safety buffer (iteratively applied to e
 # Server restarts automatically on next chat message (lazy-start).
 VLLM_IDLE_TTL_SECONDS = 900  # 15 min (matches llama-swap default)
 
+# vLLM-Kalibration: Kurzkontext-Probe zusaetzlich zur Langkontext-Probe
+# messen. Der Sieger wird nach dem LANG-Decode gekuert (Peuqui 2026-08-29:
+# lange Sessions brauchen die Geschwindigkeit, kurze Turns sind eh schnell
+# vorbei) — die Kurzprobe ist reine Information und kostet ~15-30 s pro
+# Konstellation. Ausnahme: Traegt eine Sprosse zu wenig Fenster fuer den
+# Langpunkt, laeuft die Kurzprobe IMMER als Ersatzmetrik.
+# Baseline-Lauf 2026-08-29: True (beide Enden erfassen); fuer schnelle
+# Alltagslaeufe danach auf False.
+VLLM_CALIBRATION_SHORT_PROBE = True
+
+# k-Sweep-Umfang: False = gespreizte Kandidaten (max, 5, 3, 2 — schnell);
+# True = ALLE zulaessigen k von oben bis 1 durchmessen (Baseline-Modus,
+# ~5-6 min je k und Topologie).
+VLLM_CALIBRATION_K_EXHAUSTIVE = True
+
 # ============================================================
 # OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
 # ============================================================

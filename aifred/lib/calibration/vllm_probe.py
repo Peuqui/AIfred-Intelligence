@@ -278,8 +278,8 @@ class VllmServer:
         self.proc.wait(timeout=30)
 
     def chat(self, prompt: str, max_tokens: int = 64, temperature: float = 0.0,
-             ignore_eos: bool = False, timeout_s: float = 300.0) -> tuple[str, int, float]:
-        """Eine Chat-Completion; Rueckgabe (Text, completion_tokens, Dauer_s)."""
+             ignore_eos: bool = False, timeout_s: float = 300.0) -> tuple[str, dict, float]:
+        """Eine Chat-Completion; Rueckgabe (Text, usage-Dict, Dauer_s)."""
         body: dict = {
             "model": self.served_name,
             "messages": [{"role": "user", "content": prompt}],
@@ -297,8 +297,7 @@ class VllmServer:
         with urllib.request.urlopen(req, timeout=timeout_s) as r:
             d = json.load(r)
         dt = time.monotonic() - t0
-        return (d["choices"][0]["message"]["content"],
-                d["usage"]["completion_tokens"], dt)
+        return d["choices"][0]["message"]["content"], d["usage"], dt
 
     def metrics(self) -> dict[str, float]:
         """Prometheus-Counter als {name: Summe ueber Label-Saetze}."""
@@ -424,9 +423,69 @@ def probe_throughput(server: VllmServer, tokens: int = 200, runs: int = 2,
         server.chat(THROUGHPUT_PROMPT, max_tokens=tokens, ignore_eos=True)
     results = []
     for _ in range(runs):
-        _, n, dt = server.chat(THROUGHPUT_PROMPT, max_tokens=tokens, ignore_eos=True)
-        results.append(n / dt)
+        _, usage, dt = server.chat(THROUGHPUT_PROMPT, max_tokens=tokens, ignore_eos=True)
+        results.append(usage["completion_tokens"] / dt)
     return results
+
+
+# Langkontext-Messpunkt: ~45 % des Kontextfensters fuellen (gedeckelt),
+# damit Architektur-Unterschiede sichtbar werden, die der Kurzkontext
+# verdeckt (RTX-Befund 2026-08-29: Attention-Kosten dominieren erst dort).
+LONG_CONTEXT_TARGET_TOKENS = 30000
+LONG_CONTEXT_MIN_TOKENS = 8192
+LONG_CONTEXT_FILLER = (
+    "Die Industrialisierung veraenderte Wirtschaft, Verkehr und Alltag "
+    "in Europa grundlegend und dauerhaft. "
+)
+
+
+# Spekulations-Zaehler (Prometheus): Akzeptanzrate beim Lang-Decode ist
+# die Diagnose-Groesse fuer den beobachteten Spekulations-Einbruch bei
+# vollem Kontext (Kollaps der Akzeptanz vs. Kostenexplosion im Verify).
+SPEC_DRAFT_METRIC = "vllm:spec_decode_num_draft_tokens_total"
+SPEC_ACCEPT_METRIC = "vllm:spec_decode_num_accepted_tokens_total"
+
+
+def probe_long_context(server: VllmServer, mml: int) -> dict | None:
+    """Langkontext-Punkt als Dict: tokens, prefill_tps, decode_tps,
+    accept_rate (Spekulations-Akzeptanz waehrend des Lang-Decodes;
+    -1.0 wenn keine Spekulation laeuft oder Zaehler fehlen).
+
+    Erster Call (max_tokens=1) misst den Prefill; der zweite Call mit
+    identischem Prompt trifft den Prefix-Cache und misst den reinen
+    Decode bei gefuelltem Kontext. None, wenn das Fenster fuer einen
+    aussagekraeftigen Langpunkt zu klein ist.
+    """
+    target = min(LONG_CONTEXT_TARGET_TOKENS, int(mml * 0.45))
+    if target < LONG_CONTEXT_MIN_TOKENS:
+        return None
+    # ~5,5 Zeichen je Token fuer deutschen Fuelltext
+    repeats = max(1, int(target * 5.5) // len(LONG_CONTEXT_FILLER))
+    prompt = (LONG_CONTEXT_FILLER * repeats
+              + "\nFasse den Kern des Textes in einem Satz zusammen:")
+    _, usage, dt1 = server.chat(prompt, max_tokens=1, ignore_eos=True,
+                                timeout_s=1200.0)
+    prompt_tokens = int(usage.get("prompt_tokens", 0)) or target
+    prefill_tps = prompt_tokens / dt1 if dt1 > 0 else 0.0
+    try:
+        m_before = server.metrics()
+    except Exception:  # noqa: BLE001 — Diagnose optional, Messung geht vor
+        m_before = {}
+    _, usage2, dt2 = server.chat(prompt, max_tokens=200, ignore_eos=True,
+                                 timeout_s=1200.0)
+    decode_tps = usage2["completion_tokens"] / dt2 if dt2 > 0 else 0.0
+    accept_rate = -1.0
+    if m_before:
+        try:
+            m_after = server.metrics()
+            drafted = m_after.get(SPEC_DRAFT_METRIC, 0.0) - m_before.get(SPEC_DRAFT_METRIC, 0.0)
+            accepted = m_after.get(SPEC_ACCEPT_METRIC, 0.0) - m_before.get(SPEC_ACCEPT_METRIC, 0.0)
+            if drafted > 0:
+                accept_rate = accepted / drafted
+        except Exception:  # noqa: BLE001
+            pass
+    return {"tokens": prompt_tokens, "prefill_tps": prefill_tps,
+            "decode_tps": decode_tps, "accept_rate": accept_rate}
 
 
 def find_free_port(start: int = 8050, end: int = 8090) -> int:

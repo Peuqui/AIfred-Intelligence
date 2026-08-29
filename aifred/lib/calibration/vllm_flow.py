@@ -20,16 +20,22 @@ Messungen (die llama.cpp-Kalibration verifiziert genauso).
 
 import logging
 import subprocess
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable, Iterator
 
-from ..config import LLAMASWAP_CONFIG_PATH, PROJECT_ROOT
+from ..config import (
+    LLAMASWAP_CONFIG_PATH,
+    PROJECT_ROOT,
+    VLLM_CALIBRATION_K_EXHAUSTIVE,
+    VLLM_CALIBRATION_SHORT_PROBE,
+)
 from ..formatting import format_number
 from .gpu import enumerate_gpus
 from .types import GPU
 from .vllm_model_meta import VllmModelMeta, analyze_checkpoint
 from .vllm_probe import (
+    OOM_SIGNATURES,
     VllmBootError,
     VllmServer,
     VllmSpec,
@@ -37,6 +43,7 @@ from .vllm_probe import (
     find_free_port,
     load_vllm_runtime,
     probe_coherence,
+    probe_long_context,
     probe_throughput,
 )
 
@@ -64,6 +71,13 @@ MTP_MAX_READ_FRACTION = 0.25
 BOOT_TIMEOUT_S = 1200
 MIN_USEFUL_CONTEXT = 4096
 
+# Siegerregel (Peuqui 2026-08-29): Kontext-Vorrang, dann entscheidet der
+# LANG-Decode. Liegen zwei Kandidaten innerhalb dieser relativen Spanne,
+# bricht der hoehere Lang-Prefill das Patt (Recherche-Szenario: grosse
+# Kontexte einlesen; das Gitter gewann so 840 vs. 511 tok/s Prefill bei
+# gleichem Decode).
+LONG_TIE_BREAK_REL = 0.05
+
 
 @dataclass
 class TopologyCandidate:
@@ -79,13 +93,16 @@ class VllmCalibrationResult:
     spec: VllmSpec
     throughput_tok_s: float
     coherence: tuple[int, int]
-    k_sweep: dict[int, float]   # k -> tok/s
+    k_sweep: dict[int, float]   # k -> tok/s (Kurzkontext)
     profile_path: Path | None = None
     # Speed-Kandidat (schnellste kontext-reduzierte Topologie, informativ)
     speed_label: str = ""
     speed_k: int = 0
     speed_tps: float = 0.0
     speed_mml: int = 0
+    # Alle Einzelmessungen (Topologie × k, Kurz- UND Langkontext) fuer die
+    # aggregierte Ergebnistabelle
+    measurements: list[dict] = field(default_factory=list)
 
 
 def _smi_index_by_uuid() -> dict[str, int]:
@@ -270,7 +287,21 @@ def _k_candidates(meta: VllmModelMeta, runtime: dict) -> list[int]:
     if limit:
         good = [k for k in good if k + 1 <= int(limit)]
     good.sort(reverse=True)
-    return good[:3]
+    if not good:
+        return []
+    if VLLM_CALIBRATION_K_EXHAUSTIVE:
+        # Baseline-Modus: alle zulaessigen Tiefen von oben bis 1.
+        return good
+    # Spreizung statt Top-3: grosses k glaenzt im Kurzkontext, kleines k
+    # verliert bei vollem Kontext am wenigsten (27B 2026-08-29: k=7..5
+    # lang 16-18 tok/s, Trend zu klein besser; k=3 war Kurz-Rekord,
+    # k=5 der Kurz-Sieger beider Topologien). Der Sweep muss beide Enden
+    # des Trade-offs sehen; das Maximum bleibt drin (modellabhaengig —
+    # Flash-Next gewann mit k=7).
+    picks = {good[0]} | ({5, 3, 2} & set(good))
+    if len(picks) < 3:
+        picks.add(good[len(good) // 2])
+    return sorted(picks, reverse=True)[:4]
 
 
 def _display_checkpoint_name(checkpoint: Path) -> str:
@@ -288,9 +319,31 @@ class _RungResult:
     """Messergebnis einer Topologie-Sprosse (k=0)."""
     spec: VllmSpec
     label: str
-    tps: float
+    tps: float                  # Kurzkontext (0.0 wenn Kurzprobe aus)
     coherence: tuple[int, int]
     full_context: bool          # traegt den vollen nativen Kontext
+    # Langkontext-Punkt (0 = Fenster zu klein fuer die Sonde)
+    long_tokens: int = 0
+    long_prefill_tps: float = 0.0
+    long_decode_tps: float = 0.0
+
+
+def _rung_metric(r: _RungResult) -> float:
+    """Entscheidungsmetrik: Lang-Decode; Kurzwert nur als Ersatz, wenn das
+    Fenster fuer den Langpunkt zu klein war (dann laeuft die Kurzprobe
+    unabhaengig vom Toggle)."""
+    return r.long_decode_tps if r.long_tokens else r.tps
+
+
+def _beats(metric_new: float, prefill_new: float,
+           metric_old: float, prefill_old: float) -> bool:
+    """Siegervergleich: Metrik entscheidet; bei Quasi-Gleichstand
+    (LONG_TIE_BREAK_REL) bricht der hoehere Lang-Prefill das Patt."""
+    if metric_old <= 0:
+        return metric_new > 0
+    if abs(metric_new - metric_old) / metric_old <= LONG_TIE_BREAK_REL:
+        return prefill_new > prefill_old
+    return metric_new > metric_old
 
 
 def _measure_topology(
@@ -370,7 +423,11 @@ def _measure_topology(
     # 25 GB nach ungefangener Probe-Exception).
     try:
         ok, total, _ = probe_coherence(server)
-        tps = max(probe_throughput(server)) if ok == total else 0.0
+        long_metrics = probe_long_context(server, spec.mml) if ok == total else None
+        # Kurzprobe: nur wenn eingeschaltet ODER der Langpunkt ausfaellt
+        # (jede Sprosse braucht genau eine Entscheidungszahl).
+        need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
+        tps = max(probe_throughput(server)) if (ok == total and need_short) else 0.0
     except Exception as probe_err:  # noqa: BLE001
         progress(f"   ↳ probe crashed ({type(probe_err).__name__}) — rung rejected")
         return None
@@ -379,9 +436,22 @@ def _measure_topology(
     if ok < total:
         progress(f"   ↳ incoherent ({ok}/{total}) — rung rejected")
         return None
-    progress(f"   ↳ {cand.label}: {format_number(tps, 1)} tok/s (coherence {ok}/{total})")
+    if tps:
+        progress(f"   ↳ {cand.label}: short {format_number(tps, 1)} tok/s "
+                 f"(coherence {ok}/{total})")
+    else:
+        progress(f"   ↳ {cand.label}: coherence {ok}/{total}")
+    if long_metrics:
+        lt = long_metrics["tokens"]
+        lp = long_metrics["prefill_tps"]
+        ld = long_metrics["decode_tps"]
+        progress(f"   ↳ long ctx @{format_number(lt)} tok: prefill "
+                 f"{format_number(lp, 0)} tok/s, decode {format_number(ld, 1)} tok/s")
+    else:
+        lt, lp, ld = 0, 0.0, 0.0
     return _RungResult(spec=spec, label=cand.label, tps=tps,
-                       coherence=(ok, total), full_context=(spec.mml >= native))
+                       coherence=(ok, total), full_context=(spec.mml >= native),
+                       long_tokens=lt, long_prefill_tps=lp, long_decode_tps=ld)
 
 
 def _sweep_k(
@@ -394,8 +464,17 @@ def _sweep_k(
     progress: Callable[[str], None],
     cancel_check: Callable[[], bool] | None,
     allow_ctx_reduction: bool = False,
-) -> tuple[VllmSpec, float, int, dict[int, float]]:
-    """k-Sweep auf einer Topologie: (best_spec, best_tps, best_k, sweep).
+    matrix: list[dict] | None = None,
+) -> tuple[VllmSpec, float, int, dict[int, float], float]:
+    """k-Sweep auf einer Topologie:
+    (best_spec, best_metric, best_k, sweep, best_prefill).
+
+    Entscheidungsmetrik je k: Lang-Decode (Kurzwert nur als Ersatz, wenn
+    kein Langpunkt moeglich ist). ``sweep`` enthaelt die Metrik je k.
+
+    ``matrix``: Sammel-Liste fuer die aggregierte Ergebnistabelle — jede
+    kohaerente k-Messung wird als Zeile (Topologie, k, ctx, Kurz- und
+    Langkontext-Werte, Akzeptanz) angehaengt.
 
     ``allow_ctx_reduction``: Der Draftkopf kostet KV-Budget — nennt vLLM
     beim k-Boot eine kleinere Kontextgrenze, wird sie uebernommen und neu
@@ -403,59 +482,105 @@ def _sweep_k(
     Kontext akzeptabel); Sieg-Kandidaten muessen ihr k beim vollen
     Sprossen-Kontext tragen (Kontext-Vorrang), sonst ist das k abgelehnt.
     """
-    sweep: dict[int, float] = {0: rung.tps}
-    best_k, best_tps = 0, rung.tps
+    sweep: dict[int, float] = {0: _rung_metric(rung)}
+    best_k, best_metric = 0, _rung_metric(rung)
     best_mml = rung.spec.mml
+    best_prefill = rung.long_prefill_tps
     for k in _k_candidates(meta, runtime):
-        if cancel_check and cancel_check():
-            raise RuntimeError("cancelled")
         allowed = meta.allowed_k_block_sizes()
         capture = _capture_sizes_for(k, runtime)
         spec_attn = _spec_attn_for(rung.spec, gpus, smi, runtime)
         mml_k = rung.spec.mml
-        server = None
-        # vLLMs Grenzschaetzung ist mit geladenem Draftkopf zu optimistisch
-        # (Nachmessung 2026-08-29: k=7 brauchte ZWEI Uebernahme-Runden) —
-        # deshalb iterative Uebernahme statt einem einzigen Retry.
-        for attempt in range(3):
-            spec_k = VllmSpec(
-                **{**rung.spec.__dict__, "k": k, "mml": mml_k,
-                   "block_size": allowed[k],
-                   "capture_sizes": capture, "spec_attn_backend": spec_attn},
-            )
-            port = find_free_port()
-            log = log_dir / f"boot-{rung.spec.tp}x{rung.spec.pp}-k{k}-try{attempt}.log"
-            if attempt == 0:
-                progress(f"🎲 Probing k={k} on {rung.label} (block {allowed[k]}, "
-                         f"capture {capture}, spec-attn {spec_attn or 'default'})...")
+        # Proben-OOM-Retry: die per GMU volle Karte kann bei der ERSTEN
+        # echten Anfrage noch kippen (Gitter-k=6 2026-08-29: 120 MB
+        # QPN8-Workspace fehlten) — einmal mit gesenkter GMU neu booten
+        # statt das k zu verwerfen.
+        gmu_k = rung.spec.gmu
+        ok_k, total_k, tps = 0, 1, 0.0
+        long_metrics: dict | None = None
+        probe_failed = True
+        for oom_round in range(2):
+            if cancel_check and cancel_check():
+                raise RuntimeError("cancelled")
+            server = None
+            # vLLMs Grenzschaetzung ist mit geladenem Draftkopf zu
+            # optimistisch (Nachmessung 2026-08-29: k=7 brauchte ZWEI
+            # Uebernahme-Runden) — deshalb iterative Uebernahme.
+            for attempt in range(3):
+                spec_k = VllmSpec(
+                    **{**rung.spec.__dict__, "k": k, "mml": mml_k,
+                       "gmu": gmu_k, "block_size": allowed[k],
+                       "capture_sizes": capture, "spec_attn_backend": spec_attn},
+                )
+                port = find_free_port()
+                log = log_dir / f"boot-{rung.spec.tp}x{rung.spec.pp}-k{k}-try{oom_round}{attempt}.log"
+                if oom_round == 0 and attempt == 0:
+                    progress(f"🎲 Probing k={k} on {rung.label} (block {allowed[k]}, "
+                             f"capture {capture}, spec-attn {spec_attn or 'default'})...")
+                try:
+                    server = boot_vllm(spec_k, port, log, BOOT_TIMEOUT_S, cancel_check)
+                    break
+                except VllmBootError as e:
+                    if (attempt < 2 and allow_ctx_reduction and e.parsed_max_len
+                            and MIN_USEFUL_CONTEXT <= e.parsed_max_len < mml_k):
+                        mml_k = e.parsed_max_len
+                        progress(f"   ↳ k={k} needs smaller ctx: retry with {format_number(mml_k)}")
+                        continue
+                    progress(f"   ↳ k={k} boot failed: {e.reason}")
+                    break
+            if server is None:
+                break
+            probe_oom = False
             try:
-                server = boot_vllm(spec_k, port, log, BOOT_TIMEOUT_S, cancel_check)
+                ok_k, total_k, _ = probe_coherence(server)
+                long_metrics = (probe_long_context(server, mml_k)
+                                if ok_k == total_k else None)
+                need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
+                tps = (max(probe_throughput(server))
+                       if (ok_k == total_k and need_short) else 0.0)
+                probe_failed = False
+            except Exception as probe_err:  # noqa: BLE001
+                full_log = (server.log_path.read_text(errors="replace")
+                            if server.log_path.exists() else "")
+                probe_oom = any(sig in full_log for sig in OOM_SIGNATURES)
+                if probe_oom and oom_round == 0:
+                    gmu_k = round(gmu_k - 0.02, 2)
+                    progress(f"   ↳ k={k} probe hit OOM: retry with GMU {gmu_k}")
+                else:
+                    progress(f"   ↳ k={k} probe crashed "
+                             f"({type(probe_err).__name__}) — rejected")
+            finally:
+                server.shutdown()
+            if not probe_oom:
                 break
-            except VllmBootError as e:
-                if (attempt < 2 and allow_ctx_reduction and e.parsed_max_len
-                        and MIN_USEFUL_CONTEXT <= e.parsed_max_len < mml_k):
-                    mml_k = e.parsed_max_len
-                    progress(f"   ↳ k={k} needs smaller ctx: retry with {format_number(mml_k)}")
-                    continue
-                progress(f"   ↳ k={k} boot failed: {e.reason}")
-                break
-        if server is None:
+        if probe_failed:
             continue
-        try:
-            ok_k, total_k, _ = probe_coherence(server)
-            tps = max(probe_throughput(server)) if ok_k == total_k else 0.0
-        except Exception as probe_err:  # noqa: BLE001
-            progress(f"   ↳ k={k} probe crashed ({type(probe_err).__name__}) — rejected")
-            continue
-        finally:
-            server.shutdown()
         if ok_k < total_k:
             progress(f"   ↳ k={k} incoherent ({ok_k}/{total_k}) — rejected")
             continue
-        sweep[k] = tps
-        progress(f"   ↳ k={k}: {format_number(tps, 1)} tok/s")
-        if tps > best_tps:
-            best_k, best_tps, best_mml = k, tps, mml_k
+        if long_metrics:
+            lt = long_metrics["tokens"]
+            lp = long_metrics["prefill_tps"]
+            ld = long_metrics["decode_tps"]
+            acc = long_metrics["accept_rate"]
+        else:
+            lt, lp, ld, acc = 0, 0.0, 0.0, -1.0
+        metric = ld if lt else tps
+        sweep[k] = metric
+        acc_note = (f", accept {format_number(acc * 100, 0)} %" if acc >= 0 else "")
+        if lt:
+            progress(f"   ↳ k={k}: long {format_number(ld, 1)} tok/s "
+                     f"(prefill {format_number(lp, 0)}{acc_note})"
+                     + (f", short {format_number(tps, 1)} tok/s" if tps else ""))
+        else:
+            progress(f"   ↳ k={k}: short {format_number(tps, 1)} tok/s")
+        if matrix is not None:
+            matrix.append({"label": rung.label, "k": k, "ctx": mml_k,
+                           "short": tps, "long_tokens": lt,
+                           "long_prefill": lp, "long_decode": ld,
+                           "accept": acc})
+        if _beats(metric, lp, best_metric, best_prefill):
+            best_k, best_metric, best_mml, best_prefill = k, metric, mml_k, lp
 
     if best_k:
         best_spec = VllmSpec(
@@ -466,7 +591,7 @@ def _sweep_k(
         )
     else:
         best_spec = rung.spec
-    return best_spec, best_tps, best_k, sweep
+    return best_spec, best_metric, best_k, sweep, best_prefill
 
 
 def calibrate_vllm_checkpoint(
@@ -515,6 +640,7 @@ def calibrate_vllm_checkpoint(
     smi = _smi_index_by_uuid()
     uuid_by_smi = {v: k for k, v in smi.items()}
     rungs: list[_RungResult] = []
+    matrix: list[dict] = []
     for cand in topology_ladder(meta, gpus, runtime):
         if cancel_check and cancel_check():
             raise RuntimeError("cancelled")
@@ -522,6 +648,12 @@ def calibrate_vllm_checkpoint(
                                    log_dir, progress, cancel_check)
         if result is not None:
             rungs.append(result)
+            matrix.append({"label": result.label, "k": 0,
+                           "ctx": result.spec.mml, "short": result.tps,
+                           "long_tokens": result.long_tokens,
+                           "long_prefill": result.long_prefill_tps,
+                           "long_decode": result.long_decode_tps,
+                           "accept": -1.0})
 
     if not rungs:
         raise RuntimeError("no topology candidate booted coherently")
@@ -534,17 +666,19 @@ def calibrate_vllm_checkpoint(
         progress("⚠️ No topology carries the native context — "
                  "falling back to reduced-context rungs")
         pool = list(rungs)
-    pool.sort(key=lambda r: r.tps, reverse=True)
+    # Sortierung und Berichte nach der Entscheidungsmetrik (Lang-Decode)
+    pool.sort(key=_rung_metric, reverse=True)
     progress(
-        "📈 Topologies for k-sweep: "
-        + ", ".join(f"{r.label} ({format_number(r.tps, 1)} tok/s)" for r in pool)
+        "📈 Topologies for k-sweep (by long-context decode): "
+        + ", ".join(f"{r.label} ({format_number(_rung_metric(r), 1)} tok/s)"
+                    for r in pool)
     )
 
     # Speed-Kandidat: die schnellste kontext-reduzierte Sprosse bekommt
     # ihren Sweep ZUSAETZLICH (informativ — z.B. V100+XQA als moegliche
     # Speed-Variante), konkurriert aber nicht um den Betriebspunkt.
     reduced = [r for r in rungs if not r.full_context]
-    speed_candidate = max(reduced, key=lambda r: r.tps) if (reduced and not fallback_pool) else None
+    speed_candidate = max(reduced, key=_rung_metric) if (reduced and not fallback_pool) else None
     if speed_candidate is not None:
         progress(
             f"🏎️ Reduced-context speed candidate: {speed_candidate.label} "
@@ -552,25 +686,28 @@ def calibrate_vllm_checkpoint(
         )
 
     # --- Phase E: k-Sweep auf JEDER Sieg-Kandidaten-Topologie ------------
+    # Sieger nach Lang-Decode; bei Quasi-Gleichstand bricht der hoehere
+    # Lang-Prefill das Patt (_beats).
     best_spec: VllmSpec | None = None
-    best_tps, best_k = 0.0, 0
+    best_tps, best_k, best_prefill = 0.0, 0, 0.0
     best_rung: _RungResult | None = None
     best_sweep: dict[int, float] = {}
     for rung in pool:
-        spec_r, tps_r, k_r, sweep_r = _sweep_k(
-            rung, meta, gpus, smi, runtime, log_dir, progress, cancel_check)
+        spec_r, tps_r, k_r, sweep_r, prefill_r = _sweep_k(
+            rung, meta, gpus, smi, runtime, log_dir, progress, cancel_check,
+            matrix=matrix)
         progress(f"   ↳ {rung.label} best: k={k_r}, {format_number(tps_r, 1)} tok/s")
-        if tps_r > best_tps:
-            best_spec, best_tps, best_k = spec_r, tps_r, k_r
+        if best_rung is None or _beats(tps_r, prefill_r, best_tps, best_prefill):
+            best_spec, best_tps, best_k, best_prefill = spec_r, tps_r, k_r, prefill_r
             best_rung, best_sweep = rung, sweep_r
 
     sc_spec = None
     sc_tps, sc_k = 0.0, 0
     sc_sweep: dict[int, float] = {}
     if speed_candidate is not None:
-        sc_spec, sc_tps, sc_k, sc_sweep = _sweep_k(
+        sc_spec, sc_tps, sc_k, sc_sweep, _ = _sweep_k(
             speed_candidate, meta, gpus, smi, runtime, log_dir,
-            progress, cancel_check, allow_ctx_reduction=True)
+            progress, cancel_check, allow_ctx_reduction=True, matrix=matrix)
         progress(
             f"🏎️ Speed candidate result: {speed_candidate.label} k={sc_k}, "
             f"{format_number(sc_tps, 1)} tok/s at ctx "
@@ -580,23 +717,52 @@ def calibrate_vllm_checkpoint(
 
     assert best_spec is not None and best_rung is not None
     ok, total = best_rung.coherence
-    progress(f"🏁 Best point: {best_rung.label}, k={best_k}, "
-             f"{format_number(best_tps, 1)} tok/s "
+
+    # Aggregierte Ergebnistabelle: jede Konstellation mit Kurz- UND
+    # Langkontext-Werten (Peuqui 2026-08-29: informierte Architektur-
+    # Aussage braucht beide Enden).
+    progress("📊 Measurement matrix (short vs long context, tok/s):")
+    progress(f"   {'topology':<32} {'k':>2} {'ctx':>9} {'short':>7} "
+             f"{'prefill':>8} {'long':>7} {'accept':>7}")
+    for row in sorted(matrix, key=lambda r: (r["label"], r["k"])):
+        if row["long_tokens"]:
+            long_cols = (f"{format_number(row['long_prefill'], 0):>8} "
+                         f"{format_number(row['long_decode'], 1):>7}")
+        else:
+            long_cols = f"{'—':>8} {'—':>7}"
+        acc = row.get("accept", -1.0)
+        acc_col = (f"{format_number(acc * 100, 0) + ' %':>7}" if acc >= 0
+                   else f"{'—':>7}")
+        short_col = (f"{format_number(row['short'], 1):>7}"
+                     if row["short"] else f"{'—':>7}")
+        progress(f"   {row['label'][:32]:<32} {row['k']:>2} "
+                 f"{format_number(row['ctx']):>9} {short_col} {long_cols} {acc_col}")
+
+    progress(f"🏁 Best point (long-context decode rule): {best_rung.label}, "
+             f"k={best_k}, {format_number(best_tps, 1)} tok/s "
              f"(TP{best_spec.tp}×PP{best_spec.pp}, ctx {format_number(best_spec.mml)})")
 
     # --- Phase F: Persistierung -----------------------------------------
-    profile_path = persist_operating_point(best_spec, best_tps, best_sweep, meta)
+    def _matrix_row(label: str, k: int) -> dict | None:
+        return next((r for r in matrix
+                     if r["label"] == label and r["k"] == k), None)
+
+    profile_path = persist_operating_point(
+        best_spec, best_tps, best_sweep, meta,
+        long_ctx=_matrix_row(best_rung.label, best_k))
     progress(f"💾 Operating point saved: {profile_path}")
 
     # Speed-Variante nur persistieren, wenn sie den Betriebspunkt schlaegt —
     # ein "-speed"-Eintrag, der langsamer ist, waere sinnlos. Der Eintrag
     # heisst <entry>-speed (GGUF-Konvention) und wird vom Speed-Toggle
     # ueber has_speed_variant/resolve_effective_suffix gefunden.
-    if sc_spec is not None and sc_tps > best_tps:
+    if sc_spec is not None and speed_candidate is not None and sc_tps > best_tps:
         speed_spec = VllmSpec(
             **{**sc_spec.__dict__, "served_name": f"{entry_name}-speed"},
         )
-        speed_path = persist_operating_point(speed_spec, sc_tps, sc_sweep, meta)
+        speed_path = persist_operating_point(
+            speed_spec, sc_tps, sc_sweep, meta,
+            long_ctx=_matrix_row(speed_candidate.label, sc_k))
         progress(
             f"💾 Speed variant saved: {speed_path} "
             f"({format_number(sc_tps, 1)} tok/s, ctx {format_number(speed_spec.mml)})"
@@ -612,6 +778,7 @@ def calibrate_vllm_checkpoint(
         speed_label=speed_candidate.label if speed_candidate else "",
         speed_k=sc_k, speed_tps=sc_tps,
         speed_mml=sc_spec.mml if sc_spec else 0,
+        measurements=matrix,
     )
 
 
@@ -635,6 +802,7 @@ def render_llamaswap_entry(spec: VllmSpec, ttl: int = 3600) -> dict:
 
 def persist_operating_point(
     spec: VllmSpec, tok_s: float, k_sweep: dict[int, float], meta: VllmModelMeta,
+    long_ctx: dict | None = None,
 ) -> Path:
     """Profil schreiben (mit Hardware-Fingerprint) und Eintrag anwenden."""
     import datetime
@@ -645,18 +813,26 @@ def persist_operating_point(
     from ..operating_points import apply_operating_point, gpu_fingerprint
 
     entry = render_llamaswap_entry(spec)
+    meta_block: dict = {
+        "source": "AIfred vLLM auto-calibration",
+        "measured": datetime.date.today().isoformat(),
+        "architecture": meta.architecture,
+        "throughput_tok_s": round(tok_s, 1),
+        "k_sweep": {str(k): round(v, 1) for k, v in k_sweep.items()},
+        "k_sweep_metric": "long_context_decode_tok_s",
+        "topology": f"TP={spec.tp} PP={spec.pp} GPUs={spec.gpu_ids}",
+    }
+    if long_ctx and long_ctx.get("long_tokens"):
+        meta_block["long_context"] = {
+            "tokens": long_ctx["long_tokens"],
+            "prefill_tok_s": round(long_ctx["long_prefill"], 0),
+            "decode_tok_s": round(long_ctx["long_decode"], 1),
+        }
     profile = {
         "llamaswap": entry,
         "group": "main",
         "hardware": gpu_fingerprint(),
-        "meta": {
-            "source": "AIfred vLLM auto-calibration",
-            "measured": datetime.date.today().isoformat(),
-            "architecture": meta.architecture,
-            "throughput_tok_s": round(tok_s, 1),
-            "k_sweep": {str(k): round(v, 1) for k, v in k_sweep.items()},
-            "topology": f"TP={spec.tp} PP={spec.pp} GPUs={spec.gpu_ids}",
-        },
+        "meta": meta_block,
     }
     OPERATING_POINTS_DIR.mkdir(parents=True, exist_ok=True)
     path = OPERATING_POINTS_DIR / f"{spec.served_name}.yaml"
