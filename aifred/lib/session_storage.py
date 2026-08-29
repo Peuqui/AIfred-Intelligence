@@ -431,8 +431,8 @@ def load_session(session_id: str) -> Optional[Dict[str, Any]]:
     Load session for Session-ID.
 
     Note: Does NOT update last_seen timestamp (read-only operation).
-    last_seen is only updated when saving new content via save_session().
-    This keeps session list stable when just viewing sessions.
+    last_seen is written by save_session() when content is saved, and by
+    touch_session() when the user deliberately switches to a session.
 
     Args:
         session_id: Session identifier
@@ -502,10 +502,9 @@ def create_empty_session(session_id: str, owner: str, channel: str = "") -> bool
         session_id: Session identifier
         owner: Username who owns this session
         channel: Origin channel ("" = interactive browser session, otherwise
-                 a background channel like "scheduler"/"email"). Channel-driven
-                 sessions are excluded from the auto-load picks at login so the
-                 browser never adopts a session a background worker is still
-                 processing — see list_sessions(interactive_only=True).
+                 a background channel like "scheduler"/"email"). Purely
+                 descriptive: it records where a session came from and is
+                 reported by list_sessions().
 
     Returns:
         True on success, False on error
@@ -868,18 +867,12 @@ def get_latest_session_file() -> Optional[Path]:
 _session_meta_cache: Dict[str, tuple] = {}
 
 
-def list_sessions(
-    owner: Optional[str] = None, interactive_only: bool = False
-) -> List[Dict[str, Any]]:
+def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
     """
     List sessions with basic info, optionally filtered by owner.
 
     Args:
         owner: Username to filter by (case-insensitive). If None, returns empty list.
-        interactive_only: If True, skip channel-driven sessions (scheduler,
-                          email, …). Used by the login auto-load so the browser
-                          only ever adopts a genuine interactive session and
-                          never hijacks one a background worker is processing.
 
     Returns list of dicts with:
     - session_id: Session identifier
@@ -928,8 +921,6 @@ def list_sessions(
             # so one entry serves every logged-in user.
             if owner_lower and meta["owner"] != owner_lower:
                 continue
-            if interactive_only and meta["channel"]:
-                continue
 
             sessions.append(dict(meta))
         except (json.JSONDecodeError, IOError, OSError):
@@ -966,6 +957,30 @@ def update_session_title(session_id: str, title: str) -> bool:
             session["data"] = {}
 
         session["data"]["title"] = title
+        return save_session(session_id, session)
+
+
+def touch_session(session_id: str) -> bool:
+    """
+    Mark a session as active now (updates last_seen).
+
+    Called when the user switches to a session: opening a session counts as
+    activity, so it ranks as the most recent one on the next login auto-load
+    (see _load_latest_session()). load_session() itself stays read-only —
+    only this explicit call moves a session to the top.
+
+    Args:
+        session_id: Session identifier
+
+    Returns:
+        True on success, False if the session does not exist
+    """
+    with session_rmw_lock:
+        session = load_session(session_id)
+        if session is None:
+            return False
+
+        # save_session() stamps last_seen — no field handling needed here.
         return save_session(session_id, session)
 
 

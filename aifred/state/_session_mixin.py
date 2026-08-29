@@ -63,7 +63,7 @@ class SessionMixin(rx.State, mixin=True):
         Loads the target session and updates state.
         Note: No save here - sessions are auto-saved after each inference.
         """
-        from ..lib.session_storage import load_session
+        from ..lib.session_storage import load_session, touch_session
         from ..lib.logging_utils import log_message
 
         self.add_debug(f"switch_session called: {session_id[:8] if session_id else 'None'}...")  # type: ignore[attr-defined]
@@ -83,13 +83,8 @@ class SessionMixin(rx.State, mixin=True):
             self.add_debug(f"Session {session_id[:8]}... not found, switching to newest")  # type: ignore[attr-defined]
             # Session was deleted - switch to newest interactive session or
             # create new (channel sessions are not auto-adopted).
-            from ..lib.session_storage import list_sessions
             self.refresh_session_list()
-            interactive = list_sessions(owner=self.logged_in_user, interactive_only=True)  # type: ignore[attr-defined]
-            if interactive:
-                self._load_session_by_id(interactive[0]["session_id"])
-            else:
-                self.new_session()
+            self._load_latest_session()
             return
 
         # Owner check (IDOR guard): switch_session is a client-callable event
@@ -116,6 +111,12 @@ class SessionMixin(rx.State, mixin=True):
         # central path so active_agent, multi_agent_mode, symposion_agents,
         # research_mode and audio state are picked up correctly.
         self.session_id = session_id
+
+        # Opening a session is activity: stamp last_seen so the next login
+        # auto-load returns here (SSOT for "most recent" — see
+        # _load_latest_session()). Must happen BEFORE the mtime sync below,
+        # otherwise the tick-handler sees our own write as a foreign change.
+        touch_session(session_id)
 
         # Sync mtime tracker to the target session — otherwise the 500ms
         # tick-handler sees mtime > tracker (whenever the target file is
@@ -144,9 +145,11 @@ class SessionMixin(rx.State, mixin=True):
         self.current_user_message = ""  # type: ignore[attr-defined]
         self._set_current_agent("")  # type: ignore[attr-defined]
 
-        # Note: Don't refresh_session_list() here - it would re-sort by last_seen
-        # and move the clicked session to a different position. The highlighting
-        # is based on session_id which is already updated above.
+        # Note: Don't refresh_session_list() here - touch_session() just moved
+        # this session to the top by last_seen, and re-sorting now would pull
+        # the entry away from under the user's cursor. The list catches up on
+        # the next refresh; the highlighting is based on session_id, which is
+        # already updated above.
 
         log_message(f"Switched to session: {session_id[:8]}...")
         self.add_debug(f"Switched to session: {self.current_session_title or session_id[:8]}...")  # type: ignore[attr-defined]
@@ -190,6 +193,28 @@ class SessionMixin(rx.State, mixin=True):
             self.add_debug("Failed to delete session")  # type: ignore[attr-defined]
 
     # ── Session Load / Restore ───────────────────────────────────────
+
+    def _load_latest_session(self) -> bool:
+        """Load this account's most recently active session.
+
+        "Active" is what list_sessions() sorts by: last_seen, which is written
+        both when the user switches to a session and when a background worker
+        writes to one. Channel sessions (scheduler/vision/email) are included
+        on purpose — a fresh alert or mail is exactly what the user wants to
+        see after a restart.
+
+        Returns:
+            True if an existing session was loaded, False if a new one was created.
+        """
+        from ..lib.session_storage import list_sessions
+
+        sessions = list_sessions(owner=self.logged_in_user)  # type: ignore[attr-defined]
+        if not sessions:
+            self.new_session()
+            return False
+
+        self._load_session_by_id(sessions[0]["session_id"])
+        return True
 
     def _load_session_by_id(self, session_id: str):
         """Load a specific session by ID (internal helper)."""

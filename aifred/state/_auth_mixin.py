@@ -79,7 +79,7 @@ class AuthMixin(rx.State, mixin=True):
 
     def do_login(self):  # type: ignore[return]
         """Attempt to log in with entered credentials."""
-        from ..lib.session_storage import verify_account, account_exists, list_sessions
+        from ..lib.session_storage import verify_account, account_exists
 
         username = self.login_username.strip()
         password = self.login_password
@@ -101,15 +101,10 @@ class AuthMixin(rx.State, mixin=True):
         self.close_login_dialog()
         self.refresh_session_list()  # type: ignore[attr-defined]
 
-        # Load most recent *interactive* session or create new one. Channel
-        # sessions (scheduler/email) are skipped so the browser never adopts a
-        # background-worker session — see list_sessions(interactive_only).
-        sessions = list_sessions(owner=self.logged_in_user, interactive_only=True)
-        if sessions:
-            self._load_session_by_id(sessions[0]["session_id"])  # type: ignore[attr-defined]
+        # Load the most recently active session — see _load_latest_session().
+        if self._load_latest_session():  # type: ignore[attr-defined]
             self.add_debug(f"✅ Logged in as: {self.logged_in_user}")  # type: ignore[attr-defined]
         else:
-            self.new_session()  # type: ignore[attr-defined]
             self.add_debug(f"✅ Logged in as: {self.logged_in_user} (new)")  # type: ignore[attr-defined]
 
         return self._post_auth_script()
@@ -186,7 +181,7 @@ class AuthMixin(rx.State, mixin=True):
         self._session_initialized = True  # type: ignore[attr-defined]
 
         from ..lib.auth import verify_signed_username
-        from ..lib.session_storage import account_exists, list_sessions
+        from ..lib.session_storage import account_exists
 
         username = verify_signed_username(cookie_value) if cookie_value else None
         print(f"🔑 handle_username_loaded: verified username={username!r}")
@@ -197,15 +192,10 @@ class AuthMixin(rx.State, mixin=True):
             self.login_dialog_open = False
             self.refresh_session_list()  # type: ignore[attr-defined]
 
-            # Load most recent *interactive* session if available (channel
-            # sessions are skipped — see list_sessions(interactive_only)).
-            sessions = list_sessions(owner=self.logged_in_user, interactive_only=True)
-            if sessions:
-                most_recent = sessions[0]
-                self._load_session_by_id(most_recent["session_id"])  # type: ignore[attr-defined]
+            # Load the most recently active session — see _load_latest_session().
+            if self._load_latest_session():  # type: ignore[attr-defined]
                 self.add_debug(f"✅ Logged in as: {self.logged_in_user}")  # type: ignore[attr-defined]
             else:
-                self.new_session()  # type: ignore[attr-defined]
                 self.add_debug(f"✅ Logged in as: {self.logged_in_user} (new)")  # type: ignore[attr-defined]
 
             from ..lib.logging_utils import console_separator
