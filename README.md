@@ -2403,6 +2403,7 @@ More documentation in the `docs/` directory — full index: [docs/README.md](doc
 - [Deployment Guide](docs/en/guides/deployment.md) — fresh-install walkthrough, calibration matrix picker, vision + Vigilantia setup
 - [Calibration Strategy (SSOT)](docs/de/architecture/calibration-strategy.md) (German) — greedy cascade, burn-in, capacity guard, failure tracking
 - [Tensor Split Benchmark: Speed vs. Full Context](docs/en/benchmarks/tensor-split.md)
+- [vLLM Auto-Calibration Benchmark](docs/en/benchmarks/vllm-autocalibration.md) — automated topology search + MTP k-sweep on mixed Turing/Volta GPUs
 
 ---
 
