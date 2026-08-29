@@ -13,7 +13,9 @@ Fallback: vLLM-Kalibration setzt eine deklarierte Umgebung voraus.
 """
 
 import json
+import logging
 import os
+import re
 import signal
 import subprocess
 import time
@@ -25,9 +27,84 @@ from pathlib import Path
 import yaml
 
 from ..config import DATA_DIR
-from ..vllm_manager import parse_vllm_max_context_from_error
 
 VLLM_RUNTIME_PATH = DATA_DIR / "vllm_runtime.yaml"
+
+logger = logging.getLogger(__name__)
+
+
+# Nacktes CUDA-OOM (Signaturen im Boot-Log; Erkennung IMMER am vollen
+# Log — siehe Kommentar am Grenzwert-Parsing).
+OOM_SIGNATURES = (
+    "CUDA out of memory",
+    "OutOfMemoryError",
+    "No available memory for the cache blocks",
+)
+
+
+def parse_vllm_max_context_from_error(error_output: str) -> int | None:
+    """
+    Parse maximum possible context from vLLM error message.
+
+    vLLM error messages contain lines like:
+    "Please reduce the max_model_len or increase tensor_parallel_size.
+     You can calculate the maximum possible value for --max-model-len by..."
+     OR
+    "ValueError: ... only X.XX GiB available. You may increase it by ..."
+
+    But the most reliable pattern is looking for explicit token limits in errors.
+
+    Args:
+        error_output: vLLM stderr/stdout output containing error message
+
+    Returns:
+        Maximum context in tokens if found, None otherwise
+
+    Example error patterns:
+        - "... estimated maximum model length is 3296"
+        - "ValueError: ... Please use a smaller max_model_len (<=20784)"
+        - "... max sequence length must be at most 24156"
+        - "The model's max seq len (131072) is larger than the maximum number of tokens that can be stored in KV cache (20784)"
+    """
+    # Pattern 1: "estimated maximum model length is X" - MOST RELIABLE
+    # This is vLLM's direct recommendation from VRAM calculation
+    match = re.search(r'estimated\s+maximum\s+model\s+length\s+is\s+(\d+)', error_output, re.IGNORECASE)
+    if match:
+        tokens = int(match.group(1))
+        logger.info(f"Parsed max context from vLLM error (pattern 1 - estimated): {tokens:,} tokens")
+        return tokens
+
+    # Pattern 2: "max_model_len (<=X)" or "max_model_len (<= X)"
+    match = re.search(r'max_model_len\s*\(?\s*<=?\s*(\d+)\)?', error_output, re.IGNORECASE)
+    if match:
+        tokens = int(match.group(1))
+        logger.info(f"Parsed max context from vLLM error (pattern 2): {tokens:,} tokens")
+        return tokens
+
+    # Pattern 3: "max sequence length must be at most X"
+    match = re.search(r'max\s+sequence\s+length\s+must\s+be\s+at\s+most\s+(\d+)', error_output, re.IGNORECASE)
+    if match:
+        tokens = int(match.group(1))
+        logger.info(f"Parsed max context from vLLM error (pattern 3): {tokens:,} tokens")
+        return tokens
+
+    # Pattern 4: "derived max_model_len (max_position_embeddings=X" - calibration blocking
+    match = re.search(r'derived\s+max_model_len\s+\(max_position_embeddings=(\d+)', error_output, re.IGNORECASE)
+    if match:
+        tokens = int(match.group(1))
+        logger.info(f"Parsed max context from vLLM error (pattern 4 - native limit): {tokens:,} tokens")
+        return tokens
+
+    # Pattern 5: "KV cache (X)" - last resort
+    match = re.search(r'KV\s+cache\s+\((\d+)\)', error_output, re.IGNORECASE)
+    if match:
+        tokens = int(match.group(1))
+        logger.info(f"Parsed max context from vLLM error (pattern 5): {tokens:,} tokens")
+        return tokens
+
+    logger.warning("Could not parse max context from vLLM error output")
+    return None
+
 
 
 def load_vllm_runtime() -> dict:
@@ -129,10 +206,14 @@ class VllmSpec:
 class VllmBootError(Exception):
     """Boot gescheitert — mit geparster Ursache fuer die Suche."""
 
-    def __init__(self, reason: str, log_tail: str = "", parsed_max_len: int | None = None):
+    def __init__(self, reason: str, log_tail: str = "",
+                 parsed_max_len: int | None = None, oom: bool = False):
         super().__init__(reason)
         self.reason = reason
         self.log_tail = log_tail
+        # OOM ohne von vLLM genannte Grenze — am VOLLEN Log erkannt (die
+        # OOM-Zeile liegt vor den Folge-Tracebacks, ausserhalb des Tails).
+        self.oom = oom
         # Von vLLM selbst genannte Kontext-Obergrenze (falls in der
         # Fehlermeldung enthalten) — direktes Futter fuer die MML-Suche.
         self.parsed_max_len = parsed_max_len
@@ -284,6 +365,7 @@ def boot_vllm(
                 f"server died during boot (exit {proc.returncode})",
                 log_tail=full_log[-4000:],
                 parsed_max_len=parse_vllm_max_context_from_error(full_log),
+                oom=any(sig in full_log for sig in OOM_SIGNATURES),
             )
         try:
             with urllib.request.urlopen(f"{server.base_url}/health", timeout=3) as r:

@@ -536,38 +536,32 @@ class CalibrationMixin(rx.State, mixin=True):
         import time as _time
 
         async with self:
-            if self.backend_type not in ("ollama", "llamacpp"):  # type: ignore[attr-defined]
-                self.add_debug("⚠️ Calibration only for Ollama and llama.cpp")  # type: ignore[attr-defined]
+            if self.backend_type not in ("ollama", "llamacpp", "vllm"):  # type: ignore[attr-defined]
+                self.add_debug("⚠️ Calibration only for Ollama, llama.cpp and vLLM")  # type: ignore[attr-defined]
                 return
 
             if not self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
                 self.add_debug("⚠️ No model selected")  # type: ignore[attr-defined]
                 return
 
-            # vLLM-Modelle (erkennbar am Betriebspunkt-Profil): Kalibrieren
-            # heisst IMMER neu vermessen — genau wie bei llama.cpp. Das
-            # Profil ist nur Persistenzformat des Ergebnisses, niemals ein
-            # Grund zum Ueberspringen. Hier wird nur das ZIEL bestimmt
-            # (Checkpoint + Eintragsname); der Lauf selbst dispatcht unten
-            # im Impl auf die vLLM-Suche.
+            # Backend vLLM: Kalibrieren heisst IMMER neu vermessen — genau
+            # wie bei llama.cpp; das Betriebspunkt-Profil ist nur das
+            # Persistenzformat des Ergebnisses. Der Checkpoint-Pfad kommt
+            # aus dem llama-swap-Eintrag selbst (--model), damit auch
+            # frisch geseedete Eintraege ohne Profil kalibrierbar sind.
             global _vllm_cal_target
             _vllm_cal_target = None
-            from ..lib.operating_points import (
-                _checkpoint_path_from_cmd,
-                get_operating_point,
-            )
-            _op_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
-            try:
-                _op_profile = get_operating_point(_op_model_id)
-            except ValueError as op_err:
-                self.add_debug(f"❌ Operating point invalid: {op_err}")  # type: ignore[attr-defined]
-                return
-            if _op_profile is not None:
-                _op_ckpt = _checkpoint_path_from_cmd(_op_profile["llamaswap"]["cmd"])
+            if self.backend_type == "vllm":  # type: ignore[attr-defined]
+                from pathlib import Path as _Path
+                from ..lib.calibration.llamaswap_io import parse_llamaswap_config
+                from ..lib.config import LLAMASWAP_CONFIG_PATH
+                _op_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
+                _entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(_op_model_id)
+                _op_ckpt = _Path(_entry["gguf_path"]) if _entry else None
                 if _op_ckpt is None or not _op_ckpt.exists():
                     self.add_debug(  # type: ignore[attr-defined]
                         f"❌ vLLM checkpoint missing for {_op_model_id} — "
-                        f"cannot re-calibrate ({_op_ckpt})"
+                        f"cannot calibrate ({_op_ckpt})"
                     )
                     return
                 _vllm_cal_target = (_op_ckpt, str(_op_model_id))
@@ -716,10 +710,32 @@ class CalibrationMixin(rx.State, mixin=True):
             while not progress_q.empty():
                 self._cal_debug(progress_q.get_nowait())
             result = task.result()
-            self._cal_debug(
-                f"✅ vLLM calibration done: {result.throughput_tok_s:.1f} tok/s "
-                f"(k-sweep {result.k_sweep}) — profile: {result.profile_path}"
+            # Abschluss-Optik wie beim llamacpp-Lauf (Doppelstrich +
+            # Zusammenfassung + Trennstrich), Zahlen via format_number-SSOT.
+            from ..lib.formatting import format_number
+            from ..lib.logging_utils import CONSOLE_SEPARATOR
+            sweep = ", ".join(
+                f"k={k}: {format_number(v, 1)}"
+                for k, v in sorted(result.k_sweep.items())
             )
+            self._cal_debug("═" * 20)
+            self._cal_debug(
+                f"✅ vLLM calibration complete for {entry_name}:"
+            )
+            self._cal_debug(
+                f"   {format_number(result.throughput_tok_s, 1)} tok/s "
+                f"(TP{result.spec.tp}×PP{result.spec.pp}, k={result.spec.k}, "
+                f"ctx {format_number(result.spec.mml)})"
+            )
+            self._cal_debug(f"   k-sweep: {sweep}")
+            if result.speed_label:
+                self._cal_debug(
+                    f"   Speed candidate: {result.speed_label} k={result.speed_k}, "
+                    f"{format_number(result.speed_tps, 1)} tok/s "
+                    f"(ctx {format_number(result.speed_mml)}, info only)"
+                )
+            self._cal_debug(f"   Profile: {result.profile_path}")
+            self._cal_debug(CONSOLE_SEPARATOR)
         except Exception as e:  # noqa: BLE001 — Background-Lauf: Fehler
             # muessen als Meldung ankommen, nicht still verschwinden
             self._cal_debug(f"❌ vLLM calibration failed: {type(e).__name__}: {e}")
@@ -3273,49 +3289,9 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug("⚠️ Ollama API might not be ready yet (timeout after 5s)")  # type: ignore[attr-defined]
                     yield
 
-            elif self.backend_type == "vllm":  # type: ignore[attr-defined]
-                # vLLM: Stop and restart with current model
-                self.add_debug("⏹️ Stopping vLLM server...")  # type: ignore[attr-defined]
-                yield  # Update UI
-                await self._stop_vllm_server()  # type: ignore[attr-defined]
-
-                self.add_debug("🚀 Starting vLLM server...")  # type: ignore[attr-defined]
-                yield  # Update UI
-                await self._start_vllm_server()  # type: ignore[attr-defined]
-
-                # Verify vLLM is ready
-                self.add_debug("⏳ Waiting for vLLM API to be ready...")  # type: ignore[attr-defined]
-                yield
-
-                max_retries = 10
-                vllm_ready = False
-
-                for attempt in range(max_retries):
-                    try:
-                        # vLLM health check endpoint
-                        response = httpx.get(
-                            f"{self.backend_url}/health",  # type: ignore[attr-defined]
-                            timeout=2.0
-                        )
-
-                        if response.status_code == 200:
-                            elapsed_time = (attempt + 1) * 0.5
-                            self.add_debug(f"✅ vLLM ready after {elapsed_time:.1f}s")  # type: ignore[attr-defined]
-                            vllm_ready = True
-                            break
-                    except httpx.RequestError:
-                        pass  # Retry on connection error
-
-                    if attempt < max_retries - 1:
-                        await asyncio.sleep(0.5)
-                        yield
-
-                if not vllm_ready:
-                    self.add_debug("⚠️ vLLM might not be ready yet (timeout after 5s)")  # type: ignore[attr-defined]
-
-                yield  # Update UI
-            elif self.backend_type == "llamacpp":  # type: ignore[attr-defined]
-                # llama-swap: restart via systemctl (system service)
+            elif self.backend_type in ("llamacpp", "vllm"):  # type: ignore[attr-defined]
+                # llama-swap: restart via systemctl (system service) —
+                # traegt auch die vLLM-Eintraege (gleiche Sicht, gleicher Dienst)
                 from ..lib.process_utils import restart_llama_swap
                 if restart_llama_swap():
                     self.add_debug("✅ llama-swap restarted (autoscan running...)")  # type: ignore[attr-defined]
