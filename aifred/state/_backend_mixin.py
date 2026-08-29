@@ -6,6 +6,8 @@ vLLM, Cloud APIs), model loading, vision detection, and on_load.
 
 from __future__ import annotations
 
+from ..lib.config import LLAMASWAP_BACKENDS
+
 import os
 import subprocess
 import uuid
@@ -249,7 +251,7 @@ class BackendMixin(rx.State, mixin=True):
             set_agent_setting(self, agent, "max_context", params["max_context"])
             set_agent_setting(self, agent, "is_hybrid", params["is_hybrid"])
             set_agent_setting(self, agent, "supports_thinking", params["supports_thinking"])
-        elif backend in ("llamacpp", "vllm"):
+        elif backend in LLAMASWAP_BACKENDS:
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
                 get_thinking_support_for_model,
@@ -262,7 +264,11 @@ class BackendMixin(rx.State, mixin=True):
                 set_agent_setting(self, agent, "rope_factor", 1.0)
                 set_agent_setting(self, agent, "is_hybrid", False)
                 set_agent_setting(self, agent, "supports_thinking", get_thinking_support_for_model(model_id))
-                set_agent_setting(self, agent, "has_speed_variant", False)
+                from ..lib.calibration import model_has_speed_variant
+                set_agent_setting(
+                    self, agent, "has_speed_variant",
+                    model_has_speed_variant(model_id),
+                )
                 set_agent_setting(self, agent, "max_context", get_vllm_entry_context(model_id))
                 return
             set_agent_setting(self, agent, "rope_factor", 1.0)
@@ -296,7 +302,7 @@ class BackendMixin(rx.State, mixin=True):
             return
 
         for agent, tuning in self.agent_tuning.items():
-            if agent == "vision" and backend not in ("llamacpp", "vllm"):
+            if agent == "vision" and backend not in LLAMASWAP_BACKENDS:
                 continue
             self._load_agent_model_params(agent, tuning.model_id)
 
@@ -869,7 +875,7 @@ class BackendMixin(rx.State, mixin=True):
             # Load models using centralized discovery module
             from ..lib.model_discovery import discover_models
             try:
-                if self.backend_type in ("llamacpp", "vllm"):
+                if self.backend_type in LLAMASWAP_BACKENDS:
                     # Beide Backends sind Sichten auf denselben llama-swap-
                     # Katalog: llamacpp zeigt die GGUF-Eintraege, vllm die
                     # "-vllm"-Eintraege (vLLM-Checkpoints als llama-swap-
@@ -1278,10 +1284,10 @@ class BackendMixin(rx.State, mixin=True):
             except (RuntimeError, AttributeError) as e:
                 self.add_debug(f"⚠️ Error unloading Ollama models: {e}")  # type: ignore[attr-defined, has-type]
 
-        elif old_backend in ("llamacpp", "vllm"):
+        elif old_backend in LLAMASWAP_BACKENDS:
             # Beide sind Sichten auf denselben llama-swap — beim Wechsel
             # innerhalb der Familie laeuft der Dienst einfach weiter.
-            if new_backend in ("llamacpp", "vllm"):
+            if new_backend in LLAMASWAP_BACKENDS:
                 self.add_debug("ℹ️ llama-swap keeps running (same service)")  # type: ignore[attr-defined, has-type]
                 return
             self.add_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined, has-type]
@@ -1504,7 +1510,7 @@ class BackendMixin(rx.State, mixin=True):
                 self._load_agent_reasoning_levels(  # type: ignore[attr-defined]
                     _aid, get_agent_setting(self, _aid, "model_id")
                 )
-        if self.backend_type == "llamacpp" and not self.agent_tuning["aifred"].has_speed_variant:
+        if self.backend_type in LLAMASWAP_BACKENDS and not self.agent_tuning["aifred"].has_speed_variant:
             self.agent_tuning["aifred"].speed_mode = False  # type: ignore[attr-defined, has-type]
 
         self._show_model_calibration_info(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]

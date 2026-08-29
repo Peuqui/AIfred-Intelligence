@@ -30,6 +30,8 @@ Public API:
 
 from __future__ import annotations
 
+from .config import LLAMASWAP_BACKENDS
+
 import logging
 import re
 
@@ -324,7 +326,7 @@ def maybe_route_to_ollama(
     """
     if backend_type not in _ROUTABLE_BACKENDS:
         return backend_url, backend_type, vision_model, False
-    if backend_type in ("llamacpp", "vllm"):
+    if backend_type in LLAMASWAP_BACKENDS:
         # Beide Backends laufen ueber llama-swap — das -visiond-Profil
         # (vision-Gruppe, parallel ladbar) ist auch unter vLLM der
         # bevorzugte Pfad; der Ollama-Side-Channel bleibt Fallback.

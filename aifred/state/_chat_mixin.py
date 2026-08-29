@@ -6,6 +6,8 @@ and chat clearing.
 
 from __future__ import annotations
 
+from ..lib.config import LLAMASWAP_BACKENDS
+
 import asyncio
 import json
 import re
@@ -1059,7 +1061,7 @@ class ChatMixin(rx.State, mixin=True):
                 _eff_vl, _vl_bucket = self._vl_choice()  # type: ignore[attr-defined]
 
                 # Cold start warning (llama-swap: llamacpp + vllm)
-                if self.backend_type in ("llamacpp", "vllm"):  # type: ignore[attr-defined]
+                if self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
                     try:
                         running = await self._llamaswap_running_models()
                         if _eff_vl not in running:
@@ -1217,7 +1219,7 @@ class ChatMixin(rx.State, mixin=True):
             # llama-swap loads models on-demand — first request triggers cold start.
             # Check /running BEFORE the first LLM call so the user knows why it's slow.
             # ============================================================
-            if self.backend_type in ("llamacpp", "vllm"):  # type: ignore[attr-defined]
+            if self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
                 try:
                     running_models = await self._llamaswap_running_models()
                     if effective_auto not in running_models:

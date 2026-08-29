@@ -27,6 +27,23 @@ class vLLMBackend(OpenAICompatibleBackend):
     def __init__(self, base_url: str = "http://localhost:11435/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
 
+    def _build_extra_body(self, options) -> Dict:
+        """Wie die Basisklasse, aber ohne ``min_p``.
+
+        vLLM lehnt ``min_p`` (und ``logit_bias``) bei aktivem Speculative
+        Decoding hart ab ("not yet supported with speculative decoding",
+        Fehler kommt als Text IM Stream → Client wartet endlos). Unsere
+        Betriebspunkte fahren MTP gerade wegen des Tempos — min_p wird
+        deshalb nicht gesendet und das einmal sichtbar geloggt.
+        """
+        extra_body = super()._build_extra_body(options)
+        if extra_body.pop("min_p", None) is not None:
+            logger.info(
+                "min_p not sent to vLLM: unsupported with speculative "
+                "decoding (MTP operating point)"
+            )
+        return extra_body
+
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """Context limit and weight size of a ``-vllm`` llama-swap entry.
 
