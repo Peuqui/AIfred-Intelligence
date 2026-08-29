@@ -52,8 +52,8 @@ class TestPickVlmGpu:
         assert pick_vlm_gpu(gpus) == 1
 
     def test_three_top_class_vlm_on_third(self):
-        """3× gleiche Klasse: LLM behält die erste, TTS die zweite, VLM
-        die dritte — Side-Channels verteilt."""
+        """3× gleiche Klasse: LLM behält die erste, die Side-Channels
+        teilen sich die dritte (Sammelkarte), die zweite bleibt frei."""
         gpus = [_rtx8000(0), _rtx8000(1), _rtx8000(2)]
         assert pick_vlm_gpu(gpus) == 2
 
@@ -96,17 +96,19 @@ class TestPickTtsGpu:
         gpus = [_rtx8000(0), _p40(1), _rtx8000(2), _v100(3), _p40(4)]
         assert pick_tts_gpu(gpus) == 3  # V100
 
-    def test_two_v100_tier_splits_tts_and_vlm(self):
-        """The motivating case: a second V100 lets TTS and VLM diverge —
-        TTS on V100 #1, VLM on V100 #2, no contention."""
+    def test_two_v100_tier_shares_one_card(self):
+        """Sammelkarte (2026-08-29): TTS und VLM teilen sich die zweite
+        Tier-Karte — die erste bleibt für Backend-Topologien frei
+        (z.B. TP2×PP2 bei der vLLM-Kalibration)."""
         gpus = [_rtx8000(0), _rtx8000(1), _v100(2), _v100(3), _p40(4)]
-        assert pick_tts_gpu(gpus) == 2  # V100 #1
-        assert pick_vlm_gpu(gpus) == 3  # V100 #2
+        assert pick_tts_gpu(gpus) == 3  # gemeinsame Sammelkarte
+        assert pick_vlm_gpu(gpus) == 3  # dieselbe Karte
 
-    def test_three_top_class_tts_on_second(self):
-        """3× same class: TTS on second, VLM on third."""
+    def test_three_top_class_shared_on_third(self):
+        """3× same class: LLM keeps the first, side channels share the
+        third — the second stays free for the backend."""
         gpus = [_rtx8000(0), _rtx8000(1), _rtx8000(2)]
-        assert pick_tts_gpu(gpus) == 1
+        assert pick_tts_gpu(gpus) == 2
         assert pick_vlm_gpu(gpus) == 2
 
     def test_single_gpu_tts_on_it(self):
@@ -127,10 +129,10 @@ class TestComputeFloor:
 
     def test_p40_only_soft_fallback(self):
         """All-P40 host: floor finds nothing ≥ 7.0, so it falls back —
-        LLM keeps the first P40, side-channels take the rest."""
+        LLM keeps the first P40, side channels share the third."""
         gpus = [_p40(0), _p40(1), _p40(2)]
-        assert pick_tts_gpu(gpus) == 1  # P40 #2
-        assert pick_vlm_gpu(gpus) == 2  # P40 #3
+        assert pick_tts_gpu(gpus) == 2  # gemeinsame Sammelkarte
+        assert pick_vlm_gpu(gpus) == 2  # dieselbe Karte
 
     def test_rtx_plus_p40_soft_fallback_to_p40(self):
         """Top tier is the only Volta+ card → side-channels fall back to
