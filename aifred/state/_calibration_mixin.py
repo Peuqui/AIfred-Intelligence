@@ -6,6 +6,8 @@ including backend restart and vLLM restart.
 
 from __future__ import annotations
 
+from ..lib.config import LLAMASWAP_BACKENDS
+
 import asyncio
 import re
 from collections.abc import AsyncGenerator
@@ -3289,7 +3291,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug("⚠️ Ollama API might not be ready yet (timeout after 5s)")  # type: ignore[attr-defined]
                     yield
 
-            elif self.backend_type in ("llamacpp", "vllm"):  # type: ignore[attr-defined]
+            elif self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
                 # llama-swap: restart via systemctl (system service) —
                 # traegt auch die vLLM-Eintraege (gleiche Sicht, gleicher Dienst)
                 from ..lib.process_utils import restart_llama_swap

@@ -566,8 +566,9 @@ def calibrate_vllm_checkpoint(
 
     sc_spec = None
     sc_tps, sc_k = 0.0, 0
+    sc_sweep: dict[int, float] = {}
     if speed_candidate is not None:
-        sc_spec, sc_tps, sc_k, _ = _sweep_k(
+        sc_spec, sc_tps, sc_k, sc_sweep = _sweep_k(
             speed_candidate, meta, gpus, smi, runtime, log_dir,
             progress, cancel_check, allow_ctx_reduction=True)
         progress(
@@ -586,6 +587,20 @@ def calibrate_vllm_checkpoint(
     # --- Phase F: Persistierung -----------------------------------------
     profile_path = persist_operating_point(best_spec, best_tps, best_sweep, meta)
     progress(f"💾 Operating point saved: {profile_path}")
+
+    # Speed-Variante nur persistieren, wenn sie den Betriebspunkt schlaegt —
+    # ein "-speed"-Eintrag, der langsamer ist, waere sinnlos. Der Eintrag
+    # heisst <entry>-speed (GGUF-Konvention) und wird vom Speed-Toggle
+    # ueber has_speed_variant/resolve_effective_suffix gefunden.
+    if sc_spec is not None and sc_tps > best_tps:
+        speed_spec = VllmSpec(
+            **{**sc_spec.__dict__, "served_name": f"{entry_name}-speed"},
+        )
+        speed_path = persist_operating_point(speed_spec, sc_tps, sc_sweep, meta)
+        progress(
+            f"💾 Speed variant saved: {speed_path} "
+            f"({format_number(sc_tps, 1)} tok/s, ctx {format_number(speed_spec.mml)})"
+        )
 
     # Verwendete GPUs im Log dokumentieren (UUID-Rueckverfolgbarkeit)
     used = [uuid_by_smi.get(i, str(i)) for i in best_spec.gpu_ids]

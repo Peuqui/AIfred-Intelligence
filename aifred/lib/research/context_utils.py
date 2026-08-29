@@ -5,6 +5,8 @@ This module eliminates code duplication between context_builder.py and cache_han
 by providing common utility functions for context budget calculation.
 """
 
+
+from ..config import LLAMASWAP_BACKENDS
 from typing import Tuple, TYPE_CHECKING
 
 from ..context_manager import get_max_available_context, calculate_adaptive_reserve
@@ -51,8 +53,10 @@ def get_model_native_context(model_id: str, backend_type: str) -> int:
     if _current_native_model == model_id and _current_native_context > 0:
         return _current_native_context
 
-    # Fallback: read from config (only if variable not set yet)
-    if backend_type == "llamacpp":
+    # Fallback: read from config (only if variable not set yet).
+    # vLLM-Eintraege stehen im selben llama-swap-Katalog (current_context
+    # aus --max-model-len).
+    if backend_type in LLAMASWAP_BACKENDS:
         from ..calibration import parse_llamaswap_config
         from ..config import LLAMASWAP_CONFIG_PATH
 
@@ -134,7 +138,7 @@ def get_agent_num_ctx(
     # Auto mode: try VRAM calibration cache (backend-aware)
     backend_type = getattr(state, 'backend_type', 'ollama')
 
-    if backend_type == "llamacpp":
+    if backend_type in LLAMASWAP_BACKENDS:
         # llama.cpp: YAML -c value = ground truth (actual server config).
         # When a GPU TTS engine is selected, llama-swap will actually load
         # the smaller `<model>-tts-<engine>` profile — so the context we
@@ -168,15 +172,6 @@ def get_agent_num_ctx(
                 source += f" ({suffix.lstrip('-')})"
         else:
             log_message(f"⚠️ Model {effective_id} not found in llama-swap YAML → fallback {fallback}")
-            num_ctx = fallback
-            source = "fallback"
-    elif backend_type == "vllm":
-        # vLLM: context is fixed at server startup (--max-model-len)
-        vllm_ctx = getattr(state, 'vllm_max_tokens', 0)
-        if vllm_ctx > 0:
-            num_ctx = vllm_ctx
-            source = "vLLM startup"
-        else:
             num_ctx = fallback
             source = "fallback"
     elif backend_type == "cloud_api":

@@ -4,6 +4,8 @@ Reflex State Management for AIfred Intelligence
 Main state for chat, settings, and backend management
 """
 
+
+from ..lib.config import LLAMASWAP_BACKENDS
 import re
 import reflex as rx
 from typing import List, Any, Dict, TypedDict
@@ -610,7 +612,7 @@ class AIState(  # type: ignore[misc]
         fits. The LLM reloads automatically on the next chat request."""
         from ..backends.ollama import wait_for_vram_stable
 
-        if self.backend_type in ("llamacpp", "vllm"):
+        if self.backend_type in LLAMASWAP_BACKENDS:
             # llama-swap: POST /unload stops all running instances (incl. vLLM)
             import requests
             from ..lib.config import BACKEND_URLS

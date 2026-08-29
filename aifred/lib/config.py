@@ -249,6 +249,13 @@ LLAMACPP_HYBRID_HEALTH_TIMEOUT = 900   # Hybrid mode: CPU offload + mlock — ex
 LLAMACPP_HEALTH_TIMEOUT_PER_GB = 6     # Seconds per GB model size (added to floor logic)
 LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
 
+# llama-swap-Familie (SSOT): Backends, deren Modelle als llama-swap-
+# Eintraege laufen — gemeinsamer Dienst, gemeinsamer Katalog, gemeinsame
+# Kontext-/Cold-Start-/Unload-Semantik. Familien-Gates pruefen NUR gegen
+# diese Konstante (nie gegen Literale) — die vLLM-Einfuehrung 2026-08-29
+# musste sieben verstreute "llamacpp"-Literale einzeln jagen.
+LLAMASWAP_BACKENDS = ("llamacpp", "vllm")
+
 BACKEND_URLS = {
     "ollama": DEFAULT_OLLAMA_URL,
     "vllm": DEFAULT_VLLM_URL,      # = llama-swap (vLLM-Eintraege im selben Katalog)

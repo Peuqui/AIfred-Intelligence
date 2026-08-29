@@ -201,7 +201,9 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
         result[model_id] = {
             "gguf_path": _flag_value("--model"),
             "llama_server_bin": llama_server_bin,
-            "current_context": _int_flag("-c", 0),
+            # -c = llama-server; vLLM-Eintraege tragen --max-model-len —
+            # beide sind dieselbe Wahrheit "konfigurierter Kontext".
+            "current_context": _int_flag("-c", 0) or _int_flag("--max-model-len", 0),
             "ngl": _int_flag("-ngl", 99),
             "kv_cache_quant": _flag_value("-ctk"),
             "reasoning_format": _flag_value("--reasoning-format"),

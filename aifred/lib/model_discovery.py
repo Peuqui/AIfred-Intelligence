@@ -10,6 +10,8 @@ Provides functions to discover available models from different backends:
 Returns Dict[model_id, display_label] for UI dropdown population.
 """
 
+
+from .config import LLAMASWAP_BACKENDS
 import json
 from pathlib import Path
 from typing import Dict, Optional
@@ -196,7 +198,7 @@ def discover_models(
             raise ValueError("backend_url required for Ollama")
         unsorted = discover_ollama_models(backend_url)
 
-    elif backend_type in ("llamacpp", "vllm"):
+    elif backend_type in LLAMASWAP_BACKENDS:
         if not backend_url:
             raise ValueError("backend_url required for llama-swap discovery")
         unsorted = discover_llamaswap_models(

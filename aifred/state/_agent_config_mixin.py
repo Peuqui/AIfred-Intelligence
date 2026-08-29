@@ -10,6 +10,8 @@ per agent id) — access via the ``agent_settings`` helpers.
 
 from __future__ import annotations
 
+from ..lib.config import LLAMASWAP_BACKENDS
+
 from typing import ClassVar, List
 
 import reflex as rx
@@ -194,7 +196,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.agent_settings import get_agent_setting, set_agent_setting
         levels: list[str] = []
         default = ""
-        if model_id and self.backend_type in ("llamacpp", "vllm"):  # type: ignore[attr-defined]
+        if model_id and self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
             from ..lib.gguf_utils import resolve_reasoning_levels
             from ..lib.model_vram_cache import get_reasoning_default_for_model
             levels = resolve_reasoning_levels(model_id)
@@ -347,6 +349,31 @@ class AgentConfigMixin(rx.State, mixin=True):
                         "repeat_penalty": yaml_sampling.get("repeat_penalty", LLAMASERVER_DEFAULT_REPEAT_PENALTY),
                     }
 
+        elif self.backend_type == "vllm":  # type: ignore[attr-defined]
+            # Modell-Defaults aus der generation_config.json des Checkpoints —
+            # das vLLM-Pendant zu den GGUF-Sampling-Flags im llama-swap-cmd.
+            from ..lib.agent_settings import get_agent_base_model_id
+            model_id = get_agent_base_model_id(self, agent)
+            if model_id:
+                import json
+                from pathlib import Path
+                from ..lib.calibration import parse_llamaswap_config
+                from ..lib.config import LLAMASWAP_CONFIG_PATH
+                try:
+                    entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(model_id)
+                    gen_cfg = Path(entry["gguf_path"]) / "generation_config.json" if entry else None
+                    if gen_cfg is not None and gen_cfg.exists():
+                        data = json.loads(gen_cfg.read_text())
+                        for src_key, dst_key in (
+                            ("temperature", "temperature"), ("top_k", "top_k"),
+                            ("top_p", "top_p"), ("min_p", "min_p"),
+                            ("repetition_penalty", "repeat_penalty"),
+                        ):
+                            if src_key in data:
+                                defaults[dst_key] = data[src_key]
+                except (OSError, ValueError, KeyError) as e:
+                    self.add_debug(f"⚠️ generation_config.json unreadable for {model_id}: {e}")  # type: ignore[attr-defined]
+
         if include_temperature:
             set_agent_setting(self, agent, "temperature", defaults["temperature"])
         set_agent_setting(self, agent, "top_k", int(defaults["top_k"]))
@@ -402,7 +429,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         """
         from ..lib.agent_settings import get_agent_setting
         base_id: str = get_agent_setting(self, agent, "model_id")
-        if not base_id or self.backend_type != "llamacpp":  # type: ignore[attr-defined]
+        if not base_id or self.backend_type not in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
             return base_id
 
         from ..lib.calibration import resolve_effective_suffix
