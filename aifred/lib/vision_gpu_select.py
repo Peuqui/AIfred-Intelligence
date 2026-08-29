@@ -4,11 +4,20 @@ Designentscheidung: Die schnellste Compute-Klasse bleibt komplett frei
 für den Haupt-Chat-LLM (typisch via llama-swap). Die Side-Channels
 (VLM + TTS) leben auf dem **Side-Channel-Tier** — der Klasse darunter.
 
-**TTS und VLM werden getrennt platziert**, sobald der Tier mehr als
-eine Karte hat: TTS auf die erste, VLM auf die zweite. Damit gibt es
-keine VRAM-Konkurrenz mehr zwischen TTS-Container und VLM auf einer
-Karte (vorher konnte z.B. Fish-TTS + Vigilantia-8B nicht koexistieren).
-Hat der Tier nur eine Karte, teilen sich beide sie wie bisher.
+**TTS und VLM teilen sich EINE Sammelkarte** (Entscheidung 2026-08-29):
+beide Side-Channels landen auf derselben Tier-Karte, damit alle übrigen
+Karten für Backend-Topologien frei bleiben (z.B. TP2×PP2 über vier
+Karten bei der vLLM-Kalibration). Der Preis: sehr große TTS-Engines
+(Fish, MOSS) passen nicht mehr gleichzeitig mit dem VLM auf eine Karte —
+das fängt der Kombi-Kapazitäts-Guard der Kalibration ab (Profil wird
+abgelehnt statt kaputt geschrieben).
+
+Als Sammelkarte dient die **zweite** Tier-Karte (Fallback: die erste,
+wenn der Tier nur eine hat). Das ist bewusst die Karte, auf der das VLM
+schon immer lag: dessen Pin steckt in extern verwalteten Configs
+(ollama-vlm.service, ``-visiond``-Einträge der llama-swap-Config), die
+nicht automatisch umgeschrieben werden — TTS liest seine UUID dagegen
+bei jedem Container-Start neu und kann verlustfrei umziehen.
 
 **Compute-Floor (weich):** Side-Channels bevorzugen Karten mit Compute
 ≥ 7.0 (Volta+). Eine P40 (Pascal, cc 6.1) ist beim VLM-Prefill 3–4×
@@ -30,7 +39,7 @@ Side-Channel-Tier-Kaskade:
 
 Bei 2× RTX 8000 (cc 7.5) + 1× V100 (cc 7.0) + 2× P40 (cc 6.1): TTS und
 VLM beide auf die V100 (nur eine im Tier, P40 per Floor raus). Käme eine
-zweite V100 dazu: TTS auf V100 #1, VLM auf V100 #2.
+zweite V100 dazu: beide auf V100 #2, V100 #1 bleibt fürs Backend frei.
 
 Hardware-agnostisch: Welche Karte das konkret ist, hängt von der
 aktuellen Bestückung ab. Es wird **nicht** „immer V100" hartkodiert.
@@ -131,11 +140,11 @@ def _side_channel_tier(gpus: Sequence[GpuInfo]) -> list[GpuInfo]:
     """Ordered list of side-channel host GPUs (best first).
 
     The chat LLM owns the fastest compute class; side-channels (VLM +
-    TTS) take the class below it. ``pick_tts_gpu`` claims the first card
-    of this tier, ``pick_vlm_gpu`` the second (or the first if the tier
-    has only one card). The soft compute floor keeps Pascal cards out
-    unless they are the only option. See module docstring for the full
-    cascade.
+    TTS) take the class below it. ``pick_side_channel_gpu`` claims the
+    second card of this tier as shared Sammelkarte (or the first if the
+    tier has only one card). The soft compute floor keeps Pascal cards
+    out unless they are the only option. See module docstring for the
+    full cascade.
 
     Assumes a non-empty ``gpus``.
     """
@@ -160,24 +169,10 @@ def _side_channel_tier(gpus: Sequence[GpuInfo]) -> list[GpuInfo]:
     return candidates
 
 
-def pick_tts_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
-    """Choose a GPU index for TTS containers: **first card of the
-    side-channel tier**.
-
-    Returns the PCI_BUS_ID index. Raises ``RuntimeError`` if no GPU is
-    available.
-    """
-    if gpus is None:
-        gpus = list_gpus()
-    if not gpus:
-        raise RuntimeError("no CUDA GPU available")
-    return _side_channel_tier(gpus)[0].index
-
-
-def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
-    """Choose a GPU index for the VLM (Ollama): **second card of the
-    side-channel tier**, falling back to the first card when the tier
-    has only one card (then VLM co-locates with TTS, as before).
+def pick_side_channel_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
+    """Choose the shared side-channel GPU (Sammelkarte) for TTS **und** VLM:
+    second card of the side-channel tier, falling back to the first when
+    the tier has only one card.
 
     Returns the PCI_BUS_ID index. Raises ``RuntimeError`` if no GPU is
     available.
@@ -188,6 +183,16 @@ def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
         raise RuntimeError("no CUDA GPU available")
     tier = _side_channel_tier(gpus)
     return tier[1].index if len(tier) > 1 else tier[0].index
+
+
+def pick_tts_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
+    """GPU index for TTS containers: die gemeinsame Sammelkarte."""
+    return pick_side_channel_gpu(gpus)
+
+
+def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
+    """GPU index for the VLM: die gemeinsame Sammelkarte."""
+    return pick_side_channel_gpu(gpus)
 
 
 def ollama_override_text(gpu_id: int) -> str:
