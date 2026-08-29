@@ -2300,6 +2300,7 @@ Weitere Dokumentation im `docs/` Verzeichnis — vollständiger Index: [docs/REA
 - [llama.cpp + llama-swap Setup Guide](docs/en/guides/llamacpp-setup.md)
 - [Deployment Guide](docs/de/guides/deployment.md)
 - [Tensor Split Benchmark: Speed vs. Full Context](docs/en/benchmarks/tensor-split.md)
+- [vLLM-Autokalibrations-Benchmark](docs/de/benchmarks/vllm-autokalibration.md) — automatische Topologie-Suche + MTP-k-Sweep auf gemischten Turing/Volta-GPUs
 
 ---
 
