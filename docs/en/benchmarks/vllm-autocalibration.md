@@ -271,6 +271,28 @@ the overall pattern: end to end neutral there too (863/33.1 vs.
 on either architecture — the NVFP4/QPN8 GEMMs pace every stage. The
 tile gains are an investment in long contexts and D=256.
 
+### QSA (Flash-Next base model): the third attention path
+
+The sparse-attention kernel of the 180B hybrid (Triton, source comment
+"Tuned on GB300") ran Blackwell profiles on pre-Ampere. Important fork
+quirk: sm70/75 uses the `amd/` module branch (pure Triton) — the
+`nvidia/` twin file is dead there. Microbench on the 2048-token prefill
+chunk (production geometry H12/KV1/D256, TOPK 2048):
+
+| Card | GB300 profile | best pre-Ampere profile | factor |
+|---|---:|---:|---:|
+| V100 (96 KB smem) | 527 ms (N64/S1/W2) | **27.3 ms** (N16/S1/W4) | **19.3** |
+| RTX 8000 (64 KB) | 199.7 ms (clamped N32/W2) | **47.9 ms** (N16/S4/W4) | **4.2** |
+
+Two warps cannot hide the emulated-bf16 latency on these cards; the
+narrow 4-warp tile also needs zero split workspace. Decode/verify
+branches were already optimal. End to end on Flash-Next: prefill
+392–448 → **1,482–1,696 tok/s**, coherence 3/3 — but long-context
+acceptance drops deterministically from 19.0 to 13.3 % (tile numerics
+shift the already fragile drafter), long decode 26–29 → 22.5–25.6. Net,
+a complete long-context turn wins clearly; the k choice goes back to
+calibration.
+
 ## Flash-Next mini-sweep (evening of 2026-08-30)
 
 Instead of an hours-long calibration: a targeted k-sweep at the
@@ -311,18 +333,98 @@ Side note: k=0 reproducibly shows coherence 2/3 (3/3 with
 speculation) — kernel-path numerics flip a tie-break at temperature 0;
 production runs with speculation.
 
+## Conclusion: net balance (as of the night of 2026-08-30)
+
+What the campaign extracted from the same cards — no new hardware,
+kernel and configuration work only:
+
+**Qwen3.8-27B (production model, grid TP2×PP2, 262k context):**
+
+| Metric | before the campaign (Triton era) | today | factor |
+|---|---:|---:|---:|
+| Long decode 31k (best k) | ~16 tok/s (k=0; speculation lost) | 36.9 | **×2.3** |
+| Long prefill | 194 tok/s | 864 | **×4.5** |
+| Short decode | 58.5 (k=6) | 69.1 (k=2) | ×1.2 |
+| TTFT at 31k | ~160 s | ~36 s (4.9 s from cache) | **×4.5** |
+
+**Qwen3.8-Flash-Next-180B (grid TP2×PP2, 16k window):**
+
+| Metric | hand-curated (Aug 28) | calibrated (Aug 30) | factor |
+|---|---:|---:|---:|
+| Context window | 16,384 | **262,144** | **×16** |
+| Long prefill | 335 tok/s | **1,191** | **×3.6** |
+| Long decode | 12.6 tok/s | **49.5** | **×3.9** |
+| Short decode | 54.1 | 42.1 (at k=2 instead of k=4) | ×0.8 |
+
+> **Measurement status:** these rows come from AIfred's
+> auto-calibration (its own boot, its own long probe at 28,843 tokens,
+> coherence gate passed) and are what the persisted operating point
+> carries. Short decode drops because the winner is crowned by the
+> long-context rule — k=4 would be faster short but collapses to 17.4
+> long.
+
+The individual contributions: split-KV fix (verify 20× at kernel level,
+turned long-context speculation into a win), sm75 enablement incl. the
+gemm index-bug fix (prefill ×2.6), GMU headroom (Flash-Next decode
+×2.2), QSA pre-Ampere tiles (prefill ×4 on the 180B), chunk tuning
+(+3.5 % on the 27B), FA2/Volta tile polish (kernel-proven, E2E-neutral
+on the 27B — an investment in D=256 and long contexts).
+
+**Context against llama.cpp** (apples and oranges: llama.cpp runs
+Q8_K_XL, vLLM NVFP4/AWQ — different quantization format, different
+quality class; numbers from the same RTX 8000 hardware, campaign of
+2026-08-24): llama.cpp Q8 + MTP n=3 delivered 32/26/35 tok/s across the
+three prompt classes; vLLM managed 52/36/46 even before the kernel
+fixes. After the fixes the grid reaches 69/37 (short/long) at 262k
+context — more context than llama.cpp offers on this hardware at all.
+The decision criterion for the vLLM return ("vLLM must beat the
+productive llama.cpp config") is thus doubly met on the 27B; on the
+122B MoE, llama.cpp stays ahead (GPTQ MoE on sm75 has only legacy
+kernels).
+
+## Flash-Next full calibration (night of 2026-08-30)
+
+The first calibration with the complete toolbox (tuned FA2 tiles, QSA
+pre-Ampere profiles, QPN8 index cache, chunk A/B, GMU A/B). Result of
+the k-ladder on the TP2×PP2 grid, every rung at **262,144 context**
+(the hand-curated point stood at 16,384):
+
+| k | short | prefill | long (28.8k) | acceptance |
+|---:|---:|---:|---:|---:|
+| 0 | 32.7 | 1,228 | 23.5 | — |
+| 1 | 39.5 | 1,102 | 19.7 | 9 % |
+| **2** | **42.1** | **1,102** | **36.7** | **43 %** |
+| 3 | 44.0 | 1,098 | 21.6 | 7 % |
+| 4 | 41.3 | 1,103 | 17.4 | 4 % |
+
+k=2 is a sharp outlier: 43 % acceptance while k=1/3/4 collapse to
+single digits — the verify batch size of 3 hits a capture size, the
+other k partly run uncaptured.
+
+Both challenger boots won on their first outing:
+
+| Phase | Result | long | prefill |
+|---|---|---:|---:|
+| k-sweep winner (k=2) | — | 36.7 | 1,102 |
+| Chunk A/B 4096 | **wins** | **49.4** | 1,154 |
+| GMU A/B 0.95 | **wins** | **49.5** | **1,191** |
+
+The chunk finding confirms the model-specificity of that axis a second
+time: at the mini-sweep's k=4 point, 4096 still cost 12 % prefill; at
+the calibrated k=2 point it gains 34 % decode. Exactly why there is a
+measurement point instead of a formula. The GMU A/B found silent
+allocator pressure that no OOM would have flagged.
+
+**Persisted operating point:** TP2×PP2, k=2, chunk 4096, GMU 0.95,
+262,144 context — **49.5 tok/s long decode at 1,191 tok/s prefill.**
+The 180B thus decodes faster at long context than the 27B (36.9); the
+A4B sparsity pays off once the kernels are out of the way.
+
 ## Outlook
 
-- Qwen3.8-Flash-Next-180B: mini-sweep done (see above), GMU 0.93 in
-  the operating point. A full calibration (topology ladder) remains
-  optional; the QSA Triton kernel as a third attention path is still
-  unmeasured on sm70/sm75.
-- The Volta prefill tile 64×80 has been rebuilt from the v1.3.0 source
-  state and deployed (microbench 14.09 ms confirmed, coherence 3/3) —
-  end to end on the 27B at ~31k just as neutral as the Turing tiles
-  (863/33.1 vs. 864/33.0): on this model the NVFP4 GEMMs dominate both
-  stages. The kernel gains only become visible at much longer contexts
-  (the attention share grows with the KV) and at D=256 (Flash-Next).
-  Report the linear verify scaling to 1Cat.
-- Open side issue: `_sm70_qpn8_indices` consumes roughly 9 % of the CPU
-  time per step (dequant helper path).
+- Report the Volta kernel's linear verify scaling and the 64×80 tile to
+  1Cat (see the tile-tuning round).
+- Publication wave: split-KV fix and sm75 enablement to
+  vllm-project/flash-attention, FA version detection to vllm-project/vllm.
+- Done in this round: Flash-Next full calibration, QSA measurement and
+  retune, `_sm70_qpn8_indices` memoized (was ~9 % CPU per step).
