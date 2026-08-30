@@ -497,6 +497,7 @@ def _sweep_k(
     best_k, best_metric = 0, _rung_metric(rung)
     best_mml = rung.spec.mml
     best_prefill = rung.long_prefill_tps
+    best_gmu = rung.spec.gmu
     for k in _k_candidates(meta, runtime):
         allowed = meta.allowed_k_block_sizes()
         capture = _capture_sizes_for(k, runtime)
@@ -592,10 +593,15 @@ def _sweep_k(
                            "accept": acc})
         if _beats(metric, lp, best_metric, best_prefill):
             best_k, best_metric, best_mml, best_prefill = k, metric, mml_k, lp
+            # Der Proben-OOM-Retry misst mit gesenkter GMU — die MUSS in
+            # den Betriebspunkt (Ausfall 2026-08-30: mit 0,95 gemessen,
+            # 0,97 persistiert → QPN8-Workspace-OOM beim ersten Request).
+            best_gmu = gmu_k
 
     if best_k:
         best_spec = VllmSpec(
             **{**rung.spec.__dict__, "k": best_k, "mml": best_mml,
+               "gmu": best_gmu,
                "block_size": meta.allowed_k_block_sizes()[best_k],
                "capture_sizes": _capture_sizes_for(best_k, runtime),
                "spec_attn_backend": _spec_attn_for(rung.spec, gpus, smi, runtime)},
