@@ -7,7 +7,7 @@ import reflex as rx
 from ...state import AIState
 from ...theme import COLORS
 from ..helpers import t, native_select_backend
-from .calibration_picker import _calibration_picker_button
+from .calibration_picker import _calibration_picker_button, vllm_calibration_button
 
 
 def _language_user_row() -> rx.Component:
@@ -241,7 +241,15 @@ def _calibration_row() -> rx.Component:
                 # llama.cpp: button opens a picker so the user
                 # can deselect TTS variants for big models.
                 _calibration_picker_button(),
-                # Ollama/vLLM: no TTS-variant phase → direct click.
+                rx.cond(
+                # vLLM: eigener Popover — Bestaetigungsstufe vor einem
+                # stundenlangen Lauf (llama.cpp-Muskelgedaechtnis erwartet
+                # einen Dialog) plus Kalibrier-Status und Side-Channel-Info.
+                # Keine VLM x TTS-Matrix: side_channel_uuids() haelt diese
+                # Karten aus der Leiter, jede Zelle maesse dasselbe.
+                AIState.backend_id == "vllm",
+                vllm_calibration_button(),
+                # Ollama: kein Varianten-Picker → Direktklick.
                 rx.hstack(
                     rx.button(
                         rx.cond(
@@ -278,6 +286,7 @@ def _calibration_row() -> rx.Component:
                     ),
                     spacing="1",
                     align="center",
+                ),
                 ),
             ),
             # Calibration-Mode dropdown — only for llama.cpp.

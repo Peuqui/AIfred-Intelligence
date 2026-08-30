@@ -51,6 +51,25 @@ def get(model_id: str, num_ctx: int) -> Optional[int]:
     return int(peak)
 
 
+def get_any(model_id: str) -> Optional[tuple[int, int]]:
+    """Gemessene Spitze fuer ``model_id`` OHNE Kontext-Abgleich, als
+    ``(peak_mb, num_ctx)``.
+
+    :func:`get` verwirft absichtlich Treffer mit abweichendem ``num_ctx``
+    — fuer eine Reservierungsentscheidung waere ein Wert aus anderem
+    Kontext falsch. Fuer die ANZEIGE gilt das nicht: "8.988 MiB, gemessen
+    bei 24.576 Kontext" ist eine ehrliche Auskunft, "noch nicht vermessen"
+    dagegen schlicht unwahr, wenn eine Messung vorliegt.
+    """
+    entry = _store.get_entry(model_id)
+    if entry is None:
+        return None
+    peak = entry.get("peak_mb")
+    if not isinstance(peak, (int, float)) or peak <= 0:
+        return None
+    return int(peak), int(entry.get("num_ctx", 0))
+
+
 def put(model_id: str, num_ctx: int, peak_mb: int, source: str = "stress_prewarm") -> None:
     """Persist a measurement. Overwrites any previous entry for ``model_id``
     (we only keep the latest measurement per model)."""
