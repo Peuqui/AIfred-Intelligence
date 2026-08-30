@@ -277,6 +277,29 @@ Beim 27B auf ~31k Kontext ist die Attention auf keiner der beiden
 Architekturen der Engpass — die NVFP4/QPN8-GEMMs takten jede Stufe.
 Die Kachelgewinne sind eine Investition in lange Kontexte und D=256.
 
+### QSA (Flash-Next-Grundmodell): der dritte Attention-Pfad
+
+Der Sparse-Attention-Kernel des 180B-Hybrids (Triton, Kommentar im
+Quellcode: „Tuned on GB300") lief auf Pre-Ampere mit
+Blackwell-Profilen. Wichtige Fork-Eigenheit: sm70/75 nutzt den
+`amd/`-Modulzweig (reines Triton) — die `nvidia/`-Zwillingsdatei ist
+dort tot. Mikrobench am 2048er-Prefill-Chunk (Produktionsgeometrie
+H12/KV1/D256, TOPK 2048):
+
+| Karte | GB300-Profil | bestes Pre-Ampere-Profil | Faktor |
+|---|---:|---:|---:|
+| V100 (96 KB Smem) | 527 ms (N64/S1/W2) | **27,3 ms** (N16/S1/W4) | **19,3** |
+| RTX 8000 (64 KB) | 199,7 ms (geklammert N32/W2) | **47,9 ms** (N16/S4/W4) | **4,2** |
+
+Zwei Warps können die emulierte bf16-Latenz auf diesen Karten nicht
+verstecken; die schmale 4-Warp-Kachel braucht zudem null
+Split-Workspace. Decode/Verify-Zweige waren bereits optimal. End-to-end
+am Flash-Next: Prefill 392–448 → **1.482–1.696 tok/s**, Kohärenz 3/3 —
+aber die Lang-Akzeptanz sinkt deterministisch von 19,0 auf 13,3 %
+(Kachel-Numerik verschiebt den ohnehin fragilen Drafter), Long-Decode
+26–29 → 22,5–25,6. Netto gewinnt ein kompletter Langkontext-Turn
+deutlich; die k-Wahl entscheidet die Kalibration neu.
+
 ## Flash-Next-Mini-Sweep (2026-08-30 abends)
 
 Statt einer Stunden-Kalibration: gezielter k-Sweep am handkuratierten
@@ -317,19 +340,97 @@ Nebenbefund: k=0 zeigt reproduzierbar Kohärenz 2/3 (mit Spekulation
 3/3) — Kernel-Pfad-Numerik kippt bei Temperatur 0 einen Tie-Break;
 Produktion läuft mit Spekulation.
 
+## Fazit: Netto-Bilanz (Stand 2026-08-30 nachts)
+
+Was die Kampagne aus denselben Karten herausgeholt hat — alles ohne
+neue Hardware, nur Kernel- und Konfigurationsarbeit:
+
+**Qwen3.8-27B (Produktionsmodell, Gitter TP2×PP2, 262k Kontext):**
+
+| Messpunkt | vor der Kampagne (Triton-Ära) | heute | Faktor |
+|---|---:|---:|---:|
+| Lang-Decode 31k (bestes k) | ~16 tok/s (k=0; Spekulation verlor) | 36,9 | **×2,3** |
+| Lang-Prefill | 194 tok/s | 864 | **×4,5** |
+| Kurz-Decode | 58,5 (k=6) | 69,1 (k=2) | ×1,2 |
+| TTFT bei 31k | ~160 s | ~36 s (4,9 s ab Cache) | **×4,5** |
+
+**Qwen3.8-Flash-Next-180B (Gitter TP2×PP2, 16k Fenster):**
+
+| Messpunkt | handkuratiert (28.08.) | kalibriert (30.08.) | Faktor |
+|---|---:|---:|---:|
+| Kontextfenster | 16.384 | **262.144** | **×16** |
+| Lang-Prefill | 335 tok/s | **1.191** | **×3,6** |
+| Lang-Decode | 12,6 tok/s | **49,5** | **×3,9** |
+| Kurz-Decode | 54,1 | 42,1 (bei k=2 statt k=4) | ×0,8 |
+
+> **Messstand:** Die Zeilen stammen aus der AIfred-Autokalibration
+> (eigener Boot, eigene Langprobe bei 28.843 Tokens, Kohärenztor
+> bestanden) und stehen so im persistierten Betriebspunkt. Der
+> Kurz-Decode sinkt, weil der Sieger nach der Langkontext-Regel gekürt
+> wird — k=4 wäre kurz schneller, bricht aber lang auf 17,4 ein.
+
+Die Beiträge im Einzelnen: Split-KV-Fix (Verify 20× am Kernel, machte
+Spekulation am Langkontext erst zum Gewinn), sm75-Enablement inkl.
+gemm-Indexfehler-Fix (Prefill ×2,6), GMU-Headroom (Flash-Next-Decode
+×2,2), QSA-Pre-Ampere-Kacheln (Prefill ×4 am 180B), Chunk-Tuning
+(+3,5 % am 27B), Kachel-Feinschliff FA2/Volta (kernel-belegt,
+E2E-neutral am 27B — Investition in D=256 und lange Kontexte).
+
+**Einordnung gegen llama.cpp** (Äpfel und Birnen: llama.cpp fährt
+Q8_K_XL, vLLM NVFP4/AWQ — anderes Quantisierungsformat, andere
+Qualitätsklasse; Zahlen von derselben RTX-8000-Hardware, Kampagne
+2026-08-24): llama.cpp Q8 + MTP n=3 lieferte 32/26/35 tok/s über die
+drei Promptklassen, vLLM schon vor den Kernel-Fixes 52/36/46. Nach den
+Fixes kommt das Gitter auf 69/37 (kurz/lang) bei 262k Kontext — mehr
+Kontext, als llama.cpp auf dieser Hardware überhaupt anbietet. Das
+Entscheidungskriterium der vLLM-Rückkehr („vLLM muss die produktive
+llama.cpp-Config schlagen") ist damit beim 27B doppelt erfüllt; beim
+122B-MoE bleibt llama.cpp vorn (GPTQ-MoE auf sm75 nur Legacy-Kernel).
+
+## Flash-Next-Vollkalibration (2026-08-30 nachts)
+
+Erste Kalibration mit dem vollständigen Werkzeugkasten (getunte
+FA2-Kacheln, QSA-Pre-Ampere-Profile, QPN8-Index-Cache, Chunk-A/B,
+GMU-A/B). Ergebnis der k-Leiter am Gitter TP2×PP2, alle Sprossen bei
+**262.144 Kontext** (der handkuratierte Punkt stand auf 16.384):
+
+| k | kurz | Prefill | lang (28,8k) | Akzeptanz |
+|---:|---:|---:|---:|---:|
+| 0 | 32,7 | 1.228 | 23,5 | — |
+| 1 | 39,5 | 1.102 | 19,7 | 9 % |
+| **2** | **42,1** | **1.102** | **36,7** | **43 %** |
+| 3 | 44,0 | 1.098 | 21,6 | 7 % |
+| 4 | 41,3 | 1.103 | 17,4 | 4 % |
+
+k=2 ist ein scharfer Ausreißer: 43 % Akzeptanz, während k=1/3/4 auf
+einstellige Werte kollabieren — die Verify-Batchgröße 3 trifft eine
+Capture-Größe, die anderen k laufen teils ungecaptured.
+
+Beide Herausforderer-Boots gewannen bei ihrem Ersteinsatz:
+
+| Phase | Ergebnis | lang | Prefill |
+|---|---|---:|---:|
+| k-Sweep-Sieger (k=2) | — | 36,7 | 1.102 |
+| Chunk-A/B 4096 | **gewinnt** | **49,4** | 1.154 |
+| GMU-A/B 0,95 | **gewinnt** | **49,5** | **1.191** |
+
+Der Chunk-Befund bestätigt die Modellspezifik der Achse ein zweites
+Mal: Am k=4-Punkt des Mini-Sweeps hatte 4096 noch 12 % Prefill
+gekostet, am kalibrierten k=2-Punkt bringt es 34 % Decode. Genau dafür
+gibt es den Messpunkt statt einer Formel. Das GMU-A/B fand stillen
+Allokator-Druck, den kein OOM angezeigt hätte.
+
+**Persistierter Betriebspunkt:** TP2×PP2, k=2, Chunk 4096, GMU 0,95,
+262.144 Kontext — **49,5 tok/s Lang-Decode bei 1.191 tok/s Prefill.**
+Das 180B decodiert am Langkontext damit schneller als das 27B (36,9);
+die A4B-Sparsamkeit zahlt sich aus, sobald die Kernel nicht mehr im Weg
+stehen.
+
 ## Ausblick
 
-- Qwen3.8-Flash-Next-180B: Mini-Sweep erledigt (siehe oben), GMU 0,93
-  im Betriebspunkt. Eine volle Kalibration (Topologie-Leiter) bleibt
-  optional; der QSA-Triton-Kernel als dritter Attention-Pfad ist auf
-  sm70/sm75 noch unvermessen.
-- Die Volta-Prefill-Kachel 64×80 ist aus dem v1.3.0-Quellstand neu
-  gebaut und deployed (Mikrobench 14,09 ms bestätigt, Kohärenz 3/3) —
-  end-to-end beim 27B auf ~31k ebenso neutral wie die Turing-Kacheln
-  (863/33,1 vs. 864/33,0): Auf diesem Modell dominieren die
-  NVFP4-GEMMs beide Stufen. Die Kernel-Gewinne werden erst bei deutlich
-  längeren Kontexten (Attention-Anteil wächst mit dem KV) und bei
-  D=256 (Flash-Next) sichtbar. Lineare Verify-Skalierung als Befund an
-  1Cat melden.
-- Offene Nebenbaustelle: `_sm70_qpn8_indices` verbraucht rund 9 % der
-  CPU-Zeit je Schritt (Dequant-Hilfspfad).
+- Lineare Verify-Skalierung des Volta-Kernels und die 64×80-Kachel als
+  Befund an 1Cat melden (siehe Kachel-Tuning-Runde).
+- Publikationswelle: Split-KV-Fix und sm75-Enablement an
+  vllm-project/flash-attention, FA-Versions-Erkennung an vllm-project/vllm.
+- Erledigt seit dieser Runde: Flash-Next-Vollkalibration, QSA-Vermessung
+  und -Retune, `_sm70_qpn8_indices` memoisiert (war ~9 % CPU je Schritt).

@@ -101,15 +101,22 @@ auseinander UND unterscheiden sich die Lang-Prefills >10 %, entscheidet
 der Prefill (die 10-%-Hürde existiert, weil Prefill-Rauschen sonst ein
 besseres k verdrängt — Vorfall 2026-08-30).
 
-### Phase F — Chunk-A/B
+### Phase F — Herausforderer-Boots (Chunk-A/B, GMU-A/B)
 
 Ein einziger Gegen-Boot des Gesamtsiegers mit verdoppelter Chunk-Größe
 (`max_num_batched_tokens`), gleiche Siegerregel
 (`VLLM_CALIBRATION_CHUNK_AB`). Begründung: Die Achse ist
 modellspezifisch und nicht ableitbar — 4096 brachte dem dichten 27B
 +2,7 % Prefill, kostete den QSA/GDN-Hybrid Flash-Next aber 12 %. Der
-eine Messpunkt ersetzt die Formel. Scheitert der Herausforderer,
-bleibt der Amtsinhaber.
+eine Messpunkt ersetzt die Formel. Danach GMU-A/B
+(`VLLM_CALIBRATION_GMU_AB`): derselbe Sieger einmal mit GMU−0,02, um
+*weichen* Allokator-Druck zu erkennen — der wirft keinen Fehler,
+sondern frisst still Durchsatz (Flash-Next: GMU 0,95 halbierte den
+Long-Decode ohne jede Meldung). Trägt die niedrigere GMU den Kontext
+nicht mehr, scheitert ihr Boot und der Amtsinhaber bleibt
+(Kontext-Vorrang). Scheitert ein Herausforderer, bleibt in jedem Fall
+der Amtsinhaber — ein verlorener Boot ist der Preis der Messung, nie
+ein Risiko für den Betriebspunkt.
 
 ### Phase G — Persistierung
 
@@ -122,10 +129,7 @@ frisch persistierten Punkt.
 
 ## Bekannte Grenzen
 
-- Die GMU-Lernlogik erkennt *harte* OOMs; *weicher* Allokator-Druck
-  (Flash-Next: Long-Decode halbiert bei GMU 0,95 ohne jeden Fehler)
-  wird bisher nicht erkannt. Kandidat: Best-k einmal mit GMU−0,02
-  gegenmessen — noch nicht umgesetzt.
 - Die Akzeptanzrate wird gemessen und protokolliert, fließt aber nicht
   in die Regel ein — der Lang-Decode enthält sie implizit.
-- Chunk-A/B testet nur die Verdopplung, keine Halbierung.
+- Chunk-A/B testet nur die Verdopplung, keine Halbierung; GMU-A/B nur
+  eine Stufe (−0,02), keine Kaskade.

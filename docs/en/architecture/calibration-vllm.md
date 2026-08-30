@@ -101,14 +101,21 @@ Primary metric: long decode. Tie-break: if two candidates are within
 (the 10 % hurdle exists because prefill noise otherwise displaces a
 better k — incident 2026-08-30).
 
-### Phase F — chunk A/B
+### Phase F — challenger boots (chunk A/B, GMU A/B)
 
 A single counter-boot of the overall winner with doubled chunk size
 (`max_num_batched_tokens`), same winner rule
 (`VLLM_CALIBRATION_CHUNK_AB`). Rationale: this axis is model-specific
 and not derivable — 4096 gave the dense 27B +2.7 % prefill but cost
 the QSA/GDN hybrid Flash-Next 12 %. The one measurement point replaces
-the formula. If the challenger fails, the incumbent stays.
+the formula. Then GMU A/B (`VLLM_CALIBRATION_GMU_AB`): the same
+winner once at GMU−0.02 to detect *soft* allocator pressure — which
+throws no error but silently eats throughput (Flash-Next: GMU 0.95
+halved long decode without any message). If the lower GMU no longer
+carries the context, its boot fails and the incumbent stays (context
+first). If any challenger fails, the incumbent always stays — a lost
+boot is the price of the measurement, never a risk to the operating
+point.
 
 ### Phase G — persistence
 
@@ -120,10 +127,7 @@ calibration, llama-swap restarts and loads the freshly persisted point.
 
 ## Known limits
 
-- The GMU learning detects *hard* OOMs; *soft* allocator pressure
-  (Flash-Next: long decode halved at GMU 0.95 without any error) is not
-  yet detected. Candidate: counter-measure the best k once at GMU−0.02
-  — not implemented yet.
 - The acceptance rate is measured and logged but does not enter the
   rule — long decode contains it implicitly.
-- Chunk A/B only tests doubling, not halving.
+- Chunk A/B only tests doubling, not halving; GMU A/B only one step
+  (−0.02), no cascade.
