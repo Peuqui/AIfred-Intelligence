@@ -355,7 +355,7 @@ def restart_llama_swap() -> bool:
         return False
 
 
-def gpu_compute_processes() -> list[str]:
+def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
     """Human-readable list of processes currently holding GPU VRAM.
 
     One entry per compute process: ``"<name> (PID <pid>, <mem> MiB)"``,
@@ -365,11 +365,16 @@ def gpu_compute_processes() -> list[str]:
     foreign program is reported by name instead of just a residual-MB
     number. Empty list when nothing is on the GPUs (or nvidia-smi is
     unavailable). Read-only: this never kills anything.
+
+    ``gpu_uuids``: nur Prozesse auf diesen Karten zaehlen (vLLM-
+    Kalibration: Side-Channel-Karten wie TTS/VLM sind reserviert und
+    duerfen belegt bleiben). None = alle Karten.
     """
     from pathlib import Path
     try:
         out = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=pid,process_name,used_memory",
+            ["nvidia-smi",
+             "--query-compute-apps=pid,process_name,used_memory,gpu_uuid",
              "--format=csv,noheader,nounits"],
             capture_output=True, text=True, timeout=10,
         )
@@ -381,9 +386,11 @@ def gpu_compute_processes() -> list[str]:
     procs: list[str] = []
     for line in out.stdout.strip().splitlines():
         parts = [p.strip() for p in line.split(",")]
-        if len(parts) < 3:
+        if len(parts) < 4:
             continue
-        pid, name, mem = parts[0], parts[1], parts[2]
+        pid, name, mem, uuid = parts[0], parts[1], parts[2], parts[3]
+        if gpu_uuids is not None and uuid not in gpu_uuids:
+            continue
         tag = ""
         try:
             cgroup = Path(f"/proc/{pid}/cgroup").read_text()

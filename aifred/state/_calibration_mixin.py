@@ -693,6 +693,22 @@ class CalibrationMixin(rx.State, mixin=True):
         def _cancelled() -> bool:
             return stop_event.is_set() or is_cancel_requested()
 
+        # Wie beim llamacpp-Lauf: llama-swap stoppen, damit geladene
+        # Modelle den VRAM freigeben — sonst ist die Topologie-Leiter
+        # blind (belegte Karten liessen am 2026-08-30 nur das Gitter
+        # durch, dessen Boot an den vollen GPUs starb). Den Drain-Check
+        # (prozessbasiert, SSOT-Primitiv) macht der Flow selbst; der
+        # Neustart im finally laedt zugleich die frisch persistierte
+        # Config des neuen Betriebspunkts.
+        from ..lib.process_utils import start_llama_swap, stop_llama_swap
+        llama_swap_stopped = False
+        try:
+            if stop_llama_swap():
+                llama_swap_stopped = True
+                self._cal_debug("🧹 llama-swap stopped (freeing VRAM for calibration)")
+        except Exception as stop_err:  # noqa: BLE001 — weiter mit Warnung
+            self._cal_debug(f"⚠️ Could not stop llama-swap: {stop_err}")
+
         def _run():
             return calibrate_vllm_checkpoint(
                 checkpoint=checkpoint,
@@ -753,6 +769,18 @@ class CalibrationMixin(rx.State, mixin=True):
                     )
             while not progress_q.empty():
                 self._cal_debug(progress_q.get_nowait())
+            if llama_swap_stopped:
+                try:
+                    if start_llama_swap():
+                        self._cal_debug(
+                            "🔄 llama-swap restarted (loads the freshly "
+                            "persisted operating point)"
+                        )
+                except Exception as start_err:  # noqa: BLE001
+                    self._cal_debug(
+                        f"⚠️ llama-swap restart failed: {start_err} — "
+                        f"run llama-swap-restart manually"
+                    )
 
     async def _calibrate_context_impl(self):
         """Eigentlicher Kalibrierlauf (async generator, kein Event-Handler).

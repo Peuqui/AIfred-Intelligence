@@ -650,6 +650,35 @@ def calibrate_vllm_checkpoint(
         raise RuntimeError("no eligible GPUs (all reserved for side channels)")
     progress(f"🖥️ Eligible GPUs: {[f'{g.name}({g.total_mb}MB)' for g in gpus]}")
 
+    # Drain-Check (SSOT-Primitiv wie beim llamacpp-Lauf): geladene Modelle
+    # machen die Topologie-Leiter blind (belegte Karten liessen am
+    # 2026-08-30 nur das Gitter durch, dessen Boot dann starb). Der
+    # Aufrufer hat llama-swap bereits gestoppt — hier warten wir, bis die
+    # ELIGIBLE Karten prozessfrei sind (Side-Channels duerfen belegt
+    # bleiben); Readiness ist prozessbasiert, nicht speicherbasiert.
+    import time as _time
+
+    from ..config import LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S
+    from ..process_utils import gpu_compute_processes
+    eligible_uuids = {g.uuid for g in gpus}
+    drain_deadline = _time.monotonic() + LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S
+    procs = gpu_compute_processes(eligible_uuids)
+    while procs and _time.monotonic() < drain_deadline:
+        if cancel_check and cancel_check():
+            raise RuntimeError("cancelled")
+        progress(f"⏳ GPUs still busy ({'; '.join(procs)}) — waiting...")
+        _time.sleep(3.0)
+        procs = gpu_compute_processes(eligible_uuids)
+    if procs:
+        raise RuntimeError(
+            f"eligible GPUs still busy after drain timeout: {'; '.join(procs)} "
+            f"— free them and recalibrate"
+        )
+    # Nach dem Drain neu inventarisieren: die free_mb-Werte von oben
+    # stammen aus der Zeit VOR der VRAM-Freigabe, und die Topologie-
+    # Leiter entscheidet ueber free_mb.
+    gpus = eligible_gpus(reserved)
+
     # --- Phase C/D: ALLE Topologie-Kandidaten booten und messen ----------
     # Der erste bootende Kandidat ist selten der schnellste (27B: TP=1 auf
     # einer RTX bootet, aber TP=2 ist Faktor 1,5 schneller) — deshalb wird
