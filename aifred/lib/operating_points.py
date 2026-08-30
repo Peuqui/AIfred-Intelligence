@@ -120,6 +120,28 @@ def get_operating_point(model_id: str) -> dict | None:
     return profile
 
 
+def is_vllm_calibrated(model_id: str) -> bool:
+    """True, wenn fuer ``model_id`` ein Betriebspunkt DIESER Hardware liegt.
+
+    Das vLLM-Gegenstueck zu ``model_vram_cache.is_model_calibrated``: Bei
+    llama.cpp belegt ein VRAM-Cache-Eintrag die Kalibrierung, bei vLLM das
+    Betriebspunkt-Profil. Der Hardware-Fingerprint muss passen — ein
+    Profil, das auf anderer Kartenbestueckung gemessen wurde, ist keine
+    gueltige Kalibrierung (die Topologie waere eine andere).
+
+    Ein strukturell kaputtes Profil gilt als nicht kalibriert statt die
+    UI-Var zu sprengen; sichtbar wird es beim naechsten Ladeversuch.
+    """
+    try:
+        profile = get_operating_point(model_id)
+    except ValueError:
+        return False
+    if not profile:
+        return False
+    stored = profile.get("hardware")
+    return bool(stored) and stored == gpu_fingerprint()
+
+
 def apply_operating_point(model_id: str) -> list[str]:
     """Adopt the profile 1:1 into the llama-swap config.
 

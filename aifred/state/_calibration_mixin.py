@@ -224,6 +224,113 @@ class CalibrationMixin(rx.State, mixin=True):
     # TTS engine picker (per-click selection, not persisted)
     # ------------------------------------------------------------------
 
+    @rx.var(cache=True, auto_deps=False,
+            deps=["calibration_matrix", "backend_id", "ui_language"])
+    def vllm_burnin_matrix_rows(self) -> list[CalibrationRow]:
+        """Dieselbe VLM x TTS-Matrix wie bei llama.cpp — andere Bedeutung.
+
+        Bei llama.cpp ist eine Zelle ein zu kalibrierendes llama-swap-Profil.
+        Bei vLLM waere das sinnlos: ``side_channel_uuids()`` haelt die
+        TTS-/VLM-Karte aus der Topologie-Leiter, jede Zelle maesse dasselbe
+        bei ~80 Minuten Laufzeit. Hier steht eine Zelle deshalb fuer ein
+        BURN-IN-PAAR: VLM und TTS teilen sich diese eine Karte, und die
+        Frage ist, ob sie zusammen unter Last darauf passen.
+
+        Gruen = gemeinsam vermessen UND es passte. Rot = vermessen und es
+        passte NICHT (die Karte wuerde unter Last ueberlaufen).
+        """
+        if self.backend_id != "vllm":  # type: ignore[attr-defined]
+            return []
+        from aifred.lib import sidechannel_vram_cache
+        from aifred.lib.i18n import t as _t
+        from aifred.lib.tts_engines import installed_gpu_engines
+        from aifred.lib.vision_routing import vlm_calibration_choices
+
+        engines = list(installed_gpu_engines())
+
+        def _row(vlm_key: str, label: str) -> CalibrationRow:
+            cells: list[CalibrationCell] = []
+            for tts_key in ["", *[e.key for e in engines]]:
+                key = sidechannel_vram_cache.pair_key(vlm_key, tts_key)
+                verdict = sidechannel_vram_cache.fits(vlm_key, tts_key)
+                cells.append({
+                    "key": key,
+                    "checked": self.calibration_matrix.get(key, False),
+                    "already_calibrated": verdict is True,
+                    "calibration_failed": verdict is False,
+                })
+            return {"label": label, "cells": cells}
+
+        rows = [_row("", _t("calibration_matrix_no_vlm"))]
+        for choice in vlm_calibration_choices():
+            rows.append(_row(choice["key"], choice["label"]))
+        return rows
+
+    @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "backend_id", "ui_language"])
+    def vllm_sidechannel_summary(self) -> list[str]:
+        """Zeilen fuer den vLLM-Kalibrations-Popover: was auf der
+        Side-Channel-Karte liegt und was davon schon vermessen ist.
+
+        vLLM rechnet nur auf den Karten, die ``side_channel_uuids()``
+        uebrig laesst — statt der llama.cpp-Matrix (VLM x TTS als
+        Kalibrierziele) zeigt der Popover deshalb nur, WAS sich diese eine
+        Karte teilt und ob deren gemeinsamer Bedarf schon gemessen wurde.
+
+        Bewusst ohne ``_detect_running_tts_engine``: das ist ein
+        HTTP-Health-Check mit Timeout und haette in einer rx.var die
+        UI blockiert. Die installierten Engines und die Cache-Werte
+        reichen fuer die Anzeige.
+        """
+        if self.backend_id != "vllm":  # type: ignore[attr-defined]
+            return []
+        from aifred.lib import tts_vram_cache, vlm_vram_cache
+        from aifred.lib.formatting import format_number
+        from aifred.lib.i18n import t as _t
+        from aifred.lib.tts_engines import installed_gpu_engines
+        from aifred.lib.vision_prewarm import get_active_vlm_model
+
+        lines: list[str] = []
+        vlm = get_active_vlm_model() or ""
+        if vlm:
+            hit = vlm_vram_cache.get_any(vlm)
+            if hit:
+                peak, ctx = hit
+                measured = (f"{format_number(peak)} MiB @ "
+                            f"{format_number(ctx)} ctx")
+            else:
+                measured = _t("calibration_not_measured")
+            lines.append(f"VLM: {vlm} — {measured}")
+        else:
+            lines.append(f"VLM: {_t('calibration_none_active')}")
+        for engine in installed_gpu_engines():
+            tts_peak = tts_vram_cache.get(engine.key)
+            measured = (f"{format_number(tts_peak)} MiB" if tts_peak
+                        else _t("calibration_not_measured"))
+            lines.append(f"TTS: {engine.label_short} — {measured}")
+        return lines
+
+    @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "backend_id"])
+    def vllm_model_calibrated(self) -> bool:
+        """Traegt das aktuell gewaehlte vLLM-Modell einen Betriebspunkt
+        DIESER Hardware? Speist den gruenen Punkt am Kalibrieren-Knopf.
+
+        Das Gegenstueck zum gruenen Punkt der llama.cpp-Matrix, nur ohne
+        Matrix: vLLM rechnet ausschliesslich auf den Karten, die
+        ``side_channel_uuids()`` uebrig laesst — was auf der TTS-/VLM-Karte
+        laeuft, aendert das Ergebnis nicht. Es gibt deshalb genau einen
+        Zustand je Modell statt einer VLM x TTS-Matrix.
+
+        Auto-deps ist aus: Reflex kann die Dateipruefung in
+        ``is_vllm_calibrated`` nicht introspizieren.
+        """
+        if self.backend_id != "vllm":  # type: ignore[attr-defined]
+            return False
+        model_id = self.agent_tuning["aifred"].model_id or ""  # type: ignore[attr-defined]
+        if not model_id:
+            return False
+        from aifred.lib.operating_points import is_vllm_calibrated
+        return is_vllm_calibrated(model_id)
+
     @rx.var(cache=True, auto_deps=False, deps=["ui_language"])
     def calibration_matrix_header(self) -> list[str]:
         """Column labels for the calibration picker matrix — first cell
@@ -683,6 +790,8 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib.calibration.vllm_flow import calibrate_vllm_checkpoint
         from ..lib.calibration_gate import is_cancel_requested
         from ..lib.config import DATA_DIR
+        from ..lib.formatting import format_number
+        from ..lib.tts_engine_manager import _detect_running_tts_engine
 
         assert _vllm_cal_target is not None
         checkpoint, entry_name = _vllm_cal_target
@@ -708,6 +817,33 @@ class CalibrationMixin(rx.State, mixin=True):
                 self._cal_debug("🧹 llama-swap stopped (freeing VRAM for calibration)")
         except Exception as stop_err:  # noqa: BLE001 — weiter mit Warnung
             self._cal_debug(f"⚠️ Could not stop llama-swap: {stop_err}")
+
+        # Gemeinsamer Side-Channel-Burn-in VOR der Topologie-Leiter:
+        # vLLM laesst die TTS-/VLM-Karte ohnehin aus (side_channel_uuids),
+        # deshalb braucht es hier keine VLM x TTS-Matrix wie bei llama.cpp
+        # — wohl aber die Antwort, ob beide Dienste zusammen auf diese EINE
+        # Karte passen. Der Lauf laeuft mit gestopptem llama-swap, also auf
+        # sonst leerer Karte, und misst die gemeinsame Spitze unter Last.
+        _tts_engine = _detect_running_tts_engine()
+        if _tts_engine:
+            from ..lib.sidechannel_burnin import burnin_sidechannel
+            self._cal_debug(
+                f"🔥 Side-channel burn-in: {_tts_engine} + VLM on one card..."
+            )
+            yield
+            try:
+                _sc = await burnin_sidechannel(_tts_engine, debug=self._cal_debug)
+            except Exception as sc_err:  # noqa: BLE001 — Messung, kein Tor
+                self._cal_debug(f"⚠️ Side-channel burn-in failed: {sc_err}")
+                _sc = None
+            if _sc and not _sc["fits"]:
+                self._cal_debug(
+                    f"🚨 VLM + {_tts_engine} exceed GPU {_sc['gpu_index']}: "
+                    f"{format_number(_sc['joint_peak_mb'])} MiB peak vs "
+                    f"{format_number(_sc['total_mb'])} MiB — the side channel "
+                    f"will OOM under load."
+                )
+            yield
 
         def _run():
             return calibrate_vllm_checkpoint(
