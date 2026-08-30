@@ -420,6 +420,44 @@ allocator pressure that no OOM would have flagged.
 The 180B thus decodes faster at long context than the 27B (36.9); the
 A4B sparsity pays off once the kernels are out of the way.
 
+## Model quality: Qwen3.8-Flash-Next-180B (NVFP4)
+
+A side finding of the kernel work that would not have surfaced without
+it: the 180B degrades linguistically over long generations without
+becoming factually wrong. Two A/B sessions with identical prompts (three
+turns: quantum physics, rainbow, Coandă effect, thirty sentences each)
+show a stable pattern:
+
+- **Word corruption** clusters in the last quarter of every answer:
+  "ruhsquiete", "Strald", "vomombraften", "geinnenwin",
+  "Zentripetalbedarf". Tied to the length of the individual answer, not
+  to conversation context.
+- **Language switching**: isolated Chinese characters mid-sentence
+  ("verborgener örtlicher变量", "Interferenzlehre补齐te später"), also at
+  76–81 % of answer length. Qwen models are of Chinese origin; under
+  rounding noise the model reaches for the semantically right token in
+  the wrong language.
+- **Occasional hallucination of proper nouns**: one run invented two
+  scientists with dates ("Heinrich Rössel" 1880, "Basilie Craioș" 1932)
+  and fabricated an Aristotle passage. The most dangerous class, because
+  it does not look like an error.
+- **The factual core holds**: 42°/40° for red and violet, 138° total
+  deviation, Alexander's dark band between 42° and 51°, Descartes 1637,
+  Young's interference for the supernumeraries — all correct. So is the
+  typo correction "Kuanda" → Coandă.
+
+**Not quantization alone**: the uploader ships metrics — AIME26 pass@1
+= 98.75 %, majority@8 = 100 %. Reasoning is essentially intact; what is
+damaged is surface language control over long generations. And higher
+precision is barely available on this hardware: 128 GB at four bits,
+while vLLM without the side-channel card has only 160 GB. Five or six
+bits fit only with TP1×PP5 (192 GB) — at a cost of roughly 30 % decode.
+
+Context: Flash-Next is an architecture preview (linear attention plus
+sparse attention with `indexer_budget` 2048). It is plausible that
+surface quality catches up with the next generation; for research work
+that quotes sources, the model warrants caution today.
+
 ## Outlook
 
 - Report the Volta kernel's linear verify scaling and the 64×80 tile to

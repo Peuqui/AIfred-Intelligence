@@ -426,6 +426,46 @@ Das 180B decodiert am Langkontext damit schneller als das 27B (36,9);
 die A4B-Sparsamkeit zahlt sich aus, sobald die Kernel nicht mehr im Weg
 stehen.
 
+## Modellqualität: Qwen3.8-Flash-Next-180B (NVFP4)
+
+Ein Nebenbefund der Kernel-Arbeit, der ohne sie nicht aufgefallen wäre:
+Das 180B zerfällt bei langer Generierung sprachlich, ohne fachlich
+falsch zu werden. Zwei A/B-Sitzungen mit identischen Prompts (drei
+Turns: Quantenphysik, Regenbogen, Coandă-Effekt, je dreißig Sätze)
+zeigen ein stabiles Muster:
+
+- **Wortverstümmelungen** häufen sich im letzten Viertel jeder Antwort:
+  „ruhsquiete", „Strald", „vomombraften", „geinnenwin",
+  „Zentripetalbedarf". Nicht am Gesprächskontext hängend, sondern an
+  der Länge der einzelnen Antwort.
+- **Sprachwechsel**: vereinzelte chinesische Zeichen mitten im Satz
+  („verborgener örtlicher变量", „Interferenzlehre补齐te später"),
+  ebenfalls bei 76–81 % der Antwortlänge. Qwen-Modelle sind
+  chinesischen Ursprungs; unter Rundungsrauschen greift das Modell zum
+  semantisch richtigen Token in der falschen Sprache.
+- **Gelegentliche Halluzination von Eigennamen**: In einem Lauf wurden
+  zwei Wissenschaftler samt Jahreszahlen erfunden („Heinrich Rössel"
+  1880, „Basilie Craioș" 1932) und eine Aristoteles-Stelle fingiert.
+  Das ist die heikelste Klasse, weil sie sich nicht als Fehler zeigt.
+- **Der fachliche Kern bleibt dagegen tragfähig**: 42°/40° für Rot und
+  Violett, 138° Gesamtablenkung, Alexanders dunkles Band zwischen 42°
+  und 51°, Descartes 1637, Youngs Interferenz für die Nebenbögen — alles
+  korrekt. Ebenso die Tippfehler-Korrektur „Kuanda" → Coandă.
+
+**Nicht die Quantisierung allein**: Der Uploader liefert Metriken mit,
+AIME26 pass@1 = 98,75 % und majority@8 = 100 %. Das Denkvermögen ist
+also praktisch unbeschädigt — beschädigt ist die Sprachführung bei
+langer Generierung. Und höhere Präzision ist auf dieser Hardware kaum
+zu haben: 128 GB bei vier Bit, während vLLM ohne die Side-Channel-Karte
+nur 160 GB zur Verfügung hat. Fünf oder sechs Bit passen erst mit
+TP1×PP5 (192 GB) — dann allerdings zum Preis von rund 30 % Decode.
+
+Einordnung: Flash-Next ist eine Architektur-Vorschau (linear attention
+plus sparse attention mit `indexer_budget` 2048). Es ist plausibel, dass
+die Oberflächenqualität mit der nächsten Generation nachzieht; für
+Recherchearbeit mit Zitatanspruch ist das Modell derzeit mit Vorsicht zu
+verwenden.
+
 ## Ausblick
 
 - Lineare Verify-Skalierung des Volta-Kernels und die 64×80-Kachel als
