@@ -77,6 +77,9 @@ MIN_USEFUL_CONTEXT = 4096
 # Kontexte einlesen; das Gitter gewann so 840 vs. 511 tok/s Prefill bei
 # gleichem Decode).
 LONG_TIE_BREAK_REL = 0.05
+# Prefill-Unterschied, ab dem der Patt-Brecher ueberhaupt greift (nur
+# Topologie-Vergleiche haben wesentlich verschiedene Prefills).
+LONG_TIE_BREAK_PREFILL_REL = 0.10
 
 
 @dataclass
@@ -338,11 +341,19 @@ def _rung_metric(r: _RungResult) -> float:
 def _beats(metric_new: float, prefill_new: float,
            metric_old: float, prefill_old: float) -> bool:
     """Siegervergleich: Metrik entscheidet; bei Quasi-Gleichstand
-    (LONG_TIE_BREAK_REL) bricht der hoehere Lang-Prefill das Patt."""
+    (LONG_TIE_BREAK_REL) bricht der hoehere Lang-Prefill das Patt.
+
+    Der Prefill-Patt-Brecher greift nur, wenn sich die Prefills
+    WESENTLICH unterscheiden (Topologie-Vergleich, z.B. Gitter 836 vs.
+    TP2 504) — innerhalb einer Topologie ist der Prefill konstant, und
+    Messrauschen (834 vs. 833, Lauf 2026-08-30) darf nicht das bessere
+    k einfrieren; dann entscheidet weiterhin die Metrik."""
     if metric_old <= 0:
         return metric_new > 0
     if abs(metric_new - metric_old) / metric_old <= LONG_TIE_BREAK_REL:
-        return prefill_new > prefill_old
+        ref = max(prefill_old, 1e-9)
+        if abs(prefill_new - prefill_old) / ref > LONG_TIE_BREAK_PREFILL_REL:
+            return prefill_new > prefill_old
     return metric_new > metric_old
 
 
