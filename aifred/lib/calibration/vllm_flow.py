@@ -492,12 +492,23 @@ def _sweep_k(
     gebootet. Nur fuer den Speed-Kandidaten erlaubt (dort ist reduzierter
     Kontext akzeptabel); Sieg-Kandidaten muessen ihr k beim vollen
     Sprossen-Kontext tragen (Kontext-Vorrang), sonst ist das k abgelehnt.
+
+    Eine per Proben-OOM gelernte GMU gilt fuer die restlichen k dieses
+    Sweeps (Topologie-Eigenschaft). Traegt sie bei einem spaeteren k den
+    nativen Kontext nicht mehr, wird sie fuer dieses k einmalig auf den
+    Sprossenwert zurueckgesetzt — Kontext-Vorrang schlaegt Zeitersparnis.
     """
     sweep: dict[int, float] = {0: _rung_metric(rung)}
     best_k, best_metric = 0, _rung_metric(rung)
     best_mml = rung.spec.mml
     best_prefill = rung.long_prefill_tps
     best_gmu = rung.spec.gmu
+    # Ein Proben-OOM ist eine Eigenschaft der TOPOLOGIE (zu wenig
+    # Workspace auf der vollsten Karte), nicht des einzelnen k — die
+    # gelernte GMU gilt deshalb fuer den Rest des Sweeps. Ohne das
+    # bootet jedes k denselben OOM neu (Lauf 2026-08-30: 6 von 7
+    # Gitter-Sprossen, je ~2 min; bei 150-GB-Modellen ein Vielfaches).
+    sweep_gmu = rung.spec.gmu
     for k in _k_candidates(meta, runtime):
         allowed = meta.allowed_k_block_sizes()
         capture = _capture_sizes_for(k, runtime)
@@ -507,7 +518,7 @@ def _sweep_k(
         # echten Anfrage noch kippen (Gitter-k=6 2026-08-29: 120 MB
         # QPN8-Workspace fehlten) — einmal mit gesenkter GMU neu booten
         # statt das k zu verwerfen.
-        gmu_k = rung.spec.gmu
+        gmu_k = sweep_gmu
         ok_k, total_k, tps = 0, 1, 0.0
         long_metrics: dict | None = None
         probe_failed = True
@@ -538,6 +549,17 @@ def _sweep_k(
                         mml_k = e.parsed_max_len
                         progress(f"   ↳ k={k} needs smaller ctx: retry with {format_number(mml_k)}")
                         continue
+                    if (attempt < 2 and not allow_ctx_reduction
+                            and oom_round == 0 and gmu_k < rung.spec.gmu
+                            and e.parsed_max_len and e.parsed_max_len < mml_k):
+                        # Die aus einem frueheren k uebernommene GMU traegt
+                        # den vollen Kontext nicht mehr — Kontext-Vorrang
+                        # schlaegt Zeitersparnis: zurueck auf die
+                        # Sprossen-GMU, dieses k bekommt seine faire Chance.
+                        gmu_k = rung.spec.gmu
+                        progress(f"   ↳ k={k} needs the full GMU for the "
+                                 f"native context: retry with GMU {gmu_k}")
+                        continue
                     progress(f"   ↳ k={k} boot failed: {e.reason}")
                     break
             if server is None:
@@ -557,7 +579,9 @@ def _sweep_k(
                 probe_oom = any(sig in full_log for sig in OOM_SIGNATURES)
                 if probe_oom and oom_round == 0:
                     gmu_k = round(gmu_k - 0.02, 2)
-                    progress(f"   ↳ k={k} probe hit OOM: retry with GMU {gmu_k}")
+                    sweep_gmu = gmu_k  # gilt ab jetzt fuer alle weiteren k
+                    progress(f"   ↳ k={k} probe hit OOM: retry with GMU {gmu_k} "
+                             f"(kept for the remaining k)")
                 else:
                     progress(f"   ↳ k={k} probe crashed "
                              f"({type(probe_err).__name__}) — rejected")
