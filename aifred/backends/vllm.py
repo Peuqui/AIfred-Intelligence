@@ -22,7 +22,13 @@ class vLLMBackend(OpenAICompatibleBackend):
     """vLLM backend implementation (OpenAI-compatible, via llama-swap)."""
 
     BACKEND_NAME = "vLLM"
-    DEFAULT_TIMEOUT = 300.0
+    # 900 s wie llama.cpp: Der erste Request stoesst bei llama-swap den
+    # Ladevorgang an und muss ihn ueberleben. Mit 300 s gab der Client beim
+    # Flash-Next (127 GB, 6,5 min Ladezeit) auf, bevor das Modell fertig war
+    # — es bediente dann NIE eine Anfrage, weshalb llama-swap seine
+    # TTL-Uhr nie zuruecksetzte und direkt nach dem Laden wieder entlud
+    # (2026-08-30). Grosse Modelle ueber langsame Anbindung brauchen laenger.
+    DEFAULT_TIMEOUT = 900.0
 
     def __init__(self, base_url: str = "http://localhost:11435/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
