@@ -10,6 +10,10 @@ speculation-depth sweep (MTP, `k`) and persists the result as a
 llama-swap entry plus an operating-point profile with a hardware
 fingerprint.
 
+
+> The algorithm itself (decision rules, phases, rationale) is
+> documented separately: [calibration-vllm.md](../architecture/calibration-vllm.md).
+
 ## Test system
 
 | Component | Value |
@@ -183,12 +187,142 @@ block work is faster.
    fallback should it no longer carry the native context at a smaller k
    (context priority).
 
+## Tile-tuning round (evening of 2026-08-30)
+
+After the kernel fixes, both attention paths were tile-tuned
+systematically — same methodology on both architectures: JIT probes of
+single kernel instantiations with overridden tile constants, numerics
+check against the reference tile, then microbench at production
+geometry (H=4/HK=1/D=128 per GPU at TP2, ~31k paged KV; decode/verify
+via q scaling, prefill as a 2048-token chunk).
+
+### Turing (FA2 fork): dispatch and align want opposite tiles
+
+| Tile M×N | q=1 | q=2 (verify) | q=8 | chunk 2048 |
+|---|---:|---:|---:|---:|
+| 64×64 (before, both paths) | 0.298 | 0.298 | 0.246 | 6.40 ms |
+| **64×32** → new dispatch | **0.243** | **0.243** | **0.243** | 6.61 ms |
+| **128×64** → new align | 1.00 | 0.81 | 0.81 | **4.06 ms** |
+
+The dispatch path (decode/verify) gains **18 %** from the half-size N
+tile: 32 instead of 48 KB shared memory means 2 CTAs per SM instead
+of 1. The align path (prefill chunks) gains **37 %** from the
+double-size M tile — and 128×64 is exactly the standard kernel's tile,
+so the align path's bitwise-numerics argument stays intact. Both
+tables are independently changeable; numerics suite PASS (2.4e-4,
+fp16 noise).
+
+**End to end the gain is not measurable on the 27B** — neither in the
+grid (864/33.0 vs. 863/33.1) nor isolated on the RTX pair (A/B against
+the old .so: 533/33.8 vs. 535/33.9 tok/s). Attention is not the
+bottleneck on this model; the NVFP4/QPN8 GEMMs dominate step time. The
+tiles stay regardless: zero regression, and on D=256 models
+(Flash-Next) the attention share grows.
+
+### Volta (1Cat flash_attn_v100): measured with the same protocol
+
+The CUDA sources live in the 1Cat repo (`flash-attention-v100/`,
+~14,000 lines; the wheel ships only the binary). Measurements on one
+V100 (ms/call):
+
+| Path | q=1 | q=2 | q=8 | chunk 2048 |
+|---|---:|---:|---:|---:|
+| decode_paged D128 (27B path) | 0.153 | 0.222 | 0.632 | — |
+| *tuned Turing FA2 (reference)* | *0.243* | *0.243* | *0.243* | *4.06 ms* |
+| prefill_paged D128 | — | — | — | 16.10 ms |
+| decode_paged D256 H6 | 0.209 | 0.353 | 1.153 | — |
+| decode_paged_xqa D256 H6 | 0.168 | 0.272 | 0.805 | — |
+| decode_paged_xqa D256 H8 | 0.183 | 0.300 | 0.897 | — |
+
+Three findings:
+
+1. **Volta verify scales linearly with q** (0.153 → 0.632 for
+   q=1 → 8): the smallq path treats verify tokens as separate batch
+   rows, each walking the full KV on its own. The tuned Turing FA2
+   handles q≤8 in a single KV pass (flat 0.243). At k=2 Volta is still
+   slightly ahead — but this measurably explains why the V100s prefer
+   small k in the k-sweep: every additional speculation token costs a
+   full KV pass. The hand-curated XQA kernel is gated to D=256 only —
+   **the 27B (D=128) never uses it.**
+2. **Volta prefill is the open flank**: 16.1 ms per chunk against 4.06
+   on the tuned RTX (factor 4 at ~15–20 % hardware distance). The cause
+   is the 32×176 prefill tile: M=32 amortizes KV traffic poorly. But
+   larger M is structurally expensive in this kernel design — the
+   empirical smem bill is ≈ 272·N + 856·M + 4·M·N bytes (score matrix
+   and out tile live in shared memory), and only a few candidates fit
+   under the V100's 96 KB wall:
+
+   | Tile M×N | chunk 2048 |
+   |---|---:|
+   | 32×176 (1Cat reference) | 16.10 ms |
+   | 64×64 | 14.63 ms |
+   | **64×80** | **14.06 ms (−13 %)** |
+   | 48×112, 80×48 | numerics errors (M must be a multiple of 32) |
+
+3. **The remaining gap is structural**, not closable via tiles: no
+   double buffering of KV loads (sm70 has no cp.async), score and out
+   in shared memory. That is material for the 1Cat contact — the 64×80
+   tile as the immediate measure, the structure as a suggestion.
+
+The counter-experiment on Volta (tile 64×80 in a rebuild of the
+extension from the v1.3.0 state, deployed with backup) then confirmed
+the overall pattern: end to end neutral there too (863/33.1 vs.
+864/33.0). On the 27B at ~31k context, attention is not the bottleneck
+on either architecture — the NVFP4/QPN8 GEMMs pace every stage. The
+tile gains are an investment in long contexts and D=256.
+
+## Flash-Next mini-sweep (evening of 2026-08-30)
+
+Instead of an hours-long calibration: a targeted k-sweep at the
+hand-curated grid point (TP2×PP2, partition 24/24, MML 16,384), long
+point 13k, acceptance from the vLLM counters. Results (tok/s):
+
+| Configuration | short | prefill | long 13k | accept short/long |
+|---|---:|---:|---:|---|
+| k=4, GMU 0.95 (hand-curated) | 54.1 | 335 | 12.6 | — |
+| k=3, GMU 0.95 | 38.5 | 334 | 12.8 | — |
+| k=0, GMU 0.95 | 32.2 | 359 | 26.3 | — |
+| **k=4, GMU 0.93** | **54.3** | **392** | **28.3** | 57.9 % / 19.0 % |
+| k=0, GMU 0.93 | 32.2 | 363 | 26.4 | — |
+| k=4, GMU 0.93, MBT 4096/block 32 | 54.1 | 343 | 26.4 | 57.9 % / 14.8 % |
+
+Four findings:
+
+1. **GMU 0.95 throttled long decode to less than half** (12.6 instead
+   of 28.3): the QSA Triton kernel and the verify need per-step
+   temporary buffers; with no free VRAM every step pays synchronous
+   allocator penalties (one run tipped over entirely with a Triton
+   OOM). k=0 was immune — the pressure only hit the speculation path.
+   New operating point: GMU 0.93.
+2. **MTP acceptance collapses at long context** (57.9 % → 19.0 %) —
+   externally confirmed: vllm#47602 measures the same on Qwen3.6-27B
+   (64.9 % → 39.1 %, speedup +129 % → −51 %); the cause there as here:
+   a shallow draft head drifts away from the main model as context
+   grows. The 27B is the exception, not the rule: its head holds 97 %
+   at long context too.
+3. **Speculation still stays net positive** (28.3 vs. 26.4 long,
+   +69 % short) — a length-dependent spec toggle is not worth it here.
+4. **MBT 4096/block 32 does NOT transfer** (−12 % prefill, acceptance
+   drops further): the chunk/block-size axis is model-specific — the
+   calibration defaults therefore stay neutral (2048/16); only
+   measured operating points carry deviating values.
+
+Side note: k=0 reproducibly shows coherence 2/3 (3/3 with
+speculation) — kernel-path numerics flip a tie-break at temperature 0;
+production runs with speculation.
+
 ## Outlook
 
-- Qwen3.8-Flash-Next-180B (NVFP4, quantized MTP block): calibration
-  against the hand-curated operating point (51.9/68.2 tok/s) is pending —
-  results will follow here.
-- The V100 XQA verify might benefit from the same split principle
-  (separate kernel path, not yet investigated).
+- Qwen3.8-Flash-Next-180B: mini-sweep done (see above), GMU 0.93 in
+  the operating point. A full calibration (topology ladder) remains
+  optional; the QSA Triton kernel as a third attention path is still
+  unmeasured on sm70/sm75.
+- The Volta prefill tile 64×80 has been rebuilt from the v1.3.0 source
+  state and deployed (microbench 14.09 ms confirmed, coherence 3/3) —
+  end to end on the 27B at ~31k just as neutral as the Turing tiles
+  (863/33.1 vs. 864/33.0): on this model the NVFP4 GEMMs dominate both
+  stages. The kernel gains only become visible at much longer contexts
+  (the attention share grows with the KV) and at D=256 (Flash-Next).
+  Report the linear verify scaling to 1Cat.
 - Open side issue: `_sm70_qpn8_indices` consumes roughly 9 % of the CPU
   time per step (dequant helper path).
