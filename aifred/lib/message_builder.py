@@ -152,65 +152,6 @@ def build_messages_from_llm_history(
     return messages
 
 
-def build_system_prompt(language: str = "de") -> Dict[str, str]:
-    """
-    Build system prompt with current date and time
-
-    This ensures the LLM knows the current date/time for temporal queries
-    like "aktuelle Ereignisse", "neueste News", etc.
-
-    Args:
-        language: "de" or "en" (default: "de")
-
-    Returns:
-        dict: {'role': 'system', 'content': '...'}
-
-    Examples:
-        >>> prompt = build_system_prompt("de")
-        >>> "Aktuelles Datum" in prompt['content']
-        True
-    """
-    now = datetime.now()
-
-    if language == "de":
-        date_str = now.strftime("%d.%m.%Y")  # 15.11.2025
-        time_str = now.strftime("%H:%M")     # 14:30
-        weekday = now.strftime("%A")         # Monday
-
-        # Translate weekday to German
-        weekday_map = {
-            "Monday": "Montag", "Tuesday": "Dienstag", "Wednesday": "Mittwoch",
-            "Thursday": "Donnerstag", "Friday": "Freitag",
-            "Saturday": "Samstag", "Sunday": "Sonntag"
-        }
-        weekday_de = weekday_map.get(weekday, weekday)
-
-        content = f"""Du bist ein hilfreicher AI-Assistent.
-
-WICHTIGE ZEITANGABEN:
-- Aktuelles Datum: {weekday_de}, {date_str}
-- Aktuelle Uhrzeit: {time_str} Uhr
-- Jahr: {now.year}
-
-Nutze diese Informationen für zeitbezogene Fragen (z.B. "Was ist heute?", "Welches Jahr haben wir?", "Aktuelle Ereignisse")."""
-
-    else:  # English
-        date_str = now.strftime("%Y-%m-%d")  # 2025-11-15
-        time_str = now.strftime("%H:%M")     # 14:30
-        weekday = now.strftime("%A")         # Monday
-
-        content = f"""You are a helpful AI assistant.
-
-IMPORTANT TIME INFORMATION:
-- Current date: {weekday}, {date_str}
-- Current time: {time_str}
-- Year: {now.year}
-
-Use this information for time-related queries (e.g., "What's today's date?", "What year is it?", "Current events")."""
-
-    return {'role': 'system', 'content': content}
-
-
 def inject_rag_context(
     messages: List[Dict[str, str]],
     rag_context: str,
@@ -314,6 +255,30 @@ def build_history_entry(
         "metadata": metadata or {},
         "timestamp": datetime.now().isoformat(),
     }
+
+
+def build_user_history_entry(content: str) -> Dict[str, str]:
+    """Build an llm_history entry for a user message, stamped with its time.
+
+    Single Source of Truth for the user-side history format. The stamp is
+    written ONCE at creation and never touched again — that is what makes
+    it both a stable cache prefix and a truthful record of when the turn
+    happened.
+
+    Why here and not in the system prompt: the system prompt is rebuilt and
+    prepended on EVERY request, so a clock in it changes the very first
+    tokens each time and invalidates the cached KV state of the entire
+    conversation behind it (~28 s of needless prefill per follow-up turn on
+    a 30k history). Stamped per turn, the prefix stays byte-identical, and
+    the model additionally learns WHEN each earlier turn happened — which a
+    single session-start timestamp could never express.
+    """
+    now = datetime.now()
+    # Feste englische Kuerzel statt %a: locale-unabhaengig und damit
+    # reproduzierbar, egal welche LANG-Variable der Dienst erbt.
+    weekday = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[now.weekday()]
+    stamp = f"{now.strftime('%Y-%m-%d')} {weekday} {now.strftime('%H:%M')}"
+    return {"role": "user", "content": f"[{stamp}] {content}"}
 
 
 def build_llm_history_entry(agent: str, response_clean: str) -> Dict[str, str]:

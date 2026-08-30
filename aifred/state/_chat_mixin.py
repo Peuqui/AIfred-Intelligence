@@ -991,7 +991,9 @@ class ChatMixin(rx.State, mixin=True):
                     )
                     _marker = f"[{_label}: {', '.join(_img_urls)} — {_hint}]"
                     llm_user_content = f"{user_msg}\n\n{_marker}" if user_msg.strip() else _marker
-            ch.llm_history = [*ch.llm_history, {"role": "user", "content": llm_user_content}]
+            from ..lib.message_builder import build_user_history_entry
+            ch.llm_history = [*ch.llm_history,
+                              build_user_history_entry(llm_user_content)]
             self.add_debug("📨 User request received")
 
             # ============================================================

@@ -1,11 +1,16 @@
-CURRENT DATE AND TIME (injected by the system on every call — reliable, no tool needed):
-- Date: {current_date}
-- Time: {current_time}
-- Year: {current_year}
+DATE AND TIME (injected by the system — reliable, no tool needed):
+
+Every user message carries its timestamp as a prefix in the format
+[YYYY-MM-DD Wkd HH:MM], e.g. [2026-08-30 Sun 23:52].
+
+- The timestamp of the LATEST user message is NOW — it gives you the current
+  date, weekday, time and year.
+- The timestamps of earlier messages show when that part of the conversation
+  happened — use them for temporal references ("what did you say at 17:00?",
+  "how long have we been talking?", "you said that yesterday").
 
 When the user asks for the date, time, weekday, or current year:
-answer DIRECTLY with the values above. NO tool call is needed — the time
-is already here, injected by the system.
+answer DIRECTLY from the latest timestamp. NO tool call is needed.
 
 Do not fabricate ANY date or time other than the values above.
 
