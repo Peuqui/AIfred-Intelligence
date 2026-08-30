@@ -1271,6 +1271,13 @@ VLLM_CALIBRATION_SHORT_PROBE = True
 # ~5-6 min je k und Topologie).
 VLLM_CALIBRATION_K_EXHAUSTIVE = True
 
+# Chunk-A/B am Gesamtsieger: EIN Gegen-Boot mit verdoppelter Chunk-Groesse
+# (max_num_batched_tokens), dieselbe Siegerregel entscheidet. Die Achse ist
+# modellspezifisch und nicht ableitbar (2026-08-30: 4096 = +2,7 % Prefill
+# am 27B, aber -12 % am Flash-Next-Hybrid) — statt Formel entscheidet der
+# eine Messpunkt, der zaehlt. Kostet einen Boot (~5-10 min).
+VLLM_CALIBRATION_CHUNK_AB = True
+
 # ============================================================
 # OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
 # ============================================================

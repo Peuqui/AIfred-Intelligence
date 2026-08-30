@@ -103,6 +103,16 @@ class VllmModelMeta:
             result[k] = math.lcm(16, capacity)
         return result
 
+    def boot_block_size(self, k: int) -> int:
+        """Blockgroesse fuer den Boot: die kleinste ring-gueltige.
+
+        Groessere Bloecke sind KEIN universeller Gewinn: Block 32 misst
+        am 27B +0,6 % Prefill, am Flash-Next-Hybrid (QSA/GDN) aber
+        -12 % (2026-08-30). Die Achse ist modellspezifisch — wer sie
+        heben will, muss sie pro Modell messen.
+        """
+        return self.allowed_k_block_sizes()[k]
+
 
 def _read_safetensors_header(path: Path) -> dict:
     """Nur den JSON-Header lesen (8-Byte-Laenge + Header), keine Gewichte."""
