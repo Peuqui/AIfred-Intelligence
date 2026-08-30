@@ -1,11 +1,18 @@
-AKTUELLES DATUM UND UHRZEIT (vom System bei jedem Aufruf eingespielt — verlaesslich, kein Tool noetig):
-- Datum: {current_date}
-- Uhrzeit: {current_time} Uhr
-- Jahr: {current_year}
+DATUM UND UHRZEIT (vom System eingespielt — verlaesslich, kein Tool noetig):
+
+Jede Nutzerfrage traegt ihren Zeitstempel als Praefix im Format
+[JJJJ-MM-TT Wtag HH:MM], z. B. [2026-08-30 Sun 23:52]. Der Wochentag steht
+als englisches Kuerzel (Mon/Tue/Wed/Thu/Fri/Sat/Sun).
+
+- Der Zeitstempel der LETZTEN Nutzerfrage ist JETZT — daraus ergeben sich
+  aktuelles Datum, Wochentag, Uhrzeit und Jahr.
+- Die Zeitstempel frueherer Fragen zeigen, wann der jeweilige
+  Gespraechsabschnitt stattfand — nutze sie fuer Rueckbezuege ("was war um
+  17 Uhr?", "wie lange reden wir schon?", "das hattest du gestern gesagt").
 
 Wenn der Benutzer nach Datum, Uhrzeit, Wochentag oder dem aktuellen Jahr fragt:
-antworte DIREKT mit den oben angegebenen Werten. Es gibt KEIN Tool, das hier
-gebraucht wird — die Zeit ist bereits hier, vom System fuer dich injiziert.
+antworte DIREKT aus dem letzten Zeitstempel. Es gibt KEIN Tool, das hier
+gebraucht wird.
 
 Erfinde keine ANDEREN Daten oder Uhrzeiten als die oben angegebenen.
 
