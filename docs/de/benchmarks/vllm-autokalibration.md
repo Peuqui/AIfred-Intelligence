@@ -10,6 +10,10 @@ bei langem Kontext —, fährt einen Spekulationstiefen-Sweep (MTP, `k`)
 und persistiert das Ergebnis als llama-swap-Eintrag samt
 Betriebspunkt-Profil mit Hardware-Fingerprint.
 
+
+> Der Algorithmus selbst (Entscheidungsregeln, Phasen, Begründungen)
+> ist separat beschrieben: [calibration-vllm.md](../architecture/calibration-vllm.md).
+
 ## Testsystem
 
 | Komponente | Wert |
@@ -188,12 +192,144 @@ Blockarbeit schneller ist.
    Sweeps — mit einer Rückfallklausel, falls sie bei kleinerem k den
    nativen Kontext nicht mehr trägt (Kontext-Vorrang).
 
+## Kachel-Tuning-Runde (2026-08-30 abends)
+
+Nach den Kernel-Fixes wurden beide Attention-Pfade systematisch
+kachel-getunt — gleiche Methodik auf beiden Architekturen: JIT-Probe
+einzelner Kernel-Instanzen mit übersteuerten Kachel-Konstanten,
+Numerik-Check gegen die Referenzkachel, dann Mikrobench in
+Produktionsgeometrie (H=4/HK=1/D=128 pro GPU bei TP2, ~31k paged KV;
+Decode/Verify per q-Skalierung, Prefill als 2048er-Chunk).
+
+### Turing (FA2-Fork): Dispatch und Align wollen entgegengesetzte Kacheln
+
+| Kachel M×N | q=1 | q=2 (Verify) | q=8 | Chunk 2048 |
+|---|---:|---:|---:|---:|
+| 64×64 (vorher, beide Pfade) | 0,298 | 0,298 | 0,246 | 6,40 ms |
+| **64×32** → neuer Dispatch | **0,243** | **0,243** | **0,243** | 6,61 ms |
+| **128×64** → neuer Align | 1,00 | 0,81 | 0,81 | **4,06 ms** |
+
+Der Dispatch-Pfad (Decode/Verify) gewinnt **18 %** durch die halbe
+N-Kachel: 32 statt 48 KB Shared Memory heißt 2 statt 1 CTA pro SM. Der
+Align-Pfad (Prefill-Chunks) gewinnt **37 %** durch die doppelte M-Kachel
+— 128×64 ist zugleich exakt die Kachel des Standard-Kernels, das
+Bitgleichheits-Argument des Align-Pfads bleibt also intakt. Beide
+Tabellen sind getrennt änderbar; Numerik-Suite PASS (2,4e-4, fp16-Rauschen).
+
+**End-to-end ist der Gewinn beim 27B nicht messbar** — weder im Gitter
+(864/33,0 vs. 863/33,1) noch isoliert auf den RTX (A/B mit alter .so:
+533/33,8 vs. 535/33,9 tok/s). Die Attention ist bei diesem Modell nicht
+der Engpass, die NVFP4/QPN8-GEMMs dominieren die Schrittzeit. Die
+Kacheln bleiben trotzdem: keinerlei Regression, und bei D=256-Modellen
+(Flash-Next) wächst der Attention-Anteil.
+
+### Volta (1Cat flash_attn_v100): Vermessung mit demselben Protokoll
+
+Die CUDA-Quellen liegen im 1Cat-Repo (`flash-attention-v100/`,
+~14.000 Zeilen; das Wheel liefert nur die Binärdatei). Messwerte auf
+einer V100 (ms/Aufruf):
+
+| Pfad | q=1 | q=2 | q=8 | Chunk 2048 |
+|---|---:|---:|---:|---:|
+| decode_paged D128 (27B-Pfad) | 0,153 | 0,222 | 0,632 | — |
+| *Turing FA2 getunt (Vergleich)* | *0,243* | *0,243* | *0,243* | *4,06 ms* |
+| prefill_paged D128 | — | — | — | 16,10 ms |
+| decode_paged D256 H6 | 0,209 | 0,353 | 1,153 | — |
+| decode_paged_xqa D256 H6 | 0,168 | 0,272 | 0,805 | — |
+| decode_paged_xqa D256 H8 | 0,183 | 0,300 | 0,897 | — |
+
+Drei Befunde:
+
+1. **Der Volta-Verify skaliert linear mit q** (0,153 → 0,632 für
+   q=1 → 8): Der smallq-Pfad behandelt Verify-Tokens als eigene
+   Batch-Zeilen, jede läuft den kompletten KV einzeln ab. Die getunte
+   Turing-FA2 erledigt q≤8 in einem KV-Durchlauf (flach 0,243). Bei
+   k=2 ist Volta trotzdem leicht vorn — aber das erklärt gemessen,
+   warum die V100 im k-Sweep kleine k bevorzugen: Jedes weitere
+   Spekulationstoken kostet einen vollen KV-Durchlauf. Der
+   handkuratierte XQA-Kernel greift per Gate nur bei D=256 — **das 27B
+   (D=128) nutzt ihn gar nicht.**
+2. **Der Volta-Prefill ist die offene Flanke**: 16,1 ms pro Chunk gegen
+   4,06 auf der getunten RTX (Faktor 4 bei ~15–20 % Hardware-Abstand).
+   Ursache ist die Prefill-Kachel 32×176: M=32 amortisiert den
+   KV-Verkehr schlecht. Größeres M ist in diesem Kernel-Design aber
+   strukturell teuer — die Smem-Bilanz beträgt empirisch
+   ≈ 272·N + 856·M + 4·M·N Bytes (Score-Matrix und Out-Tile liegen im
+   Shared Memory), und an der 96-KB-Wand der V100 passten nur wenige
+   Kandidaten:
+
+   | Kachel M×N | Chunk 2048 |
+   |---|---:|
+   | 32×176 (1Cat-Referenz) | 16,10 ms |
+   | 64×64 | 14,63 ms |
+   | **64×80** | **14,06 ms (−13 %)** |
+   | 48×112, 80×48 | Numerik-Fehler (M muss Vielfaches von 32 sein) |
+
+3. **Die Restlücke ist strukturell**, nicht per Kachel schließbar: kein
+   Double-Buffering der KV-Ladungen (sm70 hat kein cp.async), Score und
+   Out im Shared Memory. Das ist Material für den 1Cat-Kontakt — die
+   Kachel 64×80 als Sofortmaßnahme, die Struktur als Vorschlag.
+
+Der Gegenversuch auf Volta (Kachel 64×80 im Neubau der Extension aus
+dem v1.3.0-Stand, deployed mit Backup) bestätigte dann das
+Gesamtmuster: auch dort end-to-end neutral (863/33,1 vs. 864/33,0).
+Beim 27B auf ~31k Kontext ist die Attention auf keiner der beiden
+Architekturen der Engpass — die NVFP4/QPN8-GEMMs takten jede Stufe.
+Die Kachelgewinne sind eine Investition in lange Kontexte und D=256.
+
+## Flash-Next-Mini-Sweep (2026-08-30 abends)
+
+Statt einer Stunden-Kalibration: gezielter k-Sweep am handkuratierten
+Gitterpunkt (TP2×PP2, Partition 24/24, MML 16.384), Langpunkt 13k,
+Akzeptanz aus den vLLM-Countern. Ergebnis (tok/s):
+
+| Konfiguration | kurz | Prefill | lang 13k | Akzeptanz kurz/lang |
+|---|---:|---:|---:|---|
+| k=4, GMU 0,95 (handkuratiert) | 54,1 | 335 | 12,6 | — |
+| k=3, GMU 0,95 | 38,5 | 334 | 12,8 | — |
+| k=0, GMU 0,95 | 32,2 | 359 | 26,3 | — |
+| **k=4, GMU 0,93** | **54,3** | **392** | **28,3** | 57,9 % / 19,0 % |
+| k=0, GMU 0,93 | 32,2 | 363 | 26,4 | — |
+| k=4, GMU 0,93, MBT 4096/Block 32 | 54,1 | 343 | 26,4 | 57,9 % / 14,8 % |
+
+Vier Befunde:
+
+1. **GMU 0,95 drosselte den Long-Decode auf weniger als die Hälfte**
+   (12,6 statt 28,3): Der QSA-Triton-Kernel und der Verify brauchen pro
+   Schritt temporäre Puffer; ohne freien VRAM zahlt jeder Schritt
+   synchrone Allokator-Strafen (ein Lauf kippte ganz mit Triton-OOM).
+   k=0 war immun — der Druck traf nur den Spekulationspfad. Neuer
+   Betriebspunkt: GMU 0,93.
+2. **Die MTP-Akzeptanz kollabiert am Langkontext** (57,9 % → 19,0 %) —
+   extern bestätigt: vllm#47602 misst dasselbe an Qwen3.6-27B
+   (64,9 % → 39,1 %, Speedup +129 % → −51 %); Ursache dort wie hier:
+   ein flacher Draft-Kopf driftet mit wachsendem Kontext vom
+   Hauptmodell weg. Das 27B ist die Ausnahme, nicht die Regel: Sein
+   Kopf hält 97 % auch lang.
+3. **Spekulation bleibt trotzdem netto positiv** (28,3 vs. 26,4 lang,
+   +69 % kurz) — ein längenabhängiges Abschalten lohnt hier nicht.
+4. **MBT 4096/Block 32 überträgt sich NICHT** (−12 % Prefill, Akzeptanz
+   sinkt weiter): Die Chunk-/Blockgrößen-Achse ist modellspezifisch —
+   die Kalibrations-Defaults bleiben deshalb neutral (2048/16), nur
+   gemessene Betriebspunkte tragen abweichende Werte.
+
+Nebenbefund: k=0 zeigt reproduzierbar Kohärenz 2/3 (mit Spekulation
+3/3) — Kernel-Pfad-Numerik kippt bei Temperatur 0 einen Tie-Break;
+Produktion läuft mit Spekulation.
+
 ## Ausblick
 
-- Qwen3.8-Flash-Next-180B (NVFP4, quantisierter MTP-Block): Kalibration
-  gegen den handkuratierten Betriebspunkt (51,9/68,2 tok/s) steht aus —
-  Ergebnisse folgen hier.
-- Der V100-XQA-Verify könnte vom selben Split-Prinzip profitieren
-  (separater Kernel-Pfad, noch nicht untersucht).
+- Qwen3.8-Flash-Next-180B: Mini-Sweep erledigt (siehe oben), GMU 0,93
+  im Betriebspunkt. Eine volle Kalibration (Topologie-Leiter) bleibt
+  optional; der QSA-Triton-Kernel als dritter Attention-Pfad ist auf
+  sm70/sm75 noch unvermessen.
+- Die Volta-Prefill-Kachel 64×80 ist aus dem v1.3.0-Quellstand neu
+  gebaut und deployed (Mikrobench 14,09 ms bestätigt, Kohärenz 3/3) —
+  end-to-end beim 27B auf ~31k ebenso neutral wie die Turing-Kacheln
+  (863/33,1 vs. 864/33,0): Auf diesem Modell dominieren die
+  NVFP4-GEMMs beide Stufen. Die Kernel-Gewinne werden erst bei deutlich
+  längeren Kontexten (Attention-Anteil wächst mit dem KV) und bei
+  D=256 (Flash-Next) sichtbar. Lineare Verify-Skalierung als Befund an
+  1Cat melden.
 - Offene Nebenbaustelle: `_sm70_qpn8_indices` verbraucht rund 9 % der
   CPU-Zeit je Schritt (Dequant-Hilfspfad).
