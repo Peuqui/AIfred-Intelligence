@@ -28,6 +28,7 @@ from ..config import (
     LLAMASWAP_CONFIG_PATH,
     PROJECT_ROOT,
     VLLM_CALIBRATION_CHUNK_AB,
+    VLLM_CALIBRATION_GMU_AB,
     VLLM_CALIBRATION_K_EXHAUSTIVE,
     VLLM_CALIBRATION_SHORT_PROBE,
 )
@@ -635,10 +636,13 @@ def _sweep_k(
     return best_spec, best_metric, best_k, sweep, best_prefill
 
 
-def _chunk_ab(
+def _challenger_ab(
     best_spec: VllmSpec,
     best_tps: float,
     best_prefill: float,
+    challenger: VllmSpec,
+    tag: str,
+    keep_note: str,
     log_dir: Path,
     progress,
     cancel_check,
@@ -646,60 +650,87 @@ def _chunk_ab(
     label: str,
     k: int,
 ) -> tuple[VllmSpec, float, float, dict | None]:
-    """Ein Gegen-Boot mit doppelter Chunk-Groesse am Gesamtsieger.
+    """Ein Gegen-Boot eines abgewandelten Sieger-Specs, gleiche Siegerregel.
 
-    Die Chunk-Groessen-Achse ist modellspezifisch und nicht ableitbar
-    (2026-08-30: 4096 = +2,7 % Prefill am 27B, -12 % am
-    Flash-Next-Hybrid) — der eine Messpunkt ersetzt die Formel.
     Scheitert der Herausforderer (Boot, Kohaerenz, Probe), bleibt der
-    Amtsinhaber unveraendert.
+    Amtsinhaber unveraendert — ein verlorener Boot ist der Preis der
+    Messung, nie ein Risiko fuer den Betriebspunkt.
     """
-    challenger = VllmSpec(**{
-        **best_spec.__dict__,
-        "max_batched_tokens": best_spec.max_batched_tokens * 2,
-    })
-    mbt = challenger.max_batched_tokens
-    progress(f"⚖️ Chunk A/B: rebooting the winner with chunk {mbt} "
-             f"(instead of {best_spec.max_batched_tokens})...")
     port = find_free_port()
-    log = log_dir / f"boot-chunk-ab-{mbt}.log"
+    log = log_dir / f"boot-{tag}.log"
     try:
         server = boot_vllm(challenger, port, log, BOOT_TIMEOUT_S, cancel_check)
     except VllmBootError as e:
-        progress(f"   ↳ chunk {mbt} boot failed ({e.reason}) — keeping "
-                 f"{best_spec.max_batched_tokens}")
+        progress(f"   ↳ {tag} boot failed ({e.reason}) — keeping {keep_note}")
         return best_spec, best_tps, best_prefill, None
     try:
         ok, total, _ = probe_coherence(server)
         long_metrics = (probe_long_context(server, challenger.mml)
                         if ok == total else None)
     except Exception as probe_err:  # noqa: BLE001
-        progress(f"   ↳ chunk {mbt} probe crashed "
-                 f"({type(probe_err).__name__}) — keeping "
-                 f"{best_spec.max_batched_tokens}")
+        progress(f"   ↳ {tag} probe crashed ({type(probe_err).__name__}) "
+                 f"— keeping {keep_note}")
         return best_spec, best_tps, best_prefill, None
     finally:
         server.shutdown()
     if ok < total or not long_metrics or not long_metrics["tokens"]:
-        progress(f"   ↳ chunk {mbt} incoherent or unprobed — keeping "
-                 f"{best_spec.max_batched_tokens}")
+        progress(f"   ↳ {tag} incoherent or unprobed — keeping {keep_note}")
         return best_spec, best_tps, best_prefill, None
     ld = long_metrics["decode_tps"]
     lp = long_metrics["prefill_tps"]
-    row = {"label": f"{label} (chunk {mbt})", "k": k,
+    row = {"label": f"{label} ({tag})", "k": k,
            "ctx": challenger.mml, "short": 0.0,
            "long_tokens": long_metrics["tokens"], "long_prefill": lp,
            "long_decode": ld, "accept": long_metrics["accept_rate"]}
     if matrix is not None:
         matrix.append(row)
     if _beats(ld, lp, best_tps, best_prefill):
-        progress(f"   ↳ chunk {mbt} wins: long {format_number(ld, 1)} tok/s "
+        progress(f"   ↳ {tag} wins: long {format_number(ld, 1)} tok/s "
                  f"(prefill {format_number(lp, 0)}) — adopting")
         return challenger, ld, lp, row
-    progress(f"   ↳ chunk {mbt} loses (long {format_number(ld, 1)}, "
-             f"prefill {format_number(lp, 0)}) — keeping "
-             f"{best_spec.max_batched_tokens}")
+    progress(f"   ↳ {tag} loses (long {format_number(ld, 1)}, "
+             f"prefill {format_number(lp, 0)}) — keeping {keep_note}")
     return best_spec, best_tps, best_prefill, None
+
+
+def _chunk_ab(best_spec, best_tps, best_prefill, log_dir, progress,
+              cancel_check, matrix, label, k):
+    """Chunk-Groesse ist modellspezifisch und nicht ableitbar (2026-08-30:
+    4096 = +2,7 % Prefill am 27B, -12 % am Flash-Next-Hybrid) — der eine
+    Messpunkt ersetzt die Formel."""
+    challenger = VllmSpec(**{
+        **best_spec.__dict__,
+        "max_batched_tokens": best_spec.max_batched_tokens * 2,
+    })
+    progress(f"⚖️ Chunk A/B: rebooting the winner with chunk "
+             f"{challenger.max_batched_tokens} "
+             f"(instead of {best_spec.max_batched_tokens})...")
+    return _challenger_ab(
+        best_spec, best_tps, best_prefill, challenger,
+        f"chunk {challenger.max_batched_tokens}",
+        f"chunk {best_spec.max_batched_tokens}",
+        log_dir, progress, cancel_check, matrix, label, k)
+
+
+def _gmu_ab(best_spec, best_tps, best_prefill, log_dir, progress,
+            cancel_check, matrix, label, k):
+    """Weiche Allokator-Druck-Erkennung: der Sieger einmal mit GMU-0,02.
+
+    Harte OOMs faengt der Sweep; weicher Druck wirft keinen Fehler,
+    sondern frisst still Durchsatz (Flash-Next 2026-08-30: GMU 0,95
+    halbierte den Long-Decode auf 12,6 tok/s, 0,93 = 28,3 — ohne jede
+    Meldung). Traegt die niedrigere GMU den Kontext nicht mehr,
+    scheitert ihr Boot und der Amtsinhaber bleibt (Kontext-Vorrang).
+    """
+    lower = round(best_spec.gmu - 0.02, 2)
+    challenger = VllmSpec(**{**best_spec.__dict__, "gmu": lower})
+    progress(f"⚖️ GMU A/B: rebooting the winner with GMU {lower} "
+             f"(instead of {best_spec.gmu}) to detect silent "
+             f"allocator pressure...")
+    return _challenger_ab(
+        best_spec, best_tps, best_prefill, challenger,
+        f"gmu {lower}", f"gmu {best_spec.gmu}",
+        log_dir, progress, cancel_check, matrix, label, k)
 
 
 def calibrate_vllm_checkpoint(
@@ -884,6 +915,11 @@ def calibrate_vllm_checkpoint(
         best_spec, best_tps, best_prefill, ab_row = _chunk_ab(
             best_spec, best_tps, best_prefill, log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
+    if VLLM_CALIBRATION_GMU_AB:
+        best_spec, best_tps, best_prefill, gmu_row = _gmu_ab(
+            best_spec, best_tps, best_prefill, log_dir, progress,
+            cancel_check, matrix, best_rung.label, best_k)
+        ab_row = gmu_row or ab_row
 
     # --- Phase F: Persistierung -----------------------------------------
     def _matrix_row(label: str, k: int) -> dict | None:

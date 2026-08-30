@@ -1278,6 +1278,12 @@ VLLM_CALIBRATION_K_EXHAUSTIVE = True
 # eine Messpunkt, der zaehlt. Kostet einen Boot (~5-10 min).
 VLLM_CALIBRATION_CHUNK_AB = True
 
+# GMU-A/B am Gesamtsieger: EIN Gegen-Boot mit GMU-0,02. Erkennt WEICHEN
+# Allokator-Druck, der keinen OOM wirft, sondern still Durchsatz frisst
+# (Flash-Next 2026-08-30: GMU 0,95 halbierte den Long-Decode auf
+# 12,6 tok/s, 0,93 = 28,3 — ohne jede Fehlermeldung). Kostet einen Boot.
+VLLM_CALIBRATION_GMU_AB = True
+
 # ============================================================
 # OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
 # ============================================================
