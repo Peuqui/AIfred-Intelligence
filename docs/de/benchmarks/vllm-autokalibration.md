@@ -62,8 +62,9 @@ Betriebspunkt-Profil mit Hardware-Fingerprint.
 
 ## Ergebnisse Qwen3.8-27B-NVFP4 (2026-08-30)
 
-Vollständige Matrix: 3 Topologien × k=0…7, kurz und lang, ~2 Stunden,
-vollautomatisch. Alle Werte tok/s, Kohärenz 3/3 bei jedem Messpunkt.
+Vollständige Matrix: 3 Topologien × k=0…7, kurz und lang, 2 h 03 min,
+vollautomatisch (08:58–11:01). Alle Werte tok/s, Kohärenz 3/3 bei jedem
+Messpunkt.
 
 | Topologie | k | Kontext | kurz | Prefill | **lang** | Akzeptanz |
 |---|---:|---:|---:|---:|---:|---:|
@@ -77,18 +78,26 @@ vollautomatisch. Alle Werte tok/s, Kohärenz 3/3 bei jedem Messpunkt.
 | TP2 RTX 8000 | 6 | 262.144 | 60,2 | 503 | 30,1 | 34 % |
 | TP2 RTX 8000 | 7 | 262.144 | 56,1 | 504 | 26,7 | 29 % |
 | TP2 V100 | 0 | 235.200 | 41,0 | 667 | 30,3 | — |
-| **TP2 V100 (Speed)** | **2** | 132.000 | 57,5 | 581 | **38,1** | 97 % |
+| TP2 V100 | 1 | 183.200 | 48,9 | 582 | 30,9 | 85 % |
+| **TP2 V100 (Speed-Variante)** | **2** | 132.000 | 57,5 | 581 | **38,1** | 97 % |
 | TP2 V100 | 3 | 129.600 | 61,0 | 580 | 37,2 | 66 % |
+| TP2 V100 | 4 | 126.480 | 63,1 | 587 | 31,6 | 50 % |
 | TP2 V100 | 5 | 172.992 | 60,6 | 587 | 29,5 | 40 % |
+| TP2 V100 | 6 | 170.544 | 58,1 | 587 | 28,6 | 34 % |
 | TP2 V100 | 7 | 168.064 | 55,6 | 588 | 25,3 | 29 % |
 | TP2×PP2-Gitter | 0 | 262.144 | 40,6 | 839 | 29,4 | — |
+| TP2×PP2-Gitter | 1 | 262.144 | 52,8 | 828 | 29,2 | 86 % |
 | **Gitter (Betriebspunkt)** | **2** | **262.144** | 61,0 | **833** | **36,9** | 97 % |
 | TP2×PP2-Gitter | 3 | 262.144 | 62,6 | 833 | 35,7 | 66 % |
+| TP2×PP2-Gitter | 4 | 262.144 | 63,8 | 832 | 31,3 | 50 % |
 | TP2×PP2-Gitter | 5 | 262.144 | 61,2 | 832 | 29,7 | 40 % |
+| TP2×PP2-Gitter | 6 | 262.144 | 58,4 | 832 | 28,8 | 34 % |
 | TP2×PP2-Gitter | 7 | 262.144 | 55,4 | 824 | 25,6 | 29 % |
 
-(V100- und Gitter-Zeilen gekürzt; die vollständige Matrix liegt als
-`final-matrix-2026-08-30.txt` im v100-skinny-Repo.)
+Die Kontextwerte der V100-Zeilen unterscheiden sich je k, weil der
+Draftkopf KV-Budget kostet und die Kalibration dort reduzierten Kontext
+zulässt (Speed-Kandidat); auf den Voll-Kontext-Topologien tragen alle k
+die nativen 262.144.
 
 **Gewählter Betriebspunkt:** TP2×PP2-Gitter, k=2, **36,9 tok/s
 Lang-Decode bei vollem 262k-Kontext**, dazu 833 tok/s Prefill und
@@ -170,6 +179,14 @@ Blockarbeit schneller ist.
 6. **vLLMs Kontextgrenzen-Schätzung ist mit geladenem MTP-Draftkopf zu
    optimistisch** — die Kalibration übernimmt sie deshalb iterativ über
    mehrere Boot-Runden.
+7. **Ein Proben-OOM ist eine Topologie-Eigenschaft, kein k-Problem.** In
+   diesem Lauf brauchten sechs von sieben Gitter-Sprossen denselben
+   Nachboot mit gesenkter GMU, weil die volle V100-Stufe dem
+   Dequant-Workspace keine Luft ließ; auf den V100 kaskadierte es
+   zusätzlich über mehrere Kontextreduktionen. Rund 30 der 123 Minuten
+   gingen dafür drauf. Die gelernte GMU gilt seitdem für den Rest des
+   Sweeps — mit einer Rückfallklausel, falls sie bei kleinerem k den
+   nativen Kontext nicht mehr trägt (Kontext-Vorrang).
 
 ## Ausblick
 

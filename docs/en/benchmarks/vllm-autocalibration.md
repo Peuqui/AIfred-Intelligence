@@ -59,8 +59,9 @@ fingerprint.
 
 ## Results Qwen3.8-27B-NVFP4 (2026-08-30)
 
-Complete matrix: 3 topologies × k=0…7, short and long, ~2 hours, fully
-automatic. All values tok/s, coherence 3/3 at every measurement point.
+Complete matrix: 3 topologies × k=0…7, short and long, 2 h 03 min, fully
+automatic (08:58–11:01). All values tok/s, coherence 3/3 at every
+measurement point.
 
 | Topology | k | Context | short | prefill | **long** | acceptance |
 |---|---:|---:|---:|---:|---:|---:|
@@ -74,18 +75,26 @@ automatic. All values tok/s, coherence 3/3 at every measurement point.
 | TP2 RTX 8000 | 6 | 262,144 | 60.2 | 503 | 30.1 | 34 % |
 | TP2 RTX 8000 | 7 | 262,144 | 56.1 | 504 | 26.7 | 29 % |
 | TP2 V100 | 0 | 235,200 | 41.0 | 667 | 30.3 | — |
-| **TP2 V100 (speed)** | **2** | 132,000 | 57.5 | 581 | **38.1** | 97 % |
+| TP2 V100 | 1 | 183,200 | 48.9 | 582 | 30.9 | 85 % |
+| **TP2 V100 (speed variant)** | **2** | 132,000 | 57.5 | 581 | **38.1** | 97 % |
 | TP2 V100 | 3 | 129,600 | 61.0 | 580 | 37.2 | 66 % |
+| TP2 V100 | 4 | 126,480 | 63.1 | 587 | 31.6 | 50 % |
 | TP2 V100 | 5 | 172,992 | 60.6 | 587 | 29.5 | 40 % |
+| TP2 V100 | 6 | 170,544 | 58.1 | 587 | 28.6 | 34 % |
 | TP2 V100 | 7 | 168,064 | 55.6 | 588 | 25.3 | 29 % |
 | TP2×PP2 grid | 0 | 262,144 | 40.6 | 839 | 29.4 | — |
+| TP2×PP2 grid | 1 | 262,144 | 52.8 | 828 | 29.2 | 86 % |
 | **Grid (operating point)** | **2** | **262,144** | 61.0 | **833** | **36.9** | 97 % |
 | TP2×PP2 grid | 3 | 262,144 | 62.6 | 833 | 35.7 | 66 % |
+| TP2×PP2 grid | 4 | 262,144 | 63.8 | 832 | 31.3 | 50 % |
 | TP2×PP2 grid | 5 | 262,144 | 61.2 | 832 | 29.7 | 40 % |
+| TP2×PP2 grid | 6 | 262,144 | 58.4 | 832 | 28.8 | 34 % |
 | TP2×PP2 grid | 7 | 262,144 | 55.4 | 824 | 25.6 | 29 % |
 
-(V100 and grid rows abridged; the complete matrix is kept as
-`final-matrix-2026-08-30.txt` in the v100-skinny repo.)
+The context values differ per k on the V100 rows because the draft head
+costs KV budget and the calibration allows reduced context there (speed
+candidate); on the full-context topologies every k carries the native
+262,144.
 
 **Chosen operating point:** TP2×PP2 grid, k=2, **36.9 tok/s
 long-context decode at the full 262k context**, plus 833 tok/s prefill
@@ -165,6 +174,14 @@ block work is faster.
 6. **vLLM's context-limit estimate is too optimistic with an MTP draft
    head loaded** — the calibration therefore adopts it iteratively across
    several boot rounds.
+7. **A probe OOM is a property of the topology, not of a single k.** In
+   this run six of seven grid rungs needed the same re-boot at a lowered
+   GMU, because the full V100 stage left no room for the dequant
+   workspace; on the V100 it additionally cascaded through several
+   context reductions. About 30 of the 123 minutes went into that. The
+   learned GMU is now carried through the rest of the sweep — with a
+   fallback should it no longer carry the native context at a smaller k
+   (context priority).
 
 ## Outlook
 
