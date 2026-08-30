@@ -143,6 +143,8 @@ class VllmSpec:
     capture_sizes: list[int] | None = None
     pp_partition: str | None = None  # z.B. "24,24"
     max_num_seqs: int = 4
+    # Chunk-Groesse ist modellspezifisch (2026-08-30: 4096 = +2,7 %
+    # Prefill am 27B, aber -12 % am Flash-Next-Hybrid) — neutraler Default.
     max_batched_tokens: int = 2048
     language_model_only: bool = False
     # Attention-Backend des Drafters (abhaengig von der Compute-Klasse der

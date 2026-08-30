@@ -27,6 +27,7 @@ from typing import Callable, Iterator
 from ..config import (
     LLAMASWAP_CONFIG_PATH,
     PROJECT_ROOT,
+    VLLM_CALIBRATION_CHUNK_AB,
     VLLM_CALIBRATION_K_EXHAUSTIVE,
     VLLM_CALIBRATION_SHORT_PROBE,
 )
@@ -387,7 +388,7 @@ def _measure_topology(
             checkpoint=meta.checkpoint, served_name=entry_name,
             gpu_ids=cand.gpu_ids, tp=cand.tp, pp=cand.pp,
             gmu=_gmu_for(cand_gpus, reserve_mb), mml=mml, k=0,
-            block_size=meta.allowed_k_block_sizes()[0],
+            block_size=meta.boot_block_size(0),
             pp_partition=cand.pp_partition,
             language_model_only=meta.multimodal,
         )
@@ -510,7 +511,6 @@ def _sweep_k(
     # Gitter-Sprossen, je ~2 min; bei 150-GB-Modellen ein Vielfaches).
     sweep_gmu = rung.spec.gmu
     for k in _k_candidates(meta, runtime):
-        allowed = meta.allowed_k_block_sizes()
         capture = _capture_sizes_for(k, runtime)
         spec_attn = _spec_attn_for(rung.spec, gpus, smi, runtime)
         mml_k = rung.spec.mml
@@ -532,13 +532,13 @@ def _sweep_k(
             for attempt in range(3):
                 spec_k = VllmSpec(
                     **{**rung.spec.__dict__, "k": k, "mml": mml_k,
-                       "gmu": gmu_k, "block_size": allowed[k],
+                       "gmu": gmu_k, "block_size": meta.boot_block_size(k),
                        "capture_sizes": capture, "spec_attn_backend": spec_attn},
                 )
                 port = find_free_port()
                 log = log_dir / f"boot-{rung.spec.tp}x{rung.spec.pp}-k{k}-try{oom_round}{attempt}.log"
                 if oom_round == 0 and attempt == 0:
-                    progress(f"🎲 Probing k={k} on {rung.label} (block {allowed[k]}, "
+                    progress(f"🎲 Probing k={k} on {rung.label} (block {meta.boot_block_size(k)}, "
                              f"capture {capture}, spec-attn {spec_attn or 'default'})...")
                 try:
                     server = boot_vllm(spec_k, port, log, BOOT_TIMEOUT_S, cancel_check)
@@ -626,13 +626,80 @@ def _sweep_k(
         best_spec = VllmSpec(
             **{**rung.spec.__dict__, "k": best_k, "mml": best_mml,
                "gmu": best_gmu,
-               "block_size": meta.allowed_k_block_sizes()[best_k],
+               "block_size": meta.boot_block_size(best_k),
                "capture_sizes": _capture_sizes_for(best_k, runtime),
                "spec_attn_backend": _spec_attn_for(rung.spec, gpus, smi, runtime)},
         )
     else:
         best_spec = rung.spec
     return best_spec, best_metric, best_k, sweep, best_prefill
+
+
+def _chunk_ab(
+    best_spec: VllmSpec,
+    best_tps: float,
+    best_prefill: float,
+    log_dir: Path,
+    progress,
+    cancel_check,
+    matrix: list[dict] | None,
+    label: str,
+    k: int,
+) -> tuple[VllmSpec, float, float, dict | None]:
+    """Ein Gegen-Boot mit doppelter Chunk-Groesse am Gesamtsieger.
+
+    Die Chunk-Groessen-Achse ist modellspezifisch und nicht ableitbar
+    (2026-08-30: 4096 = +2,7 % Prefill am 27B, -12 % am
+    Flash-Next-Hybrid) — der eine Messpunkt ersetzt die Formel.
+    Scheitert der Herausforderer (Boot, Kohaerenz, Probe), bleibt der
+    Amtsinhaber unveraendert.
+    """
+    challenger = VllmSpec(**{
+        **best_spec.__dict__,
+        "max_batched_tokens": best_spec.max_batched_tokens * 2,
+    })
+    mbt = challenger.max_batched_tokens
+    progress(f"⚖️ Chunk A/B: rebooting the winner with chunk {mbt} "
+             f"(instead of {best_spec.max_batched_tokens})...")
+    port = find_free_port()
+    log = log_dir / f"boot-chunk-ab-{mbt}.log"
+    try:
+        server = boot_vllm(challenger, port, log, BOOT_TIMEOUT_S, cancel_check)
+    except VllmBootError as e:
+        progress(f"   ↳ chunk {mbt} boot failed ({e.reason}) — keeping "
+                 f"{best_spec.max_batched_tokens}")
+        return best_spec, best_tps, best_prefill, None
+    try:
+        ok, total, _ = probe_coherence(server)
+        long_metrics = (probe_long_context(server, challenger.mml)
+                        if ok == total else None)
+    except Exception as probe_err:  # noqa: BLE001
+        progress(f"   ↳ chunk {mbt} probe crashed "
+                 f"({type(probe_err).__name__}) — keeping "
+                 f"{best_spec.max_batched_tokens}")
+        return best_spec, best_tps, best_prefill, None
+    finally:
+        server.shutdown()
+    if ok < total or not long_metrics or not long_metrics["tokens"]:
+        progress(f"   ↳ chunk {mbt} incoherent or unprobed — keeping "
+                 f"{best_spec.max_batched_tokens}")
+        return best_spec, best_tps, best_prefill, None
+    ld = long_metrics["decode_tps"]
+    lp = long_metrics["prefill_tps"]
+    row = {"label": f"{label} (chunk {mbt})", "k": k,
+           "ctx": challenger.mml, "short": 0.0,
+           "long_tokens": long_metrics["tokens"], "long_prefill": lp,
+           "long_decode": ld, "accept": long_metrics["accept_rate"]}
+    if matrix is not None:
+        matrix.append(row)
+    if _beats(ld, lp, best_tps, best_prefill):
+        progress(f"   ↳ chunk {mbt} wins: long {format_number(ld, 1)} tok/s "
+                 f"(prefill {format_number(lp, 0)}) — adopting")
+        return challenger, ld, lp, row
+    progress(f"   ↳ chunk {mbt} loses (long {format_number(ld, 1)}, "
+             f"prefill {format_number(lp, 0)}) — keeping "
+             f"{best_spec.max_batched_tokens}")
+    return best_spec, best_tps, best_prefill, None
 
 
 def calibrate_vllm_checkpoint(
@@ -812,6 +879,12 @@ def calibrate_vllm_checkpoint(
              f"k={best_k}, {format_number(best_tps, 1)} tok/s "
              f"(TP{best_spec.tp}×PP{best_spec.pp}, ctx {format_number(best_spec.mml)})")
 
+    ab_row: dict | None = None
+    if VLLM_CALIBRATION_CHUNK_AB:
+        best_spec, best_tps, best_prefill, ab_row = _chunk_ab(
+            best_spec, best_tps, best_prefill, log_dir, progress,
+            cancel_check, matrix, best_rung.label, best_k)
+
     # --- Phase F: Persistierung -----------------------------------------
     def _matrix_row(label: str, k: int) -> dict | None:
         return next((r for r in matrix
@@ -819,7 +892,7 @@ def calibrate_vllm_checkpoint(
 
     profile_path = persist_operating_point(
         best_spec, best_tps, best_sweep, meta,
-        long_ctx=_matrix_row(best_rung.label, best_k))
+        long_ctx=ab_row or _matrix_row(best_rung.label, best_k))
     progress(f"💾 Operating point saved: {profile_path}")
 
     # Speed-Variante nur persistieren, wenn sie den Betriebspunkt schlaegt —
