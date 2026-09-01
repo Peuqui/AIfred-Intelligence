@@ -185,6 +185,31 @@ Use this information IN ADDITION to your training knowledge when relevant to the
     messages.insert(position, rag_message)
 
 
+def inject_before_question(
+    messages: List[Dict[str, str]],
+    content: str,
+    position: int = -1
+) -> None:
+    """Flüchtigen Block als eigene Nachricht vor die Nutzerfrage haengen.
+
+    Fuer alles, was sich von Turn zu Turn aendert: Agenten-Erinnerungen,
+    erzwungene Web-Recherche. NICHT an den System-Prompt anhaengen — bei
+    Erinnerungen etwa ist der Abruf FRAGENABHAENGIG
+    (``prepare_agent_toolkit(agent, user_query, ...)``), der Block aendert
+    sich also von Turn zu Turn oder faellt ganz weg. Am System-Prompt
+    haengend verschiebt er die vordersten Token jeder Anfrage und entwertet
+    den Praefix-Cache fuer den GESAMTEN Verlauf dahinter — dieselbe Falle
+    wie der Zeitstempel vor d3c4e9c6. Gemessen am 2026-09-01 mit
+    DeepSeek-V4-Flash: 32.842 neu gerechnete Token fuer einen
+    13.325-Token-Prompt, TTFT 102 s.
+
+    Auch der RAG-Wrapper ist hier falsch — der behauptet
+    "Recherche-Ergebnisse aus dem Internet", was fuer Erinnerungen nicht
+    stimmt. Deshalb ein eigener, schlichter Rahmen.
+    """
+    messages.insert(position, {"role": "user", "content": content})
+
+
 def inject_vision_json_context(
     messages: List[Dict[str, str]],
     vision_json: dict,

@@ -165,12 +165,15 @@ async def call_llm(
     # and the state-based path above). DO NOT route through rag_context — that wraps the
     # content in the "# AKTUELLE RECHERCHE-ERGEBNISSE" web-search template which confuses
     # the agent when the payload is really agent memory, not web research.
-    if memory_ctx:
-        system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-        mem_tok = estimate_tokens([{"content": memory_ctx}])
-        yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok)"}
-
     messages.insert(0, {"role": "system", "content": system_prompt})
+
+    # Erinnerungen ans ENDE, direkt vor die Nutzerfrage — nicht an den
+    # System-Prompt. Begruendung in message_builder.inject_memory_context.
+    if memory_ctx:
+        from .message_builder import inject_before_question
+        inject_before_question(messages, memory_ctx)
+        mem_tok = estimate_tokens([{"content": memory_ctx}])
+        yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok, before question)"}
 
     # Inject RAG context — ONLY for real web/document research results.
     # The rag_context wrapper (shared/rag_context.txt) tells the LLM:

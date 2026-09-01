@@ -17,6 +17,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 from .llm_client import LLMClient, build_llm_options
 from .formatting import format_number, format_thinking_process
 from .message_builder import build_messages_from_llm_history
+from .message_builder import inject_before_question
 from .i18n import t
 from .context_manager import (
     estimate_tokens,
@@ -783,9 +784,10 @@ async def _run_agent_direct_response(
         )
         mem_tok = 0
         if memory_ctx:
-            system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+            # Eingehaengt wird weiter unten, NACH dem System-Prompt —
+            # siehe message_builder.inject_before_question.
             mem_tok = estimate_tokens([{"content": memory_ctx}])
-            state.add_debug(f"🧠 Memory context injected ({mem_tok:,} tok)")
+            state.add_debug(f"🧠 Memory context injected ({mem_tok:,} tok, before question)")
         if not memory_enabled:
             state.add_debug("🔒 Incognito mode (no memory)")
         yield  # type: ignore[misc]  # Flush debug messages (RAG, memory, toolkit)
@@ -814,11 +816,22 @@ async def _run_agent_direct_response(
         # Fence it as untrusted data — the scraped page content is fully
         # attacker-controllable and would otherwise sit at system-prompt authority
         # (indirect prompt-injection vector).
+        messages.insert(0, {"role": "system", "content": system_prompt})
+
+        # Beides ans ENDE, direkt vor die Nutzerfrage. Am System-Prompt
+        # haengend verschieben diese Bloecke die vordersten Token jeder
+        # Anfrage und entwerten den Praefix-Cache fuer den ganzen Verlauf
+        # dahinter (2026-09-01: 32.842 neu gerechnete Token fuer einen
+        # 13.325-Token-Prompt). Beim Recherche-Block kommt hinzu, dass
+        # gescrapter Fremdinhalt so gar nicht erst auf System-Prompt-
+        # Autoritaet sitzt — die Umzaeunung bleibt zusaetzlich bestehen.
+        if memory_ctx:
+            inject_before_question(messages, memory_ctx)
         if research_context:
             from .security import wrap_untrusted_data
-            system_prompt = f"{system_prompt}\n\n{wrap_untrusted_data(research_context, 'web_research')}"
-
-        messages.insert(0, {"role": "system", "content": system_prompt})
+            inject_before_question(
+                messages, wrap_untrusted_data(research_context, 'web_research')
+            )
 
         agent_temp = resolve_agent_temperature(state, agent)
 
@@ -1046,11 +1059,15 @@ async def run_sokrates_analysis(
 
             # Combine: minimal first, then mode-specific, then memory
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
-            if sokrates_memory_ctx:
-                system_prompt = f"{system_prompt}\n\n{sokrates_memory_ctx}"
 
             # Build messages + compression check
             sokrates_messages = _build_debate_messages(state, system_prompt, "sokrates", detected_lang)
+            # Erinnerungen ans Ende statt an den System-Prompt (siehe
+            # message_builder.inject_before_question). Sokrates' Liste endet
+            # mit dem letzten Verlaufseintrag, nicht mit einer Nutzerfrage —
+            # der Block landet also davor.
+            if sokrates_memory_ctx:
+                inject_before_question(sokrates_messages, sokrates_memory_ctx)
 
             sokrates_prompt_tokens = _estimate_prompt_tokens(system_prompt)
             async for _ in _check_compression_if_needed(state, llm_client, sokrates_num_ctx, sokrates_prompt_tokens):
@@ -1298,14 +1315,14 @@ async def run_tribunal(
             sokrates_minimal = get_agent_system_prompt("sokrates", "task", lang=detected_lang, multi_agent=True, memory=memory_enabled)
             mode_prompt = get_sokrates_tribunal_prompt(round_num=round_num, lang=detected_lang)
             system_prompt = f"{sokrates_minimal}\n\n{mode_prompt}"
-            if t_sokrates_memory_ctx:
-                system_prompt = f"{system_prompt}\n\n{t_sokrates_memory_ctx}"
 
             sokrates_prompt_tokens = _estimate_prompt_tokens(system_prompt)
             async for _ in _check_compression_if_needed(state, llm_client, sokrates_num_ctx, sokrates_prompt_tokens):
                 yield
 
             sokrates_messages = _build_debate_messages(state, system_prompt, "sokrates", detected_lang)
+            if t_sokrates_memory_ctx:
+                inject_before_question(sokrates_messages, t_sokrates_memory_ctx)
 
             result = None
             async for item in _execute_agent_stream(
@@ -1569,9 +1586,6 @@ async def run_symposion(
                 if round_num == 1 and mem_ctx:
                     memory_ctx = mem_ctx
 
-                if memory_ctx:
-                    system_prompt = f"{system_prompt}\n\n{memory_ctx}"
-
                 # Build messages: system + conversation history
                 messages: list[dict[str, str]] = [{"role": "system", "content": system_prompt}]
                 for msg in conversation:
@@ -1581,6 +1595,14 @@ async def run_symposion(
                         messages.append({"role": "assistant", "content": msg["content"]})
                     else:
                         messages.append({"role": "user", "content": msg["content"]})
+
+                # Erinnerungen ans Ende. Sie kommen nur in Runde 1 vor; am
+                # System-Prompt haengend hatte Runde 1 damit einen voellig
+                # anderen Praefix als Runde 2 (die stattdessen den
+                # Reflexions-Prompt bekommt). So ist Runde 1 ein echter
+                # Praefix von Runde 2 und der Cache traegt durch.
+                if memory_ctx:
+                    inject_before_question(messages, memory_ctx)
 
                 # Build options (use agent's temperature from state)
                 agent_temp = resolve_agent_temperature(state, agent_id)
