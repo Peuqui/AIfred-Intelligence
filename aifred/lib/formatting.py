@@ -289,17 +289,26 @@ def format_metadata(metadata_text: str) -> str:
     return f'*( {text} )*'
 
 
-def _format_prefill(prompt_per_sec: float | None) -> str:
+def _format_prefill(prompt_per_sec: float | None, tokens: int = 0) -> str:
     """Prefill-Rate fuer die Fussnote. Leer, wenn es nichts zu zeigen gibt.
 
     ``None`` heisst NICHT MESSBAR (Cache-Treffer unbekannt) — das wird als
     "n/a" sichtbar gemacht, statt die Zahl stillschweigend wegzulassen.
+
+    Die Bezugsmenge steht in Klammern dahinter, weil die Rate ohne sie
+    nicht einzuordnen ist: bei warmem Praefix-Cache bleiben von einer
+    Folgefrage oft nur ein Dutzend gerechnete Token, und dann misst die
+    Rate nur noch den Grundaufwand (2026-09-01: 18,3 tok/s bei 12 Token
+    gegen 1.187 tok/s im Kaltstart).
     """
     if prompt_per_sec is None:
         return "PP:\u00A0n/a"
     if not prompt_per_sec:
         return ""
-    return f"PP:\u00A0{format_number(prompt_per_sec, 1)}\u00A0tok/s"
+    text = f"PP:\u00A0{format_number(prompt_per_sec, 1)}\u00A0tok/s"
+    if tokens > 0:
+        text += f"\u00A0({format_number(tokens)}\u00A0tok)"
+    return text
 
 
 def format_performance_footer(metadata: dict) -> str:
@@ -324,7 +333,9 @@ def format_performance_footer(metadata: dict) -> str:
     if metadata.get("ttft"):
         perf_parts.append(f"TTFT:\u00A0{format_duration_s(metadata['ttft'], 2).replace(' ', chr(0xA0))}")
 
-    prefill_part = _format_prefill(metadata.get("prompt_per_sec"))
+    prefill_part = _format_prefill(
+        metadata.get("prompt_per_sec"), metadata.get("prompt_tokens_computed") or 0
+    )
     if prefill_part:
         perf_parts.append(prefill_part)
 
@@ -447,10 +458,12 @@ def build_inference_metadata(
     # der Wert stiege mit dem Cache statt mit der Hardware (gemessen
     # 2026-09-01: 1.587 gegen ehrliche 468 tok/s im selben Vergleich).
     # Ist beides nicht zu haben, wird KEINE Rate ausgegeben.
-    prompt_per_sec = prefill_tokens_per_second(
-        server_rate=(backend_metrics or {}).get("prompt_per_second"),
-        prompt_tokens=(backend_metrics or {}).get("tokens_prompt", 0) or 0,
-        cached_tokens=(backend_metrics or {}).get("tokens_prompt_cached"),
+    _bm = backend_metrics or {}
+    prompt_per_sec, prompt_tokens_computed = prefill_tokens_per_second(
+        server_rate=_bm.get("prompt_per_second"),
+        server_tokens=int(_bm.get("tokens_prompt_computed") or 0),
+        prompt_tokens=_bm.get("tokens_prompt", 0) or 0,
+        cached_tokens=_bm.get("tokens_prompt_cached"),
         elapsed_s=ttft or 0.0,
     )
 
@@ -458,6 +471,7 @@ def build_inference_metadata(
     metadata_dict: dict = {
         "ttft": ttft,
         "prompt_per_sec": prompt_per_sec,
+        "prompt_tokens_computed": prompt_tokens_computed,
         "inference_time": inference_time,
         "tokens_per_sec": tokens_per_sec,
         "source": source,
@@ -471,7 +485,7 @@ def build_inference_metadata(
     info_parts: list[str] = []
     if ttft:
         perf_parts.append(f"TTFT:\u00A0{format_duration_s(ttft, 2).replace(' ', chr(0xA0))}")
-    prefill_part = _format_prefill(prompt_per_sec)
+    prefill_part = _format_prefill(prompt_per_sec, prompt_tokens_computed)
     if prefill_part:
         perf_parts.append(prefill_part)
     perf_parts.append(f"{format_number(tokens_per_sec, 1)}\u00A0tok/s")
@@ -518,7 +532,8 @@ def build_inference_metadata(
     if prompt_per_sec is None:
         suffixes.append("PP: n/a")
     elif prompt_per_sec:
-        suffixes.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
+        basis = f" ({format_number(prompt_tokens_computed)} tok)" if prompt_tokens_computed else ""
+        suffixes.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s{basis}")
     if response_chars > 0:
         suffixes.append(f"{format_number(response_chars)} chars")
     if history_tokens > 0:
