@@ -47,6 +47,8 @@ misses the problem entirely.
 | Qwen3.8-27B | NVFP4 (Unsloth), run 2 | vLLM | 0 | 0 | **whole clauses, one complete English closing sentence** | no |
 | Flash-Next-180B-A4B | NVFP4 (RadixArk) | vLLM | **7** | yes | yes | yes |
 | Qwen3.5-122B-A10B | NVFP4 (ModelOpt) | vLLM | 0 | 0 | **two complete clauses** | no (declined honestly) |
+| **Qwen3.5-122B-A10B** | **UD-Q4_K_XL** | llama.cpp | 0 | 0 | persona only | no (three real alternatives) |
+| Qwen3.5-122B-A10B | UD-Q8_K_XL | llama.cpp | 0 | 0 | two two-word phrases | no (30 sentences by elimination) |
 
 ### The winner
 
@@ -97,6 +99,92 @@ the time — see the correction above). The
 footer's prefill figures (611 → 992 → 1,139 tok/s) are TTFT divisions and
 rise only because a fixed overhead is amortised over more tokens; vLLM's
 own counter reports 1,187 tok/s.
+
+### The same model as a Q4 GGUF: cleaner AND faster (2026-09-01)
+
+`Qwen3.5-122B-A10B-MTP-GGUF/UD-Q4_K_XL` under llama.cpp — the same
+checkpoint at comparable bit depth to the NVFP4, and better on every axis.
+
+**Language:** zero CJK, zero soft hyphens, no split words, and **not one
+English multi-word phrase**. The NVFP4's two clauses have no counterpart
+here; the only English words are the persona-sanctioned `indeed` and
+`quite`. Sentence counts 30/30/28 against 30 announced — both factual
+answers exact.
+
+**Facts:** no fabricated attribution. Where the NVFP4 invented a Humboldt
+observation, the Q4 adds three correct extras: Alexander's dark band, the
+effect of drop size, and fog bows. Minor flaws remain: a wrong article
+plus malformed compound in "Der berühmte Schrödingersche
+Katzen-Gedankenillustration", two overstatements ("exponentially higher
+computing power", "absolutely tap-proof communication"), and one muddled
+sentence about full circles at low sun.
+
+**The trap:** Coandă still unrecognised, but handled better than by any
+model tested so far. The reasoning explicitly considers "a deliberate
+test of whether I invent things", and the answer offers three **real**
+effects with correct one-line descriptions — Kundt, Kondo and Coriolis.
+The NVFP4 guessed "Kundalini" at the same point.
+
+**Throughput:** decode 60.2 · 58.4 · 57.6 tok/s against 35.0 · 32.4 · 32.3
+for the NVFP4 — a factor of 1.7 to 1.8. Prefill 826 · 468 · 439 tok/s over
+2,975 · 771 · 698 actually computed tokens; the decline is arithmetic
+(fixed overhead, smaller numerator), not lost performance.
+
+Part of the speed comes from speculation: the llama-swap entry runs
+`--spec-type draft-mtp` with `--spec-draft-n-max 3`, and the draft head
+weighs **1.47 GiB quantized** in the GGUF instead of 4.70 GiB BF16 in the
+NVFP4 checkpoint — precisely where speculation lost to k=0 at every depth
+under vLLM.
+
+### The same at Q8: slower, more form-faithful, but no ß (2026-09-01)
+
+`Qwen3.5-122B-A10B-MTP-GGUF/UD-Q8_K_XL`, calibrated to 262,144 tokens with
+split 15:16:9:9:0 across four cards (the fifth stays free).
+
+**Form:** 30/30/30 sentences, all three exact — including the trap. Where
+the Q4 refused the form ("truth before form", 28 sentences), the Q8
+resolves the conflict elegantly: it fills exactly thirty sentences by
+**elimination**, offering Kondo, Kundt and Kerr as real candidates. Coandă
+remains unrecognised here too.
+
+The padding has a price: sentence 20 repeats the Kondo effect from
+sentence 17, and sentence 10 claims a "Kuanda region in Angola" — Angola
+has the Cuando river and Cuando Cubango province; no Kuanda region is
+attested. Sentence 18 also describes Kundt's effect as oscillations "in
+gases and liquids"; Kundt's tube measures in gases.
+
+**Orthography — the most striking finding:** the Q8 writes throughout in
+Swiss convention **without ß**: `dreissig`, `gross`, `grösst`, `stösst`,
+`weiss`, `äusser`. Ten ss forms, zero ß, across all three answers. The
+same prompts produced eight ß forms from the Q4 and ten from the NVFP4,
+and not a single ss.
+
+| Variant | ss forms | ß forms |
+|---|---:|---:|
+| NVFP4 (vLLM) | 0 | 10 |
+| UD-Q4_K_XL | 0 | 8 |
+| **UD-Q8_K_XL** | **10** | **0** |
+
+*Caveat:* one run per variant at temperature 0.6. The pattern is complete
+within the run, but with n=1 it cannot be attributed to quantization
+rather than sampling.
+
+**English:** only permitted single words in both factual answers. In the
+trap, two two-word phrases using words that are not on the list — `quite
+frankly` and, grammatically derailed, "Ich bin, quite willing, gerne
+weiter für Sie tätig". Less than the NVFP4's two complete clauses, more
+than the Q4's zero.
+
+**Otherwise factually strong:** 42° for red and 40° for violet, sun behind
+the observer, double bow from two internal reflections, Alexander's dark
+band (though mangled into "die Alexander'sche Dunkle"). On quantum
+computers it is even more precise than the Q4: "certain problems
+exponentially faster" rather than blanket higher computing power.
+
+**Throughput:** decode 45.3 · 44.7 · 44.4 tok/s — about a quarter below
+the Q4 (60.2 · 58.4 · 57.6), still a good third above the NVFP4 (35.0 ·
+32.4 · 32.3). Prefill 617.7 · 399.1 · 391.4 tok/s over 2,975 · 913 · 903
+computed tokens.
 
 ### The decisive line
 

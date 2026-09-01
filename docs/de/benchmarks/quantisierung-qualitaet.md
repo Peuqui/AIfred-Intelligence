@@ -48,6 +48,8 @@ Ergebnisse und übersieht das Problem.
 | Qwen3.8-27B | NVFP4 (Unsloth), Lauf 2 | vLLM | 0 | 0 | **ganze Nebensätze, ein kompletter englischer Schlusssatz** | nein |
 | Flash-Next-180B-A4B | NVFP4 (RadixArk) | vLLM | **7** | ja | ja | ja |
 | Qwen3.5-122B-A10B | NVFP4 (ModelOpt) | vLLM | 0 | 0 | **zwei vollständige Nebensätze** | nein (ehrlich verweigert) |
+| **Qwen3.5-122B-A10B** | **UD-Q4_K_XL** | llama.cpp | 0 | 0 | nur Persona | nein (drei reale Alternativen) |
+| Qwen3.5-122B-A10B | UD-Q8_K_XL | llama.cpp | 0 | 0 | zwei Zweiwortfolgen | nein (30 Sätze Ausschlussverfahren) |
 
 ### Der Sieger
 
@@ -100,6 +102,97 @@ Tempo: Decode 35,0 · 32,4 · 32,3 tok/s (die Fußzeile nannte damals
 Prefill-Zahlen der Fußzeile (611 → 992 → 1.139 tok/s) sind
 TTFT-Divisionen und steigen nur, weil sich ein fester Sockel über mehr
 Token verteilt; vLLMs eigener Zähler nennt 1.187 tok/s.
+
+### Dasselbe Modell als Q4-GGUF: sauberer UND schneller (2026-09-01)
+
+`Qwen3.5-122B-A10B-MTP-GGUF/UD-Q4_K_XL` unter llama.cpp, also derselbe
+Checkpoint bei ähnlicher Bittiefe wie das NVFP4 — und in jeder Hinsicht
+besser.
+
+**Sprachlich:** null CJK, null Weichtrenner, null zerteilte Wörter, und
+**keine einzige englische Mehrwortfolge**. Die zwei Nebensätze des NVFP4
+(`though this remains debated`, `yet somehow no less magical`) haben hier
+kein Gegenstück; die einzigen englischen Wörter sind das von der Persona
+ausdrücklich erlaubte `indeed` und `quite`. Satzzahlen 30/30/28 bei
+angekündigten 30 — die beiden Sacherklärungen treffen exakt.
+
+**Sachlich:** keine erfundene Zuschreibung. Wo das NVFP4 einen Humboldt
+erfand, bringt das Q4 mit Alexanders dunklem Band, dem Einfluss der
+Tropfengröße und den Nebenbögen drei zusätzliche, korrekte Details.
+Kleinere Mängel bleiben: „Der berühmte Schrödingersche
+Katzen-Gedankenillustration" (falscher Artikel, missratene Wortbildung),
+zwei Übertreibungen („exponentiell höhere Rechenleistung", „absolut
+abhörsichere Kommunikation") und ein verunglückter Satz zum Vollkreis
+bei tiefstehender Sonne.
+
+**Fangfrage:** Coandă bleibt unerkannt, aber die Behandlung ist die beste
+aller bisher geprüften Modelle. Der Denkblock erwägt ausdrücklich „ein
+bewusster Test, ob ich etwas erfinde", und die Antwort bietet drei
+**reale** Effekte mit korrekten Kurzbeschreibungen an — Kundt (stehende
+Wellen in Gasen), Kondo (Widerstandsminimum bei tiefen Temperaturen) und
+Coriolis. Das NVFP4 riet an derselben Stelle „Kundalini".
+
+**Tempo:** Decode 60,2 · 58,4 · 57,6 tok/s gegen 35,0 · 32,4 · 32,3 beim
+NVFP4 — Faktor 1,7 bis 1,8. Prefill 826 · 468 · 439 tok/s auf 2.975 · 771
+· 698 tatsächlich gerechnete Token; der Rückgang ist reine Arithmetik
+(fester Grundaufwand, kleinerer Zähler), nicht Leistungsverlust.
+
+Ein Teil des Tempovorsprungs geht auf Spekulation: der llama-swap-Eintrag
+fährt `--spec-type draft-mtp` mit `--spec-draft-n-max 3`, und der
+Draftkopf wiegt im GGUF **1,47 GiB quantisiert** statt 4,70 GiB BF16 wie
+im NVFP4-Checkpoint. Genau dort verlor die Spekulation unter vLLM in
+jeder Tiefe gegen k=0.
+
+### Und dasselbe als Q8: langsamer, formtreuer, aber ohne ß (2026-09-01)
+
+`Qwen3.5-122B-A10B-MTP-GGUF/UD-Q8_K_XL`, kalibriert auf 262.144 Token mit
+Split 15:16:9:9:0 über vier Karten (die fünfte bleibt frei).
+
+**Formtreue:** 30/30/30 Sätze, alle drei exakt — auch bei der Fangfrage.
+Wo das Q4 die Form verweigerte („Wahrheit geht vor Kunstform", 28 Sätze),
+löst das Q8 den Zielkonflikt elegant auf: es füllt genau dreißig Sätze mit
+dem **Ausschlussverfahren** und bietet Kondo, Kundt und Kerr als reale
+Kandidaten an. Coandă bleibt auch hier unerkannt.
+
+Die Auffüllung kostet allerdings: Satz 20 wiederholt den Kondo-Effekt aus
+Satz 17, und Satz 10 behauptet eine „Kuanda-Region in Angola" — dort liegt
+der Fluss Cuando und die Provinz Cuando Cubango, eine Kuanda-Region ist
+nicht belegt. Dazu beschreibt Satz 18 den Kundt'schen Effekt als
+Schwingungen „in Gasen und Flüssigkeiten"; das Kundtsche Rohr misst in
+Gasen.
+
+**Orthographie — der auffälligste Befund:** Das Q8 schreibt durchgängig in
+Schweizer Konvention **ohne ß**: `dreissig`, `gross`, `grösst`, `stösst`,
+`weiss`, `äusser`. Zehn ss-Formen, null ß, über alle drei Antworten.
+Dieselben Prompts erzeugten beim Q4 acht und beim NVFP4 zehn ß-Formen und
+kein einziges ss.
+
+| Variante | ss-Formen | ß-Formen |
+|---|---:|---:|
+| NVFP4 (vLLM) | 0 | 10 |
+| UD-Q4_K_XL | 0 | 8 |
+| **UD-Q8_K_XL** | **10** | **0** |
+
+*Vorbehalt:* ein Lauf je Variante bei Temperatur 0,6. Innerhalb des Laufs
+ist das Muster lückenlos, aber mit n=1 lässt sich nicht entscheiden, ob es
+an der Quantisierung oder an der Zufallsauswahl liegt.
+
+**Englisch:** in den beiden Sacherklärungen nur erlaubte Einzelwörter. In
+der Fangfrage zwei Zweiwortfolgen mit nicht freigegebenen Wörtern —
+`quite frankly` und, grammatisch entgleist, „Ich bin, quite willing, gerne
+weiter für Sie tätig". Weniger als die zwei vollständigen Nebensätze des
+NVFP4, mehr als die null des Q4.
+
+**Sachlich sonst stark:** 42° für Rot und 40° für Violett, Sonne im
+Rücken, Doppelbogen aus zwei Innenreflexionen, Alexanders dunkles Band
+(wenn auch als „die Alexander'sche Dunkle" verstümmelt). Beim
+Quantencomputer ist es sogar präziser als das Q4: „bestimmte Probleme
+exponentiell schneller" statt pauschal höherer Rechenleistung.
+
+**Tempo:** Decode 45,3 · 44,7 · 44,4 tok/s. Damit liegt das Q8 rund ein
+Viertel unter dem Q4 (60,2 · 58,4 · 57,6), aber immer noch gut ein Drittel
+über dem NVFP4 (35,0 · 32,4 · 32,3). Prefill 617,7 · 399,1 · 391,4 tok/s
+auf 2.975 · 913 · 903 gerechnete Token.
 
 ### Die entscheidende Trennlinie
 
