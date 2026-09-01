@@ -9,7 +9,7 @@ und reasoning_effort).
 """
 
 import logging
-from typing import Dict
+from typing import Any, Dict
 
 from .base import (
     OpenAICompatibleBackend,
@@ -49,6 +49,66 @@ class vLLMBackend(OpenAICompatibleBackend):
                 "decoding (MTP operating point)"
             )
         return extra_body
+
+    def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
+        """vLLM meldet keine Timings — wohl aber, wie viel vom Prompt aus dem
+        Praefix-Cache kam.
+
+        Ohne diese Zahl bliebe als Prefill-Rate nur ``prompt_tokens / ttft``,
+        und die zaehlt zwischengespeicherte Token mit, die nie gerechnet
+        wurden. Gemessen am 2026-09-01: Ein Turn, dessen 9.728 Token langer
+        System-Prompt vollstaendig aus dem Cache kam, wies so 1.587 tok/s
+        "Prefill" aus, waehrend llama.cpp im selben Vergleich ehrliche
+        468 tok/s meldete — der Wert stieg also mit dem Cache-Treffer statt
+        mit der Rechenleistung. Fehlt das Feld, geben wir GAR KEINE Rate aus,
+        statt eine falsche.
+        """
+        usage = getattr(response_or_chunk, "usage", None)
+        if usage is None:
+            return {}
+        details = getattr(usage, "prompt_tokens_details", None)
+        cached = getattr(details, "cached_tokens", None) if details else None
+        if cached is not None:
+            return {"prompt_tokens_cached": int(cached)}
+        # Feld fehlt — zwei sehr verschiedene Gruende, die man trennen muss:
+        # vLLM setzt es NUR, wenn wirklich etwas aus dem Cache kam
+        # (chat_completion/serving.py: "if enable_prompt_tokens_details and
+        # num_cached_tokens"). Beim ersten Turn ist der Cache leer, das Feld
+        # fehlt also — dann wurde der ganze Prompt gerechnet und die Rate
+        # stimmt. Laeuft der Server dagegen OHNE den Schalter, wissen wir
+        # gar nichts und duerfen keine Rate ausgeben.
+        return {"prompt_tokens_cached": 0} if self._reports_cached_tokens() else {}
+
+    def _reports_cached_tokens(self) -> bool:
+        """Traegt der llama-swap-Eintrag ``--enable-prompt-tokens-details``?"""
+        from ..lib.calibration.llamaswap_io import parse_llamaswap_config
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        try:
+            eintraege = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        except (OSError, ValueError):
+            return False
+        return any(
+            "--enable-prompt-tokens-details" in " ".join(str(e.get("full_cmd", "")).split())
+            for name, e in eintraege.items()
+            if name.endswith("-vllm")
+        )
+
+    def _build_stream_metrics(
+        self,
+        prompt_tokens: int,
+        total_tokens: int,
+        inference_time: float,
+        model: str,
+        server_timings: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        """Wie die Basisklasse, plus die tatsaechlich gerechneten Prompt-Token."""
+        metrics = super()._build_stream_metrics(
+            prompt_tokens, total_tokens, inference_time, model, server_timings
+        )
+        cached = server_timings.get("prompt_tokens_cached")
+        if cached is not None:
+            metrics["tokens_prompt_computed"] = max(prompt_tokens - int(cached), 0)
+        return metrics
 
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """Context limit and weight size of a ``-vllm`` llama-swap entry.

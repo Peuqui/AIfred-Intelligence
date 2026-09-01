@@ -244,9 +244,12 @@ def strip_variant_suffixes(model_name: str) -> str:
     Nötig überall, wo aufgelöste Profil-Ids (resolve_variant_suffix) auf
     Eigenschaften des BASIS-Modells geprüft werden — z.B. enthält das
     Suffix ``-vlm-qwen3vl4b`` das Muster „vl" und ließe die
-    Namens-Heuristik der Vision-Erkennung fehlzünden.
+    Namens-Heuristik der Vision-Erkennung fehlzünden. Dasselbe gilt fuer
+    das vLLM-Suffix ``-vllm``: Es traegt die Zeichenfolge „vl" und liess
+    JEDEN vLLM-Eintrag als vision-faehig gelten — auch reine Textmodelle
+    wie Qwen3-235B-A22B (gesehen 2026-09-01).
     """
-    for marker in ("-tts-", "-vlm-", "-speed", "-visiond"):
+    for marker in ("-tts-", "-vlm-", "-speed", "-visiond", "-vllm"):
         idx = model_name.find(marker)
         if idx > 0:
             model_name = model_name[:idx]
@@ -275,9 +278,30 @@ def is_vision_model_sync(model_name: str) -> bool:
     # Namens-Heuristik dagegen auf der Basis-Id — das Varianten-Suffix
     # "-vlm-qwen3vl4b" enthält „vl" und würde z.B. DeepSeek-Varianten
     # fälschlich als vision-fähig einstufen.
+    # Ein Eintrag, der mit --language-model-only startet, hat seinen
+    # Vision-Encoder BEWUSST aus (die vLLM-Kalibrierung setzt das, weil
+    # sonst VRAM fuer einen Encoder reserviert wird, den wir nicht nutzen).
+    # Er darf trotz passendem Namen nicht als Describer angeboten werden —
+    # sonst waehlt man ein Modell, das kein Bild beschreiben kann
+    # (gesehen 2026-09-01 an Qwen3.8-27B-NVFP4-vllm).
+    if _launched_language_model_only(model_name):
+        return False
     return model_has_mmproj(model_name) or _is_vision_model_by_name(
         strip_variant_suffixes(model_name)
     )
+
+
+def _launched_language_model_only(model_name: str) -> bool:
+    """True, wenn der llama-swap-Eintrag ``--language-model-only`` traegt."""
+    try:
+        from .calibration.llamaswap_io import parse_llamaswap_config
+        from .config import LLAMASWAP_CONFIG_PATH
+        entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(model_name)
+    except (OSError, ValueError):
+        return False
+    if not entry:
+        return False
+    return "--language-model-only" in " ".join(str(entry.get("full_cmd", "")).split())
 
 
 async def is_vision_model(state, model_name: str) -> bool:

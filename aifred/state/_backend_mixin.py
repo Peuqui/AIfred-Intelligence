@@ -34,6 +34,12 @@ from ..lib.audio_processing import is_whisper_ready
 # We import them at usage sites to avoid circular imports.
 
 
+# Sentinel-ID fuer "wie AIfred-LLM" in den Modell-Dropdowns. Radix laesst
+# einen LEEREN Options-Wert nicht zu, intern bleibt die Bedeutung aber die
+# leere Modell-ID ("erbe vom Hauptmodell").
+SAME_AS_AIFRED = "__same_as_aifred__"
+
+
 class BackendMixin(rx.State, mixin=True):
     """Mixin for backend initialization, switching, and model management."""
 
@@ -166,19 +172,21 @@ class BackendMixin(rx.State, mixin=True):
         """Get display label for current backend."""
         return self.available_backends_dict.get(self.backend_id, self.backend_id)
 
-    @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
-    def automatik_available_models(self) -> list[str]:
-        """Model list with localized '(wie AIfred-LLM)' as first selectable option."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        return [t("sokrates_llm_same", lang=lang)] + list(self.available_models)
+    @rx.var(deps=["automatik_model_id"], auto_deps=False)
+    def automatik_model_select_id(self) -> str:
+        """Select-Wert: die Modell-ID, leer wird zum Sentinel."""
+        return SAME_AS_AIFRED if not self.automatik_model_id else self.automatik_model_id
 
-    @rx.var(deps=["automatik_model", "ui_language"], auto_deps=False)
-    def automatik_model_select_value(self) -> str:
-        """Maps empty string (auto) to the localized sentinel label for the select."""
+    @rx.var(deps=["available_models_dict", "ui_language"], auto_deps=False)
+    def automatik_available_models_rich(self) -> list[dict[str, str]]:
+        """Optionen fuer Automatik: Sentinel zuerst, dann alle Modelle."""
         from ..lib.i18n import t
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        return t("sokrates_llm_same", lang=lang) if self.automatik_model == "" else self.automatik_model
+        return [{"id": SAME_AS_AIFRED, "label": t("sokrates_llm_same", lang=lang),
+                 "badge": "", "color": ""}] + [
+            {"id": mid, "label": label, "badge": "", "color": ""}
+            for mid, label in self.available_models_dict.items()
+        ]
 
     @property
     def _effective_automatik_id(self) -> str:
@@ -221,15 +229,6 @@ class BackendMixin(rx.State, mixin=True):
     # ================================================================
     # HELPER METHODS
     # ================================================================
-
-    def _resolve_model_id(self, display_label: str) -> str:
-        """Reverse lookup: find model_id (dict key) from display label."""
-        for model_id, label in self.available_models_dict.items():
-            if label == display_label:
-                return model_id
-        if display_label in self.available_models_dict:
-            return display_label
-        return display_label
 
     def _load_agent_model_params(self, agent: str, model_id: str) -> None:
         """Load model parameters (rope_factor, max_context, etc.) for one agent from cache.
@@ -799,10 +798,10 @@ class BackendMixin(rx.State, mixin=True):
 
             # Validate and sync aifred_model (model_id is always base ID)
             if self.agent_tuning["aifred"].model_id and self.agent_tuning["aifred"].model_id in self.available_models_dict:
-                self.agent_tuning["aifred"].model = self.available_models_dict[self.agent_tuning["aifred"].model_id]
+                self.agent_tuning["aifred"].model = self._label_for("aifred", self.agent_tuning["aifred"].model_id)
             elif _global_backend_state.get("aifred_model_id") in self.available_models_dict:
                 self.agent_tuning["aifred"].model_id = _global_backend_state["aifred_model_id"]
-                self.agent_tuning["aifred"].model = self.available_models_dict[self.agent_tuning["aifred"].model_id]
+                self.agent_tuning["aifred"].model = self._label_for("aifred", self.agent_tuning["aifred"].model_id)
             else:
                 # Stale main model — same policy as the SLOW PATH below:
                 # clear instead of silently substituting another model,
@@ -817,24 +816,28 @@ class BackendMixin(rx.State, mixin=True):
             if not self.automatik_model_id:
                 self.automatik_model = ""
             elif self.automatik_model_id in self.available_models_dict:
-                self.automatik_model = self.available_models_dict[self.automatik_model_id]
+                self.automatik_model = self._label_for("automatik", self.automatik_model_id)
             elif _global_backend_state.get("automatik_model_id") in self.available_models_dict:
                 self.automatik_model_id = _global_backend_state["automatik_model_id"]
-                self.automatik_model = self.available_models_dict[self.automatik_model_id]
+                self.automatik_model = self._label_for("automatik", self.automatik_model_id)
             else:
                 log_message(f"⚠️ Configured automatik model '{self.automatik_model_id}' not found, using same as AIfred")
                 self.automatik_model_id = ""
                 self.automatik_model = ""
 
-            # Validate and sync vision_model
+            # Validate and sync vision_model. Der Describer wird
+            # backend-uebergreifend gewaehlt, das Label kommt deshalb aus
+            # dem Vision-Katalog — die Backend-Liste enthaelt unter vLLM
+            # nur -vllm-Eintraege und liesse die blanke Id stehen, worauf
+            # das Dropdown leer bliebe (Peuqui, 2026-09-01).
             if self.agent_tuning["vision"].model_id and self.agent_tuning["vision"].model_id in self.vision_models_cache:
-                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+                self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
             elif _global_backend_state.get("vision_model_id") in self.vision_models_cache:
                 self.agent_tuning["vision"].model_id = _global_backend_state["vision_model_id"]
-                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+                self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
             elif self.vision_models_cache:
                 self.agent_tuning["vision"].model_id = self.vision_models_cache[0]
-                self.agent_tuning["vision"].model = self.available_models_dict.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+                self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
 
             # Validate and sync secondary-agent models (Sokrates/Salomo/
             # custom). Clearing the id to "" means "same as AIfred".
@@ -956,7 +959,7 @@ class BackendMixin(rx.State, mixin=True):
                 self.add_debug(f"🔍 Checking: '{self.agent_tuning["aifred"].model_id}' available in {self.backend_type}?")  # type: ignore[attr-defined, has-type]
 
                 if self.agent_tuning["aifred"].model_id in self.available_models_dict:
-                    self.agent_tuning["aifred"].model = self.available_models_dict[self.agent_tuning["aifred"].model_id]
+                    self.agent_tuning["aifred"].model = self._label_for("aifred", self.agent_tuning["aifred"].model_id)
                     self.add_debug(f"✅ Model found: {self.agent_tuning["aifred"].model_id}")  # type: ignore[attr-defined, has-type]
                 elif self.available_models_dict:
                     # Stale main model (not pulled / deleted). Clear it instead
@@ -972,7 +975,7 @@ class BackendMixin(rx.State, mixin=True):
                 if not self.automatik_model_id:
                     pass
                 elif self.automatik_model_id in self.available_models_dict:
-                    self.automatik_model = self.available_models_dict[self.automatik_model_id]
+                    self.automatik_model = self._label_for("automatik", self.automatik_model_id)
                 elif self.available_models_dict:
                     log_message(f"⚠️ Configured automatik model '{self.automatik_model_id}' not found, using same as AIfred")
                     self.automatik_model_id = ""
@@ -1081,6 +1084,8 @@ class BackendMixin(rx.State, mixin=True):
             # Detect vision models
             self.add_debug("🔍 Detecting vision-capable models...")  # type: ignore[attr-defined, has-type]
             await self._detect_vision_models()
+            # Anzeigenamen nachziehen, sonst zeigen die Dropdowns nichts an
+            self._sync_agent_display_names()
 
             # vLLM: Do NOT auto-start server — user triggers calibration manually
             # (like Ollama/llama-swap: discover models first, start on demand)
@@ -1101,6 +1106,73 @@ class BackendMixin(rx.State, mixin=True):
     # ================================================================
     # VISION MODEL DETECTION
     # ================================================================
+
+    def _sync_agent_display_names(self) -> None:
+        """``model`` aus ``model_id`` nachziehen — Anzeigename statt blanker ID.
+
+        Die Dropdowns fuehren Anzeige-Labels ("Name (12,3 GB)"), gespeichert
+        wird aber die blanke ID. Beim Wiederherstellen der Einstellungen
+        landet die ID in BEIDEN Feldern (_backend_mixin, backend_models-
+        Schleife) — dann passt der Wert zu keiner Option und das Auswahlfeld
+        bleibt LEER, obwohl die Liste gefuellt ist. Genau so gesehen am
+        2026-09-01 beim Vision-LLM und zuvor beim AIfred-LLM.
+
+        Der Abgleich ist idempotent: Ist ``model`` bereits ein Label oder die
+        ID im Katalog unbekannt, bleibt alles, wie es ist. Vision benutzt
+        seinen eigenen Katalog, weil der Describer backend-uebergreifend
+        gewaehlt wird (siehe :meth:`_vision_candidate_catalog`).
+        """
+        haupt = self.available_models_dict or {}
+        vision_katalog = self._vision_candidate_catalog() or {}
+        for agent, tuning in self.agent_tuning.items():
+            mid = getattr(tuning, "model_id", "")
+            if not mid:
+                continue
+            katalog = vision_katalog if agent == "vision" else haupt
+            label = katalog.get(mid)
+            if label and tuning.model != label:
+                tuning.model = label
+        if self.automatik_model_id:
+            label = haupt.get(self.automatik_model_id)
+            if label and self.automatik_model != label:
+                self.automatik_model = label
+
+    # ================================================================
+    # MODELL-IDENTITAET (SSoT)
+    # ================================================================
+    # Die Modell-ID ist die einzige Wahrheit. Das Anzeige-Label
+    # ("Name (12,3 GB)") ist eine reine Ansicht und wird NIRGENDS
+    # gespeichert oder verglichen. Wer ein Label braucht, holt es hier —
+    # so kann keine Aufrufstelle mehr den falschen Katalog erwischen.
+    # Vorgeschichte: Genau diese Verwechslung trat am 2026-09-01 an FUENF
+    # Stellen auf (Wiederherstellung, Erkennung, Zeilenbau, Setter,
+    # Aufloesung) und liess das Vision-Dropdown leer.
+
+    def _catalog_for(self, agent: str) -> dict[str, str]:
+        """Zustaendiger Katalog (id → Label) fuer einen Agenten.
+
+        Vision ist der Sonderfall: Der Describer wird backend-uebergreifend
+        gewaehlt, weil er als Side-Channel neben dem Chat-Modell laeuft.
+        Unter vLLM enthaelt die Backend-Modellliste nur ``-vllm``-Eintraege
+        und kennt den llama.cpp-Describer nicht.
+        """
+        if agent == "vision":
+            return self._vision_candidate_catalog()
+        return self.available_models_dict
+
+    def _label_for(self, agent: str, model_id: str) -> str:
+        """Anzeige-Label zu einer Modell-ID; unbekannte Id bleibt sichtbar."""
+        if not model_id:
+            return ""
+        return self._catalog_for(agent).get(model_id, model_id)
+
+    @rx.var(deps=["available_models_dict"], auto_deps=False)
+    def available_models_rich(self) -> list[dict[str, str]]:
+        """Optionen der Modell-Dropdowns: ``id`` ist der Wert, ``label`` die Anzeige."""
+        return [
+            {"id": mid, "label": label, "badge": "", "color": ""}
+            for mid, label in self.available_models_dict.items()
+        ]
 
     def _vision_candidate_catalog(self) -> dict[str, str]:
         """Katalog der Vision-Kandidaten (id → Anzeige-Label).
@@ -1182,7 +1254,7 @@ class BackendMixin(rx.State, mixin=True):
                 badge, color = "⚡ No Swap", "green"
             else:
                 badge, color = "🔄 Swap", "orange"
-            rows.append({"name": display, "badge": badge, "color": color})
+            rows.append({"id": mid, "label": display, "badge": badge, "color": color})
         return rows
 
     async def _detect_vision_models(self) -> None:
@@ -1242,16 +1314,16 @@ class BackendMixin(rx.State, mixin=True):
         # Auto-select vision_model if not set or empty
         if (not self.agent_tuning["vision"].model_id or self.agent_tuning["vision"].model_id.strip() == "") and vision_model_ids:
             self.agent_tuning["vision"].model_id = vision_model_ids[0]
-            self.agent_tuning["vision"].model = candidates.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+            self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
             self.add_debug(f"⚙️ Auto-selected vision_model: {self.agent_tuning["vision"].model_id}")  # type: ignore[attr-defined, has-type]
             self._save_settings()  # type: ignore[attr-defined, has-type]
         elif self.agent_tuning["vision"].model_id and vision_model_ids:
             if self.agent_tuning["vision"].model_id in vision_model_ids:
-                self.agent_tuning["vision"].model = candidates.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+                self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
             else:
                 self.add_debug(f"⚠️ Saved vision_model '{self.agent_tuning["vision"].model_id}' not found in vision models, auto-selecting...")  # type: ignore[attr-defined, has-type]
                 self.agent_tuning["vision"].model_id = vision_model_ids[0]
-                self.agent_tuning["vision"].model = candidates.get(self.agent_tuning["vision"].model_id, self.agent_tuning["vision"].model_id)
+                self.agent_tuning["vision"].model = self._label_for("vision", self.agent_tuning["vision"].model_id)
                 self._save_settings()  # type: ignore[attr-defined, has-type]
 
         if self.agent_tuning["vision"].model_id:
@@ -1472,13 +1544,14 @@ class BackendMixin(rx.State, mixin=True):
     # MODEL SELECTION
     # ================================================================
 
-    async def set_aifred_model(self, model: str):
+    async def set_aifred_model(self, model_id: str):
         """Set selected model and restart backend if needed."""
         from ..lib.vision_utils import is_vision_model
 
-        self.agent_tuning["aifred"].model = model
-        self.agent_tuning["aifred"].model_id = self._resolve_model_id(model)
-        self.add_debug(f"📝 AIfred-LLM: {model}")  # type: ignore[attr-defined, has-type]
+        # Der Select liefert die MODELL-ID (SSoT); das Label ist Ansicht.
+        self.agent_tuning["aifred"].model_id = model_id
+        self.agent_tuning["aifred"].model = self._label_for("aifred", model_id)
+        self.add_debug(f"📝 AIfred-LLM: {self.agent_tuning["aifred"].model}")  # type: ignore[attr-defined, has-type]
 
         # Die Vision-Swap-Badges hängen vom Chat-LLM ab (welche -vlm-Profile
         # kalibriert sind) → nach dem LLM-Wechsel neu berechnen, sonst zeigt
@@ -1534,28 +1607,27 @@ class BackendMixin(rx.State, mixin=True):
         # naechsten Request, kein Server-Restart noetig.
         yield
 
-    async def set_automatik_model(self, model: str):
+    async def set_automatik_model(self, model_id: str):
         """Set automatik model for decision and query optimization."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined, has-type]
-        if model == t("sokrates_llm_same", lang=lang):
-            model = ""
-
-        self.automatik_model = model
-        self.automatik_model_id = self._resolve_model_id(model)
+        # "" ist das Sentinel fuer "wie AIfred-LLM" — es kommt jetzt als
+        # leere ID aus dem Select, nicht mehr als uebersetztes Label.
+        if model_id == SAME_AS_AIFRED:
+            model_id = ""
+        self.automatik_model_id = model_id
+        self.automatik_model = self._label_for("automatik", model_id)
         self._save_settings()  # type: ignore[attr-defined, has-type]
 
-        if model:
-            self.add_debug(f"⚡ Automatic-LLM: {model}")  # type: ignore[attr-defined, has-type]
+        if model_id:
+            self.add_debug(f"⚡ Automatic-LLM: {self.automatik_model}")  # type: ignore[attr-defined, has-type]
             self._show_model_calibration_info(self.automatik_model_id)  # type: ignore[attr-defined]
         else:
             self.add_debug("⚡ Automatic-LLM: (same as Main-LLM)")  # type: ignore[attr-defined, has-type]
 
-    async def set_vision_model(self, model: str):
+    async def set_vision_model(self, model_id: str):
         """Set vision model for OCR/image analysis."""
-        self.agent_tuning["vision"].model = model
-        self.agent_tuning["vision"].model_id = self._resolve_model_id(model)
-        self.add_debug(f"👁️ Vision-LLM: {model}")  # type: ignore[attr-defined, has-type]
+        self.agent_tuning["vision"].model_id = model_id
+        self.agent_tuning["vision"].model = self._label_for("vision", model_id)
+        self.add_debug(f"👁️ Vision-LLM: {self.agent_tuning["vision"].model}")  # type: ignore[attr-defined, has-type]
         self._show_model_calibration_info(self.agent_tuning["vision"].model_id)  # type: ignore[attr-defined]
 
         if self.backend_type == "llamacpp":

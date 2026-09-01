@@ -169,6 +169,16 @@ async def run_llm_stream(
     # Raw debug logging
     log_raw_messages(f"{agent_label} (stream)", messages, estimate_tokens, toolkit=toolkit)
 
+    # Denkstufe sichtbar machen — sie ist KEIN Modell-Schalter, sondern eine
+    # Jinja-Variable der Chat-Vorlage. Fehlt sie, setzt die Vorlage ihren
+    # eigenen Standard ein (Qwen3.8: xhigh, also die teuerste Stufe). Ein
+    # stillschweigend leerer Wert sieht deshalb aus wie "maximal nachdenken".
+    # Dieselbe Zeile steht im Backend als Logdatei-Eintrag; hier geht sie
+    # zusaetzlich in die Debug-Konsole, weil Peuqui sie dort sehen will.
+    if on_debug and options.enable_thinking is not False:
+        level = options.reasoning_effort or "NOT SENT (template default applies)"
+        on_debug(f"🧠 {agent_label} reasoning_effort: {level}")
+
     timer = Timer()
     full_response = ""
     token_count = 0
