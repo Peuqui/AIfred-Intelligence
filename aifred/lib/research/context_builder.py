@@ -172,14 +172,22 @@ async def build_and_generate_response(
             research_tools_enabled=False,
         )
         if memory_ctx:
-            system_prompt = f"{system_prompt}\n\n{memory_ctx}"
+            # Eingehaengt wird unten, NACH dem System-Prompt — siehe
+            # message_builder.inject_before_question.
             mem_tok = estimate_tokens([{"content": memory_ctx}])
-            yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok)"}
+            yield {"type": "debug",
+                   "message": f"🧠 Memory context injected ({mem_tok:,} tok, before question)"}
         if memory_toolkit:
             yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
 
     # Insert RAG system prompt as first message
     messages.insert(0, {"role": "system", "content": system_prompt})
+
+    # Erinnerungen ans Ende, direkt vor die Nutzerfrage — sonst entwerten
+    # sie als fragenabhaengiger Block den Praefix-Cache des ganzen Verlaufs.
+    if memory_ctx:
+        from ..message_builder import inject_before_question
+        inject_before_question(messages, memory_ctx)
 
     # DEBUG: Show message sizes
     for i, msg in enumerate(messages):
