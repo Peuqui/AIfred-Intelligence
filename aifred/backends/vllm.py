@@ -8,7 +8,11 @@ OpenAICompatibleBackend (inkl. chat_template_kwargs mit enable_thinking
 und reasoning_effort).
 """
 
+import json
 import logging
+import re
+import urllib.error
+import urllib.request
 from typing import Any, Dict
 
 from .base import (
@@ -22,6 +26,12 @@ class vLLMBackend(OpenAICompatibleBackend):
     """vLLM backend implementation (OpenAI-compatible, via llama-swap)."""
 
     BACKEND_NAME = "vLLM"
+    # Letzter Stand der Prefill-Zaehler JE PORT, bewusst klassenweit:
+    # Multi-Agent (AIfred, Sokrates, Salomo) legt mehrere Adapter auf
+    # denselben Server. Je Instanz gefuehrt, wuerde jeder die Anfragen der
+    # anderen als "mehrere dazwischen" sehen und nie eine Rate melden.
+    # (prefill_token, prefill_s, anfragen, gen_token, decode_s)
+    _PREFILL_COUNTERS: dict[int, tuple[float, float, float, float, float]] = {}
     # 900 s wie llama.cpp: Der erste Request stoesst bei llama-swap den
     # Ladevorgang an und muss ihn ueberleben. Mit 300 s gab der Client beim
     # Flash-Next (127 GB, 6,5 min Ladezeit) auf, bevor das Modell fertig war
@@ -32,6 +42,102 @@ class vLLMBackend(OpenAICompatibleBackend):
 
     def __init__(self, base_url: str = "http://localhost:11435/v1", api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
+        self._metrics_port: int | None = None
+
+    # ------------------------------------------------------------------
+    # Echte Prefill-Rate aus vLLMs eigenen Zaehlern
+    # ------------------------------------------------------------------
+
+    def _upstream_port(self) -> int | None:
+        """Port des laufenden vLLM-Servers, laut llama-swap.
+
+        llama-swap reicht ``/metrics`` nicht durch (nur ``/v1/*``), nennt den
+        Port aber in der Kommandozeile unter ``/running`` — das ist die SSOT.
+        """
+        if self._metrics_port:
+            return self._metrics_port
+        root = self.base_url.rsplit("/v1", 1)[0]
+        try:
+            with urllib.request.urlopen(f"{root}/running", timeout=3) as r:
+                laufend = json.loads(r.read()).get("running") or []
+        except (urllib.error.URLError, OSError, ValueError, TimeoutError):
+            return None
+        for eintrag in laufend:
+            treffer = re.search(r"--port\s+(\d+)", str(eintrag.get("cmd", "")))
+            if treffer:
+                self._metrics_port = int(treffer.group(1))
+                return self._metrics_port
+        return None
+
+    def _rates_from_metrics(self) -> tuple[float | None, float | None]:
+        """(Prefill, Decode) in Token pro Sekunde, aus vLLMs eigenen Zaehlern.
+
+        Vier kumulative Groessen, alle aus einem einzigen Abruf:
+
+        * ``request_prefill_time_seconds``  — reine PREFILL-Phase, ohne
+          Warteschlange und ohne den ersten Decode-Schritt
+        * ``request_prefill_kv_computed_tokens`` — neu berechnete KV-Token,
+          Cache-Treffer bereits abgezogen
+        * ``request_decode_time_seconds``   — reine Generierungszeit
+        * ``generation_tokens_total``       — erzeugte Token
+
+        Beide Wanduhr-Rechnungen der Basisklasse sind schief: der Prefill
+        teilt durch die TTFT (Sockel inklusive), der Decode durch die
+        Gesamtdauer der Anfrage — also durch Prefill PLUS Generierung.
+        Gemessen am 122B (2026-09-01) untertrieb das den Decode um 7-15 %.
+
+        Der Anfragenzaehler verraet, WIE VIELE Anfragen seit dem letzten
+        Blick fertig wurden. Nur bei genau einer gehoeren die Differenzen
+        eindeutig zu unserer Anfrage; sonst kommt nichts zurueck und die
+        Fussnote faellt auf die Wanduhr-Rechnung zurueck.
+        """
+        leer: tuple[float | None, float | None] = (None, None)
+        port = self._upstream_port()
+        if not port:
+            return leer
+        try:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{port}/metrics", timeout=3
+            ) as r:
+                text = r.read().decode("utf-8", "replace")
+        except (urllib.error.URLError, OSError, TimeoutError):
+            self._metrics_port = None  # Server geswappt? Port neu ermitteln.
+            return leer
+
+        werte: dict[str, float] = {}
+        for zeile in text.splitlines():
+            treffer = re.match(
+                r"(vllm:(?:request_(?:prefill|decode)_time_seconds"
+                r"|request_prefill_kv_computed_tokens|generation_tokens)"
+                r"_(?:sum|count|total))(?:\{[^}]*\})? ([0-9.e+-]+)$",
+                zeile.strip(),
+            )
+            if treffer:
+                name = treffer.group(1)
+                werte[name] = werte.get(name, 0.0) + float(treffer.group(2))
+        try:
+            jetzt = (
+                werte["vllm:request_prefill_kv_computed_tokens_sum"],
+                werte["vllm:request_prefill_time_seconds_sum"],
+                werte["vllm:request_prefill_time_seconds_count"],
+                werte["vllm:generation_tokens_total"],
+                werte["vllm:request_decode_time_seconds_sum"],
+            )
+        except KeyError:
+            return leer  # aeltere vLLM-Version ohne diese Histogramme
+
+        vorher = self._PREFILL_COUNTERS.get(port)
+        self._PREFILL_COUNTERS[port] = jetzt
+        if vorher is None:
+            return leer  # erster Abruf: nur Ausgangsstand merken
+        d_pf_tok, d_pf_s, d_anzahl, d_gen_tok, d_dec_s = (
+            j - v for j, v in zip(jetzt, vorher)
+        )
+        if round(d_anzahl) != 1:
+            return leer  # nicht eindeutig einer Anfrage zuzuordnen
+        prefill = d_pf_tok / d_pf_s if d_pf_s > 0 and d_pf_tok > 0 else None
+        decode = d_gen_tok / d_dec_s if d_dec_s > 0 and d_gen_tok > 0 else None
+        return prefill, decode
 
     def _build_extra_body(self, options) -> Dict:
         """Wie die Basisklasse, aber ohne ``min_p``.
@@ -51,8 +157,12 @@ class vLLMBackend(OpenAICompatibleBackend):
         return extra_body
 
     def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
-        """vLLM meldet keine Timings — wohl aber, wie viel vom Prompt aus dem
-        Praefix-Cache kam.
+        """Rueckfallebene: wie viel vom Prompt aus dem Praefix-Cache kam.
+
+        Seit ``_rates_from_metrics()`` holen wir die Prefill-Rate
+        bevorzugt aus vLLMs eigenen Histogrammen. Diese Zahl hier greift,
+        wenn das nicht eindeutig ist (mehrere Anfragen zwischen zwei
+        Abrufen, erster Abruf nach dem Start, aeltere vLLM-Version).
 
         Ohne diese Zahl bliebe als Prefill-Rate nur ``prompt_tokens / ttft``,
         und die zaehlt zwischengespeicherte Token mit, die nie gerechnet
@@ -115,7 +225,28 @@ class vLLMBackend(OpenAICompatibleBackend):
         cached = server_timings.get("prompt_tokens_cached")
         if cached is not None:
             metrics["tokens_prompt_cached"] = int(cached)
+        # Genau EINMAL je Antwort (nicht je Chunk): vLLMs eigene Messung
+        # schlaegt beide Wanduhr-Rechnungen der Basisklasse.
+        prefill, decode = self._rates_from_metrics()
+        if prefill:
+            metrics["prompt_per_second"] = prefill
+        if decode:
+            metrics["tokens_per_second"] = decode
         return metrics
+
+    async def chat(self, model, messages, options=None, stream=False):
+        """Wie die Basisklasse, frischt danach aber den Prefill-Merker auf.
+
+        Ein Chat-Zug erzeugt mehrere Server-Anfragen (RAG-Relevanzpruefung,
+        Query-Generierung, Intent-Erkennung) — die laufen hier durch und
+        wuerden sonst unbemerkt mitzaehlen. Dann stuende die Differenz beim
+        naechsten streamenden Abruf auf drei oder vier, und deren Zeiten und
+        Token waeren vermischt; gemeldet wuerde gar nichts. Auffrischen
+        kostet einen Localhost-Abruf und haelt die Differenz bei eins.
+        """
+        antwort = await super().chat(model, messages, options, stream)
+        self._rates_from_metrics()
+        return antwort
 
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """Context limit and weight size of a ``-vllm`` llama-swap entry.

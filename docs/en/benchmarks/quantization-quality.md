@@ -46,6 +46,7 @@ misses the problem entirely.
 | Qwen3.8-27B | NVFP4 (Unsloth), run 1 | vLLM | 0 | 2× soft hyphen | `Light`, `List`, `should the occasion arise` | no |
 | Qwen3.8-27B | NVFP4 (Unsloth), run 2 | vLLM | 0 | 0 | **whole clauses, one complete English closing sentence** | no |
 | Flash-Next-180B-A4B | NVFP4 (RadixArk) | vLLM | **7** | yes | yes | yes |
+| Qwen3.5-122B-A10B | NVFP4 (ModelOpt) | vLLM | 0 | 0 | **two complete clauses** | no (declined honestly) |
 
 ### The winner
 
@@ -66,6 +67,37 @@ Worth noting: RadixArk's NVFP4 of the *same* model also spotted Coandă.
 Recognition therefore depends on the **model**, not on the quantization;
 the 27B fails it in every variant.
 
+### The 122B: clean characters, leaky syntax (2026-09-01)
+
+`Qwen3.5-122B-A10B-NVFP4` sits between the flawless 235B and the leaky
+27B. Machine audit spotless — zero CJK, zero soft hyphens, no split
+words. Sentence counts 29/30/19 against 30 announced.
+
+The persona explicitly permits single English words (`indeed`, `rather`,
+`quite`, `splendid`) and just as explicitly forbids English sentences.
+That line is crossed twice: "…jeder sehe leicht verschiedene Farbtöne,
+**though this remains debated**" and "Es ist reine Optik, **yet somehow
+no less magical**", plus `sufficiently illuminating` and `my dear Lord
+Helmchen`. Here the leakage scales with **answer length**, not context:
+the shortest answer is clean, the two long ones are not.
+
+It does not solve the trap but declines honestly. From its reasoning:
+"I will not invent 30 sentences, because that would mean producing false
+information. […] Truth before form." It even names the right principle
+("misunderstandings through phonetic similarity") but then guesses
+"Kundalini" rather than Coandă.
+
+Two further findings: an agreement error, and an unsupported
+attribution — "Alexander von Humboldt once observed that rainbow colours
+never appear equally intense." No basis for this could be found; it has
+the shape of a fabricated citation.
+
+Throughput: decode 35.0 · 32.4 · 32.3 tok/s (the footer read 29.6–30.2 at
+the time — see the correction above). The
+footer's prefill figures (611 → 992 → 1,139 tok/s) are TTFT divisions and
+rise only because a fixed overhead is amortised over more tokens; vLLM's
+own counter reports 1,187 tok/s.
+
 ### The decisive line
 
 Typos and split words occur under **both** formats — that is a property of
@@ -82,11 +114,18 @@ subordinate clauses, finally a complete English closing sentence.
 |---|---|---|
 | TTFT | 4.93 · 4.27 · 4.42 s | 5.70 · 4.04 · 3.98 s |
 | Prefill | 603 · 677 · 694 tok/s | 556 · 490 · 468 tok/s |
-| Decode | 35.4 · 35.4 · 25.0 tok/s | 32.6 · 29.5 · 24.9 tok/s |
+| Decode | **36.9 · 36.6 · 27.8** tok/s | 32.6 · 29.5 · 24.9 tok/s |
 
-vLLM leads decode by 9–20 % and holds its rate as context grows, while
+vLLM leads decode by 12–24 % and holds its rate as context grows, while
 llama.cpp falls off. At long context (31k) the calibration measured 37 vs
 26 tok/s.
+
+**Correction 2026-09-01:** this row previously read 35.4 · 35.4 · 25.0.
+AIfred divided generated tokens by the whole request duration — prefill
+PLUS generation — understating vLLM by 3–12 %. llama.cpp was never
+affected, since llama-server reports its own decode rate, so the
+comparison ran against vLLM. AIfred now reads vLLM's own counters
+(`request_decode_time_seconds`) as well.
 
 **Caveat on the prefill column:** both count only uncached tokens, but
 llama.cpp divides by pure prompt-processing time while AIfred divides by

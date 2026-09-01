@@ -47,6 +47,7 @@ Ergebnisse und übersieht das Problem.
 | Qwen3.8-27B | NVFP4 (Unsloth), Lauf 1 | vLLM | 0 | 2× Weichtrenner | `Light`, `List`, `should the occasion arise` | nein |
 | Qwen3.8-27B | NVFP4 (Unsloth), Lauf 2 | vLLM | 0 | 0 | **ganze Nebensätze, ein kompletter englischer Schlusssatz** | nein |
 | Flash-Next-180B-A4B | NVFP4 (RadixArk) | vLLM | **7** | ja | ja | ja |
+| Qwen3.5-122B-A10B | NVFP4 (ModelOpt) | vLLM | 0 | 0 | **zwei vollständige Nebensätze** | nein (ehrlich verweigert) |
 
 ### Der Sieger
 
@@ -67,6 +68,39 @@ Bemerkenswert: Auch RadixArks NVFP4 desselben Modells erkannte Coandă. Die
 Erkennung hängt also am **Modell**, nicht an der Quantisierung; das
 27B schafft sie in keiner Variante.
 
+### Das 122B: sauber im Zeichensatz, undicht im Satzbau (2026-09-01)
+
+`Qwen3.5-122B-A10B-NVFP4` liegt zwischen dem fehlerfreien 235B und dem
+leckenden 27B. Maschinell tadellos — null CJK, null Weichtrenner, null
+zerteilte Wörter. Satzzahlen 29/30/19 bei angekündigten 30.
+
+Die Persona erlaubt ausdrücklich einzelne englische Wörter (`indeed`,
+`rather`, `quite`, `splendid`) und verbietet im Warnrahmen ebenso
+ausdrücklich englische Sätze. Genau diese Grenze wird zweimal gerissen:
+„…jeder sehe leicht verschiedene Farbtöne, **though this remains
+debated**" und „Es ist reine Optik, **yet somehow no less magical**".
+Dazu `sufficiently illuminating` und `my dear Lord Helmchen`. Die Lecks
+skalieren hier mit der **Antwortlänge**, nicht mit dem Kontext: die
+kürzeste Antwort ist sauber, die beiden langen nicht.
+
+Die Fangfrage löst es nicht, behandelt sie aber ehrlich. Aus dem
+Denkblock: „Ich werde nicht 30 Sätze erfinden, da das bedeuten würde,
+falsche Informationen zu produzieren. […] Wahrheit geht vor Kunstform."
+Es erkennt sogar das Prinzip („Missverständnisse durch phonetische
+Ähnlichkeiten"), rät dann aber „Kundalini" statt Coandă.
+
+Zwei weitere Befunde: ein Kongruenzfehler („über das anderen Bescheid")
+und eine sachlich unbelegte Zuschreibung — „Alexander von Humboldt
+beobachtete einmal, dass Regenbogenfarben nie gleich intensiv
+erscheinen." Dafür findet sich keine Grundlage; das hat die Form einer
+erfundenen Quellenangabe.
+
+Tempo: Decode 35,0 · 32,4 · 32,3 tok/s (die Fußzeile nannte damals
+29,6–30,2 — siehe Korrektur oben). Die
+Prefill-Zahlen der Fußzeile (611 → 992 → 1.139 tok/s) sind
+TTFT-Divisionen und steigen nur, weil sich ein fester Sockel über mehr
+Token verteilt; vLLMs eigener Zähler nennt 1.187 tok/s.
+
 ### Die entscheidende Trennlinie
 
 Tippfehler und zerteilte Wörter treten bei **beiden** Formaten auf — das
@@ -84,11 +118,19 @@ dann Nebensätze, schließlich ein vollständiger englischer Schlusssatz.
 |---|---|---|
 | TTFT | 4,93 · 4,27 · 4,42 s | 5,70 · 4,04 · 3,98 s |
 | Prefill | 603 · 677 · 694 tok/s | 556 · 490 · 468 tok/s |
-| Decode | 35,4 · 35,4 · 25,0 tok/s | 32,6 · 29,5 · 24,9 tok/s |
+| Decode | **36,9 · 36,6 · 27,8** tok/s | 32,6 · 29,5 · 24,9 tok/s |
 
-vLLM liegt im Decode 9–20 % vorn und hält das Tempo über wachsenden
+vLLM liegt im Decode 12–24 % vorn und hält das Tempo über wachsenden
 Kontext, während llama.cpp nachlässt. Im Langkontext (31k) standen bei der
 Kalibration 37 gegen 26 tok/s.
+
+**Korrektur 2026-09-01:** Die vLLM-Decode-Werte standen zuvor mit
+35,4 · 35,4 · 25,0 hier. AIfred teilte die erzeugten Token durch die
+Gesamtdauer der Anfrage, also durch Prefill PLUS Generierung, und
+untertrieb damit um 3–12 %. llama.cpp war davon nie betroffen, weil
+llama-server seine Decode-Rate selbst meldet — der Vergleich lief also zu
+Lasten von vLLM. Seit dem Umbau liest AIfred auch bei vLLM die
+server-eigenen Zähler (`request_decode_time_seconds`).
 
 **Vorbehalt zur Prefill-Spalte:** Beide zählen nur ungecachte Token, aber
 llama.cpp teilt durch die reine Prefill-Zeit, AIfred bei vLLM durch die
