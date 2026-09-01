@@ -130,6 +130,28 @@ def parse_vllm_required_batched_tokens(error_output: str) -> int | None:
     return required if required > current else None
 
 
+def parse_vllm_required_kv_dtype(error_output: str) -> str | None:
+    """Von vLLM gefordertes KV-Cache-Format aus dem Boot-Fehler lesen.
+
+    Manche Architekturen akzeptieren nur ein bestimmtes Format und sagen
+    das beim Start rundheraus:
+
+        AssertionError: DeepseekV4 only supports fp8 kv-cache format
+        for now, got auto
+
+    Wie bei der Chunkgroesse nennt vLLM die Anforderung selbst — wir
+    uebernehmen sie, statt eine Architektur-Tabelle zu pflegen.
+    """
+    m = re.search(
+        r"only supports (\w+) kv-cache format[^,]*,\s*got (\w+)",
+        error_output,
+    )
+    if not m:
+        return None
+    gefordert, aktuell = m.group(1), m.group(2)
+    return gefordert if gefordert != aktuell else None
+
+
 def load_vllm_runtime() -> dict:
     """Laufzeitumgebung laden; fehlende/kaputte Datei ist ein harter Fehler."""
     if not VLLM_RUNTIME_PATH.exists():
@@ -169,6 +191,9 @@ class VllmSpec:
     # Chunk-Groesse ist modellspezifisch (2026-08-30: 4096 = +2,7 %
     # Prefill am 27B, aber -12 % am Flash-Next-Hybrid) — neutraler Default.
     max_batched_tokens: int = 2048
+    # None = vLLM-Default ("auto"); gesetzt nur, wenn die Architektur ein
+    # bestimmtes Format verlangt (DeepseekV4: fp8).
+    kv_cache_dtype: str | None = None
     language_model_only: bool = False
     # Attention-Backend des Drafters (abhaengig von der Compute-Klasse der
     # letzten PP-Stufe); None = vLLM-Default
@@ -189,6 +214,8 @@ class VllmSpec:
             "--max-model-len", str(self.mml),
             "--max-num-seqs", str(self.max_num_seqs),
             "--max-num-batched-tokens", str(self.max_batched_tokens),
+            *(["--kv-cache-dtype", self.kv_cache_dtype]
+              if self.kv_cache_dtype else []),
             "--host", "127.0.0.1", "--port", str(port),
         ]
         if self.language_model_only:
@@ -233,7 +260,8 @@ class VllmBootError(Exception):
 
     def __init__(self, reason: str, log_tail: str = "",
                  parsed_max_len: int | None = None, oom: bool = False,
-                 required_batched_tokens: int | None = None):
+                 required_batched_tokens: int | None = None,
+                 required_kv_dtype: str | None = None):
         super().__init__(reason)
         self.reason = reason
         self.log_tail = log_tail
@@ -246,6 +274,8 @@ class VllmBootError(Exception):
         # Von vLLM geforderte Mindest-Chunkgroesse (Hybrid-Checkpoints, deren
         # Mamba-Blockgroesse unseren Chunk-Deckel uebersteigt).
         self.required_batched_tokens = required_batched_tokens
+        # Von vLLM gefordertes KV-Cache-Format (Architektur-Zwang).
+        self.required_kv_dtype = required_kv_dtype
 
 
 def _kill_tree(pid: int, grace_s: int = 25) -> None:
@@ -394,6 +424,7 @@ def boot_vllm(
                 log_tail=full_log[-4000:],
                 parsed_max_len=parse_vllm_max_context_from_error(full_log),
                 required_batched_tokens=parse_vllm_required_batched_tokens(full_log),
+                required_kv_dtype=parse_vllm_required_kv_dtype(full_log),
                 oom=any(sig in full_log for sig in OOM_SIGNATURES),
             )
         try:
