@@ -60,7 +60,13 @@ def _matrix_header() -> rx.Component:
 
 def _matrix_row(row) -> rx.Component:
     """Eine Matrixzeile: Zeilenkopf plus je Spalte eine Zelle aus Checkbox
-    und Statuspunkt (gruen = fertig, rot = fehlgeschlagen)."""
+    und Statuspunkt (gruen = fertig, rot = fehlgeschlagen).
+
+    ``not_applicable`` ersetzt beides durch einen Strich: In der
+    vLLM-Burn-in-Matrix steht eine Zelle fuer ein VLM/TTS-Paar, und
+    ohne beides gibt es kein Paar. Eine leere Zelle laese sich sonst
+    als "noch nicht vermessen" lesen.
+    """
     return rx.hstack(
         rx.box(
             rx.text(row["label"], font_size="10px", font_weight="bold"),
@@ -70,32 +76,41 @@ def _matrix_row(row) -> rx.Component:
         rx.foreach(
             row["cells"],
             lambda cell: rx.box(
-                rx.hstack(
-                    rx.checkbox(
-                        checked=cell["checked"].to(bool),
-                        on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),  # type: ignore[arg-type]
-                        size="1",
-                        color_scheme="orange",
-                        variant="soft",
+                rx.cond(
+                    cell["not_applicable"].to(bool),
+                    rx.text(
+                        "—",
+                        font_size="11px",
+                        color="gray",
+                        title=t("calibration_cell_not_applicable"),
                     ),
-                    rx.box(
-                        width="6px",
-                        height="6px",
-                        border_radius="50%",
-                        background=rx.cond(
-                            cell["calibration_failed"].to(bool),
-                            "#ef4444",
-                            rx.cond(
-                                cell["already_calibrated"].to(bool),
-                                "#22c55e",
-                                "transparent",
-                            ),
+                    rx.hstack(
+                        rx.checkbox(
+                            checked=cell["checked"].to(bool),
+                            on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),  # type: ignore[arg-type]
+                            size="1",
+                            color_scheme="orange",
+                            variant="soft",
                         ),
-                        flex_shrink="0",
+                        rx.box(
+                            width="6px",
+                            height="6px",
+                            border_radius="50%",
+                            background=rx.cond(
+                                cell["calibration_failed"].to(bool),
+                                "#ef4444",
+                                rx.cond(
+                                    cell["already_calibrated"].to(bool),
+                                    "#22c55e",
+                                    "transparent",
+                                ),
+                            ),
+                            flex_shrink="0",
+                        ),
+                        spacing="2",
+                        align="center",
+                        justify="center",
                     ),
-                    spacing="2",
-                    align="center",
-                    justify="center",
                 ),
                 flex="1",
                 min_width="60px",
