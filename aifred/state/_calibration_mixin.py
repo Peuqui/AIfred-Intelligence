@@ -666,6 +666,21 @@ class CalibrationMixin(rx.State, mixin=True):
                 self.add_debug("⚠️ No model selected")  # type: ignore[attr-defined]
                 return
 
+            # Ohne angehakte Zelle setzt der llama.cpp-Zweig weiter unten
+            # skip_base und UEBERNIMMT die Werte aus der llama-swap-YAML,
+            # meldet aber trotzdem "Calibrated" — man haelt es fuer eine
+            # Messung (2026-09-01). Kalibrieren heisst immer neu vermessen,
+            # also hier abfangen statt stillschweigend etwas anderes zu tun.
+            if not any(self.calibration_matrix.values()):
+                from ..lib.i18n import t as _t
+                self.add_debug(  # type: ignore[attr-defined]
+                    "⚠️ Calibration aborted: no matrix cell selected"
+                )
+                return rx.toast.warning(
+                    _t("calibration_no_cell_selected", lang=self.ui_language),  # type: ignore[attr-defined]
+                    duration=8000, position="top-center",
+                )
+
             # Backend vLLM: Kalibrieren heisst IMMER neu vermessen — genau
             # wie bei llama.cpp; das Betriebspunkt-Profil ist nur das
             # Persistenzformat des Ergebnisses. Der Checkpoint-Pfad kommt
@@ -1850,7 +1865,10 @@ class CalibrationMixin(rx.State, mixin=True):
 
             self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
             mode_str = f" (hybrid, ngl={calibrated_ngl})" if calibrated_mode == "hybrid" else ""
-            self._cal_debug(f"✅ Calibrated: {format_number(calibrated_ctx)} tokens{mode_str}")  # type: ignore[attr-defined]
+            _icon, _verb = ("⏭️", "Reused") if skip_base else ("✅", "Calibrated")
+            self._cal_debug(  # type: ignore[attr-defined]
+                f"{_icon} {_verb}: {format_number(calibrated_ctx)} tokens{mode_str}"
+            )
 
             # Step 4: Update llama-swap YAML (-c and optionally -ngl).
             # Skipped when ``skip_base`` is set — the YAML entries were the

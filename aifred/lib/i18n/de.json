@@ -859,5 +859,6 @@
   "narrator_engine_label": "Engine:",
   "narrator_fallback_label": "GPU-frei:",
   "narrator_voice_label": "Stimme:",
-  "narrator_settings_subtitle": "Vorlese-Engine und Stimme für narrate_file (Dokument → Audio-Datei)"
+  "narrator_settings_subtitle": "Vorlese-Engine und Stimme für narrate_file (Dokument → Audio-Datei)",
+  "calibration_no_cell_selected": "⚠️ Bitte mindestens eine Kombination anhaken — sonst wird nichts gemessen, sondern nur Vorhandenes übernommen"
 }
