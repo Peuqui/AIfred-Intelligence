@@ -126,6 +126,26 @@ class FaceCropStore:
         self._unknown_counter = 0   # Zähler für unknown-Cluster-IDs
         self._lock = Lock()
 
+    def path_for_url(self, url: str) -> Path | None:
+        """Dateipfad zu einer ``/_upload/face_crops/...``-URL, oder None."""
+        if not url or not url.startswith(f"{self.URL_PREFIX}/"):
+            return None
+        rel = url[len(self.URL_PREFIX) + 1:]
+        if not rel or ".." in rel:
+            return None
+        return self._base_dir / rel
+
+    def url_exists(self, url: str) -> bool:
+        """Liegt die Datei zu dieser Crop-URL noch auf der Platte?
+
+        Ereignis-Crops unterliegen der Aufbewahrungsfrist und verschwinden;
+        nur ``enroll/``-Crops sind dauerhaft. Wer eine URL aus der
+        Datenbank anzeigt, muss also mit Karteileichen rechnen
+        (2026-09-01: drei von vier Identitaeten zeigten kein Bild mehr).
+        """
+        pfad = self.path_for_url(url)
+        return bool(pfad and pfad.is_file())
+
     # ── Public API ───────────────────────────────────────────────
 
     def save(
