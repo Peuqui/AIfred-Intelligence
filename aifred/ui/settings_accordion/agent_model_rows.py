@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t, native_select_model
+from ..helpers import t, native_select_model, select_model_by_id
 from .controls import (
     _agent_thinking_select,
     _agent_toggle,
@@ -21,21 +21,17 @@ def _aifred_model_row() -> rx.Component:
         rx.text(t("main_llm"), font_weight="bold", font_size="12px"),
         rx.cond(
             AIState.is_mobile,
-            # MOBILE: Native HTML <select> (simple list)
             native_select_model(
-                AIState.agent_tuning["aifred"].model,  # Display name with size
-                AIState.set_aifred_model,  # Original handler
+                AIState.agent_tuning["aifred"].model_id,
+                AIState.set_aifred_model,
                 AIState.backend_switching,
-                AIState.available_models,  # Simple list of display names
+                AIState.available_models_rich,
             ),
-            # DESKTOP: Radix UI Select
-            rx.select(
-                AIState.available_models,
-                value=AIState.agent_tuning["aifred"].model,
-                on_change=AIState.set_aifred_model,
-                size="2",
-                position="popper",  # Better mobile positioning (adapts to viewport)
-                disabled=AIState.backend_switching,  # Disable during backend switch
+            select_model_by_id(
+                AIState.available_models_rich,
+                AIState.agent_tuning["aifred"].model_id,
+                AIState.set_aifred_model,
+                AIState.backend_switching,
             ),
         ),
         spacing="3",
@@ -81,19 +77,16 @@ def _secondary_agent_row(row) -> rx.Component:
         AIState.is_mobile,
         # MOBILE: Native HTML <select> (simple list)
         native_select_model(
-            row.select_value,
+            row.select_id,
             lambda v: AIState.set_agent_model_for(row.id, v),
             AIState.backend_switching,
-            AIState.secondary_available_models,
+            AIState.secondary_available_models_rich,
         ),
-        # DESKTOP: Radix UI Select with "(wie AIfred-LLM)" as first option
-        rx.select(
-            AIState.secondary_available_models,
-            value=row.select_value,
-            on_change=lambda v: AIState.set_agent_model_for(row.id, v),
-            size="2",
-            position="popper",
-            disabled=AIState.backend_switching,
+        select_model_by_id(
+            AIState.secondary_available_models_rich,
+            row.select_id,
+            lambda v: AIState.set_agent_model_for(row.id, v),
+            AIState.backend_switching,
         ),
     )
     toggles = [
@@ -160,19 +153,16 @@ def _automatik_model_row() -> rx.Component:
                 AIState.is_mobile,
                 # MOBILE: Native HTML <select> (simple list)
                 native_select_model(
-                    AIState.automatik_model_select_value,
+                    AIState.automatik_model_select_id,
                     AIState.set_automatik_model,
                     AIState.backend_switching,
-                    AIState.automatik_available_models,
+                    AIState.automatik_available_models_rich,
                 ),
-                # DESKTOP: Radix UI Select with "(wie AIfred-LLM)" as first option
-                rx.select(
-                    AIState.automatik_available_models,
-                    value=AIState.automatik_model_select_value,
-                    on_change=AIState.set_automatik_model,
-                    size="2",
-                    position="popper",
-                    disabled=AIState.backend_switching,
+                select_model_by_id(
+                    AIState.automatik_available_models_rich,
+                    AIState.automatik_model_select_id,
+                    AIState.set_automatik_model,
+                    AIState.backend_switching,
                 ),
             ),
             spacing="3",
@@ -206,53 +196,17 @@ def _vision_model_row() -> rx.Component:
             ),
             rx.cond(
                 AIState.is_mobile,
-                # MOBILE: Native HTML <select> mit Swap-Badge im
-                # Options-Text (native <select> kann nicht färben —
-                # das ⚡/🔄-Emoji trägt die Info; value bleibt der
-                # reine Name).
                 native_select_model(
-                    AIState.agent_tuning["vision"].model,
+                    AIState.agent_tuning["vision"].model_id,
                     AIState.set_vision_model,
                     AIState.backend_switching,
-                    rich_list=AIState.available_vision_models_rich,
+                    AIState.available_vision_models_rich,
                 ),
-                # DESKTOP: Radix UI Select mit Swap-Badge pro Zeile.
-                # Custom-Items (value = reiner Name, Anzeige =
-                # Name + gefärbtes ⚡ No Swap / 🔄 Swap-Badge), damit
-                # der Auswahl-Wert sauber bleibt und trotzdem sichtbar
-                # ist, ob eine Bildanfrage das Chat-Modell swappt.
-                rx.select.root(
-                    rx.select.trigger(
-                        placeholder="Select vision model...",
-                        disabled=AIState.backend_switching,
-                    ),
-                    rx.select.content(
-                        rx.foreach(
-                            AIState.available_vision_models_rich,
-                            lambda row: rx.select.item(
-                                rx.hstack(
-                                    rx.text(row["name"]),
-                                    rx.cond(
-                                        row["badge"] != "",
-                                        rx.text(
-                                            row["badge"],
-                                            color=row["color"],
-                                            font_size="11px",
-                                            weight="medium",
-                                        ),
-                                    ),
-                                    spacing="2",
-                                    align="center",
-                                ),
-                                value=row["name"],
-                            ),
-                        ),
-                    ),
-                    value=AIState.agent_tuning["vision"].model,
-                    on_change=AIState.set_vision_model,
-                    size="2",
-                    position="popper",
-                    disabled=AIState.backend_switching,
+                select_model_by_id(
+                    AIState.available_vision_models_rich,
+                    AIState.agent_tuning["vision"].model_id,
+                    AIState.set_vision_model,
+                    AIState.backend_switching,
                 ),
             ),
             spacing="3",

@@ -827,20 +827,28 @@ class AgentConfigMixin(rx.State, mixin=True):
     # SOKRATES / SALOMO MODEL SELECTION
     # ================================================================
 
-    @rx.var(deps=["available_models", "ui_language"], auto_deps=False)
-    def secondary_available_models(self) -> list[str]:
-        """Model list with localized '(wie AIfred-LLM)' as first selectable option."""
+    @rx.var(deps=["available_models_dict", "ui_language"], auto_deps=False)
+    def secondary_available_models_rich(self) -> list[dict[str, str]]:
+        """Optionen der Sekundaer-Agenten: Sentinel zuerst, dann alle Modelle."""
         from ..lib.i18n import t
+        from ..state._backend_mixin import SAME_AS_AIFRED
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        return [t("sokrates_llm_same", lang=lang)] + list(self.available_models)  # type: ignore[attr-defined]
+        return [{"id": SAME_AS_AIFRED, "label": t("sokrates_llm_same", lang=lang),
+                 "badge": "", "color": ""}] + [
+            {"id": mid, "label": label, "badge": "", "color": ""}
+            for mid, label in self.available_models_dict.items()  # type: ignore[attr-defined]
+        ]
 
-    def _model_select_value(self, agent: str) -> str:
-        """Maps empty model (inherit) to the localized sentinel label."""
+    def _model_select_id(self, agent: str) -> str:
+        """Select-Wert: die Modell-ID, leer wird zum Sentinel.
+
+        Die ID ist die einzige Wahrheit — Labels sind Ansicht und taugen
+        nicht als Auswahlwert (siehe ``_catalog_for``/``_label_for``).
+        """
         from ..lib.agent_settings import get_agent_setting
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        model: str = get_agent_setting(self, agent, "model")
-        return t("sokrates_llm_same", lang=lang) if model == "" else model
+        from ..state._backend_mixin import SAME_AS_AIFRED
+        model_id: str = get_agent_setting(self, agent, "model_id")
+        return SAME_AS_AIFRED if not model_id else model_id
 
     # Debug-emoji for the secondary-model selects (historical, differs from
     # the agents.json emoji — 🧠 for Sokrates, 👑 for Salomo)
@@ -849,16 +857,17 @@ class AgentConfigMixin(rx.State, mixin=True):
         "salomo": "\U0001f451",
     }
 
-    def _set_secondary_agent_model(self, agent: str, model: str) -> None:
-        """Set Sokrates/Salomo LLM model for multi-agent debate (shared logic)."""
+    def _set_secondary_agent_model(self, agent: str, model_id: str) -> None:
+        """Set Sokrates/Salomo LLM model for multi-agent debate (shared logic).
+
+        Bekommt die MODELL-ID aus dem Select; das Label wird daraus abgeleitet.
+        """
         from ..lib.agent_settings import set_agent_setting
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        if model == t("sokrates_llm_same", lang=lang):
-            model = ""
-        set_agent_setting(self, agent, "model", model)
-        model_id: str = self._resolve_model_id(model)  # type: ignore[attr-defined]
+        from ..state._backend_mixin import SAME_AS_AIFRED
+        if model_id == SAME_AS_AIFRED:
+            model_id = ""
         set_agent_setting(self, agent, "model_id", model_id)
+        set_agent_setting(self, agent, "model", self._label_for(agent, model_id))  # type: ignore[attr-defined]
 
         if not model_id:
             # "(wie AIfred-LLM)" selected -- clear speed variant
@@ -894,8 +903,9 @@ class AgentConfigMixin(rx.State, mixin=True):
 
         self._save_settings()  # type: ignore[attr-defined]
         emoji = self._SECONDARY_MODEL_EMOJI.get(agent, "\U0001f916")
-        if model:
-            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: {model}")  # type: ignore[attr-defined]
+        if model_id:
+            from ..lib.agent_settings import get_agent_setting as _get
+            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: {_get(self, agent, 'model')}")  # type: ignore[attr-defined]
             self._show_model_calibration_info(model_id)  # type: ignore[attr-defined]
         else:
             self.add_debug(f"{emoji} {agent.capitalize()}-LLM: (same as Main-LLM)")  # type: ignore[attr-defined]
@@ -1025,7 +1035,7 @@ class AgentConfigMixin(rx.State, mixin=True):
                 id=agent,
                 emoji=entry["emoji"],
                 label=f"{entry['display_name']}-LLM:",
-                select_value=self._model_select_value(agent),
+                select_id=self._model_select_id(agent),
                 model_empty=(model == ""),
                 personality=get_agent_setting(self, agent, "personality"),
                 personality_tooltip=t(personality_key, lang=lang),

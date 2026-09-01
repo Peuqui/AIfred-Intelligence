@@ -425,11 +425,20 @@ def build_inference_metadata(
         - debug_msg: Debug "done" line (also logged via log_message())
     """
     # --- PP speed: from backend (Ollama) or TTFT fallback ---
+    # Prefill-Rate NUR aus Werten, die dieselbe Groesse messen. llama.cpp und
+    # Ollama melden sie server-seitig ueber die real ausgewerteten Token. Wo
+    # das fehlt (vLLM), taugt Wanduhr nur, wenn wir wissen, wie viel wirklich
+    # gerechnet wurde — sonst zaehlten Praefix-Cache-Treffer als Leistung und
+    # der Wert stiege mit dem Cache statt mit der Hardware (gemessen
+    # 2026-09-01: 1.587 gegen ehrliche 468 tok/s im selben Vergleich).
+    # Ist beides nicht zu haben, wird KEINE Rate ausgegeben.
     prompt_per_sec = 0.0
     if backend_metrics:
         prompt_per_sec = backend_metrics.get("prompt_per_second", 0) or 0
-    if not prompt_per_sec and ttft and ttft > 0 and tokens_prompt > 0:
-        prompt_per_sec = tokens_prompt / ttft
+        if not prompt_per_sec and ttft and ttft > 0:
+            computed = backend_metrics.get("tokens_prompt_computed")
+            if computed:
+                prompt_per_sec = computed / ttft
 
     # --- Metadata dict (for persistence) ---
     metadata_dict: dict = {

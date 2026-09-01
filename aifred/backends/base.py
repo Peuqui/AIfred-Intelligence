@@ -348,6 +348,16 @@ class OpenAICompatibleBackend(LLMBackend):
             extra_body.setdefault("chat_template_kwargs", {})[
                 "reasoning_effort"
             ] = options.reasoning_effort
+        # Sichtbar machen, WAS auf der Leitung landet. Die Denkstufe ist kein
+        # Modell-Schalter, sondern eine Jinja-Variable: Die Chat-Vorlage baut
+        # daraus einen Anweisungssatz. Fehlt der Wert, setzt die Vorlage ihren
+        # eigenen Standard ein — bei Qwen3.8 ist das xhigh, also die
+        # ausfuehrlichste Stufe. Ein stillschweigend leerer Wert sieht damit
+        # aus wie "maximal nachdenken" (Peuqui, 2026-09-01).
+        if options.enable_thinking is not False:
+            from ..lib.logging_utils import log_message
+            level = options.reasoning_effort or "NOT SENT (template falls back to its own default)"
+            log_message(f"🧠 reasoning_effort on the wire: {level}")
         return extra_body
 
     def _process_response_text(self, choice: Any) -> str:

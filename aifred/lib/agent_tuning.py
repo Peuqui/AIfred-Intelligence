@@ -140,7 +140,7 @@ class AgentModelRow(rx.Base):
     id: str = ""
     emoji: str = ""
     label: str = ""
-    select_value: str = ""
+    select_id: str = ""
     model_empty: bool = True
     personality: bool = True
     personality_tooltip: str = ""
