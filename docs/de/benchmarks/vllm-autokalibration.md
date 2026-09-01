@@ -471,6 +471,57 @@ die Oberflächenqualität mit der nächsten Generation nachzieht; für
 Recherchearbeit mit Zitatanspruch ist das Modell derzeit mit Vorsicht zu
 verwenden.
 
+## Qwen3.5-122B-A10B-NVFP4: Vollkalibration (2026-09-01)
+
+Erster Hybrid-Checkpoint (Mamba/SSM-Anteil) auf diesem Stack.
+`Qwen3_5MoeForConditionalGeneration`, 48 Schichten, 77,7 GiB, nativer
+Kontext 262.144, MTP-Block 4,70 GiB **BF16** (unquantisiert).
+TP2×PP2 über GPUs [0, 2, 1, 4] — beide RTX 8000 und zwei V100.
+
+### Der Boot-Stolperstein
+
+vLLM ignoriert bei Hybriden unsere `--block-size` und leitet die
+Attention-Seitengröße aus der Mamba-State-Seite ab
+(`platforms/interface.py`, `attn_block_size = alignment × ceil(mamba_page /
+(alignment × attn_page_1_token))`). Hier: 16 × 131 = 2.096 — über unserem
+Chunk-Deckel von 2.048, also Boot-Abbruch per Assertion. Seit
+`parse_vllm_required_batched_tokens()` übernimmt der Kalibrator die von
+vLLM selbst genannte Zahl. Mit geladenem Draftkopf ändert sich die
+Arithmetik nochmals auf 2.176.
+
+### Messmatrix (TP2×PP2, ctx 262.144)
+
+| k | kurz | Prefill | lang | Akzeptanz |
+|---:|---:|---:|---:|---:|
+| **0** | 32,4 | **1.628** | **23,5** | — |
+| 1 | **34,0** | 842 | 15,3 | 90 % |
+| 2 | 29,5 | 833 | 15,4 | 87 % |
+| 3 | 24,2 | 824 | 14,5 | 79 % |
+| 4 | 18,5 | 806 | 13,2 | 70 % |
+| 5 | 14,1 | 793 | 11,6 | 64 % |
+| 6 | 11,5 | 772 | 10,9 | 64 % |
+| 7 | 9,1 | 747 | 12,1 | 61 % |
+
+Lang = Decode bei 28.843 Token Kontext, Prefill kalt gemessen
+(`max_tokens=1` gegen frisch gebooteten Server).
+
+### Befund: Akzeptanz rettet einen BF16-Draftkopf nicht
+
+k=1 nimmt **90 %** der Entwürfe an und bleibt im Langkontext trotzdem
+35 % hinter k=0. Der Kopf rät also gut — er kostet nur mehr Bandbreite,
+als er einbringt. Die Vorabschätzung `worthwhile=True` wiegt bislang nur
+die Blockgröße, nicht den Datentyp; der Sweep über sieben Tiefen kostete
+1,5 h für ein Ergebnis, das am unquantisierten Block absehbar war. Einzig
+der Kurzkontext profitiert marginal (k=1: 34,0 gegen 32,4).
+
+### A/B-Verfeinerung und Betriebspunkt
+
+Chunk 4.192 gewinnt knapp gegen 2.096 (23,6 gegen 23,5 lang) und wird
+übernommen; GMU 0,95 verliert gegen 0,97 und bleibt liegen.
+
+**Betriebspunkt: 23,6 tok/s Langkontext-Decode bei vollem 262k-Kontext**,
+TP2×PP2, k=0, GMU 0,97, Chunk 4.192. Kohärenz 3/3.
+
 ## Ausblick
 
 - Lineare Verify-Skalierung des Volta-Kernels und die 64×80-Kachel als
