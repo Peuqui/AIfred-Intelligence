@@ -289,6 +289,19 @@ def format_metadata(metadata_text: str) -> str:
     return f'*( {text} )*'
 
 
+def _format_prefill(prompt_per_sec: float | None) -> str:
+    """Prefill-Rate fuer die Fussnote. Leer, wenn es nichts zu zeigen gibt.
+
+    ``None`` heisst NICHT MESSBAR (Cache-Treffer unbekannt) — das wird als
+    "n/a" sichtbar gemacht, statt die Zahl stillschweigend wegzulassen.
+    """
+    if prompt_per_sec is None:
+        return "PP:\u00A0n/a"
+    if not prompt_per_sec:
+        return ""
+    return f"PP:\u00A0{format_number(prompt_per_sec, 1)}\u00A0tok/s"
+
+
 def format_performance_footer(metadata: dict) -> str:
     """Build a performance metadata footer from a metrics dict.
 
@@ -311,8 +324,9 @@ def format_performance_footer(metadata: dict) -> str:
     if metadata.get("ttft"):
         perf_parts.append(f"TTFT:\u00A0{format_duration_s(metadata['ttft'], 2).replace(' ', chr(0xA0))}")
 
-    if metadata.get("prompt_per_sec"):
-        perf_parts.append(f"PP:\u00A0{format_number(metadata['prompt_per_sec'], 1)}\u00A0tok/s")
+    prefill_part = _format_prefill(metadata.get("prompt_per_sec"))
+    if prefill_part:
+        perf_parts.append(prefill_part)
 
     if metadata.get("tokens_per_sec"):
         perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)}\u00A0tok/s")
@@ -457,8 +471,9 @@ def build_inference_metadata(
     info_parts: list[str] = []
     if ttft:
         perf_parts.append(f"TTFT:\u00A0{format_duration_s(ttft, 2).replace(' ', chr(0xA0))}")
-    if prompt_per_sec:
-        perf_parts.append(f"PP:\u00A0{format_number(prompt_per_sec, 1)}\u00A0tok/s")
+    prefill_part = _format_prefill(prompt_per_sec)
+    if prefill_part:
+        perf_parts.append(prefill_part)
     perf_parts.append(f"{format_number(tokens_per_sec, 1)}\u00A0tok/s")
     perf_parts.append(f"Inference:\u00A0{format_duration_s(inference_time, 1).replace(' ', chr(0xA0))}")
     # Source with backend label (e.g. "Own Knowledge (model) [llamacpp]")
@@ -500,7 +515,9 @@ def build_inference_metadata(
         debug_base += " — TRUNCATED, answer incomplete"
 
     suffixes: list[str] = []
-    if prompt_per_sec:
+    if prompt_per_sec is None:
+        suffixes.append("PP: n/a")
+    elif prompt_per_sec:
         suffixes.append(f"PP: {format_number(prompt_per_sec, 1)} tok/s")
     if response_chars > 0:
         suffixes.append(f"{format_number(response_chars)} chars")
