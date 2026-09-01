@@ -340,6 +340,11 @@ Nebenbefund: k=0 zeigt reproduzierbar Kohärenz 2/3 (mit Spekulation
 3/3) — Kernel-Pfad-Numerik kippt bei Temperatur 0 einen Tie-Break;
 Produktion läuft mit Spekulation.
 
+> **Qualitätsseite:** Dieses Dokument behandelt Tempo und Kalibration.
+> Wie sich die Quantisierungsformate auf die Antwortqualität auswirken —
+> und warum NVFP4 beim 27B deutsche Sätze ins Englische kippen lässt —
+> steht in [quantisierung-qualitaet.md](quantisierung-qualitaet.md).
+
 ## Fazit: Netto-Bilanz (Stand 2026-08-30 nachts)
 
 Was die Kampagne aus denselben Karten herausgeholt hat — alles ohne
