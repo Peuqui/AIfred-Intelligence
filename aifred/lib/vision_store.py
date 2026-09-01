@@ -500,6 +500,7 @@ class VisionStore:
     ) -> int:
         now = _now_iso()
         blob = _embedding_to_blob(embedding)
+        crop_url = self._persist_crop(face_id, crop_url)
         with self._conn() as conn:
             cur = conn.execute(
                 "INSERT INTO face_embeddings (face_id, embedding, quality_score, "
@@ -507,6 +508,36 @@ class VisionStore:
                 (face_id, blob, quality_score, source_event_id, crop_url, now),
             )
             return int(cur.lastrowid or 0)
+
+    @staticmethod
+    def _persist_crop(face_id: int, crop_url: str) -> str:
+        """Crop eines neuen Embeddings in den dauerhaften Bereich kopieren.
+
+        Aus einer Kamera-Sichtung gelernte Embeddings zeigten bisher auf
+        den FLUECHTIGEN Ereignis-Speicher. Verschwindet die Datei — durch
+        die Aufbewahrungsfrist oder durch Loeschen der Faelle —, verliert
+        die Identitaet ihr Gesichtsbild unwiederbringlich. Am 2026-09-01
+        war das bei zwei von vier Identitaeten bereits passiert, dort ist
+        nichts mehr zu retten.
+
+        ``enroll/``-Crops gehoeren zur Identitaet und werden von keiner
+        Faelle-Loeschung angefasst. Best-Effort: schlaegt das Kopieren
+        fehl, bleibt die urspruengliche URL stehen.
+        """
+        if not crop_url or "/enroll/" in crop_url:
+            return crop_url
+        try:
+            from .face_crop_store import get_default_store
+            speicher = get_default_store()
+            quelle = speicher.path_for_url(crop_url)
+            if not quelle or not quelle.is_file():
+                return crop_url
+            neu = speicher.save_raw(quelle.read_bytes(), face_id)
+            return neu or crop_url
+        except Exception as e:  # noqa: BLE001 — Anlernen darf nie scheitern
+            from .logging_utils import log_message
+            log_message(f"crop persist failed for {crop_url}: {e}")
+            return crop_url
 
     def list_embeddings(self, face_id: int | None = None) -> list[dict[str, Any]]:
         """Liste aller Embeddings, optional nach ``face_id`` gefiltert.
