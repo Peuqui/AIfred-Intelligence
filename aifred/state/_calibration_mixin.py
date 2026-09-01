@@ -266,7 +266,9 @@ class CalibrationMixin(rx.State, mixin=True):
                     "calibration_failed": verdict is False,
                     # Ohne VLM und ohne TTS gibt es kein Paar auf der
                     # Side-Channel-Karte — nichts zu vermessen.
-                    "not_applicable": not vlm_key and not tts_key,
+                    # Basiszelle ist auch hier anhakbar — wie bei
+                    # llama.cpp bedeutet sie "Basis neu vermessen".
+                    "not_applicable": False,
                 })
             return {"label": label, "cells": cells}
 
@@ -671,14 +673,9 @@ class CalibrationMixin(rx.State, mixin=True):
             # meldet aber trotzdem "Calibrated" — man haelt es fuer eine
             # Messung (2026-09-01). Kalibrieren heisst immer neu vermessen,
             # also hier abfangen statt stillschweigend etwas anderes zu tun.
-            #
-            # NUR fuer llama.cpp: im vLLM-Gitter ist die Basiszelle bewusst
-            # kein Kaestchen (``not_applicable``), weil dort die
-            # Betriebspunkt-Suche selbst die Basiskalibration IST. Eine
-            # leere Matrix heisst da "keine Seitenkanal-Varianten" und ist
-            # legitim — eine Sperre waere dort unerfuellbar.
-            if (self.backend_type != "vllm"  # type: ignore[attr-defined]
-                    and not any(self.calibration_matrix.values())):
+            # Gilt fuer beide Backends gleich: die Basiszelle ist auch im
+            # vLLM-Gitter anhakbar.
+            if not any(self.calibration_matrix.values()):
                 from ..lib.i18n import t as _t
                 self.add_debug(  # type: ignore[attr-defined]
                     "⚠️ Calibration aborted: no matrix cell selected"
@@ -879,6 +876,16 @@ class CalibrationMixin(rx.State, mixin=True):
                     f"will OOM under load."
                 )
             yield
+
+        # Basiszelle wie bei llama.cpp: nicht angehakt heisst, den
+        # vorhandenen Betriebspunkt behalten und nur die angehakten
+        # Seitenkanal-Paare einzubrennen (das ist oben schon passiert).
+        if not self.calibration_matrix.get("|", False):
+            self._cal_debug(  # type: ignore[attr-defined]
+                "⏭️ Skipping base — keeping the persisted operating point"
+            )
+            yield
+            return
 
         def _run():
             return calibrate_vllm_checkpoint(
