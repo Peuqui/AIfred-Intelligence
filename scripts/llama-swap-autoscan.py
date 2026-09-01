@@ -1226,6 +1226,7 @@ def scan_gguf_models() -> list[dict]:
             model_stem = split_match.group(1)
             # Strip HuggingFace "-split" suffix: "Model-split" → "Model"
             model_stem = re.sub(r'-split$', '', model_stem, flags=re.IGNORECASE)
+        model_stem = _mark_mtp_in_name(model_stem, gguf_file)
         models.append({
             "name": model_stem,
             "path": gguf_file,
@@ -1233,6 +1234,64 @@ def scan_gguf_models() -> list[dict]:
         })
 
     return models
+
+
+# Quantisierungs-Kennung am Ende des Stems, vor der das MTP-Kuerzel steht.
+# Beispiele: "-UD-Q8_K_XL", "-Q6_K", "-UD-IQ3_XXS", "-MXFP4_MOE", "-BF16".
+_QUANT_RE = re.compile(
+    r"-(UD-)?(I?Q\d[A-Z0-9_]*|MXFP4[A-Z0-9_]*|NVFP4|BF16|F16|F32)$",
+    re.IGNORECASE,
+)
+
+
+def _mark_mtp_in_name(stem: str, gguf_file: Path) -> str:
+    """MTP-Kuerzel in den Eintragsnamen ziehen, wenn das GGUF einen
+    Draftkopf traegt.
+
+    Anbieter benennen uneinheitlich: Unsloths MTP-Repo liefert Dateien
+    OHNE "MTP" im Namen, obwohl der Draftkopf drin ist (2026-09-01:
+    Qwen3.5-122B-A10B-UD-Q8_K_XL mit 20 nextn-Tensoren). Wer den
+    Dateinamen glaubt, sieht dem Dropdown-Eintrag nicht an, ob er
+    spekulieren kann. Massgeblich sind die Tensoren, nicht der Dateiname.
+
+    Eingehaengt wird vor der Quantisierungs-Kennung, damit die
+    bestehende Konvention gewahrt bleibt (Qwen3.8-27B-MTP-UD-Q8_K_XL).
+    """
+    if "MTP" in stem.upper():
+        return stem
+    if not _detect_mtp_via_build_config(gguf_file):
+        return stem
+    treffer = _QUANT_RE.search(stem)
+    if not treffer:
+        return f"{stem}-MTP"
+    return f"{stem[:treffer.start()]}-MTP{stem[treffer.start():]}"
+
+
+def _detect_mtp_via_build_config(gguf_file: Path) -> bool:
+    """detect_mtp aus llama-swap-build-config wiederverwenden (SSOT der
+    Erkennung, inkl. mtime-Cache). Faellt der Import aus, wird nicht
+    geraten — dann bleibt der Name wie er ist."""
+    try:
+        import importlib.machinery
+        import importlib.util
+        pfad = Path(__file__).parent / "llama-swap-build-config"
+        spec = importlib.util.spec_from_loader(
+            "llama_swap_build_config",
+            importlib.machinery.SourceFileLoader(
+                "llama_swap_build_config", str(pfad)
+            ),
+        )
+        if spec is None or spec.loader is None:
+            return False
+        modul = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(modul)
+        cache = modul.load_mtp_cache()
+        ergebnis = bool(modul.detect_mtp(gguf_file, cache))
+        modul.save_mtp_cache(cache)
+        return ergebnis
+    except Exception as fehler:  # noqa: BLE001 — Namensgebung darf nie scheitern
+        print(f"  ~ MTP-Erkennung uebersprungen ({type(fehler).__name__}: {fehler})")
+        return False
 
 
 def parse_existing_yaml_models(config_path: Path) -> set[str]:
