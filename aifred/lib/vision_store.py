@@ -387,26 +387,26 @@ class VisionStore:
                     (fid,),
                 ).fetchone()
                 last_seen = str(evt["timestamp"]) if evt else ""
+                # Vorschaubild aus dem ERSTEN Embedding, dessen Datei es
+                # noch gibt. Frueher kam es aus dem letzten Erkennungs-
+                # Ereignis — aber Ereignis-Crops unterliegen der
+                # Aufbewahrungsfrist und verschwinden, wodurch drei von
+                # vier Identitaeten kein Bild mehr zeigten (2026-09-01).
+                # Auch unter den Embeddings sind nur ``enroll/``-Crops
+                # dauerhaft; die aus Kamera-Sichtungen gelernten zeigen
+                # ebenfalls in den fluechtigen Speicher. Deshalb wird die
+                # Existenz geprueft statt blind das erste zu nehmen.
+                from .face_crop_store import get_default_store
+                speicher = get_default_store()
                 crop_url = ""
-                if evt:
-                    try:
-                        import json
-                        cls = json.loads(evt["classification"] or "{}")
-                        crop_url = str(cls.get("crop_url") or "")
-                    except Exception:  # noqa: BLE001
-                        crop_url = ""
-                if not crop_url:
-                    # Kein Live-Erkennungs-Event bisher (frisch angelegte
-                    # Identität, noch keine Kamera-Sichtung) — Fallback auf
-                    # das beste eigene Embedding-Crop, statt den Platzhalter
-                    # zu zeigen obwohl schon Gesichtsbilder da sind.
-                    best_emb = conn.execute(
-                        "SELECT crop_url FROM face_embeddings WHERE face_id = ? "
-                        "AND crop_url != '' ORDER BY quality_score DESC LIMIT 1",
-                        (fid,),
-                    ).fetchone()
-                    if best_emb:
-                        crop_url = str(best_emb["crop_url"])
+                for kandidat in conn.execute(
+                    "SELECT crop_url FROM face_embeddings WHERE face_id = ? "
+                    "AND crop_url != '' ORDER BY id ASC",
+                    (fid,),
+                ).fetchall():
+                    if speicher.url_exists(str(kandidat["crop_url"])):
+                        crop_url = str(kandidat["crop_url"])
+                        break
                 result.append({
                     "id": fid,
                     "name": str(f["name"]),
