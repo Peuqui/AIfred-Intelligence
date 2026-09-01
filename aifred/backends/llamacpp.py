@@ -255,6 +255,10 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             "tokens_generated": total_tokens,
             "tokens_per_second": server_timings["predicted_per_second"],
             "prompt_per_second": server_timings["prompt_per_second"],
+            # Worauf die Prefill-Rate beruht: llama-server zaehlt in
+            # prompt_n nur Token, die wirklich durchs Modell liefen —
+            # Slot-Cache-Treffer sind nicht dabei.
+            "tokens_prompt_computed": int(server_timings.get("prompt_n") or 0),
             "inference_time": inference_time,
             "model": model,
         }

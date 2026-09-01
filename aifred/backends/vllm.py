@@ -69,7 +69,7 @@ class vLLMBackend(OpenAICompatibleBackend):
                 return self._metrics_port
         return None
 
-    def _rates_from_metrics(self) -> tuple[float | None, float | None]:
+    def _rates_from_metrics(self) -> tuple[float | None, float | None, float]:
         """(Prefill, Decode) in Token pro Sekunde, aus vLLMs eigenen Zaehlern.
 
         Vier kumulative Groessen, alle aus einem einzigen Abruf:
@@ -91,7 +91,7 @@ class vLLMBackend(OpenAICompatibleBackend):
         eindeutig zu unserer Anfrage; sonst kommt nichts zurueck und die
         Fussnote faellt auf die Wanduhr-Rechnung zurueck.
         """
-        leer: tuple[float | None, float | None] = (None, None)
+        leer: tuple[float | None, float | None, float] = (None, None, 0.0)
         port = self._upstream_port()
         if not port:
             return leer
@@ -137,7 +137,7 @@ class vLLMBackend(OpenAICompatibleBackend):
             return leer  # nicht eindeutig einer Anfrage zuzuordnen
         prefill = d_pf_tok / d_pf_s if d_pf_s > 0 and d_pf_tok > 0 else None
         decode = d_gen_tok / d_dec_s if d_dec_s > 0 and d_gen_tok > 0 else None
-        return prefill, decode
+        return prefill, decode, max(d_pf_tok, 0.0)
 
     def _build_extra_body(self, options) -> Dict:
         """Wie die Basisklasse, aber ohne ``min_p``.
@@ -227,9 +227,10 @@ class vLLMBackend(OpenAICompatibleBackend):
             metrics["tokens_prompt_cached"] = int(cached)
         # Genau EINMAL je Antwort (nicht je Chunk): vLLMs eigene Messung
         # schlaegt beide Wanduhr-Rechnungen der Basisklasse.
-        prefill, decode = self._rates_from_metrics()
+        prefill, decode, prefill_tokens = self._rates_from_metrics()
         if prefill:
             metrics["prompt_per_second"] = prefill
+            metrics["tokens_prompt_computed"] = int(prefill_tokens)
         if decode:
             metrics["tokens_per_second"] = decode
         return metrics

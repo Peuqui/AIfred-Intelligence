@@ -504,7 +504,7 @@ def probe_long_context(server: VllmServer, mml: int) -> dict | None:
         "cached_tokens", 0) or 0)
     prefill_tps = prefill_tokens_per_second(
         prompt_tokens=prompt_tokens, cached_tokens=cached_tokens, elapsed_s=dt1
-    )
+    ).rate or 0.0
     try:
         m_before = server.metrics()
     except Exception:  # noqa: BLE001 — Diagnose optional, Messung geht vor
