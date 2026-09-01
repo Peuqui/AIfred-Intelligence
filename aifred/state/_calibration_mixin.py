@@ -671,7 +671,14 @@ class CalibrationMixin(rx.State, mixin=True):
             # meldet aber trotzdem "Calibrated" — man haelt es fuer eine
             # Messung (2026-09-01). Kalibrieren heisst immer neu vermessen,
             # also hier abfangen statt stillschweigend etwas anderes zu tun.
-            if not any(self.calibration_matrix.values()):
+            #
+            # NUR fuer llama.cpp: im vLLM-Gitter ist die Basiszelle bewusst
+            # kein Kaestchen (``not_applicable``), weil dort die
+            # Betriebspunkt-Suche selbst die Basiskalibration IST. Eine
+            # leere Matrix heisst da "keine Seitenkanal-Varianten" und ist
+            # legitim — eine Sperre waere dort unerfuellbar.
+            if (self.backend_type != "vllm"  # type: ignore[attr-defined]
+                    and not any(self.calibration_matrix.values())):
                 from ..lib.i18n import t as _t
                 self.add_debug(  # type: ignore[attr-defined]
                     "⚠️ Calibration aborted: no matrix cell selected"
