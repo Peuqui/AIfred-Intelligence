@@ -383,6 +383,8 @@ def _measure_topology(
 
     server: VllmServer | None = None
     spec: VllmSpec | None = None
+    # Steigt nur, wenn vLLM eine groessere Chunkgroesse fordert.
+    mbt = VllmSpec.max_batched_tokens
     max_attempts = 6
     for attempt in range(max_attempts):
         spec = VllmSpec(
@@ -392,6 +394,7 @@ def _measure_topology(
             block_size=meta.boot_block_size(0),
             pp_partition=cand.pp_partition,
             language_model_only=meta.multimodal,
+            max_batched_tokens=mbt,
         )
         port = find_free_port()
         log = log_dir / f"boot-{cand.tp}x{cand.pp}-try{attempt}.log"
@@ -401,6 +404,16 @@ def _measure_topology(
             break
         except VllmBootError as e:
             retries_left = attempt < max_attempts - 1
+            if (retries_left and e.required_batched_tokens
+                    and e.required_batched_tokens > mbt):
+                # Hybrid-Checkpoint: vLLMs eigene Blockgroesse uebersteigt
+                # unseren Chunk-Deckel. Es nennt die noetige Zahl selbst.
+                mbt = e.required_batched_tokens
+                progress(
+                    f"   ↳ hybrid block size needs a larger chunk: retry with "
+                    f"{format_number(e.required_batched_tokens)}"
+                )
+                continue
             if (retries_left and e.parsed_max_len
                     and MIN_USEFUL_CONTEXT <= e.parsed_max_len < mml):
                 # vLLM nennt die Grenze selbst — uebernehmen, neu booten
@@ -511,6 +524,12 @@ def _sweep_k(
     # bootet jedes k denselben OOM neu (Lauf 2026-08-30: 6 von 7
     # Gitter-Sprossen, je ~2 min; bei 150-GB-Modellen ein Vielfaches).
     sweep_gmu = rung.spec.gmu
+    # Chunk-Deckel gilt fuer den GANZEN Sweep, nicht je k: fordert vLLM
+    # einmal mehr, bleibt der Wert stehen. Sonst booten alle folgenden k
+    # erst in dieselbe Assertion (je ~8 min Gewichtsladen umsonst) und
+    # wuerden ausserdem bei verschiedenen Chunkgroessen gemessen — genau
+    # der Achse, die den Prefill um bis zu 12 % dreht.
+    mbt_k = rung.spec.max_batched_tokens
     for k in _k_candidates(meta, runtime):
         capture = _capture_sizes_for(k, runtime)
         spec_attn = _spec_attn_for(rung.spec, gpus, smi, runtime)
@@ -534,6 +553,7 @@ def _sweep_k(
                 spec_k = VllmSpec(
                     **{**rung.spec.__dict__, "k": k, "mml": mml_k,
                        "gmu": gmu_k, "block_size": meta.boot_block_size(k),
+                       "max_batched_tokens": mbt_k,
                        "capture_sizes": capture, "spec_attn_backend": spec_attn},
                 )
                 port = find_free_port()
@@ -545,6 +565,12 @@ def _sweep_k(
                     server = boot_vllm(spec_k, port, log, BOOT_TIMEOUT_S, cancel_check)
                     break
                 except VllmBootError as e:
+                    if (attempt < 2 and e.required_batched_tokens
+                            and e.required_batched_tokens > mbt_k):
+                        mbt_k = e.required_batched_tokens
+                        progress(f"   ↳ k={k} needs a larger chunk: retry with "
+                                 f"{format_number(mbt_k)}")
+                        continue
                     if (attempt < 2 and allow_ctx_reduction and e.parsed_max_len
                             and MIN_USEFUL_CONTEXT <= e.parsed_max_len < mml_k):
                         mml_k = e.parsed_max_len

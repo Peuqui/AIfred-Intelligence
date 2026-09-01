@@ -26,6 +26,7 @@ from pathlib import Path
 
 import yaml
 
+from ..perf_metrics import prefill_tokens_per_second
 from ..config import DATA_DIR
 
 VLLM_RUNTIME_PATH = DATA_DIR / "vllm_runtime.yaml"
@@ -105,6 +106,28 @@ def parse_vllm_max_context_from_error(error_output: str) -> int | None:
     logger.warning("Could not parse max context from vLLM error output")
     return None
 
+
+
+def parse_vllm_required_batched_tokens(error_output: str) -> int | None:
+    """Von vLLM geforderte Mindest-Chunkgroesse aus dem Boot-Fehler lesen.
+
+    Hybrid-Checkpoints (Mamba/SSM-Anteil) ueberschreiben unsere --block-size
+    und leiten die Blockgroesse aus der State-Seitengroesse ab. Faellt die
+    ueber unseren Chunk-Deckel, bricht der Boot mit einer Assertion, die
+    beide Zahlen nennt. vLLM sagt uns damit selbst, was es braucht.
+
+        AssertionError: In Mamba cache align mode, block_size (2096)
+        must be <= max_num_batched_tokens (2048).
+    """
+    m = re.search(
+        r"block_size\s*\((\d+)\)\s*must be <=\s*"
+        r"max_num_batched_tokens\s*\((\d+)\)",
+        error_output,
+    )
+    if not m:
+        return None
+    required, current = int(m.group(1)), int(m.group(2))
+    return required if required > current else None
 
 
 def load_vllm_runtime() -> dict:
@@ -209,7 +232,8 @@ class VllmBootError(Exception):
     """Boot gescheitert — mit geparster Ursache fuer die Suche."""
 
     def __init__(self, reason: str, log_tail: str = "",
-                 parsed_max_len: int | None = None, oom: bool = False):
+                 parsed_max_len: int | None = None, oom: bool = False,
+                 required_batched_tokens: int | None = None):
         super().__init__(reason)
         self.reason = reason
         self.log_tail = log_tail
@@ -219,6 +243,9 @@ class VllmBootError(Exception):
         # Von vLLM selbst genannte Kontext-Obergrenze (falls in der
         # Fehlermeldung enthalten) — direktes Futter fuer die MML-Suche.
         self.parsed_max_len = parsed_max_len
+        # Von vLLM geforderte Mindest-Chunkgroesse (Hybrid-Checkpoints, deren
+        # Mamba-Blockgroesse unseren Chunk-Deckel uebersteigt).
+        self.required_batched_tokens = required_batched_tokens
 
 
 def _kill_tree(pid: int, grace_s: int = 25) -> None:
@@ -366,6 +393,7 @@ def boot_vllm(
                 f"server died during boot (exit {proc.returncode})",
                 log_tail=full_log[-4000:],
                 parsed_max_len=parse_vllm_max_context_from_error(full_log),
+                required_batched_tokens=parse_vllm_required_batched_tokens(full_log),
                 oom=any(sig in full_log for sig in OOM_SIGNATURES),
             )
         try:
@@ -468,7 +496,15 @@ def probe_long_context(server: VllmServer, mml: int) -> dict | None:
     _, usage, dt1 = server.chat(prompt, max_tokens=1, ignore_eos=True,
                                 timeout_s=1200.0)
     prompt_tokens = int(usage.get("prompt_tokens", 0)) or target
-    prefill_tps = prompt_tokens / dt1 if dt1 > 0 else 0.0
+    # Der Kalibrator startet seine Server selbst und immer mit
+    # --enable-prompt-tokens-details (Basis-Argumente in vllm_runtime.yaml).
+    # Fehlt der Abschnitt, gab es also KEINE Cache-Treffer — nicht etwa
+    # unbekannt viele. Deshalb hier 0 statt None.
+    cached_tokens = int((usage.get("prompt_tokens_details") or {}).get(
+        "cached_tokens", 0) or 0)
+    prefill_tps = prefill_tokens_per_second(
+        prompt_tokens=prompt_tokens, cached_tokens=cached_tokens, elapsed_s=dt1
+    )
     try:
         m_before = server.metrics()
     except Exception:  # noqa: BLE001 — Diagnose optional, Messung geht vor

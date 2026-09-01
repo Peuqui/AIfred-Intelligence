@@ -101,13 +101,20 @@ class vLLMBackend(OpenAICompatibleBackend):
         model: str,
         server_timings: Dict[str, Any],
     ) -> Dict[str, Any]:
-        """Wie die Basisklasse, plus die tatsaechlich gerechneten Prompt-Token."""
+        """Wie die Basisklasse, plus die Zahl der Cache-Treffer.
+
+        Nur der Rohwert wird gemeldet; abgezogen wird in
+        ``perf_metrics.prefill_tokens_per_second``. Fehlt der Schluessel,
+        ist die Zahl UNBEKANNT (Server ohne
+        ``--enable-prompt-tokens-details``) — dann meldet der Helfer
+        bewusst keine Rate statt einer geratenen.
+        """
         metrics = super()._build_stream_metrics(
             prompt_tokens, total_tokens, inference_time, model, server_timings
         )
         cached = server_timings.get("prompt_tokens_cached")
         if cached is not None:
-            metrics["tokens_prompt_computed"] = max(prompt_tokens - int(cached), 0)
+            metrics["tokens_prompt_cached"] = int(cached)
         return metrics
 
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:

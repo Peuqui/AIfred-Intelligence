@@ -12,6 +12,7 @@ from pathlib import Path
 from collections import OrderedDict
 from .logging_utils import log_message
 from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
+from .perf_metrics import prefill_tokens_per_second
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
@@ -432,13 +433,12 @@ def build_inference_metadata(
     # der Wert stiege mit dem Cache statt mit der Hardware (gemessen
     # 2026-09-01: 1.587 gegen ehrliche 468 tok/s im selben Vergleich).
     # Ist beides nicht zu haben, wird KEINE Rate ausgegeben.
-    prompt_per_sec = 0.0
-    if backend_metrics:
-        prompt_per_sec = backend_metrics.get("prompt_per_second", 0) or 0
-        if not prompt_per_sec and ttft and ttft > 0:
-            computed = backend_metrics.get("tokens_prompt_computed")
-            if computed:
-                prompt_per_sec = computed / ttft
+    prompt_per_sec = prefill_tokens_per_second(
+        server_rate=(backend_metrics or {}).get("prompt_per_second"),
+        prompt_tokens=(backend_metrics or {}).get("tokens_prompt", 0) or 0,
+        cached_tokens=(backend_metrics or {}).get("tokens_prompt_cached"),
+        elapsed_s=ttft or 0.0,
+    )
 
     # --- Metadata dict (for persistence) ---
     metadata_dict: dict = {
