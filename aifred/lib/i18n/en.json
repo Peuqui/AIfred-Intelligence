@@ -859,5 +859,6 @@
   "narrator_engine_label": "Engine:",
   "narrator_fallback_label": "GPU-free:",
   "narrator_voice_label": "Voice:",
-  "narrator_settings_subtitle": "Narration engine and voice for narrate_file (document → audio file)"
+  "narrator_settings_subtitle": "Narration engine and voice for narrate_file (document → audio file)",
+  "calibration_no_cell_selected": "⚠️ Please tick at least one combination — otherwise nothing is measured, only existing values are reused"
 }
