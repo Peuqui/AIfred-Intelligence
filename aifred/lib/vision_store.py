@@ -458,11 +458,13 @@ class VisionStore:
         als historischer Datensatz erhalten bleiben — wer das nicht
         will, kann events mit dem Cleanup-Task per TTL räumen).
 
-        Crop-Dateien werden nicht gelöscht — die liegen unter
-        ``data/vision/faces/`` und werden vom vision_cleanup-Task per
-        TTL aufgeräumt. So bleibt der Rückgängig-Pfad offen (wer die
-        Person versehentlich gelöscht hat, kann den Crop noch sehen,
-        bis das TTL-Fenster zuschnappt).
+        Die dauerhaften ``enroll/face_N/``-Crops der Identity werden
+        mitgelöscht — sie gehören zu den Embeddings und würden sonst als
+        Waisen liegen bleiben (dort greift kein TTL). Ereignis-Crops in
+        Tagesordnern bleiben dagegen liegen: die gehören den Events und
+        werden vom vision_cleanup-Task per TTL aufgeräumt, so bleibt der
+        Rückgängig-Pfad kurz offen (wer die Person versehentlich gelöscht
+        hat, kann den Crop noch sehen, bis das TTL-Fenster zuschnappt).
         """
         deleted_embeddings = 0
         with self._conn() as conn:
@@ -481,6 +483,8 @@ class VisionStore:
                 (face_id,),
             )
             conn.execute("DELETE FROM faces WHERE id = ?", (face_id,))
+        from .face_crop_store import get_default_store
+        get_default_store().delete_enroll_dir(face_id)
         return {
             "embeddings_deleted": deleted_embeddings,
         }
@@ -524,7 +528,8 @@ class VisionStore:
         Faelle-Loeschung angefasst. Best-Effort: schlaegt das Kopieren
         fehl, bleibt die urspruengliche URL stehen.
         """
-        if not crop_url or "/enroll/" in crop_url:
+        from .face_crop_store import FaceCropStore
+        if not crop_url or f"/{FaceCropStore.ENROLL_DIR}/" in crop_url:
             return crop_url
         try:
             from .face_crop_store import get_default_store
@@ -573,11 +578,22 @@ class VisionStore:
         ]
 
     def delete_embedding(self, embedding_id: int) -> bool:
+        """Löscht ein Embedding samt seinem dauerhaften ``enroll/``-Crop.
+        Ereignis-Crops (Tagesordner) bleiben liegen — die gehören den
+        Events und deren TTL."""
         with self._conn() as conn:
+            row = conn.execute(
+                "SELECT crop_url FROM face_embeddings WHERE id = ?",
+                (embedding_id,),
+            ).fetchone()
             cur = conn.execute(
                 "DELETE FROM face_embeddings WHERE id = ?", (embedding_id,)
             )
-            return cur.rowcount > 0
+            deleted = cur.rowcount > 0
+        if deleted and row and row["crop_url"]:
+            from .face_crop_store import get_default_store
+            get_default_store().delete_enroll_crop(str(row["crop_url"]))
+        return deleted
 
     # ─────────────────────────────────────────────────────────────
     # Events

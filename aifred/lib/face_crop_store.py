@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import logging
 import re
+import shutil
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -118,6 +119,12 @@ class FaceCropStore:
     Test-Verzeichnis bauen."""
 
     URL_PREFIX = "/_upload/face_crops"
+
+    # Dauerhafter Bereich für Identitäts-Crops (``enroll/face_N/``).
+    # Lebt außerhalb der Tagesordner-TTL des vision_cleanup-Tasks;
+    # gelöscht wird hier nur zusammen mit dem Embedding bzw. der
+    # Identity (``delete_enroll_crop`` / ``delete_enroll_dir``).
+    ENROLL_DIR = "enroll"
 
     def __init__(self, base_dir: Path) -> None:
         self._base_dir = base_dir
@@ -249,7 +256,7 @@ class FaceCropStore:
         gecroppt. Leere URL bei Fehler (Best-Effort)."""
         if not jpeg_bytes:
             return ""
-        rel = Path(f"enroll/face_{int(face_id)}") / f"{uuid.uuid4().hex[:12]}.jpg"
+        rel = Path(f"{self.ENROLL_DIR}/face_{int(face_id)}") / f"{uuid.uuid4().hex[:12]}.jpg"
         abs_path = self._base_dir / rel
         try:
             abs_path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,6 +265,34 @@ class FaceCropStore:
             logger.warning("save_raw crop write failed for %s: %s", abs_path, e)
             return ""
         return f"{self.URL_PREFIX}/{rel.as_posix()}"
+
+    def delete_enroll_crop(self, url: str) -> bool:
+        """Löscht die Datei eines ``enroll/``-Crops von der Platte —
+        Gegenstück zu ``save_raw``, gerufen wenn das zugehörige
+        Embedding gelöscht wird. Ereignis-Crops (Tagesordner) werden
+        NICHT angefasst: die gehören den Events und deren TTL."""
+        if f"/{self.ENROLL_DIR}/" not in url:
+            return False
+        pfad = self.path_for_url(url)
+        if not pfad:
+            return False
+        try:
+            pfad.unlink(missing_ok=True)
+            return True
+        except OSError as e:
+            logger.warning("enroll crop delete failed for %s: %s", pfad, e)
+            return False
+
+    def delete_enroll_dir(self, face_id: int) -> None:
+        """Löscht den kompletten ``enroll/face_N/``-Bereich einer
+        Identity — gerufen wenn die Identity selbst gelöscht wird."""
+        d = self._base_dir / self.ENROLL_DIR / f"face_{int(face_id)}"
+        if not d.is_dir():
+            return
+        try:
+            shutil.rmtree(d)
+        except OSError as e:
+            logger.warning("enroll dir delete failed for %s: %s", d, e)
 
     # ── Session-Lookup / -Eröffnung ──────────────────────────────
 
