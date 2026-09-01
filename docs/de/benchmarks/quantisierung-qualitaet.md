@@ -1,5 +1,7 @@
 # Quantisierungsformate und Antwortqualität
 
+> **English version:** [quantization-quality.md](../../en/benchmarks/quantization-quality.md)
+>
 > Stand 2026-09-01. Alle Zahlen von derselben Maschine (5-GPU-Mini,
 > 2× RTX 8000 sm75 + 3× V100 sm70), denselben drei Prompts und derselben
 > AIfred-Persona. Ergänzt [vllm-autokalibration.md](vllm-autokalibration.md),
@@ -55,8 +57,11 @@ Modell, das die Fangfrage löste. Aus seinem Denkblock:
 > effect.' I'll correct the spelling in my response."
 
 Es erklärte danach den echten Coandă-Effekt bis zur Auftriebsfrage am
-Flugzeugflügel. Sprachlich sauber. Preis: TTFT 25 s, Prefill 224 tok/s,
-Decode 28,9 tok/s — deutlich langsamer als die 27B-Varianten.
+Flugzeugflügel. Sprachlich sauber. Preis über die drei Turns: TTFT 111 s,
+4,4 s und 25 s; Prefill 273, 358 und 224 tok/s; Decode 22,3, 22,2 und
+28,9 tok/s — deutlich langsamer als die 27B-Varianten. Die Werte stammen
+aus llama-servers eigener Zeitmessung (server-seitig seit 2026-02-28) und
+sind vom Notbehelf der vLLM-Seite nicht berührt.
 
 Bemerkenswert: Auch RadixArks NVFP4 desselben Modells erkannte Coandă. Die
 Erkennung hängt also am **Modell**, nicht an der Quantisierung; das
