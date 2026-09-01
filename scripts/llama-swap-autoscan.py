@@ -22,6 +22,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
+# Dieses Skript ist ein Config-Helfer, kein App-Prozess: AIFRED_CLI_MODE
+# haelt aifred/__init__.py davon ab, die Reflex-App zu importieren. Ohne den
+# Schalter scheitert der Lazy-Import in seed_vllm_entries unter systemd, weil
+# Reflex beim App-Init ein .states-Verzeichnis im Arbeitsverzeichnis anlegen
+# will (ProtectSystem=strict → OSError 30), und die Log-Init des Pakets
+# ueberschreibt AIfreds Live-Debug-Log.
+os.environ.setdefault("AIFRED_CLI_MODE", "1")
+
 # Direct import of nvidia_smi module (NOT via aifred.lib — that triggers Reflex app init)
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "aifred" / "lib"))
 import nvidia_smi
@@ -1662,20 +1670,89 @@ def update_vram_cache(new_models: list[dict]) -> int:
 # Groups section
 # ---------------------------------------------------------------------------
 
+def _vram_free_models(config_path: Path) -> set[str]:
+    """Modelle, die GAR KEIN VRAM belegen — erkennbar an ``-ngl 0`` oder
+    einem leeren ``CUDA_VISIBLE_DEVICES``.
+
+    Sie gehoeren NICHT in die exklusive Gruppe: Deren Zweck ist es, zwei
+    grosse Modelle davon abzuhalten, sich gegenseitig aus dem VRAM zu
+    draengen. Ein CPU-Modell nimmt an dieser Ressource nicht teil, wuerde
+    aber als Gruppenmitglied das geladene Hauptmodell verdraengen.
+
+    Real beobachtet am 2026-08-31: Die Relevanzsortierung einer
+    Web-Recherche forderte das CPU-Embedding-Modell bge-m3 an, worauf
+    llama-swap das 180B (178 GB, 6,5 min Ladezeit) entlud — fuer ein
+    Modell, das nicht eine einzige Grafikkarte anfasst.
+    """
+    if not config_path.exists():
+        return set()
+
+    free: set[str] = set()
+    current: Optional[str] = None
+    block: list[str] = []
+    in_models = False
+
+    def _flush() -> None:
+        if current is None:
+            return
+        text = "\n".join(block)
+        if re.search(r'-ngl\s+0(?!\d)', text) or re.search(
+                r'CUDA_VISIBLE_DEVICES=\s*$', text, re.MULTILINE):
+            free.add(current)
+
+    for line in config_path.read_text().splitlines():
+        if line.strip() == "models:":
+            in_models = True
+            continue
+        if not in_models:
+            continue
+        match = re.match(r'^  ([A-Za-z0-9][A-Za-z0-9._-]*):\s*$', line)
+        if match:
+            _flush()
+            current, block = match.group(1), []
+            continue
+        if line and not line.startswith(" "):
+            break
+        block.append(line)
+    _flush()
+    return free
+
+
 def update_groups_in_yaml(config_path: Path) -> None:
     """
     Write or replace the groups.main.members section in llama-swap-config.yaml.
 
-    Lists ALL configured models as members of 'main', including -speed variants
-    written by the AIfred calibration routine — when they exist they MUST stay.
-    The swap:true flag tells llama-swap that only one model from this group
-    can be loaded at a time, enforcing VRAM exclusivity.
+    Lists all VRAM-using models as members of 'main', including -speed
+    variants written by the AIfred calibration routine — when they exist they
+    MUST stay. The swap:true flag tells llama-swap that only one model from
+    this group can be loaded at a time, enforcing VRAM exclusivity.
+
+    Writes THREE groups, because this function deletes the whole ``groups:``
+    section before rewriting it — hand-maintained groups do not survive it.
+    Until 2026-08-23 the config carried ``embed`` and ``vision`` beside
+    ``main``; a later run of this function wiped both, and from then on every
+    embedding request evicted the loaded main model (measured 2026-09-01: a
+    bge-m3 call unloaded the running 235B mid-turn).
+
+    * ``main`` — everything that occupies VRAM, exclusive, one at a time.
+    * ``embed`` — CPU-only servers (``-ngl 0``): persistent, so they stay
+      loaded and never take part in the swap. They compete for no GPU.
+    * ``vision`` — the ``-visiond`` describer profiles. Verified 2026-09-01:
+      every one of them pins ``CUDA_VISIBLE_DEVICES`` to the single
+      side-channel card, so they never compete with ``main`` for VRAM.
+      ``swap: true`` inside the group keeps it at one describer at a time.
+
+    Flags for the two side groups are the ones that demonstrably worked
+    before the regression: ``exclusive: false, swap: true, persistent: true``.
+    See :func:`_vram_free_models`.
     """
     if not config_path.exists():
         return
 
     all_models = parse_existing_yaml_models(config_path)
-    members = sorted(all_models)
+    cpu_only = _vram_free_models(config_path) & all_models
+    visiond = {m for m in all_models if m.endswith("-visiond")}
+    members = sorted(all_models - cpu_only - visiond)
 
     if not members:
         return
@@ -1699,6 +1776,18 @@ def update_groups_in_yaml(config_path: Path) -> None:
         "    members:\n"
         f"{members_yaml}\n"
     )
+    for name, mitglieder in (("embed", cpu_only), ("vision", visiond)):
+        if not mitglieder:
+            continue
+        zeilen = "\n".join(f"      - {m}" for m in sorted(mitglieder))
+        content += (
+            f"  {name}:\n"
+            "    exclusive: false\n"
+            "    swap: true\n"
+            "    persistent: true\n"
+            "    members:\n"
+            f"{zeilen}\n"
+        )
 
     _write_config(config_path, content)
 
@@ -1806,6 +1895,37 @@ def _extract_model_path(cmd: str) -> Optional[Path]:
     """Extract the --model file path from a llama-server command line."""
     match = re.search(r'--model\s+(\S+)', cmd)
     return Path(match.group(1)) if match else None
+
+
+def cleanup_stale_operating_points() -> list[str]:
+    """
+    Remove operating-point profiles whose checkpoint no longer exists.
+
+    Same criterion as cleanup_stale_config, applied to the profile files
+    that the config prune cannot see. A profile left behind by a deleted
+    model is not inert: seed_vllm_entries skips any checkpoint that already
+    has one, so the name stays blocked, and AIfred reports the vanished
+    model as calibrated.
+
+    Returns list of removed profile names.
+    """
+    import yaml as _yaml
+
+    profiles_dir = Path(__file__).resolve().parent.parent / "data" / "operating_points"
+    if not profiles_dir.is_dir():
+        return []
+
+    removed = []
+    for path in sorted(profiles_dir.glob("*.yaml")):
+        profile = _yaml.safe_load(path.read_text())
+        cmd = profile.get("llamaswap", {}).get("cmd", "") if profile else ""
+        model_path = _extract_model_path(cmd)
+        if model_path and not model_path.exists():
+            path.unlink()
+            print(f"  ✗ operating point {path.stem} — checkpoint missing: {model_path}")
+            removed.append(path.stem)
+
+    return removed
 
 
 def _parse_model_cmds(config_path: Path) -> dict[str, str]:
@@ -2423,6 +2543,8 @@ def main() -> None:
     removed_symlinks = cleanup_dead_symlinks()
     stale_models = cleanup_stale_config(LLAMASWAP_CONFIG)
     stale_skip = cleanup_skip_list()
+    # Vor dem Seeding: ein Profil ohne Checkpoint blockiert sonst den Namen
+    stale_profiles = cleanup_stale_operating_points()
 
     # Vision-Describer pflegen: Profile für mmproj-Modelle anlegen,
     # -c auf VLM_NUM_CTX ziehen, Varianten verwaister VLMs entfernen.
@@ -2434,8 +2556,9 @@ def main() -> None:
     stale_vlm_variants = cleanup_stale_vlm_variants(LLAMASWAP_CONFIG)
     if not (visiond_added or visiond_ctx_fixed or stale_vlm_variants):
         print("  visiond profiles up to date")
-    if removed_symlinks or stale_models or stale_skip:
-        total = len(removed_symlinks) + len(stale_models) + stale_skip
+    if removed_symlinks or stale_models or stale_skip or stale_profiles:
+        total = (len(removed_symlinks) + len(stale_models) + stale_skip
+                 + len(stale_profiles))
         print(f"  → {total} item(s) cleaned up")
         if stale_models:
             config_changed = True

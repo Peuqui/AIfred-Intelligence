@@ -70,11 +70,17 @@ class CalibrationCell(TypedDict):
     exclusive at render time: a failure entry is cleared as soon as
     a successful re-calibration writes the cache (see
     :func:`aifred.lib.model_vram_cache.add_llamacpp_calibration`).
+
+    ``not_applicable`` marks a cell that cannot be measured at all —
+    used only by the vLLM burn-in matrix, whose cells are VLM/TTS pairs:
+    the "no VLM / no TTS" cell has no pair to burn in. Rendered as a dash
+    instead of a checkbox so the cell is not read as "unmeasured yet".
     """
     key: str
     checked: bool
     already_calibrated: bool
     calibration_failed: bool
+    not_applicable: bool
 
 
 class CalibrationRow(TypedDict):
@@ -258,6 +264,9 @@ class CalibrationMixin(rx.State, mixin=True):
                     "checked": self.calibration_matrix.get(key, False),
                     "already_calibrated": verdict is True,
                     "calibration_failed": verdict is False,
+                    # Ohne VLM und ohne TTS gibt es kein Paar auf der
+                    # Side-Channel-Karte — nichts zu vermessen.
+                    "not_applicable": not vlm_key and not tts_key,
                 })
             return {"label": label, "cells": cells}
 
@@ -407,6 +416,7 @@ class CalibrationMixin(rx.State, mixin=True):
             "checked": self.calibration_matrix.get("|", False),
             "already_calibrated": is_model_calibrated(model_id) if model_id else False,
             "calibration_failed": _failed(model_id) if model_id else False,
+            "not_applicable": False,
         })
         for e in engines:
             done = bool(model_id) and is_tts_variant_calibrated(model_id, e.key)
@@ -415,6 +425,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 "checked": self.calibration_matrix.get(f"|{e.key}", False),
                 "already_calibrated": done,
                 "calibration_failed": _failed(f"{model_id}-tts-{e.key}"),
+                "not_applicable": False,
             })
         from aifred.lib.i18n import t as _t
         rows.append({"label": _t("calibration_matrix_no_vlm"), "cells": no_vlm_cells})
@@ -433,6 +444,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 "checked": self.calibration_matrix.get(f"{vlm_key}|", False),
                 "already_calibrated": vlm_only_done,
                 "calibration_failed": _failed(f"{model_id}-vlm-{vlm_key}"),
+                "not_applicable": False,
             })
             for e in engines:
                 combo_key = f"{vlm_key}|{e.key}"
@@ -443,6 +455,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     "calibration_failed": _failed(
                         f"{model_id}-tts-{e.key}-vlm-{vlm_key}"
                     ),
+                    "not_applicable": False,
                 })
             rows.append({"label": vlm_label, "cells": cells})
 

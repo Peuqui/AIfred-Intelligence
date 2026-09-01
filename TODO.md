@@ -1031,3 +1031,17 @@ Iteration:
 
 - [ ] Structured Output / Data Extraction
 - [ ] READMEs weiter refaktorieren
+- [x] ~~vLLM-Kalibrier-Modal: Statuspunkt-Semantik in der Matrix klären.~~
+      ✅ 2026-08-31 entschieden und umgesetzt: Punkt und Matrix bleiben
+      getrennt, weil sie verschiedene Fragen beantworten — der Punkt die
+      Topologie des Haupt-LLM, eine Zelle die Verträglichkeit eines
+      VLM/TTS-Paars auf der Side-Channel-Karte. Der Vorschlag, den Punkt
+      in die Zelle „Kein VLM / Kein TTS" zu legen, scheiterte an genau der
+      Beobachtung aus der ursprünglichen Notiz: Der Betriebspunkt gilt für
+      ALLE Zellen, nicht nur für die leere; zwei Zustände pro Zelle wären
+      auf der Fläche unlesbar. Stattdessen benennt die Zeile über der
+      Matrix jetzt ausdrücklich das Haupt-LLM (`calibration_dot_done` /
+      `calibration_dot_missing`, beide Sprachen), und die nicht messbare
+      Zelle zeigt einen Strich mit Tooltip statt Kästchen und leerem Punkt
+      (`CalibrationCell.not_applicable`) — leer las sich sonst wie
+      „noch nicht vermessen".
