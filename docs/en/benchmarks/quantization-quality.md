@@ -49,6 +49,8 @@ misses the problem entirely.
 | Qwen3.5-122B-A10B | NVFP4 (ModelOpt) | vLLM | 0 | 0 | **two complete clauses** | no (declined honestly) |
 | **Qwen3.5-122B-A10B** | **UD-Q4_K_XL** | llama.cpp | 0 | 0 | persona only | no (three real alternatives) |
 | Qwen3.5-122B-A10B | UD-Q8_K_XL | llama.cpp | 0 | 0 | two two-word phrases | no (30 sentences by elimination) |
+| **Flash-Next-180B-A4B** | **Q6_K_XL**, run 2 (Reasoning High) | llama.cpp | 0 (4 in reasoning) | 0 | persona only | **YES** |
+| **DeepSeek-V4-Flash-0731-284B-A13B** | **UD-Q4_K_XL** (low reasoning) | llama.cpp | 0 | 0 | persona only | **YES** |
 
 ### The winner
 
@@ -185,6 +187,77 @@ exponentially faster" rather than blanket higher computing power.
 the Q4 (60.2 · 58.4 · 57.6), still a good third above the NVFP4 (35.0 ·
 32.4 · 32.3). Prefill 617.7 · 399.1 · 391.4 tok/s over 2,975 · 913 · 903
 computed tokens.
+
+### Flash-Next Q6, second run: trap solved again (2026-09-01)
+
+A repeat with `Qwen3.8-Flash-Next-180B-A4B-UD-Q6_K_XL`, this time with the
+corrected metrics. **Caveat: this run was accidentally at Reasoning
+High** — its reasoning blocks run 9,400 to 14,500 characters, five to ten
+times longer than in every other run. Part of the quality therefore comes
+from the effort level, not the model or format.
+
+**The trap is solved again, and more cleanly than ever.** It names the
+garbling explicitly — "the spelling 'Kuanda' appears in no reference work
+— I read your request as the Coandă effect" — and offers to redo the
+answer if it guessed wrong. The explanation holds up: entrainment at the
+jet edge, low pressure toward the wall, a pressure gradient as the
+condition for curved streamlines, and a separation point depending on
+curvature radius, velocity and viscosity. Henri Coandă, Romania, 1910,
+the incident with his own aircraft — all correct. Applications given are
+HVAC, blown flaps, and the Boeing YC-14 and Antonov An-72; both did use
+upper-surface blowing.
+
+**Linguistically flawless:** zero CJK in the answers, zero soft hyphens,
+not one English multi-word phrase, only the permitted `indeed` and
+`rather`. Twelve ß forms, no ss substitutions. Sentence counts 30/30/31.
+
+**New finding in the reasoning block:** four CJK characters appear there,
+in a pattern the other models did not show. The model slips into Chinese
+mid-draft and **corrects itself**:
+
+> "Im Inneren des Tropfens**反射** — no, keep German: 'An der Rückwand des
+> Tropfens…'"
+>
+> "Die Wellenlänge selbst ist**不过** — no, keep German: …"
+
+反射 means reflection, 不过 however. The language pressure exists here too,
+but it is caught before output. That separates this case sharply from
+RadixArk's NVFP4, where the CJK characters stood in the delivered answer.
+The table scores the answer; in the reasoning it is a signal, not a flaw.
+
+**Throughput:** decode 30.0 · 29.1 · 27.8 tok/s, prefill 219.0 · 443.4 ·
+557.7 tok/s over 3,013 · 1,104 · 4,100 computed tokens. The long reasoning
+blocks push inference time to 133–188 seconds per answer.
+
+### DeepSeek-V4-Flash: trap solved at the LOWEST reasoning level (2026-09-01)
+
+`DeepSeek-V4-Flash-0731-284B-A13B` as `UD-Q4_K_XL`, 154.6 GB, with dspark
+speculation. The second model ever to recognise Coandă — and the only one
+to do so at **minimal reasoning** (blocks of 569 · 515 · 901 characters).
+Flash-Next needed Reasoning High and ten times the deliberation.
+
+From its reasoning, which runs in English for this model: "This is likely
+a misspelling. […] Actually 'Kuanda' is clearly a typo for 'Coandă'." The
+answer names Henri Coandă, explains wall attachment via pressure
+difference, and offers the spoon experiment and the teapot effect. Slightly
+less rigorous than Flash-Next: it attributes the cause to Bernoulli rather
+than entrainment — a common simplification, not wrong but looser.
+
+**Validity of the hit:** the prompt line reads `System 2,247 + History 66`
+— no memory block. The note AIfred had written itself in an earlier run
+("Kuanda = Coandă") had been deleted and did not help.
+
+**Linguistically clean:** zero CJK, correct ß spelling (7 ß, 0 ss), only
+permitted English single words. Sentence counts 31 · 32 · 31 — the format
+is slightly overshot every time.
+
+**Measurement caveat on the prefill column:** for this model the computed
+tokens cannot be read as prefill. They stay flat across the three turns
+(2,975 · 3,016 · 2,903) while the prompt grows from 2,313 to 4,198 tokens
+— in turn 1 the count even EXCEEDS the prompt. The tally therefore
+includes work from the generation phase. MTP models do not show this
+(122B Q4: 2,975 · 771 · 698); the effect is tied to dspark. Decode at
+18.6 · 19.6 · 17.7 tok/s is unaffected.
 
 ### The decisive line
 

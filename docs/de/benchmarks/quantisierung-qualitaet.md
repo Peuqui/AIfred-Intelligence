@@ -50,6 +50,8 @@ Ergebnisse und übersieht das Problem.
 | Qwen3.5-122B-A10B | NVFP4 (ModelOpt) | vLLM | 0 | 0 | **zwei vollständige Nebensätze** | nein (ehrlich verweigert) |
 | **Qwen3.5-122B-A10B** | **UD-Q4_K_XL** | llama.cpp | 0 | 0 | nur Persona | nein (drei reale Alternativen) |
 | Qwen3.5-122B-A10B | UD-Q8_K_XL | llama.cpp | 0 | 0 | zwei Zweiwortfolgen | nein (30 Sätze Ausschlussverfahren) |
+| **Flash-Next-180B-A4B** | **Q6_K_XL**, Lauf 2 (Reasoning High) | llama.cpp | 0 (4 im Denkblock) | 0 | nur Persona | **JA** |
+| **DeepSeek-V4-Flash-0731-284B-A13B** | **UD-Q4_K_XL** (Reasoning niedrig) | llama.cpp | 0 | 0 | nur Persona | **JA** |
 
 ### Der Sieger
 
@@ -193,6 +195,84 @@ exponentiell schneller" statt pauschal höherer Rechenleistung.
 Viertel unter dem Q4 (60,2 · 58,4 · 57,6), aber immer noch gut ein Drittel
 über dem NVFP4 (35,0 · 32,4 · 32,3). Prefill 617,7 · 399,1 · 391,4 tok/s
 auf 2.975 · 913 · 903 gerechnete Token.
+
+### Flash-Next Q6, zweiter Lauf: Fangfrage erneut gelöst (2026-09-01)
+
+Wiederholung mit `Qwen3.8-Flash-Next-180B-A4B-UD-Q6_K_XL`, diesmal mit den
+korrigierten Messwerten. **Vorbehalt: dieser Lauf lief versehentlich auf
+Reasoning High**, die Denkblöcke sind mit 9.400 bis 14.500 Zeichen fünf-
+bis zehnmal so lang wie in allen anderen Läufen. Ein Teil der Qualität
+geht also auf die Denkstufe, nicht auf Modell oder Format.
+
+**Die Fangfrage wird erneut gelöst, und sauberer als je zuvor.** Es
+benennt die Verballhornung ausdrücklich — „die Schreibweise ‚Kuanda' ist
+in keinem Fachlexikon zu finden — ich deute Ihr Anliegen als den
+Coandă-Effekt" — und bietet an, eine neue Fassung zu fertigen, falls es
+falsch geraten habe. Die Erklärung trägt: Entrainment am Strahlrand,
+Unterdruck zur Wand hin, Druckgefälle als Bedingung für gekrümmte
+Stromlinien, Ablösepunkt in Abhängigkeit von Krümmungsradius,
+Geschwindigkeit und Zähigkeit. Henri Coandă, Rumänien, 1910, der
+Zwischenfall am eigenen Fluggerät — alles korrekt. Als Anwendungen nennt
+es Klimatechnik, angeblasene Landeklappen sowie Boeing YC-14 und Antonov
+An-72; beide nutzten tatsächlich Oberflächenblasung.
+
+**Sprachlich einwandfrei:** null CJK in den Antworten, null Weichtrenner,
+keine einzige englische Mehrwortfolge, nur die erlaubten `indeed` und
+`rather`. Zwölf ß-Formen, keine einzige ss-Ersatzschreibung. Satzzahlen
+30/30/31.
+
+**Neuer Befund im Denkblock:** Dort stehen vier CJK-Zeichen — und zwar in
+einem Muster, das die anderen Modelle nicht zeigten. Das Modell rutscht
+mitten im Entwurf ins Chinesische und **korrigiert sich selbst**:
+
+> „Im Inneren des Tropfens**反射** — no, keep German: ‚An der Rückwand des
+> Tropfens…'"
+>
+> „Die Wellenlänge selbst ist**不过** — no, keep German: …"
+
+反射 heißt Reflexion, 不过 aber. Der Sprachdruck existiert also auch hier,
+wird aber vor der Ausgabe abgefangen. Das trennt diesen Fall scharf von
+RadixArks NVFP4, wo die CJK-Zeichen in der ausgelieferten Antwort
+standen. Für die Tabelle zählt weiterhin die Antwort — im Denkblock ist
+es ein Hinweis, kein Mangel.
+
+**Tempo:** Decode 30,0 · 29,1 · 27,8 tok/s, Prefill 219,0 · 443,4 · 557,7
+tok/s auf 3.013 · 1.104 · 4.100 gerechnete Token. Die langen Denkblöcke
+treiben die Inferenzzeit auf 133 bis 188 Sekunden je Antwort.
+
+### DeepSeek-V4-Flash: Fangfrage auf der NIEDRIGSTEN Denkstufe gelöst (2026-09-01)
+
+`DeepSeek-V4-Flash-0731-284B-A13B` als `UD-Q4_K_XL`, 154,6 GB, mit
+dspark-Spekulation. Zweites Modell überhaupt, das Coandă erkennt — und das
+einzige, das es bei **minimalem Reasoning** schafft (Denkblöcke 569 · 515 ·
+901 Zeichen). Flash-Next brauchte dafür Reasoning High mit dem Zehnfachen
+an Denkarbeit.
+
+Aus dem Denkblock, der bei diesem Modell auf Englisch läuft: „This is
+likely a misspelling. […] Actually 'Kuanda' is clearly a typo for
+'Coandă'." Die Antwort nennt Henri Coandă, den rumänischen
+Luftfahrtpionier, erklärt Anhaftung an gekrümmte Flächen über
+Druckdifferenz und bringt Löffel-Versuch und Teekannen-Effekt als
+Alltagsbeispiele. Etwas weniger streng als Flash-Next: die Ursache wird
+über Bernoulli erklärt statt über Entrainment — eine gängige
+Vereinfachung, nicht falsch, aber unschärfer.
+
+**Gültigkeit des Treffers:** Die Prompt-Zeile lautet `System 2.247 +
+History 66` — kein Memory-Block. Die Notiz, die AIfred sich in einem
+früheren Lauf selbst geschrieben hatte („Kuanda = Coandă"), war zu diesem
+Zeitpunkt gelöscht und hat nicht geholfen.
+
+**Sprachlich sauber:** null CJK, korrekte ß-Schreibung (7 ß, 0 ss), nur
+erlaubte englische Einzelwörter. Satzzahlen 31 · 32 · 31 — die Formvorgabe
+wird also jedes Mal leicht überschritten.
+
+**Messvorbehalt zur PP-Spalte:** Bei diesem Modell sind die gerechneten
+Token nicht als Prefill lesbar. Sie bleiben über die drei Turns flach
+(2.975 · 3.016 · 2.903), obwohl der Prompt von 2.313 auf 4.198 Token
+wächst — in Turn 1 liegt der Zählwert sogar ÜBER der Promptgröße. Die
+Zählung enthält also Arbeit aus der Generierungsphase. Die MTP-Modelle
+zeigen das nicht (122B Q4: 2.975 · 771 · 698), der Effekt hängt an
+dspark. Decode 18,6 · 19,6 · 17,7 tok/s bleibt davon unberührt.
 
 ### Die entscheidende Trennlinie
 
