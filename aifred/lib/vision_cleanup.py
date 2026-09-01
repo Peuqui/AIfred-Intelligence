@@ -7,7 +7,9 @@ Plugin-Setting ``face_recognition.retention_days`` (Default 14).
 Was wird aufgeräumt:
 
 * **Face-Crops** unter ``DATA_DIR/vision/faces/<source>/<datum>/`` —
-  ganze Tagesordner älter als TTL werden gelöscht.
+  ganze Tagesordner älter als TTL werden gelöscht. Nur Ordner mit
+  ISO-Datumsnamen zählen; ``faces/enroll/face_N/`` (dauerhafte
+  Identitäts-Crops, gelöscht nur mit ihrem Embedding) bleibt unberührt.
 * **Motion-Frames** unter ``DATA_DIR/vigilantia/motion/<source>/<datum>/`` —
   selbes Schema, gleiches TTL.
 * **Vision-DB-Events** in ``vision_store.events`` mit ``timestamp``
@@ -22,6 +24,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import re
 import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -32,6 +35,12 @@ logger = logging.getLogger(__name__)
 
 # Default-TTL wenn das Plugin-Setting fehlt oder ungültig ist.
 DEFAULT_RETENTION_DAYS = 14
+
+# Nur echte Tagesordner (ISO-Datum) unterliegen dem TTL. Alles andere —
+# insbesondere ``faces/enroll/face_N/`` mit den dauerhaften
+# Identitäts-Crops — wird nie angefasst. Vorher hing deren Überleben
+# am lexikografischen Zufall ``"face_3" > "2026-…"``.
+_DAY_DIR_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
 def _load_retention_days() -> int:
@@ -70,6 +79,8 @@ def _cleanup_dated_subdirs(base: Path, cutoff_date: datetime) -> int:
             continue
         for day_dir in source_dir.iterdir():
             if not day_dir.is_dir():
+                continue
+            if not _DAY_DIR_RE.fullmatch(day_dir.name):
                 continue
             # Strikter Vergleich der ISO-Tagesstrings — kein
             # mtime-fallback, weil die Folder-Namen die Wahrheit
