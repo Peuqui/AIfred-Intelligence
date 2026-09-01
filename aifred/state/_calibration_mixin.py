@@ -887,6 +887,14 @@ class CalibrationMixin(rx.State, mixin=True):
             yield
             return
 
+        # Ist ausser der Basiszelle nichts angehakt, wird waehrend der
+        # Messung kein Seitenkanal gebraucht — dann darf die TTS-/VLM-Karte
+        # mitrechnen.
+        _sc_gewuenscht = any(
+            gewaehlt for schluessel, gewaehlt in self.calibration_matrix.items()
+            if schluessel != "|"
+        )
+
         def _run():
             return calibrate_vllm_checkpoint(
                 checkpoint=checkpoint,
@@ -894,6 +902,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 log_dir=log_dir,
                 progress=progress_q.put,
                 cancel_check=_cancelled,
+                reserve_side_channel=_sc_gewuenscht,
             )
 
         task = asyncio.create_task(asyncio.to_thread(_run))

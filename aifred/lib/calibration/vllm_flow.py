@@ -385,6 +385,8 @@ def _measure_topology(
     spec: VllmSpec | None = None
     # Steigt nur, wenn vLLM eine groessere Chunkgroesse fordert.
     mbt = VllmSpec.max_batched_tokens
+    # Gesetzt nur, wenn die Architektur ein KV-Format erzwingt (DeepseekV4).
+    kv_dtype: str | None = VllmSpec.kv_cache_dtype
     max_attempts = 6
     for attempt in range(max_attempts):
         spec = VllmSpec(
@@ -395,6 +397,7 @@ def _measure_topology(
             pp_partition=cand.pp_partition,
             language_model_only=meta.multimodal,
             max_batched_tokens=mbt,
+            kv_cache_dtype=kv_dtype,
         )
         port = find_free_port()
         log = log_dir / f"boot-{cand.tp}x{cand.pp}-try{attempt}.log"
@@ -404,6 +407,11 @@ def _measure_topology(
             break
         except VllmBootError as e:
             retries_left = attempt < max_attempts - 1
+            if retries_left and e.required_kv_dtype and e.required_kv_dtype != kv_dtype:
+                # Architektur-Zwang: vLLM nennt das noetige Format selbst.
+                kv_dtype = e.required_kv_dtype
+                progress(f"   ↳ architecture requires kv-cache {kv_dtype}: retrying")
+                continue
             if (retries_left and e.required_batched_tokens
                     and e.required_batched_tokens > mbt):
                 # Hybrid-Checkpoint: vLLMs eigene Blockgroesse uebersteigt
@@ -554,6 +562,7 @@ def _sweep_k(
                     **{**rung.spec.__dict__, "k": k, "mml": mml_k,
                        "gmu": gmu_k, "block_size": meta.boot_block_size(k),
                        "max_batched_tokens": mbt_k,
+                       "kv_cache_dtype": rung.spec.kv_cache_dtype,
                        "capture_sizes": capture, "spec_attn_backend": spec_attn},
                 )
                 port = find_free_port()
@@ -765,6 +774,7 @@ def calibrate_vllm_checkpoint(
     log_dir: Path,
     progress: Callable[[str], None],
     cancel_check: Callable[[], bool] | None = None,
+    reserve_side_channel: bool = True,
 ) -> VllmCalibrationResult:
     """Kompletter Suchlauf. progress() bekommt englische Statuszeilen.
 
@@ -792,7 +802,14 @@ def calibrate_vllm_checkpoint(
             f"{meta.mtp.dominant_dtype}, worthwhile={_mtp_worthwhile(meta)}"
         )
 
-    reserved = side_channel_uuids()
+    # Reserviert wird nur, wenn im Picker auch ein Seitenkanal-Paar
+    # angehakt ist. Ist keines gewaehlt, laufen weder TTS noch VLM waehrend
+    # dieser Messung — die Karte dann freizuhalten kostet nur Speicher.
+    # Beim 284B-DeepSeek entscheidet das ueber Passen oder Nicht-Passen:
+    # 164,0 GiB Gewichte gegen 156,3 GiB auf vier Karten, 187,5 auf fuenf.
+    reserved = side_channel_uuids() if reserve_side_channel else set()
+    if not reserve_side_channel:
+        progress("🔓 No side-channel pair selected — all GPUs available")
     gpus = eligible_gpus(reserved)
     if not gpus:
         raise RuntimeError("no eligible GPUs (all reserved for side channels)")
