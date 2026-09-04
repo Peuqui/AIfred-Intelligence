@@ -553,9 +553,10 @@ def probe_long_context(server: VllmServer, mml: int) -> dict | None:
     -1.0 wenn keine Spekulation laeuft oder Zaehler fehlen).
 
     Erster Call (max_tokens=1) misst den Prefill; der zweite Call mit
-    identischem Prompt trifft den Prefix-Cache und misst den reinen
-    Decode bei gefuelltem Kontext. None, wenn das Fenster fuer einen
-    aussagekraeftigen Langpunkt zu klein ist.
+    identischem Prompt misst den Decode bei gefuelltem Kontext. Trifft
+    der Prefix-Cache dabei nicht, wird sein Prefill-Anteil aus der Zeit
+    herausgerechnet. None, wenn das Fenster fuer einen aussagekraeftigen
+    Langpunkt zu klein ist.
     """
     target = min(LONG_CONTEXT_TARGET_TOKENS, int(mml * 0.45))
     if target < LONG_CONTEXT_MIN_TOKENS:
@@ -582,7 +583,20 @@ def probe_long_context(server: VllmServer, mml: int) -> dict | None:
         m_before = {}
     _, usage2, dt2 = server.chat(prompt, max_tokens=200, ignore_eos=True,
                                  timeout_s=1200.0)
-    decode_tps = usage2["completion_tokens"] / dt2 if dt2 > 0 else 0.0
+    # Der zweite Call misst nur dann reinen Decode, wenn der Prefix-Cache
+    # wirklich trifft. Tut er das nicht (Prefix-Caching aus, Cache verdraengt,
+    # Engine-Neustart), steckt der komplette Prefill in dt2 und die Rate faellt
+    # um Groessenordnungen: 2026-09-04 mass der 27B-Lauf 3,3 statt 40 tok/s,
+    # exakt 200 / (55 s Prefill + 5 s Decode). Deshalb den tatsaechlich
+    # ungecachten Anteil ueber die gerade gemessene Prefill-Rate herausrechnen
+    # statt auf den Cache-Treffer zu vertrauen.
+    prompt_tokens2 = int(usage2.get("prompt_tokens", 0)) or prompt_tokens
+    cached_tokens2 = int((usage2.get("prompt_tokens_details") or {}).get(
+        "cached_tokens", 0) or 0)
+    uncached2 = max(0, prompt_tokens2 - cached_tokens2)
+    prefill_s2 = uncached2 / prefill_tps if prefill_tps > 0 else 0.0
+    decode_s = dt2 - prefill_s2
+    decode_tps = usage2["completion_tokens"] / decode_s if decode_s > 0 else 0.0
     accept_rate = -1.0
     if m_before:
         try:

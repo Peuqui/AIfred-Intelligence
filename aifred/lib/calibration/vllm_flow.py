@@ -64,6 +64,15 @@ OOM_MAX_RESERVE_STEPS = 2
 # Default-Workspace-Faktor fuers Weight-Processing; Stack-spezifisch
 # ueberschreibbar in data/vllm_runtime.yaml (weight_processing_factor).
 DEFAULT_WEIGHT_PROCESSING_FACTOR = 1.6
+# Lastannahme des Siegervergleichs: wie viele UNGECACHTE Prompt-Token je
+# erzeugtem Token anfallen. Sie uebersetzt Prefill- und Decode-Rate in EINE
+# Groesse — die Zeit eines Turns — statt zwei Raten ueber Schwellen
+# gegeneinander abzuwaegen. 4 entspricht z.B. 2.000 Prompt auf 500 Antwort.
+# Ueber "workload_prompt_per_generated" in vllm_runtime.yaml anpassbar:
+# wer ueberwiegend lange Dokumente einliest, setzt hoeher und gewichtet
+# damit den Prefill staerker; wer kurze Fragen mit langen Antworten fahrt,
+# setzt niedriger.
+DEFAULT_WORKLOAD_PROMPT_PER_GENERATED = 4.0
 
 # Spekulation lohnt nur, wenn der Draft-Block klein gegen die
 # Pro-Token-Leselast des Hauptmodells ist (Flash-Next-Befund: BF16-Block
@@ -73,15 +82,11 @@ MTP_MAX_READ_FRACTION = 0.25
 BOOT_TIMEOUT_S = 1200
 MIN_USEFUL_CONTEXT = 4096
 
-# Siegerregel (Peuqui 2026-08-29): Kontext-Vorrang, dann entscheidet der
-# LANG-Decode. Liegen zwei Kandidaten innerhalb dieser relativen Spanne,
-# bricht der hoehere Lang-Prefill das Patt (Recherche-Szenario: grosse
-# Kontexte einlesen; das Gitter gewann so 840 vs. 511 tok/s Prefill bei
-# gleichem Decode).
-LONG_TIE_BREAK_REL = 0.05
-# Prefill-Unterschied, ab dem der Patt-Brecher ueberhaupt greift (nur
-# Topologie-Vergleiche haben wesentlich verschiedene Prefills).
-LONG_TIE_BREAK_PREFILL_REL = 0.10
+# Siegerregel (Peuqui 2026-08-29): Kontext-Vorrang, danach entscheidet die
+# Gesamtzeit eines Turns (siehe _beats). Die frueheren Schwellen
+# LONG_TIE_BREAK_REL/-_PREFILL_REL sind damit ersetzt: sie wogen Decode und
+# Prefill nie gegeneinander auf, sondern liessen den Prefill nur bei
+# Decode-Gleichstand zu Wort kommen.
 
 
 @dataclass
@@ -188,21 +193,36 @@ def topology_ladder(
         if g.free_mb - VLLM_VRAM_RESERVE_MB >= need_mb:
             yield TopologyCandidate([smi[g.uuid]], 1, 1, None, f"TP1 on {g.name}")
 
-    # 2) TP innerhalb einer Klasse (alle Karten der Klasse)
+    # 2) TP innerhalb einer Klasse — groesstes TP, das das Modell zulaesst
     for cls in classes:
         if len(cls) < 2:
             continue
-        budget = sum(g.free_mb - VLLM_VRAM_RESERVE_MB for g in cls)
+        # Nicht jede Kartenzahl ist ein gueltiges TP: bei drei V100 und
+        # 4 KV-Heads waeren es TP3 -> vLLM bricht beim Worker-Start ab.
+        tp = max(meta.valid_tp_sizes(len(cls)))
+        if tp < 2:
+            continue
+        # Deterministische Auswahl: freieste Karte zuerst, bei Gleichstand
+        # der kleinere Index. Sonst kippt die Wahl zwischen baugleichen
+        # Karten mit dem Messrauschen des freien Speichers — und die
+        # Karten sind NICHT austauschbar (eine V100 haengt am USB4-Tunnel).
+        members = sorted(cls, key=lambda g: (-g.free_mb, smi[g.uuid]))[:tp]
+        budget = sum(g.free_mb - VLLM_VRAM_RESERVE_MB for g in members)
         if budget >= need_mb:
-            ids = [smi[g.uuid] for g in cls]
-            yield TopologyCandidate(ids, len(cls), 1, None,
-                                    f"TP{len(cls)} across {cls[0].name} class")
+            ids = [smi[g.uuid] for g in members]
+            yield TopologyCandidate(ids, tp, 1, None,
+                                    f"TP{tp} across {cls[0].name} class")
 
     # 3) TP×PP-Gitter ueber die Klassen (TP = kleinste Klassenstaerke)
     if len(classes) >= 2:
-        tp = min(len(c) for c in classes)
+        max_tp = min(len(c) for c in classes)
+        tp = max(meta.valid_tp_sizes(max_tp))
         if tp >= 1:
-            stage_gpus = [c[:tp] for c in classes]
+            # Gleiche deterministische Ordnung wie oben (siehe dort).
+            stage_gpus = [
+                sorted(c, key=lambda g: (-g.free_mb, smi[g.uuid]))[:tp]
+                for c in classes
+            ]
             ids = [smi[g.uuid] for stage in stage_gpus for g in stage]
             partition = _seed_partition(meta, stage_gpus)
             yield TopologyCandidate(
@@ -340,23 +360,40 @@ def _rung_metric(r: _RungResult) -> float:
     return r.long_decode_tps if r.long_tokens else r.tps
 
 
-def _beats(metric_new: float, prefill_new: float,
-           metric_old: float, prefill_old: float) -> bool:
-    """Siegervergleich: Metrik entscheidet; bei Quasi-Gleichstand
-    (LONG_TIE_BREAK_REL) bricht der hoehere Lang-Prefill das Patt.
+def _turn_seconds(decode_tps: float, prefill_tps: float, ratio: float) -> float:
+    """Zeit eines Turns je erzeugtem Token, bei ``ratio`` Prompt-Token je
+    Antwort-Token. Kleiner ist besser; 0 tok/s heisst unbrauchbar."""
+    if decode_tps <= 0:
+        return float("inf")
+    seconds = 1.0 / decode_tps
+    if prefill_tps > 0:
+        seconds += ratio / prefill_tps
+    return seconds
 
-    Der Prefill-Patt-Brecher greift nur, wenn sich die Prefills
-    WESENTLICH unterscheiden (Topologie-Vergleich, z.B. Gitter 836 vs.
-    TP2 504) — innerhalb einer Topologie ist der Prefill konstant, und
-    Messrauschen (834 vs. 833, Lauf 2026-08-30) darf nicht das bessere
-    k einfrieren; dann entscheidet weiterhin die Metrik."""
-    if metric_old <= 0:
-        return metric_new > 0
-    if abs(metric_new - metric_old) / metric_old <= LONG_TIE_BREAK_REL:
-        ref = max(prefill_old, 1e-9)
-        if abs(prefill_new - prefill_old) / ref > LONG_TIE_BREAK_PREFILL_REL:
-            return prefill_new > prefill_old
-    return metric_new > metric_old
+
+def _beats(metric_new: float, prefill_new: float,
+           metric_old: float, prefill_old: float, ratio: float) -> bool:
+    """Siegervergleich ueber die GESAMTZEIT eines Turns.
+
+    Frueher entschied die Decode-Rate allein, und nur bei Quasi-Gleichstand
+    (5 %) brach der Prefill das Patt. Das verlor reale Zeit: Im Lauf
+    2026-09-04 gewann TP2 mit 56,4 tok/s Decode gegen das Gitter mit 50,7 —
+    obwohl das Gitter 749 statt 449 tok/s Prefill schafft und damit bei
+    25.000 Prompt-Token 21 Sekunden je Turn spart. Die 11 % Decode-Vorsprung
+    lagen ueber der Schwelle, also kam der Prefill nie zur Sprache.
+
+    Jetzt werden beide Raten in dieselbe Waehrung uebersetzt — Sekunden je
+    Turn unter einer expliziten Lastannahme (``ratio``). Innerhalb einer
+    Topologie ist der Prefill nahezu konstant, dort entscheidet weiterhin
+    faktisch der Decode; Messrauschen (834 gegen 833) verschiebt die Summe
+    nur im Promillebereich und friert kein k mehr ein."""
+    return (_turn_seconds(metric_new, prefill_new, ratio)
+            < _turn_seconds(metric_old, prefill_old, ratio))
+
+
+def _workload_ratio(runtime: dict) -> float:
+    return float(runtime.get("workload_prompt_per_generated",
+                             DEFAULT_WORKLOAD_PROMPT_PER_GENERATED))
 
 
 def _measure_topology(
@@ -539,10 +576,41 @@ def _sweep_k(
     # wuerden ausserdem bei verschiedenen Chunkgroessen gemessen — genau
     # der Achse, die den Prefill um bis zu 12 % dreht.
     mbt_k = rung.spec.max_batched_tokens
-    for k in _k_candidates(meta, runtime):
+    # Kontext wandert wie GMU und Chunk-Deckel durch den Sweep. Jedes k
+    # startete frueher wieder beim vollen Sprossen-Kontext, scheiterte und
+    # lernte den Deckel erst im zweiten Boot — sieben k kosteten so sieben
+    # Boots umsonst (Lauf 2026-09-04: je ~6,5 min auf der Einzelkarte).
+    # Der Sweep laeuft k ABSTEIGEND, und niedrigeres k traegt MEHR Kontext:
+    # der geerbte Wert bootet deshalb immer sofort. Was er kostet, holt der
+    # Nachschlag unten zurueck.
+    sweep_mml = rung.spec.mml
+    # (k, erzwungener Start-Kontext). Der Nachschlag fuer den Sieger wird
+    # waehrend des Laufs angehaengt — siehe unten.
+    plan: list[tuple[int, int | None]] = [
+        (k, None) for k in _k_candidates(meta, runtime)
+    ]
+    regrown = False
+    plan_idx = 0
+
+    def _needs_regrow() -> bool:
+        """Der Sieger wurde beim geerbten Kontext gemessen und koennte
+        mehr tragen? Dann bekommt er genau einen Nachschlag-Boot."""
+        return bool(not regrown and best_k and best_mml < rung.spec.mml)
+
+    # Die Bedingung (statt ein Block am Koerperende) sorgt dafuer, dass der
+    # Nachschlag auch dann kommt, wenn das letzte k per "continue" ausfaellt.
+    while plan_idx < len(plan) or _needs_regrow():
+        if plan_idx >= len(plan):
+            regrown = True
+            plan.append((best_k, rung.spec.mml))
+            progress(f"   ↳ re-measuring the winner k={best_k} at full "
+                     f"context to reclaim what the shared cap cost...")
+        k, forced_mml = plan[plan_idx]
+        plan_idx += 1
+        is_regrow = forced_mml is not None
         capture = _capture_sizes_for(k, runtime)
         spec_attn = _spec_attn_for(rung.spec, gpus, smi, runtime)
-        mml_k = rung.spec.mml
+        mml_k = forced_mml if forced_mml is not None else sweep_mml
         # Proben-OOM-Retry: die per GMU volle Karte kann bei der ERSTEN
         # echten Anfrage noch kippen (Gitter-k=6 2026-08-29: 120 MB
         # QPN8-Workspace fehlten) — einmal mit gesenkter GMU neu booten
@@ -588,6 +656,7 @@ def _sweep_k(
                     if (attempt < 2 and allow_ctx_reduction and e.parsed_max_len
                             and MIN_USEFUL_CONTEXT <= e.parsed_max_len < mml_k):
                         mml_k = e.parsed_max_len
+                        sweep_mml = min(sweep_mml, mml_k)
                         progress(f"   ↳ k={k} needs smaller ctx: retry with {format_number(mml_k)}")
                         continue
                     if (attempt < 2 and not allow_ctx_reduction
@@ -652,11 +721,19 @@ def _sweep_k(
         else:
             progress(f"   ↳ k={k}: short {format_number(tps, 1)} tok/s")
         if matrix is not None:
+            if is_regrow:
+                matrix[:] = [r for r in matrix
+                             if not (r["label"] == rung.label and r["k"] == k)]
             matrix.append({"label": rung.label, "k": k, "ctx": mml_k,
                            "short": tps, "long_tokens": lt,
                            "long_prefill": lp, "long_decode": ld,
                            "accept": acc})
-        if _beats(metric, lp, best_metric, best_prefill):
+        # Der Nachschlag misst DENSELBEN Sieger bei groesserem Kontext —
+        # er wird uebernommen, ohne gegen sich selbst anzutreten
+        # (Kontext-Vorrang; die Rate faellt am laengeren Prompt naturgemaess
+        # etwas ab und ist dann der ehrliche Wert fuer den Betriebspunkt).
+        if is_regrow or _beats(metric, lp, best_metric, best_prefill,
+                               _workload_ratio(runtime)):
             best_k, best_metric, best_mml, best_prefill = k, metric, mml_k, lp
             # Der Proben-OOM-Retry misst mit gesenkter GMU — die MUSS in
             # den Betriebspunkt (Ausfall 2026-08-30: mit 0,95 gemessen,
@@ -677,6 +754,7 @@ def _sweep_k(
 
 
 def _challenger_ab(
+    ratio: float,
     best_spec: VllmSpec,
     best_tps: float,
     best_prefill: float,
@@ -724,7 +802,7 @@ def _challenger_ab(
            "long_decode": ld, "accept": long_metrics["accept_rate"]}
     if matrix is not None:
         matrix.append(row)
-    if _beats(ld, lp, best_tps, best_prefill):
+    if _beats(ld, lp, best_tps, best_prefill, ratio):
         progress(f"   ↳ {tag} wins: long {format_number(ld, 1)} tok/s "
                  f"(prefill {format_number(lp, 0)}) — adopting")
         return challenger, ld, lp, row
@@ -733,7 +811,7 @@ def _challenger_ab(
     return best_spec, best_tps, best_prefill, None
 
 
-def _chunk_ab(best_spec, best_tps, best_prefill, log_dir, progress,
+def _chunk_ab(ratio, best_spec, best_tps, best_prefill, log_dir, progress,
               cancel_check, matrix, label, k):
     """Chunk-Groesse ist modellspezifisch und nicht ableitbar (2026-08-30:
     4096 = +2,7 % Prefill am 27B, -12 % am Flash-Next-Hybrid) — der eine
@@ -746,13 +824,13 @@ def _chunk_ab(best_spec, best_tps, best_prefill, log_dir, progress,
              f"{challenger.max_batched_tokens} "
              f"(instead of {best_spec.max_batched_tokens})...")
     return _challenger_ab(
-        best_spec, best_tps, best_prefill, challenger,
+        ratio, best_spec, best_tps, best_prefill, challenger,
         f"chunk {challenger.max_batched_tokens}",
         f"chunk {best_spec.max_batched_tokens}",
         log_dir, progress, cancel_check, matrix, label, k)
 
 
-def _gmu_ab(best_spec, best_tps, best_prefill, log_dir, progress,
+def _gmu_ab(ratio, best_spec, best_tps, best_prefill, log_dir, progress,
             cancel_check, matrix, label, k):
     """Weiche Allokator-Druck-Erkennung: der Sieger einmal mit GMU-0,02.
 
@@ -768,7 +846,7 @@ def _gmu_ab(best_spec, best_tps, best_prefill, log_dir, progress,
              f"(instead of {best_spec.gmu}) to detect silent "
              f"allocator pressure...")
     return _challenger_ab(
-        best_spec, best_tps, best_prefill, challenger,
+        ratio, best_spec, best_tps, best_prefill, challenger,
         f"gmu {lower}", f"gmu {best_spec.gmu}",
         log_dir, progress, cancel_check, matrix, label, k)
 
@@ -913,7 +991,8 @@ def calibrate_vllm_checkpoint(
             rung, meta, gpus, smi, runtime, log_dir, progress, cancel_check,
             matrix=matrix)
         progress(f"   ↳ {rung.label} best: k={k_r}, {format_number(tps_r, 1)} tok/s")
-        if best_rung is None or _beats(tps_r, prefill_r, best_tps, best_prefill):
+        if best_rung is None or _beats(tps_r, prefill_r, best_tps,
+                                       best_prefill, _workload_ratio(runtime)):
             best_spec, best_tps, best_k, best_prefill = spec_r, tps_r, k_r, prefill_r
             best_rung, best_sweep = rung, sweep_r
 
@@ -961,11 +1040,13 @@ def calibrate_vllm_checkpoint(
     ab_row: dict | None = None
     if VLLM_CALIBRATION_CHUNK_AB:
         best_spec, best_tps, best_prefill, ab_row = _chunk_ab(
-            best_spec, best_tps, best_prefill, log_dir, progress,
+            _workload_ratio(runtime), best_spec, best_tps, best_prefill,
+            log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
     if VLLM_CALIBRATION_GMU_AB:
         best_spec, best_tps, best_prefill, gmu_row = _gmu_ab(
-            best_spec, best_tps, best_prefill, log_dir, progress,
+            _workload_ratio(runtime), best_spec, best_tps, best_prefill,
+            log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
         ab_row = gmu_row or ab_row
 
