@@ -1558,6 +1558,40 @@ def append_models_to_yaml(
 VLLM_SEED_CONTEXT = 8192  # konservativ; die Kalibrierung findet das Maximum
 
 
+def vllm_checkpoint_candidates() -> list[tuple[Path, str]]:
+    """Checkpoint-Verzeichnisse fuer vLLM samt Anzeigename.
+
+    Zwei Quellen, weil Checkpoints auf zwei Wegen auf die Platte kommen:
+    manuell abgelegte unter MODELS_DIR, per huggingface_hub geladene im
+    HF-Cache. Der Cache benennt seine Snapshots nach Commit-Hash, deshalb
+    liefert diese Funktion Paare — der Name kommt dort aus dem Repo-Segment
+    von ``models--<org>--<repo>``, nicht aus dem Verzeichnisnamen.
+    """
+
+    def is_checkpoint(d: Path) -> bool:
+        return d.is_dir() and (d / "config.json").exists() and any(
+            d.glob("*.safetensors")
+        )
+
+    found: dict[str, Path] = {}
+    if MODELS_DIR.is_dir():
+        for d in sorted(MODELS_DIR.iterdir()):
+            if is_checkpoint(d):
+                found.setdefault(d.name, d)
+    if HF_CACHE_DIR.is_dir():
+        for repo_dir in sorted(HF_CACHE_DIR.glob("models--*")):
+            snapshots = repo_dir / "snapshots"
+            if not snapshots.is_dir():
+                continue
+            # Mehrere Revisionen sind moeglich; die juengste gewinnt.
+            snaps = [s for s in snapshots.iterdir() if is_checkpoint(s)]
+            if not snaps:
+                continue
+            newest = max(snaps, key=lambda s: s.stat().st_mtime)
+            found.setdefault(repo_dir.name.split("--")[-1], newest)
+    return [(path, name) for name, path in sorted(found.items())]
+
+
 def seed_vllm_entries(config_path: Path) -> int:
     """Generische vLLM-Eintraege fuer neue Checkpoint-Verzeichnisse anlegen."""
     repo = Path(__file__).resolve().parent.parent
@@ -1567,11 +1601,7 @@ def seed_vllm_entries(config_path: Path) -> int:
         print("  ~ no data/vllm_runtime.yaml — vLLM seeding skipped")
         return 0
 
-    candidates = [
-        d for d in sorted(MODELS_DIR.iterdir())
-        if d.is_dir() and (d / "config.json").exists()
-        and any(d.glob("*.safetensors"))
-    ]
+    candidates = vllm_checkpoint_candidates()
     if not candidates:
         print("  no vLLM checkpoint dirs found")
         return 0
@@ -1579,9 +1609,9 @@ def seed_vllm_entries(config_path: Path) -> int:
     existing = parse_existing_yaml_models(config_path)
     profiles_dir = repo / "data" / "operating_points"
     todo = [
-        d for d in candidates
-        if f"{d.name}-vllm" not in existing
-        and not (profiles_dir / f"{d.name}-vllm.yaml").exists()
+        (d, base_name) for d, base_name in candidates
+        if f"{base_name}-vllm" not in existing
+        and not (profiles_dir / f"{base_name}-vllm.yaml").exists()
     ]
     print(f"  {len(candidates)} checkpoint dir(s), {len(todo)} new")
     if not todo:
@@ -1611,8 +1641,8 @@ def seed_vllm_entries(config_path: Path) -> int:
     content = config_path.read_text()
     new_blocks = ""
     added = 0
-    for ckpt in todo:
-        name = f"{ckpt.name}-vllm"
+    for ckpt, base_name in todo:
+        name = f"{base_name}-vllm"
         try:
             meta = analyze_checkpoint(ckpt)
             rung = next(iter(topology_ladder(meta, gpus, runtime)), None)

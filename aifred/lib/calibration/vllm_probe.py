@@ -42,6 +42,26 @@ OOM_SIGNATURES = (
     "No available memory for the cache blocks",
 )
 
+# Fehler, nach denen der Boot nicht mehr gesund werden kann. vLLM haelt den
+# API-Server am Leben, wenn nur der EngineCore stirbt (2026-09-04: der
+# V100-TP2-Boot starb um 07:28 an OOM, der Prozess lief weiter und die
+# Warteschleife verbrannte 1200 s im Timeout — ohne die Ursache zu melden,
+# also ohne dass die OOM-Suchstrategie greifen konnte).
+FATAL_BOOT_SIGNATURES = OOM_SIGNATURES + (
+    "Engine core initialization failed",
+    "EngineCore failed to start",
+    "WorkerProc failed to start",
+    "Worker failed with error",
+)
+
+
+def find_fatal_boot_signature(log_text: str) -> str | None:
+    """Erste fatale Signatur im Boot-Log, oder None."""
+    for signature in FATAL_BOOT_SIGNATURES:
+        if signature in log_text:
+            return signature
+    return None
+
 
 def parse_vllm_max_context_from_error(error_output: str) -> int | None:
     """
@@ -407,26 +427,46 @@ def boot_vllm(
     )
     server = VllmServer(proc, port, spec.served_name, log_path)
 
+    def boot_error(reason: str) -> VllmBootError:
+        """Fehler mit allem, was das GANZE Log hergibt.
+
+        Grenzwert-Parsing ueber das ganze Log: die entscheidende
+        ValueError-Zeile steht VOR den langen Folge-Tracebacks und faellt
+        aus einem reinen Tail-Fenster heraus (27B-Lauf 2026-08-28:
+        "estimated maximum model length" ungesehen). Jeder Ausgang der
+        Warteschleife nutzt denselben Weg, damit die Suchstrategien
+        (kv-dtype, chunk, ctx, OOM) unabhaengig davon greifen, WIE der
+        Boot gescheitert ist.
+        """
+        full_log = (server.log_path.read_text(errors="replace")
+                    if server.log_path.exists() else "")
+        return VllmBootError(
+            reason,
+            log_tail=full_log[-4000:],
+            parsed_max_len=parse_vllm_max_context_from_error(full_log),
+            required_batched_tokens=parse_vllm_required_batched_tokens(full_log),
+            required_kv_dtype=parse_vllm_required_kv_dtype(full_log),
+            oom=any(sig in full_log for sig in OOM_SIGNATURES),
+        )
+
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if cancel_check is not None and cancel_check():
             server.shutdown()
             raise VllmBootError("cancelled by user")
         if proc.poll() is not None:
-            # Grenzwert-Parsing ueber das GANZE Log: die entscheidende
-            # ValueError-Zeile steht VOR den langen Folge-Tracebacks und
-            # faellt aus einem reinen Tail-Fenster heraus (27B-Lauf
-            # 2026-08-28: "estimated maximum model length" ungesehen).
-            full_log = server.log_path.read_text(errors="replace") \
-                if server.log_path.exists() else ""
-            raise VllmBootError(
-                f"server died during boot (exit {proc.returncode})",
-                log_tail=full_log[-4000:],
-                parsed_max_len=parse_vllm_max_context_from_error(full_log),
-                required_batched_tokens=parse_vllm_required_batched_tokens(full_log),
-                required_kv_dtype=parse_vllm_required_kv_dtype(full_log),
-                oom=any(sig in full_log for sig in OOM_SIGNATURES),
-            )
+            raise boot_error(f"server died during boot (exit {proc.returncode})")
+        # Der Prozess lebt — das heisst nicht, dass der Boot noch gesund
+        # ist: stirbt nur der EngineCore, bleibt der API-Server stehen und
+        # antwortet nie auf /health. Ohne diese Pruefung endet so ein Boot
+        # erst im Timeout, und zwar ohne geparste Ursache.
+        fatal = find_fatal_boot_signature(
+            server.log_path.read_text(errors="replace")
+            if server.log_path.exists() else ""
+        )
+        if fatal:
+            server.shutdown()
+            raise boot_error(f"fatal error during boot: {fatal}")
         try:
             with urllib.request.urlopen(f"{server.base_url}/health", timeout=3) as r:
                 if r.status == 200:
@@ -436,7 +476,7 @@ def boot_vllm(
         time.sleep(2)
 
     server.shutdown()
-    raise VllmBootError(f"boot timeout after {timeout_s}s", log_tail=server.log_tail())
+    raise boot_error(f"boot timeout after {timeout_s}s")
 
 
 # --- Mess-Proben -----------------------------------------------------------

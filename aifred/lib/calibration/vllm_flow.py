@@ -400,7 +400,8 @@ def _measure_topology(
             kv_cache_dtype=kv_dtype,
         )
         port = find_free_port()
-        log = log_dir / f"boot-{cand.tp}x{cand.pp}-try{attempt}.log"
+        gpu_slug = "-".join(str(i) for i in cand.gpu_ids)
+        log = log_dir / f"boot-{cand.tp}x{cand.pp}-gpu{gpu_slug}-try{attempt}.log"
         try:
             server = boot_vllm(spec, port, log, BOOT_TIMEOUT_S, cancel_check)
             progress(f"   ↳ boot OK, ctx {format_number(mml)}")
@@ -566,7 +567,11 @@ def _sweep_k(
                        "capture_sizes": capture, "spec_attn_backend": spec_attn},
                 )
                 port = find_free_port()
-                log = log_dir / f"boot-{rung.spec.tp}x{rung.spec.pp}-k{k}-try{oom_round}{attempt}.log"
+                gpu_slug = "-".join(str(i) for i in rung.spec.gpu_ids)
+                log = log_dir / (
+                    f"boot-{rung.spec.tp}x{rung.spec.pp}-gpu{gpu_slug}"
+                    f"-k{k}-try{oom_round}{attempt}.log"
+                )
                 if oom_round == 0 and attempt == 0:
                     progress(f"🎲 Probing k={k} on {rung.label} (block {meta.boot_block_size(k)}, "
                              f"capture {capture}, spec-attn {spec_attn or 'default'})...")
