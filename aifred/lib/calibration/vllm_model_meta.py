@@ -51,6 +51,29 @@ class VllmModelMeta:
     ple_bytes: int = 0                    # Hash-N-Gram-Tabellen (".ple.")
     num_experts: int = 0
     experts_per_tok: int = 0
+    num_attention_heads: int = 0
+    num_key_value_heads: int = 0
+
+    def valid_tp_sizes(self, max_tp: int) -> list[int]:
+        """TP-Groessen bis ``max_tp``, die vLLM fuer dieses Modell akzeptiert.
+
+        vLLM verteilt Attention- UND KV-Heads ueber die TP-Ranks, beide
+        Zahlen muessen also durch TP teilbar sein. Bei GQA ist die
+        KV-Zahl die kleinere und damit die harte Schranke (27B: 24 Heads
+        auf 4 KV-Heads, erlaubt sind nur 1, 2 und 4). Ohne die Pruefung
+        bietet die Topologie-Leiter Sprossen an, die vLLM beim
+        Worker-Start abweist ("AssertionError: 16 is not divisible by 3",
+        Lauf 2026-09-04) — ein Boot, der nie laufen konnte.
+
+        Nennt die config.json keine Head-Zahlen, wird nicht eingeschraenkt:
+        raten waere schlechter als das bisherige Verhalten.
+        """
+        heads = [n for n in (self.num_attention_heads, self.num_key_value_heads)
+                 if n > 0]
+        if not heads:
+            return list(range(1, max_tp + 1))
+        return [tp for tp in range(1, max_tp + 1)
+                if all(n % tp == 0 for n in heads)]
 
     def per_token_read_bytes(self) -> int:
         """Geschaetzte Gewichts-Bytes, die ein Decode-Token liest.
@@ -241,4 +264,10 @@ def analyze_checkpoint(checkpoint: Path) -> VllmModelMeta:
         ple_bytes=ple_bytes,
         num_experts=int(text.get("num_experts", 0) or 0),
         experts_per_tok=int(text.get("num_experts_per_tok", 0) or 0),
+        num_attention_heads=int(text.get("num_attention_heads", 0) or 0),
+        # GQA: fehlt der Schluessel, ist die KV-Zahl gleich der Head-Zahl
+        num_key_value_heads=int(
+            text.get("num_key_value_heads")
+            or text.get("num_attention_heads", 0) or 0
+        ),
     )
