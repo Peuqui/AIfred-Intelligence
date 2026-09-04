@@ -205,3 +205,56 @@ class TestOllamaOverrideText:
         text = ollama_override_text(0)
         # PCI_BUS_ID is essential — without it the index would be remapped
         assert "PCI_BUS_ID" in text
+
+
+class TestWeakAttachmentPreference:
+    """Getunnelte Karte (USB4/Thunderbolt) wird Sammelkarte.
+
+    Side-Channels sind Einzelkarten-Lasten und vertragen den Tunnel; eine
+    TP/PP-Gruppe nicht, weil dort jedes Token ueber alle Karten
+    synchronisiert. Reales Setup 2026-09-04: GPU4 haengt hinter zwei
+    zusaetzlichen Bridges (Tiefe 4), GPU1 und GPU3 direkt (Tiefe 2).
+    """
+
+    def _tunneled(self, monkeypatch, deep_index: int) -> None:
+        monkeypatch.setattr(
+            vgs, "attachment_depth",
+            lambda bus: 4 if bus == f"bus{deep_index}" else 2,
+        )
+
+    def _v100_bus(self, idx: int) -> GpuInfo:
+        return GpuInfo(
+            index=idx, name="Tesla V100-PCIE-32GB",
+            compute_capability=(7, 0), total_memory_mb=32768,
+            pci_bus_id=f"bus{idx}",
+        )
+
+    def test_tunneled_card_becomes_shared_side_channel(self, monkeypatch):
+        self._tunneled(monkeypatch, 4)
+        gpus = [_rtx8000(0), self._v100_bus(1), _rtx8000(2),
+                self._v100_bus(3), self._v100_bus(4)]
+        assert pick_vlm_gpu(gpus) == 4
+        assert pick_tts_gpu(gpus) == 4
+
+    def test_uniform_attachment_keeps_second_tier_card(self, monkeypatch):
+        """Ohne Tunnel bleibt es bei der bisherigen Regel (zweite Karte)."""
+        monkeypatch.setattr(vgs, "attachment_depth", lambda bus: 2)
+        gpus = [_rtx8000(0), self._v100_bus(1), _rtx8000(2),
+                self._v100_bus(3), self._v100_bus(4)]
+        assert pick_vlm_gpu(gpus) == 3
+
+    def test_unknown_bus_id_does_not_shift_choice(self, monkeypatch):
+        """Ohne Bus-Info (Tiefe 0 fuer alle) bleibt die alte Wahl."""
+        monkeypatch.setattr(vgs, "attachment_depth", lambda bus: 0)
+        gpus = [_rtx8000(0), _v100(1), _rtx8000(2), _v100(3), _v100(4)]
+        assert pick_vlm_gpu(gpus) == 3
+
+
+def test_attachment_depth_counts_pci_stations(tmp_path, monkeypatch):
+    """Zaehlt die PCI-Stationen im sysfs-Pfad; unbekannt -> 0."""
+    assert vgs.attachment_depth("") == 0
+    assert vgs.attachment_depth("garbage") == 0
+    # Echte Karte dieses Rechners: mindestens Root-Port + Karte
+    real = vgs.list_gpus()
+    if real and real[0].pci_bus_id:
+        assert vgs.attachment_depth(real[0].pci_bus_id) >= 2

@@ -54,7 +54,9 @@ auch in den Workern korrekt zugeordnet.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
+from pathlib import Path
 from threading import Lock
 from typing import Sequence
 
@@ -76,6 +78,7 @@ class GpuInfo:
     name: str                        # z.B. "Quadro RTX 8000"
     compute_capability: tuple[int, int]   # (major, minor) — höher = neuer
     total_memory_mb: int             # in MiB
+    pci_bus_id: str = ""             # z.B. "00000000:0A:00.0" (NVML-Form)
 
 
 def list_gpus() -> list[GpuInfo]:
@@ -113,6 +116,7 @@ def list_gpus() -> list[GpuInfo]:
                         name=name,
                         compute_capability=(int(major), int(minor)),
                         total_memory_mb=int(mem.total // (1024 * 1024)),
+                        pci_bus_id=_nvml_bus_id(pynvml, h),
                     )
                 )
             except Exception as e:  # noqa: BLE001
@@ -123,6 +127,42 @@ def list_gpus() -> list[GpuInfo]:
         except Exception:  # noqa: BLE001
             pass
     return gpus
+
+
+def _nvml_bus_id(pynvml, handle) -> str:
+    """PCI-Bus-ID einer Karte; leer, wenn NVML sie nicht liefert."""
+    try:
+        raw = pynvml.nvmlDeviceGetPciInfo(handle).busId
+        return raw.decode() if isinstance(raw, bytes) else str(raw)
+    except Exception as e:  # noqa: BLE001 — Bus-ID ist Zusatzinfo
+        logger.debug("pci bus id unavailable: %s", e)
+        return ""
+
+
+def attachment_depth(pci_bus_id: str) -> int:
+    """Zahl der PCI-Stationen bis zur Karte; 0 = unbekannt.
+
+    Eine direkt am Root-Port sitzende Karte kommt auf 2, eine hinter
+    einem getunnelten Hub (USB4/Thunderbolt) auf mehr — dort haengen
+    zusaetzliche Bridges dazwischen. Damit laesst sich hardware-agnostisch
+    erkennen, welche Karte am schwaechsten angebunden ist, ohne
+    Bus-Nummern oder Kartennamen fest zu verdrahten.
+    """
+    if not pci_bus_id:
+        return 0
+    # NVML liefert "00000000:0A:00.0", sysfs erwartet "0000:0a:00.0"
+    parts = pci_bus_id.strip().lower().split(":")
+    if len(parts) < 3:
+        return 0
+    bdf = f"{parts[-3][-4:]}:{parts[-2]}:{parts[-1]}"
+    link = Path("/sys/bus/pci/devices") / bdf
+    try:
+        resolved = link.resolve(strict=True)
+    except OSError as e:
+        logger.debug("pci path unavailable for %s: %s", bdf, e)
+        return 0
+    return sum(1 for part in resolved.parts
+               if re.fullmatch(r"[0-9a-f]{4}:[0-9a-f]{2}:[0-9a-f]{2}\.[0-9a-f]", part))
 
 
 def _rank(gpus: Sequence[GpuInfo]) -> list[GpuInfo]:
@@ -182,7 +222,19 @@ def pick_side_channel_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
     if not gpus:
         raise RuntimeError("no CUDA GPU available")
     tier = _side_channel_tier(gpus)
-    return tier[1].index if len(tier) > 1 else tier[0].index
+    if len(tier) == 1:
+        return tier[0].index
+    # Schwaechste Anbindung zuerst: Side-Channels sind Einzelkarten-Lasten
+    # und vertragen einen getunnelten Steckplatz; eine TP/PP-Gruppe nicht,
+    # denn dort synchronisiert jedes Token ueber ALLE Karten. Sitzen alle
+    # Tier-Karten gleich tief (Normalfall), bleibt es bei der zweiten
+    # Karte — siehe Modul-Docstring zur externen Pin-Bindung.
+    deepest = max(attachment_depth(g.pci_bus_id) for g in tier)
+    if deepest > min(attachment_depth(g.pci_bus_id) for g in tier):
+        weakest = [g for g in tier
+                   if attachment_depth(g.pci_bus_id) == deepest]
+        return _rank(weakest)[0].index
+    return tier[1].index
 
 
 def pick_tts_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
