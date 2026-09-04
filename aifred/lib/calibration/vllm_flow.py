@@ -73,6 +73,18 @@ DEFAULT_WEIGHT_PROCESSING_FACTOR = 1.6
 # damit den Prefill staerker; wer kurze Fragen mit langen Antworten fahrt,
 # setzt niedriger.
 DEFAULT_WORKLOAD_PROMPT_PER_GENERATED = 4.0
+# Mindestvorsprung, den eine Speed-Variante braucht, um ueberhaupt zu
+# entstehen. Ohne Schwelle genuegte frueher ein beliebiger Vorsprung —
+# 0,3 tok/s liegen aber im Messrauschen (Nachmessung 2026-09-04: 749 gegen
+# 751 tok/s Prefill bei identischer Konfiguration). Ueber
+# "speed_variant_min_gain" anpassbar.
+DEFAULT_SPEED_VARIANT_MIN_GAIN = 0.10
+# BEWUSST KEINE Kontext-Untergrenze fuer die Speed-Variante (Peuqui
+# 2026-09-04): Der Tausch Kontext gegen Tempo ist die Entscheidung des
+# Nutzers, nicht der Kalibration. Die Oberflaeche zeigt beim Umschalten
+# das aufgeloeste Modell mitsamt Fenster an, die Wahl ist also informiert;
+# und ein kleines Fenster bricht nicht hart, weil die History-Kompression
+# frueher greift. Ein Bruchteil waere eine gegriffene Zahl gewesen.
 
 # Spekulation lohnt nur, wenn der Draft-Block klein gegen die
 # Pro-Token-Leselast des Hauptmodells ist (Flash-Next-Befund: BF16-Block
@@ -372,7 +384,8 @@ def _turn_seconds(decode_tps: float, prefill_tps: float, ratio: float) -> float:
 
 
 def _beats(metric_new: float, prefill_new: float,
-           metric_old: float, prefill_old: float, ratio: float) -> bool:
+           metric_old: float, prefill_old: float, ratio: float,
+           margin: float = 0.0) -> bool:
     """Siegervergleich ueber die GESAMTZEIT eines Turns.
 
     Frueher entschied die Decode-Rate allein, und nur bei Quasi-Gleichstand
@@ -386,14 +399,26 @@ def _beats(metric_new: float, prefill_new: float,
     Turn unter einer expliziten Lastannahme (``ratio``). Innerhalb einer
     Topologie ist der Prefill nahezu konstant, dort entscheidet weiterhin
     faktisch der Decode; Messrauschen (834 gegen 833) verschiebt die Summe
-    nur im Promillebereich und friert kein k mehr ein."""
+    nur im Promillebereich und friert kein k mehr ein.
+
+    ``margin`` verlangt einen relativen Mindestvorsprung (0 = jeder
+    Vorsprung zaehlt). Gebraucht wird er nur, wo ein Wechsel etwas
+    KOSTET — bei der Speed-Variante den Kontext; innerhalb eines
+    Sweeps ist jede echte Verbesserung mitzunehmen.
+    """
     return (_turn_seconds(metric_new, prefill_new, ratio)
-            < _turn_seconds(metric_old, prefill_old, ratio))
+            < _turn_seconds(metric_old, prefill_old, ratio) * (1.0 - margin))
 
 
 def _workload_ratio(runtime: dict) -> float:
     return float(runtime.get("workload_prompt_per_generated",
                              DEFAULT_WORKLOAD_PROMPT_PER_GENERATED))
+
+
+def _speed_min_gain(runtime: dict) -> float:
+    return float(runtime.get("speed_variant_min_gain",
+                             DEFAULT_SPEED_VARIANT_MIN_GAIN))
+
 
 
 def _measure_topology(
@@ -997,10 +1022,10 @@ def calibrate_vllm_checkpoint(
             best_rung, best_sweep = rung, sweep_r
 
     sc_spec = None
-    sc_tps, sc_k = 0.0, 0
+    sc_tps, sc_k, sc_prefill = 0.0, 0, 0.0
     sc_sweep: dict[int, float] = {}
     if speed_candidate is not None:
-        sc_spec, sc_tps, sc_k, sc_sweep, _ = _sweep_k(
+        sc_spec, sc_tps, sc_k, sc_sweep, sc_prefill = _sweep_k(
             speed_candidate, meta, gpus, smi, runtime, log_dir,
             progress, cancel_check, allow_ctx_reduction=True, matrix=matrix)
         progress(
@@ -1064,17 +1089,32 @@ def calibrate_vllm_checkpoint(
     # ein "-speed"-Eintrag, der langsamer ist, waere sinnlos. Der Eintrag
     # heisst <entry>-speed (GGUF-Konvention) und wird vom Speed-Toggle
     # ueber has_speed_variant/resolve_effective_suffix gefunden.
-    if sc_spec is not None and speed_candidate is not None and sc_tps > best_tps:
-        speed_spec = VllmSpec(
-            **{**sc_spec.__dict__, "served_name": f"{entry_name}-speed"},
-        )
-        speed_path = persist_operating_point(
-            speed_spec, sc_tps, sc_sweep, meta,
-            long_ctx=_matrix_row(speed_candidate.label, sc_k))
-        progress(
-            f"💾 Speed variant saved: {speed_path} "
-            f"({format_number(sc_tps, 1)} tok/s, ctx {format_number(speed_spec.mml)})"
-        )
+    # Die Speed-Variante sieht in AIfred dieselbe Last wie der
+    # Betriebspunkt (auch lange Kontexte, auch viel Prefill) — sie wird
+    # deshalb am GLEICHEN Massstab gemessen, der Gesamtzeit eines Turns.
+    # Der frueher hier stehende rohe Decode-Vergleich unterstellte einen
+    # Kurzprompt-Betrieb, den es nicht gibt.
+    if sc_spec is not None and speed_candidate is not None:
+        gain = _speed_min_gain(runtime)
+        if not _beats(sc_tps, sc_prefill, best_tps, best_prefill,
+                      _workload_ratio(runtime), margin=gain):
+            progress(
+                f"🏎️ No speed variant: {format_number(sc_tps, 1)} tok/s does "
+                f"not beat the operating point by the required "
+                f"{format_number(gain * 100, 0)} %"
+            )
+        else:
+            speed_spec = VllmSpec(
+                **{**sc_spec.__dict__, "served_name": f"{entry_name}-speed"},
+            )
+            speed_path = persist_operating_point(
+                speed_spec, sc_tps, sc_sweep, meta,
+                long_ctx=_matrix_row(speed_candidate.label, sc_k))
+            progress(
+                f"💾 Speed variant saved: {speed_path} "
+                f"({format_number(sc_tps, 1)} tok/s, "
+                f"ctx {format_number(speed_spec.mml)})"
+            )
 
     # Verwendete GPUs im Log dokumentieren (UUID-Rueckverfolgbarkeit)
     used = [uuid_by_smi.get(i, str(i)) for i in best_spec.gpu_ids]

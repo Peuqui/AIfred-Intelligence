@@ -507,3 +507,33 @@ def test_sweep_without_cap_does_not_regrow(monkeypatch, tmp_path):
     assert best_k == 2
     assert [a[0] for a in attempts] == [3, 2, 1]
     assert best_spec.mml == 65536
+
+
+# ---------------------------------------------------------------------------
+# Speed-Variante: Mindestvorsprung
+# ---------------------------------------------------------------------------
+
+def test_beats_requires_margin_when_a_switch_costs_something() -> None:
+    """Ohne Marge zaehlt jeder Vorsprung, mit Marge nur ein echter.
+
+    Die Speed-Variante kostet Kontext — ein Vorsprung im Messrauschen
+    (749 gegen 751 tok/s Prefill, Nachmessung 2026-09-04) darf sie nicht
+    rechtfertigen.
+    """
+    ratio = 4.0
+    # 2 % besserer Decode: ohne Marge ein Sieg, mit 10 % nicht
+    assert vllm_flow._beats(51.0, 500.0, 50.0, 500.0, ratio)
+    assert not vllm_flow._beats(51.0, 500.0, 50.0, 500.0, ratio, margin=0.10)
+    # 30 % besserer Decode UND besserer Prefill: reicht auch mit Marge
+    assert vllm_flow._beats(65.0, 700.0, 50.0, 500.0, ratio, margin=0.10)
+    # Unbrauchbarer Kandidat (0 tok/s) gewinnt nie
+    assert not vllm_flow._beats(0.0, 900.0, 50.0, 500.0, ratio)
+
+
+def test_speed_thresholds_come_from_runtime() -> None:
+    """Der Mindestvorsprung ist ueber die Runtime-Config anpassbar."""
+    assert vllm_flow._speed_min_gain({}) == 0.10
+    assert vllm_flow._speed_min_gain({"speed_variant_min_gain": 0.25}) == 0.25
+    # Kontext-Untergrenze gibt es bewusst nicht — der Tausch gehoert dem
+    # Nutzer, und die Oberflaeche zeigt das Fenster beim Umschalten an.
+    assert not hasattr(vllm_flow, "_speed_min_context_ratio")
