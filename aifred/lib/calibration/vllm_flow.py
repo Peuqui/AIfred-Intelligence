@@ -728,6 +728,18 @@ def _sweep_k(
                         progress(f"   ↳ k={k} needs the full GMU for the "
                                  f"native context: retry with GMU {gmu_k}")
                         continue
+                    if attempt < 2 and e.oom:
+                        # Boot-OOM ist dieselbe Situation wie ein Sonden-OOM
+                        # (V100-Paar 2026-09-05: der Compile der Spekulations-
+                        # graphen laeuft NACH der KV-Zuteilung und fand fuer
+                        # sein Autotune-Scratch 1,19 GiB nicht mehr) — GMU
+                        # senken statt das k zu verwerfen, und die gelernte
+                        # GMU fuer die restlichen k behalten.
+                        gmu_k = round(gmu_k - 0.02, 2)
+                        sweep_gmu = gmu_k
+                        progress(f"   ↳ k={k} boot hit OOM: retry with GMU {gmu_k} "
+                                 f"(kept for the remaining k)")
+                        continue
                     progress(f"   ↳ k={k} boot failed: {e.reason}")
                     break
             if server is None:
