@@ -196,6 +196,7 @@ async def _emit(
     timestamp: datetime,
     metadata: dict[str, Any] | None = None,
     store: Any = None,
+    shown_media: set[str] | None = None,
 ) -> None:
     """Build + dispatch one AlertEvent. Best-effort — never raises into the
     watcher's hot path. The shared dispatcher's rules decide where it goes.
@@ -204,6 +205,15 @@ async def _emit(
     available — it shows the subject, while the wide-angle latest frame often
     misses it. ``media_gallery`` carries the wide + zoom views plus one crop
     per person seen, as URLs for the browser session.
+
+    ``shown_media``: das Gedächtnis eines Vorkommnisses über seine Meldungen
+    hinweg (die Bilanz reicht ihr eigenes Set durch). Bilder, die dieses
+    Vorkommnis schon gezeigt hat, kommen kein zweites Mal in die Galerie —
+    Frames und Crops des besten Ticks bleiben über den ganzen Burst dieselben,
+    ungefiltert stand in jeder Folgemeldung noch einmal dasselbe Bild. Das Set
+    wird um das tatsächlich Gezeigte ergänzt. ``media``/``media_context``
+    bleiben unangetastet: das VLM braucht sein Bild zum Beschreiben, und für
+    Einzelbild-Kanäle trägt das Bild die Meldung.
     """
     try:
         from pathlib import Path as _Path
@@ -233,6 +243,12 @@ async def _emit(
         for u in [crop_url, *(extra_crop_urls or [])]:
             if u and u not in gallery:
                 gallery.append(u)
+        # Nur NEUES zeigen (siehe ``shown_media`` im Docstring). Bleibt nichts
+        # übrig, geht die Bubble ohne Bild raus — ihr Text ist das neue
+        # Kapitel, die Bilder dazu stehen schon darüber im selben Chat.
+        if shown_media is not None:
+            gallery = [u for u in gallery if u not in shown_media]
+            shown_media.update(gallery)
 
         session_key, session_title = _session_routing(source_id, store)
         ev = AlertEvent(
@@ -273,6 +289,7 @@ async def emit_face_alert(
     person_count: int = 0,
     extra_crop_urls: list[str] | None = None,
     segment_event_ids: list[int] | None = None,
+    shown_media: set[str] | None = None,
 ) -> None:
     """Emit an aggregated face-band detection as a proactive AlertEvent —
     one per band per happening, only while armed. ``names`` = alle erkannten
@@ -334,6 +351,7 @@ async def emit_face_alert(
         timestamp=ts,
         metadata=meta or None,
         store=store,
+        shown_media=shown_media,
     )
 
 
@@ -349,6 +367,7 @@ async def emit_person_alert(
     dedup_key: str | None = None,
     segment_event_ids: list[int] | None = None,
     extra_crop_urls: list[str] | None = None,
+    shown_media: set[str] | None = None,
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
@@ -387,6 +406,7 @@ async def emit_person_alert(
         timestamp=ts,
         metadata=meta or None,
         store=store,
+        shown_media=shown_media,
     )
 
 
@@ -488,6 +508,16 @@ class BurstReport:
         # Sammeln würde dieselbe Person mehrfach in die Galerie legen.
         self._person_boxes: list[tuple[int, int, int, int]] = []
         self._person_boxes_frame: bytes = b""
+        # Die EINMAL geschnittenen Ausschnitte dieses Referenz-Ticks. Ohne
+        # diesen Halt schnitt jede Bilanz denselben Frame erneut zu: byte-
+        # gleiche Dateien unter neuem Namen, die das Galerie-Dedupe (URL-
+        # basiert) nicht als Wiederholung erkennen konnte. Wird verworfen,
+        # sobald ein Tick mit MEHR Personen den Referenz-Frame ablöst.
+        self._person_crops: list[str] = []
+        # Was dieses Vorkommnis über alle seine Meldungen hinweg schon
+        # gezeigt hat. Eine Folgebilanz meldet nur NEUE Bilder — siehe
+        # ``shown_media`` in ``_emit``.
+        self._shown_media: set[str] = set()
         # Versand-Zustand für due()/has_news().
         self._sent_messages = 0
         self._sent_band_rank = -1
@@ -559,6 +589,8 @@ class BurstReport:
             return
         self._person_boxes = list(boxes)
         self._person_boxes_frame = frame_bytes
+        # Neuer Referenz-Tick → die Ausschnitte des alten sind überholt.
+        self._person_crops = []
 
     def observe_person(
         self, count: int, score: float, frame_path: str, zoom_frame_path: str,
@@ -687,6 +719,7 @@ class BurstReport:
                 segment_event_ids=segment_ids,
                 store=self._store,
                 dedup_key=key,
+                shown_media=self._shown_media,
             )
         else:
             frame_path, zoom_path = self._best_person_paths
@@ -700,6 +733,7 @@ class BurstReport:
                 segment_event_ids=segment_ids,
                 store=self._store,
                 dedup_key=key,
+                shown_media=self._shown_media,
             )
         self._sent_band_rank = sent_band_rank
         self._sent_names = sent_names
@@ -732,7 +766,11 @@ class BurstReport:
         Personen. Ergänzt die Gesichts-Crops um die, die nie erkannt wurden
         — ohne sie zeigt eine Meldung über vier Personen zwei Gesichter und
         sonst nichts. Erst hier zugeschnitten, damit der Burst keine
-        Dateien für Ticks anlegt, die nie gemeldet werden."""
+        Dateien für Ticks anlegt, die nie gemeldet werden — und nur EINMAL
+        je Referenz-Tick, sonst legt jede Folgebilanz dieselben Pixel unter
+        neuem Namen noch einmal ab."""
+        if self._person_crops:
+            return self._person_crops
         if not self._person_boxes or not self._person_boxes_frame:
             return []
         from .face_crop_store import get_default_store
@@ -747,5 +785,6 @@ class BurstReport:
             )
             if url:
                 urls.append(url)
+        self._person_crops = urls
         return urls
 

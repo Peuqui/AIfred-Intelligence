@@ -962,7 +962,14 @@ def record_autonomous_turn(
     hub notification — same primitives process_inbound persists with, just
     without the LLM. ``media`` (an on-disk frame path) is embedded as a
     Markdown image so the browser session shows exactly what a channel like
-    Telegram received. Returns the session_id."""
+    Telegram received. Returns the session_id.
+
+    ``media_gallery`` ist die SSoT für die Bubble, sobald der Aufrufer sie
+    mitgibt — auch als LEERE Liste. Die heißt „zu dieser Meldung gibt es
+    nichts Neues zu zeigen" (die Bilanz eines Vorkommnisses filtert bereits
+    Gezeigtes heraus) und darf nicht auf ``media`` zurückfallen, sonst stünde
+    genau das wiederholte Bild wieder in der Bubble. ``None`` = der Aufrufer
+    kennt keine Galerie, dann trägt ``media`` das Bild."""
     from .session_storage import load_session
 
     route = routing_table.get_route(channel, channel_id)
@@ -978,7 +985,7 @@ def record_autonomous_turn(
         routing_table.set_route(channel, channel_id, session_id)
 
     content = text
-    if media_gallery:
+    if media_gallery is not None:
         # All views already as URLs (wide + zoom + crops) — embed each so the
         # browser session shows the full picture, not just one frame. Frames
         # get one paragraph each (full width); the crops share ONE paragraph
