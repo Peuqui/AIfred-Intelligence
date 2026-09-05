@@ -109,6 +109,23 @@ class FaceDetection:
     keypoints: np.ndarray | None     # shape (5, 2) — eye/nose/mouth landmarks
 
 
+def box_iou(
+    a: tuple[int, int, int, int], b: tuple[int, int, int, int],
+) -> float:
+    """Intersection-over-Union zweier ``(x, y, w, h)``-Boxen. SSoT für
+    alle, die zwei Detektionen auf „dieselbe Box" prüfen (ROI-Dedupe hier,
+    Enroll-Zuordnung in ``face_enroll``)."""
+    ax1, ay1, aw, ah = a
+    bx1, by1, bw, bh = b
+    ax2, ay2 = ax1 + aw, ay1 + ah
+    bx2, by2 = bx1 + bw, by1 + bh
+    ix = max(0, min(ax2, bx2) - max(ax1, bx1))
+    iy = max(0, min(ay2, by2) - max(ay1, by1))
+    inter = ix * iy
+    union = aw * ah + bw * bh - inter
+    return inter / union if union > 0 else 0.0
+
+
 class FaceDetector:
     """Lazy-initialized InsightFace-Wrapper.
 
@@ -126,6 +143,7 @@ class FaceDetector:
         det_size: int = 640,
         min_score: float = 0.0,
         min_size_px: int = 0,
+        roi_dedupe_iou: float = 0.3,
     ) -> None:
         if providers is None:
             providers = ["CUDAExecutionProvider", "CPUExecutionProvider"]
@@ -139,6 +157,9 @@ class FaceDetector:
         # Texturen, und aus Mini-Boxen kommt kein brauchbares Embedding.
         self._min_score = float(min_score)
         self._min_size_px = int(min_size_px)
+        # Ab welcher Überdeckung zwei Funde aus überlappenden Regionen
+        # dasselbe Gesicht sind (nur ``detect_in_regions``).
+        self._roi_dedupe_iou = float(roi_dedupe_iou)
         self._app: Any | None = None
         self._init_lock = Lock()
 
@@ -181,17 +202,88 @@ class FaceDetector:
         except Exception as e:  # noqa: BLE001
             logger.warning("InsightFace get() failed on %s: %s", frame.source_id, e)
             return []
+        return self._to_detections(raw, frame.source_id)
+
+    def detect_in_regions(
+        self, frame: "Frame", regions: list[tuple[int, int, int, int]],
+    ) -> list[FaceDetection]:
+        """Zweiter Durchgang auf Bildausschnitten — für Gesichter, die im
+        Vollbild unter die Wahrnehmungsschwelle fallen.
+
+        Der Detektor skaliert JEDE Eingabe auf ``det_size`` (640). Ein
+        Gesicht, das im 4K-Weitwinkel auf wenige Pixel schrumpft, kommt im
+        Ausschnitt einer Personenbox in brauchbarer Größe dort an und wird
+        gefunden. Gedacht als Nachschlag, wenn ``detect()`` auf demselben
+        Frame nichts fand.
+
+        Die Ausschnitte werden **unskaliert** herausgeschnitten (1:1 aus dem
+        Originalbild). Das ist der Punkt, an dem die Qualitätsschwellen ehrlich
+        bleiben: Boxkanten im Ausschnitt sind Originalpixel, ``min_size_px``
+        misst also weiterhin die echte Gesichtsgröße. Würde man den Ausschnitt
+        vor der Detektion vergrößern, wäre jede Box rechnerisch groß genug und
+        der Filter gegen unbrauchbare Embeddings ausgehebelt.
+
+        ``regions`` sind ``(x, y, w, h)``-Boxen in Bildkoordinaten (Format der
+        Personenerkennung). Zurück kommen Detektionen in Koordinaten des
+        VOLLBILDS, ohne Dubletten aus überlappenden Regionen.
+        """
+        if not regions:
+            return []
+        img = self._decode(frame.image_bytes)
+        if img is None:
+            return []
+        app = self._ensure_initialized()
+        height, width = img.shape[:2]
+        found: list[FaceDetection] = []
+        for x, y, w, h in regions:
+            x1 = max(0, int(x))
+            y1 = max(0, int(y))
+            x2 = min(width, x1 + int(w))
+            y2 = min(height, y1 + int(h))
+            # Zu kleine Region kann kein Gesicht der Mindestgröße enthalten.
+            if x2 - x1 < self._min_size_px or y2 - y1 < self._min_size_px:
+                continue
+            try:
+                raw = app.get(img[y1:y2, x1:x2])
+            except Exception as e:  # noqa: BLE001
+                logger.warning(
+                    "InsightFace get() failed on ROI of %s: %s",
+                    frame.source_id, e,
+                )
+                continue
+            for det in self._to_detections(raw, frame.source_id, offset=(x1, y1)):
+                if any(
+                    box_iou(det.bbox, seen.bbox) > self._roi_dedupe_iou
+                    for seen in found
+                ):
+                    continue
+                found.append(det)
+        if found:
+            logger.info(
+                "face_detect: %d face(s) found in person ROI on %s that the "
+                "full frame missed", len(found), frame.source_id,
+            )
+        return found
+
+    def _to_detections(
+        self, raw: Any, source_id: str, *, offset: tuple[int, int] = (0, 0),
+    ) -> list[FaceDetection]:
+        """InsightFace-Rohergebnisse → ``FaceDetection`` (Qualitätsfilter,
+        Embedding-Wahl, Box-Konvertierung). Gemeinsam genutzt von
+        ``detect()`` und ``detect_in_regions()`` — ``offset`` verschiebt die
+        Boxen eines Ausschnitts zurück in Vollbild-Koordinaten."""
+        off_x, off_y = offset
         detections: list[FaceDetection] = []
         for r in raw:
             # InsightFace bbox is (x1, y1, x2, y2) — convert to (x, y, w, h)
             x1, y1, x2, y2 = map(int, r.bbox.tolist() if hasattr(r.bbox, "tolist") else r.bbox)
-            bbox = (x1, y1, x2 - x1, y2 - y1)
+            bbox = (x1 + off_x, y1 + off_y, x2 - x1, y2 - y1)
             score = float(getattr(r, "det_score", 0.0))
             if score < self._min_score or min(bbox[2], bbox[3]) < self._min_size_px:
                 logger.debug(
                     "face_detect: dropped low-quality detection on %s "
                     "(score=%.2f, size=%dx%d)",
-                    frame.source_id, score, bbox[2], bbox[3],
+                    source_id, score, bbox[2], bbox[3],
                 )
                 continue
             # Prefer normed_embedding (L2-normalized) — required for cosine match
@@ -203,6 +295,8 @@ class FaceDetector:
             embedding = np.asarray(emb, dtype=np.float32).reshape(-1)
             kps = getattr(r, "kps", None)
             kps_arr = np.asarray(kps, dtype=np.float32) if kps is not None else None
+            if kps_arr is not None and offset != (0, 0):
+                kps_arr = kps_arr + np.asarray(offset, dtype=np.float32)
             detections.append(
                 FaceDetection(
                     bbox=bbox,
@@ -236,7 +330,7 @@ def set_default_detector_kwargs(**kwargs: Any) -> None:
     ``get_default_detector()``-Call aufgerufen werden, sonst wirkungslos.
 
     Erlaubte Keys: ``model_name``, ``providers``, ``gpu_id``, ``det_size``,
-    ``min_score``, ``min_size_px``.
+    ``min_score``, ``min_size_px``, ``roi_dedupe_iou``.
     """
     global _default_kwargs
     with _default_lock:
@@ -268,9 +362,14 @@ def get_default_detector() -> FaceDetector:
             # Provider aus config nur dann setzen, wenn der User nichts
             # eigenes über set_default_detector_kwargs() gesetzt hat.
             kwargs = dict(_default_kwargs)
-            from ..config import FACE_DETECT_MIN_SCORE, FACE_DETECT_MIN_SIZE_PX
+            from ..config import (
+                FACE_DETECT_MIN_SCORE,
+                FACE_DETECT_MIN_SIZE_PX,
+                FACE_DETECT_ROI_DEDUPE_IOU,
+            )
             kwargs.setdefault("min_score", FACE_DETECT_MIN_SCORE)
             kwargs.setdefault("min_size_px", FACE_DETECT_MIN_SIZE_PX)
+            kwargs.setdefault("roi_dedupe_iou", FACE_DETECT_ROI_DEDUPE_IOU)
             if "providers" not in kwargs:
                 from ..config import FACE_DETECT_GPU_ID, FACE_DETECT_USE_GPU
                 if FACE_DETECT_USE_GPU:

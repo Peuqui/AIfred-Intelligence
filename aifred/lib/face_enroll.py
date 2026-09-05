@@ -15,27 +15,16 @@ import asyncio
 import logging
 from typing import Any
 
+from .vision_filters.face_detect import box_iou
+
 logger = logging.getLogger(__name__)
-
-
-def _box_iou(a: tuple[int, int, int, int], b: tuple[int, int, int, int]) -> float:
-    """Intersection-over-Union zweier ``(x, y, w, h)``-Boxen."""
-    ax1, ay1, aw, ah = a
-    bx1, by1, bw, bh = b
-    ax2, ay2 = ax1 + aw, ay1 + ah
-    bx2, by2 = bx1 + bw, by1 + bh
-    ix = max(0, min(ax2, bx2) - max(ax1, bx1))
-    iy = max(0, min(ay2, by2) - max(ay1, by1))
-    inter = ix * iy
-    union = aw * ah + bw * bh - inter
-    return inter / union if union > 0 else 0.0
 
 
 async def _best_detection_for_event(event: dict[str, Any], detector: Any) -> Any:
     """Die zur gespeicherten Event-Bbox gehörende InsightFace-Detektion auf
-    dem gespeicherten Frame (Zoom-Snap bevorzugt — auf DEM Bild lief die
-    Erkennung, siehe unten). Wirft ``ValueError``, wenn Bbox/Frame fehlen
-    oder keine Detektion zur Box passt (IoU < 0.3)."""
+    dem Bild, in dem diese Box gilt (``classification.detect_frame_path``).
+    Wirft ``ValueError``, wenn Bbox/Frame fehlen oder keine Detektion zur Box
+    passt (IoU < 0.3)."""
     from datetime import datetime
     from pathlib import Path
 
@@ -47,12 +36,19 @@ async def _best_detection_for_event(event: dict[str, Any], detector: Any) -> Any
         raise ValueError(f"event {event.get('id')} has no face bbox")
     event_bbox = tuple(int(v) for v in bbox_raw)
 
-    # Das Frame nehmen, auf dem die Erkennung tatsächlich lief: bei
-    # Edge-AI-Events ist das der Zoom-Snap (classification.zoom_frame_path)
-    # — die gespeicherte Bbox gehört zu DIESEM Bild, und auf dem Weitwinkel
-    # wäre das Gesicht oft zu klein für eine erneute Detektion.
-    frame_path = str(cls.get("zoom_frame_path") or event.get("frame_path") or "")
-    if not frame_path or not Path(frame_path).exists():
+    # Das Bild, auf dem die Erkennung tatsächlich lief — das Event sagt es
+    # selbst. Bei einer Dual-Lens-Kamera ist das der Tele-Snap, sobald das
+    # Gesicht dort gefunden wurde, sonst das Weitwinkel (Gesichter, die erst
+    # im Ausschnitt einer Personenbox auftauchen, stammen von dort). Geraten
+    # wird hier nichts: die Box gilt nur in genau einem Bild, und im falschen
+    # findet die Detektion sie nicht wieder.
+    frame_path = str(cls.get("detect_frame_path") or "")
+    if not frame_path:
+        raise ValueError(
+            f"event {event.get('id')} does not say which frame its bbox "
+            "belongs to (detect_frame_path)"
+        )
+    if not Path(frame_path).exists():
         raise ValueError("frame no longer on disk (cleanup)")
 
     frame = Frame(
@@ -65,8 +61,8 @@ async def _best_detection_for_event(event: dict[str, Any], detector: Any) -> Any
         raise ValueError("no face found in stored frame")
     # Die Detektion, die zur damals gespeicherten Box gehört — bei einem
     # Gesicht trivial, bei mehreren entscheidet die Box-Überlappung.
-    best = max(detections, key=lambda d: _box_iou(tuple(d.bbox), event_bbox))  # type: ignore[arg-type]
-    if _box_iou(tuple(best.bbox), event_bbox) < 0.3:  # type: ignore[arg-type]
+    best = max(detections, key=lambda d: box_iou(tuple(d.bbox), event_bbox))  # type: ignore[arg-type]
+    if box_iou(tuple(best.bbox), event_bbox) < 0.3:  # type: ignore[arg-type]
         raise ValueError("stored bbox does not match any detected face")
     return best
 
