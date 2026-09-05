@@ -17,6 +17,7 @@ liefert die Fakten, aus denen die Suche ihre Kandidaten baut:
 import json
 import math
 import struct
+from .vllm_probe import generation_defaults
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -53,6 +54,13 @@ class VllmModelMeta:
     experts_per_tok: int = 0
     num_attention_heads: int = 0
     num_key_value_heads: int = 0
+    # Sampling-Defaults des Checkpoints (generation_config.json) — die
+    # Messsonden des k-Sweeps fahren damit statt greedy.
+    # Default = Konfigurations-Defaults (kein Checkpoint noetig), damit
+    # eine Meta ohne analyze_checkpoint nie mit leeren Defaults misst.
+    generation_defaults: dict[str, float] = field(
+        default_factory=lambda: generation_defaults(Path("/nonexistent"))
+    )
 
     def valid_tp_sizes(self, max_tp: int) -> list[int]:
         """TP-Groessen bis ``max_tp``, die vLLM fuer dieses Modell akzeptiert.
@@ -264,6 +272,7 @@ def analyze_checkpoint(checkpoint: Path) -> VllmModelMeta:
         ple_bytes=ple_bytes,
         num_experts=int(text.get("num_experts", 0) or 0),
         experts_per_tok=int(text.get("num_experts_per_tok", 0) or 0),
+        generation_defaults=generation_defaults(checkpoint),
         num_attention_heads=int(text.get("num_attention_heads", 0) or 0),
         # GQA: fehlt der Schluessel, ist die KV-Zahl gleich der Head-Zahl
         num_key_value_heads=int(

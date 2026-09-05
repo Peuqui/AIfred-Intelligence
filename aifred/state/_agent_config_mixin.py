@@ -355,22 +355,16 @@ class AgentConfigMixin(rx.State, mixin=True):
             from ..lib.agent_settings import get_agent_base_model_id
             model_id = get_agent_base_model_id(self, agent)
             if model_id:
-                import json
                 from pathlib import Path
                 from ..lib.calibration import parse_llamaswap_config
+                from ..lib.calibration.vllm_probe import generation_defaults
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
                 try:
                     entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(model_id)
-                    gen_cfg = Path(entry["gguf_path"]) / "generation_config.json" if entry else None
-                    if gen_cfg is not None and gen_cfg.exists():
-                        data = json.loads(gen_cfg.read_text())
-                        for src_key, dst_key in (
-                            ("temperature", "temperature"), ("top_k", "top_k"),
-                            ("top_p", "top_p"), ("min_p", "min_p"),
-                            ("repetition_penalty", "repeat_penalty"),
-                        ):
-                            if src_key in data:
-                                defaults[dst_key] = data[src_key]
+                    if entry:
+                        # SSOT mit der Kalibration: dieselben Defaults, mit
+                        # denen der k-Sweep misst (vllm_probe.generation_defaults).
+                        defaults = generation_defaults(Path(entry["gguf_path"]))
                 except (OSError, ValueError, KeyError) as e:
                     self.add_debug(f"⚠️ generation_config.json unreadable for {model_id}: {e}")  # type: ignore[attr-defined]
 

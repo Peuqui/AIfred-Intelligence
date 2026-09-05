@@ -451,7 +451,7 @@ def _sweep_harness(monkeypatch, caps: dict[int, int], decode: dict[int, float]):
     monkeypatch.setattr(vllm_flow, "probe_throughput", lambda s, **kw: [10.0])
     monkeypatch.setattr(vllm_flow, "_k_candidates", lambda m, r: [3, 2, 1])
 
-    def fake_long(server, mml):
+    def fake_long(server, mml, sampling=None):
         # Rate haengt am k des zuletzt gebooteten Specs
         k = attempts[-1][0]
         return {"tokens": 1000, "prefill_tps": 500.0,
@@ -537,3 +537,35 @@ def test_speed_thresholds_come_from_runtime() -> None:
     # Kontext-Untergrenze gibt es bewusst nicht — der Tausch gehoert dem
     # Nutzer, und die Oberflaeche zeigt das Fenster beim Umschalten an.
     assert not hasattr(vllm_flow, "_speed_min_context_ratio")
+
+
+# ---------------------------------------------------------------------------
+# Sonden-Sampling: Produktions-Defaults statt greedy
+# ---------------------------------------------------------------------------
+
+def test_generation_defaults_reads_checkpoint(tmp_path: Path) -> None:
+    (tmp_path / "generation_config.json").write_text(
+        json.dumps({"temperature": 0.7, "top_k": 20, "top_p": 0.8,
+                    "repetition_penalty": 1.05}))
+    d = vllm_probe.generation_defaults(tmp_path)
+    assert d["temperature"] == 0.7 and d["top_k"] == 20
+    assert d["repeat_penalty"] == 1.05           # Schluessel umbenannt
+    assert d["min_p"] == 0.1                     # nicht in der Datei -> Default
+    # Ohne Datei: reine Konfigurations-Defaults
+    assert vllm_probe.generation_defaults(tmp_path / "leer")["top_k"] == 40
+
+
+def test_probe_sampling_drops_min_p_under_speculation() -> None:
+    d = {"temperature": 1.0, "top_k": 20, "top_p": 0.95, "min_p": 0.05,
+         "repeat_penalty": 1.1}
+    with_spec = vllm_probe.probe_sampling(d, k=5)
+    without = vllm_probe.probe_sampling(d, k=0)
+    assert "min_p" not in with_spec and without["min_p"] == 0.05
+    assert with_spec["repetition_penalty"] == 1.1 and with_spec["top_k"] == 20
+
+
+def test_analyze_checkpoint_carries_generation_defaults(moe_checkpoint: Path) -> None:
+    (moe_checkpoint / "generation_config.json").write_text(
+        json.dumps({"temperature": 0.6}))
+    meta = analyze_checkpoint(moe_checkpoint)
+    assert meta.generation_defaults["temperature"] == 0.6

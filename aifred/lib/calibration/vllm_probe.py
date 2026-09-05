@@ -357,14 +357,20 @@ class VllmServer:
         self.proc.wait(timeout=30)
 
     def chat(self, prompt: str, max_tokens: int = 64, temperature: float = 0.0,
-             ignore_eos: bool = False, timeout_s: float = 300.0) -> tuple[str, dict, float]:
-        """Eine Chat-Completion; Rueckgabe (Text, usage-Dict, Dauer_s)."""
+             ignore_eos: bool = False, timeout_s: float = 300.0,
+             sampling: dict | None = None) -> tuple[str, dict, float]:
+        """Eine Chat-Completion; Rueckgabe (Text, usage-Dict, Dauer_s).
+
+        ``sampling`` (temperature/top_k/top_p/...) ueberstimmt das greedy
+        Standardverhalten — siehe probe_sampling()."""
         body: dict = {
             "model": self.served_name,
             "messages": [{"role": "user", "content": prompt}],
             "max_tokens": max_tokens,
             "temperature": temperature,
         }
+        if sampling:
+            body.update(sampling)
         if ignore_eos:
             body["ignore_eos"] = True
         req = urllib.request.Request(
@@ -517,16 +523,72 @@ def probe_coherence(server: VllmServer) -> tuple[int, int, list[str]]:
 
 
 def probe_throughput(server: VllmServer, tokens: int = 200, runs: int = 2,
-                     warmup: bool = True) -> list[float]:
+                     warmup: bool = True, sampling: dict | None = None) -> list[float]:
     """tok/s je Lauf (Wall-Clock inkl. Prefill; Vergleichbarkeit zaehlt,
     nicht Absolutwert). Erster Lauf optional als Warmup verworfen."""
     if warmup:
-        server.chat(THROUGHPUT_PROMPT, max_tokens=tokens, ignore_eos=True)
+        server.chat(THROUGHPUT_PROMPT, max_tokens=tokens, ignore_eos=True,
+                    sampling=sampling)
     results = []
     for _ in range(runs):
-        _, usage, dt = server.chat(THROUGHPUT_PROMPT, max_tokens=tokens, ignore_eos=True)
+        _, usage, dt = server.chat(THROUGHPUT_PROMPT, max_tokens=tokens,
+                                   ignore_eos=True, sampling=sampling)
         results.append(usage["completion_tokens"] / dt)
     return results
+
+
+# Produktions-Sampling fuer die Messsonden. Greedy (Temperatur 0) misst bei
+# Spekulation eine Welt, die es im Betrieb nicht gibt: Der Drafter raet
+# greedy, und ob ein Entwurf angenommen wird, haengt davon ab, was das
+# Zielmodell zieht. Greedy-Ziel: k=5 mit 69 % Akzeptanz (Sonde 2026-09-04);
+# gesampeltes Ziel in AIfred: 24-35 % — drei Viertel der Entwuerfe umsonst.
+# Der k-Sweep muss deshalb mit den Werten messen, die AIfred spaeter sendet.
+# Kohaerenz-Sonden bleiben greedy (ihre erwarteten Antworten sind nur bei
+# Temperatur 0 stabil).
+_GENERATION_KEYS = (
+    ("temperature", "temperature"), ("top_k", "top_k"), ("top_p", "top_p"),
+    ("min_p", "min_p"), ("repetition_penalty", "repeat_penalty"),
+)
+
+
+def generation_defaults(checkpoint: Path) -> dict[str, float]:
+    """Sampling-Defaults des Checkpoints — SSOT fuer Kalibration UND
+    AIfreds Sampling-Reset (generation_config.json, sonst die
+    llama-server-Defaults der Konfiguration)."""
+    from ..config import (
+        LLAMASERVER_DEFAULT_MIN_P, LLAMASERVER_DEFAULT_REPEAT_PENALTY,
+        LLAMASERVER_DEFAULT_TEMPERATURE, LLAMASERVER_DEFAULT_TOP_K,
+        LLAMASERVER_DEFAULT_TOP_P,
+    )
+    defaults: dict[str, float] = {
+        "temperature": LLAMASERVER_DEFAULT_TEMPERATURE,
+        "top_k": LLAMASERVER_DEFAULT_TOP_K,
+        "top_p": LLAMASERVER_DEFAULT_TOP_P,
+        "min_p": LLAMASERVER_DEFAULT_MIN_P,
+        "repeat_penalty": LLAMASERVER_DEFAULT_REPEAT_PENALTY,
+    }
+    gen_cfg = Path(checkpoint) / "generation_config.json"
+    if gen_cfg.exists():
+        data = json.loads(gen_cfg.read_text())
+        for src_key, dst_key in _GENERATION_KEYS:
+            if src_key in data:
+                defaults[dst_key] = data[src_key]
+    return defaults
+
+
+def probe_sampling(defaults: dict[str, float], k: int) -> dict[str, float]:
+    """Request-Felder fuer vLLM aus den Modell-Defaults. min_p faellt bei
+    aktiver Spekulation weg — vLLM lehnt es dort ab, und AIfreds Backend
+    laesst es aus demselben Grund weg (backends/vllm.py)."""
+    sampling: dict[str, float] = {
+        "temperature": float(defaults["temperature"]),
+        "top_k": int(defaults["top_k"]),
+        "top_p": float(defaults["top_p"]),
+        "repetition_penalty": float(defaults["repeat_penalty"]),
+    }
+    if k == 0:
+        sampling["min_p"] = float(defaults["min_p"])
+    return sampling
 
 
 # Langkontext-Messpunkt: ~45 % des Kontextfensters fuellen (gedeckelt),
@@ -547,7 +609,8 @@ SPEC_DRAFT_METRIC = "vllm:spec_decode_num_draft_tokens_total"
 SPEC_ACCEPT_METRIC = "vllm:spec_decode_num_accepted_tokens_total"
 
 
-def probe_long_context(server: VllmServer, mml: int) -> dict | None:
+def probe_long_context(server: VllmServer, mml: int,
+                       sampling: dict | None = None) -> dict | None:
     """Langkontext-Punkt als Dict: tokens, prefill_tps, decode_tps,
     accept_rate (Spekulations-Akzeptanz waehrend des Lang-Decodes;
     -1.0 wenn keine Spekulation laeuft oder Zaehler fehlen).
@@ -582,7 +645,7 @@ def probe_long_context(server: VllmServer, mml: int) -> dict | None:
     except Exception:  # noqa: BLE001 — Diagnose optional, Messung geht vor
         m_before = {}
     _, usage2, dt2 = server.chat(prompt, max_tokens=200, ignore_eos=True,
-                                 timeout_s=1200.0)
+                                 timeout_s=1200.0, sampling=sampling)
     # Der zweite Call misst nur dann reinen Decode, wenn der Prefix-Cache
     # wirklich trifft. Tut er das nicht (Prefix-Caching aus, Cache verdraengt,
     # Engine-Neustart), steckt der komplette Prefill in dt2 und die Rate faellt
