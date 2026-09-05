@@ -37,6 +37,7 @@ from .gpu import enumerate_gpus
 from .types import GPU
 from .vllm_model_meta import VllmModelMeta, analyze_checkpoint
 from .vllm_probe import (
+    probe_sampling,
     OOM_SIGNATURES,
     VllmBootError,
     VllmServer,
@@ -520,11 +521,14 @@ def _measure_topology(
     # 25 GB nach ungefangener Probe-Exception).
     try:
         ok, total, _ = probe_coherence(server)
-        long_metrics = probe_long_context(server, spec.mml) if ok == total else None
+        sampling = probe_sampling(meta.generation_defaults, 0)
+        long_metrics = (probe_long_context(server, spec.mml, sampling=sampling)
+                        if ok == total else None)
         # Kurzprobe: nur wenn eingeschaltet ODER der Langpunkt ausfaellt
         # (jede Sprosse braucht genau eine Entscheidungszahl).
         need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
-        tps = max(probe_throughput(server)) if (ok == total and need_short) else 0.0
+        tps = (max(probe_throughput(server, sampling=sampling))
+               if (ok == total and need_short) else 0.0)
     except Exception as probe_err:  # noqa: BLE001
         progress(f"   ↳ probe crashed ({type(probe_err).__name__}) — rung rejected")
         return None
@@ -702,10 +706,11 @@ def _sweep_k(
             probe_oom = False
             try:
                 ok_k, total_k, _ = probe_coherence(server)
-                long_metrics = (probe_long_context(server, mml_k)
+                sampling = probe_sampling(meta.generation_defaults, k)
+                long_metrics = (probe_long_context(server, mml_k, sampling=sampling)
                                 if ok_k == total_k else None)
                 need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
-                tps = (max(probe_throughput(server))
+                tps = (max(probe_throughput(server, sampling=sampling))
                        if (ok_k == total_k and need_short) else 0.0)
                 probe_failed = False
             except Exception as probe_err:  # noqa: BLE001
@@ -780,6 +785,7 @@ def _sweep_k(
 
 def _challenger_ab(
     ratio: float,
+    sampling: dict,
     best_spec: VllmSpec,
     best_tps: float,
     best_prefill: float,
@@ -808,7 +814,8 @@ def _challenger_ab(
         return best_spec, best_tps, best_prefill, None
     try:
         ok, total, _ = probe_coherence(server)
-        long_metrics = (probe_long_context(server, challenger.mml)
+        long_metrics = (probe_long_context(server, challenger.mml,
+                                           sampling=sampling)
                         if ok == total else None)
     except Exception as probe_err:  # noqa: BLE001
         progress(f"   ↳ {tag} probe crashed ({type(probe_err).__name__}) "
@@ -836,7 +843,7 @@ def _challenger_ab(
     return best_spec, best_tps, best_prefill, None
 
 
-def _chunk_ab(ratio, best_spec, best_tps, best_prefill, log_dir, progress,
+def _chunk_ab(ratio, sampling, best_spec, best_tps, best_prefill, log_dir, progress,
               cancel_check, matrix, label, k):
     """Chunk-Groesse ist modellspezifisch und nicht ableitbar (2026-08-30:
     4096 = +2,7 % Prefill am 27B, -12 % am Flash-Next-Hybrid) — der eine
@@ -849,13 +856,13 @@ def _chunk_ab(ratio, best_spec, best_tps, best_prefill, log_dir, progress,
              f"{challenger.max_batched_tokens} "
              f"(instead of {best_spec.max_batched_tokens})...")
     return _challenger_ab(
-        ratio, best_spec, best_tps, best_prefill, challenger,
+        ratio, sampling, best_spec, best_tps, best_prefill, challenger,
         f"chunk {challenger.max_batched_tokens}",
         f"chunk {best_spec.max_batched_tokens}",
         log_dir, progress, cancel_check, matrix, label, k)
 
 
-def _gmu_ab(ratio, best_spec, best_tps, best_prefill, log_dir, progress,
+def _gmu_ab(ratio, sampling, best_spec, best_tps, best_prefill, log_dir, progress,
             cancel_check, matrix, label, k):
     """Weiche Allokator-Druck-Erkennung: der Sieger einmal mit GMU-0,02.
 
@@ -871,7 +878,7 @@ def _gmu_ab(ratio, best_spec, best_tps, best_prefill, log_dir, progress,
              f"(instead of {best_spec.gmu}) to detect silent "
              f"allocator pressure...")
     return _challenger_ab(
-        ratio, best_spec, best_tps, best_prefill, challenger,
+        ratio, sampling, best_spec, best_tps, best_prefill, challenger,
         f"gmu {lower}", f"gmu {best_spec.gmu}",
         log_dir, progress, cancel_check, matrix, label, k)
 
@@ -1065,12 +1072,14 @@ def calibrate_vllm_checkpoint(
     ab_row: dict | None = None
     if VLLM_CALIBRATION_CHUNK_AB:
         best_spec, best_tps, best_prefill, ab_row = _chunk_ab(
-            _workload_ratio(runtime), best_spec, best_tps, best_prefill,
+            _workload_ratio(runtime), probe_sampling(meta.generation_defaults, best_k),
+            best_spec, best_tps, best_prefill,
             log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
     if VLLM_CALIBRATION_GMU_AB:
         best_spec, best_tps, best_prefill, gmu_row = _gmu_ab(
-            _workload_ratio(runtime), best_spec, best_tps, best_prefill,
+            _workload_ratio(runtime), probe_sampling(meta.generation_defaults, best_k),
+            best_spec, best_tps, best_prefill,
             log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
         ab_row = gmu_row or ab_row
