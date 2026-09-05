@@ -1151,6 +1151,37 @@ class VisionWatcher:
             person_frame.image_bytes, [p.bbox for p in persons],
         )
 
+        # Zweiter Blick, bevor der Tick als „nur eine Person" abgelegt wird:
+        # im Vollbild ist ein Gesicht auf Distanz schnell zu klein für den
+        # Detektor, im Ausschnitt der Personenbox kommt es dagegen groß genug
+        # an. Ohne diesen Durchgang blieb jede Person, die dem Weitwinkel zu
+        # fern stand, dauerhaft gesichtslos: kein Event, kein Crop, und damit
+        # auch nichts, was das Personarium je zum Zuordnen anbieten konnte.
+        # Läuft nur, wenn der erste Durchgang leer ausging — er kostet eine
+        # Inferenz pro Personenbox.
+        #
+        # Gesucht wird in dem Bild, aus dem die Personenboxen stammen. Bei
+        # einer Dual-Lens-Kamera ist das in aller Regel das Weitwinkel,
+        # während die Gesichtssuche auf dem Tele lief: das Tele zeigt nur die
+        # Bildmitte, wer daneben steht (Treppe, Bildrand) taucht dort gar
+        # nicht auf. Dann ist das Weitwinkel die einzige Ansicht, die die
+        # Person überhaupt zeigt.
+        face_source = face_frame
+        if not detections and persons:
+            try:
+                detections = await asyncio.to_thread(
+                    detector.detect_in_regions,
+                    person_frame, [p.bbox for p in persons],
+                )
+            except Exception as e:  # noqa: BLE001
+                logger.warning("burst ROI face_detect failed: %s", e)
+                detections = []
+            if detections:
+                # Ab hier gilt: Crop, gespeicherte Bbox und das Bild, auf dem
+                # das Personarium später nachrechnet, kommen aus GENAU diesem
+                # Bild — sonst findet das Nachlernen die Box nicht wieder.
+                face_source = person_frame
+
         if not detections:
             # Kein Gesicht — zeigt der Tick wenigstens eine Person (auch
             # abgewandt)? Dann als "Film-Frame" sichern, sonst verwerfen.
@@ -1204,7 +1235,7 @@ class VisionWatcher:
         for index, candidate in enumerate(detections):
             candidate_match = recognizer.match(candidate.embedding)
             candidate_crop = crop_store.save(
-                frame_bytes=face_frame.image_bytes,
+                frame_bytes=face_source.image_bytes,
                 bbox=tuple(int(v) for v in candidate.bbox),  # type: ignore[arg-type]
                 source_id=source_id,
                 event_type=_event_type_for(candidate_match.confidence_band),
@@ -1237,6 +1268,14 @@ class VisionWatcher:
                 save=config.save_event_frames,
             )
         crop_url = crop_result.url if crop_result else ""
+        # Das Bild, in dem die ``bbox`` gilt — der Tele-Snap nur, wenn dort
+        # auch detektiert wurde. Das Nachlernen im Personarium rechnet auf
+        # GENAU diesem Bild nach; raten darf es nicht, seit ein Fund auch aus
+        # dem Weitwinkel stammen kann (Ausschnitts-Durchgang oben).
+        detect_frame_path = (
+            zoom_frame_path if (face_source is face_frame and zoom_frame_path)
+            else frame_path
+        )
         event_id = self._store.add_event(
             source_id=source_id,
             event_type=event_type,
@@ -1251,6 +1290,7 @@ class VisionWatcher:
                 "bbox": list(det.bbox),
                 "crop_url": crop_url,
                 "zoom_frame_path": zoom_frame_path,
+                "detect_frame_path": detect_frame_path,
             },
             metadata={
                 "trigger": "edge_ai_burst",
@@ -1552,6 +1592,10 @@ class VisionWatcher:
                     "bbox": list(det.bbox),
                     "crop_url": crop_url,
                     "zoom_frame_path": zoom_frame_path,
+                    # Bild, in dem die ``bbox`` gilt: hier immer das Frame,
+                    # das der Aufrufer in die Erkennung gegeben hat — bei
+                    # Dual-Lens der Tele-Snap, sonst das Vollbild.
+                    "detect_frame_path": zoom_frame_path or frame_path,
                 },
                 metadata={
                     "parent_event_id": motion_event_id,

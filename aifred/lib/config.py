@@ -700,6 +700,11 @@ FACE_DETECT_MIN_SCORE = 0.65
 # ArcFace kein verlässliches Embedding extrahieren — das Match wäre
 # Rauschen, der Alert wertlos.
 FACE_DETECT_MIN_SIZE_PX = 40
+# Zweiter Detektions-Durchgang auf den Personenboxen: Überlappen zwei
+# Boxen (zwei Leute nebeneinander), findet der Durchgang dasselbe Gesicht
+# in beiden. Ab dieser Überdeckung gilt der zweite Fund als derselbe und
+# wird verworfen — sonst bekäme eine Person zwei Events und zwei Crops.
+FACE_DETECT_ROI_DEDUPE_IOU = 0.3
 
 # ============================================================
 # PERSON DETECTION (YOLO body detection)

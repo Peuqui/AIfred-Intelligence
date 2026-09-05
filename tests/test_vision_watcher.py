@@ -89,13 +89,28 @@ class FakeSource:
 class FakeFaceDetector:
     """Detector that returns a configurable list of detections regardless of input."""
 
-    def __init__(self, detections: list[FaceDetection]):
+    def __init__(
+        self,
+        detections: list[FaceDetection],
+        roi_detections: list[FaceDetection] | None = None,
+    ):
         self._detections = detections
+        self._roi_detections = roi_detections or []
         self.calls = 0
+        self.roi_calls: list[list[tuple[int, int, int, int]]] = []
 
     def detect(self, frame: Frame) -> list[FaceDetection]:
         self.calls += 1
         return list(self._detections)
+
+    def detect_in_regions(
+        self, frame: Frame, regions: list[tuple[int, int, int, int]],
+    ) -> list[FaceDetection]:
+        """Zweiter Durchgang auf den Personenboxen. Muss das echte Interface
+        mitführen — sonst verschluckt der Watcher hier einen AttributeError
+        und der Test bemerkt nicht, dass der Durchgang gar nicht lief."""
+        self.roi_calls.append(list(regions))
+        return list(self._roi_detections)
 
 
 class FakePersonDetector:
