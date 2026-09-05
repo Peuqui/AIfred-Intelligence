@@ -651,3 +651,47 @@ def test_probe_crash_without_oom_still_rejects_rung(monkeypatch, tmp_path):
     assert rung is None
     assert len(booted) == 1
     assert any("rung rejected" in m for m in messages)
+
+
+# ---------------------------------------------------------------------------
+# k-Sweep: Boot-OOM senkt die GMU statt das k zu verwerfen
+# ---------------------------------------------------------------------------
+
+def test_sweep_boot_oom_lowers_gmu_and_keeps_it(monkeypatch, tmp_path):
+    """Lauf 2026-09-05: das V100-Paar verlor alle sieben k-Boots an ein OOM im
+    Compile der Spekulationsgraphen (nach der KV-Zuteilung). Jetzt: GMU -0,02,
+    neu booten, gelernte GMU fuer die restlichen k behalten."""
+    from aifred.lib.calibration.vllm_probe import VllmBootError
+
+    booted: list[tuple[int, float]] = []   # (k, gmu)
+
+    def fake_boot(spec, port, log, timeout, cancel_check):
+        booted.append((spec.k, spec.gmu))
+        if spec.k == 3 and spec.gmu > 0.95:
+            raise VllmBootError("fatal error during boot: CUDA out of memory", oom=True)
+        return _FakeServer()
+
+    monkeypatch.setattr(vllm_flow, "boot_vllm", fake_boot)
+    monkeypatch.setattr(vllm_flow, "find_free_port", lambda: 9999)
+    monkeypatch.setattr(vllm_flow, "probe_coherence", lambda s: (3, 3, []))
+    monkeypatch.setattr(vllm_flow, "probe_throughput", lambda s, **kw: [10.0])
+    monkeypatch.setattr(vllm_flow, "_k_candidates", lambda m, r: [3, 2])
+    monkeypatch.setattr(
+        vllm_flow, "probe_long_context",
+        lambda server, mml, sampling=None: {
+            "tokens": 1000, "prefill_tps": 500.0, "decode_tps": 40.0, "accept_rate": 0.7,
+        },
+    )
+    spec = VllmSpec(checkpoint=Path("."), served_name="m", gpu_ids=[1, 3], tp=2, pp=1,
+                    gmu=0.97, mml=65536, k=0, block_size=16)
+    rung = vllm_flow._RungResult(spec=spec, label="TP2 V100", tps=10.0,
+                                 coherence=(3, 3), full_context=True,
+                                 long_tokens=1000, long_prefill_tps=500.0, long_decode_tps=30.0)
+
+    best_spec, best_metric, best_k, sweep, _ = vllm_flow._sweep_k(
+        rung, _meta(20.0), MINI_GPUS, SMI, RUNTIME, tmp_path, lambda m: None, None)
+
+    # k=3: erster Boot bei 0,97 stirbt, zweiter bei 0,95 traegt; k=2 erbt 0,95
+    assert booted[:3] == [(3, 0.97), (3, 0.95), (2, 0.95)]
+    assert best_k == 3 and best_spec.gmu == 0.95
+    assert {3, 2} <= set(sweep)  # k=0 ist der Basiseintrag der Sprosse
