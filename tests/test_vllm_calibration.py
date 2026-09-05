@@ -569,3 +569,85 @@ def test_analyze_checkpoint_carries_generation_defaults(moe_checkpoint: Path) ->
         json.dumps({"temperature": 0.6}))
     meta = analyze_checkpoint(moe_checkpoint)
     assert meta.generation_defaults["temperature"] == 0.6
+
+
+# ---------------------------------------------------------------------------
+# Topologie-Leiter: OOM erst in der Sonde laeuft dieselbe Leiter wie Boot-OOM
+# ---------------------------------------------------------------------------
+
+class _OomLogServer:
+    """Fake-Server, dessen Log nach der Sonde ein CUDA-OOM zeigt."""
+
+    def __init__(self, log_path: Path, oom: bool) -> None:
+        self.log_path = log_path
+        self._oom = oom
+
+    def log_tail(self, n_chars: int = 4000) -> str:
+        return "torch.OutOfMemoryError: CUDA out of memory" if self._oom else ""
+
+    def shutdown(self) -> None:
+        pass
+
+
+def _ladder_harness(monkeypatch, oom_on_first_probe: bool, tmp_path: Path):
+    """Boot gelingt immer; die erste Sonde kann per OOM sterben."""
+    booted: list[tuple[float, int]] = []   # (gmu, mml) je Boot
+
+    def fake_boot(spec, port, log, timeout, cancel_check):
+        booted.append((spec.gmu, spec.mml))
+        return _OomLogServer(log, oom=oom_on_first_probe and len(booted) == 1)
+
+    def fake_coherence(server):
+        if server._oom:
+            raise RuntimeError("HTTPError 500")
+        return 3, 3, []
+
+    monkeypatch.setattr(vllm_flow, "boot_vllm", fake_boot)
+    monkeypatch.setattr(vllm_flow, "find_free_port", lambda: 9999)
+    monkeypatch.setattr(vllm_flow, "probe_coherence", fake_coherence)
+    monkeypatch.setattr(vllm_flow, "probe_throughput", lambda s, **kw: [10.0])
+    monkeypatch.setattr(
+        vllm_flow, "probe_long_context",
+        lambda server, mml, sampling=None: {
+            "tokens": 1000, "prefill_tps": 500.0, "decode_tps": 30.0, "accept_rate": 1.0,
+        },
+    )
+    return booted
+
+
+def test_probe_oom_climbs_reserve_ladder_instead_of_rejecting(monkeypatch, tmp_path):
+    """Lauf 2026-09-05: V100-Paar bootete bei GMU 0,97, die Langkontext-Sonde
+    starb im qpn8-Unpack an 144 MiB — der Rung wurde verworfen. Jetzt: Reserve
+    erhoehen, neu booten, messen."""
+    booted = _ladder_harness(monkeypatch, oom_on_first_probe=True, tmp_path=tmp_path)
+    cand = vllm_flow.TopologyCandidate(
+        gpu_ids=[1, 4], tp=2, pp=1, pp_partition=None, label="TP2 V100")
+    messages: list[str] = []
+
+    rung = vllm_flow._measure_topology(
+        cand, "m", _meta(20.0), MINI_GPUS, SMI, tmp_path, messages.append, None)
+
+    assert rung is not None
+    assert len(booted) == 2
+    assert booted[1][0] < booted[0][0]          # zweiter Boot mit kleinerer GMU
+    assert booted[1][1] == booted[0][1]         # Kontext bleibt (Kontext-Vorrang)
+    assert rung.spec.gmu == booted[1][0]        # die gelernte GMU wird persistiert
+    assert any("probe hit OOM" in m for m in messages)
+    assert not any("rung rejected" in m for m in messages)
+
+
+def test_probe_crash_without_oom_still_rejects_rung(monkeypatch, tmp_path):
+    booted = _ladder_harness(monkeypatch, oom_on_first_probe=False, tmp_path=tmp_path)
+    monkeypatch.setattr(
+        vllm_flow, "probe_coherence",
+        lambda server: (_ for _ in ()).throw(RuntimeError("HTTPError 500")))
+    cand = vllm_flow.TopologyCandidate(
+        gpu_ids=[1, 4], tp=2, pp=1, pp_partition=None, label="TP2 V100")
+    messages: list[str] = []
+
+    rung = vllm_flow._measure_topology(
+        cand, "m", _meta(20.0), MINI_GPUS, SMI, tmp_path, messages.append, None)
+
+    assert rung is None
+    assert len(booted) == 1
+    assert any("rung rejected" in m for m in messages)
