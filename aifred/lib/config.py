@@ -881,6 +881,13 @@ VISION_DESCRIBE_MAX_FRAMES = 10
 # 10 Frames im 0,5-s-Abstand). Eine ausführliche Personenbeschreibung
 # braucht ~400 Token; der Rest ist Puffer für volle Szenen.
 VISION_DESCRIBE_MAX_TOKENS = 768
+# Wiederholungsstrafe fuer den Describer: das 4B-VLM kippte 2026-09-05 bei
+# fast gleichen Burst-Bildern in eine Satzschleife bis zum max_tokens-
+# Schnitt (24x derselbe Satz). Der llama-swap-Eintrag faehrt repeat-penalty
+# 1.0, also keine Strafe. Fenster 128 Token (~2-3 Saetze), Faktor mild, damit
+# legitime Wiederholungen ("die Person", "Pflanze") nicht verdraengt werden.
+VISION_DESCRIBE_REPEAT_PENALTY = 1.1
+VISION_DESCRIBE_REPEAT_LAST_N = 128
 
 # Cosine-Schwelle, ab der zwei Embeddings unbenannter Gesichter als
 # DIESELBE unbekannte Person gelten (Cluster im Face-Crop-Store). Zu hoch

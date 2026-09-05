@@ -371,7 +371,11 @@ async def _analyze_via_llamacpp(
             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{b}"}}
         )
     content.append({"type": "text", "text": prompt})
-    from .config import VISION_DESCRIBE_MAX_TOKENS
+    from .config import (
+        VISION_DESCRIBE_MAX_TOKENS,
+        VISION_DESCRIBE_REPEAT_LAST_N,
+        VISION_DESCRIBE_REPEAT_PENALTY,
+    )
     payload: dict[str, Any] = {
         "model": model,
         "messages": [{"role": "user", "content": content}],
@@ -380,6 +384,11 @@ async def _analyze_via_llamacpp(
         # kleines VLM sonst in eine Wiederholungsschleife bis zum
         # Kontextende (siehe VISION_DESCRIBE_MAX_TOKENS).
         "max_tokens": VISION_DESCRIBE_MAX_TOKENS,
+        # Die Schleife selbst unterbinden, nicht nur kürzen: llama-server
+        # nimmt die Sampling-Felder im OpenAI-Body entgegen; der Eintrag in
+        # llama-swap bleibt unangetastet (Per-Request statt Modell-Config).
+        "repeat_penalty": VISION_DESCRIBE_REPEAT_PENALTY,
+        "repeat_last_n": VISION_DESCRIBE_REPEAT_LAST_N,
         # Bildbeschreibung braucht keine Denk-Phase — Qwen3.x-Templates
         # kennen den Schalter, andere Server ignorieren das Feld einfach.
         "chat_template_kwargs": {"enable_thinking": False},
