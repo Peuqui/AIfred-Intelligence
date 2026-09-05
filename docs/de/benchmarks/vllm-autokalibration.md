@@ -64,6 +64,53 @@ Betriebspunkt-Profil mit Hardware-Fingerprint.
   bleiben) und startet den Dienst am Ende neu — der Neustart lädt
   zugleich den frisch persistierten Betriebspunkt.
 
+## Ergebnisse Qwen3.8-27B-NVFP4 (2026-09-04/05, 1Cat 1.5.0 + Patches)
+
+Stack-Wechsel auf 1Cat-vLLM 1.5.0, Prefix-Caching für Hybride per Flag
+eingeschaltet (1.5.0 schaltet es für Mamba-Hybride per Default ab), Side-
+Channel-Sammelkarte auf die USB4-V100 (GPU 4) verlegt, Siegerregel über
+die Gesamtzeit eines Turns statt über Decode-Schwellen.
+
+| Topologie | k | Kontext | Prefill | **lang** | Akzeptanz |
+|---|---|---|---|---|---|
+| TP2 RTX 8000 (0,2) | 2 | 262.144 | 449 | 56,4 | 97 % |
+| TP2 RTX 8000 (0,2) | 3 | 262.144 | 449 | 52,8 | 66 % |
+| TP2 RTX 8000 (0,2) | 4 | 262.144 | 444 | 48,3 | 50 % |
+| TP2 RTX 8000 (0,2) | 5 | 262.144 | 444 | 45,4 | 40 % |
+| TP2×PP2-Gitter (0,2 \| 1,4) | 2 | 262.144 | 755 | 43,8 | 94 % |
+| TP2×PP2-Gitter (0,2 \| 1,4) | 3 | 262.144 | 754 | 40,2 | 60 % |
+| TP2×PP2-Gitter (0,2 \| 1,4) | 4 | 262.144 | 749 | 39,1 | 48 % |
+| **Gitter (Betriebspunkt)** | **5** | **262.144** | **749** | **50,7** | 69 % |
+| TP2×PP2-Gitter (0,2 \| 1,4) | 6 | 262.144 | 749 | 35,9 | 34 % |
+| TP2×PP2-Gitter (0,2 \| 1,4) | 7 | 262.144 | 759 | 33,5 | 28 % |
+| TP1 RTX 8000 (Speed-Kandidat) | 5–7 | 19–25k | 335–349 | 38,7–41,6 | 30–40 % |
+
+Der Lauf wurde nach dem Sweep des Speed-Kandidaten abgebrochen (die
+Einzelkarte lag mit 41,6 tok/s bei einem Fünftel des Kontexts klar
+hinter dem Sieger; eine Speed-Variante entsteht nur bei ≥ 10 % Vorsprung).
+
+**Gewählter Betriebspunkt:** TP2×PP2-Gitter, k=5, auf den vier direkt
+angebundenen Karten 0,2 | 1,3 (Partition 38,26). Nachgemessen ohne die
+Tunnel-Karte: **751 tok/s Prefill, 51,2 tok/s Lang-Decode bei 28.843
+Token**, Kohärenz 3/3. Gegenüber dem August-Stand (833 / 36,9) ist der
+Decode 39 % schneller, der Prefill 10 % langsamer. TP2 auf den RTX
+hätte mit 56,4 tok/s den höheren Decode, verliert aber bei jedem Prompt
+über ~2,2× der Antwortlänge durch den 449er-Prefill; die Gesamtzeit-
+Regel wählt deshalb das Gitter.
+
+**Zerfaserung unter MTP + PP (gefunden 04.09., gefixt 05.09.):** Mit
+Pipeline-Parallelismus lieferte die Spekulation fluessig-falschen Text
+(verschmolzene Wörter, verlorene Token, englische Bruchstücke) — sogar
+greedy, wo sie verlustfrei sein muss. Ohne PP war sie byteweise
+verlustfrei. Ursache im Fork: der sm75-Empfangszweig auf PP-Rang 0
+bediente den alten Akzeptanz-Token-Vertrag, die 38 GDN-Schichten der
+RTX-Stufe setzten nach jedem Schritt beim Zustand nach dem ersten
+Verifier-Token auf. Nach dem Fix: Gitter k=2 und k=5 greedy byteidentisch
+mit k=0 (Fragen 1 und 2), Frage 3 sauber mit harmloser Formulierungs-
+divergenz. Prefix-Cache und Sampling waren unschuldig. Lehre: Spekulation
+ist nur bewiesen, wenn lange greedy Ausgaben byteweise mit k=0
+übereinstimmen — Kohärenz-Kurzsonden sehen Zustandsdrift nicht.
+
 ## Ergebnisse Qwen3.8-27B-NVFP4 (2026-08-30)
 
 Vollständige Matrix: 3 Topologien × k=0…7, kurz und lang, 2 h 03 min,
