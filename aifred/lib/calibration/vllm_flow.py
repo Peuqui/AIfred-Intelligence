@@ -422,6 +422,42 @@ def _speed_min_gain(runtime: dict) -> float:
 
 
 
+def _oom_step(
+    reserve_mb: int, mml: int, cand_gpus: list[GPU],
+) -> tuple[int, int, str] | None:
+    """Naechste Stufe der OOM-Leiter: (reserve_mb, mml, Meldung), None = ausgeschoepft.
+
+    Kontext-Vorrang: erst die per-GPU-Reserve erhoehen (kostet nur
+    Pool-Bloecke), erst danach den Kontext halbieren. Gilt fuer Boot-OOM
+    und fuer OOM in einer Sonde gleichermassen.
+    """
+    if reserve_mb < VLLM_VRAM_RESERVE_MB + OOM_MAX_RESERVE_STEPS * OOM_RESERVE_STEP_MB:
+        reserve_mb += OOM_RESERVE_STEP_MB
+        return reserve_mb, mml, (
+            f"raising per-GPU reserve to {format_number(reserve_mb)} MB "
+            f"(GMU {_gmu_for(cand_gpus, reserve_mb)}), ctx kept"
+        )
+    if mml // 2 >= MIN_USEFUL_CONTEXT:
+        return reserve_mb, mml // 2, f"retry with ctx {format_number(mml // 2)}"
+    return None
+
+
+def _probe_rung(
+    server: VllmServer, spec: VllmSpec, meta: VllmModelMeta,
+) -> tuple[int, int, float, dict | None]:
+    """Sonden einer Sprosse: (ok, total, short_tps, long_metrics)."""
+    ok, total, _ = probe_coherence(server)
+    sampling = probe_sampling(meta.generation_defaults, 0)
+    long_metrics = (probe_long_context(server, spec.mml, sampling=sampling)
+                    if ok == total else None)
+    # Kurzprobe: nur wenn eingeschaltet ODER der Langpunkt ausfaellt
+    # (jede Sprosse braucht genau eine Entscheidungszahl).
+    need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
+    tps = (max(probe_throughput(server, sampling=sampling))
+           if (ok == total and need_short) else 0.0)
+    return ok, total, tps, long_metrics
+
+
 def _measure_topology(
     cand: TopologyCandidate,
     entry_name: str,
@@ -451,6 +487,7 @@ def _measure_topology(
     # Gesetzt nur, wenn die Architektur ein KV-Format erzwingt (DeepseekV4).
     kv_dtype: str | None = VllmSpec.kv_cache_dtype
     max_attempts = 6
+    probed: tuple[int, int, float, dict | None] | None = None
     for attempt in range(max_attempts):
         spec = VllmSpec(
             checkpoint=meta.checkpoint, served_name=entry_name,
@@ -465,12 +502,10 @@ def _measure_topology(
         port = find_free_port()
         gpu_slug = "-".join(str(i) for i in cand.gpu_ids)
         log = log_dir / f"boot-{cand.tp}x{cand.pp}-gpu{gpu_slug}-try{attempt}.log"
+        retries_left = attempt < max_attempts - 1
         try:
             server = boot_vllm(spec, port, log, BOOT_TIMEOUT_S, cancel_check)
-            progress(f"   ↳ boot OK, ctx {format_number(mml)}")
-            break
         except VllmBootError as e:
-            retries_left = attempt < max_attempts - 1
             if retries_left and e.required_kv_dtype and e.required_kv_dtype != kv_dtype:
                 # Architektur-Zwang: vLLM nennt das noetige Format selbst.
                 kv_dtype = e.required_kv_dtype
@@ -492,48 +527,42 @@ def _measure_topology(
                 mml = e.parsed_max_len
                 progress(f"   ↳ context capped by vLLM: retry with {format_number(mml)}")
                 continue
-            if retries_left and e.oom:
-                # Stufe 1+2: Reserve erhoehen — der Compile-Workspace braucht
-                # Luft auf der per GMU vollen Karte; kostet nur Pool-Bloecke,
-                # der Kontext bleibt unangetastet (Kontext-Vorrang).
-                if reserve_mb < VLLM_VRAM_RESERVE_MB + OOM_MAX_RESERVE_STEPS * OOM_RESERVE_STEP_MB:
-                    reserve_mb += OOM_RESERVE_STEP_MB
-                    progress(
-                        f"   ↳ OOM: raising per-GPU reserve to "
-                        f"{format_number(reserve_mb)} MB "
-                        f"(GMU {_gmu_for(cand_gpus, reserve_mb)}), ctx kept"
-                    )
-                    continue
-                # Stufe 3+: erst jetzt den Kontext halbieren
-                if mml // 2 >= MIN_USEFUL_CONTEXT:
-                    mml //= 2
-                    progress(f"   ↳ OOM persists: retry with ctx {format_number(mml)}")
-                    continue
+            step = _oom_step(reserve_mb, mml, cand_gpus) if (retries_left and e.oom) else None
+            if step:
+                reserve_mb, mml, note = step
+                progress(f"   ↳ OOM: {note}")
+                continue
             progress(f"   ↳ boot failed: {e.reason}")
             logger.info(f"boot failure detail: {e.log_tail[-1500:]}")
             break
-
-    if server is None or spec is None:
-        return None
-    # Sonden absturzsicher: ein HTTP 500 des Servers (z.B. kaputter
-    # Spec-Pfad) ist ein Sprossen-Urteil, kein Flow-Abbruch — und der
-    # Server wird IMMER heruntergefahren (Lauf 2026-08-29: geleakte
-    # 25 GB nach ungefangener Probe-Exception).
-    try:
-        ok, total, _ = probe_coherence(server)
-        sampling = probe_sampling(meta.generation_defaults, 0)
-        long_metrics = (probe_long_context(server, spec.mml, sampling=sampling)
-                        if ok == total else None)
-        # Kurzprobe: nur wenn eingeschaltet ODER der Langpunkt ausfaellt
-        # (jede Sprosse braucht genau eine Entscheidungszahl).
-        need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
-        tps = (max(probe_throughput(server, sampling=sampling))
-               if (ok == total and need_short) else 0.0)
-    except Exception as probe_err:  # noqa: BLE001
-        progress(f"   ↳ probe crashed ({type(probe_err).__name__}) — rung rejected")
-        return None
-    finally:
+        progress(f"   ↳ boot OK, ctx {format_number(mml)}")
+        # Sonden absturzsicher: ein HTTP 500 des Servers (z.B. kaputter
+        # Spec-Pfad) ist ein Sprossen-Urteil, kein Flow-Abbruch — und der
+        # Server wird IMMER heruntergefahren (Lauf 2026-08-29: geleakte
+        # 25 GB nach ungefangener Probe-Exception).
+        try:
+            probed = _probe_rung(server, spec, meta)
+        except Exception as probe_err:  # noqa: BLE001
+            # Ein OOM erst in der Sonde (Prefill-Scratch, den das
+            # Speicherprofil nicht sieht — Lauf 2026-09-05: V100-Paar bei
+            # GMU 0,97) ist dieselbe Leiter wie ein Boot-OOM, kein Urteil
+            # ueber die Topologie.
+            probe_oom = any(sig in server.log_tail(1_000_000) for sig in OOM_SIGNATURES)
+            server.shutdown()
+            server = None
+            step = _oom_step(reserve_mb, mml, cand_gpus) if (retries_left and probe_oom) else None
+            if step:
+                reserve_mb, mml, note = step
+                progress(f"   ↳ probe hit OOM: {note}")
+                continue
+            progress(f"   ↳ probe crashed ({type(probe_err).__name__}) — rung rejected")
+            return None
         server.shutdown()
+        break
+
+    if server is None or spec is None or probed is None:
+        return None
+    ok, total, tps, long_metrics = probed
     if ok < total:
         progress(f"   ↳ incoherent ({ok}/{total}) — rung rejected")
         return None
