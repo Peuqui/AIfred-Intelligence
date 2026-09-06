@@ -43,6 +43,7 @@ class PipelineResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     ttft: float = 0.0
     inference_time: float = 0.0
+    thinking_time: float = 0.0                          # first token → end of <think> block
     tokens_per_sec: float = 0.0
     fetched_urls: list[dict[str, Any]] = field(default_factory=list)
     sandbox_html_urls: list[str] = field(default_factory=list)
@@ -184,6 +185,9 @@ async def run_llm_stream(
     token_count = 0
     first_token = False
     ttft = 0.0
+    # Ende des Denkblocks (Wanduhr): alle Backends liefern Reasoning als
+    # <think>…</think> im Content-Strom, das Ende ist das erste </think>.
+    thinking_end: float | None = None
     metrics: dict[str, Any] = {}
     fetched_urls: list[dict[str, Any]] = []
     sandbox_html_urls: list[str] = []
@@ -225,6 +229,8 @@ async def run_llm_stream(
 
             full_response += chunk["text"]
             token_count += 1
+            if thinking_end is None and "</think>" in full_response:
+                thinking_end = timer.elapsed()
             yield chunk  # passthrough
 
         elif chunk_type == "tool_call_start":
@@ -409,6 +415,8 @@ async def run_llm_stream(
             thinking_content = chunk.get("text", "")
             if thinking_content:
                 full_response += f"<think>{thinking_content}</think>"
+                if thinking_end is None:
+                    thinking_end = timer.elapsed()
             yield chunk
 
         elif chunk_type == "debug":
@@ -489,6 +497,7 @@ async def run_llm_stream(
     # Thinking blocks
     text_clean = strip_thinking_blocks(full_response) if full_response else ""
     inference_time = timer.elapsed()
+    thinking_time = max(0.0, thinking_end - ttft) if thinking_end is not None else 0.0
     tokens_per_sec = metrics.get("tokens_per_second", 0)
 
     thinking_html = format_thinking_process(
@@ -512,6 +521,7 @@ async def run_llm_stream(
         agent_label=agent_label,
         response_chars=len(full_response),
         truncated=truncated,
+        thinking_time=thinking_time,
     )
 
     yield {
@@ -526,6 +536,7 @@ async def run_llm_stream(
             metrics=metrics,
             ttft=ttft,
             inference_time=inference_time,
+            thinking_time=thinking_time,
             tokens_per_sec=tokens_per_sec,
             fetched_urls=fetched_urls,
             sandbox_html_urls=sandbox_html_urls,

@@ -342,8 +342,18 @@ def format_performance_footer(metadata: dict) -> str:
     if metadata.get("tokens_per_sec"):
         perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)}\u00A0tok/s")
 
+    # Denkzeit: Anteil des Turns bis zum Ende des <think>-Blocks — erklaert
+    # lange Inference-Zeiten (2026-09-06: 4:40 min, davon 54k Zeichen Denken).
+    if metadata.get("thinking_time"):
+        perf_parts.append(f"Thinking:\u00A0{format_duration_s(metadata['thinking_time'], 1).replace(' ', chr(0xA0))}")
+
     if metadata.get("inference_time"):
         perf_parts.append(f"Inference:\u00A0{format_duration_s(metadata['inference_time'], 1).replace(' ', chr(0xA0))}")
+
+    # Ladezeit nur beim Cold Start (Modell musste erst in den VRAM); Warmstarts
+    # tragen das Feld nicht.
+    if metadata.get("load_time"):
+        perf_parts.append(f"Load:\u00A0{format_duration_s(metadata['load_time'], 1).replace(' ', chr(0xA0))}")
 
     if metadata.get("source"):
         source = metadata["source"]
@@ -422,6 +432,8 @@ def build_inference_metadata(
     agent_label: str = "AIfred-LLM",
     response_chars: int = 0,
     truncated: bool = False,
+    thinking_time: float = 0.0,
+    load_time: float = 0.0,
 ) -> tuple[dict, str, str]:
     """
     Central function for inference metadata (chat bubble, debug log, console).
@@ -443,6 +455,9 @@ def build_inference_metadata(
         response_chars: Response text length in chars (for debug output)
         truncated: Answer hit the token/context limit (finish_reason=length)
             — the done line gets a ⚠️ + TRUNCATED marker instead of a clean ✅
+        thinking_time: Seconds from first token to the end of the <think>
+            block (0 = no thinking block)
+        load_time: Model load time on a cold start (0 = warm start, not shown)
 
     Returns:
         (metadata_dict, metadata_display, debug_msg):
@@ -477,36 +492,14 @@ def build_inference_metadata(
         "source": source,
         "backend_type": backend_type,
         "truncated": truncated,
+        "thinking_time": thinking_time,
+        "load_time": load_time,
     }
 
     # --- Metadata display string (for chat bubble) ---
-    # Split into speed metrics (no wrap) and info (wrap allowed before)
-    perf_parts: list[str] = []
-    info_parts: list[str] = []
-    if ttft:
-        perf_parts.append(f"TTFT:\u00A0{format_duration_s(ttft, 2).replace(' ', chr(0xA0))}")
-    prefill_part = _format_prefill(prompt_per_sec, prompt_tokens_computed)
-    if prefill_part:
-        perf_parts.append(prefill_part)
-    perf_parts.append(f"{format_number(tokens_per_sec, 1)}\u00A0tok/s")
-    perf_parts.append(f"Inference:\u00A0{format_duration_s(inference_time, 1).replace(' ', chr(0xA0))}")
-    # Source with backend label (e.g. "Own Knowledge (model) [llamacpp]")
-    source_display = f"{source}\u00A0[{backend_type}]" if backend_type else source
-    # Replace all spaces within source so it stays as one unbreakable unit
-    info_parts.append(f"Source:\u00A0{source_display.replace(' ', chr(0xA0))}")
-    # Within groups: "    " → non-breaking spaces (no wrap)
-    # Between groups: 3 nbsp + regular space → allows line break on mobile
-    from datetime import datetime as _dt
-    time_parts = [_dt.now().strftime("%d.%m.\u00A0\u2014\u00A0%H:%M")]
-
-    groups = []
-    if perf_parts:
-        groups.append("    ".join(perf_parts))
-    if info_parts:
-        groups.append("    ".join(info_parts))
-    if time_parts:
-        groups.append("    ".join(time_parts))
-    metadata_display = format_metadata("\u00A0\u00A0\u00A0 ".join(groups))
+    # SSOT: dieselbe Zeile, die der Browser-Pfad aus dem persistierten Dict
+    # rendert (add_agent_panel) — jedes neue Feld gibt es nur einmal.
+    metadata_display = format_performance_footer(metadata_dict)
 
     # --- Debug "done" message ---
     # A truncated answer must not look like a clean finish — the green ✅
@@ -538,6 +531,10 @@ def build_inference_metadata(
         suffixes.append(f"{format_number(response_chars)} chars")
     if history_tokens > 0:
         suffixes.append(f"History: {format_number(history_tokens)} tok")
+    if thinking_time > 0:
+        suffixes.append(f"thinking {format_duration_s(thinking_time)}")
+    if load_time > 0:
+        suffixes.append(f"cold start load {format_duration_s(load_time)}")
 
     # Debug message: base line + suffixes on second line (debug console has white-space: pre)
     debug_msg = debug_base
