@@ -758,6 +758,8 @@ def _candidates() -> list[vllm_flow.TopologyCandidate]:
                                     label="TP1 on RTX 8000"),
         vllm_flow.TopologyCandidate(gpu_ids=[0, 2], tp=2, pp=1, pp_partition=None,
                                     label="TP2 across RTX 8000 class"),
+        vllm_flow.TopologyCandidate(gpu_ids=[0, 2], tp=1, pp=2, pp_partition="24,24",
+                                    label="PP2 across RTX 8000 class"),
     ]
 
 
@@ -815,37 +817,57 @@ def _fake_full_run(monkeypatch, tmp_path: Path, **kwargs):
         return vllm_flow._RungResult(spec=spec, label=cand.label, tps=30.0,
                                      coherence=(3, 3), full_context=True,
                                      long_tokens=20000, long_prefill_tps=500.0,
-                                     long_decode_tps=30.0 + cand.tp)
+                                     long_decode_tps=30.0 + cand.tp - 2 * (cand.pp - 1))
 
     def fake_sweep(rung, meta, gpus_, smi, runtime, log_dir, progress, cancel_check,
                    allow_ctx_reduction=False, matrix=None):
         return rung.spec, rung.long_decode_tps + 10, 3, {0: rung.long_decode_tps}, 500.0
 
+    swept: list[str] = []
+
+    def recording_sweep(rung, *args, **kwargs):
+        swept.append(rung.label)
+        return fake_sweep(rung, *args, **kwargs)
+
     persisted: list[str] = []
     monkeypatch.setattr(vllm_flow, "_measure_topology", fake_measure)
-    monkeypatch.setattr(vllm_flow, "_sweep_k", fake_sweep)
+    monkeypatch.setattr(vllm_flow, "_sweep_k", recording_sweep)
     monkeypatch.setattr(vllm_flow, "persist_operating_point",
                         lambda spec, *a, **k: persisted.append(spec.served_name) or tmp_path / "p.yaml")
     log: list[str] = []
     result = vllm_flow.calibrate_vllm_checkpoint(
         checkpoint=tmp_path, entry_name="m", log_dir=tmp_path / "log",
         progress=log.append, cancel_check=None, reserve_side_channel=False, **kwargs)
-    return result, measured, persisted, log
+    return result, measured, persisted, log, swept
 
 
 def test_full_run_measures_the_whole_ladder_and_persists(monkeypatch, tmp_path: Path) -> None:
-    result, measured, persisted, log = _fake_full_run(monkeypatch, tmp_path)
-    assert measured == ["TP1 on RTX 8000", "TP2 across RTX 8000 class"]
+    result, measured, persisted, log, swept = _fake_full_run(monkeypatch, tmp_path)
+    assert measured == ["TP1 on RTX 8000", "TP2 across RTX 8000 class",
+                        "PP2 across RTX 8000 class"]
     assert persisted == ["m"] and result.profile_path == tmp_path / "p.yaml"
     assert result.spec.tp == 2  # TP2 gewinnt (hoeherer Lang-Decode)
     matrix = json.loads((tmp_path / "log" / "measurement-matrix.json").read_text())
-    assert matrix["entry"] == "m" and len(matrix["rows"]) == 2
+    assert matrix["entry"] == "m" and len(matrix["rows"]) == 3
+    # Sweep-Verzicht: TP2 (k=0 32 -> 42, Faktor 1,31) sweept zuerst; TP1 ist
+    # dieselbe Klasse (PP1, RTX 8000) und kaeme auf hoechstens 31 x 1,31 = 40,7
+    # < 42 -> uebersprungen. PP2 ist eine andere Stufenzahl -> gesweept.
+    assert swept == ["TP2 across RTX 8000 class", "PP2 across RTX 8000 class"]
+    assert any("TP1 on RTX 8000: k-sweep skipped" in line for line in log)
+
+
+def test_single_card_rung_is_swept(monkeypatch, tmp_path: Path) -> None:
+    # Hardwareagnostisch: ohne gesweepte Sprosse derselben Klasse gibt es
+    # keinen Faktor -> die einzige Sprosse wird gesweept.
+    result, measured, persisted, log, swept = _fake_full_run(
+        monkeypatch, tmp_path, topologies=["TP1 on RTX 8000"])
+    assert swept == ["TP1 on RTX 8000"] and result.spec.tp == 1
 
 
 def test_resweep_measures_only_the_requested_topology_and_dry_run_persists_nothing(
     monkeypatch, tmp_path: Path,
 ) -> None:
-    result, measured, persisted, log = _fake_full_run(
+    result, measured, persisted, log, swept = _fake_full_run(
         monkeypatch, tmp_path, topologies=["TP2 across RTX 8000 class"], dry_run=True)
     assert measured == ["TP2 across RTX 8000 class"]
     assert persisted == [] and result.profile_path is None

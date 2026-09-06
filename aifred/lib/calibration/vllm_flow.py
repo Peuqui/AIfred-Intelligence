@@ -429,6 +429,20 @@ class _RungResult:
     long_decode_tps: float = 0.0
 
 
+def _rung_class(rung: _RungResult, gpus: list[GPU], smi: dict[str, int]) -> tuple:
+    """Spekulations-Klasse einer Sprosse: Stufenzahl und Kartentypen.
+
+    Der Gewinn durch Spekulation haengt an Akzeptanz und Schrittkosten des
+    Drafters — und der laeuft nur auf der letzten Pipeline-Stufe. Innerhalb
+    einer Stufenzahl auf denselben Kartentypen aendert die Kartenzahl (TP)
+    den Faktor nicht messbar (27B 2026-09-06: Paare 1,44 und 1,47, TP1 auf
+    demselben Kartentyp 1,45), zwischen den Stufenzahlen schon (Grid 1,28,
+    frueher 2,5).
+    """
+    names = sorted({g.name for g in gpus if smi[g.uuid] in rung.spec.gpu_ids})
+    return (rung.spec.pp, tuple(names))
+
+
 def _rung_metric(r: _RungResult) -> float:
     """Entscheidungsmetrik: Lang-Decode; Kurzwert nur als Ersatz, wenn das
     Fenster fuer den Langpunkt zu klein war (dann laeuft die Kurzprobe
@@ -1141,11 +1155,38 @@ def calibrate_vllm_checkpoint(
     best_tps, best_k, best_prefill = 0.0, 0, 0.0
     best_rung: _RungResult | None = None
     best_sweep: dict[int, float] = {}
+    # Sweep-Verzicht ohne Magic Number (Peuqui 2026-09-06): hat eine Sprosse
+    # derselben Spekulations-Klasse (Stufenzahl + Kartentypen) ihren Sweep
+    # schon hinter sich, ist deren Faktor die beste Schaetzung fuer diese
+    # Sprosse. Kann sie damit den Sieger nach der Gesamtzeit-Regel nicht
+    # schlagen, spart der Verzicht die Boots (27B: TP1 nach dem RTX-Paar,
+    # sieben Boots ~1 h). Mit einer einzigen Karte ist TP1 die erste Sprosse
+    # seiner Klasse und wird gesweept — die Regel ist hardwareagnostisch.
+    best_factor: dict[tuple, tuple[float, str]] = {}
     for rung in pool:
+        rung_class = _rung_class(rung, gpus, smi)
+        if best_rung is not None and rung_class in best_factor:
+            factor, ref_label = best_factor[rung_class]
+            expected = _rung_metric(rung) * factor
+            if not _beats(expected, rung.long_prefill_tps, best_tps,
+                          best_prefill, _workload_ratio(runtime)):
+                progress(
+                    f"⏭️ {rung.label}: k-sweep skipped — same stage count and "
+                    f"card class as {ref_label} (spec factor "
+                    f"{format_number(factor, 2)}), expected at most "
+                    f"{format_number(expected, 1)} tok/s vs "
+                    f"{format_number(best_tps, 1)}"
+                )
+                continue
         spec_r, tps_r, k_r, sweep_r, prefill_r = _sweep_k(
             rung, meta, gpus, smi, runtime, log_dir, progress, cancel_check,
             matrix=matrix)
         progress(f"   ↳ {rung.label} best: k={k_r}, {format_number(tps_r, 1)} tok/s")
+        base = _rung_metric(rung)
+        if base > 0:
+            measured = tps_r / base
+            if measured > best_factor.get(rung_class, (0.0, ""))[0]:
+                best_factor[rung_class] = (measured, rung.label)
         if best_rung is None or _beats(tps_r, prefill_r, best_tps,
                                        best_prefill, _workload_ratio(runtime)):
             best_spec, best_tps, best_k, best_prefill = spec_r, tps_r, k_r, prefill_r
