@@ -791,9 +791,11 @@ def test_resweep_topology_labels_come_from_the_operating_point(monkeypatch) -> N
         vllm_flow.resweep_topology_labels("m", _candidates())
 
 
-def _fake_full_run(monkeypatch, tmp_path: Path, **kwargs):
+def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | None = None,
+                   **kwargs):
     """calibrate_vllm_checkpoint mit gefaelschten Messungen: gibt (result,
-    gemessene Labels, persist-Aufrufe) zurueck."""
+    gemessene Labels, persist-Aufrufe, Log, gesweepte Labels) zurueck.
+    ``mml_by_label`` setzt je Sprosse den erreichten Kontext (Default: nativ)."""
     import aifred.lib.process_utils as process_utils
 
     gpus = [_gpu("g0", "RTX 8000", 7.5, 49152, 49000, 0),
@@ -812,10 +814,11 @@ def _fake_full_run(monkeypatch, tmp_path: Path, **kwargs):
 
     def fake_measure(cand, entry_name, meta, gpus_, smi, log_dir, progress, cancel_check):
         measured.append(cand.label)
+        mml = (mml_by_label or {}).get(cand.label, 65536)
         spec = VllmSpec(checkpoint=tmp_path, served_name=entry_name,
-                        gpu_ids=cand.gpu_ids, tp=cand.tp, pp=cand.pp, mml=65536)
+                        gpu_ids=cand.gpu_ids, tp=cand.tp, pp=cand.pp, mml=mml)
         return vllm_flow._RungResult(spec=spec, label=cand.label, tps=30.0,
-                                     coherence=(3, 3), full_context=True,
+                                     coherence=(3, 3), full_context=(mml >= 65536),
                                      long_tokens=20000, long_prefill_tps=500.0,
                                      long_decode_tps=30.0 + cand.tp - 2 * (cand.pp - 1))
 
@@ -875,3 +878,22 @@ def test_resweep_measures_only_the_requested_topology_and_dry_run_persists_nothi
     assert (tmp_path / "log" / "measurement-matrix.json").exists()
     with pytest.raises(ValueError, match="unknown topologies"):
         _fake_full_run(monkeypatch, tmp_path, topologies=["TP9"])
+
+
+def test_without_native_context_the_largest_reachable_context_competes(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    # Kleiner Rechner: keine Sprosse traegt die nativen 65.536. TP1 haelt nur
+    # 16k, TP2 und PP2 halten 32k -> die beiden konkurrieren, TP1 ist
+    # Speed-Kandidat (schnellster Kontext-Verlierer), auch ohne Voll-Kontext.
+    result, measured, persisted, log, swept = _fake_full_run(
+        monkeypatch, tmp_path,
+        mml_by_label={"TP1 on RTX 8000": 16384, "TP2 across RTX 8000 class": 32768,
+                      "PP2 across RTX 8000 class": 32768})
+    assert result.spec.tp == 2 and result.spec.mml == 32768
+    assert any("largest reachable context (32.768 tokens)" in line for line in log)
+    assert result.speed_label == "TP1 on RTX 8000"
+    # TP1 laeuft als Speed-Kandidat (eigener Sweep), nicht im Pool.
+    assert swept[:2] == ["TP2 across RTX 8000 class", "PP2 across RTX 8000 class"]
+    assert "TP1 on RTX 8000" in swept
+
