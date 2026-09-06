@@ -851,8 +851,7 @@ class BackendMixin(rx.State, mixin=True):
                     tuning.model = ""
 
             # Reset sampling parameters to YAML defaults
-            for agent in ["aifred", "sokrates", "salomo"]:
-                self._reset_agent_sampling(agent, include_temperature=False)  # type: ignore[attr-defined]
+            self._reset_sampling_for_all_agents(inheriting_only=False, include_temperature=False)  # type: ignore[attr-defined]
 
             self.backend_healthy = True
             self.model_count = len(self.available_models)
@@ -1078,8 +1077,7 @@ class BackendMixin(rx.State, mixin=True):
             self._load_all_agent_model_params()
 
             # Reset sampling parameters
-            for agent in ["aifred", "sokrates", "salomo"]:
-                self._reset_agent_sampling(agent, include_temperature=False)  # type: ignore[attr-defined]
+            self._reset_sampling_for_all_agents(inheriting_only=False, include_temperature=False)  # type: ignore[attr-defined]
 
             # Detect vision models
             self.add_debug("🔍 Detecting vision-capable models...")  # type: ignore[attr-defined, has-type]
@@ -1596,11 +1594,8 @@ class BackendMixin(rx.State, mixin=True):
                 self.image_upload_warning = ""  # type: ignore[attr-defined, has-type]
 
         # Reset sampling params to model defaults for all affected agents
-        self._reset_agent_sampling("aifred")  # type: ignore[attr-defined]
-        if not self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined, has-type]
-            self._reset_agent_sampling("sokrates")  # type: ignore[attr-defined]
-        if not self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined, has-type]
-            self._reset_agent_sampling("salomo")  # type: ignore[attr-defined]
+        # (AIfred + every agent inheriting its model, custom agents included)
+        self._reset_sampling_for_all_agents(inheriting_only=True, include_temperature=True)  # type: ignore[attr-defined]
 
         self._save_settings()  # type: ignore[attr-defined, has-type]
         # vLLM-Eintraege laufen ueber llama-swap: Modellwechsel = Swap beim
