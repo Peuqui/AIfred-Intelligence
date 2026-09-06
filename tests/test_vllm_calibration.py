@@ -186,21 +186,43 @@ def test_probe_boot_uses_calibration_cache_but_entry_keeps_default(
     assert "VLLM_CACHE_ROOT" not in spec.build_env(RUNTIME)
 
 
-def test_reset_calibration_cache_wipes_and_recreates(
+def test_prune_calibration_cache_drops_oldest_until_under_the_cap(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    import os
+    cache_root = tmp_path / "cache"
+    monkeypatch.setattr(vllm_probe, "VLLM_CALIBRATION_CACHE_ROOT", cache_root)
+    compile_root = cache_root / "torch_compile_cache"
+    # Drei Konfigurations-Eintraege + zwei AOT-Eintraege, je 100 Byte,
+    # mit steigendem Alter: old < mid < new.
+    for name, age in (("old", 300), ("mid", 200), ("new", 100)):
+        d = compile_root / name
+        d.mkdir(parents=True)
+        (d / "graph.bin").write_bytes(b"x" * 100)
+        os.utime(d, (1_000_000 - age, 1_000_000 - age))
+    for name, age in (("aot_old", 250), ("aot_new", 50)):
+        d = compile_root / "torch_aot_compile" / name
+        d.mkdir(parents=True)
+        (d / "a.so").write_bytes(b"y" * 100)
+        os.utime(d, (1_000_000 - age, 1_000_000 - age))
+    (cache_root / "modelinfos").mkdir()
+    (cache_root / "modelinfos" / "m.json").write_bytes(b"z" * 20)
+
+    # 500 Byte belegt, Grenze 250: old, aot_old und mid fliegen (aelteste zuerst).
+    assert vllm_probe.prune_calibration_cache(max_bytes=250) == (300, 200)
+    assert sorted(p.name for p in compile_root.iterdir()) == ["new", "torch_aot_compile"]
+    assert [p.name for p in (compile_root / "torch_aot_compile").iterdir()] == ["aot_new"]
+    assert (cache_root / "modelinfos" / "m.json").exists()
+    # Unter der Grenze: nichts passiert.
+    assert vllm_probe.prune_calibration_cache(max_bytes=250) == (0, 200)
+
+
+def test_prune_calibration_cache_creates_a_missing_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     cache_root = tmp_path / "cache"
     monkeypatch.setattr(vllm_probe, "VLLM_CALIBRATION_CACHE_ROOT", cache_root)
-    (cache_root / "torch_compile_cache" / "abc").mkdir(parents=True)
-    (cache_root / "torch_compile_cache" / "abc" / "graph.bin").write_bytes(b"x" * 300)
-    (cache_root / "modelinfos" / "m.json").parent.mkdir()
-    (cache_root / "modelinfos" / "m.json").write_bytes(b"y" * 20)
-
-    assert vllm_probe.reset_calibration_cache() == 320
-    assert cache_root.is_dir() and not any(cache_root.iterdir())
-    # Ohne vorhandenen Cache: anlegen, nichts freigegeben.
-    (cache_root).rmdir()
-    assert vllm_probe.reset_calibration_cache() == 0
+    assert vllm_probe.prune_calibration_cache(max_bytes=10) == (0, 0)
     assert cache_root.is_dir()
 
 
@@ -775,7 +797,7 @@ def _fake_full_run(monkeypatch, tmp_path: Path, **kwargs):
     gpus = [_gpu("g0", "RTX 8000", 7.5, 49152, 49000, 0),
             _gpu("g2", "RTX 8000", 7.5, 49152, 49000, 0)]
     monkeypatch.setattr(vllm_flow, "load_vllm_runtime", lambda: RUNTIME)
-    monkeypatch.setattr(vllm_flow, "reset_calibration_cache", lambda: 0)
+    monkeypatch.setattr(vllm_flow, "prune_calibration_cache", lambda: (0, 0))
     monkeypatch.setattr(vllm_flow, "analyze_checkpoint", lambda c: _meta(20.0))
     monkeypatch.setattr(vllm_flow, "side_channel_uuids", lambda: set())
     monkeypatch.setattr(vllm_flow, "eligible_gpus", lambda reserved: gpus)
