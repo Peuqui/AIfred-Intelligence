@@ -29,6 +29,9 @@ class ChatMixin(rx.State, mixin=True):
     # LLM-Aufruf nach der Erkennung; add_agent_panel haengt sie an die
     # naechste Antwort und setzt sie zurueck — Warmstarts tragen nichts.
     _pending_load_time: float = 0.0
+    # Tool-Schema-Token des letzten Turns (multi_agent setzt sie) — fuer die
+    # Kompressionspruefung VOR dem Toolkit-Aufbau des naechsten Turns.
+    _last_toolkit_tokens: int = 0
 
 
     # ── State Variables ──────────────────────────────────────────────
@@ -786,6 +789,7 @@ class ChatMixin(rx.State, mixin=True):
             llm_history=self._chat_sub().llm_history,
             system_prompt_tokens=system_prompt_tokens,
             detected_language=detected_language,
+            toolkit_tokens=self._last_toolkit_tokens,
         ):
             if event["type"] == "history_update":
                 self._chat_sub().chat_history = event["chat_history"]

@@ -8,6 +8,7 @@ Handles context limits and token estimation for LLMs:
 - History compression (summarize_history_if_needed)
 """
 
+import json
 import re
 import asyncio
 from .timer import Timer
@@ -260,6 +261,20 @@ def strip_non_llm_content(text: str) -> str:
     # <think>...</think> (Raw thinking blocks)
     text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
     return text.strip()
+
+
+def estimate_toolkit_tokens(toolkit: Any, model_name: Optional[str] = None) -> int:
+    """Tokens the tool schemas add to the prompt.
+
+    The chat template renders every tool definition as JSON into the system
+    turn (Qwen3: "# Tools" block) — ~100 tools are ~20k tokens that the
+    message list alone never shows. Counted from the same definitions the
+    backend puts on the wire (toolkit.definitions).
+    """
+    if not toolkit or not toolkit.definitions:
+        return 0
+    rendered = json.dumps(toolkit.definitions, ensure_ascii=False)
+    return estimate_tokens([{"content": rendered}], model_name=model_name)
 
 
 def estimate_tokens_from_history(history: List[Dict[str, Any]]) -> int:
@@ -632,7 +647,8 @@ async def summarize_history_if_needed(
     max_summaries: int | None = None,
     llm_history: List[Dict[str, str]] | None = None,
     system_prompt_tokens: int = 0,
-    detected_language: str = "de"
+    detected_language: str = "de",
+    toolkit_tokens: int = 0,
 ) -> AsyncIterator[Dict]:
     """
     Compress chat history when context utilization reaches trigger threshold.
@@ -660,6 +676,8 @@ async def summarize_history_if_needed(
         max_summaries: Maximum number of summaries before FIFO (default: from config)
         llm_history: LLM history as list of {"role": ..., "content": ...} dicts (LLM - komprimiert)
         system_prompt_tokens: Estimated tokens for system prompt(s) - included in utilization!
+        toolkit_tokens: Tokens of the tool schemas the template renders into the
+            prompt (estimate_toolkit_tokens) - included in utilization!
 
     Yields:
         Dict: Progress, debug messages, and history updates
@@ -686,12 +704,16 @@ async def summarize_history_if_needed(
     # CRITICAL (v2.14.0+): Include system prompt tokens in total!
     # This prevents overflow when system prompts are large (2000+ tokens).
     # Total = System Prompt + History (what actually goes to the LLM)
-    total_tokens = system_prompt_tokens + history_tokens
+    total_tokens = system_prompt_tokens + toolkit_tokens + history_tokens
     utilization = (total_tokens / context_limit) * 100
 
-    # Debug: Show breakdown (System vs History)
+    # Debug: Show breakdown (System vs Tools vs History)
     if system_prompt_tokens > 0:
-        yield {"type": "debug", "message": f"📊 Context: System {format_number(system_prompt_tokens)} + History {format_number(history_tokens)} = {format_number(total_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
+        parts = [f"System {format_number(system_prompt_tokens)}"]
+        if toolkit_tokens:
+            parts.append(f"Tools {format_number(toolkit_tokens)}")
+        parts.append(f"History {format_number(history_tokens)}")
+        yield {"type": "debug", "message": f"📊 Context: {' + '.join(parts)} = {format_number(total_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
     else:
         yield {"type": "debug", "message": f"📊 History: {format_number(history_tokens)} / {format_number(context_limit)} tok ({int(utilization)}%)"}
 
