@@ -24,6 +24,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import NamedTuple
 
 import yaml
 
@@ -583,19 +584,27 @@ def probe_coherence(server: VllmServer) -> tuple[int, int, list[str]]:
     return passed, len(COHERENCE_CHECKS), snippets
 
 
+class ThroughputProbe(NamedTuple):
+    tps: list[float]      # tok/s je Lauf
+    prompt_tokens: int    # Kontext der Kurzsonde (fuer die Gewichtung der Siegerregel)
+
+
 def probe_throughput(server: VllmServer, tokens: int = 200, runs: int = 2,
-                     warmup: bool = True, sampling: dict | None = None) -> list[float]:
+                     warmup: bool = True, sampling: dict | None = None) -> ThroughputProbe:
     """tok/s je Lauf (Wall-Clock inkl. Prefill; Vergleichbarkeit zaehlt,
-    nicht Absolutwert). Erster Lauf optional als Warmup verworfen."""
+    nicht Absolutwert) plus die Prompt-Tokenzahl der Kurzsonde. Erster Lauf
+    optional als Warmup verworfen."""
     if warmup:
         server.chat(THROUGHPUT_PROMPT, max_tokens=tokens, ignore_eos=True,
                     sampling=sampling)
     results = []
+    prompt_tokens = 0
     for _ in range(runs):
         _, usage, dt = server.chat(THROUGHPUT_PROMPT, max_tokens=tokens,
                                    ignore_eos=True, sampling=sampling)
         results.append(usage["completion_tokens"] / dt)
-    return results
+        prompt_tokens = int(usage.get("prompt_tokens") or 0)
+    return ThroughputProbe(results, prompt_tokens)
 
 
 # Produktions-Sampling fuer die Messsonden. Greedy (Temperatur 0) misst bei

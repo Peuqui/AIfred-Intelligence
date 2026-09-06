@@ -22,15 +22,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from aifred.lib.calibration.vllm_flow import (  # noqa: E402
-    calibrate_vllm_checkpoint,
-    eligible_gpus,
-    load_vllm_runtime,
-    resweep_topology_labels,
-    side_channel_uuids,
-    topology_ladder,
-)
-from aifred.lib.calibration.vllm_model_meta import analyze_checkpoint  # noqa: E402
+from aifred.lib.calibration.vllm_flow import calibrate_vllm_checkpoint  # noqa: E402
 from aifred.lib.config import DATA_DIR  # noqa: E402
 from aifred.lib.operating_points import operating_point_checkpoint  # noqa: E402
 from aifred.lib.process_utils import start_llama_swap, stop_llama_swap  # noqa: E402
@@ -59,13 +51,6 @@ def main() -> int:
             f.write(line + "\n")
 
     checkpoint = operating_point_checkpoint(args.entry)
-    topologies = args.topology
-    if topologies is None:
-        runtime = load_vllm_runtime()
-        meta = analyze_checkpoint(checkpoint)
-        reserved = set() if args.no_side_channel else side_channel_uuids()
-        topologies = resweep_topology_labels(
-            args.entry, topology_ladder(meta, eligible_gpus(reserved), runtime))
 
     stopped = False
     try:
@@ -75,7 +60,8 @@ def main() -> int:
             checkpoint=checkpoint, entry_name=args.entry, log_dir=log_dir,
             progress=progress, cancel_check=lambda: False,
             reserve_side_channel=not args.no_side_channel,
-            topologies=topologies, dry_run=args.dry_run,
+            topologies=args.topology, resweep=args.topology is None,
+            dry_run=args.dry_run,
         )
         progress(f"✅ re-sweep complete: {result.throughput_tok_s:.1f} tok/s "
                  f"(TP{result.spec.tp}xPP{result.spec.pp}, k={result.spec.k}, ctx {result.spec.mml}); "

@@ -184,11 +184,25 @@ class CalibrationMixin(rx.State, mixin=True):
     # persisted).
     calibration_matrix: dict[str, bool] = {}
 
+    # vLLM-Nachmessmodus (Peuqui 2026-09-05/06): nur die Topologie des
+    # persistierten Betriebspunkts neu vermessen (k=0-Referenz + k-Sweep),
+    # keine Topologie-Leiter; Trockenlauf = messen, Matrix schreiben,
+    # nichts persistieren. Beides Entscheidungen fuer den naechsten Lauf,
+    # nicht persistiert.
+    calibration_vllm_resweep: bool = False
+    calibration_vllm_dry_run: bool = False
+
     # Revision counter — bumped whenever something writes to agents.json
     # so that reactive computed vars (e.g. calibration_ai_label) re-read
     # the file. Without this, @rx.var freezes on first render because
     # Reflex can't auto-track file-IO as a dependency.
     _agents_json_revision: int = 0
+
+    def toggle_calibration_vllm_resweep(self) -> None:
+        self.calibration_vllm_resweep = not self.calibration_vllm_resweep
+
+    def toggle_calibration_vllm_dry_run(self) -> None:
+        self.calibration_vllm_dry_run = not self.calibration_vllm_dry_run
 
     def toggle_calibration_allow_hybrid(self) -> None:
         """Flip the hybrid-mode permission and persist to settings.json."""
@@ -903,6 +917,8 @@ class CalibrationMixin(rx.State, mixin=True):
                 progress=progress_q.put,
                 cancel_check=_cancelled,
                 reserve_side_channel=_sc_gewuenscht,
+                resweep=self.calibration_vllm_resweep,
+                dry_run=self.calibration_vllm_dry_run,
             )
 
         task = asyncio.create_task(asyncio.to_thread(_run))
@@ -939,7 +955,10 @@ class CalibrationMixin(rx.State, mixin=True):
                     f"{format_number(result.speed_tps, 1)} tok/s "
                     f"(ctx {format_number(result.speed_mml)}, info only)"
                 )
-            self._cal_debug(f"   Profile: {result.profile_path}")
+            self._cal_debug(
+                f"   Profile: {result.profile_path}" if result.profile_path
+                else "   Profile: not persisted (dry run)"
+            )
             self._cal_debug(CONSOLE_SEPARATOR)
         except Exception as e:  # noqa: BLE001 — Background-Lauf: Fehler
             # muessen als Meldung ankommen, nicht still verschwinden
@@ -962,6 +981,9 @@ class CalibrationMixin(rx.State, mixin=True):
                         self._cal_debug(
                             "🔄 llama-swap restarted (loads the freshly "
                             "persisted operating point)"
+                            if not self.calibration_vllm_dry_run
+                            else "🔄 llama-swap restarted (dry run: operating "
+                                 "point unchanged)"
                         )
                 except Exception as start_err:  # noqa: BLE001
                     self._cal_debug(
