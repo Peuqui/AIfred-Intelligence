@@ -413,6 +413,30 @@ def model_lifecycle_help_modal() -> rx.Component:
                 align="start",
                 width="100%",
             ),
+            rx.divider(),
+            rx.vstack(
+                rx.text(
+                    t("model_lifecycle_help_calibration_title"),
+                    font_weight="bold",
+                    font_size="14px",
+                    color="#FFD700",
+                ),
+                rx.text(
+                    t("model_lifecycle_help_calibration_body"),
+                    font_size="12px",
+                    color="white",
+                    style={"line_height": "1.5"},
+                ),
+                rx.text(
+                    t("model_lifecycle_help_calibration_resweep"),
+                    font_size="12px",
+                    color="white",
+                    style={"line_height": "1.5"},
+                ),
+                spacing="1",
+                align="start",
+                width="100%",
+            ),
             rx.button(
                 t("model_lifecycle_help_close"),
                 on_click=AIState.close_model_lifecycle_help,

@@ -33,6 +33,7 @@ from ..config import (
     VLLM_CALIBRATION_GMU_AB,
     VLLM_CALIBRATION_K_EXHAUSTIVE,
     VLLM_CALIBRATION_SHORT_PROBE,
+    VLLM_CALIBRATION_WORKLOAD_CONTEXT_TOKENS,
 )
 from ..formatting import format_number
 from .gpu import enumerate_gpus
@@ -423,6 +424,7 @@ class _RungResult:
     tps: float                  # Kurzkontext (0.0 wenn Kurzprobe aus)
     coherence: tuple[int, int]
     full_context: bool          # traegt den vollen nativen Kontext
+    short_tokens: int = 0       # Prompt-Token der Kurzsonde
     # Langkontext-Punkt (0 = Fenster zu klein fuer die Sonde)
     long_tokens: int = 0
     long_prefill_tps: float = 0.0
@@ -443,6 +445,27 @@ def _rung_class(rung: _RungResult, gpus: list[GPU], smi: dict[str, int]) -> tupl
     return (rung.spec.pp, tuple(names))
 
 
+@dataclass(frozen=True)
+class _Speed:
+    """Messtripel einer Konstellation fuer die Siegerregel: Kurz- und
+    Langpunkt (Decode tok/s je mit Kontext-Token) und der Lang-Prefill."""
+    short_tps: float
+    short_tokens: int
+    long_tps: float
+    long_tokens: int
+    prefill_tps: float
+
+    def scaled(self, short_factor: float, long_factor: float) -> "_Speed":
+        return _Speed(self.short_tps * short_factor, self.short_tokens,
+                      self.long_tps * long_factor, self.long_tokens,
+                      self.prefill_tps)
+
+
+def _rung_speed(r: _RungResult) -> _Speed:
+    return _Speed(r.tps, r.short_tokens, r.long_decode_tps, r.long_tokens,
+                  r.long_prefill_tps)
+
+
 def _rung_metric(r: _RungResult) -> float:
     """Entscheidungsmetrik: Lang-Decode; Kurzwert nur als Ersatz, wenn das
     Fenster fuer den Langpunkt zu klein war (dann laeuft die Kurzprobe
@@ -450,21 +473,50 @@ def _rung_metric(r: _RungResult) -> float:
     return r.long_decode_tps if r.long_tokens else r.tps
 
 
-def _turn_seconds(decode_tps: float, prefill_tps: float, ratio: float) -> float:
-    """Zeit eines Turns je erzeugtem Token, bei ``ratio`` Prompt-Token je
-    Antwort-Token. Kleiner ist besser; 0 tok/s heisst unbrauchbar."""
-    if decode_tps <= 0:
+def _context_weight(speed: _Speed, context_tokens: int) -> float:
+    """Anteil des Langpunkts an der Turnzeit: die Lage des Alltagskontexts
+    zwischen Kurz- und Langpunkt (0 = ganz Kurzpunkt, 1 = ganz Langpunkt).
+    Ohne Kurzmessung zaehlt nur der Langpunkt, ohne Langpunkt nur der kurze."""
+    if speed.long_tokens <= 0 or speed.long_tps <= 0:
+        return 0.0
+    if speed.short_tps <= 0:
+        return 1.0
+    span = speed.long_tokens - speed.short_tokens
+    if span <= 0:
+        return 1.0
+    return min(1.0, max(0.0, (context_tokens - speed.short_tokens) / span))
+
+
+def _turn_seconds(speed: _Speed, ratio: float, context_tokens: int) -> float:
+    """Zeit eines Turns je erzeugtem Token am Alltagskontext, bei ``ratio``
+    Prompt-Token je Antwort-Token. Decode-Anteil: Kurz- und Langpunkt nach
+    der Lage des Alltagskontexts gewichtet; Prefill-Anteil aus dem
+    Lang-Prefill. Kleiner ist besser; 0 tok/s heisst unbrauchbar."""
+    weight = _context_weight(speed, context_tokens)
+    decode = 0.0
+    if weight < 1.0:
+        if speed.short_tps <= 0:
+            return float("inf")
+        decode += (1.0 - weight) / speed.short_tps
+    if weight > 0.0:
+        decode += weight / speed.long_tps
+    if decode <= 0:
         return float("inf")
-    seconds = 1.0 / decode_tps
-    if prefill_tps > 0:
-        seconds += ratio / prefill_tps
+    seconds = decode
+    if speed.prefill_tps > 0:
+        seconds += ratio / speed.prefill_tps
     return seconds
 
 
-def _beats(metric_new: float, prefill_new: float,
-           metric_old: float, prefill_old: float, ratio: float,
+def _beats(new: _Speed, old: _Speed, ratio: float, context_tokens: int,
            margin: float = 0.0) -> bool:
-    """Siegervergleich ueber die GESAMTZEIT eines Turns.
+    """Siegervergleich ueber die GESAMTZEIT eines Turns am Alltagskontext.
+
+    Seit 2026-09-06 zaehlen BEIDE Enden (Peuqui: Lang- und Kurzkontext sind
+    wichtig, Prefill auch): Lauf #3 gab dem V100-Paar am Langpunkt 1,5 %
+    Vorsprung, waehrend das RTX-Paar im Kurzkontext 10 % vorn lag — bei
+    12.000 Token Alltag gewinnt die RTX um ~5 %. Der Alltagskontext ist
+    ``workload_context_tokens`` in vllm_runtime.yaml.
 
     Frueher entschied die Decode-Rate allein, und nur bei Quasi-Gleichstand
     (5 %) brach der Prefill das Patt. Das verlor reale Zeit: Im Lauf
@@ -484,13 +536,18 @@ def _beats(metric_new: float, prefill_new: float,
     KOSTET — bei der Speed-Variante den Kontext; innerhalb eines
     Sweeps ist jede echte Verbesserung mitzunehmen.
     """
-    return (_turn_seconds(metric_new, prefill_new, ratio)
-            < _turn_seconds(metric_old, prefill_old, ratio) * (1.0 - margin))
+    return (_turn_seconds(new, ratio, context_tokens)
+            < _turn_seconds(old, ratio, context_tokens) * (1.0 - margin))
 
 
 def _workload_ratio(runtime: dict) -> float:
     return float(runtime.get("workload_prompt_per_generated",
                              DEFAULT_WORKLOAD_PROMPT_PER_GENERATED))
+
+
+def _workload_context(runtime: dict) -> int:
+    return int(runtime.get("workload_context_tokens",
+                           VLLM_CALIBRATION_WORKLOAD_CONTEXT_TOKENS))
 
 
 def _speed_min_gain(runtime: dict) -> float:
@@ -521,8 +578,8 @@ def _oom_step(
 
 def _probe_rung(
     server: VllmServer, spec: VllmSpec, meta: VllmModelMeta,
-) -> tuple[int, int, float, dict | None]:
-    """Sonden einer Sprosse: (ok, total, short_tps, long_metrics)."""
+) -> tuple[int, int, float, int, dict | None]:
+    """Sonden einer Sprosse: (ok, total, short_tps, short_tokens, long_metrics)."""
     ok, total, _ = probe_coherence(server)
     sampling = probe_sampling(meta.generation_defaults, 0)
     long_metrics = (probe_long_context(server, spec.mml, sampling=sampling)
@@ -530,9 +587,10 @@ def _probe_rung(
     # Kurzprobe: nur wenn eingeschaltet ODER der Langpunkt ausfaellt
     # (jede Sprosse braucht genau eine Entscheidungszahl).
     need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
-    tps = (max(probe_throughput(server, sampling=sampling))
-           if (ok == total and need_short) else 0.0)
-    return ok, total, tps, long_metrics
+    short = (probe_throughput(server, sampling=sampling)
+             if (ok == total and need_short) else None)
+    tps = max(short.tps) if short else 0.0
+    return ok, total, tps, (short.prompt_tokens if short else 0), long_metrics
 
 
 def _measure_topology(
@@ -564,7 +622,7 @@ def _measure_topology(
     # Gesetzt nur, wenn die Architektur ein KV-Format erzwingt (DeepseekV4).
     kv_dtype: str | None = VllmSpec.kv_cache_dtype
     max_attempts = 6
-    probed: tuple[int, int, float, dict | None] | None = None
+    probed: tuple[int, int, float, int, dict | None] | None = None
     for attempt in range(max_attempts):
         spec = VllmSpec(
             checkpoint=meta.checkpoint, served_name=entry_name,
@@ -639,7 +697,7 @@ def _measure_topology(
 
     if server is None or spec is None or probed is None:
         return None
-    ok, total, tps, long_metrics = probed
+    ok, total, tps, short_tokens, long_metrics = probed
     if ok < total:
         progress(f"   ↳ incoherent ({ok}/{total}) — rung rejected")
         return None
@@ -657,7 +715,8 @@ def _measure_topology(
     else:
         lt, lp, ld = 0, 0.0, 0.0
     return _RungResult(spec=spec, label=cand.label, tps=tps,
-                       coherence=(ok, total), full_context=(spec.mml >= native),
+                       coherence=(ok, total), short_tokens=short_tokens,
+                       full_context=(spec.mml >= native),
                        long_tokens=lt, long_prefill_tps=lp, long_decode_tps=ld)
 
 
@@ -672,12 +731,12 @@ def _sweep_k(
     cancel_check: Callable[[], bool] | None,
     allow_ctx_reduction: bool = False,
     matrix: list[dict] | None = None,
-) -> tuple[VllmSpec, float, int, dict[int, float], float]:
-    """k-Sweep auf einer Topologie:
-    (best_spec, best_metric, best_k, sweep, best_prefill).
+) -> tuple[VllmSpec, _Speed, int, dict[int, float]]:
+    """k-Sweep auf einer Topologie: (best_spec, best_speed, best_k, sweep).
 
-    Entscheidungsmetrik je k: Lang-Decode (Kurzwert nur als Ersatz, wenn
-    kein Langpunkt moeglich ist). ``sweep`` enthaelt die Metrik je k.
+    Siegerregel je k: Turnzeit am Alltagskontext (_beats). ``sweep`` enthaelt
+    je k den Lang-Decode (Kurzwert nur als Ersatz, wenn kein Langpunkt
+    moeglich ist) — die Berichtsgroesse des Betriebspunkts.
 
     ``matrix``: Sammel-Liste fuer die aggregierte Ergebnistabelle — jede
     kohaerente k-Messung wird als Zeile (Topologie, k, ctx, Kurz- und
@@ -695,10 +754,10 @@ def _sweep_k(
     Sprossenwert zurueckgesetzt — Kontext-Vorrang schlaegt Zeitersparnis.
     """
     sweep: dict[int, float] = {0: _rung_metric(rung)}
-    best_k, best_metric = 0, _rung_metric(rung)
+    best_k, best_speed = 0, _rung_speed(rung)
     best_mml = rung.spec.mml
-    best_prefill = rung.long_prefill_tps
     best_gmu = rung.spec.gmu
+    ratio, context_tokens = _workload_ratio(runtime), _workload_context(runtime)
     # Ein Proben-OOM ist eine Eigenschaft der TOPOLOGIE (zu wenig
     # Workspace auf der vollsten Karte), nicht des einzelnen k — die
     # gelernte GMU gilt deshalb fuer den Rest des Sweeps. Ohne das
@@ -751,7 +810,7 @@ def _sweep_k(
         # QPN8-Workspace fehlten) — einmal mit gesenkter GMU neu booten
         # statt das k zu verwerfen.
         gmu_k = sweep_gmu
-        ok_k, total_k, tps = 0, 1, 0.0
+        ok_k, total_k, tps, short_tokens = 0, 1, 0.0, 0
         long_metrics: dict | None = None
         probe_failed = True
         for oom_round in range(2):
@@ -828,8 +887,10 @@ def _sweep_k(
                 long_metrics = (probe_long_context(server, mml_k, sampling=sampling)
                                 if ok_k == total_k else None)
                 need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
-                tps = (max(probe_throughput(server, sampling=sampling))
-                       if (ok_k == total_k and need_short) else 0.0)
+                short = (probe_throughput(server, sampling=sampling)
+                         if (ok_k == total_k and need_short) else None)
+                tps = max(short.tps) if short else 0.0
+                short_tokens = short.prompt_tokens if short else 0
                 probe_failed = False
             except Exception as probe_err:  # noqa: BLE001
                 full_log = (server.log_path.read_text(errors="replace")
@@ -873,16 +934,17 @@ def _sweep_k(
                 matrix[:] = [r for r in matrix
                              if not (r["label"] == rung.label and r["k"] == k)]
             matrix.append({"label": rung.label, "k": k, "ctx": mml_k,
-                           "short": tps, "long_tokens": lt,
+                           "short": tps, "short_tokens": short_tokens,
+                           "long_tokens": lt,
                            "long_prefill": lp, "long_decode": ld,
                            "accept": acc})
         # Der Nachschlag misst DENSELBEN Sieger bei groesserem Kontext —
         # er wird uebernommen, ohne gegen sich selbst anzutreten
         # (Kontext-Vorrang; die Rate faellt am laengeren Prompt naturgemaess
         # etwas ab und ist dann der ehrliche Wert fuer den Betriebspunkt).
-        if is_regrow or _beats(metric, lp, best_metric, best_prefill,
-                               _workload_ratio(runtime)):
-            best_k, best_metric, best_mml, best_prefill = k, metric, mml_k, lp
+        speed_k = _Speed(tps, short_tokens, ld, lt, lp)
+        if is_regrow or _beats(speed_k, best_speed, ratio, context_tokens):
+            best_k, best_speed, best_mml = k, speed_k, mml_k
             # Der Proben-OOM-Retry misst mit gesenkter GMU — die MUSS in
             # den Betriebspunkt (Ausfall 2026-08-30: mit 0,95 gemessen,
             # 0,97 persistiert → QPN8-Workspace-OOM beim ersten Request).
@@ -898,15 +960,15 @@ def _sweep_k(
         )
     else:
         best_spec = rung.spec
-    return best_spec, best_metric, best_k, sweep, best_prefill
+    return best_spec, best_speed, best_k, sweep
 
 
 def _challenger_ab(
     ratio: float,
+    context_tokens: int,
     sampling: dict,
     best_spec: VllmSpec,
-    best_tps: float,
-    best_prefill: float,
+    best_speed: _Speed,
     challenger: VllmSpec,
     tag: str,
     keep_note: str,
@@ -916,7 +978,7 @@ def _challenger_ab(
     matrix: list[dict] | None,
     label: str,
     k: int,
-) -> tuple[VllmSpec, float, float, dict | None]:
+) -> tuple[VllmSpec, _Speed, dict | None]:
     """Ein Gegen-Boot eines abgewandelten Sieger-Specs, gleiche Siegerregel.
 
     Scheitert der Herausforderer (Boot, Kohaerenz, Probe), bleibt der
@@ -929,40 +991,48 @@ def _challenger_ab(
         server = boot_vllm(challenger, port, log, BOOT_TIMEOUT_S, cancel_check)
     except VllmBootError as e:
         progress(f"   ↳ {tag} boot failed ({e.reason}) — keeping {keep_note}")
-        return best_spec, best_tps, best_prefill, None
+        return best_spec, best_speed, None
     try:
         ok, total, _ = probe_coherence(server)
         long_metrics = (probe_long_context(server, challenger.mml,
                                            sampling=sampling)
                         if ok == total else None)
+        # Kurzpunkt wie im Sweep, damit der Herausforderer mit demselben
+        # Tripel antritt (nur wenn die Regel den Kurzpunkt ueberhaupt kennt).
+        short = (probe_throughput(server, sampling=sampling)
+                 if (ok == total and best_speed.short_tps > 0) else None)
     except Exception as probe_err:  # noqa: BLE001
         progress(f"   ↳ {tag} probe crashed ({type(probe_err).__name__}) "
                  f"— keeping {keep_note}")
-        return best_spec, best_tps, best_prefill, None
+        return best_spec, best_speed, None
     finally:
         server.shutdown()
     if ok < total or not long_metrics or not long_metrics["tokens"]:
         progress(f"   ↳ {tag} incoherent or unprobed — keeping {keep_note}")
-        return best_spec, best_tps, best_prefill, None
+        return best_spec, best_speed, None
     ld = long_metrics["decode_tps"]
     lp = long_metrics["prefill_tps"]
+    tps = max(short.tps) if short else 0.0
+    speed = _Speed(tps, short.prompt_tokens if short else 0,
+                   ld, long_metrics["tokens"], lp)
     row = {"label": f"{label} ({tag})", "k": k,
-           "ctx": challenger.mml, "short": 0.0,
+           "ctx": challenger.mml, "short": tps,
+           "short_tokens": speed.short_tokens,
            "long_tokens": long_metrics["tokens"], "long_prefill": lp,
            "long_decode": ld, "accept": long_metrics["accept_rate"]}
     if matrix is not None:
         matrix.append(row)
-    if _beats(ld, lp, best_tps, best_prefill, ratio):
+    if _beats(speed, best_speed, ratio, context_tokens):
         progress(f"   ↳ {tag} wins: long {format_number(ld, 1)} tok/s "
                  f"(prefill {format_number(lp, 0)}) — adopting")
-        return challenger, ld, lp, row
+        return challenger, speed, row
     progress(f"   ↳ {tag} loses (long {format_number(ld, 1)}, "
              f"prefill {format_number(lp, 0)}) — keeping {keep_note}")
-    return best_spec, best_tps, best_prefill, None
+    return best_spec, best_speed, None
 
 
-def _chunk_ab(ratio, sampling, best_spec, best_tps, best_prefill, log_dir, progress,
-              cancel_check, matrix, label, k):
+def _chunk_ab(ratio, context_tokens, sampling, best_spec, best_speed, log_dir,
+              progress, cancel_check, matrix, label, k):
     """Chunk-Groesse ist modellspezifisch und nicht ableitbar (2026-08-30:
     4096 = +2,7 % Prefill am 27B, -12 % am Flash-Next-Hybrid) — der eine
     Messpunkt ersetzt die Formel."""
@@ -974,14 +1044,14 @@ def _chunk_ab(ratio, sampling, best_spec, best_tps, best_prefill, log_dir, progr
              f"{challenger.max_batched_tokens} "
              f"(instead of {best_spec.max_batched_tokens})...")
     return _challenger_ab(
-        ratio, sampling, best_spec, best_tps, best_prefill, challenger,
+        ratio, context_tokens, sampling, best_spec, best_speed, challenger,
         f"chunk {challenger.max_batched_tokens}",
         f"chunk {best_spec.max_batched_tokens}",
         log_dir, progress, cancel_check, matrix, label, k)
 
 
-def _gmu_ab(ratio, sampling, best_spec, best_tps, best_prefill, log_dir, progress,
-            cancel_check, matrix, label, k):
+def _gmu_ab(ratio, context_tokens, sampling, best_spec, best_speed, log_dir,
+            progress, cancel_check, matrix, label, k):
     """Weiche Allokator-Druck-Erkennung: der Sieger einmal mit GMU-0,02.
 
     Harte OOMs faengt der Sweep; weicher Druck wirft keinen Fehler,
@@ -996,7 +1066,7 @@ def _gmu_ab(ratio, sampling, best_spec, best_tps, best_prefill, log_dir, progres
              f"(instead of {best_spec.gmu}) to detect silent "
              f"allocator pressure...")
     return _challenger_ab(
-        ratio, sampling, best_spec, best_tps, best_prefill, challenger,
+        ratio, context_tokens, sampling, best_spec, best_speed, challenger,
         f"gmu {lower}", f"gmu {best_spec.gmu}",
         log_dir, progress, cancel_check, matrix, label, k)
 
@@ -1009,6 +1079,7 @@ def calibrate_vllm_checkpoint(
     cancel_check: Callable[[], bool] | None = None,
     reserve_side_channel: bool = True,
     topologies: list[str] | None = None,
+    resweep: bool = False,
     dry_run: bool = False,
 ) -> VllmCalibrationResult:
     """Kompletter Suchlauf. progress() bekommt englische Statuszeilen.
@@ -1016,8 +1087,10 @@ def calibrate_vllm_checkpoint(
     ``topologies`` (Leiter-Labels) beschraenkt den Lauf auf diese Sprossen —
     der Nachmessmodus (Peuqui 2026-09-05): nach Aenderungen an Sonde,
     Drafter oder Kernel ist nur der k-Sweep neu zu messen, die
-    Leiter-Entscheidung ist samplingunabhaengig. ``dry_run`` misst und
-    schreibt die Matrix, persistiert aber keinen Betriebspunkt.
+    Leiter-Entscheidung ist samplingunabhaengig. ``resweep`` ohne
+    ``topologies`` nimmt die Topologie des persistierten Betriebspunkts.
+    ``dry_run`` misst und schreibt die Matrix, persistiert aber keinen
+    Betriebspunkt.
 
     Auswahlregel (Peuqui 2026-08-29): Kontext maximieren VOR Tempo.
     Der k-Sweep laeuft auf ALLEN kohaerenten Voll-Kontext-Topologien
@@ -1100,7 +1173,10 @@ def calibrate_vllm_checkpoint(
     uuid_by_smi = {v: k for k, v in smi.items()}
     rungs: list[_RungResult] = []
     matrix: list[dict] = []
-    candidates = _select_candidates(topology_ladder(meta, gpus, runtime), topologies)
+    ladder = list(topology_ladder(meta, gpus, runtime))
+    if resweep and topologies is None:
+        topologies = resweep_topology_labels(entry_name, ladder)
+    candidates = _select_candidates(ladder, topologies)
     if topologies is not None:
         progress("🎯 Re-sweep: " + ", ".join(c.label for c in candidates)
                  + " (rest of the topology ladder skipped)")
@@ -1159,9 +1235,11 @@ def calibrate_vllm_checkpoint(
     # Sieger nach Lang-Decode; bei Quasi-Gleichstand bricht der hoehere
     # Lang-Prefill das Patt (_beats).
     best_spec: VllmSpec | None = None
-    best_tps, best_k, best_prefill = 0.0, 0, 0.0
+    best_speed: _Speed | None = None
+    best_k = 0
     best_rung: _RungResult | None = None
     best_sweep: dict[int, float] = {}
+    ratio, context_tokens = _workload_ratio(runtime), _workload_context(runtime)
     # Sweep-Verzicht ohne Magic Number (Peuqui 2026-09-06): hat eine Sprosse
     # derselben Spekulations-Klasse (Stufenzahl + Kartentypen) ihren Sweep
     # schon hinter sich, ist deren Faktor die beste Schaetzung fuer diese
@@ -1169,51 +1247,53 @@ def calibrate_vllm_checkpoint(
     # schlagen, spart der Verzicht die Boots (27B: TP1 nach dem RTX-Paar,
     # sieben Boots ~1 h). Mit einer einzigen Karte ist TP1 die erste Sprosse
     # seiner Klasse und wird gesweept — die Regel ist hardwareagnostisch.
-    best_factor: dict[tuple, tuple[float, str]] = {}
+    best_factor: dict[tuple, tuple[float, float, str]] = {}
     for rung in pool:
         rung_class = _rung_class(rung, gpus, smi)
-        if best_rung is not None and rung_class in best_factor:
-            factor, ref_label = best_factor[rung_class]
-            expected = _rung_metric(rung) * factor
-            if not _beats(expected, rung.long_prefill_tps, best_tps,
-                          best_prefill, _workload_ratio(runtime)):
+        base = _rung_speed(rung)
+        if best_speed is not None and rung_class in best_factor:
+            short_factor, long_factor, ref_label = best_factor[rung_class]
+            expected = base.scaled(short_factor, long_factor)
+            if not _beats(expected, best_speed, ratio, context_tokens):
                 progress(
                     f"⏭️ {rung.label}: k-sweep skipped — same stage count and "
                     f"card class as {ref_label} (spec factor "
-                    f"{format_number(factor, 2)}), expected at most "
-                    f"{format_number(expected, 1)} tok/s vs "
-                    f"{format_number(best_tps, 1)}"
+                    f"{format_number(long_factor, 2)}), expected at most "
+                    f"{format_number(expected.long_tps, 1)} tok/s vs "
+                    f"{format_number(best_speed.long_tps, 1)}"
                 )
                 continue
-        spec_r, tps_r, k_r, sweep_r, prefill_r = _sweep_k(
+        spec_r, speed_r, k_r, sweep_r = _sweep_k(
             rung, meta, gpus, smi, runtime, log_dir, progress, cancel_check,
             matrix=matrix)
-        progress(f"   ↳ {rung.label} best: k={k_r}, {format_number(tps_r, 1)} tok/s")
-        base = _rung_metric(rung)
-        if base > 0:
-            measured = tps_r / base
-            if measured > best_factor.get(rung_class, (0.0, ""))[0]:
-                best_factor[rung_class] = (measured, rung.label)
-        if best_rung is None or _beats(tps_r, prefill_r, best_tps,
-                                       best_prefill, _workload_ratio(runtime)):
-            best_spec, best_tps, best_k, best_prefill = spec_r, tps_r, k_r, prefill_r
+        progress(f"   ↳ {rung.label} best: k={k_r}, "
+                 f"{format_number(speed_r.long_tps, 1)} tok/s")
+        if base.long_tps > 0:
+            long_factor = speed_r.long_tps / base.long_tps
+            short_factor = (speed_r.short_tps / base.short_tps
+                            if base.short_tps > 0 else long_factor)
+            if long_factor > best_factor.get(rung_class, (0.0, 0.0, ""))[1]:
+                best_factor[rung_class] = (short_factor, long_factor, rung.label)
+        if best_speed is None or _beats(speed_r, best_speed, ratio, context_tokens):
+            best_spec, best_speed, best_k = spec_r, speed_r, k_r
             best_rung, best_sweep = rung, sweep_r
 
     sc_spec = None
-    sc_tps, sc_k, sc_prefill = 0.0, 0, 0.0
+    sc_speed: _Speed | None = None
+    sc_k = 0
     sc_sweep: dict[int, float] = {}
     if speed_candidate is not None:
-        sc_spec, sc_tps, sc_k, sc_sweep, sc_prefill = _sweep_k(
+        sc_spec, sc_speed, sc_k, sc_sweep = _sweep_k(
             speed_candidate, meta, gpus, smi, runtime, log_dir,
             progress, cancel_check, allow_ctx_reduction=True, matrix=matrix)
         progress(
             f"🏎️ Speed candidate result: {speed_candidate.label} k={sc_k}, "
-            f"{format_number(sc_tps, 1)} tok/s at ctx "
+            f"{format_number(sc_speed.long_tps, 1)} tok/s at ctx "
             f"{format_number(sc_spec.mml)} (info only — "
             f"operating point stays full-context)"
         )
 
-    assert best_spec is not None and best_rung is not None
+    assert best_spec is not None and best_rung is not None and best_speed is not None
     ok, total = best_rung.coherence
 
     # Aggregierte Ergebnistabelle: jede Konstellation mit Kurz- UND
@@ -1236,22 +1316,22 @@ def calibrate_vllm_checkpoint(
         progress(f"   {row['label'][:32]:<32} {row['k']:>2} "
                  f"{format_number(row['ctx']):>9} {short_col} {long_cols} {acc_col}")
 
-    progress(f"🏁 Best point (long-context decode rule): {best_rung.label}, "
-             f"k={best_k}, {format_number(best_tps, 1)} tok/s "
+    progress(f"🏁 Best point (turn-time rule at {format_number(context_tokens)} "
+             f"tokens, {format_number(ratio, 1)} prompt/generated): {best_rung.label}, "
+             f"k={best_k}, long {format_number(best_speed.long_tps, 1)} tok/s, "
+             f"short {format_number(best_speed.short_tps, 1)} tok/s "
              f"(TP{best_spec.tp}×PP{best_spec.pp}, ctx {format_number(best_spec.mml)})")
 
     ab_row: dict | None = None
     if VLLM_CALIBRATION_CHUNK_AB:
-        best_spec, best_tps, best_prefill, ab_row = _chunk_ab(
-            _workload_ratio(runtime), probe_sampling(meta.generation_defaults, best_k),
-            best_spec, best_tps, best_prefill,
-            log_dir, progress,
+        best_spec, best_speed, ab_row = _chunk_ab(
+            ratio, context_tokens, probe_sampling(meta.generation_defaults, best_k),
+            best_spec, best_speed, log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
     if VLLM_CALIBRATION_GMU_AB:
-        best_spec, best_tps, best_prefill, gmu_row = _gmu_ab(
-            _workload_ratio(runtime), probe_sampling(meta.generation_defaults, best_k),
-            best_spec, best_tps, best_prefill,
-            log_dir, progress,
+        best_spec, best_speed, gmu_row = _gmu_ab(
+            ratio, context_tokens, probe_sampling(meta.generation_defaults, best_k),
+            best_spec, best_speed, log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
         ab_row = gmu_row or ab_row
 
@@ -1268,7 +1348,7 @@ def calibrate_vllm_checkpoint(
         progress("🧪 Dry run: operating point NOT persisted, llama-swap entry unchanged")
     else:
         profile_path = persist_operating_point(
-            best_spec, best_tps, best_sweep, meta,
+            best_spec, best_speed.long_tps, best_sweep, meta,
             long_ctx=ab_row or _matrix_row(best_rung.label, best_k))
         progress(f"💾 Operating point saved: {profile_path}")
 
@@ -1281,12 +1361,11 @@ def calibrate_vllm_checkpoint(
     # deshalb am GLEICHEN Massstab gemessen, der Gesamtzeit eines Turns.
     # Der frueher hier stehende rohe Decode-Vergleich unterstellte einen
     # Kurzprompt-Betrieb, den es nicht gibt.
-    if sc_spec is not None and speed_candidate is not None and not dry_run:
+    if sc_spec is not None and sc_speed is not None and speed_candidate is not None and not dry_run:
         gain = _speed_min_gain(runtime)
-        if not _beats(sc_tps, sc_prefill, best_tps, best_prefill,
-                      _workload_ratio(runtime), margin=gain):
+        if not _beats(sc_speed, best_speed, ratio, context_tokens, margin=gain):
             progress(
-                f"🏎️ No speed variant: {format_number(sc_tps, 1)} tok/s does "
+                f"🏎️ No speed variant: {format_number(sc_speed.long_tps, 1)} tok/s does "
                 f"not beat the operating point by the required "
                 f"{format_number(gain * 100, 0)} %"
             )
@@ -1295,11 +1374,11 @@ def calibrate_vllm_checkpoint(
                 **{**sc_spec.__dict__, "served_name": f"{entry_name}-speed"},
             )
             speed_path = persist_operating_point(
-                speed_spec, sc_tps, sc_sweep, meta,
+                speed_spec, sc_speed.long_tps, sc_sweep, meta,
                 long_ctx=_matrix_row(speed_candidate.label, sc_k))
             progress(
                 f"💾 Speed variant saved: {speed_path} "
-                f"({format_number(sc_tps, 1)} tok/s, "
+                f"({format_number(sc_speed.long_tps, 1)} tok/s, "
                 f"ctx {format_number(speed_spec.mml)})"
             )
 
@@ -1308,10 +1387,10 @@ def calibrate_vllm_checkpoint(
     logger.info(f"vllm calibration done: {entry_name} on {used}")
 
     return VllmCalibrationResult(
-        spec=best_spec, throughput_tok_s=best_tps,
+        spec=best_spec, throughput_tok_s=best_speed.long_tps,
         coherence=(ok, total), k_sweep=best_sweep, profile_path=profile_path,
         speed_label=speed_candidate.label if speed_candidate else "",
-        speed_k=sc_k, speed_tps=sc_tps,
+        speed_k=sc_k, speed_tps=(sc_speed.long_tps if sc_speed else 0.0),
         speed_mml=sc_spec.mml if sc_spec else 0,
         measurements=matrix,
     )

@@ -235,6 +235,50 @@ def _calibration_picker_popover() -> rx.Component:
     )
 
 
+def _resweep_options() -> rx.Component:
+    """Nachmessmodus + Trockenlauf fuer den vLLM-Lauf.
+
+    Nachmessen braucht einen persistierten Betriebspunkt (seine Topologie
+    ist die Sprosse, die vermessen wird) — ohne ihn bleibt das Haekchen
+    aus und der Tooltip sagt warum.
+    """
+    return rx.vstack(
+        rx.tooltip(
+            rx.hstack(
+                rx.checkbox(
+                    checked=AIState.calibration_vllm_resweep,
+                    on_change=AIState.toggle_calibration_vllm_resweep,
+                    disabled=~AIState.vllm_model_calibrated,
+                    size="1",
+                ),
+                rx.text(t("calibration_vllm_resweep_label"), font_size="10px"),
+                spacing="2",
+                align="center",
+            ),
+            content=rx.cond(
+                AIState.vllm_model_calibrated,
+                t("calibration_vllm_resweep_tooltip"),
+                t("calibration_vllm_resweep_needs_point"),
+            ),
+        ),
+        rx.tooltip(
+            rx.hstack(
+                rx.checkbox(
+                    checked=AIState.calibration_vllm_dry_run,
+                    on_change=AIState.toggle_calibration_vllm_dry_run,
+                    size="1",
+                ),
+                rx.text(t("calibration_vllm_dry_run_label"), font_size="10px"),
+                spacing="2",
+                align="center",
+            ),
+            content=t("calibration_vllm_dry_run_tooltip"),
+        ),
+        spacing="1",
+        align="start",
+    )
+
+
 def _vllm_calibration_popover() -> rx.Component:
     """Calibrate popover for vLLM — same layout as the llama.cpp picker,
     different meaning per cell.
@@ -330,6 +374,7 @@ def _vllm_calibration_popover() -> rx.Component:
                 _matrix_header(),
                 rx.foreach(AIState.vllm_burnin_matrix_rows, _matrix_row),
                 rx.divider(margin_y="2px"),
+                _resweep_options(),
                 rx.text(
                     t("calibration_vllm_hint"),
                     font_size="9px",

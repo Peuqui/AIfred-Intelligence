@@ -455,19 +455,44 @@ def test_topology_ladder_skips_invalid_tp(monkeypatch) -> None:
 # Siegerregel: Gesamtzeit statt Decode-Schwelle
 # ---------------------------------------------------------------------------
 
+def _long_only(decode: float, prefill: float) -> vllm_flow._Speed:
+    """Messtripel ohne Kurzpunkt: die Regel rechnet dann nur am Langpunkt."""
+    return vllm_flow._Speed(0.0, 0, decode, 28843, prefill)
+
+
 def test_beats_weighs_prefill_against_decode() -> None:
     """Messwerte 2026-09-04: Gitter 50,7 tok/s bei 749 Prefill gegen
     TP2 56,4 bei 449. Bei langen Prompts gewinnt das Gitter."""
-    grid, tp2 = (50.7, 749.0), (56.4, 449.0)
+    ctx = 12000
+    grid, tp2 = _long_only(50.7, 749.0), _long_only(56.4, 449.0)
     # 4 Prompt-Token je erzeugtem Token: Gitter vorn
-    assert vllm_flow._beats(*grid, *tp2, 4.0)
-    assert not vllm_flow._beats(*tp2, *grid, 4.0)
+    assert vllm_flow._beats(grid, tp2, 4.0, ctx)
+    assert not vllm_flow._beats(tp2, grid, 4.0, ctx)
     # Kurze Prompts, lange Antworten: TP2 vorn
-    assert vllm_flow._beats(*tp2, *grid, 0.5)
+    assert vllm_flow._beats(tp2, grid, 0.5, ctx)
     # Gleicher Prefill (k-Vergleich INNERHALB einer Topologie): Decode zaehlt
-    assert vllm_flow._beats(56.4, 449.0, 50.7, 449.0, 4.0)
+    assert vllm_flow._beats(_long_only(56.4, 449.0), _long_only(50.7, 449.0), 4.0, ctx)
     # Prefill-Rauschen friert kein besseres k ein (834 gegen 833)
-    assert vllm_flow._beats(56.4, 833.0, 50.7, 834.0, 4.0)
+    assert vllm_flow._beats(_long_only(56.4, 833.0), _long_only(50.7, 834.0), 4.0, ctx)
+
+
+def test_beats_weighs_short_and_long_point_by_everyday_context() -> None:
+    """Lauf #3 2026-09-06: RTX-Paar k=3 (kurz 61,2 / lang 52,1 / Prefill 513)
+    gegen V100-Paar k=2 (55,5 / 51,7 / 556). Am Langpunkt liegt die V100
+    1,5 % vorn, im Kurzkontext die RTX 10 % — am Alltagskontext (12.000)
+    gewinnt die RTX, am Langpunkt selbst die V100."""
+    rtx = vllm_flow._Speed(61.2, 2000, 52.1, 28843, 513.0)
+    v100 = vllm_flow._Speed(55.5, 2000, 51.7, 28843, 556.0)
+    assert vllm_flow._beats(rtx, v100, 4.0, 12000)
+    assert not vllm_flow._beats(v100, rtx, 4.0, 12000)
+    assert vllm_flow._beats(v100, rtx, 4.0, 28843)
+    # Gewicht: 0 am Kurzpunkt, 1 ab dem Langpunkt, dazwischen linear
+    assert vllm_flow._context_weight(rtx, 2000) == 0.0
+    assert vllm_flow._context_weight(rtx, 40000) == 1.0
+    assert abs(vllm_flow._context_weight(rtx, 15421) - 0.5) < 1e-3
+    # Ohne Kurzmessung zaehlt nur der Langpunkt; ohne Langpunkt nur der kurze
+    assert vllm_flow._context_weight(_long_only(50.0, 500.0), 12000) == 1.0
+    assert vllm_flow._context_weight(vllm_flow._Speed(40.0, 2000, 0.0, 0, 0.0), 12000) == 0.0
 
 
 # ---------------------------------------------------------------------------
@@ -499,7 +524,8 @@ def _sweep_harness(monkeypatch, caps: dict[int, int], decode: dict[int, float]):
     monkeypatch.setattr(vllm_flow, "boot_vllm", fake_boot)
     monkeypatch.setattr(vllm_flow, "find_free_port", lambda: 9999)
     monkeypatch.setattr(vllm_flow, "probe_coherence", lambda s: (3, 3, []))
-    monkeypatch.setattr(vllm_flow, "probe_throughput", lambda s, **kw: [10.0])
+    monkeypatch.setattr(vllm_flow, "probe_throughput",
+                        lambda s, **kw: vllm_probe.ThroughputProbe([10.0], 2000))
     monkeypatch.setattr(vllm_flow, "_k_candidates", lambda m, r: [3, 2, 1])
 
     def fake_long(server, mml, sampling=None):
@@ -528,7 +554,7 @@ def test_sweep_inherits_context_and_regrows_winner(monkeypatch, tmp_path):
                                  coherence=(3, 3), full_context=True,
                                  long_tokens=1000, long_prefill_tps=500.0,
                                  long_decode_tps=20.0)
-    best_spec, _, best_k, _, _ = vllm_flow._sweep_k(
+    best_spec, _, best_k, _ = vllm_flow._sweep_k(
         rung, _meta(20.0), MINI_GPUS, SMI, RUNTIME, tmp_path,
         lambda msg: None, None, allow_ctx_reduction=True)
 
@@ -552,7 +578,7 @@ def test_sweep_without_cap_does_not_regrow(monkeypatch, tmp_path):
                                  coherence=(3, 3), full_context=True,
                                  long_tokens=1000, long_prefill_tps=500.0,
                                  long_decode_tps=20.0)
-    best_spec, _, best_k, _, _ = vllm_flow._sweep_k(
+    best_spec, _, best_k, _ = vllm_flow._sweep_k(
         rung, _meta(20.0), MINI_GPUS, SMI, RUNTIME, tmp_path,
         lambda msg: None, None, allow_ctx_reduction=True)
     assert best_k == 2
@@ -571,14 +597,16 @@ def test_beats_requires_margin_when_a_switch_costs_something() -> None:
     (749 gegen 751 tok/s Prefill, Nachmessung 2026-09-04) darf sie nicht
     rechtfertigen.
     """
-    ratio = 4.0
+    ratio, ctx = 4.0, 12000
     # 2 % besserer Decode: ohne Marge ein Sieg, mit 10 % nicht
-    assert vllm_flow._beats(51.0, 500.0, 50.0, 500.0, ratio)
-    assert not vllm_flow._beats(51.0, 500.0, 50.0, 500.0, ratio, margin=0.10)
+    assert vllm_flow._beats(_long_only(51.0, 500.0), _long_only(50.0, 500.0), ratio, ctx)
+    assert not vllm_flow._beats(_long_only(51.0, 500.0), _long_only(50.0, 500.0),
+                                ratio, ctx, margin=0.10)
     # 30 % besserer Decode UND besserer Prefill: reicht auch mit Marge
-    assert vllm_flow._beats(65.0, 700.0, 50.0, 500.0, ratio, margin=0.10)
+    assert vllm_flow._beats(_long_only(65.0, 700.0), _long_only(50.0, 500.0),
+                            ratio, ctx, margin=0.10)
     # Unbrauchbarer Kandidat (0 tok/s) gewinnt nie
-    assert not vllm_flow._beats(0.0, 900.0, 50.0, 500.0, ratio)
+    assert not vllm_flow._beats(_long_only(0.0, 900.0), _long_only(50.0, 500.0), ratio, ctx)
 
 
 def test_speed_thresholds_come_from_runtime() -> None:
@@ -656,7 +684,8 @@ def _ladder_harness(monkeypatch, oom_on_first_probe: bool, tmp_path: Path):
     monkeypatch.setattr(vllm_flow, "boot_vllm", fake_boot)
     monkeypatch.setattr(vllm_flow, "find_free_port", lambda: 9999)
     monkeypatch.setattr(vllm_flow, "probe_coherence", fake_coherence)
-    monkeypatch.setattr(vllm_flow, "probe_throughput", lambda s, **kw: [10.0])
+    monkeypatch.setattr(vllm_flow, "probe_throughput",
+                        lambda s, **kw: vllm_probe.ThroughputProbe([10.0], 2000))
     monkeypatch.setattr(
         vllm_flow, "probe_long_context",
         lambda server, mml, sampling=None: {
@@ -725,7 +754,8 @@ def test_sweep_boot_oom_lowers_gmu_and_keeps_it(monkeypatch, tmp_path):
     monkeypatch.setattr(vllm_flow, "boot_vllm", fake_boot)
     monkeypatch.setattr(vllm_flow, "find_free_port", lambda: 9999)
     monkeypatch.setattr(vllm_flow, "probe_coherence", lambda s: (3, 3, []))
-    monkeypatch.setattr(vllm_flow, "probe_throughput", lambda s, **kw: [10.0])
+    monkeypatch.setattr(vllm_flow, "probe_throughput",
+                        lambda s, **kw: vllm_probe.ThroughputProbe([10.0], 2000))
     monkeypatch.setattr(vllm_flow, "_k_candidates", lambda m, r: [3, 2])
     monkeypatch.setattr(
         vllm_flow, "probe_long_context",
@@ -739,7 +769,7 @@ def test_sweep_boot_oom_lowers_gmu_and_keeps_it(monkeypatch, tmp_path):
                                  coherence=(3, 3), full_context=True,
                                  long_tokens=1000, long_prefill_tps=500.0, long_decode_tps=30.0)
 
-    best_spec, best_metric, best_k, sweep, _ = vllm_flow._sweep_k(
+    best_spec, best_speed, best_k, sweep = vllm_flow._sweep_k(
         rung, _meta(20.0), MINI_GPUS, SMI, RUNTIME, tmp_path, lambda m: None, None)
 
     # k=3: erster Boot bei 0,97 stirbt, zweiter bei 0,95 traegt; k=2 erbt 0,95
@@ -819,12 +849,15 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
                         gpu_ids=cand.gpu_ids, tp=cand.tp, pp=cand.pp, mml=mml)
         return vllm_flow._RungResult(spec=spec, label=cand.label, tps=30.0,
                                      coherence=(3, 3), full_context=(mml >= 65536),
+                                     short_tokens=2000,
                                      long_tokens=20000, long_prefill_tps=500.0,
                                      long_decode_tps=30.0 + cand.tp - 2 * (cand.pp - 1))
 
     def fake_sweep(rung, meta, gpus_, smi, runtime, log_dir, progress, cancel_check,
                    allow_ctx_reduction=False, matrix=None):
-        return rung.spec, rung.long_decode_tps + 10, 3, {0: rung.long_decode_tps}, 500.0
+        speed = vllm_flow._Speed(rung.tps + 10, rung.short_tokens,
+                                 rung.long_decode_tps + 10, rung.long_tokens, 500.0)
+        return rung.spec, speed, 3, {0: rung.long_decode_tps}
 
     swept: list[str] = []
 
@@ -896,4 +929,14 @@ def test_without_native_context_the_largest_reachable_context_competes(
     # TP1 laeuft als Speed-Kandidat (eigener Sweep), nicht im Pool.
     assert swept[:2] == ["TP2 across RTX 8000 class", "PP2 across RTX 8000 class"]
     assert "TP1 on RTX 8000" in swept
+
+
+def test_resweep_flag_takes_the_operating_point_topology(monkeypatch, tmp_path: Path) -> None:
+    monkeypatch.setattr(operating_points, "get_operating_point",
+                        lambda m: {"llamaswap": {"cmd": "x"},
+                                   "meta": {"topology": "TP=1 PP=2 GPUs=[0, 2]"}})
+    result, measured, persisted, log, swept = _fake_full_run(
+        monkeypatch, tmp_path, resweep=True, dry_run=True)
+    assert measured == ["PP2 across RTX 8000 class"] and swept == measured
+    assert persisted == []
 
