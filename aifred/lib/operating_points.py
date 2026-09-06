@@ -101,6 +101,17 @@ def list_operating_points() -> dict[str, Path]:
     return {p.stem: p for p in sorted(OPERATING_POINTS_DIR.glob("*.yaml"))}
 
 
+def operating_point_checkpoint(model_id: str) -> Path:
+    """Checkpoint path the persisted operating point serves."""
+    profile = get_operating_point(model_id)
+    if profile is None:
+        raise RuntimeError(f"no operating point for {model_id}")
+    path = _checkpoint_path_from_cmd(profile["llamaswap"]["cmd"])
+    if path is None:
+        raise ValueError(f"operating point {model_id} has no --model in its cmd")
+    return path
+
+
 def get_operating_point(model_id: str) -> dict | None:
     """Load the profile for ``model_id``; None if there is none.
 
