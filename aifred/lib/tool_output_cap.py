@@ -34,19 +34,20 @@ def compute_budget(
     sys_tok: int,
     hist_tok: int,
     mem_tok: int = 0,
+    tools_tok: int = 0,
 ) -> int:
     """How many tokens may the next tool result occupy in this conversation?
 
-    Total input (system + history + memory + tool result) is capped at
-    TOOL_OUTPUT_TOTAL_INPUT_RATIO of the model's context window. The tool
-    gets whatever is left after sys/hist/mem, but never less than
+    Total input (system + tool schemas + history + memory + tool result) is
+    capped at TOOL_OUTPUT_TOTAL_INPUT_RATIO of the model's context window.
+    The tool gets whatever is left after sys/tools/hist/mem, but never less than
     TOOL_OUTPUT_MIN_TOKENS — even on tight contexts a tool needs to be
     able to emit something useful.
     """
     if effective_ctx <= 0:
         return TOOL_OUTPUT_MIN_TOKENS
     max_input = int(effective_ctx * TOOL_OUTPUT_TOTAL_INPUT_RATIO)
-    used = sys_tok + hist_tok + mem_tok
+    used = sys_tok + tools_tok + hist_tok + mem_tok
     available = max_input - used
     return max(available, TOOL_OUTPUT_MIN_TOKENS)
 

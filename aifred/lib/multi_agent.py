@@ -21,6 +21,7 @@ from .message_builder import inject_before_question
 from .i18n import t
 from .context_manager import (
     estimate_tokens,
+    estimate_toolkit_tokens,
     strip_thinking_blocks,
     summarize_history_if_needed,
     get_largest_compression_model,
@@ -456,7 +457,8 @@ async def _check_compression_if_needed(
             model_name=compression_model,  # Use largest available model for quality
             context_limit=agent_context_limit,  # Use agent-specific limit, not min_ctx!
             llm_history=_ch.llm_history,
-            system_prompt_tokens=system_prompt_tokens
+            system_prompt_tokens=system_prompt_tokens,
+            toolkit_tokens=state._last_toolkit_tokens,
         ):
             if event["type"] == "history_update":
                 # DUAL-HISTORY: Update both histories
@@ -839,16 +841,23 @@ async def _run_agent_direct_response(
 
         agent_temp = resolve_agent_temperature(state, agent)
 
-        # Token breakdown: System + Memory + RAG + Research + History = Total / Limit
+        # Token breakdown: System + Tools + Memory + RAG + Research + History = Total / Limit
         sys_tok = estimate_tokens([{"content": system_prompt}], model_name=agent_model_id)
         hist_tok = estimate_tokens([m for m in messages if m["role"] != "system"], model_name=agent_model_id)
-        total_tok = sys_tok + hist_tok
+        tools_tok = estimate_toolkit_tokens(toolkit, model_name=agent_model_id)
+        # Remembered for the next turn's pre-message compression check,
+        # which runs before this toolkit exists (tools rarely change within
+        # a session; the first turn counts 0).
+        state._last_toolkit_tokens = tools_tok
+        total_tok = sys_tok + tools_tok + hist_tok
 
         # Break down sys_tok into components (all appended to system_prompt)
         research_tok = estimate_tokens([{"content": research_context}]) if research_context else 0
         base_sys_tok = sys_tok - mem_tok - research_tok
 
         parts = [f"System {format_number(base_sys_tok)}"]
+        if tools_tok:
+            parts.append(f"Tools {format_number(tools_tok)}")
         if mem_tok:
             parts.append(f"Memory {format_number(mem_tok)}")
         if research_tok:
@@ -861,7 +870,7 @@ async def _run_agent_direct_response(
         # a single tool result may inject into the conversation. Read by
         # backends/base.py just before appending the tool message.
         from .tool_output_cap import budget_var, compute_budget
-        budget_var.set(compute_budget(agent_num_ctx, sys_tok, hist_tok, mem_tok))
+        budget_var.set(compute_budget(agent_num_ctx, sys_tok, hist_tok, mem_tok, tools_tok))
 
         # Build LLM options — direct-chat path forces AIfred's thinking
         # config onto the responding agent (temporarily, restored below).
