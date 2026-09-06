@@ -27,6 +27,7 @@ from typing import Callable, Iterator
 from ..config import (
     LLAMASWAP_CONFIG_PATH,
     PROJECT_ROOT,
+    VLLM_CALIBRATION_CACHE_ROOT,
     VLLM_CALIBRATION_CHUNK_AB,
     VLLM_CALIBRATION_GMU_AB,
     VLLM_CALIBRATION_K_EXHAUSTIVE,
@@ -48,6 +49,7 @@ from .vllm_probe import (
     probe_coherence,
     probe_long_context,
     probe_throughput,
+    reset_calibration_cache,
 )
 
 logger = logging.getLogger(__name__)
@@ -942,10 +944,15 @@ def calibrate_vllm_checkpoint(
     nativen Kontext traegt.
     """
     runtime = load_vllm_runtime()  # frueh scheitern, wenn die Umgebung fehlt
+    gib = 1024 ** 3
+    freed = reset_calibration_cache()
+    progress(
+        f"🧹 Compile cache for calibration boots reset "
+        f"({VLLM_CALIBRATION_CACHE_ROOT}, {format_number(freed / gib, 1)} GiB freed)"
+    )
 
     progress(f"🔬 Analyzing checkpoint {_display_checkpoint_name(checkpoint)}...")
     meta = analyze_checkpoint(checkpoint)
-    gib = 1024 ** 3
     progress(
         f"   {meta.architecture}, {meta.num_layers} layers, "
         f"{format_number(meta.total_bytes / gib, 1)} GiB, "

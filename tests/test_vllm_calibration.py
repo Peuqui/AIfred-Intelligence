@@ -175,6 +175,35 @@ def test_spec_build_env_switches(tmp_path: Path) -> None:
     assert "VLLM_1CAT_ENABLE_SM70_MTP_DEFAULTS" not in k0.build_env(RUNTIME)
 
 
+def test_probe_boot_uses_calibration_cache_but_entry_keeps_default(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_root = tmp_path / "cache"
+    monkeypatch.setattr(vllm_probe, "VLLM_CALIBRATION_CACHE_ROOT", cache_root)
+    spec = VllmSpec(checkpoint=tmp_path, served_name="m", gpu_ids=[1])
+    assert vllm_probe.probe_boot_env(spec, RUNTIME)["VLLM_CACHE_ROOT"] == str(cache_root)
+    # Der gerenderte llama-swap-Eintrag (Produktion) bleibt beim Standard-Cache.
+    assert "VLLM_CACHE_ROOT" not in spec.build_env(RUNTIME)
+
+
+def test_reset_calibration_cache_wipes_and_recreates(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_root = tmp_path / "cache"
+    monkeypatch.setattr(vllm_probe, "VLLM_CALIBRATION_CACHE_ROOT", cache_root)
+    (cache_root / "torch_compile_cache" / "abc").mkdir(parents=True)
+    (cache_root / "torch_compile_cache" / "abc" / "graph.bin").write_bytes(b"x" * 300)
+    (cache_root / "modelinfos" / "m.json").parent.mkdir()
+    (cache_root / "modelinfos" / "m.json").write_bytes(b"y" * 20)
+
+    assert vllm_probe.reset_calibration_cache() == 320
+    assert cache_root.is_dir() and not any(cache_root.iterdir())
+    # Ohne vorhandenen Cache: anlegen, nichts freigegeben.
+    (cache_root).rmdir()
+    assert vllm_probe.reset_calibration_cache() == 0
+    assert cache_root.is_dir()
+
+
 # ---------------------------------------------------------------------------
 # Suchbausteine
 # ---------------------------------------------------------------------------

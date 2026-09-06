@@ -16,6 +16,7 @@ import json
 import logging
 import os
 import re
+import shutil
 import signal
 import subprocess
 import time
@@ -27,7 +28,7 @@ from pathlib import Path
 import yaml
 
 from ..perf_metrics import prefill_tokens_per_second
-from ..config import DATA_DIR
+from ..config import DATA_DIR, VLLM_CALIBRATION_CACHE_ROOT
 
 VLLM_RUNTIME_PATH = DATA_DIR / "vllm_runtime.yaml"
 
@@ -405,6 +406,28 @@ class VllmServer:
         return text[-n_chars:]
 
 
+def reset_calibration_cache() -> int:
+    """Compile-Cache der Kalibrationsboots leeren; gibt die freigegebenen Bytes zurueck."""
+    root = VLLM_CALIBRATION_CACHE_ROOT
+    freed = 0
+    if root.exists():
+        freed = sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
+        shutil.rmtree(root)
+    root.mkdir(parents=True)
+    return freed
+
+
+def probe_boot_env(spec: VllmSpec, runtime: dict) -> dict[str, str]:
+    """Umgebung eines Sonden-Boots: build_env plus der Kalibrations-Cache.
+
+    Nur hier, nicht in build_env: die daraus gerenderten llama-swap-Eintraege
+    (Produktion) behalten vLLMs Standard-Cache.
+    """
+    env = spec.build_env(runtime)
+    env["VLLM_CACHE_ROOT"] = str(VLLM_CALIBRATION_CACHE_ROOT)
+    return env
+
+
 def boot_vllm(
     spec: VllmSpec,
     port: int,
@@ -423,7 +446,7 @@ def boot_vllm(
         raise VllmBootError(f"checkpoint has no config.json: {spec.checkpoint}")
 
     cmd = spec.build_cmd(runtime, port)
-    env = spec.build_env(runtime)
+    env = probe_boot_env(spec, runtime)
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
     log_file = open(log_path, "w")

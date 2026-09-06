@@ -1296,6 +1296,14 @@ VLLM_CALIBRATION_CHUNK_AB = True
 # 12,6 tok/s, 0,93 = 28,3 — ohne jede Fehlermeldung). Kostet einen Boot.
 VLLM_CALIBRATION_GMU_AB = True
 
+# Compile-Cache der Kalibrationsboots: eigener VLLM_CACHE_ROOT, den der Lauf
+# beim Start leert. Jeder Sonden-Boot legt ~0,7 GB torch_compile_cache unter
+# einem Schluessel ab, den nur genau diese Konfiguration trifft (Kontext, k,
+# Topologie); 30-40 Boots je Lauf fuellten am 06.09.2026 das Root-FS
+# (103 GB) und toeteten den Lauf. Produktion behaelt vLLMs Standard-Cache
+# und kompiliert nach einer Kalibration einmal kalt (~7 min).
+VLLM_CALIBRATION_CACHE_ROOT = Path.home() / ".cache" / "vllm-calibration"
+
 # ============================================================
 # OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
 # ============================================================
