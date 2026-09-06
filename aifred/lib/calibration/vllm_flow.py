@@ -1121,14 +1121,21 @@ def calibrate_vllm_checkpoint(
     if not rungs:
         raise RuntimeError("no topology candidate booted coherently")
 
-    # Kontext-Vorrang: nur Voll-Kontext-Sprossen konkurrieren um den Sieg;
-    # reduzierte Sprossen sind Fallback, wenn es keine volle gibt.
+    # Kontext-Vorrang: nur Voll-Kontext-Sprossen konkurrieren um den Sieg.
+    # Traegt keine Sprosse den nativen Kontext (kleine Rechner), gilt dieselbe
+    # Regel eine Stufe tiefer: es konkurrieren die Sprossen mit dem groessten
+    # erreichten Kontext, die kleineren sind Speed-Kandidaten (Peuqui
+    # 2026-09-06: "Vollkontext ist auf kleinen Rechnern nicht immer erreichbar").
     pool = [r for r in rungs if r.full_context]
     fallback_pool = not pool
     if fallback_pool:
-        progress("⚠️ No topology carries the native context — "
-                 "falling back to reduced-context rungs")
-        pool = list(rungs)
+        top_ctx = max(r.spec.mml for r in rungs)
+        pool = [r for r in rungs if r.spec.mml == top_ctx]
+        progress(
+            f"⚠️ No topology carries the native context — competing on the "
+            f"largest reachable context ({format_number(top_ctx)} tokens): "
+            + ", ".join(r.label for r in pool)
+        )
     # Sortierung und Berichte nach der Entscheidungsmetrik (Lang-Decode)
     pool.sort(key=_rung_metric, reverse=True)
     progress(
@@ -1140,8 +1147,8 @@ def calibrate_vllm_checkpoint(
     # Speed-Kandidat: die schnellste kontext-reduzierte Sprosse bekommt
     # ihren Sweep ZUSAETZLICH (informativ — z.B. V100+XQA als moegliche
     # Speed-Variante), konkurriert aber nicht um den Betriebspunkt.
-    reduced = [r for r in rungs if not r.full_context]
-    speed_candidate = max(reduced, key=_rung_metric) if (reduced and not fallback_pool) else None
+    reduced = [r for r in rungs if r not in pool]
+    speed_candidate = max(reduced, key=_rung_metric) if reduced else None
     if speed_candidate is not None:
         progress(
             f"🏎️ Reduced-context speed candidate: {speed_candidate.label} "
