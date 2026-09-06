@@ -282,13 +282,29 @@ def build_history_entry(
     }
 
 
-def build_user_history_entry(content: str) -> Dict[str, str]:
-    """Build an llm_history entry for a user message, stamped with its time.
+def user_turn_stamp() -> str:
+    """Timestamp of the current user turn: ``[YYYY-MM-DD Wkd HH:MM]``.
 
-    Single Source of Truth for the user-side history format. The stamp is
-    written ONCE at creation and never touched again — that is what makes
-    it both a stable cache prefix and a truthful record of when the turn
-    happened.
+    Single Source of Truth for the format that prompts/*/shared/disciplines.txt
+    promises the model ("every user message carries its timestamp"). Taken
+    ONCE per turn and handed to every :func:`stamp_user_turn` call of that
+    turn, so the live message and the history entry never disagree — not even
+    across a minute boundary.
+    """
+    now = datetime.now()
+    # Feste englische Kuerzel statt %a: locale-unabhaengig und damit
+    # reproduzierbar, egal welche LANG-Variable der Dienst erbt.
+    weekday = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[now.weekday()]
+    return f"[{now.strftime('%Y-%m-%d')} {weekday} {now.strftime('%H:%M')}]"
+
+
+def stamp_user_turn(content: str, stamp: str) -> str:
+    """Prefix the LLM-facing user text with the turn's timestamp.
+
+    The stamped text is what the model sees live AND what llm_history keeps:
+    the model knows date and time from the very first turn (no stamp = it
+    invents one, the prompt promised it), and the later history entry is
+    byte-identical to what was sent, which keeps the prefix cache intact.
 
     Why here and not in the system prompt: the system prompt is rebuilt and
     prepended on EVERY request, so a clock in it changes the very first
@@ -298,12 +314,7 @@ def build_user_history_entry(content: str) -> Dict[str, str]:
     the model additionally learns WHEN each earlier turn happened — which a
     single session-start timestamp could never express.
     """
-    now = datetime.now()
-    # Feste englische Kuerzel statt %a: locale-unabhaengig und damit
-    # reproduzierbar, egal welche LANG-Variable der Dienst erbt.
-    weekday = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")[now.weekday()]
-    stamp = f"{now.strftime('%Y-%m-%d')} {weekday} {now.strftime('%H:%M')}"
-    return {"role": "user", "content": f"[{stamp}] {content}"}
+    return f"{stamp} {content}"
 
 
 def build_llm_history_entry(agent: str, response_clean: str) -> Dict[str, str]:

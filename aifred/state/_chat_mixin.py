@@ -1000,9 +1000,16 @@ class ChatMixin(rx.State, mixin=True):
                     )
                     _marker = f"[{_label}: {', '.join(_img_urls)} — {_hint}]"
                     llm_user_content = f"{user_msg}\n\n{_marker}" if user_msg.strip() else _marker
-            from ..lib.message_builder import build_user_history_entry
+            # Stempel EINMAL je Turn: derselbe Text geht live ans Modell und
+            # in llm_history — das Modell kennt Datum und Uhrzeit damit schon
+            # im ersten Turn, und der History-Eintrag ist byte-gleich zum
+            # gesendeten Text (Praefix-Cache). Intent-/URL-Erkennung und
+            # Gedaechtnis-Recall arbeiten weiter auf dem rohen user_msg.
+            from ..lib.message_builder import stamp_user_turn, user_turn_stamp
+            turn_stamp = user_turn_stamp()
+            llm_user_content = stamp_user_turn(llm_user_content, turn_stamp)
             ch.llm_history = [*ch.llm_history,
-                              build_user_history_entry(llm_user_content)]
+                              {"role": "user", "content": llm_user_content}]
             self.add_debug("📨 User request received")
 
             # ============================================================
@@ -1115,9 +1122,12 @@ class ChatMixin(rx.State, mixin=True):
                 # User text after images (fallback description if empty)
                 # Task-adaptive prompt: user text → Q&A, no text → OCR
                 has_user_text = bool(user_msg.strip())
-                prompt_text = user_msg.strip() if has_user_text else (
-                    "Beschreibe und analysiere dieses Bild." if detected_language == "de"
-                    else "Describe and analyze this image."
+                prompt_text = stamp_user_turn(
+                    user_msg.strip() if has_user_text else (
+                        "Beschreibe und analysiere dieses Bild." if detected_language == "de"
+                        else "Describe and analyze this image."
+                    ),
+                    turn_stamp,
                 )
                 # File-URL reference for the CURRENT turn: the image itself is
                 # only base64 in this call — without its /_upload/ URL the
@@ -1533,6 +1543,7 @@ class ChatMixin(rx.State, mixin=True):
                     detected_language,
                     research_mode=effective_research_mode,
                     detected_intent=detected_intent,
+                    llm_user_text=llm_user_content,
                 ):
                     yield
 

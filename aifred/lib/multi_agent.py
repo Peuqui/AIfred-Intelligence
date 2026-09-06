@@ -717,6 +717,8 @@ async def _run_agent_direct_response(
     detected_lang: Optional[str] = None,
     research_mode: str = "none",
     detected_intent: Optional[str] = None,
+    *,
+    llm_user_text: str,
 ) -> AsyncGenerator[None, None]:
     """Unified response handler for all agents (AIfred, Sokrates, Salomo, custom).
 
@@ -730,7 +732,9 @@ async def _run_agent_direct_response(
         agent_label: Display label for debug output
         emoji: Agent emoji for debug
         get_prompt_func: Prompt loader function returning system prompt
-        user_query: The user's question
+        user_query: The user's question (raw — memory recall, research queries)
+        llm_user_text: The stamped user turn as sent to the model — identical
+            to the last llm_history entry (message_builder.stamp_user_turn)
         detected_lang: Language from intent detection, defaults to UI language
         research_mode: "none", "automatik", "quick", or "deep"
         detected_intent: Intent from intent detection (FAKTISCH/KREATIV/GEMISCHT)
@@ -807,7 +811,7 @@ async def _run_agent_direct_response(
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
             state._chat_sub().llm_history[:-1],
-            user_query,
+            llm_user_text,
             perspective=agent,
             detected_language=detected_lang
         )
@@ -940,6 +944,8 @@ async def run_generic_agent_direct_response(
     detected_lang: Optional[str] = None,
     research_mode: str = "none",
     detected_intent: Optional[str] = None,
+    *,
+    llm_user_text: str,
 ) -> AsyncGenerator[None, None]:
     """Any agent responds directly to user (generic routing).
 
@@ -964,6 +970,7 @@ async def run_generic_agent_direct_response(
         user_query, detected_lang,
         research_mode=research_mode,
         detected_intent=detected_intent,
+        llm_user_text=llm_user_text,
     ):
         yield
 
@@ -1518,13 +1525,9 @@ async def run_symposion(
                     "agent": hist_agent,
                     "content": content,
                 })
-        # aktuelle User-Frage (immer noch nicht in llm_history wenn wir
-        # vom aktuellen Turn aufgerufen werden — sie wird in
-        # send_message() vor dem Mode-Switch-Block angefuegt; bei
-        # Aufrufen ohne send_message-Pfad muessen wir sie ergaenzen).
-        if not conversation or conversation[-1].get("role") != "user" \
-           or conversation[-1].get("content") != user_query:
-            conversation.append({"role": "user", "content": user_query})
+        # Die aktuelle Nutzerfrage steht bereits gestempelt als letzter
+        # Eintrag in llm_history (send_message() haengt sie vor dem
+        # Mode-Switch-Block an) und ist damit Teil von `conversation`.
 
         llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
 

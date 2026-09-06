@@ -459,8 +459,13 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             llm_context, message.sender, message.channel, trust,
         )
 
+        # Stempel EINMAL je Turn: derselbe Text geht live an die Engine und
+        # in llm_history — siehe message_builder.stamp_user_turn.
+        from .message_builder import stamp_user_turn, user_turn_stamp
+        user_llm_text = stamp_user_turn(llm_context, user_turn_stamp())
+
         response_text, result_metadata = await _call_engine(
-            user_text=llm_context,
+            user_text=user_llm_text,
             session_id=session_id,
             agent=message.target_agent,
             max_tier=max_tier,
@@ -482,7 +487,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         _append_response(
             session_id, response_text,
             metadata=result_metadata, agent=message.target_agent,
-            user_llm_text=llm_context,
+            user_llm_text=user_llm_text,
         )
 
         # ── Phase 3b: Sanitize output for external channels ───
