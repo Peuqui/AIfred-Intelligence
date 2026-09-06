@@ -918,6 +918,25 @@ class AgentConfigMixin(rx.State, mixin=True):
     def set_agent_temperature_for(self, agent: str, value: str) -> None:
         self._set_temperature_input(agent, value)
 
+    def _reset_sampling_for_all_agents(self, *, inheriting_only: bool, include_temperature: bool) -> None:
+        """Reset sampling of every agent affected by a backend or base-model switch.
+
+        Custom agents (Codine, Pater, ...) included — they run on the same
+        models and kept stale values otherwise (1.1 repeat penalty from the
+        pre-model days, 2026-09-06). Vision keeps its own handling.
+
+        Args:
+            inheriting_only: only agents without an own model_id (base-model
+                switch: agents with their own model are unaffected)
+            include_temperature: see _reset_agent_sampling
+        """
+        from ..lib.agent_settings import get_agent_setting
+        for entry in self._ui_agent_list(include_vision=False):
+            agent = entry["id"]
+            if inheriting_only and agent != "aifred" and get_agent_setting(self, agent, "model_id"):
+                continue
+            self._reset_agent_sampling(agent, include_temperature=include_temperature)
+
     def reset_agent_sampling_for(self, agent: str) -> None:
         self._reset_agent_sampling(agent)
         self._save_settings()  # type: ignore[attr-defined]
