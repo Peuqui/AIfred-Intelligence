@@ -28,7 +28,11 @@ from pathlib import Path
 import yaml
 
 from ..perf_metrics import prefill_tokens_per_second
-from ..config import DATA_DIR, VLLM_CALIBRATION_CACHE_ROOT
+from ..config import (
+    DATA_DIR,
+    VLLM_CALIBRATION_CACHE_MAX_GIB,
+    VLLM_CALIBRATION_CACHE_ROOT,
+)
 
 VLLM_RUNTIME_PATH = DATA_DIR / "vllm_runtime.yaml"
 
@@ -406,15 +410,49 @@ class VllmServer:
         return text[-n_chars:]
 
 
-def reset_calibration_cache() -> int:
-    """Compile-Cache der Kalibrationsboots leeren; gibt die freigegebenen Bytes zurueck."""
+def _cache_entries(root: Path) -> list[Path]:
+    """Loeschbare Einheiten des vLLM-Compile-Caches (je ein Boot-Schluessel).
+
+    Layout: torch_compile_cache/<hash>/ je Konfiguration, daneben
+    torch_compile_cache/torch_aot_compile/<hash>/ mit den AOT-Artefakten.
+    """
+    compile_root = root / "torch_compile_cache"
+    if not compile_root.is_dir():
+        return []
+    entries: list[Path] = []
+    for entry in compile_root.iterdir():
+        if entry.name == "torch_aot_compile":
+            entries.extend(child for child in entry.iterdir() if child.is_dir())
+        elif entry.is_dir():
+            entries.append(entry)
+    return entries
+
+
+def _tree_bytes(path: Path) -> int:
+    return sum(f.stat().st_size for f in path.rglob("*") if f.is_file())
+
+
+def prune_calibration_cache(
+    max_bytes: int = VLLM_CALIBRATION_CACHE_MAX_GIB * 1024**3,
+) -> tuple[int, int]:
+    """Kalibrations-Cache auf ``max_bytes`` stutzen, aelteste Eintraege zuerst.
+
+    Gibt (freigegebene Bytes, verbleibende Bytes) zurueck. Der Ordner wird
+    angelegt, falls er fehlt.
+    """
     root = VLLM_CALIBRATION_CACHE_ROOT
+    root.mkdir(parents=True, exist_ok=True)
+    entries = sorted(_cache_entries(root), key=lambda p: p.stat().st_mtime)
+    sizes = {entry: _tree_bytes(entry) for entry in entries}
+    remaining = sum(sizes.values())
     freed = 0
-    if root.exists():
-        freed = sum(f.stat().st_size for f in root.rglob("*") if f.is_file())
-        shutil.rmtree(root)
-    root.mkdir(parents=True)
-    return freed
+    for entry in entries:
+        if remaining <= max_bytes:
+            break
+        shutil.rmtree(entry)
+        freed += sizes[entry]
+        remaining -= sizes[entry]
+    return freed, remaining
 
 
 def probe_boot_env(spec: VllmSpec, runtime: dict) -> dict[str, str]:

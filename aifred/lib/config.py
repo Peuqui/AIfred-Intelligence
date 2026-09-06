@@ -1303,6 +1303,11 @@ VLLM_CALIBRATION_GMU_AB = True
 # (103 GB) und toeteten den Lauf. Produktion behaelt vLLMs Standard-Cache
 # und kompiliert nach einer Kalibration einmal kalt (~7 min).
 VLLM_CALIBRATION_CACHE_ROOT = Path.home() / ".cache" / "vllm-calibration"
+# Obergrenze des Kalibrations-Caches: beim Start eines Laufs wird er auf
+# diese Groesse gestutzt, aelteste Eintraege zuerst. Nicht leeren: Treffer
+# aus frueheren Laeufen sparen den kalten Compile (RTX 8000: ~5 min je
+# Boot, Lauf #3 am 06.09.2026 brauchte mit leerem Cache ~2 h laenger).
+VLLM_CALIBRATION_CACHE_MAX_GIB = 40
 
 # ============================================================
 # OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
