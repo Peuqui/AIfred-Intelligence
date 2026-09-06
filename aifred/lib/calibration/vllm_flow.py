@@ -96,7 +96,11 @@ DEFAULT_SPEED_VARIANT_MIN_GAIN = 0.10
 # mit 75 % der Leselast machte MTP zum Verlust; 27B mit 4 % gewinnt 2,5x).
 MTP_MAX_READ_FRACTION = 0.25
 
-BOOT_TIMEOUT_S = 1200
+# Geduld je Boot. Ein KALTER Spekulations-Boot laedt, kompiliert und faengt
+# Graphen; auf Volta/Turing summiert sich das auf ueber 20 min (Flash-Next
+# MTP, 2026-09-06). Echte Fehler faengt find_fatal_boot_signature in Sekunden
+# ab, dieser Wert bremst also nur das Aufgeben, nicht das Erkennen.
+BOOT_TIMEOUT_S = 2400
 MIN_USEFUL_CONTEXT = 4096
 
 # Siegerregel (Peuqui 2026-08-29): Kontext-Vorrang, danach entscheidet die
