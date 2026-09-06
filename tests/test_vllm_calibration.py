@@ -724,3 +724,110 @@ def test_sweep_boot_oom_lowers_gmu_and_keeps_it(monkeypatch, tmp_path):
     assert booted[:3] == [(3, 0.97), (3, 0.95), (2, 0.95)]
     assert best_k == 3 and best_spec.gmu == 0.95
     assert {3, 2} <= set(sweep)  # k=0 ist der Basiseintrag der Sprosse
+
+
+# ---------------------------------------------------------------------------
+# Nachmessmodus (Topologie-Auswahl, Trockenlauf, Matrix-Datei)
+# ---------------------------------------------------------------------------
+
+def _candidates() -> list[vllm_flow.TopologyCandidate]:
+    return [
+        vllm_flow.TopologyCandidate(gpu_ids=[0], tp=1, pp=1, pp_partition=None,
+                                    label="TP1 on RTX 8000"),
+        vllm_flow.TopologyCandidate(gpu_ids=[0, 2], tp=2, pp=1, pp_partition=None,
+                                    label="TP2 across RTX 8000 class"),
+    ]
+
+
+def test_select_candidates_filters_by_label_and_rejects_unknown() -> None:
+    cands = _candidates()
+    assert vllm_flow._select_candidates(cands, None) == cands
+    assert [c.label for c in vllm_flow._select_candidates(
+        cands, ["TP2 across RTX 8000 class"])] == ["TP2 across RTX 8000 class"]
+    with pytest.raises(ValueError, match="unknown topologies"):
+        vllm_flow._select_candidates(cands, ["TP4 nowhere"])
+
+
+def test_topology_meta_round_trip() -> None:
+    text = vllm_flow.topology_meta(2, 1, [0, 2])
+    assert text == "TP=2 PP=1 GPUs=[0, 2]"
+    assert vllm_flow.parse_topology_meta(text) == (2, 1, [0, 2])
+    assert vllm_flow.parse_topology_meta("TP=1 PP=2 GPUs=[1, 4]") == (1, 2, [1, 4])
+    with pytest.raises(ValueError):
+        vllm_flow.parse_topology_meta("TP2 across RTX 8000 class")
+
+
+def test_resweep_topology_labels_come_from_the_operating_point(monkeypatch) -> None:
+    monkeypatch.setattr(operating_points, "get_operating_point",
+                        lambda m: {"llamaswap": {"cmd": "x"},
+                                   "meta": {"topology": "TP=2 PP=1 GPUs=[0, 2]"}})
+    assert vllm_flow.resweep_topology_labels("m", _candidates()) == ["TP2 across RTX 8000 class"]
+    monkeypatch.setattr(operating_points, "get_operating_point", lambda m: None)
+    with pytest.raises(RuntimeError, match="no operating point"):
+        vllm_flow.resweep_topology_labels("m", _candidates())
+
+
+def _fake_full_run(monkeypatch, tmp_path: Path, **kwargs):
+    """calibrate_vllm_checkpoint mit gefaelschten Messungen: gibt (result,
+    gemessene Labels, persist-Aufrufe) zurueck."""
+    import aifred.lib.process_utils as process_utils
+
+    gpus = [_gpu("g0", "RTX 8000", 7.5, 49152, 49000, 0),
+            _gpu("g2", "RTX 8000", 7.5, 49152, 49000, 0)]
+    monkeypatch.setattr(vllm_flow, "load_vllm_runtime", lambda: RUNTIME)
+    monkeypatch.setattr(vllm_flow, "reset_calibration_cache", lambda: 0)
+    monkeypatch.setattr(vllm_flow, "analyze_checkpoint", lambda c: _meta(20.0))
+    monkeypatch.setattr(vllm_flow, "side_channel_uuids", lambda: set())
+    monkeypatch.setattr(vllm_flow, "eligible_gpus", lambda reserved: gpus)
+    monkeypatch.setattr(process_utils, "gpu_compute_processes", lambda uuids=None: [])
+    monkeypatch.setattr(vllm_flow, "_smi_index_by_uuid", lambda: {"g0": 0, "g2": 2})
+    monkeypatch.setattr(vllm_flow, "topology_ladder", lambda m, g, r: _candidates())
+    monkeypatch.setattr(vllm_flow, "VLLM_CALIBRATION_CHUNK_AB", False)
+    monkeypatch.setattr(vllm_flow, "VLLM_CALIBRATION_GMU_AB", False)
+    measured: list[str] = []
+
+    def fake_measure(cand, entry_name, meta, gpus_, smi, log_dir, progress, cancel_check):
+        measured.append(cand.label)
+        spec = VllmSpec(checkpoint=tmp_path, served_name=entry_name,
+                        gpu_ids=cand.gpu_ids, tp=cand.tp, pp=cand.pp, mml=65536)
+        return vllm_flow._RungResult(spec=spec, label=cand.label, tps=30.0,
+                                     coherence=(3, 3), full_context=True,
+                                     long_tokens=20000, long_prefill_tps=500.0,
+                                     long_decode_tps=30.0 + cand.tp)
+
+    def fake_sweep(rung, meta, gpus_, smi, runtime, log_dir, progress, cancel_check,
+                   allow_ctx_reduction=False, matrix=None):
+        return rung.spec, rung.long_decode_tps + 10, 3, {0: rung.long_decode_tps}, 500.0
+
+    persisted: list[str] = []
+    monkeypatch.setattr(vllm_flow, "_measure_topology", fake_measure)
+    monkeypatch.setattr(vllm_flow, "_sweep_k", fake_sweep)
+    monkeypatch.setattr(vllm_flow, "persist_operating_point",
+                        lambda spec, *a, **k: persisted.append(spec.served_name) or tmp_path / "p.yaml")
+    log: list[str] = []
+    result = vllm_flow.calibrate_vllm_checkpoint(
+        checkpoint=tmp_path, entry_name="m", log_dir=tmp_path / "log",
+        progress=log.append, cancel_check=None, reserve_side_channel=False, **kwargs)
+    return result, measured, persisted, log
+
+
+def test_full_run_measures_the_whole_ladder_and_persists(monkeypatch, tmp_path: Path) -> None:
+    result, measured, persisted, log = _fake_full_run(monkeypatch, tmp_path)
+    assert measured == ["TP1 on RTX 8000", "TP2 across RTX 8000 class"]
+    assert persisted == ["m"] and result.profile_path == tmp_path / "p.yaml"
+    assert result.spec.tp == 2  # TP2 gewinnt (hoeherer Lang-Decode)
+    matrix = json.loads((tmp_path / "log" / "measurement-matrix.json").read_text())
+    assert matrix["entry"] == "m" and len(matrix["rows"]) == 2
+
+
+def test_resweep_measures_only_the_requested_topology_and_dry_run_persists_nothing(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    result, measured, persisted, log = _fake_full_run(
+        monkeypatch, tmp_path, topologies=["TP2 across RTX 8000 class"], dry_run=True)
+    assert measured == ["TP2 across RTX 8000 class"]
+    assert persisted == [] and result.profile_path is None
+    assert any("Dry run" in line for line in log)
+    assert (tmp_path / "log" / "measurement-matrix.json").exists()
+    with pytest.raises(ValueError, match="unknown topologies"):
+        _fake_full_run(monkeypatch, tmp_path, topologies=["TP9"])

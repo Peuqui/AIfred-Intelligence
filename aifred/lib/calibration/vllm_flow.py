@@ -22,7 +22,7 @@ import logging
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterator
+from typing import Callable, Iterable, Iterator
 
 from ..config import (
     LLAMASWAP_CONFIG_PATH,
@@ -244,6 +244,66 @@ def topology_ladder(
                 ids, tp, len(classes), partition,
                 f"TP{tp}×PP{len(classes)} grid",
             )
+
+
+def _select_candidates(
+    candidates: Iterable[TopologyCandidate], topologies: list[str] | None,
+) -> list[TopologyCandidate]:
+    """Leiter auf die gewuenschten Sprossen einschraenken (None = alle).
+
+    Ein unbekanntes Label ist ein Aufruffehler, kein leerer Lauf: die
+    gueltigen Labels stehen in der Meldung.
+    """
+    candidates = list(candidates)
+    if topologies is None:
+        return candidates
+    known = {c.label for c in candidates}
+    unknown = [t for t in topologies if t not in known]
+    if unknown:
+        raise ValueError(
+            f"unknown topologies {unknown}; available: {sorted(known)}"
+        )
+    return [c for c in candidates if c.label in topologies]
+
+
+def topology_meta(tp: int, pp: int, gpu_ids: list[int]) -> str:
+    """Die Topologie-Zeile des Betriebspunkts (meta.topology)."""
+    return f"TP={tp} PP={pp} GPUs={list(gpu_ids)}"
+
+
+def parse_topology_meta(text: str) -> tuple[int, int, list[int]]:
+    """Umkehrung von topology_meta()."""
+    import re
+    m = re.fullmatch(r"TP=(\d+) PP=(\d+) GPUs=\[([\d, ]*)\]", text.strip())
+    if not m:
+        raise ValueError(f"unexpected operating-point topology: {text!r}")
+    gpu_ids = [int(x) for x in m.group(3).split(",") if x.strip()]
+    return int(m.group(1)), int(m.group(2)), gpu_ids
+
+
+def resweep_topology_labels(
+    entry_name: str, candidates: Iterable[TopologyCandidate],
+) -> list[str]:
+    """Labels der Leiter-Sprossen, die der persistierte Betriebspunkt faehrt.
+
+    Der Nachmessmodus startet auf genau dieser Topologie; ohne Betriebspunkt
+    gibt es nichts nachzumessen.
+    """
+    from ..operating_points import get_operating_point
+
+    candidates = list(candidates)
+    profile = get_operating_point(entry_name)
+    if profile is None:
+        raise RuntimeError(f"no operating point for {entry_name} — run a full calibration")
+    tp, pp, gpu_ids = parse_topology_meta(profile["meta"]["topology"])
+    labels = [c.label for c in candidates
+              if (c.tp, c.pp, c.gpu_ids) == (tp, pp, gpu_ids)]
+    if not labels:
+        raise RuntimeError(
+            f"operating point topology {profile['meta']['topology']} is not on "
+            f"today's ladder: {[c.label for c in candidates]}"
+        )
+    return labels
 
 
 def _seed_partition(meta: VllmModelMeta, stage_gpus: list[list[GPU]]) -> str | None:
@@ -933,8 +993,16 @@ def calibrate_vllm_checkpoint(
     progress: Callable[[str], None],
     cancel_check: Callable[[], bool] | None = None,
     reserve_side_channel: bool = True,
+    topologies: list[str] | None = None,
+    dry_run: bool = False,
 ) -> VllmCalibrationResult:
     """Kompletter Suchlauf. progress() bekommt englische Statuszeilen.
+
+    ``topologies`` (Leiter-Labels) beschraenkt den Lauf auf diese Sprossen —
+    der Nachmessmodus (Peuqui 2026-09-05): nach Aenderungen an Sonde,
+    Drafter oder Kernel ist nur der k-Sweep neu zu messen, die
+    Leiter-Entscheidung ist samplingunabhaengig. ``dry_run`` misst und
+    schreibt die Matrix, persistiert aber keinen Betriebspunkt.
 
     Auswahlregel (Peuqui 2026-08-29): Kontext maximieren VOR Tempo.
     Der k-Sweep laeuft auf ALLEN kohaerenten Voll-Kontext-Topologien
@@ -1015,7 +1083,11 @@ def calibrate_vllm_checkpoint(
     uuid_by_smi = {v: k for k, v in smi.items()}
     rungs: list[_RungResult] = []
     matrix: list[dict] = []
-    for cand in topology_ladder(meta, gpus, runtime):
+    candidates = _select_candidates(topology_ladder(meta, gpus, runtime), topologies)
+    if topologies is not None:
+        progress("🎯 Re-sweep: " + ", ".join(c.label for c in candidates)
+                 + " (rest of the topology ladder skipped)")
+    for cand in candidates:
         if cancel_check and cancel_check():
             raise RuntimeError("cancelled")
         result = _measure_topology(cand, entry_name, meta, gpus, smi,
@@ -1137,10 +1209,17 @@ def calibrate_vllm_checkpoint(
         return next((r for r in matrix
                      if r["label"] == label and r["k"] == k), None)
 
-    profile_path = persist_operating_point(
-        best_spec, best_tps, best_sweep, meta,
-        long_ctx=ab_row or _matrix_row(best_rung.label, best_k))
-    progress(f"💾 Operating point saved: {profile_path}")
+    matrix_path = _write_matrix(log_dir, entry_name, matrix)
+    progress(f"🗂️ Measurement matrix written: {matrix_path}")
+
+    profile_path: Path | None = None
+    if dry_run:
+        progress("🧪 Dry run: operating point NOT persisted, llama-swap entry unchanged")
+    else:
+        profile_path = persist_operating_point(
+            best_spec, best_tps, best_sweep, meta,
+            long_ctx=ab_row or _matrix_row(best_rung.label, best_k))
+        progress(f"💾 Operating point saved: {profile_path}")
 
     # Speed-Variante nur persistieren, wenn sie den Betriebspunkt schlaegt —
     # ein "-speed"-Eintrag, der langsamer ist, waere sinnlos. Der Eintrag
@@ -1151,7 +1230,7 @@ def calibrate_vllm_checkpoint(
     # deshalb am GLEICHEN Massstab gemessen, der Gesamtzeit eines Turns.
     # Der frueher hier stehende rohe Decode-Vergleich unterstellte einen
     # Kurzprompt-Betrieb, den es nicht gibt.
-    if sc_spec is not None and speed_candidate is not None:
+    if sc_spec is not None and speed_candidate is not None and not dry_run:
         gain = _speed_min_gain(runtime)
         if not _beats(sc_tps, sc_prefill, best_tps, best_prefill,
                       _workload_ratio(runtime), margin=gain):
@@ -1185,6 +1264,21 @@ def calibrate_vllm_checkpoint(
         speed_mml=sc_spec.mml if sc_spec else 0,
         measurements=matrix,
     )
+
+
+def _write_matrix(log_dir: Path, entry_name: str, matrix: list[dict]) -> Path:
+    """Alle Einzelmessungen des Laufs als JSON neben die Boot-Logs legen."""
+    import datetime
+    import json
+
+    log_dir.mkdir(parents=True, exist_ok=True)
+    path = log_dir / "measurement-matrix.json"
+    path.write_text(json.dumps({
+        "entry": entry_name,
+        "measured": datetime.datetime.now().isoformat(timespec="seconds"),
+        "rows": matrix,
+    }, indent=1, ensure_ascii=False))
+    return path
 
 
 def render_llamaswap_entry(spec: VllmSpec, ttl: int = 3600) -> dict:
@@ -1225,7 +1319,7 @@ def persist_operating_point(
         "throughput_tok_s": round(tok_s, 1),
         "k_sweep": {str(k): round(v, 1) for k, v in k_sweep.items()},
         "k_sweep_metric": "long_context_decode_tok_s",
-        "topology": f"TP={spec.tp} PP={spec.pp} GPUs={spec.gpu_ids}",
+        "topology": topology_meta(spec.tp, spec.pp, spec.gpu_ids),
     }
     if long_ctx and long_ctx.get("long_tokens"):
         meta_block["long_context"] = {
