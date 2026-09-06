@@ -20,6 +20,8 @@ import shutil
 import signal
 import subprocess
 import time
+
+import psutil
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -33,6 +35,7 @@ from ..config import (
     DATA_DIR,
     VLLM_CALIBRATION_CACHE_MAX_GIB,
     VLLM_CALIBRATION_CACHE_ROOT,
+    VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO,
 )
 
 VLLM_RUNTIME_PATH = DATA_DIR / "vllm_runtime.yaml"
@@ -535,6 +538,21 @@ def boot_vllm(
         if fatal:
             server.shutdown()
             raise boot_error(f"fatal error during boot: {fatal}")
+        # Host-RAM-Wache: ein Boot, der den Host in den Swap drueckt, wird
+        # nicht gesund, er macht den Rechner unerreichbar (06.09.2026,
+        # siehe VLLM_CALIBRATION_HOST_MEM_FLOOR_GIB). Hier abbrechen, solange
+        # der Kernel noch reagiert.
+        host_mem = psutil.virtual_memory()
+        floor_bytes = int(host_mem.total * VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO)
+        if host_mem.available < floor_bytes:
+            server.shutdown()
+            raise boot_error(
+                f"host memory exhausted during boot: "
+                f"{host_mem.available / 1024**3:.1f} GiB available, floor "
+                f"{floor_bytes / 1024**3:.1f} GiB "
+                f"({VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO:.0%} of "
+                f"{host_mem.total / 1024**3:.0f} GiB) — the boot would swap"
+            )
         try:
             with urllib.request.urlopen(f"{server.base_url}/health", timeout=3) as r:
                 if r.status == 200:

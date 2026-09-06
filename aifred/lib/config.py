@@ -1309,6 +1309,18 @@ VLLM_CALIBRATION_CACHE_ROOT = Path.home() / ".cache" / "vllm-calibration"
 # Boot, Lauf #3 am 06.09.2026 brauchte mit leerem Cache ~2 h laenger).
 VLLM_CALIBRATION_CACHE_MAX_GIB = 40
 
+# Host-RAM-Wache der Kalibrationsboots: Anteil des GESAMTEN Arbeitsspeichers,
+# der waehrend eines Boots verfuegbar bleiben muss. Faellt er darunter, wird
+# der Boot abgebrochen und die Sprosse verworfen. Als Anteil statt fester
+# GiB-Zahl, damit die Wache auf jedem Rechner dasselbe bedeutet: auf einem
+# 30-GB-Host sind das 3 GiB, auf einem 128-GB-Host 12,8 GiB.
+# Grund (06.09.2026): Ein Modell pinnte auf beiden TP-Raengen zusammen 14 GiB
+# Embedding-Tabelle in 30 GB Host-RAM, der Kernel lagerte 16 GB ueber die
+# USB-NVMe aus, der Rechner war 40 min nicht erreichbar und musste vom Strom
+# getrennt werden. Swappen ist hier nie ein Betriebszustand, sondern das Ende
+# der Erreichbarkeit.
+VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO = 0.10
+
 # Alltagskontext der Siegerregel (Token): die Turnzeit wird am Kurz- und am
 # Langpunkt gerechnet und nach der Lage dieses Werts zwischen beiden
 # gewichtet (Peuqui 2026-09-06: Lang- UND Kurzkontext zaehlen, Prefill auch).
