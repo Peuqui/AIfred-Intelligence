@@ -140,19 +140,37 @@ class vLLMBackend(OpenAICompatibleBackend):
         return prefill, decode, max(d_pf_tok, 0.0)
 
     def _build_extra_body(self, options) -> Dict:
-        """Wie die Basisklasse, aber ohne ``min_p``.
+        """Wie die Basisklasse, aber ohne ``min_p`` und ``repetition_penalty``.
 
         vLLM lehnt ``min_p`` (und ``logit_bias``) bei aktivem Speculative
         Decoding hart ab ("not yet supported with speculative decoding",
         Fehler kommt als Text IM Stream → Client wartet endlos). Unsere
         Betriebspunkte fahren MTP gerade wegen des Tempos — min_p wird
         deshalb nicht gesendet und das einmal sichtbar geloggt.
+
+        ``repetition_penalty`` bedeutet bei vLLM etwas anderes als die
+        Wiederholungsstrafe von llama.cpp: vLLM bestraft JEDES Token, das
+        irgendwo im Prompt vorkommt (prompt_mask | output_mask in
+        model_executor/layers/utils.py), llama.cpp nur die letzten 64
+        Token (repeat_last_n). Bei 30k-Prompts mit Tool-Schemata wird so
+        jedes Zitat aus dem Prompt abgestraft — Namen, Dateiinhalte,
+        Tool-JSON. Die Einstellung muss in jedem Backend dasselbe
+        bewirken (Peuqui, 2026-09-06); eine Umrechnung in die additive,
+        ausgabebezogene presence_penalty gibt es nicht, also faellt der
+        Wert hier weg und wird einmal sichtbar geloggt.
         """
         extra_body = super()._build_extra_body(options)
         if extra_body.pop("min_p", None) is not None:
             logger.info(
                 "min_p not sent to vLLM: unsupported with speculative "
                 "decoding (MTP operating point)"
+            )
+        penalty = extra_body.pop("repetition_penalty", None)
+        if penalty is not None:
+            logger.info(
+                "repetition_penalty %s not sent to vLLM: it would penalise "
+                "every token of the whole prompt, unlike llama.cpp's "
+                "64-token window", penalty,
             )
         return extra_body
 
