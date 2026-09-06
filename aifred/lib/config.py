@@ -1312,10 +1312,13 @@ VLLM_CALIBRATION_CACHE_MAX_GIB = 40
 # Alltagskontext der Siegerregel (Token): die Turnzeit wird am Kurz- und am
 # Langpunkt gerechnet und nach der Lage dieses Werts zwischen beiden
 # gewichtet (Peuqui 2026-09-06: Lang- UND Kurzkontext zaehlen, Prefill auch).
-# Default: System-Prompt (~9.700) plus eine typische Historie. Wer vor allem
-# Dokumente einliest oder codet, setzt hoeher; ueberschreibbar per
-# "workload_context_tokens" in data/vllm_runtime.yaml.
-VLLM_CALIBRATION_WORKLOAD_CONTEXT_TOKENS = 12000
+# Default: ein Automatik-Turn mit allen Plugins — System-Prompt (~10.400)
+# plus Tool-Schemata (~19.700, die Chat-Vorlage rendert sie in den
+# System-Turn) plus eine kurze Historie; jeder Turn traegt das, auch der
+# erste (gemessen 2026-09-06). Ohne Tools (Wissen-Modus) sind es ~12.000.
+# Wer vor allem Dokumente einliest oder codet, setzt hoeher; ueberschreibbar
+# per "workload_context_tokens" in data/vllm_runtime.yaml.
+VLLM_CALIBRATION_WORKLOAD_CONTEXT_TOKENS = 30000
 
 # ============================================================
 # OLLAMA HYBRID MODE (CPU OFFLOAD) CONFIGURATION
