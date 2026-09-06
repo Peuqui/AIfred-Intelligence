@@ -647,7 +647,7 @@ DEFAULT_TEMPERATURE = 0.5   # Pre-model default; model selection resets from lla
 DEFAULT_TOP_K = 40          # Top-K sampling (0 = disabled)
 DEFAULT_TOP_P = 0.9         # Top-P (nucleus) sampling
 DEFAULT_MIN_P = 0.05        # Min-P sampling (0 = disabled)
-DEFAULT_REPEAT_PENALTY = 1.1  # Repetition penalty (1.0 = disabled)
+DEFAULT_REPEAT_PENALTY = 1.0  # Repetition penalty (1.0 = disabled; llama.cpp default, Qwen3 recommends none)
 
 # llama-server built-in defaults (used for reset when no YAML overrides exist)
 LLAMASERVER_DEFAULT_TEMPERATURE = 0.8
