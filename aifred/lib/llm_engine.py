@@ -302,6 +302,7 @@ async def call_llm(
             backend_type=backend_type,
             agent_label=agent_label,
             truncated=pipeline_result.truncated,
+            thinking_time=pipeline_result.thinking_time,
         )
         # Channel-Hint fuer send_reply: bei erfolgreichem Audio-Tool soll
         # die TTS-Bestaetigung geskippt werden — Smart-Speaker-UX.

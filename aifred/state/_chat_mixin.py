@@ -25,6 +25,11 @@ from ..lib.context_manager import strip_thinking_blocks
 
 class ChatMixin(rx.State, mixin=True):
     """Mixin for chat message sending and AI response streaming."""
+    # Ladezeit des letzten Cold Starts (Sekunden), gemessen am ersten
+    # LLM-Aufruf nach der Erkennung; add_agent_panel haengt sie an die
+    # naechste Antwort und setzt sie zurueck — Warmstarts tragen nichts.
+    _pending_load_time: float = 0.0
+
 
     # ── State Variables ──────────────────────────────────────────────
     current_user_input: str = ""
@@ -302,8 +307,13 @@ class ChatMixin(rx.State, mixin=True):
         # 1. Build marker (emoji + mode label + round number)
         marker = self._build_marker(agent, mode, round_num if round_num and round_num > 0 else None)
 
-        # 2. Format metadata footer
-        meta_footer = self._format_panel_metadata(metadata)
+        # 2. Format metadata footer — with the cold-start load time of this
+        # turn, if there was one (the first answer after the load carries it)
+        msg_metadata = metadata.copy() if metadata else {}
+        if self._pending_load_time and msg_metadata:
+            msg_metadata["load_time"] = self._pending_load_time
+            self._pending_load_time = 0.0
+        meta_footer = self._format_panel_metadata(msg_metadata)
 
         # 3. Translate consensus tags to natural language for UI display
         # These are trigger words for the Multi-Agent system, already parsed by count_lgtm_votes()
@@ -325,7 +335,6 @@ class ChatMixin(rx.State, mixin=True):
 
         # 5. Create new message entry (dict-based format)
         # Include audio URLs if streaming TTS generated them
-        msg_metadata = metadata.copy() if metadata else {}
         if self._pending_audio_urls:  # type: ignore[attr-defined, has-type]
             msg_metadata["audio_urls"] = self._pending_audio_urls.copy()  # type: ignore[attr-defined, has-type]
             log_message(f"🔊 add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")  # type: ignore[attr-defined, has-type]
@@ -1221,10 +1230,12 @@ class ChatMixin(rx.State, mixin=True):
             # llama-swap loads models on-demand — first request triggers cold start.
             # Check /running BEFORE the first LLM call so the user knows why it's slow.
             # ============================================================
+            cold_start = False
             if self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
                 try:
                     running_models = await self._llamaswap_running_models()
                     if effective_auto not in running_models:
+                        cold_start = True
                         # Extract model details from llama-swap config
                         details = ""
                         try:
@@ -1277,6 +1288,13 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(f"🎯 Intent: {detected_intent} ({_reason}), Lang: {detected_language.upper()} (UI)")
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
             else:
+                # Beim Cold Start traegt dieser erste LLM-Aufruf das Laden des
+                # Modells; seine Dauer ist die Ladezeit (die Intent-Inferenz
+                # selbst liegt im Sekundenbereich) und landet als "Load" an
+                # der Antwort. Bild-/URL-only-Turns ohne Intent-Aufruf laden im
+                # Hauptaufruf und zeigen die Zeit in der TTFT.
+                from ..lib.timer import Timer
+                _intent_timer = Timer()
                 (
                     detected_intent,
                     addressed_to,
@@ -1290,6 +1308,8 @@ class ChatMixin(rx.State, mixin=True):
                     llm_client,
                     automatik_num_ctx=auto_num_ctx,
                 )
+                if cold_start:
+                    self._pending_load_time = _intent_timer.elapsed()
                 # Log Intent Detection result to UI debug console (always visible)
                 from ..lib.intent_detector import format_intent_result
                 from ..lib.intent_detector import format_mode_switch_summary
