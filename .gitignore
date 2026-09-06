@@ -137,3 +137,6 @@ data/FreeEchoDot2/
 
 # Plugin-Manager verschiebt deaktivierte Plugins hierher (transienter Zustand)
 aifred/plugins/disabled/
+
+# Sicherungen von User-Configs vor Aenderungen (vllm_runtime.yaml, Betriebspunkte)
+backups/
