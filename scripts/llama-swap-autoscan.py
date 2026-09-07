@@ -18,6 +18,7 @@ import re
 import socket
 import subprocess
 import sys
+from collections import Counter
 from datetime import datetime
 from pathlib import Path
 from typing import Optional
@@ -1558,6 +1559,28 @@ def append_models_to_yaml(
 VLLM_SEED_CONTEXT = 8192  # konservativ; die Kalibrierung findet das Maximum
 
 
+def dominant_hf_repo(checkpoint: Path) -> Optional[str]:
+    """Cache-Verzeichnis des Repos, aus dem die meisten Gewichte stammen.
+
+    Zusammengesetzte Checkpoints unter MODELS_DIR sind Symlink-Farmen auf die
+    Blobs des HF-Caches. Das Repo, das die Masse der Safetensors stellt, IST
+    derselbe Checkpoint. Einzelne transplantierte Dateien aus anderen Repos
+    machen deren Quelle dagegen nicht ueberfluessig — deshalb entscheidet die
+    Mehrheit, nicht die blosse Beruehrung.
+    """
+    counts: Counter[str] = Counter()
+    for weight in checkpoint.glob("*.safetensors"):
+        try:
+            relative = weight.resolve().relative_to(HF_CACHE_DIR)
+        except (ValueError, OSError):
+            continue
+        if relative.parts:
+            counts[relative.parts[0]] += 1
+    if not counts:
+        return None
+    return counts.most_common(1)[0][0]
+
+
 def vllm_checkpoint_candidates() -> list[tuple[Path, str]]:
     """Checkpoint-Verzeichnisse fuer vLLM samt Anzeigename.
 
@@ -1574,12 +1597,26 @@ def vllm_checkpoint_candidates() -> list[tuple[Path, str]]:
         )
 
     found: dict[str, Path] = {}
+    # Repos, die bereits durch ein zusammengesetztes Verzeichnis unter
+    # MODELS_DIR vertreten sind. Ohne diese Sperre saeht der Autoscan
+    # denselben Checkpoint ein zweites Mal unter dem Repo-Namen ein — der
+    # doppelte Flash-Next-Eintrag vom 07.09.2026.
+    covered_repos: set[str] = set()
     if MODELS_DIR.is_dir():
         for d in sorted(MODELS_DIR.iterdir()):
             if is_checkpoint(d):
                 found.setdefault(d.name, d)
+                repo = dominant_hf_repo(d)
+                if repo:
+                    covered_repos.add(repo)
     if HF_CACHE_DIR.is_dir():
         for repo_dir in sorted(HF_CACHE_DIR.glob("models--*")):
+            if repo_dir.name in covered_repos:
+                print(
+                    f"  ~ Skip:    {repo_dir.name.split('--')[-1]} "
+                    "(schon als zusammengesetztes Verzeichnis eingetragen)"
+                )
+                continue
             snapshots = repo_dir / "snapshots"
             if not snapshots.is_dir():
                 continue
