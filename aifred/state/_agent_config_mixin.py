@@ -193,7 +193,12 @@ class AgentConfigMixin(rx.State, mixin=True):
         ``resolve_reasoning_levels`` (GGUF-Einträge: eingebettetes
         Template; vLLM-Einträge: chat_template.jinja des Checkpoints).
         Ollama/Cloud-Modelle haben keinen llama-swap-Eintrag → keine Stufen."""
-        from ..lib.agent_settings import get_agent_setting, set_agent_setting
+        from ..lib.agent_settings import (
+            get_agent_setting,
+            model_owner,
+            set_agent_setting,
+        )
+        from ..lib.model_vram_cache import get_reasoning_levels_for_model
         levels: list[str] = []
         default = ""
         if model_id and self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
@@ -207,9 +212,31 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Effort gegen die EFFEKTIVEN Stufen validieren (Owner-aware):
         # Beim Umstellen auf "(wie AIfred-LLM)" ist die eigene Liste leer,
         # aber ein gesetztes "high" bleibt gültig, solange der Owner es kann.
+        #
+        # Verworfen wird nur, wenn die Stufen des Modells wirklich BEKANNT
+        # sind. Eine leere Liste heisst zweierlei: "analysiert, das Modell
+        # kennt keine Stufen" (DeepSeek-V4) oder "gar nicht analysierbar"
+        # (Ollama/Cloud haben keinen llama-swap-Eintrag, siehe Docstring).
+        # Nur im ersten Fall darf die Wahl des Users fallen — sonst loescht
+        # ein Backend-Wechsel sie unwiederbringlich, weil _save_settings sie
+        # sofort festschreibt. Die Unterscheidung liefert der Cache selbst:
+        # None = nie analysiert, [] = analysiert und ohne Stufen.
+        owner_model: str = get_agent_setting(
+            self, model_owner(self, agent), "model_id",
+        )
+        levels_known = (
+            self.backend_type in LLAMASWAP_BACKENDS  # type: ignore[attr-defined]
+            and bool(owner_model)
+            and get_reasoning_levels_for_model(owner_model) is not None
+        )
+        effort: str = get_agent_setting(self, agent, "reasoning_effort")
         effective = self._effective_reasoning_levels(agent)
-        if get_agent_setting(self, agent, "reasoning_effort") not in ("", *effective):
+        if levels_known and effort not in ("", *effective):
             set_agent_setting(self, agent, "reasoning_effort", "")
+            self.add_debug(  # type: ignore[attr-defined]
+                f"🧠 {agent.capitalize()} reasoning effort '{effort}' "
+                f"unsupported by {owner_model} — cleared"
+            )
             self._save_settings()  # type: ignore[attr-defined]
 
     # AIfred/Vision keep dedicated vars — their rows are special-cased in
