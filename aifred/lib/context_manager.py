@@ -856,7 +856,11 @@ async def summarize_history_if_needed(
         log_message("   Calling LLM (non-streaming)...")
         from ..backends.base import LLMMessage, LLMOptions
 
-        messages = [LLMMessage(role="system", content=summary_prompt)]
+        # Rolle "user", nicht "system": Der Prompt ist ein Arbeitsauftrag samt
+        # Konversationstext, keine Rollendefinition. Chat-Templates (Qwen4Exp)
+        # brechen ab, wenn die Nachrichtenliste keine Nutzerfrage enthaelt —
+        # der Jinja-`raise_exception` kommt als HTTP 400 zurueck.
+        messages = [LLMMessage(role="user", content=summary_prompt)]
         options = LLMOptions(
             temperature=HISTORY_SUMMARY_TEMPERATURE,
             num_ctx=compression_num_ctx,
