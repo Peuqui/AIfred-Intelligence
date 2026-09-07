@@ -5,6 +5,9 @@ First check: Does the conversation contain **Sokrates**, **Salomo** or **[WEITER
 → **YES?** Use **FORMAT A** (Multi-Agent Tracking)
 → **NO?** Use **FORMAT B** (Compact List)
 
+**OUTPUT:** Start directly with the content. The format names are instructions
+to you, not headings — output neither them nor any preamble.
+
 ═══════════════════════════════════════════════════════════════════════════
 # FORMAT A: MULTI-AGENT TRACKING
 ═══════════════════════════════════════════════════════════════════════════

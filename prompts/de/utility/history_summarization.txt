@@ -5,6 +5,9 @@ Prüfe zuerst: Enthält die Konversation **Sokrates**, **Salomo** oder **[WEITER
 → **JA?** Nutze **FORMAT A** (Multi-Agenten-Tracking)
 → **NEIN?** Nutze **FORMAT B** (Kompakte Liste)
 
+**AUSGABE:** Beginne direkt mit dem Inhalt. Die Formatnamen sind Anweisungen
+an dich, keine Überschriften — gib weder sie noch eine Vorrede mit aus.
+
 ═══════════════════════════════════════════════════════════════════════════
 # FORMAT A: MULTI-AGENTEN-TRACKING
 ═══════════════════════════════════════════════════════════════════════════
