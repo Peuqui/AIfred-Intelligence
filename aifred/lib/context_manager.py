@@ -290,11 +290,9 @@ def estimate_tokens_from_history(history: List[Dict[str, Any]]) -> int:
     Returns:
         int: Estimated token count (rule of thumb: 1 token ≈ 3.5 chars for German/mixed text)
     """
-    total_size = 0
-    for msg in history:
-        content = msg.get("content", "")
-        total_size += len(strip_non_llm_content(content))
-    return int(total_size / HISTORY_CHARS_PER_TOKEN)
+    return count_tokens_with_tokenizer(
+        "\n".join(strip_non_llm_content(msg.get("content", "")) for msg in history)
+    )
 
 
 def estimate_tokens_from_llm_history(llm_history: List[Dict[str, str]]) -> int:
@@ -311,8 +309,9 @@ def estimate_tokens_from_llm_history(llm_history: List[Dict[str, str]]) -> int:
     """
     if not llm_history:
         return 0
-    total_size = sum(len(msg.get("content", "")) for msg in llm_history)
-    return int(total_size / HISTORY_CHARS_PER_TOKEN)
+    return count_tokens_with_tokenizer(
+        "\n".join(msg.get("content", "") for msg in llm_history)
+    )
 
 
 def get_summary_target_tokens(tokens_to_compress: int) -> int:
@@ -787,12 +786,22 @@ async def summarize_history_if_needed(
             llm_remaining.append(msg)
 
     llm_to_compress = []
-    current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
+    # Derselbe Massstab wie beim Ausloeser: System-Prompt und Tool-Schemata
+    # sind Teil der Kontextfuellung und werden bei jedem Turn neu vorangestellt.
+    # Rechnete die Schleife nur mit der History, konnte sie bei grossem
+    # System-Prompt gar nicht erst anlaufen — die Kompression lief dann leer
+    # und legte eine Zusammenfassung ohne Inhalt ab (07.09.2026).
+    fixed_tokens = system_prompt_tokens + toolkit_tokens
+    current_tokens = fixed_tokens + estimate_tokens_from_llm_history(
+        llm_preserved_summaries + llm_remaining
+    )
 
     # Compress oldest llm messages until below target
     while current_tokens > target_threshold and len(llm_remaining) > 1:
         llm_to_compress.append(llm_remaining.pop(0))
-        current_tokens = estimate_tokens_from_llm_history(llm_preserved_summaries + llm_remaining)
+        current_tokens = fixed_tokens + estimate_tokens_from_llm_history(
+            llm_preserved_summaries + llm_remaining
+        )
 
     # Calculate tokens being compressed
     tokens_to_compress = estimate_tokens_from_llm_history(llm_to_compress)

@@ -1101,95 +1101,53 @@ def get_salomo_judge_prompt(lang: Optional[str] = None) -> str:
 
 
 # ============================================================
-# System Prompt Token Cache (v2.14.0+)
+# System Prompt Size (SSOT fuer die Kontextfuellung)
 # ============================================================
 
-def _estimate_tokens(text: str) -> int:
-    """Estimate tokens from text (HISTORY_CHARS_PER_TOKEN chars/token)."""
-    from .config import HISTORY_CHARS_PER_TOKEN
-    return int(len(text) / HISTORY_CHARS_PER_TOKEN) if text else 0
+def get_direct_prompt_tokens(
+    agent: str,
+    lang: str = "de",
+    *,
+    memory: bool = True,
+    tools: bool = False,
+) -> int:
+    """Tokens des System-Prompts, den dieser Agent im naechsten Turn abschickt.
 
-
-def init_system_prompt_cache() -> dict[str, dict[str, int]]:
+    Gemessen mit dem Tokenizer am Ergebnis von :func:`get_agent_direct_prompt`
+    — also an genau dem Text, den ``_run_agent_direct_response`` baut. Beide
+    Schalter gehoeren zwingend dazu: die Tools-Schicht allein wiegt rund 8.000
+    Tokens, bei 16k Kontext knapp die Haelfte des Fensters.
     """
-    Initialize cache with all system prompt token counts.
+    from .context_manager import count_tokens_with_tokenizer
+    prompt = get_agent_direct_prompt(agent, lang=lang, memory=memory, tools=tools)
+    return count_tokens_with_tokenizer(prompt)
 
-    Called once at application startup to pre-calculate all prompt sizes.
-    This avoids repeated file reads and token estimations during runtime.
 
-    Returns:
-        dict: The populated cache {agent: {lang: tokens}}
+def get_max_direct_prompt_tokens(
+    multi_agent_mode: str = "standard",
+    lang: str = "de",
+    *,
+    memory: bool = True,
+    tools: bool = False,
+) -> int:
+    """Groesster System-Prompt unter den Agenten, die in diesem Modus antworten.
+
+    Die Kompressionspruefung laeuft, bevor feststeht, welcher Agent das Wort
+    bekommt — deshalb der schlechteste Fall.
     """
-    global _system_prompt_token_cache
-    from .logging_utils import log_message
-
-    _system_prompt_token_cache = {}
-
-    from .agent_config import load_agents_raw
-
-    agents = load_agents_raw()
-    for lang in ["de", "en"]:
-        for agent_id in agents:
-            try:
-                prompt = get_agent_system_prompt(agent_id, "task", lang=lang, multi_agent=True)
-                if agent_id not in _system_prompt_token_cache:
-                    _system_prompt_token_cache[agent_id] = {}
-                _system_prompt_token_cache[agent_id][lang] = _estimate_tokens(prompt)
-            except Exception as e:
-                log_message(f"⚠️ Failed to cache prompts for {agent_id}/{lang}: {e}")
-
-    # Log cache summary
-    for agent, langs in _system_prompt_token_cache.items():
-        de_tokens = langs.get("de", 0)
-        en_tokens = langs.get("en", 0)
-        log_message(f"📊 Prompt token estimate: {agent} = {de_tokens} tok (de), {en_tokens} tok (en)")
-
-    return _system_prompt_token_cache
-
-
-def get_system_prompt_tokens(agent: str, lang: str = "de") -> int:
-    """
-    Get cached system prompt token count for an agent.
-
-    Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
-        lang: Language code ("de" or "en")
-
-    Returns:
-        int: Cached token count, or 0 if not cached
-    """
-    if not _system_prompt_token_cache:
-        # Cache not initialized - use fallback estimation
-        return 0
-    return _system_prompt_token_cache.get(agent, {}).get(lang, 0)
-
-
-def get_max_system_prompt_tokens(multi_agent_mode: str = "standard", lang: str = "de") -> int:
-    """
-    Get the maximum system prompt tokens for the current mode.
-
-    For compression checks, we need the worst-case (largest) prompt size
-    across all agents that will be called.
-
-    Args:
-        multi_agent_mode: "standard", "critical_review", "auto_consensus", "tribunal", "devils_advocate"
-        lang: Language code ("de" or "en")
-
-    Returns:
-        int: Maximum token count across relevant agents
-    """
-    if not _system_prompt_token_cache:
-        return 0
-
-    aifred_tokens = get_system_prompt_tokens("aifred", lang)
-
+    aifred_tokens = get_direct_prompt_tokens(
+        "aifred", lang, memory=memory, tools=tools,
+    )
     if multi_agent_mode == "standard":
         return aifred_tokens
 
-    sokrates_tokens = get_system_prompt_tokens("sokrates", lang)
-
+    sokrates_tokens = get_direct_prompt_tokens(
+        "sokrates", lang, memory=memory, tools=tools,
+    )
     if multi_agent_mode in ["auto_consensus", "tribunal"]:
-        salomo_tokens = get_system_prompt_tokens("salomo", lang)
+        salomo_tokens = get_direct_prompt_tokens(
+            "salomo", lang, memory=memory, tools=tools,
+        )
         return max(aifred_tokens, sokrates_tokens, salomo_tokens)
 
     # critical_review, devils_advocate

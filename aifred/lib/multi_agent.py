@@ -62,9 +62,15 @@ def resolve_agent_temperature(state: 'AIState', agent: str) -> float:
 
 
 def _estimate_prompt_tokens(prompt: str) -> int:
-    """Estimate tokens in a prompt (HISTORY_CHARS_PER_TOKEN chars/token)."""
-    from .config import HISTORY_CHARS_PER_TOKEN
-    return int(len(prompt) / HISTORY_CHARS_PER_TOKEN) if prompt else 0
+    """Tokens eines fertig gebauten Prompts — SSOT ist der Tokenizer.
+
+    Frueher eine eigene Zeichen-Heuristik. Die Kontextfuellung, an der die
+    70-%-Schwelle haengt, wird an allen Stellen mit demselben Zaehler
+    gemessen; zwei Verfahren nebeneinander waren genau die Duplikation, die
+    den Fehlstart der Kompression vom 07.09.2026 mitverursacht hat.
+    """
+    from .context_manager import count_tokens_with_tokenizer
+    return count_tokens_with_tokenizer(prompt) if prompt else 0
 
 
 # ============================================================

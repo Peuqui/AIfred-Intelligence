@@ -754,7 +754,7 @@ class ChatMixin(rx.State, mixin=True):
 
         from ..lib.context_manager import summarize_history_if_needed, get_largest_compression_model
         from ..lib.research.context_utils import get_agent_num_ctx
-        from ..lib.prompt_loader import get_max_system_prompt_tokens
+        from ..lib.prompt_loader import get_max_direct_prompt_tokens
 
         # Determine effective context limit (minimum of all agents).
         # get_agent_num_ctx() runs resolve_variant_suffix itself — pass the
@@ -773,7 +773,15 @@ class ChatMixin(rx.State, mixin=True):
                 context_limits.append(salomo_ctx)
 
         context_limit = min(context_limits) if context_limits else 4096
-        system_prompt_tokens = get_max_system_prompt_tokens(self.multi_agent_mode, detected_language)  # type: ignore[attr-defined]
+        # Mit DENSELBEN Schaltern messen, mit denen _run_agent_direct_response
+        # den Prompt gleich baut — die Tools-Schicht allein wiegt ~8.000 Tokens.
+        # effective_research_mode ist an der Stelle immer self.research_mode.
+        system_prompt_tokens = get_max_direct_prompt_tokens(
+            self.multi_agent_mode,  # type: ignore[attr-defined]
+            detected_language,
+            memory=self.agent_memory_enabled,  # type: ignore[attr-defined]
+            tools=self.research_mode != "none",  # type: ignore[attr-defined]
+        )
 
         compression_model = get_largest_compression_model(
             aifred_model=self._effective_model_id("aifred"),  # type: ignore[attr-defined]

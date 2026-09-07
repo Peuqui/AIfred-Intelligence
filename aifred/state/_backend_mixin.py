@@ -537,7 +537,7 @@ class BackendMixin(rx.State, mixin=True):
                     # Load user name and gender
                     self.user_name = saved_settings.get("user_name", self.user_name)  # type: ignore[attr-defined, has-type]
                     self.user_gender = saved_settings.get("user_gender", self.user_gender)  # type: ignore[attr-defined, has-type]
-                    from ..lib.prompt_loader import set_user_name, set_user_gender, init_system_prompt_cache, set_personality_enabled, set_reasoning_enabled
+                    from ..lib.prompt_loader import set_user_name, set_user_gender, set_personality_enabled, set_reasoning_enabled
                     set_user_name(self.user_name)  # type: ignore[attr-defined, has-type, arg-type]
                     set_user_gender(self.user_gender)  # type: ignore[attr-defined, has-type, arg-type]
 
@@ -568,8 +568,6 @@ class BackendMixin(rx.State, mixin=True):
                     # run server-side regardless — this is purely the UI restore that
                     # was previously only done when the vision popup opened.
                     self._refresh_vision_settings()  # type: ignore[attr-defined]
-
-                    init_system_prompt_cache()
 
                     # Load TTS/STT Settings
                     self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
