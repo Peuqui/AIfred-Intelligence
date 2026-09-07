@@ -19,6 +19,25 @@ def _no_debug_log_file():
 
 
 @pytest.fixture(autouse=True)
+def _isolate_audit_db(tmp_path):
+    """Tests dürfen nicht in die echte data/security/audit.db schreiben.
+
+    ToolKit.execute_streaming() schreibt in seinem finally-Block IMMER eine
+    Audit-Zeile — jeder Test, der ein Tool ausführt (test_tool_loop_breaker),
+    legte so Dummy-Zeilen ({'content': 'A'}, {'a': 1, 'b': 2}) in die
+    Produktiv-DB und verdrängte die echten Einträge aus der "Letzte 50"-
+    Ansicht. Für die Testdauer auf tmp_path umbiegen."""
+    import aifred.lib.security as sec
+    saved_path = sec._audit_db_path
+    saved_init = sec._audit_db_initialized
+    sec._audit_db_path = tmp_path / "audit.db"
+    sec._audit_db_initialized = False
+    yield
+    sec._audit_db_path = saved_path
+    sec._audit_db_initialized = saved_init
+
+
+@pytest.fixture(autouse=True)
 def _reset_freeecho2_alert_state():
     """Modulglobalen Alert-Queue-State vor/nach jedem Test leeren.
 

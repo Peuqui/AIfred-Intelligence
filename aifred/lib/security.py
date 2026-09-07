@@ -580,6 +580,7 @@ def _ensure_audit_db(conn: sqlite3.Connection) -> None:
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%f', 'now', 'localtime')),
                 session_id TEXT NOT NULL,
+                agent_id TEXT NOT NULL,
                 source TEXT NOT NULL,
                 tool_name TEXT NOT NULL,
                 tool_tier INTEGER NOT NULL,
@@ -685,6 +686,7 @@ def validate_external_url(url: str) -> str:
 def audit_log(
     *,
     session_id: str,
+    agent_id: str,
     source: str,
     tool_name: str,
     tool_tier: int,
@@ -701,11 +703,12 @@ def audit_log(
             _ensure_audit_db(conn)
             conn.execute(
                 """INSERT INTO tool_audit
-                   (session_id, source, tool_name, tool_tier,
+                   (session_id, agent_id, source, tool_name, tool_tier,
                     tool_args_preview, result_preview, success, duration_ms)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
+                    agent_id,
                     source,
                     tool_name,
                     tool_tier,
@@ -735,8 +738,14 @@ def load_audit_entries(limit: int = 50, include_args: bool = False) -> list[dict
     ).fetchall()
     conn.close()
     for r in rows:
+        session_id = r["session_id"] or ""
         entry = {
             "timestamp": r["timestamp"] or "",
+            "session_id": session_id,
+            # Die Tabelle zeigt nur das Präfix (32 Hex sprengen die Spalte);
+            # der volle Wert bleibt für den Tooltip erhalten.
+            "session_short": session_id[:8],
+            "agent_id": r["agent_id"] or "",
             "source": r["source"] or "",
             "tool_name": r["tool_name"] or "",
             "tool_tier": str(r["tool_tier"]),

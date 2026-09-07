@@ -665,6 +665,8 @@
   "storage_clear_confirm": "Really delete ALL?",
   "audit_log_subtitle": "Last 50 tool executions",
   "audit_col_time": "Time",
+  "audit_col_agent": "Agent",
+  "audit_col_session": "Session",
   "audit_col_source": "Source",
   "audit_col_tool": "Tool",
   "audit_col_tier": "Security Level",

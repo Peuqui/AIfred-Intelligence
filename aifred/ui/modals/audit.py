@@ -14,6 +14,14 @@ def audit_log_modal() -> rx.Component:
     def _audit_row(entry: dict) -> rx.Component:
         return rx.table.row(
             rx.table.cell(rx.text(entry["timestamp"], font_size="11px"), white_space="nowrap"),
+            rx.table.cell(rx.text(entry["agent_id"], font_size="11px")),
+            rx.table.cell(
+                rx.text(
+                    entry["session_short"], font_size="11px", font_family="monospace",
+                    custom_attrs={"title": entry["session_id"]},
+                ),
+                white_space="nowrap",
+            ),
             rx.table.cell(rx.text(entry["source"], font_size="11px")),
             rx.table.cell(rx.text(entry["tool_name"], font_size="11px", font_weight="500")),
             rx.table.cell(rx.text(entry["tool_tier"], font_size="11px")),
@@ -50,6 +58,8 @@ def audit_log_modal() -> rx.Component:
                         rx.table.header(
                             rx.table.row(
                                 rx.table.column_header_cell(rx.text(t("audit_col_time"), font_size="11px")),
+                                rx.table.column_header_cell(rx.text(t("audit_col_agent"), font_size="11px")),
+                                rx.table.column_header_cell(rx.text(t("audit_col_session"), font_size="11px")),
                                 rx.table.column_header_cell(rx.text(t("audit_col_source"), font_size="11px")),
                                 rx.table.column_header_cell(rx.text(t("audit_col_tool"), font_size="11px")),
                                 rx.table.column_header_cell(rx.text(t("audit_col_tier"), font_size="11px")),

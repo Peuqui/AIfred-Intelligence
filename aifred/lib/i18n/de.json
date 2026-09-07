@@ -665,6 +665,8 @@
   "storage_clear_confirm": "Wirklich ALLES löschen?",
   "audit_log_subtitle": "Letzte 50 Tool-Ausführungen",
   "audit_col_time": "Zeit",
+  "audit_col_agent": "Agent",
+  "audit_col_session": "Session",
   "audit_col_source": "Quelle",
   "audit_col_tool": "Tool",
   "audit_col_tier": "Sicherheitsstufe",

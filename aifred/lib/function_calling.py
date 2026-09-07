@@ -82,6 +82,7 @@ class ToolKit:
 
     tools: list[Tool] = field(default_factory=list)
     _session_id: str = ""   # Audit context
+    _agent_id: str = ""     # Audit context (which agent acted — 9+ configurable)
     _source: str = ""       # Audit context (browser/email/discord/…)
     _max_tier: int = 4      # Resolved max tier for this context
     _call_count: int = 0    # Chain depth counter (resets per LLM request)
@@ -279,6 +280,7 @@ class ToolKit:
                 from .security import audit_log
                 audit_log(
                     session_id=self._session_id,
+                    agent_id=self._agent_id,
                     source=self._source,
                     tool_name=name,
                     tool_tier=tool.tier,

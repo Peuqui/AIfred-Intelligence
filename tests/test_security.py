@@ -2,8 +2,6 @@
 
 import os
 import sqlite3
-import tempfile
-from pathlib import Path
 from unittest.mock import patch
 
 
@@ -417,34 +415,32 @@ class TestCircuitBreaker:
 
 class TestAuditLog:
     def test_audit_log_writes(self):
-        with tempfile.NamedTemporaryFile(suffix=".db", delete=False) as f:
-            db_path = Path(f.name)
-
-        # Patch the db path
+        # Pfad kommt aus der autouse-Fixture _isolate_audit_db (conftest.py),
+        # die ihn fuer jeden Test auf tmp_path umbiegt.
         import aifred.lib.security as sec
-        sec._audit_db_path = db_path
-        sec._audit_db_initialized = False
+        db_path = sec._audit_db_path
+        assert db_path is not None
 
-        try:
-            audit_log(
-                session_id="test_session",
-                source="browser",
-                tool_name="calculate",
-                tool_tier=0,
-                tool_args_preview='{"expr": "2+2"}',
-                result_preview='{"result": 4}',
-                success=True,
-                duration_ms=1.5,
-            )
+        audit_log(
+            session_id="test_session",
+            agent_id="sokrates",
+            source="browser",
+            tool_name="calculate",
+            tool_tier=0,
+            tool_args_preview='{"expr": "2+2"}',
+            result_preview='{"result": 4}',
+            success=True,
+            duration_ms=1.5,
+        )
 
-            # Verify
-            conn = sqlite3.connect(str(db_path))
-            rows = conn.execute("SELECT * FROM tool_audit").fetchall()
-            conn.close()
-            assert len(rows) == 1
-            assert rows[0][3] == "browser"  # source
-            assert rows[0][4] == "calculate"  # tool_name
-        finally:
-            db_path.unlink(missing_ok=True)
-            sec._audit_db_path = None
-            sec._audit_db_initialized = False
+        # Verify — per Spaltenname, damit Schema-Erweiterungen den Test
+        # nicht ueber verschobene Tupel-Indizes brechen.
+        conn = sqlite3.connect(str(db_path))
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute("SELECT * FROM tool_audit").fetchall()
+        conn.close()
+        assert len(rows) == 1
+        assert rows[0]["session_id"] == "test_session"
+        assert rows[0]["agent_id"] == "sokrates"
+        assert rows[0]["source"] == "browser"
+        assert rows[0]["tool_name"] == "calculate"

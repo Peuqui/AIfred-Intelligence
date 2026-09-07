@@ -391,7 +391,7 @@ class AgentMemory:
                 },
                 executor=delete_memory,
             ),
-        ])
+        ], _agent_id=agent_id, _session_id=session_id)
 
 
 def format_memory_context(
@@ -536,6 +536,7 @@ async def prepare_agent_toolkit(
     toolkit = ToolKit(
         tools=all_tools,
         _session_id=session_id or "",
+        _agent_id=agent_id,
         _source=source,
         _max_tier=max_tier,
     ) if all_tools else None
