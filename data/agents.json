@@ -360,6 +360,7 @@
         "system_status",
         "translate",
         "translate_file",
+        "vision_analyze",
         "list_files",
         "read_file",
         "write_file",
