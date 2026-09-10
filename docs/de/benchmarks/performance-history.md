@@ -1,4 +1,4 @@
-# Performance-Chronik — llama.cpp-Inferenz auf dem MiniPC
+# Performance-Chronik — llama.cpp- und vLLM-Inferenz auf dem MiniPC
 
 Fortlaufende Dokumentation aller Performance-Meilensteine und Messwerte.
 **Pflegehinweis:** Bei jeder relevanten Änderung (llama.cpp-Flags,
@@ -6,7 +6,9 @@ Kalibrierung, Hardware, neue Modelle) einen Meilenstein ergänzen und die
 Modell-Tabellen um aktuelle Messpunkte erweitern. Quellen: die
 Session-Statistiken (`*( TTFT: … PP: … tok/s … )*` in
 `data/sessions/*.json`), llama-bench-Läufe und direkte API-Messungen
-(`timings` aus `/v1/chat/completions`).
+(`timings` aus `/v1/chat/completions`). Die vergleichbaren Session-Tabellen
+erzeugt `scripts/session_speed_stats.py` — die Vergleichsregeln stehen dort
+an genau einer Stelle, Tabellen nicht von Hand fortschreiben.
 
 Hardware-Basis seit 2026-06/07: 5 GPUs = 192 GB VRAM
 (2× RTX 8000 48 GB + 3× V100 32 GB), Details siehe Memory/Setup-Doku.
@@ -17,6 +19,8 @@ Hardware-Basis seit 2026-06/07: 5 GPUs = 192 GB VRAM
 
 | Datum | Änderung | Wirkung |
 |---|---|---|
+| 2026-09-10 | vLLM-Produktion auf 1Cat `work-main` (Upstream + unsere PRs + v100-skinny, Tag `verified-2026-09-10`) | Alt gegen neu am selben Tag bitgleich bzw. kohärent; 27B mit DFlash2 im Bench 77 tok/s, aber noch nicht in llama-swap |
+| 2026-09-01 | AIfred misst vLLM-Prefill und -Decode aus vLLMs eigenen Zählern statt Wanduhr (`7f870514`) | Erst ab hier sind vLLM-Session-Werte mit llama.cpps Server-Timings vergleichbar; ältere vLLM-Werte (Wanduhr inkl. Prefill) fließen nirgends ein |
 | ~2026-05-23 | **MTP Speculative Decoding** (`--spec-type draft-mtp --spec-draft-n-max 3`) für alle UD-MTP-GGUFs; non-MTP-Varianten entfernt (Commits `bbf98900`, `67ea0e18`) | Quantensprung bei der Token-Generierung: Accept-Raten 90–96 % gemessen; 397B lief damit ~20 tok/s (Stand Mai, IQ3_XXS), heute 36–46. Vor-MTP-Sessions sind nicht mehr vorhanden — Vergleichswerte aus der Zeit fehlen |
 | ~2026-07-10 | Kalibrierungsrunde nach V100-Vollausbau (neue Tensor-Splits) | 122B End-to-End-PP 266–287 → 366–428 tok/s |
 | 2026-07-31 | **`-ub` 512 → 2048** für MoE-Multi-GPU-Profile (`7f26658f`) + Neu-Kalibrierung 122B/397B | MoE-Experten-Reads amortisieren sich über größere Microbatches. llama-bench 397B pp8192: 240 → 399 tok/s (+66 %); 122B API-Messung: PP ~400 → 839–855 tok/s (~2,1×). Decode überall unverändert. VRAM-Preis real ~1 GB/GPU |
@@ -186,10 +190,46 @@ Qwen3-235B (CPU-Offload) 54 PP / 6,4 TG; GLM 36 PP / 2,8 TG. Nicht
 direkt vergleichbar (andere Modelle/Hardware), zeigt aber die
 Größenordnung vor MTP + 5-GPU-Ausbau.
 
+## vLLM gegen llama.cpp (Session-Statistiken)
+
+Stand 10.09.2026, erzeugt mit `venv/bin/python scripts/session_speed_stats.py`.
+Vergleichbar sind nur Server-Messungen: llama.cpp meldet `predicted_per_second`,
+vLLM seit dem 01.09., 17:34 (`7f870514`) seine eigenen Zähler. 28 ältere
+vLLM-Antworten (Wanduhr einschließlich Prefill) sind verworfen. Modellnamen
+ohne die llama-swap-Gruppenzusätze (`-vlm-…`, `-tts-…`, `-speed`).
+
+| Modell | Backend | n | Decode Median (Spanne) | Prefill Median | Zeitraum |
+|---|---|---:|---|---:|---|
+| DeepSeek-V4-Flash-0731-UD-Q4_K_XL | llamacpp | 12 | 19,4 (16,2–25,8) | 228 | 2026-08-13 – 2026-09-01 |
+| Qwen3.5-122B-A10B-UD-Q4_K_XL | llamacpp | 3 | 58,4 (57,6–60,2) | 468 | 2026-09-01 – 2026-09-01 |
+| Qwen3.5-122B-A10B-UD-Q8_K_XL | llamacpp | 3 | 44,7 (44,4–45,3) | 399 | 2026-09-01 – 2026-09-01 |
+| Qwen3.8-27B-MTP-UD-Q8_K_XL | llamacpp | 20 | 24,8 (20,8–32,6) | 200 | 2026-08-15 – 2026-09-02 |
+| Qwen3.8-27B-NVFP4-vllm | vllm | 14 | 48,6 (38,3–72,5) | 619 | 2026-09-04 – 2026-09-06 |
+| Qwen3.8-Flash-Next-180B-A4B-NVFP4-MTPQ-vllm | vllm | 3 | 48,6 (42,6–68,0) | 463 | 2026-09-07 – 2026-09-08 |
+| Qwen3.8-Flash-Next-180B-A4B-UD-Q6_K_XL | llamacpp | 8 | 28,1 (22,2–30,0) | 274 | 2026-08-28 – 2026-09-01 |
+
+**Direktvergleich (Decode, tok/s):**
+
+| Modell | vLLM | llama.cpp | Faktor |
+|---|---|---|---|
+| Qwen3.8-27B | NVFP4, MTP k=3, TP2 auf dem RTX-Paar: **48,6** (n=14) | Q8_K_XL, MTP n=3: 24,8 (n=20) | ~2,0× für vLLM |
+| Qwen3.8-Flash-Next 180B | NVFP4-MTPQ, MTP k=4, TP2×PP2: **48,6** (n=3) | UD-Q6_K_XL, ohne MTP: 28,1 (n=8) | ~1,7× für vLLM |
+| DeepSeek-V4-Flash | keine Session-Daten; Bench 03.09. (PP5): 21,3 Essay / 26,7 Code | UD-Q4_K_XL mit DSpark: 19,4 (n=12); Bench 40,4 | llama.cpp vorn |
+
+**Grenzen:** 4 Bit (NVFP4) gegen Q6/Q8 — nicht dieselbe Qualitätsstufe;
+verschiedene Zeiträume, Gespräche und llama.cpp-Builds; Flash-Next unter vLLM
+nur n=3. Prefill (Median) 27B 619 gegen 200 tok/s, Flash-Next 463 gegen 274 —
+Prompt-Größen und Cache-Treffer unterscheiden sich, daher nur als Tendenz. Das
+Kriterium „vLLM muss llama.cpp auf gleicher Hardware schlagen" ist damit beim
+27B und bei Flash-Next erfüllt, bei DeepSeek nicht.
+
 ---
 
 ## Einordnung
 
+- **vLLM** (1Cat plus v100-skinny) schlägt llama.cpp in den Sessions beim
+  27B (~2×) und bei Flash-Next (~1,7×) in der Generierung — bei 4 Bit gegen
+  Q6/Q8. Bei DeepSeek-V4-Flash bleibt llama.cpp vorn.
 - **MTP** hebt die Token-Generierung (Accept-Raten 90–96 %), lässt PP
   unberührt.
 - **ub 2048** hebt das Prompt-Processing bei MoE-Modellen massiv
