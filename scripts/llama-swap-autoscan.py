@@ -147,9 +147,14 @@ PROJECT_ROOT = SCRIPT_DIR.parent
 VRAM_CACHE_FILE = PROJECT_ROOT / "data" / "model_vram_cache.json"
 
 LLAMA_SERVER_BIN = Path.home() / "llama.cpp" / "build" / "bin" / "llama-server"
-DEFAULT_TTL_SMALL = 900   # < 20 GB models (15 min)
-DEFAULT_TTL_MEDIUM = 1200  # 20-50 GB models (20 min)
-DEFAULT_TTL_LARGE = 2700   # > 50 GB models (45 min) — teures Nachladen (122B/397B laden Minuten), laenger warm halten
+DEFAULT_TTL_SMALL = 1800  # < LARGE_MODEL_GB (30 min)
+DEFAULT_TTL_LARGE = 3600  # >= LARGE_MODEL_GB (60 min) — Nachladen dauert Minuten, lange warm halten
+LARGE_MODEL_GB = 20
+
+
+def ttl_for_model_size(model_size_gb: float) -> int:
+    """TTL policy for new entries: one rule for every generator."""
+    return DEFAULT_TTL_LARGE if model_size_gb >= LARGE_MODEL_GB else DEFAULT_TTL_SMALL
 DEFAULT_NGL = 99
 DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift"
 DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
@@ -1517,12 +1522,7 @@ def append_models_to_yaml(
             print(f"  + Added: {name} (context: {context:,}{kv_label}{ngl_label}{sampling_label})")
 
         model_size_gb = get_gguf_total_size(Path(path)) / (1024 ** 3)
-        if model_size_gb >= 50:
-            ttl = DEFAULT_TTL_LARGE
-        elif model_size_gb >= 20:
-            ttl = DEFAULT_TTL_MEDIUM
-        else:
-            ttl = DEFAULT_TTL_SMALL
+        ttl = ttl_for_model_size(model_size_gb)
 
         new_blocks += "  # [autoscan]\n"
         new_blocks += f"  {name}:\n"
@@ -2270,6 +2270,7 @@ def ensure_visiond_profiles(config_path: Path) -> int:
             continue
         if gpu_uuid is None:
             gpu_uuid = _vlm_gpu_uuid()
+        ttl = ttl_for_model_size(get_gguf_total_size(gguf) / (1024 ** 3))
         block = (
             f"  {profile}:\n"
             f"    cmd: {LLAMA_SERVER_BIN} -fit off --port ${{PORT}} "
@@ -2277,7 +2278,7 @@ def ensure_visiond_profiles(config_path: Path) -> int:
             f"--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja "
             f"--no-context-shift --temp 0.8 --top-k 40 --top-p 0.95 "
             f"--min-p 0.05 --repeat-penalty 1.0\n"
-            f"    ttl: 900\n"
+            f"    ttl: {ttl}\n"
         )
         if gpu_uuid:
             block += f"    env:\n    - CUDA_VISIBLE_DEVICES={gpu_uuid}\n"
