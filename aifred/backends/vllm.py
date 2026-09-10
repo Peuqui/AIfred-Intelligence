@@ -13,7 +13,7 @@ import logging
 import re
 import urllib.error
 import urllib.request
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from .base import (
     OpenAICompatibleBackend,
@@ -228,6 +228,7 @@ class vLLMBackend(OpenAICompatibleBackend):
         inference_time: float,
         model: str,
         server_timings: Dict[str, Any],
+        first_token_s: Optional[float],
     ) -> Dict[str, Any]:
         """Wie die Basisklasse, plus die Zahl der Cache-Treffer.
 
@@ -238,7 +239,8 @@ class vLLMBackend(OpenAICompatibleBackend):
         bewusst keine Rate statt einer geratenen.
         """
         metrics = super()._build_stream_metrics(
-            prompt_tokens, total_tokens, inference_time, model, server_timings
+            prompt_tokens, total_tokens, inference_time, model, server_timings,
+            first_token_s,
         )
         cached = server_timings.get("prompt_tokens_cached")
         if cached is not None:
