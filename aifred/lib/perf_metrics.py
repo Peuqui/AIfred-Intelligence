@@ -56,3 +56,37 @@ def prefill_tokens_per_second(
     if computed <= 0 or elapsed_s <= 0:
         return Prefill(0.0, computed)
     return Prefill(computed / elapsed_s, computed)
+
+
+def decode_tokens_per_second(
+    *,
+    server_rate: float | None = None,
+    tokens_generated: int = 0,
+    inference_time: float = 0.0,
+    first_token_s: float | None = None,
+) -> float:
+    """Decode-Durchsatz in Token pro Sekunde. Drei Regeln, eine Stelle.
+
+    1. Meldet das Backend eine eigene Rate (llama.cpp
+       ``predicted_per_second``, Ollama ``eval_duration``, vLLMs Zaehler),
+       gewinnt die: sie teilt durch die reine Generierungszeit.
+    2. Sonst selbst rechnen, aber nur ueber die Zeit NACH dem ersten Token.
+       Ueber die ganze Dauer geteilt steckt der Prefill im Nenner, die Rate
+       faellt mit der Promptlaenge und ist mit Regel 1 nicht vergleichbar
+       (am 122B 7-15 % zu niedrig, gemessen 2026-09-01). Das trifft
+       Cloud-APIs immer und vLLM, wenn seine Zaehler nichts Eindeutiges
+       liefern (etwa die erste Antwort nach jedem Serverstart).
+    3. Ist nichts messbar (kein Token, kein Zeitpunkt des ersten Tokens,
+       keine Zeit danach), kommt 0.0 zurueck.
+
+    Bei Tool-Runden liegen Werkzeugzeit und weitere Prefills zwischen
+    erstem und letztem Token — die Rate ist dann eine Untergrenze.
+    """
+    if server_rate and server_rate > 0:
+        return float(server_rate)
+    if tokens_generated <= 0 or first_token_s is None:
+        return 0.0
+    decode_s = inference_time - first_token_s
+    if decode_s <= 0:
+        return 0.0
+    return tokens_generated / decode_s

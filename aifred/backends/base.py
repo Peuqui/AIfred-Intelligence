@@ -396,12 +396,22 @@ class OpenAICompatibleBackend(LLMBackend):
         inference_time: float,
         model: str,
         server_timings: Dict[str, Any],
+        first_token_s: Optional[float],
     ) -> Dict[str, Any]:
         """Build metrics dict for the streaming done chunk.
 
         Override in subclasses to use server-side timings instead of wall-clock.
+        ``first_token_s`` (request start to the first streamed token) lets
+        the fallback divide by the decode time only, like the server-side
+        rates do — see ``perf_metrics.decode_tokens_per_second``.
         """
-        tokens_per_second = (total_tokens / inference_time) if inference_time > 0 else 0
+        from ..lib.perf_metrics import decode_tokens_per_second
+
+        tokens_per_second = decode_tokens_per_second(
+            tokens_generated=total_tokens,
+            inference_time=inference_time,
+            first_token_s=first_token_s,
+        )
         return {
             "tokens_prompt": prompt_tokens,
             "tokens_generated": total_tokens,
@@ -645,6 +655,9 @@ class OpenAICompatibleBackend(LLMBackend):
                 # gates the text-extraction fallback below so a model that
                 # emits tool-call syntax as text can't sneak in another round.
                 context_guard_tripped = False
+                # Seconds from request start to the first streamed token —
+                # the decode fallback divides by the time after it.
+                first_token_s: Optional[float] = None
 
                 for _tool_round in range(max_tool_rounds):
                     stream = await self.client.chat.completions.create(**kwargs)
@@ -660,6 +673,8 @@ class OpenAICompatibleBackend(LLMBackend):
                     async for item in self._consume_stream(
                         stream, stream_state, counters, tool_calls
                     ):
+                        if first_token_s is None and item.get("type") == "content":
+                            first_token_s = timer.elapsed()
                         yield item
                         yielded_any = True
                     prompt_tokens = counters["prompt_tokens"]
@@ -872,6 +887,8 @@ class OpenAICompatibleBackend(LLMBackend):
                     async for item in self._consume_stream(
                         stream, stream_state, counters, None
                     ):
+                        if first_token_s is None and item.get("type") == "content":
+                            first_token_s = timer.elapsed()
                         yield item
                         yielded_any = True
                     prompt_tokens = counters["prompt_tokens"]
@@ -887,7 +904,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
                 metrics = self._build_stream_metrics(
                     prompt_tokens, total_tokens,
-                    inference_time, model, server_timings,
+                    inference_time, model, server_timings, first_token_s,
                 )
                 # Carry the truncation flag into the done metrics so the
                 # pipeline result (and the "done" debug line built from it)

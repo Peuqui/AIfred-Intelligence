@@ -247,8 +247,12 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         inference_time: float,
         model: str,
         server_timings: Dict[str, Any],
+        first_token_s: Optional[float],
     ) -> Dict[str, Any]:
-        """Use llama-server's pure inference timings."""
+        """Use llama-server's pure inference timings.
+
+        ``first_token_s`` stays unused: the server times the decode itself.
+        """
         _require_timings(server_timings)
         return {
             "tokens_prompt": prompt_tokens,
