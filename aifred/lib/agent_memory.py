@@ -4,7 +4,8 @@ Each agent gets its own ChromaDB collection for persistent memory.
 Agents can write to their own collection and read from all collections.
 Memory is retrieved via semantic search and injected into the agent's context.
 
-Uses the same ChromaDB server and embedding function as the research cache.
+Uses the ChromaDB server and the embedding function from embeddings.py
+(shared with the document store).
 """
 
 import uuid
@@ -19,12 +20,10 @@ from .config import (
     AGENT_MEMORY_RESULTS,
     DEFAULT_OLLAMA_URL,
 )
+from .embeddings import OLLAMA_EMBEDDING_MODEL
 from .function_calling import Tool, ToolKit
 from .logging_utils import log_message
 from .prompt_loader import load_shared_tool_description
-
-# Reuse embedding config from vector_cache (same model, same Ollama instance)
-OLLAMA_EMBEDDING_MODEL = "bge-m3"
 
 
 class AgentMemory:
@@ -35,7 +34,7 @@ class AgentMemory:
 
     def __init__(self, host: "str | None" = None, port: "int | None" = None) -> None:
         from .chroma_client import chroma_client
-        from .vector_cache import OllamaEmbeddingFunction
+        from .embeddings import OllamaEmbeddingFunction
 
         # None = config-Werte (CHROMA_HOST/CHROMA_PORT) — Factory-SSOT
         self._client = chroma_client(host, port)

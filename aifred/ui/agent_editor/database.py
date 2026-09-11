@@ -13,7 +13,7 @@ from .header import _editor_header
 
 
 def _database_view() -> rx.Component:
-    """Database tab: Research Cache + Documents with same browse/delete UI as Memory."""
+    """Database tab: Documents with same browse/delete UI as Memory."""
     return rx.vstack(
         _editor_header(),
 
@@ -22,19 +22,6 @@ def _database_view() -> rx.Component:
             rx.vstack(
                 # Collection selector buttons + clear-all
                 rx.hstack(
-                    rx.button(
-                        rx.icon("search", size=14),
-                        " ", t("db_research_cache"),
-                        on_click=AIState.select_db_collection("research_cache"),
-                        size="2",
-                        variant=rx.cond(
-                            AIState.db_browser_collection == "research_cache",
-                            "solid", "soft",
-                        ),
-                        color_scheme="orange",
-                        cursor="pointer",
-                        flex_shrink="0",
-                    ),
                     rx.button(
                         rx.icon("file-text", size=14),
                         " ", t("db_documents"),
@@ -275,10 +262,7 @@ def _db_entry_row(entry: rx.Var) -> rx.Component:
             rx.badge(
                 entry["type"],
                 variant="soft",
-                color_scheme=rx.cond(
-                    entry["type"] == "cache", "orange",
-                    rx.cond(entry["type"] == "document", "blue", "gray"),
-                ),
+                color_scheme=rx.cond(entry["type"] == "document", "blue", "gray"),
                 font_size="10px",
             ),
             rx.text(entry["date"], font_size="11px", color="#888"),

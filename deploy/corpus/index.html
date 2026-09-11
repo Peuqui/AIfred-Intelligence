@@ -1461,25 +1461,6 @@ function renderItemAifred(item, query) {
   `;
 }
 
-function renderItemResearch(item, query) {
-  const m = item.metadata || {};
-  const ts = m.timestamp ? new Date(m.timestamp).toLocaleString('de-DE') : '?';
-  const vol = m.volatility || '?';
-  const expires = m.expires_at && m.expires_at !== 'None' ? new Date(m.expires_at).toLocaleString('de-DE') : 'permanent';
-  const answer = colSnippet(m.answer || '', 800);
-  const numSources = m.num_sources ?? '?';
-  return `
-    <div class="item">
-      <div class="item-head">
-        <strong>Query:</strong> ${highlight(escape(item.document || ''), query || '')}
-        <span class="small">· ${ts} · ${vol} · ${numSources} Quellen · expires ${expires}</span>
-        <button class="danger small" data-id="${escape(item.id)}" data-action="del">Loeschen</button>
-      </div>
-      <div class="item-body"><strong>Antwort:</strong> ${highlight(escape(answer), query || '')}</div>
-    </div>
-  `;
-}
-
 function renderItemMemory(item, query) {
   const m = item.metadata || {};
   const date = m.date ? new Date(m.date).toLocaleString('de-DE') : '?';
@@ -1521,7 +1502,6 @@ function renderItemGeneric(item, query) {
 
 function renderItem(schema, item, query) {
   if (schema === 'aifred_documents') return renderItemAifred(item, query);
-  if (schema === 'research_cache') return renderItemResearch(item, query);
   if (schema === 'agent_memory')   return renderItemMemory(item, query);
   return renderItemGeneric(item, query);
 }

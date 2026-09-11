@@ -1,10 +1,15 @@
-"""Research pipeline (Search → Ranking → Scraping → Context → Cache).
+"""Research pipeline (Search → Ranking → Scraping → Context).
 
 Single pipeline used by both:
 - Forced path (keyword override): Automatik-LLM generates queries
 - Tool call path: the web_search/web_fetch Tool-Fassade lebt seit der
   Atomarisierung im research-PLUGIN (aifred/plugins/tools/research) und
   ruft ``execute_research``/``hub_web_search`` hier in der lib.
+
+Every research runs fresh — deliberately no result cache: question
+similarity says nothing about whether an answer still holds (the former
+semantic cache served yesterday's weather forecast). Within a conversation
+the results stay in the history anyway.
 """
 
 import json
@@ -63,7 +68,6 @@ async def execute_research(
     3. URL ranking (LLM-based, with conversation history)
     4. Parallel scraping
     5. Context building
-    6. Vector cache write (with TTL volatility)
 
     Results stored in state._research_context and state._research_sources_html.
     """
@@ -75,7 +79,6 @@ async def execute_research(
     from .formatting import build_sources_collapsible
     from .llm_client import LLMClient
     from .research.context_utils import get_agent_num_ctx
-    from .logging_utils import log_message
 
     # Automatik-LLM for query generation, URL ranking and any other
     # research-pipeline helper inference. Two separate ids:
@@ -101,39 +104,11 @@ async def execute_research(
     else:
         automatik_llm_client = llm_client
 
-    volatility = "WEEKLY"  # Default, overridden by query generation
-
     # Init result state
     state._research_context = ""  # type: ignore[attr-defined]
     state._research_sources_html = ""  # type: ignore[attr-defined]
 
     try:
-        # ==============================================================
-        # PHASE 0: Vector Cache Duplikat-Check
-        # ==============================================================
-        try:
-            from .vector_cache import get_cache
-            import datetime as _dt
-            from .formatting import format_age
-            cache = get_cache()
-            cache_result = await cache.query(user_query, n_results=1)
-            distance = cache_result.get('distance', 1.0)
-
-            if cache_result['source'] == 'CACHE':
-                from .config import CACHE_DISTANCE_PER_VOLATILITY, CACHE_DISTANCE_DEFAULT
-                volatility = str(cache_result.get('metadata', {}).get('volatility', '') or '')
-                threshold = CACHE_DISTANCE_PER_VOLATILITY.get(volatility, CACHE_DISTANCE_DEFAULT)
-                if distance < threshold:
-                    cache_time = _dt.datetime.fromisoformat(cache_result['metadata']['timestamp'])
-                    age_seconds = (_dt.datetime.now() - cache_time).total_seconds()
-                    age_formatted = format_age(age_seconds)
-                    state.add_debug(f"✅ Cache hit ({age_formatted} ago, d={distance:.4f}, {volatility or 'unknown'} ≤ {threshold})")
-                    state._research_context = cache_result['answer']  # type: ignore[attr-defined]
-                    yield
-                    return
-        except (ConnectionError, OSError, TimeoutError) as e:
-            log_message(f"⚠️ Vector cache check failed (connection): {e}")
-
         # ==============================================================
         # PHASE 1: Query Generation (skipped if pre_generated_queries)
         # ==============================================================
@@ -149,9 +124,8 @@ async def execute_research(
                 automatik_num_ctx=automatik_num_ctx,
             )
             pre_generated_queries = query_result["queries"]
-            volatility = query_result.get("volatility", "WEEKLY")
             query_gen_time = query_result["generation_time"]
-            state.add_debug(f"✅ {len(pre_generated_queries)} queries ({query_gen_time:.1f}s, TTL={volatility})")
+            state.add_debug(f"✅ {len(pre_generated_queries)} queries ({query_gen_time:.1f}s)")
             yield
 
         # ==============================================================
@@ -282,24 +256,6 @@ async def execute_research(
         # web search happened — even if the model's synthesis degenerates, the
         # follow-up turn then knows it DID research (no false "I didn't search").
         state._research_source_count = len(used_sources)  # type: ignore[attr-defined]
-
-        # ==============================================================
-        # PHASE 6: Vector Cache Write (with TTL volatility)
-        # ==============================================================
-        try:
-            from .vector_cache import get_cache
-            cache = get_cache()
-            await cache.add(
-                query=user_query,
-                answer=context,
-                sources=scraped_only,
-                failed_sources=failed_sources,
-                metadata={"volatility": volatility},
-            )
-            state.add_debug(f"💾 Cached ({len(scraped_only)} sources, TTL={volatility})")
-        except Exception as e:
-            log_message(f"⚠️ Vector cache write failed: {e}")
-
         yield
 
     finally:
@@ -316,7 +272,6 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
     """Web search for Message Hub (Discord, Email).
 
     Uses the same building blocks as the full pipeline:
-    - Vector cache check/write
     - Multi-API search (Brave, Tavily, SearXNG)
     - URL ranking (LLM-based)
     - Parallel scraping with Playwright fallback
@@ -356,27 +311,6 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
     llm_client = LLMClient(backend_type=backend_type, base_url=backend_url)
 
     try:
-        # ── Phase 0: Vector Cache check ───────────────────────
-        try:
-            from .vector_cache import get_cache
-            from .formatting import format_age
-            import datetime as _dtc
-            cache = get_cache()
-            cache_result = await cache.query(queries[0], n_results=1)
-            distance = cache_result.get('distance', 1.0)
-
-            if cache_result['source'] == 'CACHE':
-                from .config import CACHE_DISTANCE_PER_VOLATILITY, CACHE_DISTANCE_DEFAULT
-                volatility = str(cache_result.get('metadata', {}).get('volatility', '') or '')
-                threshold = CACHE_DISTANCE_PER_VOLATILITY.get(volatility, CACHE_DISTANCE_DEFAULT)
-                if distance < threshold:
-                    cache_time = _dtc.datetime.fromisoformat(cache_result['metadata']['timestamp'])
-                    age_seconds = (_dtc.datetime.now() - cache_time).total_seconds()
-                    debug(f"✅ Cache hit ({format_age(age_seconds)} ago, d={distance:.4f}, {volatility or 'unknown'} ≤ {threshold})")
-                    return str(cache_result['answer'])
-        except (ConnectionError, OSError, TimeoutError) as e:
-            debug(f"⚠️ Cache check failed: {e}")
-
         # ── Phase 1: Multi-API search ─────────────────────────
         related_urls: list[str] = []
         titles: list[str] = []
@@ -456,21 +390,6 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
         context = build_context(queries[0], tool_results)
         scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
         debug(f"✅ Research: {len(context)} chars, {len(scraped_only)} sources")
-
-        # ── Phase 5: Vector Cache write ───────────────────────
-        try:
-            cache = get_cache()
-            await cache.add(
-                query=queries[0],
-                answer=context,
-                sources=scraped_only,
-                failed_sources=[],
-                metadata={"volatility": "WEEKLY"},
-            )
-            debug(f"💾 Cached ({len(scraped_only)} sources, TTL=WEEKLY)")
-        except Exception as e:
-            debug(f"⚠️ Cache write failed: {e}")
-
         return context
 
     finally:

@@ -794,14 +794,13 @@ def search(req: SearchRequest) -> dict[str, Any]:
 # ═════════════════════════════════════════════════════════════════════
 #
 # Die Endpoints oben sind speziell auf ``aifred_documents`` zugeschnitten
-# (Folder-Tree, Reindex-from-Disk, etc.). Für ``research_cache`` und
-# ``agent_memory_*`` haben wir ein anderes Schema und brauchen einen
-# generischen Browser. Die Endpoints hier sind additiv — sie ersetzen
-# nichts oben, das alte UI funktioniert weiter.
+# (Folder-Tree, Reindex-from-Disk, etc.). Für ``agent_memory_*`` haben
+# wir ein anderes Schema und brauchen einen generischen Browser. Die
+# Endpoints hier sind additiv — sie ersetzen nichts oben, das alte UI
+# funktioniert weiter.
 
 # Bekannte Schemas — bestimmt, wie die UI Felder rendert.
 _SCHEMA_AIFRED = "aifred_documents"
-_SCHEMA_RESEARCH = "research_cache"
 _SCHEMA_MEMORY = "agent_memory"
 _SCHEMA_GENERIC = "generic"
 
@@ -810,8 +809,6 @@ def _detect_schema(collection_name: str, sample_meta: dict[str, Any] | None) -> 
     """Schema-Inferenz aus Collection-Name + Sample-Metadaten."""
     if collection_name == "aifred_documents":
         return _SCHEMA_AIFRED
-    if collection_name == "research_cache":
-        return _SCHEMA_RESEARCH
     if collection_name.startswith("agent_memory_"):
         return _SCHEMA_MEMORY
     # Heuristik via Metadata-Keys, falls Custom-Collection
@@ -819,8 +816,6 @@ def _detect_schema(collection_name: str, sample_meta: dict[str, Any] | None) -> 
         keys = set(sample_meta.keys())
         if {"filename", "folder", "chunk_index"} <= keys:
             return _SCHEMA_AIFRED
-        if {"query", "answer", "volatility"} <= keys or "sources_json" in keys:
-            return _SCHEMA_RESEARCH
         if {"agent_id", "type", "summary"} <= keys:
             return _SCHEMA_MEMORY
     return _SCHEMA_GENERIC

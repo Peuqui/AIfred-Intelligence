@@ -501,7 +501,7 @@ async def _execute_forced_research(
     """Execute forced web research via the unified pipeline.
 
     Delegates to execute_research() which handles the full pipeline:
-    Query generation → Multi-API search → URL ranking → Scraping → Cache.
+    Query generation → Multi-API search → URL ranking → Scraping → Context.
 
     Results stored in state._research_context and state._research_sources_html.
     """

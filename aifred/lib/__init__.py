@@ -17,8 +17,6 @@ from .prompt_loader import (
     set_language,
     get_language,
     get_intent_detection_prompt,
-    get_followup_intent_prompt,
-    get_system_rag_prompt
 )
 
 from .i18n import (
@@ -31,11 +29,6 @@ from .tools import (
     scrape_webpage,
     build_context
 )
-
-from .research import perform_agent_research
-
-# Vector Cache (replacement for old cache system)
-from .vector_cache import VectorCache
 
 from .intent_detector import (
     detect_query_intent_and_addressee,
@@ -60,8 +53,6 @@ __all__ = [
     "set_language",
     "get_language",
     "get_intent_detection_prompt",
-    "get_followup_intent_prompt",
-    "get_system_rag_prompt",
     # i18n
     "TranslationManager",
     "t",
@@ -69,10 +60,6 @@ __all__ = [
     "search_web",
     "scrape_webpage",
     "build_context",
-    # Agent Core
-    "perform_agent_research",
-    # Vector Cache (NEW - replaces old cache system)
-    "VectorCache",
     # Intent Detector
     "detect_query_intent_and_addressee",
     "get_temperature_label",

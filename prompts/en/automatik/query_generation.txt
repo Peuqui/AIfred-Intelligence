@@ -18,18 +18,9 @@ Generate EXACTLY 3 optimized search queries:
 - "TAVI patient surgery?" → 1. TAVI noncardiac surgery management 2. TAVI patient operation risk 3. TAVI procedure recommendations
 - "How's the weather today?" → 1. weather forecast today current 2. weather today local forecast 3. current weather conditions today
 
-## VOLATILITY (Cache Duration)
-
-Determine how quickly the answer becomes outdated:
-- "NOCACHE" → Weather, temperature, stock prices, live scores
-- "DAILY" → Current news, events from today
-- "WEEKLY" → Political updates, news from this week
-- "MONTHLY" → Product comparisons, reviews, prices
-- "PERMANENT" → Timeless facts, history, science
-
 ## OUTPUT FORMAT (JSON only!)
 
-{{"queries": ["query1 keywords here", "query2 keywords here", "query3 keywords here"], "volatility": "LEVEL"}}
+{{"queries": ["query1 keywords here", "query2 keywords here", "query3 keywords here"]}}
 
 **FORBIDDEN:**
 - No explanations or reasoning

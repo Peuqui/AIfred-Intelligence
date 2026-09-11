@@ -71,7 +71,7 @@ async def orchestrate_scraping(
     if needs_preload:
         backend = llm_client._get_backend()
 
-        # Use EXACTLY the same function as inference (context_builder.py line 162)
+        # Preload context from calculate_dynamic_num_ctx (model limit + VRAM).
         # Empty messages list is OK - num_ctx calculation doesn't depend on message size
         from ..context_manager import calculate_dynamic_num_ctx
         calibrated_num_ctx, _ = await calculate_dynamic_num_ctx(

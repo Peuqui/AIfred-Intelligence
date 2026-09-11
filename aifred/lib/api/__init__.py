@@ -18,7 +18,6 @@ Endpoints (all prefixed with /api):
 - GET  /chat/history        - Get chat history
 - POST /system/restart-ollama   - Restart Ollama service
 - POST /system/restart-aifred   - Restart AIfred service
-- POST /system/clear-vectordb   - Clear Vector DB
 - POST /system/reset-defaults   - Reset to default settings
 
 Package layout: app.py holds the FastAPI app + middleware; the router

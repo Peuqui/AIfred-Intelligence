@@ -4,7 +4,7 @@ Vollständig atomarisiert (2026-08-12): die Tool-Fassade (früher in
 ``lib/research_tools.py``) lebt hier im Plugin — Descriptions kommen aus
 ``prompts/tools/`` (load_tool_description-Konvention), die Anleitung aus
 den ``prompts/<de|en>/``-Fragmenten (granted_tools-gated). Die Pipeline
-(Search → Ranking → Scraping → Context → Cache) bleibt lib:
+(Search → Ranking → Scraping → Context) bleibt lib:
 ``execute_research``/``hub_web_search`` in ``lib/research_tools.py``.
 """
 
@@ -45,7 +45,7 @@ def get_research_tools(state: Optional[Any] = None, lang: str = "de", llm_histor
         queries = queries[:3]
 
         if state:
-            # Full pipeline with browser State (cache, progress bar, sources HTML).
+            # Full pipeline with browser State (progress bar, sources HTML).
             # execute_research mutates state and yields between phases — we forward
             # each yield as a progress marker so the UI updates incrementally
             # instead of seeing one big block at the end.

@@ -56,41 +56,11 @@ def _memory_entry_row(entry: rx.Var) -> rx.Component:
                 style={"white_space": "pre-wrap"},
             ),
         ),
-        rx.cond(
-            entry["sources"] != "",
-            rx.vstack(
-                rx.text(t("memory_sources"), font_size="12px", color="#888", font_weight="600", padding_top="8px"),
-                rx.foreach(
-                    entry["sources"].split("\n"),  # type: ignore[union-attr]
-                    _source_link,
-                ),
-                spacing="1",
-                width="100%",
-            ),
-        ),
         padding="10px 12px",
         background="rgba(255,255,255,0.03)",
         border_radius="6px",
         border="1px solid #333",
         width="100%",
-    )
-
-
-def _source_link(url: rx.Var) -> rx.Component:
-    """Render a clickable source URL."""
-    return rx.link(
-        rx.hstack(
-            rx.icon("external-link", size=12, color="#4da6ff"),
-            rx.text(url, font_size="12px", color="#4da6ff"),
-            spacing="1",
-            align="center",
-        ),
-        href=url,
-        is_external=True,
-        style={
-            "text_decoration": "none",
-            "&:hover": {"text_decoration": "underline"},
-        },
     )
 
 

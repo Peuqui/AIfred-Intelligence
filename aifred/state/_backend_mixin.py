@@ -27,7 +27,6 @@ from ..lib.config import (
 from ..backends.cloud_api import is_cloud_api_configured
 from ..lib.model_manager import sort_models_grouped
 from ..lib.gpu_utils import total_actual_vram_gb
-from ..lib.vector_cache import initialize_vector_cache
 from ..lib.audio_processing import is_whisper_ready
 
 # Module-level globals are in _base.py and re-exported from __init__.py.
@@ -361,10 +360,7 @@ class BackendMixin(rx.State, mixin=True):
                     set_language(DEFAULT_LANGUAGE)
                     log_message(f"🌍 Language mode: {DEFAULT_LANGUAGE}")
 
-                    initialize_vector_cache()
-                    log_message("💾 Vector Cache: Connected")
-
-                    # Audio state cleanup task (parallel to vector cache cleanup)
+                    # Audio state cleanup task
                     import asyncio as _asyncio
                     from ..lib.audio_state import cleanup_audio_state_task
                     _asyncio.create_task(cleanup_audio_state_task())

@@ -1,4 +1,4 @@
-"""System endpoints: restart Ollama/AIfred, clear Vector DB, reset defaults."""
+"""System endpoints: restart Ollama/AIfred, reset defaults."""
 
 import asyncio
 import subprocess
@@ -96,44 +96,6 @@ async def restart_aifred(background_tasks: BackgroundTasks):
         message="AIfred restart scheduled",
         details="Service will restart in ~1 second"
     )
-
-
-@api_app.post("/system/clear-vectordb", response_model=SystemActionResponse, tags=["System"])
-async def clear_vector_db():
-    """
-    Clear Vector DB (ChromaDB).
-
-    Deletes all cached research entries from ChromaDB.
-    The collection structure remains intact.
-    """
-    log_message("🗑️ API: Clearing Vector DB...")
-
-    try:
-        # Factory-SSOT — vorher hartcodiertes localhost:8000
-        from ..chroma_client import chroma_client
-        client = chroma_client()
-        collection = client.get_collection('research_cache')
-
-        # Get all IDs
-        all_ids = collection.get(include=[])["ids"]
-        count = len(all_ids)
-
-        if all_ids:
-            collection.delete(ids=all_ids)
-            log_message(f"✅ API: Deleted {count} entries from Vector DB")
-            return SystemActionResponse(
-                success=True,
-                message=f"Vector DB cleared ({count} entries deleted)"
-            )
-        else:
-            return SystemActionResponse(
-                success=True,
-                message="Vector DB is already empty"
-            )
-
-    except Exception as e:
-        log_message(f"❌ API: Vector DB clear failed: {e}")
-        raise HTTPException(status_code=500, detail=str(e))
 
 
 @api_app.post("/system/reset-defaults", response_model=SystemActionResponse, tags=["System"])

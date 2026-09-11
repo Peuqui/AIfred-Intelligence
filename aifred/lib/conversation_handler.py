@@ -78,7 +78,7 @@ def _parse_json_with_recovery(response: str, context: str) -> Any:
 
     Args:
         response: Raw response string (potentially containing JSON)
-        context: Description for error messages (e.g., "research_decision")
+        context: Description for error messages (e.g., "query_generation")
 
     Returns:
         Parsed JSON as dict.
@@ -681,7 +681,6 @@ async def generate_web_search_queries(
         result = _parse_json_with_recovery(raw_response, "query_generation")
 
         queries = result.get("queries", [])
-        volatility = result.get("volatility", "WEEKLY")
 
         # Validate: must have at least 1 query - NO FALLBACK, raise error
         if not queries:
@@ -689,11 +688,10 @@ async def generate_web_search_queries(
             log_message(f"❌ {error_msg}")
             raise ValueError(error_msg)
 
-        log_message(f"✅ Query Generation: {len(queries)} queries, volatility={volatility}")
+        log_message(f"✅ Query Generation: {len(queries)} queries")
 
         return {
             "queries": queries,
-            "volatility": volatility,
             "generation_time": generation_time,
             "raw_response": raw_response
         }

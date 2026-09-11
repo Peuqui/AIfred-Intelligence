@@ -1,8 +1,8 @@
 """Memory browser mixin for AIfred state.
 
 Handles the memory browser (ChromaDB agent memory collections),
-the database browser for system collections (research_cache,
-aifred_documents, orphan cleanup) and agent bundle export/import.
+the database browser for system collections (aifred_documents,
+orphan cleanup) and agent bundle export/import.
 """
 
 from __future__ import annotations
@@ -30,7 +30,7 @@ def _meta_int(meta: Any, key: str, default: int = 0) -> int:
 class MemoryBrowserMixin(rx.State, mixin=True):
     """Mixin for memory/database browsing and agent bundle export/import."""
 
-    # Database browser state (system collections: research_cache, aifred_documents)
+    # Database browser state (system collections: aifred_documents)
     db_browser_collection: str = ""  # Selected collection name
     db_browser_entries: List[Dict[str, str]] = []  # Entries for selected collection
     db_clear_confirm: bool = False  # Confirmation state for clear-all
@@ -135,19 +135,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             meta = data["metadatas"][i] if data["metadatas"] else {}  # type: ignore[index]
             doc = data["documents"][i] if data["documents"] else ""  # type: ignore[index]
 
-            if self.db_browser_collection == "research_cache":
-                query_text = doc or ""
-                answer = _meta_str(meta, "answer")
-                volatility = _meta_str(meta, "volatility")
-                date = _meta_str(meta, "timestamp")[:19]
-                entries.append({
-                    "id": doc_id,
-                    "date": date,
-                    "type": volatility or "cache",
-                    "summary": f"Query: {query_text}",
-                    "content": answer[:500],
-                })
-            elif self.db_browser_collection == "aifred_documents":
+            if self.db_browser_collection == "aifred_documents":
                 filename = _meta_str(meta, "filename")
                 chunk_idx = _meta_int(meta, "chunk_index")
                 total = _meta_int(meta, "total_chunks")
@@ -258,7 +246,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         except Exception as e:
             self.add_debug(f"❌ Memory browser error: {e}")  # type: ignore[attr-defined]
 
-        # Agents sorted alphabetically (Research Cache moved to Database tab)
+        # Agents sorted alphabetically
         self.memory_browser_collections = sorted(
             collections,
             key=lambda c: c["agent_id"],
@@ -279,23 +267,14 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             if col_info["agent_id"] == agent_id:
                 count = col_info["count"]
                 break
-        if agent_id == "research_cache":
-            self.memory_browser_agent_display = f"🔍 Research Cache ({count})"
-        else:
-            from ..lib.agent_config import get_agent_config
-            cfg = get_agent_config(agent_id)
-            name = f"{cfg.emoji} {cfg.display_name}" if cfg else agent_id.capitalize()
-            self.memory_browser_agent_display = f"{name} ({count})"
+        from ..lib.agent_config import get_agent_config
+        cfg = get_agent_config(agent_id)
+        name = f"{cfg.emoji} {cfg.display_name}" if cfg else agent_id.capitalize()
+        self.memory_browser_agent_display = f"{name} ({count})"
         entries: list[dict] = []
 
         try:
-            if agent_id == "research_cache":
-                col = memory._client.get_collection(
-                    name="research_cache",
-                    embedding_function=memory._embed_fn,  # type: ignore[arg-type]
-                )
-            else:
-                col = memory._collection(agent_id)
+            col = memory._collection(agent_id)
 
             if col.count() == 0:
                 self.memory_browser_entries = []
@@ -305,49 +284,14 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             for i, doc_id in enumerate(data["ids"]):
                 meta = data["metadatas"][i] if data["metadatas"] else {}  # type: ignore[index]
                 doc = data["documents"][i] if data["documents"] else ""  # type: ignore[index]
-
-                # Research cache stores query as document, answer in metadata
-                if agent_id == "research_cache":
-                    query_text = doc or ""
-                    answer_text = _meta_str(meta, "answer")
-                    sources = _meta_str(meta, "source_urls")
-                    volatility = _meta_str(meta, "volatility")
-                    expires = _meta_str(meta, "expires_at")
-                    date = _meta_str(meta, "timestamp")[:19]
-                    summary_text = f"Query: {query_text}"
-                    content_parts = []
-                    if answer_text:
-                        content_parts.append(answer_text)
-                    # Sources as newline-separated string for UI rendering
-                    if sources:
-                        source_list = [s.strip() for s in sources.split(",") if s.strip()]
-                        sources_text = "\n".join(source_list)
-                    else:
-                        sources_text = ""
-                    if volatility:
-                        content_parts.append(f"\nVolatilität: {volatility}")
-                    if expires and expires != "None":
-                        content_parts.append(f"\nAblauf: {expires[:19]}")
-                    content_text = "".join(content_parts)
-                    entries.append({
-                        "id": doc_id,
-                        "date": date,
-                        "type": volatility or "cache",
-                        "summary": summary_text,
-                        "content": content_text,
-                        "sources": sources_text,
-                        "session_id": "",
-                    })
-                else:
-                    entries.append({
-                        "id": doc_id,
-                        "date": _meta_str(meta, "date")[:19],
-                        "type": _meta_str(meta, "type", "unknown"),
-                        "summary": _meta_str(meta, "summary", doc[:120] if doc else ""),
-                        "content": _meta_str(meta, "content", doc or ""),
-                        "sources": "",
-                        "session_id": _meta_str(meta, "session_id"),
-                    })
+                entries.append({
+                    "id": doc_id,
+                    "date": _meta_str(meta, "date")[:19],
+                    "type": _meta_str(meta, "type", "unknown"),
+                    "summary": _meta_str(meta, "summary", doc[:120] if doc else ""),
+                    "content": _meta_str(meta, "content", doc or ""),
+                    "session_id": _meta_str(meta, "session_id"),
+                })
         except Exception as e:
             self.add_debug(f"❌ Memory browse error: {e}")  # type: ignore[attr-defined]
 
@@ -362,14 +306,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             return
 
         try:
-            if self.memory_browser_agent == "research_cache":
-                col = memory._client.get_collection(
-                    name="research_cache",
-                    embedding_function=memory._embed_fn,  # type: ignore[arg-type]
-                )
-            else:
-                col = memory._collection(self.memory_browser_agent)
-
+            col = memory._collection(self.memory_browser_agent)
             col.delete(ids=[entry_id])
             self.add_debug(f"🗑️ Memory entry deleted: {entry_id[:8]}...")  # type: ignore[attr-defined]
         except Exception as e:

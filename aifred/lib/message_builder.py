@@ -256,7 +256,7 @@ def build_history_entry(
     """Build a chat_history entry for an agent response.
 
     Single Source of Truth for the history dict format.
-    Used by llm_engine.py and research pipeline (cache_handler, context_builder).
+    Used by llm_engine.py.
     The browser UI path uses add_agent_panel() which adds extra UI concerns
     (markers, TTS, session save) on top of the same structure.
 

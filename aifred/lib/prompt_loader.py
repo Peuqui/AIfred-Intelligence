@@ -630,16 +630,6 @@ Diese Daten wurden automatisch aus dem Bild extrahiert."""
     )
 
 
-def get_followup_intent_prompt(original_query: str, followup_query: str, lang: Optional[str] = None) -> str:
-    """Load followup intent detection prompt"""
-    return load_prompt(
-        'automatik/followup_intent_detection',
-        lang=lang,
-        original_query=original_query,
-        followup_query=followup_query
-    )
-
-
 def load_multi_agent_roles(lang: Optional[str] = None) -> str:
     """
     Load shared multi-agent roles description.
@@ -790,29 +780,6 @@ def _merge_prompt_layers(
         parts.append(disciplines)
 
     return "\n\n".join(parts)
-
-
-def get_system_rag_prompt(
-    context: str, user_text: str = "", agent_id: str = "aifred",
-    lang: Optional[str] = None,
-    user_name: Optional[str] = None, user_gender: Optional[str] = None,
-) -> str:
-    """
-    Load system prompt with RAG context via shared layer merging.
-
-    Uses the agent's normal task prompt (direct.txt) + shared/rag_context.txt layer.
-    RAG context is injected as Layer 6, shared across all agents.
-    """
-    task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
-    return _merge_prompt_layers(
-        agent_id, task_prompt, lang,
-        tools=True,
-        user_name=user_name, user_gender=user_gender,
-        rag_context=context,
-    )
-
-
-# Cache metadata prompt removed - will be replaced with Vector DB embeddings
 
 
 def get_vision_ocr_prompt(lang: Optional[str] = None) -> str:
