@@ -2,16 +2,17 @@
 
 **Datei:** `aifred/plugins/tools/research/`
 
-Multi-API-Websuche mit automatischem URL-Ranking, Inhalts-Scraping und
-semantischem Caching. Das Tool `web_search` teilt dieselbe Pipeline
-(`execute_research`) mit dem Automatik-Modus — der Unterschied liegt nur darin,
-wer die Suchanfragen erzeugt.
+Multi-API-Websuche mit automatischem URL-Ranking und Inhalts-Scraping. Jede
+Recherche läuft frisch — es gibt keinen Ergebnis-Cache. Das Tool `web_search`
+teilt dieselbe Pipeline (`execute_research`) mit der erzwungenen Recherche der
+Modi Schnell/Ausführlich — der Unterschied liegt nur darin, wer die
+Suchanfragen erzeugt.
 
 ## Tools
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `web_search` | Vollständige Research-Pipeline: Suche → Ranking → Scraping → Cache. Nimmt 1–3 Queries. | READONLY |
+| `web_search` | Vollständige Research-Pipeline: Suche → Ranking → Scraping → Kontext. Nimmt 1–3 Queries. | READONLY |
 | `web_fetch` | Einzelne URL abrufen und Inhalt extrahieren (keine Such-/Ranking-Pipeline). | READONLY |
 
 ### `web_search`-Parameter
@@ -31,27 +32,23 @@ wer die Suchanfragen erzeugt.
 `web_search` ruft die vollständige Research-Pipeline im `deep`-Modus ab
 (7 gescrapte URLs):
 
-1. **Cache-Check** — die Query wird im ChromaDB-Vector-Cache nachgeschlagen; bei
-   einem ausreichend frischen semantischen Treffer (Distanz unter dem
-   volatilitätsabhängigen Schwellwert) wird der gecachte Kontext sofort
-   zurückgegeben.
-2. **Suche** — die Queries werden parallel an alle konfigurierten Such-APIs
-   geschickt (Brave, Tavily, SearXNG).
-3. **URL-Ranking** — ein LLM sortiert die gesammelten URLs nach Relevanz (mit
+1. **Suche** — die Queries werden reihum auf die konfigurierten Such-APIs
+   verteilt (Query 1 → SearXNG, 2 → Tavily, 3 → Brave), mit automatischem
+   Fallback, wenn eine API ausfällt.
+2. **URL-Ranking** — ein LLM sortiert die gesammelten URLs nach Relevanz (mit
    Konversationshistorie) und behält die Top N (7 im Deep-, 3 im Quick-Modus).
-4. **Scraping** — die gerankten URLs werden parallel gescrapt, mit einem
+3. **Scraping** — die gerankten URLs werden parallel gescrapt, mit einem
    Playwright-Fallback für JS-lastige Seiten.
-5. **Context-Building** — die gescrapten Inhalte werden zu einem Kontextblock
+4. **Context-Building** — die gescrapten Inhalte werden zu einem Kontextblock
    plus einer aufklappbaren Quellenliste für die UI zusammengesetzt.
-6. **Vector-Cache-Write** — Ergebnisse werden in ChromaDB gespeichert, mit einer
-   TTL je nach Volatilität der Query.
 
-Im **Automatik-Modus** generiert das Automatik-LLM die Queries selbst; im
-Tool-Call-Pfad liefert das Modell seine eigenen Queries (die Query-Generierung
-entfällt). Beide Pfade führen das URL-Ranking aus und schreiben in denselben
-Vector-Cache.
+In den **Modi Schnell/Ausführlich** erzeugt das Automatik-LLM die Queries, bevor
+der Agent antwortet (erzwungene Recherche); im Tool-Call-Pfad
+(**Automatik-Modus**) liefert das Modell seine eigenen Queries, die
+Query-Generierung entfällt. Beide Pfade durchlaufen dasselbe URL-Ranking,
+Scraping und Context-Building.
 
-Für den Message Hub (Discord, E-Mail) nutzt `web_search` über `_hub_web_search`
+Für den Message Hub (Discord, E-Mail) nutzt `web_search` über `hub_web_search`
 dieselben Bausteine; dieser Pfad liest seine Konfiguration aus den Settings statt
 aus dem Reflex-State.
 
@@ -60,7 +57,4 @@ aus dem Reflex-State.
 - Such-APIs via Umgebungsvariablen: `BRAVE_API_KEY`, `TAVILY_API_KEY`.
 - SearXNG als selbst-gehostete Alternative ohne API-Key
   (Default `http://localhost:8888`).
-- ChromaDB-Collection `research_cache` für den Vector-Cache; die Cache-Treffer-
-  Schwellwerte je Volatilitätsklasse sind über `CACHE_DISTANCE_PER_VOLATILITY` in
-  `config.py` definiert.
 - Anzahl gescrapter URLs: `RESEARCH_DEEP_URLS = 7`, `RESEARCH_QUICK_URLS = 3`.

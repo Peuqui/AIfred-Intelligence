@@ -39,7 +39,7 @@ File access to the documents directory (`data/documents/`) and semantic search v
 - Path traversal protection (confined to `data/documents/`)
 - Write verify: files are read back after writing and compared
 - Writing restricted to text formats (.txt, .md, .csv, .json, .xml, .html)
-- Central ChromaDB management (Research Cache, Documents, Agent Memories)
+- Central ChromaDB management (Documents, Agent Memories)
 
 > **Details:** [Workspace Plugin](plugins/workspace.md)
 
@@ -72,7 +72,7 @@ Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird d
 
 **File:** `plugins/tools/research/`
 
-Automatic web research with multiple search APIs and semantic cache.
+Automatic web research with multiple search APIs — every research runs fresh.
 
 | Tool | Description | Tier |
 |------|------------|------|
@@ -82,7 +82,6 @@ Automatic web research with multiple search APIs and semantic cache.
 **Features:**
 - Multi-API with automatic fallback
 - Result scraping and ranking
-- Semantic vector cache via ChromaDB
 
 > **Details:** [Research Plugin](plugins/research.md)
 

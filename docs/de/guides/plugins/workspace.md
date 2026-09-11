@@ -49,7 +49,7 @@ Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Ver
 - **MMR-Diversifizierung:** Ergebnisse werden über Dateien/Vektor-Regionen verteilt, statt viele fast identische Chunks zurückzugeben
 - **Pagination:** Dieselbe Query mit `page=2`, `page=3`, … erneut aufrufen — die Antwort liefert `has_more` plus `next_page_hint` oder `pagination_note`, ob tiefere Seiten lohnen
 - **Orphan-Bereinigung:** `list_orphaned` findet Index-Einträge, deren Quelldatei auf der Platte gelöscht wurde
-- **Zentrale Verwaltung:** `chromadb_stats` zeigt Research Cache, Documents und alle Agent-Memory-Collections auf einen Blick
+- **Zentrale Verwaltung:** `chromadb_stats` zeigt Documents und alle Agent-Memory-Collections auf einen Blick
 
 ## Sicherheit
 

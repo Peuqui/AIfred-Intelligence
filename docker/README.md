@@ -5,7 +5,7 @@ This directory contains all Docker services required by AIfred Intelligence.
 ## Services
 
 ### 1. ChromaDB (Essential)
-Vector database for semantic caching of web research results.
+Vector database for indexed documents (RAG) and agent memory.
 
 **Start:**
 ```bash
@@ -60,16 +60,14 @@ docker compose logs -f chromadb
 docker compose logs -f searxng
 ```
 
-### Reset ChromaDB cache
+### Reset ChromaDB (deletes indexed documents and agent memory)
 ```bash
-# Option 1: Restart container + delete data
+# Option 1: Stop container + delete data
 docker compose stop chromadb
-cd ..
-rm -rf aifred_vector_cache/
-cd docker
+sudo rm -rf ../data/chromadb/   # files are created by the container (root)
 docker compose up -d chromadb
 
-# Option 2: Delete collection only (see main README)
+# Option 2: Delete a single collection only (see main README)
 ```
 
 ## Network
@@ -81,5 +79,5 @@ All services run in the shared `aifred-network`, allowing inter-service communic
 
 ## Volumes
 
-- `../aifred_vector_cache/` - Persistent storage for ChromaDB
+- `../data/chromadb/` - Persistent storage for ChromaDB
 - `./searxng/settings.yml` - SearXNG configuration

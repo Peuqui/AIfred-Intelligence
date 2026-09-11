@@ -131,22 +131,21 @@ Forced web research **before** the LLM call:
 ```
 _run_agent_direct_response(..., research_mode="quick")
   |-- _execute_forced_research(state, query, "quick")
-  |     |-- research/orchestrator.py: perform_agent_research()
-  |     |     1. ChromaDB cache check
-  |     |     2. Query optimization (LLM generates search terms)
-  |     |     3. Web search (DuckDuckGo/Brave/Tavily/SearXNG)
-  |     |     4. URL ranking (LLM evaluates relevance)
-  |     |     5. Web scraping (top N URLs)
-  |     |     6. Context building
+  |     |-- research_tools.py: execute_research()
+  |     |     1. Query generation (Automatik-LLM generates search terms)
+  |     |     2. Web search (SearXNG/Tavily/Brave, round-robin per query)
+  |     |     3. URL ranking (LLM evaluates relevance)
+  |     |     4. Web scraping (top N URLs)
+  |     |     5. Context building
   |     |
   |     v
   |     state._research_context = prepared research results
   |
-  |-- system_prompt += research_context (injected as knowledge)
+  |-- inject_before_question(messages, wrap_untrusted_data(research_context))
   |-- _stream_agent_to_history() -> run_llm_stream()
 ```
 
-**quick** = top 3 URLs. **deep** = top 8 URLs + deeper analysis.
+**quick** = top 3 URLs. **deep** = top 7 URLs. Every research runs fresh (no result cache).
 
 ### 4. Vision Pipeline (Image Upload)
 
