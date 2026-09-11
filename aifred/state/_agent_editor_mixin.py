@@ -340,8 +340,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             self.open_memory_browser()
         elif tab == "database":
             self.db_clear_confirm = False
-            if self.db_browser_collection:
-                self._load_db_entries()
+            yield type(self).db_load_documents  # type: ignore[attr-defined]
         elif tab == "storage":
             # Speicher-Tab: lokale Datei-Stores (Exporte + Sandbox) laden.
             self.load_storage_files()

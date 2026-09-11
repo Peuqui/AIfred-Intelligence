@@ -1,4 +1,4 @@
-"""Agent-Editor: Database-Tab — System-Collections browsen + loeschen."""
+"""Agent-Editor: Database-Tab — Dokumenten-Index (pro Dokument) + verwaiste Einträge."""
 # mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
 # Reflex UI code: Var indexing, rx.icon module callable, event handler binding
 # are all runtime-correct but not statically typeable.
@@ -13,48 +13,33 @@ from .header import _editor_header
 
 
 def _database_view() -> rx.Component:
-    """Database tab: Documents with same browse/delete UI as Memory."""
+    """Database tab: the document index, one row per document, plus orphan cleanup."""
     return rx.vstack(
         _editor_header(),
 
         # Scrollable content
         rx.box(
             rx.vstack(
-                # Collection selector buttons + clear-all
+                # Title + document count + clear-all
                 rx.hstack(
-                    rx.button(
-                        rx.icon("file-text", size=14),
-                        " ", t("db_documents"),
-                        on_click=AIState.select_db_collection("aifred_documents"),
-                        size="2",
-                        variant=rx.cond(
-                            AIState.db_browser_collection == "aifred_documents",
-                            "solid", "soft",
-                        ),
-                        color_scheme="orange",
-                        cursor="pointer",
-                        flex_shrink="0",
-                    ),
+                    rx.icon("file-text", size=14, color="#4da6ff"),
+                    rx.text(t("db_documents"), font_size="14px", font_weight="bold", color="#ddd"),
                     rx.spacer(),
-                    # Entry count badge
-                    rx.cond(
-                        AIState.db_browser_collection != "",
-                        rx.badge(
-                            AIState.db_browser_entries.length(),  # type: ignore[union-attr]
-                            variant="soft",
-                            color_scheme="orange",
-                        ),
+                    rx.badge(
+                        AIState.db_documents.length(),  # type: ignore[union-attr]
+                        variant="soft",
+                        color_scheme="orange",
                     ),
                     # Clear all button (with confirmation)
                     rx.cond(
-                        AIState.db_browser_entries.length() > 0,  # type: ignore[union-attr]
+                        AIState.db_documents.length() > 0,  # type: ignore[union-attr]
                         rx.cond(
                             AIState.db_clear_confirm,
                             # Confirmation: two buttons
                             rx.hstack(
                                 rx.button(
                                     t("db_really_delete"),
-                                    on_click=AIState.clear_db_collection,
+                                    on_click=AIState.clear_db_index,
                                     size="1",
                                     variant="solid",
                                     color_scheme="red",
@@ -89,37 +74,25 @@ def _database_view() -> rx.Component:
                     align="center",
                 ),
 
-                # Orphan section — only meaningful for the documents collection
-                rx.cond(
-                    AIState.db_browser_collection == "aifred_documents",
-                    _db_orphan_section(),
-                ),
+                _db_orphan_section(),
 
-                # Entries list
+                # Document list
                 rx.cond(
-                    AIState.db_browser_collection == "",
+                    AIState.db_documents.length() > 0,  # type: ignore[union-attr]
+                    rx.vstack(
+                        rx.foreach(
+                            AIState.db_documents,
+                            lambda doc: _indexed_doc_row(doc, "file-text", "#4da6ff"),
+                        ),
+                        spacing="0", width="100%",
+                        background="#161616",
+                        border="1px solid #2a2a2a",
+                        border_radius="6px",
+                    ),
                     rx.text(
-                        t("db_select_hint"),
+                        t("db_no_entries"),
                         color="#888",
                         font_size="13px",
-                        padding_top="20px",
-                        text_align="center",
-                    ),
-                    rx.cond(
-                        AIState.db_browser_entries.length() > 0,  # type: ignore[union-attr]
-                        rx.vstack(
-                            rx.foreach(
-                                AIState.db_browser_entries,
-                                _db_entry_row,
-                            ),
-                            spacing="2",
-                            width="100%",
-                        ),
-                        rx.text(
-                            t("db_no_entries"),
-                            color="#888",
-                            font_size="13px",
-                        ),
                     ),
                 ),
 
@@ -138,15 +111,14 @@ def _database_view() -> rx.Component:
     )
 
 
-def _db_orphan_row(orphan: rx.Var) -> rx.Component:
-    """Single orphaned-document row in the cleanup section."""
+def _indexed_doc_row(doc: rx.Var, icon: str, icon_color: str) -> rx.Component:
+    """One indexed document (document list or orphan list): name, chunks, remove from index."""
     return rx.hstack(
-        rx.icon("file-x-2", size=14, color="#d29922"),
+        rx.icon(icon, size=14, color=icon_color),
         rx.vstack(
-            rx.text(orphan["filename"], font_size="12px", color="white"),
+            rx.text(doc["filename"], font_size="12px", color="white"),
             rx.text(
-                orphan["total_chunks"].to(str) + rx.cond(
-                    AIState.ui_language == "de", " Chunks", " chunks"),
+                doc["total_chunks"].to(str) + t("db_chunks_suffix"),
                 font_size="10px", color="#888",
             ),
             spacing="0", align="start", flex="1",
@@ -155,14 +127,10 @@ def _db_orphan_row(orphan: rx.Var) -> rx.Component:
             rx.icon_button(
                 rx.icon("trash-2", size=12), size="1",
                 variant="ghost", color_scheme="red",
-                on_click=AIState.db_delete_orphan(orphan["filename"]),
+                on_click=AIState.db_deindex_document(doc["filename"]),
                 cursor="pointer",
             ),
-            content=rx.cond(
-                AIState.ui_language == "de",
-                "Aus Index loeschen",
-                "Delete from index",
-            ),
+            content=t("db_remove_from_index"),
         ),
         spacing="2", align="center", width="100%",
         padding="6px 8px",
@@ -185,11 +153,7 @@ def _db_orphan_section() -> rx.Component:
             ),
             rx.icon("brush-cleaning", size=14, color="#d29922"),
             rx.text(
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "Verwaiste Index-Eintraege",
-                    "Orphaned index entries",
-                ),
+                t("db_orphans_title"),
                 font_size="13px", font_weight="bold", color="#d29922",
                 cursor="pointer",
                 on_click=AIState.db_toggle_orphans,
@@ -206,11 +170,7 @@ def _db_orphan_section() -> rx.Component:
                 AIState.db_orphans_visible & (AIState.db_orphans.length() > 0),
                 rx.button(
                     rx.icon("trash-2", size=12),
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        "Alle loeschen",
-                        "Delete all",
-                    ),
+                    t("db_orphans_delete_all"),
                     size="1", variant="soft", color_scheme="red",
                     on_click=AIState.db_delete_all_orphans,
                     cursor="pointer",
@@ -227,7 +187,7 @@ def _db_orphan_section() -> rx.Component:
             rx.cond(
                 AIState.db_orphans.length() > 0,
                 rx.vstack(
-                    rx.foreach(AIState.db_orphans, _db_orphan_row),
+                    rx.foreach(AIState.db_orphans, lambda doc: _indexed_doc_row(doc, "file-x-2", "#d29922")),
                     spacing="0", width="100%",
                     margin_top="4px",
                     background="#161616",
@@ -237,11 +197,7 @@ def _db_orphan_section() -> rx.Component:
                     overflow_y="auto",
                 ),
                 rx.text(
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        "Keine verwaisten Eintraege.",
-                        "No orphaned entries.",
-                    ),
+                    t("db_orphans_none"),
                     font_size="12px", color="#666",
                     padding="12px 8px",
                     margin_top="4px",
@@ -251,53 +207,5 @@ def _db_orphan_section() -> rx.Component:
                 ),
             ),
         ),
-        width="100%",
-    )
-
-
-def _db_entry_row(entry: rx.Var) -> rx.Component:
-    """Render a single database entry — same style as memory entries."""
-    return rx.box(
-        rx.hstack(
-            rx.badge(
-                entry["type"],
-                variant="soft",
-                color_scheme=rx.cond(entry["type"] == "document", "blue", "gray"),
-                font_size="10px",
-            ),
-            rx.text(entry["date"], font_size="11px", color="#888"),
-            rx.spacer(),
-            rx.icon_button(
-                rx.icon("trash-2", size=12),
-                on_click=AIState.delete_db_entry(entry["id"]),
-                size="1",
-                variant="ghost",
-                color_scheme="red",
-                cursor="pointer",
-            ),
-            width="100%",
-            align="center",
-        ),
-        rx.text(
-            entry["summary"],
-            font_size="15px",
-            color="#ddd",
-            font_weight="500",
-            padding_top="4px",
-        ),
-        rx.cond(
-            entry["content"] != entry["summary"],
-            rx.text(
-                entry["content"],
-                font_size="14px",
-                color="#aaa",
-                padding_top="4px",
-                style={"white_space": "pre-wrap", "max_height": "150px", "overflow_y": "auto"},
-            ),
-        ),
-        padding="10px 12px",
-        background="rgba(255,255,255,0.03)",
-        border_radius="6px",
-        border="1px solid #333",
         width="100%",
     )
