@@ -245,14 +245,10 @@ install_service "$SYSTEMD_DIR/aifred-chromadb.service"
 install_service "$SYSTEMD_DIR/aifred-intelligence.service"
 
 # Install drop-in for aifred-intelligence.service if present. The
-# hardening.conf drop-in extends REFLEX_HOT_RELOAD_EXCLUDE_PATHS to
-# also cover scripts/deploy/docs/docker/tests/systemd (the ChromaDB
-# volume lives in data/chromadb/, covered by data).
-# Without this drop-in Granian kills the Reflex worker on every
-# ChromaDB embed batch (chroma.sqlite3 write triggers hot reload),
-# so indexing jobs die after the first batch. It also clears Requires=
-# and sets Wants= so a ChromaDB recreate (docker auto-update) doesn't
-# cascade-stop AIfred.
+# hardening.conf drop-in raises the Bun/Node heap (the frontend crashes
+# with the 512 MB default), clears Requires= and sets Wants= so a
+# ChromaDB recreate (docker auto-update) doesn't cascade-stop AIfred.
+# Hot-reload exclusions are computed by rxconfig.py, not set here.
 DROPIN_DIR="$SYSTEMD_DIR/aifred-intelligence.service.d"
 if [ -d "$DROPIN_DIR" ]; then
     for dropin in "$DROPIN_DIR"/*.conf; do
