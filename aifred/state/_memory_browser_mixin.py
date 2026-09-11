@@ -1,8 +1,8 @@
 """Memory browser mixin for AIfred state.
 
 Handles the memory browser (ChromaDB agent memory collections),
-the database browser for system collections (aifred_documents,
-orphan cleanup) and agent bundle export/import.
+the database tab (document index, orphan cleanup) and agent bundle
+export/import.
 """
 
 from __future__ import annotations
@@ -15,27 +15,33 @@ import reflex as rx
 def _meta_str(meta: Any, key: str, default: str = "") -> str:
     """ChromaDB-Metadata-Wert als str — verengt die Union
     ``str | int | float | SparseVector | None`` typsicher (SSOT für die
-    DB-/Memory-Browser-Schleifen)."""
+    Memory-Browser-Schleife)."""
     value = (meta or {}).get(key)
     return value if isinstance(value, str) else default
 
 
-def _meta_int(meta: Any, key: str, default: int = 0) -> int:
-    """ChromaDB-Metadata-Wert als int (siehe ``_meta_str``)."""
-    value = (meta or {}).get(key)
-    return value if isinstance(value, int) else default
+def _by_path(doc: Dict[str, Any]) -> str:
+    """Sort key for index lists: the document path, case-insensitive."""
+    return str(doc.get("filename", "")).casefold()
+
+
+async def _deindex(filename: str) -> None:
+    """Remove one document from the index only (the file stays on disk)."""
+    from ..lib import file_manager as fm
+    parts = filename.strip("/").rsplit("/", 1)
+    parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+    await fm.delete_file(parent_rel, leaf, from_disk=False, from_index=True)
 
 
 
 class MemoryBrowserMixin(rx.State, mixin=True):
     """Mixin for memory/database browsing and agent bundle export/import."""
 
-    # Database browser state (system collections: aifred_documents)
-    db_browser_collection: str = ""  # Selected collection name
-    db_browser_entries: List[Dict[str, str]] = []  # Entries for selected collection
+    # Database tab: the document index, one entry per document (not per chunk)
+    db_documents: List[Dict[str, Any]] = []
     db_clear_confirm: bool = False  # Confirmation state for clear-all
 
-    # Orphan-cleanup state (only meaningful when db_browser_collection == aifred_documents)
+    # Orphan cleanup: indexed documents whose file is gone from disk
     db_orphans: List[Dict[str, Any]] = []      # one entry per orphaned document (not per chunk)
     db_orphans_visible: bool = False           # toggles the orphan section
 
@@ -104,121 +110,68 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         else:  # "agent" — everything the agent stored itself
             return [e for e in self.memory_browser_entries if e.get("type") != "session_summary"]
 
-    def select_db_collection(self, collection_name: str) -> None:
-        """Select a system collection to browse in the database tab."""
-        self.db_browser_collection = collection_name
-        self.db_clear_confirm = False
-        self._load_db_entries()
+    async def _refresh_db_documents(self) -> None:
+        """Load the document index, sorted by path (paged Chroma read, ~2 s
+        for 46k chunks — in a thread, not on the event loop)."""
+        import asyncio
+        from ..lib import file_manager as fm
+        result = await asyncio.to_thread(fm.list_indexed)
+        if not result.success:
+            self.add_debug(f"❌ DB browse error: {result.detail}")  # type: ignore[attr-defined]
+        docs = result.metadata.get("documents", []) if result.success else []
+        self.db_documents = sorted(docs, key=_by_path)
 
-    def _load_db_entries(self) -> None:
-        """Load entries for the selected system collection."""
-        if not self.db_browser_collection:
-            self.db_browser_entries = []
-            return
-
-        try:
-            from ..lib.chroma_client import chroma_client
-            client = chroma_client()
-            col = client.get_collection(self.db_browser_collection)
-            if col.count() == 0:
-                self.db_browser_entries = []
-                return
-
-            data = col.get(include=["metadatas", "documents"])
-        except Exception as e:
-            self.add_debug(f"❌ DB browse error: {e}")  # type: ignore[attr-defined]
-            self.db_browser_entries = []
-            return
-
-        entries: list[dict] = []
-        for i, doc_id in enumerate(data["ids"]):
-            meta = data["metadatas"][i] if data["metadatas"] else {}  # type: ignore[index]
-            doc = data["documents"][i] if data["documents"] else ""  # type: ignore[index]
-
-            if self.db_browser_collection == "aifred_documents":
-                filename = _meta_str(meta, "filename")
-                chunk_idx = _meta_int(meta, "chunk_index")
-                total = _meta_int(meta, "total_chunks")
-                date = _meta_str(meta, "upload_date")[:19]
-                entries.append({
-                    "id": doc_id,
-                    "date": date,
-                    "type": "document",
-                    "summary": f"{filename} (chunk {chunk_idx + 1}/{total})",
-                    "content": (doc or "")[:300],
-                })
-
-        entries.sort(key=lambda e: e.get("date", ""), reverse=True)
-        self.db_browser_entries = entries
-
-    def delete_db_entry(self, entry_id: str) -> None:
-        """Delete a single entry from the current system collection."""
-        if not self.db_browser_collection:
-            return
-        try:
-            from ..lib.chroma_client import chroma_client
-            client = chroma_client()
-            col = client.get_collection(self.db_browser_collection)
-            col.delete(ids=[entry_id])
-            self.add_debug(f"🗑️ DB entry deleted: {entry_id[:20]}...")  # type: ignore[attr-defined]
-        except Exception as e:
-            self.add_debug(f"❌ Delete failed: {e}")  # type: ignore[attr-defined]
-        self._load_db_entries()
+    async def db_load_documents(self) -> None:
+        """Event: the database tab was opened."""
+        await self._refresh_db_documents()
 
     def confirm_clear_db(self) -> None:
-        """Toggle confirmation state for clearing a collection."""
+        """Toggle confirmation state for clearing the document index."""
         self.db_clear_confirm = not self.db_clear_confirm
 
-    def clear_db_collection(self) -> None:
-        """Clear all entries from the currently selected system collection."""
+    async def clear_db_index(self) -> None:
+        """Remove every document from the index (files on disk stay)."""
+        import asyncio
+        from ..lib.document_store import get_document_store
         self.db_clear_confirm = False
-        if not self.db_browser_collection:
+        store = get_document_store()
+        if store is None:
+            self.add_debug("❌ Clear failed: document store not available")  # type: ignore[attr-defined]
             return
-        try:
-            from ..lib.chroma_client import chroma_client
-            client = chroma_client()
-            col = client.get_collection(self.db_browser_collection)
-            count = col.count()
-            if count > 0:
-                all_ids = col.get(include=[])["ids"]
-                col.delete(ids=all_ids)
-            self.add_debug(f"🗑️ Cleared {self.db_browser_collection}: {count} entries")  # type: ignore[attr-defined]
-        except Exception as e:
-            self.add_debug(f"❌ Clear failed: {e}")  # type: ignore[attr-defined]
-        self._load_db_entries()
+        removed = await asyncio.to_thread(store.clear)
+        self.add_debug(f"🗑️ Document index cleared: {removed} chunks")  # type: ignore[attr-defined]
+        await self._refresh_db_documents()
+        if self.db_orphans_visible:
+            await self._reload_db_orphans()
 
-    def db_toggle_orphans(self) -> None:
-        """Toggle the orphan-cleanup section (only meaningful for aifred_documents)."""
+    async def db_toggle_orphans(self) -> None:
+        """Toggle the orphan-cleanup section."""
         self.db_orphans_visible = not self.db_orphans_visible
         if self.db_orphans_visible:
-            self._reload_db_orphans()
+            await self._reload_db_orphans()
 
-    def _reload_db_orphans(self) -> None:
+    async def _reload_db_orphans(self) -> None:
+        import asyncio
         from ..lib import file_manager as fm
-        result = fm.list_orphaned()
-        self.db_orphans = result.metadata.get("orphans", []) if result.success else []
+        result = await asyncio.to_thread(fm.list_orphaned)
+        orphans = result.metadata.get("orphans", []) if result.success else []
+        self.db_orphans = sorted(orphans, key=_by_path)
 
-    async def db_delete_orphan(self, filename: str) -> None:
-        """Delete a single orphaned document from the index only."""
-        from ..lib import file_manager as fm
-        parts = filename.strip("/").rsplit("/", 1)
-        parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
-        await fm.delete_file(parent_rel, leaf, from_disk=False, from_index=True)
-        self._reload_db_orphans()
-        self._load_db_entries()
+    async def db_deindex_document(self, filename: str) -> None:
+        """Remove one document from the index (document row or orphan row)."""
+        await _deindex(filename)
+        await self._refresh_db_documents()
+        if self.db_orphans_visible:
+            await self._reload_db_orphans()
 
     async def db_delete_all_orphans(self) -> None:
-        """Bulk-delete every orphaned document from the index."""
-        from ..lib import file_manager as fm
+        """Bulk-remove every orphaned document from the index."""
         for orphan in list(self.db_orphans):
             filename = str(orphan.get("filename", ""))
-            if not filename:
-                continue
-            parts = filename.strip("/").rsplit("/", 1)
-            parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
-            await fm.delete_file(parent_rel, leaf, from_disk=False, from_index=True)
-        self._reload_db_orphans()
-        self._load_db_entries()
+            if filename:
+                await _deindex(filename)
+        await self._reload_db_orphans()
+        await self._refresh_db_documents()
 
     def _load_memory_collections(self) -> None:
         """Load overview of all ChromaDB agent memory collections."""

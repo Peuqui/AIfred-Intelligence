@@ -812,6 +812,14 @@ class DocumentStore:
 
         return list(docs.values())
 
+    def clear(self) -> int:
+        """Remove every indexed chunk (files on disk stay). Returns the count removed."""
+        ids = self._collection.get(include=[])["ids"]
+        if ids:
+            self._collection.delete(ids=ids)
+        self._invalidate_folder_cache()
+        return len(ids)
+
     async def delete_document(self, filename: str, delete_file: bool = True) -> int:
         """Delete all chunks for a document. Returns number of deleted chunks."""
         all_data = await asyncio.to_thread(
