@@ -556,10 +556,7 @@ async def _call_engine(
     from .session_storage import load_session
     from .settings import load_settings
     from .agent_settings import get_persisted_tuning
-    from .config import (
-        DEFAULT_SETTINGS, DEFAULT_TEMPERATURE, BACKEND_URLS,
-        MAIN_LLM_FALLBACK_CONTEXT,
-    )
+    from .config import DEFAULT_SETTINGS, DEFAULT_TEMPERATURE, BACKEND_URLS
 
 
     # Load current settings
@@ -584,20 +581,11 @@ async def _call_engine(
     llm_history = session.get("data", {}).get("llm_history", []) if session else []
 
 
-    # Resolve calibrated context (no State needed). ``model`` is already the
-    # effective, variant-resolved id (base + suffix from
-    # get_effective_model_from_settings), so the context read matches the
-    # profile that actually loads. Label the variant honestly instead of
-    # blindly "native" — otherwise a loaded -vlm-/-speed-/-tts- profile is
+    # Resolve calibrated context (no State needed). The label names the
+    # loaded variant — otherwise a -vlm-/-speed-/-tts- profile is
     # indistinguishable from the bare base in the FreeEcho debug log.
-    from .research.context_utils import get_model_native_context
-    num_ctx = get_model_native_context(model, backend_type)
-    _marker_idx = [model.find(m) for m in ("-tts-", "-vlm-", "-speed")]
-    _marker_idx = [i for i in _marker_idx if i > 0]
-    ctx_label = model[min(_marker_idx):].lstrip("-") if _marker_idx else "native"
-    if num_ctx <= 0:
-        num_ctx = MAIN_LLM_FALLBACK_CONTEXT
-        ctx_label = "fallback"
+    from .research.context_utils import get_stateless_num_ctx
+    num_ctx, ctx_label = get_stateless_num_ctx(model, backend_type)
 
 
     from .agent_config import get_agent_config

@@ -826,62 +826,6 @@ class OllamaBackend(LLMBackend):
             "requires_preload": False    # Optional preloading (for performance only)
         }
 
-    async def calculate_practical_context(
-        self,
-        model: str
-    ) -> tuple[int, list[str]]:
-        """
-        Calculate practical context for Ollama (dynamic VRAM-based calculation)
-
-        Ollama models can be loaded/unloaded dynamically, so context is calculated
-        fresh each time based on current VRAM availability.
-
-        IMPORTANT: This function UNLOADS ALL MODELS before measuring VRAM!
-        This ensures accurate VRAM measurement even if Automatik-LLM or Vision-LLM
-        were running before the Main-LLM inference.
-
-        Note: Per-model RoPE 2x toggle is read automatically from VRAM cache.
-
-        Args:
-            model: Model name
-
-        Returns:
-            tuple[int, list[str]]: (context_limit, debug_messages)
-        """
-        from ..lib.gpu_utils import calculate_vram_based_context, get_model_size_from_cache
-
-        debug_msgs = []
-
-        # Get model metadata FIRST (doesn't require unloading)
-        model_limit, model_size_bytes = await self.get_model_context_limit(model)
-
-        # If model size not available from API, try cache
-        if model_size_bytes == 0:
-            model_size_bytes = get_model_size_from_cache(model)
-
-        # Ollama manages VRAM automatically via LRU — manual unloading
-        # is redundant and adds ~2s latency per request.
-
-        # Since we don't unload anymore, check if the target model is currently loaded
-        # (it might be, or Ollama might have unloaded it for another model via LRU)
-        model_is_loaded = False  # Conservative assumption - VRAM calc will add model size
-
-        # Calculate practical context based on current VRAM (with auto-MoE detection)
-        # Note: use_extended is read from cache inside calculate_vram_based_context
-        num_ctx, vram_debug_msgs = await calculate_vram_based_context(
-            model_name=model,
-            model_size_bytes=model_size_bytes,
-            model_context_limit=model_limit,
-            model_is_loaded=model_is_loaded,
-            backend_type="ollama",
-            backend=self  # Pass self for fallback unloading (shouldn't be needed now)
-        )
-
-        # Combine debug messages
-        debug_msgs.extend(vram_debug_msgs)
-
-        return num_ctx, debug_msgs
-
     async def _is_fully_in_vram(self, model: str) -> bool:
         """
         Check if model is fully loaded in VRAM (no CPU offloading).

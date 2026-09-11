@@ -1,9 +1,7 @@
 """
 Context Manager - Token and Context Window Management
 
-Handles context limits and token estimation for LLMs:
-- Query model context limits from backends (on-demand, no caching)
-- Calculate optimal num_ctx for requests
+Handles token estimation and history compression for LLMs:
 - Token estimation for messages (using HuggingFace tokenizers)
 - History compression (summarize_history_if_needed)
 """
@@ -26,12 +24,7 @@ from .config import (
     HISTORY_MAX_SUMMARIES,
     HISTORY_SUMMARY_MAX_RATIO,
     HISTORY_SUMMARY_TEMPERATURE,
-    XTTS_VRAM_MB,
-    MOSS_TTS_VRAM_MB,
-    VRAM_CONTEXT_RATIO_DENSE,
-    VRAM_CONTEXT_RATIO_MOE
 )
-from .gpu_utils import is_moe_model
 
 # Global tokenizer cache (model_name -> tokenizer)
 _tokenizer_cache = {}
@@ -415,124 +408,6 @@ def is_summary_message(msg: Dict[str, Any]) -> bool:
 def count_summaries(history: List[Dict[str, Any]]) -> int:
     """Count the number of summary entries in chat history."""
     return sum(1 for msg in history if is_summary_message(msg))
-
-
-# Global cache for VRAM limits (prevents recalculation during history compression)
-# Separate limits for AIfred and Sokrates since they use different models
-_last_vram_limit_cache = {
-    "limit": 0,           # Legacy/default (for compression, uses min of both)
-    "aifred_limit": 0,    # AIfred's model-specific limit
-    "sokrates_limit": 0   # Sokrates' model-specific limit
-}
-
-
-async def calculate_dynamic_num_ctx(
-    llm_client,
-    model_name: str,
-    messages: List[Dict],
-    llm_options: Optional[Dict] = None,
-    enable_vram_limit: bool = True,
-    state = None  # Optional: AIState instance for storing VRAM limit
-) -> tuple[int, list[str]]:
-    """
-    Calculate optimal num_ctx based on message size, model limit AND VRAM.
-
-    This function is CENTRAL for all context calculations!
-    It queries the model limit directly (~30ms) and calculates optimal num_ctx.
-
-    The calculation considers:
-    1. Message size × 2 (50/50 rule: 50% input, 50% output)
-    2. Model maximum (via backend query)
-    3. VRAM-based practical limit (NEW! prevents CPU offload)
-    4. User override (if set in llm_options)
-
-    Args:
-        llm_client: LLMClient instance (any backend type)
-        model_name: Model name (e.g., "qwen3:8b", "phi3:mini")
-        messages: List of message dicts with 'content' key
-        llm_options: Dict with optional 'num_ctx' override
-        enable_vram_limit: Whether VRAM-based limiting is applied (default: True)
-
-    Returns:
-        tuple[int, list[str]]: (num_ctx, debug_messages)
-            - num_ctx: Optimal num_ctx (rounded to standard sizes, clipped to practical limit)
-            - debug_messages: VRAM debug messages for UI console (to be yielded by caller)
-
-    Raises:
-        RuntimeError: If model info cannot be queried
-    """
-    # Check for manual override
-    user_num_ctx = llm_options.get('num_ctx') if llm_options else None
-    if user_num_ctx:
-        log_message(f"🎯 Context Window: {user_num_ctx} Tokens (manually set)")
-        return user_num_ctx, []  # No VRAM messages for manual override
-
-    # Calculate tokens from message size
-    estimated_tokens = estimate_tokens(messages)  # 1 token ≈ 3.5 chars
-
-    # Query model limit from backend (~40ms, does NOT load model!)
-    model_limit, _ = await llm_client.get_model_context_limit(model_name)
-
-    # NEW: Backend-specific practical limit calculation
-    # - Ollama: Dynamic VRAM calculation (based on current free VRAM)
-    # - vLLM: Cached startup value (FIXED, cannot be changed at runtime)
-    vram_debug_msgs = []
-    backend = llm_client._get_backend()
-
-    if enable_vram_limit:
-        # Use backend-specific context calculation
-        max_practical_ctx, vram_debug_msgs = await backend.calculate_practical_context(model_name)
-    else:
-        # VRAM limit disabled - use full model limit
-        max_practical_ctx = model_limit
-        log_message(f"⚠️ VRAM limit disabled - using full model limit {model_limit:,} (risk: CPU offload)")
-
-    # TTS VRAM reservation — only for backends where context is dynamic (Ollama).
-    # For llamacpp: llama-swap YAML has separate TTS-calibrated profiles with
-    # adjusted tensor-split. The -c value IS the ground truth — no reduction needed.
-    current_backend = getattr(state, 'backend_type', 'ollama') if state else 'ollama'
-    tts_active = state and getattr(state, 'enable_tts', False)
-    tts_engine = getattr(state, 'tts_engine', '').lower() if state else ''
-
-    if tts_active and current_backend == "ollama":
-        if 'xtts' in tts_engine and not getattr(state, 'xtts_force_cpu', False):
-            vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_name) else VRAM_CONTEXT_RATIO_DENSE
-            xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
-            max_practical_ctx = max(2048, max_practical_ctx - xtts_token_reserve)
-            vram_debug_msgs.append(f"🔊 XTTS reserved: ~{format_number(XTTS_VRAM_MB)} MB ({format_number(xtts_token_reserve)} tok)")
-
-        elif 'moss' in tts_engine and getattr(state, 'moss_tts_device', '') == 'cuda':
-            vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_name) else VRAM_CONTEXT_RATIO_DENSE
-            moss_token_reserve = int(MOSS_TTS_VRAM_MB / vram_ratio)
-            max_practical_ctx = max(2048, max_practical_ctx - moss_token_reserve)
-            vram_debug_msgs.append(f"🔊 MOSS-TTS reserved: ~{format_number(MOSS_TTS_VRAM_MB)} MB ({format_number(moss_token_reserve)} tok)")
-
-    # Ollama/vLLM/llama.cpp: Dynamic num_ctx calculation possible
-    # gpu_utils.calculate_vram_based_context() returns:
-    # - Calibrated: the measured max_context_gpu_only value
-    # - Uncalibrated: dynamically calculated VRAM-based value
-    # In both cases: Clip to model limit
-    final_num_ctx = min(max_practical_ctx, model_limit)
-
-    # Store VRAM limit in global cache for history compression
-    # (prevents history from recalculating the limit)
-    # This is called for AIfred (main LLM), so store in aifred_limit too
-    _last_vram_limit_cache["limit"] = min(max_practical_ctx, model_limit)
-    _last_vram_limit_cache["aifred_limit"] = min(max_practical_ctx, model_limit)
-
-    # Optional: Also store in state if provided
-    if state is not None:
-        state.last_vram_limit = min(max_practical_ctx, model_limit)
-
-    # Log Context Window Info
-    available_output = final_num_ctx - estimated_tokens
-    log_message(
-        f"🎯 Context Window: {format_number(final_num_ctx)} tok "
-        f"(Input: ~{format_number(estimated_tokens)}, Output space: ~{format_number(available_output)}, "
-        f"VRAM limit: {format_number(max_practical_ctx)}, Model max: {format_number(model_limit)})"
-    )
-
-    return final_num_ctx, vram_debug_msgs
 
 
 async def summarize_history_if_needed(

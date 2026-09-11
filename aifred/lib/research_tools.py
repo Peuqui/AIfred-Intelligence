@@ -191,6 +191,8 @@ async def execute_research(
         # PHASE 4: Parallel Web Scraping (with progress bar)
         # ==============================================================
         model_id = state._effective_model_id("aifred")
+        # BASE id for the lookup — get_agent_num_ctx resolves the suffix itself
+        preload_num_ctx, _ = get_agent_num_ctx("aifred", state, state.agent_tuning["aifred"].model_id)  # type: ignore[has-type]
         failed_sources: list[dict[str, Any]] = []
 
         async for item in orchestrate_scraping(
@@ -198,6 +200,7 @@ async def execute_research(
             mode=mode,
             llm_client=llm_client,
             model_choice=model_id,
+            preload_num_ctx=preload_num_ctx,
         ):
             if item["type"] == "scraping_result":
                 _, scraping_tool_results = item["data"]
@@ -370,11 +373,16 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
         # model_choice = aifred (Haupt-LLM wird vorgeladen, da nach dem
         # Scraping sein Inferenz-Call kommt). Kein LLM-Call zur
         # Verarbeitung der Scrape-Daten — die werden direkt durchgereicht.
+        # Kontext wie die Hub-Inferenz (message_processor), sonst laedt
+        # Ollama beim echten Aufruf neu.
+        from .research.context_utils import get_stateless_num_ctx
+        preload_num_ctx, _ = get_stateless_num_ctx(aifred_model_id, backend_type)
         async for item in orchestrate_scraping(
             related_urls=related_urls,
             mode=mode,
             llm_client=llm_client,
             model_choice=aifred_model_id,
+            preload_num_ctx=preload_num_ctx,
         ):
             if item["type"] == "scraping_result":
                 _, scraping_tool_results = item["data"]

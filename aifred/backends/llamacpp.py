@@ -334,41 +334,6 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             "requires_preload": False
         }
 
-    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
-        """
-        Get practical context for a llama.cpp model.
-
-        Priority:
-        1. Calibrated value from VRAM cache (most accurate)
-        2. /v1/models response from llama-server
-        3. Configured -c value from llama-swap YAML
-        """
-        from ..lib.model_vram_cache import get_llamacpp_calibration
-
-        # Priority 1: Cached calibration
-        calibrated = get_llamacpp_calibration(model)
-        if calibrated:
-            return (calibrated, [f"llama.cpp: Calibrated = {calibrated:,} tokens"])
-
-        # Priority 2: Query running llama-server
-        try:
-            context_limit, _ = await self.get_model_context_limit(model)
-            if context_limit > 0:
-                return (context_limit, [f"llama.cpp: Server reports {context_limit:,} tokens"])
-        except openai.OpenAIError:
-            pass
-
-        # Priority 3: llama-swap YAML config
-        from ..lib.calibration import parse_llamaswap_config
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
-
-        config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-        if model in config and config[model]["current_context"] > 0:
-            ctx = config[model]["current_context"]
-            return (ctx, [f"llama.cpp: Config -c = {ctx:,} tokens (not calibrated)"])
-
-        return (0, ["llama.cpp: Context limit not available"])
-
     async def calibrate_max_context_generator(
         self,
         model: str,

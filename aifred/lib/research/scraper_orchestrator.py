@@ -20,7 +20,8 @@ async def orchestrate_scraping(
     related_urls: List[str],
     mode: str,
     llm_client,
-    model_choice: str
+    model_choice: str,
+    preload_num_ctx: int,
 ) -> AsyncIterator[Dict]:
     """
     Orchestrate parallel web scraping
@@ -30,6 +31,10 @@ async def orchestrate_scraping(
         mode: Scraping mode ('quick' or 'deep')
         llm_client: Main LLM client (for preloading)
         model_choice: Main LLM model name
+        preload_num_ctx: Context the following inference uses — from the
+            caller's SSOT (get_agent_num_ctx / get_stateless_num_ctx). A
+            different value would make Ollama reload the model at the first
+            real request.
 
     Yields:
         Dict: Progress updates, debug messages, scraping results
@@ -71,21 +76,14 @@ async def orchestrate_scraping(
     if needs_preload:
         backend = llm_client._get_backend()
 
-        # Preload context from calculate_dynamic_num_ctx (model limit + VRAM).
-        # Empty messages list is OK - num_ctx calculation doesn't depend on message size
-        from ..context_manager import calculate_dynamic_num_ctx
-        calibrated_num_ctx, _ = await calculate_dynamic_num_ctx(
-            llm_client, model_choice, messages=[], llm_options=None, enable_vram_limit=True
-        )
-
         async def unload_and_preload():
-            """Preload main LLM with calibrated num_ctx to avoid reload later"""
-            success, load_time = await backend.preload_model(model_choice, num_ctx=calibrated_num_ctx)
+            """Preload main LLM with the inference num_ctx to avoid a reload later"""
+            success, load_time = await backend.preload_model(model_choice, num_ctx=preload_num_ctx)
             return (success, load_time, [])
 
         preload_task = asyncio.create_task(unload_and_preload())
-        log_message(f"🚀 AIfred-LLM ({model_choice}) preloading... [Context={calibrated_num_ctx}]")
-        yield {"type": "debug", "message": f"🚀 AIfred-LLM preloading... [Context={format_number(calibrated_num_ctx)}]"}
+        log_message(f"🚀 AIfred-LLM ({model_choice}) preloading... [Context={preload_num_ctx}]")
+        yield {"type": "debug", "message": f"🚀 AIfred-LLM preloading... [Context={format_number(preload_num_ctx)}]"}
     else:
         log_message(f"ℹ️ AIfred-LLM ({model_choice}) already loaded (Backend: {llm_client.backend_type})")
         yield {"type": "debug", "message": f"ℹ️ AIfred-LLM ({model_choice}) already loaded"}

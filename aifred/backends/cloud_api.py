@@ -159,26 +159,6 @@ class CloudAPIBackend(OpenAICompatibleBackend):
             "requires_preload": False    # No preloading needed
         }
 
-    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
-        """
-        Calculate practical context for Cloud API model.
-
-        For Cloud APIs, context is managed by the provider - we don't
-        need to calculate or limit it.
-
-        Args:
-            model: Model name
-
-        Returns:
-            tuple[int, list[str]]: (0, debug_messages) - 0 means "unlimited/unknown"
-        """
-        debug_msgs = [
-            f"☁️ {self.provider_config['name']}: {model}",
-            "📊 Context: managed by cloud provider"
-        ]
-
-        return (0, debug_msgs)
-
     async def close(self):
         """Close HTTP client."""
         await self.client.close()
