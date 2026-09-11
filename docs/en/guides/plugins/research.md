@@ -32,7 +32,7 @@ modes — the only difference is who generates the search queries.
 
 1. **Search** — the queries are distributed round-robin across the configured
    search APIs (query 1 → SearXNG, 2 → Tavily, 3 → Brave), with automatic
-   fallback if an API fails.
+   fallback if an API fails; a single query goes to all of them in parallel.
 2. **URL ranking** — an LLM ranks the collected URLs by relevance (with
    conversation history) and keeps the top N (7 in deep mode, 3 in quick mode).
 3. **Scraping** — the ranked URLs are scraped in parallel, with a Playwright
