@@ -53,8 +53,8 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 
 ## Bereits integrierte Features (NICHT vergessen!)
 
-- **ChromaDB Vector Cache** - Semantischer Cache für Web-Research (Docker)
-- **RAG-System** - Retrieval-Augmented Generation mit Relevanz-Check
+- **ChromaDB** (Docker, Daten in `data/chromadb/`) - Dokumente (`aifred_documents`) + Agent-Memory (`agent_memory_*`). KEIN Web-Research-Cache — bewusst entfernt, jede Recherche läuft frisch
+- **RAG über Dokumente** - agentengetrieben per `search_documents`-Tool (kein Auto-Inject)
 - **History Compression** - Automatische Kompression (siehe unten)
 - **Multi-Backend Support** - llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
@@ -74,8 +74,9 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
   - `routing_table.py` - SQLite Routing Table (Kanal → Session)
   - `imap_listener.py` - IMAP IDLE Listener (Background Worker)
   - `message_processor.py` - Processing Pipeline (Message → Engine → Reply)
-  - `vector_cache.py` - ChromaDB Integration
-  - `conversation_handler.py` - Automatik-Modus, RAG-Kontext
+  - `embeddings.py` - bge-m3-Embedding-Function für die ChromaDB-Collections
+  - `research_tools.py` - Recherche-Pipeline (`execute_research`, `hub_web_search`)
+  - `conversation_handler.py` - Vision-Pipeline, Suchanfragen-Generierung
 - `prompts/de/` und `prompts/en/` - Alle Prompts (NICHT hardcodiert im Code!)
 - `aifred/backends/` - LLM-Backend Adapter
 

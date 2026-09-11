@@ -52,7 +52,7 @@ Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-I
 - **Sandboxed Code-Ausführung**: LLM schreibt und führt Python-Code in isoliertem Subprocess aus. Unterstützt numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interaktive HTML/JS-Visualisierungen (Plotly 3D, Canvas-Spiele, Simulationen) direkt im Chat
 - **Agenten-Langzeitgedächtnis**: Persistentes Gedächtnis pro Agent via ChromaDB (BGE-M3 Embeddings) — Agenten speichern eigenständig Erkenntnisse, kombinierter Recall (10 neueste + semantische Suche), Session-Pinning. Memory-Browser zum Inspizieren und Aufräumen. Inkognito-Modus (🔒)
 - **Tool-Output Token-Cap**: Ein einzelnes Tool-Result wird so begrenzt, dass `system + history + memory + tool_result ≤ 75%` des aktiven Modell-Contexts belegen — garantiert dem Modell 25% Headroom für seine Antwort. JSON-aware Truncation: results-Listen werden vom Ende her gestutzt (mit `_truncated`-Marker), damit das Modell weiterhin strukturierte Daten sieht
-- **Automatische Web-Recherche**: KI entscheidet selbst wann Recherche nötig ist. Multi-API (SearXNG primär, Tavily + Brave als Fallback) mit automatischem Scraping und LLM-basiertem URL-Ranking. Semantischer Vector-Cache via ChromaDB mit **volatility-aware Wiederverwendungs-Threshold** (PERMANENT 0.20 / MONTHLY 0.15 / WEEKLY 0.10 / DAILY 0.05) — stabiles Wissen toleriert breitere Treffer, News-Themen bleiben eng damit keine veralteten Fakten
+- **Automatische Web-Recherche**: KI entscheidet selbst wann Recherche nötig ist. Multi-API (SearXNG primär, Tavily + Brave als Fallback) mit automatischem Scraping und LLM-basiertem URL-Ranking. Jede Recherche läuft frisch — kein Ergebnis-Cache, zeitkritische Antworten (Wetter, Preise, Nachrichten) stammen also nie aus einer früheren Suche
 - **Weitere Tool-Plugins**: **Audio Player** (lokale Audio-Dateien abspielen — WAV, MP3, OGG, FLAC), **Scheduler** (LLM legt Cron-/Intervall-/Einmal-Jobs an), **System Monitor** (CPU, RAM, GPU, Disk, Temperatur), **Google Suite** (OAuth 2.0 für Google Calendar + Contacts), **Translator** (DeepL, 30+ Sprachen, automatische Quellsprach-Erkennung), **Narrator** (ganze Dokumente → eine MP3 via TTS, Engine/Stimme über das Plugin-Zahnrad einstellbar; Multi-Voice-Hörspiele über `[SPRECHER]:`-Marker — eine Stimme pro Sprecher, beliebig viele Sprecher), **Bibel** (exakter Stellen-Lookup + thematische Vektorsuche), **Judaica** (jüdischer Quellkorpus: Tanach, Talmud, Mischna, Midrasch, Halacha, Kommentare), **Calculator** (`calculate`), dazu `web_fetch` (URLs abrufen) und `store_memory` (Gedächtnis)
 - **Plugin-Übersicht:** [Verfügbare Plugins](docs/de/guides/plugins-overview.md)
 
@@ -147,7 +147,7 @@ Mehrstufiges Sicherheitskonzept — Security wird im Framework erzwungen, nicht 
 
 ### 🖥️ UI & Session-Verwaltung
 
-- **Zentrales Einstellungs-Modal** (☰ Hamburger-Menü): Agenten-Editor (Metadata, TTS, Prompts), Memory-Browser (pro Agent mit Type-Filter), Datenbank-Verwaltung (ChromaDB: Research Cache, Documents — durchsuchen, einzeln oder komplett löschen), Plugin Manager, Audit-Log
+- **Zentrales Einstellungs-Modal** (☰ Hamburger-Menü): Agenten-Editor (Metadata, TTS, Prompts), Memory-Browser (pro Agent mit Type-Filter), Datenbank-Verwaltung (ChromaDB-Dokumente — durchsuchen, einzeln oder komplett löschen), Plugin Manager, Audit-Log
 - **Benutzer-Authentifizierung**: Username + Passwort mit Whitelist-Registrierung
 - **Session-Verwaltung**: Chat-Liste mit LLM-generierten Titeln, Session-Wechsel, persistente History
 - **Chat teilen**: Export als portable HTML-Datei (KaTeX-Fonts inline, TTS-Audio eingebettet, offline-fähig)
@@ -385,7 +385,7 @@ Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
 - **Ctx/Speed-Schalter**: Pro-Agenten-Toggle zwischen zwei vorkalibrierten Varianten (Ctx = maximaler Kontext, ⚡ Speed = 32K + aggressive GPU-Lastverteilung)
 - **Parallele Web-Suche**: 2-3 optimierte Queries parallel auf APIs verteilt (Tavily, Brave, SearXNG), automatische URL-Deduplizierung, optionales self-hosted SearXNG
 - **Paralleles Scraping**: ThreadPoolExecutor scrapt 3-7 URLs gleichzeitig, erste erfolgreiche Ergebnisse werden verwendet
-- **Nicht-verfügbare Quellen**: Zeigt nicht scrapbare URLs mit Fehlergrund an (Cloudflare, 404, Timeout) - im Vector Cache gespeichert für Cache-Hits
+- **Nicht-verfügbare Quellen**: Zeigt nicht scrapbare URLs mit Fehlergrund an (Cloudflare, 404, Timeout)
 - **PDF-Unterstützung**: Direkte Extraktion aus PDF-Dokumenten (AWMF-Leitlinien, PubMed PDFs) via PyMuPDF mit Browser-User-Agent
 
 ### 🔊 Sprachschnittstelle (TTS-Engines)
@@ -441,18 +441,14 @@ Alle lokalen Engines folgen denselben Container-Konventionen (REST-API mit `/tts
 
 ## 🔄 Research Mode Workflows
 
-AIfred bietet 4 verschiedene Research-Modi, die je nach Anforderung unterschiedliche Strategien verwenden. Hier ist der detaillierte Ablauf jedes Modus:
+Der Research-Modus (pro Session, Umschalter in der UI) legt fest, wie ein Agent an Informationen aus dem Web kommt. Jede Recherche läuft frisch — einen Ergebnis-Cache gibt es bewusst nicht: Wie ähnlich zwei Fragen sind, sagt nichts darüber, ob eine frühere Antwort noch stimmt (Wetter, Preise, Nachrichten). Innerhalb eines Gesprächs bleiben die Ergebnisse ohnehin in der History.
 
-### 📊 LLM Calls Übersicht
-
-| Modus | Min LLM Calls | Max LLM Calls | Typische Dauer |
-|-------|---------------|---------------|----------------|
-| **Eigenes Wissen** | 1 | 1 | 5-30s |
-| **Automatik** (Cache Hit) | 0 | 0 | <1s |
-| **Automatik** (Direct Answer) | 2 | 3 | 5-35s |
-| **Automatik** (Web Research) | 4 | 5 | 15-60s |
-| **Websuche Schnell** | 3 | 4 | 10-40s |
-| **Websuche Ausführlich** | 3 | 4 | 15-60s |
+| Modus | Was passiert | Tools für den Agenten |
+|-------|--------------|-----------------------|
+| **Eigenes Wissen** (`none`) | Direkte Antwort des Modells | ❌ keine |
+| **Automatik** (`automatik`, Standard) | Der Agent entscheidet per Tool-Call, ob und wonach er sucht | ✅ inkl. `web_search`, `web_fetch` |
+| **Websuche Schnell** (`quick`) | Recherche-Pipeline läuft vor der Antwort, Top 3 URLs | ✅ weiterhin verfügbar |
+| **Websuche Ausführlich** (`deep`) | Recherche-Pipeline läuft vor der Antwort, Top 7 URLs | ✅ weiterhin verfügbar |
 
 ---
 
@@ -462,344 +458,61 @@ AIfred bietet 4 verschiedene Research-Modi, die je nach Anforderung unterschiedl
 
 ```
 Intent + Addressee Detection
-├─ LLM Call (Automatik-LLM) - kombiniert in einem Call
-├─ Prompt: intent_detection
-├─ Response: "FAKTISCH|sokrates" | "KREATIV|" | "GEMISCHT|aifred"
-├─ Temperature-Nutzung:
-│  ├─ Auto-Mode: FAKTISCH=0.2, GEMISCHT=0.5, KREATIV=1.0
-│  └─ Manual-Mode: Intent ignoriert, manueller Wert verwendet
-└─ Addressee: Direkte Agenten-Ansprache (sokrates/aifred/salomo)
+├─ LLM-Aufruf (Automatik-LLM) - ein kombinierter Aufruf
+├─ Prompt: automatik/intent_detection
+├─ Antwort: "INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|IS_PURE_COMMAND"
+│  └─ z.B. "FACTUAL||DE||FALSE" oder "MIXED|sokrates|DE||FALSE"
+├─ Temperatur-Nutzung:
+│  ├─ Auto-Modus: FAKTISCH=0.2, GEMISCHT=0.5, KREATIV=1.0
+│  └─ Manueller Modus: Intent ignoriert, manueller Wert
+├─ Addressee: Direkte Agenten-Ansprache (sokrates/aifred/salomo/...)
+└─ Mode-Switch: gesprochene/getippte Konfigurationswechsel ("starte ein Tribunal")
 ```
 
-Bei direkter Agenten-Ansprache wird der entsprechende Agent sofort aktiviert, unabhängig vom gewählten Research-Modus oder Temperature-Setting.
+Wird ein Agent direkt angesprochen, antwortet sofort dieser Agent — unabhängig vom gewählten Research-Modus oder der Temperatur-Einstellung.
+
+Vor jedem LLM-Aufruf läuft der History-Kompressions-Check (70 % des kleinsten Kontextfensters, siehe [History Compression System](#history-compression-system)).
 
 ---
 
-### 1️⃣ Eigenes Wissen Mode (Direct LLM)
+### 🔎 Recherche-Pipeline
 
-**Einfachster Modus**: Direkter LLM-Aufruf ohne Web-Recherche oder KI-Entscheidung.
+Eine Pipeline (`execute_research()` in `aifred/lib/research_tools.py`) bedient sowohl den erzwungenen Pfad (Schnell/Ausführlich) als auch das `web_search`-Tool:
 
-**Workflow:**
 ```
-1. Message Building
-   └─ Build from chat history
-   └─ Inject system_minimal prompt (mit Timestamp)
+1. Query-Generierung (nur Schnell/Ausführlich)
+   ├─ Automatik-LLM, Prompt: automatik/query_generation (+ Vision-JSON falls vorhanden)
+   ├─ 3 Queries: #1 immer Englisch, #2-3 in der Sprache der Frage
+   └─ Tool-Pfad: entfällt — der Agent übergibt 1-3 Queries im web_search-Aufruf
 
-2. Model Preloading (Ollama only)
-   └─ backend.preload_model() - misst echte Ladezeit
-   └─ vLLM/TabbyAPI: Skip (bereits in VRAM)
+2. Multi-API-Websuche
+   ├─ Round-Robin: Query 1 → SearXNG (selbst gehostet), 2 → Tavily, 3 → Brave
+   │  (API-Keys optional), automatischer Fallback wenn eine API ausfällt
+   ├─ URL-Deduplizierung über alle APIs
+   └─ Nicht scrapbare Domains gefiltert (data/non_scrapable_domains.txt:
+      Video-Plattformen, Social Media)
 
-3. Token Management
-   └─ estimate_tokens(messages, model_name)
-   └─ calculate_dynamic_num_ctx()
+3. URL-Ranking
+   ├─ Automatik-LLM, Prompt: automatik/url_ranking (numerische Ausgabe)
+   ├─ Sieht die Gesprächs-History (Folgefragen werden richtig gerankt)
+   └─ Top 3 (Schnell) bzw. Top 7 (Ausführlich und jeder web_search-Tool-Call)
 
-4. LLM Call - Main Response
-   ├─ Model: Haupt-LLM (z.B. Qwen2.5-32B)
-   ├─ Temperature: Manual (User-Einstellung)
-   ├─ Streaming: Ja (Echtzeit-Updates)
-   └─ TTFT + Tokens/s Messung
+4. Paralleles Scraping
+   ├─ Zuerst trafilatura; Playwright (headless Chromium), wenn weniger
+   │  als 800 Wörter zurückkommen (PLAYWRIGHT_FALLBACK_THRESHOLD)
+   ├─ Kein Playwright-Versuch bei fehlgeschlagenen Downloads (404, Timeout, Bot-Schutz)
+   ├─ Fehlgeschlagene Quellen werden mit Fehlergrund angezeigt
+   └─ Haupt-Modell wird parallel vorgeladen (nicht bei vLLM — das bleibt resident)
 
-5. Format & Save
-   └─ format_thinking_process() für <think> Tags
-   └─ Update chat history
-
-6. History Compression (PRE-MESSAGE Check - VOR jedem LLM-Aufruf)
-   ├─ Trigger: 70% Auslastung des kleinsten Context-Fensters
-   │  └─ Multi-Agent: min_ctx aller Agenten wird verwendet
-   ├─ Dual History: chat_history (UI) + llm_history (LLM, FIFO)
-   └─ Summaries erscheinen inline im Chat wo komprimiert wurde
-```
-
-**LLM Calls:** 1 Haupt-LLM + optional 1 Compression-LLM (bei >70% Context)
-**Async Tasks:** Keine
-**Code:** `aifred/state.py` Lines 974-1117
-
----
-
-### 2️⃣ Automatik Mode (AI Decision System)
-
-**Intelligentester Modus**: KI entscheidet selbst, ob Web-Recherche nötig ist.
-
-#### Phase 1: Vector Cache Check (Volatility-Aware)
-```
-1. Query ChromaDB für ähnliche Fragen
-   └─ Distance < 0.5 → source=CACHE   (ChromaDB-interne Schwelle)
-   └─ Distance ≥ 0.5 → source=CACHE_MISS → weiter zu Phase 2
-
-2. IF source=CACHE → Volatility-aware Threshold anwenden
-   (CACHE_DISTANCE_PER_VOLATILITY in config.py — stabiles Wissen
-    toleriert breitere Treffer, aktuelle News brauchen einen engen
-    Threshold damit der Cache keine veralteten Fakten unter leicht
-    anderer Formulierung herausgibt):
-
-   ├─ PERMANENT: distance < 0.20 → Cache verwenden
-   ├─ MONTHLY:   distance < 0.15 → Cache verwenden
-   ├─ WEEKLY:    distance < 0.10 → Cache verwenden
-   ├─ DAILY:     distance < 0.05 → Cache verwenden (eng)
-   └─ Ohne Tag:  distance < 0.05 → Cache verwenden (CACHE_DISTANCE_DEFAULT)
-
-3. IF Cache akzeptiert:
-   └─ Cached Antwort + Alters-Hinweis zurückgeben
-   └─ RETURN (0 LLM Calls!)
-
-4. IF Cache abgelehnt (distance ≥ Volatility-Threshold):
-   └─ Weiter zu Phase 2
+5. Kontext-Aufbau
+   ├─ build_context(): gescrapter Text, token-bewusst
+   └─ Quellen-Collapsible für die UI (genutzte + fehlgeschlagene Quellen)
 ```
 
-#### Phase 2: Keyword Override Check
-```
-1. Check für explicit research keywords:
-   └─ "recherchiere", "suche im internet", "google", etc.
-
-2. IF keyword found:
-   └─ Trigger fresh web research (mode='deep')
-   └─ BYPASS Automatik decision
-```
-
-#### Phase 3: Automatik Decision (Kombinierter LLM-Call)
-```
-1. LLM Call - Research Decision + Query Generation (kombiniert)
-   ├─ Model: Automatik-LLM (z.B. Qwen3:4B)
-   ├─ Prompt: research_decision.txt
-   │  ├─ Enthält: Aktuelles Datum (für zeitbezogene Queries)
-   │  ├─ Vision-Kontext bei angehängten Bildern
-   │  └─ Strukturierte JSON-Ausgabe
-   ├─ Messages: KEINE History (fokussierte, unvoreingenommene Entscheidung)
-   ├─ Options:
-   │  ├─ temperature: 0.2 (konsistente Entscheidungen)
-   │  ├─ num_ctx: 12288 (AUTOMATIK_LLM_NUM_CTX) - nur wenn Automatik ≠ AIfred-Modell
-   │  ├─ num_predict: 256
-   │  └─ enable_thinking: False (schnell)
-   └─ Response: {"web": true, "queries": ["EN query", "DE query 1", "DE query 2"]}
-              ODER {"web": false}
-
-2. Query-Regeln (bei web=true):
-   ├─ Query 1: IMMER auf Englisch (internationale Quellen)
-   ├─ Query 2-3: In der Sprache der Frage
-   └─ Jede Query: 4-8 Keywords
-
-3. Parse decision:
-   ├─ IF web=true: → Web Research mit vorgenerierten Queries
-   └─ IF web=false: → Direct LLM Answer (Phase 4)
-```
-
-#### Phase 4: Direct LLM Answer (if decision = no)
-```
-1. Model Preloading (Ollama only)
-
-2. Build Messages
-   ├─ From chat history
-   └─ Inject system_minimal prompt
-
-3. LLM Call - Main Response
-   ├─ Model: Haupt-LLM
-   ├─ Temperature: From Pre-Processing or manual
-   ├─ Streaming: Ja
-   └─ TTFT + Tokens/s Messung
-
-4. Format & Update History
-   └─ Metadata: "Cache+LLM (RAG)" or "LLM"
-
-5. History Compression Check (wie in Eigenes Wissen Mode)
-   └─ Automatische Kompression bei >70% Context-Auslastung
-```
-
-**LLM Calls:**
-- Cache Hit: 0 + optional 1 Compression
-- RAG Context: 2-6 + optional 1 Compression
-- Web Research: 4-5 + optional 1 Compression
-- Direct Answer: 2-3 + optional 1 Compression
-
-**Code:** `aifred/lib/conversation_handler.py`
-
----
-
-### 3️⃣ Websuche Schnell Mode (Quick Research)
-
-**Schnellster Web-Research Modus**: Top 3 URLs, optimiert für Speed.
-
-#### Phase 1: Vector Cache Check (Volatility-Aware)
-```
-1. Query ChromaDB nach ähnlicher früherer Recherche
-   └─ Gleicher Volatility-aware Threshold wie im Automatik-Modus
-      (PERMANENT 0.20 / MONTHLY 0.15 / WEEKLY 0.10 / DAILY 0.05)
-
-2. IF Cache akzeptiert:
-   └─ Cached Antwort direkt zurück (mit Alters-Hinweis)
-   └─ KEINE Web-Recherche, KEIN LLM-Call
-   └─ RETURN
-
-3. IF Cache abgelehnt:
-   └─ Weiter zu Phase 2
-```
-
-#### Phase 2: Query-Generation + Multi-API Web-Search
-```
-1. LLM Call - Query Generation
-   ├─ Model: Automatik-LLM
-   ├─ Prompt: query_generation (+ Vision JSON falls vorhanden)
-   ├─ Messages: ✅ Letzte 3 History-Turns (für Follow-up Kontext)
-   ├─ Options:
-   │  ├─ temperature: 0.3 (balanciert für Keywords)
-   │  ├─ num_ctx: min(8192, automatik_limit)
-   │  ├─ num_predict: 128
-   │  └─ enable_thinking: False
-   └─ Output: 3 Queries
-      ├─ Query 1: IMMER auf Englisch (internationale Quellen)
-      ├─ Query 2-3: In der Sprache der Frage
-      └─ Jede Query: 4-8 Keywords + temporaler Kontext
-
-2. Web-Search (Multi-API Round-Robin mit Fallback)
-   ├─ Primary:    SearXNG (selbst gehostet, unlimited, privat)
-   ├─ Fallback 1: Tavily Search API (KI-optimierte Snippets)
-   ├─ Fallback 2: Brave Search API
-   ├─ Jede API liefert bis zu 10 URLs
-   └─ Deduplizierung über APIs
-```
-
-#### Phase 2.5: URL-Filterung + LLM-basiertes Ranking (v2.15.30)
-```
-1. Non-Scrapable Domain Filter (VOR URL-Ranking)
-   ├─ Konfig: data/blocked_domains.txt (leicht editierbar, eine Domain pro Zeile)
-   ├─ Filtert Video-Plattformen: YouTube, Vimeo, TikTok, Twitch, Rumble, etc.
-   ├─ Filtert Social Media: Twitter/X, Facebook, Instagram, LinkedIn
-   ├─ Grund: Diese Seiten können nicht effektiv gescraped werden
-   ├─ Debug-Log: "🚫 Blocked: https://youtube.com/..."
-   └─ Zusammenfassung: "🚫 Filtered 6 non-scrapable URLs (video/social platforms)"
-
-2. URL-Ranking (Automatik-LLM)
-   ├─ Input: ~22 URLs (nach Filterung) mit Titeln und Snippets
-   ├─ Model: Automatik-LLM (num_ctx: 12K)
-   ├─ Prompt: url_ranking.txt (nur EN - Output ist numerisch)
-   ├─ Options:
-   │  ├─ temperature: 0.0 (deterministisches Ranking)
-   │  └─ num_predict: 100 (kurze Antwort)
-   ├─ Output: "3,7,1,12,5,8,2" (komma-getrennte Indizes)
-   └─ Ergebnis: Top 7 (deep) oder Top 3 (quick) URLs nach Relevanz
-
-3. Warum LLM-basiertes Ranking?
-   ├─ Semantisches Verständnis der Query-URL-Relevanz
-   ├─ Keine Wartung von Keyword-Listen oder Domain-Whitelists
-   ├─ Passt sich jedem Thema an (universell)
-   └─ Besser als first-come-first-served Reihenfolge
-
-4. Skip-Bedingungen:
-   ├─ Direct-URL-Modus (User hat URLs direkt angegeben)
-   ├─ Weniger als top_n URLs gefunden
-   └─ Keine Titel/Snippets verfügbar (Fallback auf ursprüngliche Reihenfolge)
-```
-
-#### Phase 3: Parallel Web Scraping
-```
-PARALLEL EXECUTION:
-├─ ThreadPoolExecutor (max 5 workers)
-│  └─ Scrape Top 3/7 URLs (nach Relevanz gerankt)
-│     └─ Extract text content + word count
-│
-└─ Async Task: Main LLM Preload (Ollama only)
-   └─ llm_client.preload_model(model)
-   └─ Runs parallel to scraping
-   └─ vLLM/TabbyAPI: Skip (already loaded)
-
-Progress Updates:
-└─ Yield after each URL completion
-```
-
-**Scraping-Strategie (trafilatura + Playwright Fallback):**
-```
-1. trafilatura (schnell, leichtgewichtig)
-   └─ Direkter HTTP-Request, HTML-Parsing
-   └─ Funktioniert für die meisten statischen Websites
-
-2. WENN trafilatura < 800 Wörter liefert:
-   └─ Playwright-Fallback (Headless Chromium)
-   └─ Führt JavaScript aus, rendert dynamische Inhalte
-   └─ Für SPAs: React, Vue, Angular Seiten
-
-3. WENN Download fehlschlägt (404, Timeout, Bot-Schutz):
-   └─ KEIN Playwright-Fallback (sinnlos)
-   └─ URL als fehlgeschlagen markieren mit Fehlergrund
-```
-
-Der 800-Wörter-Schwellenwert ist konfigurierbar via `PLAYWRIGHT_FALLBACK_THRESHOLD` in `config.py`.
-
-#### Phase 4: Context Building + LLM Response
-```
-1. Build Context
-   ├─ Filter successful scrapes (word_count > 0)
-   ├─ build_context() - smart token limit aware
-   └─ Build system_rag prompt (with context + timestamp)
-
-2. LLM Call - Final Response
-   ├─ Model: Haupt-LLM
-   ├─ Temperature: From Pre-Processing or manual
-   ├─ Context: ~3 sources, 5K-10K tokens
-   ├─ Streaming: Ja
-   └─ TTFT + Tokens/s Messung
-
-3. Cache-Entscheidung (via Volatility-Tag vom Haupt-LLM)
-   ├─ Haupt-LLM inkludiert <volatility>DAILY/WEEKLY/MONTHLY/PERMANENT</volatility>
-   ├─ Volatility bestimmt TTL:
-   │  ├─ DAILY (24h): News, aktuelle Ereignisse
-   │  ├─ WEEKLY (7d): Semi-aktuelle Themen
-   │  ├─ MONTHLY (30d): Statistiken, Reports
-   │  └─ PERMANENT (∞): Zeitlose Fakten ("Was ist Python?")
-   ├─ Semantic Duplicate Check (distance < 0.3 zu existierenden Einträgen)
-   │  └─ IF duplicate: Lösche alten Eintrag (garantiert neueste Daten)
-   ├─ cache.add(query, answer, sources, metadata, ttl)
-   └─ Debug: "💾 Antwort gecacht (TTL: {volatility})"
-
-4. Format & Update History
-   └─ Metadata: "(Agent: quick, {n} Quellen)"
-
-5. History Compression Check (wie in Eigenes Wissen Mode)
-   └─ Automatische Kompression bei >70% Context-Auslastung
-```
-
-**LLM Calls:**
-- With Cache: 1-2 + optional 1 Compression
-- Without Cache: 3-4 + optional 1 Compression
-
-**Async Tasks:**
-- Parallel URL scraping (3 URLs)
-- Background LLM preload (Ollama only)
-
-**Code:** `aifred/lib/research/orchestrator.py` + Submodules
-
----
-
-### 4️⃣ Websuche Ausführlich Mode (Deep Research)
-
-**Gründlichster Modus**: Top 7 URLs für maximale Informationstiefe.
-
-**Workflow:** Identisch zu Websuche Schnell, mit folgenden Unterschieden:
-
-#### Scraping Strategy
-```
-Quick Mode:  3 URLs → ~3 successful sources
-Deep Mode:   7 URLs → ~5-7 successful sources
-
-Parallel Execution:
-├─ ThreadPoolExecutor (max 5 workers)
-│  └─ Scrape Top 7 URLs simultaneously
-│  └─ Continue until 5 successful OR all tried
-│
-└─ Async: Main LLM Preload (parallel)
-```
-
-#### Context Size
-```
-Quick: ~5K-10K tokens context
-Deep:  ~10K-20K tokens context
-
-→ Mehr Quellen = reicherer Kontext
-→ Längere LLM Inference (10-40s vs 5-30s)
-```
-
-**LLM Calls:** Identisch zu Quick (3-4 + optional 1 Compression)
-**Async Tasks:** Mehr URLs parallel (7 vs 3)
-**Trade-off:** Höhere Qualität vs längere Dauer
-**History Compression:** Wie alle Modi - automatisch bei >70% Context
+**Wie die Ergebnisse beim Agenten ankommen:**
+- **Schnell/Ausführlich:** Der Kontext wird als eigene Nachricht direkt vor die Nutzerfrage gesetzt, als nicht vertrauenswürdige Daten umzäunt (Schutz gegen Prompt-Injection). Weil er nicht im System-Prompt steht, bleibt außerdem der Prompt-Präfix für den KV-Cache stabil.
+- **Automatik:** Das `web_search`-Ergebnis (genauso umzäunt) geht zurück in die Tool-Schleife; der Agent kann erneut suchen oder mit `web_fetch` eine einzelne Seite lesen.
+- **Message Hub** (Discord, E-Mail, ...): `hub_web_search()` — dieselben Bausteine ohne Browser-State.
 
 ---
 
@@ -809,157 +522,48 @@ Deep:  ~10K-20K tokens context
 USER INPUT
     │
     ▼
-┌─────────────────────┐
-│ Research Mode?      │
-└─────────────────────┘
+┌──────────────────────────────────┐
+│ Intent + Addressee Detection     │
+│ (Automatik-LLM)                  │
+└──────────────────────────────────┘
     │
-    ├── "none" ────────────────────────┐
-    │                                   │
-    ├── "automatik" ──────────────┐   │
-    │                              │   │
-    ├── "quick" ──────────────┐  │   │
-    │                          │  │   │
-    └── "deep" ────────────┐  │  │   │
-                           │  │  │   │
-                           ▼  ▼  ▼   ▼
-                      ╔═══════════════════╗
-                      ║ MODE HANDLER      ║
-                      ╚═══════════════════╝
+    ▼
+┌──────────────────────────────────┐
+│ Research-Modus?                  │
+└──────────────────────────────────┘
+    │
+    ├── none ────────────► Agent antwortet (ohne Tools)
+    │
+    ├── automatik ───────► Agent antwortet mit Tools
+    │                          │
+    │                          └─ web_search-Aufruf? ──► Recherche-Pipeline
+    │                               (Queries vom Agenten, Top 7)
+    │                               └─ Ergebnis zurück in die Tool-Schleife
+    │
+    └── quick / deep ────► Recherche-Pipeline
+                           (Queries vom Automatik-LLM, Top 3 / 7)
                                │
-     ┌─────────────────────────┼──────────────────────┐
-     │                         │                      │
-     ▼                         ▼                      ▼
-┌──────────┐         ┌──────────────┐       ┌─────────────┐
-│ EIGENES  │         │ AUTOMATIK    │       │ WEB         │
-│ WISSEN   │         │ (AI Decides) │       │ RESEARCH    │
-└──────────┘         └──────────────┘       │ (quick/deep)│
-     │                       │               └─────────────┘
-     │                       ▼                      │
-     │              ┌────────────────┐              │
-     │              │ Vector Cache   │              │
-     │              │ Check          │              │
-     │              └────────────────┘              │
-     │                       │                      │
-     │          ┌────────────┼─────────────┐        │
-     │          │            │             │        │
-     │          ▼            ▼             ▼        │
-     │     ┌────────┐  ┌─────────┐  ┌─────────┐   │
-     │     │ CACHE  │  │ RAG     │  │ CACHE   │   │
-     │     │ HIT    │  │ CONTEXT │  │ MISS    │   │
-     │     │ RETURN │  │ FOUND   │  │         │   │
-     │     └────────┘  └─────────┘  └─────────┘   │
-     │                       │            │         │
-     │                       │            ▼         │
-     │                       │    ┌──────────────┐ │
-     │                       │    │ Keyword      │ │
-     │                       │    │ Override?    │ │
-     │                       │    └──────────────┘ │
-     │                       │         │     │      │
-     │                       │         NO   YES     │
-     │                       │         │     │      │
-     │                       │         │     └──────┤
-     │                       │         ▼            │
-     │                       │   ┌──────────────┐  │
-     │                       │   │ LLM Decision │  │
-     │                       │   │ (yes/no)     │  │
-     │                       │   └──────────────┘  │
-     │                       │         │     │      │
-     │                       │         NO   YES     │
-     │                       │         │     │      │
-     │                       │         │     └──────┤
-     ▼                       ▼         ▼            ▼
-╔══════════════════════════════════════════════════════╗
-║         DIRECT LLM INFERENCE                         ║
-║  1. Build Messages (with/without RAG)                ║
-║  2. Intent Detection (auto mode)                     ║
-║  3. Main LLM Call (streaming)                        ║
-║  4. Format & Update History                          ║
-╚══════════════════════════════════════════════════════╝
-                           │
-                           ▼
-                    ┌──────────┐
-                    │ RESPONSE │
-                    └──────────┘
-
-         WEB RESEARCH PIPELINE
-         ═════════════════════
-                    │
-                    ▼
-        ┌───────────────────┐
-        │ Session Cache?    │
-        └───────────────────┘
-                    │
-        ┌───────────┴────────────┐
-        │                        │
-        ▼                        ▼
-   ┌────────┐          ┌─────────────────┐
-   │ CACHE  │          │ Query           │
-   │ HIT    │          │ Optimization    │
-   └────────┘          │ (Automatik-LLM) │
-                       └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │ Web Search      │
-                       │ (Multi-API)     │
-                       │ → ~30 URLs      │
-                       └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │ URL-Ranking     │
-                       │ (Automatik-LLM) │
-                       │ → Top 3/7 URLs  │
-                       └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │ PARALLEL TASKS  │
-                       ├─────────────────┤
-                       │ • Scraping      │
-                       │   (ranked URLs) │
-                       │ • LLM Preload   │
-                       │   (async)       │
-                       └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │ Context Build   │
-                       └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │ Main LLM        │
-                       │ (streaming)     │
-                       └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │ Cache-Speicher  │
-                       │ (TTL vom LLM)   │
-                       └─────────────────┘
-                                │
-                                ▼
-                       ┌─────────────────┐
-                       │ RESPONSE        │
-                       └─────────────────┘
+                               ▼
+                           Kontext vor die Frage
+                               │
+                               ▼
+                           Agent antwortet (Tools weiterhin verfügbar)
 ```
 
 ### 📁 Code-Struktur-Referenz
 
 **Kern-Einstiegspunkte:**
-- `aifred/state.py` - Haupt-State-Management, send_message()
+- `aifred/state/_chat_mixin.py` - send_message(), Verteilung nach Research-Modus
+- `aifred/lib/multi_agent.py` - `run_generic_agent_direct_response()`: ein Antwortpfad für alle Agenten (erzwungene Recherche, Toolkit, Nachrichten)
 
-**Automatik-Modus:**
-- `aifred/lib/conversation_handler.py` - Entscheidungslogik, RAG-Kontext
-
-**Web-Research-Pipeline:**
-- `aifred/lib/research/orchestrator.py` - Top-Level-Orchestrierung (inkl. URL-Ranking)
-- `aifred/lib/research/cache_handler.py` - Session-Cache
-- `aifred/lib/research/query_processor.py` - Query-Optimierung + Suche
-- `aifred/lib/research/url_ranker.py` - LLM-basiertes URL-Relevanz-Ranking (NEU)
+**Web-Recherche-Pipeline:**
+- `aifred/lib/research_tools.py` - `execute_research()` (Browser) und `hub_web_search()` (Message Hub)
+- `aifred/plugins/tools/research/` - Tools `web_search` / `web_fetch`
+- `aifred/lib/conversation_handler.py` - `generate_web_search_queries()`
+- `aifred/lib/research/query_processor.py` - Multi-API-Suche
+- `aifred/lib/research/url_ranker.py` - LLM-basiertes URL-Relevanz-Ranking
 - `aifred/lib/research/scraper_orchestrator.py` - Paralleles Scraping
-- `aifred/lib/research/context_builder.py` - Context-Building + LLM
+- `aifred/lib/tools/` - Such-APIs, Scraper, `build_context()`
 
 **Document-RAG-Pipeline:**
 - `aifred/lib/document_store.py` - ChromaDB Documents-Collection — token-genaues
@@ -971,27 +575,25 @@ USER INPUT
   list/create/delete/rename/index/deindex/search/list_orphaned
 
 **Unterstützende Module:**
-- `aifred/lib/vector_cache.py` - ChromaDB semantischer Cache für Web-Recherche,
-  inkl. `OllamaEmbeddingFunction` mit Mode-Switch (index→GPU+warm,
-  query→CPU)
+- `aifred/lib/embeddings.py` - bge-m3-Embedding-Function für die
+  ChromaDB-Collections (llama-swap-Embed-Profil oder Ollama; Index-Mode →
+  GPU, Query-Mode → CPU)
 - `aifred/lib/agent_memory.py` - ChromaDB-Memory pro Agent
 - `aifred/lib/tool_output_cap.py` - Token-Budget für Tool-Results
   (75% Input-Ratio, JSON-aware Truncation, ContextVar-basiert)
 - `aifred/lib/debug_format.py` - Tool-Call/Result-Formatierung fürs
   Debug-Panel (key=value-Rendering, Agent-Prefix, Token-Count)
-- `aifred/lib/intent_detector.py` - Temperatur-Auswahl
-- `aifred/lib/agent_tools.py` - Web-Suche, Scraping, Context-Building
+- `aifred/lib/intent_detector.py` - Intent, Addressee, Temperatur-Auswahl
 
 ### 📝 Automatik-LLM Prompts Referenz
 
-Das Automatik-LLM nutzt dedizierte Prompts in `prompts/{de,en}/automatik/` für verschiedene Entscheidungen:
+Das Automatik-LLM nutzt dedizierte Prompts in `prompts/{de,en}/automatik/`:
 
 | Prompt | Sprache | Wann aufgerufen | Zweck |
 |--------|---------|-----------------|-------|
-| `intent_detection.txt` | nur EN | Pre-Processing | Query-Intent bestimmen (FACTUAL/MIXED/CREATIVE) und Addressee |
-| `research_decision.txt` | DE + EN | Phase 3 | Entscheiden ob Web-Recherche nötig + Queries generieren |
-| `followup_intent_detection.txt` | DE + EN | Cache-Nachfrage | Erkennen ob User mehr Details aus Cache möchte |
-| `url_ranking.txt` | nur EN | Quick-Search Phase 2.5 | URLs nach Relevanz ranken (Output: numerische Indizes) |
+| `intent_detection.txt` | nur EN | Pre-Processing | Intent (FACTUAL/MIXED/CREATIVE), Addressee, Sprache, Mode-Switch |
+| `query_generation.txt` | DE + EN | Schnell/Ausführlich, Phase 1 | 3 Suchanfragen erzeugen |
+| `url_ranking.txt` | nur EN | Pipeline-Phase 3 | URLs nach Relevanz ranken (Output: numerische Indizes) |
 
 **Sprach-Regeln:**
 - **nur EN**: Output ist strukturiert/numerisch (parsebar), Sprache beeinflusst Ergebnis nicht
@@ -1002,13 +604,11 @@ Das Automatik-LLM nutzt dedizierte Prompts in `prompts/{de,en}/automatik/` für 
 prompts/
 ├── de/
 │   └── automatik/
-│       ├── research_decision.txt      # Deutsche Queries für deutsche User
-│       └── followup_intent_detection.txt
+│       └── query_generation.txt       # Deutsche Queries für deutsche User
 └── en/
     └── automatik/
         ├── intent_detection.txt       # Universelle Intent-Erkennung
-        ├── research_decision.txt      # Englische Queries (Query 1 immer EN)
-        ├── followup_intent_detection.txt
+        ├── query_generation.txt       # Englische Queries (Query 1 immer EN)
         └── url_ranking.txt            # Numerischer Output (Indizes)
 ```
 
@@ -1146,7 +746,7 @@ curl http://localhost:8002/api/sessions
 
 > **Zero-Config Modell-Management (llama.cpp-Backend):** Nach dem einmaligen Setup genügt `ollama pull model` oder `hf download ...`, dann llama-swap neu starten — der Autoscan konfiguriert alles automatisch (YAML-Einträge, Gruppen, VRAM-Cache). Vollständige Anleitung: [docs/de/guides/deployment.md](docs/de/guides/deployment.md).
 - 8GB+ RAM (12GB+ empfohlen für größere Modelle)
-- Docker (für ChromaDB Vector Cache)
+- Docker (für ChromaDB: Dokumente und Agenten-Memory)
 - **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Detection](#gpu-compatibility-detection))
 
 ### Setup
@@ -1208,7 +808,7 @@ python scripts/patch-reflex.py
 | Framework | reflex, fastapi, pydantic |
 | LLM Backends | httpx, openai, pynvml, psutil |
 | Web Research | trafilatura, playwright, requests, pymupdf |
-| Vector Cache | chromadb, ollama, numpy |
+| Dokumente / Memory | chromadb, ollama, numpy |
 | Audio (STT/TTS) | TTS-Container unter `docker/tts/` (Qwen3-TTS, XTTS v2, Fish-Speech, MOSS-TTS), edge-tts, piper, openai-whisper (Docker) |
 
 4. **Umgebungsvariablen** (.env):
@@ -1226,7 +826,7 @@ OLLAMA_BASE_URL=http://localhost:11434
 **Option A: Ollama (GGUF) — Einfachste, empfohlene Variante**
 
 ```bash
-# Embedding-Modell (Pflicht für Vector Cache / Documents / Memory)
+# Embedding-Modell (Pflicht für Documents / Memory)
 ollama pull bge-m3
 
 # Empfohlene Core-Modelle — je nach verfügbarem VRAM auswählen:
@@ -1281,13 +881,13 @@ Die Vektordatenbank nutzt **BGE-M3** (multilingual, 8192 Token Context,
 ```bash
 ollama pull bge-m3
 ```
-Das Modell wird von allen drei ChromaDB-Collections geteilt
-(Web-Research-Cache, indexierte Dokumente, Agenten-Memory). Zur
+Das Modell wird von den ChromaDB-Collections geteilt (indexierte
+Dokumente, Agenten-Memory). Zur
 Laufzeit wählt AIfred **GPU-Mode** fürs Bulk-Indexing (warm für
 ~1 Min zwischen Chunks) und **CPU-Mode** für einzelne Suchen
 (warm für ~30 Min, kein VRAM-Konflikt mit dem aktiven LLM).
 
-7. **ChromaDB Vector Cache starten** (Docker):
+7. **ChromaDB starten** (Docker):
 ```bash
 cd docker
 docker compose up -d chromadb
@@ -1301,20 +901,18 @@ docker compose --profile full up -d
 cd ..
 ```
 
-**ChromaDB Cache zurücksetzen** (bei Bedarf):
+**ChromaDB zurücksetzen** (bei Bedarf — löscht indexierte Dokumente und Agenten-Memory):
 
-*Option 1: Kompletter Neustart (löscht alle Daten)*
+*Option 1: Kompletter Reset (löscht alle Daten)*
 ```bash
 cd docker
 docker compose stop chromadb
-cd ..
-rm -rf docker/aifred_vector_cache/
-cd docker
+sudo rm -rf ../data/chromadb/   # Dateien legt der Container an (root)
 docker compose up -d chromadb
 cd ..
 ```
 
-*Option 2: Nur Collection löschen (während Container läuft)*
+*Option 2: Einzelne Collection löschen (während Container läuft)*
 ```bash
 ./venv/bin/python -c "
 import chromadb
@@ -1327,12 +925,14 @@ client = chromadb.HttpClient(
 )
 
 try:
-    client.delete_collection('research_cache')
+    client.delete_collection('aifred_documents')  # oder 'agent_memory_<agent_id>'
     print('✅ Collection gelöscht')
 except Exception as e:
     print(f'⚠️ Fehler: {e}')
 "
 ```
+
+Einzelne Einträge oder eine ganze Collection lassen sich auch im Einstellungs-Modal löschen (Tabs Datenbank und Memory).
 
 8. **Qwen3-TTS Voice Cloning starten** (Empfohlen, Docker):
 
@@ -1527,19 +1127,19 @@ AIfred-Intelligence/
 │   ├── lib/               # Core Libraries
 │   │   ├── multi_agent.py       # Multi-Agent System (AIfred, Sokrates, Salomo + Custom-Agenten)
 │   │   ├── context_manager.py   # History-Kompression
-│   │   ├── conversation_handler.py # Automatik-Modus, RAG-Kontext
+│   │   ├── conversation_handler.py # Vision-Pipeline, Query-Generierung
 │   │   ├── config.py            # Default Settings
 │   │   ├── i18n/                # UI-Übersetzungen (Sprach-JSONs + Loader)
-│   │   ├── vector_cache.py      # ChromaDB Vector Cache
+│   │   ├── embeddings.py        # bge-m3-Embeddings für ChromaDB
 │   │   ├── model_vram_cache.py  # Unified VRAM Cache (alle Backends)
 │   │   ├── mpv_ipc.py           # Gemeinsamer mpv-JSON-IPC-Client (Browser + FreeEcho.2)
 │   │   ├── calibration/         # llama.cpp Binary Search Kalibrierung (flow, ctx_search, …)
 │   │   ├── api/                 # REST-API-Paket (core, chat, vision, browser_bus, …)
 │   │   ├── gguf_utils.py        # GGUF-Metadaten-Reader (nativer Kontext, Quant)
 │   │   ├── research/            # Web-Research Module
-│   │   │   ├── orchestrator.py      # Research Orchestrierung
+│   │   │   ├── query_processor.py   # Multi-API-Suche
 │   │   │   ├── url_ranker.py        # LLM-basiertes URL-Ranking
-│   │   │   └── query_processor.py   # Query Processing
+│   │   │   └── scraper_orchestrator.py # Paralleles Scraping
 │   │   └── tools/               # Tool-Implementierungen
 │   │       ├── search_tools.py      # Parallele Websuche
 │   │       └── scraper_tool.py      # Paralleles Web-Scraping
@@ -1559,9 +1159,9 @@ AIfred-Intelligence/
 │   ├── settings.json            # Benutzereinstellungen
 │   ├── model_vram_cache.json    # VRAM-Kalibrierungsdaten (alle Backends)
 │   ├── sessions/                # Chat-Sessions
+│   ├── chromadb/                # ChromaDB-Volume (Dokumente, Agenten-Memory)
 │   └── logs/                    # Debug-Logs
-└── docker/                # Docker-Konfigurationen
-    └── aifred_vector_cache/     # ChromaDB Docker Setup
+└── docker/                # Docker-Konfigurationen (ChromaDB, SearXNG)
 ```
 
 ### History Compression System
@@ -1608,149 +1208,18 @@ Bei 70% Context-Auslastung werden automatisch ältere Konversationen komprimiert
 - FIFO gilt nur für `llm_history` (LLM sieht 1 Summary)
 - `chat_history` behält ALLE Summaries (User sieht vollständige History)
 
-### Vector Cache & RAG System
+### ChromaDB: Dokumente & Agenten-Memory
 
-AIfred nutzt ein mehrstufiges Cache-System basierend auf **semantischer Ähnlichkeit** (Cosine Distance) mit rein semantischer Deduplizierung und intelligenter Cache-Nutzung bei expliziten Recherche-Keywords.
+ChromaDB (Docker, Daten in `data/chromadb/`) enthält zwei Arten von Collections, beide mit bge-m3 eingebettet (`aifred/lib/embeddings.py`):
 
-#### Cache-Entscheidungs-Logik
+| Collection | Inhalt | Zugriff |
+|------------|--------|---------|
+| `aifred_documents` | Indexierte Dokumente (token-genaue Chunks) | Agenten suchen per `search_documents`-Tool; Verwaltung über Document-UI und Workspace-Plugin |
+| `agent_memory_<agent_id>` | Langzeitgedächtnis pro Agent (Session-Zusammenfassungen, Erkenntnisse, ...) | Relevante Einträge werden vor einer Antwort abgerufen; neue speichern die Agenten per Tool |
 
-**Phase 0: Explizite Recherche-Keywords**
-```
-User Query: "recherchiere Python" / "google Python" / "suche im internet Python"
-└─ Explizites Keyword erkannt → Cache-Check ZUERST
-   ├─ Distance < 0.05 (praktisch identisch)
-   │  └─ ✅ Cache-Hit (0.15s statt 100s) - Zeigt Alter transparent an
-   └─ Distance ≥ 0.05 (nicht identisch)
-      └─ Neue Web-Recherche (User will neue Daten)
-```
+Web-Recherche-Ergebnisse werden **nicht** gespeichert — jede Recherche läuft frisch (siehe [Research Mode Workflows](#-research-mode-workflows)).
 
-**Phase 1: Volatility-Aware Cache Check**
-```
-User Query → ChromaDB Similarity Search
-├─ Distance ≥ 0.5 (CACHE_MISS)
-│  └─ Weiter zu Phase 2 (Research Decision)
-└─ Distance < 0.5 (source=CACHE)
-   └─ Volatility-aware Threshold anwenden (CACHE_DISTANCE_PER_VOLATILITY):
-      ├─ PERMANENT (zeitlose Fakten):  distance < 0.20 → ✅ Cache verwenden
-      ├─ MONTHLY:                      distance < 0.15 → ✅ Cache verwenden
-      ├─ WEEKLY:                       distance < 0.10 → ✅ Cache verwenden
-      ├─ DAILY (News, Aktuelles):      distance < 0.05 → ✅ Cache verwenden
-      └─ Sonst                                        → Weiter zu Phase 2
-```
-
-Stabiles Wissen toleriert breitere semantische Treffer; News-Themen
-brauchen einen engen Threshold damit der Cache nicht veraltete Fakten
-unter leicht abweichender Formulierung herausgibt. Das Volatility-Tag
-setzt das LLM selbst beim Schreiben des Cache-Eintrags
-(`<volatility>` in der Antwort).
-
-**Phase 2: Research Decision**
-```
-Kein Direct Cache Hit
-└─ Automatik-LLM entscheidet: Web-Recherche nötig?
-   ├─ YES → Web-Recherche + Cache-Eintrag (mit Volatility-Tag)
-   └─ NO  → Pure LLM-Antwort (Source: "LLM-Trainingsdaten")
-```
-
-#### Semantic Deduplication
-
-**Beim Speichern in Vector Cache:**
-```
-New Research Result → Check for Semantic Duplicates
-└─ Distance < 0.3 (semantisch ähnlich)
-   └─ ✅ IMMER Update
-      - Löscht alten Eintrag
-      - Speichert neuen Eintrag
-      - Garantiert: Neueste Daten werden verwendet
-```
-
-Rein semantische Deduplizierung ohne Zeit-Checks → Konsistentes Verhalten.
-
-#### Cache Distance Thresholds
-
-ChromaDB liefert `source=CACHE` wenn der nächste Eintrag innerhalb von
-`CACHE_DISTANCE_HIGH = 0.5` liegt. Ob die gecachte Antwort *tatsächlich
-ausgegeben wird*, hängt von einem zweiten, volatility-aware Check ab,
-der pro Themen-Frische getunt ist:
-
-| Volatility | Threshold | Anwendungsfall |
-|------------|-----------|----------------|
-| `PERMANENT` | `< 0.20` | Zeitlose Fakten (historisch, wissenschaftliche Konzepte) |
-| `MONTHLY`   | `< 0.15` | Langsame Themen (Statistiken, etablierte Referenzen) |
-| `WEEKLY`    | `< 0.10` | Mid-velocity (politische Analyse, Trends) |
-| `DAILY`     | `< 0.05` | News, Aktuelles — eng damit keine veralteten Fakten |
-| (untagged)  | `< 0.05` | `CACHE_DISTANCE_DEFAULT` — sicherer Fallback |
-
-| Distance | Behavior |
-|----------|----------|
-| `≥ 0.5`     | `CACHE_MISS` → Research-Entscheidung |
-| `< 0.3`     | Semantischer Duplikat (beim Schreiben immer gemerged) |
-
-#### ChromaDB Maintenance Tool
-
-Wartungstool für Vector Cache:
-```bash
-# Stats anzeigen
-python3 chroma_maintenance.py --stats
-
-# Duplikate finden
-python3 chroma_maintenance.py --find-duplicates
-
-# Duplikate entfernen (Dry-Run)
-python3 chroma_maintenance.py --remove-duplicates
-
-# Duplikate entfernen (Execute)
-python3 chroma_maintenance.py --remove-duplicates --execute
-
-# Alte Einträge löschen (> 30 Tage)
-python3 chroma_maintenance.py --remove-old 30 --execute
-```
-
-#### TTL-Based Cache System (Volatility)
-
-Das Main LLM bestimmt die Cache-Lebensdauer via `<volatility>` Tag in der Antwort:
-
-| Volatility | TTL | Anwendungsfall |
-|------------|-----|----------------|
-| `DAILY` | 24h | News, aktuelle Ereignisse, "neueste Entwicklungen" |
-| `WEEKLY` | 7 Tage | Politische Updates, semi-aktuelle Themen |
-| `MONTHLY` | 30 Tage | Statistiken, Reports, weniger volatile Daten |
-| `PERMANENT` | ∞ | Zeitlose Fakten ("Was ist Python?") |
-
-**Automatisches Cleanup**: Hintergrund-Task läuft alle 12 Stunden, löscht abgelaufene Einträge.
-
-#### Configuration
-
-Cache-Verhalten in `aifred/lib/config.py`:
-
-```python
-# Cache Distance Thresholds
-CACHE_DISTANCE_HIGH = 0.5        # < 0.5 → ChromaDB liefert source=CACHE
-CACHE_DISTANCE_DUPLICATE = 0.3   # < 0.3 = semantischer Duplikat (immer gemerged)
-
-# Volatility-aware Phase-0 Cache-Acceptance — geprüft in
-# research_tools.py *nach* ChromaDB's source=CACHE-Antwort. Stabiles
-# Wissen toleriert breitere semantische Treffer; News-Themen brauchen
-# einen engen Threshold damit der Cache keine veralteten Fakten unter
-# leicht abweichender Formulierung herausgibt. NOCACHE-Einträge
-# werden gar nicht erst gespeichert.
-CACHE_DISTANCE_PER_VOLATILITY = {
-    'PERMANENT': 0.20,
-    'MONTHLY':   0.15,
-    'WEEKLY':    0.10,
-    'DAILY':     0.05,
-}
-CACHE_DISTANCE_DEFAULT = 0.05    # Fallback wenn Eintrag kein Volatility-Tag hat
-
-# TTL (Time-To-Live)
-TTL_HOURS = {
-    'NOCACHE':   0,    # Niemals cachen (Wetter, Live-Scores, Aktienkurse)
-    'DAILY':     24,
-    'WEEKLY':    168,
-    'MONTHLY':   720,
-    'PERMANENT': None,
-}
-```
+**Wartung:** Einträge im Einstellungs-Modal durchsuchen und löschen (Tabs Datenbank und Memory). `scripts/chromadb-vacuum.sh` gibt den durch Löschungen frei gewordenen Platz ans Betriebssystem zurück (stoppt den Container für einige Sekunden).
 
 ---
 
@@ -1883,7 +1352,7 @@ AIfred erfordert eine Benutzer-Authentifizierung. User werden über die Admin-CL
 **1. ChromaDB Service** (`systemd/aifred-chromadb.service`):
 ```ini
 [Unit]
-Description=AIfred ChromaDB Vector Cache (Docker)
+Description=AIfred ChromaDB (Docker)
 After=docker.service
 Requires=docker.service
 

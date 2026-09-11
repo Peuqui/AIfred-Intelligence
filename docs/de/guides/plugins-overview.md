@@ -39,7 +39,7 @@ Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische 
 - Path-Traversal-Schutz (nur `data/documents/`)
 - Write-Verify: Geschriebene Dateien werden nach Schreiben zurückgelesen und verglichen
 - Schreiben nur für Textformate (.txt, .md, .csv, .json, .xml, .html)
-- Zentrale ChromaDB-Verwaltung (Research Cache, Documents, Agent Memories)
+- Zentrale ChromaDB-Verwaltung (Documents, Agent Memories)
 
 > **Details:** [Workspace Plugin](plugins/workspace.md)
 
@@ -72,7 +72,7 @@ Vollzugriff auf die [EssentialPIM](https://www.essentialpim.com/) Firebird-Daten
 
 **Datei:** `plugins/tools/research/`
 
-Automatische Web-Recherche mit mehreren Such-APIs und semantischem Cache.
+Automatische Web-Recherche mit mehreren Such-APIs — jede Recherche läuft frisch.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
@@ -82,7 +82,6 @@ Automatische Web-Recherche mit mehreren Such-APIs und semantischem Cache.
 **Features:**
 - Multi-API mit automatischem Fallback
 - Scraping und Ranking der Ergebnisse
-- Semantischer Vector-Cache via ChromaDB (vermeidet Doppel-Suchen)
 
 > **Details:** [Research Plugin](plugins/research.md)
 

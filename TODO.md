@@ -824,7 +824,7 @@ Statt eines eigenen Calibration-Profils existiert heute:
 
 ### RAG/Vector-DB Härtung
 - [ ] Untrusted-Channel-Daten bekommen niedrigen Trust-Score
-- [ ] Periodisches Auditing/Purging des Vector-Cache
+- [ ] Periodisches Auditing/Purging der Vector-DB (Agent-Memory, Dokumente)
 - [ ] Namespace-Isolation pro Channel/Sender
 
 ---
@@ -902,25 +902,19 @@ algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
 - [ ] Inbound-Sanitization Strictness pro Channel konfigurierbar
 - [ ] Session Memory Sanitization nach Job-Ende
 - [ ] Audit-Log UI Filter (Channel, Tool, Zeitraum)
-- [ ] **prompt_loader: Cross-Pipeline Sprach-Race auflösen.** Heute setzt
-  `aifred/lib/research/context_builder.py:157` mit `set_language(detected_user_language)`
-  ein Modul-Global (`_current_language` in `prompt_loader.py`), das von
-  nachgelagerten Pipeline-Stufen über `get_language()` wieder gelesen wird
-  (multi_agent.py:702/974/1232, llm_engine.py:395, i18n.py:1057/1092/1118,
-  _chat_mixin.py:807/917). Wenn während einer laufenden Inferenz ein zweiter
-  Pipeline-Lauf in einer anderen Sprache startet (Browser-Tab DE + Mail EN
-  parallel), überschreibt der zweite den Modul-Global → der erste liest
-  beim Sokrates/Salomo-Prompt-Aufbau die falsche Sprache und antwortet
-  inkonsistent. Auch user_name/user_gender/personality/reasoning sind als
-  Modul-Globals dort gleich riskant, heute aber praktisch egal, weil
-  settings.json prozess-weit ist (alle Tabs sehen dieselben Werte).
-  **Lösung:** `set_language()` aus context_builder rausziehen und
-  `detected_language` als expliziten Parameter durch ALLE nachgelagerten
-  Pipeline-Stufen reichen. Multi-Agent-API, generate_session_title,
-  Hub-Notification-Builder und die i18n-Calls brauchen den Parameter.
-  Aufwand ~1h sauber, Risiko: eine vergessene Stelle lässt den
-  Sprach-Default greifen. Schaden heute: Symptom-Bug (gelegentliche
-  Sprach-Mismatch im Multi-Channel-Setup), kein Datenverlust.
+- [ ] **prompt_loader: Sprache als Modul-Global.** `_current_language` in
+  `prompt_loader.py` folgt nur noch der UI-Sprache (`set_language()` in
+  `_settings_mixin.py`/`_backend_mixin.py`). Seit die tote Recherche-Pipeline
+  (`research/context_builder.py`, 2026-09-11) weg ist, setzt keine
+  Pipeline-Stufe sie mehr pro Anfrage — das Race zwischen parallelen Läufen
+  in verschiedenen Sprachen gibt es damit nicht mehr. Offen bleibt: Stufen,
+  die `get_language()` statt der erkannten Sprache lesen (multi_agent.py,
+  llm_engine.py, i18n.py, _chat_mixin.py), bekommen die UI-Sprache statt der
+  Sprache der Anfrage. Auch user_name/user_gender/personality/reasoning sind
+  dort Modul-Globals, heute praktisch egal, weil settings.json prozess-weit
+  ist. **Lösung:** `detected_language` als expliziten Parameter durch ALLE
+  nachgelagerten Pipeline-Stufen reichen (Multi-Agent-API,
+  generate_session_title, Hub-Notification-Builder, i18n-Calls).
 
 ---
 

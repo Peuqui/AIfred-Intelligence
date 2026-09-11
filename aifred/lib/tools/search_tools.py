@@ -333,10 +333,10 @@ class MultiAPISearchTool(BaseTool):
     """
     Meta-Tool: Uses all Search APIs with automatic fallback
 
-    Order:
-    1. Tavily AI (1,000/month) - AI-optimized for RAG, most current articles
-    2. Brave Search (2,000/month) - Privacy-focused, good quality
-    3. SearXNG (unlimited) - Self-hosted, always available
+    Order (round-robin per query, see __init__):
+    1. SearXNG (unlimited) - Self-hosted, always available
+    2. Tavily AI (1,000/month) - AI-optimized for RAG, most current articles
+    3. Brave Search (2,000/month) - Privacy-focused, good quality
     """
 
     def __init__(self,
