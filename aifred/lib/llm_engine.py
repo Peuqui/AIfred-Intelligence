@@ -21,7 +21,6 @@ from .prompt_loader import get_agent_direct_prompt, get_agent_system_prompt
 from .context_manager import estimate_tokens
 from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .logging_utils import log_message
-from .message_builder import inject_rag_context
 from .research.context_utils import get_agent_num_ctx
 
 
@@ -41,7 +40,6 @@ async def call_llm(
     state: Optional[Any] = None,
     use_direct_prompt: bool = False,
     multimodal_content: Optional[List[Dict]] = None,
-    rag_context: Optional[str] = None,
     memory_ctx: Optional[str] = None,
     vision_json_context: Optional[Dict] = None,
     stt_time: float = 0.0,
@@ -73,8 +71,7 @@ async def call_llm(
         state: AIState Objekt für num_ctx Lookup (optional)
         use_direct_prompt: True wenn User AIfred direkt angesprochen hat
         multimodal_content: Multimodal Content für Bilder (optional)
-        rag_context: Web-/Dokument-Recherche-Kontext (wird im "RECHERCHE-ERGEBNISSE"-Wrapper eingebettet — NUR für echte Recherchedaten nutzen)
-        memory_ctx: Agent-Memory-Kontext aus prepare_agent_toolkit (wird roh an system_prompt angehängt — für vom Caller bereits gesammelte Erinnerungen)
+        memory_ctx: Agent-Memory-Kontext aus prepare_agent_toolkit (vom Caller bereits gesammelte Erinnerungen; kommt als eigene Nachricht vor die Nutzerfrage)
         vision_json_context: Vision JSON Kontext (optional)
         stt_time: Speech-to-Text Zeit für Metadata (optional)
         cloud_provider_label: Cloud Provider Label für Debug-Ausgabe (optional)
@@ -139,9 +136,7 @@ async def call_llm(
         system_prompt = get_agent_direct_prompt(agent, lang=detected_language)
     else:
         system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
-    # Agent Memory: recall + toolkit
-    # Three possible sources (SSOT: memory_ctx is always appended RAW to system_prompt,
-    # never wrapped in the "web research" rag_context template):
+    # Agent Memory: recall + toolkit. Three possible sources:
     #   1. external_toolkit + memory_ctx from caller (Message Hub / Scheduler path)
     #   2. state-based self-lookup (legacy VL / direct call_llm path with agent_memory_enabled)
     #   3. No memory (multi_agent.py path assembles memory_ctx itself before calling)
@@ -161,29 +156,15 @@ async def call_llm(
         if memory_toolkit:
             yield {"type": "debug", "message": f"🔧 Toolkit: {[t.name for t in memory_toolkit.tools]}"}
 
-    # Append memory_ctx RAW to system_prompt (matches the SSOT used by multi_agent.py:723
-    # and the state-based path above). DO NOT route through rag_context — that wraps the
-    # content in the "# AKTUELLE RECHERCHE-ERGEBNISSE" web-search template which confuses
-    # the agent when the payload is really agent memory, not web research.
     messages.insert(0, {"role": "system", "content": system_prompt})
 
     # Erinnerungen ans ENDE, direkt vor die Nutzerfrage — nicht an den
-    # System-Prompt. Begruendung in message_builder.inject_memory_context.
+    # System-Prompt. Begruendung in message_builder.inject_before_question.
     if memory_ctx:
         from .message_builder import inject_before_question
         inject_before_question(messages, memory_ctx)
         mem_tok = estimate_tokens([{"content": memory_ctx}])
         yield {"type": "debug", "message": f"🧠 Memory context injected ({mem_tok:,} tok, before question)"}
-
-    # Inject RAG context — ONLY for real web/document research results.
-    # The rag_context wrapper (shared/rag_context.txt) tells the LLM:
-    # "You have internet access, these are research results, do not use training data".
-    # That is correct for web_search/document_store hits, but WRONG for agent memory
-    # (which is handled above via memory_ctx).
-    if rag_context:
-        inject_rag_context(messages, rag_context)
-        rag_tok = estimate_tokens([{"content": rag_context}])
-        yield {"type": "debug", "message": f"💡 RAG context injected ({rag_tok:,} tok)"}
 
     # Inject Vision JSON context if available
     if vision_json_context:
