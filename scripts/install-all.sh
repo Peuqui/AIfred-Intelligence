@@ -532,7 +532,7 @@ fi
 # Create the ChromaDB volume directory up front so docker doesn't
 # create it as root (otherwise the user can't do backups/maintenance
 # on the host filesystem later).
-CHROMA_DIR="$PROJECT_DIR/aifred_vector_cache"
+CHROMA_DIR="$PROJECT_DIR/data/chromadb"
 if [ ! -d "$CHROMA_DIR" ]; then
     mkdir -p "$CHROMA_DIR"
     echo -e "${GREEN}✅ ChromaDB volume directory created: $CHROMA_DIR${NC}"
@@ -639,9 +639,9 @@ echo -e "${BLUE}🔎 Verifying project initialization...${NC}"
 verify_step ".env exists" \
     "[ -f '$PROJECT_DIR/.env' ]" \
     "cp .env.example .env"
-verify_step "aifred_vector_cache/ volume directory exists" \
-    "[ -d '$PROJECT_DIR/aifred_vector_cache' ]" \
-    "mkdir -p aifred_vector_cache"
+verify_step "data/chromadb/ volume directory exists" \
+    "[ -d '$PROJECT_DIR/data/chromadb' ]" \
+    "mkdir -p data/chromadb"
 # Check each data subdir individually — the code creates them lazily,
 # but if e.g. a systemd service writes as a different user, there are
 # permission issues.

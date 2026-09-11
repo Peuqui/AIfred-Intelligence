@@ -46,7 +46,6 @@ os.environ.setdefault(
         "Bilder",            # Images
         "piper_models",      # TTS models
         "uploaded_files",    # User uploads
-        "aifred_vector_cache",  # ChromaDB cache
         "systemd",           # Service configs
         "scripts",           # Utility scripts
         "__pycache__",       # Python bytecode cache
