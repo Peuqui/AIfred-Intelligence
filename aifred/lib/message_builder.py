@@ -152,39 +152,6 @@ def build_messages_from_llm_history(
     return messages
 
 
-def inject_rag_context(
-    messages: List[Dict[str, str]],
-    rag_context: str,
-    position: int = -1
-) -> None:
-    """
-    Inject RAG context as user message into messages list.
-
-    Modifies the list in-place by inserting a user message with
-    previously researched context.
-
-    Args:
-        messages: List of message dicts to modify
-        rag_context: The RAG context string to inject
-        position: Where to insert (-1 = before last message, i.e., before user's question)
-
-    Example:
-        >>> messages = [{"role": "system", "content": "..."}, {"role": "user", "content": "Frage"}]
-        >>> inject_rag_context(messages, "Recherche-Ergebnisse hier")
-        >>> len(messages)
-        3  # Context message was inserted
-    """
-    rag_message = {
-        'role': 'user',
-        'content': f"""[ADDITIONAL CONTEXT FROM PREVIOUS RESEARCH]:
-
-{rag_context}
-
-Use this information IN ADDITION to your training knowledge when relevant to the current question."""
-    }
-    messages.insert(position, rag_message)
-
-
 def inject_before_question(
     messages: List[Dict[str, str]],
     content: str,

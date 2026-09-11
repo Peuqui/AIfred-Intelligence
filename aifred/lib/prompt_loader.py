@@ -660,7 +660,6 @@ def _merge_prompt_layers(
     user_name: Optional[str] = None,
     user_gender: Optional[str] = None,
     tools: bool = False,
-    rag_context: Optional[str] = None,
     source: str = "browser",
 ) -> str:
     """
@@ -672,11 +671,12 @@ def _merge_prompt_layers(
     2. Reasoning (HOW do I think) - toggleable via settings
     3. Multi-Agent Roles (WHO are the others) - only in multi-agent modes
     4. Task prompt (WHAT should I do) - situational
-    5. Anti-hallucination (STAY HONEST) - always loaded
-    6. RAG context (RESEARCH RESULTS) - when research data available
-    7. Tool instructions (USE TOOLS) - when tools available
-    8. Memory instructions (REMEMBER) - when memory active (not incognito)
-    9. Personality (HOW do I speak) - toggleable via settings, LAST for priority
+    5. Security boundary - only for external channels (source != "browser")
+    6. Memory instructions (REMEMBER) - when memory active (not incognito)
+    7. Personality (HOW do I speak) - toggleable via settings
+    8. Tool instructions (USE TOOLS) - when tools available, near the end so
+       the LLM prioritizes tool use
+    9. Disciplines (date grounding, quote/currency discipline) - always, LAST
 
     Args:
         agent: Agent name ("aifred", "sokrates", "salomo", or custom agent ID)
@@ -687,7 +687,6 @@ def _merge_prompt_layers(
         user_name: User's display name (fallback: global _current_user_name)
         user_gender: User's gender "male"/"female" (fallback: global _current_user_gender)
         tools: If True, include tool usage instructions
-        rag_context: Research context string to inject (from web search)
 
     Returns:
         Merged prompt string with all applicable layers
@@ -732,23 +731,18 @@ def _merge_prompt_layers(
         if sec_boundary:
             parts.append(sec_boundary)
 
-    # Layer 6: RAG context (when research results available)
-    if rag_context:
-        rag_instructions = load_prompt('shared/rag_context', lang=lang, context=rag_context)
-        parts.append(rag_instructions)
-
-    # Layer 7: Memory instructions (when memory active)
+    # Layer 6: Memory instructions (when memory active)
     if memory:
         mem_instructions = load_memory_instructions(lang)
         if mem_instructions:
             parts.append(mem_instructions)
 
-    # Layer 8: Personality (if enabled)
+    # Layer 7: Personality (if enabled)
     personality = load_personality(agent, lang)
     if personality:
         parts.append(personality)
 
-    # Layer 9: Tool instructions — near the end so LLM prioritizes tool use
+    # Layer 8: Tool instructions — near the end so LLM prioritizes tool use
     if tools:
         tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
         if tool_instructions:
@@ -773,7 +767,7 @@ def _merge_prompt_layers(
             if instr:
                 parts.append(instr)
 
-    # Layer 10: Disciplines — date grounding, quote/currency discipline,
+    # Layer 9: Disciplines — date grounding, quote/currency discipline,
     # decision clarification (always, LAST — recency bias for date grounding)
     disciplines = load_prompt('shared/disciplines', lang=lang)
     if disciplines:
@@ -1020,7 +1014,7 @@ def get_aifred_defense_prompt(
 def get_agent_direct_prompt(
     agent_id: str, lang: Optional[str] = None, memory: bool = True,
     user_name: Optional[str] = None, user_gender: Optional[str] = None,
-    tools: bool = False, rag_context: Optional[str] = None,
+    tools: bool = False,
 ) -> str:
     """Load direct response prompt for any agent via layer merging.
 
@@ -1031,7 +1025,7 @@ def get_agent_direct_prompt(
     return _merge_prompt_layers(
         agent_id, task_prompt, lang, memory=memory,
         user_name=user_name, user_gender=user_gender,
-        tools=tools, rag_context=rag_context,
+        tools=tools,
     )
 
 
