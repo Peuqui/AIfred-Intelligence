@@ -314,18 +314,6 @@ class vLLMBackend(OpenAICompatibleBackend):
             "requires_preload": False,   # Laden übernimmt llama-swap
         }
 
-    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
-        """Fixer Kontext des Eintrags (``--max-model-len``), SSOT llama-swap-Config."""
-        from ..lib.operating_points import get_vllm_entry_context
-
-        context = get_vllm_entry_context(model)
-        if not context:
-            raise RuntimeError(
-                f"vLLM entry '{model}' has no --max-model-len in the "
-                f"llama-swap config — entry missing or not calibrated"
-            )
-        return (context, [f"💾 vLLM Context: {context:,} tokens (llama-swap entry)"])
-
     async def close(self):
         """Close HTTP client"""
         await self.client.close()

@@ -183,7 +183,8 @@ class LLMBackend(ABC):
         with the correct KV-Cache and distributes across multiple GPUs if needed.
 
         Correct order:
-        1. calculate_practical_context() or calculate_dynamic_num_ctx() → num_ctx
+        1. num_ctx of the following inference: get_agent_num_ctx() (browser)
+           or get_stateless_num_ctx() (Message Hub)
         2. preload_model(model, num_ctx=num_ctx) → Load model with KV-Cache
 
         Args:
@@ -212,35 +213,6 @@ class LLMBackend(ABC):
         Examples:
             Ollama:   {"dynamic_models": True, "dynamic_context": True, ...}
             vLLM:     {"dynamic_models": False, "dynamic_context": False, ...}
-        """
-
-    @abstractmethod
-    async def calculate_practical_context(self, model: str) -> tuple[int, list[str]]:
-        """
-        Calculate maximum practical context window for a model.
-
-        This method MUST be backend-specific because different backends handle
-        context calculation differently:
-
-        - **Ollama**: Dynamic calculation based on current VRAM availability
-                     (can change based on loaded models)
-        - **vLLM**: FIXED at server startup, cannot be recalculated
-                    (returns cached value from startup)
-
-        Args:
-            model: Model name/ID
-
-        Returns:
-            tuple[int, list[str]]: (context_limit, debug_messages)
-                - context_limit: Maximum practical context in tokens
-                - debug_messages: List of debug messages for UI console (via yield)
-
-        Raises:
-            RuntimeError: If context calculation fails
-
-        Examples:
-            Ollama:   Queries current VRAM, calculates fresh value
-            vLLM:     Returns self._startup_context (set in start_with_model)
         """
 
     async def _pre_request_check(self, model: str) -> None:

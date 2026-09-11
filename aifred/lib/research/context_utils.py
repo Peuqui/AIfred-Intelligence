@@ -70,6 +70,23 @@ def get_model_native_context(model_id: str, backend_type: str) -> int:
         return cached or 0
 
 
+def get_stateless_num_ctx(model_id: str, backend_type: str) -> Tuple[int, str]:
+    """num_ctx for paths without Reflex State (Message Hub, hub web search).
+
+    ``model_id`` is the effective, variant-resolved id (base + suffix from
+    get_effective_model_from_settings), so the context read matches the
+    profile that actually loads. Returns ``(num_ctx, label)``; the label
+    names the loaded variant (e.g. ``tts-xtts``) instead of blindly
+    "native", or "fallback" when no calibrated context is known.
+    """
+    num_ctx = get_model_native_context(model_id, backend_type)
+    if num_ctx <= 0:
+        return MAIN_LLM_FALLBACK_CONTEXT, "fallback"
+    marker_idx = [i for i in (model_id.find(m) for m in ("-tts-", "-vlm-", "-speed")) if i > 0]
+    label = model_id[min(marker_idx):].lstrip("-") if marker_idx else "native"
+    return num_ctx, label
+
+
 def get_agent_num_ctx(
     agent: str,
     state: "AIState",

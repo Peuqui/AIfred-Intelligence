@@ -118,9 +118,6 @@ class BackendMixin(rx.State, mixin=True):
     _automatik_model_context_limit: int = 0
     _min_agent_context_limit: int = 0
 
-    # ── VRAM-based Context Limit ──────────────────────────────────
-    last_vram_limit: int = 0
-
     # ================================================================
     # COMPUTED PROPERTIES
     # ================================================================

@@ -25,7 +25,6 @@ from .context_manager import (
     strip_thinking_blocks,
     summarize_history_if_needed,
     get_largest_compression_model,
-    _last_vram_limit_cache
 )
 from .prompt_loader import (
     get_agent_system_prompt,
@@ -581,12 +580,7 @@ def _setup_debate_contexts(
     state.add_debug(f"🎯 Sokrates: {format_number(sokrates_num_ctx)} tok ({sokrates_source})")
     state.add_debug(f"🎯 Salomo: {format_number(salomo_num_ctx)} tok ({salomo_source})")
 
-    # VRAM cache for history compression
-    _last_vram_limit_cache["aifred_limit"] = main_llm_ctx
-    _last_vram_limit_cache["sokrates_limit"] = sokrates_num_ctx
-    _last_vram_limit_cache["salomo_limit"] = salomo_num_ctx
     min_ctx = min(sokrates_num_ctx, main_llm_ctx, salomo_num_ctx)
-    _last_vram_limit_cache["limit"] = min_ctx
 
     state.add_debug(
         f"📊 Context limits: AIfred={format_number(main_llm_ctx)} tok, "
