@@ -11,7 +11,7 @@ See docs/en/guides/llamacpp-setup.md for hardware configuration and performance 
 import asyncio
 import logging
 import re
-from typing import List, Optional, AsyncIterator, Dict, Any
+from typing import Optional, AsyncIterator, Dict, Any
 import openai
 from .base import (
     OpenAICompatibleBackend,
@@ -43,14 +43,14 @@ class LlamaCppBackend(OpenAICompatibleBackend):
     """llama.cpp backend via llama-swap (OpenAI-compatible)
 
     Inherits chat() and chat_stream() from OpenAICompatibleBackend.
-    Overrides all 4 hooks for llama.cpp-specific behavior:
     - _build_extra_body(): ALWAYS sends all sampling params (override server CLI defaults)
-    - _process_response_text(): extracts reasoning_content → <think> tags
-    - _process_stream_delta(): reasoning_content streaming with <think> state machine
-    - _finalize_stream(): closes open <think> tag if stream ends during thinking
+    - reasoning: llama-server streams it as ``reasoning_content``; the
+      <think> state machine lives in the base class (REASONING_FIELD)
     """
 
     BACKEND_NAME = "llama.cpp"
+    # --reasoning-format deepseek: Denkteil im Feld reasoning_content
+    REASONING_FIELD = "reasoning_content"
     # llama-server akzeptiert reasoning_content in eingehenden Messages und
     # rendert es via Chat-Template (verifiziert 2026-08-15 per
     # /apply-template gegen Qwen3.8: <think>…</think> im Assistant-Block).
@@ -187,51 +187,6 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 "reasoning_effort"
             ] = options.reasoning_effort
         return extra_body
-
-    def _process_response_text(self, choice: Any) -> str:
-        """Extract reasoning_content and wrap in <think> tags for unified handling."""
-        content = choice.message.content or ""
-        # llama-server puts thinking in reasoning_content (OpenAI format)
-        msg_dict = choice.message.model_dump() if hasattr(choice.message, 'model_dump') else {}
-        reasoning = msg_dict.get("reasoning_content") or ""
-        if reasoning:
-            return f"<think>{reasoning}</think>\n\n{content}"
-        return content
-
-    def _process_stream_delta(self, delta: Any, delta_dict: Dict, stream_state: Dict) -> List[Dict]:
-        """Stream reasoning_content as <think> tags (state machine).
-
-        Nebenbei werden Reasoning und sichtbarer Text getrennt akkumuliert
-        (``_reasoning_acc``/``_visible_acc``): Der Tool-Loop in base.py
-        reicht beide in der Runden-History zurück, damit das Modell im
-        laufenden Turn sein eigenes Denken und seine Zwischenmeldungen
-        wiedersieht (Qwen3.8-Template rendert turn-internes Reasoning
-        immer; ältere Templates ignorieren das Feld einfach).
-        """
-        chunks: List[Dict] = []
-        reasoning = delta_dict.get("reasoning_content") or ""
-
-        if reasoning:
-            if not stream_state.get("thinking_started"):
-                chunks.append({"type": "content", "text": "<think>"})
-                stream_state["thinking_started"] = True
-            chunks.append({"type": "content", "text": reasoning})
-            stream_state["_reasoning_acc"] = stream_state.get("_reasoning_acc", "") + reasoning
-
-        if delta.content:
-            if stream_state.get("thinking_started"):
-                chunks.append({"type": "content", "text": "</think>\n\n"})
-                stream_state["thinking_started"] = False
-            chunks.append({"type": "content", "text": delta.content})
-            stream_state["_visible_acc"] = stream_state.get("_visible_acc", "") + delta.content
-
-        return chunks
-
-    def _finalize_stream(self, stream_state: Dict) -> List[Dict]:
-        """Close open <think> tag if stream ends during thinking (edge case)."""
-        if stream_state.get("thinking_started"):
-            return [{"type": "content", "text": "</think>\n\n"}]
-        return []
 
     def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
         """Extract llama-server's timings from OpenAI SDK model_extra."""

@@ -42,6 +42,7 @@ from .vllm_model_meta import VllmModelMeta, analyze_checkpoint
 from .vllm_probe import (
     probe_sampling,
     OOM_SIGNATURES,
+    TemplateParsers,
     VllmBootError,
     VllmServer,
     VllmSpec,
@@ -52,6 +53,7 @@ from .vllm_probe import (
     probe_long_context,
     probe_throughput,
     prune_calibration_cache,
+    template_parsers,
 )
 
 logger = logging.getLogger(__name__)
@@ -606,6 +608,8 @@ def _measure_topology(
     log_dir: Path,
     progress: Callable[[str], None],
     cancel_check: Callable[[], bool] | None,
+    *,
+    parsers: TemplateParsers,
 ) -> _RungResult | None:
     """Eine Sprosse booten und messen; None = Sprosse nicht nutzbar.
 
@@ -637,6 +641,8 @@ def _measure_topology(
             language_model_only=meta.multimodal,
             max_batched_tokens=mbt,
             kv_cache_dtype=kv_dtype,
+            tool_call_parser=parsers.tool_call,
+            reasoning_parser=parsers.reasoning,
         )
         port = find_free_port()
         gpu_slug = "-".join(str(i) for i in cand.gpu_ids)
@@ -1126,6 +1132,13 @@ def calibrate_vllm_checkpoint(
             f"   MTP block: {format_number(meta.mtp.bytes_total / gib, 2)} GiB "
             f"{meta.mtp.dominant_dtype}, worthwhile={_mtp_worthwhile(meta)}"
         )
+    # Vor dem ersten Boot: ein unbekanntes Tool-Call-Format bricht hier ab,
+    # nicht nach einer Stunde Messung
+    parsers = template_parsers(meta.chat_template, runtime)
+    progress(
+        f"   chat template: tool-call parser {parsers.tool_call}, "
+        f"reasoning parser {parsers.reasoning or 'none'}"
+    )
 
     # Reserviert wird nur, wenn im Picker auch ein Seitenkanal-Paar
     # angehakt ist. Ist keines gewaehlt, laufen weder TTS noch VLM waehrend
@@ -1188,7 +1201,7 @@ def calibrate_vllm_checkpoint(
         if cancel_check and cancel_check():
             raise RuntimeError("cancelled")
         result = _measure_topology(cand, entry_name, meta, gpus, smi,
-                                   log_dir, progress, cancel_check)
+                                   log_dir, progress, cancel_check, parsers=parsers)
         if result is not None:
             rungs.append(result)
             matrix.append({"label": result.label, "k": 0,

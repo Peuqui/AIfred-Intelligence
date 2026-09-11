@@ -201,6 +201,45 @@ def load_vllm_runtime() -> dict:
     return runtime
 
 
+class TemplateParsers(NamedTuple):
+    """vLLM-Parser, die das Chat-Template eines Checkpoints verlangt."""
+    tool_call: str
+    reasoning: str | None
+
+
+def template_parsers(chat_template: str, runtime: dict) -> TemplateParsers:
+    """Tool-Call- und Reasoning-Parser aus dem Chat-Template des Checkpoints.
+
+    Das Template gibt dem Modell das Aufrufformat vor — es ist die SSOT,
+    nicht die Maschine: bis 2026-09-11 stand ``hermes`` fest in den
+    base_args, und vLLM verschluckte Qwen3.8s XML-Aufrufe still. Die
+    Zuordnungen (Markierung → Parsername) stehen in vllm_runtime.yaml, weil
+    die Parsernamen zur installierten vLLM-Version gehoeren; die erste
+    passende Markierung gewinnt. Ohne Tool-Parser kann AIfred kein Werkzeug
+    aufrufen — ein unbekanntes Format ist deshalb ein harter Fehler statt
+    eines Eintrags, der Werkzeuge stumm schluckt. Ein Reasoning-Parser ist
+    optional (Modelle ohne Denkmodus haben keinen).
+    """
+    if not chat_template:
+        raise ValueError(
+            "checkpoint has no chat template — cannot derive its tool-call parser"
+        )
+
+    def first_match(mapping_key: str) -> str | None:
+        for marker, parser in runtime.get(mapping_key) or []:
+            if marker in chat_template:
+                return str(parser)
+        return None
+
+    tool_call = first_match("tool_call_parser_by_template_marker")
+    if tool_call is None:
+        raise ValueError(
+            "chat template uses no known tool-call format — add its marker to "
+            "tool_call_parser_by_template_marker in vllm_runtime.yaml"
+        )
+    return TemplateParsers(tool_call, first_match("reasoning_parser_by_template_marker"))
+
+
 @dataclass
 class VllmSpec:
     """Ein konkreter Boot-Parametersatz (die Suchvariablen der Kalibration)."""
@@ -227,6 +266,9 @@ class VllmSpec:
     # Attention-Backend des Drafters (abhaengig von der Compute-Klasse der
     # letzten PP-Stufe); None = vLLM-Default
     spec_attn_backend: str | None = None
+    # Aus dem Chat-Template (template_parsers); None = Flag entfaellt
+    tool_call_parser: str | None = None
+    reasoning_parser: str | None = None
     extra_env: dict[str, str] = field(default_factory=dict)
     extra_args: list[str] = field(default_factory=list)
 
@@ -236,6 +278,11 @@ class VllmSpec:
             "--model", str(self.checkpoint),
             "--served-model-name", self.served_name,
             *runtime["base_args"],
+            # Ohne --enable-auto-tool-choice lehnt vLLM tools-Requests mit 400 ab
+            *(["--enable-auto-tool-choice", "--tool-call-parser", self.tool_call_parser]
+              if self.tool_call_parser else []),
+            *(["--reasoning-parser", self.reasoning_parser]
+              if self.reasoning_parser else []),
             "--tensor-parallel-size", str(self.tp),
             "--pipeline-parallel-size", str(self.pp),
             "--gpu-memory-utilization", str(self.gmu),
@@ -370,6 +417,10 @@ class VllmServer:
              sampling: dict | None = None) -> tuple[str, dict, float]:
         """Eine Chat-Completion; Rueckgabe (Text, usage-Dict, Dauer_s).
 
+        Text = die GANZE erzeugte Ausgabe: Mit --reasoning-parser teilt vLLM
+        sie in ``reasoning`` und ``content``, und bei kleinem max_tokens
+        steht bei eingeschaltetem Denken alles im ersten Feld.
+
         ``sampling`` (temperature/top_k/top_p/...) ueberstimmt das greedy
         Standardverhalten — siehe probe_sampling()."""
         body: dict = {
@@ -391,7 +442,9 @@ class VllmServer:
         with urllib.request.urlopen(req, timeout=timeout_s) as r:
             d = json.load(r)
         dt = time.monotonic() - t0
-        return d["choices"][0]["message"]["content"], d["usage"], dt
+        message = d["choices"][0]["message"]
+        text = (message.get("reasoning") or "") + (message.get("content") or "")
+        return text, d["usage"], dt
 
     def metrics(self) -> dict[str, float]:
         """Prometheus-Counter als {name: Summe ueber Label-Saetze}."""
