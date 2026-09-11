@@ -89,7 +89,7 @@ def search_web_multi(queries: List[str]) -> Dict[str, Any]:
 
     # Fallback: If only 1 query, use execute() for ALL APIs in parallel
     # This ensures all 3 APIs are used even when LLM returns just one query
-    # For 2 queries: Round-robin works fine (Query1→Tavily, Query2→Brave)
+    # For 2+ queries: round-robin (Query1→SearXNG, Query2→Tavily, Query3→Brave)
     if len(queries) == 1:
         import logging
         logger = logging.getLogger(__name__)

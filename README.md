@@ -515,7 +515,8 @@ One pipeline (`execute_research()` in `aifred/lib/research_tools.py`) serves bot
 
 2. Multi-API Web Search
    ├─ Round-robin: query 1 → SearXNG (self-hosted), 2 → Tavily, 3 → Brave
-   │  (API keys optional), automatic fallback if an API fails
+   │  (API keys optional), automatic fallback if an API fails;
+   │  a single query goes to all APIs in parallel
    ├─ URL deduplication across APIs
    └─ Non-scrapable domains filtered (data/non_scrapable_domains.txt:
       video platforms, social media)
@@ -1344,8 +1345,6 @@ The AIfred restart button restarts the systemd service:
 
 For production operation as a service, pre-configured service files are available in the `systemd/` directory.
 
-**⚠️ IMPORTANT**: The environment variable `AIFRED_ENV=prod` **MUST** be set for AIfred to run on the MiniPC and not redirect to the development machine!
-
 #### Quick Installation
 
 ```bash
@@ -1454,9 +1453,7 @@ Wants=ollama.service aifred-chromadb.service
 [Service]
 Type=simple
 # Optional .env file (Secrets, machine-specific overrides). The `-`
-# prefix means "no error if the file is missing". Production mode is
-# set here via AIFRED_ENV=prod in .env — there is NO `--env prod` flag
-# on the ExecStart line (rxconfig.py reads AIFRED_ENV from the env).
+# prefix means "no error if the file is missing".
 EnvironmentFile=-__PROJECT_DIR__/.env
 User=__USER__
 Group=__USER__
@@ -1483,13 +1480,6 @@ and `__PROJECT_DIR__` placeholders for you.
 For production/external access, create a `.env` file in the project root (this file is gitignored and NOT pushed to the repository):
 
 ```bash
-# Environment Mode (required for production)
-AIFRED_ENV=prod
-
-# Backend API URL for external access via nginx reverse proxy
-# Set this to your external domain/IP for HTTPS access
-AIFRED_API_URL=https://your-domain.com:8443
-
 # API Keys for web search (optional)
 BRAVE_API_KEY=your_brave_api_key
 TAVILY_API_KEY=your_tavily_api_key
@@ -1510,42 +1500,15 @@ ANTHROPIC_API_KEY=your_key_here      # Claude (Anthropic)
 MOONSHOT_API_KEY=your_key_here       # Kimi (Moonshot)
 ```
 
-**Why is `AIFRED_API_URL` needed?**
+**How does the frontend find the backend?**
 
-The Reflex frontend needs to know where the backend is located. Without this setting:
-- The frontend auto-detects the local IP (e.g., `http://192.168.0.252:8002`)
-- This works for local network access but fails for external HTTPS access
-- External users would see WebSocket connection errors to `localhost`
+`rxconfig.py` sets `api_url` to `http://0.0.0.0:8002`. The Reflex frontend replaces `0.0.0.0` with the hostname the page was loaded from — no URL setting needed:
+- Over HTTPS (nginx) it switches to `https`/`wss` on the standard port **443** — nginx has to listen on 443 as well, even if you open the page on another port such as 8443
+- Over plain HTTP (e.g. `http://<LAN-IP>:3002`) the browser talks to port **8002** on that host directly — that is why the backend listens on all interfaces (`--backend-host 0.0.0.0`)
 
-With `AIFRED_API_URL=https://your-domain.com:8443`:
-- All API/WebSocket connections go through your nginx reverse proxy
-- HTTPS works correctly for external access
-- Local HTTP access continues to work
+**Why dev mode?**
 
-**Why `--env prod`?**
-
-The `--env prod` flag in ExecStart:
-- Disables Vite Hot Module Replacement (HMR) WebSocket
-- Prevents "failed to connect to websocket localhost:3002" errors
-- Reduces resource usage (no dev server overhead)
-- Still recompiles on restart when code changes
-
-**FOUC Issue in Production Mode**
-
-In production mode (`--env prod`), a **FOUC (Flash of Unstyled Content)** may occur - a brief flash of unstyled text/CSS class names during page reload.
-
-**Cause:** React Router 7 with `prerender: true` loads CSS asynchronously (lazy loading). The generated HTML is visible immediately, but Emotion CSS-in-JS is loaded afterwards.
-
-**Solution: Use Dev Mode**
-
-If FOUC is bothersome, use dev mode instead:
-
-```bash
-# Set in .env:
-AIFRED_ENV=dev
-
-# Or remove --env prod from the systemd service
-```
+AIfred runs Reflex in dev mode — there is no `--env prod` on the ExecStart line. Production mode (`reflex run --env prod`) causes a **FOUC (Flash of Unstyled Content)** on every page reload: React Router 7 with `prerender: true` loads the CSS asynchronously, so the HTML is visible before the Emotion CSS-in-JS arrives.
 
 **Dev Mode Characteristics:**
 - No FOUC (CSS loaded synchronously)

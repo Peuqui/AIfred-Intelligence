@@ -17,7 +17,6 @@ The main AIfred service (Reflex app).
 
 **Features:**
 - Waits for Ollama and ChromaDB
-- Sets `AIFRED_ENV=prod` for production mode
 - Automatic restart on failure
 - Logging via journalctl
 
@@ -137,20 +136,20 @@ systemctl list-dependencies aifred-intelligence.service
 
 ### Environment Variables
 
-The key environment variable is **`AIFRED_ENV=prod`** in `aifred-intelligence.service`:
-
-- `AIFRED_ENV=dev`: API URL = `http://172.30.8.72:8002` (development machine/WSL)
-- `AIFRED_ENV=prod`: API URL = `https://narnia.spdns.de:8443` (production server)
-
-**Important**: Without `AIFRED_ENV=prod`, all API requests are routed to the development machine!
+The service reads the optional `.env` in the project root (`EnvironmentFile=-…/.env`) —
+secrets and machine-specific overrides, see `.env.example`. Behind nginx under a
+sub-path, set `AIFRED_FRONTEND_PATH` (e.g. `aifred`). No URL or mode variable is
+needed: the frontend derives the backend address from the page's own hostname
+(see "How does the frontend find the backend?" in the main README).
 
 ### Modifying Services
 
 When modifying service files:
 1. Edit files in this `systemd/` directory
-2. Copy them to `/etc/systemd/system/`
-3. Run `sudo systemctl daemon-reload`
-4. Restart the services
+2. Run `sudo ./scripts/install-services.sh` — it substitutes the
+   `__USER__`/`__PROJECT_DIR__` placeholders (a plain `cp` would leave them in
+   place), installs units and drop-ins and runs `daemon-reload`
+3. Restart the services
 
 ## Command Reference
 

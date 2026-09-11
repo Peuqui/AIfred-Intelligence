@@ -487,7 +487,8 @@ Eine Pipeline (`execute_research()` in `aifred/lib/research_tools.py`) bedient s
 
 2. Multi-API-Websuche
    ├─ Round-Robin: Query 1 → SearXNG (selbst gehostet), 2 → Tavily, 3 → Brave
-   │  (API-Keys optional), automatischer Fallback wenn eine API ausfällt
+   │  (API-Keys optional), automatischer Fallback wenn eine API ausfällt;
+   │  eine einzelne Query geht parallel an alle APIs
    ├─ URL-Deduplizierung über alle APIs
    └─ Nicht scrapbare Domains gefiltert (data/non_scrapable_domains.txt:
       Video-Plattformen, Social Media)
@@ -1267,8 +1268,6 @@ Der AIfred Restart-Button startet den systemd-Service neu:
 
 Für produktiven Betrieb als Service sind vorkonfigurierte Service-Dateien im `systemd/` Verzeichnis verfügbar.
 
-**⚠️ WICHTIG**: Die Umgebungsvariable `AIFRED_ENV=prod` **MUSS** gesetzt sein, damit AIfred auf dem MiniPC läuft und nicht auf den Entwicklungsrechner weiterleitet!
-
 #### Schnellinstallation
 
 ```bash
@@ -1381,10 +1380,7 @@ Wants=ollama.service aifred-chromadb.service
 [Service]
 Type=simple
 # Optionale .env-Datei (Secrets, machine-spezifische Overrides). Das
-# `-`-Präfix bedeutet "kein Fehler, wenn die Datei fehlt". Der
-# Produktionsmodus wird hier über AIFRED_ENV=prod in der .env gesetzt —
-# es gibt KEIN `--env prod`-Flag auf der ExecStart-Zeile (rxconfig.py
-# liest AIFRED_ENV aus der Umgebung).
+# `-`-Präfix bedeutet "kein Fehler, wenn die Datei fehlt".
 EnvironmentFile=-__PROJECT_DIR__/.env
 User=__USER__
 Group=__USER__
@@ -1411,13 +1407,6 @@ und `__PROJECT_DIR__` für dich ersetzt.
 Für Produktions-/Externen Zugriff erstelle eine `.env` Datei im Projektverzeichnis (diese Datei ist in .gitignore und wird NICHT ins Repository gepusht):
 
 ```bash
-# Umgebungsmodus (erforderlich für Produktion)
-AIFRED_ENV=prod
-
-# Backend API URL für externen Zugriff via nginx Reverse Proxy
-# Setze dies auf deine externe Domain/IP für HTTPS-Zugriff
-AIFRED_API_URL=https://deine-domain.de:8443
-
 # API Keys für Web-Recherche (optional)
 BRAVE_API_KEY=dein_brave_api_key
 TAVILY_API_KEY=dein_tavily_api_key
@@ -1432,42 +1421,15 @@ OLLAMA_BASE_URL=http://localhost:11434
 # BACKEND_URL=http://localhost:8002
 ```
 
-**Warum wird `AIFRED_API_URL` benötigt?**
+**Wie findet das Frontend das Backend?**
 
-Das Reflex-Frontend muss wissen, wo das Backend erreichbar ist. Ohne diese Einstellung:
-- Das Frontend erkennt automatisch die lokale IP (z.B. `http://192.168.0.252:8002`)
-- Das funktioniert für lokalen Netzwerkzugriff, aber scheitert bei externem HTTPS-Zugriff
-- Externe Nutzer würden WebSocket-Verbindungsfehler zu `localhost` sehen
+`rxconfig.py` setzt `api_url` auf `http://0.0.0.0:8002`. Das Reflex-Frontend ersetzt `0.0.0.0` durch den Hostnamen, von dem die Seite geladen wurde — eine URL-Einstellung ist nicht nötig:
+- Über HTTPS (nginx) wechselt es auf `https`/`wss` am Standard-Port **443** — nginx muss deshalb auch auf 443 lauschen, selbst wenn du die Seite über einen anderen Port wie 8443 öffnest
+- Über reines HTTP (z.B. `http://<LAN-IP>:3002`) spricht der Browser direkt Port **8002** dieses Rechners an — deshalb lauscht das Backend auf allen Schnittstellen (`--backend-host 0.0.0.0`)
 
-Mit `AIFRED_API_URL=https://deine-domain.de:8443`:
-- Alle API/WebSocket-Verbindungen gehen über deinen nginx Reverse Proxy
-- HTTPS funktioniert korrekt für externen Zugriff
-- Lokaler HTTP-Zugriff funktioniert weiterhin
+**Warum Dev-Modus?**
 
-**Warum `--env prod`?**
-
-Das `--env prod` Flag im ExecStart:
-- Deaktiviert Vite Hot Module Replacement (HMR) WebSocket
-- Verhindert "failed to connect to websocket localhost:3002" Fehler
-- Reduziert Ressourcenverbrauch (kein Dev-Server Overhead)
-- Kompiliert trotzdem bei Neustart wenn sich Code geändert hat
-
-**⚠️ FOUC-Problem im Prod-Modus**
-
-Im Produktionsmodus (`--env prod`) kann ein **FOUC (Flash of Unstyled Content)** auftreten - ein kurzer Blitz von ungestyltem Text/CSS-Klassennamen beim Seiten-Reload.
-
-**Ursache:** React Router 7 mit `prerender: true` lädt CSS asynchron (Lazy Loading). Der generierte HTML-Code ist sofort sichtbar, aber das Emotion CSS-in-JS wird erst nachgeladen.
-
-**Lösung: Dev-Modus verwenden**
-
-Wenn der FOUC störend ist, kann stattdessen der Dev-Modus verwendet werden:
-
-```bash
-# In .env setzen:
-AIFRED_ENV=dev
-
-# Oder --env prod aus dem systemd Service entfernen
-```
+AIfred betreibt Reflex im Dev-Modus — auf der ExecStart-Zeile steht kein `--env prod`. Der Produktionsmodus (`reflex run --env prod`) erzeugt bei jedem Seiten-Reload einen **FOUC (Flash of Unstyled Content)**: React Router 7 mit `prerender: true` lädt das CSS asynchron, der HTML-Code ist sichtbar, bevor das Emotion CSS-in-JS ankommt.
 
 **Dev-Modus Eigenschaften:**
 - ✅ Kein FOUC (CSS wird synchron geladen)

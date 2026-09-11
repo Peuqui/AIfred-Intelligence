@@ -34,7 +34,7 @@ Suchanfragen erzeugt.
 
 1. **Suche** — die Queries werden reihum auf die konfigurierten Such-APIs
    verteilt (Query 1 → SearXNG, 2 → Tavily, 3 → Brave), mit automatischem
-   Fallback, wenn eine API ausfällt.
+   Fallback, wenn eine API ausfällt; eine einzelne Query geht parallel an alle.
 2. **URL-Ranking** — ein LLM sortiert die gesammelten URLs nach Relevanz (mit
    Konversationshistorie) und behält die Top N (7 im Deep-, 3 im Quick-Modus).
 3. **Scraping** — die gerankten URLs werden parallel gescrapt, mit einem
