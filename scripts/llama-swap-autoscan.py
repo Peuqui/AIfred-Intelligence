@@ -1581,6 +1581,20 @@ def dominant_hf_repo(checkpoint: Path) -> Optional[str]:
     return counts.most_common(1)[0][0]
 
 
+def is_draft_head(checkpoint: Path) -> bool:
+    """Entwurfskoepfe fuer spekulatives Dekodieren (DFlash2, DSpark, EAGLE).
+
+    Sie liegen als eigene Checkpoints im Cache, laufen aber nur zusammen mit
+    ihrem Zielmodell — als eigener llama-swap-Eintrag starten sie nie.
+    """
+    config = json.loads((checkpoint / "config.json").read_text())
+    architectures = config.get("architectures") or []
+    return "dflash_config" in config or any(
+        arch.endswith("DraftModel") or "DSpark" in arch or "Eagle" in arch
+        for arch in architectures
+    )
+
+
 def vllm_checkpoint_candidates() -> list[tuple[Path, str]]:
     """Checkpoint-Verzeichnisse fuer vLLM samt Anzeigename.
 
@@ -1604,6 +1618,9 @@ def vllm_checkpoint_candidates() -> list[tuple[Path, str]]:
     covered_repos: set[str] = set()
     if MODELS_DIR.is_dir():
         for d in sorted(MODELS_DIR.iterdir()):
+            if is_checkpoint(d) and is_draft_head(d):
+                print(f"  ~ Skip:    {d.name} (Entwurfskopf, nur mit Zielmodell)")
+                continue
             if is_checkpoint(d):
                 found.setdefault(d.name, d)
                 repo = dominant_hf_repo(d)
@@ -1625,6 +1642,12 @@ def vllm_checkpoint_candidates() -> list[tuple[Path, str]]:
             if not snaps:
                 continue
             newest = max(snaps, key=lambda s: s.stat().st_mtime)
+            if is_draft_head(newest):
+                print(
+                    f"  ~ Skip:    {repo_dir.name.split('--')[-1]} "
+                    "(Entwurfskopf, nur mit Zielmodell)"
+                )
+                continue
             found.setdefault(repo_dir.name.split("--")[-1], newest)
     return [(path, name) for name, path in sorted(found.items())]
 
