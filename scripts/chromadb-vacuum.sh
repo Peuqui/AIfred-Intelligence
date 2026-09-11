@@ -1,10 +1,9 @@
 #!/bin/bash
-# ChromaDB SQLite VACUUM — monatlich gegen Bloat aus Delete-Operationen.
+# ChromaDB SQLite VACUUM — regelmäßig gegen Bloat aus Delete-Operationen.
 #
 # Hintergrund: SQLite gibt freie Pages nach DELETE nicht zurück ans OS.
 # AIfred löscht regelmäßig in:
 #   - aifred_documents     (de-index)
-#   - research_cache       (Web-Cache-Cleanup)
 #   - agent_memory_*       (Memory-Pruning pro Agent)
 # Über Zeit summiert sich der freigemachte aber nicht zurückgegebene
 # Speicherplatz. VACUUM rebuildet die DB-Datei und gibt freie Pages frei.
@@ -17,13 +16,13 @@
 #
 # Während Vacuum (typisch < 30s bei kleinen DBs):
 #   - AIfred-Calls an ChromaDB schlagen kurz fehl
-#   - Web-Search/Memory-Lookup geben "ChromaDB unavailable" Fehler zurück
+#   - Dokument-Suche/Memory-Lookup geben "ChromaDB unavailable" Fehler zurück
 #   → Daher in Tagesrand-Slot ausführen (nachts).
 
 set -euo pipefail
 
 CONTAINER=aifred-chromadb
-VOLUME_HOST="/home/mp/Projekte/AIfred-Intelligence/aifred_vector_cache"
+VOLUME_HOST="/home/mp/Projekte/AIfred-Intelligence/data/chromadb"
 LOGFILE="/home/mp/Projekte/AIfred-Intelligence/data/logs/chromadb-vacuum.log"
 
 mkdir -p "$(dirname "$LOGFILE")"

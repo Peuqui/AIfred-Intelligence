@@ -1,5 +1,5 @@
 services:
-  # ChromaDB Vector Cache (Essential - always needed)
+  # ChromaDB — documents (RAG) and agent memory (Essential - always needed)
   chromadb:
     image: chromadb/chroma:latest
     container_name: aifred-chromadb
@@ -16,7 +16,7 @@ services:
       # Default passen, sonst persistiert der Container nach /data IM Container
       # und alles geht beim nächsten Image-Recreate (docker-auto-update.sh
       # 03:00 Cron) verloren.
-      - ../aifred_vector_cache:/data
+      - ../data/chromadb:/data
     environment:
       # Disable telemetry for privacy
       - ANONYMIZED_TELEMETRY=False

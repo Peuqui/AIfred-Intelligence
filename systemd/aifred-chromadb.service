@@ -1,5 +1,5 @@
 [Unit]
-Description=AIfred ChromaDB Vector Cache (Docker)
+Description=AIfred ChromaDB (Docker)
 After=docker.service
 Requires=docker.service
 PartOf=docker.service
