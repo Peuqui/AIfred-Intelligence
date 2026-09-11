@@ -26,6 +26,9 @@ class vLLMBackend(OpenAICompatibleBackend):
     """vLLM backend implementation (OpenAI-compatible, via llama-swap)."""
 
     BACKEND_NAME = "vLLM"
+    # --reasoning-parser: vLLM liefert den Denkteil im Feld ``reasoning``
+    # (DeltaMessage/ChatMessage), NICHT ``reasoning_content``.
+    REASONING_FIELD = "reasoning"
     # Letzter Stand der Prefill-Zaehler JE PORT, bewusst klassenweit:
     # Multi-Agent (AIfred, Sokrates, Salomo) legt mehrere Adapter auf
     # denselben Server. Je Instanz gefuehrt, wuerde jeder die Anfragen der

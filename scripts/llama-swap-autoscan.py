@@ -1692,7 +1692,11 @@ def seed_vllm_entries(config_path: Path) -> int:
         topology_ladder,
     )
     from aifred.lib.calibration.vllm_model_meta import analyze_checkpoint
-    from aifred.lib.calibration.vllm_probe import VllmSpec, load_vllm_runtime
+    from aifred.lib.calibration.vllm_probe import (
+        VllmSpec,
+        load_vllm_runtime,
+        template_parsers,
+    )
 
     runtime = load_vllm_runtime()
     gpus = eligible_gpus(side_channel_uuids())
@@ -1705,6 +1709,8 @@ def seed_vllm_entries(config_path: Path) -> int:
         name = f"{base_name}-vllm"
         try:
             meta = analyze_checkpoint(ckpt)
+            # Tool-Call-/Reasoning-Parser aus dem Chat-Template des Checkpoints
+            parsers = template_parsers(meta.chat_template, runtime)
             rung = next(iter(topology_ladder(meta, gpus, runtime)), None)
             if rung is None:
                 print(f"  ✗ {name}: no topology fits the eligible GPUs — skipping")
@@ -1718,6 +1724,8 @@ def seed_vllm_entries(config_path: Path) -> int:
                 block_size=meta.allowed_k_block_sizes()[0],
                 pp_partition=rung.pp_partition,
                 language_model_only=meta.multimodal,
+                tool_call_parser=parsers.tool_call,
+                reasoning_parser=parsers.reasoning,
             )
             entry = render_llamaswap_entry(spec, ttl=DEFAULT_TTL_LARGE)
         except Exception as err:  # noqa: BLE001 — ein kaputter Checkpoint

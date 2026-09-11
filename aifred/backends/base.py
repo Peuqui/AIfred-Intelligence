@@ -296,6 +296,14 @@ class OpenAICompatibleBackend(LLMBackend):
     # schaltet frei. Bewusst ein Backend-Gate, kein Modell-Gate: Templates
     # ohne Reasoning-Support ignorieren das Feld einfach.
     SEND_TURN_REASONING: bool = False
+    # Name des Felds, in dem der Server den Denkteil GETRENNT vom Antworttext
+    # liefert: llama.cpp (``--reasoning-format``) nennt es
+    # ``reasoning_content``, vLLM (``--reasoning-parser``) ``reasoning``.
+    # None = der Server trennt nicht; Denken steht dann, falls ueberhaupt,
+    # als <think>-Text im Inhalt. Ein Backend, das ein Feld nennt, das sein
+    # Server nicht sendet, verliert den Denkblock kommentarlos — vLLM las
+    # hier bis 2026-09-11 nichts, der Flash-Next-Denkblock fehlte seit 07.09.
+    REASONING_FIELD: Optional[str] = None
 
     def __init__(self, base_url: str, api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
@@ -361,18 +369,50 @@ class OpenAICompatibleBackend(LLMBackend):
         return extra_body
 
     def _process_response_text(self, choice: Any) -> str:
-        """Extract text from non-streaming response choice."""
-        return choice.message.content or ""
+        """Text of a non-streaming choice; a separate reasoning field is
+        wrapped in <think> tags for unified handling."""
+        content = choice.message.content or ""
+        if not self.REASONING_FIELD:
+            return content
+        msg_dict = choice.message.model_dump() if hasattr(choice.message, "model_dump") else {}
+        reasoning = msg_dict.get(self.REASONING_FIELD) or ""
+        if reasoning:
+            return f"<think>{reasoning}</think>\n\n{content}"
+        return content
 
     def _process_stream_delta(self, delta: Any, delta_dict: Dict, stream_state: Dict) -> List[Dict]:
-        """Process a streaming delta. Returns list of chunks to yield."""
+        """Stream the reasoning field as <think> tags (state machine).
+
+        Nebenbei werden Reasoning und sichtbarer Text getrennt akkumuliert
+        (``_reasoning_acc``/``_visible_acc``): Der Tool-Loop reicht beide in
+        der Runden-History zurück, damit das Modell im laufenden Turn sein
+        eigenes Denken und seine Zwischenmeldungen wiedersieht (Qwen3.8-
+        Template rendert turn-internes Reasoning immer; ältere Templates
+        ignorieren das Feld einfach).
+        """
         chunks: List[Dict] = []
+        reasoning = (delta_dict.get(self.REASONING_FIELD) or "") if self.REASONING_FIELD else ""
+
+        if reasoning:
+            if not stream_state.get("thinking_started"):
+                chunks.append({"type": "content", "text": "<think>"})
+                stream_state["thinking_started"] = True
+            chunks.append({"type": "content", "text": reasoning})
+            stream_state["_reasoning_acc"] = stream_state.get("_reasoning_acc", "") + reasoning
+
         if delta.content:
+            if stream_state.get("thinking_started"):
+                chunks.append({"type": "content", "text": "</think>\n\n"})
+                stream_state["thinking_started"] = False
             chunks.append({"type": "content", "text": delta.content})
+            stream_state["_visible_acc"] = stream_state.get("_visible_acc", "") + delta.content
+
         return chunks
 
     def _finalize_stream(self, stream_state: Dict) -> List[Dict]:
-        """Called after stream loop ends. Return extra chunks if needed."""
+        """Close open <think> tag if stream ends during thinking (edge case)."""
+        if stream_state.get("thinking_started"):
+            return [{"type": "content", "text": "</think>\n\n"}]
         return []
 
     def _classify_error(self, error: Exception, model: str) -> BackendError:
@@ -536,11 +576,11 @@ class OpenAICompatibleBackend(LLMBackend):
             if chunk.choices:
                 delta = chunk.choices[0].delta
                 delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
-                # OpenAI SDK doesn't define reasoning_content in ChoiceDelta —
-                # it lands in model_extra instead of model_dump()
-                if hasattr(delta, "model_extra") and delta.model_extra:
-                    if "reasoning_content" in delta.model_extra:
-                        delta_dict["reasoning_content"] = delta.model_extra["reasoning_content"]
+                # OpenAI SDK doesn't define the servers' reasoning field in
+                # ChoiceDelta — it lands in model_extra instead of model_dump()
+                if self.REASONING_FIELD and hasattr(delta, "model_extra") and delta.model_extra:
+                    if self.REASONING_FIELD in delta.model_extra:
+                        delta_dict[self.REASONING_FIELD] = delta.model_extra[self.REASONING_FIELD]
 
                 # Accumulate tool calls from streaming deltas
                 if tool_calls is not None and hasattr(delta, "tool_calls") and delta.tool_calls:
@@ -730,6 +770,22 @@ class OpenAICompatibleBackend(LLMBackend):
                             # feeds assistant_msg["content"] below.
                             if "_visible_acc" in stream_state:
                                 stream_state["_visible_acc"] = cleaned
+
+                    # The server announced tool calls, but none arrived: its
+                    # tool-call parser does not match the call format the
+                    # model's chat template prescribes. vLLM's hermes parser
+                    # swallowed Qwen3.8's XML calls exactly like this, without
+                    # a single log line, for two weeks (2026-09-11) — the
+                    # turn just ended or went into the forced final round.
+                    if not tool_calls and last_finish_reason == "tool_calls":
+                        from ..lib.logging_utils import log_message
+                        parser_msg = (
+                            "⚠️ Server reported finish_reason=tool_calls but "
+                            "delivered no tool call — its tool-call parser does "
+                            "not match the model's chat template"
+                        )
+                        log_message(parser_msg)
+                        yield {"type": "debug", "message": parser_msg}
 
                     # No tool calls → done
                     if not tool_calls or not toolkit:

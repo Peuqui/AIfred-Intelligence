@@ -143,7 +143,75 @@ RUNTIME = {
     "base_env": {"NCCL_P2P_DISABLE": "1"},
     "base_args": ["--trust-remote-code"],
     "max_capture_size": 8,
+    "tool_call_parser_by_template_marker": [
+        ["<function=", "qwen3_coder"], ["<tool_call>", "hermes"],
+    ],
+    "reasoning_parser_by_template_marker": [["<think>", "qwen3"]],
 }
+
+# Die Stellen der echten Templates, auf die template_parsers schaut:
+# Qwen3.8 (RadixArk, Flash-Next) schreibt XML-Aufrufe und denkt in <think>,
+# Qwen2.5 schreibt JSON in <tool_call> und denkt nicht.
+QWEN38_TEMPLATE = (
+    "{{- '<think>\\n' }}If you choose to call a function ONLY reply in the "
+    "following format:\n<tool_call>\n<function=example_function_name>\n"
+    "<parameter=example_parameter_1>\nvalue_1\n</parameter>\n</function>\n</tool_call>"
+)
+QWEN25_TEMPLATE = (
+    '<tool_call>\n{"name": <function-name>, "arguments": <args-json-object>}\n</tool_call>'
+)
+
+
+def test_template_parsers_follow_the_chat_template() -> None:
+    """Qwen3.8 verlangt qwen3_coder: mit dem frueher festen hermes verschluckte
+    vLLM jeden XML-Aufruf still (2026-09-11). Die XML-Templates enthalten auch
+    <tool_call> — die erste passende Markierung gewinnt."""
+    assert vllm_probe.template_parsers(QWEN38_TEMPLATE, RUNTIME) == ("qwen3_coder", "qwen3")
+    assert vllm_probe.template_parsers(QWEN25_TEMPLATE, RUNTIME) == ("hermes", None)
+
+
+def test_template_parsers_refuse_unknown_or_missing_template() -> None:
+    # Ohne Tool-Parser kann AIfred kein Werkzeug aufrufen: kein stiller Eintrag
+    with pytest.raises(ValueError, match="no known tool-call format"):
+        vllm_probe.template_parsers("{{ messages }}", RUNTIME)
+    with pytest.raises(ValueError, match="no chat template"):
+        vllm_probe.template_parsers("", RUNTIME)
+
+
+def test_spec_build_cmd_carries_the_template_parsers(tmp_path: Path) -> None:
+    spec = VllmSpec(checkpoint=tmp_path, served_name="m", gpu_ids=[0],
+                    tool_call_parser="qwen3_coder", reasoning_parser="qwen3")
+    cmd = spec.build_cmd(RUNTIME, port=1)
+    assert "--enable-auto-tool-choice" in cmd
+    assert cmd[cmd.index("--tool-call-parser") + 1] == "qwen3_coder"
+    assert cmd[cmd.index("--reasoning-parser") + 1] == "qwen3"
+    bare = VllmSpec(checkpoint=tmp_path, served_name="m", gpu_ids=[0]).build_cmd(RUNTIME, port=1)
+    assert "--tool-call-parser" not in bare and "--reasoning-parser" not in bare
+
+
+def test_analyze_checkpoint_reads_the_chat_template(moe_checkpoint: Path) -> None:
+    assert analyze_checkpoint(moe_checkpoint).chat_template == ""
+    # Aeltere Checkpoints: Template in der tokenizer_config.json
+    (moe_checkpoint / "tokenizer_config.json").write_text(
+        json.dumps({"chat_template": QWEN25_TEMPLATE}))
+    assert analyze_checkpoint(moe_checkpoint).chat_template == QWEN25_TEMPLATE
+    # chat_template.jinja ist die eigene Datei und hat Vorrang
+    (moe_checkpoint / "chat_template.jinja").write_text(QWEN38_TEMPLATE)
+    assert analyze_checkpoint(moe_checkpoint).chat_template == QWEN38_TEMPLATE
+
+
+def test_probe_chat_returns_reasoning_and_content(monkeypatch, tmp_path: Path) -> None:
+    """Mit --reasoning-parser teilt vLLM die Ausgabe auf; die Sonden bewerten
+    die ganze — bei kleinem max_tokens stuende sonst nichts in content."""
+    import io
+    body = {"choices": [{"message": {"reasoning": "Rechne 6*7. ", "content": "42"}}],
+            "usage": {"completion_tokens": 5}}
+    monkeypatch.setattr(vllm_probe.urllib.request, "urlopen",
+                        lambda req, timeout: io.BytesIO(json.dumps(body).encode()))
+    server = vllm_probe.VllmServer(None, 1, "m", tmp_path / "log")  # type: ignore[arg-type]
+    text, usage, _ = server.chat("6*7?")
+    assert text == "Rechne 6*7. 42"
+    assert usage["completion_tokens"] == 5
 
 
 def test_spec_build_cmd_json_compact(tmp_path: Path) -> None:
@@ -250,8 +318,11 @@ def _meta(total_gib: float, giants: list[int] | None = None) -> VllmModelMeta:
         checkpoint=Path("."), architecture="x", num_layers=48,
         native_context=65536, total_bytes=int(total_gib * 1024**3),
         layer_bytes={}, component_bytes={}, giant_layers=giants or [],
-        mtp=MtpInfo(False),
+        mtp=MtpInfo(False), chat_template=QWEN38_TEMPLATE,
     )
+
+
+PARSERS = vllm_probe.TemplateParsers("qwen3_coder", "qwen3")
 
 
 def test_topology_ladder_small_model(monkeypatch) -> None:
@@ -705,9 +776,12 @@ def test_probe_oom_climbs_reserve_ladder_instead_of_rejecting(monkeypatch, tmp_p
     messages: list[str] = []
 
     rung = vllm_flow._measure_topology(
-        cand, "m", _meta(20.0), MINI_GPUS, SMI, tmp_path, messages.append, None)
+        cand, "m", _meta(20.0), MINI_GPUS, SMI, tmp_path, messages.append, None,
+        parsers=PARSERS)
 
     assert rung is not None
+    # Die aus dem Template abgeleiteten Parser landen im Betriebspunkt
+    assert (rung.spec.tool_call_parser, rung.spec.reasoning_parser) == PARSERS
     assert len(booted) == 2
     assert booted[1][0] < booted[0][0]          # zweiter Boot mit kleinerer GMU
     assert booted[1][1] == booted[0][1]         # Kontext bleibt (Kontext-Vorrang)
@@ -726,7 +800,8 @@ def test_probe_crash_without_oom_still_rejects_rung(monkeypatch, tmp_path):
     messages: list[str] = []
 
     rung = vllm_flow._measure_topology(
-        cand, "m", _meta(20.0), MINI_GPUS, SMI, tmp_path, messages.append, None)
+        cand, "m", _meta(20.0), MINI_GPUS, SMI, tmp_path, messages.append, None,
+        parsers=PARSERS)
 
     assert rung is None
     assert len(booted) == 1
@@ -842,7 +917,9 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
     monkeypatch.setattr(vllm_flow, "VLLM_CALIBRATION_GMU_AB", False)
     measured: list[str] = []
 
-    def fake_measure(cand, entry_name, meta, gpus_, smi, log_dir, progress, cancel_check):
+    def fake_measure(cand, entry_name, meta, gpus_, smi, log_dir, progress, cancel_check,
+                     parsers):
+        assert parsers == PARSERS
         measured.append(cand.label)
         mml = (mml_by_label or {}).get(cand.label, 65536)
         spec = VllmSpec(checkpoint=tmp_path, served_name=entry_name,
@@ -877,8 +954,27 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
     return result, measured, persisted, log, swept
 
 
+def test_unknown_tool_call_format_aborts_before_the_first_boot(
+    monkeypatch, tmp_path: Path,
+) -> None:
+    unknown = _meta(20.0)
+    unknown.chat_template = "{{ messages }}"
+    monkeypatch.setattr(vllm_flow, "analyze_checkpoint", lambda c: unknown)
+    monkeypatch.setattr(vllm_flow, "load_vllm_runtime", lambda: RUNTIME)
+    monkeypatch.setattr(vllm_flow, "prune_calibration_cache", lambda: (0, 0))
+    booted: list[str] = []
+    monkeypatch.setattr(vllm_flow, "boot_vllm", lambda *a, **k: booted.append("x"))
+    with pytest.raises(ValueError, match="no known tool-call format"):
+        vllm_flow.calibrate_vllm_checkpoint(
+            checkpoint=tmp_path, entry_name="m", log_dir=tmp_path / "log",
+            progress=lambda m: None, cancel_check=None, reserve_side_channel=False)
+    assert booted == []
+
+
 def test_full_run_measures_the_whole_ladder_and_persists(monkeypatch, tmp_path: Path) -> None:
     result, measured, persisted, log, swept = _fake_full_run(monkeypatch, tmp_path)
+    assert any("tool-call parser qwen3_coder, reasoning parser qwen3" in line
+               for line in log)
     assert measured == ["TP1 on RTX 8000", "TP2 across RTX 8000 class",
                         "PP2 across RTX 8000 class"]
     assert persisted == ["m"] and result.profile_path == tmp_path / "p.yaml"

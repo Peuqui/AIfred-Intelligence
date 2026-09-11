@@ -12,6 +12,7 @@ liefert die Fakten, aus denen die Suche ihre Kandidaten baut:
   Spekulation auf langsamem VRAM zum Verlustgeschaeft — dann k=0)
 - QSA-Blockgroessen-Arithmetik: erlaubte k und zugehoerige block_size
 - nativer Kontext, Multimodalitaet (--language-model-only)
+- Chat-Template (daraus die Tool-Call-/Reasoning-Parser, vllm_probe.template_parsers)
 """
 
 import json
@@ -61,6 +62,9 @@ class VllmModelMeta:
     generation_defaults: dict[str, float] = field(
         default_factory=lambda: generation_defaults(Path("/nonexistent"))
     )
+    # Chat-Template des Checkpoints; es gibt dem Modell das Tool-Call- und
+    # Denkformat vor ("" = der Checkpoint bringt keines mit).
+    chat_template: str = ""
 
     def valid_tp_sizes(self, max_tp: int) -> list[int]:
         """TP-Groessen bis ``max_tp``, die vLLM fuer dieses Modell akzeptiert.
@@ -177,6 +181,22 @@ def _component(tensor_name: str) -> str:
     return first
 
 
+def _read_chat_template(checkpoint: Path) -> str:
+    """chat_template.jinja oder das Feld chat_template der
+    tokenizer_config.json — beide Ablageorte sieht transformers vor. Eine
+    Liste benannter Templates (default, tool_use, ...) zaehlt komplett."""
+    jinja = checkpoint / "chat_template.jinja"
+    if jinja.exists():
+        return jinja.read_text()
+    tokenizer_config = checkpoint / "tokenizer_config.json"
+    if not tokenizer_config.exists():
+        return ""
+    template = json.loads(tokenizer_config.read_text()).get("chat_template") or ""
+    if isinstance(template, list):
+        return "\n".join(str(t.get("template", "")) for t in template)
+    return str(template)
+
+
 def analyze_checkpoint(checkpoint: Path) -> VllmModelMeta:
     """Checkpoint-Verzeichnis analysieren (config.json + Safetensors-Header)."""
     config = json.loads((checkpoint / "config.json").read_text())
@@ -279,4 +299,5 @@ def analyze_checkpoint(checkpoint: Path) -> VllmModelMeta:
             text.get("num_key_value_heads")
             or text.get("num_attention_heads", 0) or 0
         ),
+        chat_template=_read_chat_template(checkpoint),
     )
