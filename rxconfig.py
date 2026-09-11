@@ -2,6 +2,7 @@
 
 import reflex as rx
 import os
+from pathlib import Path
 from reflex.plugins.sitemap import SitemapPlugin
 
 # Load .env file for environment variables
@@ -25,56 +26,46 @@ except ImportError:
 #
 # The frontend JS (state.js getBackendURL) does the magic replacement.
 
-# Environment mode (affects Reflex optimizations)
-is_prod = os.getenv("AIFRED_ENV", "dev") == "prod"
+APP_NAME = "aifred"
 
 # ============================================================
 # Hot Reload Exclusions
 # ============================================================
-# Exclude directories without Python code from hot reload to prevent
-# unnecessary recompilation when runtime files change (e.g., TTS audio).
+# Only the app package holds backend code; every other top-level directory
+# is excluded (runtime data incl. the ChromaDB volume data/chromadb, venv,
+# docs, scripts, models, ...). ChromaDB writes chroma.sqlite3 on every embed
+# batch — watched, Granian would kill the worker mid-indexing.
+# Taken from the directory listing, not a hand-kept list: Reflex stats every
+# exclude path at startup (samefile) and the backend dies on a missing one.
+# Hidden and "__" directories are skipped — Reflex excludes them itself, and
+# .web may be rebuilt during startup.
 # See: https://reflex.dev/docs/api-reference/environment-variables/
 os.environ.setdefault(
     "REFLEX_HOT_RELOAD_EXCLUDE_PATHS",
-    ":".join([
-        "data",              # Runtime data (TTS audio, sessions, etc.)
-        "logs",              # Log files
-        "docker",            # Docker configs
-        "docs",              # Documentation
-        "prompts",           # Prompt templates
-        "assets",            # Static assets
-        "Bilder",            # Images
-        "piper_models",      # TTS models
-        "uploaded_files",    # User uploads
-        "systemd",           # Service configs
-        "scripts",           # Utility scripts
-        "__pycache__",       # Python bytecode cache
-    ])
+    ":".join(
+        entry.name
+        for entry in Path(__file__).resolve().parent.iterdir()
+        if entry.is_dir() and entry.name != APP_NAME and not entry.name.startswith((".", "__"))
+    ),
 )
 
 config = rx.Config(
-    app_name="aifred",
-    # Backend listens only on localhost; all external access (LAN/WAN)
-    # goes through the nginx reverse proxy on the same host. This keeps
-    # the unauthenticated /api/* routes off the LAN.
-    backend_host="127.0.0.1",
+    app_name=APP_NAME,
+    # Backend listens on all interfaces (the service passes the same via
+    # --backend-host): over plain HTTP the frontend talks to <host>:8002
+    # directly (see api_url below), so LAN access by IP needs it. External
+    # access goes through nginx (HTTPS, port 443); the API itself requires
+    # the login cookie.
+    backend_host="0.0.0.0",
     backend_port=8002,
     frontend_port=3002,
-    frontend_host="0.0.0.0",  # Frontend on all interfaces
     # Use 0.0.0.0 - browser JS will replace with actual hostname
     api_url="http://0.0.0.0:8002",
     # Frontend Sub-Path: nur wenn ENV gesetzt (MiniPC mit Nginx: "aifred", Dev: leer)
     frontend_path=os.getenv("AIFRED_FRONTEND_PATH", ""),
-    env=rx.Env.PROD if is_prod else rx.Env.DEV,
     # Disable sitemap plugin (not needed) — Reflex 0.8.28+ wants the
     # plugin class, not the dotted-string path.
     disable_plugins=[SitemapPlugin],
-    # Performance optimizations
-    compile_timeout=90,  # Increase compilation timeout (default: 60s)
     # Hide "Built with Reflex" badge
     show_built_with_reflex=False,
-    # KaTeX for LaTeX rendering in Markdown (locally hosted)
-    stylesheets=[
-        "/katex/katex.min.css",
-    ],
 )

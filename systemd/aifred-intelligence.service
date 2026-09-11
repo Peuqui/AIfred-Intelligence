@@ -18,12 +18,9 @@ Group=__USER__
 WorkingDirectory=__PROJECT_DIR__
 Environment="PATH=__PROJECT_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
 Environment="PYTHONUNBUFFERED=1"
-# Exclude data/ and prompts/ from hot reload to prevent reload during Vision inference
-# data/ contains runtime files (images, audio, sessions)
-# prompts/ are loaded on-demand, no need for hot reload
-# Multiple paths separated by colon (:) as per Reflex documentation
-# (Drop-in hardening.conf erweitert diese Liste — siehe dort.)
-Environment="REFLEX_HOT_RELOAD_EXCLUDE_PATHS=data:prompts"
+# Hot-Reload-Ausschluesse berechnet rxconfig.py aus dem Verzeichnisinhalt
+# (alles ausser aifred/) — hier bewusst KEIN REFLEX_HOT_RELOAD_EXCLUDE_PATHS,
+# eine feste Liste mit einem fehlenden Pfad laesst das Backend beim Start sterben.
 # Heap-Size fuer Bun (Frontend-Runner) und Node (react-router dev) hochsetzen.
 # Default ist 512 MB — bei einem 793 KB grossen _index.jsx (alle Modals
 # eager im Bundle) crasht der Frontend-Prozess regelmaessig mit SIGTERM
