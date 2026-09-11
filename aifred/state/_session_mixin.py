@@ -537,12 +537,6 @@ class SessionMixin(rx.State, mixin=True):
         self.debate_user_interjection = ""  # type: ignore[attr-defined]
         self.debate_in_progress = False  # type: ignore[attr-defined]
 
-        # Clear Research Cache for this session
-        # Wichtig: Sonst koennen alte (englische) Recherche-Daten wieder verwendet werden!
-        if self.session_id:
-            from ..lib.cache_manager import delete_cached_research
-            delete_cached_research(self.session_id)
-
         # Clear session title (new session has no title yet)
         self.current_session_title = ""
 

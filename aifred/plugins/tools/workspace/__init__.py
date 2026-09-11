@@ -1052,7 +1052,7 @@ class WorkspacePlugin:
                 "properties": {
                     "collection_name": {
                         "type": "string",
-                        "description": "Exact collection name (e.g. 'research_cache', 'aifred_documents')",
+                        "description": "Exact collection name (e.g. 'aifred_documents', 'agent_memory_aifred')",
                     },
                     "confirm": {
                         "type": "boolean",

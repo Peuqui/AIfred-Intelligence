@@ -832,8 +832,8 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
         [("analysis", "think")]
 
     Note:
-        Repair of orphaned </think> tags happens in calling functions
-        (format_thinking_process, build_debug_accordion), BEFORE extract_xml_tags is called.
+        Repair of orphaned </think> tags happens in the calling function
+        (format_thinking_process), BEFORE extract_xml_tags is called.
         This is necessary for clean_response to work correctly.
     """
     # STEP 1: Remove Markdown code blocks BEFORE searching for XML tags
@@ -1029,103 +1029,6 @@ def format_thinking_process(ai_response: str, model_name: str | None = None, inf
     # Return: Collapsibles + Clean Response
     if collapsibles:
         result = "\n\n".join(collapsibles) + "\n\n" + clean_response
-    else:
-        result = clean_response
-
-    # STEP: Convert LaTeX delimiters for rx.markdown compatibility
-    result = convert_latex_delimiters(result)
-
-    return result
-
-
-def build_debug_accordion(query_reasoning, ai_text, automatik_model, main_model, query_time=None, final_time=None, lang=None):
-    """
-    Build debug accordion for agent research with all AI thinking processes.
-
-    Now uses extract_xml_tags() for generic XML processing!
-
-    Args:
-        query_reasoning: <think> Content from Query Optimization
-        ai_text: Final AI response with optional XML tags
-        automatik_model: Name of Automatik model (for Query-Opt)
-        main_model: Name of Main model (for final answer)
-        query_time: Inference time for Query Optimization (optional)
-        final_time: Inference time for final answer (optional)
-        lang: Language for collapsible labels (de/en). If None, uses get_ui_locale()
-
-    Returns:
-        Formatted AI response with debug accordion prepended
-    """
-    # Import i18n for labels
-    from .i18n import t
-
-    # Use current UI locale if no lang specified
-    if lang is None:
-        lang = get_ui_locale()
-
-    # NOTE: RAW logging is done by format_thinking_process() which is called
-    # before build_debug_accordion() in context_builder.py - no duplicate here
-
-    # STEP 0: Repair orphaned </think> tags BEFORE extraction
-    ai_text = fix_orphan_closing_think_tag(ai_text)
-
-    debug_sections = []
-
-    # 1. Query Optimization Reasoning (if present)
-    if query_reasoning:
-        time_suffix = f" • {query_time:.1f}s" if query_time else ""
-        query_opt_label = t("collapsible_query_optimization", lang=lang)
-        clean_reasoning = re.sub(r'\n{3,}', '\n\n', query_reasoning.strip())
-        clean_reasoning = neutralize_markdown_fences(clean_reasoning)
-        debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{query_opt_label} ({automatik_model}){time_suffix}</summary>
-<div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">
-{clean_reasoning}
-</div>
-</details>""")
-
-    # 2. Final Answer XML tags (generic extraction)
-    xml_tags = extract_xml_tags(ai_text)
-
-    for tag_name, content in xml_tags:
-        if tag_name == "think":
-            # <think> tag → Add as debug collapsible
-            time_suffix = f" • {final_time:.1f}s" if final_time else ""
-            thinking_label = t("collapsible_thinking_process", lang=lang)
-            clean_content = re.sub(r'\n{3,}', '\n\n', content.strip())
-            clean_content = neutralize_markdown_fences(clean_content)
-            debug_sections.append(f"""<details style="font-size: 0.9em; margin-bottom: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{thinking_label} ({main_model}){time_suffix}</summary>
-<div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">
-{clean_content}
-</div>
-</details>""")
-
-    # Combine all debug sections
-    debug_accordion = "\n".join(debug_sections)
-
-    # Remove only KNOWN tags (think) from response
-    # In build_debug_accordion only <think> is processed
-    clean_response = ai_text
-    for tag_name, _ in xml_tags:
-        # Only remove <think> tag (the only one used as debug section here)
-        if tag_name == "think":
-            pattern = rf'<{tag_name}>.*?</{tag_name}>'
-            clean_response = re.sub(pattern, '', clean_response, count=1, flags=re.DOTALL)
-    clean_response = clean_response.strip()
-
-    # Extract HTML previews from clean response
-    html_previews, clean_response = extract_html_previews(clean_response, lang=lang)
-
-    # Collect all top-level collapsibles
-    top_parts: list[str] = []
-    if debug_accordion:
-        top_parts.append(debug_accordion)
-    top_parts.extend(html_previews)
-
-    # Return: Top collapsibles + Clean Response
-    if top_parts:
-        result = "\n\n".join(top_parts) + "\n\n" + clean_response
     else:
         result = clean_response
 

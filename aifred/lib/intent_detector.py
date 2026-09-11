@@ -15,7 +15,7 @@ Also detects dialog addressing (who is being spoken to):
 
 from typing import Optional, Dict, Tuple, Any, List
 from .logging_utils import log_message
-from .prompt_loader import get_intent_detection_prompt, get_followup_intent_prompt
+from .prompt_loader import get_intent_detection_prompt
 from .context_manager import strip_thinking_blocks
 
 
@@ -167,7 +167,6 @@ def format_intent_result(intent: str, addressee: Optional[str], language: str) -
 
 def parse_intent_addressee_language(
     response_raw: str,
-    context: str = "general"
 ) -> Tuple[str, Optional[str], str, Dict[str, Any], bool]:
     """
     Extract intent, addressee, language, mode-switch, and pure-command flag.
@@ -184,7 +183,6 @@ def parse_intent_addressee_language(
 
     Args:
         response_raw: Raw LLM response
-        context: Context for logging ("general" or "cache_followup")
 
     Returns:
         Tuple[str, Optional[str], str, Dict[str, Any], bool]:
@@ -229,8 +227,7 @@ def parse_intent_addressee_language(
     elif "GEMISCHT" in intent_part or "MIXED" in intent_part:
         intent = "GEMISCHT"
     else:
-        prefix = "Cache-Intent" if context == "cache_followup" else "Intent"
-        log_message(f"⚠️ {prefix} unknown: '{response_raw}' → Default: FAKTISCH")
+        log_message(f"⚠️ Intent unknown: '{response_raw}' → Default: FAKTISCH")
         intent = "FAKTISCH"
 
     # Parse addressee — resolve_agent_id handles ID, display_name and aliases
@@ -260,22 +257,6 @@ def parse_intent_addressee_language(
     )
 
     return (intent, addressee, language, mode_switch_updates, is_pure_command)
-
-
-# Keep old function for backwards compatibility (used by cache_followup)
-def parse_intent_from_response(intent_raw: str, context: str = "general") -> str:
-    """
-    Extract intent from LLM response (legacy wrapper).
-
-    Args:
-        intent_raw: Raw LLM response
-        context: Context for logging ("general" or "cache_followup")
-
-    Returns:
-        str: "FAKTISCH", "KREATIV" or "GEMISCHT"
-    """
-    intent, _, _, _, _ = parse_intent_addressee_language(intent_raw, context)
-    return intent
 
 
 async def detect_query_intent_and_addressee(
@@ -340,7 +321,7 @@ async def detect_query_intent_and_addressee(
     response_clean = strip_thinking_blocks(response_raw).strip()
 
     intent, addressee, detected_language, mode_switch, is_pure_command = parse_intent_addressee_language(
-        response_clean, context="general"
+        response_clean
     )
     log_message(
         f"✅ {format_intent_result(intent, addressee, detected_language)}, "
@@ -348,66 +329,6 @@ async def detect_query_intent_and_addressee(
         f"Raw: '{response_clean}'"
     )
     return (intent, addressee, detected_language, mode_switch, is_pure_command, response_raw)
-
-
-async def detect_cache_followup_intent(
-    original_query: str,
-    followup_query: str,
-    automatik_model: str,
-    llm_client,
-    llm_options: Optional[Dict] = None,
-    automatik_num_ctx: Optional[int] = None,
-    detected_language: str = "de"
-) -> str:
-    """
-    Detect intent of follow-up question to cached research
-
-    Args:
-        original_query: Original research question
-        followup_query: User's follow-up question
-        automatik_model: LLM for intent detection
-        llm_client: LLMClient instance
-        llm_options: Optional Dict with enable_thinking toggle
-        detected_language: Language from Intent Detection ("de" or "en")
-
-    Returns:
-        str: "FAKTISCH", "KREATIV" or "GEMISCHT"
-    """
-    # Use detected_language from Intent Detection (passed from caller)
-    detected_user_language = detected_language
-    log_message(f"🌐 Cache Followup using language: {detected_user_language.upper()}")
-
-    prompt = get_followup_intent_prompt(
-        original_query=original_query,
-        followup_query=followup_query,
-        lang=detected_user_language
-    )
-
-    log_message(f"🎯 Cache-Followup Intent-Detection mit {automatik_model}: {followup_query[:60]}...")
-
-    # Build options
-    followup_intent_options: Dict = {
-        'temperature': 0.2,
-        'enable_thinking': False  # Default: Fast intent detection without reasoning
-    }
-    if automatik_num_ctx is not None:
-        followup_intent_options['num_ctx'] = automatik_num_ctx
-
-    # Automatik tasks: Thinking is ALWAYS off (independent of user toggle)
-    log_message("🧠 Followup Intent enable_thinking: False (Automatik-Task)")
-
-    response = await llm_client.chat(
-        model=automatik_model,
-        messages=[{'role': 'user', 'content': prompt}],
-        options=followup_intent_options
-    )
-    intent_raw = response.text
-    # Strip thinking blocks — models like GPT-OSS always reason regardless of enable_thinking
-    intent_clean = strip_thinking_blocks(intent_raw).strip()
-
-    intent = parse_intent_from_response(intent_clean, context="cache_followup")
-    log_message(f"✅ Cache-Followup Intent ({automatik_model}): {intent}")
-    return intent
 
 
 def get_temperature_for_intent(intent: str) -> float:

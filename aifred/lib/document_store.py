@@ -1,8 +1,8 @@
 """
 Document Store - Chunking, Embedding & ChromaDB Storage for uploaded documents.
 
-Uses the same ChromaDB server and Ollama embedding function as vector_cache.py
-but with a separate collection for user documents.
+Uses the ChromaDB server and the embedding function from embeddings.py
+(shared with agent memory), with its own collection for user documents.
 """
 
 import asyncio
@@ -21,7 +21,7 @@ from .config import (
     DOCUMENTS_DIR,
 )
 from .logging_utils import log_message
-from .vector_cache import OLLAMA_EMBEDDING_MODEL, OllamaEmbeddingFunction
+from .embeddings import OLLAMA_EMBEDDING_MODEL, OllamaEmbeddingFunction
 
 
 def _read_text_file(file_path: Path) -> str:

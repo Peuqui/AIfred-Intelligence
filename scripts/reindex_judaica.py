@@ -7,7 +7,7 @@ changed (e.g. after the Hebrew-pairing rewrite, or after adding new
 Tanakh books).
 
 Embedder: bge-m3 in GPU index-mode (configured in
-aifred/lib/vector_cache.py + config.EMBEDDING_USE_GPU). Thanks to
+aifred/lib/embeddings.py + config.EMBEDDING_USE_GPU). Thanks to
 the recent ``asyncio.to_thread`` fix in document_store.py, the event
 loop stays free during long index runs.
 

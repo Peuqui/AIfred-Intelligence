@@ -468,21 +468,6 @@ CHARS_PER_TOKEN = 3
 HISTORY_CHARS_PER_TOKEN = 3.5
 
 # ============================================================
-# CONTEXT ESTIMATION CONSTANTS
-# ============================================================
-# Token estimates for system prompt, history and user input
-# Used for VRAM-based context calculation
-
-# System prompt token estimate (RAG mode)
-SYSTEM_PROMPT_ESTIMATE_RAG = 2000  # RAG system prompt is ~2K tokens
-
-# System prompt token estimate (Cache-Hit mode - slightly larger)
-SYSTEM_PROMPT_ESTIMATE_CACHE = 2500  # Cache-Hit prompt with extra context
-
-# Token estimate per history turn (question + answer)
-TOKENS_PER_HISTORY_TURN = 500  # Rough estimate: 500 tok/turn
-
-# ============================================================
 # AUTOMATIK-LLM CONTEXT CONSTANTS
 # ============================================================
 # Context window for Automatik-LLM tasks (Decision, Query-Opt, Intent, RAG-Check, URL-Ranking)
@@ -962,7 +947,7 @@ ALERT_DEDUP_RETENTION_SEC = 1800.0
 # fall back to the default — degrades gracefully.
 # llama-swap-Profil des Embedding-Servers (llama-server --embedding,
 # embed-Gruppe). Existiert das Profil in der YAML, laufen ChromaDB-
-# Embeddings darüber statt über Ollama (SSOT-Dispatch in vector_cache) —
+# Embeddings darüber statt über Ollama (SSOT-Dispatch in embeddings.py) —
 # der Ollama-Pfad bleibt für Setups ohne dieses Profil erhalten.
 LLAMASWAP_EMBEDDING_PROFILE = "bge-m3-567M-Q8_0-embed"
 
@@ -1339,47 +1324,6 @@ VLLM_CALIBRATION_WORKLOAD_CONTEXT_TOKENS = 30000
 # some layers to CPU/RAM. This "hybrid mode" requires careful RAM management
 # to avoid swapping.
 
-# ============================================================
-# VECTOR CACHE CONFIGURATION (ChromaDB Similarity Thresholds)
-# ============================================================
-# Distance thresholds for semantic similarity (Cosine Distance)
-# 0.0 = identical, 2.0 = completely different
-
-# Normal cache query (without explicit keywords like "research")
-CACHE_DISTANCE_HIGH = 0.5      # < 0.5 = HIGH confidence Cache-Hit (direct answer)
-
-# Per-volatility cache-hit threshold for the research-tools "Phase 0"
-# duplicate check: how similar must the new query be to a cached entry to
-# reuse the cached answer instead of running a fresh web search?
-# Stable knowledge tolerates wider matches; time-sensitive topics need to
-# stay tight to avoid serving outdated facts under a slightly different
-# wording. NOCACHE entries are never stored, so no threshold is needed.
-CACHE_DISTANCE_PER_VOLATILITY = {
-    'PERMANENT': 0.20,   # Goethe, photosynthesis — knowledge is stable
-    'MONTHLY':   0.15,
-    'WEEKLY':    0.10,
-    'DAILY':     0.05,   # Politics, news — keep tight to avoid stale facts
-}
-# Fallback threshold when a cache entry has no volatility tag (legacy data)
-CACHE_DISTANCE_DEFAULT = 0.05
-
-# ============================================================
-# TTL-BASED CACHE SYSTEM (Volatility Levels)
-# ============================================================
-# Time-To-Live values for different volatility categories
-# Main LLM determines volatility via <volatility> tag in response
-TTL_HOURS = {
-    'NOCACHE': 0,       # NEVER cache (weather, live scores, stock prices)
-    'DAILY': 24,        # News, current events, "latest developments"
-    'WEEKLY': 168,      # Political updates (7 days)
-    'MONTHLY': 720,     # Semi-current topics (30 days)
-    'PERMANENT': None   # Timeless facts, no expiry
-}
-
-# Cache cleanup configuration
-# Hinweis: Cleanup-Slot ist jetzt zentral via GARBAGE_COLLECTION_HOUR (s.o.).
-CACHE_STARTUP_CLEANUP = True        # Delete expired entries on server startup
-
 # Audio state cleanup configuration
 AUDIO_STATE_CLEANUP_AGE_DAYS = 7        # Completed entries older than this are removed
 
@@ -1398,14 +1342,6 @@ MEDIA_AUDIO_DIR = MEDIA_DIR / "audio"
 MEDIA_VIDEO_DIR = MEDIA_DIR / "video"
 MEDIA_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 MEDIA_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
-
-# Explicit research keywords ("research", "google", etc.)
-# Semantic duplicate detection (time-independent)
-CACHE_DISTANCE_DUPLICATE = 0.3  # < 0.3 = Very similar (semantic duplicate, always merged)
-                                # Examples:
-                                # - "research Python" vs "research Python Tutorial" = ~0.15
-                                # - "research weather Berlin" vs "research weather Hamburg" = ~0.25
-                                # - "research Python" vs "research Java" = ~0.6
 
 # ============================================================
 # AGENT MEMORY CONFIGURATION
@@ -1491,7 +1427,7 @@ WORKSPACE_READ_MAX_BYTES = 25 * 1024 * 1024  # read_file tool: reject files larg
                                      # than this (the whole file is loaded into RAM;
                                      # a huge file would blow the worker's memory).
                                      # The model should page/line-range large files.
-# ChromaDB vector store endpoint (workspace ChromaDB tools + vector_cache default).
+# ChromaDB vector store endpoint (workspace ChromaDB tools, documents, agent memory).
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8000"))
 # Web scraper: hard cap on a single fetched response body. Without it a
