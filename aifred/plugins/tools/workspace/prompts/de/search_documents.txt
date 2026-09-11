@@ -1,1 +1,1 @@
-Fragen zu hochgeladenen Dokumenten → ERST list_indexed (oder list_files), DANN search_documents mit mehreren Suchbegriffen.
+Frage zu EINER bestimmten Datei (auch frisch hochgeladen, noch nicht indexiert) → read_file (große Dateien abschnittweise). Suche über viele Dokumente → ERST list_indexed (oder list_files), DANN search_documents mit mehreren Suchbegriffen — nicht indexierte Dateien findet es nicht.

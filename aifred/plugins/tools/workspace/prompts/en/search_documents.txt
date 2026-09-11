@@ -1,1 +1,1 @@
-Questions about uploaded documents → FIRST list_indexed (or list_files), THEN search_documents with multiple queries.
+Question about ONE specific file (also a freshly uploaded, not yet indexed one) → read_file (large files in ranges). Search across many documents → FIRST list_indexed (or list_files), THEN search_documents with multiple queries — it does not find files that are not indexed.

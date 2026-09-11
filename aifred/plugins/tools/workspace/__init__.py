@@ -5,6 +5,7 @@ Provides tools for:
 - ChromaDB: index, search, list indexed, delete documents
 """
 
+import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +30,16 @@ def _split_parent_leaf(rel_path: str) -> tuple[str, str]:
     statt des früher 4× kopierten 3-Zeilen-Patterns."""
     parts = rel_path.strip("/").rsplit("/", 1)
     return ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
+
+
+def _container_text(file_path: Path) -> Optional[str]:
+    """Text of an Office/ODF file through the same parser the index uses
+    (SSOT, document_store.PARSERS); None for every other format."""
+    from ....lib.document_store import CONTAINER_FORMATS, PARSERS
+    suffix = file_path.suffix.lower()
+    if suffix not in CONTAINER_FORMATS:
+        return None
+    return PARSERS[suffix](file_path)
 
 
 def _chroma_client():  # type: ignore[no-untyped-def]
@@ -111,7 +122,8 @@ class WorkspacePlugin:
         ))
 
         async def _read_file(filename: str, pages: str = "", line_start: int | str = 0, line_end: int | str = 0) -> str:
-            """Read a file from data/documents/. PDFs support page selection, text files support line ranges."""
+            """Read a file from data/documents/. PDFs support page selection; text
+            files and Office documents (extracted text) support line ranges."""
             file_path, error = fm.safe_resolve(filename)
             if error:
                 return json.dumps({"error": error})
@@ -127,7 +139,7 @@ class WorkspacePlugin:
                     "error": (
                         f"File too large ({round(file_size / 1024 / 1024, 1)} MB, "
                         f"limit {WORKSPACE_READ_MAX_BYTES // 1024 // 1024} MB). "
-                        "Use 'pages' (PDF) or 'line_start'/'line_end' (text) to read a range."
+                        "Use 'pages' (PDF) or 'line_start'/'line_end' (text, Office) to read a range."
                     )
                 })
 
@@ -172,14 +184,18 @@ class WorkspacePlugin:
                         "content": text,
                     }, ensure_ascii=False)
                 else:
-                    # Text-based files
-                    try:
-                        all_text = file_path.read_text(encoding="utf-8")
-                    except UnicodeDecodeError:
-                        import chardet
-                        raw = file_path.read_bytes()
-                        detected = chardet.detect(raw)
-                        all_text = raw.decode(str(detected.get("encoding") or "utf-8"), errors="replace")
+                    # Office/ODF: extracted text; everything else: the file as text
+                    container_text = await asyncio.to_thread(_container_text, file_path)
+                    if container_text is not None:
+                        all_text = container_text
+                    else:
+                        try:
+                            all_text = file_path.read_text(encoding="utf-8")
+                        except UnicodeDecodeError:
+                            import chardet
+                            raw = file_path.read_bytes()
+                            detected = chardet.detect(raw)
+                            all_text = raw.decode(str(detected.get("encoding") or "utf-8"), errors="replace")
 
                     lines = all_text.split("\n")
                     total_lines = len(lines)
@@ -424,12 +440,18 @@ class WorkspacePlugin:
             if not query:
                 return json.dumps({"error": "query must not be empty"})
 
-            try:
-                lines = file_path.read_text(encoding="utf-8").splitlines()
-            except UnicodeDecodeError:
-                return json.dumps({
-                    "error": f"File is not valid UTF-8 text: {filename} (for PDFs use read_file)"
-                })
+            # Office/ODF: the same extracted text read_file returns, so the
+            # line numbers of a hit fit read_file's line_start/line_end
+            container_text = await asyncio.to_thread(_container_text, file_path)
+            if container_text is not None:
+                lines = container_text.splitlines()
+            else:
+                try:
+                    lines = file_path.read_text(encoding="utf-8").splitlines()
+                except UnicodeDecodeError:
+                    return json.dumps({
+                        "error": f"File is not valid UTF-8 text: {filename} (for PDFs use read_file)"
+                    })
 
             context_lines = max(0, min(int(context_lines), 10))
             hit_numbers = [i for i, line in enumerate(lines, 1) if query in line]

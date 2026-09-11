@@ -335,6 +335,12 @@ PARSERS = {
     ".odp": _read_odp,
 }
 
+# Office/ODF container formats (ZIP with XML inside): their text exists only
+# through the parser above. The workspace file tools (read_file,
+# search_in_file) use it for these; plain-text formats they read as-is, so
+# line numbers match the file.
+CONTAINER_FORMATS = frozenset({".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"})
+
 
 class _ResilientCollection:
     """Drop-in replacement for direct collection access with stale-recovery.
