@@ -409,6 +409,13 @@ class OpenAICompatibleBackend(LLMBackend):
 
         return chunks
 
+    def _before_stream_request(self) -> None:
+        """Hook right before each streamed server request, tool rounds included.
+
+        vLLM reads its own counters here, so the done metrics cover exactly
+        the LAST request — the scope llama-server's per-request timings have.
+        """
+
     def _finalize_stream(self, stream_state: Dict) -> List[Dict]:
         """Close open <think> tag if stream ends during thinking (edge case)."""
         if stream_state.get("thinking_started"):
@@ -700,6 +707,7 @@ class OpenAICompatibleBackend(LLMBackend):
                 first_token_s: Optional[float] = None
 
                 for _tool_round in range(max_tool_rounds):
+                    self._before_stream_request()
                     stream = await self.client.chat.completions.create(**kwargs)
 
                     stream_state: Dict[str, Any] = {}
@@ -932,6 +940,7 @@ class OpenAICompatibleBackend(LLMBackend):
                         f"forcing final response (no tools)"
                     )
                     kwargs_final = {**kwargs, "tools": None, "tool_choice": None}
+                    self._before_stream_request()
                     stream = await self.client.chat.completions.create(**kwargs_final)
                     stream_state = {}
                     counters = {

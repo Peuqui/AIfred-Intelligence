@@ -7,12 +7,16 @@
 - A server whose tool-call parser does not match the model's chat template
   reports ``finish_reason=tool_calls`` without delivering a call — that went
   unnoticed for two weeks and must now be loud.
+- vLLM's own per-request measurement (counter delta around exactly one
+  request) must survive tool rounds: the footer showed 22 tok/s prefill and
+  6.5 tok/s decode for a turn vLLM itself measured at 500 and 33.
 """
 
 import asyncio
 from types import SimpleNamespace
 from typing import Any, Dict, List
 
+import pytest
 from openai.types.chat import ChatCompletionChunk
 
 # aifred.lib zuerst: aifred.backends allein laeuft in einen Zirkelimport
@@ -105,3 +109,55 @@ def test_swallowed_tool_call_is_reported(monkeypatch) -> None:
     assert requests[1]["tools"] is None
     assert "Ohne Werkzeug." in "".join(i.get("text", "") for i in items)
 
+
+def _tool_round_turn(monkeypatch, counter_states: list) -> Dict[str, Any]:
+    """A two-round vLLM turn (tool call, then answer) against fake counters;
+    returns the done metrics. ``counter_states`` are the successive
+    /metrics readings: (port, (prefill_tok, prefill_s, requests, gen_tok, decode_s))."""
+    backend = vLLMBackend()
+    readings = iter(counter_states)
+    monkeypatch.setattr(backend, "_read_counters", lambda: next(readings))
+    call = {"index": 0, "id": "c1", "type": "function",
+            "function": {"name": "search_bible", "arguments": '{"query": "Psalm 91"}'}}
+    rounds = [
+        [_chunk({"tool_calls": [call]}), _chunk({}, finish_reason="tool_calls")],
+        [_chunk({"content": "Der Herr ist meine Zuflucht."}), _chunk({}, finish_reason="stop")],
+    ]
+
+    async def create(**kwargs: Any):
+        return _stream(rounds.pop(0))
+
+    backend.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    async def run() -> Dict[str, Any]:
+        done: Dict[str, Any] = {}
+        async for item in backend.chat_stream(
+                "m", [LLMMessage(role="user", content="Psalm 91?")], toolkit=_toolkit()):
+            if item.get("type") == "done":
+                done = item["metrics"]
+        return done
+
+    return asyncio.run(run())
+
+
+def test_vllm_rates_describe_the_last_request_of_a_tool_turn(monkeypatch) -> None:
+    # Reads: before round 1, before round 2, after round 2 (done)
+    metrics = _tool_round_turn(monkeypatch, [
+        (5811, (0.0, 0.0, 0.0, 0.0, 0.0)),
+        (5811, (30700.0, 58.0, 1.0, 60.0, 2.0)),
+        (5811, (32000.0, 60.6, 2.0, 476.0, 14.6)),
+    ])
+    assert metrics["tokens_prompt_computed"] == 1300
+    assert metrics["prompt_per_second"] == pytest.approx(1300 / 2.6)
+    assert metrics["tokens_per_second"] == pytest.approx(416 / 12.6)
+
+
+def test_vllm_foreign_request_in_the_window_yields_no_rate(monkeypatch) -> None:
+    # A second request finished while ours ran: not attributable, no guess
+    metrics = _tool_round_turn(monkeypatch, [
+        (5811, (0.0, 0.0, 0.0, 0.0, 0.0)),
+        (5811, (30700.0, 58.0, 1.0, 60.0, 2.0)),
+        (5811, (32500.0, 61.5, 3.0, 500.0, 15.5)),
+    ])
+    assert "prompt_per_second" not in metrics
