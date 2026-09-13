@@ -39,6 +39,21 @@ _TOKENS_FILE = DATA_DIR / "oauth_tokens.json"
 # Pending OAuth states: state_token → (provider_name, expiry_ts)
 _STATE_TTL_SECONDS = 600
 
+# Token-endpoint answers that reject the refresh token itself (RFC 6749 §5.2:
+# invalid_grant / invalid_client). Anything else (5xx, 429) is "try later".
+_GRANT_REJECTED_STATUS = (400, 401)
+
+
+class OAuthGrantRevoked(RuntimeError):
+    """The provider rejected the stored refresh token; the connection is gone."""
+
+    def __init__(self, provider_name: str) -> None:
+        super().__init__(
+            f"{provider_name} access expired or was revoked — the connection has been "
+            "removed. Do not retry: the user must reconnect in AIfred settings."
+        )
+        self.provider_name = provider_name
+
 
 @dataclass
 class TokenSet:
@@ -146,11 +161,7 @@ class OAuthBroker:
                 )
             # Refresh 60 s before actual expiry to avoid mid-request failures
             if time.time() >= token_set.expiry - 60:
-                if provider_name not in self._providers:
-                    raise RuntimeError(f"Provider {provider_name} not registered")
-                token_set = await self._providers[provider_name].refresh(token_set)
-                _save_token(provider_name, token_set)
-                logger.debug("OAuth token refreshed for provider: %s", provider_name)
+                token_set = await self._refresh_locked(provider_name, token_set)
             return token_set.access_token
 
     def is_connected(self, provider_name: str) -> bool:
@@ -163,41 +174,65 @@ class OAuthBroker:
         user revoked at the provider (e.g. Google security settings) still
         looks "connected". This forces a refresh-token exchange: the provider
         either issues a fresh access token (grant valid → tokens saved,
-        True) or definitively rejects it (invalid_grant → False).
+        True) or definitively rejects it (tokens removed → False).
 
-        Transport errors (provider unreachable) propagate to the caller —
-        "could not verify" is not the same as "revoked" and must not be
-        presented as disconnected.
+        Transport errors and provider-side failures (unreachable, 5xx)
+        propagate to the caller — "could not verify" is not the same as
+        "revoked" and must not be presented as disconnected.
         """
         async with self._token_lock:
             token_set = _load_token(provider_name)
             if token_set is None:
                 return False
-            if provider_name not in self._providers:
-                raise RuntimeError(f"Provider {provider_name} not registered")
             try:
-                refreshed = await self._providers[provider_name].refresh(token_set)
-            except httpx.HTTPStatusError as exc:
-                logger.warning(
-                    "OAuth verify: provider %s rejected refresh (%s) — grant revoked?",
-                    provider_name, exc.response.status_code,
-                )
+                await self._refresh_locked(provider_name, token_set)
+            except OAuthGrantRevoked:
                 return False
-            _save_token(provider_name, refreshed)
             logger.debug("OAuth verify OK for provider: %s", provider_name)
             return True
 
     async def disconnect(self, provider_name: str) -> None:
         async with self._token_lock:
-            tokens = _load_all_tokens()
-            if provider_name in tokens:
-                tokens.pop(provider_name)
-                _save_all_tokens(tokens)
-                logger.info("OAuth tokens removed for provider: %s", provider_name)
+            self._remove_token_locked(provider_name)
 
     # ------------------------------------------------------------------
     # Internal helpers
     # ------------------------------------------------------------------
+
+    async def _refresh_locked(self, provider_name: str, token_set: TokenSet) -> TokenSet:
+        """Refresh and store the tokens; the caller holds ``_token_lock``.
+
+        A provider that rejects the refresh token (invalid_grant: revoked,
+        expired, or the OAuth client changed) makes the connection dead for
+        good — only a new login flow helps. The stored tokens are removed so
+        every place that asks ``is_connected`` (settings, plugin availability)
+        shows the connection as disconnected, and ``OAuthGrantRevoked`` tells
+        the caller not to retry.
+        """
+        if provider_name not in self._providers:
+            raise RuntimeError(f"Provider {provider_name} not registered")
+        try:
+            refreshed = await self._providers[provider_name].refresh(token_set)
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code not in _GRANT_REJECTED_STATUS:
+                raise
+            logger.warning(
+                "OAuth provider %s rejected the refresh token (%s) — connection removed, reconnect required",
+                provider_name, exc.response.status_code,
+            )
+            self._remove_token_locked(provider_name)
+            raise OAuthGrantRevoked(provider_name) from exc
+        _save_token(provider_name, refreshed)
+        logger.debug("OAuth token refreshed for provider: %s", provider_name)
+        return refreshed
+
+    @staticmethod
+    def _remove_token_locked(provider_name: str) -> None:
+        tokens = _load_all_tokens()
+        if provider_name in tokens:
+            tokens.pop(provider_name)
+            _save_all_tokens(tokens)
+            logger.info("OAuth tokens removed for provider: %s", provider_name)
 
     def _purge_expired_states(self) -> None:
         now = time.time()
