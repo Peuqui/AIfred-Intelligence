@@ -108,11 +108,6 @@ def _resolve_target(ctx: PluginContext, requested: str | None) -> str:
 @dataclass
 class AudioPlayerPlugin:
     name: str = "audio_player"
-    display_name: str = "Audio Player"
-    description: str = (
-        "Spielt lokale Audio-Dateien und Internet-Streams (Musik, Hörbücher, "
-        "Radio) mit Pause/Resume und Positions-Speicherung ab."
-    )
     # Triggers a custom settings modal (vs. credential_fields-based):
     # the Plugin-Tab gear icon dispatches this state event name.
     settings_event_name: str = "open_audio_settings"

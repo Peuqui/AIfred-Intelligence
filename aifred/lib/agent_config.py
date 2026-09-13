@@ -25,7 +25,8 @@ AGENTS_FILE = DATA_DIR / "agents.json"
 # "system" agents (calibration, future helpers) are not selectable as
 # chat partners — they back internal workflows and only expose
 # prompt + model in the editor.
-VALID_ROLES = ("main", "critic", "judge", "custom", "system")
+ROLE_SYSTEM = "system"
+VALID_ROLES = ("main", "critic", "judge", "custom", ROLE_SYSTEM)
 
 
 @dataclass

@@ -14,8 +14,6 @@ from ....lib.plugin_base import PluginContext, load_tool_description
 @dataclass
 class CalculatorPlugin:
     name: str = "calculator"
-    display_name: str = "Calculator"
-    description: str = "Mathematische Berechnungen — Grundrechenarten und Potenzen (sicherer AST-Parser, keine Funktionen/Symbolik)."
 
     def is_available(self) -> bool:
         return True

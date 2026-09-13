@@ -74,14 +74,6 @@ class FreeEchoChannel(ConnectionMixin):
         return "freeecho2"
 
     @property
-    def display_name(self) -> str:
-        return "FreeEcho.2"
-
-    @property
-    def description(self) -> str:
-        return "WebSocket-Server für FreeEcho.2-Speakern: Sprachsteuerung mit Wake-Word, STT (Whisper) und TTS-Rückkanal."
-
-    @property
     def icon(self) -> str:
         return "radio"
 

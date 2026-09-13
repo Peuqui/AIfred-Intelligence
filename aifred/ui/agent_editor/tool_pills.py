@@ -10,7 +10,7 @@ import json
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t
+from ..helpers import plugin_text, t
 
 
 # Tier badge colors: 0=green, 1=blue, 2=orange, 3=red, 4=purple
@@ -63,7 +63,7 @@ def _build_tool_pill(tool_name: str, tier: int = 0) -> rx.Component:
     )
 
 
-def _group_header(name: str, tool_names: list[str]) -> rx.Component:
+def _group_header(name: str | rx.Var, tool_names: list[str]) -> rx.Component:
     """Group heading with a switch that toggles every tool in the group at once.
 
     The switch is ON only when *all* tools of the group are granted; flipping it
@@ -98,7 +98,7 @@ def _group_header(name: str, tool_names: list[str]) -> rx.Component:
 def _build_tool_groups() -> list[rx.Component]:
     """Build tool pill groups at build-time, grouped by plugin."""
     from ...lib.plugin_registry import discover_tools, all_channels
-    from ...lib.plugin_base import PluginContext
+    from ...lib.plugin_base import PluginContext, plugin_display_name
 
     ctx = PluginContext(agent_id="__build__", lang="de", session_id="", llm_history=[])
     groups: list[rx.Component] = []
@@ -128,7 +128,7 @@ def _build_tool_groups() -> list[rx.Component]:
             continue
         groups.append(
             rx.vstack(
-                _group_header(plugin.display_name, [t.name for t in tools]),
+                _group_header(plugin_text(plugin_display_name, plugin), [t.name for t in tools]),
                 rx.flex(
                     *[_build_tool_pill(t.name, tier=t.tier) for t in tools],
                     wrap="wrap", gap="4px",

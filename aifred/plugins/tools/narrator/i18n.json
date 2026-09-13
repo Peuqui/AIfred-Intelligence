@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "Narrator",
+    "en": "Narrator"
+  },
+  "plugin_description": {
+    "de": "Vertont Textdateien aus dem Dokumentenbaum zu einer einzelnen Audio-Datei — absatzweise über die lokale TTS-Engine, Ergebnis als MP3 neben der Quelldatei (handytauglich, '.wav' optional).",
+    "en": "Narrates text files from the document tree into a single audio file — paragraph by paragraph via the local TTS engine, saved as MP3 next to the source file (phone-friendly, '.wav' optional)."
+  }
+}

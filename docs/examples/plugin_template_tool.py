@@ -1,7 +1,12 @@
 """Template: Tool Plugin for AIfred.
 
-Copy this file to aifred/plugins/tools/ and customize.
+Copy this file to aifred/plugins/tools/hello/__init__.py and customize.
 It will be auto-discovered on next AIfred restart.
+
+Directory structure:
+    aifred/plugins/tools/hello/
+        __init__.py     # This file (plugin code)
+        i18n.json       # REQUIRED: plugin_display_name + plugin_description (DE and EN)
 
 This example provides a simple 'hello' tool that the LLM can call.
 """
@@ -15,8 +20,7 @@ from ...lib.plugin_base import PluginContext
 
 @dataclass
 class HelloPlugin:
-    name: str = "hello"
-    display_name: str = "Hello"
+    name: str = "hello"  # MUST equal the folder name
 
     def is_available(self) -> bool:
         """Check if this plugin can run. Return False to disable."""

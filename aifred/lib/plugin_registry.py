@@ -17,9 +17,13 @@ import pkgutil
 import shutil
 import sys
 from pathlib import Path
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
-from .plugin_base import BaseChannel, ToolPlugin
+from .plugin_base import PLUGIN_DISPLAY_NAME_KEY, BaseChannel, ToolPlugin, plugin_i18n_text
+
+if TYPE_CHECKING:
+    from .function_calling import Tool
+    from .plugin_base import PluginContext
 
 logger = logging.getLogger(__name__)
 
@@ -147,6 +151,20 @@ def discover_tools() -> list[ToolPlugin]:
     return _tools
 
 
+def collect_plugin_tools(ctx: "PluginContext") -> list[tuple[ToolPlugin | BaseChannel, list["Tool"]]]:
+    """Every available tool plugin and configured channel with the tools it
+    offers in ``ctx`` — the one plugin-selection rule of the toolkit factory.
+    Tier and whitelist filters come afterwards, at the caller."""
+    collected: list[tuple[ToolPlugin | BaseChannel, list["Tool"]]] = []
+    for plugin in discover_tools():
+        if plugin.is_available():
+            collected.append((plugin, plugin.get_tools(ctx)))
+    for channel in all_channels().values():
+        if channel.is_configured():
+            collected.append((channel, channel.get_tools(ctx)))
+    return [(owner, tools) for owner, tools in collected if tools]
+
+
 # ============================================================
 # RELOAD (after enable/disable)
 # ============================================================
@@ -200,12 +218,13 @@ def list_all_plugins() -> list[dict[str, str]]:
     disabled = _disabled_dir()
     result: list[dict[str, str]] = []
 
-    def _display(stem: str) -> str:
-        """Get display name from the loaded plugin."""
-        for p in discover_tools():
-            if p.name == stem:
-                return p.display_name
-        return stem.replace("_", " ").title()
+    def _display(path: Path) -> dict[str, str]:
+        """Display names in both UI languages, read from the plugin's own
+        i18n.json — works for disabled plugins too, which are not loaded."""
+        return {
+            f"display_{lang}": plugin_i18n_text(path, PLUGIN_DISPLAY_NAME_KEY, lang)
+            for lang in ("de", "en")
+        }
 
     def _has_credentials(stem: str) -> str:
         """Check if a tool plugin has credential_fields."""
@@ -222,11 +241,11 @@ def list_all_plugins() -> list[dict[str, str]]:
         for f in sorted(channels_dir.glob("*.py")):
             if f.name.startswith("_"):
                 continue
-            result.append({"name": f.stem, "display": _display(f.stem), "file": f.name, "type": "channel", "enabled": "1", "has_credentials": ""})
+            result.append({"name": f.stem, **_display(f), "file": f.name, "type": "channel", "enabled": "1", "has_credentials": ""})
         for d in sorted(channels_dir.iterdir()):
             if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
                 name = d.name
-                result.append({"name": name, "display": _display(name), "file": d.name, "type": "channel", "enabled": "1", "has_credentials": ""})
+                result.append({"name": name, **_display(d), "file": d.name, "type": "channel", "enabled": "1", "has_credentials": ""})
 
     # Enabled tools (single files + packages)
     tools_dir = root / "tools"
@@ -234,11 +253,11 @@ def list_all_plugins() -> list[dict[str, str]]:
         for f in sorted(tools_dir.glob("*.py")):
             if f.name.startswith("_"):
                 continue
-            result.append({"name": f.stem, "display": _display(f.stem), "file": f.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(f.stem)})
+            result.append({"name": f.stem, **_display(f), "file": f.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(f.stem)})
         for d in sorted(tools_dir.iterdir()):
             if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
                 name = d.name
-                result.append({"name": name, "display": _display(name), "file": d.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(name)})
+                result.append({"name": name, **_display(d), "file": d.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(name)})
 
     # Disabled (both types — file/dir name encodes origin via prefix).
     def _split_prefix(stem: str) -> tuple[str, str]:
@@ -253,7 +272,7 @@ def list_all_plugins() -> list[dict[str, str]]:
         if f.name.startswith("_"):
             continue
         ptype, pname = _split_prefix(f.stem)
-        result.append({"name": pname, "display": _display(pname), "file": f.name, "type": ptype, "enabled": "", "has_credentials": ""})
+        result.append({"name": pname, **_display(f), "file": f.name, "type": ptype, "enabled": "", "has_credentials": ""})
 
     # Package disabled plugins (directories) — e.g. the vision package.
     # Without this a disabled package vanishes from the manager and can
@@ -262,7 +281,7 @@ def list_all_plugins() -> list[dict[str, str]]:
         for d in sorted(disabled.iterdir()):
             if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
                 ptype, pname = _split_prefix(d.name)
-                result.append({"name": pname, "display": _display(pname), "file": d.name, "type": ptype, "enabled": "", "has_credentials": ""})
+                result.append({"name": pname, **_display(d), "file": d.name, "type": ptype, "enabled": "", "has_credentials": ""})
 
     result.sort(key=lambda p: p["name"])
     return result

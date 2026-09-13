@@ -13,6 +13,7 @@ import reflex as rx
 from reflex.event import EventSpec
 
 from ..lib import TranslationManager, set_language
+from ..lib.plugin_base import plugin_display_name
 from ..lib.settings import SETTINGS_FILE, load_settings, save_settings
 
 if TYPE_CHECKING:
@@ -456,7 +457,7 @@ class SettingsMixin(rx.State, mixin=True):
             return self.open_channel_credentials(channel_name)
 
         self._set_channel_toggle(channel_name, "monitor", value)
-        display = plugin.display_name if plugin else channel_name
+        display = plugin_display_name(plugin, "en") if plugin else channel_name
         status = "enabled" if value else "disabled"
         self.add_debug(f"📨 {display} {status}")  # type: ignore[attr-defined, has-type]
         self._save_settings()
@@ -482,7 +483,7 @@ class SettingsMixin(rx.State, mixin=True):
         plugin = get_channel(channel_name)
 
         self._set_channel_toggle(channel_name, "listener", value)
-        display = plugin.display_name if plugin else channel_name
+        display = plugin_display_name(plugin, "en") if plugin else channel_name
         status = "enabled" if value else "disabled"
         self.add_debug(f"📨 {display} Monitor {status}")  # type: ignore[attr-defined, has-type]
         self._save_settings()
@@ -590,7 +591,7 @@ class SettingsMixin(rx.State, mixin=True):
                 "option_labels": ",".join(lbl for _, lbl in options),
             })
 
-        display = plugin.display_name if plugin else tool.display_name if tool else channel_name
+        display = plugin_display_name(plugin or tool, lang) if (plugin or tool) else channel_name
         suffix = _t("cred_title_suffix", lang=lang)
         self.channel_credentials_editing = channel_name
         self.channel_credentials_display_name = f"{display} — {suffix}"
@@ -748,7 +749,7 @@ class SettingsMixin(rx.State, mixin=True):
 
         plugin_name = self.channel_credentials_editing
         plugin = get_channel(plugin_name) or get_tool_plugin(plugin_name)
-        display = plugin.display_name if plugin is not None else plugin_name
+        display = plugin_display_name(plugin, "en") if plugin is not None else plugin_name
 
         self.oauth_connect_status = "connecting"
 
@@ -758,13 +759,13 @@ class SettingsMixin(rx.State, mixin=True):
             if oauth_broker.is_connected(provider):
                 self.oauth_connect_status = "connected"
                 self.add_debug(  # type: ignore[attr-defined]
-                    f"✅ {display}: OAuth verbunden — Plugin verfügbar."
+                    f"✅ {display}: OAuth connected — plugin available."
                 )
                 return
 
         self.oauth_connect_status = "error"
         self.add_debug(  # type: ignore[attr-defined]
-            f"⚠️ {display}: OAuth nicht abgeschlossen — bitte erneut versuchen."
+            f"⚠️ {display}: OAuth not completed — please try again."
         )
 
     async def disconnect_oauth(self) -> None:  # type: ignore[no-untyped-def]
@@ -784,8 +785,8 @@ class SettingsMixin(rx.State, mixin=True):
         plugin = get_channel(plugin_key) or get_tool_plugin(plugin_key)
         self.oauth_auth_url = self._build_oauth_auth_url(provider, plugin)
 
-        plugin_name = self.channel_credentials_display_name or provider
-        self.add_debug(f"🔌 {plugin_name}: OAuth-Verbindung getrennt.")  # type: ignore[attr-defined]
+        plugin_name = plugin_display_name(plugin, "en") if plugin is not None else provider
+        self.add_debug(f"🔌 {plugin_name}: OAuth disconnected.")  # type: ignore[attr-defined]
 
     def save_channel_credentials(self):
         """Write credentials to .env (secrets) and plugin settings.json (config).
@@ -810,10 +811,10 @@ class SettingsMixin(rx.State, mixin=True):
         display = plugin_name
         if channel:
             fields = channel.credential_fields
-            display = channel.display_name
+            display = plugin_display_name(channel, "en")
         elif tool:
             fields = getattr(tool, "credential_fields", [])
-            display = tool.display_name
+            display = plugin_display_name(tool, "en")
 
         if not fields:
             return
@@ -937,8 +938,8 @@ class SettingsMixin(rx.State, mixin=True):
             oauth_provider = getattr(plugin, "oauth_provider", None)
             if oauth_provider and not oauth_broker.is_connected(oauth_provider):
                 self.add_debug(  # type: ignore[attr-defined]
-                    f"🔐 {plugin.display_name}: bitte über das Zahnrad-Icon "
-                    f"die Verbindung herstellen — danach wird der Toggle aktiv."
+                    f"🔐 {plugin_display_name(plugin, 'en')}: connect via the gear icon "
+                    f"first — the toggle becomes active afterwards."
                 )
                 return
 
@@ -949,10 +950,10 @@ class SettingsMixin(rx.State, mixin=True):
             # Re-fetch after enabling so the log shows the real display name
             # (e.g. "Vigilantia"), as it appears in the plugin menu.
             plugin = get_tool_plugin(plugin_name)
-            display = plugin.display_name if plugin else plugin_name
+            display = plugin_display_name(plugin, "en") if plugin else plugin_name
             self.add_debug(f"🔌 {display} enabled")  # type: ignore[attr-defined]
         else:
-            display = plugin.display_name if plugin else plugin_name
+            display = plugin_display_name(plugin, "en") if plugin else plugin_name
             # Vision: disarm the Watcher FIRST — force_disarm writes the
             # vision settings.json, which is gone once disable_plugin moves
             # the package to disabled/ (that caused the FileNotFoundError).

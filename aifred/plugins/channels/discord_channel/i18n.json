@@ -1,4 +1,12 @@
 {
+  "plugin_display_name": {
+    "de": "Discord",
+    "en": "Discord"
+  },
+  "plugin_description": {
+    "de": "Discord-Bot für Server-Kanäle — Watching, Auto-Reply und Slash-Commands.",
+    "en": "Discord bot for server channels — watching, auto-reply and slash commands."
+  },
   "discord_cred_bot_token": {
     "de": "Bot Token",
     "en": "Bot Token"

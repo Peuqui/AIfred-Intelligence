@@ -6,7 +6,7 @@ It will be auto-discovered on next AIfred restart.
 Directory structure:
     aifred/plugins/channels/my_channel/
         __init__.py     # This file (plugin code)
-        i18n.json       # Translations (min. DE/EN)
+        i18n.json       # REQUIRED: plugin_display_name + plugin_description (DE and EN), credential labels
         settings.json   # Auto-generated: non-secret settings
 
 This example shows the minimal structure for a message channel.
@@ -35,10 +35,6 @@ class MyChannel(BaseChannel):
     @property
     def name(self) -> str:
         return "my_channel"
-
-    @property
-    def display_name(self) -> str:
-        return "My Channel"
 
     @property
     def icon(self) -> str:
@@ -81,24 +77,24 @@ class MyChannel(BaseChannel):
     async def listener_loop(self) -> None:
         """Long-running listener. Replace with your service's event loop."""
         if not self.is_configured():
-            self.channel_log(f"{self.display_name}: not configured", "warning")
+            self.channel_log(f"{self.name}: not configured", "warning")
             return
 
-        self.channel_log(f"{self.display_name}: starting listener...")
+        self.channel_log(f"{self.name}: starting listener...")
 
         try:
             while True:
                 # TODO: Replace with your service's message polling/websocket
                 await asyncio.sleep(60)
         except asyncio.CancelledError:
-            self.channel_log(f"{self.display_name}: shutting down")
+            self.channel_log(f"{self.name}: shutting down")
 
     # ── Reply ─────────────────────────────────────────────────
 
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send a reply via your service's API."""
         # TODO: Implement sending
-        self.channel_log(f"{self.display_name}: reply to {outbound.recipient}: {outbound.text[:50]}...")
+        self.channel_log(f"{self.name}: reply to {outbound.recipient}: {outbound.text[:50]}...")
 
     # ── Context ───────────────────────────────────────────────
 

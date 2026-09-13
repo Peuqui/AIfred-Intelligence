@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "DeepL Translator",
+    "en": "DeepL Translator"
+  },
+  "plugin_description": {
+    "de": "Hochwertige Übersetzungen via DeepL-API zwischen vielen Sprachen — präziser als generische LLM-Übersetzungen.",
+    "en": "High-quality translations via the DeepL API between many languages — more precise than generic LLM translations."
+  }
+}

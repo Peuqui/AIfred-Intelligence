@@ -27,7 +27,7 @@ Architektur und Entscheidungen: [Sub-Agenten als Plugin](../../architecture/suba
 |-----------|-----|---------|--------------|
 | `task` | string | ja | Die vollständige, in sich geschlossene Aufgabe: alles, was der Sub-Agent wissen muss |
 | `expected_result` | string | ja | Was der Bericht enthalten soll, damit der Aufrufer weiterarbeiten kann |
-| `agent` | string | nein | Nur wenn die Einstellung „Sub-Agent als anderer Hauptagent“ an ist: Agent, dessen Modell und Werkzeugliste der Sub-Agent bekommt. Angeboten werden nur Agenten, die sich vom Aufrufer in Modell oder Werkzeugliste unterscheiden; gibt es keinen, fehlt der Parameter |
+| `agent` | string | nein | Nur wenn die Einstellung „Sub-Agent als anderer Hauptagent“ an ist: Agent, dessen Modell und Werkzeugliste der Sub-Agent bekommt. Angeboten werden nur Agenten, die sich vom Aufrufer in Modell oder Werkzeugliste unterscheiden; gibt es keinen, fehlt der Parameter. Systemagenten (Kalibrierung, Vision) werden nie angeboten. Die Parameter-Beschreibung listet je Agent die Werkzeug-Gruppen, die sein Sub-Agent hätte (Plugins nach Whitelist und erlaubten Tiers), plus je Gruppe die Plugin-Beschreibung aus der `i18n.json` des Plugins in der Sprache des Turns |
 
 Das Werkzeug selbst hat Tier READONLY. Was der Sub-Agent tun darf, bestimmen
 die Obergrenze des Aufrufers (Quelle und `max_tier`, ein Telegram-Kanal ohne

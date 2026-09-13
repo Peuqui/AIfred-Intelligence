@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, AsyncGenerator, Optional
 
 from ....lib.function_calling import Tool, ToolKit
@@ -125,16 +125,67 @@ def delegation_candidates(ctx: PluginContext) -> list[str]:
     """Agents a sub-agent could run "after": those whose model or tool
     whitelist differs from the caller's. Derived on every toolkit build, so
     the schema never offers a useless option."""
-    from ....lib.agent_config import get_agent_ids
+    from ....lib.agent_config import ROLE_SYSTEM, get_agent_config, get_agent_ids
     caller_model, caller_tools = _agent_model_and_tools(ctx.agent_id, ctx.state)
     candidates: list[str] = []
     for agent_id in get_agent_ids():
         if agent_id == ctx.agent_id:
             continue
+        cfg = get_agent_config(agent_id)
+        if cfg is not None and cfg.role == ROLE_SYSTEM:
+            # System agents back internal workflows (calibration, vision);
+            # they are no chat partners and no delegation targets either.
+            continue
         model, tools = _agent_model_and_tools(agent_id, ctx.state)
         if model != caller_model or tools != caller_tools:
             candidates.append(agent_id)
     return candidates
+
+
+def within_allowed_tiers(tools: list[Tool], settings: SubAgentSettings) -> list[Tool]:
+    """The plugin setting "allowed tiers" applied to a tool list."""
+    return [t for t in tools if t.tier in settings.allowed_tiers]
+
+
+def delegation_legend(
+    ctx: PluginContext, settings: SubAgentSettings, depth: int, candidates: list[str],
+) -> str:
+    """What a sub-agent run "after" each candidate could use, grouped by
+    plugin, plus one line per plugin saying what it is. Everything comes from
+    the plugins' own i18n texts and the agents' whitelists, derived on every
+    toolkit build — a new, changed or disabled plugin shows up by itself."""
+    from ....lib.agent_config import get_agent_config
+    from ....lib.plugin_base import plugin_description, plugin_display_name
+    from ....lib.plugin_registry import collect_plugin_tools
+    from ....lib.security import filter_tools_by_tier
+
+    # The sub-agent's view: its own depth (so the recursion bound applies to
+    # this plugin too), the caller's tier ceiling, the allowed tiers.
+    sub_ctx = replace(ctx, metadata={**ctx.metadata, DEPTH_METADATA_KEY: depth + 1})
+    offered = [
+        (owner, within_allowed_tiers(filter_tools_by_tier(tools, ctx.max_tier), settings))
+        for owner, tools in collect_plugin_tools(sub_ctx)
+    ]
+
+    agent_lines: list[str] = []
+    described: dict[str, str] = {}
+    for agent_id in candidates:
+        cfg = get_agent_config(agent_id)
+        whitelist = set(cfg.tools) if cfg is not None and cfg.tools is not None else None
+        groups: list[str] = []
+        for owner, tools in offered:
+            if any(whitelist is None or t.name in whitelist for t in tools):
+                name = plugin_display_name(owner, ctx.lang)
+                groups.append(name)
+                described.setdefault(name, plugin_description(owner, ctx.lang))
+        label = cfg.display_name if cfg is not None else agent_id
+        agent_lines.append(f"- {agent_id} ({label}): {', '.join(groups) or '-'}")
+
+    plugin_lines = [f"- {name}: {text}" for name, text in described.items()]
+    return "\n".join([
+        "Tools per agent:", *agent_lines,
+        "Tool groups:", *plugin_lines,
+    ])
 
 
 def resolve_run_params(agent_id: str, state: Any) -> RunParams:
@@ -203,12 +254,6 @@ def _transcript_labels(lang: str) -> dict[str, str]:
 @dataclass
 class SubAgentPlugin:
     name: str = "subagent"
-    display_name: str = "Sub-Agenten"
-    description: str = (
-        "Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer "
-        "Modellaufruf mit eigenem Kontext und Werkzeugkasten, nur der Bericht "
-        "geht zurück, das Transkript erscheint aufklappbar in der Bubble."
-    )
 
     # ── Plugin settings (settings.json next to this module) ──────────
     @property
@@ -276,7 +321,9 @@ class SubAgentPlugin:
                 "enum": candidates,
                 "description": (
                     "Run the sub-agent with this agent's model and tool list instead "
-                    "of your own (a different model means a model swap per call)."
+                    "of your own (a different model means a model swap per call). "
+                    "Pick the agent whose tool groups fit the task.\n"
+                    + delegation_legend(ctx, settings, depth, candidates)
                 ),
             }
 
@@ -329,7 +376,7 @@ async def build_subagent_toolkit(
     )
     if toolkit is None:
         return None
-    tools = [t for t in toolkit.tools if t.tier in settings.allowed_tiers]
+    tools = within_allowed_tiers(toolkit.tools, settings)
     if not tools:
         return None
     return ToolKit(

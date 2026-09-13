@@ -86,15 +86,9 @@ def _gpu_engine_conflict(engine: str) -> str | None:
 @dataclass
 class NarratorPlugin:
     name: str = "narrator"
-    display_name: str = "Narrator"
     # Gear icon in the Agent-Editor plugin tab dispatches this state event
     # (same mechanism as audio_player → open_audio_settings).
     settings_event_name: str = "open_narrator_settings"
-    description: str = (
-        "Vertont Textdateien aus dem Dokumentenbaum zu einer einzelnen "
-        "Audio-Datei — absatzweise über die lokale TTS-Engine, Ergebnis als "
-        "MP3 neben der Quelldatei (handytauglich, '.wav' optional)."
-    )
 
     def is_available(self) -> bool:
         # Local TTS engines are part of the deployment; availability of the

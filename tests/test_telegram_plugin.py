@@ -3,6 +3,7 @@
 import os
 from unittest.mock import patch
 
+from aifred.lib.plugin_base import plugin_display_name
 from aifred.lib.text_chunking import split_message
 from aifred.plugins.channels.telegram_channel import (
     TelegramChannel,
@@ -109,7 +110,7 @@ class TestTelegramChannel:
         assert self.channel.name == "telegram"
 
     def test_display_name(self):
-        assert self.channel.display_name == "Telegram"
+        assert plugin_display_name(self.channel, "en") == "Telegram"
 
     def test_icon(self):
         assert self.channel.icon == "send"

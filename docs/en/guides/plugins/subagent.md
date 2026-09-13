@@ -26,7 +26,7 @@ Architecture and decisions: [Sub-Agents as a Plugin](../../architecture/subagent
 |-----------|------|----------|-------------|
 | `task` | string | yes | The complete, self-contained task: everything the sub-agent must know |
 | `expected_result` | string | yes | What the report must contain so the caller can continue |
-| `agent` | string | no | Only when the setting "sub-agent as another main agent" is on: the agent whose model and tool list the sub-agent gets. Only agents whose model or tool list differs from the caller are offered; if there is none, the parameter is absent |
+| `agent` | string | no | Only when the setting "sub-agent as another main agent" is on: the agent whose model and tool list the sub-agent gets. Only agents whose model or tool list differs from the caller are offered; if there is none, the parameter is absent. System agents (calibration, vision) are never offered. The parameter description lists, per agent, the tool groups its sub-agent would get (plugins by whitelist and allowed tiers), plus for each group the plugin description from the plugin's `i18n.json` in the language of the turn |
 
 The tool itself has tier READONLY. What the sub-agent may do is bounded by the
 caller's ceiling (source and `max_tier`; a Telegram channel without write

@@ -16,8 +16,6 @@ from ....lib.logging_utils import log_message
 @dataclass
 class SystemMonitorPlugin:
     name: str = "system_monitor"
-    display_name: str = "System Monitor"
-    description: str = "Liest Systemzustand: CPU, RAM, GPU-VRAM, Datenträger, Netzwerk, laufende Prozesse."
 
     def is_available(self) -> bool:
         return True

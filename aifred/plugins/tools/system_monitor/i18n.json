@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "System Monitor",
+    "en": "System Monitor"
+  },
+  "plugin_description": {
+    "de": "Liest Systemzustand: CPU, RAM, GPU-VRAM, Datenträger, Netzwerk, laufende Prozesse.",
+    "en": "Reads system state: CPU, RAM, GPU VRAM, disks, network, running processes."
+  }
+}

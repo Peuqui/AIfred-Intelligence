@@ -23,8 +23,8 @@ from aifred.lib.security import TIER_READONLY
 
 @dataclass
 class MyPlugin:
-    name: str = "my_plugin"
-    display_name: str = "My Plugin"
+    name: str = "my_plugin"  # MUST equal the folder name
+    # No display_name/description attributes: both live in i18n.json (see Plugin i18n)
 
     def is_available(self) -> bool:
         """Check if this plugin can run (config, services, etc.)."""
@@ -62,8 +62,9 @@ plugin = MyPlugin()
 ```
 
 **Key points:**
-- File goes in `aifred/plugins/tools/`
+- Plugin is a directory `aifred/plugins/tools/<name>/` with `__init__.py` and `i18n.json`
 - Must expose a module-level `plugin` attribute
+- **Name and description come from the plugin's own `i18n.json`** (`plugin_display_name`, `plugin_description`, both DE and EN) — see [Plugin i18n](#plugin-i18n)
 - **Every Tool MUST declare a `tier`** using named constants from `security.py`
 - `PluginContext` provides: `agent_id`, `lang`, `session_id`, `state`, `user_query`, `max_tier`, `source`
 - Tool executors are async functions returning strings (JSON for errors)
@@ -79,7 +80,7 @@ Each channel plugin is a **self-contained directory**:
 ```
 aifred/plugins/channels/my_channel/
     __init__.py     # Plugin code (BaseChannel subclass + module-level instance)
-    i18n.json       # Translations for credential labels (min. DE/EN)
+    i18n.json       # Name, description, credential labels (DE and EN, required)
     settings.json   # Auto-generated: non-secret settings (ports, hosts, etc.)
 ```
 
@@ -96,8 +97,7 @@ class MyChannel(BaseChannel):
     @property
     def name(self) -> str: return "my_channel"
 
-    @property
-    def display_name(self) -> str: return "My Channel"
+    # Name and description: plugin_display_name / plugin_description in i18n.json
 
     @property
     def icon(self) -> str: return "message-circle"  # Lucide icon name
@@ -242,10 +242,27 @@ In `send_reply()`, call `self.format_outbound(outbound.text)` and pass the appro
 
 ## Plugin i18n
 
-Each channel plugin has its own `i18n.json` for credential labels and tooltips:
+Every plugin, tool and channel alike, carries its own user-facing texts in its own `i18n.json`. Two keys are **required**, each in DE and EN:
+
+| Key | Used by |
+|-----|---------|
+| `plugin_display_name` | Plugin list, tool pill groups, settings modal title, Message Hub channel label, sub-agent legend |
+| `plugin_description` | Lightbulb in the plugin list, sub-agent legend (`delegate_task` → `agent`) |
+
+They are read **only** through `plugin_display_name(plugin, lang)` and `plugin_description(plugin, lang)` in `aifred/lib/plugin_base.py`. A missing file, key or language raises a `RuntimeError` (no fallback text); `tests/test_plugin_i18n.py` checks every plugin package. Debug messages use `lang="en"`.
+
+Credential labels and tooltips live in the same file:
 
 ```json
 {
+  "plugin_display_name": {
+    "de": "Mein Plugin",
+    "en": "My Plugin"
+  },
+  "plugin_description": {
+    "de": "Was das Plugin kann, in ein bis zwei Sätzen.",
+    "en": "What the plugin does, in one or two sentences."
+  },
   "my_token_label": {
     "de": "API Token",
     "en": "API Token"

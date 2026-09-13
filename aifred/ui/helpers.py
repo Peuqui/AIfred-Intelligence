@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Callable
 
 import reflex as rx
 
@@ -42,6 +42,17 @@ def t(key: str) -> rx.Var:
         AIState.ui_language == "de",
         de_text.get(key, key),  # Fallback to key if not found
         en_text.get(key, key)   # Fallback to key if not found
+    )
+
+
+def plugin_text(accessor: Callable[[object, str], str], plugin: object) -> rx.Var:
+    """A plugin's own i18n text (``plugin_display_name`` or
+    ``plugin_description`` from lib.plugin_base) in the live UI language.
+    Plugin rows are built at build time, so both variants go into rx.cond."""
+    return rx.cond(
+        AIState.ui_language == "de",
+        accessor(plugin, "de"),
+        accessor(plugin, "en"),
     )
 
 

@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "Bibel",
+    "en": "Bible"
+  },
+  "plugin_description": {
+    "de": "Bibel-Zugriff: exakter Stellen-Lookup (z. B. Psalm 5) und thematische Suche in der Bibel.",
+    "en": "Bible access: exact passage lookup (e.g. Psalm 5) and topical search in the Bible."
+  }
+}

@@ -8,15 +8,12 @@ OAuth-Flow über den generischen OAuthBroker.
 from __future__ import annotations
 
 import functools
-import json
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.plugin_base import CredentialField, PluginContext
-
-_I18N_PATH = Path(__file__).parent / "i18n.json"
+from ....lib.plugin_base import CredentialField, PluginContext, load_plugin_i18n
 
 # Scopes pro Sub-Service
 _SCOPES: dict[str, str] = {
@@ -31,10 +28,7 @@ def _load_i18n() -> dict[str, dict[str, str]]:
     """i18n.json einmal laden (wurde vorher bei JEDEM Status-Aufruf neu von
     Platte gelesen). Änderung der Datei braucht einen Neustart — UI-Texte
     ändern sich nicht zur Laufzeit."""
-    if _I18N_PATH.exists():
-        with open(_I18N_PATH, encoding="utf-8") as f:
-            return dict(json.load(f))
-    return {}
+    return load_plugin_i18n(Path(__file__).parent)
 
 
 # SSOT für den Default eines fehlenden *_ENABLED-Keys in settings.json —
@@ -51,8 +45,6 @@ class GooglePlugin:
     # (get_tool_plugin matches plugin.name against it). A mismatch makes the
     # plugin invisible to the UI (no gear/lightbulb, OAuth connect unreachable).
     name: str = "google_suite"
-    display_name: str = "Google Suite"
-    description: str = "Zugriff auf Google Calendar, Kontakte, Tasks und Drive (Lesen und Schreiben — OAuth-2.0-authentifiziert)."
     oauth_provider: str = "google"
 
     # ── Settings ────────────────────────────────────────────────

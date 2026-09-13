@@ -1,4 +1,12 @@
 {
+  "plugin_display_name": {
+    "de": "FreeEcho.2",
+    "en": "FreeEcho.2"
+  },
+  "plugin_description": {
+    "de": "WebSocket-Server für FreeEcho.2-Speaker: Sprachsteuerung mit Wake-Word, STT (Whisper) und TTS-Rückkanal.",
+    "en": "WebSocket server for FreeEcho.2 speakers: voice control with wake word, STT (Whisper) and TTS return channel."
+  },
   "freeecho2_cred_port": {
     "de": "WebSocket Port",
     "en": "WebSocket Port"

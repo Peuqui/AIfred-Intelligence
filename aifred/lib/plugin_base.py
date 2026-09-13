@@ -152,6 +152,55 @@ def save_plugin_settings(plugin_file: "str | Path", settings: dict[str, str]) ->
         json.dump(settings, f, indent=2, ensure_ascii=False)
 
 
+# ── Plugin i18n (i18n.json in the plugin directory) ──────────────
+# Every plugin (tool and channel) carries its own user-facing texts in its
+# own i18n.json: {"key": {"de": "...", "en": "..."}}. Name and description
+# are required and read ONLY through plugin_display_name/plugin_description,
+# so the plugin list, tool pills, credential modal, Message Hub and the
+# sub-agent schema all show the same text in the same language.
+
+PLUGIN_DISPLAY_NAME_KEY = "plugin_display_name"
+PLUGIN_DESCRIPTION_KEY = "plugin_description"
+
+
+def plugin_dir_of(plugin: object) -> "Path":
+    """Directory of a loaded plugin instance (its package)."""
+    import inspect
+    from pathlib import Path
+    return Path(inspect.getfile(type(plugin))).parent
+
+
+def load_plugin_i18n(plugin_dir: "Path") -> dict[str, dict[str, str]]:
+    """Read ``<plugin_dir>/i18n.json``. Read fresh on every call, like the
+    tool description files: edit the file, the next render shows it."""
+    import json
+    path = plugin_dir / "i18n.json"
+    if not path.exists():
+        return {}
+    with open(path, encoding="utf-8") as f:
+        data: dict[str, dict[str, str]] = json.load(f)
+    return data
+
+
+def plugin_i18n_text(plugin_dir: "Path", key: str, lang: str) -> str:
+    """A required plugin text. Fail-loud: a missing file, key or language is
+    a packaging error of the plugin, not something to paper over."""
+    text = load_plugin_i18n(plugin_dir).get(key, {}).get(lang, "")
+    if not text:
+        raise RuntimeError(f"plugin i18n missing: {plugin_dir.name}/i18n.json → {key}[{lang}]")
+    return text
+
+
+def plugin_display_name(plugin: object, lang: str) -> str:
+    """User-facing plugin name in ``lang``."""
+    return plugin_i18n_text(plugin_dir_of(plugin), PLUGIN_DISPLAY_NAME_KEY, lang)
+
+
+def plugin_description(plugin: object, lang: str) -> str:
+    """User-facing one- or two-sentence plugin description in ``lang``."""
+    return plugin_i18n_text(plugin_dir_of(plugin), PLUGIN_DESCRIPTION_KEY, lang)
+
+
 _plugin_tool_names_cache: "dict[str, set[str]]" = {}
 
 
@@ -207,8 +256,8 @@ class ToolPlugin(Protocol):
     """
 
     name: str
-    display_name: str
-    description: str  # Short user-facing description (1-2 sentences)
+    # User-facing name and description live in the plugin's own i18n.json
+    # (plugin_display_name / plugin_description) — see plugin_display_name().
 
     def is_available(self) -> bool:
         """Check if this plugin can run right now (config flags, services, etc.)."""
@@ -297,23 +346,12 @@ class BaseChannel(ABC):
 
     # ── Plugin i18n (i18n.json in plugin directory) ────────────
 
-    def _i18n_path(self) -> "Path":
-        """Path to this plugin's i18n.json."""
-        from pathlib import Path
-        return Path(__file__).parent.parent / "plugins" / "channels" / f"{self.name}_channel" / "i18n.json"
-
     def load_i18n(self) -> dict[str, dict[str, str]]:
         """Load plugin translations from i18n.json.
 
         Format: {"key": {"de": "Deutsch", "en": "English"}, ...}
         """
-        import json
-        path = self._i18n_path()
-        if path.exists():
-            with open(path, "r", encoding="utf-8") as f:
-                data: dict[str, dict[str, str]] = json.load(f)
-                return data
-        return {}
+        return load_plugin_i18n(plugin_dir_of(self))
 
     def translate(self, key: str, lang: str = "de") -> str:
         """Translate a key using this plugin's i18n.json. Falls back to key itself."""
@@ -327,17 +365,6 @@ class BaseChannel(ABC):
     @abstractmethod
     def name(self) -> str:
         ...
-
-    @property
-    @abstractmethod
-    def display_name(self) -> str:
-        ...
-
-    @property
-    def description(self) -> str:
-        """Short user-facing description (1-2 sentences) shown in the
-        plugin manager. Default is empty — channels should override."""
-        return ""
 
     @property
     @abstractmethod

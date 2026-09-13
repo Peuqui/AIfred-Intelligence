@@ -340,7 +340,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
     # Resolve plugin and channel label
     plugin = get_channel(message.channel)
-    channel_label = plugin.display_name if plugin else message.channel.capitalize()
+    channel_label = channel_display_label(message.channel)
     notification_title = get_session_title(session_id) or subject
 
     # Register this coroutine so external stop commands (FreeEcho.2 _stop wake-word,
@@ -658,15 +658,25 @@ async def _call_engine(
     return "".join(response_parts), {}
 
 
+def channel_display_label(channel: str) -> str:
+    """User-facing channel name in the UI language — push title, LLM context
+    and the persisted "[Channel] Sender" chat header all use this."""
+    from .plugin_base import plugin_display_name
+    from .plugin_registry import get_channel as _get_ch
+    from .settings import load_settings
+    plugin = _get_ch(channel)
+    if plugin is None:
+        return channel.capitalize()
+    return plugin_display_name(plugin, (load_settings() or {}).get("ui_language", "de"))
+
+
 def build_user_chat_content(message: InboundMessage) -> str:
     """Build the chat_history content string for a user message.
 
     Single source of truth for the "[Channel] Sender" header format.
     Used by both the normal save path and FreeEcho.2's early flush.
     """
-    from .plugin_registry import get_channel as _get_ch
-    _ch = _get_ch(message.channel)
-    channel_label = _ch.display_name if _ch else message.channel.capitalize()
+    channel_label = channel_display_label(message.channel)
     subject = message.metadata.get("subject", "")
     header = f"[{channel_label}] {message.sender}"
     if subject:
