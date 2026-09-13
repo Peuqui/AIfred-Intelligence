@@ -13,7 +13,6 @@ Usage:
 import argparse
 import json
 import statistics
-import sys
 import time
 from pathlib import Path
 
@@ -104,7 +103,7 @@ def warmup(url: str, model: str) -> None:
     }
     resp = requests.post(url, json=payload, timeout=600)
     resp.raise_for_status()
-    print(f"  Modell geladen.")
+    print("  Modell geladen.")
 
 
 def run_benchmark(url: str, model_key: str, model_name: str, runs: int) -> list[dict]:
@@ -187,7 +186,7 @@ def main():
     q4_tps = statistics.mean([r["tokens_per_sec"] for r in all_results["q4_0"]])
     diff_pct = ((q4_tps - f16_tps) / f16_tps) * 100
 
-    print(f"\n--- Vergleich ---")
+    print("\n--- Vergleich ---")
     print(f"  Speed-Diff:  {diff_pct:+.1f}% (q4_0 vs f16)")
     if diff_pct > 0:
         print(f"  → q4_0 ist {diff_pct:.1f}% schneller")

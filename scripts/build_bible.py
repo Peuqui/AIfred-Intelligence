@@ -44,7 +44,8 @@ def _fetch_book(translation: str, nr: int) -> dict:
     for attempt in range(3):
         try:
             with urllib.request.urlopen(req, timeout=30) as resp:
-                return json.load(resp)
+                chapter: dict = json.load(resp)
+                return chapter
         except Exception:
             if attempt == 2:
                 raise

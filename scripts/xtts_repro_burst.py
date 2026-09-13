@@ -20,11 +20,11 @@ import sys
 import time
 from pathlib import Path
 
+import requests
+
 # AIfred-Modul-Import möglich machen
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
-
-import requests
 
 XTTS_URL = "http://localhost:5051/tts"
 LANGUAGE = "de"
