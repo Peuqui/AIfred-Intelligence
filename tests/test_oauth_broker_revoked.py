@@ -1,5 +1,5 @@
-"""A refresh token the provider rejects ends the connection; transport or
-server failures do not."""
+"""A refresh token the provider rejects is reported as an error that must not
+be retried; nothing is disconnected or switched off."""
 
 import asyncio
 import time
@@ -47,11 +47,11 @@ def _broker_with_expired_token(status: int | None) -> OAuthBroker:
 
 
 @pytest.mark.parametrize("status", [400, 401])
-def test_rejected_refresh_disconnects(storage, status):
+def test_rejected_refresh_is_reported_but_keeps_the_plugin(storage, status):
     broker = _broker_with_expired_token(status)
     with pytest.raises(OAuthGrantRevoked, match="Do not retry"):
         asyncio.run(broker.get_token("fake"))
-    assert broker.is_connected("fake") is False
+    assert broker.is_connected("fake") is True
 
 
 @pytest.mark.parametrize("status", [429, 503])
@@ -65,13 +65,14 @@ def test_server_failure_keeps_connection(storage, status):
 def test_successful_refresh_stores_token(storage):
     broker = _broker_with_expired_token(None)
     assert asyncio.run(broker.get_token("fake")) == "fresh"
-    assert broker_module._load_token("fake").access_token == "fresh"
+    stored = broker_module._load_token("fake")
+    assert stored is not None and stored.access_token == "fresh"
 
 
-def test_verify_connection_rejected_disconnects(storage):
+def test_verify_connection_rejected_reports_invalid(storage):
     broker = _broker_with_expired_token(400)
     assert asyncio.run(broker.verify_connection("fake")) is False
-    assert broker.is_connected("fake") is False
+    assert broker.is_connected("fake") is True
 
 
 def test_verify_connection_server_failure_propagates(storage):

@@ -45,12 +45,12 @@ _GRANT_REJECTED_STATUS = (400, 401)
 
 
 class OAuthGrantRevoked(RuntimeError):
-    """The provider rejected the stored refresh token; the connection is gone."""
+    """The provider rejected the stored refresh token; only a new login helps."""
 
     def __init__(self, provider_name: str) -> None:
         super().__init__(
-            f"{provider_name} access expired or was revoked — the connection has been "
-            "removed. Do not retry: the user must reconnect in AIfred settings."
+            f"{provider_name} access expired or was revoked. Do not retry: "
+            "the user must reconnect in AIfred settings."
         )
         self.provider_name = provider_name
 
@@ -174,7 +174,7 @@ class OAuthBroker:
         user revoked at the provider (e.g. Google security settings) still
         looks "connected". This forces a refresh-token exchange: the provider
         either issues a fresh access token (grant valid → tokens saved,
-        True) or definitively rejects it (tokens removed → False).
+        True) or definitively rejects it (False).
 
         Transport errors and provider-side failures (unreachable, 5xx)
         propagate to the caller — "could not verify" is not the same as
@@ -193,7 +193,11 @@ class OAuthBroker:
 
     async def disconnect(self, provider_name: str) -> None:
         async with self._token_lock:
-            self._remove_token_locked(provider_name)
+            tokens = _load_all_tokens()
+            if provider_name in tokens:
+                tokens.pop(provider_name)
+                _save_all_tokens(tokens)
+                logger.info("OAuth tokens removed for provider: %s", provider_name)
 
     # ------------------------------------------------------------------
     # Internal helpers
@@ -203,11 +207,11 @@ class OAuthBroker:
         """Refresh and store the tokens; the caller holds ``_token_lock``.
 
         A provider that rejects the refresh token (invalid_grant: revoked,
-        expired, or the OAuth client changed) makes the connection dead for
-        good — only a new login flow helps. The stored tokens are removed so
-        every place that asks ``is_connected`` (settings, plugin availability)
-        shows the connection as disconnected, and ``OAuthGrantRevoked`` tells
-        the caller not to retry.
+        expired, or the OAuth client changed) makes every call fail until the
+        user logs in again. ``OAuthGrantRevoked`` reports that clearly and
+        tells the caller not to retry. The stored tokens and the plugin stay
+        as they are: an error is reported, nothing is switched off (a vanishing
+        toolkit would also break the prompt prefix cache).
         """
         if provider_name not in self._providers:
             raise RuntimeError(f"Provider {provider_name} not registered")
@@ -217,22 +221,13 @@ class OAuthBroker:
             if exc.response.status_code not in _GRANT_REJECTED_STATUS:
                 raise
             logger.warning(
-                "OAuth provider %s rejected the refresh token (%s) — connection removed, reconnect required",
+                "OAuth provider %s rejected the refresh token (%s) — reconnect required",
                 provider_name, exc.response.status_code,
             )
-            self._remove_token_locked(provider_name)
             raise OAuthGrantRevoked(provider_name) from exc
         _save_token(provider_name, refreshed)
         logger.debug("OAuth token refreshed for provider: %s", provider_name)
         return refreshed
-
-    @staticmethod
-    def _remove_token_locked(provider_name: str) -> None:
-        tokens = _load_all_tokens()
-        if provider_name in tokens:
-            tokens.pop(provider_name)
-            _save_all_tokens(tokens)
-            logger.info("OAuth tokens removed for provider: %s", provider_name)
 
     def _purge_expired_states(self) -> None:
         now = time.time()
