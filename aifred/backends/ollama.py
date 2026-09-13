@@ -7,7 +7,7 @@ Wraps Ollama API into unified LLMBackend interface
 import httpx
 import logging
 from typing import Any, List, Optional, AsyncIterator, Dict
-from ..lib.perf_metrics import InferenceWork
+from ..lib.perf_metrics import InferenceWork, ThinkingClock
 from ..lib.timer import Timer
 from .base import (
     LLMBackend,
@@ -361,6 +361,11 @@ class OllamaBackend(LLMBackend):
                 timer = Timer()
                 thinking_started = False
                 thinking_buffer = ""
+                think_clock = ThinkingClock()
+
+                def content_item(text: str) -> Dict[str, Any]:
+                    think_clock.observe(text, timer.elapsed())
+                    return {"type": "content", "text": text}
 
                 async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
                     # Check for 400 error with thinking mode BEFORE raise_for_status
@@ -397,11 +402,11 @@ class OllamaBackend(LLMBackend):
                                 # Handle thinking chunks
                                 if thinking:
                                     if not thinking_started:
-                                        yield {"type": "content", "text": "<think>"}
+                                        yield content_item("<think>")
                                         yielded_any = True
                                         thinking_started = True
                                     thinking_buffer += thinking
-                                    yield {"type": "content", "text": thinking}
+                                    yield content_item(thinking)
                                     yielded_any = True
 
                                 # Handle content chunks
@@ -415,10 +420,10 @@ class OllamaBackend(LLMBackend):
                                         first_content_sent = True
 
                                     if thinking_started and thinking_buffer:
-                                        yield {"type": "content", "text": "</think>\n\n"}
+                                        yield content_item("</think>\n\n")
                                         thinking_started = False
                                         thinking_buffer = ""
-                                    yield {"type": "content", "text": content}
+                                    yield content_item(content)
                                     yielded_any = True
 
                                 # Check if done - extract metrics
@@ -447,6 +452,7 @@ class OllamaBackend(LLMBackend):
                                                 prefill_s=prompt_eval_duration / 1e9,
                                                 decode_tokens=eval_count,
                                                 decode_s=eval_duration / 1e9,
+                                                thinking_s=think_clock.total_s,
                                             ).to_dict(),
                                         }
                                     }

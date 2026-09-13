@@ -167,7 +167,8 @@ def test_vllm_foreign_request_in_the_window_makes_prefill_unknown(monkeypatch) -
 
 def test_subagent_work_reported_by_a_tool_joins_the_turn(monkeypatch) -> None:
     async def delegate(**kwargs: Any):
-        yield {"work": {"prefill_tokens": 8000, "prefill_s": 9.4, "decode_tokens": 1024, "decode_s": 25.4}}
+        yield {"work": {"prefill_tokens": 8000, "prefill_s": 9.4, "decode_tokens": 1024, "decode_s": 25.4,
+                        "thinking_s": 6.0}}
         yield {"result": "Bericht"}
 
     toolkit = ToolKit(
@@ -176,7 +177,48 @@ def test_subagent_work_reported_by_a_tool_joins_the_turn(monkeypatch) -> None:
         _max_tier=4,
     )
     metrics = _tool_round_turn(monkeypatch, [ROUND_1_BEFORE, ROUND_1_AFTER, ROUND_1_AFTER, ROUND_2_AFTER], toolkit)
+    assert metrics["work"]["thinking_s"] == pytest.approx(6.0)  # the sub-agent's thinking
     assert metrics["tokens_prompt_computed"] == 32000 + 8000
     assert metrics["prompt_per_second"] == pytest.approx(40000 / 70.0)
     assert metrics["tokens_generated"] == 476 + 1024
     assert metrics["tokens_per_second"] == pytest.approx(1500 / 40.0)
+
+
+def test_thinking_of_every_round_is_summed(monkeypatch) -> None:
+    """The model thinks before the tool call and again before the answer;
+    both blocks count, not only the first."""
+    backend = vLLMBackend()
+    monkeypatch.setattr(backend, "_read_counters", lambda: None)
+    call = {"index": 0, "id": "c1", "type": "function",
+            "function": {"name": "search_bible", "arguments": '{"query": "Psalm 91"}'}}
+
+    async def slow(chunks: List[ChatCompletionChunk]):
+        for chunk in chunks:
+            await asyncio.sleep(0.05)
+            yield chunk
+
+    rounds = [
+        [_chunk({"reasoning": "erst suchen"}), _chunk({"reasoning": "."}),
+         _chunk({"tool_calls": [call]}), _chunk({}, finish_reason="tool_calls")],
+        [_chunk({"reasoning": "passt"}), _chunk({"reasoning": "."}),
+         _chunk({"content": "Der Herr ist meine Zuflucht."}), _chunk({}, finish_reason="stop")],
+    ]
+
+    async def create(**kwargs: Any):
+        return slow(rounds.pop(0))
+
+    backend.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    async def run() -> Dict[str, Any]:
+        done: Dict[str, Any] = {}
+        async for item in backend.chat_stream(
+                "m", [LLMMessage(role="user", content="Psalm 91?")], toolkit=_toolkit()):
+            if item.get("type") == "done":
+                done = item["metrics"]
+        return done
+
+    thinking_s = asyncio.run(run())["work"]["thinking_s"]
+    # Round 1 thinks from its first chunk to the stream end (~0.15 s), round 2
+    # until its answer starts (~0.10 s). The first block alone would be ~0.15 s.
+    assert thinking_s >= 0.22

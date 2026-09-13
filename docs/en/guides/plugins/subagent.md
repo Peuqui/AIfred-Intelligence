@@ -126,7 +126,9 @@ to itself. The line below the main agent's answer covers the whole turn instead:
 prefill and tokens per second add up every server request, meaning each tool
 round of the main agent and all requests of its sub-agents. The rate is total
 tokens over total compute time, not the mean of the single rates, so a short
-follow-up prefill does not count as much as a long cold one. The duration is the
+follow-up prefill does not count as much as a long cold one. The thinking time
+adds up every think block of the turn, including those before later tool rounds
+and those of the sub-agents. The duration is the
 wall clock of the whole turn, including the wait for the sub-agent. If a single
 request cannot be measured, prefill shows "n/a" instead of a number that leaves
 work out.

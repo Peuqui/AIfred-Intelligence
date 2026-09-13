@@ -7,6 +7,7 @@ from types import SimpleNamespace
 
 from aifred.lib.formatting import build_inference_metadata, format_performance_footer
 from aifred.lib.llm_pipeline import run_llm_stream
+from aifred.lib.perf_metrics import InferenceWork
 
 
 def test_footer_shows_thinking_and_load_in_order() -> None:
@@ -38,18 +39,19 @@ def test_build_inference_metadata_renders_through_the_footer() -> None:
 
 
 class _FakeClient:
-    """Streams a <think> block, then the answer, with real delays."""
+    """Streams a <think> block, then the answer; the done metrics carry the
+    backend's measured work (thinking time of the whole turn)."""
 
     backend_type = "vllm"
 
     async def chat_stream(self, model, messages, options, toolkit=None):
-        for text, pause in [("<think>", 0.0), ("Ich denke.", 0.05), ("</think>\n\n", 0.05), ("Antwort.", 0.05)]:
-            await asyncio.sleep(pause)
+        for text in ["<think>", "Ich denke.", "</think>\n\n", "Antwort."]:
             yield {"type": "content", "text": text}
-        yield {"type": "done", "metrics": {"tokens_per_second": 10.0, "tokens_generated": 4}}
+        work = InferenceWork(decode_tokens=4, decode_s=0.4, thinking_s=2.5)
+        yield {"type": "done", "metrics": {"tokens_per_second": 10.0, "tokens_generated": 4, "work": work.to_dict()}}
 
 
-def test_pipeline_measures_thinking_time() -> None:
+def test_pipeline_takes_thinking_time_from_the_backend_work() -> None:
     async def run():
         result = None
         async for event in run_llm_stream(
@@ -61,8 +63,6 @@ def test_pipeline_measures_thinking_time() -> None:
 
     result = asyncio.run(run())
     assert result is not None
-    # Denken endet beim ersten </think>: nach den ersten beiden Pausen (~0,1 s),
-    # vor der Antwort (~0,15 s gesamt).
-    assert 0.08 <= result.thinking_time < result.inference_time
-    assert result.metadata_dict["thinking_time"] == result.thinking_time
+    assert result.thinking_time == 2.5
+    assert result.metadata_dict["thinking_time"] == 2.5
     assert "Thinking" in result.metadata_display

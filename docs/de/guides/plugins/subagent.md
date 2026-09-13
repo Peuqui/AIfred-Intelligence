@@ -135,7 +135,9 @@ des Hauptagenten zeigt dagegen den ganzen Turn: Prefill und Token pro Sekunde
 rechnen alle Serveranfragen zusammen, also jede Werkzeugrunde des Hauptagenten
 und alle Anfragen seiner Sub-Agenten. Gerechnet wird gesamte Token durch
 gesamte Rechenzeit, nicht der Mittelwert der einzelnen Raten, damit ein kurzer
-Folge-Prefill nicht so viel zählt wie ein langer kalter. Die Dauer ist die
+Folge-Prefill nicht so viel zählt wie ein langer kalter. Die Denkzeit addiert
+jeden Denkblock des Turns, auch die vor späteren Werkzeugrunden und die der
+Sub-Agenten. Die Dauer ist die
 Wanduhr des ganzen Turns, Wartezeit auf den Sub-Agenten eingeschlossen. Ist
 eine einzige Anfrage nicht messbar, steht beim Prefill „n/a“ statt einer Zahl,
 die Arbeit unterschlägt.

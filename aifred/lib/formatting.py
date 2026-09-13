@@ -351,8 +351,8 @@ def performance_footer_text(metadata: dict) -> str:
     if metadata.get("tokens_per_sec"):
         perf_parts.append(f"{format_number(metadata['tokens_per_sec'], 1)}\u00A0tok/s")
 
-    # Denkzeit: Anteil des Turns bis zum Ende des <think>-Blocks — erklaert
-    # lange Inference-Zeiten (2026-09-06: 4:40 min, davon 54k Zeichen Denken).
+    # Denkzeit: Zeit in allen <think>-Bloecken des Turns samt Sub-Agenten —
+    # erklaert lange Inference-Zeiten (2026-09-06: 4:40 min, davon 54k Zeichen Denken).
     if metadata.get("thinking_time"):
         perf_parts.append(f"Thinking:\u00A0{format_duration_s(metadata['thinking_time'], 1).replace(' ', chr(0xA0))}")
 
@@ -463,8 +463,8 @@ def build_inference_metadata(
         response_chars: Response text length in chars (for debug output)
         truncated: Answer hit the token/context limit (finish_reason=length)
             — the done line gets a ⚠️ + TRUNCATED marker instead of a clean ✅
-        thinking_time: Seconds from first token to the end of the <think>
-            block (0 = no thinking block)
+        thinking_time: Seconds inside think blocks, summed over the whole
+            turn and its sub-agents (0 = no thinking)
         load_time: Model load time on a cold start (0 = warm start, not shown)
 
     Returns:

@@ -3,7 +3,7 @@ summed over a whole turn."""
 
 import pytest
 
-from aifred.lib.perf_metrics import InferenceWork
+from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
 
 
 def test_sum_is_time_weighted_not_an_average_of_rates() -> None:
@@ -57,3 +57,26 @@ def test_wall_clock_nothing_generated() -> None:
     )
     assert work.decode_rate() == 0.0
     assert work.decode_s == 0.0
+
+
+def test_thinking_adds_up_across_blocks() -> None:
+    work = InferenceWork(thinking_s=3.0) + InferenceWork(thinking_s=4.5)
+    assert work.thinking_s == 7.5
+
+
+def test_thinking_clock_counts_every_block() -> None:
+    clock = ThinkingClock()
+    clock.observe("<think>", 1.0)
+    clock.observe("plan", 2.0)
+    clock.observe("</think>\n\nIch schaue nach.", 4.0)   # 3 s
+    clock.observe("<think>Ergebnis prüfen", 10.0)
+    clock.observe("</think>\n\nFertig.", 12.5)             # 2.5 s
+    assert clock.total_s == 5.5
+
+
+def test_thinking_clock_finds_tags_split_across_chunks() -> None:
+    clock = ThinkingClock()
+    clock.observe("<thi", 1.0)
+    clock.observe("nk>denke</th", 2.0)
+    clock.observe("ink>Antwort", 5.0)
+    assert clock.total_s == 3.0

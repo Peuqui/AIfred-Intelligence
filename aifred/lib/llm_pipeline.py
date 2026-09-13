@@ -33,6 +33,7 @@ from .bubble import (
 )
 from .formatting import build_inference_metadata
 from .logging_utils import log_message, log_raw_messages
+from .perf_metrics import InferenceWork
 from .timer import Timer
 
 if TYPE_CHECKING:
@@ -52,7 +53,7 @@ class PipelineResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     ttft: float = 0.0
     inference_time: float = 0.0
-    thinking_time: float = 0.0                          # first token → end of <think> block
+    thinking_time: float = 0.0                          # all think blocks of the turn, sub-agents included
     tokens_per_sec: float = 0.0
     # Everything the turn's tools produced for the bubble, each with its
     # offset in ``text`` (see lib/bubble.py, rendered by render_bubble).
@@ -217,9 +218,6 @@ async def run_llm_stream(
     token_count = 0
     first_token = False
     ttft = 0.0
-    # Ende des Denkblocks (Wanduhr): alle Backends liefern Reasoning als
-    # <think>…</think> im Content-Strom, das Ende ist das erste </think>.
-    thinking_end: float | None = None
     metrics: dict[str, Any] = {}
     silent_reply = False  # set True if any tool_result has silent_reply
     # Bubble artifacts in turn order (lib/bubble.py). Each gets an anchor in
@@ -284,8 +282,6 @@ async def run_llm_stream(
 
             full_response += chunk["text"]
             token_count += 1
-            if thinking_end is None and "</think>" in full_response:
-                thinking_end = timer.elapsed()
             yield chunk  # passthrough
 
         elif chunk_type == "tool_call_start":
@@ -478,8 +474,6 @@ async def run_llm_stream(
             thinking_content = chunk.get("text", "")
             if thinking_content:
                 full_response += f"<think>{thinking_content}</think>"
-                if thinking_end is None:
-                    thinking_end = timer.elapsed()
             yield chunk
 
         elif chunk_type == "debug":
@@ -569,7 +563,9 @@ async def run_llm_stream(
     # Thinking blocks
     text_clean = strip_thinking_blocks(full_response) if full_response else ""
     inference_time = timer.elapsed()
-    thinking_time = max(0.0, thinking_end - ttft) if thinking_end is not None else 0.0
+    # Time in think blocks, measured by the backend over every block of the
+    # turn and the sub-agents it ran (perf_metrics.ThinkingClock).
+    thinking_time = InferenceWork.from_dict(metrics["work"]).thinking_s if metrics else 0.0
     tokens_per_sec = metrics.get("tokens_per_second", 0)
 
     truncated = bool(metrics.get("truncated"))
