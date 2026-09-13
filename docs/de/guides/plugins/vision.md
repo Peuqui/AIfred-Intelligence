@@ -66,8 +66,9 @@ Das Plugin nutzt eine Kamera auf drei Arten:
 2. **Analyze** — 1–10 Frames holen und das VLM laufen lassen. Liefert einen
    Beschreibungstext plus VLM-Statistiken (TTFT / Inferenz / Tokens-pro-Sekunde),
    die die Chat-Bubble als ausklappbares `<vlm_output>` mit Metrik-Footer
-   rendert. Das aufgenommene Frame wird in die Antwort gepinnt, damit man sieht,
-   was das VLM gesehen hat. Jeder Analyze-Call wird als `vlm_analysis`-Event
+   rendert. Das analysierte Frame erscheint in der Bubble an der Stelle des
+   Turns, an der analysiert wurde, damit man sieht, was das VLM gesehen hat; eine
+   Serie aus Snapshot zeigt alle Frames, jedes Bild je Turn einmal. Jeder Analyze-Call wird als `vlm_analysis`-Event
    geloggt.
 3. **Watch (Vigilantia scharf)** — eine kontinuierliche Hintergrundaufgabe.
    Siehe unten.

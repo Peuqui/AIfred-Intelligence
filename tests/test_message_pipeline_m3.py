@@ -58,7 +58,7 @@ class TestM3WrappedHistory:
         wrapped = wrap_external_message(
             message.text, message.sender, message.channel, "external"
         )
-        _append_response(sid, "Nein.", agent="aifred", user_llm_text=wrapped)
+        _append_response(sid, "Nein.", "Nein.", agent="aifred", user_llm_text=wrapped)
 
         data = session_storage.load_session(sid)["data"]
         llm = data["llm_history"]

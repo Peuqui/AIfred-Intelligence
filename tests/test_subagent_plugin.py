@@ -7,6 +7,15 @@ from types import SimpleNamespace
 import pytest
 
 import aifred.plugins.tools.subagent as sub
+from aifred.lib.bubble import (
+    KIND_COLLAPSIBLE,
+    KIND_SANDBOX_HTML,
+    KIND_SANDBOX_IMAGE,
+    KIND_SOURCES,
+    KIND_VISION_IMAGES,
+    KIND_VLM_OUTPUT,
+    BubbleArtifact,
+)
 from aifred.lib.function_calling import Tool, ToolKit
 from aifred.lib.plugin_base import PluginContext, plugin_display_name
 from aifred.lib.security import (
@@ -203,24 +212,52 @@ class TestRun:
             yield {"type": "tool_result", "name": "read_file", "result": "INHALT VON A"}
             yield {"type": "content", "text": "Der Bericht: "}
             yield {"type": "content", "text": "alles gut."}
-            yield {"type": "pipeline_result", "result": SimpleNamespace(text_clean="Der Bericht: alles gut.")}
+            yield {"type": "pipeline_result", "result": self.pipeline_result}
 
+        self.pipeline_result = SimpleNamespace(text_clean="Der Bericht: alles gut.", artifacts=[])
         monkeypatch.setattr(sub, "run_llm_stream", fake_stream)
         self.captured = captured
 
-    def test_report_is_result_and_transcript_is_collapsible(self, plugin, ctx):
+    def test_report_is_result_and_transcript_is_an_artifact(self, plugin, ctx):
         tool = plugin.get_tools(ctx)[0]
         events = _run(_collect(tool.executor(task="Lies a.txt", expected_result="Zusammenfassung")))
         kinds = [next(iter(e)) for e in events]
         assert kinds.count("result") == 1 and kinds[-1] == "result"
-        assert kinds.count("collapsible") == 1
+        assert kinds.count("artifacts") == 1
         assert "progress" in kinds
         result = [e for e in events if "result" in e][0]["result"]
         assert result == "Der Bericht: alles gut."
-        block = [e for e in events if "collapsible" in e][0]["collapsible"]
-        assert "Lies a.txt" in block["title"]
-        for piece in ("erst lesen", 'read_file({"path": "a.txt"})', "INHALT VON A", "Der Bericht: alles gut."):
-            assert piece in block["content"]
+        (transcript,) = [e for e in events if "artifacts" in e][0]["artifacts"]
+        assert transcript["kind"] == KIND_COLLAPSIBLE
+        assert "Lies a.txt" in transcript["data"]["title"]
+        pieces = ("erst lesen", 'read_file({"path": "a.txt"})', "INHALT VON A", "Der Bericht: alles gut.")
+        positions = [transcript["data"]["content"].index(piece) for piece in pieces]
+        assert positions == sorted(positions)  # in the order the run happened
+
+    def test_artifacts_of_the_subagent_turn_go_up(self, plugin, ctx):
+        from aifred.lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
+        self.pipeline_result.artifacts = [
+            BubbleArtifact(KIND_COLLAPSIBLE, {"title": "inner", "content": "tief"}, offset=3),
+            BubbleArtifact(KIND_SOURCES, {"urls": [{"url": "https://example.org", "success": True}]}),
+            BubbleArtifact(KIND_SANDBOX_HTML, {"url": "/_upload/sandbox_output/s/page.html"}),
+            BubbleArtifact(KIND_SANDBOX_IMAGE, {"url": "/_upload/sandbox_output/s/plot.png"}),
+            BubbleArtifact(KIND_VISION_IMAGES, {"urls": ["/_upload/vigilantia/a.jpg"], "alt": "Tür"}),
+        ]
+
+        tool = plugin.get_tools(ctx)[0]
+        events = _run(_collect(tool.executor(task="Lies a.txt", expected_result="Zusammenfassung")))
+
+        forwarded = [e for e in events if "artifacts" in e][0]["artifacts"]
+        assert [a["kind"] for a in forwarded] == [
+            KIND_COLLAPSIBLE, KIND_COLLAPSIBLE, KIND_SOURCES, KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE,
+            KIND_VISION_IMAGES,
+        ]
+        assert "Lies a.txt" in forwarded[0]["data"]["title"]  # own transcript first
+        lines = [e for e in events if "result" in e][0]["result"].splitlines()
+        # Markers lead the report, so a capped result keeps them.
+        assert lines[0] == f"{SANDBOX_HTML_URL_MARKER}/_upload/sandbox_output/s/page.html"
+        assert lines[1] == f"{SANDBOX_IMAGE_URL_MARKER}/_upload/sandbox_output/s/plot.png"
+        assert lines[2] == "Der Bericht: alles gut."
 
     def test_subagent_prompt_has_no_persona_and_carries_the_task(self, plugin, ctx):
         tool = plugin.get_tools(ctx)[0]
@@ -243,10 +280,10 @@ class TestRun:
 
 
 class TestToolLoopIntegration:
-    def test_toolkit_forwards_collapsible_event(self):
+    def test_toolkit_forwards_artifacts_event(self):
         async def executor(task: str):
             yield {"progress": "p"}
-            yield {"collapsible": {"title": "T", "content": "C"}}
+            yield {"artifacts": [{"kind": KIND_COLLAPSIBLE, "data": {"title": "T", "content": "C"}}]}
             yield {"result": "R"}
 
         kit = ToolKit(
@@ -254,12 +291,45 @@ class TestToolLoopIntegration:
             _source="browser", _max_tier=4,
         )
         events = _run(_collect(kit.execute_streaming("t", {"task": "x"})))
-        assert [e["type"] for e in events] == ["tool_progress", "tool_collapsible", "tool_result"]
-        assert events[1] == {"type": "tool_collapsible", "title": "T", "content": "C"}
+        assert [e["type"] for e in events] == ["tool_progress", "tool_artifacts", "tool_result"]
+        assert events[1]["artifacts"] == [{"kind": KIND_COLLAPSIBLE, "data": {"title": "T", "content": "C"}}]
         assert events[2]["result"] == "R"
 
     def test_collapsible_html_escapes(self):
-        from aifred.lib.formatting import build_tool_collapsibles
-        html = build_tool_collapsibles([{"title": "🤝 <x>", "content": "a < b\n```code```"}])
+        from aifred.lib.formatting import build_tool_collapsible
+        html = build_tool_collapsible({"title": "🤝 <x>", "content": "a < b\n```code```"})
         assert "<details" in html and "&lt;x&gt;" in html and "a &lt; b" in html
-        assert build_tool_collapsibles([]) == ""
+
+    def test_anchor_offsets_survive_post_processing_shifts(self):
+        from aifred.lib.llm_pipeline import _ARTIFACT_ANCHOR, resolve_artifact_anchors
+        streamed = "<think>a</think>vorher" + _ARTIFACT_ANCHOR.format(0) + "<think>b</think>nachher"
+        # A prepend during post-processing moves the anchor along with the text.
+        text, offsets = resolve_artifact_anchors("BILD\n\n" + streamed)
+        assert "\x00" not in text
+        assert text[offsets[0]:].startswith("<think>b</think>nachher")
+        assert text[:offsets[0]].endswith("vorher")
+
+    def test_bubble_orders_thinking_text_and_artifacts_by_turn(self):
+        from aifred.lib.bubble import render_bubble
+        text = "![Tür](/_upload/vigilantia/a.jpg)\n\n<think>erst</think>Ich delegiere.<think>dann</think>Ergebnis."
+        offset = text.index("<think>dann")
+        artifacts = [
+            BubbleArtifact(KIND_COLLAPSIBLE, {"title": "TRANSKRIPT", "content": "x"}, offset=offset),
+            BubbleArtifact(KIND_VISION_IMAGES, {"urls": ["/_upload/vigilantia/a.jpg"], "alt": "Tür"}, offset=offset),
+        ]
+        html = render_bubble(text, artifacts)
+        order = [html.index(m) for m in ("erst", "Ich delegiere.", "TRANSKRIPT", "vigilantia/a.jpg", "dann", "Ergebnis.")]
+        assert order == sorted(order)
+        # The history reference at the top is not shown a second time.
+        assert html.count("vigilantia/a.jpg") == 1
+
+    def test_hub_view_hides_tags_but_keeps_results(self):
+        from aifred.lib.bubble import render_bubble
+        text = "<think>intern</think>Antwort."
+        artifacts = [
+            BubbleArtifact(KIND_VLM_OUTPUT, {"body": "VLM sagt"}, offset=0),
+            BubbleArtifact(KIND_SANDBOX_IMAGE, {"url": "/_upload/sandbox_output/s/plot.png"}, offset=len(text)),
+        ]
+        html = render_bubble(text, artifacts, show_tags=False)
+        assert "intern" not in html and "VLM sagt" not in html
+        assert "Antwort." in html and "plot.png" in html

@@ -812,6 +812,11 @@ DEBUG_LOG_MAX_ENTRIES = 250
 # Shows full message list with role and content preview for each LLM call
 DEBUG_LOG_RAW_MESSAGES = False
 
+# Log the complete raw model output of every agent turn (thinking, text, tool
+# round text) and the full text of every tool result to aifred_debug.log.
+# Off: the log keeps the one-line tool-result preview and the turn metrics.
+DEBUG_LOG_RAW_OUTPUT = False
+
 # Log the raw VLM response text to aifred_debug.log on every vision_analyze
 # call. Metriken (TTFT, tok/s, inference) werden IMMER geloggt — diese
 # Konstante steuert nur ob der vollständige beschreibende VLM-Text auch

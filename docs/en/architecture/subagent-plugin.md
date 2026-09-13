@@ -138,21 +138,25 @@ down things nobody saw in the conversation.
 
 ## The collapsible block
 
-Today, collapsible blocks reach the bubble in three ways: the model writes a
-tag, the pipeline injects a tag, or an HTML field sits next to the text in
-`PipelineResult`. The third way fits, but today it is limited to sources and
-sandbox.
+Everything a turn's tools deliver for the bubble is a bubble artifact
+(`aifred/lib/bubble.py`): sub-agent transcripts, sources, sandbox pages and
+images, camera images (whole bursts too) and the VLM description.
+`llm_pipeline` collects them in `PipelineResult.artifacts`, each with an anchor
+at the point of the turn where its tool ran. `render_bubble` is the one place
+that turns text and artifacts into the bubble in turn order; the browser path
+(`multi_agent`), `call_llm` and the Message Hub use it. The hub shows no tag
+blocks such as thinking or the VLM description, but all other artifacts.
 
-Proposal, generic and small: a tool may emit, next to `progress` and
-`result`, an event `collapsible` with title and content. `llm_pipeline`
-collects these events into a new field `PipelineResult.tool_collapsibles`,
-and `multi_agent` renders them with a helper in `formatting.py` next to
-sources and sandbox into the bubble. The block is a `<details>`, ignored by
-the token estimate, never read aloud and never sent to the model.
+A tool delivers artifacts as an `artifacts` event; the tool loop forwards it
+as `tool_artifacts`. The sub-agent uses exactly this path: its transcript and
+all artifacts of its own turn go to the caller as one list and appear where
+the caller delegated, like the caller's own. Each camera image and sandbox
+page appears once per turn.
 
-With that, every future tool has the same way to show a run. Through the
-Message Hub (Telegram, email) the block is dropped, there is no bubble
-there; the run is then in the session's debug log.
+Camera images also stay as a Markdown reference at the start of the text:
+tool results are not stored, and only through that reference in the history
+can a later turn analyse an image again. `render_bubble` hides the references;
+the image is shown by its artifact.
 
 ## What Codine makes of it
 
@@ -171,9 +175,9 @@ pattern from the paper without Codine becoming a new agent type.
 | `aifred/plugins/tools/subagent/prompts/de/delegate_task.txt`, `en/delegate_task.txt` | new, instructions to the caller: when to delegate, what belongs in `task` (fragment, only when `delegate_task` is granted) |
 | `prompts/de/shared/subagent_frame.txt`, `prompts/en/shared/subagent_frame.txt` | new, frame for the sub-agent |
 | `aifred/plugins/tools/subagent/settings.json` | created on the first save through the gear icon: allowed tiers, recursion depth, sub-agent as another main agent (`credential_fields`, not secret) |
-| `aifred/lib/function_calling.py`, `aifred/backends/base.py`, `aifred/lib/llm_pipeline.py` | executor event `collapsible` → `tool_collapsible` through the tool loop, collected in `PipelineResult.tool_collapsibles` |
-| `aifred/lib/formatting.py` | helper that renders `tool_collapsibles` as `<details>` |
-| `aifred/lib/multi_agent.py` | attach the block next to sources and sandbox |
+| `aifred/lib/bubble.py` | bubble artifacts and `render_bubble`, the one place that builds the bubble |
+| `aifred/lib/function_calling.py`, `aifred/backends/base.py`, `aifred/lib/llm_pipeline.py` | executor event `artifacts` → `tool_artifacts` through the tool loop, collected with anchors in `PipelineResult.artifacts` |
+| `aifred/lib/multi_agent.py`, `aifred/lib/llm_engine.py`, `aifred/lib/message_processor.py` | bubble through `render_bubble` |
 | `data/agents.json` | `delegate_task` in the whitelist of the desired agents |
 | `tests/test_subagent_plugin.py` | new: name equals folder name, tool and tier, recursion filter, tier filter from the setting, inheritance of `max_tier` and `source`, memory off, result as report, block event; `call_llm` mocked |
 | `docs/de/guides/plugins/subagent.md`, `docs/en/guides/plugins/subagent.md` | new, user guide in both languages |

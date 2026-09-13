@@ -814,15 +814,14 @@ class OpenAICompatibleBackend(LLMBackend):
                                     "name": tc["name"],
                                     "message": item.get("message", ""),
                                 }
-                            elif item.get("type") == "tool_collapsible":
-                                # UI-only block (sub-agent transcript etc.):
-                                # forwarded to the consumer, never appended
-                                # to the messages the model sees.
+                            elif item.get("type") == "tool_artifacts":
+                                # Bubble artifacts (sub-agent transcript and
+                                # results): forwarded to the consumer, never
+                                # appended to the messages the model sees.
                                 yield {
-                                    "type": "tool_collapsible",
+                                    "type": "tool_artifacts",
                                     "name": tc["name"],
-                                    "title": item.get("title", ""),
-                                    "content": item.get("content", ""),
+                                    "artifacts": item.get("artifacts", []),
                                 }
                             elif item.get("type") == "tool_result":
                                 result = item.get("result", "") or ""

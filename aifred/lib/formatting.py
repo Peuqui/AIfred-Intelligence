@@ -9,6 +9,7 @@ import re
 import uuid
 import threading
 from pathlib import Path
+from typing import Any
 from collections import OrderedDict
 from .logging_utils import log_message
 from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
@@ -836,9 +837,21 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
         (format_thinking_process), BEFORE extract_xml_tags is called.
         This is necessary for clean_response to work correctly.
     """
-    # STEP 1: Remove Markdown code blocks BEFORE searching for XML tags
-    # Code blocks can contain HTML/XML code examples that should NOT be processed
-    text_without_codeblocks = re.sub(r'```[\s\S]*?```', '', text)
+    # STEP 1: Mask Markdown code blocks BEFORE searching for XML tags.
+    # Code blocks can contain HTML/XML code examples that must not be taken
+    # as tags. They are masked, not deleted: a code block INSIDE a tag (a
+    # code draft in a <think> block) belongs to the tag's content and is put
+    # back below — deleting it made the draft vanish from the thinking panel.
+    code_blocks: list[str] = []
+
+    def _mask(match: re.Match[str]) -> str:
+        code_blocks.append(match.group(0))
+        return f"\x00codeblock-{len(code_blocks) - 1}\x00"
+
+    def _unmask(content: str) -> str:
+        return re.sub(r"\x00codeblock-(\d+)\x00", lambda m: code_blocks[int(m.group(1))], content)
+
+    text_without_codeblocks = re.sub(r'```[\s\S]*?```', _mask, text)
 
     # STEP 2: Generic XML pattern: <tagname>content</tagname>
     pattern = r'<(\w+)>(.*?)</\1>'
@@ -846,7 +859,7 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
 
     # STEP 3: Filter: Only return non-HTML tags (blacklist from html_tags.py)
     xml_tags = [
-        (tag_name, content.strip())
+        (tag_name, _unmask(content).strip())
         for tag_name, content in matches
         if tag_name.lower() not in HTML_TAG_BLACKLIST
     ]
@@ -856,7 +869,7 @@ def extract_xml_tags(text: str) -> list[tuple[str, str]]:
     harmony_pattern = r'<\|channel\|>(\w+)<\|message\|>(.*?)<\|end\|>'
     harmony_matches = re.findall(harmony_pattern, text_without_codeblocks, re.DOTALL)
     for channel_name, content in harmony_matches:
-        xml_tags.append((channel_name, content.strip()))
+        xml_tags.append((channel_name, _unmask(content).strip()))
 
     return xml_tags
 
@@ -878,15 +891,19 @@ def neutralize_markdown_fences(text: str) -> str:
     return text
 
 
-def format_thinking_process(ai_response: str, model_name: str | None = None, inference_time: float | None = None, tokens_per_sec: float | None = None, lang: str | None = None) -> str:
+def format_thinking_process(
+    ai_response: str,
+    model_name: str | None = None,
+    inference_time: float | None = None,
+    tokens_per_sec: float | None = None,
+    lang: str | None = None,
+) -> str:
     """
     Format XML tags as collapsible accordions (GENERIC).
 
     Supports ALL tags defined in get_xml_tag_config() dynamically.
     No more hardcoding - new tags can be added via config!
 
-    This is the CENTRAL function for RAW response logging - all other formatters
-    should NOT log RAW response to avoid duplicates.
 
     Args:
         ai_response: The AI response with optional XML tags
@@ -916,12 +933,6 @@ def format_thinking_process(ai_response: str, model_name: str | None = None, inf
 
     # Get XML tag config with i18n labels
     xml_tag_config = get_xml_tag_config(lang)
-
-    # DEBUG: Log COMPLETE RAW Response (central logging point)
-    log_message("=" * 80)
-    log_message("🔍 RAW AI RESPONSE (COMPLETE):")
-    log_message(ai_response)
-    log_message("=" * 80)
 
     # STEP 0: Repair orphaned </think> tags BEFORE extraction
     # (Important: Must be applied to ai_response so clean_response works later)
@@ -1076,20 +1087,6 @@ def build_sandbox_image(url: str) -> str:
     )
 
 
-def build_sandbox_html(html_urls: list[str], image_urls: list[str]) -> str:
-    """Combine sandbox HTML/image URLs into the bubble's embed markup.
-
-    SSOT for every caller that consumes PipelineResult.sandbox_html_urls /
-    sandbox_image_urls (multi_agent.py's _stream_agent_to_history and
-    llm_engine.py's call_llm) — was duplicated inline before, and the
-    Vision/Hub path (call_llm) had no version of it at all, so a sandbox
-    app created via an image-attached message never got embedded.
-    """
-    parts = [build_sandbox_iframe(url) for url in html_urls]
-    parts.extend(build_sandbox_image(url) for url in image_urls)
-    return "\n".join(parts)
-
-
 def build_sources_collapsible(used_sources: list, failed_sources: list, lang: str | None = None) -> str:
     """
     Build HTML <details> collapsible for web sources.
@@ -1201,29 +1198,24 @@ def build_sources_collapsible(used_sources: list, failed_sources: list, lang: st
     return collapsible
 
 
-def build_tool_collapsibles(blocks: list[dict[str, str]]) -> str:
-    """HTML ``<details>`` blocks for UI-only content delivered by tools.
+def build_tool_collapsible(block: dict[str, Any]) -> str:
+    """HTML ``<details>`` block for UI-only content delivered by a tool.
 
-    Each block is ``{"title": ..., "content": ...}`` (see
-    ``ToolKit.execute_streaming`` → ``tool_collapsible``). The content is
+    ``block`` is the data of a collapsible bubble artifact,
+    ``{"title": ..., "content": ...}`` (see lib/bubble.py). The content is
     shown as preformatted text and HTML-escaped, so a sub-agent transcript
     with angle brackets or Markdown fences cannot break the bubble. Same
     styling as the thinking and sources collapsibles; ignored by the token
     estimate like every ``<details>`` block.
-
-    Returns "" when there are no blocks.
     """
     import html as _html
-    parts: list[str] = []
-    for block in blocks:
-        title = _html.escape(str(block.get("title", "")).strip()) or "…"
-        content = _html.escape(str(block.get("content", "")).rstrip())
-        parts.append(
-            f'<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">\n'
-            f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; '
-            f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n'
-            f'<div style="max-height: 60vh; overflow-y: auto; padding-left: 1em; padding-top: 0.3em; '
-            f'line-height: 1.5; white-space: pre-wrap; font-family: monospace; font-size: 0.95em;">\n'
-            f'{content}\n</div>\n</details>'
-        )
-    return "\n\n".join(parts)
+    title = _html.escape(str(block.get("title", "")).strip()) or "…"
+    content = _html.escape(str(block.get("content", "")).rstrip())
+    return (
+        f'<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">\n'
+        f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; '
+        f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n'
+        f'<div style="max-height: 60vh; overflow-y: auto; padding-left: 1em; padding-top: 0.3em; '
+        f'line-height: 1.5; white-space: pre-wrap; font-family: monospace; font-size: 0.95em;">\n'
+        f'{content}\n</div>\n</details>'
+    )

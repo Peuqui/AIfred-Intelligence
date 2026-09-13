@@ -20,8 +20,18 @@ import re
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Callable, Optional
 
+from .config import DEBUG_LOG_RAW_OUTPUT
 from .context_manager import estimate_tokens, strip_thinking_blocks
-from .formatting import build_inference_metadata, format_thinking_process
+from .bubble import (
+    KIND_SANDBOX_HTML,
+    KIND_SANDBOX_IMAGE,
+    KIND_SOURCES,
+    KIND_VISION_IMAGES,
+    KIND_VLM_OUTPUT,
+    BubbleArtifact,
+    image_markdown,
+)
+from .formatting import build_inference_metadata
 from .logging_utils import log_message, log_raw_messages
 from .timer import Timer
 
@@ -36,7 +46,6 @@ class PipelineResult:
 
     text: str = ""                                      # Full response (incl. <think> blocks)
     text_clean: str = ""                                # Response without thinking
-    thinking_html: str = ""                             # Formatted thinking HTML
     metadata_dict: dict[str, Any] = field(default_factory=dict)
     metadata_display: str = ""                          # Metadata string for UI
     debug_msg: str = ""                                 # Metadata debug line
@@ -45,15 +54,33 @@ class PipelineResult:
     inference_time: float = 0.0
     thinking_time: float = 0.0                          # first token → end of <think> block
     tokens_per_sec: float = 0.0
-    fetched_urls: list[dict[str, Any]] = field(default_factory=list)
-    sandbox_html_urls: list[str] = field(default_factory=list)
-    sandbox_image_urls: list[str] = field(default_factory=list)
-    # UI-only blocks delivered by tools ({"title", "content"}), e.g. a
-    # sub-agent's transcript — rendered collapsed in the bubble, never sent
-    # to the model (see ToolKit.execute_streaming "tool_collapsible").
-    tool_collapsibles: list[dict[str, str]] = field(default_factory=list)
+    # Everything the turn's tools produced for the bubble, each with its
+    # offset in ``text`` (see lib/bubble.py, rendered by render_bubble).
+    artifacts: list[BubbleArtifact] = field(default_factory=list)
     silent_reply: bool = False                          # any tool requested TTS-skip
     truncated: bool = False                             # hit token/context limit — answer incomplete
+
+
+# Anchor of a bubble artifact inside full_response while the turn streams.
+# Post-processing prepends and strips text, so a character offset taken at
+# event time would drift; the anchor moves with the text and becomes the final
+# offset right before the result is built (and is removed from the text).
+_ARTIFACT_ANCHOR = "\x00bubble-artifact-{}\x00"
+_ARTIFACT_ANCHOR_RE = re.compile(r"\x00bubble-artifact-(\d+)\x00")
+
+
+def resolve_artifact_anchors(text: str) -> tuple[str, dict[int, int]]:
+    """Remove the artifact anchors from ``text``; return the clean text and
+    the offset in it for every anchor index."""
+    offsets: dict[int, int] = {}
+    parts: list[str] = []
+    last = 0
+    for match in _ARTIFACT_ANCHOR_RE.finditer(text):
+        parts.append(text[last:match.start()])
+        offsets[int(match.group(1))] = sum(len(p) for p in parts)
+        last = match.end()
+    parts.append(text[last:])
+    return "".join(parts), offsets
 
 
 def strip_tool_json(text: str) -> str:
@@ -65,11 +92,12 @@ def strip_tool_json(text: str) -> str:
 
 
 def _dedup_injected_images(text: str, urls: list[str]) -> str:
-    """Single Source of Truth fürs gerenderte VLM-Bild: Die Pipeline stellt
-    das Bild deterministisch voran (``![alias](url)``). Sieht das LLM dieselbe
-    image_url im Tool-Result und rendert sie ein zweites Mal, erschiene das
-    Bild doppelt. Hier bleibt pro URL nur das ERSTE ``![...](url)`` stehen,
-    alle weiteren (das LLM-Echo) werden entfernt."""
+    """Die Pipeline stellt jedem Kamerabild des Turns eine Referenz
+    ``![alias](url)`` voran — die einzige Stelle, an der die URL im Verlauf
+    bleibt (vision_analyze kann sie in späteren Turns erneut ansehen). Hat das
+    LLM dieselbe image_url ein zweites Mal gerendert, bleibt pro URL nur das
+    ERSTE ``![...](url)`` stehen. Angezeigt werden die Bilder über ihre
+    Artefakte (render_bubble), nicht über diese Referenzen."""
     for url in urls:
         pattern = re.compile(r"!\[[^\]]*\]\(" + re.escape(url) + r"\)")
         matches = list(pattern.finditer(text))
@@ -193,20 +221,42 @@ async def run_llm_stream(
     # <think>…</think> im Content-Strom, das Ende ist das erste </think>.
     thinking_end: float | None = None
     metrics: dict[str, Any] = {}
-    fetched_urls: list[dict[str, Any]] = []
-    sandbox_html_urls: list[str] = []
-    sandbox_image_urls: list[str] = []
-    tool_collapsibles: list[dict[str, str]] = []
     silent_reply = False  # set True if any tool_result has silent_reply
-    # SSoT fürs gerenderte VLM-Bild: URLs, die die Pipeline deterministisch
-    # eingefügt hat. Ein späteres LLM-Echo derselben URL wird im Post-
-    # Processing entfernt (sonst erscheint dasselbe Bild zweimal).
-    injected_image_urls: list[str] = []
-    # Genau EIN Vision-Bild pro Turn: analyze hat Vorrang vor snapshot (es
-    # zeigt, was das VLM real gesehen hat). Beide Tools liefern nur noch
-    # image_url — die Pipeline pinnt das gewählte Bild im Post-Processing.
-    analyze_image: Optional[tuple[str, str]] = None   # (url, alt)
-    snapshot_image: Optional[tuple[str, str]] = None  # (url, alt)
+    # Bubble artifacts in turn order (lib/bubble.py). Each gets an anchor in
+    # full_response where its tool ran; post-processing turns anchors into
+    # offsets.
+    artifacts: list[BubbleArtifact] = []
+    artifact_keys: set[str] = set()
+    shown_image_urls: set[str] = set()
+    # The turn's own web_fetch calls share one sources block; the entry of
+    # the call in flight gets its success flag from the next tool result.
+    own_sources: Optional[BubbleArtifact] = None
+    pending_fetch: Optional[dict[str, Any]] = None
+
+    def add_artifact(artifact: BubbleArtifact) -> None:
+        nonlocal full_response
+        key = artifact.key()
+        if key is not None:
+            if key in artifact_keys:
+                return
+            artifact_keys.add(key)
+        if artifact.kind == KIND_VISION_IMAGES:
+            # Each camera image once per turn (snapshot, then analyze of the
+            # same frame, would show it twice).
+            urls = [u for u in artifact.data["urls"] if u not in shown_image_urls]
+            if not urls:
+                return
+            shown_image_urls.update(urls)
+            artifact = BubbleArtifact(KIND_VISION_IMAGES, {**artifact.data, "urls": urls})
+        full_response += _ARTIFACT_ANCHOR.format(len(artifacts))
+        artifacts.append(artifact)
+
+    def source_alias(source_id: Any) -> str:
+        try:
+            from .vision_utils import resolve_source_alias
+            return str(resolve_source_alias(str(source_id), fallback="Snapshot"))
+        except Exception:  # noqa: BLE001
+            return "Snapshot"
     # image_url → (label, VLM-Beschreibung) aus vision_query_events. Wird im
     # Post-Processing als <image_descriptions>-Collapsible über die tatsächlich
     # gezeigten Event-Bilder gehängt.
@@ -246,14 +296,17 @@ async def run_llm_stream(
             full_args = chunk.get("arguments", "")
             log_message(f"🔧 Tool call: {tool_name}({full_args})")
 
-            # Track web_fetch URLs for sources collapsible
+            # Track web_fetch URLs for the turn's sources block
             if tool_name == "web_fetch":
                 try:
                     tool_args = json.loads(full_args) if full_args else {}
                 except (ValueError, json.JSONDecodeError):
                     tool_args = {}
-                url = tool_args.get("url", "")
-                fetched_urls.append({"url": url, "success": None})
+                pending_fetch = {"url": tool_args.get("url", ""), "success": None}
+                if own_sources is None:
+                    own_sources = BubbleArtifact(KIND_SOURCES, {"urls": []})
+                    add_artifact(own_sources)
+                own_sources.data["urls"].append(pending_fetch)
 
             yield chunk
 
@@ -263,19 +316,18 @@ async def run_llm_stream(
             # UI immediately instead of seeing a debug-block at tool end.
             yield chunk
 
-        elif chunk_type == "tool_collapsible":
-            # UI-only block from a tool (sub-agent transcript). Collected
-            # for the bubble next to sources and sandbox output; forwarded
-            # too, so consumers may mirror it into their debug sink.
-            tool_collapsibles.append({
-                "title": chunk.get("title", ""),
-                "content": chunk.get("content", ""),
-            })
+        elif chunk_type == "tool_artifacts":
+            # Bubble artifacts delivered by a tool (a sub-agent's transcript
+            # and everything its own tools produced), placed where the tool
+            # ran in this turn.
+            for raw in chunk.get("artifacts", []):
+                add_artifact(BubbleArtifact.from_dict(raw))
             yield chunk
 
         elif chunk_type == "tool_result":
             result_text = chunk.get("result", "")
-            log_message(f"🔧 Tool result: {result_text}")
+            if DEBUG_LOG_RAW_OUTPUT:
+                log_message(f"🔧 Tool result: {result_text}")
 
             # Auto-extract VLM raw output → <vlm_output> tag in full_response.
             # The vision_analyze tool puts the VLM description under "vlm_raw"
@@ -317,31 +369,22 @@ async def run_llm_stream(
                             body = vlm_text.strip()
                             if vlm_meta_display:
                                 body += f"\n\n{vlm_meta_display}"
-                            # Record analyze's image (highest priority). The
-                            # actual image is pinned ONCE in post-processing so
-                            # exactly one vision image appears per turn, even
-                            # when snapshot + analyze both ran. Alt-text uses
-                            # the user-given camera alias (e.g. "Türkamera").
+                            # The analysed image (if not shown yet this turn),
+                            # then the VLM's description of it. Alt text is the
+                            # user-given camera alias (e.g. "Türkamera").
                             if isinstance(image_url, str) and image_url:
-                                try:
-                                    from .vision_utils import resolve_source_alias
-                                    alt = resolve_source_alias(
-                                        str(vlm_source_id), fallback="Snapshot"
-                                    )
-                                except Exception:  # noqa: BLE001
-                                    alt = "Snapshot"
-                                analyze_image = (image_url, alt)
-                            full_response = (
-                                f"<vlm_output>{body}</vlm_output>"
-                                + full_response
-                            )
+                                add_artifact(BubbleArtifact(
+                                    KIND_VISION_IMAGES,
+                                    {"urls": [image_url], "alt": source_alias(vlm_source_id)},
+                                ))
+                            add_artifact(BubbleArtifact(KIND_VLM_OUTPUT, {"body": body}))
                             if vlm_debug_msg:
                                 yield {"type": "debug", "message": vlm_debug_msg}
                 except (ValueError, json.JSONDecodeError):
                     pass
 
-            # vision_snapshot (no VLM) returns image_url without vlm_raw —
-            # record it as the fallback vision image (analyze wins if present).
+            # vision_snapshot (no VLM) returns image_url without vlm_raw, and
+            # for a burst all frames in image_urls — all of them are shown.
             if (
                 result_text
                 and '"image_url"' in result_text
@@ -354,14 +397,11 @@ async def run_llm_stream(
                         and parsed.get("image_url")
                         and parsed.get("source_id")
                     ):
-                        try:
-                            from .vision_utils import resolve_source_alias
-                            snap_alt = resolve_source_alias(
-                                str(parsed.get("source_id")), fallback="Snapshot"
-                            )
-                        except Exception:  # noqa: BLE001
-                            snap_alt = "Snapshot"
-                        snapshot_image = (str(parsed["image_url"]), snap_alt)
+                        frames = [str(u) for u in (parsed.get("image_urls") or [parsed["image_url"]])]
+                        add_artifact(BubbleArtifact(
+                            KIND_VISION_IMAGES,
+                            {"urls": frames, "alt": source_alias(parsed.get("source_id"))},
+                        ))
                 except (ValueError, json.JSONDecodeError):
                     pass
 
@@ -395,22 +435,29 @@ async def run_llm_stream(
             # contains "error" must not count as a failure. Tool execution
             # is sequential (backends/base.py loops tool_calls), so [-1]
             # is always the web_fetch this result belongs to.
-            if fetched_urls and fetched_urls[-1]["success"] is None:
+            if pending_fetch is not None:
                 _fetch_err = False
                 if result_text.lstrip().startswith("{"):
                     try:
                         _fetch_err = "error" in json.loads(result_text)
                     except (ValueError, json.JSONDecodeError):
                         _fetch_err = False
-                fetched_urls[-1]["success"] = not _fetch_err
+                pending_fetch["success"] = not _fetch_err
+                pending_fetch = None
 
-            # Extract sandbox output URLs (marker SSOT: lib/sandbox.py)
+            # Sandbox output URLs (marker SSOT: lib/sandbox.py). A page a
+            # sub-agent built arrives as an artifact first; its marker line in
+            # the report is then the same key and not shown twice.
             from .sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
             for line in result_text.split("\n"):
                 if line.startswith(SANDBOX_HTML_URL_MARKER):
-                    sandbox_html_urls.append(line[len(SANDBOX_HTML_URL_MARKER):].strip())
+                    add_artifact(BubbleArtifact(
+                        KIND_SANDBOX_HTML, {"url": line[len(SANDBOX_HTML_URL_MARKER):].strip()},
+                    ))
                 elif line.startswith(SANDBOX_IMAGE_URL_MARKER):
-                    sandbox_image_urls.append(line[len(SANDBOX_IMAGE_URL_MARKER):].strip())
+                    add_artifact(BubbleArtifact(
+                        KIND_SANDBOX_IMAGE, {"url": line[len(SANDBOX_IMAGE_URL_MARKER):].strip()},
+                    ))
 
             # silent_reply: Audio-Tools (audio_play, audio_play_folder,
             # audio_resume) markieren erfolgreichen Audio-Start damit der
@@ -454,22 +501,18 @@ async def run_llm_stream(
     # bricht das Bild nach einem Tab-Reload (relative URL → 404).
     full_response = _normalize_image_urls(full_response)
 
-    # Genau EIN Vision-Bild pro Turn ganz oben pinnen (analyze vor snapshot).
-    # So erscheint bei kombiniertem „Foto + Analyse" nicht dasselbe Motiv
-    # doppelt. Die URL kommt zusätzlich in injected_image_urls, damit ein
-    # etwaiges LLM-Echo derselben URL unten dedupliziert wird.
-    chosen_image = analyze_image or snapshot_image
-    if chosen_image:
-        _img_url, _img_alt = chosen_image
-        full_response = f"![{_img_alt}]({_img_url})\n\n" + full_response
-        injected_image_urls.append(_img_url)
-
-    # SSoT fürs VLM-Bild durchsetzen: Die Pipeline hat das Bild oben
-    # deterministisch vorangestellt. Hat das LLM dieselbe image_url (die es im
-    # Tool-Result sah) ein zweites Mal als Markdown gerendert, entfernen wir
-    # die Dublette — pro URL bleibt nur das erste ![...](url) stehen.
-    if injected_image_urls:
-        full_response = _dedup_injected_images(full_response, injected_image_urls)
+    # Kamerabilder des Turns als Referenz an den Textanfang: Der Text geht in
+    # den Verlauf, und nur dort bleibt die URL für spätere Turns erhalten
+    # (Tool-Ergebnisse werden nicht gespeichert). Je Bild-Artefakt die letzte
+    # Aufnahme (bei einer Serie das repräsentative Bild). Angezeigt werden die
+    # Bilder über ihre Artefakte an der Stelle des Turns (render_bubble).
+    camera_images = [a for a in artifacts if a.kind == KIND_VISION_IMAGES]
+    if camera_images:
+        refs = [image_markdown(a.data["alt"], a.data["urls"][-1]) for a in camera_images]
+        full_response = "\n\n".join(refs) + "\n\n" + full_response
+        full_response = _dedup_injected_images(
+            full_response, [a.data["urls"][-1] for a in camera_images],
+        )
 
     # Original-VLM-Beschreibungen der TATSÄCHLICH gezeigten Event-Bilder als
     # Collapsible oben in die Bubble hängen, je mit Bildname davor. Als
@@ -509,18 +552,24 @@ async def run_llm_stream(
                 + full_response
             )
 
+    # Artifact anchors → offsets in the final text
+    full_response, anchor_offsets = resolve_artifact_anchors(full_response)
+    for index, artifact in enumerate(artifacts):
+        artifact.offset = anchor_offsets[index]
+
+    # One place for the complete raw output of a turn (every agent turn runs
+    # through here; the bubble formatter no longer logs it a second time).
+    if DEBUG_LOG_RAW_OUTPUT:
+        log_message("=" * 80)
+        log_message(f"🔍 RAW AI RESPONSE (COMPLETE) — {agent_label}:")
+        log_message(full_response)
+        log_message("=" * 80)
+
     # Thinking blocks
     text_clean = strip_thinking_blocks(full_response) if full_response else ""
     inference_time = timer.elapsed()
     thinking_time = max(0.0, thinking_end - ttft) if thinking_end is not None else 0.0
     tokens_per_sec = metrics.get("tokens_per_second", 0)
-
-    thinking_html = format_thinking_process(
-        full_response,
-        model_name=model,
-        inference_time=inference_time,
-        tokens_per_sec=tokens_per_sec,
-    )
 
     truncated = bool(metrics.get("truncated"))
 
@@ -544,7 +593,6 @@ async def run_llm_stream(
         "result": PipelineResult(
             text=full_response,
             text_clean=text_clean,
-            thinking_html=thinking_html,
             metadata_dict=metadata_dict,
             metadata_display=metadata_display,
             debug_msg=debug_msg,
@@ -553,10 +601,7 @@ async def run_llm_stream(
             inference_time=inference_time,
             thinking_time=thinking_time,
             tokens_per_sec=tokens_per_sec,
-            fetched_urls=fetched_urls,
-            sandbox_html_urls=sandbox_html_urls,
-            sandbox_image_urls=sandbox_image_urls,
-            tool_collapsibles=tool_collapsibles,
+            artifacts=artifacts,
             silent_reply=silent_reply,
             truncated=truncated,
         ),
