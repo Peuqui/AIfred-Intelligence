@@ -1217,18 +1217,18 @@ def build_tool_collapsible(block: dict[str, Any]) -> str:
     """
     import html as _html
     title = _html.escape(str(block.get("title", "")).strip()) or "…"
-    content = _html.escape(str(block.get("content", "")).rstrip())
-    # <pre> on its own line after a blank line: Markdown treats it as a raw
-    # HTML block that only ends at </pre>, so blank lines, tables or **bold**
-    # in the content stay literal text (inside a <div> Markdown resumed after
-    # every blank line and pre-wrap spread its line breaks as big gaps). No
-    # own max-height: the <details> rule in custom.css already scrolls, a
-    # second scroll box inside gave a second scrollbar.
+    # Line breaks as the entity &#10;: the whole block is one HTML block without
+    # blank lines, so Markdown never switches back on inside it (a blank line
+    # made tables and **bold** render and pre-wrap spread them as big gaps).
+    # Not <pre>: Reflex renders <pre> with its code-block component, which
+    # expects a <code> child and crashed the page. No own max-height: the
+    # <details> rule in custom.css already scrolls.
+    content = _html.escape(str(block.get("content", "")).rstrip()).replace("\n", "&#10;")
     return (
         f'<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">\n'
         f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; '
-        f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n\n'
-        f'<pre style="margin: 0; padding: 0.3em 0 0 1em; background: transparent; border: none; '
-        f'line-height: 1.5; white-space: pre-wrap; word-break: break-word; '
-        f'font-family: monospace; font-size: 0.95em;">{content}</pre>\n\n</details>'
+        f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n'
+        f'<div style="padding: 0.3em 0 0 1em; line-height: 1.5; white-space: pre-wrap; '
+        f'word-break: break-word; font-family: monospace; font-size: 0.95em;">{content}</div>\n'
+        f'</details>'
     )
