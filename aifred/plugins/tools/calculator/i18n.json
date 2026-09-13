@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "Calculator",
+    "en": "Calculator"
+  },
+  "plugin_description": {
+    "de": "Mathematische Berechnungen — Grundrechenarten und Potenzen (sicherer AST-Parser, keine Funktionen/Symbolik).",
+    "en": "Mathematical calculations — basic arithmetic and powers (safe AST parser, no functions or symbolic math)."
+  }
+}

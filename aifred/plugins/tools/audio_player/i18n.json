@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "Audio Player",
+    "en": "Audio Player"
+  },
+  "plugin_description": {
+    "de": "Spielt lokale Audio-Dateien und Internet-Streams (Musik, Hörbücher, Radio) mit Pause/Resume und Positions-Speicherung ab.",
+    "en": "Plays local audio files and internet streams (music, audiobooks, radio) with pause/resume and saved playback position."
+  }
+}

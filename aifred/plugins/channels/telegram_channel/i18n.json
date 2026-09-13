@@ -1,4 +1,12 @@
 {
+  "plugin_display_name": {
+    "de": "Telegram",
+    "en": "Telegram"
+  },
+  "plugin_description": {
+    "de": "Telegram-Bot mit Long-Polling — Chat-Nachrichten von Usern in der Allowlist.",
+    "en": "Telegram bot with long polling — chat messages from users on the allowlist."
+  },
   "telegram_cred_bot_token": {
     "de": "Bot Token",
     "en": "Bot Token"

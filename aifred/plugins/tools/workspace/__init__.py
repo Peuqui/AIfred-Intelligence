@@ -52,8 +52,6 @@ def _chroma_client():  # type: ignore[no-untyped-def]
 @dataclass
 class WorkspacePlugin:
     name: str = "workspace"
-    display_name: str = "Workspace"
-    description: str = "Lese-/Schreibzugriff aufs Arbeitsverzeichnis und semantische Dokument-Indexierung in ChromaDB (Vektor-Suche)."
 
     def is_available(self) -> bool:
         return True  # File access always available, ChromaDB optional

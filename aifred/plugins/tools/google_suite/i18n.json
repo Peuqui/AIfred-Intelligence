@@ -1,4 +1,12 @@
 {
+  "plugin_display_name": {
+    "de": "Google Suite",
+    "en": "Google Suite"
+  },
+  "plugin_description": {
+    "de": "Zugriff auf Google Calendar, Kontakte, Tasks und Drive (Lesen und Schreiben — OAuth-2.0-authentifiziert).",
+    "en": "Access to Google Calendar, Contacts, Tasks and Drive (read and write — OAuth 2.0 authenticated)."
+  },
   "google_client_id": {
     "de": "Google Client ID",
     "en": "Google Client ID"

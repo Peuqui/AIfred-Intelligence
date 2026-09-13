@@ -6,7 +6,7 @@ import json
 import pytest
 
 from aifred.plugins.tools.scheduler_tool import SchedulerPlugin
-from aifred.lib.plugin_base import PluginContext
+from aifred.lib.plugin_base import PluginContext, plugin_display_name
 
 
 @pytest.fixture
@@ -44,7 +44,7 @@ class TestSchedulerPlugin:
         # MUST equal the folder name (plugin_registry invariant) — a mismatch
         # hides the plugin from the Plugin-Manager UI.
         assert plugin.name == "scheduler_tool"
-        assert plugin.display_name == "Scheduler"
+        assert plugin_display_name(plugin, "de") == "Scheduler"
 
     def test_is_available(self, plugin):
         assert plugin.is_available() is True

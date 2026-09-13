@@ -139,8 +139,6 @@ def get_research_tools(state: Optional[Any] = None, lang: str = "de", llm_histor
 @dataclass
 class ResearchPlugin:
     name: str = "research"
-    display_name: str = "Web Research"
-    description: str = "Web-Recherche per Multi-Query-Suche (Brave, Tavily, SearXNG) plus Inhalts-Scraping und Quellen-Ranking."
 
     def is_available(self) -> bool:
         return True

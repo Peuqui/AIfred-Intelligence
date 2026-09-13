@@ -270,8 +270,6 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
 @dataclass
 class SandboxPlugin:
     name: str = "sandbox"
-    display_name: str = "Sandbox"
-    description: str = "Sicherer Code-Ausführungsbereich: Python und Bash in isolierter Umgebung — für Berechnungen, Skripte und ad-hoc-Logik."
 
     def is_available(self) -> bool:
         return True

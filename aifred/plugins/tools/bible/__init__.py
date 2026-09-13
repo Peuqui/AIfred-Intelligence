@@ -37,11 +37,6 @@ from .reference import (
 @dataclass
 class BiblePlugin:
     name: str = "bible"
-    display_name: str = "Bibel"
-    description: str = (
-        "Bibel-Zugriff: exakter Stellen-Lookup (z. B. Psalm 5) und "
-        "thematische Suche in der Bibel."
-    )
 
     # ── Plugin settings (settings.json next to this module) ──────────
     @property

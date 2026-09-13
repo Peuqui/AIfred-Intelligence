@@ -49,7 +49,7 @@ Directory `aifred/plugins/tools/subagent/`, name `subagent`, one tool
 |---|---|---|
 | `task` | yes | The complete task with all context the sub-agent needs. It sees neither the conversation nor the memory. |
 | `expected_result` | yes | What the report must contain so the caller can continue |
-| `agent` | no | Only when the plugin setting "sub-agent as another main agent" is on: agent id whose model, tuning and tool list the sub-agent gets, still without persona. The allowed values are derived on every turn while the toolkit is built: only agents that differ from the caller in model or whitelist. If there is none, the parameter is absent from the schema. Default: the caller itself |
+| `agent` | no | Only when the plugin setting "sub-agent as another main agent" is on: agent id whose model, tuning and tool list the sub-agent gets, still without persona. The allowed values are derived on every turn while the toolkit is built: only agents that differ from the caller in model or whitelist. System agents (`role: system`) are excluded. If there is none, the parameter is absent from the schema. The parameter description carries a legend, also derived per turn (`delegation_legend`): for each candidate the tool groups its sub-agent would get (plugins via `collect_plugin_tools`, the same selection rule as the toolkit factory, filtered by whitelist, tier ceiling and allowed tiers), and for each group name and description from the plugin's `i18n.json` in the language of the turn. New, changed or disabled plugins show up by themselves. Default: the caller itself |
 
 Without a persona, a sub-agent "after Codine" differs from one "after
 AIfred" only in model, tuning and tool list. The parameter therefore makes

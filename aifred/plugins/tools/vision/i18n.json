@@ -36,7 +36,7 @@
     "en": "Querying events …"
   },
   "error_no_sources": {
-    "de": "Keine Bildquelle verfügbar — Webcam einstöpseln und ggf. „Quellen neu suchen" auslösen.",
+    "de": "Keine Bildquelle verfügbar — Webcam einstöpseln und ggf. „Quellen neu suchen“ auslösen.",
     "en": "No image source available — plug in a webcam and trigger a rescan."
   },
   "error_source_unknown": {

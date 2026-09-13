@@ -90,14 +90,6 @@ class EmailChannel(BaseChannel):
         return "email"
 
     @property
-    def display_name(self) -> str:
-        return "E-Mail"
-
-    @property
-    def description(self) -> str:
-        return "IMAP-IDLE-Listener für E-Mail-Eingang plus optionaler Auto-Reply per SMTP."
-
-    @property
     def icon(self) -> str:
         return "mail"
 

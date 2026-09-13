@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "Scheduler",
+    "en": "Scheduler"
+  },
+  "plugin_description": {
+    "de": "Plant Aufgaben und Reminder zu bestimmten Uhrzeiten oder als wiederkehrende Cron-Jobs.",
+    "en": "Schedules tasks and reminders at specific times or as recurring cron jobs."
+  }
+}

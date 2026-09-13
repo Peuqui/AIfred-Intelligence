@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "Sandbox",
+    "en": "Sandbox"
+  },
+  "plugin_description": {
+    "de": "Sicherer Code-Ausführungsbereich: Python und Bash in isolierter Umgebung — für Berechnungen, Skripte und ad-hoc-Logik.",
+    "en": "Safe code execution: Python and Bash in an isolated environment — for calculations, scripts and ad-hoc logic."
+  }
+}

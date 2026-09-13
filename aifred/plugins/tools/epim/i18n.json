@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "EPIM",
+    "en": "EPIM"
+  },
+  "plugin_description": {
+    "de": "Lese- und Schreibzugriff auf den persönlichen EPIM-Datenbestand: Termine, Kontakte, Notizen, Aufgaben.",
+    "en": "Read and write access to the personal EPIM data: appointments, contacts, notes, tasks."
+  }
+}

@@ -36,12 +36,6 @@ from .reference import resolve
 @dataclass
 class JudaicaPlugin:
     name: str = "judaica"
-    display_name: str = "Judaica"
-    description: str = (
-        "Judaica-Zugriff: exakter Stellen-Lookup (z. B. Berakhot 3) und "
-        "thematische Suche im jüdischen Quellkorpus — Tanach, Talmud, "
-        "Mischna, Midrasch und die klassischen Tora-Kommentare."
-    )
 
     def is_available(self) -> bool:
         return _JUDAICA_DIR.is_dir()

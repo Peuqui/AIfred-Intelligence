@@ -490,7 +490,7 @@ async def prepare_agent_toolkit(
     # All other tools via plugin system
     if research_tools_enabled:
         from .plugin_base import PluginContext
-        from .plugin_registry import discover_tools
+        from .plugin_registry import collect_plugin_tools
 
         ctx = PluginContext(
             agent_id=agent_id,
@@ -504,18 +504,10 @@ async def prepare_agent_toolkit(
             metadata=metadata or {},
         )
 
-        for p in discover_tools():
-            if p.is_available():
-                all_tools.extend(p.get_tools(ctx))
+        # Tool plugins and channel plugin tools (e.g. discord_send)
+        for _owner, plugin_tools in collect_plugin_tools(ctx):
+            all_tools.extend(plugin_tools)
         print(f"⏱️ prepare_toolkit: post-plugin-tools {_pat_time.monotonic()-_pat_t0:.2f}s", flush=True)
-
-        # Channel plugin tools (e.g. discord_send)
-        from .plugin_registry import all_channels
-        for ch in all_channels().values():
-            if ch.is_configured():
-                ch_tools = ch.get_tools(ctx)
-                if ch_tools:
-                    all_tools.extend(ch_tools)
 
         # Document-RAG-Auto-Inject wurde bewusst entfernt: Agenten suchen
         # selbst via search_documents (mit Folder-Filter). Das vermeidet

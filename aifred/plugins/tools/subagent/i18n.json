@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "Sub-Agenten",
+    "en": "Sub-Agents"
+  },
+  "plugin_description": {
+    "de": "Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer Modellaufruf mit eigenem Kontext und Werkzeugkasten, nur der Bericht geht zurück, das Transkript erscheint aufklappbar in der Bubble.",
+    "en": "Main agents delegate self-contained tasks to sub-agents: a fresh model run with its own context and toolkit, only the report comes back, the transcript appears collapsible in the chat bubble."
+  }
+}

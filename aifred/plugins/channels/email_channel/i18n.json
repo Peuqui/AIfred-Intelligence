@@ -1,4 +1,12 @@
 {
+  "plugin_display_name": {
+    "de": "E-Mail",
+    "en": "Email"
+  },
+  "plugin_description": {
+    "de": "IMAP-IDLE-Listener für E-Mail-Eingang plus optionaler Auto-Reply per SMTP.",
+    "en": "IMAP IDLE listener for incoming email plus optional auto-reply via SMTP."
+  },
   "email_cred_imap_host": {
     "de": "IMAP Host",
     "en": "IMAP Host"

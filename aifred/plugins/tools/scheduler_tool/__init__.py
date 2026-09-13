@@ -21,8 +21,6 @@ class SchedulerPlugin:
     # MUST equal the folder name (see plugin_registry) — otherwise the plugin
     # is invisible to the Plugin-Manager UI (no gear/lightbulb).
     name: str = "scheduler_tool"
-    display_name: str = "Scheduler"
-    description: str = "Plant Aufgaben und Reminder zu bestimmten Uhrzeiten oder als wiederkehrende Cron-Jobs."
 
     def is_available(self) -> bool:
         return True
