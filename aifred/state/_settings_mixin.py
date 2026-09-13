@@ -170,9 +170,11 @@ class SettingsMixin(rx.State, mixin=True):
             "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,  # type: ignore[attr-defined, has-type]
-            # Message Hub Settings (per-channel toggles + security tiers)
-            "channel_toggles": self.channel_toggles,
-            "channel_security_tiers": self.channel_security_tiers,
+            # Message Hub settings: written only by their own switches
+            # (_save_channel_setting). Taken from the file here, so a session
+            # that has not loaded them yet can never wipe them.
+            "channel_toggles": existing.get("channel_toggles", {}),
+            "channel_security_tiers": existing.get("channel_security_tiers", {}),
         }
 
         # Per-agent tuning — one dict per agent bucket. Field list is SSOT in
@@ -201,13 +203,35 @@ class SettingsMixin(rx.State, mixin=True):
         # is NOT written here — it's managed by dedicated save functions
         # (_save_agent_voices_for_engine, _save_tts_toggles_for_engine)
         # that are called when the user actually changes those settings.
-        save_settings(settings)
+        self._write_settings_file(settings)
 
-        # Update mtime tracker to prevent immediate reload by check_for_updates()
+    def _write_settings_file(self, settings: Dict[str, Any]) -> None:
+        """Write settings.json and remember its mtime, so this session's own
+        write does not trigger a reload on the next poll."""
+        save_settings(settings)
         try:
             self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)
         except OSError:
             pass
+
+    def _load_channel_settings(self, settings: Dict[str, Any]) -> None:
+        """Message Hub channel switches and security tiers from settings.json
+        into this session (at session start and on every reload)."""
+        self.channel_toggles = settings.get("channel_toggles", {})
+        self.channel_security_tiers = settings.get("channel_security_tiers", {})
+
+    def _save_channel_setting(self, key: str, channel: str, value: Any) -> None:
+        """Persist one channel value (``key`` = "channel_toggles" or
+        "channel_security_tiers") and mirror the file's state into the session.
+
+        Written into the FILE's current values, not the session's copy: a
+        session whose copy is stale or not loaded yet must not overwrite the
+        other channels."""
+        settings = load_settings() or {}
+        section = settings.setdefault(key, {})
+        section[channel] = value
+        self._write_settings_file(settings)
+        self._load_channel_settings(settings)
 
     def _reload_settings_from_file(self) -> None:
         """Reload settings from settings.json file.
@@ -288,8 +312,7 @@ class SettingsMixin(rx.State, mixin=True):
         set_user_name(self.user_name)
 
         # Message Hub settings (per-channel toggles + security tiers)
-        self.channel_toggles = settings.get("channel_toggles", {})
-        self.channel_security_tiers = settings.get("channel_security_tiers", {})
+        self._load_channel_settings(settings)
 
     # ================================================================
     # UI LANGUAGE
@@ -423,20 +446,13 @@ class SettingsMixin(rx.State, mixin=True):
         # Extract integer from "T1 — Communicate", "1 — Communicate", or plain "1"
         prefix = tier_label.split(" ")[0]  # "T1" or "1"
         tier_value = int(prefix.lstrip("T"))
-        tiers = dict(self.channel_security_tiers)
-        tiers[channel] = tier_value
-        self.channel_security_tiers = tiers
-        self._save_settings()
+        self._save_channel_setting("channel_security_tiers", channel, tier_value)
 
     def _set_channel_toggle(self, channel: str, key: str, value: bool) -> None:
-        """Set a toggle value for a channel and persist."""
-        toggles = dict(self.channel_toggles)
-        if channel not in toggles:
-            toggles[channel] = {}
-        ch = dict(toggles[channel])
-        ch[key] = value
-        toggles[channel] = ch
-        self.channel_toggles = toggles
+        """Set one toggle of a channel and persist it immediately."""
+        current = dict((load_settings() or {}).get("channel_toggles", {}).get(channel, {}))
+        current[key] = value
+        self._save_channel_setting("channel_toggles", channel, current)
 
     def toggle_channel_monitor(self, data: list) -> EventSpec | list | None:
         """Toggle channel plugin on/off. Called from UI with [channel_name, value].
@@ -460,7 +476,6 @@ class SettingsMixin(rx.State, mixin=True):
         display = plugin_display_name(plugin, "en") if plugin else channel_name
         status = "enabled" if value else "disabled"
         self.add_debug(f"📨 {display} {status}")  # type: ignore[attr-defined, has-type]
-        self._save_settings()
 
         # For always_reply channels: toggle also controls the listener
         if plugin and plugin.always_reply:
@@ -486,7 +501,6 @@ class SettingsMixin(rx.State, mixin=True):
         display = plugin_display_name(plugin, "en") if plugin else channel_name
         status = "enabled" if value else "disabled"
         self.add_debug(f"📨 {display} Monitor {status}")  # type: ignore[attr-defined, has-type]
-        self._save_settings()
 
         from ..lib.message_hub import message_hub
         if value and plugin:
@@ -506,7 +520,6 @@ class SettingsMixin(rx.State, mixin=True):
         display = channel_name.capitalize()
         status = "enabled" if value else "disabled"
         self.add_debug(f"📨 {display} Auto-Reply {status}")  # type: ignore[attr-defined, has-type]
-        self._save_settings()
 
     # ================================================================
     # MESSAGE HUB — GENERIC CREDENTIALS MODAL

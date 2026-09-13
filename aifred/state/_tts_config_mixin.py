@@ -494,20 +494,13 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     def toggle_xtts_gpu(self, use_gpu: bool):
         """Toggle XTTS GPU mode with immediate UI feedback."""
-        import os
         from ..lib.process_utils import set_xtts_cpu_mode
-        from ..lib.settings import SETTINGS_FILE
 
         force_cpu = not use_gpu
         self.xtts_force_cpu = force_cpu
         mode_str = "GPU (auto)" if use_gpu else "CPU (forced)"
         self.add_debug(f"🔊 XTTS: Wechsle zu {mode_str}...")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
-        # Update mtime tracker so periodic poll doesn't re-trigger "Settings reloaded"
-        try:
-            self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)  # type: ignore[attr-defined]
-        except OSError:
-            pass
         yield
 
         success, message = set_xtts_cpu_mode(force_cpu)
@@ -697,8 +690,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         the user's agent voice preferences for that engine.
         """
         import copy
-        import os
-        from ..lib.settings import load_settings, save_settings, SETTINGS_FILE
+        from ..lib.settings import load_settings
 
         settings = load_settings() or {}
         if "tts_agent_voices_per_engine" not in settings:
@@ -706,12 +698,7 @@ class TTSConfigMixin(rx.State, mixin=True):
 
         # Deep copy current agent voices
         settings["tts_agent_voices_per_engine"][engine_key] = copy.deepcopy(self.tts_agent_voices)
-        save_settings(settings)
-        # Update mtime tracker so periodic poll doesn't trigger spurious reload
-        try:
-            self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)  # type: ignore[attr-defined]
-        except OSError:
-            pass
+        self._write_settings_file(settings)  # type: ignore[attr-defined]
 
     def _restore_agent_voices_for_engine(self, engine_key: str):
         """Restore agent voices from settings for the specified engine.
@@ -812,8 +799,7 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     def _save_tts_toggles_for_engine(self, engine_key: str):
         """Save current TTS toggles (autoplay, streaming) for the specified engine."""
-        import os
-        from ..lib.settings import load_settings, save_settings, SETTINGS_FILE
+        from ..lib.settings import load_settings
 
         settings = load_settings() or {}
         if "tts_toggles_per_engine" not in settings:
@@ -823,12 +809,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             "autoplay": self.tts_autoplay,
             "streaming": self.tts_streaming_enabled,
         }
-        save_settings(settings)
-        # Update mtime tracker so periodic poll doesn't trigger spurious reload
-        try:
-            self._last_settings_mtime = os.path.getmtime(SETTINGS_FILE)  # type: ignore[attr-defined]
-        except OSError:
-            pass
+        self._write_settings_file(settings)  # type: ignore[attr-defined]
 
     def _restore_tts_toggles_for_engine(self, engine_key: str):
         """Restore TTS toggles from settings for the specified engine.

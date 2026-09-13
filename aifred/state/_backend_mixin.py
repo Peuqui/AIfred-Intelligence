@@ -533,6 +533,10 @@ class BackendMixin(rx.State, mixin=True):
                         set_ui_locale(saved_ui_lang)
                         set_language(saved_ui_lang)
 
+                    # Message Hub channel switches: the session must know them
+                    # from the start, or its first settings save would lose them.
+                    self._load_channel_settings(saved_settings)  # type: ignore[attr-defined]
+
                     # Load user name and gender
                     self.user_name = saved_settings.get("user_name", self.user_name)  # type: ignore[attr-defined, has-type]
                     self.user_gender = saved_settings.get("user_gender", self.user_gender)  # type: ignore[attr-defined, has-type]
