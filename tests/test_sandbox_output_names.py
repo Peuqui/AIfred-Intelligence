@@ -1,5 +1,6 @@
-"""Sandbox output files are named after their content: the same page written
-twice is one file and one URL; the bubble shows its source below it."""
+"""Sandbox output files are named "<name>-<content hash>": readable, a common
+name does not overwrite a different page, the same page under two names is
+kept once; the bubble shows the page collapsed with its source below it."""
 from __future__ import annotations
 
 import uuid
@@ -28,11 +29,32 @@ def test_same_page_under_two_names_and_two_runs_is_one_output(tmp_path, output_r
     for run in range(2):
         work = tmp_path / f"run{run}"
         work.mkdir()
-        (work / "output.html").write_text(PAGE, encoding="utf-8")
         (work / "fibonacci.html").write_text(PAGE, encoding="utf-8")
+        (work / "zweitname.html").write_text(PAGE, encoding="utf-8")
         urls.extend(sandbox._collect_html(work, SESSION))
     assert len(set(urls)) == 1
-    assert len(list((output_root / SESSION).iterdir())) == 1
+    (name,) = [p.name for p in (output_root / SESSION).iterdir()]
+    assert name == f"fibonacci-{sandbox.content_hash(PAGE.encode())}.html"
+    assert len(sandbox.content_hash(PAGE.encode())) == 6
+
+
+def test_common_name_with_different_content_keeps_both(tmp_path, output_root):
+    urls = []
+    for run, page in enumerate((PAGE, PAGE.replace("Nächste", "Weiter"))):
+        work = tmp_path / f"run{run}"
+        work.mkdir()
+        (work / "index.html").write_text(page, encoding="utf-8")
+        urls.extend(sandbox._collect_html(work, SESSION))
+    assert len(set(urls)) == 2
+    assert all(u.rsplit("/", 1)[-1].startswith("index-") for u in urls)
+
+
+def test_bubble_key_treats_the_same_content_under_two_names_as_one(tmp_path, output_root):
+    from aifred.lib.bubble import BubbleArtifact
+    digest = sandbox.content_hash(PAGE.encode())
+    a = BubbleArtifact(KIND_SANDBOX_HTML, {"url": f"/_upload/sandbox_output/{SESSION}/fibonacci-{digest}.html"})
+    b = BubbleArtifact(KIND_SANDBOX_HTML, {"url": f"/_upload/sandbox_output/{SESSION}/output-{digest}.html"})
+    assert a.key() == b.key()
 
 
 def test_different_pages_get_different_names(tmp_path, output_root):
@@ -50,7 +72,7 @@ def test_output_path_resolves_only_real_sandbox_files(tmp_path, output_root):
     (url,) = sandbox._collect_html(work, SESSION)
     assert sandbox.sandbox_output_path(url).read_text(encoding="utf-8") == PAGE
     assert sandbox.sandbox_output_path(f"/_upload/sandbox_output/{SESSION}/../x.html") is None
-    assert sandbox.sandbox_output_path("/_upload/sandbox_output/not-a-session/abcdef12.html") is None
+    assert sandbox.sandbox_output_path("/_upload/sandbox_output/not-a-session/seite-abcdef.html") is None
     assert sandbox.sandbox_output_path("/_upload/documents/seite.html") is None
 
 

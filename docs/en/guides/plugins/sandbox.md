@@ -53,9 +53,10 @@ If `bwrap` is not installed, execution is refused (no fallback). Install it with
   the run are also surfaced in the chat.
 
 Output files are stored per session under `data/sandbox_output/{session_id}/` and
-cleaned up with the session. Their name is derived from their content (a
-checksum): the same page or image written twice is one file and appears once
-in the chat. Plots and screenshots are collapsed as well.
+cleaned up with the session. Their name is `<name>-<checksum>`, e.g.
+`fibonacci-15f0ff.html` (plots `plot-…`, screenshots `shot-…`): a corrected
+version gets a new checksum, a common name such as `index` does not overwrite
+another page, and the same page under two names appears once in the chat. Plots and screenshots are collapsed as well.
 
 ## Available libraries
 

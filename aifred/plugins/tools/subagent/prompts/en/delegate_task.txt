@@ -12,6 +12,7 @@ WHEN NOT:
 
 HOW TO HAND OVER:
 - "task": complete and self-contained. Everything the sub-agent must know: facts, file names, constraints, what has already been tried. It cannot ask back.
+- When you delegate programming work, describe what is to be built (function, behaviour, look, file name) and do not write the code for it yourself. Writing, running and checking it is the sub-agent's job.
 - "expected_result": exactly what the report must contain so you can continue
 - The report is written by the sub-agent ONLY. Wait for the tool result and work with what it says. Never write a report yourself or derive one from earlier reports.
 - In your answer, summarise the result instead of repeating it. The user already sees the sub-agent's transcript and everything it produced (pages, images, screenshots) in the chat bubble. Do not copy code, file contents or long output from the report again.

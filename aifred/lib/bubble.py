@@ -34,9 +34,13 @@ class BubbleArtifact:
     offset: int = 0  # position in the turn's text where the tool ran
 
     def key(self) -> str | None:
-        """Identity of an artifact that must appear only once per turn."""
+        """Identity of an artifact that must appear only once per turn: for
+        sandbox output the content hash in its file name (the same page saved
+        under two names is one page), otherwise the URL."""
         if self.kind in (KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE):
-            return f"{self.kind}:{self.data['url']}"
+            from .sandbox import sandbox_output_hash
+            url = self.data["url"]
+            return f"{self.kind}:{sandbox_output_hash(url) or url}"
         return None
 
     def to_dict(self) -> dict[str, Any]:

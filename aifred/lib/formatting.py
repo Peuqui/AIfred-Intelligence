@@ -313,7 +313,15 @@ def _format_prefill(prompt_per_sec: float | None, tokens: int = 0) -> str:
 
 
 def format_performance_footer(metadata: dict) -> str:
-    """Build a performance metadata footer from a metrics dict.
+    """The performance footer as Markdown (italic, in parentheses) for a chat
+    bubble; see ``performance_footer_text`` for the plain line."""
+    text = performance_footer_text(metadata)
+    return format_metadata(text) if text else ""
+
+
+def performance_footer_text(metadata: dict) -> str:
+    """Build the performance metadata line from a metrics dict, as plain text
+    (the sub-agent transcript shows it inside a preformatted block).
 
     Used by both browser-path (add_agent_panel) and hub-path (_append_response).
 
@@ -322,8 +330,8 @@ def format_performance_footer(metadata: dict) -> str:
                   inference_time, source, backend_type (all optional)
 
     Returns:
-        Formatted string like *( TTFT: 0,41s    PP: 466,0 tok/s    ... )*
-        or empty string if no metrics.
+        Line like "TTFT: 0,41s    PP: 466,0 tok/s    ..." or empty string if
+        no metrics.
     """
     if not metadata:
         return ""
@@ -376,8 +384,7 @@ def format_performance_footer(metadata: dict) -> str:
         groups.append("    ".join(info_parts))
     if time_parts:
         groups.append("    ".join(time_parts))
-    metadata_text = "\u00A0\u00A0\u00A0 ".join(groups)
-    return format_metadata(metadata_text)
+    return "\u00A0\u00A0\u00A0 ".join(groups)
 
 
 def build_assistant_chat_entry(
@@ -1211,11 +1218,17 @@ def build_tool_collapsible(block: dict[str, Any]) -> str:
     import html as _html
     title = _html.escape(str(block.get("title", "")).strip()) or "…"
     content = _html.escape(str(block.get("content", "")).rstrip())
+    # <pre> on its own line after a blank line: Markdown treats it as a raw
+    # HTML block that only ends at </pre>, so blank lines, tables or **bold**
+    # in the content stay literal text (inside a <div> Markdown resumed after
+    # every blank line and pre-wrap spread its line breaks as big gaps). No
+    # own max-height: the <details> rule in custom.css already scrolls, a
+    # second scroll box inside gave a second scrollbar.
     return (
         f'<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">\n'
         f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; '
-        f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n'
-        f'<div style="max-height: 60vh; overflow-y: auto; padding-left: 1em; padding-top: 0.3em; '
-        f'line-height: 1.5; white-space: pre-wrap; font-family: monospace; font-size: 0.95em;">\n'
-        f'{content}\n</div>\n</details>'
+        f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n\n'
+        f'<pre style="margin: 0; padding: 0.3em 0 0 1em; background: transparent; border: none; '
+        f'line-height: 1.5; white-space: pre-wrap; word-break: break-word; '
+        f'font-family: monospace; font-size: 0.95em;">{content}</pre>\n\n</details>'
     )

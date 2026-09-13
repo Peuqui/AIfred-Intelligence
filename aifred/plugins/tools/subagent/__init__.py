@@ -22,6 +22,7 @@ from dataclasses import dataclass, replace
 from typing import Any, AsyncGenerator, Optional
 
 from ....lib.bubble import KIND_COLLAPSIBLE, KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE, BubbleArtifact
+from ....lib.formatting import performance_footer_text
 from ....lib.function_calling import Tool, ToolKit
 from ....lib.llm_client import LLMClient, build_llm_options
 from ....lib.llm_pipeline import run_llm_stream
@@ -504,6 +505,12 @@ async def run_subagent(
 
     flush_round(final=True)
     transcript.append(f"[{labels['report']}]\n{report or labels['no_report']}")
+    if pipeline_result is not None:
+        # Same performance line as below a main agent's answer (one builder),
+        # with the backend the sub-agent ran on.
+        transcript.append(performance_footer_text(
+            {**pipeline_result.metadata_dict, "backend_type": params.backend_type},
+        ))
 
     # The transcript, then everything the sub-agent's own tools produced for
     # the bubble (nested transcripts, sources, sandbox pages, camera images,

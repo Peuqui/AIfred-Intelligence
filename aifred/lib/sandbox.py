@@ -102,17 +102,37 @@ def _session_output_dir(session_id: str) -> Path:
     return session_dir
 
 
-# Sandbox output files are named after their content: an identical page or
-# image written twice (two files, two runs) gets the same name and URL, so the
-# bubble shows it once and the disk keeps one copy. 8 hex digits of SHA-256
-# are plenty within one session's directory.
-SANDBOX_OUTPUT_NAME_RE = re.compile(r"^(?:shot_)?[0-9a-f]{8}\.(?:html|png)$")
+# Sandbox output files are named "<name>-<hash>.<ext>": the name keeps them
+# readable (the model's own file name, "plot" for plots, "shot" for
+# screenshots), the hash (start of the content's SHA-256) keeps different
+# contents under a common name such as "index" apart. A corrected file gets a
+# new hash, so an earlier answer keeps showing the version it was about. The
+# hash also identifies the content: the same page saved under two names is one
+# page in the bubble. 6 hex digits are plenty within one session's directory.
+OUTPUT_HASH_LEN = 6
+SANDBOX_OUTPUT_NAME_RE = re.compile(
+    rf"^[A-Za-z0-9][A-Za-z0-9_-]*-([0-9a-f]{{{OUTPUT_HASH_LEN}}})\.(?:html|png)$"
+)
 
 
-def content_filename(data: bytes, suffix: str, prefix: str = "") -> str:
-    """Output file name derived from the file's content."""
+def content_hash(data: bytes) -> str:
+    """The hash part of an output file name."""
     import hashlib
-    return f"{prefix}{hashlib.sha256(data).hexdigest()[:8]}{suffix}"
+    return hashlib.sha256(data).hexdigest()[:OUTPUT_HASH_LEN]
+
+
+def output_filename(stem: str, data: bytes, suffix: str) -> str:
+    """``<stem>-<content hash><suffix>``; the stem is reduced to letters,
+    digits, ``_`` and ``-``."""
+    clean = re.sub(r"[^A-Za-z0-9_-]+", "-", stem).strip("-_")[:40] or "page"
+    return f"{clean}-{content_hash(data)}{suffix}"
+
+
+def sandbox_output_hash(url: str) -> Optional[str]:
+    """The content hash in a sandbox output URL's file name, or None when the
+    URL is no sandbox output file."""
+    match = SANDBOX_OUTPUT_NAME_RE.match(url.rsplit("/", 1)[-1])
+    return match.group(1) if match and "/_upload/sandbox_output/" in url else None
 
 
 def sandbox_output_path(url: str) -> Optional[Path]:
@@ -142,7 +162,8 @@ def _sandbox_url(session_id: str, filename: str) -> str:
 # actual deliverables and outlive their session. This prefix is the only
 # thing that tells the two apart on disk, so it is the SSOT for both the
 # writer (browser_render) and the deletion path below.
-SCREENSHOT_PREFIX = "shot_"
+SCREENSHOT_STEM = "shot"
+SCREENSHOT_PREFIX = f"{SCREENSHOT_STEM}-"
 
 # Line markers the sandbox tools emit in their result text so downstream
 # consumers (llm_pipeline UI-embed, screenshot description below) can find
@@ -343,7 +364,7 @@ def _collect_images(work_dir: Path, session_id: str) -> list[str]:
 
     urls: list[str] = []
     for png in sorted(work_dir.glob("__plot_*.png")):
-        filename = content_filename(png.read_bytes(), ".png")
+        filename = output_filename("plot", png.read_bytes(), ".png")
         shutil.copy2(png, output_dir / filename)
         url = _sandbox_url(session_id, filename)
         if url not in urls:
@@ -357,7 +378,8 @@ def _collect_html(work_dir: Path, session_id: str) -> list[str]:
     Reads ``output.html`` first (legacy single-file convention) followed by
     every other ``*.html`` in alphabetical order. Empty files are skipped.
     Each kept file is copied to ``sandbox_output/{session_id}/`` under a
-    name derived from its content (see ``content_filename``).
+    ``<name>-<content hash>.html`` (see ``output_filename``); the same content
+    under a second name in one run is kept once, under the first name.
     """
     all_files = list(work_dir.iterdir())
     log_message(f"Sandbox _collect_html: files={[f.name for f in all_files]}")
@@ -372,6 +394,7 @@ def _collect_html(work_dir: Path, session_id: str) -> list[str]:
         candidates.append(extra)
 
     urls: list[str] = []
+    seen_hashes: set[str] = set()
     output_dir = _session_output_dir(session_id)
     for html_file in candidates:
         try:
@@ -381,11 +404,13 @@ def _collect_html(work_dir: Path, session_id: str) -> list[str]:
             continue
         if not html_content.strip():
             continue
-        filename = content_filename(html_content.encode("utf-8"), ".html")
+        data = html_content.encode("utf-8")
+        if content_hash(data) in seen_hashes:
+            continue
+        seen_hashes.add(content_hash(data))
+        filename = output_filename(html_file.stem, data, ".html")
         (output_dir / filename).write_text(html_content, encoding="utf-8")
-        url = _sandbox_url(session_id, filename)
-        if url not in urls:
-            urls.append(url)
+        urls.append(_sandbox_url(session_id, filename))
 
     if not urls:
         log_message("Sandbox _collect_html: no HTML file found")
