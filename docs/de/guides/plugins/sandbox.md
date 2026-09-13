@@ -50,13 +50,19 @@ Installation via `sudo apt install bubblewrap`.
   abgeschnitten). Gib gewünschte Ergebnisse immer mit `print()` aus.
 - **matplotlib-Plots** werden automatisch erfasst (`MPLBACKEND=Agg`) und als
   Bilder im Chat eingebettet.
-- **Interaktives HTML/JS** (z. B. plotly `fig.write_html("output.html", include_plotlyjs=True)`)
-  wird erkannt und inline als iframe eingebettet.
+- **Interaktives HTML/JS**: Jede `.html`-Datei im Arbeitsverzeichnis (z. B. plotly
+  `fig.write_html("diagramm.html", include_plotlyjs=True)`) wird erkannt und als
+  zugeklapptes iframe mit Link „Im Browser öffnen“ eingebettet, darunter
+  zugeklappt ihr Quelltext. Das Modell soll eine Seite in genau eine Datei mit
+  sprechendem Namen schreiben.
 - Bei `execute_code_write` werden auch HTML-/Bild-Artefakte, die während des Laufs
   in `documents/` geschrieben werden, im Chat angezeigt.
 
 Output-Dateien liegen pro Session unter `data/sandbox_output/{session_id}/` und
-werden mit der Session aufgeräumt.
+werden mit der Session aufgeräumt. Ihr Name leitet sich aus dem Inhalt ab
+(Prüfsumme): Dieselbe Seite oder dasselbe Bild, zweimal geschrieben, ist eine
+Datei und erscheint im Chat nur einmal. Plots und Screenshots sind ebenfalls
+zugeklappt.
 
 ## Verfügbare Libraries
 

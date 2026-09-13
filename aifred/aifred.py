@@ -737,7 +737,7 @@ console.log('✂️ Crop handler loaded');
     if (document.getElementById('aifred-custom-js')) return;
     var s = document.createElement('script');
     s.id = 'aifred-custom-js';
-    s.src = '/custom.js?v=30';
+    s.src = '/custom.js?v=31';
     document.head.appendChild(s);
 })();
 """

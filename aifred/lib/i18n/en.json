@@ -629,6 +629,7 @@
   "collapsible_json": "JSON Data",
   "collapsible_vlm": "VLM Analysis",
   "collapsible_image_descriptions": "Image descriptions",
+  "collapsible_source_code": "Source code",
   "collapsible_show_html": "📄 Show HTML Code",
   "collapsible_thinking_process": "💭 Final Answer Thinking Process",
   "collapsible_summary": "Summary",

@@ -44,13 +44,18 @@ If `bwrap` is not installed, execution is refused (no fallback). Install it with
 - **stdout / stderr** are returned to the model (truncated at ~1 MB each). Always
   `print()` results you want back.
 - **matplotlib plots** are auto-captured (`MPLBACKEND=Agg`) and embedded in the chat as images.
-- **Interactive HTML/JS** (e.g. plotly `fig.write_html("output.html", include_plotlyjs=True)`)
-  is detected and embedded inline as an iframe.
+- **Interactive HTML/JS**: every `.html` file in the working directory (e.g. plotly
+  `fig.write_html("chart.html", include_plotlyjs=True)`) is detected and embedded
+  as a collapsed iframe with an "open in browser" link, with its source code
+  collapsed below. The model is told to write one page into exactly one
+  meaningfully named file.
 - For `execute_code_write`, HTML/image artifacts written into `documents/` during
   the run are also surfaced in the chat.
 
 Output files are stored per session under `data/sandbox_output/{session_id}/` and
-cleaned up with the session.
+cleaned up with the session. Their name is derived from their content (a
+checksum): the same page or image written twice is one file and appears once
+in the chat. Plots and screenshots are collapsed as well.
 
 ## Available libraries
 
