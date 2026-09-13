@@ -25,7 +25,8 @@ console.log('click handled')">Go</button>
 def _write_html(out_root, content: str) -> str:
     session_dir = out_root / SESSION
     session_dir.mkdir(parents=True, exist_ok=True)
-    fname = f"{uuid.uuid4().hex[:8]}.html"
+    from aifred.lib.sandbox import output_filename
+    fname = output_filename("seite", content.encode("utf-8"), ".html")
     (session_dir / fname).write_text(content, encoding="utf-8")
     return fname
 

@@ -136,7 +136,7 @@ async def render_html_in_browser(
         BROWSER_RENDER_TIMEOUT_SECONDS,
         BROWSER_RENDER_WINDOW_SIZE,
     )
-    from .sandbox import SCREENSHOT_PREFIX, _sandbox_url, _session_output_dir, content_filename
+    from .sandbox import SCREENSHOT_STEM, _sandbox_url, _session_output_dir, output_filename
 
     html_path = resolve_sandbox_html_path(html_url, session_id)
     if html_path is None:
@@ -237,7 +237,7 @@ async def render_html_in_browser(
     # Publish screenshots under the sandbox naming scheme (stable URLs)
     for shot in tmp_shots:
         if shot.is_file() and shot.stat().st_size > 0:
-            filename = content_filename(shot.read_bytes(), ".png", prefix=SCREENSHOT_PREFIX)
+            filename = output_filename(SCREENSHOT_STEM, shot.read_bytes(), ".png")
             shutil.move(str(shot), output_dir / filename)
             url = _sandbox_url(session_id, filename)
             if url not in result.screenshot_urls:

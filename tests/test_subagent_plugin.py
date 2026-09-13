@@ -214,7 +214,11 @@ class TestRun:
             yield {"type": "content", "text": "alles gut."}
             yield {"type": "pipeline_result", "result": self.pipeline_result}
 
-        self.pipeline_result = SimpleNamespace(text_clean="Der Bericht: alles gut.", artifacts=[])
+        self.pipeline_result = SimpleNamespace(
+            text_clean="Der Bericht: alles gut.", artifacts=[],
+            metadata_dict={"ttft": 1.5, "tokens_per_sec": 51.3, "inference_time": 12.0,
+                           "source": "Codine (Sub-Agent) (test-model)"},
+        )
         monkeypatch.setattr(sub, "run_llm_stream", fake_stream)
         self.captured = captured
 
@@ -233,6 +237,10 @@ class TestRun:
         pieces = ("erst lesen", "read_file", 'path: "a.txt"', "INHALT VON A", "Der Bericht: alles gut.")
         positions = [transcript["data"]["content"].index(piece) for piece in pieces]
         assert positions == sorted(positions)  # in the order the run happened
+        # The main agents' performance line, plain text, with model and backend.
+        last_line = transcript["data"]["content"].rsplit("\n\n", 1)[-1]
+        assert "TTFT" in last_line and "test-model" in last_line and "[llamacpp]" in last_line
+        assert not last_line.startswith("*")
 
     def test_artifacts_of_the_subagent_turn_go_up(self, plugin, ctx):
         from aifred.lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
@@ -307,6 +315,15 @@ class TestToolLoopIntegration:
         from aifred.lib.formatting import build_tool_collapsible
         html = build_tool_collapsible({"title": "🤝 <x>", "content": "a < b\n```code```"})
         assert "<details" in html and "&lt;x&gt;" in html and "a &lt; b" in html
+
+    def test_collapsible_content_is_one_raw_pre_block(self):
+        from aifred.lib.formatting import build_tool_collapsible
+        html = build_tool_collapsible({"title": "T", "content": "a\n\n| x | y |\n|---|---|\n\n**b**"})
+        # The <pre> starts after a blank line (own Markdown HTML block that runs
+        # to </pre>), so blank lines in the content cannot switch Markdown back on.
+        assert "</summary>\n\n<pre " in html and "</pre>\n\n</details>" in html
+        # No second scroll box inside the <details>.
+        assert "max-height" not in html
 
     def test_anchor_offsets_survive_post_processing_shifts(self):
         from aifred.lib.llm_pipeline import _ARTIFACT_ANCHOR, resolve_artifact_anchors

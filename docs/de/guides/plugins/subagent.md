@@ -112,6 +112,8 @@ Werkzeugaufruf.
 
 Während der Sub-Agent arbeitet, zeigt die Statuszeile, welches Werkzeug er
 gerade ruft. Danach steht das Transkript als aufklappbarer Block in der Bubble
+(am Ende dieselbe Kennzahlen-Zeile wie unter einer Antwort: TTFT, Prefill,
+Token pro Sekunde, Dauer, Modell und Backend des Sub-Agenten)
 des Hauptagenten, an der Stelle des Turns, an der delegiert wurde: Denkprozess,
 Text und Transkripte erscheinen in der Reihenfolge, in der sie entstanden. Was
 die Werkzeuge des Sub-Agenten für die Bubble erzeugt haben, geht mit nach oben,

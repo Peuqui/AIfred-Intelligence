@@ -59,9 +59,11 @@ Installation via `sudo apt install bubblewrap`.
   in `documents/` geschrieben werden, im Chat angezeigt.
 
 Output-Dateien liegen pro Session unter `data/sandbox_output/{session_id}/` und
-werden mit der Session aufgeräumt. Ihr Name leitet sich aus dem Inhalt ab
-(Prüfsumme): Dieselbe Seite oder dasselbe Bild, zweimal geschrieben, ist eine
-Datei und erscheint im Chat nur einmal. Plots und Screenshots sind ebenfalls
+werden mit der Session aufgeräumt. Ihr Name ist `<Name>-<Prüfsumme>`, etwa
+`fibonacci-15f0ff.html` (Plots `plot-…`, Screenshots `shot-…`): Eine korrigierte
+Fassung bekommt eine neue Prüfsumme, ein Allerweltsname wie `index` überschreibt
+keine andere Seite, und dieselbe Seite unter zwei Namen erscheint im Chat nur
+einmal. Plots und Screenshots sind ebenfalls
 zugeklappt.
 
 ## Verfügbare Libraries
