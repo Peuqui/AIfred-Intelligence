@@ -134,6 +134,9 @@ class ToolKit:
                 — bubble artifacts (lib/bubble.py) the tool delivers for the
                 caller's bubble, e.g. a sub-agent's transcript and what its
                 own tools produced. Never reaches the model.
+            ``{"type": "tool_work", "work": {...}}`` — inference a tool ran
+                itself (a sub-agent), as ``perf_metrics.InferenceWork``; the
+                caller adds it to its own turn's metrics.
             ``{"type": "tool_result",   "result":  "..."}`` — final result
                 string (sanitised). Always exactly one is emitted.
 
@@ -141,7 +144,8 @@ class ToolKit:
         - sync / async coroutine → result string only.
         - async generator → must yield ``{"progress": "..."}`` for interim
           updates, may yield ``{"artifacts": [{"kind", "data"}, ...]}`` for
-          the caller's bubble, and exactly one ``{"result": "..."}`` for the
+          the caller's bubble, may yield ``{"work": {...}}`` for inference it
+          ran, and exactly one ``{"result": "..."}`` for the
           final payload (string). Anything else yielded is treated as a
           fallback plain-string result.
         """
@@ -230,6 +234,8 @@ class ToolKit:
                         yield {"type": "tool_progress", "message": str(item["progress"])}
                     elif isinstance(item, dict) and "artifacts" in item:
                         yield {"type": "tool_artifacts", "artifacts": list(item["artifacts"])}
+                    elif isinstance(item, dict) and "work" in item:
+                        yield {"type": "tool_work", "work": dict(item["work"])}
                     elif isinstance(item, dict) and "result" in item:
                         result_str = (
                             json.dumps(item["result"])

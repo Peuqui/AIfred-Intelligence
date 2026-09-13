@@ -456,7 +456,7 @@ def build_inference_metadata(
         tokens_per_sec: Generation speed (tok/s)
         source: Source label (e.g. "Own Knowledge (qwen3:4b)")
         backend_metrics: Raw metrics from backend done chunk (has prompt_per_second for Ollama)
-        tokens_prompt: Number of prompt tokens (for PP fallback via TTFT)
+        tokens_prompt: Number of prompt tokens (cloud debug line)
         history_tokens: LLM history token count (for debug output)
         backend_type: Backend type ("ollama", "llamacpp", "cloud_api", etc.)
         agent_label: Agent name for debug line (e.g. "AIfred-LLM", "Sokrates")
@@ -473,21 +473,15 @@ def build_inference_metadata(
         - metadata_display: format_metadata() string for chat bubble embedding
         - debug_msg: Debug "done" line (also logged via log_message())
     """
-    # --- PP speed: from backend (Ollama) or TTFT fallback ---
-    # Prefill-Rate NUR aus Werten, die dieselbe Groesse messen. llama.cpp und
-    # Ollama melden sie server-seitig ueber die real ausgewerteten Token. Wo
-    # das fehlt (vLLM), taugt Wanduhr nur, wenn wir wissen, wie viel wirklich
-    # gerechnet wurde — sonst zaehlten Praefix-Cache-Treffer als Leistung und
-    # der Wert stiege mit dem Cache statt mit der Hardware (gemessen
-    # 2026-09-01: 1.587 gegen ehrliche 468 tok/s im selben Vergleich).
-    # Ist beides nicht zu haben, wird KEINE Rate ausgegeben.
+    # --- PP speed: measured by the backend ---
+    # The backends measure it themselves (server phase times, or from outside
+    # over the really computed tokens only, see perf_metrics.InferenceWork)
+    # and sum it over the whole turn. A rate that could not be measured stays
+    # unknown: the footer shows n/a instead of a wrong number.
     _bm = backend_metrics or {}
     prompt_per_sec, prompt_tokens_computed = prefill_tokens_per_second(
         server_rate=_bm.get("prompt_per_second"),
         server_tokens=int(_bm.get("tokens_prompt_computed") or 0),
-        prompt_tokens=_bm.get("tokens_prompt", 0) or 0,
-        cached_tokens=_bm.get("tokens_prompt_cached"),
-        elapsed_s=ttft or 0.0,
     )
 
     # --- Metadata dict (for persistence) ---
@@ -1209,14 +1203,21 @@ def build_tool_collapsible(block: dict[str, Any]) -> str:
     """HTML ``<details>`` block for UI-only content delivered by a tool.
 
     ``block`` is the data of a collapsible bubble artifact,
-    ``{"title": ..., "content": ...}`` (see lib/bubble.py). The content is
+    ``{"title": ..., "content": ..., "footer": ...}`` (see lib/bubble.py;
+    ``footer`` optional). The content is
     shown as preformatted text and HTML-escaped, so a sub-agent transcript
     with angle brackets or Markdown fences cannot break the bubble. Same
     styling as the thinking and sources collapsibles; ignored by the token
     estimate like every ``<details>`` block.
     """
     import html as _html
+    from ..theme import COLORS
     title = _html.escape(str(block.get("title", "")).strip()) or "…"
+    # Optional text-glyph icon (e.g. ⇄) in the accent colour, so it stands out
+    # from the grey title the way the coloured emoji of other blocks do.
+    icon_text = str(block.get("icon", "")).strip()
+    if icon_text:
+        title = f'<span style="color: {COLORS["primary"]};">{_html.escape(icon_text)}</span> {title}'
     # Line breaks as the entity &#10;: the whole block is one HTML block without
     # blank lines, so Markdown never switches back on inside it (a blank line
     # made tables and **bold** render and pre-wrap spread them as big gaps).
@@ -1224,11 +1225,18 @@ def build_tool_collapsible(block: dict[str, Any]) -> str:
     # expects a <code> child and crashed the page. No own max-height: the
     # <details> rule in custom.css already scrolls.
     content = _html.escape(str(block.get("content", "")).rstrip()).replace("\n", "&#10;")
+    # Optional performance line, italic in parentheses like the footer below an
+    # answer (format_metadata); HTML here, because Markdown is off in the block.
+    footer_text = str(block.get("footer", "")).strip()
+    footer = (
+        f'<div style="padding: 0.6em 0 0 1em; font-style: italic;">( {_html.escape(footer_text)} )</div>\n'
+        if footer_text else ""
+    )
     return (
         f'<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">\n'
         f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; '
         f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n'
         f'<div style="padding: 0.3em 0 0 1em; line-height: 1.5; white-space: pre-wrap; '
         f'word-break: break-word; font-family: monospace; font-size: 0.95em;">{content}</div>\n'
-        f'</details>'
+        f'{footer}</details>'
     )

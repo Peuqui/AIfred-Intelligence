@@ -104,9 +104,7 @@ context. For the caller, the delegation counts as one tool call.
 ## What the user sees
 
 While the sub-agent works, the status line shows which tool it is calling.
-Afterwards the transcript (ending with the same performance line as below an
-answer: TTFT, prefill, tokens per second, duration, the sub-agent's model and
-backend) sits as a collapsible block in the main agent's
+Afterwards the transcript sits as a collapsible block in the main agent's
 bubble, at the point of the turn where it delegated: thinking, text and
 transcripts appear in the order they happened. Whatever the sub-agent's tools
 produced for the bubble goes up as if the main agent had produced it: sandbox
@@ -119,6 +117,19 @@ below. The main agent only summarises the result in its answer and does not
 copy code or files again. Through the Message Hub
 (Telegram, email) there is no bubble; the run is then in the session's debug
 log.
+
+
+**Metrics:** The transcript ends with the same performance line as an answer,
+italic in parentheses: TTFT, prefill, tokens per second, duration, model and
+backend. It covers only the sub-agent's work, including sub-agents it delegated
+to itself. The line below the main agent's answer covers the whole turn instead:
+prefill and tokens per second add up every server request, meaning each tool
+round of the main agent and all requests of its sub-agents. The rate is total
+tokens over total compute time, not the mean of the single rates, so a short
+follow-up prefill does not count as much as a long cold one. The duration is the
+wall clock of the whole turn, including the wait for the sub-agent. If a single
+request cannot be measured, prefill shows "n/a" instead of a number that leaves
+work out.
 
 ## Deliberately not included
 

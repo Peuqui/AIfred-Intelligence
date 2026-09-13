@@ -112,8 +112,6 @@ Werkzeugaufruf.
 
 Während der Sub-Agent arbeitet, zeigt die Statuszeile, welches Werkzeug er
 gerade ruft. Danach steht das Transkript als aufklappbarer Block in der Bubble
-(am Ende dieselbe Kennzahlen-Zeile wie unter einer Antwort: TTFT, Prefill,
-Token pro Sekunde, Dauer, Modell und Backend des Sub-Agenten)
 des Hauptagenten, an der Stelle des Turns, an der delegiert wurde: Denkprozess,
 Text und Transkripte erscheinen in der Reihenfolge, in der sie entstanden. Was
 die Werkzeuge des Sub-Agenten für die Bubble erzeugt haben, geht mit nach oben,
@@ -127,6 +125,20 @@ seinen Quelltext. Der Hauptagent fasst das Ergebnis in seiner Antwort nur
 zusammen und schreibt Code oder Dateien nicht erneut ab. Über den Message Hub
 (Telegram, E-Mail) gibt es keine Bubble; dort steht der Ablauf im Debug-Log der
 Session.
+
+
+**Kennzahlen:** Das Transkript endet mit derselben Kennzahlen-Zeile wie eine
+Antwort, kursiv in Klammern: TTFT, Prefill, Token pro Sekunde, Dauer, Modell
+und Backend. Sie gilt nur für die Arbeit des Sub-Agenten, samt der
+Sub-Agenten, an die er selbst weiterdelegiert hat. Die Zeile unter der Antwort
+des Hauptagenten zeigt dagegen den ganzen Turn: Prefill und Token pro Sekunde
+rechnen alle Serveranfragen zusammen, also jede Werkzeugrunde des Hauptagenten
+und alle Anfragen seiner Sub-Agenten. Gerechnet wird gesamte Token durch
+gesamte Rechenzeit, nicht der Mittelwert der einzelnen Raten, damit ein kurzer
+Folge-Prefill nicht so viel zählt wie ein langer kalter. Die Dauer ist die
+Wanduhr des ganzen Turns, Wartezeit auf den Sub-Agenten eingeschlossen. Ist
+eine einzige Anfrage nicht messbar, steht beim Prefill „n/a“ statt einer Zahl,
+die Arbeit unterschlägt.
 
 ## Bewusst nicht enthalten
 

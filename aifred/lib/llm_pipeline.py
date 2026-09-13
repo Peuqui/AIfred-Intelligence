@@ -583,6 +583,7 @@ async def run_llm_stream(
         source=f"{agent_label} ({model})",
         backend_metrics=metrics,
         tokens_prompt=metrics.get("tokens_prompt", 0),
+        backend_type=llm_client.backend_type,
         agent_label=agent_label,
         response_chars=len(full_response),
         truncated=truncated,

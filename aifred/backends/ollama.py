@@ -7,6 +7,7 @@ Wraps Ollama API into unified LLMBackend interface
 import httpx
 import logging
 from typing import Any, List, Optional, AsyncIterator, Dict
+from ..lib.perf_metrics import InferenceWork
 from ..lib.timer import Timer
 from .base import (
     LLMBackend,
@@ -438,7 +439,15 @@ class OllamaBackend(LLMBackend):
                                             "tokens_per_second": tokens_per_second,
                                             "prompt_per_second": prompt_per_second,
                                             "inference_time": inference_time,
-                                            "model": model
+                                            "model": model,
+                                            # Same shape as the OpenAI-compatible
+                                            # backends, so a caller can sum it.
+                                            "work": InferenceWork(
+                                                prefill_tokens=prompt_eval_count,
+                                                prefill_s=prompt_eval_duration / 1e9,
+                                                decode_tokens=eval_count,
+                                                decode_s=eval_duration / 1e9,
+                                            ).to_dict(),
                                         }
                                     }
                                     return  # Success, exit function
