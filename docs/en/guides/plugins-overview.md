@@ -106,7 +106,7 @@ Isolated Python code execution in subprocess.
 
 **File:** `plugins/tools/subagent/`
 
-Main agents delegate self-contained tasks to sub-agents: a fresh model run with its own context and toolkit, only the report comes back as the tool result, the full transcript appears collapsed in the chat bubble. Settings via the gear icon: allowed tiers (default 0+2), recursion depth (default 1), sub-agent as another main agent (default off).
+Main agents delegate self-contained tasks to sub-agents: a fresh model run with its own context and toolkit, only the report comes back as the tool result, the full transcript appears collapsed in the chat bubble. Settings via the gear icon: allowed tiers (default 0+2), recursion depth (default 1), sub-agent as another main agent (default off). The third setting spreads the work across several main agents: a lean main agent delegates specialist work to agents with the fitting tools and saves up to about 45 % prefill per turn (measurement in the plugin guide). The sub-agent's results (sandbox pages with source code, screenshots, camera images, sources) appear collapsed in the bubble.
 
 | Tool | Description | Tier |
 |------|------------|------|

@@ -294,7 +294,8 @@ async def run_llm_stream(
         elif chunk_type == "tool_call":
             tool_name = chunk.get("name", "")
             full_args = chunk.get("arguments", "")
-            log_message(f"🔧 Tool call: {tool_name}({full_args})")
+            shown_args = full_args if DEBUG_LOG_RAW_OUTPUT else full_args[:200]
+            log_message(f"🔧 Tool call: {tool_name}({shown_args})")
 
             # Track web_fetch URLs for the turn's sources block
             if tool_name == "web_fetch":

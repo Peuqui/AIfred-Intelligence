@@ -15,6 +15,35 @@ History keine Token.
 
 Architektur und Entscheidungen: [Sub-Agenten als Plugin](../../architecture/subagent-plugin.md).
 
+## Warum: schlanke Hauptagenten, verteilte Last
+
+Jedes Werkzeug, das ein Agent hat, steht mit seiner Beschreibung in jedem
+Prompt. Ein Hauptagent mit allen Plugins schleppt so zehntausende Token mit,
+bevor er ein Wort der Frage gelesen hat. Mit Sub-Agenten muss er das nicht:
+Er behält die Werkzeuge für den Alltag und `delegate_task`, und Spezialarbeit
+wie Code, Sandbox oder Dokumente übernimmt ein anderer Hauptagent als
+Sub-Agent, mit dessen Modell und Werkzeugliste (Einstellung „Sub-Agent als
+anderer Hauptagent“). Die Arbeit verteilt sich damit auf mehrere Agenten, jeder
+mit dem Werkzeugkasten, den er wirklich braucht, und auf Wunsch jeder mit
+eigenem Modell.
+
+Gemessen am 13.09.2026 mit Qwen3.8-27B, Prompt-Anteile in Token laut Debug-Log (gesamt inklusive Memory und kurzer History):
+
+| Agent | Werkzeuge | System | Tool-Schemata | Prompt gesamt |
+|---|---|---|---|---|
+| AIfred ohne Whitelist | 92 | 10.485 | 20.683 | 31.730 |
+| AIfred mit Whitelist und `delegate_task` | 51 | 5.391 | 11.551 | 17.449 |
+| Codine (Coding, Sandbox, Workspace) | 27 | 5.276 | 7.315 | 13.299 |
+
+Der schlanke AIfred spart rund 14.000 Prefill-Token je Turn, also 45 % seines
+Prompts. Das System-Prompt schrumpft mit, weil nur die Anleitungen der
+freigeschalteten Plugins darin stehen. Bei einem Cache-Fehlschlag sind das
+bei rund 500 Token pro Sekunde Prefill etwa 28 Sekunden weniger bis zum ersten
+Token (gerechnet, nicht einzeln gemessen). Welche Agenten mit welchen
+Werkzeuggruppen zur Wahl stehen, sieht der Aufrufer in der Beschreibung des
+Parameters `agent`; AIfred wählt dort selbstständig den passenden Agenten, auch
+wenn der Nutzer keinen nennt.
+
 ## Tools
 
 | Tool | Beschreibung | Tier |
@@ -89,7 +118,11 @@ die Werkzeuge des Sub-Agenten für die Bubble erzeugt haben, geht mit nach oben,
 als hätte der Hauptagent es selbst erzeugt: Sandbox-Seiten und -Bilder,
 Kamerabilder samt VLM-Beschreibung, die abgerufenen Webseiten im Quellen-Block
 und die Transkripte verschachtelter Sub-Agenten. Alles steht direkt unter dem
-Transkript an der Stelle der Delegation. Über den Message Hub
+Transkript an der Stelle der Delegation. Die Blöcke sind zugeklappt: Eine
+Sandbox-Seite zeigt ihre Zeile mit „Im Browser öffnen“ (öffnet einen neuen Tab,
+ohne den Block aufzuklappen), aufgeklappt das eingebettete Programm und darunter
+seinen Quelltext. Der Hauptagent fasst das Ergebnis in seiner Antwort nur
+zusammen und schreibt Code oder Dateien nicht erneut ab. Über den Message Hub
 (Telegram, E-Mail) gibt es keine Bubble; dort steht der Ablauf im Debug-Log der
 Session.
 

@@ -239,6 +239,25 @@ def _short(text: str) -> str:
     return flat if len(flat) <= _TITLE_LEN else flat[:_TITLE_LEN].rstrip() + "…"
 
 
+def format_transcript_call(label: str, name: str, arguments: str) -> str:
+    """A tool call for the transcript, readable in full: short arguments on
+    one line, multi-line strings (code, file contents) as their own block."""
+    try:
+        parsed = json.loads(arguments) if arguments else {}
+    except json.JSONDecodeError:
+        # The model sent arguments that are not JSON; show them as they came.
+        return f"[{label}] {name}({arguments})"
+    if not isinstance(parsed, dict):
+        return f"[{label}] {name}({arguments})"
+    lines = [f"[{label}] {name}"]
+    for key, value in parsed.items():
+        if isinstance(value, str) and "\n" in value:
+            lines.append(f"{key}:\n{value}")
+        else:
+            lines.append(f"{key}: {json.dumps(value, ensure_ascii=False)}")
+    return "\n".join(lines)
+
+
 def _transcript_labels(lang: str) -> dict[str, str]:
     de = str(lang).startswith("de")
     return {
@@ -470,7 +489,7 @@ async def run_subagent(
             elif kind == "tool_call":
                 flush_round(final=False)
                 name = event.get("name", "")
-                transcript.append(f"[{labels['call']}] {name}({event.get('arguments', '')})")
+                transcript.append(format_transcript_call(labels["call"], name, event.get("arguments", "")))
                 yield {"progress": f"{labels['title']} {cfg.display_name}: {name}"}
             elif kind == "tool_progress":
                 yield {"progress": f"{labels['title']} {cfg.display_name}: {event.get('message', '')}"}

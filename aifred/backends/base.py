@@ -800,7 +800,9 @@ class OpenAICompatibleBackend(LLMBackend):
 
                     round_result_tokens = 0
                     for tc in tool_calls:
-                        yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"][:200]}
+                        # Full arguments: the sub-agent transcript shows the code a
+                        # tool ran; debug views shorten them themselves.
+                        yield {"type": "tool_call", "name": tc["name"], "arguments": tc["arguments"]}
                         yielded_any = True
                         # Use execute_streaming so streaming tools (web_search,
                         # search_documents, …) can emit tool_progress events

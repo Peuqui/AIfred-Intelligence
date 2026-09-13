@@ -88,7 +88,8 @@ today does not get them through a sub-agent either.
    `disciplines`. No identity, no personality, no reminder, no memory
    context. The frame says: you are a sub-agent, you have no access to the
    conversation or the memory, you ask no questions back, you end with a
-   report containing exactly what `expected_result` asks for, and you
+   report containing exactly what `expected_result` asks for, without copying
+   whole files, code or long output into it (naming the file or URL is enough), and you
    delegate further only if you hold the `delegate_task` tool (that is, only
    below the recursion depth).
 3. The sub-agent's user message: `task`. History: empty. This is the core of

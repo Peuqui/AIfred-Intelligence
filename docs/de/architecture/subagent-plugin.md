@@ -94,7 +94,8 @@ bekommt sie auch über einen Sub-Agenten nicht.
    Reminder, kein Memory-Kontext. Der Rahmen sagt: du bist ein Sub-Agent,
    du hast keinen Zugriff auf Gespräch und Gedächtnis, du stellst keine
    Rückfragen, du lieferst am Ende einen Bericht mit genau dem, was
-   `expected_result` verlangt, und du delegierst nur weiter, wenn du das
+   `expected_result` verlangt, ohne ganze Dateien, Code oder lange Ausgaben
+   hineinzukopieren (Datei oder URL nennen genügt), und du delegierst nur weiter, wenn du das
    Werkzeug `delegate_task` hast (also nur unterhalb der Rekursionstiefe).
 3. User-Nachricht des Sub-Agenten: `task`. History: leer. Das ist der Kern
    der Kontextentlastung, und es zwingt den Aufrufer zu einer vollständigen

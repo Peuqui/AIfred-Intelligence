@@ -14,5 +14,6 @@ HOW TO HAND OVER:
 - "task": complete and self-contained. Everything the sub-agent must know: facts, file names, constraints, what has already been tried. It cannot ask back.
 - "expected_result": exactly what the report must contain so you can continue
 - The report is written by the sub-agent ONLY. Wait for the tool result and work with what it says. Never write a report yourself or derive one from earlier reports.
+- In your answer, summarise the result instead of repeating it. The user already sees the sub-agent's transcript and everything it produced (pages, images, screenshots) in the chat bubble. Do not copy code, file contents or long output from the report again.
 - The sub-agent cannot send messages or delete files unless the plugin setting allows it. Do such steps yourself with the report.
 - If the field "agent" is present: another agent means another model or other tools. Another model costs a model swap per call, often minutes. Choose it only when the task needs it.

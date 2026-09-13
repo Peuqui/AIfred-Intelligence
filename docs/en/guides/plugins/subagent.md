@@ -14,6 +14,33 @@ and costs no tokens in the history.
 
 Architecture and decisions: [Sub-Agents as a Plugin](../../architecture/subagent-plugin.md).
 
+## Why: lean main agents, shared load
+
+Every tool an agent holds sits in every prompt with its description. A main
+agent with all plugins carries tens of thousands of tokens before it has read a
+word of the question. With sub-agents it does not have to: it keeps the
+everyday tools and `delegate_task`, and specialist work such as code, sandbox or
+documents is taken over by another main agent as a sub-agent, with that agent's
+model and tool list (setting "sub-agent as another main agent"). The work is
+spread across several agents, each with the toolkit it actually needs and, if
+wanted, each with its own model.
+
+Measured on 2026-09-13 with Qwen3.8-27B, prompt shares in tokens from the debug log (total including memory and a short history):
+
+| Agent | Tools | System | Tool schemas | Prompt total |
+|---|---|---|---|---|
+| AIfred without whitelist | 92 | 10,485 | 20,683 | 31,730 |
+| AIfred with whitelist and `delegate_task` | 51 | 5,391 | 11,551 | 17,449 |
+| Codine (coding, sandbox, workspace) | 27 | 5,276 | 7,315 | 13,299 |
+
+The lean AIfred saves about 14,000 prefill tokens per turn, 45 % of its prompt.
+The system prompt shrinks too, because it only carries the instructions of the
+granted plugins. On a cache miss, at about 500 tokens per second of prefill,
+that is roughly 28 seconds less until the first token (calculated, not measured
+individually). The caller sees which agents with which tool groups are
+available in the description of the `agent` parameter; AIfred picks the fitting
+agent there on its own, even when the user names none.
+
 ## Tools
 
 | Tool | Description | Tier |
@@ -83,7 +110,11 @@ transcripts appear in the order they happened. Whatever the sub-agent's tools
 produced for the bubble goes up as if the main agent had produced it: sandbox
 pages and images, camera images with the VLM description, the fetched web pages
 in the sources block, and the transcripts of nested sub-agents. All of it sits
-right below the transcript at the point of delegation. Through the Message Hub
+right below the transcript at the point of delegation. The blocks are
+collapsed: a sandbox page shows its line with "open in browser" (opens a new tab
+without expanding the block), expanded the embedded program and its source code
+below. The main agent only summarises the result in its answer and does not
+copy code or files again. Through the Message Hub
 (Telegram, email) there is no bubble; the run is then in the session's debug
 log.
 

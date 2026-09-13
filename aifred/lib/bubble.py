@@ -68,6 +68,24 @@ def strip_image_markdown(text: str, urls: list[str]) -> str:
     return text
 
 
+def _source_block(url: str) -> str:
+    """The page's source code, collapsed below the embedded page, so the
+    program can be read without the model copying it into its answer.
+    "" when the URL is no sandbox output file (e.g. a documents page)."""
+    from .formatting import build_tool_collapsible, get_ui_locale
+    from .i18n import t
+    from .sandbox import sandbox_output_path
+
+    path = sandbox_output_path(url)
+    if path is None:
+        return ""
+    label = t("collapsible_source_code", lang=get_ui_locale())
+    return build_tool_collapsible({
+        "title": f"📄 {label} — {path.name}",
+        "content": path.read_text(encoding="utf-8"),
+    })
+
+
 def render_artifact(artifact: BubbleArtifact, model_name: str | None, show_tags: bool) -> str:
     """Bubble markup of one artifact ("" when this view does not show it)."""
     from .formatting import (
@@ -93,7 +111,7 @@ def render_artifact(artifact: BubbleArtifact, model_name: str | None, show_tags:
         ]
         return build_sources_collapsible(successful, failed)
     if kind == KIND_SANDBOX_HTML:
-        return build_sandbox_iframe(data["url"])
+        return "\n\n".join(filter(None, [build_sandbox_iframe(data["url"]), _source_block(data["url"])]))
     if kind == KIND_SANDBOX_IMAGE:
         return build_sandbox_image(data["url"])
     if kind == KIND_VISION_IMAGES:

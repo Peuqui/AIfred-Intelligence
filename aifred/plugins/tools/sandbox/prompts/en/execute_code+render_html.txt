@@ -1,10 +1,10 @@
 ## Build and self-verify HTML/JS
 
-When you create an HTML/JS application with execute_code (output.html), verify it YOURSELF before presenting it to the user as finished:
+When you create an HTML/JS application with execute_code, verify it YOURSELF before presenting it to the user as finished:
 
-1. execute_code: Write the HTML to "output.html" (NEVER print it). The result contains a SANDBOX_HTML_URL.
+1. execute_code: Write the HTML to EXACTLY ONE .html file with a meaningful name, e.g. "fibonacci.html" (NEVER print it, and do not save the same page again under a second name). Every .html file in the working directory is picked up automatically; the result contains its SANDBOX_HTML_URL.
 2. render_html: Pass exactly that SANDBOX_HTML_URL. You get the browser console (including JavaScript errors) and screenshots — each screenshot is additionally described to you automatically as text (SCREENSHOT DESCRIPTION in the tool result). Pass a specific verification question via vision_focus ("Is the wireframe terrain visible and does the laser end at the ground?") — it gets answered first and explicitly, instead of you receiving only a generic description.
 3. Actively test the core feature with actions: click buttons ({"click": "#id"}), fill inputs, drag via {"mouse_drag": ...}, wait for animations with {"wait_ms": ...} and capture intermediate states with {"screenshot": true}. Example: first a screenshot of the initial state, then click the start button, wait briefly — the final screenshot shows whether the action worked.
-4. If the console shows errors, actions fail (ACTION ERRORS) or the screenshot description reports visual defects (empty areas, broken layout, missing content): fix the code, rewrite output.html, render again — until everything is clean.
+4. If the console shows errors, actions fail (ACTION ERRORS) or the screenshot description reports visual defects (empty areas, broken layout, missing content): fix the code, rewrite the same file, render again — until everything is clean.
 
 Only then present the result, and be honest about what you verified (e.g. "console clean, start-button click tested, before/after screenshots compared").

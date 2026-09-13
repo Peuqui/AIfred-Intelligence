@@ -13,6 +13,7 @@ session-scoped cleanup (like images in data/upload/images/{session_id}/).
 import asyncio
 import os
 import shutil
+import re
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -99,6 +100,34 @@ def _session_output_dir(session_id: str) -> Path:
         raise ValueError(f"Unsafe session_id for sandbox output: {session_id!r}")
     session_dir.mkdir(parents=True, exist_ok=True)
     return session_dir
+
+
+# Sandbox output files are named after their content: an identical page or
+# image written twice (two files, two runs) gets the same name and URL, so the
+# bubble shows it once and the disk keeps one copy. 8 hex digits of SHA-256
+# are plenty within one session's directory.
+SANDBOX_OUTPUT_NAME_RE = re.compile(r"^(?:shot_)?[0-9a-f]{8}\.(?:html|png)$")
+
+
+def content_filename(data: bytes, suffix: str, prefix: str = "") -> str:
+    """Output file name derived from the file's content."""
+    import hashlib
+    return f"{prefix}{hashlib.sha256(data).hexdigest()[:8]}{suffix}"
+
+
+def sandbox_output_path(url: str) -> Optional[Path]:
+    """The file behind a sandbox output URL
+    (``[BACKEND_URL]/_upload/sandbox_output/<session>/<name>``), or None when
+    the URL is not one, the session id is unsafe or the file is gone."""
+    marker = "/_upload/sandbox_output/"
+    if marker not in url:
+        return None
+    session_id, _, filename = url.split(marker, 1)[1].partition("/")
+    session_dir = _safe_session_subdir(session_id)
+    if session_dir is None or not SANDBOX_OUTPUT_NAME_RE.match(filename):
+        return None
+    candidate = session_dir / filename
+    return candidate if candidate.is_file() else None
 
 
 def _sandbox_url(session_id: str, filename: str) -> str:
@@ -314,9 +343,11 @@ def _collect_images(work_dir: Path, session_id: str) -> list[str]:
 
     urls: list[str] = []
     for png in sorted(work_dir.glob("__plot_*.png")):
-        filename = f"{uuid.uuid4().hex[:8]}.png"
+        filename = content_filename(png.read_bytes(), ".png")
         shutil.copy2(png, output_dir / filename)
-        urls.append(_sandbox_url(session_id, filename))
+        url = _sandbox_url(session_id, filename)
+        if url not in urls:
+            urls.append(url)
     return urls
 
 
@@ -326,7 +357,7 @@ def _collect_html(work_dir: Path, session_id: str) -> list[str]:
     Reads ``output.html`` first (legacy single-file convention) followed by
     every other ``*.html`` in alphabetical order. Empty files are skipped.
     Each kept file is copied to ``sandbox_output/{session_id}/`` under a
-    fresh hex name so different runs don't collide.
+    name derived from its content (see ``content_filename``).
     """
     all_files = list(work_dir.iterdir())
     log_message(f"Sandbox _collect_html: files={[f.name for f in all_files]}")
@@ -350,9 +381,11 @@ def _collect_html(work_dir: Path, session_id: str) -> list[str]:
             continue
         if not html_content.strip():
             continue
-        filename = f"{uuid.uuid4().hex[:8]}.html"
+        filename = content_filename(html_content.encode("utf-8"), ".html")
         (output_dir / filename).write_text(html_content, encoding="utf-8")
-        urls.append(_sandbox_url(session_id, filename))
+        url = _sandbox_url(session_id, filename)
+        if url not in urls:
+            urls.append(url)
 
     if not urls:
         log_message("Sandbox _collect_html: no HTML file found")

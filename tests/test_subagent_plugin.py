@@ -230,7 +230,7 @@ class TestRun:
         (transcript,) = [e for e in events if "artifacts" in e][0]["artifacts"]
         assert transcript["kind"] == KIND_COLLAPSIBLE
         assert "Lies a.txt" in transcript["data"]["title"]
-        pieces = ("erst lesen", 'read_file({"path": "a.txt"})', "INHALT VON A", "Der Bericht: alles gut.")
+        pieces = ("erst lesen", "read_file", 'path: "a.txt"', "INHALT VON A", "Der Bericht: alles gut.")
         positions = [transcript["data"]["content"].index(piece) for piece in pieces]
         assert positions == sorted(positions)  # in the order the run happened
 
@@ -294,6 +294,14 @@ class TestToolLoopIntegration:
         assert [e["type"] for e in events] == ["tool_progress", "tool_artifacts", "tool_result"]
         assert events[1]["artifacts"] == [{"kind": KIND_COLLAPSIBLE, "data": {"title": "T", "content": "C"}}]
         assert events[2]["result"] == "R"
+
+    def test_transcript_shows_code_arguments_in_full(self):
+        code = "html = open('fibonacci.html', 'w')\n" + "x = 1\n" * 100
+        line = sub.format_transcript_call("TOOL", "execute_code", json.dumps({"code": code, "description": "d"}))
+        assert line.startswith("[TOOL] execute_code\ncode:\n")
+        assert code in line and 'description: "d"' in line
+        # Arguments that are not JSON are shown as they came.
+        assert sub.format_transcript_call("TOOL", "t", "{kaputt") == "[TOOL] t({kaputt)"
 
     def test_collapsible_html_escapes(self):
         from aifred.lib.formatting import build_tool_collapsible

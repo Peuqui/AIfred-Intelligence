@@ -2422,3 +2422,18 @@ bindDocKeydownOnce('arrownav', function (e) {
         e.preventDefault();
     }
 });
+
+// Links in the summary line of a collapsible (sandbox page "Im Browser öffnen",
+// plot "Vollbild", HTML preview) open their target WITHOUT toggling the block.
+// A click inside <summary> would otherwise also open/close the <details>; the
+// former inline onclick="event.stopPropagation()" was rejected by React (string
+// listener in raw HTML) and did not prevent the toggle anyway. Bound once.
+if (!window.__aifredSummaryLinkBound) {
+    window.__aifredSummaryLinkBound = true;
+    document.addEventListener('click', function (e) {
+        const link = e.target && e.target.closest ? e.target.closest('summary a[href]') : null;
+        if (!link) return;
+        e.preventDefault();
+        window.open(link.href, link.target || '_blank', 'noopener,noreferrer');
+    });
+}

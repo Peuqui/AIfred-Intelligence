@@ -28,7 +28,7 @@ def _looks_like_html_document(text: str) -> bool:
     """True when STDOUT starts with a full HTML document.
 
     Guard against models printing their HTML instead of writing
-    ``output.html`` — the printed copy wastes thousands of context tokens
+    an .html file — the printed copy wastes thousands of context tokens
     and skips the interactive chat embed.
     """
     head = text.lstrip()[:64].lower()
@@ -37,7 +37,8 @@ def _looks_like_html_document(text: str) -> bool:
 
 _HTML_IN_STDOUT_HINT = (
     "HTML document detected in STDOUT — the printed copy was dropped to save "
-    "context. Write HTML to a FILE instead: open(\"output.html\", \"w\") — it "
+    "context. Write HTML to ONE .html FILE with a meaningful name instead, e.g. "
+    "open(\"fibonacci.html\", \"w\") — it "
     "is then embedded interactively in the chat and can be verified with the "
     "render_html tool. Re-run your code with the file write."
 )
@@ -96,7 +97,7 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
             if result.html_urls:
                 parts.append(
                     "STDOUT contained a full HTML document — dropped "
-                    "(your output.html was captured, see below)."
+                    "(your .html file was captured, see below)."
                 )
             else:
                 parts.append(_HTML_IN_STDOUT_HINT)

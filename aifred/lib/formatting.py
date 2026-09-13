@@ -741,7 +741,7 @@ def extract_html_previews(text: str, lang: str | None = None) -> tuple[list[str]
         preview_url = _save_html_to_assets(html_code)
 
         collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">🌐 HTML Preview — <a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;" onclick="event.stopPropagation()">Open in Browser</a></summary>
+<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">🌐 HTML Preview — <a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">Open in Browser</a></summary>
 <div style="max-height: 60vh; overflow-y: auto; padding: 0.5em;">
 
 ```html
@@ -1053,13 +1053,13 @@ def build_sandbox_iframe(url: str) -> str:
     """Build a collapsible with embedded iframe for sandbox HTML output."""
     from .config import SANDBOX_IFRAME_HEIGHT
     return (
-        f'<details open data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
+        f'<details data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
         f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; '
         f'position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">'
         f'📊 Interaktive Visualisierung — '
         f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
         f'style="color: #58a6ff; text-decoration: none;" '
-        f'onclick="event.stopPropagation()">Im Browser öffnen</a></summary>'
+        f'>Im Browser öffnen</a></summary>'
         f'<iframe src="{url}" '
         f'style="width: 100%; height: {SANDBOX_IFRAME_HEIGHT}; '
         f'border: 1px solid #444; border-radius: 8px; '
@@ -1074,12 +1074,12 @@ def build_sandbox_iframe(url: str) -> str:
 def build_sandbox_image(url: str) -> str:
     """Build a collapsible with embedded image for sandbox plot output."""
     return (
-        f'<details open data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
+        f'<details data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
         f'<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
         f'📊 Plot — '
         f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
         f'style="color: #58a6ff; text-decoration: none;" '
-        f'onclick="event.stopPropagation()">Vollbild</a></summary>'
+        f'>Vollbild</a></summary>'
         f'<img src="{url}" style="max-width: 100%; max-height: 480px; '
         f'border-radius: 8px; border: 1px solid #444; margin-top: 0.4em;" '
         f'alt="Plot" />'

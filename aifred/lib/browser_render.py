@@ -14,7 +14,6 @@ browser downloads involved.
 from __future__ import annotations
 
 import asyncio
-import re
 import shutil
 import uuid
 from dataclasses import dataclass, field
@@ -23,8 +22,6 @@ from typing import Any, Optional
 
 from .logging_utils import log_message
 
-# Sandbox HTML filenames are uuid4().hex[:8] + ".html" (see sandbox._collect_html)
-_SANDBOX_HTML_NAME_RE = re.compile(r"^[0-9a-f]{8}\.html$")
 
 
 @dataclass
@@ -49,7 +46,7 @@ def resolve_sandbox_html_path(html_url: str, session_id: str) -> Optional[Path]:
 
     Accepts URLs with or without the scheme+host prefix.
     """
-    from .sandbox import _safe_session_subdir
+    from .sandbox import SANDBOX_OUTPUT_NAME_RE, _safe_session_subdir
 
     # Strip scheme+host if present, keep the path part
     path_part = html_url.split("://", 1)[-1]
@@ -83,7 +80,7 @@ def resolve_sandbox_html_path(html_url: str, session_id: str) -> Optional[Path]:
     if not path_part.startswith(prefix):
         return None
     filename = path_part[len(prefix):]
-    if not _SANDBOX_HTML_NAME_RE.match(filename):
+    if not filename.endswith(".html") or not SANDBOX_OUTPUT_NAME_RE.match(filename):
         return None
 
     candidate = session_dir / filename
@@ -139,7 +136,7 @@ async def render_html_in_browser(
         BROWSER_RENDER_TIMEOUT_SECONDS,
         BROWSER_RENDER_WINDOW_SIZE,
     )
-    from .sandbox import SCREENSHOT_PREFIX, _sandbox_url, _session_output_dir
+    from .sandbox import SCREENSHOT_PREFIX, _sandbox_url, _session_output_dir, content_filename
 
     html_path = resolve_sandbox_html_path(html_url, session_id)
     if html_path is None:
@@ -240,9 +237,11 @@ async def render_html_in_browser(
     # Publish screenshots under the sandbox naming scheme (stable URLs)
     for shot in tmp_shots:
         if shot.is_file() and shot.stat().st_size > 0:
-            filename = f"{SCREENSHOT_PREFIX}{uuid.uuid4().hex[:8]}.png"
+            filename = content_filename(shot.read_bytes(), ".png", prefix=SCREENSHOT_PREFIX)
             shutil.move(str(shot), output_dir / filename)
-            result.screenshot_urls.append(_sandbox_url(session_id, filename))
+            url = _sandbox_url(session_id, filename)
+            if url not in result.screenshot_urls:
+                result.screenshot_urls.append(url)
     if not result.screenshot_urls and not result.error:
         result.error = "Browser produced no screenshot"
     return result
