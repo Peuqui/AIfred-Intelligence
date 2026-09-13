@@ -64,9 +64,10 @@ async def semantic_search(
     store = get_document_store()
     if store is None:
         raise SystemExit("DocumentStore unavailable — is ChromaDB running?")
-    return await store.search(
+    hits, _has_more = await store.search(
         query=query, n_results=n_results, folder=folder, neighbor_window=neighbor,
     )
+    return hits
 
 
 def literal_search(

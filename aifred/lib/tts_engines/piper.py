@@ -11,7 +11,7 @@ from .base import TTSEngine
 # Display name → (ONNX model filename, language code). Models live in
 # ``<repo>/piper_models/<filename>``. Adding a new voice: drop the .onnx
 # file in that directory and add a line here.
-_PIPER_VOICES: dict[str, tuple[str, str]] = {
+PIPER_VOICES: dict[str, tuple[str, str]] = {
     # Deutsch — männliche Stimmen
     "Deutsch (Thorsten)":  ("de_DE-thorsten-high.onnx", "de"),
     "Deutsch (Karlsson)":  ("de_DE-karlsson-low.onnx",  "de"),
@@ -51,7 +51,7 @@ class PiperEngine(TTSEngine):
     def voices_fallback(self) -> dict[str, str]:
         # Dropdown only needs the display names; the (model, lang) tuple
         # is used internally during synthesis.
-        return {name: name for name in _PIPER_VOICES}
+        return {name: name for name in PIPER_VOICES}
 
     def get_voices(self) -> dict[str, str]:
         return self.voices_fallback
@@ -75,7 +75,7 @@ class PiperEngine(TTSEngine):
         output_file = str(TTS_AUDIO_DIR / filename)
 
         try:
-            voice_config = _PIPER_VOICES.get(voice)
+            voice_config = PIPER_VOICES.get(voice)
             if voice_config:
                 model_filename, _lang = voice_config
                 model_path = PROJECT_ROOT / "piper_models" / model_filename
