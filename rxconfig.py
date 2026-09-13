@@ -39,13 +39,21 @@ APP_NAME = "aifred"
 # exclude path at startup (samefile) and the backend dies on a missing one.
 # Hidden and "__" directories are skipped — Reflex excludes them itself, and
 # .web may be rebuilt during startup.
+# .env is excluded too: saving credentials in the settings writes it, and the
+# save already sets the values in the running process — a reload there only
+# killed a running turn. (Hand edits need a service restart, as they already
+# did: systemd loads .env at start and load_dotenv does not override.)
 # See: https://reflex.dev/docs/api-reference/environment-variables/
+_ROOT = Path(__file__).resolve().parent
 os.environ.setdefault(
     "REFLEX_HOT_RELOAD_EXCLUDE_PATHS",
     ":".join(
-        entry.name
-        for entry in Path(__file__).resolve().parent.iterdir()
-        if entry.is_dir() and entry.name != APP_NAME and not entry.name.startswith((".", "__"))
+        [
+            entry.name
+            for entry in _ROOT.iterdir()
+            if entry.is_dir() and entry.name != APP_NAME and not entry.name.startswith((".", "__"))
+        ]
+        + ([".env"] if (_ROOT / ".env").is_file() else [])
     ),
 )
 
