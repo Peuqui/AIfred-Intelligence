@@ -62,8 +62,10 @@ There are three ways the plugin uses a camera:
    inference. Fast.
 2. **Analyze** — grab 1–10 frames and run the VLM. Returns a text description
    plus VLM stats (TTFT / inference / tokens-per-second), which the chat bubble
-   renders as a collapsible `<vlm_output>` with a metrics footer. The captured
-   frame is pinned into the response so you see what the VLM saw. Every analyze
+   renders as a collapsible `<vlm_output>` with a metrics footer. The analysed
+   frame appears in the bubble at the point of the turn where it was analysed,
+   so you see what the VLM saw; a snapshot burst shows all frames, each image
+   once per turn. Every analyze
    call is logged as a `vlm_analysis` event.
 3. **Watch (Vigilantia armed)** — a continuous background task. See below.
 

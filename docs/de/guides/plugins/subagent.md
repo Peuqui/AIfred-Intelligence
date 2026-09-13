@@ -70,7 +70,11 @@ hat.
 
 ## Was der Hauptagent bekommt
 
-Nur den Bericht, als `role=tool`-Nachricht. Er läuft durch dieselbe Kappung wie
+Den Bericht, als `role=tool`-Nachricht. Hat der Sub-Agent in der Sandbox Seiten
+oder Bilder erzeugt, stehen deren `SANDBOX_HTML_URL`- und
+`SANDBOX_IMAGE_URL`-Zeilen vor dem Bericht, genau wie bei einem eigenen
+`execute_code`-Aufruf; so kann der Hauptagent sie etwa mit `render_html`
+weiterverwenden. Das Ergebnis läuft durch dieselbe Kappung wie
 jedes Werkzeug-Ergebnis, die nur greift, wenn er den freien Kontext des
 Hauptmodells sprengen würde. Beim Aufrufer zählt die Delegation als ein
 Werkzeugaufruf.
@@ -79,7 +83,13 @@ Werkzeugaufruf.
 
 Während der Sub-Agent arbeitet, zeigt die Statuszeile, welches Werkzeug er
 gerade ruft. Danach steht das Transkript als aufklappbarer Block in der Bubble
-des Hauptagenten, neben Denkprozess und Quellen. Über den Message Hub
+des Hauptagenten, an der Stelle des Turns, an der delegiert wurde: Denkprozess,
+Text und Transkripte erscheinen in der Reihenfolge, in der sie entstanden. Was
+die Werkzeuge des Sub-Agenten für die Bubble erzeugt haben, geht mit nach oben,
+als hätte der Hauptagent es selbst erzeugt: Sandbox-Seiten und -Bilder,
+Kamerabilder samt VLM-Beschreibung, die abgerufenen Webseiten im Quellen-Block
+und die Transkripte verschachtelter Sub-Agenten. Alles steht direkt unter dem
+Transkript an der Stelle der Delegation. Über den Message Hub
 (Telegram, E-Mail) gibt es keine Bubble; dort steht der Ablauf im Debug-Log der
 Session.
 

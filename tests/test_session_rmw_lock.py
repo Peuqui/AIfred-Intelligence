@@ -83,7 +83,7 @@ class TestConcurrentSessionWrites:
         def chat_worker(worker_id: int):
             for i in range(self.N_ITER):
                 _append_response(
-                    sid, f"response w{worker_id}-{i}",
+                    sid, f"response w{worker_id}-{i}", f"response w{worker_id}-{i}",
                     user_llm_text=f"<external_message>q w{worker_id}-{i}</external_message>",
                 )
 

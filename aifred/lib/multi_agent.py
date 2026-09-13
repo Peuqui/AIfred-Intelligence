@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient, build_llm_options
-from .formatting import format_number, format_thinking_process
+from .formatting import format_number
 from .message_builder import build_messages_from_llm_history
 from .message_builder import inject_before_question
 from .i18n import t
@@ -187,46 +187,12 @@ def _format_stream_result(
     agent_label: str,
     model: str,
 ) -> str:
-    """Format a stream result (from _stream_agent_to_history) into UI-ready HTML.
-
-    Applies thinking-block formatting and prepends web sources collapsible.
-    Used by all callers to avoid duplicating formatting logic.
-    """
-    text = result["text"]
-    sources_html = result.get("sources_html", "")
-    inference_time = result.get("metadata_dict", {}).get("inference_time", 0)
-
-    sandbox_html = result.get("sandbox_html", "")
-    tool_collapsibles_html = result.get("tool_collapsibles_html", "")
-
-    formatted = format_thinking_process(
-        text,
-        model_name=f"{agent_label} ({model})",
-        inference_time=inference_time,
+    """Format a stream result (from _stream_agent_to_history) into UI-ready HTML:
+    thinking, text and the turn's bubble artifacts in turn order."""
+    from .bubble import render_bubble
+    return render_bubble(
+        result["text"], result.get("artifacts", []), model_name=f"{agent_label} ({model})",
     )
-    # Order: [thinking] [sources] [tool collapsibles] [sandbox] [text]
-    # format_thinking_process returns: [thinking collapsibles]\n\n[text]
-    # We insert sources, tool blocks and sandbox between thinking and text
-    inserts = ""
-    if sources_html:
-        inserts += f"\n\n{sources_html}"
-    if tool_collapsibles_html:
-        inserts += f"\n\n{tool_collapsibles_html}"
-    if sandbox_html:
-        inserts += f"\n\n{sandbox_html}"
-    if inserts:
-        # Split at first double-newline after the last </details> (end of thinking block)
-        import re
-        # Find position after all leading <details>...</details> blocks
-        match = re.search(r'((?:<details[\s\S]*?</details>\s*)+)([\s\S]*)', formatted)
-        if match:
-            collapsibles_part = match.group(1).rstrip()
-            text_part = match.group(2).lstrip()
-            formatted = f"{collapsibles_part}{inserts}\n\n{text_part}"
-        else:
-            # No thinking block — just prepend
-            formatted = f"{inserts.lstrip()}\n\n{formatted}"
-    return formatted
 
 
 def _get_plugin_ui_status(tool_name: str, tool_args: dict, lang: str) -> str:
@@ -389,25 +355,6 @@ async def _stream_agent_to_history(
     # TTS was actually initialized for this turn.
     state._spawn_tts_finalize()
 
-    # Build web sources collapsible from tracked URLs
-    sources_html = ""
-    if pipeline_result.fetched_urls:
-        from .formatting import build_sources_collapsible
-        successful = [{"url": u["url"], "word_count": 0, "rank_index": i, "success": True}
-                      for i, u in enumerate(pipeline_result.fetched_urls) if u.get("success")]
-        failed = [{"url": u["url"], "error": "fetch failed", "rank_index": i}
-                  for i, u in enumerate(pipeline_result.fetched_urls) if not u.get("success")]
-        sources_html = build_sources_collapsible(successful, failed)
-
-    # Build sandbox output (iframes for HTML, img tags for plots)
-    from .formatting import build_sandbox_html, build_tool_collapsibles
-    sandbox_html = build_sandbox_html(
-        pipeline_result.sandbox_html_urls, pipeline_result.sandbox_image_urls
-    )
-    # UI-only blocks from tools (sub-agent transcripts): collapsed in the
-    # bubble, never in llm_history.
-    tool_collapsibles_html = build_tool_collapsibles(pipeline_result.tool_collapsibles)
-
     # Sync to llm_history with CLEAN text (no HTML collapsibles)
     state._sync_to_llm_history(agent, pipeline_result.text)
 
@@ -419,9 +366,9 @@ async def _stream_agent_to_history(
     # Return result as final yield (dict = result, None = UI update)
     yield {
         "text": pipeline_result.text,
-        "sources_html": sources_html,
-        "sandbox_html": sandbox_html,
-        "tool_collapsibles_html": tool_collapsibles_html,
+        # Sources, sandbox output, camera images, sub-agent transcripts —
+        # rendered in turn order by _format_stream_result (lib/bubble.py).
+        "artifacts": pipeline_result.artifacts,
         "metadata_display": pipeline_result.metadata_display,
         "metadata_dict": pipeline_result.metadata_dict,
         "audio_urls": audio_urls,

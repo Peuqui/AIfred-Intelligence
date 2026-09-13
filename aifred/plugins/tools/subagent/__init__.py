@@ -21,6 +21,7 @@ import re
 from dataclasses import dataclass, replace
 from typing import Any, AsyncGenerator, Optional
 
+from ....lib.bubble import KIND_COLLAPSIBLE, KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE, BubbleArtifact
 from ....lib.function_calling import Tool, ToolKit
 from ....lib.llm_client import LLMClient, build_llm_options
 from ....lib.llm_pipeline import run_llm_stream
@@ -33,6 +34,7 @@ from ....lib.plugin_base import (
     load_tool_description,
     save_plugin_settings,
 )
+from ....lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
 from ....lib.security import (
     TIER_COMMUNICATE,
     TIER_READONLY,
@@ -428,8 +430,24 @@ async def run_subagent(
     options = build_llm_options(ctx.state, target_agent, params.temperature, params.num_ctx)
 
     transcript: list[str] = [f"{labels['task']}:\n{task}\n\n{labels['expected']}:\n{expected_result}"]
-    text_parts: list[str] = []
+    # Text of the current model round; flushed into the transcript before
+    # each tool call, so thinking, text and tools read in the order they ran.
+    round_text: list[str] = []
     report = ""
+    pipeline_result: Any = None
+
+    def flush_round(final: bool) -> None:
+        text = "".join(round_text)
+        round_text.clear()
+        # Backends deliver reasoning inline as <think>…</think>.
+        for block in _THINK_RE.findall(text):
+            if block.strip():
+                transcript.append(f"[{labels['thinking']}]\n{block.strip()}")
+        plain = _THINK_RE.sub("", text).strip()
+        # The last round's text is the report, shown once below.
+        if plain and not final:
+            transcript.append(f"[{cfg.display_name}]\n{plain}")
+
     yield {"progress": f"{labels['title']} {cfg.display_name}: {params.model}"}
 
     # Own tool-output budget for the inner loop (ContextVar is task-local;
@@ -446,10 +464,11 @@ async def run_subagent(
         ):
             kind = event.get("type")
             if kind == "content":
-                text_parts.append(event.get("text", ""))
+                round_text.append(event.get("text", ""))
             elif kind == "thinking":
-                transcript.append(f"[{labels['thinking']}]\n{event.get('text', '')}")
+                round_text.append(f"<think>{event.get('text', '')}</think>")
             elif kind == "tool_call":
+                flush_round(final=False)
                 name = event.get("name", "")
                 transcript.append(f"[{labels['call']}] {name}({event.get('arguments', '')})")
                 yield {"progress": f"{labels['title']} {cfg.display_name}: {name}"}
@@ -458,29 +477,38 @@ async def run_subagent(
             elif kind == "tool_result":
                 transcript.append(f"[{labels['result']}]\n{event.get('result', '')}")
             elif kind == "pipeline_result":
-                report = event["result"].text_clean.strip()
+                pipeline_result = event["result"]
+                report = pipeline_result.text_clean.strip()
     finally:
         budget_var.reset(budget_token)
         await llm_client.close()
 
-    # Backends deliver reasoning inline as <think>…</think>; show it as its
-    # own entries and keep the model's text only when it says more than the
-    # report (otherwise the report would appear twice).
-    full_text = "".join(text_parts)
-    for block in _THINK_RE.findall(full_text):
-        if block.strip():
-            transcript.append(f"[{labels['thinking']}]\n{block.strip()}")
-    plain_text = _THINK_RE.sub("", full_text).strip()
-    if plain_text and plain_text != report:
-        transcript.append(f"[{cfg.display_name}]\n{plain_text}")
+    flush_round(final=True)
     transcript.append(f"[{labels['report']}]\n{report or labels['no_report']}")
-    yield {
-        "collapsible": {
-            "title": f"{labels['title']} {cfg.display_name}: {_short(task)}",
-            "content": "\n\n".join(transcript),
-        }
-    }
-    yield {"result": report if report else json.dumps({"error": labels["no_report"]})}
+
+    # The transcript, then everything the sub-agent's own tools produced for
+    # the bubble (nested transcripts, sources, sandbox pages, camera images,
+    # VLM descriptions): one artifact list for the caller's turn, shown where
+    # the caller delegated, exactly as if the caller's tools had produced it.
+    transcript_artifact = BubbleArtifact(KIND_COLLAPSIBLE, {
+        "title": f"{labels['title']} {cfg.display_name}: {_short(task)}",
+        "content": "\n\n".join(transcript),
+    })
+    inner = pipeline_result.artifacts if pipeline_result is not None else []
+    yield {"artifacts": [a.to_dict() for a in (transcript_artifact, *inner)]}
+    if not report:
+        yield {"result": json.dumps({"error": labels["no_report"]})}
+        return
+    # The caller's model needs the sandbox URLs too (render_html takes them):
+    # marker lines lead the report so a capped result cannot cut them off. The
+    # caller's pipeline already has these pages as artifacts and does not show
+    # them twice.
+    markers = [
+        f"{SANDBOX_HTML_URL_MARKER}{a.data['url']}" for a in inner if a.kind == KIND_SANDBOX_HTML
+    ] + [
+        f"{SANDBOX_IMAGE_URL_MARKER}{a.data['url']}" for a in inner if a.kind == KIND_SANDBOX_IMAGE
+    ]
+    yield {"result": "\n".join([*markers, report]) if markers else report}
 
 
 plugin = SubAgentPlugin()

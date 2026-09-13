@@ -464,7 +464,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         from .message_builder import stamp_user_turn, user_turn_stamp
         user_llm_text = stamp_user_turn(llm_context, user_turn_stamp())
 
-        response_text, result_metadata = await _call_engine(
+        response_text, response_display, result_metadata = await _call_engine(
             user_text=user_llm_text,
             session_id=session_id,
             agent=message.target_agent,
@@ -485,7 +485,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         # M3: the user turn goes into llm_history HERE (wrapped) — see
         # _append_response/save_user_to_session docstrings.
         _append_response(
-            session_id, response_text,
+            session_id, response_text, response_display,
             metadata=result_metadata, agent=message.target_agent,
             user_llm_text=user_llm_text,
         )
@@ -545,7 +545,7 @@ async def _call_engine(
     max_tier: int = 4,
     source: str = "browser",
     metadata: Optional[dict] = None,
-) -> tuple[str, dict]:
+) -> tuple[str, str, dict]:
     """Call the AIfred engine with full toolkit (memory + plugins).
 
     Returns (response_text, metadata_dict).
@@ -574,7 +574,7 @@ async def _call_engine(
 
     if not model:
         log_message(f"Message Processor: no model configured for {agent}/{backend_type}", "error")
-        return "", {}
+        return "", "", {}
 
     # Load existing LLM history from session
     session = load_session(session_id)
@@ -649,13 +649,14 @@ async def _call_engine(
                 data = chunk.get("data", {})
                 if "response_clean" in data:
                     result_meta = data.get("metadata_dict", {})
-                    return data["response_clean"], result_meta
+                    return data["response_clean"], data["response_display"], result_meta
     except Exception as exc:
         log_message(f"Message Processor: engine error — {exc}", "error")
         debug(f"❌ Engine error: {exc}")
-        return "", {}
+        return "", "", {}
 
-    return "".join(response_parts), {}
+    joined = "".join(response_parts)
+    return joined, joined, {}
 
 
 def channel_display_label(channel: str) -> str:
@@ -721,6 +722,7 @@ def save_user_to_session(session_id: str, message: InboundMessage) -> None:
 def _append_response(
     session_id: str,
     response_text: str,
+    response_display: str,
     metadata: dict | None = None,
     agent: str = "aifred",
     user_llm_text: str | None = None,
@@ -741,12 +743,14 @@ def _append_response(
     from .session_storage import load_session, session_rmw_lock
     from .formatting import format_performance_footer, build_assistant_chat_entry
 
-    # Build metadata footer (shared with browser-path add_agent_panel)
-    display_content = response_text
+    # Bubble: text plus the turn's artifacts (lib/bubble.py), then the
+    # metadata footer (shared with browser-path add_agent_panel). llm_history
+    # keeps the plain response text.
+    display_content = response_display
     if metadata:
         meta_footer = format_performance_footer(metadata)
         if meta_footer:
-            display_content = f"{response_text}\n\n{meta_footer}"
+            display_content = f"{response_display}\n\n{meta_footer}"
 
     # M4: load→append→save as ONE unit (see session_rmw_lock).
     with session_rmw_lock:

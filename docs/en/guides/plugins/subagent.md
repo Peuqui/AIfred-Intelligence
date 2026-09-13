@@ -67,7 +67,10 @@ memories would write down things nobody saw in the conversation.
 
 ## What the main agent gets
 
-Only the report, as a `role=tool` message. It passes through the same cap as
+The report, as a `role=tool` message. If the sub-agent created pages or images
+in the sandbox, their `SANDBOX_HTML_URL` and `SANDBOX_IMAGE_URL` lines lead the
+report, exactly as with an own `execute_code` call, so the main agent can use
+them further, e.g. with `render_html`. The result passes through the same cap as
 every tool result, which only bites if it would blow the main model's free
 context. For the caller, the delegation counts as one tool call.
 
@@ -75,7 +78,12 @@ context. For the caller, the delegation counts as one tool call.
 
 While the sub-agent works, the status line shows which tool it is calling.
 Afterwards the transcript sits as a collapsible block in the main agent's
-bubble, next to the thinking process and the sources. Through the Message Hub
+bubble, at the point of the turn where it delegated: thinking, text and
+transcripts appear in the order they happened. Whatever the sub-agent's tools
+produced for the bubble goes up as if the main agent had produced it: sandbox
+pages and images, camera images with the VLM description, the fetched web pages
+in the sources block, and the transcripts of nested sub-agents. All of it sits
+right below the transcript at the point of delegation. Through the Message Hub
 (Telegram, email) there is no bubble; the run is then in the session's debug
 log.
 

@@ -146,22 +146,26 @@ würde Dinge festschreiben, die niemand im Gespräch gesehen hat.
 
 ## Der aufklappbare Block
 
-Heute kommen aufklappbare Blöcke auf drei Wegen in die Bubble: das Modell
-schreibt einen Tag, die Pipeline injiziert einen Tag, oder ein HTML-Feld
-liegt neben dem Text in `PipelineResult`. Der dritte Weg passt, er ist aber
-heute auf Quellen und Sandbox beschränkt.
+Alles, was die Werkzeuge eines Turns für die Bubble liefern, ist ein
+Bubble-Artefakt (`aifred/lib/bubble.py`): Sub-Agenten-Transkripte, Quellen,
+Sandbox-Seiten und -Bilder, Kamerabilder (auch ganze Serien) und die
+VLM-Beschreibung. `llm_pipeline` sammelt sie in `PipelineResult.artifacts`,
+jedes mit einem Anker an der Stelle des Turns, an der sein Werkzeug lief.
+`render_bubble` ist die eine Stelle, die Text und Artefakte in Turn-Reihenfolge
+zur Bubble macht; Browser-Pfad (`multi_agent`), `call_llm` und Message Hub
+nutzen sie. Der Hub zeigt keine Tag-Blöcke wie Denkprozess oder
+VLM-Beschreibung, die übrigen Artefakte schon.
 
-Vorschlag, generisch und klein: Ein Werkzeug darf im Ereignisstrom neben
-`progress` und `result` ein Ereignis `collapsible` mit Titel und Inhalt
-liefern. `llm_pipeline` sammelt diese Ereignisse in ein neues Feld
-`PipelineResult.tool_collapsibles`, und `multi_agent` rendert sie mit einem
-Helfer in `formatting.py` neben Quellen und Sandbox in die Bubble. Der Block
-ist ein `<details>`, wird von der Token-Schätzung ignoriert, nicht
-vorgelesen und nie ans Modell geschickt.
+Ein Werkzeug liefert Artefakte als Ereignis `artifacts`; die Tool-Schleife
+reicht es als `tool_artifacts` weiter. Der Sub-Agent nutzt genau diesen Weg:
+sein Transkript und alle Artefakte seines eigenen Turns gehen als eine Liste
+an den Aufrufer und erscheinen dort, wo delegiert wurde, wie eigene. Jedes
+Kamerabild und jede Sandbox-Seite erscheint je Turn einmal.
 
-Damit hat jedes künftige Werkzeug denselben Weg, einen Ablauf zu zeigen.
-Über den Message Hub (Telegram, E-Mail) fällt der Block weg, dort gibt es
-keine Bubble; der Ablauf steht dann im Debug-Log der Session.
+Kamerabilder bleiben zusätzlich als Markdown-Referenz am Anfang des Texts:
+Tool-Ergebnisse werden nicht gespeichert, nur über diese Referenz im Verlauf
+kann ein späterer Turn ein Bild erneut analysieren. `render_bubble` blendet
+die Referenzen aus, das Bild zeigt sein Artefakt.
 
 ## Was Codine daraus macht
 
@@ -181,9 +185,9 @@ ohne dass Codine ein neuer Agententyp wird.
 | `aifred/plugins/tools/subagent/prompts/de/delegate_task.txt`, `en/delegate_task.txt` | neu, Anleitung an den Aufrufer: wann delegieren, was in `task` gehört (Fragment, nur wenn `delegate_task` freigeschaltet) |
 | `prompts/de/shared/subagent_frame.txt`, `prompts/en/shared/subagent_frame.txt` | neu, Rahmen für den Sub-Agenten |
 | `aifred/plugins/tools/subagent/settings.json` | entsteht beim ersten Speichern über das Zahnrad: erlaubte Tiers, Rekursionstiefe, Sub-Agent als anderer Hauptagent (`credential_fields`, nicht geheim) |
-| `aifred/lib/function_calling.py`, `aifred/backends/base.py`, `aifred/lib/llm_pipeline.py` | Executor-Ereignis `collapsible` → `tool_collapsible` durch die Tool-Schleife, gesammelt im Feld `PipelineResult.tool_collapsibles` |
-| `aifred/lib/formatting.py` | Helfer, der `tool_collapsibles` als `<details>` rendert |
-| `aifred/lib/multi_agent.py` | Block neben Quellen und Sandbox einhängen |
+| `aifred/lib/bubble.py` | Bubble-Artefakte und `render_bubble`, die eine Stelle für den Aufbau der Bubble |
+| `aifred/lib/function_calling.py`, `aifred/backends/base.py`, `aifred/lib/llm_pipeline.py` | Executor-Ereignis `artifacts` → `tool_artifacts` durch die Tool-Schleife, gesammelt mit Anker in `PipelineResult.artifacts` |
+| `aifred/lib/multi_agent.py`, `aifred/lib/llm_engine.py`, `aifred/lib/message_processor.py` | Bubble über `render_bubble` |
 | `data/agents.json` | `delegate_task` in die Whitelist der gewünschten Agenten |
 | `tests/test_subagent_plugin.py` | neu: Name gleich Ordnername, Werkzeug und Tier, Rekursionsfilter, Tier-Filter aus der Einstellung, Vererbung von `max_tier` und `source`, Memory aus, Ergebnis als Bericht, Block-Ereignis; `call_llm` gemockt |
 | `docs/de/guides/plugins/subagent.md`, `docs/en/guides/plugins/subagent.md` | neu, Nutzerdoku in beiden Sprachen |

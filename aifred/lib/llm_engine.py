@@ -258,7 +258,10 @@ async def call_llm(
             return
 
         response_clean = pipeline_result.text_clean
-        thinking_html = pipeline_result.thinking_html
+        from .bubble import render_bubble
+        bubble_html = render_bubble(
+            pipeline_result.text, pipeline_result.artifacts, model_name=model_choice,
+        )
 
         # Update llm_history BEFORE calculating history_tokens
         # so "History: X tok" reflects the current conversation state (incl. AI response)
@@ -291,21 +294,11 @@ async def call_llm(
             metadata_dict["silent_reply"] = True
         yield {"type": "debug", "message": debug_msg}
 
-        # Update chat_history (UI display with thinking + metadata).
-        # Sandbox output (interactive HTML apps, plots) — SSOT with
-        # multi_agent.py's _stream_agent_to_history via build_sandbox_html().
-        # Previously missing here entirely: an HTML app created via a
-        # message with an attached image (Vision Fast Path uses this same
-        # call_llm(), so does the Message Hub) never got embedded as a
-        # clickable iframe — the pipeline collected the URLs, but nothing
-        # downstream read them.
+        # Update chat_history (UI display with thinking, the turn's bubble
+        # artifacts in turn order, and metadata) — same renderer as the
+        # browser multi-agent path (lib/bubble.py).
         from .message_builder import build_history_entry
-        from .formatting import build_sandbox_html
-        sandbox_html = build_sandbox_html(
-            pipeline_result.sandbox_html_urls, pipeline_result.sandbox_image_urls
-        )
-        sandbox_insert = f"\n\n{sandbox_html}" if sandbox_html else ""
-        ai_with_source = f"{thinking_html}{sandbox_insert}\n\n{metadata_display}"
+        ai_with_source = f"{bubble_html}\n\n{metadata_display}"
         history.append(build_history_entry(agent, ai_with_source, "own_knowledge", metadata_dict))
 
         # Clear progress
@@ -316,7 +309,11 @@ async def call_llm(
             "type": "result",
             "data": {
                 "response_clean": response_clean,
-                "response_html": thinking_html,
+                # Message Hub view of the bubble: text and artifacts without
+                # thinking (the hub bubble never showed tag collapsibles).
+                "response_display": render_bubble(
+                    pipeline_result.text, pipeline_result.artifacts, show_tags=False,
+                ),
                 "history": history,
                 "llm_history": llm_history,
                 "inference_time": pipeline_result.inference_time,

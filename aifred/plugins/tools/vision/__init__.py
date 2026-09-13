@@ -409,8 +409,9 @@ class VisionPlugin:
                         logger.warning("snapshot save failed: %s", e)
                 if urls:
                     # image_urls = the full burst (pass to vision_analyze for a
-                    # sequence). image_url = representative (last) frame — the
-                    # pipeline pins exactly one image per turn. No markdown echo.
+                    # sequence), all shown in the bubble by the pipeline.
+                    # image_url = representative (last) frame, the one kept as
+                    # reference in the conversation history. No markdown echo.
                     result["image_urls"] = urls
                     result["image_url"] = urls[-1]
             return _ok(**result)
@@ -598,7 +599,7 @@ class VisionPlugin:
                 # return the CANONICAL url (derived from the resolved path), not
                 # the raw model input. The model often drops the leading slash
                 # ("_upload/…"), which still resolves on disk but would render as
-                # a relative URL → broken image when the pipeline pins it. Deriving
+                # a relative URL → broken image in the bubble. Deriving
                 # the url from the resolved path guarantees a loadable /_upload/…
                 # link (true SSOT: one url source = the resolved file).
                 "image_url": get_image_url(resolved_paths[-1]),
