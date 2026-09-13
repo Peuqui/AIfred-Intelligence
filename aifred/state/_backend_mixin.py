@@ -388,6 +388,12 @@ class BackendMixin(rx.State, mixin=True):
                     from ..lib.security import cleanup_audit_log_task
                     _asyncio.create_task(cleanup_audit_log_task())
 
+                    # vLLM-Compile-Cache cleanup task — Artefakte geloeschter
+                    # Modelle und verworfener Betriebspunkte (Alter oder
+                    # Obergrenze, siehe VLLM_PRODUCTION_CACHE_*) am selben Slot.
+                    from ..lib.calibration.vllm_probe import cleanup_vllm_compile_cache_task
+                    _asyncio.create_task(cleanup_vllm_compile_cache_task())
+
                     # Audio index incremental sync (only for sources already populated)
                     from ..lib.audio_index import sync_audio_index_task
                     _asyncio.create_task(sync_audio_index_task())

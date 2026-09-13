@@ -285,6 +285,63 @@ def test_prune_calibration_cache_drops_oldest_until_under_the_cap(
     assert vllm_probe.prune_calibration_cache(max_bytes=250) == (0, 200)
 
 
+def test_clear_calibration_cache_removes_every_entry(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    cache_root = tmp_path / "cache"
+    monkeypatch.setattr(vllm_probe, "VLLM_CALIBRATION_CACHE_ROOT", cache_root)
+    compile_root = cache_root / "torch_compile_cache"
+    for d in (compile_root / "cfg_a", compile_root / "cfg_b",
+              compile_root / "torch_aot_compile" / "aot_a"):
+        d.mkdir(parents=True)
+        (d / "graph.bin").write_bytes(b"x" * 100)
+    # Nach einem abgeschlossenen Lauf bleibt nichts liegen, auch nicht der
+    # juengste Eintrag; der Root selbst bleibt bestehen.
+    assert vllm_probe.clear_calibration_cache() == 300
+    assert vllm_probe._cache_entries(cache_root) == []
+    assert cache_root.is_dir()
+
+
+def _prod_entry(compile_root: Path, name: str, size: int, used_days_ago: float,
+                now: float) -> Path:
+    import os
+    d = compile_root / "torch_aot_compile" / name
+    d.mkdir(parents=True)
+    f = d / "a.so"
+    f.write_bytes(b"z" * size)
+    stamp = now - used_days_ago * 86400
+    os.utime(f, (stamp, stamp))
+    return d
+
+
+def test_prune_production_cache_drops_unused_then_caps_by_last_use(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    now = 2_000_000_000.0
+    cache_root = tmp_path / "prod"
+    monkeypatch.setattr(vllm_probe, "VLLM_PRODUCTION_CACHE_ROOT", cache_root)
+    compile_root = cache_root / "torch_compile_cache"
+    stale = _prod_entry(compile_root, "stale", 100, used_days_ago=30, now=now)
+    old = _prod_entry(compile_root, "old", 100, used_days_ago=10, now=now)
+    fresh = _prod_entry(compile_root, "fresh", 100, used_days_ago=1, now=now)
+    # Alter allein: nur der seit 30 Tagen ungenutzte Eintrag fliegt.
+    assert vllm_probe.prune_production_compile_cache(
+        max_bytes=1000, max_age_days=21, now=now) == (100, 200)
+    assert not stale.exists() and old.exists() and fresh.exists()
+    # Obergrenze: der am laengsten ungenutzte geht zuerst, der frische bleibt.
+    assert vllm_probe.prune_production_compile_cache(
+        max_bytes=150, max_age_days=21, now=now) == (100, 100)
+    assert not old.exists() and fresh.exists()
+
+
+def test_prune_production_cache_missing_root_is_empty(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(vllm_probe, "VLLM_PRODUCTION_CACHE_ROOT", tmp_path / "nope")
+    assert vllm_probe.prune_production_compile_cache() == (0, 0)
+    assert not (tmp_path / "nope").exists()
+
+
 def test_prune_calibration_cache_creates_a_missing_root(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -907,6 +964,7 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
             _gpu("g2", "RTX 8000", 7.5, 49152, 49000, 0)]
     monkeypatch.setattr(vllm_flow, "load_vllm_runtime", lambda: RUNTIME)
     monkeypatch.setattr(vllm_flow, "prune_calibration_cache", lambda: (0, 0))
+    monkeypatch.setattr(vllm_flow, "clear_calibration_cache", lambda: 0)
     monkeypatch.setattr(vllm_flow, "analyze_checkpoint", lambda c: _meta(20.0))
     monkeypatch.setattr(vllm_flow, "side_channel_uuids", lambda: set())
     monkeypatch.setattr(vllm_flow, "eligible_gpus", lambda reserved: gpus)
@@ -962,6 +1020,7 @@ def test_unknown_tool_call_format_aborts_before_the_first_boot(
     monkeypatch.setattr(vllm_flow, "analyze_checkpoint", lambda c: unknown)
     monkeypatch.setattr(vllm_flow, "load_vllm_runtime", lambda: RUNTIME)
     monkeypatch.setattr(vllm_flow, "prune_calibration_cache", lambda: (0, 0))
+    monkeypatch.setattr(vllm_flow, "clear_calibration_cache", lambda: 0)
     booted: list[str] = []
     monkeypatch.setattr(vllm_flow, "boot_vllm", lambda *a, **k: booted.append("x"))
     with pytest.raises(ValueError, match="no known tool-call format"):
