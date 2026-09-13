@@ -6,7 +6,7 @@
 
 # AIfred Intelligence
 
-**Autonomous AI Assistant with Tool Use, Message Hub, Multi-Agent Debates, Vision/Camera Surveillance & Local LLM Inference**
+**Autonomous AI Assistant with Tool Use, Sub-Agents, Message Hub, Multi-Agent Debates, Vision/Camera Surveillance & Local LLM Inference**
 
 AIfred Intelligence is a fully-featured AI assistant running locally on your own hardware. It autonomously manages emails, appointments, documents, databases and camera feeds — with function calling, persistent memory, multi-agent debates and on-device VLM analysis. No cloud dependency, full data sovereignty.
 
@@ -58,6 +58,7 @@ The LLM autonomously decides which tools to use — OpenAI-compatible tool infra
 
 ### 🎩 Multi-Agent System
 
+- **Sub-Agents (delegation)**: Any agent can hand a self-contained task to a sub-agent via `delegate_task` — a fresh model run with its own context window, its own tool loop and no persona, conversation or memory of the caller. Only the sub-agent's report comes back to the main agent; the full transcript (thinking, every tool call and result) is shown collapsed in the chat bubble, so nothing runs under the radar. Plugin settings: allowed tool tiers (default: read and write data, no sending or deleting), recursion depth, optional delegation to another agent's model and tools. Manager-worker pattern for long research, multi-document work and coding without flooding the main context. See [Sub-Agents Plugin](docs/en/guides/plugins/subagent.md)
 - **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unlimited custom agents
 - **Custom Agents**: Name, emoji, role, bilingual prompts (DE/EN), own long-term memory. Agent Editor in UI
 - **Generic Agent Core**: All per-agent settings (model, sampling, thinking mode, context size, TTS voice) live in a single `agent_tuning` map — custom agents are first-class citizens. A newly created agent automatically gets its own settings row, sampling row and context column in the UI; no code changes, no hardcoded agent lists

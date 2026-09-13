@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t
+from ..helpers import clickable_tip, t
 
 
 def _cred_field_input(field: rx.Var) -> rx.Component:
@@ -61,17 +61,19 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         width="100%",
     )
 
-    # Label with optional tooltip — Text wird serverseitig im State aufgelöst
-    # (Plugin-i18n → zentrale i18n → "" = kein Tooltip); die UI kennt nur das
-    # übersetzte Label, nicht den rohen label_key.
+    # Label with optional lightbulb — the tip text is resolved server-side in
+    # the State (plugin i18n → central i18n → "" = no lightbulb); the UI only
+    # knows the translated label, not the raw label_key. Same lightbulb +
+    # click-popover as the plugin list and the scheduler form.
     label_with_tooltip = rx.cond(
         field["tooltip"].to(str) != "",
-        rx.tooltip(
-            rx.text(
-                field["label_key"].to(str),
-                font_size="11px", color="#999", cursor="help",
+        clickable_tip(
+            rx.hstack(
+                rx.text(field["label_key"].to(str), font_size="11px", color="#999"),
+                rx.icon("lightbulb", size=12, color="#FFD700"),
+                spacing="1", align="center", cursor="pointer",
             ),
-            content=field["tooltip"].to(str),
+            rx.text(field["tooltip"].to(str), font_size="12px", color="#ddd", white_space="pre-line"),
         ),
         rx.text(field["label_key"].to(str), font_size="11px", color="#999"),
     )

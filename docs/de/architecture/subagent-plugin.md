@@ -1,9 +1,8 @@
 # Sub-Agenten als Plugin
 
-Architekturentwurf, Stand 13.09.2026, alle Entscheidungen getroffen, Umsetzung
-steht aus. Diese Seite beschreibt, was gebaut wird und warum; die
-Nutzeranleitung folgt mit der Umsetzung unter
-`docs/de/guides/plugins/subagent.md`. Englische Fassung:
+Architektur, Stand 13.09.2026, umgesetzt als Plugin `aifred/plugins/tools/subagent/`.
+Diese Seite beschreibt, was gebaut wurde und warum; die Nutzeranleitung steht
+unter [docs/de/guides/plugins/subagent.md](../guides/plugins/subagent.md). Englische Fassung:
 [docs/en/architecture/subagent-plugin.md](../../en/architecture/subagent-plugin.md).
 
 ## Ziel
@@ -28,7 +27,7 @@ gemeinsames Gedächtnis über Dateien im Workspace.
 |---|---|---|
 | Plugin-Protokoll `ToolPlugin`, `PluginContext` | `aifred/lib/plugin_base.py` | Das Plugin ist ein gewöhnliches Tool-Plugin, Kontext liefert Agent, Sprache, Session, State, `max_tier`, `source` |
 | Werkzeugkasten pro Agent `prepare_agent_toolkit` | `aifred/lib/agent_memory.py` | Baut den Werkzeugkasten des Sub-Agenten, inklusive Tier-Filter und Agent-Whitelist |
-| Kompletter Agent-Turn ohne Reflex-State `call_llm` | `aifred/lib/llm_engine.py` | Führt den Sub-Agenten aus, mit `external_toolkit`, so wie Message Hub und Scheduler es heute tun |
+| Ereignis-Pipeline `run_llm_stream` | `aifred/lib/llm_pipeline.py` | Führt den Sub-Agenten aus, mit eigenem Werkzeugkasten; Modell, Kontext und Temperatur kommen über dieselben Helfer wie im Browser-Turn (`multi_agent`) und im Hub-Turn (`message_processor`). `call_llm` kam nicht in Frage, weil es den Persona-Reminder in die Nutzernachricht einbaut |
 | Tool-Schleife mit Guards | `aifred/backends/base.py`, `aifred/lib/function_calling.py` | Der Sub-Agent bekommt sie geschenkt: Kettentiefe, Schleifenbrecher, Kontext-Wächter, erzwungene Schlussrunde |
 | Async-Generator-Executor mit `progress`-Ereignissen | `function_calling.py`, Präzedenz `research` | Das Delegations-Werkzeug streamt Fortschritt in die Statuszeile, ohne den Bericht zu blockieren |
 | Aufklappbare Blöcke | `aifred/lib/formatting.py`, `llm_pipeline.PipelineResult` | Der innere Ablauf wird wie die Recherche-Quellen als HTML neben dem Text in die Bubble gehängt |
@@ -51,7 +50,7 @@ Verzeichnis `aifred/plugins/tools/subagent/`, Name `subagent`, ein Werkzeug
 |---|---|---|
 | `task` | ja | Die vollständige Aufgabe mit allem Kontext, den der Sub-Agent braucht. Er sieht weder die Konversation noch das Gedächtnis. |
 | `expected_result` | ja | Was der Bericht enthalten soll, damit der Aufrufer weiterarbeiten kann |
-| `agent` | nein | Nur wenn die Plugin-Einstellung „Delegation an andere Agenten“ an ist: Agent-ID, deren Modell, Tuning und Werkzeugliste der Sub-Agent bekommt, weiterhin ohne Persona. Die erlaubten Werte werden bei jedem Turn beim Bau des Werkzeugkastens abgeleitet: nur Agenten, die sich vom Aufrufer in Modell oder Whitelist unterscheiden. Gibt es keinen, fehlt der Parameter im Schema. Vorgabe: der Aufrufer selbst |
+| `agent` | nein | Nur wenn die Plugin-Einstellung „Sub-Agent als anderer Hauptagent“ an ist: Agent-ID, deren Modell, Tuning und Werkzeugliste der Sub-Agent bekommt, weiterhin ohne Persona. Die erlaubten Werte werden bei jedem Turn beim Bau des Werkzeugkastens abgeleitet: nur Agenten, die sich vom Aufrufer in Modell oder Whitelist unterscheiden. Gibt es keinen, fehlt der Parameter im Schema. Vorgabe: der Aufrufer selbst |
 
 Ohne Persona unterscheidet einen Sub-Agenten „nach Codine“ von einem „nach
 AIfred“ nur noch Modell, Tuning und Werkzeugliste. Sinn hat der Parameter
@@ -95,13 +94,15 @@ bekommt sie auch über einen Sub-Agenten nicht.
    Reminder, kein Memory-Kontext. Der Rahmen sagt: du bist ein Sub-Agent,
    du hast keinen Zugriff auf Gespräch und Gedächtnis, du stellst keine
    Rückfragen, du lieferst am Ende einen Bericht mit genau dem, was
-   `expected_result` verlangt, und du delegierst nicht weiter.
+   `expected_result` verlangt, und du delegierst nur weiter, wenn du das
+   Werkzeug `delegate_task` hast (also nur unterhalb der Rekursionstiefe).
 3. User-Nachricht des Sub-Agenten: `task`. History: leer. Das ist der Kern
    der Kontextentlastung, und es zwingt den Aufrufer zu einer vollständigen
-   Übergabe. Die Anleitung an den Aufrufer (`_intro.txt`) sagt genau das.
-4. Ausführung über `call_llm` mit `external_toolkit`, Modell, Sampling und
-   Thinking aus dem Tuning des Aufrufers beziehungsweise des gewählten
-   Agenten, wie bei jedem seiner Turns.
+   Übergabe. Die Anleitung an den Aufrufer (Plugin-Fragment `delegate_task.txt`) sagt genau das.
+4. Ausführung über `run_llm_stream` mit dem eigenen Werkzeugkasten; Modell,
+   Sampling, Thinking und Kontextgröße aus dem Tuning des Aufrufers
+   beziehungsweise des gewählten Agenten, über dieselben Helfer wie bei jedem
+   seiner Turns (`resolve_run_params` im Plugin bündelt Browser- und Hub-Pfad).
 5. Während der Ausführung yieldet der Executor `progress`-Ereignisse: welche
    Werkzeuge der Sub-Agent gerade ruft. Die Statuszeile zeigt also
    „Codine (Sub-Agent) ruft read_file auf“, nicht den inneren Text.
@@ -136,7 +137,7 @@ anderen Agenten behandelt werden.
 |---|---|---|
 | Erlaubte Tiers | 0 und 2 | Lesen, Recherche, Dateien schreiben, Sandbox. Nicht 1: kein Senden von E-Mail, Telegram, Discord. Senden bleibt beim Hauptagenten, der es im Gespräch verantwortet. Nicht 3: kein Löschen. |
 | Rekursionstiefe | 1 | Ob ein Sub-Agent selbst delegieren darf |
-| Delegation an andere Agenten | aus | Schaltet den Parameter `agent` frei. Kein Automatismus: Der Schalter hängt nicht davon ab, ob ein anderer Agent ein anderes Modell fährt; die Nutzlosigkeit einer Option wird stattdessen pro Turn im Schema vermieden (siehe `agent`). Bewusst zu treffen, weil ein anderes Modell über llama-swap einen Modellwechsel je Delegation bedeutet, Minuten pro Aufruf. Die Anleitung an den Aufrufer nennt diese Kosten. |
+| Sub-Agent als anderer Hauptagent | aus | Schaltet den Parameter `agent` frei. Kein Automatismus: Der Schalter hängt nicht davon ab, ob ein anderer Agent ein anderes Modell fährt; die Nutzlosigkeit einer Option wird stattdessen pro Turn im Schema vermieden (siehe `agent`). Bewusst zu treffen, weil ein anderes Modell über llama-swap einen Modellwechsel je Delegation bedeutet, Minuten pro Aufruf. Die Anleitung an den Aufrufer nennt diese Kosten. |
 
 Memory ist für Sub-Agenten aus und keine Einstellung: Alles, was der
 Sub-Agent wissen muss, kommt in der Übergabe vom Hauptagenten, der das
@@ -177,10 +178,10 @@ ohne dass Codine ein neuer Agententyp wird.
 |---|---|
 | `aifred/plugins/tools/subagent/__init__.py` | neu, Plugin und Executor |
 | `aifred/plugins/tools/subagent/prompts/tools/delegate_task.txt` | neu, Werkzeugbeschreibung für das Modell |
-| `aifred/plugins/tools/subagent/prompts/de/_intro.txt`, `en/_intro.txt` | neu, Anleitung an den Aufrufer: wann delegieren, was in `task` gehört |
+| `aifred/plugins/tools/subagent/prompts/de/delegate_task.txt`, `en/delegate_task.txt` | neu, Anleitung an den Aufrufer: wann delegieren, was in `task` gehört (Fragment, nur wenn `delegate_task` freigeschaltet) |
 | `prompts/de/shared/subagent_frame.txt`, `prompts/en/shared/subagent_frame.txt` | neu, Rahmen für den Sub-Agenten |
-| `aifred/plugins/tools/subagent/settings.json` | neu, erlaubte Tiers, Rekursionstiefe, Delegation an andere Agenten |
-| `aifred/lib/llm_pipeline.py` | Ereignis `collapsible` sammeln, Feld `tool_collapsibles` |
+| `aifred/plugins/tools/subagent/settings.json` | entsteht beim ersten Speichern über das Zahnrad: erlaubte Tiers, Rekursionstiefe, Sub-Agent als anderer Hauptagent (`credential_fields`, nicht geheim) |
+| `aifred/lib/function_calling.py`, `aifred/backends/base.py`, `aifred/lib/llm_pipeline.py` | Executor-Ereignis `collapsible` → `tool_collapsible` durch die Tool-Schleife, gesammelt im Feld `PipelineResult.tool_collapsibles` |
 | `aifred/lib/formatting.py` | Helfer, der `tool_collapsibles` als `<details>` rendert |
 | `aifred/lib/multi_agent.py` | Block neben Quellen und Sandbox einhängen |
 | `data/agents.json` | `delegate_task` in die Whitelist der gewünschten Agenten |

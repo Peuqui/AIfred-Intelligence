@@ -107,6 +107,20 @@ Isolierte Python-Code-Ausführung in Subprocess.
 
 ---
 
+### Sub-Agenten
+
+**Datei:** `plugins/tools/subagent/`
+
+Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer Modellaufruf mit eigenem Kontext und Werkzeugkasten, nur der Bericht geht als Werkzeug-Ergebnis zurück, das vollständige Transkript erscheint aufklappbar in der Chat-Bubble. Einstellungen über das Zahnrad: erlaubte Tiers (Vorgabe 0+2), Rekursionstiefe (Vorgabe 1), Sub-Agent als anderer Hauptagent (Vorgabe aus).
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `delegate_task` | Teilaufgabe mit vollständiger Übergabe an einen Sub-Agenten geben; Ergebnis ist dessen Bericht | READONLY |
+
+> **Details:** [Sub-Agenten Plugin](plugins/subagent.md), Architektur: [Sub-Agenten als Plugin](../architecture/subagent-plugin.md)
+
+---
+
 ### Calculator
 
 **Datei:** `plugins/tools/calculator/`

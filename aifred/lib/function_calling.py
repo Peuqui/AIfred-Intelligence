@@ -130,15 +130,19 @@ class ToolKit:
             ``{"type": "tool_progress", "message": "..."}`` — interim debug
                 lines from a streaming tool executor (one per yield from the
                 tool's async generator).
+            ``{"type": "tool_collapsible", "title": "...", "content": "..."}``
+                — a block the UI shows collapsed inside the chat bubble
+                (e.g. a sub-agent's transcript). Never reaches the model.
             ``{"type": "tool_result",   "result":  "..."}`` — final result
                 string (sanitised). Always exactly one is emitted.
 
         Tool executors can be sync, async, or async generators:
         - sync / async coroutine → result string only.
         - async generator → must yield ``{"progress": "..."}`` for interim
-          updates and exactly one ``{"result": "..."}`` for the final
-          payload (string). Anything else yielded is treated as a fallback
-          plain-string result.
+          updates, may yield ``{"collapsible": {"title": ..., "content": ...}}``
+          for UI-only blocks, and exactly one ``{"result": "..."}`` for the
+          final payload (string). Anything else yielded is treated as a
+          fallback plain-string result.
         """
         tool = self._by_name.get(name)
         if not tool:
@@ -223,6 +227,13 @@ class ToolKit:
                 async for item in raw:
                     if isinstance(item, dict) and "progress" in item:
                         yield {"type": "tool_progress", "message": str(item["progress"])}
+                    elif isinstance(item, dict) and "collapsible" in item:
+                        block = item["collapsible"]
+                        yield {
+                            "type": "tool_collapsible",
+                            "title": str(block.get("title", "")),
+                            "content": str(block.get("content", "")),
+                        }
                     elif isinstance(item, dict) and "result" in item:
                         result_str = (
                             json.dumps(item["result"])
@@ -446,7 +457,7 @@ def extract_text_tool_calls(
 
             if parsed is None:
                 debug_messages.append(
-                    f"⚠️ Tool-Call-Pattern ({format_name}) aber unparsbar: {preview!r}"
+                    f"⚠️ Tool-call pattern ({format_name}) matched but unparsable: {preview!r}"
                 )
                 continue
 

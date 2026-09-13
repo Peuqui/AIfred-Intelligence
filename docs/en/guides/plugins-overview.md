@@ -102,6 +102,20 @@ Isolated Python code execution in subprocess.
 
 ---
 
+### Sub-Agents
+
+**File:** `plugins/tools/subagent/`
+
+Main agents delegate self-contained tasks to sub-agents: a fresh model run with its own context and toolkit, only the report comes back as the tool result, the full transcript appears collapsed in the chat bubble. Settings via the gear icon: allowed tiers (default 0+2), recursion depth (default 1), sub-agent as another main agent (default off).
+
+| Tool | Description | Tier |
+|------|------------|------|
+| `delegate_task` | Hand a sub-task with a complete handover to a sub-agent; the result is its report | READONLY |
+
+> **Details:** [Sub-Agents Plugin](plugins/subagent.md), architecture: [Sub-Agents as a Plugin](../architecture/subagent-plugin.md)
+
+---
+
 ### Calculator
 
 **File:** `plugins/tools/calculator/`

@@ -1113,3 +1113,43 @@ def get_max_direct_prompt_tokens(
 
     # critical_review, devils_advocate
     return max(aifred_tokens, sokrates_tokens)
+
+def get_subagent_system_prompt(
+    lang: Optional[str] = None,
+    granted_tools: Optional[set] = None,
+    source: str = "browser",
+) -> str:
+    """System prompt for a sub-agent run by the ``subagent`` plugin.
+
+    Deliberately lean — no identity, personality, reminder or memory layer:
+    a sub-agent is a worker with a task, not a conversation partner. Layers:
+    frame (``shared/subagent_frame``) → security boundary (external sources
+    only) → tool instructions → plugin instructions for exactly the tools the
+    sub-agent holds → disciplines (always last, as for every agent).
+
+    ``granted_tools`` is the sub-agent's actual tool set (after tier and
+    depth filtering), not the agent whitelist — a sub-agent must never read
+    instructions for a tool it cannot call.
+    """
+    if lang is None:
+        lang = get_language()
+    parts = [load_prompt('shared/subagent_frame', lang=lang)]
+    if source != "browser":
+        sec_boundary = load_prompt('shared/security_boundary', lang=lang)
+        if sec_boundary:
+            parts.append(sec_boundary)
+    if granted_tools:
+        tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
+        if tool_instructions:
+            parts.append(tool_instructions)
+        from .plugin_registry import discover_tools
+        for p in discover_tools():
+            if not p.is_available():
+                continue
+            instr = p.get_prompt_instructions(lang, granted_tools)
+            if instr:
+                parts.append(instr)
+    disciplines = load_prompt('shared/disciplines', lang=lang)
+    if disciplines:
+        parts.append(disciplines)
+    return "\n\n".join(parts)

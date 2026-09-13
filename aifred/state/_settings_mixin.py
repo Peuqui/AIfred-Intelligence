@@ -7,13 +7,39 @@ and reset-to-defaults.
 from __future__ import annotations
 
 import os
-from typing import Any, Dict
+from typing import TYPE_CHECKING, Any, Dict
 
 import reflex as rx
 from reflex.event import EventSpec
 
 from ..lib import TranslationManager, set_language
 from ..lib.settings import SETTINGS_FILE, load_settings, save_settings
+
+if TYPE_CHECKING:
+    from ..lib.plugin_base import BaseChannel, CredentialField
+
+
+def _translate_cred_key(key: str, channel: BaseChannel | None, lang: str) -> str | None:
+    """Resolve an i18n key of a credential field: plugin i18n (channels only)
+    first, then the central i18n. None when neither knows the key."""
+    from ..lib.i18n import t as _t
+    if channel is not None:
+        text = channel.translate(key, lang=lang)
+        if text != key:
+            return text
+    text = _t(key, lang=lang)
+    return None if text == key else text
+
+
+def _translated_options(field: CredentialField, channel: BaseChannel | None, lang: str) -> list[tuple[str, str]]:
+    """Dropdown options with their labels translated. A label that is no
+    i18n key stays as written, so plain-text labels keep working."""
+    if not field.options:
+        return []
+    return [
+        (value, _translate_cred_key(label, channel, lang) or label)
+        for value, label in field.options
+    ]
 
 
 class SettingsMixin(rx.State, mixin=True):
@@ -493,7 +519,6 @@ class SettingsMixin(rx.State, mixin=True):
 
     def open_channel_credentials(self, channel_name: str) -> EventSpec | list | None:
         """Open credentials page, pre-filled from .env (secrets) and settings.json (config)."""
-        from ..lib.plugin_base import CredentialField
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
         # Try channel first, then tool plugin
@@ -539,33 +564,19 @@ class SettingsMixin(rx.State, mixin=True):
                 raw_value = plugin_settings.get(field.env_key, os.environ.get(field.env_key, field.default))
 
             # Map stored value to display label for dropdown fields
-            if field.options:
-                value_to_label = {val: lbl for val, lbl in field.options}
+            options = _translated_options(field, plugin, lang)
+            if options:
+                value_to_label = {val: lbl for val, lbl in options}
                 values[field.env_key] = value_to_label.get(raw_value, raw_value)
             else:
                 values[field.env_key] = raw_value
 
-            # Label translation: plugin i18n → central i18n
-            label = ""
-            if plugin:
-                label = plugin.translate(field.label_key, lang=lang)
-            if not label or label == field.label_key:
-                label = _t(field.label_key, lang=lang)
-
-            # Tooltip (optional, Konvention: <label_key>_tooltip) — MUSS hier
-            # serverseitig mit dem ROHEN label_key aufgelöst werden: die UI
-            # kennt nur das übersetzte Label und kann weder Plugin-i18n noch
-            # den Original-Key rekonstruieren. Kein Treffer → "" = kein Tooltip.
-            tooltip_key = f"{field.label_key}_tooltip"
-            tooltip = ""
-            if plugin:
-                tooltip = plugin.translate(tooltip_key, lang=lang)
-                if tooltip == tooltip_key:
-                    tooltip = ""
-            if not tooltip:
-                tooltip = _t(tooltip_key, lang=lang)
-                if tooltip == tooltip_key:
-                    tooltip = ""
+            # Label, tooltip and option labels are resolved server-side with
+            # the RAW i18n keys (plugin i18n → central i18n): the UI only ever
+            # sees translated text. Tooltip convention: <label_key>_tooltip,
+            # no hit → "" = no lightbulb.
+            label = _translate_cred_key(field.label_key, plugin, lang) or field.label_key
+            tooltip = _translate_cred_key(f"{field.label_key}_tooltip", plugin, lang) or ""
 
             field_descriptors.append({
                 "env_key": field.env_key,
@@ -575,11 +586,11 @@ class SettingsMixin(rx.State, mixin=True):
                 "is_password": "1" if field.is_password else "",
                 "group": field.group,
                 "width_ratio": str(field.width_ratio),
-                "options": ",".join(val for val, _ in field.options) if field.options else "",
-                "option_labels": ",".join(lbl for _, lbl in field.options) if field.options else "",
+                "options": ",".join(val for val, _ in options),
+                "option_labels": ",".join(lbl for _, lbl in options),
             })
 
-        display = plugin.display_name if plugin else channel_name.capitalize()
+        display = plugin.display_name if plugin else tool.display_name if tool else channel_name
         suffix = _t("cred_title_suffix", lang=lang)
         self.channel_credentials_editing = channel_name
         self.channel_credentials_display_name = f"{display} — {suffix}"
@@ -785,11 +796,11 @@ class SettingsMixin(rx.State, mixin=True):
         """
         from dotenv import set_key
         from ..lib.config import PROJECT_ROOT
-        from ..lib.plugin_base import CredentialField
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
         plugin_name = self.channel_credentials_editing
         env_path = str(PROJECT_ROOT / ".env")
+        lang = self.ui_language  # type: ignore[attr-defined]
 
         # Determine if this is a channel or tool plugin
         channel = get_channel(plugin_name)
@@ -824,7 +835,7 @@ class SettingsMixin(rx.State, mixin=True):
             val = self.channel_credential_values.get(field.env_key, "")
             # Map display label back to stored value for dropdown fields
             if field.options:
-                label_to_value = {lbl: v for v, lbl in field.options}
+                label_to_value = {lbl: v for v, lbl in _translated_options(field, channel, lang)}
                 val = label_to_value.get(val, val)
 
             if field.is_secret:
@@ -859,7 +870,7 @@ class SettingsMixin(rx.State, mixin=True):
         for field in fields:
             val = self.channel_credential_values.get(field.env_key, "")
             if field.options:
-                label_to_value = {lbl: v for v, lbl in field.options}
+                label_to_value = {lbl: v for v, lbl in _translated_options(field, channel, lang)}
                 val = label_to_value.get(val, val)
             saved_values[field.env_key] = val
 
