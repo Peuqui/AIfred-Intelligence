@@ -316,12 +316,15 @@ class TestToolLoopIntegration:
         html = build_tool_collapsible({"title": "🤝 <x>", "content": "a < b\n```code```"})
         assert "<details" in html and "&lt;x&gt;" in html and "a &lt; b" in html
 
-    def test_collapsible_content_is_one_raw_pre_block(self):
+    def test_collapsible_content_stays_literal_text(self):
         from aifred.lib.formatting import build_tool_collapsible
         html = build_tool_collapsible({"title": "T", "content": "a\n\n| x | y |\n|---|---|\n\n**b**"})
-        # The <pre> starts after a blank line (own Markdown HTML block that runs
-        # to </pre>), so blank lines in the content cannot switch Markdown back on.
-        assert "</summary>\n\n<pre " in html and "</pre>\n\n</details>" in html
+        # One HTML block without any blank line, so Markdown never switches back
+        # on inside it; line breaks travel as the &#10; entity.
+        assert "\n\n" not in html and "a&#10;&#10;| x | y |" in html
+        # No <pre>: Reflex renders <pre> with its code-block component, which
+        # needs a <code> child and crashed the whole page.
+        assert "<pre" not in html
         # No second scroll box inside the <details>.
         assert "max-height" not in html
 
