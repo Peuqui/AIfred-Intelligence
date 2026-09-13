@@ -95,12 +95,12 @@ class _FakeSource:
     def is_available(self) -> bool:
         return self._available
 
-    async def snapshot(self) -> Frame:
+    async def snapshot(self, *, width: int = 0, height: int = 0) -> Frame:
         return Frame(
             source_id=self.source_id, timestamp=datetime.now(), image_bytes=b""
         )
 
-    async def stream(self, fps: float = 1.0) -> AsyncIterator[Frame]:
+    async def stream(self, fps: float = 1.0, *, width: int = 0, height: int = 0) -> AsyncIterator[Frame]:
         yield await self.snapshot()
 
     def info(self) -> SourceInfo:

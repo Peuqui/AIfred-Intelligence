@@ -3,6 +3,7 @@
 import asyncio
 import json
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -151,7 +152,7 @@ class TestDelegationLegend:
 
 class TestToolkit:
     def test_inherits_source_and_tier_and_filters_tiers(self, ctx, monkeypatch):
-        seen = {}
+        seen: dict[str, Any] = {}
 
         async def fake_prepare(agent_id, user_query, **kwargs):
             seen.update(kwargs, agent_id=agent_id)
@@ -202,7 +203,7 @@ class TestRun:
 
         monkeypatch.setattr(sub, "LLMClient", FakeClient)
 
-        captured = {}
+        captured: dict[str, Any] = {}
 
         async def fake_stream(client, model, messages, options, label, toolkit=None, retry=False):
             captured.update(model=model, messages=messages, toolkit=toolkit, label=label)

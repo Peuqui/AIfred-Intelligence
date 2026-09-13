@@ -6,14 +6,15 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime, timedelta
+from typing import Any
 
 from aifred.lib.alert_bus import AlertDispatcher, AlertEvent, AlertRule
 
 _T0 = datetime(2026, 6, 3, 14, 0, 0)
 
 
-def _ev(**kw) -> AlertEvent:
-    base = dict(
+def _ev(**kw: Any) -> AlertEvent:
+    base: dict[str, Any] = dict(
         producer="vision", category="face_unknown", source_id="cam/office",
         severity="warning", title="Unbekannt", body="cam/office", timestamp=_T0,
     )

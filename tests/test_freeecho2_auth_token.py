@@ -58,7 +58,7 @@ def _register_msg(room: str, token: "str | None" = None) -> MagicMock:
 def _run_handshake(messages, configured_token: str, auth_required: str = ""):
     """_handle_ws mit gefaktem WS + Broker-Token durchspielen."""
     channel = FreeEchoChannel()
-    channel.channel_log = MagicMock()
+    setattr(channel, "channel_log", MagicMock())
     fake_ws = FakeWS(messages)
     request = MagicMock()
     request.remote = "203.0.113.7"

@@ -24,7 +24,7 @@ def _ollama(name: str, family: str = "qwen3vl") -> OllamaModelInfo:
     )
 
 
-_FAKE_SWAP_MODELS = {
+_FAKE_SWAP_MODELS: dict[str, dict] = {
     "Qwen3VL-4B-Instruct-Q8_0-visiond": {},
     "Qwen3VL-4B-Instruct-Q8_0": {},
     "Qwen3.8-27B-MTP-UD-Q8_K_XL": {},

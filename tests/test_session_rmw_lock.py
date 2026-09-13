@@ -64,6 +64,7 @@ class TestConcurrentSessionWrites:
         _run_threads([lambda w=w: worker(w) for w in range(self.N_THREADS)])
 
         session = session_storage.load_session(sid)
+        assert session is not None
         expected = self.N_THREADS * self.N_ITER
         assert len(session["data"]["chat_history"]) == expected
         # M3: save_user_to_session writes the CHAT history only — the
@@ -97,6 +98,7 @@ class TestConcurrentSessionWrites:
         )
 
         session = session_storage.load_session(sid)
+        assert session is not None
         assert len(session["data"]["chat_history"]) == 2 * self.N_ITER
         assert len(session["data"]["debug_messages"]) == 2 * self.N_ITER
         # user + assistant pair per _append_response call
