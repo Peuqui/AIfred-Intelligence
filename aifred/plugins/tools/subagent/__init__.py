@@ -262,7 +262,8 @@ def format_transcript_call(label: str, name: str, arguments: str) -> str:
 def _transcript_labels(lang: str) -> dict[str, str]:
     de = str(lang).startswith("de")
     return {
-        "title": "🤝 Sub-Agent" if de else "🤝 Sub-agent",
+        # ⇄: task goes out to the right, the report comes back to the left.
+        "title": "⇄ Sub-Agent" if de else "⇄ Sub-agent",
         "task": "AUFGABE" if de else "TASK",
         "thinking": "DENKEN" if de else "THINKING",
         "call": "WERKZEUG" if de else "TOOL",
