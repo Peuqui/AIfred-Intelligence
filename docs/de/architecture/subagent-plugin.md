@@ -1,7 +1,10 @@
-# Entwurf: Sub-Agenten als Plugin
+# Sub-Agenten als Plugin
 
-Stand 13.09.2026, zweite Fassung nach der Diskussion mit Peuqui. Kein Code,
-bis die verbliebene Entscheidung am Ende getroffen ist.
+Architekturentwurf, Stand 13.09.2026, alle Entscheidungen getroffen, Umsetzung
+steht aus. Diese Seite beschreibt, was gebaut wird und warum; die
+Nutzeranleitung folgt mit der Umsetzung unter
+`docs/de/guides/plugins/subagent.md`. Englische Fassung:
+[docs/en/architecture/subagent-plugin.md](../../en/architecture/subagent-plugin.md).
 
 ## Ziel
 
@@ -182,7 +185,8 @@ ohne dass Codine ein neuer Agententyp wird.
 | `aifred/lib/multi_agent.py` | Block neben Quellen und Sandbox einhängen |
 | `data/agents.json` | `delegate_task` in die Whitelist der gewünschten Agenten |
 | `tests/test_subagent_plugin.py` | neu: Name gleich Ordnername, Werkzeug und Tier, Rekursionsfilter, Tier-Filter aus der Einstellung, Vererbung von `max_tier` und `source`, Memory aus, Ergebnis als Bericht, Block-Ereignis; `call_llm` gemockt |
-| `docs/de/guides/plugins/subagent.md` | neu, Nutzerdoku |
+| `docs/de/guides/plugins/subagent.md`, `docs/en/guides/plugins/subagent.md` | neu, Nutzerdoku in beiden Sprachen |
+| `README.md`, `README.de.md`, `docs/<lang>/guides/plugins-overview.md` | Eintrag im Abschnitt Multi-Agent System und in der Plugin-Übersicht, im selben Commit wie der Code |
 
 ## Bewusst nicht im Entwurf
 
@@ -209,7 +213,7 @@ ohne dass Codine ein neuer Agententyp wird.
 - Rekursionstiefe konfigurierbar, Vorgabe 1.
 - Aufklappbarer Block mit dem vollständigen Transkript.
 - Keine parallele Delegation, kein Kappungs-Schalter.
-
-## Noch offen
-
-1. Die Vorgabe der erlaubten Tiers: 0 und 2 wie vorgeschlagen?
+- Erlaubte Tiers als Vorgabe 0 und 2, konfigurierbar in der
+  Plugin-Einstellung.
+- Doku: Architekturseite jetzt in beiden Sprachen; Nutzeranleitung,
+  Plugin-Übersicht und README-Eintrag zusammen mit dem Code.
