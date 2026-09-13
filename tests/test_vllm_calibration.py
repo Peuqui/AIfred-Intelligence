@@ -1003,8 +1003,11 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
     persisted: list[str] = []
     monkeypatch.setattr(vllm_flow, "_measure_topology", fake_measure)
     monkeypatch.setattr(vllm_flow, "_sweep_k", recording_sweep)
-    monkeypatch.setattr(vllm_flow, "persist_operating_point",
-                        lambda spec, *a, **k: persisted.append(spec.served_name) or tmp_path / "p.yaml")
+    def recording_persist(spec, *args, **kwargs):
+        persisted.append(spec.served_name)
+        return tmp_path / "p.yaml"
+
+    monkeypatch.setattr(vllm_flow, "persist_operating_point", recording_persist)
     log: list[str] = []
     result = vllm_flow.calibrate_vllm_checkpoint(
         checkpoint=tmp_path, entry_name="m", log_dir=tmp_path / "log",

@@ -70,7 +70,8 @@ def test_output_path_resolves_only_real_sandbox_files(tmp_path, output_root):
     work.mkdir()
     (work / "fibonacci.html").write_text(PAGE, encoding="utf-8")
     (url,) = sandbox._collect_html(work, SESSION)
-    assert sandbox.sandbox_output_path(url).read_text(encoding="utf-8") == PAGE
+    path = sandbox.sandbox_output_path(url)
+    assert path is not None and path.read_text(encoding="utf-8") == PAGE
     assert sandbox.sandbox_output_path(f"/_upload/sandbox_output/{SESSION}/../x.html") is None
     assert sandbox.sandbox_output_path("/_upload/sandbox_output/not-a-session/seite-abcdef.html") is None
     assert sandbox.sandbox_output_path("/_upload/documents/seite.html") is None

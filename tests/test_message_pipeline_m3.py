@@ -23,6 +23,12 @@ def session_dir(tmp_path, monkeypatch):
     return tmp_path
 
 
+def _session_data(sid: str) -> dict:
+    session = session_storage.load_session(sid)
+    assert session is not None
+    return session["data"]
+
+
 def _make_message(text: str) -> InboundMessage:
     return InboundMessage(
         channel="email",
@@ -40,7 +46,7 @@ class TestM3WrappedHistory:
 
         save_user_to_session(sid, _make_message("hallo"))
 
-        data = session_storage.load_session(sid)["data"]
+        data = _session_data(sid)
         assert len(data["chat_history"]) == 1
         assert data["chat_history"][0]["role"] == "user"
         assert "hallo" in data["chat_history"][0]["content"]
@@ -60,7 +66,7 @@ class TestM3WrappedHistory:
         )
         _append_response(sid, "Nein.", "Nein.", agent="aifred", user_llm_text=wrapped)
 
-        data = session_storage.load_session(sid)["data"]
+        data = _session_data(sid)
         llm = data["llm_history"]
         assert [m["role"] for m in llm] == ["user", "assistant"]
         # The fence must be persisted verbatim — it protects every FUTURE
@@ -83,6 +89,6 @@ class TestM3WrappedHistory:
         save_user_to_session(sid, _make_message("frage ohne antwort"))
         # process_inbound returns before _append_response on engine failure —
         # llm_history must not contain the (unwrapped) question.
-        data = session_storage.load_session(sid)["data"]
+        data = _session_data(sid)
         assert "llm_history" not in data
         assert len(data["chat_history"]) == 1

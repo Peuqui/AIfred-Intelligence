@@ -73,9 +73,11 @@ def test_touch_preserves_content(session_dir):
         },
     )
     before = load_session(SESSION_E)
+    assert before is not None
 
     assert touch_session(SESSION_E) is True
     after = load_session(SESSION_E)
+    assert after is not None
 
     assert after["data"] == before["data"]
     assert after["owner"] == OWNER
