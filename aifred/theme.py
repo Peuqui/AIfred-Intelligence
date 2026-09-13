@@ -3,6 +3,11 @@ Dark Theme Configuration for AIfred Intelligence (Gradio-Style)
 """
 
 # Hybrid Dark Theme - GitHub Professional + Matrix Debug Console
+# Delegation to a sub-agent: the task goes out to the right, the report comes
+# back to the left. Drawn in COLORS["primary"] wherever it appears (bubble
+# transcript title, debug console), so core renders it without knowing the plugin.
+DELEGATION_ICON = "⇄"
+
 COLORS = {
     # === BACKGROUNDS (3-level hierarchy) ===
     "page_bg": "#0d1117",        # GitHub Dark (darkest)
