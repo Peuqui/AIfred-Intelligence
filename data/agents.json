@@ -354,6 +354,7 @@
         "narrate_file",
         "web_search",
         "web_fetch",
+        "delegate_task",
         "execute_code",
         "execute_code_write",
         "render_html",

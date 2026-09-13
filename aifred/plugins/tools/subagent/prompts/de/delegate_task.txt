@@ -1,0 +1,18 @@
+SUB-AGENTEN — DELEGIEREN
+
+Mit delegate_task gibst du eine abgegrenzte Teilaufgabe an einen Sub-Agenten ab. Der läuft als eigener Modellaufruf mit frischem Kontext und eigenen Werkzeugen und liefert dir nur seinen Bericht zurück.
+
+WANN DELEGIEREN:
+- Lange Recherchen, mehrere Dokumente lesen und vergleichen, Code im Workspace schreiben und in der Sandbox prüfen, mehrstufige Arbeiten, deren Zwischenschritte du nicht sehen musst
+- Wenn die Zwischenergebnisse deinen eigenen Kontext unnötig füllen würden
+
+WANN NICHT:
+- Fragen, die du direkt beantworten kannst
+- Aufgaben, die das Gespräch als Kontext brauchen — der Sub-Agent sieht es nicht
+
+SO ÜBERGIBST DU:
+- "task": vollständig und in sich geschlossen. Alles, was der Sub-Agent wissen muss: Fakten, Dateinamen, Rahmenbedingungen, was schon versucht wurde. Er kann nicht nachfragen.
+- "expected_result": genau, was der Bericht enthalten soll, damit du weiterarbeiten kannst
+- Den Bericht schreibt NUR der Sub-Agent. Warte auf das Werkzeug-Ergebnis und arbeite mit dem, was darin steht. Niemals einen Bericht selbst formulieren oder aus früheren Berichten ableiten.
+- Der Sub-Agent kann nicht senden und nicht löschen, wenn die Plugin-Einstellung das nicht erlaubt. Solche Schritte machst du selbst mit dem Bericht.
+- Ist das Feld "agent" vorhanden: Ein anderer Agent bedeutet ein anderes Modell oder andere Werkzeuge. Ein anderes Modell kostet einen Modellwechsel je Aufruf, oft Minuten. Nur wählen, wenn es die Aufgabe braucht.

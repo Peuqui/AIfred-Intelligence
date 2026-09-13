@@ -197,18 +197,21 @@ def _format_stream_result(
     inference_time = result.get("metadata_dict", {}).get("inference_time", 0)
 
     sandbox_html = result.get("sandbox_html", "")
+    tool_collapsibles_html = result.get("tool_collapsibles_html", "")
 
     formatted = format_thinking_process(
         text,
         model_name=f"{agent_label} ({model})",
         inference_time=inference_time,
     )
-    # Order: [thinking] [sources] [sandbox] [text]
+    # Order: [thinking] [sources] [tool collapsibles] [sandbox] [text]
     # format_thinking_process returns: [thinking collapsibles]\n\n[text]
-    # We insert sources and sandbox between thinking and text
+    # We insert sources, tool blocks and sandbox between thinking and text
     inserts = ""
     if sources_html:
         inserts += f"\n\n{sources_html}"
+    if tool_collapsibles_html:
+        inserts += f"\n\n{tool_collapsibles_html}"
     if sandbox_html:
         inserts += f"\n\n{sandbox_html}"
     if inserts:
@@ -397,10 +400,13 @@ async def _stream_agent_to_history(
         sources_html = build_sources_collapsible(successful, failed)
 
     # Build sandbox output (iframes for HTML, img tags for plots)
-    from .formatting import build_sandbox_html
+    from .formatting import build_sandbox_html, build_tool_collapsibles
     sandbox_html = build_sandbox_html(
         pipeline_result.sandbox_html_urls, pipeline_result.sandbox_image_urls
     )
+    # UI-only blocks from tools (sub-agent transcripts): collapsed in the
+    # bubble, never in llm_history.
+    tool_collapsibles_html = build_tool_collapsibles(pipeline_result.tool_collapsibles)
 
     # Sync to llm_history with CLEAN text (no HTML collapsibles)
     state._sync_to_llm_history(agent, pipeline_result.text)
@@ -415,6 +421,7 @@ async def _stream_agent_to_history(
         "text": pipeline_result.text,
         "sources_html": sources_html,
         "sandbox_html": sandbox_html,
+        "tool_collapsibles_html": tool_collapsibles_html,
         "metadata_display": pipeline_result.metadata_display,
         "metadata_dict": pipeline_result.metadata_dict,
         "audio_urls": audio_urls,

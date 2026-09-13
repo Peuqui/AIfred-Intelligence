@@ -1,0 +1,5 @@
+AUFGABE:
+{task}
+
+ERWARTETES ERGEBNIS:
+{expected_result}

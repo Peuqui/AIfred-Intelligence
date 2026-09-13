@@ -48,6 +48,10 @@ class PipelineResult:
     fetched_urls: list[dict[str, Any]] = field(default_factory=list)
     sandbox_html_urls: list[str] = field(default_factory=list)
     sandbox_image_urls: list[str] = field(default_factory=list)
+    # UI-only blocks delivered by tools ({"title", "content"}), e.g. a
+    # sub-agent's transcript — rendered collapsed in the bubble, never sent
+    # to the model (see ToolKit.execute_streaming "tool_collapsible").
+    tool_collapsibles: list[dict[str, str]] = field(default_factory=list)
     silent_reply: bool = False                          # any tool requested TTS-skip
     truncated: bool = False                             # hit token/context limit — answer incomplete
 
@@ -192,6 +196,7 @@ async def run_llm_stream(
     fetched_urls: list[dict[str, Any]] = []
     sandbox_html_urls: list[str] = []
     sandbox_image_urls: list[str] = []
+    tool_collapsibles: list[dict[str, str]] = []
     silent_reply = False  # set True if any tool_result has silent_reply
     # SSoT fürs gerenderte VLM-Bild: URLs, die die Pipeline deterministisch
     # eingefügt hat. Ein späteres LLM-Echo derselben URL wird im Post-
@@ -256,6 +261,16 @@ async def run_llm_stream(
             # Streaming tools (web_search, search_documents, …) emit progress
             # lines while they run. Forward them so consumers can update the
             # UI immediately instead of seeing a debug-block at tool end.
+            yield chunk
+
+        elif chunk_type == "tool_collapsible":
+            # UI-only block from a tool (sub-agent transcript). Collected
+            # for the bubble next to sources and sandbox output; forwarded
+            # too, so consumers may mirror it into their debug sink.
+            tool_collapsibles.append({
+                "title": chunk.get("title", ""),
+                "content": chunk.get("content", ""),
+            })
             yield chunk
 
         elif chunk_type == "tool_result":
@@ -541,6 +556,7 @@ async def run_llm_stream(
             fetched_urls=fetched_urls,
             sandbox_html_urls=sandbox_html_urls,
             sandbox_image_urls=sandbox_image_urls,
+            tool_collapsibles=tool_collapsibles,
             silent_reply=silent_reply,
             truncated=truncated,
         ),

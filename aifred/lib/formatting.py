@@ -1199,3 +1199,31 @@ def build_sources_collapsible(used_sources: list, failed_sources: list, lang: st
 </details>"""
 
     return collapsible
+
+
+def build_tool_collapsibles(blocks: list[dict[str, str]]) -> str:
+    """HTML ``<details>`` blocks for UI-only content delivered by tools.
+
+    Each block is ``{"title": ..., "content": ...}`` (see
+    ``ToolKit.execute_streaming`` → ``tool_collapsible``). The content is
+    shown as preformatted text and HTML-escaped, so a sub-agent transcript
+    with angle brackets or Markdown fences cannot break the bubble. Same
+    styling as the thinking and sources collapsibles; ignored by the token
+    estimate like every ``<details>`` block.
+
+    Returns "" when there are no blocks.
+    """
+    import html as _html
+    parts: list[str] = []
+    for block in blocks:
+        title = _html.escape(str(block.get("title", "")).strip()) or "…"
+        content = _html.escape(str(block.get("content", "")).rstrip())
+        parts.append(
+            f'<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">\n'
+            f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; '
+            f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n'
+            f'<div style="max-height: 60vh; overflow-y: auto; padding-left: 1em; padding-top: 0.3em; '
+            f'line-height: 1.5; white-space: pre-wrap; font-family: monospace; font-size: 0.95em;">\n'
+            f'{content}\n</div>\n</details>'
+        )
+    return "\n\n".join(parts)

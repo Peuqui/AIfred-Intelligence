@@ -6,7 +6,7 @@
 
 # AIfred Intelligence
 
-**Autonomer KI-Assistent mit Tool Use, Message Hub, Multi-Agent-Debatten, Vision/Kamera-Überwachung & lokaler LLM-Inferenz**
+**Autonomer KI-Assistent mit Tool Use, Sub-Agenten, Message Hub, Multi-Agent-Debatten, Vision/Kamera-Überwachung & lokaler LLM-Inferenz**
 
 AIfred Intelligence ist ein vollwertiger KI-Assistent der lokal auf eigener Hardware läuft. Er verwaltet autonom E-Mails, Termine, Dokumente, Datenbanken und Kamera-Feeds — mit Function Calling, persistentem Gedächtnis, Multi-Agent-Debatten und lokaler VLM-Analyse. Keine Cloud-Abhängigkeit, volle Datenhoheit.
 
@@ -58,6 +58,7 @@ Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-I
 
 ### 🎩 Multi-Agent-System
 
+- **Sub-Agenten (Delegation)**: Jeder Agent kann eine abgegrenzte Aufgabe per `delegate_task` an einen Sub-Agenten abgeben — ein frischer Modellaufruf mit eigenem Kontextfenster, eigener Tool-Schleife und ohne Persona, Gespräch oder Gedächtnis des Aufrufers. Nur der Bericht des Sub-Agenten kommt beim Hauptagenten an; das vollständige Transkript (Denken, jeder Werkzeugaufruf samt Ergebnis) erscheint aufklappbar in der Chat-Bubble, nichts läuft unter dem Radar. Plugin-Einstellungen: erlaubte Werkzeug-Tiers (Vorgabe: lesen und Daten schreiben, kein Senden oder Löschen), Rekursionstiefe, optional Delegation an Modell und Werkzeuge eines anderen Agenten. Manager-Arbeiter-Muster für lange Recherchen, Mehr-Dokument-Arbeit und Coding, ohne den Hauptkontext zu fluten. Siehe [Sub-Agenten Plugin](docs/de/guides/plugins/subagent.md)
 - **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unbegrenzt eigene Agenten
 - **Benutzerdefinierte Agenten**: Name, Emoji, Rolle, zweisprachige Prompts (DE/EN), eigenes Langzeitgedächtnis. Agenten-Editor in der UI
 - **Generischer Agenten-Kern**: Alle Per-Agent-Einstellungen (Modell, Sampling, Thinking-Modus, Kontextgröße, TTS-Stimme) leben in einer einzigen `agent_tuning`-Map — Custom-Agenten sind gleichberechtigte Bürger. Ein neu angelegter Agent bekommt automatisch seine eigene Settings-Zeile, Sampling-Zeile und Kontext-Spalte in der UI; keine Code-Änderungen, keine hardcodierten Agenten-Listen
