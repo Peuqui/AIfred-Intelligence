@@ -27,6 +27,7 @@ from ....lib.function_calling import Tool, ToolKit
 from ....lib.llm_client import LLMClient, build_llm_options
 from ....lib.llm_pipeline import run_llm_stream
 from ....lib.perf_metrics import InferenceWork
+from ....theme import DELEGATION_ICON
 from ....lib.agent_memory import prepare_agent_toolkit
 from ....lib.plugin_base import (
     CredentialField,
@@ -260,8 +261,7 @@ def format_transcript_call(label: str, name: str, arguments: str) -> str:
     return "\n".join(lines)
 
 
-# ⇄: the task goes out to the right, the report comes back to the left.
-SUBAGENT_ICON = "⇄"
+SUBAGENT_ICON = DELEGATION_ICON
 
 
 def _transcript_labels(lang: str) -> dict[str, str]:

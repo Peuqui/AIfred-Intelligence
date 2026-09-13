@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
 
 from ..state import AIState
-from ..theme import COLORS
+from ..theme import COLORS, DELEGATION_ICON
 from .helpers import t, clickable_tip, blue_action_button_style
 
 from .helpers import native_select_generic
@@ -829,6 +831,26 @@ def text_input_section() -> rx.Component:
 # ============================================================
 
 
+def _debug_line(msg: Any) -> rx.Component:
+    """One console line; the delegation icon in the accent colour, like in the
+    bubble, the rest in the line's own colour."""
+    color = rx.cond(
+        msg.contains("\u2717") | msg.contains("\u274c"),  # ✗ or ❌
+        "#ff6b6b",  # Rot für Fehler
+        COLORS["debug_text"],  # Matrix Grün
+    )
+
+    def line(*children: Any) -> rx.Component:
+        return rx.text(*children, font_family="monospace", font_size="11px", color=color, white_space="pre")
+
+    parts = msg.split(DELEGATION_ICON)
+    return rx.cond(
+        msg.contains(DELEGATION_ICON),
+        line(parts[0], rx.el.span(DELEGATION_ICON, color=COLORS["primary"]), parts[1:].join(DELEGATION_ICON)),
+        line(msg),
+    )
+
+
 def debug_console() -> rx.Component:
     """Debug console with logs (25 lines like Gradio) - Matrix Terminal Style"""
 
@@ -836,20 +858,7 @@ def debug_console() -> rx.Component:
     # rx.auto_scroll() breaks during fast State updates (Intent Detection, LLM generation)
     # Using single rx.box ensures scroll position is preserved when toggle is disabled
     debug_content = rx.box(
-        rx.foreach(
-            AIState.debug_messages,
-            lambda msg: rx.text(
-                msg,
-                font_family="monospace",
-                font_size="11px",
-                color=rx.cond(
-                    msg.contains("\u2717") | msg.contains("\u274c"),  # ✗ or ❌
-                    "#ff6b6b",  # Rot für Fehler
-                    COLORS["debug_text"],  # Matrix Grün
-                ),
-                white_space="pre",
-            ),
-        ),
+        rx.foreach(AIState.debug_messages, _debug_line),
         id="debug-console-box",
         width="100%",
         overflow_y="auto",
