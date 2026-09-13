@@ -34,6 +34,9 @@ from ..perf_metrics import prefill_tokens_per_second
 from ..config import (
     DATA_DIR,
     VLLM_CALIBRATION_CACHE_MAX_GIB,
+    VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS,
+    VLLM_PRODUCTION_CACHE_MAX_GIB,
+    VLLM_PRODUCTION_CACHE_ROOT,
     VLLM_CALIBRATION_CACHE_ROOT,
     VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO,
 )
@@ -510,6 +513,91 @@ def prune_calibration_cache(
         freed += sizes[entry]
         remaining -= sizes[entry]
     return freed, remaining
+
+
+def clear_calibration_cache() -> int:
+    """Kalibrations-Cache nach einem abgeschlossenen Lauf komplett leeren.
+
+    Die Artefakte dienen nur den Sonden-Boots dieses Laufs: die Produktion
+    kompiliert unter ihrem eigenen Cache-Root ohnehin einmal neu, und der
+    naechste Lauf legt sich seine Eintraege einmalig wieder an. Ein Stutzen
+    auf die aeltesten Eintraege liesse Konfigurationen liegen, die nie
+    gefahren werden (Peuqui 2026-09-13). Gibt die freigegebenen Bytes zurueck.
+    """
+    freed, _ = prune_calibration_cache(max_bytes=0)
+    return freed
+
+
+def _last_used(entry: Path) -> float:
+    """Letzter Ladevorgang eines Cache-Eintrags: juengste atime seiner Dateien.
+
+    vLLM liest die Artefakte beim Boot; mit relatime rueckt die atime dabei
+    mindestens einmal am Tag nach. Faellt auf die mtime zurueck, falls ein
+    Eintrag keine Dateien hat.
+    """
+    stamps = [max(f.stat().st_atime, f.stat().st_mtime)
+              for f in entry.rglob("*") if f.is_file()]
+    return max(stamps) if stamps else entry.stat().st_mtime
+
+
+def prune_production_compile_cache(
+    max_bytes: int = VLLM_PRODUCTION_CACHE_MAX_GIB * 1024**3,
+    max_age_days: int = VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS,
+    now: float | None = None,
+) -> tuple[int, int]:
+    """Produktions-Cache aufraeumen: erst nach Alter, dann auf ``max_bytes``.
+
+    Ein Eintrag, der seit ``max_age_days`` nicht mehr geladen wurde, gehoert
+    zu einem geloeschten Modell oder einem verworfenen Betriebspunkt und
+    fliegt. Liegt der Rest ueber ``max_bytes``, gehen die am laengsten
+    ungenutzten zuerst. Gibt (freigegebene Bytes, verbleibende Bytes) zurueck;
+    ein fehlender Root ist leer.
+    """
+    root = VLLM_PRODUCTION_CACHE_ROOT
+    if not root.is_dir():
+        return 0, 0
+    current = time.time() if now is None else now
+    entries = sorted(_cache_entries(root), key=_last_used)
+    sizes = {entry: _tree_bytes(entry) for entry in entries}
+    remaining = sum(sizes.values())
+    freed = 0
+    cutoff = current - max_age_days * 86400
+    for entry in entries:
+        if _last_used(entry) >= cutoff and remaining <= max_bytes:
+            break
+        shutil.rmtree(entry)
+        freed += sizes[entry]
+        remaining -= sizes[entry]
+    return freed, remaining
+
+
+async def cleanup_vllm_compile_cache_task() -> None:
+    """Background-Task: Produktions-Compile-Cache am naechtlichen Wartungs-Slot
+    aufraeumen, wie die uebrigen Cleanups (Audit-Log, AudioState, Vision)."""
+    import asyncio
+
+    from ..cleanup_utils import seconds_until_next_run
+    from ..config import GARBAGE_COLLECTION_HOUR
+    from ..logging_utils import log_message
+
+    gib = 1024**3
+    log_message(
+        f"🧹 vLLM compile cache cleanup task started "
+        f"(slot: {GARBAGE_COLLECTION_HOUR:02d}:00 lokal, "
+        f"max age {VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS}d, "
+        f"cap {VLLM_PRODUCTION_CACHE_MAX_GIB} GiB, {VLLM_PRODUCTION_CACHE_ROOT})"
+    )
+    while True:
+        try:
+            await asyncio.sleep(seconds_until_next_run(GARBAGE_COLLECTION_HOUR))
+            freed, kept = prune_production_compile_cache()
+            if freed > 0:
+                log_message(
+                    f"🧹 vLLM compile cache cleanup: {freed / gib:.1f} GiB freed, "
+                    f"{kept / gib:.1f} GiB kept"
+                )
+        except Exception as exc:  # noqa: BLE001
+            log_message(f"⚠️ vLLM compile cache cleanup task error: {exc}")
 
 
 def probe_boot_env(spec: VllmSpec, runtime: dict) -> dict[str, str]:

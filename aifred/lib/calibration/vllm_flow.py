@@ -47,6 +47,7 @@ from .vllm_probe import (
     VllmServer,
     VllmSpec,
     boot_vllm,
+    clear_calibration_cache,
     find_free_port,
     load_vllm_runtime,
     probe_coherence,
@@ -1402,6 +1403,14 @@ def calibrate_vllm_checkpoint(
     # Verwendete GPUs im Log dokumentieren (UUID-Rueckverfolgbarkeit)
     used = [uuid_by_smi.get(i, str(i)) for i in best_spec.gpu_ids]
     logger.info(f"vllm calibration done: {entry_name} on {used}")
+
+    # Nur nach einem abgeschlossenen Lauf: ein abgebrochener behaelt seine
+    # Eintraege fuer die Wiederholung, die Obergrenze beim Start faengt ihn.
+    freed = clear_calibration_cache()
+    progress(
+        f"🧹 Calibration compile cache cleared "
+        f"({VLLM_CALIBRATION_CACHE_ROOT}: {format_number(freed / gib, 1)} GiB freed)"
+    )
 
     return VllmCalibrationResult(
         spec=best_spec, throughput_tok_s=best_speed.long_tps,

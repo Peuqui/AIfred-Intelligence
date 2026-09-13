@@ -1288,11 +1288,25 @@ VLLM_CALIBRATION_GMU_AB = True
 # (103 GB) und toeteten den Lauf. Produktion behaelt vLLMs Standard-Cache
 # und kompiliert nach einer Kalibration einmal kalt (~7 min).
 VLLM_CALIBRATION_CACHE_ROOT = Path.home() / ".cache" / "vllm-calibration"
-# Obergrenze des Kalibrations-Caches: beim Start eines Laufs wird er auf
-# diese Groesse gestutzt, aelteste Eintraege zuerst. Nicht leeren: Treffer
-# aus frueheren Laeufen sparen den kalten Compile (RTX 8000: ~5 min je
-# Boot, Lauf #3 am 06.09.2026 brauchte mit leerem Cache ~2 h laenger).
+# Obergrenze des Kalibrations-Caches beim START eines Laufs (Sicherheitsnetz
+# fuer abgebrochene Laeufe, aelteste Eintraege zuerst). Nach einem
+# ABGESCHLOSSENEN Lauf wird der Cache komplett geleert (Peuqui 2026-09-13):
+# seine Artefakte dienen nur den Sonden-Boots, die Produktion kompiliert
+# unter ihrem eigenen Root ohnehin einmal neu; der naechste Lauf legt sich
+# seine Eintraege einmalig wieder an (RTX 8000: ~5 min je kaltem Boot).
 VLLM_CALIBRATION_CACHE_MAX_GIB = 40
+# Produktions-Cache (vLLMs Standard-Root, die llama-swap-Eintraege setzen
+# keinen eigenen): jeder Betriebspunkt hinterlaesst ein AOT-Artefakt von
+# 0,7-2,5 GB, und nichts raeumt die Artefakte geloeschter Modelle oder
+# verworfener Betriebspunkte weg (12.09.2026: 50 Eintraege, 18 GB, gebraucht
+# vier). Regel (Peuqui 2026-09-13): Eintraege, deren letzter Ladevorgang
+# laenger als MAX_AGE_DAYS zurueckliegt, fliegen; darueber hinaus wird auf
+# MAX_GIB gestutzt, am laengsten ungenutzt zuerst. Der letzte Ladevorgang
+# ist die atime der Artefakte (relatime: mindestens taeglich aktualisiert).
+# Ein geloeschter Eintrag legt sich beim naechsten Boot einmalig neu an.
+VLLM_PRODUCTION_CACHE_ROOT = Path.home() / ".cache" / "vllm"
+VLLM_PRODUCTION_CACHE_MAX_GIB = 40
+VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS = 21
 
 # Host-RAM-Wache der Kalibrationsboots: Anteil des GESAMTEN Arbeitsspeichers,
 # der waehrend eines Boots verfuegbar bleiben muss. Faellt er darunter, wird
