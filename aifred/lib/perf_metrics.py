@@ -73,12 +73,16 @@ class InferenceWork:
     ``None`` as a time means at least one request was not measurable. The
     sum stays unknown then: a rate over the measured part would silently
     leave work out.
+
+    ``thinking_s`` is the wall-clock time spent inside think blocks (see
+    ``ThinkingClock``): every block of every tool round, sub-agents included.
     """
 
     prefill_tokens: int = 0
     prefill_s: float | None = 0.0
     decode_tokens: int = 0
     decode_s: float | None = 0.0
+    thinking_s: float = 0.0
 
     def __add__(self, other: "InferenceWork") -> "InferenceWork":
         return InferenceWork(
@@ -86,6 +90,7 @@ class InferenceWork:
             prefill_s=_add_known(self.prefill_s, other.prefill_s),
             decode_tokens=self.decode_tokens + other.decode_tokens,
             decode_s=_add_known(self.decode_s, other.decode_s),
+            thinking_s=self.thinking_s + other.thinking_s,
         )
 
     def prefill_rate(self) -> float | None:
@@ -155,3 +160,49 @@ class InferenceWork:
 
 def _add_known(a: float | None, b: float | None) -> float | None:
     return None if a is None or b is None else a + b
+
+
+THINK_OPEN = "<think>"
+THINK_CLOSE = "</think>"
+
+
+class ThinkingClock:
+    """Wall-clock time inside ``<think>…</think>`` blocks of streamed text.
+
+    Every backend delivers reasoning as think tags in the content stream.
+    A tool turn thinks again before each round, so the clock adds up every
+    block, not just the first. Tags split across two chunks are still found
+    (a short tail of the previous chunk is kept).
+    """
+
+    def __init__(self) -> None:
+        self.total_s = 0.0
+        self._opened_at: float | None = None
+        self._tail = ""
+
+    def observe(self, text: str, now: float) -> None:
+        """Feed one streamed chunk; ``now`` is the time it arrived."""
+        seen = self._tail + text
+        fresh_from = len(self._tail)
+        tags = sorted(
+            (index, tag)
+            for tag in (THINK_OPEN, THINK_CLOSE)
+            for index in _find_all(seen, tag)
+            if index + len(tag) > fresh_from
+        )
+        for _, tag in tags:
+            if tag == THINK_OPEN and self._opened_at is None:
+                self._opened_at = now
+            elif tag == THINK_CLOSE and self._opened_at is not None:
+                self.total_s += now - self._opened_at
+                self._opened_at = None
+        self._tail = seen[-(len(THINK_CLOSE) - 1):]
+
+
+def _find_all(text: str, needle: str) -> list[int]:
+    found: list[int] = []
+    index = text.find(needle)
+    while index != -1:
+        found.append(index)
+        index = text.find(needle, index + 1)
+    return found

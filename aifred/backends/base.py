@@ -9,7 +9,7 @@ from typing import Dict, List, Optional, AsyncIterator, Union, Any
 from dataclasses import dataclass
 
 from aifred.lib.config import DEFAULT_OLLAMA_URL
-from aifred.lib.perf_metrics import InferenceWork
+from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
 
 
 @dataclass
@@ -685,6 +685,7 @@ class OpenAICompatibleBackend(LLMBackend):
                 # Summed over every request of this turn and the sub-agents
                 # its tools ran (they report theirs as tool_work events).
                 work = InferenceWork()
+                thinking = ThinkingClock()
                 last_round_had_tool_calls = False
                 # True once any round hit finish_reason="length" — surfaces in
                 # the done metrics so the pipeline can mark the result as
@@ -717,8 +718,10 @@ class OpenAICompatibleBackend(LLMBackend):
                     ):
                         if request_first is None:
                             request_first = timer.elapsed() - request_start
-                        if first_token_s is None and item.get("type") == "content":
-                            first_token_s = timer.elapsed()
+                        if item.get("type") == "content":
+                            if first_token_s is None:
+                                first_token_s = timer.elapsed()
+                            thinking.observe(item["text"], timer.elapsed())
                         yield item
                         yielded_any = True
                     prompt_tokens = counters["prompt_tokens"]
@@ -970,8 +973,10 @@ class OpenAICompatibleBackend(LLMBackend):
                     ):
                         if request_first is None:
                             request_first = timer.elapsed() - request_start
-                        if first_token_s is None and item.get("type") == "content":
-                            first_token_s = timer.elapsed()
+                        if item.get("type") == "content":
+                            if first_token_s is None:
+                                first_token_s = timer.elapsed()
+                            thinking.observe(item["text"], timer.elapsed())
                         yield item
                         yielded_any = True
                     prompt_tokens = counters["prompt_tokens"]
@@ -989,6 +994,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
                 inference_time = timer.elapsed()
 
+                work = work + InferenceWork(thinking_s=thinking.total_s)
                 metrics = self._build_stream_metrics(prompt_tokens, work, inference_time, model)
                 # Carry the truncation flag into the done metrics so the
                 # pipeline result (and the "done" debug line built from it)
