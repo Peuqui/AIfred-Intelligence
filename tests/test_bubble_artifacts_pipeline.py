@@ -26,6 +26,8 @@ class _Turn:
     delegation whose sub-agent built a page and fetched a web page, then the
     answer (which echoes the analysed image and the page marker)."""
 
+    backend_type = "vllm"
+
     async def chat_stream(self, model, messages, options, toolkit=None):
         yield {"type": "content", "text": "<think>plan</think>Ich schaue nach."}
         yield {"type": "tool_call", "name": "vision_snapshot", "arguments": "{}"}

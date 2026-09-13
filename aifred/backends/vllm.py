@@ -15,6 +15,8 @@ import urllib.error
 import urllib.request
 from typing import Any, Dict, Optional
 
+from ..lib.perf_metrics import InferenceWork
+
 from .base import (
     OpenAICompatibleBackend,
 )
@@ -123,38 +125,45 @@ class vLLMBackend(OpenAICompatibleBackend):
         """Zaehlerstand direkt vor der Anfrage merken — auch vor jeder Tool-Runde."""
         self._request_baseline = self._read_counters()
 
-    def _rates_from_metrics(self) -> tuple[float | None, float | None, float]:
-        """(Prefill, Decode, gerechnete Token) der LETZTEN Serveranfrage.
+    def _request_work(
+        self,
+        prompt_tokens: int,
+        tokens_generated: int,
+        server_timings: Dict[str, Any],
+        first_token_s: Optional[float],
+        elapsed_s: float,
+    ) -> InferenceWork:
+        """vLLM's own measurement of the request that just finished.
 
-        vLLM misst jede Anfrage selbst, liefert die Werte aber nicht in der
-        Antwort (llama-server tut das, ``timings``), sondern nur als Summen
-        auf ``/metrics``. Die Differenz direkt vor und nach genau einer
-        Anfrage IST deshalb vLLMs eigene Messung dieser Anfrage — derselbe
-        Umfang wie llama.cpps Timings, die bei Tool-Runden ebenfalls die
-        letzte Runde beschreiben. Die Wanduhr-Rechnungen der Basisklasse
-        sind dagegen schief (Prefill durch TTFT, Decode durch die Dauer
-        inklusive Prefill; am 122B untertrieb das den Decode um 7-15 %).
+        vLLM measures every request itself but reports it only as running
+        totals on ``/metrics``, not in the response (llama-server does,
+        ``timings``). The delta right before and after exactly one request
+        IS vLLM's measurement of that request. The outside wall-clock
+        measurement is skewed (prefill via TTFT, decode 7-15 % too low on the
+        122B) and only used when the delta is ambiguous: a foreign request
+        finished in the window, or the server swapped in between.
 
-        Bis 2026-09-11 lag die Basis beim Ende des VORIGEN Auftrags. Ein
-        Tool-Auftrag bringt aber mehrere Anfragen: mehr als eine im Delta,
-        Messung verworfen, Wanduhr ueber alle Runden — die Fussnote meldete
-        22 tok/s Prefill und 6,5 tok/s Decode, vLLM selbst 500 und 33.
-        Ist die Zuordnung nicht eindeutig (fremde Anfrage parallel, Server
-        dazwischen geswappt), kommt nichts zurueck — nie ein geratener Wert.
+        Until 2026-09-11 the baseline sat at the end of the PREVIOUS turn; a
+        tool turn put several requests into the delta, the measurement was
+        dropped and the footer showed 22 tok/s prefill and 6.5 tok/s decode
+        where vLLM itself measured 500 and 33.
         """
-        leer: tuple[float | None, float | None, float] = (None, None, 0.0)
-        vorher, self._request_baseline = self._request_baseline, None
-        jetzt = self._read_counters()
-        if vorher is None or jetzt is None or vorher[0] != jetzt[0]:
-            return leer
-        d_pf_tok, d_pf_s, d_anzahl, d_gen_tok, d_dec_s = (
-            j - v for j, v in zip(jetzt[1], vorher[1])
+        before, self._request_baseline = self._request_baseline, None
+        now = self._read_counters()
+        if before is not None and now is not None and before[0] == now[0]:
+            d_pf_tok, d_pf_s, d_requests, d_gen_tok, d_dec_s = (
+                n - b for n, b in zip(now[1], before[1])
+            )
+            if round(d_requests) == 1:
+                return InferenceWork(
+                    prefill_tokens=int(max(d_pf_tok, 0.0)),
+                    prefill_s=max(d_pf_s, 0.0),
+                    decode_tokens=int(max(d_gen_tok, 0.0)),
+                    decode_s=max(d_dec_s, 0.0),
+                )
+        return super()._request_work(
+            prompt_tokens, tokens_generated, server_timings, first_token_s, elapsed_s,
         )
-        if round(d_anzahl) != 1:
-            return leer  # nicht eindeutig dieser einen Anfrage zuzuordnen
-        prefill = d_pf_tok / d_pf_s if d_pf_s > 0 and d_pf_tok > 0 else None
-        decode = d_gen_tok / d_dec_s if d_dec_s > 0 and d_gen_tok > 0 else None
-        return prefill, decode, max(d_pf_tok, 0.0)
 
     def _build_extra_body(self, options) -> Dict:
         """Wie die Basisklasse, aber ohne ``min_p`` und ``repetition_penalty``.
@@ -194,7 +203,7 @@ class vLLMBackend(OpenAICompatibleBackend):
     def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
         """Rueckfallebene: wie viel vom Prompt aus dem Praefix-Cache kam.
 
-        Seit ``_rates_from_metrics()`` holen wir die Prefill-Rate
+        Seit ``_request_work()`` holen wir die Prefill-Rate
         bevorzugt aus vLLMs eigenen Histogrammen. Diese Zahl hier greift,
         wenn das nicht eindeutig ist (fremde Anfrage parallel, Server
         waehrend der Anfrage geswappt, aeltere vLLM-Version).
@@ -237,40 +246,6 @@ class vLLMBackend(OpenAICompatibleBackend):
             for name, e in eintraege.items()
             if name.endswith("-vllm")
         )
-
-    def _build_stream_metrics(
-        self,
-        prompt_tokens: int,
-        total_tokens: int,
-        inference_time: float,
-        model: str,
-        server_timings: Dict[str, Any],
-        first_token_s: Optional[float],
-    ) -> Dict[str, Any]:
-        """Wie die Basisklasse, plus die Zahl der Cache-Treffer.
-
-        Nur der Rohwert wird gemeldet; abgezogen wird in
-        ``perf_metrics.prefill_tokens_per_second``. Fehlt der Schluessel,
-        ist die Zahl UNBEKANNT (Server ohne
-        ``--enable-prompt-tokens-details``) — dann meldet der Helfer
-        bewusst keine Rate statt einer geratenen.
-        """
-        metrics = super()._build_stream_metrics(
-            prompt_tokens, total_tokens, inference_time, model, server_timings,
-            first_token_s,
-        )
-        cached = server_timings.get("prompt_tokens_cached")
-        if cached is not None:
-            metrics["tokens_prompt_cached"] = int(cached)
-        # Genau EINMAL je Antwort (nicht je Chunk): vLLMs eigene Messung
-        # schlaegt beide Wanduhr-Rechnungen der Basisklasse.
-        prefill, decode, prefill_tokens = self._rates_from_metrics()
-        if prefill:
-            metrics["prompt_per_second"] = prefill
-            metrics["tokens_prompt_computed"] = int(prefill_tokens)
-        if decode:
-            metrics["tokens_per_second"] = decode
-        return metrics
 
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """Context limit and weight size of a ``-vllm`` llama-swap entry.

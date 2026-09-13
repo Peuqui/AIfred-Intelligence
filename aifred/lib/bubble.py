@@ -19,7 +19,7 @@ from dataclasses import dataclass
 from typing import Any
 
 # Kinds and their ``data``
-KIND_COLLAPSIBLE = "collapsible"      # {"title": str, "content": str}
+KIND_COLLAPSIBLE = "collapsible"      # {"title": str, "content": str, "icon", "footer": str (optional)}
 KIND_SOURCES = "sources"              # {"urls": [{"url": str, "success": bool | None}]}
 KIND_SANDBOX_HTML = "sandbox_html"    # {"url": str}
 KIND_SANDBOX_IMAGE = "sandbox_image"  # {"url": str}

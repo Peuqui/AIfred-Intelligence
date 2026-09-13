@@ -110,10 +110,11 @@ def test_swallowed_tool_call_is_reported(monkeypatch) -> None:
     assert "Ohne Werkzeug." in "".join(i.get("text", "") for i in items)
 
 
-def _tool_round_turn(monkeypatch, counter_states: list) -> Dict[str, Any]:
+def _tool_round_turn(monkeypatch, counter_states: list, toolkit: ToolKit | None = None) -> Dict[str, Any]:
     """A two-round vLLM turn (tool call, then answer) against fake counters;
     returns the done metrics. ``counter_states`` are the successive
-    /metrics readings: (port, (prefill_tok, prefill_s, requests, gen_tok, decode_s))."""
+    /metrics readings, one before and one after each request:
+    (port, (prefill_tok, prefill_s, requests, gen_tok, decode_s))."""
     backend = vLLMBackend()
     readings = iter(counter_states)
     monkeypatch.setattr(backend, "_read_counters", lambda: next(readings))
@@ -133,7 +134,7 @@ def _tool_round_turn(monkeypatch, counter_states: list) -> Dict[str, Any]:
     async def run() -> Dict[str, Any]:
         done: Dict[str, Any] = {}
         async for item in backend.chat_stream(
-                "m", [LLMMessage(role="user", content="Psalm 91?")], toolkit=_toolkit()):
+                "m", [LLMMessage(role="user", content="Psalm 91?")], toolkit=toolkit or _toolkit()):
             if item.get("type") == "done":
                 done = item["metrics"]
         return done
@@ -141,23 +142,41 @@ def _tool_round_turn(monkeypatch, counter_states: list) -> Dict[str, Any]:
     return asyncio.run(run())
 
 
-def test_vllm_rates_describe_the_last_request_of_a_tool_turn(monkeypatch) -> None:
-    # Reads: before round 1, before round 2, after round 2 (done)
-    metrics = _tool_round_turn(monkeypatch, [
-        (5811, (0.0, 0.0, 0.0, 0.0, 0.0)),
-        (5811, (30700.0, 58.0, 1.0, 60.0, 2.0)),
-        (5811, (32000.0, 60.6, 2.0, 476.0, 14.6)),
-    ])
-    assert metrics["tokens_prompt_computed"] == 1300
-    assert metrics["prompt_per_second"] == pytest.approx(1300 / 2.6)
-    assert metrics["tokens_per_second"] == pytest.approx(416 / 12.6)
+ROUND_1_BEFORE = (5811, (0.0, 0.0, 0.0, 0.0, 0.0))
+ROUND_1_AFTER = (5811, (30700.0, 58.0, 1.0, 60.0, 2.0))
+ROUND_2_AFTER = (5811, (32000.0, 60.6, 2.0, 476.0, 14.6))
 
 
-def test_vllm_foreign_request_in_the_window_yields_no_rate(monkeypatch) -> None:
-    # A second request finished while ours ran: not attributable, no guess
+def test_vllm_rates_sum_every_request_of_a_tool_turn(monkeypatch) -> None:
+    metrics = _tool_round_turn(monkeypatch, [ROUND_1_BEFORE, ROUND_1_AFTER, ROUND_1_AFTER, ROUND_2_AFTER])
+    # Total tokens over total phase time of both requests, from vLLM's own counters
+    assert metrics["tokens_prompt_computed"] == 32000
+    assert metrics["prompt_per_second"] == pytest.approx(32000 / 60.6)
+    assert metrics["tokens_generated"] == 476
+    assert metrics["tokens_per_second"] == pytest.approx(476 / 14.6)
+
+
+def test_vllm_foreign_request_in_the_window_makes_prefill_unknown(monkeypatch) -> None:
+    # A second request finished while round 2 ran: not attributable, and the
+    # server reported no cache hits to measure from outside, so no guess.
     metrics = _tool_round_turn(monkeypatch, [
-        (5811, (0.0, 0.0, 0.0, 0.0, 0.0)),
-        (5811, (30700.0, 58.0, 1.0, 60.0, 2.0)),
-        (5811, (32500.0, 61.5, 3.0, 500.0, 15.5)),
+        ROUND_1_BEFORE, ROUND_1_AFTER, ROUND_1_AFTER, (5811, (32500.0, 61.5, 3.0, 500.0, 15.5)),
     ])
-    assert "prompt_per_second" not in metrics
+    assert metrics["prompt_per_second"] is None
+
+
+def test_subagent_work_reported_by_a_tool_joins_the_turn(monkeypatch) -> None:
+    async def delegate(**kwargs: Any):
+        yield {"work": {"prefill_tokens": 8000, "prefill_s": 9.4, "decode_tokens": 1024, "decode_s": 25.4}}
+        yield {"result": "Bericht"}
+
+    toolkit = ToolKit(
+        tools=[Tool(name="search_bible", description="x", parameters={}, executor=delegate, tier=2)],
+        _source="browser",
+        _max_tier=4,
+    )
+    metrics = _tool_round_turn(monkeypatch, [ROUND_1_BEFORE, ROUND_1_AFTER, ROUND_1_AFTER, ROUND_2_AFTER], toolkit)
+    assert metrics["tokens_prompt_computed"] == 32000 + 8000
+    assert metrics["prompt_per_second"] == pytest.approx(40000 / 70.0)
+    assert metrics["tokens_generated"] == 476 + 1024
+    assert metrics["tokens_per_second"] == pytest.approx(1500 / 40.0)

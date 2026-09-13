@@ -216,8 +216,9 @@ class TestRun:
 
         self.pipeline_result = SimpleNamespace(
             text_clean="Der Bericht: alles gut.", artifacts=[],
+            metrics={"work": {"prefill_tokens": 900, "prefill_s": 1.5, "decode_tokens": 600, "decode_s": 10.0}},
             metadata_dict={"ttft": 1.5, "tokens_per_sec": 51.3, "inference_time": 12.0,
-                           "source": "Codine (Sub-Agent) (test-model)"},
+                           "source": "Codine (Sub-Agent) (test-model)", "backend_type": "llamacpp"},
         )
         monkeypatch.setattr(sub, "run_llm_stream", fake_stream)
         self.captured = captured
@@ -228,19 +229,27 @@ class TestRun:
         kinds = [next(iter(e)) for e in events]
         assert kinds.count("result") == 1 and kinds[-1] == "result"
         assert kinds.count("artifacts") == 1
+        # The sub-agent's inference goes up so the caller's footer sums it
+        (work,) = [e["work"] for e in events if "work" in e]
+        assert work == self.pipeline_result.metrics["work"]
         assert "progress" in kinds
         result = [e for e in events if "result" in e][0]["result"]
         assert result == "Der Bericht: alles gut."
         (transcript,) = [e for e in events if "artifacts" in e][0]["artifacts"]
         assert transcript["kind"] == KIND_COLLAPSIBLE
         assert "Lies a.txt" in transcript["data"]["title"]
+        assert transcript["data"]["icon"] == sub.SUBAGENT_ICON
         pieces = ("erst lesen", "read_file", 'path: "a.txt"', "INHALT VON A", "Der Bericht: alles gut.")
         positions = [transcript["data"]["content"].index(piece) for piece in pieces]
         assert positions == sorted(positions)  # in the order the run happened
-        # The main agents' performance line, plain text, with model and backend.
-        last_line = transcript["data"]["content"].rsplit("\n\n", 1)[-1]
-        assert "TTFT" in last_line and "test-model" in last_line and "[llamacpp]" in last_line
-        assert not last_line.startswith("*")
+        # The main agents' performance line, with model and backend, kept apart
+        # from the transcript text and rendered italic in parentheses.
+        footer = transcript["data"]["footer"]
+        assert "TTFT" in footer and "test-model" in footer and "[llamacpp]" in footer
+        assert "TTFT" not in transcript["data"]["content"]
+        from aifred.lib.formatting import build_tool_collapsible
+        html = build_tool_collapsible(transcript["data"])
+        assert '<div style="padding: 0.6em 0 0 1em; font-style: italic;">( ' in html and " )</div>" in html
 
     def test_artifacts_of_the_subagent_turn_go_up(self, plugin, ctx):
         from aifred.lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
@@ -315,6 +324,12 @@ class TestToolLoopIntegration:
         from aifred.lib.formatting import build_tool_collapsible
         html = build_tool_collapsible({"title": "🤝 <x>", "content": "a < b\n```code```"})
         assert "<details" in html and "&lt;x&gt;" in html and "a &lt; b" in html
+
+    def test_collapsible_icon_in_accent_colour(self):
+        from aifred.lib.formatting import build_tool_collapsible
+        from aifred.theme import COLORS
+        html = build_tool_collapsible({"icon": "⇄", "title": "Sub-Agent", "content": "x"})
+        assert f'<span style="color: {COLORS["primary"]};">⇄</span> Sub-Agent</summary>' in html
 
     def test_collapsible_content_stays_literal_text(self):
         from aifred.lib.formatting import build_tool_collapsible

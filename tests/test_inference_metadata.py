@@ -40,6 +40,8 @@ def test_build_inference_metadata_renders_through_the_footer() -> None:
 class _FakeClient:
     """Streams a <think> block, then the answer, with real delays."""
 
+    backend_type = "vllm"
+
     async def chat_stream(self, model, messages, options, toolkit=None):
         for text, pause in [("<think>", 0.0), ("Ich denke.", 0.05), ("</think>\n\n", 0.05), ("Antwort.", 0.05)]:
             await asyncio.sleep(pause)

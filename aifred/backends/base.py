@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, AsyncIterator, Union, Any
 from dataclasses import dataclass
 
 from aifred.lib.config import DEFAULT_OLLAMA_URL
+from aifred.lib.perf_metrics import InferenceWork
 
 
 @dataclass
@@ -384,8 +385,8 @@ class OpenAICompatibleBackend(LLMBackend):
     def _before_stream_request(self) -> None:
         """Hook right before each streamed server request, tool rounds included.
 
-        vLLM reads its own counters here, so the done metrics cover exactly
-        the LAST request — the scope llama-server's per-request timings have.
+        vLLM reads its own counters here; ``_request_work`` reads them again
+        right after the request, so the delta is exactly that one request.
         """
 
     def _finalize_stream(self, stream_state: Dict) -> List[Dict]:
@@ -408,35 +409,51 @@ class OpenAICompatibleBackend(LLMBackend):
         """
         return {}
 
+    def _request_work(
+        self,
+        prompt_tokens: int,
+        tokens_generated: int,
+        server_timings: Dict[str, Any],
+        first_token_s: Optional[float],
+        elapsed_s: float,
+    ) -> InferenceWork:
+        """What the server computed for the request that just finished.
+
+        Override in subclasses whose server reports its own phase times;
+        this fallback measures from outside. ``first_token_s`` and
+        ``elapsed_s`` are relative to the start of this request.
+        """
+        return InferenceWork.from_wall_clock(
+            prompt_tokens=prompt_tokens,
+            cached_tokens=server_timings.get("prompt_tokens_cached"),
+            tokens_generated=tokens_generated,
+            first_token_s=first_token_s,
+            elapsed_s=elapsed_s,
+        )
+
     def _build_stream_metrics(
         self,
         prompt_tokens: int,
-        total_tokens: int,
+        work: InferenceWork,
         inference_time: float,
         model: str,
-        server_timings: Dict[str, Any],
-        first_token_s: Optional[float],
     ) -> Dict[str, Any]:
-        """Build metrics dict for the streaming done chunk.
+        """Done metrics of a whole turn: every request of the tool loop plus
+        the work sub-agents reported through their tools, summed.
 
-        Override in subclasses to use server-side timings instead of wall-clock.
-        ``first_token_s`` (request start to the first streamed token) lets
-        the fallback divide by the decode time only, like the server-side
-        rates do — see ``perf_metrics.decode_tokens_per_second``.
+        ``tokens_prompt`` stays the last request's prompt size (the context
+        the answer was written with); tokens and rates cover all the work.
+        ``work`` travels along so a sub-agent's caller can add it to its own.
         """
-        from ..lib.perf_metrics import decode_tokens_per_second
-
-        tokens_per_second = decode_tokens_per_second(
-            tokens_generated=total_tokens,
-            inference_time=inference_time,
-            first_token_s=first_token_s,
-        )
         return {
             "tokens_prompt": prompt_tokens,
-            "tokens_generated": total_tokens,
-            "tokens_per_second": tokens_per_second,
+            "tokens_generated": work.decode_tokens,
+            "tokens_per_second": work.decode_rate(),
+            "prompt_per_second": work.prefill_rate(),
+            "tokens_prompt_computed": work.prefill_tokens,
             "inference_time": inference_time,
             "model": model,
+            "work": work.to_dict(),
         }
 
     def _build_chat_response(
@@ -665,6 +682,9 @@ class OpenAICompatibleBackend(LLMBackend):
                 total_tokens = 0
                 prompt_tokens = 0
                 server_timings: Dict[str, Any] = {}
+                # Summed over every request of this turn and the sub-agents
+                # its tools ran (they report theirs as tool_work events).
+                work = InferenceWork()
                 last_round_had_tool_calls = False
                 # True once any round hit finish_reason="length" — surfaces in
                 # the done metrics so the pipeline can mark the result as
@@ -680,19 +700,23 @@ class OpenAICompatibleBackend(LLMBackend):
 
                 for _tool_round in range(max_tool_rounds):
                     self._before_stream_request()
+                    request_start = timer.elapsed()
+                    request_first: Optional[float] = None
                     stream = await self.client.chat.completions.create(**kwargs)
 
                     stream_state: Dict[str, Any] = {}
                     tool_calls: List[Dict[str, Any]] = []
                     counters: Dict[str, Any] = {
-                        "prompt_tokens": prompt_tokens,
-                        "total_tokens": total_tokens,
-                        "server_timings": server_timings,
+                        "prompt_tokens": 0,
+                        "total_tokens": 0,
+                        "server_timings": {},
                         "last_finish_reason": None,
                     }
                     async for item in self._consume_stream(
                         stream, stream_state, counters, tool_calls
                     ):
+                        if request_first is None:
+                            request_first = timer.elapsed() - request_start
                         if first_token_s is None and item.get("type") == "content":
                             first_token_s = timer.elapsed()
                         yield item
@@ -700,6 +724,10 @@ class OpenAICompatibleBackend(LLMBackend):
                     prompt_tokens = counters["prompt_tokens"]
                     total_tokens = counters["total_tokens"]
                     server_timings = counters["server_timings"]
+                    work = work + self._request_work(
+                        prompt_tokens, total_tokens, server_timings,
+                        request_first, timer.elapsed() - request_start,
+                    )
                     last_finish_reason: Optional[str] = counters["last_finish_reason"]
 
                     # Surface a hit token/context limit. Without this a
@@ -816,6 +844,9 @@ class OpenAICompatibleBackend(LLMBackend):
                                     "name": tc["name"],
                                     "message": item.get("message", ""),
                                 }
+                            elif item.get("type") == "tool_work":
+                                # A sub-agent's inference: part of this turn's work.
+                                work = work + InferenceWork.from_dict(item["work"])
                             elif item.get("type") == "tool_artifacts":
                                 # Bubble artifacts (sub-agent transcript and
                                 # results): forwarded to the consumer, never
@@ -924,17 +955,21 @@ class OpenAICompatibleBackend(LLMBackend):
                     )
                     kwargs_final = {**kwargs, "tools": None, "tool_choice": None}
                     self._before_stream_request()
+                    request_start = timer.elapsed()
+                    request_first = None
                     stream = await self.client.chat.completions.create(**kwargs_final)
                     stream_state = {}
                     counters = {
-                        "prompt_tokens": prompt_tokens,
-                        "total_tokens": total_tokens,
-                        "server_timings": server_timings,
+                        "prompt_tokens": 0,
+                        "total_tokens": 0,
+                        "server_timings": {},
                         "last_finish_reason": None,
                     }
                     async for item in self._consume_stream(
                         stream, stream_state, counters, None
                     ):
+                        if request_first is None:
+                            request_first = timer.elapsed() - request_start
                         if first_token_s is None and item.get("type") == "content":
                             first_token_s = timer.elapsed()
                         yield item
@@ -942,6 +977,10 @@ class OpenAICompatibleBackend(LLMBackend):
                     prompt_tokens = counters["prompt_tokens"]
                     total_tokens = counters["total_tokens"]
                     server_timings = counters["server_timings"]
+                    work = work + self._request_work(
+                        prompt_tokens, total_tokens, server_timings,
+                        request_first, timer.elapsed() - request_start,
+                    )
                     trunc_items = self._truncation_debug(counters["last_finish_reason"])
                     if trunc_items:
                         truncated_any = True
@@ -950,10 +989,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
                 inference_time = timer.elapsed()
 
-                metrics = self._build_stream_metrics(
-                    prompt_tokens, total_tokens,
-                    inference_time, model, server_timings, first_token_s,
-                )
+                metrics = self._build_stream_metrics(prompt_tokens, work, inference_time, model)
                 # Carry the truncation flag into the done metrics so the
                 # pipeline result (and the "done" debug line built from it)
                 # can mark the answer as incomplete instead of reporting a

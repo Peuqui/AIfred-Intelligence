@@ -26,6 +26,7 @@ from ....lib.formatting import performance_footer_text
 from ....lib.function_calling import Tool, ToolKit
 from ....lib.llm_client import LLMClient, build_llm_options
 from ....lib.llm_pipeline import run_llm_stream
+from ....lib.perf_metrics import InferenceWork
 from ....lib.agent_memory import prepare_agent_toolkit
 from ....lib.plugin_base import (
     CredentialField,
@@ -259,11 +260,14 @@ def format_transcript_call(label: str, name: str, arguments: str) -> str:
     return "\n".join(lines)
 
 
+# ⇄: the task goes out to the right, the report comes back to the left.
+SUBAGENT_ICON = "⇄"
+
+
 def _transcript_labels(lang: str) -> dict[str, str]:
     de = str(lang).startswith("de")
     return {
-        # ⇄: task goes out to the right, the report comes back to the left.
-        "title": "⇄ Sub-Agent" if de else "⇄ Sub-agent",
+        "title": "Sub-Agent" if de else "Sub-agent",
         "task": "AUFGABE" if de else "TASK",
         "thinking": "DENKEN" if de else "THINKING",
         "call": "WERKZEUG" if de else "TOOL",
@@ -436,7 +440,7 @@ async def run_subagent(
     if cfg is None:
         yield {"result": json.dumps({"error": f"unknown agent '{target_agent}'"})}
         return
-    agent_label = f"{cfg.display_name} ({labels['title'][2:].strip()})"
+    agent_label = f"{cfg.display_name} ({labels['title']})"
 
     toolkit = await build_subagent_toolkit(ctx, settings, depth, target_agent, task)
     granted = {t.name for t in toolkit.tools} if toolkit else set()
@@ -469,7 +473,7 @@ async def run_subagent(
         if plain and not final:
             transcript.append(f"[{cfg.display_name}]\n{plain}")
 
-    yield {"progress": f"{labels['title']} {cfg.display_name}: {params.model}"}
+    yield {"progress": f"{SUBAGENT_ICON} {labels['title']} {cfg.display_name}: {params.model}"}
 
     # Own tool-output budget for the inner loop (ContextVar is task-local;
     # reset afterwards so the caller's budget is untouched).
@@ -492,34 +496,43 @@ async def run_subagent(
                 flush_round(final=False)
                 name = event.get("name", "")
                 transcript.append(format_transcript_call(labels["call"], name, event.get("arguments", "")))
-                yield {"progress": f"{labels['title']} {cfg.display_name}: {name}"}
+                yield {"progress": f"{SUBAGENT_ICON} {labels['title']} {cfg.display_name}: {name}"}
             elif kind == "tool_progress":
-                yield {"progress": f"{labels['title']} {cfg.display_name}: {event.get('message', '')}"}
+                yield {"progress": f"{SUBAGENT_ICON} {labels['title']} {cfg.display_name}: {event.get('message', '')}"}
             elif kind == "tool_result":
                 transcript.append(f"[{labels['result']}]\n{event.get('result', '')}")
             elif kind == "pipeline_result":
                 pipeline_result = event["result"]
                 report = pipeline_result.text_clean.strip()
+    except Exception:
+        # The requests that did run are unknown now: the caller's turn
+        # metrics must not look complete without them.
+        yield {"work": InferenceWork.unmeasured().to_dict()}
+        raise
     finally:
         budget_var.reset(budget_token)
         await llm_client.close()
 
+    # The sub-agent's inference is part of the caller's turn: its footer sums
+    # this work into its own rates (the transcript footer below shows only the
+    # sub-agent's).
+    yield {"work": pipeline_result.metrics["work"] if pipeline_result is not None
+           else InferenceWork.unmeasured().to_dict()}
     flush_round(final=True)
     transcript.append(f"[{labels['report']}]\n{report or labels['no_report']}")
-    if pipeline_result is not None:
-        # Same performance line as below a main agent's answer (one builder),
-        # with the backend the sub-agent ran on.
-        transcript.append(performance_footer_text(
-            {**pipeline_result.metadata_dict, "backend_type": params.backend_type},
-        ))
+    # Same performance line as below a main agent's answer (one builder);
+    # shown below the transcript text.
+    footer = performance_footer_text(pipeline_result.metadata_dict) if pipeline_result is not None else ""
 
     # The transcript, then everything the sub-agent's own tools produced for
     # the bubble (nested transcripts, sources, sandbox pages, camera images,
     # VLM descriptions): one artifact list for the caller's turn, shown where
     # the caller delegated, exactly as if the caller's tools had produced it.
     transcript_artifact = BubbleArtifact(KIND_COLLAPSIBLE, {
+        "icon": SUBAGENT_ICON,
         "title": f"{labels['title']} {cfg.display_name}: {_short(task)}",
         "content": "\n\n".join(transcript),
+        "footer": footer,
     })
     inner = pipeline_result.artifacts if pipeline_result is not None else []
     yield {"artifacts": [a.to_dict() for a in (transcript_artifact, *inner)]}
