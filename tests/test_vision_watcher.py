@@ -21,9 +21,9 @@ from aifred.lib.frame_sources import (
     register,
     unregister_kind,
 )
-from aifred.lib.vision_filters.face_detect import FaceDetection
+from aifred.lib.vision_filters.face_detect import FaceDetection, FaceDetector
 from aifred.lib.vision_filters.face_recognize import FaceRecognizer
-from aifred.lib.vision_filters.person_detect import PersonDetection
+from aifred.lib.vision_filters.person_detect import PersonDetection, PersonDetector
 from aifred.lib.vision_store import VisionStore
 from aifred.lib.vision_watcher import VisionWatcher, WatchConfig
 
@@ -86,8 +86,11 @@ class FakeSource:
         )
 
 
-class FakeFaceDetector:
-    """Detector that returns a configurable list of detections regardless of input."""
+class FakeFaceDetector(FaceDetector):
+    """Detector that returns a configurable list of detections regardless of input.
+
+    Subclasses the real detector for its interface only: __init__ does not
+    call super(), so no model is ever loaded."""
 
     def __init__(
         self,
@@ -113,9 +116,10 @@ class FakeFaceDetector:
         return list(self._roi_detections)
 
 
-class FakePersonDetector:
+class FakePersonDetector(PersonDetector):
     """YOLO person detector stand-in — returns a configurable list of
-    PersonDetections regardless of input."""
+    PersonDetections regardless of input. Subclasses the real detector for
+    its interface only (no super().__init__, no model load)."""
 
     def __init__(self, detections):
         self._detections = detections

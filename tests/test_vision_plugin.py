@@ -155,7 +155,8 @@ def ctx(tmp_path: Path) -> PluginContext:
 def _exec_tool(tool, **kwargs) -> dict:
     """Run tool executor and parse JSON response."""
     raw = run(tool.executor(**kwargs))
-    return json.loads(raw)
+    result: dict = json.loads(raw)
+    return result
 
 
 # ── list_sources / rescan ──────────────────────────────────────────

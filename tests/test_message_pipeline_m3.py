@@ -26,7 +26,8 @@ def session_dir(tmp_path, monkeypatch):
 def _session_data(sid: str) -> dict:
     session = session_storage.load_session(sid)
     assert session is not None
-    return session["data"]
+    data: dict = session["data"]
+    return data
 
 
 def _make_message(text: str) -> InboundMessage:

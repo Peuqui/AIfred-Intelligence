@@ -101,8 +101,9 @@ class TestBoundedRetry:
     def test_quarantine_store_error_is_swallowed(self):
         # Ein fehlschlagender STORE darf die Schleife nicht crashen.
         ch = EmailChannel()
-        setattr(ch, "channel_log", MagicMock())
+        channel_log = MagicMock()
+        setattr(ch, "channel_log", channel_log)
         imap = MagicMock()
         imap.uid.side_effect = OSError("STORE failed")
         ch._quarantine_uid(imap, b"42")  # darf NICHT werfen
-        ch.channel_log.assert_called()
+        channel_log.assert_called()

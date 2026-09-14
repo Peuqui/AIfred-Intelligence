@@ -42,7 +42,8 @@ def _vector_with_similarity(
     perp -= float(np.dot(perp, reference)) * reference
     perp /= np.linalg.norm(perp)
     v = target_sim * reference + np.sqrt(max(0.0, 1.0 - target_sim**2)) * perp
-    return v / np.linalg.norm(v)
+    unit: np.ndarray = v / np.linalg.norm(v)
+    return unit
 
 
 class TestEmptyStore:

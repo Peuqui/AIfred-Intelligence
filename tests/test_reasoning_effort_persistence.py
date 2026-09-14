@@ -55,7 +55,9 @@ def _run(state: _FakeState, *, cached_levels, resolved=None):
         "aifred.lib.model_vram_cache.get_reasoning_levels_for_model",
         return_value=cached_levels,
     ):
-        state._load_agent_reasoning_levels("aifred", state.agent_tuning["aifred"].model_id)
+        # Mixin method bound to a stand-in state (the Reflex state class
+        # cannot be instantiated in a unit test).
+        state._load_agent_reasoning_levels("aifred", state.agent_tuning["aifred"].model_id)  # type: ignore[misc]
     return state.agent_tuning["aifred"].reasoning_effort
 
 

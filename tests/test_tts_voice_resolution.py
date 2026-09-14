@@ -97,7 +97,9 @@ class TestRestoreMerge:
             add_debug=lambda *a, **k: None,
             _strip_stale_voices_for_engine=lambda engine: None,
         )
-        TTSConfigMixin._restore_agent_voices_for_engine(self_, "xtts")
+        # The mixin method on a stand-in state: the Reflex state class itself
+        # cannot be instantiated in a unit test.
+        TTSConfigMixin._restore_agent_voices_for_engine(self_, "xtts")  # type: ignore[arg-type]
         return self_.tts_agent_voices
 
     def test_empty_saved_voice_keeps_engine_default(self, monkeypatch):

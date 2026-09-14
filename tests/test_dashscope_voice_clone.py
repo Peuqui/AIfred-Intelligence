@@ -67,7 +67,8 @@ def list_enrolled_voices() -> list[dict]:
     resp = requests.post(ENROLLMENT_URL, json=payload, headers=headers, timeout=30)
     data = resp.json()
     if resp.status_code == 200 and "output" in data:
-        return data["output"].get("voices", [])
+        voices: list[dict] = data["output"].get("voices", [])
+        return voices
     print(f"  List error: {data}")
     return []
 
@@ -108,7 +109,7 @@ def enroll_voice(name: str, wav_path: str, target_model: str) -> str | None:
 
     data = resp.json()
     if resp.status_code == 200 and "output" in data:
-        voice_id = data["output"].get("voice", "")
+        voice_id: str = data["output"].get("voice", "")
         print(f"  OK: voice_id={voice_id} ({elapsed:.1f}s)")
         return voice_id
     else:
@@ -192,7 +193,6 @@ def test_realtime_streaming(text: str, voice_id: str, name: str) -> bool:
     chunks: list[bytes] = []
     start_time = time.time()
     first_chunk_time = None
-    done_event = None
 
     import threading
     done_event = threading.Event()
