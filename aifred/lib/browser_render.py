@@ -48,28 +48,16 @@ def resolve_sandbox_html_path(html_url: str, session_id: str) -> Optional[Path]:
     """
     from .sandbox import SANDBOX_OUTPUT_NAME_RE, _safe_session_subdir
 
+    from .sandbox import documents_html_path
+
+    documents_file = documents_html_path(html_url)
+    if documents_file is not None:
+        return documents_file
+
     # Strip scheme+host if present, keep the path part
     path_part = html_url.split("://", 1)[-1]
     if "/" in path_part and "://" in html_url:
         path_part = "/" + path_part.split("/", 1)[1]
-
-    # Documents workspace (shared across agents/sessions)
-    if path_part.startswith("documents/"):
-        path_part = f"/_upload/{path_part}"
-    docs_prefix = "/_upload/documents/"
-    if path_part.startswith(docs_prefix):
-        from urllib.parse import unquote
-
-        from .config import DOCUMENTS_DIR
-        rel = unquote(path_part[len(docs_prefix):])
-        if not rel.lower().endswith((".html", ".htm")):
-            return None
-        docs_root = Path(DOCUMENTS_DIR).resolve()
-        candidate = (docs_root / rel).resolve()
-        # resolve() follows symlinks, so a link escaping documents/ fails here
-        if not candidate.is_relative_to(docs_root):
-            return None
-        return candidate if candidate.is_file() else None
 
     # Session sandbox output
     session_dir = _safe_session_subdir(session_id)

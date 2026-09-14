@@ -87,3 +87,16 @@ def test_bubble_shows_page_collapsed_with_its_source(tmp_path, output_root):
     assert f'src="{url}"' in html
     # Source below the page, escaped as text.
     assert html.index("<iframe") < html.index("&lt;button id=&#x27;b&#x27;&gt;")
+
+
+def test_documents_page_shows_its_source_too(tmp_path, monkeypatch) -> None:
+    """A page saved to documents/ got no source block under its embed."""
+    import aifred.lib.config as config
+    from aifred.lib.bubble import _source_block
+
+    monkeypatch.setattr(config, "DOCUMENTS_DIR", tmp_path)
+    (tmp_path / "fibonacci.html").write_text(PAGE, encoding="utf-8")
+    path = sandbox.documents_html_path("/_upload/documents/fibonacci.html")
+    assert path is not None and path.read_text(encoding="utf-8") == PAGE
+    assert sandbox.documents_html_path("/_upload/documents/../escape.html") is None
+    assert "fibonacci.html" in _source_block("/_upload/documents/fibonacci.html")

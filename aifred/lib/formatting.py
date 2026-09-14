@@ -6,7 +6,6 @@ and thinking processes in the Reflex UI.
 """
 
 import re
-import uuid
 import threading
 from pathlib import Path
 from typing import Any
@@ -558,6 +557,26 @@ def get_timestamp() -> str:
     return datetime.now().strftime("%H:%M:%S")
 
 
+HTML_CODE_BLOCK_PATTERN = r'```html\s*([\s\S]*?)```'
+
+
+def html_preview_filename(html_code: str) -> str:
+    """File name of a code block's HTML preview, from its content hash: the
+    same code always gets the same file, so the URL is known from the answer
+    text alone — before the bubble is rendered and the file is written."""
+    from .sandbox import output_filename
+    return output_filename("preview", html_code.strip().encode("utf-8"), ".html")
+
+
+def html_preview_urls(text: str) -> list[str]:
+    """Relative URLs of the HTML previews the bubble builds for ``text``'s
+    ```html code blocks (see _save_html_to_assets)."""
+    return [
+        f"/_upload/html_preview/{html_preview_filename(match.group(1))}"
+        for match in re.finditer(HTML_CODE_BLOCK_PATTERN, text)
+    ]
+
+
 def _save_html_to_assets(html_code: str, title: str = "") -> str:
     """
     Save HTML code as file in uploaded_files/html_preview/ and return URL.
@@ -583,7 +602,7 @@ def _save_html_to_assets(html_code: str, title: str = "") -> str:
         safe_title = safe_title[:50]  # Limit length
         filename = f"🎩 AIfred - {safe_title}.html"
     else:
-        filename = f"{uuid.uuid4().hex[:8]}.html"
+        filename = html_preview_filename(html_code)
     filepath = _HTML_PREVIEW_DIR / filename
 
     # Save HTML code
@@ -734,7 +753,7 @@ def extract_html_previews(text: str, lang: str | None = None) -> tuple[list[str]
     if lang is None:
         lang = get_ui_locale()
 
-    html_block_pattern = r'```html\s*([\s\S]*?)```'
+    html_block_pattern = HTML_CODE_BLOCK_PATTERN
 
     collapsibles: list[str] = []
 
