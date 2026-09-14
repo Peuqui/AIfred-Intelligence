@@ -80,3 +80,21 @@ def test_thinking_clock_finds_tags_split_across_chunks() -> None:
     clock.observe("nk>denke</th", 2.0)
     clock.observe("ink>Antwort", 5.0)
     assert clock.total_s == 3.0
+
+
+def test_llamacpp_timings_are_one_measurement() -> None:
+    work = InferenceWork.from_llamacpp_timings(
+        {"prompt_n": 100, "prompt_ms": 500.0, "predicted_n": 20, "predicted_ms": 800.0}
+    )
+    assert (work.prefill_tokens, work.decode_tokens) == (100, 20)
+    assert work.prefill_rate() == pytest.approx(200.0)
+    assert work.decode_rate() == pytest.approx(25.0)
+
+
+def test_ollama_response_is_one_measurement() -> None:
+    work = InferenceWork.from_ollama(
+        {"prompt_eval_count": 300, "prompt_eval_duration": 1_500_000_000,
+         "eval_count": 90, "eval_duration": 3_000_000_000}
+    )
+    assert work.prefill_rate() == pytest.approx(200.0)
+    assert work.decode_rate() == pytest.approx(30.0)

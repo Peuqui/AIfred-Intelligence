@@ -64,6 +64,24 @@ class LLMResponse:
     model: str = ""
 
 
+def done_metrics(prompt_tokens: int, work: InferenceWork, inference_time: float, model: str) -> Dict[str, Any]:
+    """Metrics of the "done" chunk, the same shape for every backend.
+
+    Token counts and rates are deliberately not copied in here: consumers
+    derive them from ``work`` (perf_metrics.InferenceWork), the one
+    measurement — for a tool turn the sum of every request and of the
+    sub-agents' work, which also lets a sub-agent's caller add it to its own.
+    ``tokens_prompt`` is the last request's prompt size (the context the
+    answer was written with).
+    """
+    return {
+        "tokens_prompt": prompt_tokens,
+        "inference_time": inference_time,
+        "model": model,
+        "work": work.to_dict(),
+    }
+
+
 class LLMBackend(ABC):
     """
     Abstract base class for all LLM backends
@@ -431,31 +449,6 @@ class OpenAICompatibleBackend(LLMBackend):
             elapsed_s=elapsed_s,
         )
 
-    def _build_stream_metrics(
-        self,
-        prompt_tokens: int,
-        work: InferenceWork,
-        inference_time: float,
-        model: str,
-    ) -> Dict[str, Any]:
-        """Done metrics of a whole turn: every request of the tool loop plus
-        the work sub-agents reported through their tools, summed.
-
-        ``tokens_prompt`` stays the last request's prompt size (the context
-        the answer was written with); tokens and rates cover all the work.
-        ``work`` travels along so a sub-agent's caller can add it to its own.
-        """
-        return {
-            "tokens_prompt": prompt_tokens,
-            "tokens_generated": work.decode_tokens,
-            "tokens_per_second": work.decode_rate(),
-            "prompt_per_second": work.prefill_rate(),
-            "tokens_prompt_computed": work.prefill_tokens,
-            "inference_time": inference_time,
-            "model": model,
-            "work": work.to_dict(),
-        }
-
     def _build_chat_response(
         self,
         text: str,
@@ -469,7 +462,13 @@ class OpenAICompatibleBackend(LLMBackend):
 
         Override in subclasses to use server-side timings instead of wall-clock.
         """
-        tokens_per_second = (tokens_generated / inference_time) if inference_time > 0 else 0
+        # Non-streaming: no time of the first token, so no decode time to
+        # divide by — measured from outside that is unknown (0.0), never the
+        # whole request duration (see InferenceWork.from_wall_clock).
+        tokens_per_second = InferenceWork.from_wall_clock(
+            prompt_tokens=tokens_prompt, cached_tokens=None, tokens_generated=tokens_generated,
+            first_token_s=None, elapsed_s=inference_time,
+        ).decode_rate()
         return LLMResponse(
             text=text,
             tokens_prompt=tokens_prompt,
@@ -995,7 +994,7 @@ class OpenAICompatibleBackend(LLMBackend):
                 inference_time = timer.elapsed()
 
                 work = work + InferenceWork(thinking_s=thinking.total_s)
-                metrics = self._build_stream_metrics(prompt_tokens, work, inference_time, model)
+                metrics = done_metrics(prompt_tokens, work, inference_time, model)
                 # Carry the truncation flag into the done metrics so the
                 # pipeline result (and the "done" debug line built from it)
                 # can mark the answer as incomplete instead of reporting a

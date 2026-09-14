@@ -24,6 +24,7 @@ from aifred.lib.function_calling import Tool, ToolKit
 from aifred.backends.base import LLMMessage
 from aifred.backends.llamacpp import LlamaCppBackend
 from aifred.backends.vllm import vLLMBackend
+from aifred.lib.perf_metrics import InferenceWork
 
 
 def _chunk(delta: Dict[str, Any], finish_reason: str | None = None) -> ChatCompletionChunk:
@@ -84,7 +85,7 @@ def test_swallowed_tool_call_is_reported(monkeypatch) -> None:
     tool_calls, no call, no text. The loop must say so before it forces the
     final round without tools."""
     backend = vLLMBackend()
-    monkeypatch.setattr(backend, "_build_stream_metrics", lambda *a, **k: {})
+    monkeypatch.setattr(backend, "_read_counters", lambda: None)
     rounds = [
         [_chunk({"content": ""}), _chunk({}, finish_reason="tool_calls")],
         [_chunk({"content": "Ohne Werkzeug."}), _chunk({}, finish_reason="stop")],
@@ -150,10 +151,11 @@ ROUND_2_AFTER = (5811, (32000.0, 60.6, 2.0, 476.0, 14.6))
 def test_vllm_rates_sum_every_request_of_a_tool_turn(monkeypatch) -> None:
     metrics = _tool_round_turn(monkeypatch, [ROUND_1_BEFORE, ROUND_1_AFTER, ROUND_1_AFTER, ROUND_2_AFTER])
     # Total tokens over total phase time of both requests, from vLLM's own counters
-    assert metrics["tokens_prompt_computed"] == 32000
-    assert metrics["prompt_per_second"] == pytest.approx(32000 / 60.6)
-    assert metrics["tokens_generated"] == 476
-    assert metrics["tokens_per_second"] == pytest.approx(476 / 14.6)
+    work = InferenceWork.from_dict(metrics["work"])
+    assert work.prefill_tokens == 32000
+    assert work.prefill_rate() == pytest.approx(32000 / 60.6)
+    assert work.decode_tokens == 476
+    assert work.decode_rate() == pytest.approx(476 / 14.6)
 
 
 def test_vllm_foreign_request_in_the_window_makes_prefill_unknown(monkeypatch) -> None:
@@ -162,7 +164,7 @@ def test_vllm_foreign_request_in_the_window_makes_prefill_unknown(monkeypatch) -
     metrics = _tool_round_turn(monkeypatch, [
         ROUND_1_BEFORE, ROUND_1_AFTER, ROUND_1_AFTER, (5811, (32500.0, 61.5, 3.0, 500.0, 15.5)),
     ])
-    assert metrics["prompt_per_second"] is None
+    assert InferenceWork.from_dict(metrics["work"]).prefill_rate() is None
 
 
 def test_subagent_work_reported_by_a_tool_joins_the_turn(monkeypatch) -> None:
@@ -178,10 +180,11 @@ def test_subagent_work_reported_by_a_tool_joins_the_turn(monkeypatch) -> None:
     )
     metrics = _tool_round_turn(monkeypatch, [ROUND_1_BEFORE, ROUND_1_AFTER, ROUND_1_AFTER, ROUND_2_AFTER], toolkit)
     assert metrics["work"]["thinking_s"] == pytest.approx(6.0)  # the sub-agent's thinking
-    assert metrics["tokens_prompt_computed"] == 32000 + 8000
-    assert metrics["prompt_per_second"] == pytest.approx(40000 / 70.0)
-    assert metrics["tokens_generated"] == 476 + 1024
-    assert metrics["tokens_per_second"] == pytest.approx(1500 / 40.0)
+    work = InferenceWork.from_dict(metrics["work"])
+    assert work.prefill_tokens == 32000 + 8000
+    assert work.prefill_rate() == pytest.approx(40000 / 70.0)
+    assert work.decode_tokens == 476 + 1024
+    assert work.decode_rate() == pytest.approx(1500 / 40.0)
 
 
 def test_thinking_of_every_round_is_summed(monkeypatch) -> None:

@@ -16,7 +16,8 @@ from .base import (
     LLMResponse,
     BackendConnectionError,
     BackendModelNotFoundError,
-    BackendInferenceError
+    BackendInferenceError,
+    done_metrics,
 )
 from ..lib.logging_utils import log_message
 from ..lib.config import (
@@ -224,17 +225,12 @@ class OllamaBackend(LLMBackend):
             # No thinking or only content: use content
             text = content
 
-        eval_count = data.get("eval_count", 0)
-        eval_duration = data.get("eval_duration", 1)  # nanoseconds
-        prompt_eval_count = data.get("prompt_eval_count", 0)
-
-        tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
-
+        work = InferenceWork.from_ollama(data)
         return LLMResponse(
             text=text,
-            tokens_prompt=prompt_eval_count,
-            tokens_generated=eval_count,
-            tokens_per_second=tokens_per_second,
+            tokens_prompt=int(data.get("prompt_eval_count") or 0),
+            tokens_generated=work.decode_tokens,
+            tokens_per_second=work.decode_rate(),
             inference_time=inference_time,
             model=model
         )
@@ -428,33 +424,13 @@ class OllamaBackend(LLMBackend):
 
                                 # Check if done - extract metrics
                                 if data.get("done", False):
-                                    inference_time = timer.elapsed()
-                                    eval_count = data.get("eval_count", 0)
-                                    eval_duration = data.get("eval_duration", 1)
-                                    prompt_eval_count = data.get("prompt_eval_count", 0)
-                                    prompt_eval_duration = data.get("prompt_eval_duration", 0)
-                                    tokens_per_second = (eval_count / (eval_duration / 1e9)) if eval_duration > 0 else 0
-                                    prompt_per_second = (prompt_eval_count / (prompt_eval_duration / 1e9)) if prompt_eval_duration > 0 else 0
-
+                                    work = InferenceWork.from_ollama(data)
+                                    work = work + InferenceWork(thinking_s=think_clock.total_s)
                                     yield {
                                         "type": "done",
-                                        "metrics": {
-                                            "tokens_prompt": prompt_eval_count,
-                                            "tokens_generated": eval_count,
-                                            "tokens_per_second": tokens_per_second,
-                                            "prompt_per_second": prompt_per_second,
-                                            "inference_time": inference_time,
-                                            "model": model,
-                                            # Same shape as the OpenAI-compatible
-                                            # backends, so a caller can sum it.
-                                            "work": InferenceWork(
-                                                prefill_tokens=prompt_eval_count,
-                                                prefill_s=prompt_eval_duration / 1e9,
-                                                decode_tokens=eval_count,
-                                                decode_s=eval_duration / 1e9,
-                                                thinking_s=think_clock.total_s,
-                                            ).to_dict(),
-                                        }
+                                        "metrics": done_metrics(
+                                            int(data.get("prompt_eval_count") or 0), work, timer.elapsed(), model,
+                                        ),
                                     }
                                     return  # Success, exit function
                             except json.JSONDecodeError as e:

@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from aifred.lib.frame_sources import Frame
+from aifred.lib.perf_metrics import InferenceWork
 from aifred.lib.vision_analyzer import (
     DEFAULT_MODEL,
     DEFAULT_NUM_CTX,
@@ -221,7 +222,12 @@ class TestLlamacppDispatch:
         parts = captured["payload"]["messages"][0]["content"]
         assert parts[0]["type"] == "image_url"
         assert parts[-1] == {"type": "text", "text": "Was ist zu sehen?"}
-        assert result.metadata["stats"]["eval_tokens"] == 20.0
+        stats = result.metadata["stats"]
+        # One measurement for every model: tokens and rates from InferenceWork
+        work = InferenceWork.from_dict(stats["work"])
+        assert work.decode_tokens == 20 and work.decode_rate() == pytest.approx(25.0)
+        assert work.prefill_rate() == pytest.approx(200.0)
+        assert stats["backend"] == "llamacpp" and stats["ttft_s"] == pytest.approx(0.5)
 
     def test_non_mmproj_model_stays_on_ollama(self, monkeypatch):
         import aifred.lib.vision_utils as vu

@@ -6,6 +6,8 @@ import asyncio
 import json
 from types import SimpleNamespace
 
+from aifred.lib.perf_metrics import InferenceWork
+from aifred.lib.vision_analyzer import vlm_stats
 from aifred.lib.bubble import (
     KIND_COLLAPSIBLE,
     KIND_SANDBOX_HTML,
@@ -37,7 +39,9 @@ class _Turn:
         yield {"type": "tool_call", "name": "vision_analyze", "arguments": "{}"}
         yield {"type": "tool_result", "name": "vision_analyze", "result": json.dumps({
             "success": True, "source_id": "cam", "image_url": BURST[-1], "vlm_raw": "Eine Tür.",
-            "vlm_stats": {}, "model": "vlm",
+            "vlm_stats": vlm_stats(InferenceWork(decode_tokens=40, decode_s=1.0), backend="llamacpp",
+                                   wall_clock_s=1.5, ttft_s=0.4, load_s=0.0),
+            "model": "vlm",
         })}
         yield {"type": "content", "text": "<think>weiter</think>Ich delegiere."}
         yield {"type": "tool_call", "name": "delegate_task", "arguments": "{}"}

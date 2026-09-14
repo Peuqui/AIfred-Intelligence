@@ -53,8 +53,9 @@ class PipelineResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     ttft: float = 0.0
     inference_time: float = 0.0
-    thinking_time: float = 0.0                          # all think blocks of the turn, sub-agents included
-    tokens_per_sec: float = 0.0
+    # The turn's measured work (tokens, prefill/decode/thinking time), the
+    # one source of every token count and rate — see perf_metrics.
+    work: InferenceWork = field(default_factory=InferenceWork.unmeasured)
     # Everything the turn's tools produced for the bubble, each with its
     # offset in ``text`` (see lib/bubble.py, rendered by render_bubble).
     artifacts: list[BubbleArtifact] = field(default_factory=list)
@@ -215,7 +216,6 @@ async def run_llm_stream(
 
     timer = Timer()
     full_response = ""
-    token_count = 0
     first_token = False
     ttft = 0.0
     metrics: dict[str, Any] = {}
@@ -281,7 +281,6 @@ async def run_llm_stream(
                 yield {"type": "ttft", "value": ttft}
 
             full_response += chunk["text"]
-            token_count += 1
             yield chunk  # passthrough
 
         elif chunk_type == "tool_call_start":
@@ -348,20 +347,16 @@ async def run_llm_stream(
                             # bubble footer + debug console line look
                             # identical to the chat-LLM ones (locale-aware
                             # number formatting included).
+                            vlm_work = InferenceWork.from_dict(vlm_stats["work"])
                             _, vlm_meta_display, vlm_debug_msg = build_inference_metadata(
-                                ttft=float(vlm_stats.get("ttft_s") or 0) or None,
-                                inference_time=float(vlm_stats.get("inference_s") or 0),
-                                tokens_generated=int(vlm_stats.get("eval_tokens") or 0),
-                                tokens_per_sec=float(vlm_stats.get("eval_tok_per_s") or 0),
+                                ttft=vlm_stats.get("ttft_s"),
+                                inference_time=float(vlm_stats["inference_s"]),
+                                work=vlm_work,
                                 source=f"VL ({vlm_model})" if vlm_model else "VL",
-                                backend_metrics={
-                                    "prompt_per_second": float(
-                                        vlm_stats.get("pp_tok_per_s") or 0
-                                    ),
-                                },
-                                tokens_prompt=int(vlm_stats.get("prompt_tokens") or 0),
-                                backend_type="ollama",
+                                tokens_prompt=vlm_work.prefill_tokens,
+                                backend_type=str(vlm_stats["backend"]),
                                 agent_label="👁️ VLM",
+                                load_time=float(vlm_stats.get("load_s") or 0.0),
                             )
                             body = vlm_text.strip()
                             if vlm_meta_display:
@@ -486,7 +481,6 @@ async def run_llm_stream(
 
         elif chunk_type == "done":
             metrics = chunk.get("metrics", {})
-            token_count = metrics.get("tokens_generated", token_count)
 
     # --- Post-processing ---
 
@@ -563,10 +557,10 @@ async def run_llm_stream(
     # Thinking blocks
     text_clean = strip_thinking_blocks(full_response) if full_response else ""
     inference_time = timer.elapsed()
-    # Time in think blocks, measured by the backend over every block of the
-    # turn and the sub-agents it ran (perf_metrics.ThinkingClock).
-    thinking_time = InferenceWork.from_dict(metrics["work"]).thinking_s if metrics else 0.0
-    tokens_per_sec = metrics.get("tokens_per_second", 0)
+    # Measured by the backend over every request of the turn and the
+    # sub-agents it ran; a stream that ended without its done chunk has no
+    # measurement (the footer shows n/a rather than zeros).
+    work = InferenceWork.from_dict(metrics["work"]) if metrics else InferenceWork.unmeasured()
 
     truncated = bool(metrics.get("truncated"))
 
@@ -574,16 +568,13 @@ async def run_llm_stream(
     metadata_dict, metadata_display, debug_msg = build_inference_metadata(
         ttft=ttft,
         inference_time=inference_time,
-        tokens_generated=token_count,
-        tokens_per_sec=tokens_per_sec,
+        work=work,
         source=f"{agent_label} ({model})",
-        backend_metrics=metrics,
         tokens_prompt=metrics.get("tokens_prompt", 0),
         backend_type=llm_client.backend_type,
         agent_label=agent_label,
         response_chars=len(full_response),
         truncated=truncated,
-        thinking_time=thinking_time,
     )
 
     yield {
@@ -597,8 +588,7 @@ async def run_llm_stream(
             metrics=metrics,
             ttft=ttft,
             inference_time=inference_time,
-            thinking_time=thinking_time,
-            tokens_per_sec=tokens_per_sec,
+            work=work,
             artifacts=artifacts,
             silent_reply=silent_reply,
             truncated=truncated,

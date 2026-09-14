@@ -13,7 +13,7 @@ from typing import Any
 from collections import OrderedDict
 from .logging_utils import log_message
 from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
-from .perf_metrics import prefill_tokens_per_second
+from .perf_metrics import InferenceWork
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
 from datetime import datetime
 
@@ -260,6 +260,11 @@ def convert_latex_delimiters(text: str) -> str:
     return text
 
 
+# Gap between two values of a metadata line: wide (non-breaking spaces do not
+# collapse) but breakable (the trailing normal space).
+METADATA_SEPARATOR = "\u00A0\u00A0\u00A0 "
+
+
 def format_metadata(metadata_text: str) -> str:
     """
     Format metadata (inference times, sources, etc.) as italic text in parentheses.
@@ -278,15 +283,19 @@ def format_metadata(metadata_text: str) -> str:
     Note:
         Uses Markdown instead of HTML since rx.markdown() escapes inline HTML.
         Italic formatting (*...*) signals meta-information.
-        4 normal spaces (group-internal separators) are converted to 4 non-breaking spaces.
-        Individual value spaces (e.g. "TTFT: 0.25s") should already use nbsp from callers.
+        The 4-space separators between values become three non-breaking
+        spaces plus one normal space: the gap keeps its width, and a narrow
+        (mobile) bubble can wrap between two values. With four non-breaking
+        spaces a whole group was one unbreakable word, and the bubble's
+        word-break cut it anywhere ("48,5 tok/" | "s").
+        Spaces inside a value (e.g. "TTFT: 0.25s") are non-breaking from the
+        callers, so a value itself never splits.
     """
     if not metadata_text:
         return metadata_text
 
     text = metadata_text.strip()
-    # Replace 4 normal spaces with 4 non-breaking spaces (won't collapse)
-    text = text.replace("    ", "\u00A0\u00A0\u00A0\u00A0")
+    text = text.replace("    ", METADATA_SEPARATOR)
     return f'*( {text} )*'
 
 
@@ -384,7 +393,7 @@ def performance_footer_text(metadata: dict) -> str:
         groups.append("    ".join(info_parts))
     if time_parts:
         groups.append("    ".join(time_parts))
-    return "\u00A0\u00A0\u00A0 ".join(groups)
+    return METADATA_SEPARATOR.join(groups)
 
 
 def build_assistant_chat_entry(
@@ -429,33 +438,30 @@ def build_assistant_chat_entry(
 def build_inference_metadata(
     ttft: float | None,
     inference_time: float,
-    tokens_generated: int,
-    tokens_per_sec: float,
+    work: InferenceWork,
     source: str,
     *,
-    backend_metrics: dict | None = None,
     tokens_prompt: int = 0,
     history_tokens: int = 0,
     backend_type: str = "",
     agent_label: str = "AIfred-LLM",
     response_chars: int = 0,
     truncated: bool = False,
-    thinking_time: float = 0.0,
     load_time: float = 0.0,
 ) -> tuple[dict, str, str]:
     """
-    Central function for inference metadata (chat bubble, debug log, console).
+    Central function for inference metadata (chat bubble, debug log, console)
+    of every model call — chat agents, sub-agents and vision models alike.
 
-    Calculates PP speed, builds metadata dict + display string + debug message.
-    Calls log_message() internally for debug.log output.
+    Token counts, prefill and decode rates and the thinking time all come
+    from ``work`` (perf_metrics.InferenceWork), the one measurement the
+    backends and the vision analyzer produce; nothing here computes a rate.
 
     Args:
         ttft: Time To First Token (seconds), None if not measured
-        inference_time: Total inference time (seconds)
-        tokens_generated: Number of generated tokens
-        tokens_per_sec: Generation speed (tok/s)
+        inference_time: Total inference time, wall clock (seconds)
+        work: Measured work of the call (for a turn: summed over all requests)
         source: Source label (e.g. "Own Knowledge (qwen3:4b)")
-        backend_metrics: Raw metrics from backend done chunk (has prompt_per_second for Ollama)
         tokens_prompt: Number of prompt tokens (cloud debug line)
         history_tokens: LLM history token count (for debug output)
         backend_type: Backend type ("ollama", "llamacpp", "cloud_api", etc.)
@@ -463,26 +469,21 @@ def build_inference_metadata(
         response_chars: Response text length in chars (for debug output)
         truncated: Answer hit the token/context limit (finish_reason=length)
             — the done line gets a ⚠️ + TRUNCATED marker instead of a clean ✅
-        thinking_time: Seconds inside think blocks, summed over the whole
-            turn and its sub-agents (0 = no thinking)
         load_time: Model load time on a cold start (0 = warm start, not shown)
 
     Returns:
         (metadata_dict, metadata_display, debug_msg):
         - metadata_dict: For chat_history / add_agent_panel persistence
         - metadata_display: format_metadata() string for chat bubble embedding
-        - debug_msg: Debug "done" line (also logged via log_message())
+        - debug_msg: Debug "done" line (the caller logs it)
     """
-    # --- PP speed: measured by the backend ---
-    # The backends measure it themselves (server phase times, or from outside
-    # over the really computed tokens only, see perf_metrics.InferenceWork)
-    # and sum it over the whole turn. A rate that could not be measured stays
-    # unknown: the footer shows n/a instead of a wrong number.
-    _bm = backend_metrics or {}
-    prompt_per_sec, prompt_tokens_computed = prefill_tokens_per_second(
-        server_rate=_bm.get("prompt_per_second"),
-        server_tokens=int(_bm.get("tokens_prompt_computed") or 0),
-    )
+    # A rate that could not be measured stays unknown (None): the footer
+    # shows n/a instead of a wrong number.
+    prompt_per_sec = work.prefill_rate()
+    prompt_tokens_computed = work.prefill_tokens
+    tokens_generated = work.decode_tokens
+    tokens_per_sec = work.decode_rate()
+    thinking_time = work.thinking_s
 
     # --- Metadata dict (for persistence) ---
     metadata_dict: dict = {

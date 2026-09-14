@@ -582,7 +582,8 @@ class VisionPlugin:
                     f"image; if it keeps failing, report it to the user."
                 )
 
-            stats = result.metadata.get("stats", {}) if result.metadata else {}
+            # Always set by vision_analyzer (vlm_stats): the footer's one source.
+            stats = result.metadata["stats"]
             payload: dict[str, Any] = {
                 "source_id": source_id or "",
                 "source_name": resolve_source_label(source_id) if source_id else "",
