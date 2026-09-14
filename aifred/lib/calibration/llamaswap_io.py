@@ -213,6 +213,40 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
     return result
 
 
+# Speculative-decoding predictor per server flag value → display name.
+# vLLM: "method" of --speculative-config; llama.cpp: --spec-type.
+_PREDICTOR_NAMES = {
+    "mtp": "MTP", "draft-mtp": "MTP",
+    "dflash": "DFlash", "draft-dflash": "DFlash",
+    "dspark": "DSpark", "draft-dspark": "DSpark",
+    "eagle": "EAGLE", "eagle3": "EAGLE", "draft-eagle": "EAGLE",
+    "ngram": "n-gram", "ngram-mod": "n-gram", "ngram-simple": "n-gram",
+    "draft": "Draft", "draft_model": "Draft",
+}
+
+
+def speculative_predictor(cmd: str) -> str:
+    """Display name of the entry's speculative-decoding predictor ("" = none).
+
+    One place for both servers, so every model dropdown names its predictor
+    the same way (MTP, DFlash, DSpark, …). An unknown method stays visible
+    as written instead of disappearing.
+    """
+    import json
+    import shlex
+
+    tokens = shlex.split(cmd)
+    for i, tok in enumerate(tokens[:-1]):
+        if tok == "--speculative-config":
+            method = str(json.loads(tokens[i + 1]).get("method", ""))
+            return _PREDICTOR_NAMES.get(method, method)
+        if tok == "--spec-type":
+            return _PREDICTOR_NAMES.get(tokens[i + 1], tokens[i + 1])
+    if "--model-draft" in tokens:
+        return _PREDICTOR_NAMES["draft"]
+    return ""
+
+
 def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
     """Extract sampling parameters (--temp, --top-k, etc.) from a cmd string."""
     flag_map = {

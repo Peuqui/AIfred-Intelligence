@@ -96,8 +96,8 @@ def discover_llamaswap_models(
         data = response.json()
         model_ids = [m['id'] for m in data.get("data", [])]
 
-        # Get file sizes from llama-swap config
-        model_sizes = _get_llamaswap_model_sizes()
+        # File sizes and speculative predictors from the llama-swap config
+        model_sizes, predictors = _get_llamaswap_model_facts()
 
         result = {}
         for mid in model_ids:
@@ -109,10 +109,9 @@ def discover_llamaswap_models(
             if is_vllm_entry(mid) != vllm_entries:
                 continue
             size_gb = model_sizes.get(mid)
-            if size_gb is not None:
-                result[mid] = f"{mid} ({format_number(size_gb, 1)} GB)"
-            else:
-                result[mid] = mid
+            label = f"{mid} ({format_number(size_gb, 1)} GB)" if size_gb is not None else mid
+            predictor = predictors.get(mid, "")
+            result[mid] = f"{label} · {predictor}" if predictor else label
 
         kind = "vLLM" if vllm_entries else "llama.cpp"
         log_message(f"📂 Found {len(result)} {kind} models (via llama-swap)")
@@ -144,8 +143,33 @@ def vllm_checkpoint_size_bytes(checkpoint_dir: Path) -> int:
     )
 
 
-def _get_llamaswap_model_sizes() -> Dict[str, float]:
-    """Get model sizes (GB) for llama-swap entries.
+# Weight size per file, keyed by path + modification time: every variant of a
+# model (TTS/VLM/speed) points at the same checkpoint, and model discovery runs
+# several times per session start — summing a 180B checkpoint's shards took
+# 1.6 s each time (session start 34 s, 14.09.2026).
+_SIZE_CACHE: Dict[tuple[str, float], int] = {}
+
+
+def _weights_size_bytes(model_path: Path) -> int:
+    """Size of a vLLM checkpoint directory or a GGUF file, computed once per
+    path and modification time."""
+    from .gguf_utils import get_gguf_total_size
+
+    stamp_file = model_path / "model.safetensors.index.json" if model_path.is_dir() else model_path
+    stamp = stamp_file.stat().st_mtime if stamp_file.exists() else model_path.stat().st_mtime
+    key = (str(model_path), stamp)
+    if key not in _SIZE_CACHE:
+        _SIZE_CACHE[key] = (
+            vllm_checkpoint_size_bytes(model_path) if model_path.is_dir() else get_gguf_total_size(model_path)
+        )
+    return _SIZE_CACHE[key]
+
+
+def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, str]]:
+    """Model sizes (GB) and speculative predictors of the llama-swap entries.
+
+    Predictor: display name from ``speculative_predictor`` ("" = none), shown
+    in the model dropdowns next to the size.
 
     GGUF-Einträge: Dateigröße inkl. Draft-Sidecar (``--model-draft``,
     z.B. DSpark) — der lädt bei jedem Run mit und zählt zum realen
@@ -155,28 +179,26 @@ def _get_llamaswap_model_sizes() -> Dict[str, float]:
     try:
         from .calibration.projection import draft_gguf_path
         from .calibration import parse_llamaswap_config
+        from .calibration.llamaswap_io import speculative_predictor
         from .config import LLAMASWAP_CONFIG_PATH
-        from .gguf_utils import get_gguf_total_size
-
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         result = {}
+        predictors = {mid: speculative_predictor(info["full_cmd"]) for mid, info in config.items()}
         for model_id, info in config.items():
             model_path = Path(info["gguf_path"])
             if not model_path.exists():
                 continue
-            if model_path.is_dir():
-                # vLLM-Eintrag: --model zeigt auf ein Checkpoint-Verzeichnis
-                total_bytes = vllm_checkpoint_size_bytes(model_path)
-            else:
-                total_bytes = get_gguf_total_size(model_path)
+            # vLLM-Eintrag: --model zeigt auf ein Checkpoint-Verzeichnis
+            total_bytes = _weights_size_bytes(model_path)
+            if not model_path.is_dir():
                 draft = draft_gguf_path(info["full_cmd"])
                 if draft is not None and draft.exists():
-                    total_bytes += get_gguf_total_size(draft)
+                    total_bytes += _weights_size_bytes(draft)
             result[model_id] = total_bytes / (1024 ** 3)
-        return result
+        return result, predictors
     except OSError as e:
         log_message(f"⚠️ Could not read model sizes from llama-swap config: {e}")
-        return {}
+        return {}, {}
 
 
 def discover_models(
