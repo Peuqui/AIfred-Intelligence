@@ -599,11 +599,11 @@ def test_binary_search_stops_on_ctx_independent_load_death(monkeypatch):
 def test_known_ctx_ceiling_caps_at_proven_failure():
     """The smallest FAILED ctx above the anchor at THIS split bounds the
     upward push; fits, other splits, and lower failures are ignored."""
-    split = (17.0, 18.0, 8.0, 9.0, 9.0)
-    other = (16.0, 18.0, 8.0, 9.0, 10.0)
+    split: tuple[float, ...] = (17.0, 18.0, 8.0, 9.0, 9.0)
+    other: tuple[float, ...] = (16.0, 18.0, 8.0, 9.0, 10.0)
     fit = VerifyResult(True, (2000,) * 5, None, "fit")
     oom = VerifyResult(False, (100,) * 5, None, "oom")
-    cache = {
+    cache: dict[tuple[tuple[float, ...], int], VerifyResult] = {
         (split, 100096): fit,
         (split, 120064): oom,   # nearest failure above the anchor
         (split, 140032): oom,   # a higher failure — not the nearest

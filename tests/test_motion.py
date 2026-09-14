@@ -117,8 +117,8 @@ class TestMotionDetector:
         Fläche) und setzt das Hintergrundmodell frisch auf; nach dem
         Warmup ist die neue Ansicht sofort der Hintergrund."""
         rng = np.random.default_rng(42)
-        tex = rng.integers(0, 255, (240, 320), dtype=np.uint8)
-        tex = cv2.GaussianBlur(tex, (9, 9), 0)
+        noise = rng.integers(0, 255, (240, 320), dtype=np.uint8)
+        tex = cv2.GaussianBlur(noise, (9, 9), 0)
         tex3 = cv2.cvtColor(tex, cv2.COLOR_GRAY2BGR)
         det = MotionDetector(warmup_frames=3, min_area_ratio=0.02)
         for _ in range(10):

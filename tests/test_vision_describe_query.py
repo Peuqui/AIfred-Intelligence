@@ -115,7 +115,8 @@ class TestQueryEventsDedup:
         monkeypatch.setattr(vision_bulk, "run_bulk_describe", _no_describe)
         ctx = PluginContext(agent_id="aifred", lang="de", session_id="t")
         tool = vision_plugin.plugin._tool_query_events(ctx)
-        return json.loads(asyncio.run(tool.executor()))
+        result: dict = json.loads(asyncio.run(tool.executor()))
+        return result
 
     def test_cluster_collapses_to_one_row(self, store: VisionStore, monkeypatch):
         frame = str(VIGILANTIA_DIR / "motion" / "cam_test" / "2026-06-03" / "a.jpg")

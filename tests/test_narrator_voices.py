@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from types import SimpleNamespace
 
 import pytest
 
@@ -74,20 +73,24 @@ class TestResolveEngineAndVoice:
 
 class TestVoiceNames:
     def test_get_voices_failure_falls_back(self):
-        eng = SimpleNamespace(
-            get_voices=lambda: (_ for _ in ()).throw(RuntimeError("down")),
-            voices_fallback={"A": "a"},
-        )
-        assert voice_names(eng) == ["A"]
+        class _DownEngine:
+            voices_fallback = {"A": "a"}
+
+            def get_voices(self) -> dict[str, str]:
+                raise RuntimeError("down")
+
+        assert voice_names(_DownEngine()) == ["A"]
 
     def test_empty_get_voices_falls_back(self):
         # Container-Engines liefern {} (keine Exception), solange der
         # Container down ist — z. B. qwen3local nach Idle-Stop.
-        eng = SimpleNamespace(
-            get_voices=lambda: {},
-            voices_fallback={"AIfred": "AIfred", "Salomo": "Salomo"},
-        )
-        assert voice_names(eng) == ["AIfred", "Salomo"]
+        class _StoppedContainerEngine:
+            voices_fallback = {"AIfred": "AIfred", "Salomo": "Salomo"}
+
+            def get_voices(self) -> dict[str, str]:
+                return {}
+
+        assert voice_names(_StoppedContainerEngine()) == ["AIfred", "Salomo"]
 
 
 class TestGpuEngineConflict:

@@ -4,11 +4,13 @@ is faked with a crafted YOLOv8/v11 output tensor, so no model file is needed."""
 
 from __future__ import annotations
 
+from datetime import datetime
 from types import SimpleNamespace
 
 import cv2
 import numpy as np
 
+from aifred.lib.frame_sources import Frame
 from aifred.lib.vision_filters.person_detect import (
     PersonDetector,
     _letterbox,
@@ -107,5 +109,5 @@ class TestDetect:
     def test_undecodable_frame_returns_empty(self):
         out = _yolo_output([(240.0, 240.0, 100.0, 300.0, 0.9)])
         det = _detector_with(out)
-        bad = SimpleNamespace(image_bytes=b"not-a-jpeg", source_id="cam/test")
+        bad = Frame(source_id="cam/test", timestamp=datetime.now(), image_bytes=b"not-a-jpeg")
         assert det.detect(bad) == []

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import importlib
 from pathlib import Path
-from typing import Iterator
+from typing import Iterator, Protocol
 
 from .base import TTSEngine
 
@@ -72,7 +72,16 @@ def channel_engine_options() -> list[tuple[str, str]]:
     ]
 
 
-def voice_names(engine: TTSEngine) -> list[str]:
+class VoiceCatalog(Protocol):
+    """The part of a TTS engine ``voice_names`` reads — every TTSEngine is one."""
+
+    @property
+    def voices_fallback(self) -> dict[str, str]: ...
+
+    def get_voices(self) -> dict[str, str]: ...
+
+
+def voice_names(engine: VoiceCatalog) -> list[str]:
     """Katalog-Namen einer Engine: live ``get_voices()``, bei Fehler ODER
     leerem Ergebnis der statische ``voices_fallback``.
 
