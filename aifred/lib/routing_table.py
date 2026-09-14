@@ -26,8 +26,33 @@ class Route:
     updated_at: str
 
 
+# InboundMessage.metadata key a chat channel sets when the user answers a
+# specific earlier message (Telegram reply, Discord reply): the route of that
+# message wins over the chat's route.
+REPLY_TO_MESSAGE_KEY = "reply_to_message_key"
+
+
+def message_route_key(chat_id: str | int, message_id: str | int) -> str:
+    """Route key of one sent message in a chat channel (Telegram, Discord).
+    Email threads route by Message-ID; chats by chat id, and a reply to one
+    specific bot message by this key."""
+    return f"msg:{chat_id}:{message_id}"
+
+
 class RoutingTable:
     """SQLite-backed routing table for the Message Hub."""
+
+    def register_sent_messages(
+        self, channel: str, chat_id: str | int, message_ids: list, session_id: str | None,
+    ) -> None:
+        """Remember which session each sent message belongs to, so a reply to
+        exactly that message returns to it (an announcement from a scheduler
+        job lands in the job's session, not in the chat's). No session → nothing
+        to remember."""
+        if not session_id:
+            return
+        for message_id in message_ids:
+            self.set_route(channel, message_route_key(chat_id, message_id), session_id)
 
     def __init__(self, db_path: Path | None = None) -> None:
         self._db_path = db_path or _DB_PATH
