@@ -150,6 +150,34 @@ def sandbox_output_path(url: str) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
+def documents_html_path(url: str) -> Optional[Path]:
+    """The HTML file behind a documents URL (``/_upload/documents/<path>.html``
+    or bare ``documents/<path>.html``, with or without scheme and host), or
+    None when the URL is none, escapes the documents root or the file is gone.
+    The documents workspace is shared by all agents and sessions."""
+    from urllib.parse import unquote
+
+    from .config import DOCUMENTS_DIR
+
+    path_part = url.split("://", 1)[-1]
+    if "://" in url and "/" in path_part:
+        path_part = "/" + path_part.split("/", 1)[1]
+    if path_part.startswith("documents/"):
+        path_part = f"/_upload/{path_part}"
+    prefix = "/_upload/documents/"
+    if not path_part.startswith(prefix):
+        return None
+    rel = unquote(path_part[len(prefix):])
+    if not rel.lower().endswith((".html", ".htm")):
+        return None
+    docs_root = Path(DOCUMENTS_DIR).resolve()
+    candidate = (docs_root / rel).resolve()
+    # resolve() follows symlinks, so a link escaping documents/ fails here
+    if not candidate.is_relative_to(docs_root):
+        return None
+    return candidate if candidate.is_file() else None
+
+
 def _sandbox_url(session_id: str, filename: str) -> str:
     """Build full URL for a sandbox output file (respects BACKEND_URL)."""
     from .config import BACKEND_URL

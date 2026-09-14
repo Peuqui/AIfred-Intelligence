@@ -241,8 +241,9 @@ class ChatMixin(rx.State, mixin=True):
             agent: Agent identifier ("aifred", "sokrates", "salomo")
             content: Agent response content (should be RAW, not formatted)
         """
+        from ..lib.message_builder import with_html_preview_note
         label = agent.upper()
-        clean_content = strip_thinking_blocks(content)
+        clean_content = with_html_preview_note(strip_thinking_blocks(content))
 
         if clean_content:
             ch = self._chat_sub()

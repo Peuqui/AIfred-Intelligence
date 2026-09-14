@@ -75,12 +75,12 @@ def strip_image_markdown(text: str, urls: list[str]) -> str:
 def _source_block(url: str) -> str:
     """The page's source code, collapsed below the embedded page, so the
     program can be read without the model copying it into its answer.
-    "" when the URL is no sandbox output file (e.g. a documents page)."""
+    Sandbox output and documents pages alike; "" when the file is gone."""
     from .formatting import build_tool_collapsible, get_ui_locale
     from .i18n import t
-    from .sandbox import sandbox_output_path
+    from .sandbox import documents_html_path, sandbox_output_path
 
-    path = sandbox_output_path(url)
+    path = sandbox_output_path(url) or documents_html_path(url)
     if path is None:
         return ""
     label = t("collapsible_source_code", lang=get_ui_locale())
