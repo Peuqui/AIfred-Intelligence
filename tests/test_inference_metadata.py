@@ -29,8 +29,9 @@ def test_footer_omits_thinking_and_load_when_zero() -> None:
 
 def test_build_inference_metadata_renders_through_the_footer() -> None:
     metadata, display, debug_msg = build_inference_metadata(
-        ttft=1.0, inference_time=30.0, tokens_generated=100, tokens_per_sec=50.0,
-        source="AIfred (m)", thinking_time=20.0, load_time=300.0,
+        ttft=1.0, inference_time=30.0,
+        work=InferenceWork(decode_tokens=100, decode_s=2.0, thinking_s=20.0),
+        source="AIfred (m)", load_time=300.0,
     )
     assert metadata["thinking_time"] == 20.0 and metadata["load_time"] == 300.0
     assert display == format_performance_footer(metadata)
@@ -63,6 +64,18 @@ def test_pipeline_takes_thinking_time_from_the_backend_work() -> None:
 
     result = asyncio.run(run())
     assert result is not None
-    assert result.thinking_time == 2.5
+    assert result.work.thinking_s == 2.5
     assert result.metadata_dict["thinking_time"] == 2.5
     assert "Thinking" in result.metadata_display
+
+
+def test_metadata_line_wraps_between_values_never_inside() -> None:
+    """Mobile bubbles use word-break: a separator of four non-breaking spaces
+    made a whole group one word that got cut anywhere ("48,5 tok/" | "s")."""
+    display = format_performance_footer({"ttft": 1.63, "tokens_per_sec": 48.5, "inference_time": 100.0})
+    body = display.strip("*( )")
+    # Every gap between two values holds a normal (breakable) space ...
+    assert "    " in body and "    " not in body
+    # ... while each value keeps its own spaces non-breaking.
+    for value in body.split("    "):
+        assert " " not in value

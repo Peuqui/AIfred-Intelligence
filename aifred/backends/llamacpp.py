@@ -211,12 +211,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         (slot-cache hits excluded); both times are pure phase times.
         """
         _require_timings(server_timings)
-        return InferenceWork(
-            prefill_tokens=int(server_timings.get("prompt_n") or 0),
-            prefill_s=float(server_timings.get("prompt_ms") or 0.0) / 1000,
-            decode_tokens=int(server_timings.get("predicted_n") or 0),
-            decode_s=float(server_timings.get("predicted_ms") or 0.0) / 1000,
-        )
+        return InferenceWork.from_llamacpp_timings(server_timings)
 
     def _build_chat_response(
         self,
@@ -233,7 +228,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             text=text,
             tokens_prompt=tokens_prompt,
             tokens_generated=tokens_generated,
-            tokens_per_second=server_timings["predicted_per_second"],
+            tokens_per_second=InferenceWork.from_llamacpp_timings(server_timings).decode_rate(),
             inference_time=inference_time,
             model=model,
         )

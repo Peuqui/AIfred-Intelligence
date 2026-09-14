@@ -119,6 +119,30 @@ class InferenceWork:
         return cls(prefill_s=None, decode_s=None)
 
     @classmethod
+    def from_llamacpp_timings(cls, timings: dict) -> "InferenceWork":
+        """llama-server's own measurement of one request (``timings``).
+
+        ``prompt_n`` counts only tokens that really ran through the model
+        (slot-cache hits excluded); both times are pure phase times.
+        """
+        return cls(
+            prefill_tokens=int(timings.get("prompt_n") or 0),
+            prefill_s=float(timings.get("prompt_ms") or 0.0) / 1000,
+            decode_tokens=int(timings.get("predicted_n") or 0),
+            decode_s=float(timings.get("predicted_ms") or 0.0) / 1000,
+        )
+
+    @classmethod
+    def from_ollama(cls, response: dict) -> "InferenceWork":
+        """Ollama's own measurement of one request (nanosecond durations)."""
+        return cls(
+            prefill_tokens=int(response.get("prompt_eval_count") or 0),
+            prefill_s=float(response.get("prompt_eval_duration") or 0) / 1e9,
+            decode_tokens=int(response.get("eval_count") or 0),
+            decode_s=float(response.get("eval_duration") or 0) / 1e9,
+        )
+
+    @classmethod
     def from_wall_clock(
         cls,
         *,

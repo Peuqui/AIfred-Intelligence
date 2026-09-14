@@ -37,6 +37,8 @@ import time
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
+from .perf_metrics import InferenceWork
+
 if TYPE_CHECKING:
     from .frame_sources import Frame
 
@@ -322,10 +324,12 @@ async def _analyze_via_ollama(
         if k not in ("response", "context") and v is not None
     }
 
-    # Compute TTFT/PP/tok-per-s stats from Ollama's nanosecond timings.
-    # Mirrors the format used elsewhere in AIfred (audio_processing.py)
-    # so the user sees the same shape of metrics across all model calls.
-    stats = _compute_vlm_stats(resp_dict, duration_ms)
+    work = InferenceWork.from_ollama(resp_dict)
+    load_s = float(resp_dict.get("load_duration") or 0) / 1e9
+    stats = vlm_stats(
+        work, backend="ollama", wall_clock_s=duration_ms / 1000.0,
+        ttft_s=load_s + (work.prefill_s or 0.0), load_s=load_s,
+    )
     metadata["stats"] = stats
 
     _log_vlm_done(stats, model, text)
@@ -426,27 +430,14 @@ async def _analyze_via_llamacpp(
             model, n_frames, len(text),
         )
     usage = data.get("usage") or {}
-    # llama-server liefert ein eigenes timings-Objekt (prompt_ms,
-    # predicted_per_second, …) — daraus dieselben Stats-Felder bauen wie
-    # _compute_vlm_stats für Ollama, damit Footer/Logs identisch rendern.
+    # llama-server measures the request itself (``timings``); without them
+    # (server built without) the work is unknown, never guessed.
     timings = data.get("timings") or {}
-    prompt_ms = float(timings.get("prompt_ms") or 0.0)
-    predicted_ms = float(timings.get("predicted_ms") or 0.0)
-    stats = {
-        "ttft_s": prompt_ms / 1000.0,
-        "pp_tok_per_s": float(timings.get("prompt_per_second") or 0.0),
-        "inference_s": (
-            predicted_ms / 1000.0 if predicted_ms else duration_ms / 1000.0
-        ),
-        "eval_tok_per_s": float(timings.get("predicted_per_second") or 0.0),
-        "eval_tokens": float(
-            timings.get("predicted_n") or usage.get("completion_tokens") or 0
-        ),
-        "prompt_tokens": float(
-            timings.get("prompt_n") or usage.get("prompt_tokens") or 0
-        ),
-        "wall_clock_s": duration_ms / 1000.0,
-    }
+    work = InferenceWork.from_llamacpp_timings(timings) if timings else InferenceWork.unmeasured()
+    stats = vlm_stats(
+        work, backend="llamacpp", wall_clock_s=duration_ms / 1000.0,
+        ttft_s=work.prefill_s, load_s=0.0,
+    )
     metadata: dict[str, Any] = {"backend": "llamacpp", "usage": usage, "stats": stats}
 
     _log_vlm_done(stats, model, text)
@@ -461,19 +452,40 @@ async def _analyze_via_llamacpp(
     )
 
 
-def _log_vlm_done(stats: dict[str, float], model: str, text: str) -> None:
-    """Gemeinsame Metrics-Zeile beider VLM-Backends. The actual debug-console
-    line + chat-bubble footer are built by llm_pipeline via
+def vlm_stats(
+    work: InferenceWork, *, backend: str, wall_clock_s: float, ttft_s: float | None, load_s: float,
+) -> dict[str, Any]:
+    """Metrics of one VLM call, the same shape for both VLM backends.
+
+    Tokens and rates live only in ``work`` (perf_metrics.InferenceWork, the
+    same measurement the chat backends produce). Inference is the wall clock
+    of the call, as for chat answers; the non-streaming call has no first
+    token to time, so TTFT is the server's own load + prefill time.
+    """
+    return {
+        "work": work.to_dict(),
+        "backend": backend,
+        "inference_s": wall_clock_s,
+        "ttft_s": ttft_s,
+        "load_s": load_s,
+    }
+
+
+def _log_vlm_done(stats: dict[str, Any], model: str, text: str) -> None:
+    """Gemeinsame Metrics-Zeile beider VLM-Backends. The debug-console line +
+    chat-bubble footer of a tool call are built by llm_pipeline via
     build_inference_metadata() — this is the compact dev-level info line,
     useful when the VLM runs outside the tool-pipeline (watcher, alerts)."""
     from .formatting import format_duration_s, format_number
     from .logging_utils import log_message
+    work = InferenceWork.from_dict(stats["work"])
+    prefill = work.prefill_rate()
     log_message(
         f"👁️ VLM done ({format_duration_s(stats['inference_s'])}, "
-        f"{int(stats['eval_tokens'])} tok, "
-        f"{format_number(stats['eval_tok_per_s'], 1)} tok/s, "
-        f"TTFT {format_number(stats['ttft_s'], 2)}s, "
-        f"PP {format_number(stats['pp_tok_per_s'], 1)} tok/s, "
+        f"{work.decode_tokens} tok, "
+        f"{format_number(work.decode_rate(), 1)} tok/s, "
+        f"TTFT {format_number(stats['ttft_s'] or 0.0, 2)}s, "
+        f"PP {'n/a' if prefill is None else format_number(prefill, 1) + ' tok/s'}, "
         f"model {model})"
     )
     # Raw VLM text: ONLY if DEBUG_LOG_VLM_RAW is set in config.py.
@@ -483,43 +495,5 @@ def _log_vlm_done(stats: dict[str, float], model: str, text: str) -> None:
     from .config import DEBUG_LOG_VLM_RAW
     if DEBUG_LOG_VLM_RAW:
         log_message(f"👁️ VLM raw response: {text}")
-
-
-def _compute_vlm_stats(resp: dict[str, Any], wall_clock_ms: float) -> dict[str, float]:
-    """Derive TTFT / PP-tok-per-s / inference / eval-tok-per-s from Ollama's
-    nanosecond timings in the response dict.
-
-    Ollama always returns:
-      load_duration         — model-load wall time (0 if already loaded)
-      prompt_eval_duration  — time to process the prompt (images here)
-      prompt_eval_count     — number of prompt tokens
-      eval_duration         — output-token generation time
-      eval_count            — number of output tokens
-      total_duration        — sum, end-to-end on the Ollama side
-
-    Definition mirrors what audio_processing.py / chat-LLM stats use:
-      TTFT  = load + prompt_eval (time until first output token)
-      PP    = prompt_eval_count / prompt_eval_duration
-      gen   = eval_count / eval_duration
-    """
-    ns_to_s = 1e-9
-    load_ns = float(resp.get("load_duration") or 0)
-    pp_ns = float(resp.get("prompt_eval_duration") or 0)
-    pp_tok = int(resp.get("prompt_eval_count") or 0)
-    ev_ns = float(resp.get("eval_duration") or 0)
-    ev_tok = int(resp.get("eval_count") or 0)
-    ttft_s = (load_ns + pp_ns) * ns_to_s
-    inference_s = ev_ns * ns_to_s
-    pp_tok_per_s = (pp_tok / (pp_ns * ns_to_s)) if pp_ns > 0 else 0.0
-    eval_tok_per_s = (ev_tok / (ev_ns * ns_to_s)) if ev_ns > 0 else 0.0
-    return {
-        "ttft_s": ttft_s,
-        "pp_tok_per_s": pp_tok_per_s,
-        "inference_s": inference_s,
-        "eval_tok_per_s": eval_tok_per_s,
-        "eval_tokens": float(ev_tok),
-        "prompt_tokens": float(pp_tok),
-        "wall_clock_s": wall_clock_ms / 1000.0,
-    }
 
 

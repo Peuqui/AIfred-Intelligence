@@ -277,16 +277,13 @@ async def call_llm(
         metadata_dict, metadata_display, debug_msg = build_inference_metadata(
             ttft=pipeline_result.ttft,
             inference_time=pipeline_result.inference_time,
-            tokens_generated=pipeline_result.metrics.get("tokens_generated", 0),
-            tokens_per_sec=pipeline_result.tokens_per_sec,
+            work=pipeline_result.work,
             source=source_label,
-            backend_metrics=pipeline_result.metrics,
             tokens_prompt=pipeline_result.metrics.get("tokens_prompt", 0),
             history_tokens=history_tokens,
             backend_type=backend_type,
             agent_label=agent_label,
             truncated=pipeline_result.truncated,
-            thinking_time=pipeline_result.thinking_time,
         )
         # Channel-Hint fuer send_reply: bei erfolgreichem Audio-Tool soll
         # die TTS-Bestaetigung geskippt werden — Smart-Speaker-UX.
@@ -317,7 +314,7 @@ async def call_llm(
                 "history": history,
                 "llm_history": llm_history,
                 "inference_time": pipeline_result.inference_time,
-                "tokens_per_sec": pipeline_result.tokens_per_sec,
+                "tokens_per_sec": pipeline_result.work.decode_rate(),
                 "ttft": pipeline_result.ttft,
                 "model_choice": model_choice,
                 "failed_sources": [],
