@@ -473,16 +473,16 @@ class EmailChannel(BaseChannel):
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send an email reply via SMTP."""
         from .client import send_email
-        from ....lib.routing_table import routing_table
 
         # build_reply_metadata setzt "subject" immer (ggf. leer) — kein
         # hartcodierter Zweitwert hier.
         subject = outbound.metadata.get("subject", "")
         reply_to_id = outbound.metadata.get("in_reply_to")
 
-        # Look up session_id so send_email can register the route
-        route = routing_table.get_route("email", original.channel_id)
-        sid = route.session_id if route else None
+        # The session the message belongs to (set by the reply path and by
+        # announce_to_channel): send_email registers the outgoing Message-ID
+        # for it, so an answer to this mail threads back into that session.
+        sid = outbound.metadata["session_id"]
 
         # Same RFC2047 vector as the subject (build_reply_metadata): a crafted
         # From header can smuggle CR/LF into the decoded sender — send_email
