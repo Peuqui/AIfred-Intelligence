@@ -1,5 +1,13 @@
 # Standalone scripts that pytest should not collect
-import pytest
+import os
+
+# Before any aifred import: pytest is a helper process, not the app. Without
+# CLI mode, importing aifred loads the whole Reflex app, and the first log line
+# re-initialises data/logs/aifred_debug.log — every test run wiped the running
+# service's live debug log (14.09.2026).
+os.environ.setdefault("AIFRED_CLI_MODE", "1")
+
+import pytest  # noqa: E402
 
 collect_ignore = ["test_dashscope_tts.py", "test_dashscope_voice_clone.py"]
 
