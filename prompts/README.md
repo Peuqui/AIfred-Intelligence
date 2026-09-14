@@ -72,8 +72,6 @@ Each agent uses a layered prompt architecture:
 | `history_summarization.txt` | Compress conversation history | *(content passed separately)* |
 | `cache_decision.txt` | Decide if cache hit is relevant | *(various)* |
 | `cache_metadata.txt` | Generate cache entry summary | `{sources_preview}` |
-| `vision_ocr.txt` | OCR extraction from images | *(none)* |
-| `vision_templateless_*.txt` | Prompts for template-less vision models | *(none)* |
 
 ## Usage
 

@@ -643,8 +643,6 @@ LLAMASERVER_DEFAULT_REPEAT_PENALTY = 1.0
 
 # Thinking-mode detection probe temperature (used in calibration/testing)
 THINKING_PROBE_TEMPERATURE = 0.6
-# Vision model temperature (low for factual/deterministic output)
-VISION_MODEL_TEMPERATURE = 0.1
 
 # ============================================================
 # VISION SAMPLING DEFAULTS (Qwen3-VL recommended values)
