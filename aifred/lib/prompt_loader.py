@@ -776,44 +776,6 @@ def _merge_prompt_layers(
     return "\n\n".join(parts)
 
 
-def get_vision_ocr_prompt(lang: Optional[str] = None) -> str:
-    """Load Vision-LLM OCR prompt (timestamp injected automatically by load_prompt)"""
-    return load_prompt('vision/vision_ocr', lang=lang)
-
-
-def get_vision_templateless_ocr_prompt(lang: Optional[str] = None) -> str:
-    """
-    Load Vision-LLM OCR prompt for template-less models (DeepSeek-OCR, etc.)
-
-    Note: No timestamp injection for template-less models (keeps prompt minimal)
-    """
-    if lang is None:
-        lang = _current_language
-
-    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_templateless_ocr.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
-
-
-def get_vision_templateless_default_prompt(lang: Optional[str] = None) -> str:
-    """
-    Load default Vision prompt for template-less models.
-
-    Uses the same prompt as vision_ocr.txt - the difference is only
-    in how it's injected (as user content vs. system prompt).
-
-    Note: No timestamp injection for template-less models (keeps prompt minimal)
-    """
-    if lang is None:
-        lang = _current_language
-
-    # Use vision_ocr.txt for both template and non-template models
-    # (same content, different injection method)
-    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_ocr.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
-
-
 def get_vision_ir_context_prompt(lang: Optional[str] = None) -> str:
     """Kontext-Baustein für Infrarot-/Graustufen-Aufnahmen: verhindert, dass
     das VLM IR-Helligkeiten als reale Farben beschreibt ("helles T-Shirt").
