@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
 import sys
 import textwrap
 from pathlib import Path
@@ -31,6 +32,9 @@ from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
+# A helper, not the app: without CLI mode importing aifred loads the whole
+# Reflex app and resets the running service's live debug log.
+os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
 from aifred.lib.document_store import get_document_store  # noqa: E402
 

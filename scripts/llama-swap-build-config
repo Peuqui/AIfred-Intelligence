@@ -83,6 +83,10 @@ AIFRED_REPO = Path(
 )
 if AIFRED_REPO.exists() and str(AIFRED_REPO) not in sys.path:
     sys.path.insert(0, str(AIFRED_REPO))
+# A helper, not the app: without CLI mode importing aifred loads the whole
+# Reflex app and resets the running service's live debug log. llama-swap-restart
+# sets it too; a direct call must not depend on that.
+os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
 MTP_FLAGS = [
     "--spec-type", "draft-mtp",
