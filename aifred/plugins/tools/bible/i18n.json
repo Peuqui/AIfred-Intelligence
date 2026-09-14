@@ -6,5 +6,13 @@
   "plugin_description": {
     "de": "Bibel-Zugriff: exakter Stellen-Lookup (z. B. Psalm 5) und thematische Suche in der Bibel.",
     "en": "Bible access: exact passage lookup (e.g. Psalm 5) and topical search in the Bible."
+  },
+  "bible_cred_translation": {
+    "de": "Übersetzung",
+    "en": "Translation"
+  },
+  "bible_cred_translation_tooltip": {
+    "de": "Welche Bibelübersetzung der Stellen-Lookup verwendet. Die Auswahl listet die Unterordner von data/documents/bibel/.",
+    "en": "Which Bible translation the reference lookup uses. The options list the sub-folders of data/documents/bibel/."
   }
 }

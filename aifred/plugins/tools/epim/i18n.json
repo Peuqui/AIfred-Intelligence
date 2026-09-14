@@ -6,5 +6,13 @@
   "plugin_description": {
     "de": "Lese- und Schreibzugriff auf den persönlichen EPIM-Datenbestand: Termine, Kontakte, Notizen, Aufgaben.",
     "en": "Read and write access to the personal EPIM data: appointments, contacts, notes, tasks."
+  },
+  "epim_cred_db_path": {
+    "de": "Datenbank-Pfad",
+    "en": "Database Path"
+  },
+  "epim_cred_db_path_tooltip": {
+    "de": "Vollstaendiger Pfad zur EPIM-Datenbankdatei (.epim).",
+    "en": "Full path to the EPIM database file (.epim)."
   }
 }

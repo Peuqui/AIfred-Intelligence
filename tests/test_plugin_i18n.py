@@ -60,3 +60,20 @@ def test_missing_text_fails_loud(tmp_path: Path) -> None:
         plugin_i18n_text(tmp_path, PLUGIN_DISPLAY_NAME_KEY, "en")
     with pytest.raises(RuntimeError, match="plugin_description"):
         plugin_i18n_text(tmp_path, PLUGIN_DESCRIPTION_KEY, "de")
+
+
+def test_credential_texts_come_from_every_plugins_own_i18n() -> None:
+    """Tool plugins too: the dialog read only channel i18n, so tool plugins'
+    field labels lived in the central i18n (or showed raw keys)."""
+    from aifred.lib.plugin_base import load_plugin_i18n, plugin_dir_of
+    from aifred.lib.plugin_registry import all_channels, discover_tools
+    from aifred.state._settings_mixin import _translate_cred_key
+
+    for plugin in [*discover_tools(), *all_channels().values()]:
+        i18n = load_plugin_i18n(plugin_dir_of(plugin))
+        for field in getattr(plugin, "credential_fields", []) or []:
+            for lang in ("de", "en"):
+                assert _translate_cred_key(field.label_key, plugin, lang), (plugin, field.label_key, lang)
+            for _, label in field.options or []:
+                if label in i18n or "_opt_" in label:
+                    assert _translate_cred_key(label, plugin, "de"), (plugin, label)
