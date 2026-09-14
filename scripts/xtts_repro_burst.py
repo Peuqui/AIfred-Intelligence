@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import os
 import sys
 import time
 from pathlib import Path
@@ -25,6 +26,9 @@ import requests
 # AIfred-Modul-Import möglich machen
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
+# A helper, not the app: without CLI mode importing aifred loads the whole
+# Reflex app and resets the running service's live debug log.
+os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
 XTTS_URL = "http://localhost:5051/tts"
 LANGUAGE = "de"

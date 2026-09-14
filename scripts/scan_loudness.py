@@ -29,6 +29,7 @@ wird nur per-File geschrieben.
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 from pathlib import Path
@@ -36,6 +37,9 @@ from pathlib import Path
 # Project-root ins sys.path damit ``aifred.*``-Imports laufen
 _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(_PROJECT_ROOT))
+# A helper, not the app: without CLI mode importing aifred loads the whole
+# Reflex app and resets the running service's live debug log.
+os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
 from aifred.lib.loudness import loudness_index  # noqa: E402
 
