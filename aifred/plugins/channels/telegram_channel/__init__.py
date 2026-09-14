@@ -272,7 +272,7 @@ class TelegramChannel(BaseChannel):
     async def _deliver(
         self, bot, chat_id: int, text: str, media: "str | None",
         media_context: "str | None" = None,
-    ) -> None:
+    ) -> list[int]:
         """SSOT for the actual Telegram send: attachment+caption when ``media``
         is set (photo for images, document otherwise), else chunked text. Used
         by both the reply path and the telegram_send tool so attachment
@@ -281,7 +281,9 @@ class TelegramChannel(BaseChannel):
 
         ``media_context``: zweites Bild desselben Moments (Dual-Lens:
         Weitwinkel-Szene zur Zoom-Nahaufnahme) — beide gehen als EIN
-        Album raus, Caption am ersten Bild."""
+        Album raus, Caption am ersten Bild.
+
+        Returns the ids of the sent messages."""
         from ....lib.vision_utils import is_image_file
 
         from ....lib.vision_utils import local_media_path
@@ -353,6 +355,7 @@ class TelegramChannel(BaseChannel):
                     sent_ids.append(m.message_id)
         # TD6: track sent ids so /clear can delete our own sends too.
         _msglog_add(chat_id, *sent_ids)
+        return sent_ids
 
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send a reply via Telegram Bot API. If ``outbound.media`` is set
@@ -365,10 +368,13 @@ class TelegramChannel(BaseChannel):
 
         chat_id = int(outbound.channel_id or original.channel_id)
         text = self.format_outbound(outbound.text)["text"]
-        await self._deliver(
+        sent_ids = await self._deliver(
             bot, chat_id, text, outbound.media,
             media_context=(outbound.metadata or {}).get("media_context"),
         )
+        # A reply to one of these messages returns to their session
+        from ....lib.routing_table import routing_table
+        routing_table.register_sent_messages("telegram", chat_id, sent_ids, outbound.metadata["session_id"])
 
         from ....lib.debug_bus import debug
         debug(f"Reply sent to Telegram chat {chat_id}")
@@ -525,17 +531,22 @@ def _build_inbound(update: "Update") -> "InboundMessage":
     if user.last_name:
         sender = f"{sender} {user.last_name}"
 
+    from ....lib.routing_table import REPLY_TO_MESSAGE_KEY, message_route_key
+
+    metadata: dict = {
+        "user_id": user.id,
+        "username": user.username or "",
+        "chat_type": chat.type,
+    }
+    if msg.reply_to_message is not None:
+        metadata[REPLY_TO_MESSAGE_KEY] = message_route_key(chat.id, msg.reply_to_message.message_id)
     return InboundMessage(
         channel="telegram",
         channel_id=str(chat.id),
         sender=sender,
         text=msg.text or "",
         timestamp=msg.date or datetime.now(timezone.utc),
-        metadata={
-            "user_id": user.id,
-            "username": user.username or "",
-            "chat_type": chat.type,
-        },
+        metadata=metadata,
     )
 
 

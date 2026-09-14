@@ -291,7 +291,8 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             ),
             # Marker für Kanäle mit eigenem Absage-Signal: der Puck spielt
             # darauf seinen LOKALEN Notification-Sound (kein TTS nötig).
-            metadata={"calibration_gate": True},
+            # No session: the gate answers before any session is resolved.
+            metadata={"calibration_gate": True, "session_id": None},
         )
         gate_plugin = get_channel(message.channel)
         if gate_plugin is not None and message.channel != "freeecho2":
@@ -323,7 +324,12 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
     # 2. Find or create session via routing table (BEFORE intent detection
     #    so session_scope is active during LLM calls → debug messages go to UI)
-    route = routing_table.get_route(message.channel, message.channel_id)
+    # A reply to one specific bot message goes to that message's session (e.g.
+    # the scheduler job that announced it); everything else to the chat's.
+    from .routing_table import REPLY_TO_MESSAGE_KEY
+    reply_key = message.metadata.get(REPLY_TO_MESSAGE_KEY)
+    reply_route = routing_table.get_route(message.channel, reply_key) if reply_key else None
+    route = reply_route or routing_table.get_route(message.channel, message.channel_id)
     subject = message.metadata.get("subject", "?")
 
     if route:

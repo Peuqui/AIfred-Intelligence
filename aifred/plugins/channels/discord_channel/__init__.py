@@ -243,6 +243,13 @@ class DiscordChannel(BaseChannel):
 
             from ....lib.envelope import InboundMessage
 
+            from ....lib.routing_table import REPLY_TO_MESSAGE_KEY, message_route_key
+
+            reply_meta = (
+                {REPLY_TO_MESSAGE_KEY: message_route_key(message.channel.id, message.reference.message_id)}
+                if message.reference is not None and message.reference.message_id is not None
+                else {}
+            )
             inbound = InboundMessage(
                 channel="discord",
                 channel_id=str(message.channel.id),
@@ -255,6 +262,7 @@ class DiscordChannel(BaseChannel):
                     "channel_name": getattr(message.channel, "name", "DM"),
                     "author_id": str(message.author.id),
                     "message_id": str(message.id),
+                    **reply_meta,
                 },
             )
 
@@ -311,17 +319,21 @@ class DiscordChannel(BaseChannel):
         # Discord attacht via discord.File und braucht einen LOKALEN Pfad
         # (kann keine Remote-URL fetchen wie Telegrams send_photo).
         from ....lib.vision_utils import local_media_path
-        await self._deliver(channel, text, local_media_path(outbound.media))
+        sent_ids = await self._deliver(channel, text, local_media_path(outbound.media))
+        # A reply to one of these messages returns to their session
+        from ....lib.routing_table import routing_table
+        routing_table.register_sent_messages("discord", channel_id, sent_ids, outbound.metadata["session_id"])
 
         from ....lib.debug_bus import debug
         channel_name = getattr(channel, 'name', channel_id)
         debug(f"📤 Reply sent to {outbound.recipient} (#{channel_name})")
 
-    async def _deliver(self, channel, text: str, media: "str | None") -> None:
+    async def _deliver(self, channel, text: str, media: "str | None") -> list[int]:
         """SSOT for the actual Discord send: text in 2000-char chunks plus an
         optional file attachment on the first message. Used by both the reply
         path and the discord_send tool. Discord renders any file type as an
-        attachment, so no photo/document distinction is needed."""
+        attachment, so no photo/document distinction is needed. Returns the
+        ids of the sent messages."""
         from ....lib.text_chunking import split_message
 
         file = discord.File(media) if media else None
@@ -330,13 +342,16 @@ class DiscordChannel(BaseChannel):
         chunks = split_message(text, _MAX_MESSAGE_LENGTH)
         if not chunks and not file:
             self.channel_log("Discord Plugin: empty reply — nothing to send", "warning")
-            return
+            return []
         if not chunks:
-            await channel.send(None, file=file)  # type: ignore[union-attr]
-            return
+            sent = await channel.send(None, file=file)  # type: ignore[union-attr]
+            return [sent.id]
+        sent_ids: list[int] = []
         for i, chunk in enumerate(chunks):
             kwargs = {"file": file} if (i == 0 and file) else {}
-            await channel.send(chunk, **kwargs)  # type: ignore[union-attr]
+            sent = await channel.send(chunk, **kwargs)  # type: ignore[union-attr]
+            sent_ids.append(sent.id)
+        return sent_ids
 
     # ── Context ───────────────────────────────────────────────
 
