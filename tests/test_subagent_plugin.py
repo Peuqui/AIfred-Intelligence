@@ -192,7 +192,8 @@ class TestRun:
             sub, "resolve_run_params",
             lambda agent_id, state: sub.RunParams("llamacpp", "http://x", "test-model", 8192, 0.5),
         )
-        monkeypatch.setattr(sub, "build_llm_options", lambda state, agent, t, n: {"temperature": t, "num_ctx": n})
+        from aifred.backends.base import LLMOptions
+        monkeypatch.setattr(sub, "build_llm_options", lambda state, agent, t, n: LLMOptions(temperature=t, num_ctx=n))
 
         class FakeClient:
             def __init__(self, **kwargs):
@@ -217,6 +218,7 @@ class TestRun:
 
         self.pipeline_result = SimpleNamespace(
             text_clean="Der Bericht: alles gut.", artifacts=[],
+            debug_msg="✅ Codine (Sub-Agent) done (12,0s, 600 tok, 51,3 tok/s)",
             metrics={"work": {"prefill_tokens": 900, "prefill_s": 1.5, "decode_tokens": 600, "decode_s": 10.0}},
             metadata_dict={"ttft": 1.5, "tokens_per_sec": 51.3, "inference_time": 12.0,
                            "source": "Codine (Sub-Agent) (test-model)", "backend_type": "llamacpp"},
@@ -232,6 +234,8 @@ class TestRun:
         assert kinds.count("artifacts") == 1
         # The sub-agent's inference goes up so the caller's footer sums it
         (work,) = [e["work"] for e in events if "work" in e]
+        # Its done line reaches the debug console like a main agent's
+        assert any("done (" in e.get("progress", "") for e in events)
         assert work == self.pipeline_result.metrics["work"]
         assert "progress" in kinds
         result = [e for e in events if "result" in e][0]["result"]
@@ -377,3 +381,13 @@ class TestToolLoopIntegration:
         html = render_bubble(text, artifacts, show_tags=False)
         assert "intern" not in html and "VLM sagt" not in html
         assert "Antwort." in html and "plot.png" in html
+
+
+def test_subagent_inherits_reasoning_from_its_caller() -> None:
+    from aifred.backends.base import LLMOptions
+    own = LLMOptions(temperature=0.3, enable_thinking=False, reasoning_effort=None, top_k=10)
+    caller = LLMOptions(temperature=1.0, enable_thinking=True, reasoning_effort="medium", top_k=40)
+    merged = sub.inherit_reasoning(own, caller)
+    # Thinking depth from the main agent, sampling from the target agent
+    assert (merged.enable_thinking, merged.reasoning_effort) == (True, "medium")
+    assert (merged.temperature, merged.top_k) == (0.3, 10)

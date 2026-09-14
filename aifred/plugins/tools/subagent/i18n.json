@@ -6,5 +6,89 @@
   "plugin_description": {
     "de": "Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer Modellaufruf mit eigenem Kontext und Werkzeugkasten, nur der Bericht geht zurück, das Transkript erscheint aufklappbar in der Bubble.",
     "en": "Main agents delegate self-contained tasks to sub-agents: a fresh model run with its own context and toolkit, only the report comes back, the transcript appears collapsible in the chat bubble."
+  },
+  "subagent_cred_allowed_tiers": {
+    "de": "Erlaubte Tiers",
+    "en": "Allowed tiers"
+  },
+  "subagent_cred_allowed_tiers_tooltip": {
+    "de": "Welche Werkzeug-Stufen ein Sub-Agent nutzen darf.\n\nVorgabe 0+2:\n• 0 — lesen, recherchieren\n• 2 — Dateien schreiben, Sandbox\n\nNicht enthalten:\n• 1 — Senden\n• 3 — Löschen\n\nSenden bleibt beim Hauptagenten.",
+    "en": "Which tool tiers a sub-agent may use.\n\nDefault 0+2:\n• 0 — read, research\n• 2 — write files, sandbox\n\nNot included:\n• 1 — send\n• 3 — delete\n\nSending stays with the main agent."
+  },
+  "subagent_cred_delegate_others": {
+    "de": "Sub-Agent als anderer Hauptagent",
+    "en": "Sub-agent as another main agent"
+  },
+  "subagent_cred_delegate_others_tooltip": {
+    "de": "Schaltet den Parameter „agent“ frei.\n\nDer Aufrufer (z. B. AIfred) kann den Sub-Agenten dann mit Modell und Werkzeugliste eines anderen Hauptagenten laufen lassen (z. B. Codine), weiterhin ohne Persona.\n\n• Angeboten werden nur Hauptagenten, die sich vom Aufrufer in Modell oder Werkzeugliste unterscheiden\n• Ein anderes Modell bedeutet einen Modellwechsel je Aufruf",
+    "en": "Enables the \"agent\" parameter.\n\nThe caller (e.g. AIfred) can then run the sub-agent with the model and tool list of another main agent (e.g. Codine), still without persona.\n\n• Only main agents whose model or tool list differs from the caller are offered\n• A different model means a model swap per call"
+  },
+  "subagent_cred_max_depth": {
+    "de": "Rekursionstiefe",
+    "en": "Recursion depth"
+  },
+  "subagent_cred_max_depth_tooltip": {
+    "de": "Wie tief Delegation verschachtelt werden darf.\n\n• 1 — ein Sub-Agent darf selbst nicht delegieren; er bekommt delegate_task gar nicht erst\n• 2 — ein Sub-Agent darf einmal weiterdelegieren, dessen Sub-Agent nicht mehr\n• 3 — eine Stufe mehr",
+    "en": "How deep delegation may nest.\n\n• 1 — a sub-agent may not delegate itself; it does not get delegate_task at all\n• 2 — a sub-agent may delegate once more, its sub-agent may not\n• 3 — one level more"
+  },
+  "subagent_opt_off": {
+    "de": "Aus",
+    "en": "Off"
+  },
+  "subagent_opt_on": {
+    "de": "An",
+    "en": "On"
+  },
+  "subagent_opt_tiers_0": {
+    "de": "0 — nur lesen",
+    "en": "0 — read only"
+  },
+  "subagent_opt_tiers_0_1_2": {
+    "de": "0+1+2 — zusätzlich Nachrichten senden",
+    "en": "0+1+2 — plus send messages"
+  },
+  "subagent_opt_tiers_0_1_2_3": {
+    "de": "0+1+2+3 — alles",
+    "en": "0+1+2+3 — everything"
+  },
+  "subagent_opt_tiers_0_2": {
+    "de": "0+2 — lesen + Daten schreiben (Vorgabe)",
+    "en": "0+2 — read + write data (default)"
+  },
+  "subagent_opt_tiers_0_2_3": {
+    "de": "0+2+3 — zusätzlich löschen",
+    "en": "0+2+3 — plus delete"
+  },
+  "subagent_transcript_title": {
+    "de": "Sub-Agent",
+    "en": "Sub-agent"
+  },
+  "subagent_transcript_task": {
+    "de": "AUFGABE",
+    "en": "TASK"
+  },
+  "subagent_transcript_thinking": {
+    "de": "DENKEN",
+    "en": "THINKING"
+  },
+  "subagent_transcript_call": {
+    "de": "WERKZEUG",
+    "en": "TOOL"
+  },
+  "subagent_transcript_result": {
+    "de": "ERGEBNIS",
+    "en": "RESULT"
+  },
+  "subagent_transcript_expected": {
+    "de": "ERWARTETES ERGEBNIS",
+    "en": "EXPECTED RESULT"
+  },
+  "subagent_transcript_report": {
+    "de": "BERICHT",
+    "en": "REPORT"
+  },
+  "subagent_transcript_no_report": {
+    "de": "Der Sub-Agent hat keinen Bericht geliefert.",
+    "en": "The sub-agent delivered no report."
   }
 }

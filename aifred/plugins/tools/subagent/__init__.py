@@ -24,6 +24,7 @@ from typing import Any, AsyncGenerator, Optional
 from ....lib.bubble import KIND_COLLAPSIBLE, KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE, BubbleArtifact
 from ....lib.formatting import performance_footer_text
 from ....lib.function_calling import Tool, ToolKit
+from ....backends.base import LLMOptions
 from ....lib.llm_client import LLMClient, build_llm_options
 from ....lib.llm_pipeline import run_llm_stream
 from ....lib.perf_metrics import InferenceWork
@@ -193,6 +194,15 @@ def delegation_legend(
     ])
 
 
+def inherit_reasoning(own: LLMOptions, caller: LLMOptions) -> LLMOptions:
+    """The sub-agent thinks as deeply as the main agent that delegated: thinking
+    switch and reasoning level come from the caller; temperature and sampling
+    stay the target agent's. Before, a target agent with no level of its own
+    sent none, and the chat template fell back to its default (xhigh on
+    Qwen3.8) — deeper than the caller had chosen."""
+    return replace(own, enable_thinking=caller.enable_thinking, reasoning_effort=caller.reasoning_effort)
+
+
 def resolve_run_params(agent_id: str, state: Any) -> RunParams:
     """Model, context and temperature for the sub-agent's inference."""
     if state is not None:
@@ -264,18 +274,17 @@ def format_transcript_call(label: str, name: str, arguments: str) -> str:
 SUBAGENT_ICON = DELEGATION_ICON
 
 
+# Keys of the transcript labels in this plugin's i18n.json (the plugin ships
+# its own texts; plugin_i18n_text fails loud on a missing key or language).
+_TRANSCRIPT_LABEL_KEYS = ("title", "task", "thinking", "call", "result", "expected", "report", "no_report")
+
+
 def _transcript_labels(lang: str) -> dict[str, str]:
-    de = str(lang).startswith("de")
-    return {
-        "title": "Sub-Agent" if de else "Sub-agent",
-        "task": "AUFGABE" if de else "TASK",
-        "thinking": "DENKEN" if de else "THINKING",
-        "call": "WERKZEUG" if de else "TOOL",
-        "result": "ERGEBNIS" if de else "RESULT",
-        "expected": "ERWARTETES ERGEBNIS" if de else "EXPECTED RESULT",
-        "report": "BERICHT" if de else "REPORT",
-        "no_report": "Der Sub-Agent hat keinen Bericht geliefert." if de else "The sub-agent delivered no report.",
-    }
+    from pathlib import Path
+
+    from ....lib.plugin_base import plugin_i18n_text
+    plugin_dir = Path(__file__).resolve().parent
+    return {key: plugin_i18n_text(plugin_dir, f"subagent_transcript_{key}", lang) for key in _TRANSCRIPT_LABEL_KEYS}
 
 
 @dataclass
@@ -452,7 +461,10 @@ async def run_subagent(
     ]
 
     params = resolve_run_params(target_agent, ctx.state)
-    options = build_llm_options(ctx.state, target_agent, params.temperature, params.num_ctx)
+    options = inherit_reasoning(
+        build_llm_options(ctx.state, target_agent, params.temperature, params.num_ctx),
+        build_llm_options(ctx.state, ctx.agent_id, params.temperature, params.num_ctx),
+    )
 
     transcript: list[str] = [f"{labels['task']}:\n{task}\n\n{labels['expected']}:\n{expected_result}"]
     # Text of the current model round; flushed into the transcript before
@@ -513,6 +525,11 @@ async def run_subagent(
         budget_var.reset(budget_token)
         await llm_client.close()
 
+    # The sub-agent's own "done" line (tokens, rates, PP, thinking) in the
+    # debug console and log, like a main agent's; before, only its tool calls
+    # showed up there.
+    if pipeline_result is not None:
+        yield {"progress": pipeline_result.debug_msg}
     # The sub-agent's inference is part of the caller's turn: its footer sums
     # this work into its own rates (the transcript footer below shows only the
     # sub-agent's).

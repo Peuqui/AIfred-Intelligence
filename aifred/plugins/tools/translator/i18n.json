@@ -6,5 +6,13 @@
   "plugin_description": {
     "de": "Hochwertige Übersetzungen via DeepL-API zwischen vielen Sprachen — präziser als generische LLM-Übersetzungen.",
     "en": "High-quality translations via the DeepL API between many languages — more precise than generic LLM translations."
+  },
+  "deepl_cred_api_key": {
+    "de": "DeepL API Key",
+    "en": "DeepL API Key"
+  },
+  "deepl_cred_api_key_tooltip": {
+    "de": "API Key von deepl.com/pro#developer.\nFree Keys enden auf :fx (500.000 Zeichen/Monat kostenlos).",
+    "en": "API key from deepl.com/pro#developer.\nFree keys end with :fx (500,000 chars/month free)."
   }
 }
