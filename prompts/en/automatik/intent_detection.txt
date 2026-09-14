@@ -1,6 +1,4 @@
-Analyze this user request:
-
-"{user_query}"
+Analyze the user request given at the very end.
 
 **1. Intent:**
 - FACTUAL: Facts, explanations, definitions, news, questions
@@ -113,3 +111,7 @@ Examples of complete output:
 - "Start tribunal"                       → FACTUAL||EN|multi=tribunal|TRUE
 - "Starte Tribunal und diskutiert X"     → FACTUAL||DE|multi=tribunal|FALSE
 - "Hey Sokrates, kritisiere das"         → MIXED|sokrates|DE||FALSE
+
+**User request to analyze:**
+
+"{user_query}"
