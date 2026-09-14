@@ -442,13 +442,19 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     # fuer freeecho2 ein room, "@gruppe" oder "*" (Broadcast). Die Expansion
     # auf konkrete Empfaenger macht resolve_announce_targets serverseitig;
     # pro Empfaenger genau ein announce_to_channel (SSoT, kein Parallelpfad).
+    # The alert's session (recorded above): threading channels register it, so
+    # an answer to the alert mail returns to that session.
+    from .routing_table import routing_table
+    route = routing_table.get_route(ev.producer, ev.session_key or ev.source_id or ev.producer)
+    alert_session_id = route.session_id if route else None
     channel_ok = False
     for sink in rule.sinks:
         channel, _, target = sink.partition(":")
         recipients = resolve_announce_targets(channel, target) or [target]
         for recipient in recipients:
             if await announce_to_channel(
-                channel, recipient, text, media=ev.media, metadata=sink_metadata,
+                channel, recipient, text, session_id=alert_session_id,
+                media=ev.media, metadata=sink_metadata,
             ):
                 channel_ok = True
 

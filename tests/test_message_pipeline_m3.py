@@ -92,3 +92,22 @@ class TestM3WrappedHistory:
         data = _session_data(sid)
         assert "llm_history" not in data
         assert len(data["chat_history"]) == 1
+
+
+def test_announcement_carries_its_session_for_threading(monkeypatch) -> None:
+    """A scheduler/alert announcement names its session in the outbound
+    metadata, so a threading channel (email) registers it and the answer to
+    the announcement returns to that session (14.09.: it opened a new one)."""
+    import asyncio
+    import aifred.lib.message_processor as mp
+
+    sent = {}
+
+    class FakePlugin:
+        async def send_reply(self, outbound, original):
+            sent["metadata"] = outbound.metadata
+
+    monkeypatch.setattr("aifred.lib.plugin_registry.get_channel", lambda name: FakePlugin())
+    monkeypatch.setattr(mp, "_resolve_channel_recipient", lambda channel, recipient: "peuqui@example.org")
+    ok = asyncio.run(mp.announce_to_channel("email", "", "Psalm 143", session_id="s" * 32))
+    assert ok and sent["metadata"]["session_id"] == "s" * 32

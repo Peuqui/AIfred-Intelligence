@@ -505,8 +505,9 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         # damit Music sofort spielt ohne dass der Butler dazwischenredet.
         if result_metadata.get("silent_reply"):
             reply_metadata["silent_reply"] = True
-        # Internal triggers (scheduler, webhook) need the resolved session_id
-        # to hand off to their delivery layer. Plugins ignore this field.
+        # The session this reply belongs to: internal triggers (scheduler,
+        # webhook) hand it to their delivery layer, threading channels (email)
+        # register it so the next answer returns to this session.
         reply_metadata["session_id"] = session_id
         outbound = OutboundMessage(
             channel=message.channel,
@@ -926,11 +927,18 @@ def resolve_announce_targets(channel: str, target: str) -> list[str]:
 
 async def announce_to_channel(
     channel: str, recipient: str, text: str, *,
+    session_id: str | None,
     media: str | None = None, metadata: dict | None = None,
 ) -> bool:
     """SSoT for sending an autonomous (non-reply) message to a channel.
     Resolves the recipient, builds an OutboundMessage (+ media) and a minimal
-    inbound, and calls the channel's ``send_reply`` (the one delivery path)."""
+    inbound, and calls the channel's ``send_reply`` (the one delivery path).
+
+    ``session_id`` is the session the message belongs to (the scheduler job's
+    or the alert's), carried in the outbound metadata exactly like a reply's:
+    a channel that threads replies (email) registers it, so an answer to the
+    announcement lands in that same session instead of opening a new one.
+    ``None`` when the message belongs to no session."""
     from datetime import datetime
     from .plugin_registry import get_channel
 
@@ -944,7 +952,7 @@ async def announce_to_channel(
         return False
     outbound = OutboundMessage(
         channel=channel, channel_id=target, recipient=target,
-        text=text, media=media, metadata=metadata or {},
+        text=text, media=media, metadata={**(metadata or {}), "session_id": session_id},
     )
     dummy = InboundMessage(
         channel=channel, channel_id=target, sender="system",

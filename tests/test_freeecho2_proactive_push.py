@@ -275,7 +275,7 @@ class TestAlertBusSeverityMapping:
 
         captured: dict = {}
 
-        async def fake_announce(channel, recipient, text, *, media=None, metadata=None):
+        async def fake_announce(channel, recipient, text, *, session_id, media=None, metadata=None):
             captured["channel"] = channel
             captured["metadata"] = metadata or {}
             return True
@@ -308,7 +308,7 @@ class TestAlertBusSeverityMapping:
 
         captured: dict = {}
 
-        async def fake_announce(channel, recipient, text, *, media=None, metadata=None):
+        async def fake_announce(channel, recipient, text, *, session_id, media=None, metadata=None):
             captured["metadata"] = metadata or {}
             return True
 
@@ -333,7 +333,7 @@ class TestAlertBusSeverityMapping:
 
         captured: dict = {}
 
-        async def fake_announce(channel, recipient, text, *, media=None, metadata=None):
+        async def fake_announce(channel, recipient, text, *, session_id, media=None, metadata=None):
             captured["metadata"] = metadata or {}
             return True
 

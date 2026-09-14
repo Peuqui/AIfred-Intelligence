@@ -424,12 +424,12 @@ async def _deliver_result(job: Job, response_text: str, session_id: str) -> None
 
     # Additional delivery based on mode
     if delivery == "announce":
-        await _deliver_announce(job, response_text)
+        await _deliver_announce(job, response_text, session_id)
     elif delivery == "webhook":
         await _deliver_webhook(job, response_text)
 
 
-async def _deliver_announce(job: Job, response_text: str) -> None:
+async def _deliver_announce(job: Job, response_text: str, session_id: str) -> None:
     """Send result to a channel via the shared autonomous-delivery SSoT
     (``message_processor.announce_to_channel`` — same path the alert pipeline
     uses; recipient resolution + allowlist fallback live there)."""
@@ -442,6 +442,7 @@ async def _deliver_announce(job: Job, response_text: str) -> None:
         channel_name,
         job.payload.get("recipient", ""),
         response_text,
+        session_id=session_id,
         metadata=job.payload.get("metadata", {}),
     )
     if not ok:

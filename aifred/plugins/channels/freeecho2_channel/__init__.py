@@ -201,7 +201,7 @@ class FreeEchoChannel(ConnectionMixin):
             reached = []
             for room in rooms:
                 if await announce_to_channel(
-                    "freeecho2", room, message, metadata=meta,
+                    "freeecho2", room, message, session_id=None, metadata=meta,
                 ):
                     reached.append(room)
             return json.dumps({
