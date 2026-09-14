@@ -19,6 +19,7 @@ Hardware-Basis seit 2026-06/07: 5 GPUs = 192 GB VRAM
 
 | Datum | Änderung | Wirkung |
 |---|---|---|
+| 2026-09-14 | AIfred-Modellvergleich aller Chat-Modelle, beide Backends, drei feste Fragen inkl. Kuanda-Fangfrage (siehe Abschnitt unten) | Flash-Next 180B beste Qualität, 27B DFlash2 schnellster Decode (64–76 tok/s) aber Kuanda-Halluzination; QUASAR-Eintrag war auf 8.192 Kontext begrenzt (nachgemessen mit 262K/MTP, 1 GPU) |
 | 2026-09-10 | vLLM-Produktion auf 1Cat `work-main` (Upstream + unsere PRs + v100-skinny, Tag `verified-2026-09-10`) | Alt gegen neu am selben Tag bitgleich bzw. kohärent; 27B mit DFlash2 im Bench 77 tok/s, aber noch nicht in llama-swap |
 | 2026-09-01 | AIfred misst vLLM-Prefill und -Decode aus vLLMs eigenen Zählern statt Wanduhr (`7f870514`) | Erst ab hier sind vLLM-Session-Werte mit llama.cpps Server-Timings vergleichbar; ältere vLLM-Werte (Wanduhr inkl. Prefill) fließen nirgends ein |
 | ~2026-05-23 | **MTP Speculative Decoding** (`--spec-type draft-mtp --spec-draft-n-max 3`) für alle UD-MTP-GGUFs; non-MTP-Varianten entfernt (Commits `bbf98900`, `67ea0e18`) | Quantensprung bei der Token-Generierung: Accept-Raten 90–96 % gemessen; 397B lief damit ~20 tok/s (Stand Mai, IQ3_XXS), heute 36–46. Vor-MTP-Sessions sind nicht mehr vorhanden — Vergleichswerte aus der Zeit fehlen |
@@ -27,6 +28,92 @@ Hardware-Basis seit 2026-06/07: 5 GPUs = 192 GB VRAM
 | 2026-07-31 | **MoE-Erkennung generisch** via `expert_count` aus GGUF-Metadaten (`80f5d739`) — auch Profile ohne bestehendes `-ub` (35B) bekommen `-b/-ub 2048`; greift automatisch für jedes neue Modell | llama-bench 35B-A3B pp8192: 1.585 → 2.423 tok/s (+53 %). Dense-Modelle bleiben bewusst bei ub 512 (27B: nur +6–8 % messbar) |
 | 2026-07-31 | **Kalibrierungs-Umbau** (`ae98e3d3`, `fa087959`): bidirektionaler Math-Bias mit OOM-Floor, Fastest-First-Kaskade (idle schnellere Karten vor Downstream-Überlauf), mmproj-Gewichte + Encode-Buffer-Burn-In in der fit-params-Projektion | Keine Inferenz-Wirkung, aber: 35B-Komplettkalibration in 13 min (vorher 397B-Klasse: 2,5 h), korrekte 2×-RTX-Splits statt V100-Streuung, alle Side-Channel-Varianten ohne Extra-Probes abgeleitet |
 | 2026-08-03/04 | **DeepSeek-V4-Flash-0731 + DSpark** (llama.cpp PR #25784, gemerged 02.08.): erstes Sidecar-Draft-Modell (`--model-draft` + `--spec-type draft-dspark`, n-max 5, Draft aufs Output-Device CUDA4 gepinnt); Kalibrierung um Draft-Projektion (`207a4dc6`) + gehärtete Verify-Probe (`e9855789`) erweitert; llama.cpp auf b10257 + cuBLAS-Workspace-Patch (PR #26574) wegen sporadischer Volta/Turing-Aborts (#26554, 4 Crashes) | Juli-Fehlversuch (11 TG, TTFT 6 min) → produktiv: PP med 325 (1,8× vs. 397B), TTFT med 35 s (3× schneller), TG 19–41 content-abhängig (Accept 61–65 %). Ctx 193K Basis / 425K TTS-Variante dank spottbilligem MLA-KV (~0,5 MB/1K auf engster Karte). User-Politik: DeepSeek nur noch MIT DSpark |
+
+---
+
+## AIfred-Modellvergleich — Nachtmessung 2026-09-14
+
+Alle in AIfred eingetragenen Chat-Modelle auf beiden Backends, bedient über
+die AIfred-Oberfläche per Chrome DevTools (Test-User, Agent AIfred, Modus
+„💡 Wissen“ ohne Websuche, jede Frage in frisch geleertem Chat). Drei Fragen
+im festen Wortlaut:
+
+1. „Erkläre Quantenphysik in 30 Sätzen.“
+2. „Erkläre den Regenbogeneffekt in 30 Sätzen.“
+3. „Erkläre den Kuanda-Effekt in 30 Sätzen.“ — **Fangfrage**: den
+   Kuanda-Effekt gibt es nicht. Bestanden, wenn das Modell den Coandă-Effekt
+   erkennt und erklärt oder den Begriff zurückweist; durchgefallen bei
+   Erfindung oder Zerfasern.
+
+Messwerte aus den Footer-Metadaten der Session (seit 2026-09-13 über alle
+Anfragen eines Turns summiert). Einstellungen je Modell wie in AIfred
+hinterlegt (Denken an, reasoning_effort medium, Automatik-LLM = AIfred).
+**Lesehilfe Prefill:** Frage 1 rechnet nach dem Modellwechsel den ganzen
+Prompt kalt (~3.350 Token). Frage 2 und 3 treffen meist den Prefix-Cache und
+rechnen nur wenige hundert Token — deren PP-Raten sind nicht mit Frage 1
+vergleichbar (llama.cpp verlor den Slot-Cache bei Frage 2/3 teilweise).
+„Load“ = Kaltstart des Modells vor Frage 1.
+
+### Leistung
+
+| Backend | Modell | Frage | TTFT | PP tok/s (gerechnet) | TG tok/s | Token | Thinking | Inference | Load |
+|---|---|---|---|---|---|---|---|---|---|
+| vLLM | DeepSeek-V4-Flash NVFP4 DSpark | Quanten | 32,9 s | 105,5 (3.439) | 15,3 | 1.291 | 6,1 s | 1:57 min | 10:58 min |
+| vLLM | DeepSeek-V4-Flash NVFP4 DSpark | Regenbogen | 24,3 s | 142,1 (3.442) | 15,9 | 1.210 | 11,7 s | 1:40 min | – |
+| vLLM | DeepSeek-V4-Flash NVFP4 DSpark | Kuanda | 24,2 s | 142,5 (3.441) | 14,7 | 1.457 | 15,2 s | 2:03 min | – |
+| vLLM | Qwen3.8-27B QUASAR NVFP4 (MTP, 1 GPU) ¹ | Quanten | 6,8 s | 565,4 (5.827) | 42,8 | 7.716 | 2:24 min | 3:11 min | 1:06 min |
+| vLLM | Qwen3.8-27B QUASAR NVFP4 (MTP, 1 GPU) ¹ | Regenbogen | 3,8 s | 541,5 (3.959) | 40,7 | 16.688 | 6:19 min | 6:58 min | – |
+| vLLM | Qwen3.8-27B QUASAR NVFP4 (MTP, 1 GPU) ¹ | Kuanda | 2,4 s | 534,6 (3.124) | 41,0 | 13.583 | 5:07 min | 5:37 min | – |
+| vLLM | Qwen3.8-27B NVFP4 DFlash2 | Quanten | 6,9 s | 560,6 (3.353) | 65,4 | 4.810 | 52,4 s | 1:20 min | 2:40 min |
+| vLLM | Qwen3.8-27B NVFP4 DFlash2 | Regenbogen | 1,9 s | 509,0 (859) | 63,5 | 9.072 | 2:10 min | 2:24 min | – |
+| vLLM | Qwen3.8-27B NVFP4 DFlash2 | Kuanda | 1,7 s | 508,8 (859) | 76,4 | 5.508 | 54,6 s | 1:13 min | – |
+| vLLM | Qwen3.8-27B NVFP4 (MTP) | Quanten | 6,4 s | 527,1 (3.353) | 60,5 | 10.025 | 2:27 min | 2:52 min | 1:26 min |
+| vLLM | Qwen3.8-27B NVFP4 (MTP) | Regenbogen | 2,1 s | 455,9 (955) | 66,8 | 6.818 | 1:31 min | 1:44 min | – |
+| vLLM | Qwen3.8-27B NVFP4 (MTP) | Kuanda | 2,1 s | 492,2 (2.264) | 59,1 | 12.229 | 2:53 min | 3:32 min | – |
+| vLLM | Qwen3.8-Flash-Next 180B-A4B NVFP4 MTPQ | Quanten | 7,6 s | 512,7 (3.353) | 49,2 | 3.471 | 51,6 s | 1:17 min | 5:13 min |
+| vLLM | Qwen3.8-Flash-Next 180B-A4B NVFP4 MTPQ | Regenbogen | 4,2 s | 434,4 (1.739) | 47,0 | 4.749 | 1:20 min | 1:45 min | – |
+| vLLM | Qwen3.8-Flash-Next 180B-A4B NVFP4 MTPQ | Kuanda | 4,0 s | 438,3 (1.739) | 45,1 | 5.797 | 1:53 min | 2:12 min | – |
+| llama.cpp | Qwen3.8-27B MTP UD-Q8_K_XL | Quanten | 6,6 s | 543,8 (3.353) | 30,4 | 4.970 | 2:15 min | 2:49 min | 47,9 s |
+| llama.cpp | Qwen3.8-27B MTP UD-Q8_K_XL | Regenbogen | 1,2 s | 543,0 (11.680) | 29,0 | 12.430 | 6:47 min | 7:32 min | – |
+| llama.cpp | Qwen3.8-27B MTP UD-Q8_K_XL | Kuanda | 6,5 s | 545,2 (6.470) | 25,7 | 3.563 | 2:01 min | 2:31 min | – |
+
+¹ QUASAR am 14.09. vormittags nachgemessen. In der Nacht lief der
+llama-swap-Eintrag noch als Autoscan-Seed mit `--max-model-len 8192` ohne
+MTP: alle drei Antworten liefen im Denkblock ins Kontextende (je ~4.837
+Token, 30 tok/s, keine sichtbare Antwort). Seitdem Parameter wie beim
+27B NVFP4 (262.144 Kontext, MTP k=3) — einzige Abweichung Tensor-Parallel 1
+statt 2: unter TP2 scheitert der SM70-NVFP4-Kernel am QUASAR-Checkpoint
+(„size_n = 8240 is not divisible by tile_n_size = 64“). Mit einer GPU
+decodiert QUASAR 41–43 tok/s, das TP2-NVFP4 59–67 tok/s. Auffällig: Frage
+2 und 3 trafen den Prefix-Cache kaum (3.959 bzw. 3.124 gerechnete Token).
+
+**Vision-Modelle** (nicht Teil des Chat-Vergleichs): Qwen3VL-30B-A3B
+UD-Q8_K_XL auf llama.cpp — TTFT 0,6–2,5 s, PP 1.811 tok/s kalt (4.252 Token),
+TG 53–54 tok/s, Inference 16–29 s, Load 42 s, ohne Denken. Qwen3VL-4B
+ausgeschlossen: lief bei Frage 1 und 2 in eine Wiederholungsschleife bis zum
+Token-Limit (258.679 Token, je ~33 min, 129 tok/s) und kann den großen
+AIfred-Kontext nicht.
+
+### Qualität (händisch gelesen)
+
+| Modell | Quantenphysik | Regenbogen | Kuanda (Fangfrage) |
+|---|---|---|---|
+| DeepSeek-V4-Flash (vLLM) | gut, 30 Sätze; kleine Ungenauigkeiten (Noether-Theorem als Quantenphysik-Grundlage, Bell 1964 „experimentell“) | brauchbar; Fehler „Totalreflexion“ im Tropfen, nur 27 Sätze | **bestanden** — Coandă erkannt und weitgehend richtig erklärt |
+| Qwen3.8-27B QUASAR (vLLM, 1 GPU) | sehr gut, fachlich präzise (h-Wert, Nobelpreis 1921, EPR 1935, BEC 1995) | **durchgefallen** — erfindet einen „Börsenregenbogen“ (lange Erholung nach Crashs, Kursdaten stimmen), Optik nur in einem Satz; Tippfehler | **bestanden mit Fehlern** — Coandă erkannt; Tragflächen blasen „entlang der Unterseite“, „skaleninvariant“ falsch; sehr lange Denkphasen (5–6 min) |
+| Qwen3.8-27B DFlash2 (vLLM) | sehr gut, 30 Sätze Fließtext | gut; ein Fehler (Himmel innerhalb des Bogens „dunkler“) | **durchgefallen** — erfindet einen „Kunda-Effekt“ nach Ziva Kunda mit frei erfundenem Inhalt |
+| Qwen3.8-27B NVFP4 MTP (vLLM) | sehr gut, 30 Sätze | als Dünnschicht-Schillern (Öl, Seifenblase, CD) gedeutet — vertretbare Lesart, Regenbogen zusätzlich korrekt | **bestanden mit Fehlern** — Coandă erkannt; erfundene Etymologie („koandaisch“, rumänisch „fliegen“), widersprüchliche Krümmungsaussage |
+| Qwen3.8-Flash-Next 180B (vLLM) | **beste Antwort** — fachlich präzise (Nobelpreis 2022, g-2 auf 11–12 Stellen) | sehr detailliert (Polarisation, Young, Sonnenstand > 42°), aber Alexanderband vertauscht (innen „dunkel“, zwischen den Bögen „hell“) | **bestanden, beste Antwort** — Coandă erkannt, Druckgradient quer zur Stromlinie, Fluidik; kleine Fehler (Ausstellung „Wien“ statt Paris, „konkav“) |
+| Qwen3.8-27B MTP Q8 (llama.cpp) | gut, 30 Sätze | brauchbar; „Totalreflexion“, falscher Begriff „Überregner“; langsam (7:32 min, 12.430 Token) | **nicht halluziniert**, Begriff zurückgewiesen — Coandă aber nicht genannt (bietet Kundt, Kuhn, Ku-Band an) |
+| Qwen3VL-30B (llama.cpp, Vision) | schwach — verwechselt Superposition mit „spukhafter Fernwirkung“ | mittel; erfundene Erinnerung („wie gestern“), überzählige Bögen falsch „außerhalb“ | Coandă erkannt; dieselbe erfundene Etymologie („fliegen“) |
+
+**Kurzfazit:** Bestes Gesamtpaket ist Flash-Next 180B (beste Qualität bei
+45–49 tok/s). Schnellster ist das 27B mit DFlash2 (64–76 tok/s), das aber als
+einziges Modell den Kuanda-Effekt frei erfand. DeepSeek-V4-Flash antwortet
+kurz und solide, ist mit 15 tok/s und 24–33 s TTFT aber das langsamste. Das
+27B auf llama.cpp liefert dieselbe Qualitätsklasse wie auf vLLM bei halber
+Decode-Rate. QUASAR denkt am längsten (bis 6:19 min) und erfand beim
+Regenbogen einen Börsenbegriff. Zwei Physikfehler traten modellübergreifend auf: „Totalreflexion“
+im Regentropfen und vertauschte Helligkeit rund um den Bogen.
 
 ---
 
