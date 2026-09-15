@@ -214,6 +214,7 @@ class FreeEchoChannel(ConnectionMixin):
             Tool(
                 name="freeecho2_announce",
                 tier=TIER_COMMUNICATE,
+                outbound=True,
                 description=(
                     load_tool_description(__file__, "freeecho2_announce")
                 ),

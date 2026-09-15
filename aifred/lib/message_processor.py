@@ -470,13 +470,14 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         from .message_builder import stamp_user_turn, user_turn_stamp
         user_llm_text = stamp_user_turn(llm_context, user_turn_stamp())
 
-        response_text, response_display, result_metadata = await _call_engine(
+        response_text, response_display, response_final, result_metadata = await _call_engine(
             user_text=user_llm_text,
             session_id=session_id,
             agent=message.target_agent,
             max_tier=max_tier,
             source=message.channel,
             metadata=dict(message.metadata or {}),
+            trust=trust,
         )
 
         if not response_text:
@@ -501,8 +502,10 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         outbound_text = sanitize_outbound(response_text)
 
         # Prefix with agent name if not AIfred (so user knows who answered)
+        final_text = sanitize_outbound(response_final)
         if message.target_agent != "aifred":
             outbound_text = f"— {agent_display_name} —\n\n{outbound_text}"
+            final_text = f"— {agent_display_name} —\n\n{final_text}"
 
         # ── Phase 4: Auto-reply if enabled ────────────────────
         reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
@@ -515,6 +518,9 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         # webhook) hand it to their delivery layer, threading channels (email)
         # register it so the next answer returns to this session.
         reply_metadata["session_id"] = session_id
+        # Internal triggers deliver only the answer after the last tool call;
+        # the rounds before it are working notes that stay in the session.
+        reply_metadata["final_text"] = final_text
         outbound = OutboundMessage(
             channel=message.channel,
             channel_id=message.channel_id,
@@ -552,10 +558,12 @@ async def _call_engine(
     max_tier: int = 4,
     source: str = "browser",
     metadata: Optional[dict] = None,
-) -> tuple[str, str, dict]:
+    trust: str = "external",
+) -> tuple[str, str, str, dict]:
     """Call the AIfred engine with full toolkit (memory + plugins).
 
-    Returns (response_text, metadata_dict).
+    Returns (response_clean, response_display, response_final, metadata_dict);
+    response_final is the answer after the turn's last tool call.
     Debug messages go through the Debug Bus (session_scope must be active).
     """
     from .debug_bus import debug
@@ -571,7 +579,6 @@ async def _call_engine(
     backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])
     temperature_mode = settings.get("temperature_mode", "auto")
     temperature = get_persisted_tuning(settings, agent, "temperature", DEFAULT_TEMPERATURE)
-    enable_thinking = settings.get("enable_thinking", False)
 
     # Get effective model for the agent (respects TTS/speed variants)
     from .config import get_effective_model_from_settings
@@ -581,7 +588,7 @@ async def _call_engine(
 
     if not model:
         log_message(f"Message Processor: no model configured for {agent}/{backend_type}", "error")
-        return "", "", {}
+        return "", "", "", {}
 
     # Load existing LLM history from session
     session = load_session(session_id)
@@ -620,6 +627,7 @@ async def _call_engine(
         max_tier=max_tier,
         source=source,
         metadata=metadata,
+        trust=trust,
     )
 
     if toolkit:
@@ -639,7 +647,6 @@ async def _call_engine(
             temperature=temperature,
             backend_type=backend_type,
             backend_url=backend_url,
-            enable_thinking=enable_thinking,
             num_ctx_manual_enabled=True,
             num_ctx_manual_value=num_ctx,
             num_ctx_source_label=ctx_label,
@@ -656,14 +663,17 @@ async def _call_engine(
                 data = chunk.get("data", {})
                 if "response_clean" in data:
                     result_meta = data.get("metadata_dict", {})
-                    return data["response_clean"], data["response_display"], result_meta
+                    return (
+                        data["response_clean"], data["response_display"],
+                        data["response_final"], result_meta,
+                    )
     except Exception as exc:
         log_message(f"Message Processor: engine error — {exc}", "error")
         debug(f"❌ Engine error: {exc}")
-        return "", "", {}
+        return "", "", "", {}
 
     joined = "".join(response_parts)
-    return joined, joined, {}
+    return joined, joined, joined, {}
 
 
 def channel_display_label(channel: str) -> str:

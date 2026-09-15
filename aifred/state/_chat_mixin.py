@@ -623,7 +623,6 @@ class ChatMixin(rx.State, mixin=True):
             temperature=self.agent_tuning[vl_bucket].temperature,  # type: ignore[attr-defined]
             backend_type=self.backend_type,  # type: ignore[attr-defined]
             backend_url=self.backend_url,  # type: ignore[attr-defined]
-            enable_thinking=self.agent_tuning[vl_bucket].thinking,  # type: ignore[attr-defined]
             state=self,
             multimodal_content=content_parts,
             vision_task_addon=vision_task_addon,

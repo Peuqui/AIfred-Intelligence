@@ -12,7 +12,14 @@ mail. All IMAP/SMTP operations run in asyncio.to_thread() (blocking I/O).
 import asyncio
 
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_COMMUNICATE, TIER_WRITE_SYSTEM, sanitize_outbound
+from ....lib.security import (
+    TIER_COMMUNICATE,
+    TIER_WRITE_SYSTEM,
+    may_send_outbound,
+    resolve_trust_label,
+    sanitize_outbound,
+    wrap_untrusted_data,
+)
 from ....lib.plugin_base import load_tool_description
 
 # Actions offered by the safe (COMMUNICATE) tool vs. the destructive one.
@@ -22,13 +29,15 @@ _SAFE_ACTIONS = {"check", "read", "search", "send", "list_folders", "mark"}
 _MANAGE_ACTIONS = {"delete", "move", "create_folder"}
 
 
-def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]:
+def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "de") -> list[Tool]:
     """Create email tools for LLM function calling.
 
     ``source`` is the origin of the current pipeline (browser/email/…). It gates
     the send-recipient allowlist check: only the browser may send to a recipient
-    that is not on the allowlist (see the ``send`` action).
+    that is not on the allowlist (see the ``send`` action). Where the source may
+    not send at all (a scheduled job), ``send`` is not offered.
     """
+    safe_actions = _SAFE_ACTIONS if may_send_outbound(source) else _SAFE_ACTIONS - {"send"}
 
     async def _email(action: str, **kwargs: str) -> str:
         """Unified email dispatcher — action set is enforced by the caller."""
@@ -48,7 +57,7 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
             for e in emails:
                 status = "📩" if not e.is_read else "📧"
                 lines.append(f"{status} [{e.msg_id}] {e.date} — {e.sender}\n   {e.subject}\n   {e.preview}")
-            return "\n\n".join(lines)
+            return wrap_untrusted_data("\n\n".join(lines), "email")
 
         elif action == "read":
             from .client import read_email
@@ -66,7 +75,9 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
             if msg.attachments:
                 parts.append(f"Attachments: {', '.join(msg.attachments)}")
             parts.append(f"\n{msg.body}")
-            return "\n".join(parts)
+            # Same owner verdict as for inbound mail (From + SPF/DKIM/DMARC pass).
+            trust = resolve_trust_label("email", msg.sender, {"auth_results": msg.auth_results})
+            return wrap_untrusted_data("\n".join(parts), "email", trust)
 
         elif action == "search":
             from .client import search_emails
@@ -80,7 +91,7 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
             lines = []
             for e in emails:
                 lines.append(f"[{e.msg_id}] {e.date} — {e.sender}: {e.subject}")
-            return "\n".join(lines)
+            return wrap_untrusted_data("\n".join(lines), "email")
 
         elif action == "delete":
             from .client import delete_email
@@ -171,7 +182,10 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
 
     async def _email_safe(action: str, **kwargs: str) -> str:
         act = action.lower().strip()
-        if act not in _SAFE_ACTIONS:
+        if act == "send" and "send" not in safe_actions:
+            from ....lib.prompt_loader import load_prompt
+            return load_prompt("scheduler/send_refused", lang=lang).strip()
+        if act not in safe_actions:
             return (
                 f"Error: action {act!r} is not available in the 'email' tool. "
                 f"Destructive actions (delete, move, create_folder) require the "
@@ -199,7 +213,7 @@ def get_email_tools(session_id: str = "", source: str = "browser") -> list[Tool]
                     "action": {
                         "type": "string",
                         # Aus dem Python-Enforcement-Set abgeleitet — eine Wahrheit
-                        "enum": sorted(_SAFE_ACTIONS),
+                        "enum": sorted(safe_actions),
                         "description": "Action to perform",
                     },
                     "msg_id": {"type": "string", "description": "Message ID (for read)"},

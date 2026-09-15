@@ -448,6 +448,7 @@ class DiscordChannel(BaseChannel):
             Tool(
                 name="discord_send",
                 tier=TIER_COMMUNICATE,
+                outbound=True,
                 description=load_tool_description(__file__, "discord_send"),
                 parameters={
                     "type": "object",

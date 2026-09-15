@@ -58,6 +58,8 @@ class Tool:
     parameters: dict[str, Any]
     executor: Callable[..., Any]
     tier: int = 0  # Security tier (0=readonly … 4=admin)
+    outbound: bool = False  # Sends a message out of AIfred (see may_send_outbound)
+    owner_gated: bool = False  # Admitted by may_write_memory, not by the tier
 
     @property
     def definition(self) -> dict[str, Any]:
@@ -211,7 +213,9 @@ class ToolKit:
 
         # Rule of Two: block write-tier tools from external sources
         from .security import needs_confirmation
-        if needs_confirmation(self._source, tool.tier, self._max_tier):
+        # owner_gated tools only reach a toolkit whose context passed the owner
+        # check (prepare_agent_toolkit), so the tier ceiling does not apply.
+        if not tool.owner_gated and needs_confirmation(self._source, tool.tier, self._max_tier):
             msg = (
                 f"Action '{name}' (tier {tool.tier}) blocked — "
                 f"write operations from external channel '{self._source}' "

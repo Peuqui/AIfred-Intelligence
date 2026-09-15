@@ -7,7 +7,7 @@ from typing import Any
 
 from .....lib.function_calling import Tool
 from .....lib.plugin_base import load_tool_description
-from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
 from .._common import PLUGIN_DIR, _google_request
 
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
@@ -44,7 +44,8 @@ def get_calendar_tools() -> list[Tool]:
                 "description": ev.get("description"),
                 "attendees": [a.get("email") for a in ev.get("attendees", [])],
             })
-        return json.dumps(result, ensure_ascii=False)
+        # Invitations put foreign text (title, description) into the calendar.
+        return wrap_untrusted_data(json.dumps(result, ensure_ascii=False), "google_calendar")
 
     async def create_event(
         title: str,

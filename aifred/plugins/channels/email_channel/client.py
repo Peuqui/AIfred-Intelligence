@@ -48,6 +48,7 @@ class EmailMessage:
     to: str
     date: str
     body: str
+    auth_results: str  # SPF/DKIM/DMARC verdict: pass / fail / none
     attachments: list[str] = field(default_factory=list)  # Attachment filenames
 
 
@@ -269,6 +270,8 @@ def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
         parsed_date = _safe_parsedate(date)
         date_str = parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date
 
+        from . import _parse_auth_results
+
         log_message(f"📧 Email: read msg {msg_id}")
         return EmailMessage(
             msg_id=msg_id,
@@ -277,6 +280,7 @@ def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
             to=_decode_header(msg.get("To", "")),
             date=date_str,
             body=body,
+            auth_results=_parse_auth_results(msg),
             attachments=attachments,
         )
 

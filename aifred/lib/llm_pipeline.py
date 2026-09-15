@@ -59,6 +59,10 @@ class PipelineResult:
     # Everything the turn's tools produced for the bubble, each with its
     # offset in ``text`` (see lib/bubble.py, rendered by render_bubble).
     artifacts: list[BubbleArtifact] = field(default_factory=list)
+    # Answer text after the turn's last tool call, without thinking — what a
+    # channel delivery sends (the rounds before it are the agent's working
+    # notes, which stay in the bubble).
+    final_text: str = ""
     silent_reply: bool = False                          # any tool requested TTS-skip
     truncated: bool = False                             # hit token/context limit — answer incomplete
 
@@ -69,6 +73,17 @@ class PipelineResult:
 # offset right before the result is built (and is removed from the text).
 _ARTIFACT_ANCHOR = "\x00bubble-artifact-{}\x00"
 _ARTIFACT_ANCHOR_RE = re.compile(r"\x00bubble-artifact-(\d+)\x00")
+# Marks where a tool call happened inside full_response, for the same reason:
+# the answer after the last one (PipelineResult.final_text) is cut at this
+# marker once post-processing is done.
+_TOOL_ROUND_ANCHOR = "\x00tool-round\x00"
+
+
+def split_final_round(text: str) -> tuple[str, str]:
+    """Remove the tool-round markers from ``text``; return the clean text and
+    the part after the last marker (the whole text when there is none)."""
+    final = text.rsplit(_TOOL_ROUND_ANCHOR, 1)[-1]
+    return text.replace(_TOOL_ROUND_ANCHOR, ""), final
 
 
 def resolve_artifact_anchors(text: str) -> tuple[str, dict[int, int]]:
@@ -287,6 +302,7 @@ async def run_llm_stream(
             yield chunk
 
         elif chunk_type == "tool_call":
+            full_response += _TOOL_ROUND_ANCHOR
             tool_name = chunk.get("name", "")
             full_args = chunk.get("arguments", "")
             shown_args = full_args if DEBUG_LOG_RAW_OUTPUT else full_args[:200]
@@ -541,6 +557,10 @@ async def run_llm_stream(
                 + full_response
             )
 
+    # Tool-round markers → the answer after the last tool call
+    full_response, final_segment = split_final_round(full_response)
+    final_text = strip_thinking_blocks(resolve_artifact_anchors(final_segment)[0]).strip()
+
     # Artifact anchors → offsets in the final text
     full_response, anchor_offsets = resolve_artifact_anchors(full_response)
     for index, artifact in enumerate(artifacts):
@@ -590,6 +610,7 @@ async def run_llm_stream(
             inference_time=inference_time,
             work=work,
             artifacts=artifacts,
+            final_text=final_text,
             silent_reply=silent_reply,
             truncated=truncated,
         ),
