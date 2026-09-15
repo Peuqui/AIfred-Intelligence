@@ -245,7 +245,7 @@ class CalibrationMixin(rx.State, mixin=True):
     # ------------------------------------------------------------------
 
     @rx.var(cache=True, auto_deps=False,
-            deps=["calibration_matrix", "backend_id", "ui_language"])
+            deps=["calibration_matrix", "backend_id", "ui_language", "agent_tuning"])
     def vllm_burnin_matrix_rows(self) -> list[CalibrationRow]:
         """Dieselbe VLM x TTS-Matrix wie bei llama.cpp — andere Bedeutung.
 
@@ -266,13 +266,24 @@ class CalibrationMixin(rx.State, mixin=True):
         from aifred.lib.tts_engines import installed_gpu_engines
         from aifred.lib.vision_routing import vlm_calibration_choices
 
+        from aifred.lib.operating_points import is_vllm_calibrated
+
         engines = list(installed_gpu_engines())
+        model_id = self.agent_tuning["aifred"].model_id or ""  # type: ignore[attr-defined]
+        base_calibrated = bool(model_id) and is_vllm_calibrated(model_id)
 
         def _row(vlm_key: str, label: str) -> CalibrationRow:
             cells: list[CalibrationCell] = []
             for tts_key in ["", *[e.key for e in engines]]:
                 key = sidechannel_vram_cache.pair_key(vlm_key, tts_key)
-                verdict = sidechannel_vram_cache.fits(vlm_key, tts_key)
+                # The "no VLM / no TTS" cell stands for the base operating
+                # point, not for a side-channel pair: it is green when the
+                # selected model has a profile for this hardware.
+                verdict = (
+                    base_calibrated or None
+                    if not vlm_key and not tts_key
+                    else sidechannel_vram_cache.fits(vlm_key, tts_key)
+                )
                 cells.append({
                     "key": key,
                     "checked": self.calibration_matrix.get(key, False),

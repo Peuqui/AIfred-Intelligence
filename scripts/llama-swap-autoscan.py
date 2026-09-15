@@ -1652,6 +1652,28 @@ def vllm_checkpoint_candidates() -> list[tuple[Path, str]]:
     return [(path, name) for name, path in sorted(found.items())]
 
 
+def registered_model_paths(config_path: Path) -> set[Path]:
+    """Resolved ``--model`` paths of every entry already in the config."""
+    paths = set()
+    for cmd in _parse_model_cmds(config_path).values():
+        model_path = _extract_model_path(cmd)
+        if model_path is not None:
+            paths.add(model_path.resolve())
+    return paths
+
+
+def vllm_seed_name(base_name: str, has_mtp: bool) -> str:
+    """Entry name for a seeded vLLM checkpoint.
+
+    Like ``_mark_mtp_in_name`` for GGUFs: whether the checkpoint carries an
+    MTP draft block decides, not the uploader's repo name, so the dropdown
+    shows which entries can speculate.
+    """
+    if has_mtp and "MTP" not in base_name.upper():
+        return f"{base_name}-MTP-vllm"
+    return f"{base_name}-vllm"
+
+
 def seed_vllm_entries(config_path: Path) -> int:
     """Generische vLLM-Eintraege fuer neue Checkpoint-Verzeichnisse anlegen."""
     repo = Path(__file__).resolve().parent.parent
@@ -1668,10 +1690,14 @@ def seed_vllm_entries(config_path: Path) -> int:
 
     existing = parse_existing_yaml_models(config_path)
     profiles_dir = repo / "data" / "operating_points"
+    registered = registered_model_paths(config_path)
     todo = [
         (d, base_name) for d, base_name in candidates
         if f"{base_name}-vllm" not in existing
         and not (profiles_dir / f"{base_name}-vllm.yaml").exists()
+        # A hand-renamed entry (e.g. with MTP in its name) keeps its checkpoint
+        # path; the name alone would seed the same checkpoint a second time.
+        and d.resolve() not in registered
     ]
     print(f"  {len(candidates)} checkpoint dir(s), {len(todo)} new")
     if not todo:
@@ -1709,6 +1735,7 @@ def seed_vllm_entries(config_path: Path) -> int:
         name = f"{base_name}-vllm"
         try:
             meta = analyze_checkpoint(ckpt)
+            name = vllm_seed_name(base_name, meta.mtp.present)
             # Tool-Call-/Reasoning-Parser aus dem Chat-Template des Checkpoints
             parsers = template_parsers(meta.chat_template, runtime)
             rung = next(iter(topology_ladder(meta, gpus, runtime)), None)
