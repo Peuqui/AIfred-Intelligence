@@ -180,7 +180,7 @@ def channel_credentials_page() -> rx.Component:
                                 rx.hstack(
                                     rx.button(
                                         rx.hstack(
-                                            rx.icon("check-circle", size=14),
+                                            rx.icon("circle-check", size=14),
                                             rx.text(t("oauth_connect_connected")),
                                             spacing="2", align="center",
                                         ),
