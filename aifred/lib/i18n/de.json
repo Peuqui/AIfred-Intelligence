@@ -793,6 +793,7 @@
   "tool_memory": "💾 Speichere Erkenntnis...",
   "tool_memory_update": "✏️ Korrigiere Erinnerung...",
   "tool_memory_delete": "🗑️ Lösche Erinnerung...",
+  "tool_memory_read": "🧠 Lese Erinnerung...",
   "tool_code_generating": "⚙️ Code wird generiert...",
   "tool_code_running": "⚙️ Code ausführen...",
   "tool_email": "📧 E-Mail...",

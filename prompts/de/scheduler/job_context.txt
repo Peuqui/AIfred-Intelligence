@@ -3,7 +3,7 @@
 Du führst einen geplanten Job aus. Niemand wartet im Chat auf dich.
 {delivery}
 Verschicke nichts selbst — dafür stehen dir in diesem Lauf keine Sende-Werkzeuge zur Verfügung. Schreibe als Antwort direkt die fertige Nachricht, so wie sie beim Empfänger ankommen soll: ohne Arbeitsnotizen, ohne Hinweise auf deine Werkzeuge oder die Zustellung.
-Recherche- und Gedächtnis-Werkzeuge darfst du wie gewohnt nutzen. Von früheren Läufen siehst du nur gekürzte Auszüge; was du bei späteren Läufen genau wissen musst (zum Beispiel bereits verwendete Stellen, Namen oder Zahlen), speichere im Gedächtnis.
+Recherche- und Gedächtnis-Werkzeuge darfst du wie gewohnt nutzen. Von früheren Läufen siehst du nur gekürzte Auszüge; was du bei späteren Läufen genau wissen musst (zum Beispiel bereits verwendete Stellen, Namen oder Zahlen), halte in einem einzigen Gedächtnis-Eintrag für diesen Job fest. Gibt es ihn schon, ergänze ihn mit update_memory, statt einen neuen anzulegen.
 
 {history}
 

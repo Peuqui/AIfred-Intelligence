@@ -14,7 +14,7 @@ from aifred.lib.security import (
     TIER_READONLY,
     filter_tools_for_source,
     may_send_outbound,
-    may_write_memory,
+    may_use_memory,
     wrap_untrusted_data,
 )
 
@@ -172,24 +172,26 @@ class TestMemoryOwnerGate:
         ("email", "external", False),
         ("webhook", "owner", False),
     ])
-    def test_may_write_memory(self, source, trust, allowed):
-        assert may_write_memory(source, trust) is allowed
+    def test_may_use_memory(self, source, trust, allowed):
+        assert may_use_memory(source, trust) is allowed
 
     def _toolkit(self, monkeypatch, source, trust, max_tier):
         from aifred.lib import agent_memory
 
         class FakeMemory:
-            async def recall_combined(self, *args, **kwargs):
-                return []
+            async def recall_context(self, *args, **kwargs):
+                return [{"id": "aaaaaaaa-1", "date": "2026-09-15", "type": "personal",
+                         "summary": "privat", "content": "privat", "expanded": True}]
 
             def make_toolkit(self, agent_id, session_id=""):
                 return agent_memory.ToolKit(tools=[_tool("store_memory", tier=2, owner_gated=True)])
 
         monkeypatch.setattr(agent_memory, "get_agent_memory", lambda: FakeMemory())
-        _, toolkit = asyncio.run(agent_memory.prepare_agent_toolkit(
-            "__no_such_agent__", "q", research_tools_enabled=False,
+        memory_ctx, toolkit = asyncio.run(agent_memory.prepare_agent_toolkit(
+            "aifred", "q", research_tools_enabled=False,
             max_tier=max_tier, source=source, trust=trust,
         ))
+        self.memory_ctx = memory_ctx
         return toolkit
 
     def test_owner_scheduler_job_gets_memory_despite_tier(self, monkeypatch):
@@ -198,6 +200,11 @@ class TestMemoryOwnerGate:
 
     def test_foreign_sender_gets_no_memory(self, monkeypatch):
         assert self._toolkit(monkeypatch, "telegram", "external", TIER_READONLY) is None
+        assert self.memory_ctx == ""
+
+    def test_owner_gets_memory_context(self, monkeypatch):
+        self._toolkit(monkeypatch, "telegram", "owner", TIER_READONLY)
+        assert "privat" in self.memory_ctx
 
     def test_owner_gated_tool_passes_the_execution_guard(self):
         from aifred.lib.function_calling import ToolKit
