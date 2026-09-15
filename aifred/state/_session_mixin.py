@@ -113,8 +113,9 @@ class SessionMixin(rx.State, mixin=True):
         self.session_id = session_id
 
         # Opening a session is activity: stamp last_seen so the next login
-        # auto-load returns here (SSOT for "most recent" — see
-        # _load_latest_session()). Must happen BEFORE the mtime sync below,
+        # auto-load returns here (see most_recently_seen_session_id()). The
+        # chat picker keeps its order, it ranks by new messages. Must happen
+        # BEFORE the mtime sync below,
         # otherwise the tick-handler sees our own write as a foreign change.
         touch_session(session_id)
 
@@ -145,11 +146,9 @@ class SessionMixin(rx.State, mixin=True):
         self.current_user_message = ""  # type: ignore[attr-defined]
         self._set_current_agent("")  # type: ignore[attr-defined]
 
-        # Note: Don't refresh_session_list() here - touch_session() just moved
-        # this session to the top by last_seen, and re-sorting now would pull
-        # the entry away from under the user's cursor. The list catches up on
-        # the next refresh; the highlighting is based on session_id, which is
-        # already updated above.
+        # Note: No refresh_session_list() needed here - opening a session does
+        # not change the picker order, and the highlighting is based on
+        # session_id, which is already updated above.
 
         log_message(f"Switched to session: {session_id[:8]}...")
         self.add_debug(f"Switched to session: {self.current_session_title or session_id[:8]}...")  # type: ignore[attr-defined]
@@ -197,23 +196,22 @@ class SessionMixin(rx.State, mixin=True):
     def _load_latest_session(self) -> bool:
         """Load this account's most recently active session.
 
-        "Active" is what list_sessions() sorts by: last_seen, which is written
-        both when the user switches to a session and when a background worker
-        writes to one. Channel sessions (scheduler/vision/email) are included
-        on purpose — a fresh alert or mail is exactly what the user wants to
-        see after a restart.
+        "Active" is last_seen, which is written both when the user switches to
+        a session and when a background worker writes to one. Channel sessions
+        (scheduler/vision/email) are included on purpose — a fresh alert or
+        mail is exactly what the user wants to see after a restart.
 
         Returns:
             True if an existing session was loaded, False if a new one was created.
         """
-        from ..lib.session_storage import list_sessions
+        from ..lib.session_storage import most_recently_seen_session_id
 
-        sessions = list_sessions(owner=self.logged_in_user)  # type: ignore[attr-defined]
-        if not sessions:
+        session_id = most_recently_seen_session_id(self.logged_in_user)  # type: ignore[attr-defined]
+        if session_id is None:
             self.new_session()
             return False
 
-        self._load_session_by_id(sessions[0]["session_id"])
+        self._load_session_by_id(session_id)
         return True
 
     def _load_session_by_id(self, session_id: str):
