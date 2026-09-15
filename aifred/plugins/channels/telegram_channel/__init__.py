@@ -460,6 +460,7 @@ class TelegramChannel(BaseChannel):
             Tool(
                 name="telegram_send",
                 tier=TIER_COMMUNICATE,
+                outbound=True,
                 description=load_tool_description(__file__, "telegram_send"),
                 parameters={
                     "type": "object",

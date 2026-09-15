@@ -23,7 +23,7 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 | `schedule_expr` | ja | Cron-Ausdruck, Intervall in Sekunden oder ISO-Timestamp |
 | `message` | ja | Der Prompt, den AIfred zum geplanten Zeitpunkt verarbeitet |
 | `agent` | nein | Zu verwendender Agent (Standard: `aifred`) |
-| `delivery` | nein | `log`, `announce`, `review`, `webhook` (Standard: `log`) |
+| `delivery` | nein | `review`, `announce`, `webhook` (Standard: `review`) |
 | `channel` | nein | Zielkanal für `announce` (z.B. `telegram`, `discord`, `email`) |
 | `recipient` | nein | Empfänger für `announce` (E-Mail-Adresse usw.) |
 | `webhook_url` | nein | URL für `webhook`-Delivery |
@@ -31,8 +31,9 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 ## Features
 
 - **Drei Schedule-Typen:** `cron` (Cron-Ausdruck, z.B. `0 8 * * *` = täglich 8 Uhr), `interval` (Sekunden, z.B. `3600` = stündlich), `once` (ISO-Timestamp, z.B. `2026-03-30T10:00:00`)
-- **Delivery-Modi:** `log` (Standard), `announce` (an einen Kanal senden), `review` (in UI anzeigen), `webhook` (HTTP POST)
-- **Tier-Begrenzung:** Jobs laufen als Cron und werden auf das `cron`-Standard-Tier begrenzt, nicht auf das Tier des erstellenden Users
+- **Delivery-Modi:** `review` (Standard, in UI anzeigen), `announce` (an einen Kanal senden), `webhook` (HTTP POST); zugestellt wird nur die Schlussantwort, der Agent verschickt nichts selbst
+- **Historie pro Job:** Jeder Lauf sieht, was die letzten Läufe zugestellt haben
+- **Tier-Begrenzung:** Jobs laufen mit `TIER_COMMUNICATE`, nicht mit dem Tier des erstellenden Users; Erinnerungen schreiben dürfen sie trotzdem, weil sie dem Owner gehören
 - **Isolierte Ausführung:** Jeder Job läuft aus seinem eigenen gespeicherten Payload
 - **Persistent:** Jobs werden im Job-Store abgelegt und überleben Neustarts des Services
 

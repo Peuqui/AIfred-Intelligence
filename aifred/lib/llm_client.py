@@ -25,18 +25,24 @@ def build_llm_options(state: "AIState | None", agent: str, temperature: float, n
 
     Browser path (state given): reads ``state.<agent>_top_k`` etc. — these are
     Reflex-state attributes populated from ``settings.json`` at startup.
-    Hub path (state=None, e.g. Message Hub background worker): reads the same
-    keys directly from ``settings.json`` so browser-configured per-agent
-    sampling overrides apply universally — no inconsistency between channels.
+    Hub path (state=None, e.g. Message Hub background worker or scheduler
+    job): reads the same keys directly from ``settings.json`` so the per-agent
+    settings of the main window (thinking, reasoning effort, sampling) apply
+    universally — no inconsistency between channels.
     """
     from .agent_settings import get_agent_setting, get_persisted_tuning
     if state is None:
         from .settings import load_settings
         s = load_settings() or {}
+        backend_type = s.get("backend_type", "")
         return LLMOptions(
             temperature=temperature,
-            enable_thinking=False,  # Hub workers default to no-thinking
-            supports_thinking=None,
+            enable_thinking=get_persisted_tuning(s, agent, "thinking", True),
+            supports_thinking=(
+                get_persisted_tuning(s, agent, "supports_thinking", None)
+                if backend_type in ("ollama", "llamacpp", "vllm") else None
+            ),
+            reasoning_effort=get_persisted_tuning(s, agent, "reasoning_effort", "") or None,
             num_ctx=num_ctx,
             top_k=get_persisted_tuning(s, agent, "top_k", 40),
             top_p=get_persisted_tuning(s, agent, "top_p", 0.9),

@@ -85,7 +85,43 @@ class JobStore:
                     retry_count INTEGER NOT NULL DEFAULT 0
                 )
             """)
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS job_runs (
+                    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    job_id INTEGER NOT NULL,
+                    ran_at TEXT NOT NULL,
+                    session_id TEXT NOT NULL,
+                    delivered_text TEXT NOT NULL
+                )
+            """)
             conn.commit()
+
+    def add_run(self, job_id: int, session_id: str, delivered_text: str) -> None:
+        """Record what a run delivered. The full turn stays in its session;
+        this keeps only the delivered answer for the next runs' history, and
+        only as many runs per job as the history shows."""
+        from .config import SCHEDULER_HISTORY_RUNS
+
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO job_runs (job_id, ran_at, session_id, delivered_text) VALUES (?, ?, ?, ?)",
+                (job_id, _now_iso(), session_id, delivered_text),
+            )
+            conn.execute(
+                "DELETE FROM job_runs WHERE job_id = ? AND run_id NOT IN "
+                "(SELECT run_id FROM job_runs WHERE job_id = ? ORDER BY run_id DESC LIMIT ?)",
+                (job_id, job_id, SCHEDULER_HISTORY_RUNS),
+            )
+            conn.commit()
+
+    def recent_runs(self, job_id: int, limit: int) -> list[tuple[str, str]]:
+        """(ran_at, delivered_text) of the newest runs, newest first."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT ran_at, delivered_text FROM job_runs WHERE job_id = ? ORDER BY run_id DESC LIMIT ?",
+                (job_id, limit),
+            ).fetchall()
+        return [(r["ran_at"], r["delivered_text"]) for r in rows]
 
     def _row_to_job(self, row: sqlite3.Row) -> Job:
         return Job(
@@ -234,9 +270,10 @@ class JobStore:
             conn.commit()
 
     def delete(self, job_id: int) -> bool:
-        """Delete a job. Returns True if deleted."""
+        """Delete a job and its run history. Returns True if deleted."""
         with self._connect() as conn:
             cursor = conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+            conn.execute("DELETE FROM job_runs WHERE job_id = ?", (job_id,))
             conn.commit()
         return cursor.rowcount > 0
 
@@ -370,14 +407,16 @@ async def _execute_job(job: Job) -> None:
         log_message(f"Scheduler: job '{job.name}' has no message, skipping", "warning")
         return
 
+    store = get_job_store()
+
     # Fresh channel_id per run → routing_table allocates a new session,
-    # so every job execution lives in its own conversation (no history
-    # bleed between daily runs).
+    # so every job execution lives in its own conversation. What earlier
+    # runs delivered comes in through the job prompt instead.
     msg = InboundMessage(
         channel="scheduler",
         channel_id=secrets.token_hex(8),
         sender=MESSAGE_HUB_OWNER,
-        text=message_text,
+        text=build_job_prompt(job, store),
         timestamp=datetime.now(),
         metadata={
             "job_name": job.name,
@@ -401,7 +440,73 @@ async def _execute_job(job: Job) -> None:
     if not session_id:
         raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
 
-    await _deliver_result(job, outbound.text, session_id)
+    # Only the answer after the agent's last tool call goes out; the rounds
+    # before it are working notes and stay in the session.
+    final_text = outbound.metadata.get("final_text", "").strip()
+    if not final_text:
+        raise RuntimeError(
+            f"Job '{job.name}' ended on a tool call without a final answer "
+            f"(session {session_id[:8]}) — nothing to deliver"
+        )
+
+    store.add_run(job.job_id, session_id, final_text)
+    await _deliver_result(job, final_text, session_id)
+
+
+def history_excerpt(text: str, limit: int) -> str:
+    """A delivered text for the job history: whole sentences up to about
+    ``limit`` characters, " …" when something was left out. Never cuts inside
+    a sentence, so the excerpt may end below the limit, or above it when the
+    first sentence alone is longer."""
+    from .audio_processing import extract_complete_sentences
+
+    # The trailing paragraph break flushes the last sentence out of the buffer.
+    sentences, _ = extract_complete_sentences(text.strip() + "\n\n")
+    kept: list[str] = []
+    length = 0
+    for sentence in sentences:
+        if kept and length + 1 + len(sentence) > limit:
+            break
+        kept.append(sentence)
+        length += len(sentence) + (1 if len(kept) > 1 else 0)
+    excerpt = " ".join(kept)
+    return excerpt if len(kept) == len(sentences) else f"{excerpt} …"
+
+
+def build_job_prompt(job: Job, store: JobStore) -> str:
+    """The message a job run starts with: job context, delivery, the
+    previous runs' deliveries and the task (prompts/<lang>/scheduler/)."""
+    from .config import SCHEDULER_HISTORY_EXCERPT_CHARS, SCHEDULER_HISTORY_RUNS
+    from .message_processor import channel_display_label
+    from .prompt_loader import load_prompt
+    from .settings import load_settings
+
+    lang = (load_settings() or {}).get("ui_language", "de")
+    delivery = job.payload.get("delivery", "review")
+    if delivery == "announce":
+        delivery_text = load_prompt(
+            "scheduler/delivery_announce", lang=lang,
+            channel=channel_display_label(job.payload.get("channel", "")),
+            recipient=job.payload.get("recipient", ""),
+        )
+    else:
+        delivery_text = load_prompt(f"scheduler/delivery_{delivery}", lang=lang)
+
+    runs = store.recent_runs(job.job_id, SCHEDULER_HISTORY_RUNS)
+    if runs:
+        lines = []
+        for ran_at, text in runs:
+            excerpt = history_excerpt(text, SCHEDULER_HISTORY_EXCERPT_CHARS)
+            lines.append(f"- {ran_at[:16].replace('T', ' ')}: {excerpt}")
+        history = load_prompt("scheduler/history", lang=lang, runs="\n".join(lines))
+    else:
+        history = load_prompt("scheduler/history_empty", lang=lang)
+
+    return load_prompt(
+        "scheduler/job_context", lang=lang,
+        job_name=job.name, delivery=delivery_text.strip(),
+        history=history.strip(), task=job.payload.get("message", ""),
+    )
 
 
 # ============================================================
@@ -443,7 +548,8 @@ async def _deliver_announce(job: Job, response_text: str, session_id: str) -> No
         job.payload.get("recipient", ""),
         response_text,
         session_id=session_id,
-        metadata=job.payload.get("metadata", {}),
+        # The job name is the subject of channels that have one (email).
+        metadata={"subject": job.name, **job.payload.get("metadata", {})},
     )
     if not ok:
         log_message(f"Scheduler: announce for job '{job.name}' did not deliver", "warning")

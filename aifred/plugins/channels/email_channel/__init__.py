@@ -520,7 +520,7 @@ class EmailChannel(BaseChannel):
     def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
         """Email tools for LLM function calling."""
         from .tools import get_email_tools
-        return get_email_tools(session_id=ctx.session_id, source=ctx.source)
+        return get_email_tools(session_id=ctx.session_id, source=ctx.source, lang=ctx.lang)
 
     def build_reply_metadata(self, message: "InboundMessage") -> dict:
         """Build email-specific reply headers (In-Reply-To, References)."""

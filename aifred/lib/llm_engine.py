@@ -36,7 +36,6 @@ async def call_llm(
     temperature: float,
     backend_type: str,
     backend_url: Optional[str],
-    enable_thinking: bool,
     state: Optional[Any] = None,
     use_direct_prompt: bool = False,
     multimodal_content: Optional[List[Dict]] = None,
@@ -67,7 +66,6 @@ async def call_llm(
         temperature: Temperature-Wert (nur bei manual relevant)
         backend_type: Backend-Typ ("ollama", "vllm", "llamacpp", "cloud_api")
         backend_url: Backend-URL
-        enable_thinking: Thinking Mode aktiviert?
         state: AIState Objekt für num_ctx Lookup (optional)
         use_direct_prompt: True wenn User AIfred direkt angesprochen hat
         multimodal_content: Multimodal Content für Bilder (optional)
@@ -306,6 +304,7 @@ async def call_llm(
             "type": "result",
             "data": {
                 "response_clean": response_clean,
+                "response_final": pipeline_result.final_text,
                 # Message Hub view of the bubble: text and artifacts without
                 # thinking (the hub bubble never showed tag collapsibles).
                 "response_display": render_bubble(

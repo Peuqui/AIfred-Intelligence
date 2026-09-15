@@ -35,8 +35,8 @@ Jobs laufen in isolierten Sessions mit Security-Tier-Enforcement.
                                │
                     ┌──────────▼──────────┐
                     │   Delivery Mode     │
-                    │   log/announce/     │
-                    │   review/webhook    │
+                    │   review/announce/  │
+                    │   webhook           │
                     └─────────────────────┘
 ```
 
@@ -130,13 +130,42 @@ Wohin geht das Ergebnis eines Jobs?
 
 | Mode | Beschreibung |
 |------|-------------|
-| `log` | Nur im Audit-Log und Session (Default) |
+| `review` | Notification in der Web-UI, User prüft in Session (Default) |
 | `announce` | An einen Channel senden (Discord, Telegram, E-Mail) |
-| `review` | Notification in der Web-UI, User prüft in Session |
 | `webhook` | HTTP POST an externe URL (z.B. Home Assistant) |
+
+Die Notification kommt bei jedem Modus, `announce` und `webhook` liefern
+zusätzlich aus.
+
+### Ein Job-Lauf
+
+- **Job-Prompt:** `build_job_prompt()` baut die Nachricht an den Agenten aus
+  `prompts/<lang>/scheduler/`: Job-Name, wohin die Antwort geht
+  (`delivery_<mode>.txt`), die bisherigen Läufe und der Auftrag.
+- **Historie pro Job:** Tabelle `job_runs` hält, was jeder Lauf zugestellt hat,
+  unabhängig von den Sessions und nur für die neuesten `SCHEDULER_HISTORY_RUNS`
+  Läufe pro Job. Genau diese gehen als Auszug in den Prompt, damit sich der
+  Job nicht wiederholt: ganze Sätze bis etwa
+  `SCHEDULER_HISTORY_EXCERPT_CHARS` Zeichen, nie mitten im Satz, mit „…“, wenn
+  gekürzt wurde (`history_excerpt`). Was ein Job exakt behalten muss, soll er
+  laut Job-Prompt ins Gedächtnis schreiben. Jeder Lauf hat trotzdem eine
+  eigene Session.
+- **Nur die Schlussantwort:** Zugestellt und protokolliert wird der Text nach
+  dem letzten Tool-Call (`outbound.metadata["final_text"]`). Arbeitsnotizen
+  aus früheren Tool-Runden bleiben in der Session. Endet der Lauf ohne
+  Schlussantwort, schlägt der Job fehl.
+- **Kein Selbstversand:** Im Scheduler-Lauf fehlen alle Sende-Werkzeuge
+  (`Tool.outbound`, `security.may_send_outbound`), beim `email`-Werkzeug die
+  Aktion `send`. Zustellen tut ausschließlich der Scheduler.
+- **Gedächtnis:** Jobs laufen als Owner und dürfen Erinnerungen schreiben,
+  obwohl ihr Tier bei `TIER_COMMUNICATE` liegt (siehe security.md,
+  Gedächtnis nur für den Owner).
+- **Agent-Einstellungen:** Denken, Reasoning-Stufe und Sampling kommen aus
+  den Agent-Einstellungen des Hauptfensters.
 
 ### announce
 
+Der Job-Name wird zum Betreff (bei Kanälen mit Betreff, also E-Mail).
 Benötigt `channel` und optional `recipient` im Payload:
 ```json
 {"delivery": "announce", "channel": "discord", "recipient": ""}

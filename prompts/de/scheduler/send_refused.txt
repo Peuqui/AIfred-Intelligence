@@ -1,0 +1,1 @@
+Fehler: In einem geplanten Job wird nichts selbst verschickt. Schreib das Ergebnis als Antwort, der Scheduler stellt es zu.

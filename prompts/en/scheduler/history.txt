@@ -1,0 +1,2 @@
+Previous runs of this job (newest first) — use them to avoid repeating yourself. These are shortened excerpts of the deliveries: an entry ending in "…" is missing the rest.
+{runs}

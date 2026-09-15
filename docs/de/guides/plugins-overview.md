@@ -165,7 +165,7 @@ Geplante Aufgaben für AIfred.
 
 **Features:**
 - Drei Schedule-Typen: `cron`, `interval` (Sekunden), `once` (ISO-Timestamp)
-- Delivery-Modi: `log`, `announce`, `review`, `webhook`
+- Delivery-Modi: `review`, `announce`, `webhook`
 - Isolierte Sessions pro Job
 
 > **Details:** [Scheduler Plugin](plugins/scheduler.md)

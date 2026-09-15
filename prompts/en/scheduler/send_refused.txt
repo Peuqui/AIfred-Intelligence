@@ -1,0 +1,1 @@
+Error: a scheduled job does not send anything itself. Write the result as your answer; the scheduler delivers it.

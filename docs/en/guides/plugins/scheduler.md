@@ -23,7 +23,7 @@ result is handed to the configured delivery mode.
 | `schedule_expr` | yes | Cron expression, interval in seconds, or ISO timestamp |
 | `message` | yes | The prompt AIfred processes at the scheduled time |
 | `agent` | no | Agent to use (default: `aifred`) |
-| `delivery` | no | `log`, `announce`, `review`, `webhook` (default: `log`) |
+| `delivery` | no | `review`, `announce`, `webhook` (default: `review`) |
 | `channel` | no | Target channel for `announce` (e.g. `telegram`, `discord`, `email`) |
 | `recipient` | no | Recipient for `announce` (email address, etc.) |
 | `webhook_url` | no | URL for `webhook` delivery |
@@ -31,8 +31,9 @@ result is handed to the configured delivery mode.
 ## Features
 
 - **Three schedule types:** `cron` (cron expression, e.g. `0 8 * * *` = daily 8am), `interval` (seconds, e.g. `3600` = every hour), `once` (ISO timestamp, e.g. `2026-03-30T10:00:00`)
-- **Delivery modes:** `log` (default), `announce` (send to a channel), `review` (show in UI), `webhook` (HTTP POST)
-- **Tier capping:** Jobs run as cron and are capped at the `cron` default tier, not the creating user's tier
+- **Delivery modes:** `review` (default, show in UI), `announce` (send to a channel), `webhook` (HTTP POST); only the final answer is delivered, the agent sends nothing itself
+- **History per job:** each run sees what the last runs delivered
+- **Tier capping:** Jobs run at `TIER_COMMUNICATE`, not at the creating user's tier; they may still write memories because they belong to the owner
 - **Isolated execution:** Each job runs from its own stored payload
 - **Persistent:** Jobs are stored via the job store and survive service restarts
 

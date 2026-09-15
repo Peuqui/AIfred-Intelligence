@@ -18,7 +18,7 @@ from ....lib.config import (
 )
 from ....lib import file_manager as fm
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM, retrieved_data_notice
 from ....lib.plugin_base import PluginContext, load_tool_description
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
@@ -868,7 +868,10 @@ class WorkspacePlugin:
                     "content": hit["content"],
                     "relevance": relevance,
                 })
+            # Notice as a field, not a wrap_untrusted_data fence: the output
+            # cap trims this JSON by its "results" list.
             payload: dict[str, Any] = {
+                "data_notice": retrieved_data_notice(),
                 "total_results": len(results),
                 "page": page,
                 "has_more": has_more,

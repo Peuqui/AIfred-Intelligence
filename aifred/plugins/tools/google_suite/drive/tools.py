@@ -12,7 +12,7 @@ import httpx
 
 from .....lib.function_calling import Tool
 from .....lib.plugin_base import load_tool_description
-from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
 from .._common import PLUGIN_DIR, _get_token, _google_request
 
 DRIVE_API = "https://www.googleapis.com/drive/v3"
@@ -127,7 +127,7 @@ def get_drive_tools() -> list[Tool]:
             }
             for f in files
         ]
-        return json.dumps(result, ensure_ascii=False)
+        return wrap_untrusted_data(json.dumps(result, ensure_ascii=False), "google_drive")
 
     async def get_file(file_id: str) -> str:
         """Dateiinhalt lesen. Google Docs/Sheets werden als Text exportiert."""
@@ -164,7 +164,10 @@ def get_drive_tools() -> list[Tool]:
                 r.raise_for_status()
                 content = await _read_capped(r)
 
-        return json.dumps({"id": file_id, "name": name, "content": content}, ensure_ascii=False)
+        return wrap_untrusted_data(
+            json.dumps({"id": file_id, "name": name, "content": content}, ensure_ascii=False),
+            "google_drive",
+        )
 
     async def create_file(
         name: str,

@@ -1412,6 +1412,11 @@ BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selec
 MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "mp")  # Sessions created by hub belong to this user
 EMAIL_MONITOR_AUTO_REPLY = os.environ.get("EMAIL_MONITOR_AUTO_REPLY", "false").lower() == "true"
 
+# Scheduler: each run of a job sees what its previous runs delivered, so a
+# job like "a new psalm every morning" does not repeat itself.
+SCHEDULER_HISTORY_RUNS = 10            # runs stored per job and shown to the next run
+SCHEDULER_HISTORY_EXCERPT_CHARS = 400  # characters kept per shown run
+
 # ============================================================
 # AUTH CONFIGURATION
 # ============================================================

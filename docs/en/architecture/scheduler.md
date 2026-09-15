@@ -35,8 +35,8 @@ Jobs run in isolated sessions with security tier enforcement.
                                │
                     ┌──────────▼──────────┐
                     │   Delivery Mode     │
-                    │   log/announce/     │
-                    │   review/webhook    │
+                    │   review/announce/  │
+                    │   webhook           │
                     └─────────────────────┘
 ```
 
@@ -130,13 +130,39 @@ Where does the job result go?
 
 | Mode | Description |
 |------|-------------|
-| `log` | Audit log and session only (default) |
+| `review` | UI notification, user reviews in session (default) |
 | `announce` | Send to a channel (Discord, Telegram, Email) |
-| `review` | UI notification, user reviews in session |
 | `webhook` | HTTP POST to external URL (e.g. Home Assistant) |
+
+The notification is sent in every mode; `announce` and `webhook` deliver
+in addition.
+
+### A job run
+
+- **Job prompt:** `build_job_prompt()` builds the message to the agent from
+  `prompts/<lang>/scheduler/`: job name, where the answer goes
+  (`delivery_<mode>.txt`), the previous runs and the task.
+- **History per job:** table `job_runs` keeps what each run delivered,
+  independent of the sessions and only for the newest `SCHEDULER_HISTORY_RUNS`
+  runs per job. Exactly those go into the prompt as excerpts so the job does
+  not repeat itself: whole sentences up to about
+  `SCHEDULER_HISTORY_EXCERPT_CHARS` characters, never cut mid-sentence, with
+  "…" when shortened (`history_excerpt`). Whatever a job must keep exactly, the
+  job prompt tells it to store in memory. Each run still has its own session.
+- **Final answer only:** delivered and recorded is the text after the last
+  tool call (`outbound.metadata["final_text"]`). Working notes from earlier
+  tool rounds stay in the session. A run without a final answer fails.
+- **No self-sending:** a scheduler run has no sending tools (`Tool.outbound`,
+  `security.may_send_outbound`), and the `email` tool has no `send` action.
+  Only the scheduler delivers.
+- **Memory:** jobs run as the owner and may write memories although their
+  tier is `TIER_COMMUNICATE` (see security.md, memory for the owner only).
+- **Agent settings:** thinking, reasoning effort and sampling come from the
+  main window's agent settings.
 
 ### announce
 
+The job name becomes the subject (on channels that have one, i.e. email).
 Requires `channel` and optionally `recipient` in payload:
 ```json
 {"delivery": "announce", "channel": "discord", "recipient": ""}

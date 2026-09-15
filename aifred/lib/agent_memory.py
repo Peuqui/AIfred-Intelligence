@@ -321,6 +321,7 @@ class AgentMemory:
             Tool(
                 name="store_memory",
                 tier=TIER_WRITE_DATA,
+                owner_gated=True,
                 description=load_shared_tool_description("store_memory_tool.txt"),
                 parameters={
                     "type": "object",
@@ -345,6 +346,7 @@ class AgentMemory:
             Tool(
                 name="update_memory",
                 tier=TIER_WRITE_DATA,
+                owner_gated=True,
                 description=load_shared_tool_description("update_memory_tool.txt"),
                 parameters={
                     "type": "object",
@@ -377,6 +379,7 @@ class AgentMemory:
             Tool(
                 name="delete_memory",
                 tier=TIER_WRITE_DATA,
+                owner_gated=True,
                 description=load_shared_tool_description("delete_memory_tool.txt"),
                 parameters={
                     "type": "object",
@@ -455,6 +458,7 @@ async def prepare_agent_toolkit(
     max_tier: int = 4,
     source: str = "browser",
     metadata: Optional[dict] = None,
+    trust: str = "external",
 ) -> tuple[str, Optional["ToolKit"]]:
     """Prepare combined toolkit (memory + research tools) for an agent.
 
@@ -468,6 +472,8 @@ async def prepare_agent_toolkit(
         session_id: If set, memories from this session are excluded (already in chat history)
         max_tier: Maximum security tier for tools in this context
         source: Origin of the request (browser/email/discord/cron/webhook)
+        trust: Owner verdict of the sender (resolve_trust_label); gates the
+            memory write tools together with source (may_write_memory)
 
     Returns:
         (memory_context_str, toolkit) — context for system prompt, combined toolkit.
@@ -475,6 +481,7 @@ async def prepare_agent_toolkit(
     import time as _pat_time
     _pat_t0 = _pat_time.monotonic()
     all_tools: list[Tool] = []
+    memory_tools: list[Tool] = []
     memory_ctx = ""
 
     # Memory tools + context
@@ -484,7 +491,9 @@ async def prepare_agent_toolkit(
             memories = await memory.recall_combined(agent_id, user_query, exclude_session_id=session_id)
             if memories:
                 memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
-            all_tools.extend(memory.make_toolkit(agent_id, session_id=session_id or "").tools)
+            from .security import may_write_memory
+            if may_write_memory(source, trust):
+                memory_tools = memory.make_toolkit(agent_id, session_id=session_id or "").tools
 
     print(f"⏱️ prepare_toolkit: post-memory {_pat_time.monotonic()-_pat_t0:.2f}s", flush=True)
     # All other tools via plugin system
@@ -514,8 +523,11 @@ async def prepare_agent_toolkit(
         # Anchoring-Bias und gibt dem Modell volle Recherche-Hoheit.
 
     # Security: filter tools by tier before building toolkit
-    from .security import filter_tools_by_tier
-    all_tools = filter_tools_by_tier(all_tools, max_tier)
+    from .security import filter_tools_by_tier, filter_tools_for_source
+    all_tools = filter_tools_for_source(filter_tools_by_tier(all_tools, max_tier), source)
+    # Memory writes are gated by the owner check above, not by the tier: a
+    # scheduler job runs at TIER_COMMUNICATE but is still the owner's.
+    all_tools = memory_tools + all_tools
 
     # Per-agent tool whitelist (from agents.json)
     from .agent_config import get_agent_config
