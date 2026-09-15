@@ -18,12 +18,27 @@ from .config import (
     AGENT_MEMORY_DISTANCE_THRESHOLD,
     AGENT_MEMORY_RECENT_COUNT,
     AGENT_MEMORY_RESULTS,
+    AGENT_MEMORY_SUMMARY_MAX_CHARS,
     DEFAULT_OLLAMA_URL,
 )
 from .embeddings import OLLAMA_EMBEDDING_MODEL
 from .function_calling import Tool, ToolKit
 from .logging_utils import log_message
 from .prompt_loader import load_shared_tool_description
+from .security import TIER_READONLY, TIER_WRITE_DATA
+
+# The agent memory tools and their tiers — one list for toolkit, agent
+# editor and tool pills.
+MEMORY_TOOL_TIERS: dict[str, int] = {
+    "read_memory": TIER_READONLY,
+    "store_memory": TIER_WRITE_DATA,
+    "update_memory": TIER_WRITE_DATA,
+    "delete_memory": TIER_WRITE_DATA,
+}
+
+
+class MemoryFullError(RuntimeError):
+    """The agent's collection has reached AGENT_MEMORY_COLLECTION_MAX."""
 
 
 class AgentMemory:
@@ -70,39 +85,15 @@ class AgentMemory:
         """
         col = self._collection(agent_id)
 
-        # Enforce size limit: remove oldest if at capacity
+        # Full memory: refuse instead of evicting. The agent sees every entry
+        # (recall_context) and merges or deletes; nothing disappears silently.
         count = col.count()
         if count >= AGENT_MEMORY_COLLECTION_MAX:
-            all_data = col.get(include=["metadatas"])
-            if all_data["ids"]:
-                oldest_idx = min(
-                    range(len(all_data["ids"])),
-                    key=lambda i: all_data["metadatas"][i].get("date", ""),  # type: ignore[index]
-                )
-                col.delete(ids=[all_data["ids"][oldest_idx]])
-                log_message(f"AgentMemory({agent_id}): evicted oldest entry (limit {AGENT_MEMORY_COLLECTION_MAX})")
-
-        # Dedup: if a very similar entry exists, update instead of adding
-        existing = col.query(query_texts=[summary], n_results=1, include=["metadatas", "distances"])
-        if (existing["ids"] and existing["ids"][0]
-                and existing["distances"] and existing["distances"][0]
-                and existing["distances"][0][0] < 0.3):
-            old_id = existing["ids"][0][0]
-            now = datetime.now(timezone.utc).isoformat()
-            col.update(
-                ids=[old_id],
-                documents=[summary],
-                metadatas=[{
-                    "agent_id": agent_id,
-                    "date": now,
-                    "type": memory_type,
-                    "summary": summary,
-                    "content": content,
-                    "session_id": session_id,
-                }],
+            raise MemoryFullError(
+                f"Memory is full ({count} entries, limit {AGENT_MEMORY_COLLECTION_MAX}). "
+                "Merge overlapping entries with update_memory or delete obsolete ones "
+                "with delete_memory, then store again."
             )
-            log_message(f"AgentMemory({agent_id}): updated existing (dist {existing['distances'][0][0]:.2f}) [{memory_type}] {summary[:60]}")
-            return f"Memory {old_id[:8]} updated: [{memory_type}] {summary}"
 
         doc_id = str(uuid.uuid4())
         now = datetime.now(timezone.utc).isoformat()
@@ -164,6 +155,16 @@ class AgentMemory:
         )
         log_message(f"AgentMemory({agent_id}): updated {full_id[:8]} [{memory_type}] {summary[:60]}")
         return f"Memory {full_id[:8]} updated: [{memory_type}] {summary}"
+
+    async def read(self, agent_id: str, memory_id: str) -> str:
+        """Full text of one memory (referenced by ID or unique ID prefix)."""
+        col = self._collection(agent_id)
+        full_id = self._resolve_id(agent_id, memory_id)
+        meta = col.get(ids=[full_id], include=["metadatas"])["metadatas"][0]
+        return (
+            f"[{full_id[:8]} | {meta.get('date', '')[:10]}, {meta.get('type', '')}] "
+            f"{meta.get('summary', '')}\n\n{meta.get('content', '')}"
+        )
 
     async def delete(self, agent_id: str, memory_id: str) -> str:
         """Delete a memory (referenced by ID or unique ID prefix)."""
@@ -236,79 +237,66 @@ class AgentMemory:
             })
         return memories
 
-    async def recall_recent(
-        self, agent_id: str, n: int = AGENT_MEMORY_RECENT_COUNT,
-    ) -> list[dict[str, Any]]:
-        """Get the N most recent memories (chronological, no semantic filter)."""
+    def _all_entries(self, agent_id: str) -> list[dict[str, Any]]:
+        """Every memory of the agent, newest first."""
         col = self._collection(agent_id)
-        count = col.count()
-        if count == 0:
+        if col.count() == 0:
             return []
-
         all_data = col.get(include=["metadatas"])
-        entries = []
-        for i, meta in enumerate(all_data["metadatas"]):  # type: ignore[union-attr]
-            entries.append({
+        entries = [
+            {
                 "id": all_data["ids"][i],
                 "summary": meta.get("summary", ""),
                 "content": meta.get("content", ""),
                 "type": meta.get("type", ""),
                 "date": meta.get("date", ""),
-                "distance": 0.0,
-            })
-
+            }
+            for i, meta in enumerate(all_data["metadatas"])  # type: ignore[union-attr]
+        ]
         entries.sort(key=lambda e: e["date"], reverse=True)
-        return entries[:n]
+        return entries
 
-    async def recall_combined(
+    async def recall_context(
         self, agent_id: str, query: str,
         n_semantic: int = AGENT_MEMORY_RESULTS,
         n_recent: int = AGENT_MEMORY_RECENT_COUNT,
-        exclude_session_id: Optional[str] = None,
     ) -> list[dict[str, Any]]:
-        """Combined recall: recent memories + semantic search, deduplicated.
+        """The agent's whole memory as an index, newest first.
 
-        Always loads the N most recent memories (chronological context),
-        plus semantically relevant older memories.
-
-        Args:
-            exclude_session_id: If set, memories stored in this session are
-                excluded (they're already in the chat history).
+        Every entry is listed, so the agent sees duplicates and what to
+        correct. The ``n_recent`` newest entries and the semantic hits for
+        ``query`` are marked ``expanded``: their content goes into the context
+        too; for the others the agent calls read_memory.
         """
-        recent = await self.recall_recent(agent_id, n=n_recent)
-        semantic = await self.recall(agent_id, query, n_results=n_semantic)
-
-        # IDs to exclude (stored during current session)
-        excluded_ids: set[str] = set()
-        if exclude_session_id:
-            excluded_ids = set(self.find_by_session(agent_id, exclude_session_id))
-
-        # Deduplicate: recent first, then add semantic hits not already present
-        seen_ids: set[str] = set()
-        combined: list[dict[str, Any]] = []
-
-        for mem in recent:
-            if mem["id"] not in seen_ids and mem["id"] not in excluded_ids:
-                seen_ids.add(mem["id"])
-                mem["source"] = "recent"
-                combined.append(mem)
-
-        for mem in semantic:
-            if mem["id"] not in seen_ids and mem["id"] not in excluded_ids:
-                seen_ids.add(mem["id"])
-                mem["source"] = "semantic"
-                combined.append(mem)
-
-        return combined
+        entries = self._all_entries(agent_id)
+        if not entries:
+            return []
+        expanded = {e["id"] for e in entries[:n_recent]}
+        expanded.update(m["id"] for m in await self.recall(agent_id, query, n_results=n_semantic))
+        for entry in entries:
+            entry["expanded"] = entry["id"] in expanded
+        return entries
 
     def make_toolkit(self, agent_id: str, session_id: str = "") -> ToolKit:
         """Create a ToolKit with memory tools bound to a specific agent."""
-        from .security import TIER_WRITE_DATA
+
+        def check_summary(summary: str) -> None:
+            # The summary is the entry's line in the memory index (and what is
+            # embedded for search): refuse, never truncate - the model rewrites it.
+            text = summary.strip()
+            if "\n" in text or len(text) > AGENT_MEMORY_SUMMARY_MAX_CHARS:
+                raise ValueError(
+                    f"summary too long ({len(text)} chars): write one short sentence "
+                    f"of at most {AGENT_MEMORY_SUMMARY_MAX_CHARS} characters, on one line, "
+                    "and call the tool again"
+                )
 
         async def store_memory(content: str, memory_type: str, summary: str) -> str:
+            check_summary(summary)
             return await self.store(agent_id, content, memory_type, summary, session_id=session_id)
 
         async def update_memory(memory_id: str, content: str, summary: str, memory_type: str = "") -> str:
+            check_summary(summary)
             return await self.update(
                 agent_id, memory_id, content, summary,
                 memory_type=memory_type, session_id=session_id,
@@ -317,10 +305,13 @@ class AgentMemory:
         async def delete_memory(memory_id: str) -> str:
             return await self.delete(agent_id, memory_id)
 
+        async def read_memory(memory_id: str) -> str:
+            return await self.read(agent_id, memory_id)
+
         return ToolKit(tools=[
             Tool(
                 name="store_memory",
-                tier=TIER_WRITE_DATA,
+                tier=MEMORY_TOOL_TIERS["store_memory"],
                 owner_gated=True,
                 description=load_shared_tool_description("store_memory_tool.txt"),
                 parameters={
@@ -336,7 +327,7 @@ class AgentMemory:
                         },
                         "summary": {
                             "type": "string",
-                            "description": "Short summary for later retrieval (1-2 sentences)",
+                            "description": f"One short sentence, at most {AGENT_MEMORY_SUMMARY_MAX_CHARS} characters, on one line - this entry's line in your memory index",
                         },
                     },
                     "required": ["content", "memory_type", "summary"],
@@ -345,7 +336,7 @@ class AgentMemory:
             ),
             Tool(
                 name="update_memory",
-                tier=TIER_WRITE_DATA,
+                tier=MEMORY_TOOL_TIERS["update_memory"],
                 owner_gated=True,
                 description=load_shared_tool_description("update_memory_tool.txt"),
                 parameters={
@@ -361,7 +352,7 @@ class AgentMemory:
                         },
                         "summary": {
                             "type": "string",
-                            "description": "Updated short summary for later retrieval (1-2 sentences)",
+                            "description": f"One short sentence, at most {AGENT_MEMORY_SUMMARY_MAX_CHARS} characters, on one line - this entry's line in your memory index",
                         },
                         "memory_type": {
                             "type": "string",
@@ -378,7 +369,7 @@ class AgentMemory:
             # say "forget that" via external channels (owner tier = 2).
             Tool(
                 name="delete_memory",
-                tier=TIER_WRITE_DATA,
+                tier=MEMORY_TOOL_TIERS["delete_memory"],
                 owner_gated=True,
                 description=load_shared_tool_description("delete_memory_tool.txt"),
                 parameters={
@@ -392,6 +383,23 @@ class AgentMemory:
                     "required": ["memory_id"],
                 },
                 executor=delete_memory,
+            ),
+            Tool(
+                name="read_memory",
+                tier=MEMORY_TOOL_TIERS["read_memory"],
+                owner_gated=True,
+                description=load_shared_tool_description("read_memory_tool.txt"),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "memory_id": {
+                            "type": "string",
+                            "description": "ID of the memory to read (shown in brackets in your memory context)",
+                        },
+                    },
+                    "required": ["memory_id"],
+                },
+                executor=read_memory,
             ),
         ], _agent_id=agent_id, _session_id=session_id)
 
@@ -410,29 +418,19 @@ def format_memory_context(
     if not memories:
         return ""
 
-    # Build memory list text — separate recent context from semantic matches
-    recent_lines: list[str] = []
-    semantic_lines: list[str] = []
+    # One index line per entry; the expanded ones (newest + semantic hits)
+    # carry their full content, the rest is fetched with read_memory. No
+    # truncation: a cut entry looks complete to the model, and lists grow at
+    # the end, so a cut would hide exactly the newest items.
+    lines: list[str] = []
     for mem in memories:
         date_str = mem["date"][:10] if mem["date"] else "?"
-        line = f"- [{mem['id'][:8]} | {date_str}, {mem['type']}] {mem['summary']}"
-        detail = ""
-        if mem["content"] and mem["content"] != mem["summary"]:
-            content_preview = mem["content"][:500]
-            if len(mem["content"]) > 500:
-                content_preview += "..."
-            detail = f"  {content_preview}"
-        target = recent_lines if mem.get("source") == "recent" else semantic_lines
-        target.append(line)
-        if detail:
-            target.append(detail)
-
-    parts = []
-    if recent_lines:
-        parts.append("Recent conversations:\n" + "\n".join(recent_lines))
-    if semantic_lines:
-        parts.append("Relevant past context:\n" + "\n".join(semantic_lines))
-    memories_text = "\n\n".join(parts)
+        lines.append(f"- [{mem['id'][:8]} | {date_str}, {mem['type']}] {mem['summary']}")
+        if mem["expanded"] and mem["content"] and mem["content"] != mem["summary"]:
+            # Every content line indented, so a list inside the content
+            # cannot pass for further index entries.
+            lines.extend(f"    {line}" for line in mem["content"].splitlines() if line.strip())
+    memories_text = "\n".join(lines)
 
     # Load prompt template (agent-specific only, no fallback)
     from pathlib import Path
@@ -473,7 +471,7 @@ async def prepare_agent_toolkit(
         max_tier: Maximum security tier for tools in this context
         source: Origin of the request (browser/email/discord/cron/webhook)
         trust: Owner verdict of the sender (resolve_trust_label); gates the
-            memory write tools together with source (may_write_memory)
+            memory context and tools together with source (may_use_memory)
 
     Returns:
         (memory_context_str, toolkit) — context for system prompt, combined toolkit.
@@ -484,16 +482,16 @@ async def prepare_agent_toolkit(
     memory_tools: list[Tool] = []
     memory_ctx = ""
 
-    # Memory tools + context
-    if memory_enabled:
+    # Memory tools + context — both only in owner contexts: the index holds
+    # personal entries a foreign sender must not see.
+    from .security import may_use_memory
+    if memory_enabled and may_use_memory(source, trust):
         memory = get_agent_memory()
         if memory:
-            memories = await memory.recall_combined(agent_id, user_query, exclude_session_id=session_id)
+            memories = await memory.recall_context(agent_id, user_query)
             if memories:
                 memory_ctx = format_memory_context(memories, agent_id=agent_id, lang=lang)
-            from .security import may_write_memory
-            if may_write_memory(source, trust):
-                memory_tools = memory.make_toolkit(agent_id, session_id=session_id or "").tools
+            memory_tools = memory.make_toolkit(agent_id, session_id=session_id or "").tools
 
     print(f"⏱️ prepare_toolkit: post-memory {_pat_time.monotonic()-_pat_t0:.2f}s", flush=True)
     # All other tools via plugin system

@@ -1363,10 +1363,14 @@ MEDIA_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 # ============================================================
 # AGENT MEMORY CONFIGURATION
 # ============================================================
-AGENT_MEMORY_COLLECTION_MAX = 1000   # Max entries per agent collection
+# Every entry goes into the context as an index line (recall_context), so the
+# limit bounds that index: 200 lines are roughly 8k tokens. A full memory
+# refuses new entries; the agent merges or deletes.
+AGENT_MEMORY_COLLECTION_MAX = 200    # Max entries per agent collection
 AGENT_MEMORY_DISTANCE_THRESHOLD = 1.0  # Max distance for relevant memories (nomic-embed scale)
-AGENT_MEMORY_RESULTS = 5             # Semantic search results
-AGENT_MEMORY_RECENT_COUNT = 10       # Always load N most recent memories
+AGENT_MEMORY_RESULTS = 5             # Semantic hits shown with their content
+AGENT_MEMORY_RECENT_COUNT = 3        # Newest entries shown with their content
+AGENT_MEMORY_SUMMARY_MAX_CHARS = 160  # summary = the entry's index line; longer is refused
 
 # ============================================================
 # SANDBOX (CODE EXECUTION) CONFIGURATION

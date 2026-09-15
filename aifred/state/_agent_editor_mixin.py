@@ -968,7 +968,8 @@ class AgentEditorMixin(rx.State, mixin=True):
                 for t in p.get_tools(ctx):
                     all_tool_names.append(t.name)
         # Memory tools
-        all_tool_names.extend(["store_memory", "update_memory", "delete_memory"])
+        from ..lib.agent_memory import MEMORY_TOOL_TIERS
+        all_tool_names.extend(MEMORY_TOOL_TIERS)
         # Channel tools
         from ..lib.plugin_registry import all_channels
         for ch in all_channels().values():

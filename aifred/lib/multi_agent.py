@@ -295,6 +295,8 @@ async def _stream_agent_to_history(
                 state.set_tool_status(t("tool_memory_update", lang=state.ui_language))
             elif tool_name == "delete_memory":
                 state.set_tool_status(t("tool_memory_delete", lang=state.ui_language))
+            elif tool_name == "read_memory":
+                state.set_tool_status(t("tool_memory_read", lang=state.ui_language))
             else:
                 status = _get_plugin_ui_status(tool_name, tool_args, state.ui_language)
                 if status:

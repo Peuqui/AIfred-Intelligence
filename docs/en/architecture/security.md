@@ -146,10 +146,12 @@ sending via Telegram) — no confirmation is required.
 
 ## Memory for the Owner Only
 
-`store_memory`, `update_memory` and `delete_memory` are not gated by the tier
-but by `security.py: may_write_memory(source, trust)`:
+The injected memory context (index of all entries) and the tools
+`read_memory`, `store_memory`, `update_memory` and `delete_memory` are not
+gated by the tier but by `security.py: may_use_memory(source, trust)`.
+Foreign senders see no memories:
 
-| Context | Write memory |
+| Context | Memory |
 |---------|--------------|
 | Browser | yes |
 | Owner via a channel (Telegram ID, email with SPF/DKIM/DMARC pass) | yes |

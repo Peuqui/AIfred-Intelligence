@@ -147,10 +147,12 @@ Owner schreibt via Telegram) — entfällt die Bestätigung.
 
 ## Gedächtnis nur für den Owner
 
-`store_memory`, `update_memory` und `delete_memory` hängen nicht am Tier,
-sondern an `security.py: may_write_memory(source, trust)`:
+Der eingefügte Gedächtnis-Kontext (Index aller Einträge) und die Werkzeuge
+`read_memory`, `store_memory`, `update_memory` und `delete_memory` hängen
+nicht am Tier, sondern an `security.py: may_use_memory(source, trust)`.
+Fremde Absender sehen keine Erinnerungen:
 
-| Kontext | Gedächtnis schreiben |
+| Kontext | Gedächtnis |
 |---------|----------------------|
 | Browser | ja |
 | Owner über einen Kanal (Telegram-ID, E-Mail mit SPF/DKIM/DMARC pass) | ja |

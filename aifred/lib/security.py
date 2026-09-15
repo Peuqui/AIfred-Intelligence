@@ -241,8 +241,9 @@ def filter_tools_by_tier(tools: list[Tool], max_tier: int) -> list[Tool]:
     return [t for t in tools if t.tier <= max_tier]
 
 
-def may_write_memory(source: str, trust: str) -> bool:
-    """Memory writes happen only in owner contexts: the browser, the verified
+def may_use_memory(source: str, trust: str) -> bool:
+    """Agent memory — the injected memory context and the memory tools (read,
+    store, update, delete) — exists only in owner contexts: the browser, the verified
     owner on a channel and the owner's own scheduler jobs (both: trust label
     from resolve_trust_label). Never for foreign senders, whatever tier the
     channel is configured to, and never for webhooks, whose payload comes
