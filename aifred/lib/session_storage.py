@@ -460,6 +460,17 @@ def load_session(session_id: str) -> Optional[Dict[str, Any]]:
         return None
 
 
+def _stamp_new_session(session: Dict[str, Any], now: str) -> None:
+    """Stamp a session that is being created.
+
+    ``last_message_at`` orders the chat picker. A new session starts there as
+    new content, so a fresh chat appears at the top until others receive
+    messages.
+    """
+    session["created_at"] = now
+    session["last_message_at"] = now
+
+
 def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
     """
     Write session dict to file (internal helper).
@@ -546,7 +557,7 @@ def save_session(
         # Ensure timestamps
         now = datetime.now().isoformat()
         if "created_at" not in session_data:
-            session_data["created_at"] = now
+            _stamp_new_session(session_data, now)
         session_data["last_seen"] = now
         session_data["session_id"] = session_id
 
@@ -589,14 +600,24 @@ def update_chat_data(
         session = load_session(session_id)
 
         if session is None:
-            # Session doesn't exist - create with owner (owner is REQUIRED)
+            # Session doesn't exist - create with owner (owner is REQUIRED).
+            # save_session() stamps created_at and last_message_at.
             if not owner:
                 raise ValueError(f"Cannot create session {session_id}: owner is required")
             session = {
-                "created_at": datetime.now().isoformat(),
                 "data": {"config": dict(DEFAULT_SESSION_CONFIG)},
                 "owner": owner.lower()
             }
+            previous_message_count = 0
+        else:
+            # An empty session has no chat_history key yet.
+            previous_message_count = len(session["data"].get("chat_history", []))
+
+        # Only a new message moves a session up in the chat picker. Opening a
+        # session, debug entries, settings or a regenerated answer rewrite the
+        # file without adding a message and keep its place.
+        if len(chat_history) > previous_message_count:
+            session["last_message_at"] = datetime.now().isoformat()
 
         # Update chat data (Dict-based format - no conversion needed)
         session["data"]["chat_history"] = chat_history
@@ -877,14 +898,16 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
     Returns list of dicts with:
     - session_id: Session identifier
     - title: Chat title (LLM-generated, or None if not yet set)
-    - last_seen: Last activity timestamp
+    - last_seen: Last write or opening of the session (login auto-load)
+    - last_message_at: When the session last received a new message
     - created_at: Session creation timestamp
     - message_count: Number of chat messages
     - owner: Username who owns this session
     - channel: Origin channel ("" = interactive browser session)
 
     Returns:
-        List of session info dicts, sorted by last_seen (newest first)
+        List of session info dicts, sorted by last_message_at (newest first):
+        merely opening a session does not reorder the chat picker.
     """
     _ensure_session_dir()
 
@@ -908,6 +931,7 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
                     "session_id": session_file.stem,
                     "title": data.get("data", {}).get("title"),
                     "last_seen": data.get("last_seen", ""),
+                    "last_message_at": data["last_message_at"],
                     "created_at": data.get("created_at", ""),
                     "message_count": len(chat_history),
                     "owner": data.get("owner", "").lower(),
@@ -930,9 +954,24 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
     for stale in set(_session_meta_cache) - seen_files:
         _session_meta_cache.pop(stale, None)
 
-    # Sort by last_seen, newest first
-    sessions.sort(key=lambda s: s.get("last_seen", ""), reverse=True)
+    # Newest message first
+    sessions.sort(key=lambda s: s["last_message_at"], reverse=True)
     return sessions
+
+
+def most_recently_seen_session_id(owner: str) -> Optional[str]:
+    """The owner's session with the newest last_seen, or None without sessions.
+
+    This is what the login auto-load returns to: the session the user opened
+    last, or one a background worker wrote to since. The chat picker orders
+    by new messages instead (see list_sessions()).
+    """
+    sessions = list_sessions(owner=owner)
+    if not sessions:
+        return None
+    latest = max(sessions, key=lambda s: s["last_seen"])
+    session_id: str = latest["session_id"]
+    return session_id
 
 
 def update_session_title(session_id: str, title: str) -> bool:
@@ -965,9 +1004,10 @@ def touch_session(session_id: str) -> bool:
     Mark a session as active now (updates last_seen).
 
     Called when the user switches to a session: opening a session counts as
-    activity, so it ranks as the most recent one on the next login auto-load
-    (see _load_latest_session()). load_session() itself stays read-only —
-    only this explicit call moves a session to the top.
+    activity, so the next login auto-load returns to it (see
+    most_recently_seen_session_id()). It does not add a message, so the
+    session keeps its place in the chat picker. load_session() itself stays
+    read-only.
 
     Args:
         session_id: Session identifier
@@ -1041,6 +1081,7 @@ def set_pending_message(session_id: str, message: str) -> bool:
                 session = json.load(f)
         else:
             session = {"session_id": session_id, "data": {}}
+            _stamp_new_session(session, datetime.now().isoformat())
 
         # Set pending message in session data
         if "data" not in session:
