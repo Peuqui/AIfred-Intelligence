@@ -284,7 +284,7 @@ def _dirty_warning() -> rx.Component:
         AIState.editor_dirty_confirm,
         rx.vstack(
             rx.hstack(
-                rx.icon("alert-triangle", size=16, color="#ff6600"),
+                rx.icon("triangle-alert", size=16, color="#ff6600"),
                 rx.text(
                     t("agent_editor_unsaved_warning"),
                     font_size="13px",

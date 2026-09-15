@@ -27,6 +27,9 @@ import mistune
 _HTML_RENDERER = mistune.create_markdown(
     escape=True,                 # XSS protection: escape HTML inside Markdown
     renderer="html",
+    # Single newlines stay line breaks: agents write "**Heading**\ntext"
+    # and mean two lines, as the browser UI shows them.
+    hard_wrap=True,
     plugins=["table", "strikethrough", "task_lists", "url"],
 )
 
