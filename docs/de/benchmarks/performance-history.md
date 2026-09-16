@@ -19,6 +19,7 @@ Hardware-Basis seit 2026-06/07: 5 GPUs = 192 GB VRAM
 
 | Datum | Änderung | Wirkung |
 |---|---|---|
+| 2026-09-16 | **PLE-Überlaufkaskade** in der Produktion (1Cat-Fork, Pakete 1–3): Flash-Next legt nur noch 2 GiB je Rang in den Host, der Rest der PLE-Tabelle liegt auf GPU 4, optional auf der SSD; Vergleich der drei Speicherwege mit denselben drei Fragen (siehe Abschnitt unten) | MemAvailable nach dem Start 12–17 GiB statt ~2 GiB; Prefill unverändert (540–620 tok/s), Decode gleichauf mit dem alten Weg, SSD-Weg bei 2 von 3 Antworten 10–13 % langsamer (unbelegt, ob Plattenzugriffe); Texte bei gierigem Sampling bitgleich |
 | 2026-09-14 | AIfred-Modellvergleich aller Chat-Modelle, beide Backends, drei feste Fragen inkl. Kuanda-Fangfrage (siehe Abschnitt unten) | Flash-Next 180B beste Qualität, 27B DFlash2 schnellster Decode (64–76 tok/s) aber Kuanda-Halluzination; QUASAR-Eintrag war auf 8.192 Kontext begrenzt (nachgemessen mit 262K/MTP, 1 GPU) |
 | 2026-09-10 | vLLM-Produktion auf 1Cat `work-main` (Upstream + unsere PRs + v100-skinny, Tag `verified-2026-09-10`) | Alt gegen neu am selben Tag bitgleich bzw. kohärent; 27B mit DFlash2 im Bench 77 tok/s, aber noch nicht in llama-swap |
 | 2026-09-01 | AIfred misst vLLM-Prefill und -Decode aus vLLMs eigenen Zählern statt Wanduhr (`7f870514`) | Erst ab hier sind vLLM-Session-Werte mit llama.cpps Server-Timings vergleichbar; ältere vLLM-Werte (Wanduhr inkl. Prefill) fließen nirgends ein |
@@ -114,6 +115,75 @@ kurz und solide, ist mit 15 tok/s und 24–33 s TTFT aber das langsamste. Das
 Decode-Rate. QUASAR denkt am längsten (bis 6:19 min) und erfand beim
 Regenbogen einen Börsenbegriff. Zwei Physikfehler traten modellübergreifend auf: „Totalreflexion“
 im Regentropfen und vertauschte Helligkeit rund um den Bogen.
+
+---
+
+## PLE-Speicherwege von Flash-Next — Vergleich 2026-09-16
+
+Dasselbe Modell (Qwen3.8-Flash-Next 180B-A4B NVFP4, MTP k=4, TP2×PP2) über drei
+llama-swap-Einträge, die sich nur darin unterscheiden, wo die PLE-Tabelle
+(47,7 GiB) liegt. Bedient von Peuqui über die AIfred-Oberfläche, Agent AIfred,
+dieselben drei Fragen wie am 14.09.:
+
+| Sitzung | Eintrag | Weg | Host gepinnt | GPU 4 | SSD |
+|---|---|---|---|---|---|
+| 16:01 | `…-MTP-PLE-Classic-vllm` | PLE→Host | 12 GiB | – | – |
+| 16:46 | `…-MTP-vllm-vlm-qwen3vl4b` (Produktion) | PLE→Host→GPU 4 | 4 GiB | 4,3 GiB | – |
+| 18:00 | `…-MTP-PLE-Disk-vllm` | PLE→Host→GPU 4→SSD | 4 GiB | 1,0 GiB | 3,3 GiB |
+
+Messwerte aus den Footer-Metadaten. **Lesehilfen:** Der Recherchemodus stand
+in der ersten Sitzung auf „aus“, in den beiden anderen auf „Automatik“; bei
+der ersten SSD-Antwort hat die Automatik Webergebnisse eingespeist (17.633
+statt ~3.500 Prompt-Token), daher deren TTFT. Die erzeugten Token stehen
+nicht in den Metadaten. „Load“ = Boot vor Frage 1 (Classic kalt mit neuem
+Compile-Schlüssel).
+
+### Leistung
+
+| Weg | Frage | TTFT | PP tok/s (gerechnet) | TG tok/s | Thinking | Inference | Load |
+|---|---|---|---|---|---|---|---|
+| PLE→Host (Classic) | Quanten | 8,4 s | 468,5 (3.514) | 50,0 | 1:03 min | 1:36 min | 11:47 min |
+| PLE→Host (Classic) | Regenbogen | 6,2 s | 552,0 (3.261) | 42,5 | 1,8 s | 39,9 s | – |
+| PLE→Host (Classic) | Kuanda | 8,4 s | 554,1 (4.636) | 38,8 | 13,2 s | 1:03 min | – |
+| PLE→Host→GPU 4 | Quanten | 7,7 s | 520,7 (3.514) | 48,8 | 31,8 s | 1:02 min | 8:03 min |
+| PLE→Host→GPU 4 | Regenbogen | 5,5 s | 598,3 (3.104) | 41,1 | 4,2 s | 37,7 s | – |
+| PLE→Host→GPU 4 | Kuanda | 7,0 s | 614,6 (4.281) | 49,6 | 1:58 min | 2:23 min | – |
+| PLE→Host→GPU 4→SSD | Quanten | 29,8 s | 621,4 (17.633) | 48,0 | 31,3 s | 1:19 min | 6:57 min ¹ |
+| PLE→Host→GPU 4→SSD | Regenbogen | 7,6 s | 568,6 (4.093) | 37,0 | 0,8 s | 33,5 s | – |
+| PLE→Host→GPU 4→SSD | Kuanda | 6,4 s | 542,4 (3.438) | 37,3 | 5,3 s | 43,6 s | – |
+
+¹ Aus dem llama-swap-Journal (18:00:24 → 18:07:21); der Footer trägt für
+diese Antwort keine Ladezeit.
+
+### Qualität (händisch gelesen)
+
+| Weg | Quantenphysik | Regenbogen | Kuanda (Fangfrage) |
+|---|---|---|---|
+| PLE→Host (Classic) | gut, 30 Sätze | 30 Sätze, mit Fehlern: „Theodor von Frisingen im 12. Jahrhundert“ (Theodor von Freiberg, um 1310), Nebenbögen als Mehrfachreflexion statt Interferenz, zweimal „Bogenbogen“ | **bestanden** — Coandă erkannt; erfundene Namensgeschichte („József Aczél“, „Komunikationsphänomen“), chinesisches Zeichen im Text („教训“) |
+| PLE→Host→GPU 4 | **beste Antwort** — präzise (Davisson-Germer 1927, Aspect/Clauser/Zeilinger, Feynman-Zitat) | **beste Antwort** — Westen/Osten, Innenbereich heller, Nebenbögen als Interferenz, Young; Alexanders Band doppelt erwähnt, „ownen“ | **bestanden, beste Antwort** — An-72, YC-14, fluidische Logik; kleine Fehler (Zerstäuber ist Venturi, Namensgeber Albert Métral) |
+| PLE→Host→GPU 4→SSD | gut, 30 Sätze; „quantum computer“ | nur **29 Sätze** (Punkt 10 fehlt), Wetterregel „Abendrot“ falsch zugeordnet, „Überschlagnetzen“; Theodor von Freiberg um 1310 richtig | **bestanden** — weist den Begriff ausdrücklich zurück („wäre unfein, ihn zu erfinden“); erfundene Beispiele („Jak-36M“, „Canadian Vickers VCS-10“), chinesisches Zeichen („扇“) |
+
+### Einordnung
+
+- **Qualität kommt nicht vom Speicherweg.** Unter gierigem Sampling liefern
+  alle drei Wege bitgleiche Texte (Sonden 4/4, siehe v100-skinny
+  `docs/PLE-KASKADE-ENTWURF.md`). Im Chat wird mit Temperatur gesampelt, jede
+  Antwort ist ein neuer Zug aus derselben Verteilung — Rangfolge und
+  Ausrutscher (chinesische Zeichen, englische Wortreste) sind Streuung des
+  Modells.
+- **Prefill** liegt auf allen Wegen bei 540–620 tok/s; nur die jeweils erste
+  Anfrage nach dem Boot ist niedriger (Aufwärmen). Der SSD-Weg hält 621 tok/s
+  bei 17.633 Token.
+- **Decode** ist zwischen dem alten Weg und der Kaskade gleichauf. Der
+  SSD-Weg liegt bei zwei von drei Antworten 10–13 % darunter. Das passt zu
+  Plattenzugriffen, ist aber nicht belegt: Mit MTP hängt das Decode-Tempo an
+  der Trefferquote des Entwurfs und damit am Text (die Kaskade selbst streut
+  41–50 tok/s), und ob die SSD-Zeilen wirklich kalt von der Platte kamen, ist
+  unbewiesen. Die Lesezähler des Offload-Workers gingen beim Entladen verloren;
+  die Store-Zeilen luden in 25,1 s, so schnell wie mit warmem Cache (25,5 s).
+  Für einen Nachweis: nach `drop_caches` booten, eine Antwort holen,
+  `llama-stats` aufrufen — die Zeile „Platte“ zeigt die tatsächlichen
+  Plattenzugriffe des Modells.
 
 ---
 

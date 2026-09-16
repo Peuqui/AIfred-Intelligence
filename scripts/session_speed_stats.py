@@ -10,6 +10,10 @@ Comparability rules (why some records are dropped):
 - vLLM records before VLLM_METRICS_FIX were wall-clock rates including the
   prefill (commit 7f870514, 2026-09-01 17:34: "Prefill und Decode aus vLLMs
   eigenen Zaehlern statt Wanduhr"). They are not comparable and are dropped.
+- Since 2026-09-16 the answer footer names the running profile after the
+  entry, "(<entry> · MTP · PLE→Host→GPU 4)". Records are grouped by entry
+  AND profile, so memory paths of the same model stay apart. Older records
+  carry the bare entry and cannot say which path ran.
 """
 
 from __future__ import annotations
@@ -50,12 +54,15 @@ def collect(sessions: Path) -> dict[tuple[str, str], list[dict]]:
             if not meta or not meta.get("tokens_per_sec"):
                 continue
             match = SOURCE_MODEL.search(meta.get("source", ""))
-            model = match.group(1) if match else meta.get("source", "")
-            backend = "vllm" if "-vllm" in model else "llamacpp"
+            label = match.group(1) if match else meta.get("source", "")
+            entry, _, profile = label.partition(" · ")
+            backend = "vllm" if "-vllm" in entry else "llamacpp"
+            base = GROUP_SUFFIX.sub("", entry)
+            model = f"{base} · {profile}" if profile else base
             stamp = str(message.get("timestamp", ""))[:19].replace("T", " ")
             if backend == "vllm" and stamp < VLLM_METRICS_FIX:
                 continue
-            groups[(GROUP_SUFFIX.sub("", model), backend)].append(
+            groups[(model, backend)].append(
                 {"stamp": stamp, "decode": meta["tokens_per_sec"],
                  "prefill": meta.get("prompt_per_sec")}
             )
