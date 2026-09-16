@@ -1077,6 +1077,20 @@ LLAMACPP_VISION_PROBE_RESOLUTION = (3840, 2160)
 # die Peaks können sich versionsbedingt verschieben.
 LLAMACPP_VLM_HEADROOM_MB = 500
 
+# ── PLE-Überlaufkaskade (vLLM, Qwen4Exp) ─────────────────────────────
+# Gepinnter Host-RAM je TP-Rang für die PLE-Tabelle. Klein halten: Der Anteil
+# ist anonymer Speicher, den nur der Swap aufnehmen kann — gemessen am
+# 16.09.2026 blieben mit 2 GiB je Rang 12,3 GiB MemAvailable statt 2 GiB bei
+# den vorherigen 6 GiB je Rang. Was nicht in VRAM und Host passt, trägt die
+# Speicherkarte.
+PLE_HOST_SHARE_GIB = float(os.environ.get("AIFRED_PLE_HOST_SHARE_GIB", "2"))
+
+# Sicherheitsabstand auf der Speicherkarte, zusätzlich zu den gemessenen
+# Reserven von VLM und TTS: Kontexte der CUDA-Treiber, Fragmentierung,
+# kurzzeitige Spitzen der Seitenkanäle.
+PLE_STORE_SAFETY_MB = int(os.environ.get("AIFRED_PLE_STORE_SAFETY_MB", "1024"))
+
+
 # Extra headroom added on top of the stress-burn-in-measured TTS peak
 # before subtracting from the LLM's VRAM budget on the TTS GPU. 512 MB
 # covers minor run-to-run drift between the burn-in and production

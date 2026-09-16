@@ -272,10 +272,63 @@ def entry_badges(model_id: str, info: Dict[str, Any]) -> list[str]:
         badges.append(predictor)
     elif not predictor and named:
         badges.append("spec off")
-    store_device = (info.get("env") or {}).get("VLLM_QWEN4EXP_PLE_STORE_DEVICE")
-    if store_device:
-        badges.append(f"PLE→GPU {store_device}")
+    cascade = ple_cascade_path(info.get("env") or {})
+    if cascade:
+        badges.append(cascade)
     return badges
+
+
+def display_model_name(model_id: str, badges: Sequence[str]) -> str:
+    """Der Eintragsname fuer die Anzeige, ohne was die Badges schon sagen.
+
+    Der Schluessel in der llama-swap-Config muss eindeutig sein und traegt
+    deshalb Varianten-Marken wie ``-PLE-Disk``. Im Dropdown steht die Kaskade
+    aber ohnehin als Pfad hinter dem Punkt; die Marke doppelt sie nur.
+    """
+    if not any(badge.startswith("PLE") for badge in badges):
+        return model_id
+    return re.sub(r"-PLE-[A-Za-z0-9]+", "", model_id)
+
+
+def ple_cascade_path(env: Dict[str, str]) -> str:
+    """Die PLE-Stufen eines Eintrags als Pfad, z.B. ``PLE→Host→GPU 4→SSD``.
+
+    Genannt werden nur die Stufen jenseits des VRAM der Rechenkarten, in der
+    Reihenfolge, in der die Kaskade sie fuellt. ``""`` wenn der Eintrag keine
+    PLE-Tabelle verteilt.
+    """
+    tiers: list[str] = []
+    host = env.get("VLLM_QWEN4EXP_PLE_HOST_GIB")
+    if host and _positive(host):
+        tiers.append("Host")
+    store_device = env.get("VLLM_QWEN4EXP_PLE_STORE_DEVICE")
+    if store_device:
+        tiers.append(f"GPU {_physical_gpu(env, store_device)}")
+    if env.get("VLLM_QWEN4EXP_PLE_DISK", "").lower() in ("1", "true"):
+        tiers.append("SSD")
+    return "→".join(["PLE", *tiers]) if tiers else ""
+
+
+def _positive(value: str) -> bool:
+    try:
+        return float(value) > 0
+    except ValueError:
+        return False
+
+
+def _physical_gpu(env: Dict[str, str], visible_index: str) -> str:
+    """Sichtbaren Index auf die Karte abbilden, die der Nutzer kennt.
+
+    ``VLLM_QWEN4EXP_PLE_STORE_DEVICE`` zaehlt in ``CUDA_VISIBLE_DEVICES``, und
+    die Liste ist bei uns umsortiert (0,2,1,3,4). Steht dort eine UUID-Liste
+    oder passt der Index nicht, bleibt der sichtbare Index stehen.
+    """
+    visible = [part.strip() for part in env.get("CUDA_VISIBLE_DEVICES", "").split(",")]
+    try:
+        card = visible[int(visible_index)]
+    except (ValueError, IndexError):
+        return visible_index
+    return card if card.isdigit() else visible_index
 
 
 def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
