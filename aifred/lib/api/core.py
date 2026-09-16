@@ -289,11 +289,13 @@ async def get_available_models():
     # both native --mmproj models (Qwen3.5/3.6) and name-based VLMs.
     from ..vision_utils import is_vision_model_sync as _is_vision_model
 
-    # Get models from global state (populated by initialize_backend)
-    available = global_state.get("available_models", [])
+    # Get models from global state (populated by initialize_backend). The
+    # id -> label mapping is the source; labels are a view and are never
+    # parsed back into an id (they carry size and runtime badges).
+    cached_models: dict = global_state.get("available_models_dict", {})
 
     # If global state is empty, try to fetch from backend
-    if not available:
+    if not cached_models:
         try:
             import httpx
             if backend_type == "ollama":
@@ -314,11 +316,7 @@ async def get_available_models():
         except Exception as e:
             log_message(f"⚠️ API: Failed to fetch models: {e}")
     else:
-        # Use cached models - need to reconstruct dict
-        # Global state stores display labels, we need to extract IDs
-        for display_label in available:
-            # Extract model ID from display label (e.g., "qwen3:8b (2.3 GB)" -> "qwen3:8b")
-            model_id = display_label.split(" (")[0] if " (" in display_label else display_label
+        for model_id, display_label in cached_models.items():
             models_dict[model_id] = display_label
             if _is_vision_model(model_id):
                 vision_models.append(model_id)

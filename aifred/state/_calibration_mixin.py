@@ -3526,9 +3526,11 @@ class CalibrationMixin(rx.State, mixin=True):
                             # Keep list for compatibility (DEPRECATED)
                             self.available_models = list(self.available_models_dict.values())  # type: ignore[attr-defined]
 
-                            # Update global state
+                            # Update global state — the mapping is the source
+                            # every reader needs, the label list only a view.
                             from . import _base
                             _base._global_backend_state["available_models"] = self.available_models  # type: ignore[attr-defined]
+                            _base._global_backend_state["available_models_dict"] = self.available_models_dict  # type: ignore[attr-defined]
 
                             elapsed_time = (attempt + 1) * 0.5
                             self.add_debug(f"✅ Ollama ready after {elapsed_time:.1f}s ({len(self.available_models)} models found)")  # type: ignore[attr-defined]

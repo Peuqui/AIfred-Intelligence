@@ -247,6 +247,37 @@ def speculative_predictor(cmd: str) -> str:
     return ""
 
 
+def entry_badges(model_id: str, info: Dict[str, Any]) -> list[str]:
+    """Display badges of one llama-swap entry, in dropdown order.
+
+    A badge states what the entry name does not: the name carries the model's
+    identity (including a draft block it ships with, "…-MTP-vllm"), the badges
+    carry the runtime. So a predictor the name already names is not repeated,
+    a predictor it does not name is shown, and a model whose name promises one
+    while the entry runs without speculation is marked "spec off" -- otherwise
+    a missing badge would mean both "as the name says" and "switched off".
+    Last badge: the store card of a Qwen4Exp PLE overflow cascade.
+    """
+    badges: list[str] = []
+    predictor = speculative_predictor(info.get("full_cmd", ""))
+    name_parts = [part.casefold() for part in re.split(r"[^A-Za-z0-9]+", model_id)]
+
+    def names(predictor_name: str) -> bool:
+        # A part may carry a variant number ("DFlash2" runs DFlash).
+        head = predictor_name.casefold()
+        return any(part.startswith(head) for part in name_parts)
+
+    named = any(names(name) for name in set(_PREDICTOR_NAMES.values()))
+    if predictor and not names(predictor):
+        badges.append(predictor)
+    elif not predictor and named:
+        badges.append("spec off")
+    store_device = (info.get("env") or {}).get("VLLM_QWEN4EXP_PLE_STORE_DEVICE")
+    if store_device:
+        badges.append(f"PLE→GPU {store_device}")
+    return badges
+
+
 def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
     """Extract sampling parameters (--temp, --top-k, etc.) from a cmd string."""
     flag_map = {

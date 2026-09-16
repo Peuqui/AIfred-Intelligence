@@ -96,8 +96,8 @@ def discover_llamaswap_models(
         data = response.json()
         model_ids = [m['id'] for m in data.get("data", [])]
 
-        # File sizes and speculative predictors from the llama-swap config
-        model_sizes, predictors = _get_llamaswap_model_facts()
+        # File sizes and display badges from the llama-swap config
+        model_sizes, model_badges = _get_llamaswap_model_facts()
 
         result = {}
         for mid in model_ids:
@@ -108,10 +108,13 @@ def discover_llamaswap_models(
                 continue  # Speed/TTS/VLM/Describer/Embed variants are internal; selected automatically
             if is_vllm_entry(mid) != vllm_entries:
                 continue
+            # Badges before the size: the name and what it runs belong
+            # together, the size is the trailing detail.
+            name = " · ".join([mid, *model_badges.get(mid, [])])
             size_gb = model_sizes.get(mid)
-            label = f"{mid} ({format_number(size_gb, 1)} GB)" if size_gb is not None else mid
-            predictor = predictors.get(mid, "")
-            result[mid] = f"{label} · {predictor}" if predictor else label
+            result[mid] = (
+                f"{name} ({format_number(size_gb, 1)} GB)" if size_gb is not None else name
+            )
 
         kind = "vLLM" if vllm_entries else "llama.cpp"
         log_message(f"📂 Found {len(result)} {kind} models (via llama-swap)")
@@ -165,11 +168,11 @@ def _weights_size_bytes(model_path: Path) -> int:
     return _SIZE_CACHE[key]
 
 
-def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, str]]:
-    """Model sizes (GB) and speculative predictors of the llama-swap entries.
+def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, list[str]]]:
+    """Model sizes (GB) and display badges of the llama-swap entries.
 
-    Predictor: display name from ``speculative_predictor`` ("" = none), shown
-    in the model dropdowns next to the size.
+    Badges come from ``entry_badges`` (speculative predictor, PLE overflow)
+    and are shown in the model dropdowns next to the size.
 
     GGUF-Einträge: Dateigröße inkl. Draft-Sidecar (``--model-draft``,
     z.B. DSpark) — der lädt bei jedem Run mit und zählt zum realen
@@ -179,11 +182,11 @@ def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, str]]:
     try:
         from .calibration.projection import draft_gguf_path
         from .calibration import parse_llamaswap_config
-        from .calibration.llamaswap_io import speculative_predictor
+        from .calibration.llamaswap_io import entry_badges
         from .config import LLAMASWAP_CONFIG_PATH
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         result = {}
-        predictors = {mid: speculative_predictor(info["full_cmd"]) for mid, info in config.items()}
+        badges = {mid: entry_badges(mid, info) for mid, info in config.items()}
         for model_id, info in config.items():
             model_path = Path(info["gguf_path"])
             if not model_path.exists():
@@ -195,7 +198,7 @@ def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, str]]:
                 if draft is not None and draft.exists():
                     total_bytes += _weights_size_bytes(draft)
             result[model_id] = total_bytes / (1024 ** 3)
-        return result, predictors
+        return result, badges
     except OSError as e:
         log_message(f"⚠️ Could not read model sizes from llama-swap config: {e}")
         return {}, {}
