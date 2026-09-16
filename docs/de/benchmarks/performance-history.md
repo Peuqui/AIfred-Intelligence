@@ -19,7 +19,7 @@ Hardware-Basis seit 2026-06/07: 5 GPUs = 192 GB VRAM
 
 | Datum | Änderung | Wirkung |
 |---|---|---|
-| 2026-09-16 | **PLE-Überlaufkaskade** in der Produktion (1Cat-Fork, Pakete 1–3): Flash-Next legt nur noch 2 GiB je Rang in den Host, der Rest der PLE-Tabelle liegt auf GPU 4, optional auf der SSD; Vergleich der drei Speicherwege mit denselben drei Fragen (siehe Abschnitt unten) | MemAvailable nach dem Start 12–17 GiB statt ~2 GiB; Prefill unverändert (540–620 tok/s), Decode gleichauf mit dem alten Weg, SSD-Weg bei 2 von 3 Antworten 10–13 % langsamer (unbelegt, ob Plattenzugriffe); Texte bei gierigem Sampling bitgleich |
+| 2026-09-16 | **PLE-Überlaufkaskade** in der Produktion (1Cat-Fork, Pakete 1–3): Flash-Next legt nur noch 2 GiB je Rang in den Host, der Rest der PLE-Tabelle liegt auf GPU 4, optional auf der SSD; Vergleich der drei Speicherwege mit denselben drei Fragen (siehe Abschnitt unten) | MemAvailable nach dem Start 12–17 GiB statt ~2 GiB; Prefill unverändert (520–620 tok/s); Decode auf die MTP-Trefferquote normiert: Kaskade −1 % gegenüber dem alten Weg, SSD-Weg −4 % gegenüber der Kaskade; kalter Seiten-Cache (nach `drop_caches`) ohne messbare Wirkung; Texte bei gierigem Sampling bitgleich |
 | 2026-09-14 | AIfred-Modellvergleich aller Chat-Modelle, beide Backends, drei feste Fragen inkl. Kuanda-Fangfrage (siehe Abschnitt unten) | Flash-Next 180B beste Qualität, 27B DFlash2 schnellster Decode (64–76 tok/s) aber Kuanda-Halluzination; QUASAR-Eintrag war auf 8.192 Kontext begrenzt (nachgemessen mit 262K/MTP, 1 GPU) |
 | 2026-09-10 | vLLM-Produktion auf 1Cat `work-main` (Upstream + unsere PRs + v100-skinny, Tag `verified-2026-09-10`) | Alt gegen neu am selben Tag bitgleich bzw. kohärent; 27B mit DFlash2 im Bench 77 tok/s, aber noch nicht in llama-swap |
 | 2026-09-01 | AIfred misst vLLM-Prefill und -Decode aus vLLMs eigenen Zählern statt Wanduhr (`7f870514`) | Erst ab hier sind vLLM-Session-Werte mit llama.cpps Server-Timings vergleichbar; ältere vLLM-Werte (Wanduhr inkl. Prefill) fließen nirgends ein |
@@ -123,20 +123,24 @@ im Regentropfen und vertauschte Helligkeit rund um den Bogen.
 Dasselbe Modell (Qwen3.8-Flash-Next 180B-A4B NVFP4, MTP k=4, TP2×PP2) über drei
 llama-swap-Einträge, die sich nur darin unterscheiden, wo die PLE-Tabelle
 (47,7 GiB) liegt. Bedient von Peuqui über die AIfred-Oberfläche, Agent AIfred,
-dieselben drei Fragen wie am 14.09.:
+dieselben drei Fragen wie am 14.09. Den SSD-Weg hat Peuqui zweimal gefahren,
+das zweite Mal mit leerem Seiten-Cache (`sync; echo 3 > /proc/sys/vm/drop_caches`
+unmittelbar vor dem Laden):
 
 | Sitzung | Eintrag | Weg | Host gepinnt | GPU 4 | SSD |
 |---|---|---|---|---|---|
 | 16:01 | `…-MTP-PLE-Classic-vllm` | PLE→Host | 12 GiB | – | – |
 | 16:46 | `…-MTP-vllm-vlm-qwen3vl4b` (Produktion) | PLE→Host→GPU 4 | 4 GiB | 4,3 GiB | – |
 | 18:00 | `…-MTP-PLE-Disk-vllm` | PLE→Host→GPU 4→SSD | 4 GiB | 1,0 GiB | 3,3 GiB |
+| 18:22 | `…-MTP-PLE-Disk-vllm`, Cache geleert | PLE→Host→GPU 4→SSD | 4 GiB | 1,0 GiB | 3,3 GiB |
 
 Messwerte aus den Footer-Metadaten. **Lesehilfen:** Der Recherchemodus stand
-in der ersten Sitzung auf „aus“, in den beiden anderen auf „Automatik“; bei
-der ersten SSD-Antwort hat die Automatik Webergebnisse eingespeist (17.633
+in der ersten Sitzung auf „aus“, in den anderen auf „Automatik“; bei beiden
+ersten SSD-Antworten hat die Automatik Webergebnisse eingespeist (17.633
 statt ~3.500 Prompt-Token), daher deren TTFT. Die erzeugten Token stehen
 nicht in den Metadaten. „Load“ = Boot vor Frage 1 (Classic kalt mit neuem
-Compile-Schlüssel).
+Compile-Schlüssel). Die SSD ist die Boot-NVMe im USB-Gehäuse (`/dev/sda`,
+ext4).
 
 ### Leistung
 
@@ -151,9 +155,54 @@ Compile-Schlüssel).
 | PLE→Host→GPU 4→SSD | Quanten | 29,8 s | 621,4 (17.633) | 48,0 | 31,3 s | 1:19 min | 6:57 min ¹ |
 | PLE→Host→GPU 4→SSD | Regenbogen | 7,6 s | 568,6 (4.093) | 37,0 | 0,8 s | 33,5 s | – |
 | PLE→Host→GPU 4→SSD | Kuanda | 6,4 s | 542,4 (3.438) | 37,3 | 5,3 s | 43,6 s | – |
+| PLE→Host→GPU 4→SSD, kalt | Quanten | 29,8 s | 621,7 (17.633) | 48,4 | 17,8 s | 1:06 min | 6:49 min ² |
+| PLE→Host→GPU 4→SSD, kalt | Regenbogen | 8,2 s | 523,3 (4.033) | 37,0 | 0,8 s | 36,7 s | – |
+| PLE→Host→GPU 4→SSD, kalt | Kuanda | 6,6 s | 534,2 (3.488) | 37,3 | 13,6 s | 55,7 s | – |
 
 ¹ Aus dem llama-swap-Journal (18:00:24 → 18:07:21); der Footer trägt für
 diese Antwort keine Ladezeit.
+² Footer, gezählt ab dem Absenden der Frage. Im Journal nach derselben Regel
+wie ¹: 18:22:57 → 18:29:31 = 6:33 min.
+
+### Decode, auf die MTP-Trefferquote normiert
+
+Mit MTP erzeugt jeder Vorwärtsschritt im Mittel so viele Token, wie die
+Akzeptanzlänge angibt; das Decode-Tempo geteilt durch sie ergibt die
+Vorwärtsschritte je Sekunde, und die hängen nicht mehr am Text. Die
+Akzeptanzlänge stammt aus vLLMs 10-s-Protokollzeilen „SpecDecoding metrics“
+im llama-swap-Journal, summiert über das Decode-Fenster jeder Antwort
+(TTFT bis Ende).
+
+| Weg | Quanten | Regenbogen | Kuanda | Schritte/s (Mittel) | Δ zu Classic | Δ zur Kaskade |
+|---|---|---|---|---|---|---|
+| PLE→Host (Classic) | 50,0 / 2,76 = 18,14 | 42,5 / 2,31 = 18,44 | 38,8 / 2,13 = 18,26 | 18,28 | – | +1,2 % |
+| PLE→Host→GPU 4 | 48,8 / 2,71 = 18,02 | 41,1 / 2,25 = 18,24 | 49,6 / 2,76 = 17,95 | 18,07 | −1,1 % | – |
+| PLE→Host→GPU 4→SSD | 48,0 / 2,77 = 17,34 | 37,0 / 2,14 = 17,27 | 37,3 / 2,15 = 17,41 | 17,34 | −5,1 % | −4,0 % |
+| PLE→Host→GPU 4→SSD, kalt | 48,4 / 2,79 = 17,34 | 37,0 / 2,12 = 17,46 | 37,3 / 2,13 = 17,48 | 17,43 | −4,7 % | −3,6 % |
+
+Zellen: TG tok/s / Akzeptanzlänge = Schritte/s. Innerhalb eines Weges
+liegen die drei Antworten höchstens 1,7 % auseinander.
+
+### Plattenzugriffe im kalten Lauf
+
+Gemessen am PLE-Offload-Worker (der die Store- und SSD-Zeilen bedient) alle
+5 s aus `/proc/<pid>/io` (`read_bytes`) und `/proc/<pid>/stat` (Major-Faults),
+Rohdaten in v100-skinny `handover/2026-09-15/p3_cold_worker_io.csv`:
+
+| Phase | Zeitraum | gelesen | Major-Faults |
+|---|---|---|---|
+| Boot: Worker bis „PLE weight loading complete“ | 18:23:25 → 18:25:45 | 21.571 MiB | 15.327 |
+| Store-Zeilen auf GPU 4 laden (25,8 s) | 18:28:16 → 18:28:51 | 1.117 MiB | 261.830 |
+| Aufwärmen bis bereit | 18:28:51 → 18:29:31 | 15 MiB | 2.890 |
+| Quanten (17.633 Prompt-Token) | 18:29:36 → 18:30:46 | 56 MiB | 14.056 |
+| Regenbogen (4.033) | 18:31:06 → 18:31:47 | 10 MiB | 2.428 |
+| Kuanda (3.488) | 18:32:32 → 18:33:32 | 13 MiB | 3.389 |
+
+Ab dem Laden der Store-Zeilen kommt auf jeden Fault rund eine 4-KiB-Seite
+(1,0 GiB Store = 262.144 Seiten; Quanten 56 MiB / 14.056 Faults): Der Worker
+mappt die Tabelle mit `access=random`, der Kernel liest nichts voraus. Das
+sind also echte Einzelzugriffe auf die Platte, auch im Decode noch
+2.400–3.300 je Antwort.
 
 ### Qualität (händisch gelesen)
 
@@ -162,6 +211,7 @@ diese Antwort keine Ladezeit.
 | PLE→Host (Classic) | gut, 30 Sätze | 30 Sätze, mit Fehlern: „Theodor von Frisingen im 12. Jahrhundert“ (Theodor von Freiberg, um 1310), Nebenbögen als Mehrfachreflexion statt Interferenz, zweimal „Bogenbogen“ | **bestanden** — Coandă erkannt; erfundene Namensgeschichte („József Aczél“, „Komunikationsphänomen“), chinesisches Zeichen im Text („教训“) |
 | PLE→Host→GPU 4 | **beste Antwort** — präzise (Davisson-Germer 1927, Aspect/Clauser/Zeilinger, Feynman-Zitat) | **beste Antwort** — Westen/Osten, Innenbereich heller, Nebenbögen als Interferenz, Young; Alexanders Band doppelt erwähnt, „ownen“ | **bestanden, beste Antwort** — An-72, YC-14, fluidische Logik; kleine Fehler (Zerstäuber ist Venturi, Namensgeber Albert Métral) |
 | PLE→Host→GPU 4→SSD | gut, 30 Sätze; „quantum computer“ | nur **29 Sätze** (Punkt 10 fehlt), Wetterregel „Abendrot“ falsch zugeordnet, „Überschlagnetzen“; Theodor von Freiberg um 1310 richtig | **bestanden** — weist den Begriff ausdrücklich zurück („wäre unfein, ihn zu erfinden“); erfundene Beispiele („Jak-36M“, „Canadian Vickers VCS-10“), chinesisches Zeichen („扇“) |
+| PLE→Host→GPU 4→SSD, kalt | gut, 30 Sätze — Planck, Born, Heisenberg, Bell, Anwendungen; den Doppelspalt als Beleg für de Broglie genannt (eigentlich Davisson-Germer) | 30 Sätze, **mehrere Sachfehler**: Innenseite des Bogens „dunkler“ (sie ist heller), „Alexanderson-Feld“ (Alexanders dunkles Band), Nebelbogen aus „verkehrt geneigten Tropfen“; „Glaswasser“, „sogenanntenantisolar Punkt“; Theodoric von Freiberg 1310, Descartes 1637, Airy richtig | **bestanden** — Coandă genannt, die Deutung offengelegt; An-72, Dyson, fluidische Logik richtig; erfundener „Afanassjew-Effekt“, Hitzdrahtanemometer falsch zugeordnet, Tippfehler („stess“, „einopportunes“) |
 
 ### Einordnung
 
@@ -170,20 +220,31 @@ diese Antwort keine Ladezeit.
   `docs/PLE-KASKADE-ENTWURF.md`). Im Chat wird mit Temperatur gesampelt, jede
   Antwort ist ein neuer Zug aus derselben Verteilung — Rangfolge und
   Ausrutscher (chinesische Zeichen, englische Wortreste) sind Streuung des
-  Modells.
-- **Prefill** liegt auf allen Wegen bei 540–620 tok/s; nur die jeweils erste
-  Anfrage nach dem Boot ist niedriger (Aufwärmen). Der SSD-Weg hält 621 tok/s
-  bei 17.633 Token.
-- **Decode** ist zwischen dem alten Weg und der Kaskade gleichauf. Der
-  SSD-Weg liegt bei zwei von drei Antworten 10–13 % darunter. Das passt zu
-  Plattenzugriffen, ist aber nicht belegt: Mit MTP hängt das Decode-Tempo an
-  der Trefferquote des Entwurfs und damit am Text (die Kaskade selbst streut
-  41–50 tok/s), und ob die SSD-Zeilen wirklich kalt von der Platte kamen, ist
-  unbewiesen. Die Lesezähler des Offload-Workers gingen beim Entladen verloren;
-  die Store-Zeilen luden in 25,1 s, so schnell wie mit warmem Cache (25,5 s).
-  Für einen Nachweis: nach `drop_caches` booten, eine Antwort holen,
-  `llama-stats` aufrufen — die Zeile „Platte“ zeigt die tatsächlichen
-  Plattenzugriffe des Modells.
+  Modells. Die beiden SSD-Läufe zeigen das: gleicher Weg, gleiche Fragen,
+  andere Fehler.
+- **Prefill** liegt auf allen Wegen bei 520–620 tok/s, kalt wie warm; nur
+  die erste Classic-Antwort nach dem kalten Compile ist niedriger
+  (468 tok/s). Beide SSD-Läufe halten 621–622 tok/s bei 17.633 Token.
+- **Decode hängt am Text, der Speicherweg kostet wenig.** Die rohen
+  TG-Werte streuen 37–50 tok/s, weil MTP je nach Text 28–45 % der
+  Entwurfs-Token trifft. Auf die Trefferquote normiert (Tabelle oben) kostet
+  die Kaskade gegenüber dem alten Weg 1 % und die SSD-Stufe weitere 4 %. Die
+  37 tok/s beim Regenbogen und bei Kuanda erklären sich damit zum größten
+  Teil durch die niedrige Trefferquote dieser Antworten (28 %), nicht durch
+  die Platte: Beide SSD-Läufe treffen bei denselben Fragen dieselbe Quote und
+  dasselbe Tempo.
+- **Ein kalter Seiten-Cache ändert nichts Messbares.** Die SSD-Zeilen kamen
+  im kalten Lauf nachweislich einzeln von der Platte (Tabelle oben), trotzdem
+  liegen die Schritte/s 0,5 % über dem ersten SSD-Lauf. Die Store-Zeilen
+  luden kalt in 25,8 s, genauso schnell wie in den früheren Boots
+  (25,1–25,8 s), und der ganze Boot war mit 6:33 min nicht langsamer (vorher
+  6:57 und 6:52 min). Der Seiten-Cache fasst beim Boot höchstens 27 GiB, der
+  Checkpoint hat 123,6 GiB: Der Boot liest ohnehin fast alles von der Platte,
+  ob der Cache vorher leer war oder nicht.
+- **Offen:** Ob die 4 % der SSD-Stufe auf das Warten auf die Platte oder auf
+  den Lesepfad selbst entfallen (mmap-Lesen im Worker statt `index_select`
+  auf der Karte), trennt diese Messung nicht; dafür müsste man dieselben
+  Zeilen einmal vollständig vorgeladen messen.
 
 ---
 
