@@ -33,6 +33,7 @@ from .bubble import (
 )
 from .formatting import build_inference_metadata
 from .logging_utils import log_message, log_raw_messages
+from .model_discovery import running_profile_label
 from .perf_metrics import InferenceWork
 from .timer import Timer
 
@@ -368,7 +369,7 @@ async def run_llm_stream(
                                 ttft=vlm_stats.get("ttft_s"),
                                 inference_time=float(vlm_stats["inference_s"]),
                                 work=vlm_work,
-                                source=f"VL ({vlm_model})" if vlm_model else "VL",
+                                source=f"VL ({running_profile_label(vlm_model)})" if vlm_model else "VL",
                                 tokens_prompt=vlm_work.prefill_tokens,
                                 backend_type=str(vlm_stats["backend"]),
                                 agent_label="👁️ VLM",
@@ -589,7 +590,7 @@ async def run_llm_stream(
         ttft=ttft,
         inference_time=inference_time,
         work=work,
-        source=f"{agent_label} ({model})",
+        source=f"{agent_label} ({running_profile_label(model)})",
         tokens_prompt=metrics.get("tokens_prompt", 0),
         backend_type=llm_client.backend_type,
         agent_label=agent_label,

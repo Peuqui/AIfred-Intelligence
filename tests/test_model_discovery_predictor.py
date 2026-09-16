@@ -87,3 +87,32 @@ def test_display_name_drops_what_the_cascade_badge_already_says() -> None:
     # Ohne Kaskaden-Badge bleibt der Name, wie er ist.
     assert display_model_name(base + "-PLE-Disk", ["MTP"]) == base + "-PLE-Disk"
     assert display_model_name(base, ["PLE→Host"]) == base
+
+
+def test_answer_footer_names_the_running_entry_with_its_profile(tmp_path, monkeypatch) -> None:
+    """Die Source-Zeile sagt dasselbe wie das Dropdown, auch fuer Varianten."""
+    import aifred.lib.config as config_module
+    from aifred.lib.model_discovery import running_profile_label
+
+    config = tmp_path / "config.yaml"
+    config.write_text(
+        "models:\n"
+        "  Flash-MTP-vllm-vlm-qwen3vl4b:\n"
+        "    cmd: python -m vllm --model /m --speculative-config '{\"method\":\"mtp\"}'\n"
+        "    env:\n"
+        "    - CUDA_VISIBLE_DEVICES=0,2,1,3,4\n"
+        "    - VLLM_QWEN4EXP_PLE_HOST_GIB=2\n"
+        "    - VLLM_QWEN4EXP_PLE_STORE_DEVICE=4\n"
+        "  Flash-MTP-PLE-Classic-vllm:\n"
+        "    cmd: python -m vllm --model /m --speculative-config '{\"method\":\"mtp\"}'\n"
+        "    env:\n"
+        "    - VLLM_QWEN4EXP_PLE_HOST_GIB=6\n"
+    )
+    monkeypatch.setattr(config_module, "LLAMASWAP_CONFIG_PATH", config)
+
+    assert running_profile_label("Flash-MTP-vllm-vlm-qwen3vl4b") == (
+        "Flash-MTP-vllm-vlm-qwen3vl4b · PLE→Host→GPU 4"
+    )
+    assert running_profile_label("Flash-MTP-PLE-Classic-vllm") == "Flash-MTP-vllm · PLE→Host"
+    # Nicht in der Config (Ollama, Cloud): die ID ist der Name.
+    assert running_profile_label("qwen3:8b") == "qwen3:8b"

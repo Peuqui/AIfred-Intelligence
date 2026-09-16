@@ -111,8 +111,7 @@ def discover_llamaswap_models(
                 continue
             # Badges before the size: the name and what it runs belong
             # together, the size is the trailing detail.
-            badges = model_badges.get(mid, [])
-            name = " · ".join([display_model_name(mid, badges), *badges])
+            name = profile_label(mid, model_badges.get(mid, []))
             size_gb = model_sizes.get(mid)
             result[mid] = (
                 f"{name} ({format_number(size_gb, 1)} GB)" if size_gb is not None else name
@@ -168,6 +167,34 @@ def _weights_size_bytes(model_path: Path) -> int:
             vllm_checkpoint_size_bytes(model_path) if model_path.is_dir() else get_gguf_total_size(model_path)
         )
     return _SIZE_CACHE[key]
+
+
+def profile_label(model_id: str, badges: list[str]) -> str:
+    """Name eines Eintrags mit seinem Laufzeit-Profil, z.B.
+    ``…-MTP-vllm · PLE→Host→GPU 4``.
+
+    Die eine Beschriftung fuer Dropdown und Antwort-Fusszeile, damit beide
+    dasselbe sagen; das Dropdown haengt nur noch die Groesse an.
+    """
+    return " · ".join([display_model_name(model_id, badges), *badges])
+
+
+def running_profile_label(model_id: str) -> str:
+    """Beschriftung des Eintrags, der eine Antwort tatsaechlich erzeugt hat.
+
+    Liest die Badges dieses einen Eintrags aus der llama-swap-Config — auch
+    fuer Seitenkanal-Varianten (``-vlm-``, ``-tts-``), die im Dropdown nicht
+    stehen. Steht die ID nicht in der Config (Ollama, Cloud), ist sie selbst
+    der Name.
+    """
+    from .calibration import parse_llamaswap_config
+    from .calibration.llamaswap_io import entry_badges
+    from .config import LLAMASWAP_CONFIG_PATH
+
+    info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(model_id)
+    if info is None:
+        return model_id
+    return profile_label(model_id, entry_badges(model_id, info))
 
 
 def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, list[str]]]:
