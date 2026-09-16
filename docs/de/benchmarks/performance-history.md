@@ -19,6 +19,7 @@ Hardware-Basis seit 2026-06/07: 5 GPUs = 192 GB VRAM
 
 | Datum | Änderung | Wirkung |
 |---|---|---|
+| 2026-09-16 abends | **Flash-Next-Produktion: PLE ohne Kaskade, 3 statt 6 GiB Host je Rang** — die Tabelle füllt die RTX 8000 bis auf den KV-Bedarf für 262k, GPU 4 bleibt für TTS/Vision frei; Kaskade als 1Cat-PR #646 angeboten | Host gepinnt 6 statt 12 GiB, MemAvailable nach dem Start 8,2 statt 2,5 GiB; Decode −0,2 % gegenüber dem alten Classic-Kontrolllauf (Kaskade −2,0 %); Texte 4/4 bitgleich |
 | 2026-09-16 | **PLE-Überlaufkaskade** in der Produktion (1Cat-Fork, Pakete 1–3): Flash-Next legt nur noch 2 GiB je Rang in den Host, der Rest der PLE-Tabelle liegt auf GPU 4, optional auf der SSD; Vergleich der drei Speicherwege mit denselben drei Fragen (siehe Abschnitt unten) | MemAvailable nach dem Start 12–17 GiB statt ~2 GiB; Prefill unverändert (520–620 tok/s); Decode auf die MTP-Trefferquote normiert: Kaskade −1 % gegenüber dem alten Weg, SSD-Weg −4 % gegenüber der Kaskade; kalter Seiten-Cache (nach `drop_caches`) ohne messbare Wirkung; Texte bei gierigem Sampling bitgleich |
 | 2026-09-14 | AIfred-Modellvergleich aller Chat-Modelle, beide Backends, drei feste Fragen inkl. Kuanda-Fangfrage (siehe Abschnitt unten) | Flash-Next 180B beste Qualität, 27B DFlash2 schnellster Decode (64–76 tok/s) aber Kuanda-Halluzination; QUASAR-Eintrag war auf 8.192 Kontext begrenzt (nachgemessen mit 262K/MTP, 1 GPU) |
 | 2026-09-10 | vLLM-Produktion auf 1Cat `work-main` (Upstream + unsere PRs + v100-skinny, Tag `verified-2026-09-10`) | Alt gegen neu am selben Tag bitgleich bzw. kohärent; 27B mit DFlash2 im Bench 77 tok/s, aber noch nicht in llama-swap |
@@ -245,6 +246,31 @@ sind also echte Einzelzugriffe auf die Platte, auch im Decode noch
   den Lesepfad selbst entfallen (mmap-Lesen im Worker statt `index_select`
   auf der Karte), trennt diese Messung nicht; dafür müsste man dieselben
   Zeilen einmal vollständig vorgeladen messen.
+
+### Nachtrag: Classic mit 3 GiB — Produktion ab 16.09. abends
+
+Die RTX 8000 hatten auf beiden Wegen Luft: Stufe 0 bekam 5,22 GiB (Kaskade)
+bzw. 6,14–7,17 GiB (Classic 6 GiB) für den KV-Cache, 262k Token brauchen
+1,76 GiB, und der KV-Pool wird ohnehin von der V100-Stufe begrenzt (645.599
+Token warm, 312.341 nach kaltem Compile — auf beiden Wegen gleich). Also
+wandert mehr Tabelle in den VRAM: `VLLM_QWEN4EXP_PLE_HOST_GIB=3` ohne Kaskade.
+Maßstab ist der kalte Compile, denn eine neue Host-Menge ändert den
+Compile-Schlüssel.
+
+Gierige Sonde (drei Prompts plus Wiederholung, 260 Token, gegen die Referenz
+vom 15.09.), Rohdaten v100-skinny `handover/2026-09-15/p4_classic_host3.json`:
+
+| Weg | PLE im VRAM je Rang | Host gepinnt | GPU 4 | KV-Speicher Stufe 0 (kalt) | MemAvailable nach dem Start | Text | Decode tok/s |
+|---|---|---|---|---|---|---|---|
+| Classic 6 GiB (Kontrolllauf) | 17,84 GiB | 12 GiB | frei | 6,14 GiB | 2,5 GiB | 4/4 bitgleich | 60,1 / 56,0 / 65,9 / 60,6 |
+| **Classic 3 GiB** | **20,84 GiB** | **6 GiB** | **frei** | **3,15 GiB** | **8,2 GiB** | **4/4 bitgleich** | **59,7 / 56,0 / 66,3 / 60,1** |
+| Kaskade 2 GiB + GPU 4 | 19,60 / 19,79 GiB | 4 GiB | 4,3 GiB | 4,19 GiB | 11,8 GiB | 4/4 bitgleich | 59,0 / 54,9 / 65,0 / 58,8 |
+
+Classic 3 GiB ist so schnell wie der alte Weg (−0,2 % gegen dessen
+Kontrolllauf, die Kaskade −2,0 %), halbiert den gepinnten Host-RAM und lässt
+GPU 4 frei. Die Kaskade gibt 3,6 GiB mehr RAM frei, kostet aber die Wege über
+den Offload-Worker; sie lohnt sich, sobald eine Tabelle deutlich nicht mehr in
+VRAM plus vertretbaren Host-Anteil passt. Boot kalt 11,7 min, fehlerfrei.
 
 ---
 
