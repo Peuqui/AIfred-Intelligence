@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Dict, Optional
 import httpx
 
+from .calibration.llamaswap_io import display_model_name
 from .formatting import format_number
 from .logging_utils import log_message
 from .model_manager import sort_models_grouped
@@ -110,7 +111,8 @@ def discover_llamaswap_models(
                 continue
             # Badges before the size: the name and what it runs belong
             # together, the size is the trailing detail.
-            name = " · ".join([mid, *model_badges.get(mid, [])])
+            badges = model_badges.get(mid, [])
+            name = " · ".join([display_model_name(mid, badges), *badges])
             size_gb = model_sizes.get(mid)
             result[mid] = (
                 f"{name} ({format_number(size_gb, 1)} GB)" if size_gb is not None else name
