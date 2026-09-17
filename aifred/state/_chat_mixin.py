@@ -1610,8 +1610,10 @@ class ChatMixin(rx.State, mixin=True):
             )
 
             self.add_debug(f"❌ Generation failed: {e}")
-            from ..backends.base import BackendConnectionError
-            if not isinstance(e, BackendConnectionError):
+            # Expected, self-explaining failures carry their reason in the
+            # message; a traceback would only bury it.
+            from ..backends.base import BackendConnectionError, BackendModelStartError
+            if not isinstance(e, (BackendConnectionError, BackendModelStartError)):
                 import traceback
                 self.add_debug(f"Traceback: {traceback.format_exc()}")
 

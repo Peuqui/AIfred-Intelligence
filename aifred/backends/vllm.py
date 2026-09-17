@@ -62,7 +62,7 @@ class vLLMBackend(OpenAICompatibleBackend):
         """
         if self._metrics_port:
             return self._metrics_port
-        root = self.base_url.rsplit("/v1", 1)[0]
+        root = self._llamaswap_root()
         try:
             with urllib.request.urlopen(f"{root}/running", timeout=3) as r:
                 laufend = json.loads(r.read()).get("running") or []
