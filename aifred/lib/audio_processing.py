@@ -1128,6 +1128,12 @@ def clean_text_for_tts(text):
     clean_text = re.sub(r'[=]{3,}', '\n', clean_text)  # ASCII equals (===) → pause
     clean_text = re.sub(r'[_]{3,}', '\n', clean_text)  # ASCII underscores (___) → pause
 
+    # Remove the performance footer "*( TTFT: ...    Source: AIfred (Modell) [vllm] ... )*"
+    # (formatting.format_metadata) as a whole, BEFORE the asterisks go: it contains
+    # parentheses of its own ("PP: ... (5.685 tok)", "AIfred (Modell)"), so the
+    # timing filter below would cut at the first ")" and leave the rest to be read.
+    clean_text = re.sub(r'\*\(\s[\s\S]*?\s\)\*', '', clean_text)
+
     # Remove markdown formatting and special characters
     clean_text = re.sub(r'\*\*', '', clean_text)  # Bold **text**
     clean_text = re.sub(r'\*', '', clean_text)    # Italic *text* or bullet points

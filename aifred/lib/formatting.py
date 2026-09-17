@@ -289,13 +289,16 @@ def format_metadata(metadata_text: str) -> str:
         word-break cut it anywhere ("48,5 tok/" | "s").
         Spaces inside a value (e.g. "TTFT: 0.25s") are non-breaking from the
         callers, so a value itself never splits.
+        The spaces inside the parentheses are non-breaking too: with normal
+        spaces a nearly full line wrapped only the closing ")" onto its own
+        line (or left "(" alone at the end of the previous one).
     """
     if not metadata_text:
         return metadata_text
 
     text = metadata_text.strip()
     text = text.replace("    ", METADATA_SEPARATOR)
-    return f'*( {text} )*'
+    return f'*( {text} )*'
 
 
 def _format_prefill(prompt_per_sec: float | None, tokens: int = 0) -> str:

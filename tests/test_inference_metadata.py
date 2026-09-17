@@ -79,3 +79,10 @@ def test_metadata_line_wraps_between_values_never_inside() -> None:
     # ... while each value keeps its own spaces non-breaking.
     for value in body.split("    "):
         assert " " not in value
+
+
+def test_metadata_parentheses_never_wrap_alone() -> None:
+    """A nearly full footer line wrapped only the closing ")" onto its own line:
+    the spaces next to the parentheses were normal (breakable) spaces."""
+    display = format_performance_footer({"ttft": 6.44, "tokens_per_sec": 55.0, "source": "AIfred (m)"})
+    assert display.startswith("*(\u00A0") and display.endswith("\u00A0)*")
