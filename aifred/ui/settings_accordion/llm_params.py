@@ -16,11 +16,7 @@ def llm_parameters_accordion() -> rx.Component:
     return rx.popover.root(
         rx.popover.trigger(
             rx.button(
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "\u2699\ufe0f LLM-Parameter (Erweitert)",
-                    "\u2699\ufe0f LLM Parameters (Advanced)"
-                ),
+                t("llm_parameters"),
                 variant="soft",
                 color_scheme="gray",
                 size="2",
@@ -37,11 +33,7 @@ def llm_parameters_accordion() -> rx.Component:
                 # Context Window Control
                 rx.vstack(
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "\U0001f4e6 Context Window",
-                            "\U0001f4e6 Context Window"
-                        ),
+                        t("context_window"),
                         font_weight="bold",
                         font_size="12px"
                     ),
@@ -81,11 +73,7 @@ def llm_parameters_accordion() -> rx.Component:
 
                     # Show Calculation Button (styled like "Text senden" button)
                     rx.button(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "\U0001f4ca Berechnung anzeigen",
-                            "\U0001f4ca Show Calculation"
-                        ),
+                        t("context_show_calculation"),
                         on_click=AIState.calculate_manual_context,
                         size="1",
                         variant="solid",
@@ -102,13 +90,10 @@ def llm_parameters_accordion() -> rx.Component:
                         },
                     ),
 
-                    # Info Text (Chat context resets, Vision is saved)
+                    # Chat agents' manual num_ctx is not persisted, vision's is
+                    # (_settings_mixin.save_settings); the hint covers every chat agent.
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "AIfred/Sokrates/Salomo: Neustart setzt zur\u00fcck | Vision: wird gespeichert",
-                            "AIfred/Sokrates/Salomo: resets on restart | Vision: saved"
-                        ),
+                        t("context_window_persist_hint"),
                         font_size="11px",
                         color=COLORS["warning_text"],
                         font_style="italic",

@@ -126,11 +126,7 @@ def _backend_row() -> rx.Component:
             rx.hstack(
                 rx.spinner(size="1", color="orange"),
                 rx.badge(
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        "Wechsle...",
-                        "Switching...",
-                    ),
+                    t("backend_switching"),
                     color_scheme="orange"
                 ),
                 spacing="2",
@@ -146,11 +142,7 @@ def _backend_row() -> rx.Component:
                     value="gpu-details",
                     header=rx.box(
                         rx.text(
-                            rx.cond(
-                                AIState.ui_language == "de",
-                                "\U0001f5a5\ufe0f GPU-Details",
-                                "\U0001f5a5\ufe0f GPU Details"
-                            ),
+                            t("gpu_details"),
                             font_size="11px",
                             font_weight="500",
                             color="#2a9d8f",
@@ -169,30 +161,18 @@ def _backend_row() -> rx.Component:
                             AIState.gpu_compute_cap < 7.0,
                             rx.box(
                                 rx.text(
-                                    rx.cond(
-                                        AIState.ui_language == "de",
-                                        "vLLM ben\u00f6tigt Compute 7.0+",
-                                        "vLLM requires Compute 7.0+"
-                                    ),
+                                    t("gpu_vllm_requires_compute"),
                                     font_size="10px",
                                     color="#aaa",
                                 ),
                                 rx.text(
-                                    rx.cond(
-                                        AIState.ui_language == "de",
-                                        "Verf\u00fcgbar: " + AIState.gpu_compatible_text,
-                                        "Available: " + AIState.gpu_compatible_text,
-                                    ),
+                                    t("gpu_available_prefix") + AIState.gpu_compatible_text,
                                     font_size="10px",
                                     color="#aaa",
                                     margin_top="2px",
                                 ),
                                 rx.text(
-                                    rx.cond(
-                                        AIState.ui_language == "de",
-                                        "\U0001f4a1 Ollama & llama.cpp nutzen GGUF (Q4-Q8) - optimal f\u00fcr \u00e4ltere GPUs",
-                                        "\U0001f4a1 Ollama & llama.cpp use GGUF (Q4-Q8) - optimal for older GPUs"
-                                    ),
+                                    t("gpu_gguf_hint"),
                                     font_size="10px",
                                     color="#2a9d8f",
                                     margin_top="4px",

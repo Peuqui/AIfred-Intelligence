@@ -10,7 +10,7 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import t, agent_emoji_var
+from ..helpers import t, agent_emoji_var, clickable_tip
 
 
 def _sampling_input(row: rx.Var, param: str, value: rx.Var, width: str = "55px") -> rx.Component:
@@ -80,22 +80,34 @@ def sampling_control_section() -> rx.Component:
         rx.hstack(
             rx.text(t("sampling_section_label"), font_weight="bold", font_size="12px"),
             rx.spacer(),
-            rx.tooltip(
-                rx.hstack(
-                    rx.text(t("sampling_temp_label"), font_size="10px", font_weight="bold",
-                            color=COLORS["text_primary"]),
-                    rx.text("Auto", font_size="10px", color=COLORS["text_secondary"]),
-                    rx.switch(
-                        checked=AIState.temperature_mode == "manual",
-                        on_change=AIState.set_temperature_mode,
-                        size="1",
-                    ),
-                    rx.text("Manual", font_size="10px", color=COLORS["text_secondary"]),
-                    spacing="1",
-                    align="center",
+            rx.hstack(
+                rx.text(t("sampling_temp_label"), font_size="10px", font_weight="bold",
+                        color=COLORS["text_primary"]),
+                rx.text("Auto", font_size="10px", color=COLORS["text_secondary"]),
+                rx.switch(
+                    checked=AIState.temperature_mode == "manual",
+                    on_change=AIState.set_temperature_mode,
+                    size="1",
                 ),
-                content=t("sampling_temp_toggle_tooltip"),
-                max_width="280px",
+                rx.text("Manual", font_size="10px", color=COLORS["text_secondary"]),
+                # Erklaerung per Klick statt Hover-Tooltip: der Tooltip am Schalter ging
+                # beim Oeffnen des Modals auf (Fokus landet auf dem Schalter) und verdeckte
+                # die Tabelle.
+                clickable_tip(
+                    rx.icon(
+                        "lightbulb",
+                        size=14,
+                        color="#FFD700",
+                        cursor="pointer",
+                        style={
+                            "transition": "transform 0.2s ease",
+                            "&:hover": {"transform": "scale(1.15)"},
+                        },
+                    ),
+                    rx.text(t("sampling_temp_toggle_tooltip"), font_size="12px", color="#ddd"),
+                ),
+                spacing="1",
+                align="center",
             ),
             width="100%",
             align="center",

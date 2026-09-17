@@ -9,7 +9,7 @@ import reflex as rx
 
 from ..state import AIState, StreamingState, ChatHistoryState
 from ..theme import COLORS
-from .helpers import bulk_delete_bar
+from .helpers import bulk_delete_bar, t
 from .message_renderer import render_message_standalone
 from .streaming_text import streaming_text
 
@@ -67,39 +67,19 @@ def processing_progress_banner() -> rx.Component:
     phase_text = rx.cond(
         AIState.is_uploading_image,
         # Upload state - highest priority
-        rx.cond(
-            AIState.ui_language == "de",
-            "Bild wird hochgeladen ...",
-            "Uploading image ..."
-        ),
+        t("image_uploading"),
         rx.cond(
             AIState.progress_active,
             rx.cond(
                 AIState.progress_phase == "automatik",
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "Automatik-Entscheidung ...",
-                    "Automatic decision ..."
-                ),
+                t("automatic_decision"),
                 rx.cond(
                     AIState.progress_phase == "scraping",
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        "Web-Scraping",
-                        "Web Scraping"
-                    ),
+                    t("web_scraping"),
                     rx.cond(
                         AIState.progress_phase == "compress",
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "Komprimiere Kontext ...",
-                            "Compressing Context ..."
-                        ),
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "Generiere Antwort ...",
-                            "Generating Answer ..."
-                        )
+                        t("compressing_context"),
+                        t("generating_answer")
                     )
                 )
             ),
@@ -109,17 +89,9 @@ def processing_progress_banner() -> rx.Component:
                 AIState.tool_status,
                 rx.cond(
                     AIState.is_generating,
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        "Generiere Antwort ...",
-                        "Generating Answer ..."
-                    ),
+                    t("generating_answer"),
                     # Wirklich idle
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        "Warte auf Eingabe ...",
-                        "Waiting for input ..."
-                    )
+                    t("waiting_for_input")
                 )
             )
         )
@@ -158,16 +130,8 @@ def processing_progress_banner() -> rx.Component:
                 rx.text(
                     rx.cond(
                         AIState.progress_failed == 1,
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "(1 Website nicht erreichbar)",
-                            "(1 Website unreachable)"
-                        ),
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            f"({AIState.progress_failed} Websites nicht erreichbar)",
-                            f"({AIState.progress_failed} Websites unreachable)"
-                        )
+                        f"(1 {t('websites_unreachable')})",
+                        f"({AIState.progress_failed} {t('websites_unreachable_plural')})"
                     ),
                     font_size="11px",
                     color=COLORS["accent_warning"],  # Orange statt Grau - besser sichtbar
@@ -250,11 +214,7 @@ def session_list_display() -> rx.Component:
                     rx.cond(
                         session["title"],
                         session["title"],
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "Unbenannter Chat",
-                            "Untitled Chat",
-                        ),
+                        t("untitled_chat"),
                     ),
                     class_name="session-title-text",
                     **{"data-session-id": session["session_id"]},
@@ -320,11 +280,7 @@ def session_list_display() -> rx.Component:
             rx.button(
                 rx.hstack(
                     rx.icon("plus", size=14),
-                    rx.cond(
-                        AIState.ui_language == "de",
-                        rx.text("Neuer Chat", font_size="12px"),
-                        rx.text("New Chat", font_size="12px"),
-                    ),
+                    rx.text(t("new_chat"), font_size="12px"),
                     spacing="2",
                     align="center",
                 ),
@@ -405,11 +361,7 @@ def session_list_display() -> rx.Component:
                 width="100%",
             ),
             rx.text(
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "Keine gespeicherten Chats",
-                    "No saved chats",
-                ),
+                t("no_saved_chats"),
                 font_size="12px",
                 color=COLORS["text_muted"],
                 text_align="center",
@@ -427,11 +379,7 @@ def session_list_display() -> rx.Component:
             header=rx.box(
                 rx.hstack(
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "\U0001f4c1 Gespeicherte Chats",
-                            "\U0001f4c1 Saved Chats"
-                        ),
+                        t("saved_chats"),
                         font_size="14px",
                         font_weight="500",
                         color=COLORS["text_primary"]
@@ -476,11 +424,7 @@ def chat_history_display() -> rx.Component:
         rx.cond(
             AIState.is_uploading_image,
             rx.text(
-                rx.cond(
-                    AIState.ui_language == "de",
-                    "Bild wird hochgeladen...",
-                    "Uploading image...",
-                ),
+                t("image_uploading"),
                 font_size="14px",
                 color=COLORS["text_secondary"],
                 margin_top="3",
@@ -611,21 +555,13 @@ def chat_history_display() -> rx.Component:
             header=rx.box(
                 rx.hstack(
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "\U0001f4ac Chat Verlauf",
-                            "\U0001f4ac Chat History"
-                        ),
+                        t("chat_history"),
                         font_size="14px",
                         font_weight="500",
                         color=COLORS["text_primary"]
                     ),
                     rx.badge(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            f"{ChatHistoryState.chat_history.length()} Nachrichten",
-                            f"{ChatHistoryState.chat_history.length()} messages"
-                        ),
+                        f"{ChatHistoryState.chat_history.length()} {t('chat_messages')}",
                         color_scheme="orange",
                         size="1",
                     ),

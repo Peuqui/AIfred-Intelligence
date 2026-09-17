@@ -92,11 +92,11 @@ def _agent_toggle_button(agent: rx.Var) -> rx.Component:
     )
 
 
-def _research_pill(mode: str, label_de: str, label_en: str) -> rx.Component:
+def _research_pill(mode: str, label_key: str) -> rx.Component:
     """Render a single research mode pill button."""
     is_active = AIState.research_mode == mode
     return rx.button(
-        rx.cond(AIState.ui_language == "de", label_de, label_en),
+        t(label_key),
         on_click=AIState.set_research_mode(mode),  # type: ignore[arg-type]
         size="2",
         variant=rx.cond(is_active, "solid", "soft"),
@@ -521,10 +521,10 @@ def text_input_section() -> rx.Component:
 
         # Row 1: Research Mode Pills + Info Icon + Vigilantia-Live-Popover
         rx.hstack(
-            _research_pill("automatik", "✨ Automatik", "✨ Auto"),
-            _research_pill("none", "💡 Wissen", "💡 Knowledge"),
-            _research_pill("quick", "⚡ Web Quick", "⚡ Web Quick"),
-            _research_pill("deep", "🌍 Web Deep", "🌍 Web Deep"),
+            _research_pill("automatik", "research_pill_auto"),
+            _research_pill("none", "research_pill_none"),
+            _research_pill("quick", "research_mode_quick"),
+            _research_pill("deep", "research_mode_deep"),
             # Research mode help lightbulb (opens modal on click)
             rx.tooltip(
                 rx.icon(
@@ -886,11 +886,7 @@ def debug_console() -> rx.Component:
             header=rx.box(
                 rx.hstack(
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "🐛 Debug Console",
-                            "🐛 Debug Console"
-                        ),
+                        t("debug_console"),
                         font_size="12px",
                         font_weight="500",
                         color=COLORS["debug_accent"]
@@ -908,11 +904,7 @@ def debug_console() -> rx.Component:
             content=rx.vstack(
                 rx.hstack(
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "Live Debug-Output: LLM-Starts, Entscheidungen, Statistiken",
-                            "Live Debug Output: LLM starts, decisions, statistics"
-                        ),
+                        t("debug_console_desc"),
                         font_size="12px",
                         color=COLORS["text_secondary"]
                     ),
@@ -925,11 +917,7 @@ def debug_console() -> rx.Component:
                         id="autoscroll-switch",
                     ),
                     rx.text(
-                        rx.cond(
-                            AIState.ui_language == "de",
-                            "Auto-Scroll",
-                            "Auto-Scroll"
-                        ),
+                        t("auto_scroll"),
                         font_size="12px",
                         color=COLORS["text_secondary"]
                     ),

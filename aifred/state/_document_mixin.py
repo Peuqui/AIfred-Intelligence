@@ -332,21 +332,18 @@ class DocumentMixin(rx.State, mixin=True):
         """
         from ..lib import file_manager as fm
         from ..lib.config import DOCUMENTS_DIR
+        from ..lib.i18n import t
 
         base = (DOCUMENTS_DIR / self.doc_current_folder).resolve() \
             if self.doc_current_folder else DOCUMENTS_DIR.resolve()
         if not base.is_dir():
-            self.document_upload_status = "Ordner nicht gefunden"
+            self.document_upload_status = t("doc_index_folder_not_found", lang=self.ui_language)  # type: ignore[attr-defined]
             yield
             return
 
         files = sorted(p for p in base.rglob("*") if p.is_file())
         if not files:
-            self.document_upload_status = (
-                "Keine Dateien zum Indexieren gefunden"
-                if self.ui_language == "de"
-                else "No files to index"
-            )
+            self.document_upload_status = t("doc_index_folder_empty", lang=self.ui_language)  # type: ignore[attr-defined]
             yield
             return
 
@@ -358,10 +355,10 @@ class DocumentMixin(rx.State, mixin=True):
         for i, file_path in enumerate(files, 1):
             rel_path = str(file_path.relative_to(DOCUMENTS_DIR))
             short = file_path.name
-            if self.ui_language == "de":
-                self.document_upload_status = f"({i}/{total}) Indexiere {short}…"
-            else:
-                self.document_upload_status = f"({i}/{total}) Indexing {short}…"
+            self.document_upload_status = t(
+                "doc_index_folder_progress", lang=self.ui_language,  # type: ignore[attr-defined]
+                current=i, total=total, name=short,
+            )
             yield
 
             result = await fm.index_file(rel_path)
@@ -372,18 +369,12 @@ class DocumentMixin(rx.State, mixin=True):
                 failed += 1
                 self.add_debug(f"⚠️ index: {rel_path}: {result.detail}")  # type: ignore[attr-defined]
 
-        if self.ui_language == "de":
-            final_msg = (
-                f"Fertig: {indexed}/{total} Dateien indexiert "
-                f"({chunks_total} Chunks gesamt)"
-                + (f", {failed} fehlgeschlagen" if failed else "")
-            )
-        else:
-            final_msg = (
-                f"Done: {indexed}/{total} files indexed "
-                f"({chunks_total} chunks total)"
-                + (f", {failed} failed" if failed else "")
-            )
+        final_msg = t(
+            "doc_index_folder_done", lang=self.ui_language,  # type: ignore[attr-defined]
+            indexed=indexed, total=total, chunks=chunks_total,
+        )
+        if failed:
+            final_msg += t("doc_index_folder_failed_suffix", lang=self.ui_language, failed=failed)  # type: ignore[attr-defined]
         self.add_debug(  # type: ignore[attr-defined]
             f"📚 Bulk-Index '{self.doc_current_folder or '/'}': "
             f"{indexed}/{total} files, {chunks_total} chunks"

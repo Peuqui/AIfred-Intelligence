@@ -136,8 +136,8 @@ def _tts_section() -> rx.Component:
                     rx.text(
                         rx.cond(
                             AIState.xtts_force_cpu,
-                            rx.cond(AIState.ui_language == "de", "CPU (langsamer)", "CPU (slower)"),
-                            rx.cond(AIState.ui_language == "de", "GPU (schneller)", "GPU (faster)"),
+                            t("xtts_device_cpu"),
+                            t("xtts_device_gpu"),
                         ),
                         font_size="10px",
                         color="#d4a14a",
@@ -145,11 +145,7 @@ def _tts_section() -> rx.Component:
                     spacing="1",
                     align="center",
                   ),
-                  content=rx.cond(
-                      AIState.ui_language == "de",
-                      "Container-Neustart dauert einige Sekunden",
-                      "Container restart takes a few seconds",
-                  ),
+                  content=t("xtts_container_restart_hint"),
                 ),
                 rx.fragment(),
             ),
