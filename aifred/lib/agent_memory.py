@@ -37,6 +37,17 @@ MEMORY_TOOL_TIERS: dict[str, int] = {
 }
 
 
+def summary_fits_index(summary: str) -> bool:
+    """Whether a summary can be an entry's line in the memory index.
+
+    The summary is also what gets embedded for search: one line of at most
+    AGENT_MEMORY_SUMMARY_MAX_CHARS characters. Shared by the memory tools and
+    the memory browser.
+    """
+    text = summary.strip()
+    return "\n" not in text and len(text) <= AGENT_MEMORY_SUMMARY_MAX_CHARS
+
+
 class MemoryFullError(RuntimeError):
     """The agent's collection has reached AGENT_MEMORY_COLLECTION_MAX."""
 
@@ -177,6 +188,15 @@ class AgentMemory:
         log_message(f"AgentMemory({agent_id}): deleted {full_id[:8]} {summary[:60]}")
         return f"Memory {full_id[:8]} deleted: {summary}"
 
+    def clear(self, agent_id: str) -> int:
+        """Delete every memory of an agent; returns how many were deleted."""
+        col = self._collection(agent_id)
+        ids = col.get(include=[])["ids"]
+        if ids:
+            col.delete(ids=ids)
+        log_message(f"AgentMemory({agent_id}): cleared {len(ids)} memories")
+        return len(ids)
+
     def find_by_session(self, agent_id: str, session_id: str) -> list[str]:
         """Find memory IDs for a given session_id."""
         col = self._collection(agent_id)
@@ -283,10 +303,9 @@ class AgentMemory:
         def check_summary(summary: str) -> None:
             # The summary is the entry's line in the memory index (and what is
             # embedded for search): refuse, never truncate - the model rewrites it.
-            text = summary.strip()
-            if "\n" in text or len(text) > AGENT_MEMORY_SUMMARY_MAX_CHARS:
+            if not summary_fits_index(summary):
                 raise ValueError(
-                    f"summary too long ({len(text)} chars): write one short sentence "
+                    f"summary too long ({len(summary.strip())} chars): write one short sentence "
                     f"of at most {AGENT_MEMORY_SUMMARY_MAX_CHARS} characters, on one line, "
                     "and call the tool again"
                 )

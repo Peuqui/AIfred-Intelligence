@@ -10,6 +10,21 @@ from typing import Any, Dict, List
 import reflex as rx
 
 
+def _successor_session(order: List[str], current: str, deleted: set[str]) -> str | None:
+    """The session that takes over after the open one was deleted.
+
+    ``order`` is the picker order before deleting. The nearest remaining
+    session below the open one wins, else the nearest above it; None when no
+    session is left.
+    """
+    below = order[order.index(current) + 1:] if current in order else order
+    above = order[:order.index(current)][::-1] if current in order else []
+    for session_id in [*below, *above]:
+        if session_id not in deleted:
+            return session_id
+    return None
+
+
 class SessionMixin(rx.State, mixin=True):
     """Mixin for session management - CRUD, titles, restore."""
 
@@ -20,6 +35,8 @@ class SessionMixin(rx.State, mixin=True):
 
     available_sessions: List[Dict[str, Any]] = []  # List of sessions from list_sessions()
     current_session_title: str = ""  # Title of current session (for display)
+    selected_session_ids: List[str] = []  # Sessions ticked in the picker for bulk delete
+    session_confirm_delete_all: bool = False  # "Delete all" asked, waiting for the second click
 
     # ── Session CRUD ─────────────────────────────────────────────────
 
@@ -157,15 +174,49 @@ class SessionMixin(rx.State, mixin=True):
         from ..lib.browser_storage import set_session_id_script
         return rx.call_script(set_session_id_script(session_id))
 
-    def delete_session(self, session_id: str):
-        """Delete a session (cannot delete current session, owner-only)."""
+    def toggle_session_selection(self, session_id: str) -> None:
+        """Tick or untick a session in the picker for bulk delete."""
+        if session_id in self.selected_session_ids:
+            self.selected_session_ids = [s for s in self.selected_session_ids if s != session_id]
+        else:
+            self.selected_session_ids = [*self.selected_session_ids, session_id]
+
+    def select_all_sessions(self) -> None:
+        self.selected_session_ids = [str(s["session_id"]) for s in self.available_sessions]
+
+    def clear_session_selection(self) -> None:
+        self.selected_session_ids = []
+
+    def request_delete_all_sessions(self) -> None:
+        self.session_confirm_delete_all = True
+
+    def cancel_delete_all_sessions(self) -> None:
+        self.session_confirm_delete_all = False
+
+    def delete_all_sessions(self):  # type: ignore[return]
+        """Delete every session of this account; a new one opens."""
+        self.session_confirm_delete_all = False
+        return self._delete_sessions([str(s["session_id"]) for s in self.available_sessions])
+
+    def delete_session(self, session_id: str):  # type: ignore[return]
+        """Delete one session (owner-only), the open one included."""
+        return self._delete_sessions([session_id])
+
+    def delete_selected_sessions(self):  # type: ignore[return]
+        """Delete every session ticked in the picker."""
+        return self._delete_sessions(list(self.selected_session_ids))
+
+    def _delete_sessions(self, session_ids: List[str]):  # type: ignore[return]
+        """Delete sessions owner-only; if the open one goes, move on.
+
+        The open session is followed by the nearest remaining session below it
+        in the picker, else the nearest above; with none left a new session
+        opens.
+        """
         from ..lib.session_storage import delete_session as storage_delete_session
         from ..lib.logging_utils import log_message
-
-        # Cannot delete current session
-        if session_id == self.session_id:
-            self.add_debug("Cannot delete current session")  # type: ignore[attr-defined]
-            return
+        from ._audio_player_mixin import discard_audio_runtime_state
+        from ._tts_streaming_mixin import discard_tts_backend_state
 
         # Must be logged in to delete a session, and only the owner may.
         owner = self.logged_in_user  # type: ignore[attr-defined]
@@ -173,23 +224,44 @@ class SessionMixin(rx.State, mixin=True):
             self.add_debug("Not logged in")  # type: ignore[attr-defined]
             return
 
-        if storage_delete_session(session_id, expected_owner=owner):
-            # Free in-memory runtime state tied to that session so it doesn't
-            # accumulate over the process lifetime.
-            from ._audio_player_mixin import discard_audio_runtime_state
-            from ._tts_streaming_mixin import discard_tts_backend_state
-            discard_audio_runtime_state(session_id)
-            discard_tts_backend_state(session_id)
-            log_message(f"Deleted session: {session_id[:8]}...")
-            self.add_debug("Session deleted")  # type: ignore[attr-defined]
-            self._refresh_available_sessions()
-        else:
-            log_message(
-                f"Refused to delete session {session_id[:8]}...: "
-                f"not owned by '{owner}' or not found",
-                "warning",
-            )
-            self.add_debug("Failed to delete session")  # type: ignore[attr-defined]
+        current = self.session_id
+        if current in session_ids and self.is_generating:  # type: ignore[attr-defined]
+            # The running inference saves into this session when it finishes.
+            self.add_debug("Cannot delete the current session while a response is generating")  # type: ignore[attr-defined]
+            return
+
+        # Picker order before deleting decides who follows the open session.
+        order = [str(s["session_id"]) for s in self.available_sessions]
+        deleted: List[str] = []
+        for session_id in session_ids:
+            if storage_delete_session(session_id, expected_owner=owner):
+                # Free in-memory runtime state tied to that session so it
+                # doesn't accumulate over the process lifetime.
+                discard_audio_runtime_state(session_id)
+                discard_tts_backend_state(session_id)
+                deleted.append(session_id)
+                log_message(f"Deleted session: {session_id[:8]}...")
+            else:
+                log_message(
+                    f"Refused to delete session {session_id[:8]}...: "
+                    f"not owned by '{owner}' or not found",
+                    "warning",
+                )
+                self.add_debug(f"Failed to delete session {session_id[:8]}...")  # type: ignore[attr-defined]
+
+        self.selected_session_ids = [s for s in self.selected_session_ids if s not in deleted]
+        if deleted:
+            self.add_debug(f"{len(deleted)} session(s) deleted")  # type: ignore[attr-defined]
+        self._refresh_available_sessions()
+
+        if current not in deleted:
+            return
+        # Its audio files are gone with it; don't let the player hang on them.
+        self.stop_media()  # type: ignore[attr-defined]
+        successor = _successor_session(order, current, set(deleted))
+        if successor is None:
+            return self.new_session()
+        return self.switch_session(successor)
 
     # ── Session Load / Restore ───────────────────────────────────────
 
@@ -416,6 +488,9 @@ class SessionMixin(rx.State, mixin=True):
 
         # Only show sessions owned by logged in user
         self.available_sessions = list_sessions(owner=self.logged_in_user)  # type: ignore[attr-defined]
+        # Ticks of sessions that are gone (deleted in another tab) go with them
+        listed = {s["session_id"] for s in self.available_sessions}
+        self.selected_session_ids = [s for s in self.selected_session_ids if s in listed]
 
     def refresh_session_list(self):  # type: ignore[return]
         """Refresh the list of available sessions for the session picker.

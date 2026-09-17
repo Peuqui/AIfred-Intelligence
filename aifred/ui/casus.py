@@ -14,7 +14,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t, overlay_modal
+from .helpers import confirm_delete_all, t, overlay_modal
 
 
 def _event_type_badge(event: rx.Var) -> rx.Component:
@@ -626,44 +626,14 @@ def _filter_bar() -> rx.Component:
             variant="soft",
             color_scheme="gray",
         ),
-        # Bulk-Delete — zweistufig: erst „Alle löschen", dann
-        # „Wirklich löschen?" + „Abbrechen". Im Confirm-Modus wird
-        # die total_count im Label angezeigt, damit der User weiß,
-        # wie viele Events gleich verschwinden.
-        rx.cond(
-            AIState.casus_confirm_delete_all,
-            rx.hstack(
-                rx.button(
-                    rx.icon("trash-2", size=14),
-                    rx.text(
-                        t("casus_delete_all_confirm")
-                        + " ("
-                        + AIState.casus_total_count.to(str)
-                        + ")"
-                    ),
-                    on_click=AIState.casus_confirm_delete_all_now,
-                    size="1",
-                    color_scheme="red",
-                ),
-                rx.button(
-                    t("casus_delete_all_cancel"),
-                    on_click=AIState.casus_cancel_delete_all,
-                    size="1",
-                    variant="soft",
-                    color_scheme="gray",
-                ),
-                spacing="1",
-                align="center",
-            ),
-            rx.button(
-                rx.icon("trash-2", size=14),
-                rx.text(t("casus_delete_all")),
-                on_click=AIState.casus_request_delete_all,
-                size="1",
-                variant="soft",
-                color_scheme="red",
-                disabled=AIState.casus_total_count == 0,
-            ),
+        # Bulk-Delete of every event matching the active filters; the
+        # question names how many go.
+        confirm_delete_all(
+            confirming=AIState.casus_confirm_delete_all,
+            on_request=AIState.casus_request_delete_all,
+            on_confirm=AIState.casus_confirm_delete_all_now,
+            on_cancel=AIState.casus_cancel_delete_all,
+            count=AIState.casus_total_count,
         ),
         spacing="2",
         align="center",

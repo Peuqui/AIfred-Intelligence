@@ -9,6 +9,7 @@ import reflex as rx
 
 from ..state import AIState, StreamingState, ChatHistoryState
 from ..theme import COLORS
+from .helpers import bulk_delete_bar
 from .message_renderer import render_message_standalone
 from .streaming_text import streaming_text
 
@@ -228,6 +229,14 @@ def session_list_display() -> rx.Component:
         # session has: session_id, title, last_seen, created_at, message_count
         return rx.box(
             rx.hstack(
+                # Tick for bulk delete; must not open the session
+                rx.checkbox(
+                    checked=AIState.selected_session_ids.contains(session["session_id"]),
+                    on_click=AIState.toggle_session_selection(session["session_id"]).stop_propagation,  # type: ignore[call-arg, attr-defined]
+                    size="1",
+                    color_scheme="orange",
+                    cursor="pointer",
+                ),
                 # Session title or placeholder — rendered as rx.el.span so
                 # the data-session-id attribute makes it into the DOM. The
                 # Radix rx.text component filters unknown props out (both
@@ -275,18 +284,15 @@ def session_list_display() -> rx.Component:
                     ),
                     size="1",
                 ),
-                # Delete button (only for non-current sessions)
-                rx.cond(
-                    session["session_id"] != AIState.session_id,
-                    rx.icon_button(
-                        rx.icon("trash-2", size=12),
-                        size="1",
-                        variant="ghost",
-                        color_scheme="red",
-                        on_click=AIState.delete_session(session["session_id"]),  # type: ignore[call-arg]
-                        cursor="pointer",
-                    ),
-                    rx.fragment(),
+                # Delete button, the open session included (the next one
+                # takes over); must not open the session it deletes
+                rx.icon_button(
+                    rx.icon("trash-2", size=12),
+                    size="1",
+                    variant="ghost",
+                    color_scheme="red",
+                    on_click=AIState.delete_session(session["session_id"]).stop_propagation,  # type: ignore[call-arg, attr-defined]
+                    cursor="pointer",
                 ),
                 spacing="2",
                 align="center",
@@ -357,6 +363,25 @@ def session_list_display() -> rx.Component:
             spacing="2",
             width="100%",
             margin_bottom="2",
+        ),
+        # Select / delete ticked / delete all — same bar as the storage tab
+        rx.cond(
+            AIState.available_sessions.length() > 0,
+            rx.box(
+                bulk_delete_bar(
+                    total_count=AIState.available_sessions.length(),
+                    selected_count=AIState.selected_session_ids.length(),
+                    on_select_all=AIState.select_all_sessions,
+                    on_clear_selection=AIState.clear_session_selection,
+                    on_delete_selected=AIState.delete_selected_sessions,
+                    confirming=AIState.session_confirm_delete_all,
+                    on_request_delete_all=AIState.request_delete_all_sessions,
+                    on_confirm_delete_all=AIState.delete_all_sessions,
+                    on_cancel_delete_all=AIState.cancel_delete_all_sessions,
+                ),
+                width="100%",
+                margin_bottom="2",
+            ),
         ),
         # Session list (scrollable area separate from button)
         rx.cond(

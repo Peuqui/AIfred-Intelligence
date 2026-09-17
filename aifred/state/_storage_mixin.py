@@ -76,6 +76,11 @@ class StorageMixin(rx.State, mixin=True):
         self.storage_selected = [str(f["id"]) for f in self.storage_files]
 
     @rx.event
+    def storage_clear_selection(self) -> None:
+        """Alle Häkchen entfernen."""
+        self.storage_selected = []
+
+    @rx.event
     def storage_delete_selected(self) -> None:
         """Die angehakten Dateien löschen + Liste neu laden."""
         if not self.storage_selected:

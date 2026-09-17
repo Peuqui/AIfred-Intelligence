@@ -51,6 +51,11 @@ class MemoryBrowserMixin(rx.State, mixin=True):
     memory_browser_entries: List[Dict[str, str]] = []  # Entries for selected agent
     memory_browser_collections: List[Dict[str, str]] = []  # Collection overview
     memory_browser_filter: str = "all"  # "all", "session", "agent"
+    # Entry being edited in the memory browser ("" = none) and its draft
+    memory_edit_id: str = ""
+    memory_edit_summary: str = ""
+    memory_edit_content: str = ""
+    memory_confirm_clear: bool = False  # "Delete all" of the agent asked
 
     # ── Agent Bundle Export/Import ──────────────────────────────
     bundle_export_open: bool = False
@@ -174,36 +179,39 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         await self._refresh_db_documents()
 
     def _load_memory_collections(self) -> None:
-        """Load overview of all ChromaDB agent memory collections."""
+        """Load the memory overview: every agent with its entry count.
+
+        Every configured agent may store memories, so each one is listed, also
+        before its ChromaDB collection exists (count 0). Collections of agents
+        deleted since stay listed: their entries are still there to read,
+        edit or delete.
+        """
         from ..lib.agent_memory import get_agent_memory
         memory = get_agent_memory()
         if not memory:
             self.memory_browser_collections = []
             return
 
-        from ..lib.agent_config import get_agent_config
+        from ..lib.agent_config import get_agent_ids, get_agent_label
 
-        collections = []
+        counts: dict[str, int] = {}
         try:
             for col in memory._client.list_collections():
                 if col.name.startswith("agent_memory_"):
-                    agent_id = col.name.removeprefix("agent_memory_")
-                    cfg = get_agent_config(agent_id)
-                    display_name = f"{cfg.emoji} {cfg.display_name}" if cfg else agent_id.capitalize()
-                    collections.append({
-                        "name": col.name,
-                        "agent_id": agent_id,
-                        "display_name": display_name,
-                        "count": str(col.count()),
-                    })
+                    counts[col.name.removeprefix("agent_memory_")] = col.count()
         except Exception as e:
             self.add_debug(f"❌ Memory browser error: {e}")  # type: ignore[attr-defined]
 
         # Agents sorted alphabetically
-        self.memory_browser_collections = sorted(
-            collections,
-            key=lambda c: c["agent_id"],
-        )
+        self.memory_browser_collections = [
+            {
+                "name": f"agent_memory_{agent_id}",
+                "agent_id": agent_id,
+                "display_name": get_agent_label(agent_id),
+                "count": str(counts.get(agent_id, 0)),
+            }
+            for agent_id in sorted(set(get_agent_ids()) | set(counts))
+        ]
 
     def browse_memory_agent(self, agent_id: str) -> None:
         """Load all entries for a specific agent's memory collection."""
@@ -214,24 +222,26 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             return
 
         self.memory_browser_agent = agent_id
+        self.cancel_memory_edit()
+        self.memory_confirm_clear = False
         # Resolve display name — must match dropdown format (with count)
         count = "0"
         for col_info in self.memory_browser_collections:
             if col_info["agent_id"] == agent_id:
                 count = col_info["count"]
                 break
-        from ..lib.agent_config import get_agent_config
-        cfg = get_agent_config(agent_id)
-        name = f"{cfg.emoji} {cfg.display_name}" if cfg else agent_id.capitalize()
-        self.memory_browser_agent_display = f"{name} ({count})"
+        from ..lib.agent_config import get_agent_label
+        self.memory_browser_agent_display = f"{get_agent_label(agent_id)} ({count})"
         entries: list[dict] = []
+
+        # An agent without entries may not have a collection yet; reading it
+        # through _collection() would create one as a side effect.
+        if count == "0":
+            self.memory_browser_entries = []
+            return
 
         try:
             col = memory._collection(agent_id)
-
-            if col.count() == 0:
-                self.memory_browser_entries = []
-                return
 
             data = col.get(include=["metadatas", "documents"])
             for i, doc_id in enumerate(data["ids"]):
@@ -267,6 +277,95 @@ class MemoryBrowserMixin(rx.State, mixin=True):
 
         # Refresh collections first so browse_memory_agent reads the updated
         # count — otherwise the display value mismatches the options list.
+        self._load_memory_collections()
+        self.browse_memory_agent(self.memory_browser_agent)
+
+    def request_clear_memory(self) -> None:
+        self.memory_confirm_clear = True
+
+    def cancel_clear_memory(self) -> None:
+        self.memory_confirm_clear = False
+
+    def clear_browsed_memory(self) -> None:
+        """Delete every memory entry of the browsed agent (after confirmation)."""
+        from ..lib.agent_memory import get_agent_memory
+        self.memory_confirm_clear = False
+        memory = get_agent_memory()
+        if not memory or not self.memory_browser_agent or not self.memory_browser_entries:
+            return
+
+        try:
+            count = memory.clear(self.memory_browser_agent)
+            self.add_debug(f"🗑️ {count} memory entries deleted ({self.memory_browser_agent})")  # type: ignore[attr-defined]
+        except Exception as e:
+            self.add_debug(f"❌ Delete failed: {e}")  # type: ignore[attr-defined]
+
+        self._load_memory_collections()
+        self.browse_memory_agent(self.memory_browser_agent)
+
+    def start_memory_edit(self, entry_id: str) -> None:
+        """Open one memory entry for editing in place."""
+        for entry in self.memory_browser_entries:
+            if entry["id"] == entry_id:
+                self.memory_edit_id = entry_id
+                self.memory_edit_summary = entry["summary"]
+                self.memory_edit_content = entry["content"]
+                return
+
+    def cancel_memory_edit(self) -> None:
+        self.memory_edit_id = ""
+        self.memory_edit_summary = ""
+        self.memory_edit_content = ""
+
+    def set_memory_edit_summary(self, value: str) -> None:
+        self.memory_edit_summary = value
+
+    def set_memory_edit_content(self, value: str) -> None:
+        self.memory_edit_content = value
+
+    async def save_memory_edit(self) -> None:
+        """Write the edited summary and content back to the agent's memory.
+
+        Goes through AgentMemory.update, the same path as the agents'
+        update_memory tool: the summary is re-embedded, type and session stay.
+        """
+        from ..lib.agent_memory import get_agent_memory, summary_fits_index
+        from ..lib.config import AGENT_MEMORY_SUMMARY_MAX_CHARS
+
+        memory = get_agent_memory()
+        entry = next(
+            (e for e in self.memory_browser_entries if e["id"] == self.memory_edit_id),
+            None,
+        )
+        if not memory or not self.memory_browser_agent or entry is None:
+            return
+
+        summary = self.memory_edit_summary.strip()
+        content = self.memory_edit_content.strip()
+        if not summary or not content:
+            self.add_debug("❌ Memory entry needs a summary and a content")  # type: ignore[attr-defined]
+            return
+        if not summary_fits_index(summary):
+            self.add_debug(  # type: ignore[attr-defined]
+                f"❌ Memory summary must be one line of at most "
+                f"{AGENT_MEMORY_SUMMARY_MAX_CHARS} characters"
+            )
+            return
+
+        try:
+            await memory.update(
+                self.memory_browser_agent,
+                entry["id"],
+                content,
+                summary,
+                memory_type=entry["type"],
+                session_id=entry["session_id"],
+            )
+            self.add_debug(f"✏️ Memory entry updated: {entry['id'][:8]}...")  # type: ignore[attr-defined]
+        except Exception as e:
+            self.add_debug(f"❌ Update failed: {e}")  # type: ignore[attr-defined]
+            return
+
         self._load_memory_collections()
         self.browse_memory_agent(self.memory_browser_agent)
 
