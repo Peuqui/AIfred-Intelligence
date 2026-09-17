@@ -478,6 +478,134 @@ def clickable_tip(trigger: rx.Component, content: str | rx.Component) -> rx.Comp
 
 
 # ============================================================
+# DELETE ALL WITH CONFIRMATION (one look for every list)
+# ============================================================
+
+def confirm_delete_all(
+    confirming: Any,
+    on_request: Any,
+    on_confirm: Any,
+    on_cancel: Any,
+    count: Any,
+) -> rx.Component:
+    """Two-step "delete all" for a list: ask first, then delete.
+
+    The first click only switches ``confirming`` on; the red button then names
+    how many entries go, next to a cancel button. The same look and labels in
+    every list (chats, memory, database, storage, Casus).
+
+    Args:
+        confirming: bool Var, True while the question is shown
+        on_request: event that switches ``confirming`` on
+        on_confirm: event that deletes everything
+        on_cancel: event that switches ``confirming`` off
+        count: int Var, the number of entries that would be deleted; the
+            button is disabled at 0
+    """
+    return rx.cond(
+        confirming,
+        rx.hstack(
+            rx.button(
+                rx.icon("trash-2", size=14),
+                t("delete_all_confirm") + " (" + count.to_string() + ")",
+                on_click=on_confirm,
+                size="1",
+                variant="solid",
+                color_scheme="red",
+                cursor="pointer",
+            ),
+            rx.button(
+                t("delete_all_cancel"),
+                on_click=on_cancel,
+                size="1",
+                variant="soft",
+                color_scheme="gray",
+                cursor="pointer",
+            ),
+            spacing="1",
+            align="center",
+        ),
+        rx.button(
+            rx.icon("trash-2", size=14),
+            t("delete_all"),
+            on_click=on_request,
+            size="1",
+            variant="soft",
+            color_scheme="red",
+            cursor="pointer",
+            disabled=count == 0,
+        ),
+    )
+
+
+def bulk_delete_bar(
+    total_count: Any,
+    selected_count: Any,
+    on_select_all: Any,
+    on_clear_selection: Any,
+    on_delete_selected: Any,
+    confirming: Any,
+    on_request_delete_all: Any,
+    on_confirm_delete_all: Any,
+    on_cancel_delete_all: Any,
+) -> rx.Component:
+    """Action bar of a list with checkboxes: select, delete ticked, delete all.
+
+    Left: select all, and while entries are ticked, delete those (with their
+    count) and clear the selection. Right: confirm_delete_all. One look for
+    every list with checkboxes (chats, storage).
+    """
+    return rx.hstack(
+        rx.button(
+            rx.icon("check-check", size=14),
+            t("select_all"),
+            on_click=on_select_all,
+            size="1",
+            variant="soft",
+            color_scheme="gray",
+            cursor="pointer",
+            disabled=total_count == 0,
+        ),
+        rx.cond(
+            selected_count > 0,
+            rx.hstack(
+                rx.button(
+                    rx.icon("trash-2", size=14),
+                    t("delete_selected") + " (" + selected_count.to_string() + ")",
+                    on_click=on_delete_selected,
+                    size="1",
+                    variant="solid",
+                    color_scheme="red",
+                    cursor="pointer",
+                ),
+                rx.button(
+                    t("clear_selection"),
+                    on_click=on_clear_selection,
+                    size="1",
+                    variant="soft",
+                    color_scheme="gray",
+                    cursor="pointer",
+                ),
+                spacing="2",
+                align="center",
+            ),
+        ),
+        rx.spacer(),
+        confirm_delete_all(
+            confirming=confirming,
+            on_request=on_request_delete_all,
+            on_confirm=on_confirm_delete_all,
+            on_cancel=on_cancel_delete_all,
+            count=total_count,
+        ),
+        spacing="2",
+        width="100%",
+        align="center",
+        flex_wrap="wrap",
+    )
+
+
+# ============================================================
 # SIMPLE COMPONENT HELPERS
 # ============================================================
 

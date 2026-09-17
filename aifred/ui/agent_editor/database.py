@@ -8,7 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t
+from ..helpers import confirm_delete_all, t
 from .header import _editor_header
 
 
@@ -30,44 +30,13 @@ def _database_view() -> rx.Component:
                         variant="soft",
                         color_scheme="orange",
                     ),
-                    # Clear all button (with confirmation)
-                    rx.cond(
-                        AIState.db_documents.length() > 0,  # type: ignore[union-attr]
-                        rx.cond(
-                            AIState.db_clear_confirm,
-                            # Confirmation: two buttons
-                            rx.hstack(
-                                rx.button(
-                                    t("db_really_delete"),
-                                    on_click=AIState.clear_db_index,
-                                    size="1",
-                                    variant="solid",
-                                    color_scheme="red",
-                                    cursor="pointer",
-                                ),
-                                rx.button(
-                                    t("db_cancel"),
-                                    on_click=AIState.confirm_clear_db,
-                                    size="1",
-                                    variant="soft",
-                                    color_scheme="gray",
-                                    cursor="pointer",
-                                ),
-                                spacing="1",
-                            ),
-                            # Normal: eraser icon
-                            rx.tooltip(
-                                rx.icon_button(
-                                    rx.icon("eraser", size=16),
-                                    on_click=AIState.confirm_clear_db,
-                                    size="2",
-                                    variant="soft",
-                                    color_scheme="red",
-                                    cursor="pointer",
-                                ),
-                                content=t("db_clear_all"),
-                            ),
-                        ),
+                    # confirm_clear_db toggles the question on and off
+                    confirm_delete_all(
+                        confirming=AIState.db_clear_confirm,
+                        on_request=AIState.confirm_clear_db,
+                        on_confirm=AIState.clear_db_index,
+                        on_cancel=AIState.confirm_clear_db,
+                        count=AIState.db_documents.length(),  # type: ignore[union-attr]
                     ),
                     spacing="2",
                     width="100%",

@@ -74,8 +74,7 @@ class SettingsMixin(rx.State, mixin=True):
     tool_plugin_toggles: dict[str, str] = {}  # {"epim": "1", "calculator": "1", ...}
     channel_allowlists: dict[str, str] = {}  # {"email": "user@mail.de, @family.de", "telegram": "123456"}
 
-    # ── Audit Log Modal ──────────────────────────────────────────
-    audit_log_open: bool = False
+    # ── Audit Log (agent editor tab) ─────────────────────────────
     audit_log_entries: list[dict[str, str]] = []  # [{timestamp, source, tool_name, ...}]
 
     # ── Settings File Tracking ────────────────────────────────────
@@ -976,20 +975,6 @@ class SettingsMixin(rx.State, mixin=True):
 
         toggles[plugin_name] = "1" if new_enabled else ""
         self.tool_plugin_toggles = toggles
-
-    # ================================================================
-    # AUDIT LOG MODAL
-    # ================================================================
-
-    def open_audit_log(self) -> None:
-        """Load recent audit log entries and open modal."""
-        from ..lib.security import load_audit_entries
-
-        self.audit_log_entries = load_audit_entries(include_args=True)
-        self.audit_log_open = True
-
-    def close_audit_log(self) -> None:
-        self.audit_log_open = False
 
     # ================================================================
     # TRANSLATION HELPER

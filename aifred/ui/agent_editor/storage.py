@@ -8,7 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t
+from ..helpers import bulk_delete_bar, t
 from .header import _editor_header
 
 
@@ -44,7 +44,7 @@ def _storage_entry_row(entry: rx.Var) -> rx.Component:
                             t("storage_kind_export"), t("storage_kind_sandbox"),
                         ),
                         variant="soft",
-                        color_scheme=rx.cond(entry["kind"] == "export", "blue", "gray"),
+                        color_scheme=rx.cond(entry["kind"] == "export", "amber", "gray"),
                         size="1",
                     ),
                     rx.text(entry["mtime"], font_size="11px", color="#888"),
@@ -75,7 +75,7 @@ def _storage_entry_row(entry: rx.Var) -> rx.Component:
                         rx.icon_button(
                             rx.icon("external-link", size=14),
                             on_click=AIState.storage_open_file(entry["url"]),
-                            size="1", variant="soft", color_scheme="blue", cursor="pointer",
+                            size="1", variant="soft", color_scheme="orange", cursor="pointer",
                         ),
                         content=t("storage_open"),
                     ),
@@ -141,49 +141,16 @@ def _storage_view() -> rx.Component:
                 # Bulk-Aktionen: alle auswählen / ausgewählte löschen / alles löschen
                 rx.cond(
                     AIState.storage_files.length() > 0,  # type: ignore[union-attr]
-                    rx.hstack(
-                        rx.button(
-                            rx.icon("check-check", size=14),
-                            t("storage_select_all"),
-                            on_click=AIState.storage_select_all,
-                            size="1", variant="soft", color_scheme="gray", cursor="pointer",
-                        ),
-                        rx.cond(
-                            AIState.storage_selected.length() > 0,  # type: ignore[union-attr]
-                            rx.button(
-                                rx.icon("trash-2", size=14),
-                                t("storage_delete_selected")
-                                + " (" + AIState.storage_selected.length().to_string() + ")",  # type: ignore[union-attr]
-                                on_click=AIState.storage_delete_selected,
-                                size="1", variant="solid", color_scheme="red", cursor="pointer",
-                            ),
-                        ),
-                        rx.spacer(),
-                        rx.cond(
-                            AIState.storage_confirm_clear,
-                            rx.hstack(
-                                rx.button(
-                                    t("storage_clear_confirm"),
-                                    on_click=AIState.storage_clear_all,
-                                    size="1", variant="solid", color_scheme="red", cursor="pointer",
-                                ),
-                                rx.button(
-                                    t("db_cancel"),
-                                    on_click=AIState.storage_cancel_clear,
-                                    size="1", variant="soft", color_scheme="gray", cursor="pointer",
-                                ),
-                                spacing="1",
-                            ),
-                            rx.tooltip(
-                                rx.icon_button(
-                                    rx.icon("eraser", size=16),
-                                    on_click=AIState.storage_request_clear,
-                                    size="1", variant="soft", color_scheme="red", cursor="pointer",
-                                ),
-                                content=t("storage_clear_all"),
-                            ),
-                        ),
-                        spacing="2", width="100%", align="center",
+                    bulk_delete_bar(
+                        total_count=AIState.storage_files.length(),  # type: ignore[union-attr]
+                        selected_count=AIState.storage_selected.length(),  # type: ignore[union-attr]
+                        on_select_all=AIState.storage_select_all,
+                        on_clear_selection=AIState.storage_clear_selection,
+                        on_delete_selected=AIState.storage_delete_selected,
+                        confirming=AIState.storage_confirm_clear,
+                        on_request_delete_all=AIState.storage_request_clear,
+                        on_confirm_delete_all=AIState.storage_clear_all,
+                        on_cancel_delete_all=AIState.storage_cancel_clear,
                     ),
                 ),
                 rx.cond(

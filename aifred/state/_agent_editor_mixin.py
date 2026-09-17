@@ -1291,12 +1291,9 @@ class AgentEditorMixin(rx.State, mixin=True):
         agent_name = agent_cfg.display_name if agent_cfg else agent_id.capitalize()
 
         try:
-            col = memory._collection(agent_id)
-            count = col.count()
+            count = memory.clear(agent_id)
             if count == 0:
                 return rx.toast.info(f"{agent_name}: memory already empty", duration=3000, position="top-center")
-            all_ids = col.get(include=[])["ids"]
-            col.delete(ids=all_ids)
             self.add_debug(f"🗑️ {agent_name}: {count} memories cleared")  # type: ignore[attr-defined]
             return rx.toast.success(f"{agent_name}: {count} memories cleared", duration=3000, position="top-center")
         except Exception as e:

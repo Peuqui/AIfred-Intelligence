@@ -765,9 +765,9 @@ def audit_log(
         logger.warning("Audit log write failed: %s", exc)
 
 
-def load_audit_entries(limit: int = 50, include_args: bool = False) -> list[dict[str, str]]:
-    """Jüngste ``tool_audit``-Zeilen als UI-fertige Dicts (SSOT für beide
-    Audit-Ansichten: Settings-Modal und Agent-Editor-Tab)."""
+def load_audit_entries(limit: int = 50) -> list[dict[str, str]]:
+    """Jüngste ``tool_audit``-Zeilen als UI-fertige Dicts für den Audit-Tab
+    im Agent-Editor."""
     from .formatting import format_duration_ms
     db_path = _get_audit_db_path()
     entries: list[dict[str, str]] = []
@@ -782,7 +782,9 @@ def load_audit_entries(limit: int = 50, include_args: bool = False) -> list[dict
     for r in rows:
         session_id = r["session_id"] or ""
         entry = {
-            "timestamp": r["timestamp"] or "",
+            # Sekunden reichen in der Tabelle; ohne Millisekunden und "T"
+            # spart die Spalte ein Drittel ihrer Breite.
+            "timestamp": (r["timestamp"] or "")[:19].replace("T", " "),
             "session_id": session_id,
             # Die Tabelle zeigt nur das Präfix (32 Hex sprengen die Spalte);
             # der volle Wert bleibt für den Tooltip erhalten.
@@ -794,8 +796,6 @@ def load_audit_entries(limit: int = 50, include_args: bool = False) -> list[dict
             "success": "OK" if r["success"] else "FAIL",
             "duration": format_duration_ms(r["duration_ms"]) if r["duration_ms"] else "",
         }
-        if include_args:
-            entry["args"] = (r["tool_args_preview"] or "")[:100]
         entries.append(entry)
     return entries
 

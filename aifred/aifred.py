@@ -23,7 +23,7 @@ from .ui.modals import (  # noqa: F401
     multi_agent_help_modal, research_help_modal, reasoning_thinking_help_modal,
     model_lifecycle_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
-    document_manager_page, channel_credentials_page, audit_log_modal,
+    document_manager_page, channel_credentials_page,
     bundle_export_modal, bundle_import_modal,
 )
 from .ui.chat_display import (  # noqa: F401
@@ -891,7 +891,6 @@ console.log('✂️ Crop handler loaded');
 
         # Channel-Credentials: lebt seit dem Multi-Route-Split auf
         # /credentials als eigene Page (Code-Splitting fuer ~50 KB JSX).
-        audit_log_modal(),
 
         # Agent Bundle Export / Import
         bundle_export_modal(),

@@ -11,30 +11,41 @@ from ...state import AIState
 from ..helpers import t
 from .header import _editor_header
 
+# No cell wraps, so no column gets squeezed below its content; with the short
+# timestamp and the "Stufe" header the table fits the 750 px window.
+_CELL = {"white_space": "nowrap"}
+
+
+def _cell(content: rx.Component) -> rx.Component:
+    return rx.table.cell(content, style=_CELL)
+
+
+def _header_cell(key: str) -> rx.Component:
+    return rx.table.column_header_cell(rx.text(t(key), font_size="11px"), style=_CELL)
+
 
 def _audit_entry_row(entry: rx.Var) -> rx.Component:
     """Render a single audit log entry."""
     return rx.table.row(
-        rx.table.cell(rx.text(entry["timestamp"], font_size="11px"), white_space="nowrap"),
-        rx.table.cell(rx.text(entry["agent_id"], font_size="11px")),
-        rx.table.cell(
+        _cell(rx.text(entry["timestamp"], font_size="11px")),
+        _cell(rx.text(entry["agent_id"], font_size="11px")),
+        _cell(
             rx.text(
                 entry["session_short"], font_size="11px", font_family="monospace",
                 custom_attrs={"title": entry["session_id"]},
             ),
-            white_space="nowrap",
         ),
-        rx.table.cell(rx.text(entry["source"], font_size="11px")),
-        rx.table.cell(rx.text(entry["tool_name"], font_size="11px", font_weight="500")),
-        rx.table.cell(rx.text(entry["tool_tier"], font_size="11px")),
-        rx.table.cell(
+        _cell(rx.text(entry["source"], font_size="11px")),
+        _cell(rx.text(entry["tool_name"], font_size="11px", font_weight="500")),
+        _cell(rx.text(entry["tool_tier"], font_size="11px")),
+        _cell(
             rx.cond(
                 entry["success"] == "OK",
                 rx.text("OK", font_size="11px", color="green"),
                 rx.text("FAIL", font_size="11px", color="red"),
             )
         ),
-        rx.table.cell(rx.text(entry["duration"], font_size="11px")),
+        _cell(rx.text(entry["duration"], font_size="11px")),
     )
 
 
@@ -48,14 +59,14 @@ def _audit_view() -> rx.Component:
                 rx.table.root(
                     rx.table.header(
                         rx.table.row(
-                            rx.table.column_header_cell(rx.text(t("audit_col_time"), font_size="11px")),
-                            rx.table.column_header_cell(rx.text(t("audit_col_agent"), font_size="11px")),
-                            rx.table.column_header_cell(rx.text(t("audit_col_session"), font_size="11px")),
-                            rx.table.column_header_cell(rx.text(t("audit_col_source"), font_size="11px")),
-                            rx.table.column_header_cell(rx.text(t("audit_col_tool"), font_size="11px")),
-                            rx.table.column_header_cell(rx.text(t("audit_col_tier"), font_size="11px")),
-                            rx.table.column_header_cell(rx.text(t("audit_col_status"), font_size="11px")),
-                            rx.table.column_header_cell(rx.text(t("audit_col_duration"), font_size="11px")),
+                            _header_cell("audit_col_time"),
+                            _header_cell("audit_col_agent"),
+                            _header_cell("audit_col_session"),
+                            _header_cell("audit_col_source"),
+                            _header_cell("audit_col_tool"),
+                            _header_cell("audit_col_tier"),
+                            _header_cell("audit_col_status"),
+                            _header_cell("audit_col_duration"),
                         ),
                     ),
                     rx.table.body(
@@ -69,6 +80,9 @@ def _audit_view() -> rx.Component:
             ),
             flex="1",
             overflow_y="auto",
+            # Narrow screens (the page is capped at 95vw): scroll sideways
+            # instead of cutting off the right-hand columns.
+            overflow_x="auto",
             width="100%",
         ),
         spacing="3",
