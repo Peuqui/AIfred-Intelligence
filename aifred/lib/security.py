@@ -795,6 +795,9 @@ def load_audit_entries(limit: int = 50) -> list[dict[str, str]]:
             "tool_tier": str(r["tool_tier"]),
             "success": "OK" if r["success"] else "FAIL",
             "duration": format_duration_ms(r["duration_ms"]) if r["duration_ms"] else "",
+            # Tooltip am Tool-Namen; schon beim Schreiben entschärft
+            # (_redact_args_preview) und auf 200 Zeichen gekürzt.
+            "args": r["tool_args_preview"] or "",
         }
         entries.append(entry)
     return entries
