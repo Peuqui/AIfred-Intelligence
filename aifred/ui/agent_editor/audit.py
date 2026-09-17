@@ -36,7 +36,14 @@ def _audit_entry_row(entry: rx.Var) -> rx.Component:
             ),
         ),
         _cell(rx.text(entry["source"], font_size="11px")),
-        _cell(rx.text(entry["tool_name"], font_size="11px", font_weight="500")),
+        # Hover shows the tool's arguments, like the full id on the session.
+        _cell(
+            rx.text(
+                entry["tool_name"], font_size="11px", font_weight="500",
+                cursor="help",
+                custom_attrs={"title": entry["args"]},
+            ),
+        ),
         _cell(rx.text(entry["tool_tier"], font_size="11px")),
         _cell(
             rx.cond(
