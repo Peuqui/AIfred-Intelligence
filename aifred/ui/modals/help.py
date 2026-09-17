@@ -37,19 +37,19 @@ def multi_agent_help_modal() -> rx.Component:
                     rx.table.body(
                         # Standard
                         rx.table.row(
-                            rx.table.cell(rx.cond(AIState.ui_language == "de", "Standard", "Standard")),
+                            rx.table.cell(t("multi_agent_standard")),
                             rx.table.cell(t("multi_agent_help_standard_flow")),
                             rx.table.cell(t("multi_agent_help_standard_decision")),
                         ),
                         # Kritische Prüfung / Critical Review
                         rx.table.row(
-                            rx.table.cell(rx.cond(AIState.ui_language == "de", "Kritische Prüfung", "Critical Review")),
+                            rx.table.cell(t("multi_agent_critical_review")),
                             rx.table.cell(t("multi_agent_help_critical_review_flow")),
                             rx.table.cell(t("multi_agent_help_critical_review_decision")),
                         ),
                         # Auto-Konsens / Auto Consensus
                         rx.table.row(
-                            rx.table.cell(rx.cond(AIState.ui_language == "de", "Auto-Konsens", "Auto Consensus")),
+                            rx.table.cell(t("multi_agent_auto_consensus")),
                             rx.table.cell(t("multi_agent_help_auto_consensus_flow")),
                             rx.table.cell(t("multi_agent_help_auto_consensus_decision")),
                         ),

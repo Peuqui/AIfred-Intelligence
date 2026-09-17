@@ -485,10 +485,7 @@ class AgentEditorMixin(rx.State, mixin=True):
 
     def _format_delivery_display(self, delivery: str, channel: str) -> str:
         """Format delivery + channel for display."""
-        lang = self.ui_language if hasattr(self, "ui_language") else "de"
-        label = self._DELIVERY_DISPLAY.get(lang, self._DELIVERY_DISPLAY["de"]).get(
-            delivery, delivery
-        )
+        label = self._sched_label_for_value(self._SCHED_DELIVERY_OPTIONS, delivery, self.ui_language)
         if channel:
             return f"{label} → {channel}"
         return label
@@ -518,10 +515,9 @@ class AgentEditorMixin(rx.State, mixin=True):
                 "name": j.name,
                 "schedule_type": j.schedule_type,
                 "schedule_expr": j.schedule_expr,
-                "type_display": self._TYPE_DISPLAY.get(
-                    self.ui_language if hasattr(self, "ui_language") else "de",
-                    self._TYPE_DISPLAY["de"],
-                ).get(j.schedule_type, j.schedule_type),
+                "type_display": self._sched_label_for_value(
+                    self._SCHED_TYPE_OPTIONS, j.schedule_type, self.ui_language
+                ),
                 "schedule_display": self._format_schedule_display(
                     j.schedule_type, j.schedule_expr
                 ),
@@ -610,182 +606,165 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.scheduler_once_time = "10:00"
 
 
-    # ── Schedule type / delivery i18n mapping ──────────────────
+    # ── Schedule dropdowns: values in code, labels from i18n ───────
+    # Each option is (i18n key, stored value). The label shown is the key's
+    # text in the UI language; a selected label maps back to its value in any
+    # loaded language (like TranslationManager's research mode maps).
 
-    _TYPE_MAP: dict[str, str] = {
-        "Zeitplan": "cron", "Cron": "cron",
-        "Intervall": "interval", "Interval": "interval",
-        "Einmalig": "once", "Once": "once",
-    }
-    _TYPE_DISPLAY: dict[str, dict[str, str]] = {
-        "de": {"cron": "Zeitplan", "interval": "Intervall", "once": "Einmalig"},
-        "en": {"cron": "Cron", "interval": "Interval", "once": "Once"},
-    }
-    _DELIVERY_MAP: dict[str, str] = {
-        "Vorschau": "review", "Review": "review",
-        "Senden": "announce", "Send": "announce",
-        "Webhook": "webhook",
-    }
-    _DELIVERY_DISPLAY: dict[str, dict[str, str]] = {
-        "de": {"review": "Vorschau", "announce": "Senden", "webhook": "Webhook"},
-        "en": {"review": "Review", "announce": "Send", "webhook": "Webhook"},
-    }
+    _SCHED_TYPE_OPTIONS: list[tuple[str, str]] = [
+        ("sched_type_cron", "cron"),
+        ("sched_type_interval", "interval"),
+        ("sched_type_once", "once"),
+    ]
+    _SCHED_DELIVERY_OPTIONS: list[tuple[str, str]] = [
+        ("sched_delivery_review", "review"),
+        ("sched_delivery_announce", "announce"),
+        ("sched_delivery_webhook", "webhook"),
+    ]
+
+    @staticmethod
+    def _sched_label_for_value(options: list[tuple[str, str]], value: str, lang: str) -> str:
+        """Label of ``value`` in ``lang``; the raw value if it is not an option."""
+        from ..lib.i18n import TranslationManager
+        for key, option_value in options:
+            if option_value == value:
+                return TranslationManager.get_text(key, lang)
+        return value
+
+    @staticmethod
+    def _sched_value_for_label(options: list[tuple[str, str]], label: str, default: str) -> str:
+        """Stored value for a label in any loaded language; ``default`` if unknown."""
+        from ..lib.i18n import TranslationManager
+        for key, option_value in options:
+            if any(strings.get(key) == label for strings in TranslationManager._translations.values()):
+                return option_value
+        return default
+
+    def _sched_labels(self, options: list[tuple[str, str]]) -> list[str]:
+        from ..lib.i18n import TranslationManager
+        return [TranslationManager.get_text(key, self.ui_language) for key, _value in options]
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def sched_type_options(self) -> list[str]:
-        lang = "de" if self.ui_language == "de" else "en"
-        return list(self._TYPE_DISPLAY[lang].values())
+        return self._sched_labels(self._SCHED_TYPE_OPTIONS)
 
     @rx.var(deps=["scheduler_edit_type", "ui_language"], auto_deps=False)
     def sched_type_display(self) -> str:
-        lang = "de" if self.ui_language == "de" else "en"
-        return self._TYPE_DISPLAY[lang].get(self.scheduler_edit_type, self.scheduler_edit_type)
+        return self._sched_label_for_value(self._SCHED_TYPE_OPTIONS, self.scheduler_edit_type, self.ui_language)
 
     def set_scheduler_type_from_label(self, label: str) -> None:
-        new_type = self._TYPE_MAP.get(label, "cron")
-        self.scheduler_edit_type = new_type
+        self.scheduler_edit_type = self._sched_value_for_label(self._SCHED_TYPE_OPTIONS, label, "cron")
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def sched_delivery_options(self) -> list[str]:
-        lang = "de" if self.ui_language == "de" else "en"
-        return list(self._DELIVERY_DISPLAY[lang].values())
+        return self._sched_labels(self._SCHED_DELIVERY_OPTIONS)
 
     @rx.var(deps=["scheduler_edit_delivery", "ui_language"], auto_deps=False)
     def sched_delivery_display(self) -> str:
-        lang = "de" if self.ui_language == "de" else "en"
-        return self._DELIVERY_DISPLAY[lang].get(self.scheduler_edit_delivery, self.scheduler_edit_delivery)
+        return self._sched_label_for_value(self._SCHED_DELIVERY_OPTIONS, self.scheduler_edit_delivery, self.ui_language)
 
     def set_scheduler_delivery_from_label(self, label: str) -> None:
-        self.scheduler_edit_delivery = self._DELIVERY_MAP.get(label, "review")
+        self.scheduler_edit_delivery = self._sched_value_for_label(self._SCHED_DELIVERY_OPTIONS, label, "review")
 
     # ── Cron presets ───────────────────────────────────────────
 
-    _CRON_PRESETS: list[tuple[str, str, str, str, str, str, str]] = [
-        # (label_de, label_en, min, hour, dom, month, dow)
-        ("Stündlich", "Hourly", "0", "*", "*", "*", "*"),
-        ("Täglich", "Daily", "0", "8", "*", "*", "*"),
-        ("Werktags", "Weekdays", "0", "8", "*", "*", "1-5"),
-        ("Wöchentlich", "Weekly", "0", "8", "*", "*", "1"),
-        ("Monatlich", "Monthly", "0", "8", "1", "*", "*"),
+    # (i18n key, min, hour, dom, month, dow)
+    _CRON_PRESETS: list[tuple[str, str, str, str, str, str]] = [
+        ("sched_preset_hourly", "0", "*", "*", "*", "*"),
+        ("sched_preset_daily", "0", "8", "*", "*", "*"),
+        ("sched_preset_weekdays", "0", "8", "*", "*", "1-5"),
+        ("sched_preset_weekly", "0", "8", "*", "*", "1"),
+        ("sched_preset_monthly", "0", "8", "1", "*", "*"),
     ]
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def sched_preset_options(self) -> list[str]:
-        idx = 0 if self.ui_language == "de" else 1
-        return [p[idx] for p in self._CRON_PRESETS]
+        return self._sched_labels([(p[0], p[0]) for p in self._CRON_PRESETS])
 
     def apply_cron_preset(self, label: str) -> None:
+        preset_key = self._sched_value_for_label([(p[0], p[0]) for p in self._CRON_PRESETS], label, "")
         for p in self._CRON_PRESETS:
-            if label in (p[0], p[1]):
-                self.scheduler_cron_min = p[2]
-                self.scheduler_cron_hour = p[3]
-                self.scheduler_cron_dom = p[4]
-                self.scheduler_cron_month = p[5]
-                self.scheduler_cron_dow = p[6]
+            if p[0] == preset_key:
+                self.scheduler_cron_min = p[1]
+                self.scheduler_cron_hour = p[2]
+                self.scheduler_cron_dom = p[3]
+                self.scheduler_cron_month = p[4]
+                self.scheduler_cron_dow = p[5]
                 return
 
     # ── Weekday dropdown ──────────────────────────────────────
 
-    _DOW_OPTIONS: list[tuple[str, str, str]] = [
-        # (label_de, label_en, cron_value)
-        ("Jeden Tag", "Every day", "*"),
-        ("Mo–Fr", "Mon–Fri", "1-5"),
-        ("Wochenende", "Weekend", "6,0"),
-        ("Montag", "Monday", "1"),
-        ("Dienstag", "Tuesday", "2"),
-        ("Mittwoch", "Wednesday", "3"),
-        ("Donnerstag", "Thursday", "4"),
-        ("Freitag", "Friday", "5"),
-        ("Samstag", "Saturday", "6"),
-        ("Sonntag", "Sunday", "0"),
+    _DOW_OPTIONS: list[tuple[str, str]] = [
+        ("sched_dow_every_day", "*"),
+        ("sched_dow_mon_fri", "1-5"),
+        ("sched_dow_weekend", "6,0"),
+        ("sched_dow_monday", "1"),
+        ("sched_dow_tuesday", "2"),
+        ("sched_dow_wednesday", "3"),
+        ("sched_dow_thursday", "4"),
+        ("sched_dow_friday", "5"),
+        ("sched_dow_saturday", "6"),
+        ("sched_dow_sunday", "0"),
     ]
-    _DOW_LABEL_TO_VAL: dict[str, str] = {
-        label: val for de, en, val in _DOW_OPTIONS for label in (de, en)
-    }
-    _DOW_VAL_TO_LABEL: dict[str, dict[str, str]] = {
-        "de": {val: de for de, _en, val in _DOW_OPTIONS},
-        "en": {val: en for _de, en, val in _DOW_OPTIONS},
-    }
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def sched_dow_options(self) -> list[str]:
-        idx = 0 if self.ui_language == "de" else 1
-        return [o[idx] for o in self._DOW_OPTIONS]
+        return self._sched_labels(self._DOW_OPTIONS)
 
     @rx.var(deps=["scheduler_cron_dow", "ui_language"], auto_deps=False)
     def sched_dow_display(self) -> str:
-        lang = "de" if self.ui_language == "de" else "en"
-        return self._DOW_VAL_TO_LABEL[lang].get(
-            self.scheduler_cron_dow, self.scheduler_cron_dow
-        )
+        return self._sched_label_for_value(self._DOW_OPTIONS, self.scheduler_cron_dow, self.ui_language)
 
     def set_scheduler_dow_from_label(self, label: str) -> None:
-        self.scheduler_cron_dow = self._DOW_LABEL_TO_VAL.get(label, "*")
+        self.scheduler_cron_dow = self._sched_value_for_label(self._DOW_OPTIONS, label, "*")
 
     # ── Month dropdown ────────────────────────────────────────
 
-    _MONTH_OPTIONS: list[tuple[str, str, str]] = [
-        ("Jeden", "Every", "*"),
-        ("Januar", "January", "1"),
-        ("Februar", "February", "2"),
-        ("März", "March", "3"),
-        ("April", "April", "4"),
-        ("Mai", "May", "5"),
-        ("Juni", "June", "6"),
-        ("Juli", "July", "7"),
-        ("August", "August", "8"),
-        ("September", "September", "9"),
-        ("Oktober", "October", "10"),
-        ("November", "November", "11"),
-        ("Dezember", "December", "12"),
+    _MONTH_OPTIONS: list[tuple[str, str]] = [
+        ("sched_month_every", "*"),
+        ("sched_month_january", "1"),
+        ("sched_month_february", "2"),
+        ("sched_month_march", "3"),
+        ("sched_month_april", "4"),
+        ("sched_month_may", "5"),
+        ("sched_month_june", "6"),
+        ("sched_month_july", "7"),
+        ("sched_month_august", "8"),
+        ("sched_month_september", "9"),
+        ("sched_month_october", "10"),
+        ("sched_month_november", "11"),
+        ("sched_month_december", "12"),
     ]
-    _MONTH_LABEL_TO_VAL: dict[str, str] = {
-        label: val for de, en, val in _MONTH_OPTIONS for label in (de, en)
-    }
-    _MONTH_VAL_TO_LABEL: dict[str, dict[str, str]] = {
-        "de": {val: de for de, _en, val in _MONTH_OPTIONS},
-        "en": {val: en for _de, en, val in _MONTH_OPTIONS},
-    }
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def sched_month_options(self) -> list[str]:
-        idx = 0 if self.ui_language == "de" else 1
-        return [o[idx] for o in self._MONTH_OPTIONS]
+        return self._sched_labels(self._MONTH_OPTIONS)
 
     @rx.var(deps=["scheduler_cron_month", "ui_language"], auto_deps=False)
     def sched_month_display(self) -> str:
-        lang = "de" if self.ui_language == "de" else "en"
-        return self._MONTH_VAL_TO_LABEL[lang].get(
-            self.scheduler_cron_month, self.scheduler_cron_month
-        )
+        return self._sched_label_for_value(self._MONTH_OPTIONS, self.scheduler_cron_month, self.ui_language)
 
     def set_scheduler_month_from_label(self, label: str) -> None:
-        self.scheduler_cron_month = self._MONTH_LABEL_TO_VAL.get(label, "*")
+        self.scheduler_cron_month = self._sched_value_for_label(self._MONTH_OPTIONS, label, "*")
 
-    # ── Interval unit i18n ─────────────────────────────────────
+    # ── Interval unit ──────────────────────────────────────────
 
-    _UNIT_MAP: dict[str, str] = {
-        "Minuten": "minutes", "Minutes": "minutes",
-        "Stunden": "hours", "Hours": "hours",
-        "Tage": "days", "Days": "days",
-    }
-    _UNIT_DISPLAY: dict[str, dict[str, str]] = {
-        "de": {"minutes": "Minuten", "hours": "Stunden", "days": "Tage"},
-        "en": {"minutes": "Minutes", "hours": "Hours", "days": "Days"},
-    }
+    _INTERVAL_UNIT_OPTIONS: list[tuple[str, str]] = [
+        ("sched_interval_minutes", "minutes"),
+        ("sched_interval_hours", "hours"),
+        ("sched_interval_days", "days"),
+    ]
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def sched_interval_unit_options(self) -> list[str]:
-        lang = "de" if self.ui_language == "de" else "en"
-        return list(self._UNIT_DISPLAY[lang].values())
+        return self._sched_labels(self._INTERVAL_UNIT_OPTIONS)
 
     @rx.var(deps=["scheduler_interval_unit", "ui_language"], auto_deps=False)
     def sched_interval_unit_display(self) -> str:
-        lang = "de" if self.ui_language == "de" else "en"
-        return self._UNIT_DISPLAY[lang].get(self.scheduler_interval_unit, self.scheduler_interval_unit)
+        return self._sched_label_for_value(self._INTERVAL_UNIT_OPTIONS, self.scheduler_interval_unit, self.ui_language)
 
     def set_scheduler_interval_unit_from_label(self, label: str) -> None:
-        self.scheduler_interval_unit = self._UNIT_MAP.get(label, "minutes")
+        self.scheduler_interval_unit = self._sched_value_for_label(self._INTERVAL_UNIT_OPTIONS, label, "minutes")
 
     # ── Compose / decompose schedule expression ────────────────
 
