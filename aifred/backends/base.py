@@ -4,6 +4,8 @@ Abstract Base Class for LLM Backends
 Supports: Ollama, vLLM, llama.cpp, OpenAI, etc.
 """
 
+import asyncio
+import re
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, AsyncIterator, Union, Any
 from dataclasses import dataclass
@@ -263,6 +265,14 @@ class BackendInferenceError(BackendError):
     """Error during inference"""
 
 
+class BackendModelStartError(BackendError):
+    """The model server behind llama-swap exited while starting.
+
+    Deterministic (e.g. a startup check refusing the configuration), so the
+    message carries the server's own reason instead of a traceback.
+    """
+
+
 class OpenAICompatibleBackend(LLMBackend):
     """Shared implementation for OpenAI SDK-compatible backends (vLLM, CloudAPI, llamacpp).
 
@@ -413,6 +423,63 @@ class OpenAICompatibleBackend(LLMBackend):
             return [{"type": "content", "text": "</think>\n\n"}]
         return []
 
+    # llama-swap's answer when the upstream process died before serving.
+    _UPSTREAM_EXIT_MARKER = "upstream command exited prematurely"
+    # The upstream log stream sends its history first and then stays open;
+    # this bounds how long we collect it.
+    _UPSTREAM_LOG_COLLECT_S = 2.0
+    # "(APIServer pid=123) ValueError: ..." or a plain "RuntimeError: ...".
+    _UPSTREAM_EXCEPTION_LINE = re.compile(
+        r"^(?:\(\w+ pid=\d+\) )?([A-Za-z_][\w.]*(?:Error|Exception): .+)$"
+    )
+
+    def _llamaswap_root(self) -> str:
+        """URL of the server in front of the OpenAI ``/v1`` prefix (llama-swap)."""
+        return self.base_url.rsplit("/v1", 1)[0]
+
+    @classmethod
+    def _last_exception_line(cls, log_text: str) -> Optional[str]:
+        """Last ``SomeError: message`` line of an upstream log, if any."""
+        for line in reversed(log_text.splitlines()):
+            match = cls._UPSTREAM_EXCEPTION_LINE.match(line.strip())
+            if match:
+                return match.group(1)
+        return None
+
+    async def _upstream_exit_cause(self) -> Optional[str]:
+        """The exception the upstream process ended with, read from the
+        upstream log history of llama-swap (``/logs/stream/upstream``)."""
+        import httpx
+
+        chunks: List[str] = []
+        try:
+            async with asyncio.timeout(self._UPSTREAM_LOG_COLLECT_S):
+                async with httpx.AsyncClient() as client:
+                    async with client.stream(
+                        "GET", f"{self._llamaswap_root()}/logs/stream/upstream"
+                    ) as response:
+                        async for chunk in response.aiter_text():
+                            chunks.append(chunk)
+        except (TimeoutError, httpx.HTTPError):
+            # Timeout is the normal end: the history has arrived, the stream
+            # would stay open for new lines. Parse whatever was collected.
+            pass
+        return self._last_exception_line("".join(chunks))
+
+    async def _backend_error(self, error: Exception, model: str) -> BackendError:
+        """BackendError for a failed request; a model server that died while
+        starting gets its own reason from the llama-swap log."""
+        if self._UPSTREAM_EXIT_MARKER not in str(error):
+            return self._classify_error(error, model)
+        cause = await self._upstream_exit_cause()
+        detail = cause or (
+            "no exception in the llama-swap upstream log "
+            "(journalctl -u llama-swap)"
+        )
+        return BackendModelStartError(
+            f"{self.BACKEND_NAME}: model server for '{model}' exited while starting: {detail}"
+        )
+
     def _classify_error(self, error: Exception, model: str) -> BackendError:
         """Map exception to a specific BackendError subtype."""
         error_str = str(error)
@@ -530,7 +597,7 @@ class OpenAICompatibleBackend(LLMBackend):
             )
 
         except Exception as e:
-            raise self._classify_error(e, model)
+            raise await self._backend_error(e, model)
 
     @staticmethod
     def _truncation_debug(finish_reason: Optional[str]) -> List[Dict[str, str]]:
@@ -652,7 +719,6 @@ class OpenAICompatibleBackend(LLMBackend):
         if extra_body:
             kwargs["extra_body"] = extra_body
 
-        import asyncio
         import time
         import logging
 
@@ -1009,7 +1075,7 @@ class OpenAICompatibleBackend(LLMBackend):
                 # Stream already emitted output → retrying would duplicate it
                 # (and re-execute tool side effects). Surface immediately.
                 if yielded_any:
-                    raise self._classify_error(e, model)
+                    raise await self._backend_error(e, model)
                 elapsed = time.monotonic() - start_time
                 remaining = retry_timeout - elapsed
                 if remaining > retry_delay:
@@ -1018,6 +1084,6 @@ class OpenAICompatibleBackend(LLMBackend):
                     )
                     await asyncio.sleep(retry_delay)
                     continue
-                raise self._classify_error(e, model)
+                raise await self._backend_error(e, model)
 
-        raise self._classify_error(last_error, model)  # type: ignore[arg-type]
+        raise await self._backend_error(last_error, model)  # type: ignore[arg-type]

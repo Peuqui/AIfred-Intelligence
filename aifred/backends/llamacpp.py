@@ -95,7 +95,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         import httpx
 
         from ..lib.logging_utils import log_message
-        root = str(self.client.base_url).split("/v1")[0]
+        root = self._llamaswap_root()
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
                 resp = await client.get(f"{root}/running")
