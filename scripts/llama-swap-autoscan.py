@@ -2257,17 +2257,22 @@ AIFRED_CONFIG_PY = PROJECT_ROOT / "aifred" / "lib" / "config.py"
 _MMPROJ_PRECISION_RE = re.compile(r"-(f16|bf16|f32|q8_0)$", re.IGNORECASE)
 
 
-def read_vlm_num_ctx() -> Optional[int]:
-    """``VLM_NUM_CTX`` aus aifred/lib/config.py lesen (SSOT). Bewusst per
-    Regex statt Import — ein aifred-Import zöge Logging-/App-Seiteneffekte
-    in den Autoscan."""
+def _read_aifred_config_int(name: str) -> Optional[int]:
+    """Ganzzahlige Konstante aus aifred/lib/config.py lesen (SSOT). Bewusst
+    per Regex statt Import — ein aifred-Import zöge Logging-/App-
+    Seiteneffekte in den Autoscan."""
     try:
         m = re.search(
-            r"^VLM_NUM_CTX\s*=\s*(\d+)", AIFRED_CONFIG_PY.read_text(), re.M,
+            rf"^{re.escape(name)}\s*=\s*(\d+)", AIFRED_CONFIG_PY.read_text(), re.M,
         )
     except OSError:
         return None
     return int(m.group(1)) if m else None
+
+
+def read_vlm_num_ctx() -> Optional[int]:
+    """``VLM_NUM_CTX`` aus aifred/lib/config.py (SSOT)."""
+    return _read_aifred_config_int("VLM_NUM_CTX")
 
 
 def _find_mmproj_for(gguf_path: Path) -> Optional[Path]:
@@ -2405,6 +2410,141 @@ def enforce_visiond_ctx(config_path: Path) -> int:
     return fixed
 
 
+# ``<basis>-tts-<engine>`` / ``-vlm-<key>`` / beides, optional ``-speed``.
+_TTS_VARIANT_RE = re.compile(r"-tts-([a-z0-9]+?)(?=-vlm-|-speed$|$)")
+_VLM_VARIANT_RE = re.compile(r"-vlm-([a-z0-9]+?)(-speed)?$")
+
+AIFRED_DATA_DIR = PROJECT_ROOT / "data"
+VLM_VRAM_CACHE_FILE = AIFRED_DATA_DIR / "vlm_vram_cache.json"
+TTS_VRAM_CACHE_FILE = AIFRED_DATA_DIR / "tts_vram_cache.json"
+
+# VRAM, den der PLE-Offload-Worker auf der Store-Karte neben der Tabelle
+# selbst belegt (CUDA-Kontext). Gemessen 17.09.2026 auf der V100: Prozess
+# 5.174 MiB bei 4,3 GiB Tabelle -> ~771 MiB.
+PLE_STORE_WORKER_MB = 800
+
+
+def _env_value(block: str, key: str) -> Optional[str]:
+    m = re.search(rf"^    - {re.escape(key)}=(.*)$", block, re.M)
+    return m.group(1).strip() if m else None
+
+
+def _store_gpu_usable_mib(block: str) -> Optional[int]:
+    """Nutzbarer VRAM (memory.total - memory.reserved, wie CUDA ihn meldet)
+    der Karte, die ``VLLM_QWEN4EXP_PLE_STORE_DEVICE`` meint. Das Device ist
+    ein Ordinal in ``CUDA_VISIBLE_DEVICES`` (Indizes oder UUIDs)."""
+    ordinal = _env_value(block, "VLLM_QWEN4EXP_PLE_STORE_DEVICE")
+    if ordinal is None or not ordinal.isdigit():
+        return None
+    visible = _env_value(block, "CUDA_VISIBLE_DEVICES")
+    ids = [v.strip() for v in visible.split(",")] if visible else None
+    if ids is not None and int(ordinal) >= len(ids):
+        return None
+    physical = ids[int(ordinal)] if ids is not None else ordinal
+    rows = nvidia_smi.query("index,uuid,memory.total,memory.reserved")
+    for row in rows or []:
+        if physical in (str(row["index"]), str(row["uuid"])):
+            return int(float(row["memory.total"])) - int(float(row["memory.reserved"]))
+    return None
+
+
+def _vlm_reserve_mib(vlm_key: str, num_ctx: int) -> Optional[int]:
+    """Gemessene Describer-Spitze bei ``num_ctx`` + Laufzeit-Aufschlag — dieselbe
+    Regel wie vlm_stress_prewarm.resolve_vlm_reserve."""
+    from vlm_naming import vlm_profile_key
+
+    headroom = _read_aifred_config_int("LLAMACPP_VLM_HEADROOM_MB")
+    try:
+        cache = json.loads(VLM_VRAM_CACHE_FILE.read_text())
+    except (OSError, json.JSONDecodeError):
+        return None
+    peaks = [
+        int(entry["peak_mb"]) for model_id, entry in cache.items()
+        if vlm_profile_key(model_id) == vlm_key
+        and int(entry.get("num_ctx", -1)) == num_ctx
+        and isinstance(entry.get("peak_mb"), (int, float)) and entry["peak_mb"] > 0
+    ]
+    if not peaks or headroom is None:
+        return None
+    return max(peaks) + headroom
+
+
+def _tts_reserve_mib(engine_key: str) -> Optional[int]:
+    """Gemessene TTS-Spitze + Aufschlag — dieselbe Regel wie
+    tts_stress_burnin.resolve_tts_reserve."""
+    headroom = _read_aifred_config_int("LLAMACPP_TTS_BURNIN_HEADROOM_MB")
+    try:
+        entry = json.loads(TTS_VRAM_CACHE_FILE.read_text()).get(engine_key) or {}
+    except (OSError, json.JSONDecodeError):
+        return None
+    peak = entry.get("peak_mb")
+    if not isinstance(peak, (int, float)) or peak <= 0 or headroom is None:
+        return None
+    return int(peak) + headroom
+
+
+def enforce_ple_store_budgets(config_path: Path) -> int:
+    """``VLLM_QWEN4EXP_PLE_STORE_GIB`` jedes Eintrags mit Store-Karte auf den
+    Platz setzen, den die Karte nach Worker, Sicherheitsabstand und den
+    Seitenkanälen der Variante (``-vlm-``: Describer, ``-tts-``: TTS) hat.
+
+    Das Budget ist eine Obergrenze (der Planer legt nur den Überlauf ab), ein
+    großzügiger Wert kostet also nichts, solange die Tabelle klein ist. Fehlt
+    ein Messwert, bleibt der Eintrag unverändert und es gibt eine Warnung.
+
+    Einträge mit ``VLLM_QWEN4EXP_PLE_DISK=1`` bleiben unberührt: Ihr knappes
+    Store-Budget ist Absicht, damit der Überlauf die SSD-Stufe erreicht.
+    Returnt die Anzahl angepasster Einträge."""
+    content = config_path.read_text()
+    num_ctx = read_vlm_num_ctx()
+    fixed = 0
+    for m in re.finditer(r"^  ([A-Za-z0-9][A-Za-z0-9._-]*):\n((?:    .*\n)+)", content, re.M):
+        name, block = m.group(1), m.group(2)
+        current = _env_value(block, "VLLM_QWEN4EXP_PLE_STORE_GIB")
+        if _env_value(block, "VLLM_QWEN4EXP_PLE_STORE_DEVICE") is None:
+            continue
+        if _env_value(block, "VLLM_QWEN4EXP_PLE_DISK") == "1":
+            continue
+        if current is None:
+            print(f"  ⚠ {name}: STORE_DEVICE without STORE_GIB — budget not set")
+            continue
+        usable = _store_gpu_usable_mib(block)
+        if usable is None:
+            print(f"  ⚠ {name}: store GPU not resolvable — budget unchanged ({current})")
+            continue
+        reserve = PLE_STORE_WORKER_MB + VRAM_SAFETY_MARGIN_MB
+        tts = _TTS_VARIANT_RE.search(name)
+        if tts:
+            tts_mib = _tts_reserve_mib(tts.group(1))
+            if tts_mib is None:
+                print(f"  ⚠ {name}: no TTS measurement for '{tts.group(1)}' — budget unchanged ({current})")
+                continue
+            reserve += tts_mib
+        vlm = _VLM_VARIANT_RE.search(name)
+        if vlm:
+            vlm_mib = _vlm_reserve_mib(vlm.group(1), num_ctx) if num_ctx else None
+            if vlm_mib is None:
+                print(f"  ⚠ {name}: no VLM measurement for '{vlm.group(1)}' at VLM_NUM_CTX={num_ctx} — budget unchanged ({current})")
+                continue
+            reserve += vlm_mib
+        budget_mib = usable - reserve
+        if budget_mib <= 0:
+            print(f"  ⚠ {name}: no room on the store GPU ({usable} MiB, reserve {reserve} MiB) — budget unchanged ({current})")
+            continue
+        budget = f"{int(budget_mib / 1024 * 10) / 10:.1f}"
+        if budget != current:
+            new_block = block.replace(
+                f"    - VLLM_QWEN4EXP_PLE_STORE_GIB={current}\n",
+                f"    - VLLM_QWEN4EXP_PLE_STORE_GIB={budget}\n", 1,
+            )
+            content = content.replace(f"  {name}:\n{block}", f"  {name}:\n{new_block}", 1)
+            print(f"  ~ {name}: STORE_GIB {current} → {budget} (usable {usable} MiB − reserve {reserve} MiB)")
+            fixed += 1
+    if fixed:
+        _write_config(config_path, content)
+    return fixed
+
+
 def cleanup_stale_vlm_variants(config_path: Path) -> list[str]:
     """``-vlm-<key>``-Varianten entfernen, deren Describer kein
     ``-visiond``-Profil mehr hat (VLM gelöscht) — inklusive der
@@ -2418,7 +2558,7 @@ def cleanup_stale_vlm_variants(config_path: Path) -> list[str]:
     }
     stale = []
     for name in model_cmds:
-        m = re.search(r"-vlm-([a-z0-9]+?)(-speed)?$", name)
+        m = _VLM_VARIANT_RE.search(name)
         if m and m.group(1) not in valid_keys:
             stale.append(name)
     if not stale:
@@ -2741,6 +2881,10 @@ def main() -> None:
     stale_vlm_variants = cleanup_stale_vlm_variants(LLAMASWAP_CONFIG)
     if not (visiond_added or visiond_ctx_fixed or stale_vlm_variants):
         print("  visiond profiles up to date")
+    # Nach der Describer-Pflege: die Budgets hängen an den -vlm-/-tts-Namen.
+    print("Maintaining PLE store budgets...")
+    if not enforce_ple_store_budgets(LLAMASWAP_CONFIG):
+        print("  PLE store budgets up to date")
     if removed_symlinks or stale_models or stale_skip or stale_profiles:
         total = (len(removed_symlinks) + len(stale_models) + stale_skip
                  + len(stale_profiles))
