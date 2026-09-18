@@ -13,7 +13,7 @@ import json
 import re
 from collections.abc import AsyncGenerator
 from datetime import datetime
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Sequence
 
 import reflex as rx
 from reflex.event import EventSpec
@@ -65,14 +65,12 @@ class ChatMixin(rx.State, mixin=True):
     # Tool Status (shown in UI while agent uses tools)
     tool_status: str = ""  # e.g. "🌐 bibleserver.com/HFA/Psalm139"
 
-    # Research context (set by forced research pipeline, read by agent response)
+    # Outputs of the last execute_research run (forced quick/deep path and
+    # the web_search tool): the page content for the prompt, the sources
+    # collapsible for the bubble, and the llm_history line (research_note).
     _research_context: str = ""
     _research_sources_html: str = ""
-    # Source count of the last web research — consumed once by
-    # _sync_to_llm_history to tag that assistant turn with a research marker,
-    # so a follow-up turn knows the agent DID search (the tool_call/results
-    # themselves are not kept in llm_history).
-    _research_source_count: int = 0
+    _research_note: str = ""
 
     # ── Debug / Progress ─────────────────────────────────────────────
 
@@ -225,7 +223,9 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── LLM History Sync ─────────────────────────────────────────────
 
-    def _sync_to_llm_history(self, agent: str, content: str) -> None:
+    def _sync_to_llm_history(
+        self, agent: str, content: str, history_notes: Sequence[str] = (),
+    ) -> None:
         """Sync agent response to llm_history with speaker label.
 
         Strips only thinking blocks (<think>, Harmony analysis).
@@ -240,27 +240,15 @@ class ChatMixin(rx.State, mixin=True):
         Args:
             agent: Agent identifier ("aifred", "sokrates", "salomo")
             content: Agent response content (should be RAW, not formatted)
+            history_notes: What the turn's tools left for the next turn
+                (PipelineResult.history_notes), appended after the answer
         """
-        from ..lib.message_builder import with_html_preview_note
+        from ..lib.message_builder import with_history_notes
         label = agent.upper()
-        clean_content = with_html_preview_note(strip_thinking_blocks(content))
+        clean_content = with_history_notes(strip_thinking_blocks(content), history_notes)
 
         if clean_content:
             ch = self._chat_sub()
-            # Append a compact research marker (llm_history only — not the UI)
-            # so a follow-up turn knows the agent DID search. Consumed-and-reset
-            # so it tags exactly the turn that researched and never carries over
-            # to a later non-search turn.
-            n = getattr(self, "_research_source_count", 0)
-            if n > 0:
-                lang = getattr(self, "ui_language", "de")
-                marker = (
-                    f"[Recherche: {n} Web-Quellen abgerufen und ausgewertet.]"
-                    if lang == "de"
-                    else f"[Research: {n} web sources retrieved and evaluated.]"
-                )
-                clean_content = f"{clean_content}\n\n{marker}"
-                self._research_source_count = 0  # type: ignore[attr-defined]
             ch.llm_history = [
                 *ch.llm_history,
                 {"role": "assistant", "content": f"[{label}]: {clean_content}"},
@@ -1643,12 +1631,6 @@ class ChatMixin(rx.State, mixin=True):
             # tts_streaming_in_flight stays True and blocks media resume.
             # No-op when the multi-agent path already spawned it.
             self._spawn_tts_finalize()  # type: ignore[attr-defined]
-
-            # Per-turn semantics: without this reset a failed agent
-            # inference AFTER successful research leaves the counter set
-            # and the NEXT (research-less) turn gets a stale
-            # "[Recherche: N Quellen]" marker in its llm_history.
-            self._research_source_count = 0  # type: ignore[attr-defined]
 
             # Partial-response rescue: when the handler is aborted
             # mid-stream (CancelledError from the stop button or pipeline

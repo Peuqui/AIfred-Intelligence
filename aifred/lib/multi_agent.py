@@ -11,7 +11,7 @@ This module contains the core Multi-Agent logic extracted from state.py.
 The functions work with async generators for streaming UI updates.
 """
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional, Sequence
 
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient, build_llm_options
@@ -214,6 +214,7 @@ async def _stream_agent_to_history(
     messages: list,
     options: LLMOptions,
     toolkit: Any = None,
+    history_notes: Sequence[str] = (),
 ) -> AsyncGenerator[dict[str, Any] | None, None]:
     """Stream an agent's response into current_ai_response (unified streaming).
 
@@ -228,6 +229,8 @@ async def _stream_agent_to_history(
     Args:
         agent: Agent key for state/TTS ("sokrates", "aifred", "salomo")
         agent_label: Display label for logs ("Sokrates", "AIfred Refinement", "Salomo")
+        history_notes: llm_history lines from before the stream (forced
+            research), placed before what the turn's own tools leave
     """
     from .llm_pipeline import run_llm_stream, PipelineResult
 
@@ -357,8 +360,11 @@ async def _stream_agent_to_history(
     # TTS was actually initialized for this turn.
     state._spawn_tts_finalize()
 
-    # Sync to llm_history with CLEAN text (no HTML collapsibles)
-    state._sync_to_llm_history(agent, pipeline_result.text)
+    # Sync to llm_history with CLEAN text (no HTML collapsibles), plus what
+    # the turn's research and tools left for the next turn.
+    state._sync_to_llm_history(
+        agent, pipeline_result.text, [*history_notes, *pipeline_result.history_notes],
+    )
 
     # Clear streaming state (cleanup BEFORE yield)
     state._js_chunk_buffer = ""
@@ -756,6 +762,7 @@ async def _run_agent_direct_response(
 
         # Forced web search (quick/deep): execute research pipeline BEFORE agent response
         research_context = ""
+        research_notes: list[str] = []
         if research_mode in ("quick", "deep"):
             state.add_debug(f"🔎 Forced web research ({research_mode})...")
             yield  # type: ignore[misc]
@@ -765,6 +772,9 @@ async def _run_agent_direct_response(
             ):
                 yield  # type: ignore[misc]
             research_context = getattr(state, "_research_context", "")
+            # Not a tool call, so its llm_history line does not come through
+            # the pipeline — hand it to the stream explicitly.
+            research_notes = [state._research_note]
 
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
@@ -849,6 +859,7 @@ async def _run_agent_direct_response(
             state=state, agent=agent, agent_label=agent_label,
             llm_client=llm_client, model=agent_model_id,
             messages=messages, options=agent_options, toolkit=toolkit,
+            history_notes=research_notes,
         ):
             if isinstance(item, dict):
                 result = item

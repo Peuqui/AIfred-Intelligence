@@ -139,6 +139,9 @@ class ToolKit:
             ``{"type": "tool_work", "work": {...}}`` — inference a tool ran
                 itself (a sub-agent), as ``perf_metrics.InferenceWork``; the
                 caller adds it to its own turn's metrics.
+            ``{"type": "tool_note", "note": "..."}`` — one line on what the
+                tool did, for the turn's llm_history entry (the call itself
+                is not kept between turns; see PipelineResult.history_notes).
             ``{"type": "tool_result",   "result":  "..."}`` — final result
                 string (sanitised). Always exactly one is emitted.
 
@@ -147,9 +150,9 @@ class ToolKit:
         - async generator → must yield ``{"progress": "..."}`` for interim
           updates, may yield ``{"artifacts": [{"kind", "data"}, ...]}`` for
           the caller's bubble, may yield ``{"work": {...}}`` for inference it
-          ran, and exactly one ``{"result": "..."}`` for the
-          final payload (string). Anything else yielded is treated as a
-          fallback plain-string result.
+          ran, may yield ``{"note": "..."}`` for the llm_history, and exactly
+          one ``{"result": "..."}`` for the final payload (string). Anything
+          else yielded is treated as a fallback plain-string result.
         """
         tool = self._by_name.get(name)
         if not tool:
@@ -240,6 +243,8 @@ class ToolKit:
                         yield {"type": "tool_artifacts", "artifacts": list(item["artifacts"])}
                     elif isinstance(item, dict) and "work" in item:
                         yield {"type": "tool_work", "work": dict(item["work"])}
+                    elif isinstance(item, dict) and "note" in item:
+                        yield {"type": "tool_note", "note": str(item["note"])}
                     elif isinstance(item, dict) and "result" in item:
                         result_str = (
                             json.dumps(item["result"])

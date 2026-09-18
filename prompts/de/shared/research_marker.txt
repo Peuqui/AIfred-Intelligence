@@ -1,0 +1,1 @@
+[Recherche: {source_count} Web-Quellen abgerufen und ausgewertet. Suchbegriffe: {queries}]

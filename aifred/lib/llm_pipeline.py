@@ -64,6 +64,10 @@ class PipelineResult:
     # channel delivery sends (the rounds before it are the agent's working
     # notes, which stay in the bubble).
     final_text: str = ""
+    # What the turn's tools left for the next turn, one line each (e.g. the
+    # web_search queries) — appended to the turn's llm_history entry, since
+    # the tool calls and results themselves are not kept between turns.
+    history_notes: list[str] = field(default_factory=list)
     silent_reply: bool = False                          # any tool requested TTS-skip
     truncated: bool = False                             # hit token/context limit — answer incomplete
 
@@ -246,6 +250,7 @@ async def run_llm_stream(
     # the call in flight gets its success flag from the next tool result.
     own_sources: Optional[BubbleArtifact] = None
     pending_fetch: Optional[dict[str, Any]] = None
+    history_notes: list[str] = []
 
     def add_artifact(artifact: BubbleArtifact) -> None:
         nonlocal full_response
@@ -336,6 +341,9 @@ async def run_llm_stream(
             for raw in chunk.get("artifacts", []):
                 add_artifact(BubbleArtifact.from_dict(raw))
             yield chunk
+
+        elif chunk_type == "tool_note":
+            history_notes.append(str(chunk["note"]))
 
         elif chunk_type == "tool_result":
             result_text = chunk.get("result", "")
@@ -612,6 +620,7 @@ async def run_llm_stream(
             work=work,
             artifacts=artifacts,
             final_text=final_text,
+            history_notes=history_notes,
             silent_reply=silent_reply,
             truncated=truncated,
         ),
