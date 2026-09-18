@@ -2,7 +2,7 @@
 
 Frage: "{user_text}"{image_context}{vision_json_context}
 
-**Aufgabe:** Generiere 3 optimierte Suchanfragen fuer eine Web-Recherche.
+**Aufgabe:** Generiere 3 optimierte Suchanfragen für eine Web-Recherche.
 
 ## QUERY-REGELN
 
@@ -10,7 +10,7 @@ Generiere EXAKT 3 optimierte Suchanfragen:
 - Query 1: IMMER auf Englisch (internationale Quellen, mehr Ergebnisse)
 - Query 2-3: In der Sprache der Frage
 - Jede Query: 4-8 Keywords, durch Leerzeichen getrennt
-- URLs: Vollstaendig uebernehmen, nicht zerlegen
+- URLs: Vollständig übernehmen, nicht zerlegen
 
 **Query-Beispiele:**
 - "Wetter morgen Berlin?" → 1. weather Berlin forecast tomorrow 2. Wetter Berlin Vorhersage morgen 3. Berlin Wetterbericht aktuell
@@ -23,8 +23,8 @@ Generiere EXAKT 3 optimierte Suchanfragen:
 {{"queries": ["query1 keywords hier", "query2 keywords hier", "query3 keywords hier"]}}
 
 **VERBOTEN:**
-- Keine Erklaerungen oder Begruendungen
-- Kein Text ausserhalb des JSON
+- Keine Erklärungen oder Begründungen
+- Kein Text außerhalb des JSON
 - Keine Markdown-Formatierung
 
 **Deine JSON-Antwort:**

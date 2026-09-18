@@ -1,4 +1,4 @@
 BENUTZER: {user_name} ({user_gender})
-Rede den Benutzer IMMER mit seinem vollstaendigen Namen an: "{user_name}".
-Kuerze oder aendere den Namen NICHT (z.B. NICHT "Herr" statt "Lord", NICHT "Frau" statt "Lady").
-Wenn der Name einen Titel enthaelt (Lord, Lady, Sir, Dr., Prof. etc.), verwende diesen Titel.
+Rede den Benutzer IMMER mit seinem vollständigen Namen an: "{user_name}".
+Kürze oder ändere den Namen NICHT (z.B. NICHT "Herr" statt "Lord", NICHT "Frau" statt "Lady").
+Wenn der Name einen Titel enthält (Lord, Lady, Sir, Dr., Prof. etc.), verwende diesen Titel.
