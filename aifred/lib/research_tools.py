@@ -14,7 +14,7 @@ the results stay in the history anyway.
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Optional, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Optional, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -46,6 +46,20 @@ def _is_network_outage(tool_results: list[dict[str, Any]]) -> bool:
     )
 
 
+def research_note(source_count: int, queries: Sequence[str], lang: str) -> str:
+    """The llm_history line of a web search: how many sources were read and
+    for which queries. A count alone did not tell the model in a follow-up
+    WHAT it had researched, and it accepted the user's "you did not research"
+    (18.09.: Kuanda searched as Kondo). Text in prompts/<lang>/shared."""
+    from .prompt_loader import load_prompt
+    return load_prompt(
+        "shared/research_marker",
+        lang=lang,
+        source_count=source_count,
+        queries=", ".join(f'"{query}"' for query in queries),
+    )
+
+
 # ============================================================
 # Unified Research Pipeline (async generator for progress updates)
 # ============================================================
@@ -69,7 +83,8 @@ async def execute_research(
     4. Parallel scraping
     5. Context building
 
-    Results stored in state._research_context and state._research_sources_html.
+    Results stored in state._research_context, state._research_sources_html
+    and state._research_note (the llm_history line, see research_note).
     """
     from .conversation_handler import generate_web_search_queries
     from .research.query_processor import process_query_and_search
@@ -107,12 +122,16 @@ async def execute_research(
     # Init result state
     state._research_context = ""  # type: ignore[attr-defined]
     state._research_sources_html = ""  # type: ignore[attr-defined]
+    state._research_note = ""
 
     try:
         # ==============================================================
         # PHASE 1: Query Generation (skipped if pre_generated_queries)
         # ==============================================================
-        if not pre_generated_queries:
+        queries: list[str]
+        if pre_generated_queries:
+            queries = pre_generated_queries
+        else:
             state.add_debug("🔍 Generating search queries...")
             yield
             query_result = await generate_web_search_queries(
@@ -123,9 +142,9 @@ async def execute_research(
                 llm_history=state._chat_sub().llm_history[:-1] if len(state._chat_sub().llm_history) > 1 else None,
                 automatik_num_ctx=automatik_num_ctx,
             )
-            pre_generated_queries = query_result["queries"]
+            queries = query_result["queries"]
             query_gen_time = query_result["generation_time"]
-            state.add_debug(f"✅ {len(pre_generated_queries)} queries ({query_gen_time:.1f}s)")
+            state.add_debug(f"✅ {len(queries)} queries ({query_gen_time:.1f}s)")
             yield
 
         # ==============================================================
@@ -144,7 +163,7 @@ async def execute_research(
             automatik_llm_client=automatik_llm_client,
             llm_options={},
             vision_json_context=None,
-            pre_generated_queries=pre_generated_queries,
+            pre_generated_queries=queries,
         ):
             if item["type"] == "query_result":
                 _, _, _, related_urls, titles, snippets, tool_results = item["data"]
@@ -158,6 +177,7 @@ async def execute_research(
                 state._research_context = WEB_SEARCH_NETWORK_ERROR  # type: ignore[attr-defined]
             else:
                 state.add_debug("⚠️ No URLs found")
+            state._research_note = research_note(0, queries, lang)
             yield
             return
 
@@ -229,6 +249,7 @@ async def execute_research(
         # ==============================================================
         if not tool_results:
             state.add_debug("⚠️ No sources available")
+            state._research_note = research_note(0, queries, lang)
             yield
             return
 
@@ -255,10 +276,10 @@ async def execute_research(
         state.add_debug(f"✅ Research: {len(context)} chars, {len(used_sources)} sources")
         state._research_context = context  # type: ignore[attr-defined]
         state._research_sources_html = sources_html  # type: ignore[attr-defined]
-        # Tag this turn so _sync_to_llm_history records in llm_history that a
-        # web search happened — even if the model's synthesis degenerates, the
-        # follow-up turn then knows it DID research (no false "I didn't search").
-        state._research_source_count = len(used_sources)  # type: ignore[attr-defined]
+        # The llm_history line of this research — even if the model's
+        # synthesis degenerates, the follow-up turn then knows it DID
+        # research and for what (no false "I didn't search").
+        state._research_note = research_note(len(used_sources), queries, lang)
         yield
 
     finally:
@@ -271,7 +292,7 @@ async def execute_research(
 # Hub search (Message Hub — no Reflex State, no async generators)
 # ============================================================
 
-async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str = "deep") -> str:
+async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str = "deep") -> tuple[str, int]:
     """Web search for Message Hub (Discord, Email).
 
     Uses the same building blocks as the full pipeline:
@@ -282,6 +303,9 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
 
     No Reflex State needed — reads config from settings.
     Debug messages go through the Debug Bus (session_scope must be active).
+
+    Returns (context, number of sources read); the caller builds the
+    llm_history line from the count (research_note).
     """
     from .debug_bus import debug
     from .research.query_processor import process_query_and_search
@@ -337,9 +361,9 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
         if not related_urls:
             if _is_network_outage(tool_results):
                 debug("⚠️ Search unreachable — network/DNS failure (not 'no results')")
-                return WEB_SEARCH_NETWORK_ERROR
+                return WEB_SEARCH_NETWORK_ERROR, 0
             debug("⚠️ No URLs found")
-            return json.dumps({"error": "No results found"})
+            return json.dumps({"error": "No results found"}), 0
 
         # ── Phase 2: URL ranking ──────────────────────────────
         from .research.context_utils import get_model_native_context
@@ -392,13 +416,13 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
 
         if not tool_results:
             debug("⚠️ No sources available")
-            return json.dumps({"error": "No results found"})
+            return json.dumps({"error": "No results found"}), 0
 
         # ── Phase 4: Build context ────────────────────────────
         context = build_context(queries[0], tool_results)
         scraped_only = [r for r in tool_results if r.get("success") and r.get("content")]
         debug(f"✅ Research: {len(context)} chars, {len(scraped_only)} sources")
-        return context
+        return context, len(scraped_only)
 
     finally:
         await llm_client.close()

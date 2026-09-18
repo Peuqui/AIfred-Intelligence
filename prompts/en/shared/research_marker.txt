@@ -1,0 +1,1 @@
+[Research: {source_count} web sources retrieved and evaluated. Search queries: {queries}]

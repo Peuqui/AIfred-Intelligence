@@ -12,7 +12,7 @@ import contextvars
 import secrets
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional
+from typing import Iterator, Optional, Sequence
 
 from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage
@@ -470,7 +470,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         from .message_builder import stamp_user_turn, user_turn_stamp
         user_llm_text = stamp_user_turn(llm_context, user_turn_stamp())
 
-        response_text, response_display, response_final, result_metadata = await _call_engine(
+        response_text, response_display, response_final, result_metadata, history_notes = await _call_engine(
             user_text=user_llm_text,
             session_id=session_id,
             agent=message.target_agent,
@@ -494,7 +494,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         _append_response(
             session_id, response_text, response_display,
             metadata=result_metadata, agent=message.target_agent,
-            user_llm_text=user_llm_text,
+            user_llm_text=user_llm_text, history_notes=history_notes,
         )
 
         # ── Phase 3b: Sanitize output for external channels ───
@@ -559,11 +559,13 @@ async def _call_engine(
     source: str = "browser",
     metadata: Optional[dict] = None,
     trust: str = "external",
-) -> tuple[str, str, str, dict]:
+) -> tuple[str, str, str, dict, list[str]]:
     """Call the AIfred engine with full toolkit (memory + plugins).
 
-    Returns (response_clean, response_display, response_final, metadata_dict);
-    response_final is the answer after the turn's last tool call.
+    Returns (response_clean, response_display, response_final, metadata_dict,
+    history_notes); response_final is the answer after the turn's last tool
+    call, history_notes what its tools left for the llm_history
+    (PipelineResult.history_notes).
     Debug messages go through the Debug Bus (session_scope must be active).
     """
     from .debug_bus import debug
@@ -588,7 +590,7 @@ async def _call_engine(
 
     if not model:
         log_message(f"Message Processor: no model configured for {agent}/{backend_type}", "error")
-        return "", "", "", {}
+        return "", "", "", {}, []
 
     # Load existing LLM history from session
     session = load_session(session_id)
@@ -665,15 +667,15 @@ async def _call_engine(
                     result_meta = data.get("metadata_dict", {})
                     return (
                         data["response_clean"], data["response_display"],
-                        data["response_final"], result_meta,
+                        data["response_final"], result_meta, data["history_notes"],
                     )
     except Exception as exc:
         log_message(f"Message Processor: engine error — {exc}", "error")
         debug(f"❌ Engine error: {exc}")
-        return "", "", "", {}
+        return "", "", "", {}, []
 
     joined = "".join(response_parts)
-    return joined, joined, joined, {}
+    return joined, joined, joined, {}, []
 
 
 def channel_display_label(channel: str) -> str:
@@ -743,11 +745,16 @@ def _append_response(
     metadata: dict | None = None,
     agent: str = "aifred",
     user_llm_text: str | None = None,
+    history_notes: Sequence[str] = (),
 ) -> None:
     """Append the assistant response to an existing session.
 
     If metadata is provided, appends a performance footer (TTFT, tok/s, etc.)
     to the chat content — same format as browser-path add_agent_panel.
+
+    ``history_notes`` is what the turn's tools left for the llm_history
+    (PipelineResult.history_notes); it follows the response text the same
+    way the browser path writes it (message_builder.with_history_notes).
 
     M3: ``user_llm_text`` is the LLM-facing user message (wrapped in
     <external_message> security delimiters), appended to llm_history right
@@ -759,10 +766,11 @@ def _append_response(
     """
     from .session_storage import load_session, session_rmw_lock
     from .formatting import format_performance_footer, build_assistant_chat_entry
+    from .message_builder import with_history_notes
 
     # Bubble: text plus the turn's artifacts (lib/bubble.py), then the
     # metadata footer (shared with browser-path add_agent_panel). llm_history
-    # keeps the plain response text.
+    # keeps the plain response text and the turn's history notes.
     display_content = response_display
     if metadata:
         meta_footer = format_performance_footer(metadata)
@@ -781,7 +789,7 @@ def _append_response(
 
         # SSOT: same dict shape as browser-path add_agent_panel
         existing_chat.append(build_assistant_chat_entry(display_content, agent, metadata))
-        existing_llm.append({"role": "assistant", "content": response_text})
+        existing_llm.append({"role": "assistant", "content": with_history_notes(response_text, history_notes)})
 
         # Browser detects via session file mtime-watch (SSOT)
         update_chat_data(

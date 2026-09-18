@@ -263,9 +263,11 @@ async def call_llm(
 
         # Update llm_history BEFORE calculating history_tokens
         # so "History: X tok" reflects the current conversation state (incl. AI response)
-        if response_clean:
+        if response_clean or pipeline_result.history_notes:
             from .message_builder import build_llm_history_entry
-            llm_history.append(build_llm_history_entry(agent, response_clean))
+            llm_history.append(
+                build_llm_history_entry(agent, response_clean, pipeline_result.history_notes)
+            )
 
         # Rebuild metadata with hub-specific params (history_tokens, backend_type, source_label)
         from .context_manager import estimate_tokens_from_llm_history
@@ -310,6 +312,10 @@ async def call_llm(
                 "response_display": render_bubble(
                     pipeline_result.text, pipeline_result.artifacts, show_tags=False,
                 ),
+                # What the turn's tools left for the llm_history — the hub
+                # persists the answer itself (_append_response), so it needs
+                # them alongside the text.
+                "history_notes": pipeline_result.history_notes,
                 "history": history,
                 "llm_history": llm_history,
                 "inference_time": pipeline_result.inference_time,

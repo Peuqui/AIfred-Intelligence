@@ -915,6 +915,11 @@ class OpenAICompatibleBackend(LLMBackend):
                             elif item.get("type") == "tool_work":
                                 # A sub-agent's inference: part of this turn's work.
                                 work = work + InferenceWork.from_dict(item["work"])
+                            elif item.get("type") == "tool_note":
+                                # What the tool did, for the turn's llm_history
+                                # entry (PipelineResult.history_notes) — the
+                                # call itself is not kept between turns.
+                                yield {"type": "tool_note", "name": tc["name"], "note": item["note"]}
                             elif item.get("type") == "tool_artifacts":
                                 # Bubble artifacts (sub-agent transcript and
                                 # results): forwarded to the consumer, never

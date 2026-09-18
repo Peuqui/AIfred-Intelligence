@@ -5,7 +5,7 @@ Converts llm_history (List[Dict]) to Ollama Messages format.
 All LLM calls use llm_history exclusively (not chat_history).
 """
 
-from typing import Any, List, Dict, Optional
+from typing import Any, List, Dict, Optional, Sequence
 from datetime import datetime
 
 from .prompt_loader import get_user_name
@@ -284,18 +284,23 @@ def stamp_user_turn(content: str, stamp: str) -> str:
     return f"{stamp} {content}"
 
 
-def with_html_preview_note(response_clean: str) -> str:
-    """Append a note per HTML preview of the answer's code blocks: the preview
-    file exists only in the bubble, and without the note the model does not
-    know in the next turn that a viewable file is there (14.09.: it invented
-    a link instead)."""
+def with_history_notes(response_clean: str, tool_notes: Sequence[str] = ()) -> str:
+    """The llm_history text of an answer: the answer, one note per HTML
+    preview of its code blocks, then what the turn's tools left for the next
+    turn (PipelineResult.history_notes). The preview file exists only in the
+    bubble — without its note the model did not know in the next turn that a
+    viewable file is there (14.09.: it invented a link). Without the tool
+    notes it did not know what it had researched (18.09.: it accepted "you
+    did not research" after searching Kondo for Kuanda)."""
     from .formatting import html_preview_urls
     from .prompt_loader import load_prompt
-    notes = [load_prompt("shared/html_preview_marker", url=url) for url in html_preview_urls(response_clean)]
-    return "\n\n".join([response_clean, *notes]) if notes else response_clean
+    preview_notes = [load_prompt("shared/html_preview_marker", url=url) for url in html_preview_urls(response_clean)]
+    return "\n\n".join(part for part in (response_clean, *preview_notes, *tool_notes) if part)
 
 
-def build_llm_history_entry(agent: str, response_clean: str) -> Dict[str, str]:
+def build_llm_history_entry(
+    agent: str, response_clean: str, history_notes: Sequence[str] = (),
+) -> Dict[str, str]:
     """Build an llm_history entry with agent speaker tag.
 
     Single Source of Truth for the [Agent]: prefix format. Uses the
@@ -308,4 +313,4 @@ def build_llm_history_entry(agent: str, response_clean: str) -> Dict[str, str]:
     from .agent_config import get_agent_config
     cfg = get_agent_config(agent)
     label = cfg.display_name if cfg else agent.capitalize()
-    return {"role": "assistant", "content": f"[{label}]: {with_html_preview_note(response_clean)}"}
+    return {"role": "assistant", "content": f"[{label}]: {with_history_notes(response_clean, history_notes)}"}
