@@ -478,16 +478,39 @@ def get_checkpoint_reasoning_info(checkpoint_dir: Path) -> tuple[List[str], Opti
         if tok_cfg.exists():
             import json
             template = json.loads(tok_cfg.read_text()).get("chat_template")
-    if not template:
+    levels = detect_reasoning_levels(template) if template else []
+    source = "template"
+    if not levels:
+        # DeepSeek checkpoints render their prompt with a bundled Python
+        # encoder (encoding/encoding_dsv4.py), which vLLM's tokenizer calls
+        # instead of the stub Jinja file — the effort branches live there.
+        template = _read_checkpoint_prompt_encoder(checkpoint_dir)
+        levels = detect_reasoning_levels(template) if template else []
+        source = "prompt encoder"
+    if not levels or template is None:
         return [], None
-    levels = detect_reasoning_levels(template)
-    default = detect_reasoning_default(template) if levels else None
-    if levels:
-        logger.info(
-            f"✅ Reasoning levels from checkpoint template ({checkpoint_dir.name}): "
-            f"{levels} (default: {default})"
-        )
+    default = detect_reasoning_default(template)
+    logger.info(
+        f"✅ Reasoning levels from checkpoint {source} ({checkpoint_dir.name}): "
+        f"{levels} (default: {default})"
+    )
     return levels, default
+
+
+def _read_checkpoint_prompt_encoder(checkpoint_dir: Path) -> Optional[str]:
+    """Source of the checkpoint's bundled prompt encoder, reduced to the lines
+    that change the prompt. ``assert`` lines only validate the argument
+    (DeepSeek-V4: ``assert reasoning_effort in ['max', None, 'high']``) —
+    "high" passes validation but renders the same prompt as plain thinking,
+    so offering it would be a duplicate choice. Only real branches
+    (``reasoning_effort == 'max'``) are steerable levels."""
+    encoders = sorted(
+        path for path in (checkpoint_dir / "encoding").glob("encoding_*.py")
+    )
+    if not encoders:
+        return None
+    lines = encoders[0].read_text().splitlines()
+    return "\n".join(line for line in lines if not line.lstrip().startswith("assert "))
 
 
 def resolve_reasoning_levels(model_id: str, force: bool = False) -> List[str]:
