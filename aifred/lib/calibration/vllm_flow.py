@@ -588,7 +588,7 @@ def _probe_rung(
 ) -> tuple[int, int, float, int, dict | None]:
     """Sonden einer Sprosse: (ok, total, short_tps, short_tokens, long_metrics)."""
     ok, total, _ = probe_coherence(server)
-    sampling = probe_sampling(meta.generation_defaults, 0)
+    sampling = probe_sampling(meta.generation_defaults)
     long_metrics = (probe_long_context(server, spec.mml, sampling=sampling)
                     if ok == total else None)
     # Kurzprobe: nur wenn eingeschaltet ODER der Langpunkt ausfaellt
@@ -894,7 +894,7 @@ def _sweep_k(
             probe_oom = False
             try:
                 ok_k, total_k, _ = probe_coherence(server)
-                sampling = probe_sampling(meta.generation_defaults, k)
+                sampling = probe_sampling(meta.generation_defaults)
                 long_metrics = (probe_long_context(server, mml_k, sampling=sampling)
                                 if ok_k == total_k else None)
                 need_short = VLLM_CALIBRATION_SHORT_PROBE or long_metrics is None
@@ -1343,12 +1343,12 @@ def calibrate_vllm_checkpoint(
     ab_row: dict | None = None
     if VLLM_CALIBRATION_CHUNK_AB:
         best_spec, best_speed, ab_row = _chunk_ab(
-            ratio, context_tokens, probe_sampling(meta.generation_defaults, best_k),
+            ratio, context_tokens, probe_sampling(meta.generation_defaults),
             best_spec, best_speed, log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
     if VLLM_CALIBRATION_GMU_AB:
         best_spec, best_speed, gmu_row = _gmu_ab(
-            ratio, context_tokens, probe_sampling(meta.generation_defaults, best_k),
+            ratio, context_tokens, probe_sampling(meta.generation_defaults),
             best_spec, best_speed, log_dir, progress,
             cancel_check, matrix, best_rung.label, best_k)
         ab_row = gmu_row or ab_row

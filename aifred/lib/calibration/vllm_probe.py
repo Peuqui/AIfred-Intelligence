@@ -805,19 +805,15 @@ def generation_defaults(checkpoint: Path) -> dict[str, float]:
     return defaults
 
 
-def probe_sampling(defaults: dict[str, float], k: int) -> dict[str, float]:
-    """Request-Felder fuer vLLM aus den Modell-Defaults. min_p faellt bei
-    aktiver Spekulation weg — vLLM lehnt es dort ab, und AIfreds Backend
-    laesst es aus demselben Grund weg (backends/vllm.py)."""
-    sampling: dict[str, float] = {
+def probe_sampling(defaults: dict[str, float]) -> dict[str, float]:
+    """Request-Felder für vLLM aus den Modell-Defaults."""
+    return {
         "temperature": float(defaults["temperature"]),
         "top_k": int(defaults["top_k"]),
         "top_p": float(defaults["top_p"]),
+        "min_p": float(defaults["min_p"]),
         "repetition_penalty": float(defaults["repeat_penalty"]),
     }
-    if k == 0:
-        sampling["min_p"] = float(defaults["min_p"])
-    return sampling
 
 
 # Langkontext-Messpunkt: ~45 % des Kontextfensters fuellen (gedeckelt),
