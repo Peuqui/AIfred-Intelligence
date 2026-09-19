@@ -2081,6 +2081,27 @@ def _extract_model_path(cmd: str) -> Optional[Path]:
     return Path(match.group(1)) if match else None
 
 
+def _missing_model_files(cmd: str) -> list[Path]:
+    """Local model files a command needs that no longer exist.
+
+    Besides --model this covers the draft model a vLLM --speculative-config
+    loads from disk (DFlash heads): with only the draft deleted, the entry
+    still has its target model and would otherwise stay in the config and
+    fail on start. MTP/DSpark configs name no draft path and a draft given as
+    a hub id is fetched by vLLM, so only absolute paths count.
+    """
+    paths = []
+    model_path = _extract_model_path(cmd)
+    if model_path:
+        paths.append(model_path)
+    spec = re.search(r"--speculative-config\s+'([^']*)'", cmd)
+    if spec:
+        draft = json.loads(spec.group(1)).get("model")
+        if draft and draft.startswith("/"):
+            paths.append(Path(draft))
+    return [path for path in paths if not path.exists()]
+
+
 def cleanup_stale_operating_points() -> list[str]:
     """
     Remove operating-point profiles whose checkpoint no longer exists.
@@ -2103,10 +2124,10 @@ def cleanup_stale_operating_points() -> list[str]:
     for path in sorted(profiles_dir.glob("*.yaml")):
         profile = _yaml.safe_load(path.read_text())
         cmd = profile.get("llamaswap", {}).get("cmd", "") if profile else ""
-        model_path = _extract_model_path(cmd)
-        if model_path and not model_path.exists():
+        missing = _missing_model_files(cmd)
+        if missing:
             path.unlink()
-            print(f"  ✗ operating point {path.stem} — checkpoint missing: {model_path}")
+            print(f"  ✗ operating point {path.stem} — model file missing: {missing[0]}")
             removed.append(path.stem)
 
     return removed
@@ -2212,7 +2233,8 @@ def _remove_model_block(content: str, name: str) -> str:
 
 def cleanup_stale_config(config_path: Path) -> list[str]:
     """
-    Remove config entries for models whose GGUF files no longer exist.
+    Remove config entries whose model files no longer exist — the --model
+    file or checkpoint, or a draft model from --speculative-config.
 
     Returns list of removed model names.
     """
@@ -2222,18 +2244,18 @@ def cleanup_stale_config(config_path: Path) -> list[str]:
 
     stale = []
     for name, cmd in model_cmds.items():
-        model_path = _extract_model_path(cmd)
-        if model_path and not model_path.exists():
-            stale.append((name, model_path))
+        missing = _missing_model_files(cmd)
+        if missing:
+            stale.append((name, missing[0]))
 
     if not stale:
-        print(f"  {len(model_cmds)} config entry/entries checked — all GGUF files present")
+        print(f"  {len(model_cmds)} config entry/entries checked — all model files present")
         return []
 
     content = config_path.read_text()
     for name, missing_path in stale:
         content = _remove_model_block(content, name)
-        print(f"  ✗ {name} — GGUF missing: {missing_path}")
+        print(f"  ✗ {name} — model file missing: {missing_path}")
 
     # Remove orphaned autoscan markers (consecutive markers with no model between them)
     content = re.sub(r'(  # \[autoscan\]\n)+  # \[autoscan\]\n', '', content)
