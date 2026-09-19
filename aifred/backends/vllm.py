@@ -166,13 +166,7 @@ class vLLMBackend(OpenAICompatibleBackend):
         )
 
     def _build_extra_body(self, options) -> Dict:
-        """Wie die Basisklasse, aber ohne ``min_p`` und ``repetition_penalty``.
-
-        vLLM lehnt ``min_p`` (und ``logit_bias``) bei aktivem Speculative
-        Decoding hart ab ("not yet supported with speculative decoding",
-        Fehler kommt als Text IM Stream → Client wartet endlos). Unsere
-        Betriebspunkte fahren MTP gerade wegen des Tempos — min_p wird
-        deshalb nicht gesendet und das einmal sichtbar geloggt.
+        """Wie die Basisklasse, aber ohne ``repetition_penalty``.
 
         ``repetition_penalty`` bedeutet bei vLLM etwas anderes als die
         Wiederholungsstrafe von llama.cpp: vLLM bestraft JEDES Token, das
@@ -186,11 +180,6 @@ class vLLMBackend(OpenAICompatibleBackend):
         Wert hier weg und wird einmal sichtbar geloggt.
         """
         extra_body = super()._build_extra_body(options)
-        if extra_body.pop("min_p", None) is not None:
-            logger.info(
-                "min_p not sent to vLLM: unsupported with speculative "
-                "decoding (MTP operating point)"
-            )
         penalty = extra_body.pop("repetition_penalty", None)
         if penalty is not None:
             logger.info(

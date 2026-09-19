@@ -762,13 +762,12 @@ def test_generation_defaults_reads_checkpoint(tmp_path: Path) -> None:
     assert vllm_probe.generation_defaults(tmp_path / "leer")["top_k"] == 40
 
 
-def test_probe_sampling_drops_min_p_under_speculation() -> None:
+def test_probe_sampling_sends_the_model_defaults() -> None:
     d = {"temperature": 1.0, "top_k": 20, "top_p": 0.95, "min_p": 0.05,
          "repeat_penalty": 1.1}
-    with_spec = vllm_probe.probe_sampling(d, k=5)
-    without = vllm_probe.probe_sampling(d, k=0)
-    assert "min_p" not in with_spec and without["min_p"] == 0.05
-    assert with_spec["repetition_penalty"] == 1.1 and with_spec["top_k"] == 20
+    sampling = vllm_probe.probe_sampling(d)
+    assert sampling["min_p"] == 0.05 and sampling["top_k"] == 20
+    assert sampling["repetition_penalty"] == 1.1
 
 
 def test_analyze_checkpoint_carries_generation_defaults(moe_checkpoint: Path) -> None:
