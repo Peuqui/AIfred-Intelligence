@@ -111,7 +111,7 @@ Isolierte Python-Code-Ausführung in Subprocess.
 
 **Datei:** `plugins/tools/subagent/`
 
-Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer Modellaufruf mit eigenem Kontext und Werkzeugkasten, nur der Bericht geht als Werkzeug-Ergebnis zurück, das vollständige Transkript erscheint aufklappbar in der Chat-Bubble. Einstellungen über das Zahnrad: erlaubte Tiers (Vorgabe 0+2), Rekursionstiefe (Vorgabe 1), Sub-Agent als anderer Hauptagent (Vorgabe aus). Mit der dritten Einstellung verteilt sich die Arbeit auf mehrere Hauptagenten: Ein schlanker Hauptagent delegiert Spezialarbeit an Agenten mit passenden Werkzeugen und spart so bis zu rund 45 % Prefill je Turn (Messung im Plugin-Guide). Ergebnisse des Sub-Agenten (Sandbox-Seiten mit Quelltext, Screenshots, Kamerabilder, Quellen) erscheinen zugeklappt in der Bubble.
+Hauptagenten delegieren abgegrenzte Aufgaben an Sub-Agenten: frischer Modellaufruf mit eigenem Kontext und Werkzeugkasten, nur der Bericht geht als Werkzeug-Ergebnis zurück, das vollständige Transkript erscheint aufklappbar in der Chat-Bubble. Einstellungen über das Zahnrad: erlaubte Tiers (Vorgabe 0+2), Rekursionstiefe (Vorgabe 1), Sub-Agent als anderer Hauptagent (Vorgabe aus). Mit der dritten Einstellung verteilt sich die Arbeit auf mehrere Hauptagenten: Ein schlanker Hauptagent delegiert Spezialarbeit an Agenten mit passender Fachrolle (Identity und Personality) und passenden Werkzeugen und spart so bis zu rund 45 % Prefill je Turn (Messung im Plugin-Guide). Ergebnisse des Sub-Agenten (Sandbox-Seiten mit Quelltext, Screenshots, Kamerabilder, Quellen) erscheinen zugeklappt in der Bubble.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|

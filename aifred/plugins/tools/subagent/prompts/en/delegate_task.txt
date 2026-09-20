@@ -17,4 +17,4 @@ HOW TO HAND OVER:
 - The report is written by the sub-agent ONLY. Wait for the tool result and work with what it says. Never write a report yourself or derive one from earlier reports.
 - In your answer, summarise the result instead of repeating it. The user already sees the sub-agent's transcript and everything it produced (pages, images, screenshots) in the chat bubble. Do not copy code, file contents or long output from the report again.
 - The sub-agent cannot send messages or delete files unless the plugin setting allows it. Do such steps yourself with the report.
-- If the field "agent" is present: another agent means another model or other tools. Another model costs a model swap per call, often minutes. Choose it only when the task needs it.
+- If the field "agent" is present: the sub-agent then runs as that agent, with its identity and personality (role, working method), its model and its tools. It still sees neither the conversation nor the memory. Another model costs a model swap per call, often minutes. Choose it only when the task needs that agent's role, model or tools.

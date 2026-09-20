@@ -5,8 +5,10 @@
 Ein Hauptagent (AIfred, Codine, jeder Agent aus `data/agents.json`) kann während
 seiner Tool-Schleife eine abgegrenzte Aufgabe an einen Sub-Agenten delegieren.
 Der Sub-Agent ist ein frischer Modellaufruf mit eigenem Kontextfenster, eigenem
-Werkzeugkasten und eigener Tool-Schleife. Er hat keine Persona, sieht weder das
-Gespräch noch das Gedächtnis des Aufrufers und kann nicht nachfragen. Zurück
+Werkzeugkasten und eigener Tool-Schleife. Er sieht weder das Gespräch noch das
+Gedächtnis des Aufrufers und kann nicht nachfragen. Eine Persona hat er nur,
+wenn er als anderer Hauptagent läuft (Parameter `agent`): Dann bringt er dessen
+Identity und Personality mit, also Fachrolle und Arbeitsweise. Zurück
 kommt nur sein Bericht, als gewöhnliches Werkzeug-Ergebnis. Das vollständige
 Transkript des Sub-Agenten, also Denken, Text, jeder Werkzeugaufruf mit
 Argumenten und Ergebnis und der Bericht, erscheint als aufklappbarer Block in
@@ -22,8 +24,8 @@ Prompt. Ein Hauptagent mit allen Plugins schleppt so zehntausende Token mit,
 bevor er ein Wort der Frage gelesen hat. Mit Sub-Agenten muss er das nicht:
 Er behält die Werkzeuge für den Alltag und `delegate_task`, und Spezialarbeit
 wie Code, Sandbox oder Dokumente übernimmt ein anderer Hauptagent als
-Sub-Agent, mit dessen Modell und Werkzeugliste (Einstellung „Sub-Agent als
-anderer Hauptagent“). Die Arbeit verteilt sich damit auf mehrere Agenten, jeder
+Sub-Agent, mit dessen Identity und Personality, Modell und Werkzeugliste
+(Einstellung „Sub-Agent als anderer Hauptagent“). Die Arbeit verteilt sich damit auf mehrere Agenten, jeder
 mit dem Werkzeugkasten, den er wirklich braucht, und auf Wunsch jeder mit
 eigenem Modell.
 
@@ -56,7 +58,7 @@ wenn der Nutzer keinen nennt.
 |-----------|-----|---------|--------------|
 | `task` | string | ja | Die vollständige, in sich geschlossene Aufgabe: alles, was der Sub-Agent wissen muss |
 | `expected_result` | string | ja | Was der Bericht enthalten soll, damit der Aufrufer weiterarbeiten kann |
-| `agent` | string | nein | Nur wenn die Einstellung „Sub-Agent als anderer Hauptagent“ an ist: Agent, dessen Modell und Werkzeugliste der Sub-Agent bekommt. Angeboten werden nur Agenten, die sich vom Aufrufer in Modell oder Werkzeugliste unterscheiden; gibt es keinen, fehlt der Parameter. Systemagenten (Kalibrierung, Vision) werden nie angeboten. Die Parameter-Beschreibung listet je Agent die Werkzeug-Gruppen, die sein Sub-Agent hätte (Plugins nach Whitelist und erlaubten Tiers), plus je Gruppe die Plugin-Beschreibung aus der `i18n.json` des Plugins in der Sprache des Turns |
+| `agent` | string | nein | Nur wenn die Einstellung „Sub-Agent als anderer Hauptagent“ an ist: Agent, als der der Sub-Agent läuft: dessen Identity und Personality, Modell und Werkzeugliste. Angeboten werden alle Hauptagenten außer dem Aufrufer; gibt es keinen, fehlt der Parameter. Systemagenten (Kalibrierung, Vision) werden nie angeboten. Die Parameter-Beschreibung listet je Agent die Werkzeug-Gruppen, die sein Sub-Agent hätte (Plugins nach Whitelist und erlaubten Tiers), plus je Gruppe die Plugin-Beschreibung aus der `i18n.json` des Plugins in der Sprache des Turns |
 
 Das Werkzeug selbst hat Tier READONLY. Was der Sub-Agent tun darf, bestimmen
 die Obergrenze des Aufrufers (Quelle und `max_tier`, ein Telegram-Kanal ohne
@@ -75,7 +77,7 @@ automatisch, Codine hat es eingetragen. Sokrates und Salomo nicht.
 |---|---|---|---|
 | Erlaubte Tiers | `SUBAGENT_ALLOWED_TIERS` | `0+2` | Lesen, Recherche, Dateien schreiben, Sandbox. Kein Senden (Tier 1), kein Löschen (Tier 3). Senden bleibt beim Hauptagenten, der es im Gespräch verantwortet |
 | Rekursionstiefe | `SUBAGENT_MAX_DEPTH` | `1` | Ob ein Sub-Agent selbst delegieren darf. Bei 1 bekommt der Sub-Agent das Werkzeug gar nicht erst, die Grenze ist strukturell |
-| Sub-Agent als anderer Hauptagent | `SUBAGENT_DELEGATE_TO_OTHER_AGENTS` | aus | Schaltet den Parameter `agent` frei: Der Sub-Agent läuft dann mit Modell und Werkzeugliste eines anderen Hauptagenten (z. B. Codine), weiterhin ohne Persona. Ein anderes Modell bedeutet über llama-swap einen Modellwechsel je Delegation, oft Minuten. Der Schalter ist bewusst kein Automatismus |
+| Sub-Agent als anderer Hauptagent | `SUBAGENT_DELEGATE_TO_OTHER_AGENTS` | aus | Schaltet den Parameter `agent` frei: Der Sub-Agent läuft dann als anderer Hauptagent (z. B. Codine), mit dessen Identity und Personality, Modell und Werkzeugliste, aber ohne Gespräch und Gedächtnis. Ein anderes Modell bedeutet über llama-swap einen Modellwechsel je Delegation, oft Minuten. Der Schalter ist bewusst kein Automatismus |
 
 Memory ist für Sub-Agenten aus und keine Einstellung: Alles, was der Sub-Agent
 wissen muss, kommt in der Übergabe vom Hauptagenten. Ein Sub-Agent, der
@@ -87,7 +89,12 @@ hat.
 - **System-Prompt**, bewusst schlank: der Rahmen aus `prompts/<lang>/shared/subagent_frame.txt`,
   die Werkzeug-Anleitungen genau der Plugins, deren Werkzeuge er hält, die
   Sicherheitsgrenze bei externen Kanälen und die geteilte Schicht `disciplines`.
-  Keine Identity, keine Personality, kein Reminder, kein Memory-Kontext.
+  Kein Reminder, kein Memory-Kontext. Ohne `agent` auch keine Identity und keine
+  Personality. Mit `agent` kommen Identity und Personality des gewählten Agenten
+  dazu, in derselben Schichten-Reihenfolge wie im normalen Turn: Identity,
+  Rahmen, Sicherheitsgrenze, Personality, Werkzeug-Anleitungen, `disciplines`.
+  Ist der Persönlichkeits-Schalter dieses Agenten in den Einstellungen aus,
+  fehlt die Personality auch hier.
 - **User-Nachricht**: `task` und `expected_result` aus `prompts/<lang>/shared/subagent_task.txt`. History: leer.
 - **Modell, Sampling, Thinking und Kontextgröße** des Aufrufers, oder des per
   `agent` gewählten Agenten, über dieselben Helfer wie ein normaler Turn.

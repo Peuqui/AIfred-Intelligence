@@ -3,7 +3,8 @@
 The main agent calls ``delegate_task`` like any other tool. The plugin runs a
 sub-agent: a new inference with its own context window, its own toolkit and
 its own tool loop, but without the caller's persona, conversation or memory.
-Only the sub-agent's final report comes back as the tool result; the full
+Delegated to another main agent (``agent`` parameter), it carries that agent's
+identity and personality. Only the sub-agent's final report comes back as the tool result; the full
 transcript (thinking, text, every tool call with arguments and result) is
 delivered as a collapsible block for the chat bubble and never reaches the
 model. Design: docs/de/architecture/subagent-plugin.md.
@@ -112,27 +113,12 @@ def _parse_settings(raw: dict[str, str]) -> SubAgentSettings:
     )
 
 
-def _agent_model_and_tools(agent_id: str, state: Any) -> tuple[str, Optional[frozenset[str]]]:
-    """Base model id and tool whitelist of an agent — the two things that make
-    a sub-agent "after" another agent differ from one after the caller."""
-    from ....lib.agent_config import get_agent_config
-    cfg = get_agent_config(agent_id)
-    tools = frozenset(cfg.tools) if (cfg and cfg.tools is not None) else None
-    if state is not None:
-        from ....lib.agent_settings import get_agent_base_model_id
-        model = get_agent_base_model_id(state, agent_id)
-    else:
-        from ....lib.config import get_effective_model_from_settings
-        model = get_effective_model_from_settings(agent_id)
-    return model, tools
-
-
 def delegation_candidates(ctx: PluginContext) -> list[str]:
-    """Agents a sub-agent could run "after": those whose model or tool
-    whitelist differs from the caller's. Derived on every toolkit build, so
-    the schema never offers a useless option."""
+    """Agents a sub-agent could run as: every main agent except the caller.
+    Each brings its own identity and personality, so none is a useless
+    option even with the caller's model and tool list. Derived on every
+    toolkit build."""
     from ....lib.agent_config import ROLE_SYSTEM, get_agent_config, get_agent_ids
-    caller_model, caller_tools = _agent_model_and_tools(ctx.agent_id, ctx.state)
     candidates: list[str] = []
     for agent_id in get_agent_ids():
         if agent_id == ctx.agent_id:
@@ -142,9 +128,7 @@ def delegation_candidates(ctx: PluginContext) -> list[str]:
             # System agents back internal workflows (calibration, vision);
             # they are no chat partners and no delegation targets either.
             continue
-        model, tools = _agent_model_and_tools(agent_id, ctx.state)
-        if model != caller_model or tools != caller_tools:
-            candidates.append(agent_id)
+        candidates.append(agent_id)
     return candidates
 
 
@@ -356,9 +340,10 @@ class SubAgentPlugin:
                 "type": "string",
                 "enum": candidates,
                 "description": (
-                    "Run the sub-agent with this agent's model and tool list instead "
-                    "of your own (a different model means a model swap per call). "
-                    "Pick the agent whose tool groups fit the task.\n"
+                    "Run the sub-agent as this agent: its identity and personality "
+                    "(role, expertise, working method), its model and its tool list "
+                    "instead of your own (a different model means a model swap per call). "
+                    "Pick the agent whose expertise and tool groups fit the task.\n"
                     + delegation_legend(ctx, settings, depth, candidates)
                 ),
             }
@@ -453,7 +438,9 @@ async def run_subagent(
 
     toolkit = await build_subagent_toolkit(ctx, settings, depth, target_agent, task)
     granted = {t.name for t in toolkit.tools} if toolkit else set()
-    system_prompt = get_subagent_system_prompt(ctx.lang, granted, source=ctx.source)
+    system_prompt = get_subagent_system_prompt(
+        ctx.lang, granted, source=ctx.source, persona_agent=agent,
+    )
     user_text = load_prompt("shared/subagent_task", lang=ctx.lang, task=task, expected_result=expected_result)
     messages: list[dict[str, Any]] = [
         {"role": "system", "content": system_prompt},

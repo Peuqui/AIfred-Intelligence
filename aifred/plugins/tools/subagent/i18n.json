@@ -20,8 +20,8 @@
     "en": "Sub-agent as another main agent"
   },
   "subagent_cred_delegate_others_tooltip": {
-    "de": "Schaltet den Parameter „agent“ frei.\n\nDer Aufrufer (z. B. AIfred) kann den Sub-Agenten dann mit Modell und Werkzeugliste eines anderen Hauptagenten laufen lassen (z. B. Codine), weiterhin ohne Persona.\n\n• Angeboten werden nur Hauptagenten, die sich vom Aufrufer in Modell oder Werkzeugliste unterscheiden\n• Ein anderes Modell bedeutet einen Modellwechsel je Aufruf",
-    "en": "Enables the \"agent\" parameter.\n\nThe caller (e.g. AIfred) can then run the sub-agent with the model and tool list of another main agent (e.g. Codine), still without persona.\n\n• Only main agents whose model or tool list differs from the caller are offered\n• A different model means a model swap per call"
+    "de": "Schaltet den Parameter „agent“ frei.\n\nDer Aufrufer (z. B. AIfred) kann den Sub-Agenten dann als anderen Hauptagenten laufen lassen (z. B. Codine): mit dessen Identität und Persönlichkeit, Modell und Werkzeugliste, aber ohne Gespräch und Gedächtnis.\n\n• Angeboten werden alle Hauptagenten außer dem Aufrufer\n• Ein anderes Modell bedeutet einen Modellwechsel je Aufruf",
+    "en": "Enables the \"agent\" parameter.\n\nThe caller (e.g. AIfred) can then run the sub-agent as another main agent (e.g. Codine): with its identity and personality, model and tool list, but without conversation and memory.\n\n• Every main agent except the caller is offered\n• A different model means a model swap per call"
   },
   "subagent_cred_max_depth": {
     "de": "Rekursionstiefe",
