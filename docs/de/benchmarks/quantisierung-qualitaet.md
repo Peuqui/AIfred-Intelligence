@@ -52,6 +52,7 @@ Ergebnisse und übersieht das Problem.
 | Qwen3.5-122B-A10B | UD-Q8_K_XL | llama.cpp | 0 | 0 | zwei Zweiwortfolgen | nein (30 Sätze Ausschlussverfahren) |
 | **Flash-Next-180B-A4B** | **Q6_K_XL**, Lauf 2 (Reasoning High) | llama.cpp | 0 (4 im Denkblock) | 0 | nur Persona | **JA** |
 | **DeepSeek-V4-Flash-0731-284B-A13B** | **UD-Q4_K_XL** (Reasoning niedrig) | llama.cpp | 0 | 0 | nur Persona | **JA** |
+| **DeepSeek-V4-Flash-0731-284B-A13B** | **NVFP4** (RadixArk) + DSpark | vLLM | 0 | 0 | nur Persona | **JA** |
 
 ### Der Sieger
 
@@ -274,6 +275,53 @@ Zählung enthält also Arbeit aus der Generierungsphase. Die MTP-Modelle
 zeigen das nicht (122B Q4: 2.975 · 771 · 698), der Effekt hängt an
 dspark. Decode 18,6 · 19,6 · 17,7 tok/s bleibt davon unberührt.
 
+### DeepSeek-V4-Flash als NVFP4: die bisher beste Antwort auf die Fangfrage (2026-09-20)
+
+Derselbe Checkpoint wie oben, diesmal als **NVFP4 unter vLLM** über fünf
+Karten (PP5, DSpark-Spekulation k=5, 65k Kontext). Das ist der erste Lauf
+nach dem Tuning-Paket vom 19./20.09. — er beantwortet die Frage, ob NVFP4
+dem Q4-GGUF desselben Modells qualitativ standhält.
+
+**Formtreue: makellos.** Alle drei Antworten haben **exakt 30 nummerierte
+Sätze** — kein anderer Lauf in diesem Dokument trifft die Vorgabe dreimal
+genau; selbst das Q4-GGUF desselben Modells lieferte 31 · 32 · 31. Null
+CJK-Zeichen, null Weichtrenner, korrekte ß-Schreibung. Englisch kommt
+vor, aber ausschließlich als **Persona-Würze** des britischen Butlers —
+„einer eigenen, *rather* seltsamen Logik", „die Katze war ihm zufolge
+*indeed* ein absurdes Beispiel", „die Gravitation fehlt noch, *quite
+embarrassing*", „mit einem Gartenschlauch an einem sonnigen Tag, *quite
+splendid*" — dazu der Fachbegriff *Entrainment*, kursiv gesetzt und sofort
+übersetzt. Kein unbeabsichtigtes Leck, keine englischen Nebensätze, auch
+nicht im dritten Turn, wo der Zerfall sonst zuerst auftrat.
+
+**Fangfrage: gelöst, und inhaltlich strenger als je zuvor.** Die Antwort
+beginnt mit einer ehrlichen Einordnung („Der Begriff *Kuanda-Effekt* ist
+mir in dieser Schreibweise nicht geläufig"), nennt dann Coandă, Henri
+Coandă als rumänischen Luftfahrtpionier und 1910 als Jahr der Entdeckung.
+Entscheidend ist die **Ursachenerklärung: Entrainment** — „Ein freier
+Strahl reißt aus seiner Umgebung Luftteilchen mit" — mit der
+Druckdifferenz zwischen Wand- und Freiseite, dazu die ausdrückliche
+Abgrenzung „streng zu unterscheiden vom Bernoulli-Effekt, mit dem er
+gelegentlich verwechselt wird". Das Q4-GGUF desselben Modells hatte am
+01.09. über Bernoulli erklärt, also über die gängige Vereinfachung. Als
+Zugaben: Thomas Young 1800 als Vorläufer und das Ablösekriterium
+Strahlbreite zu Krümmungsradius von etwa 0,5.
+
+**Gültigkeit des Treffers:** Das Modell recherchierte im dritten Turn
+(`web_search`, 7 Quellen, 52.705 Zeichen). Die Erkennung stammt aber aus
+dem Modell selbst, nicht aus den Treffern: Die zweite Suchanfrage lautete
+bereits `"Coanda-Effekt Strömungslehre"` — die Verballhornung war also
+aufgelöst, **bevor** die erste Quelle gelesen wurde. Kein Memory-Block war
+beteiligt.
+
+**Einordnung.** Damit löst dieser Checkpoint die Fangfrage in beiden
+Formaten, und die NVFP4-Fassung ist die formtreuere und inhaltlich
+präzisere. Der Sprachwechsel ins Englische, der unter NVFP4 bei den
+kleineren Qwen-Modellen auftrat, bleibt hier vollständig aus — er ist
+also keine Eigenschaft des Formats, sondern eine von Modellgröße und
+Format zusammen (siehe „Es liegt an Modellgröße und Sprache" weiter
+unten).
+
 ### Die entscheidende Trennlinie
 
 Tippfehler und zerteilte Wörter treten bei **beiden** Formaten auf — das
@@ -296,6 +344,50 @@ dann Nebensätze, schließlich ein vollständiger englischer Schlusssatz.
 vLLM liegt im Decode 12–24 % vorn und hält das Tempo über wachsenden
 Kontext, während llama.cpp nachlässt. Im Langkontext (31k) standen bei der
 Kalibration 37 gegen 26 tok/s.
+
+**DeepSeek-V4-Flash NVFP4 unter vLLM (2026-09-20, nach dem Tuning-Paket):**
+
+| | Turn 1 | Turn 2 | Turn 3 (Fangfrage) |
+|---|---|---|---|
+| Prompt | 18.014 tok | 19.450 tok | 20.890 tok |
+| TTFT | 14,59 s | 15,03 s | 16,15 s |
+| Prefill | **1.265** tok/s | **1.274** tok/s | **1.264** tok/s |
+| Decode | 34,1 tok/s | 36,0 tok/s | 36,8 tok/s |
+| Denkzeit | 2,9 s | 2,5 s | 14,8 s (mit Recherche) |
+
+Der Prefill liegt damit rund **doppelt so hoch wie bei jedem anderen Lauf
+in diesem Dokument** (27B: 468–694 tok/s) — und das bei einem 284B-Modell
+statt einem 27B. Der Decode von 34–37 tok/s auf 18–21k Kontext liegt auf
+dem Niveau des 27B-Modells bei kurzem Kontext.
+
+**Warum der TTFT trotzdem bei 15 s liegt.** Nicht wegen des Prefills: bei
+1.270 tok/s sind 19.000 Token in 15 s gerechnet — das ist der TTFT. Die
+Frage ist, warum überhaupt gerechnet wird, obwohl 17.929 Token (System +
+Werkzeuge) über alle drei Turns byteidentisch sind. Gemessen am
+20.09. direkt an der API, mit AIfreds echtem System-Prompt und seinen 52
+echten Werkzeugen:
+
+| Anfrage | gecacht | TTFT |
+|---|---|---|
+| kalt | – | 14,1 s |
+| identisch wiederholt | 17.408 von 17.500 | **0,9 s** |
+| gleicher Kopf, andere Frage | 17.408 von 17.500 | **0,9 s** |
+| dazwischen eine andere 29k-Anfrage, dann erneut | **0** | 14,3 s |
+
+Der Präfix-Cache funktioniert also einwandfrei — er ist nur **zu klein**.
+Der KV-Pool dieses Modells fasst 71.493 Token, knapp das 1,09-fache des
+Kontextfensters, begrenzt durch die drei V100-Stufen (dort bleiben nach
+den Gewichten ~330 MiB frei). Eine einzige längere Zwischenanfrage
+verdrängt den gesamten Präfix. In einer echten AIfred-Sitzung liegen
+zwischen zwei Nutzerfragen mehrere LLM-Aufrufe (Titelgenerierung,
+Werkzeugschleife, Recherche mit 52.705 Zeichen Ergebnis) — jede
+Nutzerfrage startet deshalb kalt.
+
+Das ist kein Fehler in AIfreds Prompt-Zusammenstellung: System-Prompt und
+Werkzeugliste sind über Turns hinweg nachweislich byteidentisch (zweimal
+erzeugt und verglichen). Es ist auch kein Modellfehler. Es ist eine Folge
+der VRAM-Enge auf den V100-Stufen. Modelle mit größerem KV-Pool (z. B.
+Flash-Next) erreichen deshalb TTFTs von 1–3 s über mehrere Turns.
 
 **Korrektur 2026-09-01:** Die vLLM-Decode-Werte standen zuvor mit
 35,4 · 35,4 · 25,0 hier. AIfred teilte die erzeugten Token durch die
