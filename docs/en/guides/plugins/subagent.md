@@ -5,8 +5,10 @@
 A main agent (AIfred, Codine, any agent in `data/agents.json`) can, during its
 tool loop, delegate a self-contained task to a sub-agent. The sub-agent is a
 fresh model run with its own context window, its own toolkit and its own tool
-loop. It has no persona, sees neither the conversation nor the caller's memory
-and cannot ask questions back. Only its report comes back, as an ordinary tool
+loop. It sees neither the conversation nor the caller's memory and cannot ask
+questions back. It has a persona only when it runs as another main agent
+(parameter `agent`): it then carries that agent's identity and personality,
+that is its role and working method. Only its report comes back, as an ordinary tool
 result. The sub-agent's complete transcript, that is its thinking, its text,
 every tool call with arguments and result, and the report, appears as a
 collapsible block in the main agent's chat bubble. It never reaches the model
@@ -21,7 +23,8 @@ agent with all plugins carries tens of thousands of tokens before it has read a
 word of the question. With sub-agents it does not have to: it keeps the
 everyday tools and `delegate_task`, and specialist work such as code, sandbox or
 documents is taken over by another main agent as a sub-agent, with that agent's
-model and tool list (setting "sub-agent as another main agent"). The work is
+identity and personality, model and tool list (setting "sub-agent as another
+main agent"). The work is
 spread across several agents, each with the toolkit it actually needs and, if
 wanted, each with its own model.
 
@@ -53,7 +56,7 @@ agent there on its own, even when the user names none.
 |-----------|------|----------|-------------|
 | `task` | string | yes | The complete, self-contained task: everything the sub-agent must know |
 | `expected_result` | string | yes | What the report must contain so the caller can continue |
-| `agent` | string | no | Only when the setting "sub-agent as another main agent" is on: the agent whose model and tool list the sub-agent gets. Only agents whose model or tool list differs from the caller are offered; if there is none, the parameter is absent. System agents (calibration, vision) are never offered. The parameter description lists, per agent, the tool groups its sub-agent would get (plugins by whitelist and allowed tiers), plus for each group the plugin description from the plugin's `i18n.json` in the language of the turn |
+| `agent` | string | no | Only when the setting "sub-agent as another main agent" is on: the agent the sub-agent runs as: its identity and personality, model and tool list. Every main agent except the caller is offered; if there is none, the parameter is absent. System agents (calibration, vision) are never offered. The parameter description lists, per agent, the tool groups its sub-agent would get (plugins by whitelist and allowed tiers), plus for each group the plugin description from the plugin's `i18n.json` in the language of the turn |
 
 The tool itself has tier READONLY. What the sub-agent may do is bounded by the
 caller's ceiling (source and `max_tier`; a Telegram channel without write
@@ -72,7 +75,7 @@ automatically, Codine has it listed. Sokrates and Salomo do not.
 |---|---|---|---|
 | Allowed tiers | `SUBAGENT_ALLOWED_TIERS` | `0+2` | Read, research, write files, sandbox. No sending (tier 1), no deleting (tier 3). Sending stays with the main agent, which answers for it in the conversation |
 | Recursion depth | `SUBAGENT_MAX_DEPTH` | `1` | Whether a sub-agent may delegate itself. At 1 the sub-agent does not get the tool at all; the bound is structural |
-| Sub-agent as another main agent | `SUBAGENT_DELEGATE_TO_OTHER_AGENTS` | off | Enables the `agent` parameter: the sub-agent then runs with the model and tool list of another main agent (e.g. Codine), still without persona. A different model means a model swap through llama-swap per delegation, often minutes. The switch is deliberately not an automatism |
+| Sub-agent as another main agent | `SUBAGENT_DELEGATE_TO_OTHER_AGENTS` | off | Enables the `agent` parameter: the sub-agent then runs as another main agent (e.g. Codine), with its identity and personality, model and tool list, but without conversation and memory. A different model means a model swap through llama-swap per delegation, often minutes. The switch is deliberately not an automatism |
 
 Memory is off for sub-agents and not a setting: everything the sub-agent needs
 to know comes in the handover from the main agent. A sub-agent that stored
@@ -83,7 +86,12 @@ memories would write down things nobody saw in the conversation.
 - **System prompt**, deliberately lean: the frame from `prompts/<lang>/shared/subagent_frame.txt`,
   the tool instructions of exactly the plugins whose tools it holds, the
   security boundary on external channels, and the shared `disciplines` layer.
-  No identity, no personality, no reminder, no memory context.
+  No reminder, no memory context. Without `agent` also no identity and no
+  personality. With `agent`, the identity and personality of the chosen agent
+  are added, in the same layer order as a normal turn: identity, frame, security
+  boundary, personality, tool instructions, `disciplines`. If that agent's
+  personality toggle is off in the settings, the personality is missing here
+  too.
 - **User message**: `task` and `expected_result` from `prompts/<lang>/shared/subagent_task.txt`. History: empty.
 - **Model, sampling, thinking and context size** of the caller, or of the agent
   chosen via `agent`, through the same helpers as a normal turn.

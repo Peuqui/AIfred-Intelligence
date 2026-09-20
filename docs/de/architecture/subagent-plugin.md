@@ -1,6 +1,6 @@
 # Sub-Agenten als Plugin
 
-Architektur, Stand 13.09.2026, umgesetzt als Plugin `aifred/plugins/tools/subagent/`.
+Architektur, Stand 20.09.2026, umgesetzt als Plugin `aifred/plugins/tools/subagent/`.
 Diese Seite beschreibt, was gebaut wurde und warum; die Nutzeranleitung steht
 unter [docs/de/guides/plugins/subagent.md](../guides/plugins/subagent.md). Englische Fassung:
 [docs/en/architecture/subagent-plugin.md](../../en/architecture/subagent-plugin.md).
@@ -50,20 +50,22 @@ Verzeichnis `aifred/plugins/tools/subagent/`, Name `subagent`, ein Werkzeug
 |---|---|---|
 | `task` | ja | Die vollständige Aufgabe mit allem Kontext, den der Sub-Agent braucht. Er sieht weder die Konversation noch das Gedächtnis. |
 | `expected_result` | ja | Was der Bericht enthalten soll, damit der Aufrufer weiterarbeiten kann |
-| `agent` | nein | Nur wenn die Plugin-Einstellung „Sub-Agent als anderer Hauptagent“ an ist: Agent-ID, deren Modell, Tuning und Werkzeugliste der Sub-Agent bekommt, weiterhin ohne Persona. Die erlaubten Werte werden bei jedem Turn beim Bau des Werkzeugkastens abgeleitet: nur Agenten, die sich vom Aufrufer in Modell oder Whitelist unterscheiden. Systemagenten (`role: system`) sind ausgenommen. Gibt es keinen, fehlt der Parameter im Schema. Die Beschreibung des Parameters enthält eine Legende, ebenfalls pro Turn abgeleitet (`delegation_legend`): je Kandidat die Werkzeug-Gruppen, die sein Sub-Agent hätte (Plugins über `collect_plugin_tools`, dieselbe Auswahlregel wie die Werkzeug-Fabrik, gefiltert nach Whitelist, Tier-Decke und erlaubten Tiers), und je Gruppe Name und Beschreibung aus der `i18n.json` des Plugins in der Sprache des Turns. Neue, geänderte oder abgeschaltete Plugins erscheinen dadurch von selbst. Vorgabe: der Aufrufer selbst |
+| `agent` | nein | Nur wenn die Plugin-Einstellung „Sub-Agent als anderer Hauptagent“ an ist: Agent-ID, als die der Sub-Agent läuft: Identity und Personality, Modell, Tuning und Werkzeugliste dieses Agenten. Die erlaubten Werte werden bei jedem Turn beim Bau des Werkzeugkastens abgeleitet: alle Hauptagenten außer dem Aufrufer. Jeder bringt seine eigene Identity und Personality mit, deshalb ist auch ein Agent mit dem Modell und der Whitelist des Aufrufers eine sinnvolle Wahl (bis 20.09.2026 wurden solche Agenten ausgefiltert). Systemagenten (`role: system`) sind ausgenommen. Gibt es keinen, fehlt der Parameter im Schema. Die Beschreibung des Parameters enthält eine Legende, ebenfalls pro Turn abgeleitet (`delegation_legend`): je Kandidat die Werkzeug-Gruppen, die sein Sub-Agent hätte (Plugins über `collect_plugin_tools`, dieselbe Auswahlregel wie die Werkzeug-Fabrik, gefiltert nach Whitelist, Tier-Decke und erlaubten Tiers), und je Gruppe Name und Beschreibung aus der `i18n.json` des Plugins in der Sprache des Turns. Neue, geänderte oder abgeschaltete Plugins erscheinen dadurch von selbst. Vorgabe: der Aufrufer selbst |
 
-Ohne Persona unterscheidet einen Sub-Agenten „nach Codine“ von einem „nach
-AIfred“ nur noch Modell, Tuning und Werkzeugliste. Sinn hat der Parameter
-also genau dann, wenn Agenten verschiedene Modelle fahren, etwa Codine auf
-einem Coder-Modell, und AIfred eine Programmieraufgabe dorthin abgeben soll,
-ohne dass der User den Agenten wechselt. Das ist in AIfred möglich, deshalb
-ist der Parameter da, aber hinter einem Schalter mit Vorgabe aus: Ist der
-Schalter aus, steht `agent` nicht im Werkzeug-Schema, und das Modell kann
-ihn gar nicht erst benutzen.
+Ein Sub-Agent „nach Codine“ unterscheidet sich von einem „nach AIfred“ in
+vier Dingen: Identity und Personality, Modell, Tuning, Werkzeugliste. Der
+Wert eines Hauptagenten liegt oft im Prompt und nicht im Modell: Codines
+Personality enthält ihre Fachrolle und den Pflicht-Workflow für Änderungen
+an bestehendem Code, HALs die Code-Review-Methodik. Nur den Werkzeugkasten
+mitzugeben wäre der halbe Sinn, deshalb lädt ein Sub-Agent mit `agent`
+Identity und Personality des gewählten Agenten (geändert am 20.09.2026,
+vorher lief er ohne Persona). Der Parameter steht hinter einem Schalter mit
+Vorgabe aus: Ist der Schalter aus, steht `agent` nicht im Werkzeug-Schema,
+und das Modell kann ihn gar nicht erst benutzen.
 
-Ruft AIfred so Codine, wird Codine wie jeder andere Sub-Agent behandelt:
-ohne Persona, ohne Konversation und Gedächtnis, nur mit Modell, Tuning und
-Werkzeugliste. Im Chat erscheint keine Codine-Bubble und kein Wortwechsel,
+Ruft AIfred so Codine, arbeitet der Sub-Agent als Codine, aber ohne
+Konversation und Gedächtnis, ohne Reminder und ohne ihre Aufgaben-Schicht
+für das Gespräch. Im Chat erscheint keine Codine-Bubble und kein Wortwechsel,
 AIfred bleibt das Gegenüber des Users, Codines Bericht geht als
 Werkzeug-Ergebnis an AIfred und ihr Transkript in den aufklappbaren Block
 von AIfreds Antwort. Das ist Arbeitsteilung im Hintergrund und bewusst
@@ -87,11 +89,18 @@ bekommt sie auch über einen Sub-Agenten nicht.
    ist die Rekursionstiefe strukturell 1, ohne Zähler und ohne Lock. Die
    Einstellung „Rekursionstiefe“ (Vorgabe 1) erlaubt später mehr; die
    aktuelle Tiefe wandert dann als Feld in `PluginContext.metadata`.
-2. System-Prompt des Sub-Agenten, bewusst schlank und ohne Persona: der
-   Rahmen aus `prompts/<lang>/shared/subagent_frame.txt`, die
-   Werkzeug-Anleitungen der Plugins, die er tatsächlich bekommt, und die
-   geteilte Schicht `disciplines`. Keine Identity, keine Personality, kein
-   Reminder, kein Memory-Kontext. Der Rahmen sagt: du bist ein Sub-Agent,
+2. System-Prompt des Sub-Agenten, bewusst schlank: der Rahmen aus
+   `prompts/<lang>/shared/subagent_frame.txt`, die Werkzeug-Anleitungen der
+   Plugins, die er tatsächlich bekommt, und die geteilte Schicht
+   `disciplines`. Kein Reminder, kein Memory-Kontext. Ohne `agent` auch keine
+   Identity und keine Personality: Ein Sub-Agent des Aufrufers selbst ist ein
+   Arbeiter ohne Persona. Mit `agent` kommen Identity und Personality des
+   gewählten Agenten dazu, über dieselben Helfer wie im normalen Turn
+   (`load_identity`, `load_personality`; der Persönlichkeits-Schalter des
+   Agenten gilt also auch hier) und in derselben Schichten-Reihenfolge wie
+   `merge_prompt_layers`, mit dem Rahmen an der Stelle der Aufgaben-Schicht:
+   Identity, Rahmen, Sicherheitsgrenze, Personality, Werkzeug-Anleitungen,
+   `disciplines`. Der Rahmen sagt: du bist ein Sub-Agent,
    du hast keinen Zugriff auf Gespräch und Gedächtnis, du stellst keine
    Rückfragen, du lieferst am Ende einen Bericht mit genau dem, was
    `expected_result` verlangt, ohne ganze Dateien, Code oder lange Ausgaben
@@ -138,7 +147,7 @@ anderen Agenten behandelt werden.
 |---|---|---|
 | Erlaubte Tiers | 0 und 2 | Lesen, Recherche, Dateien schreiben, Sandbox. Nicht 1: kein Senden von E-Mail, Telegram, Discord. Senden bleibt beim Hauptagenten, der es im Gespräch verantwortet. Nicht 3: kein Löschen. |
 | Rekursionstiefe | 1 | Ob ein Sub-Agent selbst delegieren darf |
-| Sub-Agent als anderer Hauptagent | aus | Schaltet den Parameter `agent` frei. Kein Automatismus: Der Schalter hängt nicht davon ab, ob ein anderer Agent ein anderes Modell fährt; die Nutzlosigkeit einer Option wird stattdessen pro Turn im Schema vermieden (siehe `agent`). Bewusst zu treffen, weil ein anderes Modell über llama-swap einen Modellwechsel je Delegation bedeutet, Minuten pro Aufruf. Die Anleitung an den Aufrufer nennt diese Kosten. |
+| Sub-Agent als anderer Hauptagent | aus | Schaltet den Parameter `agent` frei. Kein Automatismus: Der Schalter hängt nicht davon ab, ob ein anderer Agent ein anderes Modell fährt. Bewusst zu treffen, weil ein anderes Modell über llama-swap einen Modellwechsel je Delegation bedeutet, Minuten pro Aufruf. Die Anleitung an den Aufrufer nennt diese Kosten. |
 
 Memory ist für Sub-Agenten aus und keine Einstellung: Alles, was der
 Sub-Agent wissen muss, kommt in der Übergabe vom Hauptagenten, der das
@@ -214,8 +223,10 @@ ohne dass Codine ein neuer Agententyp wird.
 
 - Jeder Agent, dem `delegate_task` eingetragen wird, darf delegieren; kein
   Sonderfall im Code.
-- Sub-Agent ohne Persona, ohne Gedächtnis; Modell und Werkzeuge des
-  Aufrufers, oder per Schalter die eines anderen Agenten (`agent`).
+- Sub-Agent ohne Gedächtnis; Modell und Werkzeuge des Aufrufers und dann
+  ohne Persona, oder per Schalter als anderer Agent (`agent`). Seit
+  20.09.2026 bringt `agent` auch Identity und Personality des gewählten
+  Agenten mit, vorher nur Modell, Tuning und Werkzeugliste.
 - Rekursionstiefe konfigurierbar, Vorgabe 1.
 - Aufklappbarer Block mit dem vollständigen Transkript.
 - Keine parallele Delegation, kein Kappungs-Schalter.

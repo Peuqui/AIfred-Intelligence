@@ -1080,14 +1080,21 @@ def get_subagent_system_prompt(
     lang: Optional[str] = None,
     granted_tools: Optional[set] = None,
     source: str = "browser",
+    persona_agent: Optional[str] = None,
 ) -> str:
     """System prompt for a sub-agent run by the ``subagent`` plugin.
 
-    Deliberately lean — no identity, personality, reminder or memory layer:
-    a sub-agent is a worker with a task, not a conversation partner. Layers:
+    Deliberately lean — no reminder or memory layer: a sub-agent is a worker
+    with a task, not a conversation partner. Same layer order as
+    ``merge_prompt_layers``, with the frame in the task slot: identity →
     frame (``shared/subagent_frame``) → security boundary (external sources
-    only) → tool instructions → plugin instructions for exactly the tools the
-    sub-agent holds → disciplines (always last, as for every agent).
+    only) → personality → tool instructions → plugin instructions for exactly
+    the tools the sub-agent holds → disciplines (always last).
+
+    ``persona_agent`` is set when the caller delegates to ANOTHER main agent:
+    that agent's identity and personality are loaded, because its value may
+    sit in the prompt (e.g. a review methodology) rather than in model or
+    tools. Without it the sub-agent has no persona.
 
     ``granted_tools`` is the sub-agent's actual tool set (after tier and
     depth filtering), not the agent whitelist — a sub-agent must never read
@@ -1095,11 +1102,20 @@ def get_subagent_system_prompt(
     """
     if lang is None:
         lang = get_language()
-    parts = [load_prompt('shared/subagent_frame', lang=lang)]
+    parts = []
+    if persona_agent:
+        identity = load_identity(persona_agent, lang)
+        if identity:
+            parts.append(identity)
+    parts.append(load_prompt('shared/subagent_frame', lang=lang))
     if source != "browser":
         sec_boundary = load_prompt('shared/security_boundary', lang=lang)
         if sec_boundary:
             parts.append(sec_boundary)
+    if persona_agent:
+        personality = load_personality(persona_agent, lang)
+        if personality:
+            parts.append(personality)
     if granted_tools:
         tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
         if tool_instructions:

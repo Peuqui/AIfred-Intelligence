@@ -1,6 +1,6 @@
 # Sub-Agents as a Plugin
 
-Architecture, as of 2026-09-13, implemented as the plugin `aifred/plugins/tools/subagent/`.
+Architecture, as of 2026-09-20, implemented as the plugin `aifred/plugins/tools/subagent/`.
 This page describes what was built and why; the user guide is at
 [docs/en/guides/plugins/subagent.md](../guides/plugins/subagent.md). German version:
 [docs/de/architecture/subagent-plugin.md](../../de/architecture/subagent-plugin.md).
@@ -49,19 +49,22 @@ Directory `aifred/plugins/tools/subagent/`, name `subagent`, one tool
 |---|---|---|
 | `task` | yes | The complete task with all context the sub-agent needs. It sees neither the conversation nor the memory. |
 | `expected_result` | yes | What the report must contain so the caller can continue |
-| `agent` | no | Only when the plugin setting "sub-agent as another main agent" is on: agent id whose model, tuning and tool list the sub-agent gets, still without persona. The allowed values are derived on every turn while the toolkit is built: only agents that differ from the caller in model or whitelist. System agents (`role: system`) are excluded. If there is none, the parameter is absent from the schema. The parameter description carries a legend, also derived per turn (`delegation_legend`): for each candidate the tool groups its sub-agent would get (plugins via `collect_plugin_tools`, the same selection rule as the toolkit factory, filtered by whitelist, tier ceiling and allowed tiers), and for each group name and description from the plugin's `i18n.json` in the language of the turn. New, changed or disabled plugins show up by themselves. Default: the caller itself |
+| `agent` | no | Only when the plugin setting "sub-agent as another main agent" is on: agent id the sub-agent runs as: identity and personality, model, tuning and tool list of that agent. The allowed values are derived on every turn while the toolkit is built: every main agent except the caller. Each brings its own identity and personality, so an agent with the caller's model and whitelist is a sensible choice too (until 2026-09-20 such agents were filtered out). System agents (`role: system`) are excluded. If there is none, the parameter is absent from the schema. The parameter description carries a legend, also derived per turn (`delegation_legend`): for each candidate the tool groups its sub-agent would get (plugins via `collect_plugin_tools`, the same selection rule as the toolkit factory, filtered by whitelist, tier ceiling and allowed tiers), and for each group name and description from the plugin's `i18n.json` in the language of the turn. New, changed or disabled plugins show up by themselves. Default: the caller itself |
 
-Without a persona, a sub-agent "after Codine" differs from one "after
-AIfred" only in model, tuning and tool list. The parameter therefore makes
-sense exactly when agents run different models, say Codine on a coder model,
-and AIfred is to hand a programming task there without the user switching
-agents. AIfred allows that, so the parameter exists, but behind a switch
-that defaults to off: with the switch off, `agent` is not in the tool schema
-and the model cannot use it in the first place.
+A sub-agent "after Codine" differs from one "after AIfred" in four things:
+identity and personality, model, tuning, tool list. A main agent's value
+often sits in its prompt rather than in its model: Codine's personality
+holds her professional role and the mandatory workflow for changing existing
+code, HAL's holds the code review method. Handing over the toolkit alone
+would be half the point, so a sub-agent with `agent` loads the identity and
+personality of the chosen agent (changed on 2026-09-20; before that it ran
+without persona). The parameter sits behind a switch that defaults to off:
+with the switch off, `agent` is not in the tool schema and the model cannot
+use it in the first place.
 
-When AIfred calls Codine this way, Codine is treated like any other
-sub-agent: no persona, no conversation, no memory, only model, tuning and
-tool list. No Codine bubble and no exchange appear in the chat; AIfred stays
+When AIfred calls Codine this way, the sub-agent works as Codine, but
+without conversation and memory, without the reminder and without her task
+layer for the conversation. No Codine bubble and no exchange appear in the chat; AIfred stays
 the user's counterpart, Codine's report goes to AIfred as a tool result and
 her transcript into the collapsible block of AIfred's answer. This is
 division of labour in the background and deliberately not the Symposion,
@@ -82,11 +85,17 @@ today does not get them through a sub-agent either.
    structurally 1, with no counter and no lock. The setting "recursion
    depth" (default 1) allows more later; the current depth then travels as a
    field in `PluginContext.metadata`.
-2. The sub-agent's system prompt, deliberately lean and without persona: the
-   frame from `prompts/<lang>/shared/subagent_frame.txt`, the tool
-   instructions of the plugins it actually gets, and the shared layer
-   `disciplines`. No identity, no personality, no reminder, no memory
-   context. The frame says: you are a sub-agent, you have no access to the
+2. The sub-agent's system prompt, deliberately lean: the frame from
+   `prompts/<lang>/shared/subagent_frame.txt`, the tool instructions of the
+   plugins it actually gets, and the shared layer `disciplines`. No
+   reminder, no memory context. Without `agent` also no identity and no
+   personality: a sub-agent of the caller itself is a worker without
+   persona. With `agent`, the identity and personality of the chosen agent
+   are added, through the same helpers as a normal turn (`load_identity`,
+   `load_personality`; the agent's personality toggle therefore applies here
+   too) and in the same layer order as `merge_prompt_layers`, with the frame
+   in the task slot: identity, frame, security boundary, personality, tool
+   instructions, `disciplines`. The frame says: you are a sub-agent, you have no access to the
    conversation or the memory, you ask no questions back, you end with a
    report containing exactly what `expected_result` asks for, without copying
    whole files, code or long output into it (naming the file or URL is enough), and you
@@ -130,7 +139,7 @@ through the gear icon in the plugin modal:
 |---|---|---|
 | Allowed tiers | 0 and 2 | Read, research, write files, sandbox. Not 1: no sending of email, Telegram, Discord. Sending stays with the main agent, which answers for it in the conversation. Not 3: no deleting. |
 | Recursion depth | 1 | Whether a sub-agent may delegate itself |
-| Sub-agent as another main agent | off | Enables the `agent` parameter. No automatism: the switch does not depend on whether another agent runs a different model; the uselessness of an option is avoided per turn in the schema instead (see `agent`). A deliberate choice, because a different model means a model swap through llama-swap per delegation, minutes per call. The instructions to the caller name that cost. |
+| Sub-agent as another main agent | off | Enables the `agent` parameter. No automatism: the switch does not depend on whether another agent runs a different model. A deliberate choice, because a different model means a model swap through llama-swap per delegation, minutes per call. The instructions to the caller name that cost. |
 
 Memory is off for sub-agents and not a setting: everything the sub-agent
 needs to know comes in the handover from the main agent, which has the
@@ -202,8 +211,10 @@ pattern from the paper without Codine becoming a new agent type.
 
 - Every agent that gets `delegate_task` entered may delegate; no special
   case in the code.
-- Sub-agent without persona, without memory; model and tools of the caller,
-  or by switch those of another agent (`agent`).
+- Sub-agent without memory; model and tools of the caller and then without
+  persona, or by switch as another agent (`agent`). Since 2026-09-20,
+  `agent` also brings the identity and personality of the chosen agent;
+  before that only model, tuning and tool list.
 - Recursion depth configurable, default 1.
 - Collapsible block with the complete transcript.
 - No parallel delegation, no cap switch.

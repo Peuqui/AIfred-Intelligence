@@ -138,16 +138,18 @@ class TestDelegationLegend:
         assert "- ws-de: about ws" in lines and "- sb-de: about sb" in lines
         assert not any("tg" in line for line in lines)
 
-    def test_system_agents_are_no_candidates(self, ctx, monkeypatch):
+    def test_candidates_are_all_main_agents_but_caller_and_system(self, ctx, monkeypatch):
         import aifred.lib.agent_config as agent_config
 
-        roles = {"aifred": "main", "codine": "custom", "calibration": agent_config.ROLE_SYSTEM}
+        # "twin" shares the caller's model and whitelist: its persona alone
+        # makes it a candidate.
+        roles = {"aifred": "main", "codine": "custom", "twin": "custom",
+                 "calibration": agent_config.ROLE_SYSTEM}
         monkeypatch.setattr(agent_config, "get_agent_ids", lambda: list(roles))
         monkeypatch.setattr(
             agent_config, "get_agent_config", lambda aid: SimpleNamespace(role=roles[aid]),
         )
-        monkeypatch.setattr(sub, "_agent_model_and_tools", lambda aid, state: (aid, None))
-        assert sub.delegation_candidates(ctx) == ["codine"]
+        assert sub.delegation_candidates(ctx) == ["codine", "twin"]
 
 
 class TestToolkit:
@@ -291,6 +293,27 @@ class TestRun:
         assert "Lies a.txt" in messages[1]["content"] and "Zusammenfassung" in messages[1]["content"]
         assert self.captured["model"] == "test-model"
         assert [t.name for t in self.captured["toolkit"].tools] == ["read_file"]
+
+    def test_other_main_agent_brings_identity_and_personality(self, plugin, ctx, monkeypatch):
+        import aifred.lib.prompt_loader as prompt_loader
+        monkeypatch.setattr(plugin, "_load_settings", lambda: {sub.DELEGATE_OTHERS_KEY: "1"})
+        monkeypatch.setattr(sub, "delegation_candidates", lambda c: ["codine"])
+        monkeypatch.setattr(sub, "delegation_legend", lambda c, s, d, cands: "LEGEND")
+        monkeypatch.setattr(prompt_loader, "load_identity", lambda agent, lang=None: f"IDENTITY:{agent}")
+        monkeypatch.setattr(prompt_loader, "load_personality", lambda agent, lang=None: f"PERSONALITY:{agent}")
+        tool = plugin.get_tools(ctx)[0]
+
+        _run(_collect(tool.executor(task="x", expected_result="y", agent="codine")))
+        system = self.captured["messages"][0]["content"]
+        # Same layer order as a normal turn, the frame in the task slot.
+        pieces = ("IDENTITY:codine", "SUB-AGENT", "PERSONALITY:codine")
+        positions = [system.index(piece) for piece in pieces]
+        assert positions == sorted(positions)
+
+        # Without ``agent`` the sub-agent stays a worker without persona.
+        _run(_collect(tool.executor(task="x", expected_result="y")))
+        system = self.captured["messages"][0]["content"]
+        assert "IDENTITY:" not in system and "PERSONALITY:" not in system
 
     def test_unknown_delegation_target_is_refused(self, plugin, ctx, monkeypatch):
         monkeypatch.setattr(plugin, "_load_settings", lambda: {sub.DELEGATE_OTHERS_KEY: "1"})
