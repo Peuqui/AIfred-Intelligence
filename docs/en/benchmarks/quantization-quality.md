@@ -51,6 +51,7 @@ misses the problem entirely.
 | Qwen3.5-122B-A10B | UD-Q8_K_XL | llama.cpp | 0 | 0 | two two-word phrases | no (30 sentences by elimination) |
 | **Flash-Next-180B-A4B** | **Q6_K_XL**, run 2 (Reasoning High) | llama.cpp | 0 (4 in reasoning) | 0 | persona only | **YES** |
 | **DeepSeek-V4-Flash-0731-284B-A13B** | **UD-Q4_K_XL** (low reasoning) | llama.cpp | 0 | 0 | persona only | **YES** |
+| **DeepSeek-V4-Flash-0731-284B-A13B** | **NVFP4** (RadixArk) + DSpark | vLLM | 0 | 0 | persona only | **YES** |
 
 ### The winner
 
@@ -258,6 +259,59 @@ tokens cannot be read as prefill. They stay flat across the three turns
 includes work from the generation phase. MTP models do not show this
 (122B Q4: 2,975 · 771 · 698); the effect is tied to dspark. Decode at
 18.6 · 19.6 · 17.7 tok/s is unaffected.
+
+### DeepSeek-V4-Flash as NVFP4: the best answer to the trap so far (2026-09-20)
+
+The same checkpoint as above, this time as **NVFP4 under vLLM** across five
+cards (PP5, DSpark speculation k=5, 65k context), after the tuning work of
+19/20 September.
+
+**Form: flawless.** All three answers have **exactly 30 numbered
+sentences** — no other run in this document hits the instruction three
+times exactly; the Q4 GGUF of the same model gave 31 · 32 · 31. Zero CJK,
+zero soft hyphens, correct ß. English does appear, but only as the British
+butler's seasoning ("einer eigenen, *rather* seltsamen Logik", "*quite*
+embarrassing", "*quite* splendid") plus the technical term *Entrainment*,
+italicised and translated on the spot. No unintended leakage and no English
+subordinate clauses, not even in the third turn where the decay used to
+show first.
+
+**Trap: solved, and stricter than ever.** The answer opens honestly ("the
+term *Kuanda-Effekt* is not familiar to me in this spelling"), then names
+Coandă, Henri Coandă as the Romanian aviation pioneer, and 1910. The
+causal explanation is **entrainment** — "a free jet drags air particles
+from its surroundings" — with the pressure difference between the wall
+side and the free side, plus an explicit "strictly to be distinguished
+from the Bernoulli effect, with which it is occasionally confused". The
+Q4 GGUF of the same model had explained it via Bernoulli, i.e. via the
+common simplification. Extras: Thomas Young 1800 as the precursor, and the
+separation criterion of jet width to radius of curvature at about 0.5.
+
+**Validity:** the model did research in the third turn (`web_search`, 7
+sources). The recognition came from the model itself, not from the hits:
+its second query already read `"Coanda-Effekt Strömungslehre"`, so the
+misspelling was resolved **before** the first source was read. No memory
+block was involved.
+
+**Throughput (same run):** prompt 18,014 · 19,450 · 20,890 tokens, TTFT
+14.59 · 15.03 · 16.15 s, prefill **1,265 · 1,274 · 1,264 tok/s**, decode
+34.1 · 36.0 · 36.8 tok/s. The prefill is about twice that of any other run
+here (27B: 468–694 tok/s), on a 284B model.
+
+**Why TTFT stays at 15 s.** Not the prefill rate: at 1,270 tok/s, 19,000
+tokens take 15 s. The question is why they are computed at all when 17,929
+tokens (system plus tools) are byte-identical across the turns. Measured
+against the API with AIfred's real system prompt and its 52 real tools:
+repeating a request hits the prefix cache (17,408 of 17,500 cached, TTFT
+0.9 s), and so does the same head with a different question — but one
+intervening 29k-token request evicts it completely (0 cached, 14.3 s).
+The prefix cache works; it is simply too small. This model's KV pool holds
+71,493 tokens, about 1.09x the context window, bounded by the three V100
+stages (~330 MiB free after the weights). A real AIfred turn issues
+several LLM calls in between (title generation, tool loop, research), so
+every user turn starts cold. Neither AIfred's prompt assembly (verified
+byte-identical) nor the model is at fault; it is the VRAM pressure on the
+V100 stages.
 
 ### The decisive line
 
