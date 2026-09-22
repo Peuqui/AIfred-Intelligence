@@ -221,20 +221,35 @@ path = path.removeprefix("/" + config.frontend_path)
 ## ⚠️ Reflex Patch: Worker-Respawn nach Crash
 
 **Problem:** `reflex run` startet granian programmatisch (`exec.py`,
-`run_granian_backend`) mit `reload=True` + `reload_ignore_worker_failure=True`,
-aber OHNE `respawn_failed_workers`. Stirbt der Backend-Worker durch einen
-C-Level-Crash (z.B. opencv/ffmpeg-Segfault am korrupten RTSP-Stream), wird er
-NICHT respawnt — der granian-Master lebt weiter, also greift auch
-`systemd Restart=always` nicht (Main-PID = Master, der „läuft"). Folge:
-AIfred ist tot/unerreichbar bis zum manuellen Neustart (am 2026-06-23 ~1h43).
+`run_granian_backend`) mit `reload=True` + `reload_ignore_worker_failure=True`.
+Stirbt der Backend-Worker durch einen C-Level-Crash (z.B. libc-Segfault,
+opencv/ffmpeg am korrupten RTSP-Stream), wird er NICHT respawnt — der
+granian-Master lebt weiter, also greift auch `systemd Restart=always` nicht
+(Main-PID = Master, der „läuft"). Folge: AIfred ist tot/unerreichbar bis zum
+manuellen Neustart (2026-06-23 ~1h43, 2026-09-22 16:09).
+
+**Falle:** `respawn_failed_workers=True` allein wirkt NICHT. Im Reload-Modus
+läuft granian (2.6) in `_serve_with_reloader`, das nur Dateiänderungen
+beobachtet; der Respawn-Code steht in `_serve_loop`, der nur OHNE Reload
+läuft. Zusätzlich meldet der Worker-Wächter bei
+`reload_ignore_worker_failure=True` den Absturz gar nicht weiter.
 
 - **Datei:** `venv/lib/python3.12/site-packages/reflex/utils/exec.py`, im
   `Granian(...)`-Konstruktor in `run_granian_backend()` (~Zeile 545)
-- **Fix:** `respawn_failed_workers=True` + `respawn_interval=3.5` ergänzen.
+- **Fix:** `reload=False` (die `reload_*`-Argumente entfallen) +
+  `respawn_failed_workers=True` + `respawn_interval=3.5`. Kein Backend-Hot-Reload
+  mehr — nach Code-Änderungen ohnehin Service-Restart.
+- **Verhalten:** Worker-Absturz → Respawn nach ~3,5 s, Frontend läuft weiter.
+  Absturz innerhalb 5,5 s nach einem Respawn (Crash-Schleife, z.B. Startfehler
+  im Code) → Master beendet sich → systemd startet den Dienst neu.
+- **Abgenommen 2026-09-22:** `kill -SEGV <worker-pid>` → Backend nach 4 s
+  wieder da, Master + bun unverändert.
 
-**Bei Reflex-Update:** Patch erneut anwenden (Konstruktor-Argumente ergänzen):
+**Bei Reflex-Update:** Patch erneut anwenden:
 ```python
 # exec.py, run_granian_backend(), im Granian(...)-Aufruf:
+reload=False,            # statt reload=True + reload_paths/_ignore_*/_tick
+workers_kill_timeout=2,
 respawn_failed_workers=True,
 respawn_interval=3.5,
 ```
