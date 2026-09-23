@@ -301,9 +301,9 @@ def ple_cascade_path(env: Dict[str, str]) -> str:
     host = env.get("VLLM_QWEN4EXP_PLE_HOST_GIB")
     if host and _positive(host):
         tiers.append("Host")
-    store_device = env.get("VLLM_QWEN4EXP_PLE_STORE_DEVICE")
-    if store_device:
-        tiers.append(f"GPU {_physical_gpu(env, store_device)}")
+    store_devices = [d.strip() for d in env.get("VLLM_QWEN4EXP_PLE_STORE_DEVICES", "").split(",") if d.strip()]
+    if store_devices:
+        tiers.append("GPU " + "+".join(_physical_gpu(env, d) for d in store_devices))
     if env.get("VLLM_QWEN4EXP_PLE_DISK", "").lower() in ("1", "true"):
         tiers.append("SSD")
     return "→".join(["PLE", *tiers]) if tiers else ""
@@ -319,7 +319,7 @@ def _positive(value: str) -> bool:
 def _physical_gpu(env: Dict[str, str], visible_index: str) -> str:
     """Sichtbaren Index auf die Karte abbilden, die der Nutzer kennt.
 
-    ``VLLM_QWEN4EXP_PLE_STORE_DEVICE`` zaehlt in ``CUDA_VISIBLE_DEVICES``, und
+    ``VLLM_QWEN4EXP_PLE_STORE_DEVICES`` zaehlt in ``CUDA_VISIBLE_DEVICES``, und
     die Liste ist bei uns umsortiert (0,2,1,3,4). Steht dort eine UUID-Liste
     oder passt der Index nicht, bleibt der sichtbare Index stehen.
     """

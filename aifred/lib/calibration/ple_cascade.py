@@ -2,18 +2,20 @@
 
 Modelle der Qwen4Exp-Familie tragen eine Hash-N-Gramm-Tabelle (PLE), die
 größer ist als der VRAM der Rechenkarten (Flash-Next: 47,7 GiB). vLLM verteilt
-sie über vier Stufen — VRAM, gepinnter Host-RAM, eine Speicherkarte, SSD — und
-misst selbst, wie viel in den VRAM passt. AIfred macht nur die Angebote: Es
-sagt, wie viel Host-RAM je Rang gepinnt werden darf und welche Karte mit
-welchem Budget die Überlaufstufe trägt.
+sie über vier Stufen — VRAM, gepinnter Host-RAM, Speicherkarten, SSD — und
+misst selbst, wie viel in den VRAM passt und wie viel eine Speicherkarte nach
+dem Aufbau der Stufen frei hat. AIfred macht nur die Angebote: Es sagt, wie
+viel Host-RAM je Rang gepinnt werden darf, welche Karte die Überlaufstufe
+trägt und wie viel dort frei bleiben muss.
 
 Die Speicherkarte ist die Sammelkarte der Seitenkanäle (``pick_side_channel_gpu``),
-auf der auch VLM und TTS liegen. Deren gemessene Reserven werden abgezogen —
+auf der auch VLM und TTS liegen. Deren gemessene Reserven bleiben frei —
 je Eintragsvariante nur die, die dort tatsächlich läuft.
 """
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 from typing import Sequence
 
@@ -73,8 +75,10 @@ def plan_ple_cascade(
 
     visible.append(side_channel_gpu)
     store_gib = store_mb * _MIB / _GIB
-    env["VLLM_QWEN4EXP_PLE_STORE_DEVICE"] = str(len(visible) - 1)
-    env["VLLM_QWEN4EXP_PLE_STORE_GIB"] = _number(store_gib)
+    # Aufrunden: die Seitenkanäle dürfen nie ein paar MiB zu wenig haben.
+    reserve_gib = math.ceil((side_channel_reserved_mb + safety_mb) / 1024 * 10) / 10
+    env["VLLM_QWEN4EXP_PLE_STORE_DEVICES"] = str(len(visible) - 1)
+    env["VLLM_QWEN4EXP_PLE_STORE_RESERVE_GIB"] = _number(reserve_gib)
     return PleCascadePlan(visible_gpu_ids=visible, env=env, store_gib=store_gib)
 
 

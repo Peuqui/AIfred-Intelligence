@@ -51,7 +51,7 @@ def test_badges_show_the_ple_cascade_as_a_path() -> None:
         "full_cmd": """vllm --speculative-config '{"method":"mtp"}'""",
         "env": {
             "CUDA_VISIBLE_DEVICES": "0,2,1,3,4",
-            "VLLM_QWEN4EXP_PLE_STORE_DEVICE": "4",
+            "VLLM_QWEN4EXP_PLE_STORE_DEVICES": "4",
             "VLLM_QWEN4EXP_PLE_HOST_GIB": "2",
         },
     }
@@ -68,11 +68,15 @@ def test_badges_show_the_ple_cascade_as_a_path() -> None:
     assert ple_cascade_path({"VLLM_QWEN4EXP_PLE_HOST_GIB": "0"}) == ""
 
     # Der sichtbare Index wird auf die Karte abgebildet, die der Nutzer kennt.
-    reordered = {"CUDA_VISIBLE_DEVICES": "0,2,1,3,7", "VLLM_QWEN4EXP_PLE_STORE_DEVICE": "4"}
+    reordered = {"CUDA_VISIBLE_DEVICES": "0,2,1,3,7", "VLLM_QWEN4EXP_PLE_STORE_DEVICES": "4"}
     assert ple_cascade_path(reordered) == "PLE→GPU 7"
     # UUID-Listen (llama.cpp-Eintraege) bleiben beim sichtbaren Index.
-    uuids = {"CUDA_VISIBLE_DEVICES": "GPU-abc,GPU-def", "VLLM_QWEN4EXP_PLE_STORE_DEVICE": "1"}
+    uuids = {"CUDA_VISIBLE_DEVICES": "GPU-abc,GPU-def", "VLLM_QWEN4EXP_PLE_STORE_DEVICES": "1"}
     assert ple_cascade_path(uuids) == "PLE→GPU 1"
+    # Mehrere Speicherkarten in Fuellreihenfolge, als Karten des Nutzers.
+    cards = {"CUDA_VISIBLE_DEVICES": "0,2,1,3", "VLLM_QWEN4EXP_PLE_HOST_GIB": "3",
+             "VLLM_QWEN4EXP_PLE_STORE_DEVICES": "1,2,3", "VLLM_QWEN4EXP_PLE_DISK": "1"}
+    assert ple_cascade_path(cards) == "PLE→Host→GPU 2+1+3→SSD"
     # Without the cascade only the runtime of the named predictor remains.
     plain = {"full_cmd": "vllm", "env": {}}
     assert entry_badges("Qwen3.8-Flash-Next-180B-A4B-NVFP4-MTP-vllm", plain) == ["spec off"]
@@ -102,7 +106,7 @@ def test_answer_footer_names_the_running_entry_with_its_profile(tmp_path, monkey
         "    env:\n"
         "    - CUDA_VISIBLE_DEVICES=0,2,1,3,4\n"
         "    - VLLM_QWEN4EXP_PLE_HOST_GIB=2\n"
-        "    - VLLM_QWEN4EXP_PLE_STORE_DEVICE=4\n"
+        "    - VLLM_QWEN4EXP_PLE_STORE_DEVICES=4\n"
         "  Flash-MTP-PLE-Classic-vllm:\n"
         "    cmd: python -m vllm --model /m --speculative-config '{\"method\":\"mtp\"}'\n"
         "    env:\n"
