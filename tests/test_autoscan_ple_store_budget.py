@@ -1,9 +1,12 @@
-"""PLE-Store-Budget im llama-swap-Autoscan: GPU-Platz der Store-Karte abzueglich
-Worker, Sicherheitsabstand und der Seitenkanaele der Variante (VLM/TTS)."""
+"""PLE-Store-Freihalte-Werte im llama-swap-Autoscan: Auf Store-Karten außerhalb
+der Pipeline bleibt der Bedarf der Seitenkanäle der Variante (VLM/TTS) plus
+Sicherheitsabstand frei; Pipeline-Karten behalten die Vorgabe des Forks."""
 
 import importlib.machinery
 import importlib.util
 import json
+import math
+import re
 import sys
 from pathlib import Path
 
@@ -11,6 +14,7 @@ import pytest
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
 BASE = "Flash-Next-PLE-Kaskade-vllm"
+RESERVE = "VLLM_QWEN4EXP_PLE_STORE_RESERVE_GIB"
 
 
 @pytest.fixture()
@@ -38,24 +42,21 @@ def autoscan(tmp_path, monkeypatch):
     monkeypatch.setattr(module, "AIFRED_CONFIG_PY", config_py)
     monkeypatch.setattr(module, "VLM_VRAM_CACHE_FILE", vlm_cache)
     monkeypatch.setattr(module, "TTS_VRAM_CACHE_FILE", tts_cache)
-    monkeypatch.setattr(module.nvidia_smi, "query", lambda fields, gpu_index=None: [
-        {"index": "3", "uuid": "GPU-aaa", "memory.total": "32768", "memory.reserved": "274"},
-        {"index": "4", "uuid": "GPU-bbb", "memory.total": "32768", "memory.reserved": "274"},
-    ])
     return module
 
 
-def _entry(name: str, store_gib: str, *, visible: str = "0,2,1,3,4",
-           device: str = "4", disk: bool = False) -> str:
+def _entry(name: str, *, devices: str = "4", reserve: str | None = None,
+           tp: int = 2, pp: int = 2) -> str:
     env = [
-        f"CUDA_VISIBLE_DEVICES={visible}",
-        "VLLM_QWEN4EXP_PLE_HOST_GIB=2",
-        f"VLLM_QWEN4EXP_PLE_STORE_DEVICE={device}",
-        f"VLLM_QWEN4EXP_PLE_STORE_GIB={store_gib}",
+        "CUDA_VISIBLE_DEVICES=0,2,1,3,4",
+        "VLLM_QWEN4EXP_PLE_HOST_GIB=3",
+        f"VLLM_QWEN4EXP_PLE_STORE_DEVICES={devices}",
     ]
-    if disk:
-        env.append("VLLM_QWEN4EXP_PLE_DISK=1")
-    lines = [f"  {name}:", f"    cmd: python -m vllm --served-model-name {name}", "    env:"]
+    if reserve is not None:
+        env.append(f"{RESERVE}={reserve}")
+    cmd = (f"python -m vllm --served-model-name {name} "
+           f"--tensor-parallel-size {tp} --pipeline-parallel-size {pp}")
+    lines = [f"  {name}:", f"    cmd: {cmd}", "    env:"]
     lines += [f"    - {e}" for e in env]
     return "\n".join(lines) + "\n"
 
@@ -66,42 +67,65 @@ def _write(tmp_path: Path, *entries: str) -> Path:
     return path
 
 
-def _budget(path: Path, name: str) -> str:
-    block = path.read_text().split(f"  {name}:\n", 1)[1]
-    return block.split("VLLM_QWEN4EXP_PLE_STORE_GIB=", 1)[1].split("\n", 1)[0]
+def _reserve(path: Path, name: str) -> str | None:
+    block = re.search(rf"^  {re.escape(name)}:\n((?:    .*\n)+)", path.read_text(), re.M)
+    assert block is not None, name
+    value = re.search(rf"^    - {RESERVE}=(.*)$", block.group(1), re.M)
+    return value.group(1) if value else None
 
 
-def test_budget_per_variant_leaves_room_for_its_side_channels(autoscan, tmp_path) -> None:
+def _gib(mib: int) -> str:
+    return f"{math.ceil(mib / 1024 * 10) / 10:.1f}"
+
+
+def test_spare_card_keeps_room_for_the_variants_side_channels(autoscan, tmp_path) -> None:
     names = [BASE, f"{BASE}-tts-qwen3local", f"{BASE}-vlm-qwen3vl4b",
              f"{BASE}-tts-qwen3local-vlm-qwen3vl4b"]
-    path = _write(tmp_path, *(_entry(n, "6") for n in names))
-    assert autoscan.enforce_ple_store_budgets(path) == 4
-    usable = 32768 - 274
-    base_reserve = autoscan.PLE_STORE_WORKER_MB + autoscan.VRAM_SAFETY_MARGIN_MB
+    # The first entry has no reserve yet, the others a stale one.
+    path = _write(tmp_path, _entry(names[0]),
+                  *(_entry(n, reserve="0.5") for n in names[1:]))
+    assert autoscan.enforce_ple_store_reserves(path) == 4
+    margin = autoscan.VRAM_SAFETY_MARGIN_MB
     expected = {
-        BASE: usable - base_reserve,
-        f"{BASE}-tts-qwen3local": usable - base_reserve - (6024 + 512),
-        f"{BASE}-vlm-qwen3vl4b": usable - base_reserve - (8988 + 500),
-        f"{BASE}-tts-qwen3local-vlm-qwen3vl4b": usable - base_reserve - (6024 + 512) - (8988 + 500),
+        BASE: margin,
+        f"{BASE}-tts-qwen3local": margin + 6024 + 512,
+        f"{BASE}-vlm-qwen3vl4b": margin + 8988 + 500,
+        f"{BASE}-tts-qwen3local-vlm-qwen3vl4b": margin + 6024 + 512 + 8988 + 500,
     }
     for name, mib in expected.items():
-        assert _budget(path, name) == f"{int(mib / 1024 * 10) / 10:.1f}", name
+        assert _reserve(path, name) == _gib(mib), name
     assert path.read_text().startswith("# gpu_hardware: test\n")
-    assert autoscan.enforce_ple_store_budgets(path) == 0  # idempotent
+    assert autoscan.enforce_ple_store_reserves(path) == 0  # idempotent
 
 
-def test_disk_tier_profiles_keep_their_small_store(autoscan, tmp_path) -> None:
-    path = _write(tmp_path, _entry(f"{BASE}-Disk", "1", disk=True))
-    assert autoscan.enforce_ple_store_budgets(path) == 0
-    assert _budget(path, f"{BASE}-Disk") == "1"
+def test_every_spare_card_gets_its_own_value(autoscan, tmp_path) -> None:
+    # TP1 x PP2 computes on ordinals 0 and 1; 2 and 3 are spare cards.
+    path = _write(tmp_path, _entry(f"{BASE}-tts-qwen3local", devices="2,3", tp=1, pp=2))
+    assert autoscan.enforce_ple_store_reserves(path) == 1
+    value = _gib(autoscan.VRAM_SAFETY_MARGIN_MB + 6024 + 512)
+    assert _reserve(path, f"{BASE}-tts-qwen3local") == f"{value},{value}"
+
+
+def test_pipeline_store_cards_keep_the_fork_default(autoscan, tmp_path) -> None:
+    # PP4 computes on ordinals 0-3: stores on 1,2,3 carry no side channels.
+    path = _write(tmp_path, _entry(f"{BASE}-tts-qwen3local", devices="1,2,3", tp=1, pp=4))
+    assert autoscan.enforce_ple_store_reserves(path) == 0
+    assert _reserve(path, f"{BASE}-tts-qwen3local") is None
+
+
+def test_mixed_store_cards_are_left_alone(autoscan, tmp_path, capsys) -> None:
+    path = _write(tmp_path, _entry(BASE, devices="3,4", tp=1, pp=4))
+    assert autoscan.enforce_ple_store_reserves(path) == 0
+    assert _reserve(path, BASE) is None
+    assert "mix pipeline and spare cards" in capsys.readouterr().out
 
 
 def test_missing_measurement_leaves_the_entry_unchanged(autoscan, tmp_path, capsys) -> None:
-    path = _write(tmp_path, _entry(f"{BASE}-tts-xtts", "6"),
-                  _entry(f"{BASE}-vlm-unbekannt", "6"))
-    assert autoscan.enforce_ple_store_budgets(path) == 0
-    assert _budget(path, f"{BASE}-tts-xtts") == "6"
-    assert _budget(path, f"{BASE}-vlm-unbekannt") == "6"
+    path = _write(tmp_path, _entry(f"{BASE}-tts-xtts", reserve="8"),
+                  _entry(f"{BASE}-vlm-unbekannt", reserve="8"))
+    assert autoscan.enforce_ple_store_reserves(path) == 0
+    assert _reserve(path, f"{BASE}-tts-xtts") == "8"
+    assert _reserve(path, f"{BASE}-vlm-unbekannt") == "8"
     out = capsys.readouterr().out
     assert "no TTS measurement for 'xtts'" in out and "no VLM measurement for 'unbekannt'" in out
 
@@ -110,13 +134,11 @@ def test_vlm_measurement_at_another_context_does_not_count(autoscan, tmp_path) -
     autoscan.VLM_VRAM_CACHE_FILE.write_text(json.dumps({
         "Qwen3VL-4B-Instruct-Q8_0": {"num_ctx": 8192, "peak_mb": 5000},
     }))
-    path = _write(tmp_path, _entry(f"{BASE}-vlm-qwen3vl4b", "6"))
-    assert autoscan.enforce_ple_store_budgets(path) == 0
+    path = _write(tmp_path, _entry(f"{BASE}-vlm-qwen3vl4b", reserve="8"))
+    assert autoscan.enforce_ple_store_reserves(path) == 0
 
 
-def test_store_device_is_an_ordinal_in_cuda_visible_devices(autoscan, tmp_path) -> None:
-    """STORE_DEVICE=1 with CUDA_VISIBLE_DEVICES=GPU-aaa,GPU-bbb means GPU-bbb."""
-    path = _write(tmp_path, _entry(BASE, "6", visible="GPU-aaa,GPU-bbb", device="1"))
-    assert autoscan._store_gpu_usable_mib(path.read_text().split(f"  {BASE}:\n", 1)[1]) == 32768 - 274
-    path = _write(tmp_path, _entry(BASE, "6", visible="GPU-aaa", device="1"))
-    assert autoscan.enforce_ple_store_budgets(path) == 0  # ordinal outside the list
+def test_compute_cards_default_to_one_without_parallel_flags(autoscan) -> None:
+    assert autoscan._compute_card_count("    cmd: python -m vllm --model x\n") == 1
+    assert autoscan._compute_card_count(
+        "    cmd: vllm --tensor-parallel-size 2 --pipeline-parallel-size 2\n") == 4

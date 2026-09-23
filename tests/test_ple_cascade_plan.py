@@ -28,20 +28,22 @@ def test_no_cascade_without_a_ple_table() -> None:
     assert _plan(ple_bytes=0) is None
 
 
-def test_store_card_gets_what_the_side_channels_leave() -> None:
+def test_store_card_keeps_the_side_channels_free() -> None:
     plan = _plan(side_channel_reserved_mb=VLM_MB + TTS_MB)
-    # 32768 - 8770 - 7680 - 1024 = 15294 MiB
-    assert plan.env["VLLM_QWEN4EXP_PLE_STORE_GIB"] == "14.9"
+    # 8770 + 7680 + 1024 = 17474 MiB stay free = 17,06 GiB, rounded up.
+    assert plan.env["VLLM_QWEN4EXP_PLE_STORE_RESERVE_GIB"] == "17.1"
     assert plan.env["VLLM_QWEN4EXP_PLE_HOST_GIB"] == "2"
     # Die Karte haengt hinten an, ihr sichtbarer Index ist der letzte.
     assert plan.visible_gpu_ids == [0, 2, 1, 3, 4]
-    assert plan.env["VLLM_QWEN4EXP_PLE_STORE_DEVICE"] == "4"
+    assert plan.env["VLLM_QWEN4EXP_PLE_STORE_DEVICES"] == "4"
+    # 32768 - 17474 = 15294 MiB are left for the table.
+    assert plan.store_gib == pytest.approx(15294 / 1024)
     assert plan.uses_store_card
 
 
-def test_variant_without_side_channels_may_use_the_whole_card() -> None:
+def test_variant_without_side_channels_keeps_only_the_safety_margin() -> None:
     plan = _plan(side_channel_reserved_mb=0)
-    assert plan.env["VLLM_QWEN4EXP_PLE_STORE_GIB"] == "31"
+    assert plan.env["VLLM_QWEN4EXP_PLE_STORE_RESERVE_GIB"] == "1"
 
 
 def test_host_share_only_when_the_card_has_nothing_left() -> None:
@@ -62,7 +64,7 @@ def test_host_share_only_without_a_spare_card() -> None:
 def test_index_is_the_visible_position_not_the_pci_index() -> None:
     plan = _plan(compute_gpu_ids=[5, 7], side_channel_gpu=9)
     assert plan.visible_gpu_ids == [5, 7, 9]
-    assert plan.env["VLLM_QWEN4EXP_PLE_STORE_DEVICE"] == "2"
+    assert plan.env["VLLM_QWEN4EXP_PLE_STORE_DEVICES"] == "2"
 
 
 def test_negative_settings_are_refused() -> None:
