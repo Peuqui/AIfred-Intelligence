@@ -22,10 +22,10 @@ Updated when hardware changes or new llama.cpp releases introduce relevant chang
 | Architecture | Pascal (GP102) | Turing (TU102) | Ampere (GA102) |
 | Compute Capability | 6.1 | 7.5 | 8.6 |
 | VRAM | 24 GB GDDR5X | 48 GB GDDR6 | 24 GB GDDR6X |
-| Bandwidth | 346 GB/s | 672 GB/s | 936 GB/s |
-| Tensor Cores | None | 576 (1st gen) | 328 (2nd gen) |
+| Bandwidth | 346 GB/s | 672 GB/s | 1008 GB/s |
+| Tensor Cores | None | 576 (2nd gen) | 336 (3rd gen) |
 | FP16 | 1/64 of FP32 (!) | Full (via TC) | Full (via TC) |
-| NVLink | No | Yes (100 GB/s) | No |
+| NVLink | No | Yes (100 GB/s) | Yes (112.5 GB/s) |
 | TDP | 250W | 295W | 450W |
 
 ### NVIDIA llama.cpp Optimizations (CES 2026)
