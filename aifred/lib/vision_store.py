@@ -1205,16 +1205,31 @@ class VisionStore:
         """GENAU DIESE Aufnahme als „nicht mehr vorschlagen" markieren
         (``classification.untagged_dismissed``) — das Personarium blendet
         sie dauerhaft aus, das Event selbst bleibt für Casus/Chronik
-        unangetastet. Bewusst nur das einzelne Event: Im Grid ist jede
-        Aufnahme eine eigene Karte, der Nutzer entscheidet pro Bild."""
+        unangetastet. Im Grid ist jede Aufnahme eine eigene Karte, der
+        Nutzer entscheidet pro Bild; für die Mehrfachauswahl gibt es
+        :meth:`dismiss_untagged_events`."""
+        return self.dismiss_untagged_events([int(event_id)]) > 0
+
+    def dismiss_untagged_events(self, event_ids: list[int]) -> int:
+        """GENAU DIESE Aufnahmen verwerfen. Returnt die Anzahl geänderter
+        Zeilen.
+
+        Mengenvariante für die Häkchen-Auswahl im Personarium: wer 80
+        Krähenbilder wegräumt, soll dafür keine 80 Transaktionen zahlen.
+        Wie beim Einzelfall bleiben die Events für Casus/Chronik erhalten,
+        nur der Vorschlag verschwindet."""
+        ids = [int(e) for e in event_ids]
+        if not ids:
+            return 0
+        placeholders = ",".join("?" * len(ids))
         with self._conn() as conn:
             cur = conn.execute(
                 "UPDATE events SET classification = "
                 "json_set(COALESCE(classification, '{}'), "
-                "'$.untagged_dismissed', 1) WHERE id = ?",
-                (int(event_id),),
+                f"'$.untagged_dismissed', 1) WHERE id IN ({placeholders})",
+                ids,
             )
-            return cur.rowcount > 0
+            return cur.rowcount
 
     def apply_description_to_events(
         self, event_ids: list[int], description: str, analyzed_by: str,
