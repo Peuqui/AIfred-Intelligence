@@ -11,7 +11,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t, overlay_modal
+from .helpers import bulk_delete_bar, t, overlay_modal
 
 
 def _face_row(face: rx.Var) -> rx.Component:
@@ -245,6 +245,15 @@ def _untagged_card(ev: rx.Var) -> rx.Component:
     eid = ev["id"]
     is_tagging = AIState.personarium_tag_event_id == eid
     return rx.vstack(
+        # Häkchen über dem Crop: Mehrfachauswahl fürs Verwerfen. Liegt
+        # über dem Bild statt daneben, damit das Kartenraster gleich breit
+        # bleibt.
+        rx.checkbox(
+            checked=AIState.personarium_untagged_selected.contains(eid),  # type: ignore[union-attr]
+            on_change=AIState.personarium_toggle_untagged(eid),
+            color_scheme="orange",
+            align_self="start",
+        ),
         rx.image(
             src=ev["crop_url"],
             style={
@@ -440,6 +449,23 @@ def personarium_modal() -> rx.Component:
             # Getrennt nach Band: ohne die Überschriften liest sich eine
             # unsichere Aufnahme wie „diese bekannte Person wurde nicht
             # erkannt", dabei geht es dort nur ums Bestätigen.
+            # Eine Leiste für beide Bänder: „alle auswählen" meint alles,
+            # was das Grid gerade zeigt. Gleiche Mechanik wie Speicher-Tab
+            # und Chatliste.
+            rx.cond(
+                AIState.personarium_untagged.length() > 0,
+                bulk_delete_bar(
+                    total_count=AIState.personarium_untagged.length(),  # type: ignore[union-attr]
+                    selected_count=AIState.personarium_untagged_selected.length(),  # type: ignore[union-attr]
+                    on_select_all=AIState.personarium_select_all_untagged,
+                    on_clear_selection=AIState.personarium_clear_untagged_selection,
+                    on_delete_selected=AIState.personarium_dismiss_selected,
+                    confirming=AIState.personarium_confirm_dismiss_all,
+                    on_request_delete_all=AIState.personarium_request_dismiss_all,
+                    on_confirm_delete_all=AIState.personarium_dismiss_all_untagged,
+                    on_cancel_delete_all=AIState.personarium_cancel_dismiss_all,
+                ),
+            ),
             rx.cond(
                 AIState.personarium_untagged.length() > 0,
                 rx.vstack(

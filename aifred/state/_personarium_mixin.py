@@ -42,6 +42,11 @@ class PersonariumMixin(rx.State, mixin=True):
     # Identity, dedupliziert pro Vorkommnis (cluster_id). Zum Nachtaggen
     # + Embedding-Lernen (lib.face_enroll).
     personarium_untagged: list[dict[str, Any]] = []
+    # Mehrfachauswahl im Nachtag-Grid: event_ids der angehakten Karten,
+    # plus die zweistufige Bestätigung für „alle verwerfen". Gleiche
+    # Mechanik wie Speicher-Tab und Chatliste (ui.helpers.bulk_delete_bar).
+    personarium_untagged_selected: list[int] = []
+    personarium_confirm_dismiss_all: bool = False
     # Tag-Modus: event_id der Karte, die gerade zugeordnet wird (0 = keine),
     # Auswahl im Dropdown (face_id als String oder "__new__") + Name-Input.
     personarium_tag_event_id: int = 0
@@ -271,6 +276,12 @@ class PersonariumMixin(rx.State, mixin=True):
             and not r.get("untagged_dismissed")
             and not r.get("identity_confirmed")
         ]
+        # Häkchen auf Karten, die inzwischen zugeordnet oder verworfen
+        # wurden, würden eine Auswahl zeigen, die es nicht mehr gibt.
+        alive = {e["id"] for e in self.personarium_untagged}
+        self.personarium_untagged_selected = [
+            eid for eid in self.personarium_untagged_selected if eid in alive
+        ]
 
     @rx.event
     async def personarium_rematch_untagged(self):
@@ -312,6 +323,77 @@ class PersonariumMixin(rx.State, mixin=True):
             logger.warning("personarium dismiss failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
+        self._refresh_personarium_untagged()
+
+    @rx.event
+    def personarium_toggle_untagged(self, event_id: int) -> None:
+        """Eine Karte an-/abhaken (Mehrfachauswahl)."""
+        eid = int(event_id)
+        if eid in self.personarium_untagged_selected:
+            self.personarium_untagged_selected = [
+                x for x in self.personarium_untagged_selected if x != eid
+            ]
+        else:
+            self.personarium_untagged_selected = [
+                *self.personarium_untagged_selected, eid,
+            ]
+
+    @rx.event
+    def personarium_select_all_untagged(self) -> None:
+        """Alle gerade gelisteten Karten anhaken — beide Blöcke."""
+        self.personarium_untagged_selected = [
+            int(e["id"]) for e in self.personarium_untagged
+        ]
+
+    @rx.event
+    def personarium_clear_untagged_selection(self) -> None:
+        """Alle Häkchen entfernen."""
+        self.personarium_untagged_selected = []
+
+    @rx.event
+    def personarium_dismiss_selected(self) -> None:
+        """Die angehakten Aufnahmen verwerfen."""
+        if not self.personarium_untagged_selected:
+            return
+        try:
+            from ..lib.vision_store import VisionStore
+            n = VisionStore().dismiss_untagged_events(
+                list(self.personarium_untagged_selected)
+            )
+            self.personarium_status = f"✓ {n} Aufnahmen verworfen"
+        except Exception as e:  # noqa: BLE001
+            logger.warning("personarium dismiss selected failed: %s", e)
+            self.personarium_status = f"⚠️ {e}"
+            return
+        self.personarium_untagged_selected = []
+        self._refresh_personarium_untagged()
+
+    @rx.event
+    def personarium_request_dismiss_all(self) -> None:
+        """Bestätigung für „alle verwerfen" anfordern."""
+        self.personarium_confirm_dismiss_all = True
+
+    @rx.event
+    def personarium_cancel_dismiss_all(self) -> None:
+        """Bestätigung zurücknehmen."""
+        self.personarium_confirm_dismiss_all = False
+
+    @rx.event
+    def personarium_dismiss_all_untagged(self) -> None:
+        """Alle gerade gelisteten Aufnahmen verwerfen."""
+        self.personarium_confirm_dismiss_all = False
+        ids = [int(e["id"]) for e in self.personarium_untagged]
+        if not ids:
+            return
+        try:
+            from ..lib.vision_store import VisionStore
+            n = VisionStore().dismiss_untagged_events(ids)
+            self.personarium_status = f"✓ {n} Aufnahmen verworfen"
+        except Exception as e:  # noqa: BLE001
+            logger.warning("personarium dismiss all failed: %s", e)
+            self.personarium_status = f"⚠️ {e}"
+            return
+        self.personarium_untagged_selected = []
         self._refresh_personarium_untagged()
 
     @rx.event
