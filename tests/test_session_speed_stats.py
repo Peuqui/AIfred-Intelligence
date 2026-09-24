@@ -1,7 +1,7 @@
 """session_speed_stats groups answers by entry and running profile.
 
 The answer footer names the profile since 2026-09-16
-("(<entry> · PLE→Host→GPU 4)"); the stats script took that whole text for the
+("(<entry> · PLE→Host→SSD)"); the stats script took that whole text for the
 model name and merged side-channel variants no longer (16.09.2026).
 """
 
@@ -36,9 +36,9 @@ def _answer(source: str, decode: float, stamp: str = "2026-09-16T18:00:00") -> d
 def test_profiles_of_one_model_stay_apart(stats, tmp_path: Path) -> None:
     history = [
         # New footer: variant with profile, and the plain entry with a profile.
-        _answer("AIfred (Flash-MTP-vllm-vlm-qwen3vl4b · PLE→Host→GPU 4)", 48.0),
-        _answer("AIfred (Flash-MTP-vllm · PLE→Host→GPU 4)", 50.0),
-        _answer("AIfred (Flash-MTP-vllm · PLE→Host→GPU 4→SSD)", 37.0),
+        _answer("AIfred (Flash-MTP-vllm-vlm-qwen3vl4b · PLE→Host→SSD)", 48.0),
+        _answer("AIfred (Flash-MTP-vllm · PLE→Host→SSD)", 50.0),
+        _answer("AIfred (Flash-MTP-vllm · PLE→Host→SSD→SSD)", 37.0),
         # Old footer: bare entry, the path is unknown.
         _answer("AIfred (Flash-MTP-vllm-tts-qwen3local)", 44.0),
     ]
@@ -49,11 +49,11 @@ def test_profiles_of_one_model_stay_apart(stats, tmp_path: Path) -> None:
 
     assert sorted(groups) == [
         ("Flash-MTP-vllm", "vllm"),
-        ("Flash-MTP-vllm · PLE→Host→GPU 4", "vllm"),
-        ("Flash-MTP-vllm · PLE→Host→GPU 4→SSD", "vllm"),
+        ("Flash-MTP-vllm · PLE→Host→SSD", "vllm"),
+        ("Flash-MTP-vllm · PLE→Host→SSD→SSD", "vllm"),
     ]
     # The side-channel variant joins its base entry within the same profile.
-    assert len(groups[("Flash-MTP-vllm · PLE→Host→GPU 4", "vllm")]) == 2
+    assert len(groups[("Flash-MTP-vllm · PLE→Host→SSD", "vllm")]) == 2
 
 
 def test_llamacpp_entries_with_badges_keep_their_backend(stats, tmp_path: Path) -> None:

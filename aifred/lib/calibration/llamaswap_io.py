@@ -291,7 +291,7 @@ def display_model_name(model_id: str, badges: Sequence[str]) -> str:
 
 
 def ple_cascade_path(env: Dict[str, str]) -> str:
-    """Die PLE-Stufen eines Eintrags als Pfad, z.B. ``PLE→Host→GPU 4→SSD``.
+    """Die PLE-Stufen eines Eintrags als Pfad, z.B. ``PLE→Host→SSD``.
 
     Genannt werden nur die Stufen jenseits des VRAM der Rechenkarten, in der
     Reihenfolge, in der die Kaskade sie fuellt. ``""`` wenn der Eintrag keine
@@ -301,9 +301,6 @@ def ple_cascade_path(env: Dict[str, str]) -> str:
     host = env.get("VLLM_QWEN4EXP_PLE_HOST_GIB")
     if host and _positive(host):
         tiers.append("Host")
-    store_devices = [d.strip() for d in env.get("VLLM_QWEN4EXP_PLE_STORE_DEVICES", "").split(",") if d.strip()]
-    if store_devices:
-        tiers.append("GPU " + "+".join(_physical_gpu(env, d) for d in store_devices))
     if env.get("VLLM_QWEN4EXP_PLE_DISK", "").lower() in ("1", "true"):
         tiers.append("SSD")
     return "→".join(["PLE", *tiers]) if tiers else ""
@@ -314,21 +311,6 @@ def _positive(value: str) -> bool:
         return float(value) > 0
     except ValueError:
         return False
-
-
-def _physical_gpu(env: Dict[str, str], visible_index: str) -> str:
-    """Sichtbaren Index auf die Karte abbilden, die der Nutzer kennt.
-
-    ``VLLM_QWEN4EXP_PLE_STORE_DEVICES`` zaehlt in ``CUDA_VISIBLE_DEVICES``, und
-    die Liste ist bei uns umsortiert (0,2,1,3,4). Steht dort eine UUID-Liste
-    oder passt der Index nicht, bleibt der sichtbare Index stehen.
-    """
-    visible = [part.strip() for part in env.get("CUDA_VISIBLE_DEVICES", "").split(",")]
-    try:
-        card = visible[int(visible_index)]
-    except (ValueError, IndexError):
-        return visible_index
-    return card if card.isdigit() else visible_index
 
 
 def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
