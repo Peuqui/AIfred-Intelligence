@@ -986,19 +986,8 @@ class ChatMixin(rx.State, mixin=True):
             if has_pending_images:
                 _img_urls = [img.get("url", "") for img in self.pending_images if img.get("url")]  # type: ignore[attr-defined]
                 if _img_urls:
-                    from ..lib.prompt_loader import get_language
-                    _de = get_language() == "de"
-                    _label = (
-                        ("Angehängtes Bild" if len(_img_urls) == 1 else "Angehängte Bilder")
-                        if _de else
-                        ("Attached image" if len(_img_urls) == 1 else "Attached images")
-                    )
-                    _hint = (
-                        "mit dem vision_analyze-Tool erneut betrachtbar"
-                        if _de else
-                        "re-examine with the vision_analyze tool"
-                    )
-                    _marker = f"[{_label}: {', '.join(_img_urls)} — {_hint}]"
+                    from ..lib.message_builder import image_marker
+                    _marker = image_marker(_img_urls)
                     llm_user_content = f"{user_msg}\n\n{_marker}" if user_msg.strip() else _marker
             # Stempel EINMAL je Turn: derselbe Text geht live ans Modell und
             # in llm_history — das Modell kennt Datum und Uhrzeit damit schon

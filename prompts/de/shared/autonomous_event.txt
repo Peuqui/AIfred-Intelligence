@@ -1,0 +1,1 @@
+[AUTOMATISCHE MELDUNG ({channel})]: {text}
