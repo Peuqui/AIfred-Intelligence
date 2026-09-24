@@ -1173,14 +1173,17 @@ class BackendMixin(rx.State, mixin=True):
     def _vision_candidate_catalog(self) -> dict[str, str]:
         """Katalog der Vision-Kandidaten (id → Anzeige-Label).
 
-        Der Vision-Describer ist ein Side-Channel: unter dem vLLM-Backend
-        kommen die Kandidaten aus der GGUF-Sicht des llama-swap-Katalogs
-        (die Backend-Modellliste enthaelt dort nur -vllm-Eintraege),
-        sonst aus der Backend-Modellliste selbst.
+        Unter dem vLLM-Backend: die -vllm-Eintraege selbst (ein Chat-LLM
+        mit eigenem Encoder beschreibt seine Bilder selbst) plus die
+        GGUF-Sicht des llama-swap-Katalogs fuer den Side-Channel-Describer;
+        sonst die Backend-Modellliste selbst.
         """
         if self.backend_type == "vllm":
             from ..lib.model_discovery import discover_llamaswap_models
-            return discover_llamaswap_models(self.backend_url, vllm_entries=False)
+            return {
+                **discover_llamaswap_models(self.backend_url, vllm_entries=False),
+                **self.available_models_dict,
+            }
         return self.available_models_dict
 
     def _build_vision_rich(
@@ -1196,7 +1199,7 @@ class BackendMixin(rx.State, mixin=True):
         from ..lib.vision_routing import (
             vision_swap_status, vlm_key_for_model, same_model,
         )
-        from ..lib.vision_utils import model_has_mmproj
+        from ..lib.vision_utils import has_native_vision
         from ..lib.ollama_models import list_ollama_vlm_models
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.calibration.llamaswap_io import parse_llamaswap_config
@@ -1232,7 +1235,7 @@ class BackendMixin(rx.State, mixin=True):
             #     -visiond-Profil gar nicht der Weg (siehe
             #     vision_routing.self_describer_profile).
             is_self = (
-                same_model(mid, aifred_base) and model_has_mmproj(aifred_base)
+                same_model(mid, aifred_base) and has_native_vision(aifred_base)
             )
             has_visiond = f"{mid}-visiond" in swap_models
             has_ollama = vision_swap_status(
@@ -1274,8 +1277,6 @@ class BackendMixin(rx.State, mixin=True):
                     vision_model_ids.append(model_id)
         elif self.backend_type == "vllm":
             candidates = self._vision_candidate_catalog()
-            # GGUF-Kandidaten → llamacpp-Erkennung (mmproj/Namensmuster),
-            # nicht der HF-config-Pfad des vllm-Zweigs.
             for model_id in candidates.keys():
                 if is_vision_model_sync(model_id):
                     vision_model_ids.append(model_id)

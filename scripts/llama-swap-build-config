@@ -32,6 +32,11 @@ und normalisiert:
      Agent-Prompts); bei mmproj-Modellen würde der Server es eh mit
      Warnung deaktivieren — wir setzen es dort gar nicht erst.
 
+  5. Native Vision für vLLM (Pendant zum --mmproj-Auto-Detect).
+     Trägt das Checkpoint einen Vision-Encoder, lädt vLLM ihn mit;
+     -vlm-Varianten (Side-Channel-Describer) bekommen
+     ``--language-model-only``. Sonst bleiben vLLM-Einträge unangetastet.
+
 Repo-Heimat: ``scripts/llama-swap-build-config`` im AIfred-Repo. Im PATH
 liegt ``~/bin/llama-swap-build-config`` als Symlink hierher — das
 Restart-Script ruft den absoluten ``/home/mp/bin/...`` Pfad auf, der
@@ -400,6 +405,36 @@ def build_spec_flags(model_path: Path, has_mtp: bool) -> list[str]:
 _SAFE_TOKEN_RE = re.compile(r"^[A-Za-z0-9_./:=,${}@%+-]+$")
 
 
+def is_vllm_cmd(cmd: str) -> bool:
+    return "vllm.entrypoints.openai.api_server" in cmd
+
+
+def normalize_vllm_vision(cmd: str, model_name: str) -> str:
+    """vLLM-Pendant zum --mmproj-Auto-Detect: Traegt das Checkpoint einen
+    Vision-Encoder, laedt vLLM ihn mit — ausser in -vlm-Varianten, die den
+    separaten Side-Channel nutzen (sonst doppelte Vision-Reserve); dort
+    schaltet ``--language-model-only`` den Encoder ab."""
+    tokens = shlex.split(cmd)
+    if "--model" not in tokens:
+        return cmd
+    checkpoint = Path(tokens[tokens.index("--model") + 1])
+    if not (checkpoint / "config.json").is_file():
+        return cmd
+    from aifred.lib.calibration.vllm_model_meta import checkpoint_has_vision
+    if not checkpoint_has_vision(checkpoint):
+        return cmd
+    want_language_only = "-vlm" in model_name
+    if want_language_only == ("--language-model-only" in tokens):
+        return cmd
+    if want_language_only:
+        tokens.append("--language-model-only")
+        sys.stderr.write(f"🙈 {model_name}: --language-model-only gesetzt (Side-Channel-VLM)\n")
+    else:
+        tokens.remove("--language-model-only")
+        sys.stderr.write(f"👁️  {model_name}: Vision-Encoder aktiviert (--language-model-only entfernt)\n")
+    return " ".join(quote_if_needed(t) for t in tokens)
+
+
 def quote_if_needed(token: str) -> str:
     if token and _SAFE_TOKEN_RE.match(token):
         return token
@@ -671,6 +706,11 @@ def main() -> int:
         if not cmd:
             continue
         if not is_llama_server_cmd(cmd):
+            if is_vllm_cmd(cmd):
+                new_cmd = normalize_vllm_vision(cmd, name)
+                if new_cmd != cmd:
+                    data["models"][name]["cmd"] = new_cmd
+                    changed += 1
             summary.append((name, "extern"))
             continue
         new_cmd, status = normalize_cmd(cmd, name, mtp_cache)

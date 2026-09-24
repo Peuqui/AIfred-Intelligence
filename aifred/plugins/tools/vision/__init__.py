@@ -534,8 +534,8 @@ class VisionPlugin:
             # wie der Chat-Vision-Pfad, siehe _chat_mixin): Das Haupt-LLM
             # beschreibt die Bilder NUR, wenn der User Vision-LLM == AIfred-
             # LLM gestellt hat (oder kein Vision-LLM gewählt ist) UND die
-            # effektive Variante nativ sehen kann (--mmproj, SSOT
-            # model_has_mmproj). Ein abweichend eingestelltes Vision-LLM
+            # effektive Variante nativ sehen kann (SSOT
+            # has_native_vision). Ein abweichend eingestelltes Vision-LLM
             # gewinnt — ein 397B-Hauptmodell würde sonst jede Analyse
             # minutenlang rechnen, obwohl ein schnelles 4B konfiguriert ist.
             # Default bleibt das Side-Channel-VLM (Ollama), das weiterhin
@@ -543,14 +543,16 @@ class VisionPlugin:
             vlm_model = str(vlm_cfg.get("model", DEFAULT_MODEL))
             from ....lib.settings import load_settings as _global_settings
             _settings = _global_settings() or {}
-            if _settings.get("backend_type") == "llamacpp":
-                _saved = _settings.get("backend_models", {}).get("llamacpp", {})
+            from ....lib.config import LLAMASWAP_BACKENDS
+            _backend = str(_settings.get("backend_type") or "")
+            if _backend in LLAMASWAP_BACKENDS:
+                _saved = _settings.get("backend_models", {}).get(_backend, {})
                 _vision_choice = str(_saved.get("vision") or "")
                 if not _vision_choice or _vision_choice == str(_saved.get("aifred") or ""):
                     from ....lib.config import get_effective_model_from_settings
-                    from ....lib.vision_utils import model_has_mmproj
+                    from ....lib.vision_utils import has_native_vision
                     main_model = get_effective_model_from_settings("aifred")
-                    if main_model and model_has_mmproj(main_model):
+                    if main_model and has_native_vision(main_model):
                         vlm_model = main_model
             try:
                 result = await analyze_sequence(

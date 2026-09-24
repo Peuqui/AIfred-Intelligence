@@ -133,6 +133,10 @@ class FaceCropStore:
         self._unknown_counter = 0   # Zähler für unknown-Cluster-IDs
         self._lock = Lock()
 
+    @property
+    def base_dir(self) -> Path:
+        return self._base_dir
+
     def path_for_url(self, url: str) -> Path | None:
         """Dateipfad zu einer ``/_upload/face_crops/...``-URL, oder None."""
         if not url or not url.startswith(f"{self.URL_PREFIX}/"):

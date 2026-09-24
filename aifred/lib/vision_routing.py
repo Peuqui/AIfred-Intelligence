@@ -178,7 +178,8 @@ def self_describer_profile(vision_model: str) -> str | None:
 
     Greift, wenn das eingestellte Vision-Modell dasselbe Modell ist wie
     das Chat-LLM und dessen llama-swap-Profil einen eigenen Vision-Encoder
-    trägt (``--mmproj``). Dann ist sowohl eine zweite ``-visiond``-Instanz
+    lädt (SSOT ``has_native_vision``: llama.cpp ``--mmproj``, vLLM ohne
+    ``--language-model-only``). Dann ist sowohl eine zweite ``-visiond``-Instanz
     überflüssig (doppelter VRAM für dasselbe Modell) als auch das
     ``-vlm-``-Reserveprofil (siehe ``_is_self_describer``).
 
@@ -192,11 +193,11 @@ def self_describer_profile(vision_model: str) -> str | None:
     Modell-agnostisch: entschieden wird über Namens-Gleichheit und die
     mmproj-Eigenschaft, nicht über Größenklassen.
     """
-    from .vision_utils import model_has_mmproj
+    from .vision_utils import has_native_vision
     chat_model = active_chat_model()
     if not same_model(vision_model, chat_model):
         return None
-    if not model_has_mmproj(chat_model):
+    if not has_native_vision(chat_model):
         # Chat-LLM ohne eigenen Vision-Encoder (reines Textmodell) — es
         # kann seine Bilder nicht selbst beschreiben.
         return None

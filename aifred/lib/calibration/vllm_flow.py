@@ -639,7 +639,6 @@ def _measure_topology(
             gmu=_gmu_for(cand_gpus, reserve_mb), mml=mml, k=0,
             block_size=meta.boot_block_size(0),
             pp_partition=cand.pp_partition,
-            language_model_only=meta.multimodal,
             max_batched_tokens=mbt,
             kv_cache_dtype=kv_dtype,
             tool_call_parser=parsers.tool_call,

@@ -11,7 +11,7 @@ liefert die Fakten, aus denen die Suche ihre Kandidaten baut:
 - MTP-Draft-Block: vorhanden? quantisiert? (BF16-Draftkopf macht
   Spekulation auf langsamem VRAM zum Verlustgeschaeft — dann k=0)
 - QSA-Blockgroessen-Arithmetik: erlaubte k und zugehoerige block_size
-- nativer Kontext, Multimodalitaet (--language-model-only)
+- nativer Kontext, Multimodalitaet (Vision-Encoder im Checkpoint)
 - Chat-Template (daraus die Tool-Call-/Reasoning-Parser, vllm_probe.template_parsers)
 """
 
@@ -197,6 +197,15 @@ def _read_chat_template(checkpoint: Path) -> str:
     return str(template)
 
 
+def checkpoint_has_vision(checkpoint: Path) -> bool:
+    """Traegt das HF-Checkpoint einen Vision-Encoder (vision_config bzw.
+    Video-Preprocessor)?"""
+    config = json.loads((checkpoint / "config.json").read_text())
+    return "vision_config" in config or any(
+        "video_preprocessor" in p.name for p in checkpoint.glob("*preprocessor*")
+    )
+
+
 def analyze_checkpoint(checkpoint: Path) -> VllmModelMeta:
     """Checkpoint-Verzeichnis analysieren (config.json + Safetensors-Header)."""
     config = json.loads((checkpoint / "config.json").read_text())
@@ -210,9 +219,7 @@ def analyze_checkpoint(checkpoint: Path) -> VllmModelMeta:
         or 0
     )
     compress_ratio = int(text.get("indexer_compress_ratio", 1) or 1)
-    multimodal = "vision_config" in config or "video_preprocessor" in str(
-        sorted(p.name for p in checkpoint.glob("*preprocessor*"))
-    )
+    multimodal = checkpoint_has_vision(checkpoint)
 
     # Tensor-Landkarte: Index-Datei nennt die Shards, die Header die Bytes
     index_path = checkpoint / "model.safetensors.index.json"
