@@ -53,7 +53,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
 
         logger.info(f"☁️ CloudAPIBackend initialized: {self.provider_config['name']}")
 
-    def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
+    def _build_extra_body(self, options: LLMOptions, model: str) -> Dict[str, Any]:
         """Provider-specific reasoning params for cloud APIs.
 
         Unlike local inference servers (llama.cpp/vLLM), cloud endpoints do

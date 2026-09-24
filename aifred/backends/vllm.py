@@ -18,6 +18,7 @@ from typing import Any, Dict, Optional
 from ..lib.perf_metrics import InferenceWork
 
 from .base import (
+    LLMOptions,
     OpenAICompatibleBackend,
 )
 
@@ -169,7 +170,7 @@ class vLLMBackend(OpenAICompatibleBackend):
             prompt_tokens, tokens_generated, server_timings, first_token_s, elapsed_s,
         )
 
-    def _build_extra_body(self, options) -> Dict:
+    def _build_extra_body(self, options: LLMOptions, model: str) -> Dict:
         """Wie die Basisklasse, aber ohne ``repetition_penalty``.
 
         ``repetition_penalty`` bedeutet bei vLLM etwas anderes als die
@@ -183,7 +184,7 @@ class vLLMBackend(OpenAICompatibleBackend):
         ausgabebezogene presence_penalty gibt es nicht, also faellt der
         Wert hier weg und wird einmal sichtbar geloggt.
         """
-        extra_body = super()._build_extra_body(options)
+        extra_body = super()._build_extra_body(options, model)
         penalty = extra_body.pop("repetition_penalty", None)
         if penalty is not None:
             logger.info(
