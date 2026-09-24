@@ -11,7 +11,7 @@ from aifred.backends.vllm import vLLMBackend
 
 def test_repetition_penalty_is_dropped_and_min_p_is_sent():
     backend = vLLMBackend.__new__(vLLMBackend)
-    body = backend._build_extra_body(LLMOptions(repeat_penalty=1.1, min_p=0.05, top_k=20))
+    body = backend._build_extra_body(LLMOptions(repeat_penalty=1.1, min_p=0.05, top_k=20), "test-model")
     assert "repetition_penalty" not in body
     assert body["min_p"] == 0.05
     assert body["top_k"] == 20

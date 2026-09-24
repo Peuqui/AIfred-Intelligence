@@ -342,7 +342,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
     # === Hooks (override in subclasses as needed) ===
 
-    def _build_extra_body(self, options: LLMOptions) -> Dict[str, Any]:
+    def _build_extra_body(self, options: LLMOptions, model: str) -> Dict[str, Any]:
         """Build extra_body for API call. Default: conditional sampling params + thinking."""
         extra_body: Dict[str, Any] = {}
         if options.repeat_penalty and options.repeat_penalty != 1.0:
@@ -361,11 +361,12 @@ class OpenAICompatibleBackend(LLMBackend):
         # Modell-Schalter, sondern eine Jinja-Variable: Die Chat-Vorlage baut
         # daraus einen Anweisungssatz. Fehlt der Wert, setzt die Vorlage ihren
         # eigenen Standard ein — bei Qwen3.8 ist das xhigh, also die
-        # ausfuehrlichste Stufe. Ein stillschweigend leerer Wert sieht damit
-        # aus wie "maximal nachdenken" (Peuqui, 2026-09-01).
+        # ausfuehrlichste Stufe. Die Zeile nennt dann diesen Standard
+        # (Peuqui, 2026-09-01).
         if options.enable_thinking is not False:
+            from ..lib.gguf_utils import reasoning_effort_label
             from ..lib.logging_utils import log_message
-            level = options.reasoning_effort or "NOT SENT (template falls back to its own default)"
+            level = reasoning_effort_label(model, options.reasoning_effort)
             log_message(f"🧠 reasoning_effort on the wire: {level}")
         return extra_body
 
@@ -637,7 +638,7 @@ class OpenAICompatibleBackend(LLMBackend):
         if options.num_predict:
             kwargs["max_tokens"] = options.num_predict
 
-        extra_body = self._build_extra_body(options)
+        extra_body = self._build_extra_body(options, model)
         if extra_body:
             kwargs["extra_body"] = extra_body
 
@@ -761,9 +762,6 @@ class OpenAICompatibleBackend(LLMBackend):
 
         await self._pre_request_check(model)
 
-        # Store current model for subclass overrides (e.g. thinking detection)
-        self._current_model = model  # type: ignore[attr-defined]
-
         openai_messages: List[Dict[str, Any]] = [
             {"role": msg.role, "content": msg.content} for msg in messages
         ]
@@ -781,7 +779,7 @@ class OpenAICompatibleBackend(LLMBackend):
         if toolkit and toolkit.definitions:
             kwargs["tools"] = toolkit.definitions
 
-        extra_body = self._build_extra_body(options)
+        extra_body = self._build_extra_body(options, model)
         if extra_body:
             kwargs["extra_body"] = extra_body
 

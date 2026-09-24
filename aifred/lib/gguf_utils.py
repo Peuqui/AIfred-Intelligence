@@ -561,6 +561,20 @@ def resolve_reasoning_levels(model_id: str, force: bool = False) -> List[str]:
     return levels
 
 
+def reasoning_effort_label(model_id: str, effort: Optional[str]) -> str:
+    """Effort level for logs. Without a sent level the template inserts its
+    own default (Qwen3.8: xhigh, the most expensive one) — name it instead
+    of a bare "not sent", which reads like a missing setting."""
+    if effort:
+        return effort
+    from .model_vram_cache import get_reasoning_default_for_model
+    resolve_reasoning_levels(model_id)
+    default = get_reasoning_default_for_model(model_id)
+    if default:
+        return f"{default} (template default, not sent)"
+    return "not sent (template has no default level)"
+
+
 def extract_quantization_from_filename(filename: str) -> str:
     """
     Extract quantization level from GGUF filename
