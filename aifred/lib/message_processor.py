@@ -1024,6 +1024,7 @@ def record_autonomous_turn(
         routing_table.set_route(channel, channel_id, session_id)
 
     content = text
+    image_urls: list[str] = []
     if media_gallery is not None:
         # All views already as URLs (wide + zoom + crops) — embed each so the
         # browser session shows the full picture, not just one frame. Frames
@@ -1046,20 +1047,29 @@ def record_autonomous_turn(
                 "\n\n" + " ".join(f"![{title}]({u})" for u in crops)
             )
         content = text + "".join(parts)
+        image_urls = frames + crops
     elif media:
         from pathlib import Path
         from .vision_utils import get_image_url
         url = get_image_url(Path(media))
         if url:
             content = f"{text}\n\n![{title}]({url})"
+            image_urls = [url]
+
+    # The model sees llm_history, not the bubble: without this entry it knows
+    # nothing of the event and denies that any image was ever shown.
+    from .message_builder import build_autonomous_history_entry
+    llm_entry = build_autonomous_history_entry(channel, text, image_urls)
 
     # M4: load→append→save as ONE unit (see session_rmw_lock).
     from .session_storage import session_rmw_lock
     with session_rmw_lock:
         session = load_session(session_id)
-        chat_history = list((session or {}).get("data", {}).get("chat_history", []))
+        data = (session or {}).get("data", {})
+        chat_history = list(data.get("chat_history", []))
         chat_history.append({"role": "assistant", "content": content})
-        update_chat_data(session_id, chat_history, owner=owner)
+        llm_history = [*data.get("llm_history", []), llm_entry]
+        update_chat_data(session_id, chat_history, llm_history=llm_history, owner=owner)
 
     write_hub_notification(session_id, title, channel, "system", status="done")
     return session_id

@@ -298,6 +298,25 @@ def with_history_notes(response_clean: str, tool_notes: Sequence[str] = ()) -> s
     return "\n\n".join(part for part in (response_clean, *preview_notes, *tool_notes) if part)
 
 
+def image_marker(image_urls: Sequence[str]) -> str:
+    """llm_history anchor for images of a turn. The image itself never enters
+    the history — without its /_upload/ URL the model forgets on a follow-up
+    that it existed; with it, vision_analyze can re-examine it."""
+    from .prompt_loader import load_prompt
+    return load_prompt("shared/image_marker", urls=", ".join(image_urls))
+
+
+def build_autonomous_history_entry(
+    channel: str, text: str, image_urls: Sequence[str] = (),
+) -> Dict[str, str]:
+    """llm_history entry for an autonomous event (e.g. a camera alert).
+    Role ``assistant`` without an agent label: every perspective sees it as a
+    labelled message from someone else, never as its own words or the user's."""
+    from .prompt_loader import load_prompt
+    body = "\n\n".join(part for part in (text, image_marker(image_urls) if image_urls else "") if part)
+    return {"role": "assistant", "content": load_prompt("shared/autonomous_event", channel=channel, text=body)}
+
+
 def build_llm_history_entry(
     agent: str, response_clean: str, history_notes: Sequence[str] = (),
 ) -> Dict[str, str]:
