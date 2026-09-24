@@ -11,11 +11,7 @@ import reflex as rx
 from typing import List, Any, Dict, TypedDict
 import os
 import asyncio
-from ..lib import (
-    log_message,
-    console_separator
-)
-from ..lib.logging_utils import CONSOLE_SEPARATOR
+from ..lib.logging_utils import CONSOLE_SEPARATOR, console_separator, log_message
 
 
 # Pattern for structured data that STT likely transcribes incorrectly.

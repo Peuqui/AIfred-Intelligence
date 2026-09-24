@@ -6,7 +6,6 @@ from typing import Any
 import httpx
 import pytest
 
-import aifred.lib  # noqa: F401 — loads lib before backends (lib/__init__ ↔ backends cycle)
 from aifred.backends.vllm import vLLMBackend
 from aifred.lib.calibration.llamaswap_io import entry_gpu_uuids
 

@@ -734,7 +734,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     @rx.var(deps=["ui_language"], auto_deps=False)
     def multi_agent_mode_options(self) -> List[List[str]]:
         """Get localized multi-agent mode options as [key, label] pairs for dropdown."""
-        from ..lib import TranslationManager
+        from ..lib.i18n import TranslationManager
         return [
             ["standard", TranslationManager.get_text("multi_agent_standard", self.ui_language)],  # type: ignore[attr-defined]
             ["critical_review", TranslationManager.get_text("multi_agent_critical_review", self.ui_language)],  # type: ignore[attr-defined]

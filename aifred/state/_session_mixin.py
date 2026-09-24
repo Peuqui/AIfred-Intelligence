@@ -383,7 +383,7 @@ class SessionMixin(rx.State, mixin=True):
         # from the session's config block. Falls back to hardcoded defaults
         # if the session has no config (new session).
         from ..lib.session_storage import DEFAULT_SESSION_CONFIG
-        from ..lib import TranslationManager
+        from ..lib.i18n import TranslationManager
         config = dict(DEFAULT_SESSION_CONFIG)
         stored_config = data.get("config")
         if isinstance(stored_config, dict):

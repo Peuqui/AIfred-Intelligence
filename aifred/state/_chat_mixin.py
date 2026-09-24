@@ -18,7 +18,7 @@ from typing import Any, Dict, List, Sequence
 import reflex as rx
 from reflex.event import EventSpec
 
-from ..lib import log_message
+from ..lib.logging_utils import log_message
 from ..lib.config import DEBUG_MESSAGES_MAX
 from ..lib.context_manager import strip_thinking_blocks
 

@@ -15,11 +15,8 @@ from typing import Dict, List
 
 import reflex as rx
 
-from ..lib import (
-    initialize_debug_log,
-    log_message,
-    set_language,
-)
+from ..lib.logging_utils import initialize_debug_log, log_message
+from ..lib.prompt_loader import set_language
 from ..lib import config
 from ..lib.config import (
     CLOUD_API_PROVIDERS,
@@ -522,7 +519,7 @@ class BackendMixin(rx.State, mixin=True):
 
                     # NOTE: research_mode is per-session now, loaded in _restore_session().
                     # Here we just keep the class default (DEFAULT_SESSION_CONFIG["research_mode"]).
-                    from ..lib import TranslationManager
+                    from ..lib.i18n import TranslationManager
                     self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, self.ui_language)  # type: ignore[attr-defined, has-type, arg-type]
 
                     self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]

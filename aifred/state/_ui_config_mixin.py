@@ -230,7 +230,7 @@ class UIConfigMixin(rx.State, mixin=True):
 
     def set_research_mode(self, mode: str) -> None:
         """Set research mode (from internal value, e.g. pill button click)."""
-        from ..lib import TranslationManager
+        from ..lib.i18n import TranslationManager
 
         self.research_mode = mode
         self.research_mode_display = TranslationManager.get_research_mode_display(
@@ -249,7 +249,7 @@ class UIConfigMixin(rx.State, mixin=True):
 
         Maps key (tiny/base/small/medium/large) to translated display name.
         """
-        from ..lib import TranslationManager
+        from ..lib.i18n import TranslationManager
 
         # Translation map: key -> translation_key
         key_to_translation = {
