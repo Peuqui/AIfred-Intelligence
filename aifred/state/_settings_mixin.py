@@ -12,7 +12,8 @@ from typing import TYPE_CHECKING, Any, Dict
 import reflex as rx
 from reflex.event import EventSpec
 
-from ..lib import TranslationManager, set_language
+from ..lib.i18n import TranslationManager
+from ..lib.prompt_loader import set_language
 from ..lib.plugin_base import plugin_display_name
 from ..lib.settings import SETTINGS_FILE, load_settings, save_settings
 
