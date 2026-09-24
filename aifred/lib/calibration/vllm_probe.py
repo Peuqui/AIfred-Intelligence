@@ -265,7 +265,6 @@ class VllmSpec:
     # None = vLLM-Default ("auto"); gesetzt nur, wenn die Architektur ein
     # bestimmtes Format verlangt (DeepseekV4: fp8).
     kv_cache_dtype: str | None = None
-    language_model_only: bool = False
     # Attention-Backend des Drafters (abhaengig von der Compute-Klasse der
     # letzten PP-Stufe); None = vLLM-Default
     spec_attn_backend: str | None = None
@@ -297,8 +296,6 @@ class VllmSpec:
               if self.kv_cache_dtype else []),
             "--host", "127.0.0.1", "--port", str(port),
         ]
-        if self.language_model_only:
-            cmd.append("--language-model-only")
         if self.pp > 1:
             # Kampagnen-Befund: PP-Betrieb (insb. mit Spekulation) laeuft
             # auf diesem Stack mit async scheduling (MERGE-Handover S.2/4)

@@ -166,12 +166,12 @@ class TestResponseParsing:
 
 
 class TestLlamacppDispatch:
-    """Modelle mit nativem --mmproj (SSOT model_has_mmproj) laufen über
+    """Modelle mit nativem --mmproj (SSOT has_native_vision) laufen über
     llama-swap (OpenAI-API) statt Ollama — das Haupt-LLM beschreibt selbst."""
 
     def test_mmproj_model_routes_to_llamacpp(self, monkeypatch):
         import aifred.lib.vision_utils as vu
-        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: m == "main-llm")
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: m == "main-llm")
 
         captured: dict = {}
 
@@ -231,7 +231,7 @@ class TestLlamacppDispatch:
 
     def test_non_mmproj_model_stays_on_ollama(self, monkeypatch):
         import aifred.lib.vision_utils as vu
-        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: False)
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: False)
 
         async def fake_generate(self, **kwargs):
             return {"response": "ollama-pfad", "eval_count": 3}
@@ -249,7 +249,7 @@ class TestEmptyResponseRetry:
 
     def test_empty_then_success_retries(self, monkeypatch):
         import aifred.lib.vision_utils as vu
-        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: False)
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: False)
 
         calls = {"n": 0}
 
@@ -269,7 +269,7 @@ class TestEmptyResponseRetry:
 
     def test_success_first_try_no_retry(self, monkeypatch):
         import aifred.lib.vision_utils as vu
-        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: False)
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: False)
 
         calls = {"n": 0}
 
@@ -286,7 +286,7 @@ class TestEmptyResponseRetry:
 
     def test_empty_twice_gives_up(self, monkeypatch):
         import aifred.lib.vision_utils as vu
-        monkeypatch.setattr(vu, "model_has_mmproj", lambda m: False)
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: False)
 
         calls = {"n": 0}
 

@@ -7,12 +7,13 @@ Supports Ollama, llama.cpp (via llama-swap), and vLLM backends.
 
 import logging
 import re
+import shlex
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Tuple, Optional
 
 # Imports for session-based image storage
-from .config import DATA_DIR
+from .config import DATA_DIR, LLAMASWAP_BACKENDS
 from .logging_utils import log_message
 from .session_storage import SESSION_ID_RE
 
@@ -205,36 +206,58 @@ def slugify_for_filename(text: str, fallback: str = "cam") -> str:
     return slug or fallback
 
 
-_mmproj_models_cache: set[str] = set()
-_mmproj_cache_mtime: float = -1.0
+_llamaswap_ids_cache: set[str] = set()
+_native_vision_cache: set[str] = set()
+_native_vision_cache_mtime: float = -1.0
 
 
-def llamaswap_mmproj_models() -> set[str]:
-    """llama-swap model IDs whose cmd carries a ``--mmproj`` (native vision).
+def _entry_has_native_vision(full_cmd: str) -> bool:
+    """Loads this llama-swap cmd a vision encoder alongside the LLM?
 
-    mtime-cached against the config file — called per-model in dropdown
-    filter loops, so re-parsing the YAML every time would be wasteful.
+    llama.cpp: ``--mmproj``. vLLM: the ``--model`` checkpoint carries a
+    vision encoder and ``--language-model-only`` does not switch it off.
     """
-    global _mmproj_models_cache, _mmproj_cache_mtime
+    if "--mmproj" in full_cmd:
+        return True
+    if "--language-model-only" in full_cmd:
+        return False
+    args = shlex.split(full_cmd)
+    if "--model" not in args or args.index("--model") + 1 >= len(args):
+        return False
+    checkpoint = Path(args[args.index("--model") + 1])
+    if not (checkpoint / "config.json").is_file():
+        return False
+    from .calibration.vllm_model_meta import checkpoint_has_vision
+    return checkpoint_has_vision(checkpoint)
+
+
+def _refresh_native_vision_cache() -> None:
+    """mtime-cached against the config file — called per-model in dropdown
+    filter loops, so re-parsing the YAML every time would be wasteful."""
+    global _llamaswap_ids_cache, _native_vision_cache, _native_vision_cache_mtime
     from .config import LLAMASWAP_CONFIG_PATH
     try:
         mtime = LLAMASWAP_CONFIG_PATH.stat().st_mtime
     except OSError:
-        return set()
-    if mtime != _mmproj_cache_mtime:
+        _llamaswap_ids_cache, _native_vision_cache = set(), set()
+        return
+    if mtime != _native_vision_cache_mtime:
         from .calibration import parse_llamaswap_config
         cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-        _mmproj_models_cache = {
+        _llamaswap_ids_cache = set(cfg)
+        _native_vision_cache = {
             mid for mid, info in cfg.items()
-            if "--mmproj" in (info.get("full_cmd") or "")
+            if _entry_has_native_vision(str(info.get("full_cmd") or ""))
         }
-        _mmproj_cache_mtime = mtime
-    return _mmproj_models_cache
+        _native_vision_cache_mtime = mtime
 
 
-def model_has_mmproj(model_name: str) -> bool:
-    """True if the model's llama-swap entry carries a native vision encoder."""
-    return model_name in llamaswap_mmproj_models()
+def has_native_vision(model_name: str) -> bool:
+    """True if the model's llama-swap entry loads its own vision encoder
+    (llama.cpp and vLLM alike) — it describes images itself, no side-channel
+    VLM needed."""
+    _refresh_native_vision_cache()
+    return model_name in _native_vision_cache
 
 
 def strip_variant_suffixes(model_name: str) -> str:
@@ -260,12 +283,10 @@ def is_vision_model_sync(model_name: str) -> bool:
     """
     Synchronous vision model detection (for UI filtering).
 
-    Two signals, no backend query:
-    1. a native vision encoder (``--mmproj``) in the model's llama-swap cmd
-       — covers reasoning models (Qwen3.5/3.6) that aren't named "…-vl…",
-    2. name patterns (qwen3-vl, llava, …) for the rest.
-
-    For precise per-backend detection, use async is_vision_model().
+    llama-swap entries (llama.cpp and vLLM) are decided by what their cmd
+    actually loads (:func:`has_native_vision`) — a name like "…-VL-…" says
+    nothing if the entry starts without its encoder. Ids outside llama-swap
+    (Ollama, cloud) fall back to name patterns (qwen3-vl, llava, …).
 
     Args:
         model_name: Model name (e.g., "qwen3-vl:30b" or "Qwen3.6-27B-…")
@@ -273,35 +294,10 @@ def is_vision_model_sync(model_name: str) -> bool:
     Returns:
         True if the model supports vision input
     """
-    # mmproj-Check auf der VOLLEN Profil-Id (die -vlm-Variante von Qwen3.8
-    # trägt selbst --mmproj und beschreibt korrekt selbst); die
-    # Namens-Heuristik dagegen auf der Basis-Id — das Varianten-Suffix
-    # "-vlm-qwen3vl4b" enthält „vl" und würde z.B. DeepSeek-Varianten
-    # fälschlich als vision-fähig einstufen.
-    # Ein Eintrag, der mit --language-model-only startet, hat seinen
-    # Vision-Encoder BEWUSST aus (die vLLM-Kalibrierung setzt das, weil
-    # sonst VRAM fuer einen Encoder reserviert wird, den wir nicht nutzen).
-    # Er darf trotz passendem Namen nicht als Describer angeboten werden —
-    # sonst waehlt man ein Modell, das kein Bild beschreiben kann
-    # (gesehen 2026-09-01 an Qwen3.8-27B-NVFP4-vllm).
-    if _launched_language_model_only(model_name):
-        return False
-    return model_has_mmproj(model_name) or _is_vision_model_by_name(
-        strip_variant_suffixes(model_name)
-    )
-
-
-def _launched_language_model_only(model_name: str) -> bool:
-    """True, wenn der llama-swap-Eintrag ``--language-model-only`` traegt."""
-    try:
-        from .calibration.llamaswap_io import parse_llamaswap_config
-        from .config import LLAMASWAP_CONFIG_PATH
-        entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(model_name)
-    except (OSError, ValueError):
-        return False
-    if not entry:
-        return False
-    return "--language-model-only" in " ".join(str(entry.get("full_cmd", "")).split())
+    _refresh_native_vision_cache()
+    if model_name in _llamaswap_ids_cache:
+        return model_name in _native_vision_cache
+    return _is_vision_model_by_name(strip_variant_suffixes(model_name))
 
 
 async def is_vision_model(state, model_name: str) -> bool:
@@ -310,9 +306,9 @@ async def is_vision_model(state, model_name: str) -> bool:
 
     Detection Strategy by Backend:
     1. **Ollama**: Query /api/show for model_info with .vision.* keys
-    2. **llama.cpp**: Name-based pattern matching (llama-swap keys are descriptive)
-    3. **vLLM**: Read HuggingFace config.json for architectures/model_type
-    4. **Fallback**: Name-based pattern matching
+    2. **llama.cpp / vLLM**: what the llama-swap entry loads (SSOT
+       :func:`has_native_vision`)
+    3. **Fallback**: Name-based pattern matching
 
     Args:
         state: AIState instance (for backend_type and backend access)
@@ -371,65 +367,8 @@ async def is_vision_model(state, model_name: str) -> bool:
                     logger.info(f"✅ Vision model detected (Ollama model_info): {model_name} has {key}")
                     return True
 
-        # === LLAMACPP: native --mmproj in cmd, else name-based ===
-        elif backend_type == "llamacpp":
+        elif backend_type in LLAMASWAP_BACKENDS:
             return is_vision_model_sync(model_name)
-
-        # === vLLM: Check HuggingFace config.json ===
-        elif backend_type == "vllm":
-            import json
-
-            # Convert model name to HF cache path
-            cache_dir_name = model_name.replace("/", "--")
-            cache_base = Path.home() / ".cache" / "huggingface" / "hub" / f"models--{cache_dir_name}"
-
-            # Find config.json in snapshots
-            config_files = list(cache_base.glob("snapshots/*/config.json"))
-
-            if config_files:
-                with open(config_files[0], 'r') as f:
-                    config = json.load(f)
-
-                # Check architectures array
-                architectures = config.get('architectures', [])
-                model_type = config.get('model_type', '')
-
-                # Comprehensive Vision model patterns in HuggingFace config.json (2024/2025)
-                # These match architecture names and model_type values
-                vision_patterns = [
-                    # Generic
-                    'vision', 'vl', 'visual', 'vlm', 'multimodal',
-                    # LLaVA variants
-                    'llava', 'llavanext', 'llavaone',
-                    # Qwen Vision
-                    'qwen2vl', 'qwen2_vl', 'qwen3vl', 'qwen3_vl',
-                    # Google
-                    'paligemma', 'gemma3',
-                    # Mistral
-                    'pixtral',
-                    # DeepSeek
-                    'deepseek_vl', 'janus',
-                    # InternLM/InternVL
-                    'internvl', 'internlm',
-                    # CogVLM
-                    'cogvlm', 'cogagent',
-                    # MiniCPM
-                    'minicpm', 'openbmb',
-                    # Microsoft
-                    'phi3v', 'phi3vision', 'florence',
-                    # BLIP
-                    'blip', 'instructblip',
-                    # Others
-                    'moondream', 'idefics', 'kosmos', 'smolvlm',
-                    'molmo', 'cambrian', 'aria', 'apollo',
-                    # Meta LLaMA Vision
-                    'mllama', 'llama_vision',
-                ]
-
-                for arch in architectures + [model_type]:
-                    if any(pattern in arch.lower() for pattern in vision_patterns):
-                        logger.info(f"✅ Vision model detected (HF config): {model_name} has architecture '{arch}'")
-                        return True
 
         # No vision capabilities detected by metadata
         return False
@@ -997,6 +936,7 @@ def url_to_file_path(image_url: str, session_id: str) -> Optional[Path]:
 
     Handles URLs like:
     - /_upload/vigilantia/{...}  → data/vigilantia/{...}
+    - /_upload/face_crops/{...}  → data/vision/faces/{...}
     - /_upload/images/{session_id}/{filename}  → data/upload/images/{...}
     - /_upload/sandbox_output/{session_id}/{filename}  → data/sandbox_output/{...}
       (render_html screenshots / sandbox plots — lets agents feed their own
@@ -1020,8 +960,11 @@ def url_to_file_path(image_url: str, session_id: str) -> Optional[Path]:
     # base_dir, session_scoped) — session_scoped means the first path segment
     # after the marker IS the owning session id (VI7).
     from .config import SANDBOX_OUTPUT_DIR
+    from .face_crop_store import get_default_store as _face_crops
     return _resolve_upload_marker(image_url, session_id, (
         ("_upload/vigilantia/", VIGILANTIA_DIR, False),
+        # face crops of camera alerts — system-wide like the frames
+        ("_upload/face_crops/", _face_crops().base_dir, False),
         ("_upload/images/", UPLOAD_IMAGES_DIR, True),
         # render_html screenshots / sandbox plots — session-scoped (VI7)
         ("_upload/sandbox_output/", SANDBOX_OUTPUT_DIR, True),

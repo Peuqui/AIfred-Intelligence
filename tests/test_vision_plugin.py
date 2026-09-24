@@ -127,7 +127,7 @@ def store(tmp_path: Path) -> VisionStore:
 def patched_plugin(monkeypatch, store: VisionStore, tmp_path: Path):
     """Redirect _store/_watcher to a tmp DB and frames_dir for the test.
 
-    ``model_has_mmproj`` wird auf False gepinnt: das Routing liest sonst
+    ``has_native_vision`` wird auf False gepinnt: das Routing liest sonst
     die ECHTE llama-swap-Config des Hosts — auf einer Maschine mit
     mmproj-Hauptmodell nähmen die analyze-Tests den llamacpp-Pfad statt
     des gemockten Ollama-Pfads (Test-Isolation).
@@ -136,7 +136,7 @@ def patched_plugin(monkeypatch, store: VisionStore, tmp_path: Path):
     monkeypatch.setattr(vp, "_store", lambda: store)
     monkeypatch.setattr(vp, "_watcher", lambda store=None: watcher)
     import aifred.lib.vision_utils as _vu
-    monkeypatch.setattr(_vu, "model_has_mmproj", lambda m: False)
+    monkeypatch.setattr(_vu, "has_native_vision", lambda m: False)
     yield vp
     run(watcher.shutdown())
 

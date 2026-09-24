@@ -3,8 +3,8 @@
 Zwei Backends, EIN Einstiegspunkt (``analyze_sequence``), Dispatch rein
 über das Modell:
 
-* Trägt das Modell in der llama-swap-Config ein natives ``--mmproj``
-  (SSOT: ``vision_utils.model_has_mmproj``), beschreibt das Haupt-LLM
+* Lädt das Modell laut llama-swap-Config einen eigenen Vision-Encoder
+  (SSOT: ``vision_utils.has_native_vision`` — llama.cpp und vLLM), beschreibt das Haupt-LLM
   die Bilder selbst — OpenAI-kompatibler Call an llama-swap. Das nutzt
   der Chat (``vision_analyze``-Tool), wenn die geladene Hauptmodell-
   Variante Vision kann: beste Qualität, kein Model-Swap, Ergebnis
@@ -201,10 +201,10 @@ async def analyze_sequence(
         self_describer_profile(model) or visiond_profile_for(model) or model
     )
 
-    # Dispatch (SSOT: model_has_mmproj): llama-swap-Modelle mit nativem
+    # Dispatch (SSOT: has_native_vision): llama-swap-Modelle mit nativem
     # Vision-Encoder beschreiben selbst, alles andere geht an Ollama.
-    from .vision_utils import model_has_mmproj
-    use_llamacpp = model_has_mmproj(model)
+    from .vision_utils import has_native_vision
+    use_llamacpp = has_native_vision(model)
 
     async def _once() -> VisionAnalysis:
         if use_llamacpp:
@@ -351,7 +351,7 @@ async def _analyze_via_llamacpp(
     *,
     n_frames: int,
 ) -> VisionAnalysis:
-    """Native Vision über llama-swap: das Haupt-LLM mit ``--mmproj``
+    """Native Vision über llama-swap: das Haupt-LLM mit eigenem Encoder
     beschreibt die Bilder selbst (OpenAI-kompatibler Call mit
     ``image_url``-Parts). ``num_ctx``/``keep_alive`` sind Ollama-Konzepte
     und gelten hier nicht — der Kontext kommt aus der llama-swap-YAML."""

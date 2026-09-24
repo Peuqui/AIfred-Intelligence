@@ -1755,7 +1755,6 @@ def seed_vllm_entries(config_path: Path) -> int:
                 mml=min(meta.native_context or VLLM_SEED_CONTEXT, VLLM_SEED_CONTEXT),
                 block_size=meta.allowed_k_block_sizes()[0],
                 pp_partition=rung.pp_partition,
-                language_model_only=meta.multimodal,
                 tool_call_parser=parsers.tool_call,
                 reasoning_parser=parsers.reasoning,
             )
