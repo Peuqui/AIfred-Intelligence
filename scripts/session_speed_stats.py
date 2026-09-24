@@ -11,7 +11,7 @@ Comparability rules (why some records are dropped):
   prefill (commit 7f870514, 2026-09-01 17:34: "Prefill und Decode aus vLLMs
   eigenen Zaehlern statt Wanduhr"). They are not comparable and are dropped.
 - Since 2026-09-16 the answer footer names the running profile after the
-  entry, "(<entry> · MTP · PLE→Host→GPU 4)". Records are grouped by entry
+  entry, "(<entry> · MTP · PLE→Host→SSD)". Records are grouped by entry
   AND profile, so memory paths of the same model stay apart. Older records
   carry the bare entry and cannot say which path ran.
 """

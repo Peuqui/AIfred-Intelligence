@@ -256,7 +256,7 @@ def entry_badges(model_id: str, info: Dict[str, Any]) -> list[str]:
     a predictor it does not name is shown, and a model whose name promises one
     while the entry runs without speculation is marked "spec off" -- otherwise
     a missing badge would mean both "as the name says" and "switched off".
-    Last badge: the store card of a Qwen4Exp PLE overflow cascade.
+    Last badge: the tiers beyond VRAM of a Qwen4Exp PLE overflow cascade.
     """
     badges: list[str] = []
     predictor = speculative_predictor(info.get("full_cmd", ""))

@@ -171,7 +171,7 @@ def _weights_size_bytes(model_path: Path) -> int:
 
 def profile_label(model_id: str, badges: list[str]) -> str:
     """Name eines Eintrags mit seinem Laufzeit-Profil, z.B.
-    ``…-MTP-vllm · PLE→Host→GPU 4``.
+    ``…-MTP-vllm · PLE→Host→SSD``.
 
     Die eine Beschriftung fuer Dropdown und Antwort-Fusszeile, damit beide
     dasselbe sagen; das Dropdown haengt nur noch die Groesse an.
