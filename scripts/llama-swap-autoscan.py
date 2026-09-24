@@ -1736,6 +1736,11 @@ def seed_vllm_entries(config_path: Path) -> int:
         try:
             meta = analyze_checkpoint(ckpt)
             name = vllm_seed_name(base_name, meta.mtp.present)
+            if not meta.chat_template:
+                # Basismodell (z.B. Test-Checkpoints fuer vLLM): kein Chat-Modell,
+                # also kein Kandidat fuer AIfred — kein Analysefehler.
+                print(f"  ~ Skip:    {name} (no chat template — base model)")
+                continue
             # Tool-Call-/Reasoning-Parser aus dem Chat-Template des Checkpoints
             parsers = template_parsers(meta.chat_template, runtime)
             rung = next(iter(topology_ladder(meta, gpus, runtime)), None)
