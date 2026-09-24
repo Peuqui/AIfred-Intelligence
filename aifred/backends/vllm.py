@@ -54,6 +54,10 @@ class vLLMBackend(OpenAICompatibleBackend):
     # Echte Prefill-Rate aus vLLMs eigenen Zaehlern
     # ------------------------------------------------------------------
 
+    async def _pre_request_check(self, model: str) -> None:
+        """Unload sidecars that hold a card this model loads onto."""
+        await self._evict_conflicting_sidecars(model)
+
     def _upstream_port(self) -> int | None:
         """Port des laufenden vLLM-Servers, laut llama-swap.
 

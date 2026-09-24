@@ -437,6 +437,72 @@ class OpenAICompatibleBackend(LLMBackend):
         """URL of the server in front of the OpenAI ``/v1`` prefix (llama-swap)."""
         return self.base_url.rsplit("/v1", 1)[0]
 
+    # Last model the sidecar guard checked: it runs on a model switch, not on
+    # every request (no HTTP overhead in the steady state).
+    _last_guarded_model: str = ""
+
+    async def _evict_conflicting_sidecars(self, model: str) -> None:
+        """Unload the sidecars that sit on a card the next model will load onto.
+
+        The llama-swap ``vision`` and ``embed`` groups are ``persistent``:
+        llama-swap never unloads their ``-visiond`` describers and ``-embed``
+        servers for a main model (only their ttl does). A main model that
+        wants a card a sidecar holds then fails to start (2026-09-24:
+        DeepSeek-V4 over all five cards, the 4B describer on the fifth). So
+        before a load, every running sidecar whose GPUs overlap the target
+        entry's is unloaded. Profiles with a ``-vlm-`` marker keep a reserve
+        for the describer by calibration and never evict. A running target
+        is no load, so nothing is unloaded then (only ttl cleans up).
+        """
+        if model == self._last_guarded_model:
+            return
+        self._last_guarded_model = model
+        if "-vlm-" in model or model.endswith(("-visiond", "-embed")):
+            return
+        import httpx
+
+        from ..lib.calibration import parse_llamaswap_config
+        from ..lib.calibration.gpu import gpu_uuids_by_index
+        from ..lib.calibration.llamaswap_io import entry_gpu_uuids
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.logging_utils import log_message
+
+        root = self._llamaswap_root()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{root}/running")
+                running = [
+                    m.get("model", "") for m in (resp.json().get("running") or [])
+                ]
+                sidecars = [m for m in running if m.endswith(("-visiond", "-embed"))]
+                if model in running or not sidecars:
+                    return
+                config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                uuids = gpu_uuids_by_index()
+                try:
+                    target = entry_gpu_uuids(config[model]["env"], uuids)
+                    held = {s: entry_gpu_uuids(config[s]["env"], uuids) for s in sidecars}
+                except (KeyError, ValueError) as e:
+                    # Unknown cards: the chat must not fail on a held GPU,
+                    # so unload every sidecar, and say why.
+                    log_message(
+                        f"⚠️ Cannot tell which GPUs '{model}' or its sidecars use "
+                        f"({e}) — evicting all sidecars before the load"
+                    )
+                    held = {s: None for s in sidecars}
+                    target = None
+                for sidecar, gpus in held.items():
+                    if target is None or gpus is None or target & gpus:
+                        await client.post(f"{root}/api/models/unload/{sidecar}")
+                        log_message(
+                            f"🧹 Sidecar '{sidecar}' evicted before loading "
+                            f"'{model}' (shares a GPU, profile has no -vlm- reserve)"
+                        )
+        except (httpx.HTTPError, ValueError) as e:
+            # The guard must not kill the chat, but it fails loudly: the load
+            # may then fail on a held card, visible in the llama-swap log.
+            log_message(f"⚠️ Sidecar eviction check failed: {e}")
+
     @classmethod
     def _last_exception_line(cls, log_text: str) -> Optional[str]:
         """Last ``SomeError: message`` line of an upstream log, if any."""

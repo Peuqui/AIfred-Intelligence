@@ -117,6 +117,15 @@ def _query_nvidia_smi() -> list[dict[str, Any]]:
     return rows
 
 
+def gpu_uuids_by_index() -> list[str]:
+    """GPU UUIDs in nvidia-smi row order, i.e. the PCI-bus index.
+
+    That is the index ``CUDA_VISIBLE_DEVICES`` means under
+    ``CUDA_DEVICE_ORDER=PCI_BUS_ID``. Empty when nvidia-smi is unavailable.
+    """
+    return [row["uuid"] for row in _query_nvidia_smi()]
+
+
 def gpu_uuid_labels() -> dict[str, str]:
     """Map each GPU UUID → a human-readable ``"GPU<idx> (<short name>)"``.
 
