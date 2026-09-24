@@ -50,33 +50,21 @@ def test_badges_show_the_ple_cascade_as_a_path() -> None:
     info = {
         "full_cmd": """vllm --speculative-config '{"method":"mtp"}'""",
         "env": {
-            "CUDA_VISIBLE_DEVICES": "0,2,1,3,4",
-            "VLLM_QWEN4EXP_PLE_STORE_DEVICES": "4",
             "VLLM_QWEN4EXP_PLE_HOST_GIB": "2",
+            "VLLM_QWEN4EXP_PLE_DISK": "1",
         },
     }
     assert entry_badges("Qwen3.8-Flash-Next-180B-A4B-NVFP4-MTP-vllm", info) == [
-        "PLE→Host→GPU 4"
+        "PLE→Host→SSD"
     ]
-    assert entry_badges("Qwen3.8-27B-NVFP4-vllm", info) == ["MTP", "PLE→Host→GPU 4"]
+    assert entry_badges("Qwen3.8-27B-NVFP4-vllm", info) == ["MTP", "PLE→Host→SSD"]
 
-    # Mit SSD-Stufe und ohne Speicherkarte.
-    full = {**info, "env": {**info["env"], "VLLM_QWEN4EXP_PLE_DISK": "1"}}
-    assert ple_cascade_path(full["env"]) == "PLE→Host→GPU 4→SSD"
     assert ple_cascade_path({"VLLM_QWEN4EXP_PLE_HOST_GIB": "6"}) == "PLE→Host"
     # Ein Host-Anteil von 0 ist keine Stufe.
     assert ple_cascade_path({"VLLM_QWEN4EXP_PLE_HOST_GIB": "0"}) == ""
-
-    # Der sichtbare Index wird auf die Karte abgebildet, die der Nutzer kennt.
-    reordered = {"CUDA_VISIBLE_DEVICES": "0,2,1,3,7", "VLLM_QWEN4EXP_PLE_STORE_DEVICES": "4"}
-    assert ple_cascade_path(reordered) == "PLE→GPU 7"
-    # UUID-Listen (llama.cpp-Eintraege) bleiben beim sichtbaren Index.
-    uuids = {"CUDA_VISIBLE_DEVICES": "GPU-abc,GPU-def", "VLLM_QWEN4EXP_PLE_STORE_DEVICES": "1"}
-    assert ple_cascade_path(uuids) == "PLE→GPU 1"
-    # Mehrere Speicherkarten in Fuellreihenfolge, als Karten des Nutzers.
-    cards = {"CUDA_VISIBLE_DEVICES": "0,2,1,3", "VLLM_QWEN4EXP_PLE_HOST_GIB": "3",
-             "VLLM_QWEN4EXP_PLE_STORE_DEVICES": "1,2,3", "VLLM_QWEN4EXP_PLE_DISK": "1"}
-    assert ple_cascade_path(cards) == "PLE→Host→GPU 2+1+3→SSD"
+    assert ple_cascade_path(
+        {"VLLM_QWEN4EXP_PLE_HOST_GIB": "0", "VLLM_QWEN4EXP_PLE_DISK": "1"}
+    ) == "PLE→SSD"
     # Without the cascade only the runtime of the named predictor remains.
     plain = {"full_cmd": "vllm", "env": {}}
     assert entry_badges("Qwen3.8-Flash-Next-180B-A4B-NVFP4-MTP-vllm", plain) == ["spec off"]
@@ -87,7 +75,7 @@ def test_display_name_drops_what_the_cascade_badge_already_says() -> None:
     base = "Qwen3.8-Flash-Next-180B-A4B-NVFP4-MTP-vllm"
     for variant in ("-PLE-Disk", "-PLE-Classic"):
         model_id = base.replace("-vllm", f"{variant}-vllm")
-        assert display_model_name(model_id, ["PLE→Host→GPU 4"]) == base
+        assert display_model_name(model_id, ["PLE→Host→SSD"]) == base
     # Ohne Kaskaden-Badge bleibt der Name, wie er ist.
     assert display_model_name(base + "-PLE-Disk", ["MTP"]) == base + "-PLE-Disk"
     assert display_model_name(base, ["PLE→Host"]) == base
@@ -104,9 +92,8 @@ def test_answer_footer_names_the_running_entry_with_its_profile(tmp_path, monkey
         "  Flash-MTP-vllm-vlm-qwen3vl4b:\n"
         "    cmd: python -m vllm --model /m --speculative-config '{\"method\":\"mtp\"}'\n"
         "    env:\n"
-        "    - CUDA_VISIBLE_DEVICES=0,2,1,3,4\n"
         "    - VLLM_QWEN4EXP_PLE_HOST_GIB=2\n"
-        "    - VLLM_QWEN4EXP_PLE_STORE_DEVICES=4\n"
+        "    - VLLM_QWEN4EXP_PLE_DISK=1\n"
         "  Flash-MTP-PLE-Classic-vllm:\n"
         "    cmd: python -m vllm --model /m --speculative-config '{\"method\":\"mtp\"}'\n"
         "    env:\n"
@@ -115,7 +102,7 @@ def test_answer_footer_names_the_running_entry_with_its_profile(tmp_path, monkey
     monkeypatch.setattr(config_module, "LLAMASWAP_CONFIG_PATH", config)
 
     assert running_profile_label("Flash-MTP-vllm-vlm-qwen3vl4b") == (
-        "Flash-MTP-vllm-vlm-qwen3vl4b · PLE→Host→GPU 4"
+        "Flash-MTP-vllm-vlm-qwen3vl4b · PLE→Host→SSD"
     )
     assert running_profile_label("Flash-MTP-PLE-Classic-vllm") == "Flash-MTP-vllm · PLE→Host"
     # Nicht in der Config (Ollama, Cloud): die ID ist der Name.
