@@ -5,43 +5,42 @@ This directory contains the systemd service files for running AIfred Intelligenc
 ## Included Services
 
 ### 1. `aifred-chromadb.service`
-Starts and manages the ChromaDB Docker container for the vector cache.
+Starts the ChromaDB (vector store) and SearXNG (web search) Docker containers
+via `docker compose up -d chromadb searxng`.
 
-**Features:**
-- Starts automatically on system boot
-- Waits for Docker service
-- Restarts on failure
+- Starts on boot, waits for Docker, restarts on failure
 
 ### 2. `aifred-intelligence.service`
-The main AIfred service (Reflex app).
+The main AIfred service (Reflex app, frontend `3002`, backend `8002`).
 
-**Features:**
-- Waits for Ollama and ChromaDB
-- Automatic restart on failure
-- Logging via journalctl
+- Runs `scripts/patch-vite-config.sh` before every start
+- Waits for Ollama and ChromaDB (soft dependency, see Notes)
+- Drop-in `aifred-intelligence.service.d/hardening.conf`: larger Bun/Node heap,
+  `Wants=` instead of `Requires=`
+- Automatic restart on failure, logging via journald
+
+### 3. `aifred-corpus-server.service` (optional)
+FastAPI corpus search API on `127.0.0.1:8005` — backend for the corpus UI in
+`deploy/corpus/`. The installer asks before installing it.
 
 ## Installation
 
-### First-time Setup
+The unit files are **templates**: they contain `__USER__`, `__PROJECT_DIR__`
+and `__DOCKER_BIN__` placeholders. Never copy them to `/etc/systemd/system/`
+by hand — a plain `cp` leaves the placeholders in place and the services never
+start. Use the installer:
 
 ```bash
-# 1. Copy service files
-sudo cp systemd/aifred-chromadb.service /etc/systemd/system/
-sudo cp systemd/aifred-intelligence.service /etc/systemd/system/
+sudo ./scripts/install-services.sh              # install or update (backs up changed files)
+./scripts/install-services.sh --dry-run         # show what would change, no sudo, no writes
+sudo ./scripts/install-services.sh --no-overwrite   # keep locally modified units
 
-# 2. Enable services
-sudo systemctl daemon-reload
-sudo systemctl enable aifred-chromadb.service
-sudo systemctl enable aifred-intelligence.service
-
-# 3. Start services
-sudo systemctl start aifred-chromadb.service
-sudo systemctl start aifred-intelligence.service
-
-# 4. Check status
-systemctl status aifred-chromadb.service
-systemctl status aifred-intelligence.service
+systemctl status aifred-chromadb.service aifred-intelligence.service
 ```
+
+It renders and installs units and drop-ins, runs `daemon-reload` when a unit
+changed, enables the services, starts them, restarts only services whose own
+unit changed, and links `scripts/llama-swap-restart` to `~/bin`.
 
 ### After Code Updates
 
@@ -52,15 +51,8 @@ sudo systemctl restart aifred-intelligence.service
 
 ### After Service File Changes
 
-```bash
-# Copy updated service files
-sudo cp systemd/*.service /etc/systemd/system/
-
-# Reload daemon and restart services
-sudo systemctl daemon-reload
-sudo systemctl restart aifred-chromadb.service
-sudo systemctl restart aifred-intelligence.service
-```
+Edit the template here in `systemd/`, then re-run
+`sudo ./scripts/install-services.sh`.
 
 ## Monitoring
 
@@ -110,9 +102,9 @@ journalctl -u aifred-intelligence.service -n 50
 ### ChromaDB Container Not Running
 
 ```bash
-# Start container manually
-cd /home/mp/Projekte/AIfred-Intelligence/docker
-docker compose up -d chromadb
+# Start containers manually
+cd <project>/docker
+docker compose up -d chromadb searxng
 
 # Or via service
 sudo systemctl restart aifred-chromadb.service
@@ -140,16 +132,8 @@ The service reads the optional `.env` in the project root (`EnvironmentFile=-…
 secrets and machine-specific overrides, see `.env.example`. Behind nginx under a
 sub-path, set `AIFRED_FRONTEND_PATH` (e.g. `aifred`). No URL or mode variable is
 needed: the frontend derives the backend address from the page's own hostname
-(see "How does the frontend find the backend?" in the main README).
-
-### Modifying Services
-
-When modifying service files:
-1. Edit files in this `systemd/` directory
-2. Run `sudo ./scripts/install-services.sh` — it substitutes the
-   `__USER__`/`__PROJECT_DIR__` placeholders (a plain `cp` would leave them in
-   place), installs units and drop-ins and runs `daemon-reload`
-3. Restart the services
+(see [Deployment → How the frontend finds the backend](../docs/en/guides/deployment.md#how-the-frontend-finds-the-backend)).
+All variables: [Deployment → Environment](../docs/en/guides/deployment.md#environment-env).
 
 ## Command Reference
 
