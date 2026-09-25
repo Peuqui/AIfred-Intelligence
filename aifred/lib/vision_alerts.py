@@ -138,6 +138,13 @@ def _others_suffix(names: list[str], person_count: int) -> str:
             else f" + {others} weitere Personen")
 
 
+def _source_line(alias: str, ts: datetime) -> str:
+    """Kopfzeile jeder Meldung: „Hauseingang · 25.09.2026 - 18:49". Mit
+    Datum, weil eine Vigilantia-Session über Tage wächst und die Bubbles
+    sonst nicht mehr einzuordnen sind."""
+    return f"{alias} · {ts.strftime('%d.%m.%Y - %H:%M')}"
+
+
 def _compose(
     event_type: str, alias: str, names: list[str], count: int, ts: datetime,
     similarities: list[float] | None = None, person_count: int = 0,
@@ -152,7 +159,6 @@ def _compose(
     es alle Band-Werte → Spanne. face_unknown bekommt KEINE Zahl — dort
     wäre die Best-Match-Similarity zum nächsten bekannten Gesicht
     irreführend (der Titel sagt bereits "Unbekannte")."""
-    when = ts.strftime("%H:%M")
     sims = similarities or []
     if names and len(sims) == len(names):
         names_str = ", ".join(
@@ -178,7 +184,7 @@ def _compose(
     else:  # face_unknown
         title = (f"🚨 {count} unbekannte Personen erkannt" if count > 1
                  else "🚨 Unbekannte Person erkannt")
-    return title, f"{alias} · {when}"
+    return title, _source_line(alias, ts)
 
 
 async def _emit(
@@ -383,7 +389,6 @@ async def emit_person_alert(
         return
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
-    when = ts.strftime("%H:%M")
     title = "🚶 Person erkannt" if count == 1 else f"🚶 {count} Personen erkannt"
     meta: dict[str, Any] = {}
     if cluster_id:
@@ -397,7 +402,7 @@ async def emit_person_alert(
         category="person",
         severity="warning",
         title=title,
-        body=f"{alias} · {when}",
+        body=_source_line(alias, ts),
         # One alert per happening; fall back to source if unclustered.
         dedup_key=dedup_key or cluster_id or f"{source_id}:person",
         frame_path=frame_path,
@@ -449,13 +454,12 @@ async def emit_object_alert(
         title = f"{emoji} {singular} erkannt"
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
-    when = ts.strftime("%H:%M")
     await _emit(
         source_id=source_id,
         category=object_type,
         severity="info",
         title=title,
-        body=f"{alias} · {when}",
+        body=_source_line(alias, ts),
         dedup_key=cluster_id or f"{source_id}:{object_type}",
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
