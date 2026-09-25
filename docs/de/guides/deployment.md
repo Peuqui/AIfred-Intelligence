@@ -223,6 +223,7 @@ Manager), die sie nach `.env` zurückschreibt.
 
 | Variable | Zweck |
 |---|---|
+| `MESSAGE_HUB_OWNER` | **Pflicht.** AIfred-Konto, dem die Message-Hub-Sessions gehören (Kanäle, Scheduler, Webhook); schreibt `install-all.sh` mit dem ersten Benutzer — ohne den Wert startet AIfred nicht |
 | `AIFRED_ALLOWED_HOST` | Deine externe Domain — wird bei jedem Start zu Vites `allowedHosts` hinzugefügt |
 | `INJECT_API_TOKEN` | Token für `/api/chat/inject` (siehe [REST API](rest-api.md)) |
 | `WEBHOOK_API_TOKEN` | Token für `/api/agent/trigger` |

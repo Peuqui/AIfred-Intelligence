@@ -329,10 +329,10 @@ class TestResolveTrustLabel:
             assert resolve_trust_label("telegram", "OwnerName", {"user_id": 333}) == "external"
 
     def test_internal_triggers_use_code_set_sender(self):
-        from aifred.lib.config import MESSAGE_HUB_OWNER
-        assert resolve_trust_label("scheduler", MESSAGE_HUB_OWNER, {}) == "owner"
-        assert resolve_trust_label("webhook", MESSAGE_HUB_OWNER, {}) == "owner"
-        assert resolve_trust_label("scheduler", "somebody_else", {}) == "external"
+        with patch("aifred.lib.config.MESSAGE_HUB_OWNER", "hubowner"):
+            assert resolve_trust_label("scheduler", "hubowner", {}) == "owner"
+            assert resolve_trust_label("webhook", "hubowner", {}) == "owner"
+            assert resolve_trust_label("scheduler", "somebody_else", {}) == "external"
 
     def test_channels_without_owner_concept_external(self):
         # freeecho2 rooms and discord senders have no owner verdict — the

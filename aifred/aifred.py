@@ -1396,9 +1396,15 @@ async def _message_hub_lifespan():
     This handles the initial start. on_load() provides a safety net
     for Granian worker respawns where the lifespan doesn't re-run.
     """
+    from .lib.config import MESSAGE_HUB_OWNER  # noqa: E402
     from .lib.message_hub import message_hub, register_channel_workers  # noqa: E402
     from .lib.scheduler import scheduler_loop  # noqa: E402
 
+    if not MESSAGE_HUB_OWNER:
+        raise RuntimeError(
+            "MESSAGE_HUB_OWNER is not set — add MESSAGE_HUB_OWNER=<your AIfred "
+            "username> to .env (the account that owns Message-Hub sessions)"
+        )
     register_channel_workers(message_hub)
     if not message_hub.is_running("scheduler"):
         message_hub.register("scheduler", scheduler_loop)

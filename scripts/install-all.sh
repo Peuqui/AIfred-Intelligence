@@ -1304,6 +1304,8 @@ echo ""
 echo "AIfred needs at least one whitelist user so someone can register"
 echo "in the web UI. Without this entry registration rejects every"
 echo "username — the UI loads but no one gets in."
+echo "This first user also owns the sessions the Message Hub creates"
+echo "(Telegram, Discord, e-mail, FreeEcho.2, scheduler) — MESSAGE_HUB_OWNER."
 echo ""
 
 # Tracking flag for the final summary (health check reads it).
@@ -1322,8 +1324,9 @@ else
 # 'skip'. This avoids the common silent-fail case where enter-enter
 # leads to a skipped step.
 while true; do
-    read -p "Username (empty/skip = skip with warning): " WHITELIST_USER
-    if [ -z "$WHITELIST_USER" ] || [ "$WHITELIST_USER" = "skip" ]; then
+    read -p "Username [$USER] (skip = skip with warning): " WHITELIST_USER
+    WHITELIST_USER="${WHITELIST_USER:-$USER}"
+    if [ "$WHITELIST_USER" = "skip" ]; then
         echo -e "${YELLOW}⚠️  Whitelist user creation skipped.${NC}"
         echo -e "${YELLOW}   Login won't work in the UI until you catch up:${NC}"
         echo "       ./aifred-admin add <username>"
@@ -1332,6 +1335,14 @@ while true; do
     if [ -x "$PROJECT_DIR/aifred-admin" ]; then
         if "$PROJECT_DIR/aifred-admin" add "$WHITELIST_USER"; then
             WHITELIST_USER_CREATED=1
+            # Owner of Message-Hub sessions. An existing value is kept — it
+            # may deliberately name another account.
+            if grep -q "^MESSAGE_HUB_OWNER=" "$PROJECT_DIR/.env" 2>/dev/null; then
+                echo -e "${GREEN}✅ MESSAGE_HUB_OWNER already set in .env — kept${NC}"
+            else
+                printf '\n# Owner of Message-Hub sessions (an AIfred username)\nMESSAGE_HUB_OWNER=%s\n' "$WHITELIST_USER" >> "$PROJECT_DIR/.env"
+                echo -e "${GREEN}✅ MESSAGE_HUB_OWNER=$WHITELIST_USER written to .env${NC}"
+            fi
             break
         else
             echo -e "${YELLOW}⚠️  aifred-admin add failed — please try again or enter 'skip'.${NC}"

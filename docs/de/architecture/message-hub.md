@@ -261,11 +261,13 @@ aber für den Message Hub ist erstmal nur der Hauptnutzer relevant.
    ```
    Ohne `EMAIL_ALLOWED_SENDERS` wird jede Mail blockiert (leer = niemand).
 
-2. **Message Hub Owner** (optional, Default: `mp`):
+2. **Message Hub Owner** (Pflicht, setzt `scripts/install-all.sh` mit dem
+   ersten Benutzer):
    ```
-   MESSAGE_HUB_OWNER=mp
+   MESSAGE_HUB_OWNER=deinname
    ```
-   Sessions die der Hub erstellt gehören diesem User.
+   Das AIfred-Konto, dem die vom Hub erstellten Sessions gehören und das bei
+   Scheduler- und Webhook-Läufen als Owner gilt. Ohne den Wert startet AIfred nicht.
 
 ### Aktivierung
 
