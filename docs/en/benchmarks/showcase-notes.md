@@ -15,9 +15,6 @@ The comparison covers inference speed, answer quality and philosophical depth.
 
 **Question (DE):** "Was ist besser, Hund oder Katze?" (What is better, dog or cat?)
 
-The English variant is inferred separately (no translation) and documented in
-`showcase-benchmark-notes-en.md`.
-
 **As of:** 2026-02-22
 
 **Note on error scoring:** English interjections (rather, indeed, quite, Order etc.)
@@ -184,11 +181,6 @@ recognizable by the "A32B" in the model name). Why GLM fails so drastically at I
 
 **Conclusion:** GLM-4.7-REAP needs at least Q4 quantization for usable results.
 The GGUF was deleted.
-
-**Showcase recommendation:** The GLM results are excellent as a negative example.
-The tribunal output with the pidgin Salomo verdict is even more striking than the
-reasoning loop ("Is it a typo for Photosynthesis? No." x10), because it shows how the model
-invents its own fantasy language instead of speaking German.
 
 ---
 
@@ -569,51 +561,6 @@ The only model that introduces quantitative arguments:
 
 ---
 
-## Showcase Structure (Planned)
-
-### German Version
-- German inferences (6 sessions incl. GLM negative showcase, all current)
-- German analysis (this document)
-- TTS demo of one session (XTTS/MOSS-TTS)
-
-### English Version
-- English inferences (separate, no translation)
-- English analysis
-- TTS demo of the same session in English
-
-### Additional Analysis
-- German vs. English quality comparison
-- Linguistic differences, persona consistency across languages
-- 📄 [Tensor Split Benchmark: Speed Variant vs. Full Context](tensor-split.md) — multi-GPU tensor split optimization (11:1 vs. 2:1), real performance data with Qwen3-Next-80B on RTX 8000 + P40
-- 📄 Distributed inference via RPC — Qwen3-235B on 3 GPUs over LAN (96 GB VRAM), setup guide, performance comparison local vs. RPC
-
-### Reddit Post
-- Short, punchy post with highlights
-- Link to the GitHub.io showcase for details
-- Highlighting the new features:
-  - TTS integration (MOSS-TTS, XTTS)
-  - Tribunal mode (multi-agent debate)
-  - Autoscan & calibration for local models
-  - Hardware benchmarks on a prosumer setup
-  - Tensor split speed benchmark (multi-GPU optimization)
-  - **Distributed inference via RPC** (235B model on 3 GPUs over LAN, 96 GB VRAM)
-
----
-
-## Open Items
-
-- [x] German inferences for all 6 models -- done
-- [x] HTML export of all 6 sessions -- done (data/html_preview/)
-- [x] German analysis -- done (this document)
-- [ ] Audio generation (TTS) for the best session(s)
-- [ ] English inferences for all 6 models
-- [ ] TTS rendering of one session (DE + EN)
-- [ ] German/English cross-comparison
-- [ ] Create showcase HTML (DE + EN)
-- [ ] Write Reddit post
-
----
-
 ## 🆕 Update 2026-02-21: 200B+ Model Optimizations
 
 ### Direct-IO Performance
@@ -658,11 +605,16 @@ All 200B+ models stable with 130-200 tokens:
 
 ## 🆕 Update 2026-02-28: Distributed Inference via RPC (LAN)
 
+> **Historical measurement.** This RPC setup (RTX 8000 + P40 in the Mini PC,
+> RTX 3090 Ti in Aragon as the worker) no longer exists. The numbers below are
+> kept as measurement context; for the RPC work package see
+> [calibration-rpc.md](../architecture/calibration-rpc.md).
+
 ### Concept
 
-Distributed inference over gigabit LAN: the Mini PC (AOOSTAR GEM10) combines its local GPUs
-with a remote GPU on a second machine (Windows/WSL2). The model is spread across all
-3 GPUs — no CPU offload needed, the entire model sits in VRAM.
+Distributed inference over gigabit LAN: the Mini PC (AOOSTAR GEM10) combined its local GPUs
+with a remote GPU on a second machine (Windows/WSL2). The model was spread across all
+3 GPUs — no CPU offload needed, the entire model sat in VRAM.
 
 ### Hardware Setup
 
@@ -709,120 +661,14 @@ microsecond saved adds up.
 **Overall result:** RPC over the direct connection is **4x faster than local CPU offload** —
 with higher KV cache quality (q8_0 instead of q4_0) and almost double the context (32K instead of 17K).
 
-### Setup (Reproducible)
+### Setup
 
-#### 1. Build llama.cpp with RPC Support (Master)
-
-```bash
-cd ~/llama.cpp
-cmake -B build -DGGML_CUDA=ON -DGGML_RPC=ON -DCMAKE_CUDA_ARCHITECTURES="61;75"
-cmake --build build --config Release -j$(nproc)
-```
-
-#### 2. Start the RPC Server (Worker / Aragon)
-
-```bash
-# On the worker machine (Linux/WSL2):
-./rpc-server -H 0.0.0.0 -p 50052
-```
-
-**With WSL2:** port forwarding and a firewall rule are required:
-```powershell
-# PowerShell (Admin) on the Windows host:
-netsh interface portproxy add v4tov4 listenport=50052 listenaddress=0.0.0.0 connectport=50052 connectaddress=<WSL2-IP>
-New-NetFirewallRule -DisplayName "llama-rpc" -Direction Inbound -Protocol TCP -LocalPort 50052 -Action Allow
-```
-
-#### 3. llama-swap Config (Master)
-
-```yaml
-# Local variant (CPU offload, without RPC):
-Qwen3-235B-A22B-Instruct-2507-UD-Q2_K_XL:
-  cmd: 'llama-server --model <path>.gguf
-    -ngl 71 -np 1 -ctk q4_0 -ctv q4_0 -c 17344
-    --flash-attn on --direct-io ...'
-  ttl: 900
-
-# RPC variant (all GPUs, direct connection, no CPU offload):
-Qwen3-235B-A22B-Instruct-2507-UD-Q2_K_XL-rpc:
-  cmd: 'llama-server --model <path>.gguf
-    -ngl 99 -np 1 -ctk q8_0 -ctv q8_0 -c 32768
-    --rpc 10.0.0.2:50052
-    --flash-attn on --direct-io ...'
-  ttl: 3600
-  healthCheckTimeout: 900
-```
-
-**Important:** Two separate profiles for the same model — in AIfred the user chooses
-between the local variant (fast loading, CPU offload) and the RPC variant (slow loading,
-GPU only, higher quality).
-
-#### 4. Test Connectivity
-
-```bash
-# From the master (RPC does NOT speak HTTP — test raw TCP):
-bash -c 'echo > /dev/tcp/10.0.0.2/50052' && echo "OK" || echo "FAIL"
-# "OK" = port reachable, connection established
-```
-
-#### 5. Set Up a Direct Connection (Optional, ~2x Speedup)
-
-For maximum RPC performance: connect master and worker directly via Ethernet
-(without a switch). A simple USB-to-Ethernet adapter (1 GbE) is enough.
-
-**Network topology:**
-```
-GEM10 (enp4s0, 2.5 GbE) ←——USB Ethernet adapter (1 GbE)——→ Aragon (Ethernet 2)
-        10.0.0.1/30                                              10.0.0.2/30
-```
-
-**Master (Linux) — static IP via NetworkManager:**
-```bash
-# Remove existing auto-connections on the interface (prevents DHCP interference):
-nmcli connection delete "Kabelgebundene Verbindung 1"  # or whatever it is called
-
-# Create a static connection:
-nmcli connection add type ethernet con-name "rpc-direct" ifname enp4s0 \
-  ipv4.method manual ipv4.addresses 10.0.0.1/30 ipv6.method disabled
-
-# Check:
-ip addr show enp4s0  # Must show 10.0.0.1/30
-```
-
-**Worker (Windows) — static IP:**
-```powershell
-# PowerShell (Admin):
-# Determine the adapter name (e.g. "Ethernet 2" for the USB adapter):
-Get-NetAdapter | Format-Table Name, InterfaceDescription
-
-# Set the IP:
-New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress 10.0.0.2 -PrefixLength 30
-# Set the adapter to "Private" (firewall):
-Set-NetConnectionProfile -InterfaceAlias "Ethernet 2" -NetworkCategory Private
-```
-
-**Worker (WSL2) — portproxy for the direct connection:**
-```powershell
-# PowerShell (Admin) — forwarding via the direct IP:
-netsh interface portproxy add v4tov4 listenport=50052 listenaddress=10.0.0.2 \
-  connectport=50052 connectaddress=<WSL2-IP>
-```
-
-**Adjust the llama-swap config:**
-```yaml
-# Change --rpc from the switch IP to the direct IP:
---rpc 10.0.0.2:50052   # instead of 192.168.0.1:50052
-```
-
-**Verify:**
-```bash
-ping -c 4 10.0.0.2          # 0% loss, ~1ms
-bash -c 'echo > /dev/tcp/10.0.0.2/50052' && echo "OK"  # port reachable
-```
-
-**Important:** On Linux, NetworkManager can overwrite manually set IPs.
-The `nmcli connection add` method is persistent and survives reboots.
-`ip addr add` alone is NOT enough — NM deletes the IP after ~45s and tries DHCP.
+The step-by-step setup for this configuration is no longer documented: the
+P40 has been removed from the master and the build flags, worker binary name
+and WSL2 port forwarding of that time no longer apply. The current
+requirements for an RPC worker (build flags, `ggml-rpc-server`, direct-link
+addresses) and the plan for RPC-capable calibration are in
+[calibration-rpc.md](../architecture/calibration-rpc.md).
 
 ### Observations
 
@@ -849,10 +695,6 @@ The `nmcli connection add` method is persistent and survives reboots.
    via switch), but more stable values (lower mdev). For RPC pipeline throughput,
    stability matters more than absolute latency.
 
-6. **WSL2 limitation:** The WSL2 IP can change after a Windows restart.
-   The `netsh portproxy` forwarding must then be adjusted. With the direct connection:
-   a separate portproxy rule for the direct IP (10.0.0.2) is needed.
-
 ### Conclusion
 
 Distributed inference via RPC is a game changer for models that exceed local VRAM.
@@ -867,17 +709,14 @@ Distributed inference via RPC is a game changer for models that exceed local VRA
 RPC performance once more (from 6-7.5 to 14-16 tok/s). Plus a better KV cache (q8_0 instead of q4_0) and almost double the
 context (32K instead of 17K). The price: ~10 minutes of load time and a second machine on the network.
 
-**Outlook:** With a 2.5 GbE or 5 GbE direct connection (instead of a 1 GbE USB adapter),
-even higher tok/s would be conceivable. The current bandwidth is already the limiting factor
-when loading (~10 min) — faster links would also shorten load time proportionally.
-
 ---
 
 ## Data Sources
 
-- Session JSONs (data/sessions/) are NOT needed for the showcase
-- HTML previews (data/html_preview/) contain all relevant metrics per bubble:
-  TTFT, PP (tok/s), TG (tok/s), inference time, source (agent + model + backend)
+The metrics come from the HTML exports of the six sessions (at the time in
+`data/html_preview/`; the exports are no longer kept). Each bubble carried
+TTFT, PP (tok/s), TG (tok/s), inference time and source (agent + model +
+backend).
 
 ### File Mapping
 

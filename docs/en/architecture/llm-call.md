@@ -20,7 +20,7 @@ Every LLM call in AIfred flows through a unified chunk-processing pipeline (`run
      +--------v--------+   +--------v--------+    +--------v--------+
      |   Chat (UI)     |   |  Vision (Image) |    |  Message Hub    |
      |  send_message() |   | _process_vision |    | process_inbound |
-     | _chat_mixin.py  |   | _chat_mixin.py  |    | msg_processor.py|
+     | _chat_mixin.py  |   | _chat_mixin.py  |    |message_processor|
      +--------+--------+   +--------+--------+    +--------+--------+
               |                      |                      |
               |               +------v------+        +------v------+
@@ -72,12 +72,15 @@ Every LLM call in AIfred flows through a unified chunk-processing pipeline (`run
 | `ttft` | `value: float` | Time-to-first-token (seconds) |
 | `tool_call_start` | `name: str` | Tool name known, arguments still streaming |
 | `tool_call` | `name: str, arguments: str` | Complete tool call with arguments |
-| `tool_result` | `result: str` | Tool execution result |
+| `tool_progress` | `message: str` | Progress line of a streaming tool (web_search, search_documents, ...) |
+| `tool_artifacts` | `artifacts: list` | Bubble artifacts delivered by a tool (placed where the tool ran) |
+| `tool_result` | `name: str, result: str` | Tool execution result |
 | `thinking` | `text: str` | Chain-of-thought block |
+| `debug` | `message: str` | Backend debug item (truncation warning, context guard, ...) |
 | `done` | `metrics: dict` | Stream end with backend metrics |
 | `pipeline_result` | `result: PipelineResult` | Final aggregated result |
 
-`PipelineResult` contains: full response text, cleaned text (no thinking), thinking HTML, inference metadata, TTFT, timing, tracked URLs, sandbox URLs.
+`PipelineResult` contains: full response text (`text`, incl. `<think>` blocks), cleaned text (`text_clean`), inference metadata (`metadata_dict`, `metadata_display`, `debug_msg`, `metrics`), `ttft`, `inference_time`, the measured work (`work`), bubble artifacts (`artifacts` — sources from `web_fetch`, sandbox output, VLM output), `final_text` (answer after the last tool call), `history_notes`, plus the flags `silent_reply` and `truncated`.
 
 ---
 
@@ -90,7 +93,8 @@ User sends message with `research_mode="none"`.
 ```
 _chat_mixin.py: send_message()
   |-- Intent Detection (detect_query_intent_and_addressee)
-  |     Returns: intent, addressee, detected_language
+  |     Returns: intent, addressee, detected_language,
+  |              mode_switch_updates, is_pure_command, raw_response
   |-- History Compression (if >70% context utilization)
   |-- run_generic_agent_direct_response("aifred", research_mode="none")
   |
@@ -101,14 +105,15 @@ multi_agent.py: _run_agent_direct_response()
   |-- num_ctx (get_agent_num_ctx)
   |-- System prompt (get_agent_direct_prompt)
   |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=False)
-  |     -> Memory tools only (store_memory, recall)
+  |     -> Memory tools only (store_memory, update_memory, delete_memory,
+  |        read_memory); recalled memories are injected as context
   |-- Messages (build_messages_from_llm_history with perspective)
   |-- Temperature (auto from intent or manual)
   |-- LLM options (build_llm_options)
   |
   v
 multi_agent.py: _stream_agent_to_history()
-  |-- State setup: set_current_agent, vLLM model ensure, TTS init
+  |-- State setup: state._set_current_agent, vLLM model ensure, TTS init
   |
   v
 llm_pipeline.py: run_llm_stream()  <-- PIPELINE
@@ -143,11 +148,11 @@ _run_agent_direct_response(..., research_mode="quick")
   |     v
   |     state._research_context = prepared research results
   |
-  |-- inject_before_question(messages, wrap_untrusted_data(research_context))
+  |-- inject_before_question(messages, wrap_untrusted_data(research_context, 'web_research'))
   |-- _stream_agent_to_history() -> run_llm_stream()
 ```
 
-**quick** = top 3 URLs. **deep** = top 7 URLs. Every research runs fresh (no result cache).
+**quick** = top 3 URLs (`RESEARCH_QUICK_URLS`). **deep** = top 7 URLs (`RESEARCH_DEEP_URLS`). Every research runs fresh (no result cache). The toolkit is the same as in Automatik mode (`research_tools_enabled` is true for every `research_mode` other than `"none"`).
 
 ### 4. Vision Pipeline (Image Upload)
 
@@ -155,16 +160,23 @@ Bypasses `_run_agent_direct_response()` and calls `call_llm()` directly:
 
 ```
 _chat_mixin.py: _process_vision_request()
-  |-- Vision model selection (optional -speed variant for llamacpp)
-  |-- call_llm(agent="vision", multimodal_content=[image_parts])
-  |     |-- System prompt: get_agent_system_prompt("vision", prompt_key)
-  |     |-- temperature = vision_temperature (manual)
-  |     |-- enable_thinking = vision_thinking
+  |-- Model selection: _vl_choice() -> (model_id, settings bucket)
+  |     A vision-capable main (AIfred) model handles the image itself;
+  |     the vision model only steps in for non-vision main models
+  |-- Acting agent = active agent (memory, tools, personality)
+  |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
+  |-- call_llm(agent=<acting agent>, multimodal_content=content_parts,
+  |            external_toolkit=..., vision_task_addon=...)
+  |     |-- System prompt: get_agent_system_prompt(agent, "task")
+  |     |     + vision_task_addon
+  |     |-- temperature_mode="manual", temperature from the bucket
+  |     |     of the model that runs the turn
+  |     |-- LLM options: build_llm_options(state, agent, ...)
   |     v
   |     run_llm_stream()  <-- PIPELINE
   |
   |-- Response saved to chat_history + llm_history
-  |-- generate_session_title() (async)
+  |-- _generate_session_title() (fire-and-forget task)
 ```
 
 ### 5. Multi-Agent Debate Modes
@@ -180,17 +192,20 @@ run_sokrates_analysis(mode="auto_consensus")
   |
   Loop (max_debate_rounds):
     |-- SOKRATES critique
-    |     prompt: sokrates_critic_prompt(round_num=N)
+    |     prompt: get_sokrates_critic_prompt(round_num=N)
     |     _stream_agent_to_history("sokrates") -> run_llm_stream()
     |
-    |-- VOTING: count_lgtm_votes()
+    |-- SALOMO synthesis
+    |     prompt: get_salomo_mediator_prompt(round_num=N)
+    |
+    |-- VOTING: count_lgtm_votes(aifred, sokrates, salomo)
     |     [LGTM] = approve, [WEITER] = override (forces re-refinement)
     |     Consensus at 2/3 (majority) or 3/3 (unanimous)
     |
     |-- If consensus -> BREAK
     |
     |-- AIFRED refinement
-          prompt: aifred_refinement_prompt
+          prompt: get_aifred_refinement_prompt(...)
           _stream_agent_to_history("aifred") -> run_llm_stream()
 ```
 
@@ -200,16 +215,16 @@ run_sokrates_analysis(mode="auto_consensus")
 run_tribunal()
   |
   Fixed rounds (no early exit):
-    |-- SOKRATES (prosecutor): sokrates_tribunal_prompt
-    |-- AIFRED (defense): aifred_defense_prompt
+    |-- SOKRATES (prosecutor): get_sokrates_tribunal_prompt(round_num=N)
+    |-- AIFRED (defense): get_aifred_defense_prompt(...)
   |
   After all rounds:
-    |-- SALOMO (judge): salomo_judge_prompt
+    |-- SALOMO (judge): get_salomo_judge_prompt()
 ```
 
 #### Devil's Advocate
 
-Like Auto-Consensus, but Sokrates uses `get_sokrates_devils_advocate_prompt()`. Response parsed into PRO and CONTRA sections via `parse_pro_contra()`.
+Runs through `run_sokrates_analysis()` like Auto-Consensus, but with a single round, and Sokrates uses `get_sokrates_devils_advocate_prompt()`. Response parsed into PRO and CONTRA sections via `parse_pro_contra()`.
 
 #### Symposion
 
@@ -242,22 +257,28 @@ Same for Salomo and custom agents.
 Completely stateless — no Reflex State needed, only settings file and session storage.
 
 ```
-imap_listener.py: Email received via IMAP IDLE
+email_channel/__init__.py: listener_loop() — email received via IMAP IDLE
   |
   v
-message_processor.py: process_inbound(InboundMessage)
+message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |
-  |-- 1. detect_target_agent(text) -> "aifred" / "sokrates" / "salomo"
-  |-- 2. Find or create session (routing_table)
-  |-- 3. Save incoming message to session
-  |       Toast notification in browser (even without open session)
-  |-- 4. _call_engine(email_context, session_id, agent)
+  |-- 1. Find or create session (routing_table) — before intent
+  |       detection, so session_scope is active for the LLM calls
+  |       hub_notification_scope: toast "received" in the browser
+  |-- 2. detect_target_agent_via_llm(text)
+  |       -> (agent_id, intent, detected_language, mode_switch_updates)
+  |       Wraps detect_query_intent_and_addressee() (automatik model);
+  |       then routing priority: metadata["wake_agent"] > addressee
+  |       > session active_agent > "aifred"
+  |-- 3. Save incoming message to session (save_user_to_session)
+  |-- 4. _call_engine(user_text, session_id, agent, ...)
   |       |-- Settings from settings.json (no State)
   |       |-- LLM history from session file
-  |       |-- num_ctx: get_model_native_context() (no State)
+  |       |-- num_ctx: get_stateless_num_ctx() (no State)
   |       |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
   |       |       -> Full plugins (web, email, EPIM, documents, etc.)
-  |       |-- call_llm(external_toolkit=toolkit, num_ctx_manual=True)
+  |       |-- call_llm(external_toolkit=toolkit,
+  |       |            num_ctx_manual_enabled=True, num_ctx_manual_value=num_ctx)
   |       |     |
   |       |     v
   |       |     run_llm_stream()  <-- PIPELINE
@@ -265,25 +286,28 @@ message_processor.py: process_inbound(InboundMessage)
   |       |       Tool call/result -> debug sink
   |       |
   |       v
-  |       response_clean returned
+  |       response_clean (+ display, final, metadata, history_notes) returned
   |
-  |-- 5. Save response to session
-  |-- 6. Auto-reply via SMTP (if enabled)
-  |-- 7. generate_session_title() (if first message)
+  |-- 5. Save response to session (_append_response)
+  |-- 6. Auto-reply via plugin.send_reply() (if the channel has always_reply
+  |       or its auto-reply toggle is on — email: SMTP)
+  |-- 7. generate_session_title() (if the session has no title yet)
 ```
 
 ### 8. Session Title Generation
 
-Does **not** use `run_llm_stream()` — simple non-streaming `client.chat()` with 30s timeout.
+Does **not** use `run_llm_stream()` — simple non-streaming `client.chat()` with a hard timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s).
 
 ```
 llm_engine.py: generate_session_title()
   |-- Input: user_text (max 500 chars) + ai_response (max 500 chars)
   |-- Prompt: load_prompt("utility/chat_title")
-  |-- Model: aifred_model (from settings)
-  |-- Options: temperature=0.3, num_predict=300, enable_thinking=False
-  |-- llm_client.chat() (NOT streaming, 30s timeout)
-  |-- Cleanup: quotes, punctuation, max 80 chars
+  |-- Model: model_override, else the automatik model from settings
+  |     (falls back to aifred_model when "(same as AIfred-LLM)" is selected)
+  |-- Options: temperature=0.3, num_predict=SESSION_TITLE_NUM_PREDICT (2000),
+  |     enable_thinking=False, num_ctx=AUTOMATIK_LLM_NUM_CTX
+  |-- llm_client.chat() (NOT streaming, SESSION_TITLE_TIMEOUT_SECONDS timeout)
+  |-- Cleanup: thinking blocks, quotes, trailing punctuation, max 80 chars
   |-- update_session_title(session_id, title)
 ```
 
@@ -294,11 +318,16 @@ Also does **not** use `run_llm_stream()` — uses the small automatik model.
 ```
 intent_detector.py: detect_query_intent_and_addressee()
   |-- Model: automatik_model (small, fast)
-  |-- Context: AUTOMATIK_LLM_NUM_CTX (4096)
-  |-- Returns: (intent, addressee, detected_language)
+  |-- Context: AUTOMATIK_LLM_NUM_CTX (12288) if the automatik model differs
+  |     from AIfred's; with the same model AIfred's max_context (no reload)
+  |-- Options: temperature=0.2, enable_thinking=False
+  |-- Returns: (intent, addressee, detected_language,
+  |            mode_switch_updates, is_pure_command, raw_response)
   |     intent in: FAKTISCH, KREATIV, GEMISCHT
   |     addressee in: None, aifred, sokrates, salomo
   |     language in: de, en
+  |     mode_switch_updates: requested config change ({} if none)
+  |     is_pure_command: message is ONLY a mode-switch command
 ```
 
 ---
@@ -325,7 +354,8 @@ GGUF (tokenizer.chat_template)
   |     Filled lazily on model switch/startup (header read, ms) and
   |     force-refreshed during calibration (re-download may change it).
   |
-  |-- State: {agent}_thinking (bool) + {agent}_reasoning_effort (str)
+  |-- State: agent_tuning[agent].thinking (bool)
+  |     + agent_tuning[agent].reasoning_effort (str)
   |     Dropdown maps: off -> thinking=False; on -> thinking=True,
   |     effort=""; <level> -> thinking=True, effort=<level>.
   |
@@ -352,15 +382,15 @@ positives.
 | OwnKnowledge | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Memory-only toolkit |
 | Automatik | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Full toolkit, agent decides |
 | Quick/Deep | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Research context pre-injected |
-| Vision | `_process_vision_request` | `call_llm` -> `run_llm_stream` | Multimodal, own model |
+| Vision | `_process_vision_request` | `call_llm` -> `run_llm_stream` | Multimodal, acts as the active agent |
 | Direct Agent | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Agent-specific perspective |
 | Auto-Consensus | `run_sokrates_analysis` | `_stream_agent_to_history` -> `run_llm_stream` | Multiple rounds, voting |
 | Tribunal | `run_tribunal` | `_stream_agent_to_history` -> `run_llm_stream` | 3 agents, Salomo judges |
 | Devil's Advocate | `run_sokrates_analysis` | `_stream_agent_to_history` -> `run_llm_stream` | Pro/Contra parsing |
 | Symposion | `run_symposion` | `_stream_agent_to_history` -> `run_llm_stream` | N agents sequentially |
 | Message Hub | `process_inbound` | `call_llm` -> `run_llm_stream` | Stateless, auto-reply |
-| Title Gen | `generate_session_title` | **No** — `client.chat()` | Non-streaming, 30s timeout |
-| Intent | `detect_query_intent` | **No** — `client.chat()` | Automatik model |
+| Title Gen | `generate_session_title` | **No** — `client.chat()` | Non-streaming, 300 s timeout |
+| Intent | `detect_query_intent_and_addressee` | **No** — `client.chat()` | Automatik model |
 
 ---
 

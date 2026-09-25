@@ -361,7 +361,7 @@ Telegram bot via long polling.
   has seen/sent, younger than 48 h)
 - Messages received while AIfred was down are caught up on start
   (Telegram buffers up to 24 h)
-- Auto-reply configurable
+- Always replies to accepted messages (no auto-reply toggle)
 - Setup guide: [Telegram Setup](telegram-setup.md)
 
 **Allowlist (mandatory):** Same model as Discord — the bot only responds

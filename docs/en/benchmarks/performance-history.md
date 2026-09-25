@@ -21,17 +21,18 @@ Hardware baseline since 2026-06/07: 5 GPUs = 192 GB VRAM
 
 | Date | Change | Effect |
 |---|---|---|
+| 2026-09-23 late / 09-24 | **Flash-Next production PP4 instead of TP2×PP2** — pipeline parallel over 4 cards, layer split 12,12,12,12. On Sep 24 the PLE store-card stage was removed: the PLE table now cascades VRAM → host → disk, with host share 0 | Cold prefill of a ~29k-token prompt 13.5 s instead of 18.6–19.1 s. On real texts PP4 prefills ~12% faster, while TP2×PP2 decodes ~20% faster (mean ~41 vs. ~49 tok/s) |
 | 2026-09-16 evening | **Flash-Next production: PLE without cascade, 3 instead of 6 GiB host per rank** — the table fills the RTX 8000 up to the KV requirement for 262k, GPU 4 stays free for TTS/vision; cascade offered as 1Cat PR #646 | Host pinned 6 instead of 12 GiB, MemAvailable after startup 8.2 instead of 2.5 GiB; decode −0.2% vs. the old Classic control run (cascade −2.0%); texts 4/4 bit-identical |
 | 2026-09-16 | **PLE overflow cascade** in production (1Cat fork, packages 1–3): Flash-Next puts only 2 GiB per rank in the host, the rest of the PLE table lives on GPU 4, optionally on the SSD; comparison of the three storage paths with the same three questions (see section below) | MemAvailable after startup 12–17 GiB instead of ~2 GiB; prefill unchanged (520–620 tok/s); decode normalized to the MTP acceptance rate: cascade −1% vs. the old path, SSD path −4% vs. the cascade; cold page cache (after `drop_caches`) with no measurable effect; texts bit-identical under greedy sampling |
 | 2026-09-14 | AIfred model comparison of all chat models, both backends, three fixed questions incl. the Kuanda trick question (see section below) | Flash-Next 180B best quality, 27B DFlash2 fastest decode (64–76 tok/s) but Kuanda hallucination; QUASAR entry was limited to 8,192 context (re-measured with 262K/MTP, 1 GPU) |
 | 2026-09-10 | vLLM production on 1Cat `work-main` (upstream + our PRs + v100-skinny, tag `verified-2026-09-10`) | Old vs. new on the same day bit-identical or coherent; 27B with DFlash2 at 77 tok/s in the bench, but not yet in llama-swap |
 | 2026-09-01 | AIfred measures vLLM prefill and decode from vLLM's own counters instead of wall clock (`7f870514`) | Only from here on are vLLM session values comparable with llama.cpp's server timings; older vLLM values (wall clock incl. prefill) are not used anywhere |
-| ~2026-05-23 | **MTP speculative decoding** (`--spec-type draft-mtp --spec-draft-n-max 3`) for all UD-MTP GGUFs; non-MTP variants removed (commits `bbf98900`, `67ea0e18`) | Quantum leap in token generation: acceptance rates of 90–96% measured; 397B ran at ~20 tok/s with it (as of May, IQ3_XXS), today 36–46. Pre-MTP sessions no longer exist — comparison values from that period are missing |
-| ~2026-07-10 | Calibration round after the full V100 build-out (new tensor splits) | 122B end-to-end PP 266–287 → 366–428 tok/s |
+| 2026-08-03/04 | **DeepSeek-V4-Flash-0731 + DSpark** (llama.cpp PR #25784, merged Aug 2): first sidecar draft model (`--model-draft` + `--spec-type draft-dspark`, n-max 5, draft pinned to the output device CUDA4); calibration extended with draft projection (`207a4dc6`) + hardened verify probe (`e9855789`); llama.cpp at b10257 + cuBLAS workspace patch (PR #26574) because of sporadic Volta/Turing aborts (#26554, 4 crashes) | July failed attempt (11 TG, TTFT 6 min) → productive: PP median 325 (1.8× vs. 397B), TTFT median 35 s (3× faster), TG 19–41 depending on content (acceptance 61–65%). Ctx 193K base / 425K TTS variant thanks to dirt-cheap MLA KV (~0.5 MB/1K on the tightest card). User policy: DeepSeek only WITH DSpark from now on |
 | 2026-07-31 | **`-ub` 512 → 2048** for MoE multi-GPU profiles (`7f26658f`) + recalibration 122B/397B | MoE expert reads amortize over larger microbatches. llama-bench 397B pp8192: 240 → 399 tok/s (+66%); 122B API measurement: PP ~400 → 839–855 tok/s (~2.1×). Decode unchanged everywhere. Real VRAM cost ~1 GB/GPU |
 | 2026-07-31 | **Generic MoE detection** via `expert_count` from GGUF metadata (`80f5d739`) — profiles without an existing `-ub` (35B) also get `-b/-ub 2048`; applies automatically to every new model | llama-bench 35B-A3B pp8192: 1,585 → 2,423 tok/s (+53%). Dense models deliberately stay at ub 512 (27B: only +6–8% measurable) |
 | 2026-07-31 | **Calibration rework** (`ae98e3d3`, `fa087959`): bidirectional math bias with OOM floor, fastest-first cascade (idle faster cards before downstream overflow), mmproj weights + encode buffer burn-in in the fit-params projection | No inference effect, but: full 35B calibration in 13 min (previously 397B class: 2.5 h), correct 2× RTX splits instead of scattering across V100s, all side-channel variants derived without extra probes |
-| 2026-08-03/04 | **DeepSeek-V4-Flash-0731 + DSpark** (llama.cpp PR #25784, merged Aug 2): first sidecar draft model (`--model-draft` + `--spec-type draft-dspark`, n-max 5, draft pinned to the output device CUDA4); calibration extended with draft projection (`207a4dc6`) + hardened verify probe (`e9855789`); llama.cpp at b10257 + cuBLAS workspace patch (PR #26574) because of sporadic Volta/Turing aborts (#26554, 4 crashes) | July failed attempt (11 TG, TTFT 6 min) → productive: PP median 325 (1.8× vs. 397B), TTFT median 35 s (3× faster), TG 19–41 depending on content (acceptance 61–65%). Ctx 193K base / 425K TTS variant thanks to dirt-cheap MLA KV (~0.5 MB/1K on the tightest card). User policy: DeepSeek only WITH DSpark from now on |
+| ~2026-07-10 | Calibration round after the full V100 build-out (new tensor splits) | 122B end-to-end PP 266–287 → 366–428 tok/s |
+| ~2026-05-23 | **MTP speculative decoding** (`--spec-type draft-mtp --spec-draft-n-max 3`) for all UD-MTP GGUFs; non-MTP variants removed (commits `bbf98900`, `67ea0e18`) | Quantum leap in token generation: acceptance rates of 90–96% measured; 397B ran at ~20 tok/s with it (as of May, IQ3_XXS), 36–46 after the Jul 31 recalibration. Pre-MTP sessions no longer exist — comparison values from that period are missing |
 
 ---
 
@@ -123,6 +124,11 @@ in the raindrop and swapped brightness around the bow.
 
 ## Flash-Next PLE Storage Paths — Comparison 2026-09-16
 
+> **Historical setup.** Measured under TP2×PP2 with the GPU-4 store stage.
+> Production has run PP4 since 2026-09-23, and the store-card stage was
+> removed on 2026-09-24 (PLE now VRAM → host → disk, host share 0; see
+> the milestones).
+
 The same model (Qwen3.8-Flash-Next 180B-A4B NVFP4, MTP k=4, TP2×PP2) via three
 llama-swap entries that differ only in where the PLE table
 (47.7 GiB) lives. Driven by Peuqui through the AIfred UI, agent AIfred,
@@ -133,7 +139,7 @@ immediately before loading):
 | Session | Entry | Path | Host pinned | GPU 4 | SSD |
 |---|---|---|---|---|---|
 | 16:01 | `…-MTP-PLE-Classic-vllm` | PLE→Host | 12 GiB | – | – |
-| 16:46 | `…-MTP-vllm-vlm-qwen3vl4b` (production) | PLE→Host→GPU 4 | 4 GiB | 4.3 GiB | – |
+| 16:46 | `…-MTP-vllm-vlm-qwen3vl4b` (production then) | PLE→Host→GPU 4 | 4 GiB | 4.3 GiB | – |
 | 18:00 | `…-MTP-PLE-Disk-vllm` | PLE→Host→GPU 4→SSD | 4 GiB | 1.0 GiB | 3.3 GiB |
 | 18:22 | `…-MTP-PLE-Disk-vllm`, cache dropped | PLE→Host→GPU 4→SSD | 4 GiB | 1.0 GiB | 3.3 GiB |
 
@@ -249,7 +255,7 @@ are genuine individual disk accesses, still
   on the card) is not separated by this measurement; that would require measuring the same
   rows once fully preloaded.
 
-### Addendum: Classic with 3 GiB — Production from the Evening of Sep 16
+### Addendum: Classic with 3 GiB — Production from the Evening of Sep 16 to Sep 23
 
 The RTX 8000s had headroom on both paths: stage 0 got 5.22 GiB (cascade)
 or 6.14–7.17 GiB (Classic 6 GiB) for the KV cache, 262k tokens need
@@ -467,15 +473,18 @@ different periods, conversations and llama.cpp builds; Flash-Next under vLLM
 only n=3. Prefill (median) 27B 619 vs. 200 tok/s, Flash-Next 463 vs. 274 —
 prompt sizes and cache hits differ, so only as a tendency. The
 criterion "vLLM must beat llama.cpp on the same hardware" is thus met for the
-27B and for Flash-Next, but not for DeepSeek.
+27B and for Flash-Next, but not for DeepSeek. The Flash-Next value was
+measured under TP2×PP2; the PP4 production since Sep 23 decodes ~20% slower
+on real texts (mean ~41 vs. ~49 tok/s), which puts the factor against
+llama.cpp at roughly 1.5×.
 
 ---
 
 ## Assessment
 
 - **vLLM** (1Cat plus v100-skinny) beats llama.cpp in the sessions for the
-  27B (~2×) and for Flash-Next (~1.7×) in generation — at 4-bit vs.
-  Q6/Q8. For DeepSeek-V4-Flash, llama.cpp stays ahead.
+  27B (~2×) and for Flash-Next (~1.7× under TP2×PP2, ~1.5× with the PP4
+  production since Sep 23) in generation — at 4-bit vs. Q6/Q8. For DeepSeek-V4-Flash, llama.cpp stays ahead.
 - **MTP** boosts token generation (acceptance rates 90–96%), leaves PP
   untouched.
 - **ub 2048** boosts prompt processing for MoE models massively

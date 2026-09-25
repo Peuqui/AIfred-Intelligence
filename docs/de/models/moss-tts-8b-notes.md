@@ -1,4 +1,4 @@
-# MOSS-TTS 8B on Turing GPUs (RTX 8000 / RTX 6000)
+# MOSS-TTS 8B auf Turing-GPUs (RTX 8000 / RTX 6000)
 
 > **English version:** [moss-tts-8b-notes.md](../../en/models/moss-tts-8b-notes.md)
 

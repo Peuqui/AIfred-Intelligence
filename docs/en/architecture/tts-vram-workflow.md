@@ -17,6 +17,16 @@ Piper, Edge, eSpeak and DashScope need no VRAM.
 
 The FreeEcho.2 has its **own TTS engine** (configured in the plugin, independent of the browser).
 
+The FreeEcho.2 pipeline calls `ensure_tts_state(..., check_defer=True)` before
+inference. As soon as an LLM is loaded and a GPU TTS other than the running one is
+wanted, the switch is **deferred**: inference runs first on the loaded LLM,
+`force_tts_switch()` follows before the audio is generated (cases 2 and 4).
+
+Before the deferred switch, `_gpu_tts_combo_fits()` checks whether the active model
+has a calibrated TTS variant for the wanted GPU TTS. If not, the voice output is
+skipped with an error log (a switch would evict the LLM and still leave no VRAM for
+the TTS).
+
 ### Case 1: VRAM empty (nothing loaded)
 1. Start TTS (e.g. XTTS)
 2. Load the LLM with the TTS profile (e.g. `GPT-OSS-120B-A5B-UD-Q8_K_XL-tts-xtts`)
@@ -28,20 +38,24 @@ The FreeEcho.2 has its **own TTS engine** (configured in the plugin, independent
 1. Inference with the existing LLM (fast, no reload)
 2. Unload everything (free VRAM)
 3. Start TTS
-4. Generate audio
-5. Load the LLM with the TTS profile alongside
+4. Restart llama-swap with the TTS profile (the LLM itself loads again on the next request)
+5. Generate audio
 6. **Everything stays loaded**
+
+Exception: if the LLM already runs on the matching `-tts-<engine>` variant (e.g. the
+TTS container stopped itself via its idle watchdog), `_do_switch()` starts the
+container next to the warm LLM — no unload, no llama-swap restart.
 
 ### Case 3: LLM + correct TTS already loaded
 1. Inference with the TTS profile (no reload needed)
 2. Generate audio
 3. **Everything stays loaded**
 
-### Case 4: LLM + wrong TTS loaded (e.g. MOSS instead of XTTS)
-1. Unload everything
-2. Start the correct TTS
-3. Load the LLM with the new TTS profile
-4. Inference
+### Case 4: LLM + wrong TTS loaded (e.g. MOSS instead of XTTS) — deferred as well
+1. Inference with the existing LLM (no reload)
+2. Stop the wrong TTS, unload everything
+3. Start the correct TTS
+4. Load the LLM with the new TTS profile
 5. Generate audio
 6. **Everything stays loaded**
 
@@ -59,6 +73,13 @@ The FreeEcho.2 has its **own TTS engine** (configured in the plugin, independent
 5. Generate audio
 6. **Everything stays loaded**
 
+### Case 7: LLM + GPU TTS loaded, plugin set to a lightweight engine (Piper/Edge/eSpeak/DashScope)
+1. Stop of the GPU TTS container starts in the background (unless an active pipeline
+   still holds it)
+2. Inference with the existing LLM
+3. `force_tts_switch("")` waits for the stop, restarts llama-swap with the base profile
+4. Generate audio with the lightweight engine
+
 ## Browser — TTS Switching
 
 ### Engine Dropdown (Main Settings)
@@ -69,7 +90,7 @@ The FreeEcho.2 has its **own TTS engine** (configured in the plugin, independent
 ### Agent Editor (per Agent)
 - Backend dropdown per agent: selects which backend applies to this agent
 - "Off" → the agent gets no TTS (`enabled=False`)
-- Empty voice → fallback to AIfred's voice of the current backend
+- Empty voice → fallback to the agent's engine default from `agents.json`, then the global `tts_voice` (see Voice Resolution)
 - Changes are saved only as **settings**, no immediate VRAM switch
 
 ### FreeEcho.2 Plugin
@@ -89,25 +110,32 @@ The FreeEcho.2 has its **own TTS engine** (configured in the plugin, independent
 ## Voice Resolution
 
 ### Browser
-1. Agent has a voice configured → use it
-2. Agent has no voice → AIfred's voice of the current backend
-3. AIfred has no voice → `self.tts_voice` (state default)
+SSOT: `_resolve_agent_tts()` in `_tts_streaming_mixin.py`. An agent never borrows
+another agent's voice.
+1. User's per-agent voice for the active engine (`tts_agent_voices[agent]["voice"]`)
+2. The agent's engine default from `data/agents.json` (`tts_voices.<engine>`)
+3. `self.tts_voice` (global state default) — only for agents without an engine default
 
 ### FreeEcho.2
-1. User setting for agent+engine (from `settings.json`)
-2. User setting for AIfred (fallback)
-3. `TTS_AGENT_VOICE_DEFAULTS[engine][agent]`
-4. `TTS_AGENT_VOICE_DEFAULTS[engine]["aifred"]`
-5. `PUCK_TTS_FALLBACK_VOICE` (config.py)
+SSOT: `_run_tts()` in `tts_reply.py`. Engine from the plugin setting
+(`freeecho2`/`tts_engine`, default `piper`).
+1. User setting for agent+engine (`tts_agent_voices_per_engine[engine][agent]` in `settings.json`)
+2. User setting for AIfred (only if the agent has none)
+3. The agent's engine default from `data/agents.json` (`tts_voices.<engine>`, via `get_tts_voice_default()`)
+4. AIfred's engine default from `data/agents.json`, if the agent's default has no voice
+5. `PUCK_TTS_FALLBACK_VOICE` (config.py), if the default entry has no `voice` field at all
 
 ## Debug Output
 
-On every LLM profile switch, the effective model + context is shown:
+On every LLM profile switch, the effective model + context is shown
+(`get_effective_model_info()`; FreeEcho.2 and the browser dropdown prefix the
+status messages with 🔊):
 ```
-🔊 LLM restarted: GPT-OSS-120B-A5B-UD-Q8_K_XL-tts-xtts (ctx: 131.072)
+🔊 LLM profile ready: GPT-OSS-120B-A5B-UD-Q8_K_XL-tts-xtts (ctx: 131.072)
 ```
+When the TTS was already running (`force_tts_switch()`): `🔊 LLM profile switched: …`.
 
-On intent detection:
+On intent detection (`format_intent_result()` in `intent_detector.py`):
 ```
 🎯 Intent: FAKTISCH, Addressee: –, Lang: DE
 ```
@@ -120,5 +148,7 @@ On intent detection:
 | `force_tts_switch()` | `tts_engine_manager.py` | After deferred inference: load TTS + switch profile |
 | `_do_switch()` | `tts_engine_manager.py` | Full engine switch (unload → load) |
 | `set_tts_engine_or_off()` | `_tts_config_mixin.py` | Browser dropdown handler |
-| `_run_tts()` | `freeecho2/__init__.py` | FreeEcho.2 audio generation |
+| `_run_tts()` | `plugins/channels/freeecho2_channel/tts_reply.py` | FreeEcho.2 audio generation + voice resolution |
+| `_ensure_tts_state()` / `_force_tts_switch()` | `plugins/channels/freeecho2_channel/tts_reply.py` | FreeEcho.2 wrappers around the SSOT functions |
 | `_queue_tts_for_agent()` | `_tts_streaming_mixin.py` | Browser TTS generation |
+| `_resolve_agent_tts()` | `_tts_streaming_mixin.py` | Browser voice/speed/pitch resolution |

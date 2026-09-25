@@ -16,11 +16,13 @@ at reduced context.
 ## Hardware assumptions
 
 - Multiple GPUs of different speed classes (compute capability + VRAM size)
-- TTS containers (XTTS, MOSS, …) and the Vigilantia VLM (Ollama) each
-  occupy part of a GPU, NOT a whole GPU. They run on the
-  **side-channel tier** — the compute class below the fastest one,
-  which stays reserved for the main LLM. For details see the section
-  [Side-channel placement](#side-channel-placement-vlm--tts).
+- The GPU TTS containers (XTTS, MOSS, Fish-Speech, Qwen3-TTS — every
+  engine with `needs_gpu = True` in
+  [`aifred/lib/tts_engines/`](../../../aifred/lib/tts_engines/)) and the
+  Vigilantia VLM (Ollama) each occupy part of a GPU, NOT a whole GPU. They
+  share **one card** of the **side-channel tier** — the compute class below
+  the fastest one, which stays reserved for the main LLM. For details see
+  the section [Side-channel placement](#side-channel-placement-vlm--tts).
 
 ## Sorting (generic)
 
@@ -29,9 +31,14 @@ GPUs are sorted by:
 1. **Compute capability** (desc) — RTX 8000 (7.5) before V100 (7.0) before P40 (6.1)
 2. **Total VRAM** (desc) as tiebreaker at equal CC — e.g. two RTX 8000 ×
    48 GB are equal under this criterion
-3. **CUDA ID** (asc) as final tiebreaker
+3. **GPU name**, then **UUID** (asc) as final, deterministic tiebreakers
 
-Implemented in [`_gpu_ranking()`](../../../aifred/lib/process_utils.py).
+Implemented in [`enumerate_gpus()`](../../../aifred/lib/calibration/gpu.py).
+GPUs are identified by their NVIDIA UUID, and llama-server sees them in
+exactly this order via `CUDA_VISIBLE_DEVICES=<UUIDs>`. The side-channel
+picker ranks separately with `_rank()` in
+[`vision_gpu_select.py`](../../../aifred/lib/vision_gpu_select.py)
+(compute capability desc, total VRAM desc, PCI_BUS_ID index asc).
 
 ## Side-channel placement (VLM + TTS)
 
@@ -41,7 +48,10 @@ Implemented in [`_gpu_ranking()`](../../../aifred/lib/process_utils.py).
 The fastest compute class stays completely free for the chat LLMs
 (main + automatic via llama-swap). The side channels — the
 Vigilantia VLM (Ollama) and the TTS containers — run on the
-**side-channel tier**: the compute class directly below it.
+**side-channel tier**: the compute class directly below it. Both share
+**one card** of this tier (decision 2026-08-29), so all other cards stay
+free for backend topologies (e.g. TP2×PP2 across four cards in the vLLM
+calibration).
 
 ### Tier formation (`_side_channel_tier()`)
 
@@ -55,30 +65,38 @@ Vigilantia VLM (Ollama) and the TTS containers — run on the
    (last resort instead of "no vision"). Constant:
    `SIDE_CHANNEL_MIN_COMPUTE = (7, 0)`.
 
-### Split between TTS and VLM
+### Shared card for TTS and VLM (`pick_side_channel_gpu()`)
 
-- **`pick_tts_gpu()`** → first card of the tier.
-- **`pick_vlm_gpu()`** → second card of the tier; if there is only one,
-  the VLM shares it with the TTS (as before).
-- **`pick_face_gpu()`** → follows the VLM (InsightFace is tiny at ~280 MB
-  and belongs to vision thematically).
+- **`pick_side_channel_gpu()`** → the shared card: the **second** card of
+  the tier; if the tier has only one card, that one.
+- **Weakest attachment first:** if the tier cards sit at different PCI
+  depths (`attachment_depth()`, e.g. a card behind a USB4/Thunderbolt
+  tunnel with extra bridges), the most deeply attached card becomes the
+  shared card. Side channels are single-card loads and tolerate the
+  tunnel; a TP/PP group does not, because every token syncs across all
+  of its cards. With uniform depth (or unknown bus IDs) the rule stays
+  "second tier card".
+- **`pick_tts_gpu()`** and **`pick_vlm_gpu()`** both return this shared
+  card. TTS containers get its UUID via `get_tts_gpu_uuid()`
+  ([`process_utils.py`](../../../aifred/lib/process_utils.py)).
+- **InsightFace** (face recognition) follows the VLM: `gpu_id: "auto"` in
+  the vision plugin's `face_recognition` settings resolves via
+  `resolve_gpu_id()` → `pick_vlm_gpu()`.
 
-As soon as the tier has ≥ 2 cards, there is **no VRAM competition** anymore
-between TTS container and VLM on one card. Previously, e.g.
-Fish-TTS and Vigilantia-8B could not coexist (the combo capacity check
-discarded the profile). With a single tier card this
-check still applies: if TTS reserve + VLM reserve don't fit on it together,
-exactly this combo is dropped (the rest runs).
+The price of the shared card: very large TTS engines (Fish, MOSS) no longer
+fit onto one card together with the VLM. The combo capacity check of the
+calibration catches this: if TTS reserve + VLM reserve exceed the shared
+card's total VRAM, exactly this combo profile is not written (the rest runs).
 
 ### Examples
 
-| Setup | LLM tier | TTS | VLM |
-|---|---|---|---|
-| 2× RTX 8000 + 1× V100 + 2× P40 | RTX 8000 ×2 | V100 | V100 (shared, P40 excluded by floor) |
-| 2× RTX 8000 + 3× V100 (today) | RTX 8000 ×2 | V100 #1 | V100 #2 |
-| 3× RTX 8000 | RTX 8000 #1 | RTX 8000 #2 | RTX 8000 #3 |
-| P40s only | P40 #1 | P40 #2 | P40 #3 (soft fallback) |
-| 1× RTX 8000 + 1× P40 | RTX 8000 | P40 | P40 (last resort) |
+| Setup | LLM tier | Shared TTS + VLM card |
+|---|---|---|
+| 2× RTX 8000 + 1× V100 + 2× P40 | RTX 8000 ×2 | V100 (only tier card, P40 excluded by floor) |
+| 2× RTX 8000 + 3× V100 (today) | RTX 8000 ×2 | V100 #2 — or the more deeply attached V100 if the depths differ (on the Mini the tunnelled card, see `TestWeakAttachmentPreference` in [`tests/test_vision_gpu_select.py`](../../../tests/test_vision_gpu_select.py)) |
+| 3× RTX 8000 | RTX 8000 #1 | RTX 8000 #3 (second tier card) |
+| 3× P40 only | P40 #1 | P40 #3 (soft fallback) |
+| 1× RTX 8000 + 1× P40 | RTX 8000 | P40 (last resort) |
 
 ### P40 floor: measurements
 
@@ -100,11 +118,15 @@ vision host as long as something faster is available.
 
 The calibration accounts for the VLM on the card chosen by the picker.
 For Ollama to actually load the model there at runtime, the
-systemd drop-in (`CUDA_VISIBLE_DEVICES`, see `ollama_override_text()`)
-must be pinned to that card — otherwise Ollama picks greedy first-fit.
-With a single tier card this is identical to the previous pin,
-so no action is required; it becomes relevant once TTS and VLM are split
-across two different cards.
+systemd drop-in (`CUDA_DEVICE_ORDER=PCI_BUS_ID` + `CUDA_VISIBLE_DEVICES`,
+text generated by `ollama_override_text()`) must be pinned to that card —
+otherwise Ollama picks greedy first-fit. This VLM pin lives in externally
+managed configs (`ollama-vlm.service`, `-visiond` entries of the llama-swap
+config) that are **not** rewritten automatically. That is why the shared
+card is deliberately the second tier card, the one the VLM always ran on;
+TTS resolves its card itself via `get_tts_gpu_uuid()`. If the picker's
+choice changes (hardware change, attachment depth), the VLM pin must be
+adjusted by hand.
 
 ## User preferences (binding)
 
@@ -116,7 +138,7 @@ In this order:
 2. **Fill the fastest GPU class first** — layers land primarily on the RTX
    8000s, P40s only as spillover.
 3. **Packed full up to the safety margin** ([`LLAMACPP_VRAM_SAFETY_MARGIN`](../../../aifred/lib/config.py),
-   192 MB Linux, 1536 MB WSL) — NO spreading of headroom. A GPU with 2 GB
+   192 MB Linux, 1536 MB under WDDM, i.e. WSL2/Windows) — NO spreading of headroom. A GPU with 2 GB
    free is fine; one with 20 GB free is waste if we would have to add inactive
    GPUs.
 4. **Reach native context** — never reduce if avoidable.
@@ -134,7 +156,9 @@ Example splits for an 80B model, 4 GPUs (2× RTX 8000, 2× P40):
 
 Within the fastest compute class, one GPU is marked as `first_in_class`
 — the one with the least free VRAM (usually the
-display-carrying GPU on desktop systems). For this GPU the optimizer
+display-carrying GPU on desktop systems). It is the only marked card in the
+whole system: in the pinned fill order it is CUDA device 0; slower classes
+carry none of its buffers and get no handicap. For this GPU the optimizer
 subtracts a **handicap** from the usable VRAM so that it does not end up
 tighter than its siblings.
 
@@ -143,24 +167,34 @@ tighter than its siblings.
 1. **Display/compositor overhead** — the display-carrying GPU already has
    a few hundred MB occupied at idle (X server, compositor, browser GPU
    acceleration).
-2. **KV cache / output tensor asymmetry** — with `-sm layer`, llama.cpp pins
-   the output tensor and parts of the KV cache setup to the
-   first CUDA device. This makes GPU0 more loaded than its siblings
-   with the same layer count, even without a display.
+2. **Main-device buffers** — with `-sm layer`, llama.cpp places its
+   main-device buffers (logits/output tensor, compute workspace, MTP
+   draft) on the first CUDA device. This makes GPU0 more loaded than its
+   siblings with the same layer count, even without a display.
 
-**Sizing:**
+**Sizing (two stages):**
 
-- Measured empirically as `max_sibling_free − first.free_mb` within the
-  fastest class.
-- **Floor:** `_MIN_FIRST_GPU_HANDICAP_MB` = **256 MB** (always at least).
-- **Ceiling:** If the measured difference > `_HARDWARE_HANDICAP_THRESHOLD_MB`
-  (500 MB), the handicap falls back to the floor. Otherwise an already
-  loaded foreign model on GPU0 would be subtracted twice.
-- Only one GPU in the fastest class → floor (no sibling comparison
-  possible).
+1. **Idle measurement** (budget value before fit-params,
+   [`measure_first_gpu_handicap()`](../../../aifred/lib/calibration/gpu.py)):
+   - Measured empirically as `max_sibling_free − first.free_mb` within the
+     fastest class.
+   - **Floor:** `_MIN_FIRST_GPU_HANDICAP_MB` = **256 MB** (always at least).
+   - **Ceiling:** If the measured difference > `_HARDWARE_HANDICAP_THRESHOLD_MB`
+     (500 MB), the handicap falls back to the floor. Otherwise an already
+     loaded foreign model on GPU0 would be subtracted twice.
+   - Only one GPU in the fastest class → floor (no sibling comparison
+     possible).
+2. **Model-derived** (as soon as fit-params has run,
+   [`first_gpu_handicap_mb()`](../../../aifred/lib/calibration/optimizer.py)):
+   the idle delta does not see the transient load peak of the main-device
+   buffers, but fit-params does, as an asymmetry against the active
+   siblings: `(base_overhead[first] − mean(base_overhead[siblings])) +
+   max(0, slope asymmetry) × layers[first] × ctx`. It scales with the
+   target context; the 256 MB floor stays the lower bound.
+   `fill_fastest_first()` uses this value.
 
-Implemented in [`measure_first_gpu_handicap()`](../../../aifred/lib/calibration/gpu.py).
-Visible in the log as the line `📊 first-GPU handicap: <N> MB`.
+Visible in the log as the line
+`Free VRAM: …, first-GPU handicap (idle floor): <N> MB — model-derived per cell once fit-params ran`.
 
 **Practical effect:** In the split `[27, 29, 19, 14, 5]` for a 5-GPU 235B
 model, GPU1 has two layers more than GPU0 — precisely because GPU0 got the
@@ -168,15 +202,30 @@ handicap and both end up **equally tight** against the safety margin.
 
 ## Algorithm
 
+[`calibrate_llamacpp_model()`](../../../aifred/lib/calibration/flow.py) runs
+the phases under the same names as its code sections and log lines:
+
+| Phase | Content | Log marker |
+|-------|---------|------------|
+| A | GGUF metadata, stable VRAM, budget per GPU (margins, side-channel reserves) | `Reading GGUF metadata: …` |
+| 1 | Base configuration: fewest GPUs, highest KV quality at native ctx | `Phase 1: searching …` |
+| — | Hybrid (CPU offload), only if Phase 1 verifies nothing and hybrid is allowed in the settings | `No GPU-only configuration verified — trying hybrid` |
+| E | Speed variant: fewer GPUs than the base | `Phase E: speed variant …` |
+| D | Write the llama-swap entries and the VRAM cache | — |
+
+The TTS/VLM variants are not a phase of this run: the calibration mixin
+calibrates them afterwards from the finished base (see
+[TTS variants](#tts-variants-after-the-base-run)).
+
 ### Layer shift: glass cascade (SSOT)
 
 When a probe OOMs, layers are redistributed — exactly **one whole layer** away from the
 overloaded GPU. Both the blind shift in phase 1
-([`_shift_one_layer_blind()`](../../../aifred/lib/calibration/flow.py)) and
+([`_shift_one_layer_blind()`](../../../aifred/lib/calibration/split_refine.py)) and
 the measurement-based refinement
-([`_refine_split_from_measurement()`](../../../aifred/lib/calibration/flow.py))
+([`_refine_split_from_measurement()`](../../../aifred/lib/calibration/split_refine.py))
 choose the destination via **the same** SSOT function
-[`_cascade_destination()`](../../../aifred/lib/calibration/flow.py). Two
+[`_cascade_destination()`](../../../aifred/lib/calibration/split_refine.py). Two
 different distribution philosophies for the same problem are forbidden
 (see [First-GPU handicap](#first-gpu-handicap) and the
 project rule "stick strictly to architecture decisions once they
@@ -184,27 +233,56 @@ are made").
 
 **Cascade instead of "emptiest GPU":** The layer does not go to the globally emptiest
 card, but **overflows** to the next card in fastest-first order that
-can still hold it. `_cascade_destination()` iterates `src+1 … len(gpus)-1` and
-takes the **first** GPU `i` with
-`reserve_adjusted_free[i] − step × layer_cost[i] ≥ min_free`. If no
-subsequent card has room, there is no destination (→ ctx shrink as the emergency exit).
-This keeps the fastest class packed full and the spillover flows down in order
-— the glass cascade from the [user preferences](#user-preferences-binding).
+can still hold it. A card `i` holds it if
+`free_estimate[i] − step × layer_cost_per_gpu[i] ≥ min_free_mb`
+(cost per layer = weights + KV at this ctx). `_cascade_destination()` checks
+in this order:
 
-**Whole layers, never fractions (`_STEP = 1.0`):** llama.cpp with `-sm layer`
+1. **Idle card before `src`** (only without `keep_active_set`): an
+   entirely empty card that comes earlier in the order is by sorting
+   faster or equally fast and free — it wins over spilling down onto
+   slower cards.
+2. **Downstream:** iterates `src+1 … len(gpus)-1` and takes the **first**
+   card that holds the layer.
+3. **Upstream fallback:** if no downstream card holds it (typically: `src`
+   is the last card of the cascade), the card before `src` with the
+   largest remaining headroom after `+step` wins. Only with a free
+   estimate — without one there is no upstream guessing.
+
+If none holds the layer, there is no destination (→ ctx search as the
+emergency exit). This keeps the fastest class packed full and the spillover
+flows down in order — the glass cascade from the
+[user preferences](#user-preferences-binding).
+
+**Reserve cards are never a destination (`blocked_dest`):** GPUs carrying a
+side-channel reserve (TTS/VLM) are excluded as shift destinations
+([`_verify_and_refine()`](../../../aifred/lib/calibration/ctx_search.py)
+builds the set from `budget.gpu_reserve_mb`). A layer there would eat
+exactly the space the container claims later. The source may be any card.
+
+**Context-maximizing swap first:** If the failing probe left a steady-state
+measurement, the shift loop first tries
+[`_context_refine_swap()`](../../../aifred/lib/calibration/split_refine.py):
+a single whole-layer swap that relieves the ctx-limiting card onto the
+card with the highest ctx ceiling (upstream allowed). Only if it finds
+nothing does the blind shift via `_cascade_destination()` run.
+
+**Whole layers, never fractions (`_STEP = 1.0` in `_shift_one_layer_blind()`):**
+llama.cpp with `-sm layer`
 places **whole** layers only; a fractional `--tensor-split`
 is rounded internally to whole layers. A 0.5 shift therefore often moves
 **nothing at all** physically, but costs a full model reload (for a 122B
 model ~125 GB of reading). That's why a shift always moves exactly one whole
 layer, and the final fractional split is rounded to whole layers via
-[`_quantize_split_to_layers()`](../../../aifred/lib/calibration/flow.py)
+[`_quantize_split_to_layers()`](../../../aifred/lib/calibration/fit_math.py)
 (largest-remainder rounding) that sum to exactly
 `total_layers`.
 
 **Reserve-adjusted free:** What is checked is not the raw nvidia-smi free value,
-but `load_min_free` adjusted for side-channel reserves (resident TTS/VLM containers).
+but the lowest free value observed during load (`load_min_free_mb` of the
+`VerifyResult`) minus the side-channel reserves (`budget.gpu_reserve_mb`).
 A V100 that reports 14 GB "free" but reserves 14 GB
-for a running TTS container counts as **full** → the shift
+for a TTS container counts as **full** → the shift
 skips it. Without this adjustment, a layer would be dumped onto a card that is only nominally
 free, and the next probe would OOM again.
 
@@ -215,70 +293,102 @@ into the base config.
 
 ### Phase 1: min GPUs for native ctx
 
+In [`calibrate_llamacpp_model()`](../../../aifred/lib/calibration/flow.py);
+verify, shifts and ctx search in
+[`_verify_and_refine()`](../../../aifred/lib/calibration/ctx_search.py).
+The GPU sets come from
+[`_enumerate_gpu_configs()`](../../../aifred/lib/calibration/fit_math.py):
+first single GPUs (compute-DESC), then per count `n` ascending the
+homogeneous set of one speed class, then the compute-first fill
+(the first `n` cards, mixing classes).
+
 ```
-for n in 1..len(gpus):                          // sorted fastest-first
-    candidate = math_estimate(n, native_ctx)    // 1-2 s, no model load
+for kv in KV levels (f16 first, then q8_0, …):  // KV quality before GPU count
+  for active in _enumerate_gpu_configs(...):      // fewest GPUs first
+    candidate = _project_cell(active, kv)         // math, 1-2 s, no model load
     if candidate fail or ctx < native:
-        next n                                  // math says no → no probe
-    
-    real_probe(candidate.split, native_ctx)     // 30-90 s
+        next config                               // math says no → no probe
+
+    real_probe(candidate.split, native_ctx)       // 30-90 s
     if fits: BASE = candidate; BREAK
-    
+
     // probe failed despite math OK
     // SHIFT LOOP runs at NATIVE ctx (not shrunk!) — goal: keep max ctx
     up to 15 layer shifts:
-        shift 1 WHOLE layer via _cascade_destination (fastest-first,
-          reserve-adjusted, do NOT activate idle — keeps n GPUs constant)
+        with measurement: _context_refine_swap first
+        otherwise shift 1 WHOLE layer away from the OOM card via
+          _cascade_destination (fastest-first, reserve-adjusted,
+          reserve cards blocked as destination)
         real_probe(shifted_split, native_ctx)
-        if fits: BASE = candidate with shifted_split; BREAK
-    
-    // ctx shrink ONLY as last resort, if all 15 shifts fail at native
-    if all shifts fail:
-        shrunk_ctx = _shrink_to_fit(...)
-        real_probe(current_split, shrunk_ctx)
-        if fits: BASE = candidate with shrunk_ctx
-    
-    // if nothing → next n
-    if n == len(gpus): no fit (suggest hybrid)
+        if fits: BREAK out of the shift loop
+        split already seen (oscillation) → end the shift loop
+
+    // ctx search ONLY as last resort, if the shifts are exhausted at native
+    if still OOM:
+        _binary_search_fitting_ctx(lo=MIN_USEFUL_CONTEXT_TOKENS, hi=native_ctx)
+        // math-guided, bias-corrected, 256-token precision
+
+    result ≥ native → BASE; BREAK
+    result < native → keep as fallback, try the next config
+
+// no config reaches native:
+//   best-effort probe of the best unverified candidate (≥ MIN_USEFUL),
+//   then final choice over all real measurements: highest KV quality,
+//   within it the largest ctx
+// still nothing → hybrid (only if allowed in the settings), otherwise error
 ```
 
 **The order is binding:** first layer shift at native ctx (15
-attempts), only then ctx shrink as an emergency. NEVER the other way round — layer
+attempts), only then ctx search downward as an emergency. NEVER the other way round — layer
 distribution can usually fix OOM without sacrificing ctx.
 
 **Upward push (step 3):** After successful verify+refinement, if
-`current_ctx < native_context` AND the tightest active GPU still has
-`> 2 × safety_margin` free → binary search ctx upward. The math
+`current_ctx < native_context` (for variants: `< ctx_ceiling`, e.g.
+the base ctx) and a steady-state measurement is available → binary search
+ctx upward. Probe-first since 2026-07-07: there is **no** headroom gate
+anymore (previously only with `> 2 × safety_margin` free on the tightest
+GPU, which pinned the 397B to 89k although ~171k ran). The math
 projection is conservative; real-world probe headroom can
-carry more ctx. Especially relevant for the speed variant (target_ctx comes from the
-2-GPU math estimate, often smaller than actually feasible).
+carry more ctx. On an OOM during the push, `_context_refine_swap()`
+relieves the ctx-limiting card before the search window shrinks.
+Especially relevant for the speed variant (its start ctx comes from the
+math estimate of the smaller GPU set, often smaller than actually feasible).
 
-### Phase 2: speed variant (n_speed < n_base)
+### Phase E: speed variant (n_speed < n_base)
 
 Speed variant = fewer GPUs than base, ctx may be reduced.
 **The active set is locked**: the algorithm must NOT activate idle GPUs
 during the shift loop, otherwise you end up with the base config.
 
+Only when there is more than one GPU and BASE uses more than one.
+Candidate choice in
+[`_find_speed_candidate()`](../../../aifred/lib/calibration/flow.py)
+(math only, no probe):
+
 ```
-for n_speed in (n_base - 1) downto 1:
-    candidate = math_estimate for n_speed GPUs
-    if ctx >= MIN_USEFUL_CONTEXT_TOKENS: real_probe(candidate.split, target_ctx)
-    
+if n_base <= find_min_gpus_for_weights(...): no speed variant
+
+for each speed class (fastest first, cumulative):
+    for n in (smallest possible n) .. (n_base - 1):
+        candidate = projection (reused from Phase 1 if the same GPU set,
+                    otherwise _project_cell; same KV as BASE)
+        if candidate.max_ctx >= MIN_USEFUL_CONTEXT_TOKENS:
+            take candidate; stop
+    // nothing found → extend by the next slower class
+
+_verify_and_refine(candidate, lock_active_gpus=True):
+    real_probe(candidate.split, candidate.max_ctx)
     on OOM, in this order:
-      1. shifts at target_ctx (max 15) via _cascade_destination
-         with keep_active_set=True — NO activation of idle GPUs
-      2. if all shifts fail: BINARY SEARCH ctx downward
+      1. shifts (max 15) with keep_active_set=True — NO activation of idle GPUs
+      2. if the shifts are exhausted: _binary_search_fitting_ctx
          lo = MIN_USEFUL_CONTEXT_TOKENS (32768 from config.py)
-         hi = target_ctx
-         iterate until hi - lo < precision (256 tokens):
-             mid = (lo+hi)/2
-             real_probe(mid)
-             fit → lo = mid (try higher)
-             fail → hi = mid (go lower)
-         results in the HIGHEST fitting ctx
-    
-    SPEED = (best_split, best_ctx, n_speed)
-    BREAK out of n_speed loop
+         hi = candidate ctx
+         math-guided + bias tracking, final midpoint bisection
+         down to 256-token precision
+         → the HIGHEST fitting ctx
+    then upward push (step 3) up to native
+
+SPEED = (best_split, best_ctx, n_speed)
 ```
 
 **Drop conditions for the speed variant:**
@@ -290,34 +400,63 @@ The user chooses between BASE (max ctx) and SPEED (fewer GPUs, reduced
 ctx). Both are written to llama-swap as separate configs
 (`<model>` and `<model>-speed`).
 
-### Phase 3: TTS variants
+### TTS variants (after the base run)
 
-Per TTS backend (XTTS, MOSS):
+Orchestrated in the calibration mixin
+([`_calibration_mixin.py`](../../../aifred/state/_calibration_mixin.py)).
+Per installed GPU TTS engine (`installed_gpu_engines()` from
+[`tts_engines/registry.py`](../../../aifred/lib/tts_engines/registry.py) —
+XTTS, MOSS, Fish-Speech, Qwen3-TTS, as far as their Docker image exists
+on this host) whose `|<engine>` cell is ticked in the calibration picker
+(`calibration_matrix`):
 
-1. Start the TTS container → occupies VRAM on the TTS GPU
-2. Live hardware detection: `enumerate_gpus()` sees the current free VRAM values
-3. **Run the complete calibration generator** (phase 1 + phase 2):
-   - Phase 1: estimate + probe + 15 layer shifts at native ctx, then optionally
-     ctx shrink
-   - Phase 2: speed variant (n_speed < n_base) with binary search down to
-     MIN_USEFUL_CONTEXT_TOKENS
-4. Write the results as `<model>-tts-<backend>` (base) AND, if applicable,
-   `<model>-tts-<backend>-speed` (speed variant) to the llama-swap config.
-   The speed variant is skipped if:
-   - `n_base == min_gpus_for_weights` (no room for speed) — typical for
+1. **Isolated mode:** if the GPU set of the base (or speed) profile is
+   disjoint from the TTS card (`side_channel_disjoint()` in
+   [`llamaswap_io.py`](../../../aifred/lib/calibration/llamaswap_io.py)),
+   the profile is copied unchanged as `<model>-tts-<engine>` (or
+   `-speed`) — no projection, no probe. If every candidate is covered
+   this way, the engine is done.
+2. Otherwise: start the TTS container → occupies VRAM on the TTS card. The
+   **TTS reserve** comes from `resolve_tts_reserve()`
+   ([`tts_stress_burnin.py`](../../../aifred/lib/tts_stress_burnin.py)):
+   measured peak from `data/tts_vram_cache.json` +
+   `LLAMACPP_TTS_BURNIN_HEADROOM_MB` (512 MB); on a cache miss the stress
+   burn-in runs first.
+3. **Fast path:** [`calibrate_tts_variant_from_base()`](../../../aifred/lib/calibration/flow.py)
+   re-projects the **same active GPU set** as BASE under the TTS-aware free
+   VRAM (`enumerate_gpus()` live + reserve) and runs `_verify_and_refine()`;
+   the ctx is capped at the base ctx (TTS only takes VRAM away, never adds).
+   If there is a speed variant, the same fast path runs a second time with
+   speed split + speed ctx as the "base".
+4. **Full calibration only as a fallback:** if the fast path finds no fit,
+   the complete calibration generator (Phase A, 1, E) runs with the
+   TTS card and reserve as input.
+5. Write the results as `<model>-tts-<engine>` (base) AND, if applicable,
+   `<model>-tts-<engine>-speed` (speed variant) to the llama-swap config.
+   The speed variant is dropped if:
+   - `n_base <= find_min_gpus_for_weights` (no room for speed) — typical for
      large models with MOSS, because 2 GPUs are not enough for model + MOSS
      container
    - speed split == base split (no speed gain possible)
 
-**Generic:** Whether TTS is on GPU1 (today) or a V100 (future) — the
-algorithm adapts automatically, because free VRAM is measured live.
-The algorithm is identical to the base path, only with different
-free VRAM values as input.
+VLM and combo variants (TTS × VLM) go through the same
+`calibrate_tts_variant_from_base()`, but derive their split proportionally
+from the base split via
+[`_derive_reserved_split()`](../../../aifred/lib/calibration/fit_math.py)
+(relieves every reserve-loaded card) and verify with `lock_split=True` —
+only the context is free there.
+
+**Generic:** The TTS card is always the shared side-channel card
+(`pick_tts_gpu()` → `get_tts_gpu_uuid()`), whichever card that is on the
+current hardware — the algorithm adapts automatically, because free VRAM
+is measured live. The verify/refine loop is identical to the base path,
+only with different free VRAM values and reserves as input.
 
 **Ctx reduction only when unavoidable:** With layer shifts at native ctx,
 the algorithm aggressively tries to keep the native context. Only when
 that is not enough either ("the GPUs are all really full") is ctx
-reduced. For speed, via binary search down to MIN_USEFUL.
+reduced — for every variant via the same binary search
+(`_binary_search_fitting_ctx()`) down to MIN_USEFUL.
 
 ## Estimate vs. probe
 
@@ -333,8 +472,10 @@ reduced. For speed, via binary search down to MIN_USEFUL.
 On probe OOM: layer shift, then the estimate filter again (very cheap),
 followed by a probe if the math is green.
 
-**For binary searches** (both downward in phase 2 / speed variant and
-upward in step 3) the `_math_max_fitting_ctx` helper is used:
+**For binary searches** (both downward after exhausted shifts —
+[`_binary_search_fitting_ctx()`](../../../aifred/lib/calibration/ctx_search.py),
+SSOT for base, speed, VLM and best-effort — and upward in step 3) the
+[`_math_max_fitting_ctx`](../../../aifred/lib/calibration/fit_math.py) helper is used:
 the math searches the whole range in <100 ms (binary search via `_math_predicts_fit`)
 and returns the highest ctx the fit-params modelling considers
 fitting. Exactly that value is real-probed:
@@ -357,7 +498,9 @@ algorithm is not careful, it creeps along this gap in 256-token steps
 each failed probe, `bias = predicted_min_free − measured_min_free` is
 determined and passed on as `extra_safety_margin` to the next math search.
 The math thus directly picks a realistic ctx further
-down (only 3–5 probes instead of 25+).
+down (only 3–5 probes instead of 25+). The bias is tracked bidirectionally
+(positive = math too optimistic, negative = too pessimistic; `_learn_bias()`
+in `ctx_search.py`) and seeded from the OOM that triggered the search.
 
 ## Operation: gate, cancel, timeout
 
@@ -386,12 +529,26 @@ a session sync storm.
 
 ## AI calibration (alternative)
 
-With `calibration_mode = "ai"`: a DashScope Qwen agent drives the loop
-via function calls (`estimate_config`, `probe_config`, `finalize`).
-It follows the same strategy via the system prompt
-([prompts/de/calibration/system.txt](../../../prompts/de/calibration/system.txt)).
-Advantage: it can handle unusual hardware mixes (e.g. heterogeneous cards) better
-than the deterministic algorithm.
+With `calibration_mode = "ai"` (default: `"legacy"` = the algorithm): a
+cloud LLM drives the loop via function calls (`estimate_config`,
+`probe_config`, `finalize`) —
+[`calibrate_with_ai()`](../../../aifred/lib/calibration/ai_agent.py).
+Provider, model and reasoning toggle come from the `calibration` system
+agent in `data/agents.json` (`cloud_provider`, default `qwen` = DashScope;
+editable in the Agent Editor). In the UI the AI option is only enabled
+with a DashScope key. It follows the same strategy via the system prompt
+([prompts/en/calibration/system.txt](../../../prompts/en/calibration/system.txt);
+`ai_agent.py` always loads it with `lang="en"`).
+
+Scope: BASE (`_try_ai_calibration()` in `flow.py`), the speed variant (the
+GPU set is chosen deterministically by `_find_speed_candidate()`, the AI
+optimizes ctx/split on exactly that locked set) and the TTS/VLM/combo cells
+(`calibrate_tts_variant_from_base()` dispatches to `_ai_variant_from_base()`
+in AI mode). AI mode is **terminal**: on failure it reports an error and
+never falls back to the algorithm. Advantage: it can handle unusual hardware
+mixes (e.g. heterogeneous cards) better than the deterministic algorithm.
+Evaluation of this path:
+[calibration-llm-challenge.md](calibration-llm-challenge.md).
 
 ## What is NEVER done
 
@@ -410,27 +567,47 @@ than the deterministic algorithm.
 
 - `len(active_gpus_in_split) ≤ len(active_gpus_in_speed_split)` is NOT to be
   guaranteed — speed may have fewer GPUs, that's its purpose.
-- `base_split[i] == 0` for a GPU means this GPU is unused — no
-  CUDA_VISIBLE_DEVICES needed (llama.cpp ignores it automatically).
+- `base_split[i] == 0` for a GPU means this GPU is unused. The written
+  profile pins exactly the active cards by UUID via `CUDA_VISIBLE_DEVICES`
+  (in calibration order) and rewrites the tensor split to one value per
+  active card (`update_llamaswap_cuda_visible()` in
+  [`llamaswap_io.py`](../../../aifred/lib/calibration/llamaswap_io.py)) —
+  env and split must never diverge.
 - Compute capability sorting is the only authoritative source for
   speed classes — no hardcoded lists ("RTX 8000 is fast").
 
 ## Code references
 
 - Algorithm: [`aifred/lib/calibration/flow.py`](../../../aifred/lib/calibration/flow.py)
-  - `calibrate_llamacpp_model()` — entry point
-  - `_verify_and_refine()` — verify + shift + native push
-  - `_shift_one_layer_blind()` — blind shift (phase 1)
+  - `calibrate_llamacpp_model()` — entry point (Phase A, 1, E, D)
+  - `_find_speed_candidate()` — speed candidate (fewer GPUs, class cascade)
+  - `calibrate_tts_variant_from_base()` — TTS/VLM/combo variant from base
+- Verify + ctx search: [`aifred/lib/calibration/ctx_search.py`](../../../aifred/lib/calibration/ctx_search.py)
+  - `_verify_and_refine()` — verify + shift + ctx search + upward push
+  - `_binary_search_fitting_ctx()` — math-guided ctx search on a fixed split
+- Split refinement: [`aifred/lib/calibration/split_refine.py`](../../../aifred/lib/calibration/split_refine.py)
+  - `_shift_one_layer_blind()` — blind shift (load OOM)
   - `_refine_split_from_measurement()` — measurement-based refinement
-  - `_cascade_destination()` — SSOT destination choice (cascade, reserve-adjusted, idle skip)
+  - `_context_refine_swap()` — ctx-maximizing swap (first OOM, upward push)
+  - `_cascade_destination()` — SSOT destination choice (cascade, reserve-adjusted, idle skip, `blocked_dest`)
+- Math: [`aifred/lib/calibration/fit_math.py`](../../../aifred/lib/calibration/fit_math.py)
+  - `_enumerate_gpu_configs()` — GPU sets in priority order
   - `_quantize_split_to_layers()` — round fractional split to whole layers
+  - `_math_max_fitting_ctx()` / `_math_predicts_fit()` — math pre-filter
+  - `_derive_reserved_split()` — proportional split for reserve-loaded cards
 - Optimizer: [`aifred/lib/calibration/optimizer.py`](../../../aifred/lib/calibration/optimizer.py)
   - `fill_fastest_first()` — greedy fill by speed class
-- Hardware: [`aifred/lib/process_utils.py`](../../../aifred/lib/process_utils.py)
-  - `_gpu_ranking()` — compute capability sorting
+  - `first_gpu_handicap_mb()` — model-derived first-GPU handicap
+- Hardware: [`aifred/lib/calibration/gpu.py`](../../../aifred/lib/calibration/gpu.py)
+  - `enumerate_gpus()` — compute capability sorting, speed classes, `first_in_class`
+  - `measure_first_gpu_handicap()` — idle handicap (floor/ceiling)
+- TTS pinning: [`aifred/lib/process_utils.py`](../../../aifred/lib/process_utils.py)
   - `get_tts_gpu_uuid()` — TTS GPU pinning (UUID, via `pick_tts_gpu`)
 - Side-channel placement: [`aifred/lib/vision_gpu_select.py`](../../../aifred/lib/vision_gpu_select.py)
   - `_side_channel_tier()` — tier formation + compute floor
-  - `pick_tts_gpu()` / `pick_vlm_gpu()` / `pick_face_gpu()` — card choice
+  - `pick_side_channel_gpu()` — shared card (second tier card, weakest attachment first)
+  - `pick_tts_gpu()` / `pick_vlm_gpu()` — both return the shared card
+  - `resolve_gpu_id()` — `"auto"` → `pick_vlm_gpu()` (InsightFace)
 - AI variant: [`aifred/lib/calibration/ai_agent.py`](../../../aifred/lib/calibration/ai_agent.py)
-- Prompt: [`prompts/de/calibration/system.txt`](../../../prompts/de/calibration/system.txt)
+  - `calibrate_with_ai()` — tool loop (`estimate_config`, `probe_config`, `finalize`)
+- Prompt: [`prompts/en/calibration/system.txt`](../../../prompts/en/calibration/system.txt)

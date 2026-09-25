@@ -68,8 +68,7 @@ Profilwahl selbst (Zwei-Profil-Muster: `Modell` vs. `Modell-rpc`).
   wirklich mit dem rpc-server — verifiziert).
 - Aragon-Seite: llama.cpp mit `-DGGML_CUDA=ON -DGGML_RPC=ON` (Arch 86),
   `ggml-rpc-server -H 0.0.0.0 -p 50052`, statische IP 10.0.0.2/30 auf dem
-  USB4-Adapter. Checkliste siehe showcase-notes.md §Einrichtung
-  (Binary-Name dort veraltet).
+  USB4-Adapter.
 - Mini-Seite: NetworkManager-Profil `rpc-direct` (enp4s0, 10.0.0.1/30)
   existiert bereits.
 - Das Kalibrier-LLM kommt wie gehabt aus dem Agent-Editor

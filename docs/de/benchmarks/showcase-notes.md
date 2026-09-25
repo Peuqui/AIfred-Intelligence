@@ -15,9 +15,6 @@ Verglichen werden Inferenzgeschwindigkeit, Antwortqualität und philosophische T
 
 **Frage (DE):** "Was ist besser, Hund oder Katze?"
 
-Die englische Variante wird separat inferiert (keine Übersetzung) und in
-`showcase-benchmark-notes-en.md` dokumentiert.
-
 **Stand:** 2026-02-22
 
 **Hinweis zur Fehlerbewertung:** Englische Einsprengsel (rather, indeed, quite, Order etc.)
@@ -184,11 +181,6 @@ versagt, während Qwen3-235B bei Q2_K_XL (~2 Bits) einwandfrei funktioniert, ist
 
 **Fazit:** GLM-4.7-REAP benötigt mindestens Q4-Quantisierung für brauchbare Ergebnisse.
 Das GGUF wurde gelöscht.
-
-**Showcase-Empfehlung:** Die GLM-Ergebnisse eignen sich hervorragend als Negativ-Beispiel.
-Die Tribunal-Ausgabe mit dem Pidgin-Salomo-Urteil ist noch eindrucksvoller als die
-Reasoning-Loop ("Is it a typo for Photosynthesis? No." x10), weil sie zeigt wie das Modell
-eine eigene Phantasiesprache erfindet statt Deutsch zu sprechen.
 
 ---
 
@@ -533,51 +525,6 @@ Einziges Modell, das quantitative Argumente einführt:
 
 ---
 
-## Showcase-Struktur (geplant)
-
-### Deutsche Version
-- Deutsche Inferenzen (6 Sessions inkl. GLM Negativ-Showcase, alle aktuell)
-- Deutsche Analyse (dieses Dokument)
-- TTS-Demo einer Session (XTTS/MOSS-TTS)
-
-### Englische Version
-- Englische Inferenzen (separat, keine Übersetzung)
-- Englische Analyse
-- TTS-Demo derselben Session auf Englisch
-
-### Zusatz-Analyse
-- Deutsch vs. Englisch Qualitätsvergleich
-- Sprachliche Unterschiede, Persona-Konsistenz über Sprachen hinweg
-- 📄 [Tensor Split Benchmark: Speed Variant vs. Full Context](../../en/benchmarks/tensor-split.md) — Multi-GPU Tensor-Split-Optimierung (11:1 vs. 2:1), reale Performance-Daten mit Qwen3-Next-80B auf RTX 8000 + P40
-- 📄 Distributed Inference via RPC — Qwen3-235B auf 3 GPUs über LAN (96 GB VRAM), Setup-Anleitung, Performance-Vergleich lokal vs. RPC
-
-### Reddit-Post
-- Kurzer, knackiger Post mit Highlights
-- Link zum GitHub.io Showcase für Details
-- Hervorhebung der Neuerungen:
-  - TTS-Integration (MOSS-TTS, XTTS)
-  - Tribunal-Modus (Multi-Agent-Debatte)
-  - Autoscan & Kalibrierung für lokale Modelle
-  - Hardware-Benchmarks auf Prosumer-Setup
-  - Tensor-Split Speed-Benchmark (Multi-GPU Optimierung)
-  - **Distributed Inference via RPC** (235B-Modell auf 3 GPUs über LAN, 96 GB VRAM)
-
----
-
-## Offene Punkte
-
-- [x] Deutsche Inferenzen für alle 6 Modelle -- erledigt
-- [x] HTML-Export aller 6 Sessions -- erledigt (data/html_preview/)
-- [x] Deutsche Analyse -- erledigt (dieses Dokument)
-- [ ] Audio-Generierung (TTS) für beste Session(s)
-- [ ] Englische Inferenzen für alle 6 Modelle
-- [ ] TTS-Rendering einer Session (DE + EN)
-- [ ] Deutsch/Englisch-Kreuzvergleich
-- [ ] Showcase-HTML erstellen (DE + EN)
-- [ ] Reddit-Post verfassen
-
----
-
 ## 🆕 Update 2026-02-21: 200B+ Model Optimizations
 
 ### Direct-IO Performance
@@ -618,15 +565,20 @@ Alle 200B+ Modelle stabil mit 130-200 Tokens:
 
 - 📄 [Modell-Parameter (DE)](model-params.md) - Deutsch
 - 📄 [Model Params (EN)](../../en/benchmarks/model-params.md) - Englisch
-- 📄 [Tensor Split Benchmark](../../en/benchmarks/tensor-split.md) - Tensor Split Speed Benchmark (Multi-GPU)
+- 📄 [Tensor-Split-Benchmark](../benchmarks/tensor-split.md) - Tensor-Split-Speed-Benchmark (Multi-GPU)
 
 ## 🆕 Update 2026-02-28: Distributed Inference via RPC (LAN)
 
+> **Historische Messung.** Dieser RPC-Aufbau (RTX 8000 + P40 im Mini-PC,
+> RTX 3090 Ti in Aragon als Worker) existiert nicht mehr. Die Zahlen unten
+> bleiben als Messkontext stehen; zum RPC-Arbeitspaket siehe
+> [calibration-rpc.md](../architecture/calibration-rpc.md).
+
 ### Konzept
 
-Verteilte Inferenz über Gigabit-LAN: Der Mini-PC (AOOSTAR GEM10) verbindet seine lokalen GPUs
-mit einer entfernten GPU auf einem zweiten Rechner (Windows/WSL2). Das Modell wird auf alle
-3 GPUs verteilt — kein CPU-Offload nötig, das gesamte Modell liegt im VRAM.
+Verteilte Inferenz über Gigabit-LAN: Der Mini-PC (AOOSTAR GEM10) verband seine lokalen GPUs
+mit einer entfernten GPU auf einem zweiten Rechner (Windows/WSL2). Das Modell wurde auf alle
+3 GPUs verteilt — kein CPU-Offload nötig, das gesamte Modell lag im VRAM.
 
 ### Hardware-Setup
 
@@ -673,120 +625,15 @@ jede eingesparte Mikrosekunde.
 **Gesamtergebnis:** RPC über Direktverbindung ist **4x schneller als lokaler CPU-Offload** —
 mit höherer KV-Cache-Qualität (q8_0 statt q4_0) und fast doppeltem Kontext (32K statt 17K).
 
-### Einrichtung (Reproduzierbar)
+### Einrichtung
 
-#### 1. llama.cpp mit RPC-Support bauen (Master)
-
-```bash
-cd ~/llama.cpp
-cmake -B build -DGGML_CUDA=ON -DGGML_RPC=ON -DCMAKE_CUDA_ARCHITECTURES="61;75"
-cmake --build build --config Release -j$(nproc)
-```
-
-#### 2. RPC-Server starten (Worker / Aragon)
-
-```bash
-# Auf dem Worker-Rechner (Linux/WSL2):
-./rpc-server -H 0.0.0.0 -p 50052
-```
-
-**Bei WSL2:** Port-Forwarding und Firewall-Regel nötig:
-```powershell
-# PowerShell (Admin) auf dem Windows-Host:
-netsh interface portproxy add v4tov4 listenport=50052 listenaddress=0.0.0.0 connectport=50052 connectaddress=<WSL2-IP>
-New-NetFirewallRule -DisplayName "llama-rpc" -Direction Inbound -Protocol TCP -LocalPort 50052 -Action Allow
-```
-
-#### 3. llama-swap Config (Master)
-
-```yaml
-# Lokale Variante (CPU-Offload, ohne RPC):
-Qwen3-235B-A22B-Instruct-2507-UD-Q2_K_XL:
-  cmd: 'llama-server --model <path>.gguf
-    -ngl 71 -np 1 -ctk q4_0 -ctv q4_0 -c 17344
-    --flash-attn on --direct-io ...'
-  ttl: 900
-
-# RPC-Variante (alle GPUs, Direktverbindung, kein CPU-Offload):
-Qwen3-235B-A22B-Instruct-2507-UD-Q2_K_XL-rpc:
-  cmd: 'llama-server --model <path>.gguf
-    -ngl 99 -np 1 -ctk q8_0 -ctv q8_0 -c 32768
-    --rpc 10.0.0.2:50052
-    --flash-attn on --direct-io ...'
-  ttl: 3600
-  healthCheckTimeout: 900
-```
-
-**Wichtig:** Zwei separate Profile für dasselbe Modell — der User wählt in AIfred
-zwischen lokaler Variante (schnelles Laden, CPU-Offload) und RPC-Variante (langsames Laden,
-rein GPU, höhere Qualität).
-
-#### 4. Konnektivität testen
-
-```bash
-# Vom Master aus (RPC spricht KEIN HTTP — raw TCP testen):
-bash -c 'echo > /dev/tcp/10.0.0.2/50052' && echo "OK" || echo "FAIL"
-# "OK" = Port erreichbar, Verbindung steht
-```
-
-#### 5. Direktverbindung einrichten (optional, ~2x Speedup)
-
-Für maximale RPC-Performance: Master und Worker per Ethernet direkt verbinden
-(ohne Switch). Ein einfacher USB-zu-Ethernet-Adapter (1 GbE) genügt.
-
-**Netzwerk-Topologie:**
-```
-GEM10 (enp4s0, 2.5 GbE) ←——USB-Ethernet-Adapter (1 GbE)——→ Aragon (Ethernet 2)
-        10.0.0.1/30                                              10.0.0.2/30
-```
-
-**Master (Linux) — statische IP via NetworkManager:**
-```bash
-# Vorhandene Auto-Connections auf dem Interface entfernen (verhindert DHCP-Interferenz):
-nmcli connection delete "Kabelgebundene Verbindung 1"  # oder wie sie heißt
-
-# Statische Verbindung anlegen:
-nmcli connection add type ethernet con-name "rpc-direct" ifname enp4s0 \
-  ipv4.method manual ipv4.addresses 10.0.0.1/30 ipv6.method disabled
-
-# Prüfen:
-ip addr show enp4s0  # Muss 10.0.0.1/30 zeigen
-```
-
-**Worker (Windows) — statische IP:**
-```powershell
-# PowerShell (Admin):
-# Adapter-Name ermitteln (z.B. "Ethernet 2" für USB-Adapter):
-Get-NetAdapter | Format-Table Name, InterfaceDescription
-
-# IP setzen:
-New-NetIPAddress -InterfaceAlias "Ethernet 2" -IPAddress 10.0.0.2 -PrefixLength 30
-# Adapter auf "Private" setzen (Firewall):
-Set-NetConnectionProfile -InterfaceAlias "Ethernet 2" -NetworkCategory Private
-```
-
-**Worker (WSL2) — Portproxy für Direktverbindung:**
-```powershell
-# PowerShell (Admin) — Forwarding über die Direkt-IP:
-netsh interface portproxy add v4tov4 listenport=50052 listenaddress=10.0.0.2 \
-  connectport=50052 connectaddress=<WSL2-IP>
-```
-
-**llama-swap Config anpassen:**
-```yaml
-# --rpc von Switch-IP auf Direkt-IP ändern:
---rpc 10.0.0.2:50052   # statt 192.168.0.1:50052
-```
-
-**Verifizieren:**
-```bash
-ping -c 4 10.0.0.2          # 0% loss, ~1ms
-bash -c 'echo > /dev/tcp/10.0.0.2/50052' && echo "OK"  # Port erreichbar
-```
-
-**Wichtig:** NetworkManager kann bei Linux manuell gesetzte IPs überschreiben.
-Die `nmcli connection add`-Methode ist persistent und überlebt Reboots.
-`ip addr add` allein reicht NICHT — NM löscht die IP nach ~45s und versucht DHCP.
+Die Schritt-für-Schritt-Einrichtung dieses Aufbaus ist nicht mehr
+dokumentiert: Die P40 ist aus dem Master ausgebaut, und die damaligen
+Build-Flags, der Name des Worker-Binarys und das WSL2-Port-Forwarding gelten
+nicht mehr. Die aktuellen Voraussetzungen für einen RPC-Worker (Build-Flags,
+`ggml-rpc-server`, Adressen der Direktverbindung) und der Plan für eine
+RPC-fähige Kalibrierung stehen in
+[calibration-rpc.md](../architecture/calibration-rpc.md).
 
 ### Beobachtungen
 
@@ -813,10 +660,6 @@ Die `nmcli connection add`-Methode ist persistent und überlebt Reboots.
    über Switch), aber stabilere Werte (niedrigerer mdev). Für den RPC-Pipeline-Throughput
    zählt Stabilität mehr als absolute Latenz.
 
-6. **WSL2-Einschränkung:** Die WSL2-IP kann sich nach Windows-Neustart ändern.
-   Das `netsh portproxy`-Forwarding muss dann angepasst werden. Bei Direktverbindung:
-   Separate Portproxy-Regel für die Direkt-IP (10.0.0.2) nötig.
-
 ### Fazit
 
 Distributed Inference via RPC ist ein Game-Changer für Modelle die das lokale VRAM übersteigen.
@@ -831,17 +674,14 @@ Distributed Inference via RPC ist ein Game-Changer für Modelle die das lokale V
 RPC-Performance nochmals (von 6-7,5 auf 14-16 tok/s). Dazu besserer KV-Cache (q8_0 statt q4_0) und fast doppelter
 Kontext (32K statt 17K). Der Preis: ~10 Minuten Ladezeit und ein zweiter Rechner im Netzwerk.
 
-**Ausblick:** Mit 2,5 GbE oder 5 GbE Direktverbindung (statt 1 GbE USB-Adapter) wären
-noch höhere tok/s denkbar. Die aktuelle Bandbreite ist bereits der limitierende Faktor
-beim Laden (~10 Min) — schnellere Links würden auch die Ladezeit proportional verkürzen.
-
 ---
 
 ## Datenquellen
 
-- Session-JSONs (data/sessions/) werden für den Showcase NICHT benötigt
-- HTML-Previews (data/html_preview/) enthalten alle relevanten Metriken pro Bubble:
-  TTFT, PP (tok/s), TG (tok/s), Inference-Zeit, Source (Agent + Modell + Backend)
+Die Metriken stammen aus den HTML-Exporten der sechs Sessions (damals unter
+`data/html_preview/`; die Exporte sind nicht mehr vorhanden). Jede Bubble trug
+TTFT, PP (tok/s), TG (tok/s), Inference-Zeit und Source (Agent + Modell +
+Backend).
 
 ### Dateizuordnung
 

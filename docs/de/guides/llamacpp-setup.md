@@ -5,19 +5,22 @@
 Referenzdokument für die llama.cpp-Integration in AIfred über llama-swap.
 Wird aktualisiert, wenn sich die Hardware ändert oder neue llama.cpp-Releases relevante Änderungen bringen.
 
-**Zuletzt aktualisiert:** 18.02.2026
+**Zuletzt aktualisiert:** 25.09.2026
 
-> ⚠️ **Hinweis zur Hardware:** Benchmarks und GPU-Tabellen in dieser Anleitung wurden
-> auf dem vorherigen GPU-Setup gemessen (Tesla P40 / Quadro RTX 8000 / RTX 3090 Ti). Der
-> aktuelle Rechner läuft mit 2× RTX 8000 + 3× V100 (insgesamt 192 GB VRAM). Der
-> Ablauf, die Konfigurationsschritte und das Verhalten von Autoscan/Kalibrierung bleiben
-> gültig; absolute Performance-Zahlen sind historisch.
+> ⚠️ **Hinweis zur Hardware:** Alle Abschnitte mit dem Vermerk **(historisch, P40-Ära)**
+> wurden im Februar 2026 auf dem vorherigen GPU-Setup gemessen (Tesla P40 / Quadro
+> RTX 8000 / RTX 3090 Ti). Der aktuelle Rechner läuft mit 2× Quadro RTX 8000
+> (Turing, Compute Capability 7.5) + 3× Tesla V100 32 GB (Volta, Compute
+> Capability 7.0), insgesamt 192 GB VRAM — eine Pascal-Karte gibt es nicht mehr.
+> Ablauf, Konfigurationsschritte und das Verhalten von Autoscan/Kalibrierung in den
+> übrigen Abschnitten gelten für das aktuelle Setup; die absoluten Zahlen der
+> historischen Abschnitte nicht.
 
 ---
 
 ## Hardware-Überblick
 
-### GPU-Vergleich
+### GPU-Vergleich (historisch, P40-Ära)
 
 | Spec | Tesla P40 | Quadro RTX 8000 | RTX 3090 Ti |
 |------|-----------|-----------------|-------------|
@@ -30,7 +33,7 @@ Wird aktualisiert, wenn sich die Hardware ändert oder neue llama.cpp-Releases r
 | NVLink | Nein | Ja (100 GB/s) | Ja (112,5 GB/s) |
 | TDP | 250W | 295W | 450W |
 
-### NVIDIA-Optimierungen für llama.cpp (CES 2026)
+### NVIDIA-Optimierungen für llama.cpp (CES 2026, historisch, P40-Ära)
 
 | Optimierung | Wirkung | P40 | RTX 8000 | 3090 Ti |
 |---|---|---|---|---|
@@ -67,7 +70,7 @@ Wird aktualisiert, wenn sich die Hardware ändert oder neue llama.cpp-Releases r
 | `-t` | `-t 8` | auto | CPU-Threads (Generierung) |
 | `-tb` | `-tb 16` | wie `-t` | CPU-Threads (Batch/Prompt) |
 | `-np` | `-np 1` | `auto` (=4!) | Parallele Slots (Multi-User) |
-| `-fit` | `-fit off` | `on` | Parameter automatisch an den VRAM anpassen (P40: off!) |
+| `-fit` | `-fit off` | `on` | Parameter automatisch an den VRAM anpassen (der Autoscan setzt `-fit off` in Multi-GPU-Profilen; auf der P40 stürzte `-fit on` ab) |
 | `-dev` | `-dev CUDA0,CUDA1` | | Explizite GPU-Auswahl |
 | `-ot` | `-ot "regex=DEVICE"` | | Tensor-Platzierung überschreiben (ik_llama.cpp) |
 
@@ -79,6 +82,10 @@ export GGML_CUDA_GRAPH_OPT=1           # 10-15 % schnellere Token-Generierung
 ```
 
 ### KV-Cache-Quantisierung
+
+> Die Tempo-Angaben in dieser Tabelle stammen aus der P40-Ära (siehe Benchmark
+> unten). Die Kalibrierung bevorzugt heute `f16`-KV und geht nur bei Bedarf auf
+> `q8_0` — siehe [Was die Kalibrierung zusätzlich macht](#was-die-kalibrierung-aifred-ui-zusätzlich-macht).
 
 | Typ | VRAM-Ersparnis ggü. f16 | Einfluss auf Tempo (PP) | Einfluss auf Qualität | Hinweise |
 |---|---|---|---|---|
@@ -92,7 +99,7 @@ export GGML_CUDA_GRAPH_OPT=1           # 10-15 % schnellere Token-Generierung
 - Die Generierungsgeschwindigkeit ist bei allen Varianten gleich (~46-63 tok/s je nach Modell)
 - KV-Quant ≠ Modell-Quant: KV-Quant spart Attention-Bandbreite, Modell-Quant spart Matmul-Rechenaufwand
 
-### P40-spezifische Hinweise
+### P40-spezifische Hinweise (historisch, P40-Ära)
 
 | Parameter | Empfehlung | Grund |
 |---|---|---|
@@ -103,7 +110,7 @@ export GGML_CUDA_GRAPH_OPT=1           # 10-15 % schnellere Token-Generierung
 
 ---
 
-## Benchmark: Tesla P40 (2x 24 GB, llama.cpp v8076)
+## Benchmark: Tesla P40 (2x 24 GB, llama.cpp v8076) — historisch, P40-Ära
 
 Datum: 17.02.2026. Hardware: 2x Tesla P40 (24 GB GDDR5X, PCIe 3.0 x4 über OCuLink-eGPU).
 llama.cpp-Version: 8076 (d61290111), kompiliert mit `GGML_CUDA=ON`.
@@ -209,7 +216,7 @@ Basis-Parameter: `-np 1 -fit off --flash-attn on -ctk q8_0 -ctv q8_0 -sm layer -
    `-ub 256` statt `512` halbiert den Compute-Buffer (196 gegenüber 392 MiB bei 30B).
    Das PP-Tempo sinkt minimal (117 gegenüber 120 tok/s). Gen-Tempo identisch.
 
-### Warum FA auf der P40 modellabhängig ist (technisch)
+### Warum FA auf der P40 modellabhängig ist (technisch, historisch, P40-Ära)
 
 Quelle: `ggml/src/ggml-cuda/fattn.cu` und `fattn-tile.cuh` in llama.cpp.
 
@@ -230,7 +237,11 @@ für CC 6.1 in `common.cuh:230` ausdrücklich ausgeschlossen). Daher:
 
 ---
 
-## Heterogenes Multi-GPU (P40 + RTX 8000)
+## Heterogenes Multi-GPU (P40 + RTX 8000) — historisch, P40-Ära
+
+Die Erkenntnisse unten stammen vom Setup P40 + RTX 8000. Das llama.cpp-Verhalten
+unter „Was funktioniert“ / „Was NICHT funktioniert“ ist nicht P40-spezifisch; die
+Messwerte und Split-Verhältnisse sind es.
 
 ### Was funktioniert
 
@@ -303,9 +314,12 @@ den Großteil des RTX-VRAMs, bleibt nicht genug Platz für den KV-Cache großer 
 - **2:1 als Faustregel:** Bei großen Modellen (80B+) und großen Contexts nahe am VRAM-Verhältnis bleiben
 
 **Hinweis zu CUDA_DEVICE_ORDER:** Der llama-swap-Dienst läuft mit `CUDA_DEVICE_ORDER=FASTEST_FIRST`,
-also CUDA0 = RTX 8000 und CUDA1 = P40. Die Tensor-Split-Werte beziehen sich auf CUDA0:CUDA1.
+in diesem Setup also CUDA0 = RTX 8000 und CUDA1 = P40. Die Tensor-Split-Werte beziehen sich auf CUDA0:CUDA1.
 
-### Tensor-Split-Empfehlungen
+### Tensor-Split-Empfehlungen (historisch, P40-Ära)
+
+Für das aktuelle Setup berechnet der Autoscan den Split selbst (siehe
+[Tensor-Split-Berechnung](#tensor-split-berechnung)), die Kalibrierung verfeinert ihn.
 
 ```bash
 # Hinweis: Mit CUDA_DEVICE_ORDER=FASTEST_FIRST: CUDA0=RTX 8000, CUDA1=P40
@@ -333,7 +347,7 @@ also CUDA0 = RTX 8000 und CUDA1 = P40. Die Tensor-Split-Werte beziehen sich auf 
 
 | Szenario | Autoscan | Kalibrierung | Manuell? |
 |----------|----------|--------------|----------|
-| Neue GGUF-Datei hinzufügen | Erkennt automatisch, erstellt Profil mit korrektem Tensor-Split | Context + Speed-Split per Kalibrierung | Nein |
+| Neue GGUF-Datei hinzufügen | Erkennt automatisch, erstellt Profil mit VRAM-proportionalem Tensor-Split und einer ersten Context/KV/NGL-Anpassung per `llama-fit-params` | Context + Speed-Split per Kalibrierung | Nein |
 | Neue lokale GPU einstecken | **Alle Profile** werden automatisch angepasst (Fingerprint-Erkennung) | Kalibrierung empfohlen für Context-Optimierung | Nein |
 | GPU entfernen | **Alle Profile** werden automatisch angepasst (Fingerprint-Erkennung) | Kalibrierung empfohlen für Context-Optimierung | Nein |
 | RPC-Worker hinzufügen/entfernen | Nicht erkannt (RPC-Profile bleiben unangetastet) | Nicht unterstützt | **Ja** — `--rpc` muss manuell gesetzt werden |
@@ -343,79 +357,111 @@ also CUDA0 = RTX 8000 und CUDA1 = P40. Die Tensor-Split-Werte beziehen sich auf 
 Der Autoscan speichert einen Hardware-Fingerprint in der ersten Zeile der llama-swap-Config:
 
 ```yaml
-# gpu_hardware: RTX_8000:48564,P40:24576
-healthCheckTimeout: 600
+# gpu_hardware: RTX_8000:49152,RTX_8000:49152,Tesla_V100-PCIE-32GB:32768,Tesla_V100-PCIE-32GB:32768,Tesla_V100-PCIE-32GB:32768
+healthCheckTimeout: 900
 models:
   ...
 ```
 
+Format: `<Name>:<VRAM MiB>` pro GPU, absteigend nach VRAM sortiert (dieselbe
+Reihenfolge wie `CUDA_DEVICE_ORDER=FASTEST_FIRST`); die Präfixe `NVIDIA `,
+`GeForce ` und `Quadro ` werden aus dem Namen entfernt.
+
 Bei jedem llama-swap-Neustart vergleicht der Autoscan die aktuelle Hardware mit dem
-gespeicherten Fingerprint (±512 MB Toleranz für Treiber-Varianz). Bei einer Änderung:
+gespeicherten Fingerprint (±512 MB Toleranz pro GPU für Treiber-Varianz; eine andere
+GPU-Anzahl gilt immer als Änderung). Bei einer Änderung:
 
 1. **Alle lokalen Profile** (manuell UND `[autoscan]`) bekommen einen neuen Tensor-Split
 2. RPC-Profile (`--rpc` im cmd) bleiben unangetastet
 3. Context (`-c`) und NGL (`-ngl`) werden **nicht** geändert — dafür ist die Kalibrierung da
 4. Hinweis: "Run 'Context kalibrieren' in AIfred to optimize context sizes"
 
-**Beispielausgabe bei GPU-Änderung:**
+**Beispielausgabe bei GPU-Änderung** (Format wie vom Autoscan ausgegeben; hier wurde
+eine V100 entfernt, die Modellanzahl ist nur ein Beispiel):
 ```
 ⚠️  GPU HARDWARE CHANGED!
-   Stored:  RTX_8000:48564,P40:24576
-   Current: RTX_8000:48564,P40:24576,RTX_3060:12288
+   Stored:  RTX_8000:49152,RTX_8000:49152,Tesla_V100-PCIE-32GB:32768,Tesla_V100-PCIE-32GB:32768,Tesla_V100-PCIE-32GB:32768
+   Current: RTX_8000:49152,RTX_8000:49152,Tesla_V100-PCIE-32GB:32768,Tesla_V100-PCIE-32GB:32768
    Updated tensor-split in 8 model(s)
    → Run 'Context kalibrieren' in AIfred to optimize context sizes
 ```
 
 ### Tensor-Split-Berechnung
 
-Der Autoscan berechnet den Tensor-Split proportional zum VRAM:
+Der Autoscan berechnet den Tensor-Split proportional zum VRAM
+(`max(1, round(vram / min_vram))` pro GPU):
 
 ```python
-# Beispiel: 3 GPUs
-per_gpu_vram = [48000, 24000, 12000]  # RTX 8000, P40, RTX 3060
-min_vram = 12000
-split_parts = [4, 2, 1]              # proportional zum VRAM
-# → "--tensor-split 4,2,1"
+# Beispiel: aktueller Rechner, 5 GPUs (absteigend nach VRAM sortiert)
+per_gpu_vram = [49152, 49152, 32768, 32768, 32768]  # 2x RTX 8000, 3x V100
+min_vram = 32768
+split_parts = [2, 2, 1, 1, 1]                        # round(49152 / 32768) = 2
+# → "--tensor-split 2,2,1,1,1"
 ```
 
 **Regeln:**
-- Modell passt allein auf die größte GPU → kein Tensor-Split, nur `-dev CUDA0`
-- Modell braucht Multi-GPU → `--tensor-split X,Y[,Z...]` proportional zum VRAM
-- Bei GPU-Entfernung: Split wird reduziert oder entfernt (sofern das Modell auf die verbleibenden GPUs passt)
+- Modelldatei ≤ 80 % des VRAMs der größten GPU (`MULTI_GPU_VRAM_THRESHOLD`) →
+  gar keine GPU-Flags (kein Tensor-Split)
+- Größeres Modell → neue Einträge bekommen `-sm layer --tensor-split X,Y[,Z...] -fit off -b 512 -ub 512`
+- Bei einer Hardware-Änderung wird in bestehenden Einträgen der `--tensor-split`-Wert
+  ersetzt, `-sm layer --tensor-split … -fit off` eingefügt (ein Single-GPU-`-dev …`
+  fliegt dabei raus) oder die Split-Flags werden entfernt, wenn das Modell jetzt auf
+  eine GPU passt
 
 ### Was die Kalibrierung (AIfred-UI) zusätzlich macht
 
-"Context kalibrieren" in der AIfred-UI führt für das gewählte Modell Folgendes durch:
+„Context kalibrieren“ in der AIfred-UI führt für das gewählte Modell Folgendes durch
+(Algorithmus-Modus, `aifred/lib/calibration/flow.py`):
 
-1. **Phase 1: GPU-only-Context** — Binärsuche nach dem maximalen Context bei `-ngl 99`
-   - KV-Fallback-Kette: f16 → q8_0 (wenn < nativer Context) → q4_0 (letzter Ausweg, nur wenn q8_0 < 32K)
-   - VRAM-Balance: Erkennt Asymmetrie zwischen den GPUs, verschiebt Layer (±1 pro Durchlauf)
-2. **Phase 2: Speed-Variante** — Min-GPU-Strategie: Berechnet die minimale GPU-Anzahl für die Modell-Gewichte
-   - Weniger GPU-Grenzen = weniger Transfer-Overhead = schnellere Inferenz (Tradeoff: reduzierter max. Context)
-   - Phase A: Binärsuche nach der maximalen Layer-Zahl auf der schnellsten GPU bei 32K Context (f16 KV)
-   - Phase B: Context-Maximierung mit eigener KV-Kette (f16 → q8_0, falls f16 < 32K)
-   - Erstellt einen separaten `modell-speed`-Eintrag in der llama-swap-YAML mit eigener KV-Quantisierung
-3. **Phase 3: Hybrid-NGL** — Falls GPU-only < 32K: Sucht den optimalen `-ngl` mit CPU-Offload
-   - Erbt die KV-Quantisierung von Phase 1 (keine eigene KV-Kette)
+1. **Phase A: Metadaten + Budget** — liest die GGUF-Metadaten, wartet auf stabilen
+   VRAM und baut das VRAM-Budget pro GPU (Sicherheitsmarge, Zusatzmarge für
+   Draft-Sidecar-Profile, Reserven für eine TTS-Engine oder das VLM auf der
+   Side-Channel-GPU)
+2. **Phase 1: Basis-Konfiguration** — geht die Zellen (KV-Qualität × GPU-Satz) durch,
+   wenigste GPUs zuerst, höchste KV-Qualität zuerst. Pro Zelle läuft zuerst eine
+   mathematische Projektion; nur wenn die den nativen Context erreicht, folgt eine
+   echte Probe (mit Layer-Verschiebungen bei OOM). Die erste Zelle, die beim nativen
+   Context verifiziert ist, wird die Basis.
+   - Erreicht keine Zelle den nativen Context: Die verifizierten Ergebnisse unterhalb
+     von nativ plus eine Best-Effort-Probe der besten unverifizierten Zelle werden
+     verglichen — höchste KV-Qualität zuerst, dann größter Context, mindestens
+     `MIN_USEFUL_CONTEXT_TOKENS` (32K)
+3. **Hybrid-Modus** — nur wenn sich keine reine GPU-Konfiguration verifizieren lässt
+   **und** der Schalter „Hybrid“ neben dem Kalibrierungsmodus an ist: reduziert `-ngl`
+   und lagert Layer auf die CPU aus. Ist der Schalter aus, endet die Kalibrierung mit
+   einem Fehler.
+4. **Phase E: Speed-Variante** — bei Multi-GPU-Basen: eine Konfiguration mit weniger
+   GPUs als die Basis und gleicher KV-Qualität, beginnend mit der schnellsten
+   GPU-Klasse; die nächste Klasse kommt nur dazu, wenn dort nichts
+   `MIN_USEFUL_CONTEXT_TOKENS` erreicht. Wird als eigener `<modell>-speed`-Eintrag
+   geschrieben. Erreicht sie den nativen Context bei gleicher KV-Qualität, ersetzt sie
+   stattdessen die Basis; ist ihr Split identisch mit dem der Basis, entfällt sie.
+5. **Phase D: Schreiben** — Basis- (und Speed-)Eintrag in die llama-swap-YAML,
+   Ergebnisse nach `data/model_vram_cache.json`
+
+Alternativ übergibt der Kalibrierungsmodus „🤖 KI“ die ganze Suche an einen
+LLM-gesteuerten Kalibrierer (`aifred/lib/calibration/ai_agent.py`); die beiden Modi
+schließen sich aus, es gibt keinen Rückfall vom einen auf den anderen.
 
 Die Kalibrierung verfeinert den groben VRAM-proportionalen Split des Autoscans
-durch tatsächliche Performance-Messungen.
+durch tatsächliche Messungen. Strategie-Referenz (SSOT):
+[calibration-strategy.md](../architecture/calibration-strategy.md).
 
 #### KV-Quantisierung: Entscheidungslogik
 
-| Phase | KV-Kette | Schwellenwert | Kommentar |
-|-------|----------|---------------|-----------|
-| Phase 1 (Base) | f16 → q8_0 → q4_0 | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | q8_0 wenn f16 < nativ, q4_0 nur wenn q8_0 < 32K |
-| Phase 2 (Speed) | f16 → q8_0 | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | Unabhängig von Phase 1, eigenes KV in der YAML |
-| Phase 3 (Hybrid) | Erbt von Phase 1 | — | Kein eigenes KV, maximiert die GPU-Layer |
+| Schritt | KV-Stufen | Schwellenwert | Kommentar |
+|---------|-----------|---------------|-----------|
+| Phase 1 (Basis) | f16 → q8_0 (q4_0 nur bei ausdrücklicher Freigabe, `min_kv="q4_0"`) | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | Der Standardablauf nimmt lieber eine GPU dazu, als auf q4_0 zu gehen |
+| Phase E (Speed) | Gleiches KV wie die Basis | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | Ersetzt die Basis, wenn sie den nativen Context erreicht |
 
-**Hinweis:** f16 KV ist auf Hardware ohne Tensor Cores (z. B. Tesla P40) schneller als quantisiertes KV,
-da keine Dequantisierung nötig ist. Daher startet jede KV-Kette mit f16.
+**Hinweis:** Laut Code-Kommentar in `flow.py` ist KV in voller Präzision auf den hier
+verwendeten GPUs schneller (P40/V100/RTX 8000 haben keinen schnellen Attention-Pfad
+für quantisiertes KV) und hat die höhere Qualität. Daher beginnt die Suche immer mit f16.
 
 ### Handlungsanleitung: Neue lokale GPU hinzufügen
 
 1. **Physisch einbauen**, Treiber prüfen: `nvidia-smi` muss alle GPUs zeigen
-2. **llama-swap neu starten**: `sudo systemctl restart llama-swap`
+2. **llama-swap neu starten**: `llama-swap-restart` (oder `sudo systemctl restart llama-swap`)
    - Der Autoscan erkennt die neue GPU per Fingerprint-Vergleich
    - **Alle Profile** (manuell + autoscan) bekommen automatisch den neuen Tensor-Split
 3. **Kalibrierung ausführen**: In der AIfred-UI "Context kalibrieren" für wichtige Modelle
@@ -464,78 +510,63 @@ RPC wird vom Autoscan **nicht** unterstützt — vollständig manuell.
 cd llama.cpp && cmake -B build -DGGML_CUDA=ON && cmake --build build -j
 ```
 
-### Beispiel-Config: P40 + RTX 8000
+### Beispiel-Config (Aufbau, wie ihn der Autoscan schreibt)
+
+Normalerweise schreibst du die Config nicht von Hand — der Autoscan legt sie an (siehe
+[Automatische Modellerkennung](#automatische-modellerkennung-autoscan)). Das Beispiel
+zeigt den Aufbau, den er erzeugt; Modellnamen, Pfade und Context-Werte sind
+Platzhalter (`<…>`):
 
 ```yaml
-# llama-swap.yaml
+# gpu_hardware: <Fingerprint, siehe GPU-Hardware-Fingerprint>
+models:
+  # [autoscan]
+  <Small-Model-Q8_0>:
+    # Passt auf die größte GPU (≤ 80 % ihres VRAMs) → keine GPU-Flags;
+    # f16-KV → kein -ctk/-ctv
+    cmd: /home/YOUR_USER/llama.cpp/build/bin/llama-server --port ${PORT} --model /home/YOUR_USER/models/<Small-Model-Q8_0>.gguf -ngl 99 -c <ctx> --flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift --temp 0.8 --top-k 40 --top-p 0.95 --min-p 0.05 --repeat-penalty 1.0
+    ttl: 1800   # Modell < 20 GB
+
+  # [autoscan]
+  <Large-Model-Q4_K_M>:
+    # Multi-GPU (aktueller Rechner: 2x RTX 8000 + 3x V100 → 2,2,1,1,1);
+    # Anpassung hat q8_0-KV gewählt → -ctk/-ctv vor den Default-Flags
+    cmd: /home/YOUR_USER/llama.cpp/build/bin/llama-server --port ${PORT} --model /home/YOUR_USER/models/<Large-Model-Q4_K_M>.gguf -ngl 99 -c <ctx> -sm layer --tensor-split 2,2,1,1,1 -fit off -b 512 -ub 512 -ctk q8_0 -ctv q8_0 --flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift --temp 0.8 --top-k 40 --top-p 0.95 --min-p 0.05 --repeat-penalty 1.0
+    ttl: 3600   # Modell ≥ 20 GB
+
+  # Handgepflegtes reines CPU-Embedding-Profil (-ngl 0) → Gruppe "embed"
+  bge-m3-567M-Q8_0-embed:
+    cmd: /home/YOUR_USER/llama.cpp/build/bin/llama-server --port ${PORT} --model /home/YOUR_USER/models/bge-m3-567M-Q8_0.gguf --embedding --pooling cls -ub 8192 -c 8192 -ngl 0 …
+    ttl: 1800
+    env:
+    - CUDA_VISIBLE_DEVICES=
 
 groups:
-  main:  # Große Modelle, beide GPUs, immer nur 1 gleichzeitig aktiv
-    - qwen3-30b
-    - llama3-70b
-
-models:
-  # --- Hauptmodelle (Gruppe "main") ---
-  qwen3-30b:
-    cmd: >
-      llama-server -m /models/Qwen3-30B-A3B-Thinking-2507-Q4_K_M.gguf
-      -ngl 99 -sm layer --tensor-split 1,2.5 --main-gpu 1
-      -c 16384 --flash-attn on -ctk q8_0 -ctv q8_0
-      -b 2048 -ub 512 --mlock
-      --port ${PORT}
-    ttl: 300  # 5 Min. Inaktivität → entladen
-
-  llama3-70b:
-    cmd: >
-      llama-server -m /models/llama3-70b-Q4_K_M.gguf
-      -ngl 99 -sm layer --tensor-split 1,2.5 --main-gpu 1
-      -c 8192 --flash-attn on -ctk q8_0 -ctv q8_0
-      --mlock --port ${PORT}
-    ttl: 300
-
-  # --- Kleine Modelle (nur RTX 8000) ---
-  qwen3-8b:
-    cmd: >
-      llama-server -m /models/Qwen3-8B-Q4_K_M.gguf
-      -ngl 99 -dev CUDA1
-      -c 32768 --flash-attn on -ctk q8_0 -ctv q8_0
-      --port ${PORT}
-    # Keine TTL = bleibt geladen
-
-  # --- Embedding (nur CPU) ---
-  nomic-embed:
-    cmd: >
-      llama-server -m /models/nomic-embed-text.gguf
-      -ngl 0 --embedding -c 8192
-      --port ${PORT}
+  main:            # alles, was VRAM belegt — immer nur ein Modell gleichzeitig
+    exclusive: true
+    swap: true
+    members:
+      - <Large-Model-Q4_K_M>
+      - <Small-Model-Q8_0>
+  embed:           # reine CPU-Server, bleiben geladen, verdrängen "main" nie
+    exclusive: false
+    swap: true
+    persistent: true
+    members:
+      - bge-m3-567M-Q8_0-embed
 ```
 
-### Beispiel-Config: 4x RTX 8000 (Endausbau)
-
-```yaml
-groups:
-  main:  # Riesige Modelle, alle 4 GPUs
-    - qwen3-235b
-    - llama3-405b
-
-models:
-  qwen3-235b:
-    cmd: >
-      llama-server -m /models/Qwen3-235B-A22B-Q4_K_M.gguf
-      -ngl 99 -sm layer --tensor-split 1,1,1,1
-      -c 16384 --flash-attn on -ctk q8_0 -ctv q8_0
-      --mlock --port ${PORT}
-    ttl: 600
-
-  # Alternative: vLLM für MoE-Modelle (Pipeline Parallel)
-  qwen3-235b-vllm:
-    cmd: >
-      vllm serve Qwen/Qwen3-235B-A22B-AWQ
-      --pipeline-parallel-size 4
-      --max-model-len 16384
-      --port ${PORT}
-    ttl: 600
-```
+Hinweise:
+- Die Sampling-Flags stammen aus den GGUF-Metadaten (`general.sampling.*`); die
+  Werte oben sind die llama.cpp-Defaults, die der Autoscan nimmt, wenn das GGUF
+  keine mitbringt.
+- `llama-swap-restart` ruft zusätzlich `scripts/llama-swap-build-config` auf, das
+  den Einträgen Speculative-Decoding-Flags (`--spec-type …`) und `--cache-reuse 256`
+  (Modelle ohne `--mmproj`) hinzufügt.
+- Eine dritte Gruppe `vision` (persistent) enthält die `-visiond`-Describer-Profile,
+  sofern es welche gibt.
+- vLLM-Checkpoints laufen ebenfalls unter llama-swap, als `-vllm`-Einträge (vom
+  Autoscan aus `data/vllm_runtime.yaml` angelegt, eigene Kalibrierung).
 
 ### llama-swap starten
 
@@ -547,21 +578,30 @@ CUDA_DEVICE_ORDER=FASTEST_FIRST GGML_CUDA_GRAPH_OPT=1 \
 
 ### Systemd-Dienst
 
-```ini
-# /etc/systemd/system/llama-swap.service  (Dienst auf Systemebene)
+Unit auf Systemebene, identisch mit der aus
+[deployment.md, Abschnitt 5](deployment.md#5-systemd-dienste-einrichten) (die Referenz).
+`$USER`/`$HOME` setzt die Shell beim Schreiben des Heredocs ein; pass die beiden
+`$HOME/Projekte/AIfred-Intelligence`-Pfade an, wenn du das Repo woanders geklont hast:
+
+```bash
+sudo tee /etc/systemd/system/llama-swap.service > /dev/null << EOF
 [Unit]
-Description=llama-swap - LLM Model Proxy for llama.cpp
+Description=llama-swap - LLM Model Proxy
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=YOUR_USER
-Group=YOUR_USER
-ExecStartPre=/path/to/venv/bin/python /path/to/scripts/llama-swap-autoscan.py
-ExecStart=/home/YOUR_USER/bin/llama-swap --config /home/YOUR_USER/.config/llama-swap/config.yaml --listen :11435 --watch-config
+User=$USER
+Group=$USER
+ExecStartPre=$HOME/Projekte/AIfred-Intelligence/venv/bin/python \
+    $HOME/Projekte/AIfred-Intelligence/scripts/llama-swap-autoscan.py
+ExecStart=$HOME/bin/llama-swap \
+    --config $HOME/.config/llama-swap/config.yaml \
+    --listen :11435 --watch-config
 Restart=on-failure
 RestartSec=5
+TimeoutStartSec=300
 Environment=PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
 Environment=LD_LIBRARY_PATH=/usr/local/cuda/lib64
 Environment=CUDA_DEVICE_ORDER=FASTEST_FIRST
@@ -569,15 +609,29 @@ Environment=GGML_CUDA_GRAPH_OPT=1
 
 [Install]
 WantedBy=multi-user.target
+EOF
+
+sudo systemctl daemon-reload
+sudo systemctl enable llama-swap
 ```
 
 ```bash
-# Dienstverwaltung (Systemebene → sudo)
-sudo systemctl enable llama-swap
+# Dienstverwaltung (Systemebene → sudo, außer eine PolKit-Regel erlaubt es)
 sudo systemctl start llama-swap
 sudo systemctl status llama-swap
 sudo journalctl -u llama-swap -f
+
+# Wartungs-Neustart nach Modell-Download oder YAML-Änderung
+llama-swap-restart
 ```
+
+`llama-swap-restart` (`scripts/llama-swap-restart`, von `install-services.sh` nach
+`~/bin/llama-swap-restart` verlinkt) stoppt den Dienst, beendet übrig gebliebene
+`llama-server`-Prozesse, wartet auf die VRAM-Freigabe, löscht verwaiste Lookup-Caches
+(`~/.cache/llama_lookup_*.bin`), führt `llama-swap-build-config` aus und startet
+llama-swap wieder (der Autoscan läuft als `ExecStartPre`); nach dem Start läuft
+`llama-swap-build-config` ein zweites Mal für Einträge, die der Autoscan gerade
+angelegt hat.
 
 ### API-Endpoints
 
@@ -605,36 +659,52 @@ und konfiguriert sie für llama-swap. Es läuft als `ExecStartPre` vor jedem lla
    - Deduplizierung: Zeigen mehrere Tags auf denselben Blob, gewinnt der längste/aussagekräftigste Name
    - Embedding-Modelle (BERT, nomic usw.) werden übersprungen
 2. **HuggingFace-Cache scannen** — findet GGUFs in `~/.cache/huggingface/hub/` (nur den aktiven Snapshot) und legt Symlinks in `~/models/` an
-3. **Neue GGUFs erkennen** — vergleicht `~/models/*.gguf` mit den vorhandenen Einträgen in der llama-swap-Config (und der Skip-Liste)
-4. **Kompatibilitätstest** — jedes neue Modell wird kurz mit llama-server gestartet (max. 6 Sekunden):
+3. **Aufräumen** — entfernt tote Symlinks, Config-Einträge ohne Modelldatei, veraltete Skip-Listen-Einträge und Operating-Point-Profile (`data/operating_points/*.yaml`), deren Modelldatei fehlt; pflegt die `-visiond`-Describer-Profile für Modelle mit `mmproj-*.gguf` (legt sie an, setzt `-c` auf `VLM_NUM_CTX` aus `aifred/lib/config.py`, entfernt Varianten verschwundener VLMs)
+4. **Neue GGUFs erkennen** — durchsucht `~/models/` rekursiv (inklusive Unterordnern aus `hf download --local-dir`) und vergleicht mit den vorhandenen Einträgen in der llama-swap-Config (und der Skip-Liste). Übersprungen werden: `mmproj-*`-Dateien, Speculative-Decoding-Sidecars (`mtp-`, `eagle3-`, `dflash-`, `dspark-`), unvollständige Split-GGUFs und Embedding-Architekturen
+5. **Kompatibilitätstest** — jedes neue Modell wird kurz mit llama-server gestartet (max. 6 Sekunden):
    - Prozess endet innerhalb von 6 s mit einem Fehler → inkompatible Architektur erkannt (z. B. `deepseekocr`) → Modell wird **nicht** in die Config aufgenommen
    - Prozess läuft nach 6 s noch → Server ist oben, Architektur OK → Modell wird normal aufgenommen
    - Inkompatible Modelle werden in `autoscan-skip.json` gespeichert und bei späteren Starts **nicht erneut getestet**
-5. **llama-swap-Config erweitern** — für jedes kompatible neue Modell wird ein YAML-Block mit Default-Parametern angehängt (`-ngl 99`, `--flash-attn on`, `-ctk q8_0 -ctv q8_0` usw.)
+6. **Erste Anpassung mit `llama-fit-params`** — pro neuem Modell und KV-Stufe (f16 → q8_0 → q4_0): Binärsuche nach dem größten Context bei `-ngl 99`; passt nicht einmal die Untergrenze (32768 oder der native Context, je nachdem was kleiner ist), folgt eine Binärsuche nach dem besten `-ngl` (Hybrid). Die erste KV-Stufe, die passt, gewinnt. Jede GPU muss `VRAM_SAFETY_MARGIN_MB` (1024 MiB) frei behalten. Liegt kein `llama-fit-params` neben `llama-server`, gelten sichere Defaults (Context ≤ 32768, q4_0-KV)
+7. **llama-swap-Config erweitern** — für jedes angepasste Modell wird ein mit `# [autoscan]` markierter YAML-Block angehängt: `-ngl`, `-c`, GPU-Flags, `-ctk/-ctv` (nur bei quantisiertem KV), `DEFAULT_FLAGS_BASE` und die Sampling-Parameter aus den GGUF-Metadaten; `ttl` nach Modellgröße (siehe Konstanten)
    - VL-Modelle (mit passender `mmproj-*.gguf`) bekommen automatisch ein `--mmproj`-Argument
    - Existiert die Config-Datei noch nicht, wird sie neu angelegt
-6. **Gruppen aktualisieren** — die Liste `groups.main.members` wird neu geschrieben und enthält alle konfigurierten Modelle (ohne `-speed`-Varianten). So erzwingt llama-swap die VRAM-Exklusivität zwischen den Modellen.
-7. **VRAM-Cache vorbereiten** — minimale Einträge in `data/model_vram_cache.json` (die Kalibrierung erfolgt später über die AIfred-UI)
+8. **VRAM-Cache vorbereiten** — Einträge in `data/model_vram_cache.json` (die vollständige Kalibrierung erfolgt später über die AIfred-UI)
+9. **vLLM-Einträge anlegen** — Checkpoint-Verzeichnisse (`config.json` + `*.safetensors`) unter `~/models/` oder im HF-Cache bekommen generische `-vllm`-Einträge, sofern `data/vllm_runtime.yaml` existiert
+10. **Gruppen aktualisieren** (wenn sich die Config geändert hat) — schreibt den ganzen `groups:`-Abschnitt neu: `main` (alle VRAM-belegenden Modelle einschließlich `-speed`-Varianten, `exclusive` + `swap`), `embed` (reine CPU-Profile, `persistent`) und `vision` (`-visiond`-Profile, `persistent`). So erzwingt llama-swap die VRAM-Exklusivität zwischen den Modellen.
+11. **Einrückung normalisieren** bei den Unterschlüsseln der Modelle (repariert von Hand bearbeitete Einträge)
 
 ### Manuell ausführen
 
 ```bash
-python scripts/llama-swap-autoscan.py
+venv/bin/python scripts/llama-swap-autoscan.py
+
+# Alle [autoscan]-Einträge entfernen (mit Zeitstempel-Backup von YAML und Cache)
+# und alles neu scannen + anpassen
+venv/bin/python scripts/llama-swap-autoscan.py --recalibrate
 ```
 
 ### Typische Ausgabe
 
+Auszug; `…` steht für rechnerspezifische Werte:
+
 ```
 === llama-swap Autoscan ===
+
+GPU hardware: RTX_8000:49152,RTX_8000:49152,Tesla_V100-PCIE-32GB:32768,…
 
 Scanning Ollama models...
   + Symlink: Qwen3-14B-Q8_0.gguf → sha256-6335adf...
   = Exists:  Qwen3-8B-Q4_K_M.gguf
-  ~ Skip:    nomic-embed-text-v2-moe (embedding model)
+  ~ Skip:    nomic-embed-text-v2-moe:latest (embedding model)
   3 Ollama models found, 1 new symlinks created
 
 Scanning HuggingFace cache...
   No HuggingFace cache found or empty.
+
+Cleaning up...
+Maintaining -visiond describer profiles...
+  visiond profiles up to date
 
 Scanning ~/models/ for GGUFs...
   1 model(s) skipped (known incompatible, remove from autoscan-skip.json to re-test):
@@ -642,35 +712,50 @@ Scanning ~/models/ for GGUFs...
   Found 7 GGUFs, 1 new
 
 Testing new models for llama-server compatibility...
-  ✓ Qwen3-14B-Q8_0
+  ✓ Qwen3-14B-Q8_0 (OK)
 
-Updating llama-swap config...
-  + Added: Qwen3-14B-Q8_0 (native context: 40960)
+Calibrating new models (llama-fit-params)...
+    GPU: single (model … MB = …% of largest GPU … MB)
+  Qwen3-14B-Q8_0 (… MB, native context: 40,960):
+    ✓ KV=f16, context=40,960 (min free: … MB)
 
+Updating llama-swap-config.yaml...
+  + Added: Qwen3-14B-Q8_0 (context: 40,960)
 Updating VRAM cache...
   + Added: Qwen3-14B-Q8_0
 
-Done. 1 model(s) added to config, 1 VRAM cache entries created.
+Scanning for vLLM checkpoint directories...
+  no vLLM checkpoint dirs found
+
 Groups updated: main → [Qwen3-14B-Q8_0, Qwen3-8B-Q4_K_M]
+
+Done. 1 added, 1 VRAM cache entries added.
 ```
 
 ### Konfigurationskonstanten
 
 | Konstante | Default | Beschreibung |
 |---|---|---|
-| `MODELS_DIR` | `~/models/` | Verzeichnis für GGUF-Dateien und Symlinks |
-| `OLLAMA_PATHS` | System + User | Ollama-Modellverzeichnisse |
+| `MODELS_DIR` | `~/models/` | Verzeichnis für GGUF-Dateien und Symlinks. Überschreibbar per Umgebungsvariable `AIFRED_MODELS_DIR` (dieselbe, die `aifred/lib/config.py` liest) |
+| `OLLAMA_PATHS` | `/usr/share/ollama/.ollama/models`, `~/.ollama/models` | Ollama-Modellverzeichnisse (Systemdienst, User-Installation) |
 | `HF_CACHE_DIR` | `~/.cache/huggingface/hub` | Wurzel des HuggingFace-Caches |
-| `LLAMASWAP_CONFIG` | `~/.config/llama-swap/config.yaml` | llama-swap-Config-Datei |
-| `LLAMA_SERVER_BIN` | `~/llama.cpp/build/bin/llama-server` | Pfad zum llama-server-Binary |
-| `DEFAULT_TTL` | 300 | Inaktivitäts-Timeout in Sekunden |
-| `DEFAULT_FLAGS` | `--flash-attn on -ctk q8_0 -ctv q8_0 -np 1 -t 4 --mlock` | Default-Flags für llama-server |
-| `AUTOSCAN_SKIP_FILE` | `~/.config/llama-swap/autoscan-skip.json` | Persistente Liste inkompatibler Modelle |
+| `LLAMASWAP_CONFIG` | `~/.config/llama-swap/config.yaml` | llama-swap-Config-Datei. Überschreibbar per Umgebungsvariable `LLAMASWAP_CONFIG` (lesen auch `aifred/lib/config.py`, `llama-swap-restart` und `llama-swap-build-config`) |
+| `LLAMA_SERVER_BIN` | `~/llama.cpp/build/bin/llama-server` | Pfad zum llama-server-Binary — nur genutzt, wenn kein vorhandener Config-Eintrag einen `llama-server`-Pfad enthält |
+| `DEFAULT_TTL_SMALL` | 1800 | Inaktivitäts-Timeout in Sekunden für Modelle < `LARGE_MODEL_GB` |
+| `DEFAULT_TTL_LARGE` | 3600 | Inaktivitäts-Timeout in Sekunden für Modelle ≥ `LARGE_MODEL_GB` (Nachladen dauert Minuten) |
+| `LARGE_MODEL_GB` | 20 | Größenschwelle (GB, alle Split-Teile summiert) zwischen den beiden TTLs |
+| `DEFAULT_NGL` | 99 | GPU-Layer für neue Einträge |
+| `DEFAULT_FLAGS_BASE` | `--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift` | Default-Flags für llama-server; `-ctk <q> -ctv <q>` wird nur vorangestellt, wenn die Anpassung einen quantisierten KV-Cache gewählt hat |
+| `DEFAULT_CONTEXT` / `FALLBACK_CONTEXT` | 32768 | Context bei unlesbaren GGUF-Metadaten / Untergrenze der Context-Suche |
+| `MULTI_GPU_VRAM_THRESHOLD` | 0.80 | Modelldatei > 80 % des VRAMs der größten GPU → Tensor-Split |
+| `VRAM_SAFETY_MARGIN_MB` | 1024 | Minimal freier VRAM pro GPU in der `llama-fit-params`-Projektion |
+| `AUTOSCAN_SKIP_FILE` | `autoscan-skip.json` neben `LLAMASWAP_CONFIG` | Persistente Liste inkompatibler Modelle |
 | `COMPAT_TEST_TIMEOUT` | 6 | Wartezeit in Sekunden beim Kompatibilitätstest |
 
 ### Skip-Liste verwalten
 
-Inkompatible Modelle werden in `~/.config/llama-swap/autoscan-skip.json` gespeichert:
+Inkompatible Modelle werden in `autoscan-skip.json` neben der Config gespeichert
+(Default `~/.config/llama-swap/autoscan-skip.json`):
 
 ```json
 {
@@ -692,7 +777,8 @@ llama-swap ist OpenAI-kompatibel. In AIfred ist es als eigenes Backend registrie
 - URL: Umgebungsvariable `LLAMACPP_URL` oder `http://localhost:11435/v1`
 - API-Key: Dummy (lokaler Dienst)
 - Modellname in AIfred = Modell-Key in der llama-swap-Config
-- Config-Pfad: `~/.config/llama-swap/config.yaml` (XDG-Standard)
+- Config-Pfad: `~/.config/llama-swap/config.yaml` (XDG-Standard), überschreibbar per Umgebungsvariable `LLAMASWAP_CONFIG`
+- vLLM-Einträge (`-vllm`) liegen im selben llama-swap-Katalog und laufen über dieselbe URL
 
 ---
 

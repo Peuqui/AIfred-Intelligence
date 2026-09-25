@@ -144,6 +144,13 @@ Don't edit the units under `/etc/systemd/system/` by hand — the templates in
 placeholders that only the installer fills in. Change the template and re-run
 `sudo ./scripts/install-services.sh`. Details: [systemd/README.md](../../../systemd/README.md).
 
+**Machine-specific settings** survive re-installs only outside the unit:
+values (URL prefix, ports, …) go into `.env` (see [Environment](#environment-env)),
+extra commands such as an `ExecStartPre` into a drop-in created with
+`sudo systemctl edit aifred-intelligence`. The installer overwrites a modified
+unit (it keeps a `.pre-aifred-<timestamp>` backup) unless you pass
+`--no-overwrite`.
+
 ### llama-swap service (with autoscan)
 
 llama-swap is **not** part of `install-services.sh` — it is a separate
@@ -222,6 +229,7 @@ Manager), which writes them back to `.env`.
 | `WEBHOOK_API_TOKEN` | Token for `/api/agent/trigger` |
 | `AIFRED_SESSION_SECRET` | Signs the login cookies (optional — a random secret is persisted otherwise) |
 | `LLAMACPP_URL` | llama-swap URL (default `http://localhost:11435/v1`) |
+| `LLAMACPP_CALIBRATION_PORT` | Port of the temporary calibration server (default `9999`) |
 | `AIFRED_FRONTEND_PATH` | URL prefix when the app lives under a sub-path of a reverse proxy, e.g. `aifred` for `/aifred/` (default: none) |
 | `BACKEND_URL` | Only without a reverse proxy: backend URL for `/_upload/` as seen by the browser |
 | `BRAVE_API_KEY`, `TAVILY_API_KEY` | Optional extra search APIs (SearXNG needs no key) |
@@ -410,38 +418,60 @@ curl -s http://localhost:11435/v1/models | python3 -m json.tool
 sudo systemctl start aifred-intelligence
 ```
 
-Typical autoscan output:
+Typical autoscan output (one new Ollama model; `…` stands for machine-specific
+values):
 ```
 === llama-swap Autoscan ===
 
+GPU hardware: …
+
 Scanning Ollama models...
-  + Symlink: Qwen3-14B-Q8_0.gguf → sha256-6335adf...
+  ~ Skip:    nomic-embed-text-v2-moe:latest (embedding model)
+  + Symlink: Qwen3-14B-Q8_0.gguf → sha256-…...
   = Exists:  Qwen3-8B-Q4_K_M.gguf
-  ~ Skip:    nomic-embed-text-v2-moe (embedding model)
-  3 Ollama models found, 1 new symlinks created
+  2 Ollama models found, 1 new symlinks created
 
 Scanning HuggingFace cache...
   No HuggingFace cache found or empty.
 
 Cleaning up...
-  Nothing to clean up
+  … symlink(s) checked — all targets valid
+  … config entry/entries checked — all model files present
+Maintaining -visiond describer profiles...
+  visiond profiles up to date
 
 Scanning ~/models/ for GGUFs...
-  Found 5 GGUFs, 1 new
+  Found … GGUFs, 1 new
 
 Testing new models for llama-server compatibility...
   ✓ Qwen3-14B-Q8_0 (OK)
 
-Updating llama-swap-config.yaml...
-  + Added: Qwen3-14B-Q8_0 (native context: 40960)
+Calibrating new models (llama-fit-params)...
+    GPU: single (model … MB = …% of largest GPU … MB)
+  Qwen3-14B-Q8_0 (… MB, native context: 40,960):
+    ✓ KV=f16, context=40,960 (min free: … MB)
 
+Updating llama-swap-config.yaml...
+  + Added: Qwen3-14B-Q8_0 (context: 40,960)
 Updating VRAM cache...
   + Added: Qwen3-14B-Q8_0
 
+Scanning for vLLM checkpoint directories...
+  no vLLM checkpoint dirs found
+
 Groups updated: main → [Qwen3-14B-Q8_0, Qwen3-8B-Q4_K_M]
+  … VRAM cache entry/entries checked — all match active config
 
 Done. 1 added, 1 VRAM cache entries added.
 ```
+
+The `llama-fit-params` step picks the context written to the YAML: the
+largest context up to the native one that still leaves 1024 MiB free on every
+GPU, trying KV f16 → q8_0 → q4_0 (and a lower `-ngl` if even 32,768 tokens do
+not fit at full offload). If the native context does not fit, the `+ Added:`
+line shows the reduced value, plus `KV: …` / `ngl: …` when those were lowered.
+The `GPU:` line comes first because the GPU split is decided before the fit
+search starts; with a single GPU it is omitted.
 
 ### Access the web UI
 
@@ -515,21 +545,28 @@ sudo systemctl restart llama-swap
 
 The autoscan will:
 1. Remove broken symlinks in `~/models/`
-2. Remove config entries whose `--model` path no longer exists
+2. Remove config entries whose model file no longer exists (the `--model`
+   file or checkpoint, or a draft model named in `--speculative-config`)
 3. Remove stale entries from the compatibility skip list
-4. Remove orphaned VRAM cache entries
-5. Update the `groups.main.members` list
+4. Remove operating-point profiles in `data/operating_points/` whose model
+   file is gone, and `-vlm-<key>` variants whose `-visiond` describer profile
+   is gone
+5. Remove orphaned VRAM cache entries
+6. Update the `groups.main.members` list
 
-Cleanup output example:
+Cleanup output example (`…` stands for machine-specific paths):
 ```
 Cleaning up...
-  - Removed dead symlink: Qwen3-8B-Q8_0.gguf
-  - Removed: qwen3-8b-q8_0
-  1 dead symlink(s) removed
-  1 stale model(s) removed from config
+  ✗ Qwen3-8B-Q8_0.gguf → …/blobs/sha256-… (target missing, removed)
+  ✗ Qwen3-8B-Q8_0 — model file missing: …/models/Qwen3-8B-Q8_0.gguf
+Maintaining -visiond describer profiles...
+  visiond profiles up to date
+  → 2 item(s) cleaned up
+
+…
 
 Groups updated: main → [Qwen3-14B-Q8_0]
-  - VRAM cache: removed qwen3-8b-q8_0
+  ✗ VRAM cache: Qwen3-8B-Q8_0 (no longer in config, removed)
   1 stale VRAM cache entry/entries removed
 
 Done. 1 removed.
@@ -541,9 +578,12 @@ No manual YAML editing required.
 
 ## 9. VRAM calibration
 
-New models are added with their **native context** from the GGUF metadata.
-This is often larger than what actually fits in VRAM. Calibration finds
-the real maximum.
+The autoscan adds new models with a **first fit from `llama-fit-params`**
+(see [section 7](#7-start-and-verify)): the largest context up to the native
+one from the GGUF metadata that the projection places in VRAM with 1024 MiB
+headroom per GPU. That value is a projection, not a measurement — on MoE
+models in particular `llama-fit-params` is often off. Calibration loads the
+model for real and finds the actual maximum.
 
 To calibrate in the AIfred UI:
 
@@ -578,11 +618,14 @@ What runs under the hood:
 - Final results land in `data/model_vram_cache.json` and as profile
   entries in `~/.config/llama-swap/config.yaml`
 
-> **Strategy reference (SSOT):** [calibration-strategy.md](../../de/architecture/calibration-strategy.md) (German)
+> **Strategy reference (SSOT):** [calibration-strategy.md](../architecture/calibration-strategy.md)
 
-Without calibration the model still works — it runs with the native
-context. If that exceeds VRAM, the first request will fail with an OOM
-error.
+Without calibration the model still works — it runs with the context from the
+autoscan's `llama-fit-params` fit. If `llama-fit-params` is missing next to
+`llama-server`, the autoscan uses safe defaults instead (context at most
+32,768, q4_0 KV). Should the projection overestimate what fits, the model
+fails with an OOM error on load or on the first long request — then run
+calibration (or lower `-c` by hand, see [Troubleshooting](#oom-crash--context-too-large)).
 
 ---
 

@@ -2,13 +2,13 @@
 
 > **Deutsche Version:** [audio-pipeline.md](../../de/architecture/audio-pipeline.md)
 
-As of: 2026-05-10. Living document — grows along with the implementation.
+As of: 2026-09-25. Living document — grows along with the implementation.
 
 ## Current Implementation Status
 
 | Component | Status | Where |
 |---|---|---|
-| `audio_player` plugin with 15 tools | ✅ | [aifred/plugins/tools/audio_player/](../../../aifred/plugins/tools/audio_player/) |
+| `audio_player` plugin with 14 tools | ✅ | [aifred/plugins/tools/audio_player/](../../../aifred/plugins/tools/audio_player/) |
 | `audio_manager.py` (mpv via JSON-IPC) | ✅ | [aifred/lib/audio_manager.py](../../../aifred/lib/audio_manager.py) |
 | `audio_state.py` (JSON position SSOT) | ✅ | [aifred/lib/audio_state.py](../../../aifred/lib/audio_state.py) |
 | `audio_sources.py` (folder + HTTP stream) | ✅ | [aifred/lib/audio_sources.py](../../../aifred/lib/audio_sources.py) |
@@ -17,14 +17,14 @@ As of: 2026-05-10. Living document — grows along with the implementation.
 | Output: browser (HTML5 `<audio>` + REST) | ✅ | [audio_player/__init__.py](../../../aifred/plugins/tools/audio_player/__init__.py), [audio.py](../../../aifred/lib/api/audio.py) |
 | Output: FreeEcho.2 bridge | ✅ Phase 3.0b | mpv→FIFO→WS pipeline per room, one FreeEcho2Stream instance per target |
 | `AudioOutputChannel` protocol (refactor) | ✅ Phase 3.0a | Registry with Local/Browser/FreeEcho.2, all tools channel-based |
-| Wake tokens `_pause`/`_resume`/`_standby`/`_activate` | ⚠️ Phase 3.0c (server done) | Server finished; FreeEcho.2 firmware still has to adopt `_pause`/`_resume` as WA_PAUSE/WA_RESUME |
+| Wake tokens `_pause`/`_resume`/`_standby`/`_activate` | ✅ Phase 3.0c | Server: [freeecho2_channel/commands.py](../../../aifred/plugins/channels/freeecho2_channel/commands.py); FreeEcho.2 firmware sends `_pause`/`_resume` as WA_PAUSE/WA_RESUME |
 | Browser text parser (`_pause`, `_resume`, …) | ❌ Phase 3.0d | currently only via LLM tool call |
 | Browser keyboard shortcuts | ❌ Phase 3.0d | UI buttons in the player already exist |
-| Room following | ❌ Phase 3.0e | depends on the channel refactor |
+| Room following | ⚠️ Phase 3.0e | `_resume` at a FreeEcho.2 loads the last unfinished item there; stopping it at the previous target is missing |
 | YouTube plugin | ❌ Phase 2.0 (after 3.0) | not implemented |
 | Internet radio (HTTP streams) | ⚠️ | Infrastructure yes, streams in `settings.json` currently empty |
-| Audiobook auto-pause (wake word → pause) | ⚠️ | Browser via `media_paused_for_tts` yes, FreeEcho.2 no (Phase 4.0) |
-| Audio bus refactor (FreeEcho.2 = dumb sink) | 🚧 in progress | Consensus AIfred ↔ FreeEcho.2 firmware reached, parallel implementation under way |
+| Audiobook auto-pause (wake word → pause) | ⚠️ | Browser via `media_paused_for_tts` yes; FreeEcho.2: the TTS reply replaces the music (position via `consumed_ms`), no automatic resume (Phase 4.0) |
+| Audio bus refactor (FreeEcho.2 = dumb sink) | ✅ Phase 5.0 | `AudioOrchestrator` per room ([_audio_orchestrator.py](../../../aifred/lib/audio_channels/_audio_orchestrator.py)), `audio_flag` frame; firmware handles `audio_flag` |
 
 ## Motivation
 
@@ -96,8 +96,8 @@ Further requirements:
        ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
        │ LocalChannel    │   │ BrowserChannel  │   │ FreeEcho2Channel     │
        │                 │   │                 │   │                 │
-       │ mpv → Pulse/    │   │ HTML5 <audio>   │   │ ffmpeg → 48kHz  │
-       │ ALSA            │   │ + /api/audio/   │   │ mono int16 PCM  │
+       │ mpv → Pulse/    │   │ HTML5 <audio>   │   │ mpv → 48kHz     │
+       │ ALSA            │   │ + /api/audio/   │   │ int16 PCM → FIFO│
        │ (default        │   │ file?key=...    │   │ → FreeEcho2-WS  │
        │  output)        │   │ via Reflex      │   │ (chunked)       │
        │                 │   │ state push      │   │                 │
@@ -161,12 +161,27 @@ class AudioOutputChannel(Protocol):
         ctx: PluginContext,
     ) -> dict: ...
 
-    async def pause(self, target_id: str) -> None: ...
-    async def resume(self, target_id: str) -> None: ...
-    async def stop(self, target_id: str) -> None: ...
-    async def seek(self, target_id: str, position_sec: float) -> None: ...
-    async def set_speed(self, target_id: str, factor: float) -> None: ...
+    # ctx is only needed by the BrowserChannel (Reflex state push)
+    async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool: ...
+    async def resume(self, target_id: str, ctx: PluginContext | None = None) -> bool: ...
+    async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool: ...
+    async def seek(self, target_id: str, position_sec: float,
+                   relative: bool = False, ctx: PluginContext | None = None) -> bool: ...
+    async def set_speed(self, target_id: str, factor: float,
+                        ctx: PluginContext | None = None) -> bool: ...
+    async def play_queue(self, items: list[dict[str, str]], target_id: str,
+                         ctx: PluginContext, audio_type: str = "music",
+                         shuffle: bool = False) -> dict: ...
+    async def status(self, target_id: str, ctx: PluginContext | None = None) -> dict: ...
+
+    # Optional, for push sinks (FreeEcho.2): app-level flow control
+    def supports_flow_control(self) -> bool: ...        # default False
+    def notify_flow(self, target_id: str, state: str) -> None: ...   # "pause" | "resume"
+    def get_stream_start_offset(self, target_id: str) -> float | None: ...
 ```
+
+`play_queue()` (sequential folder playback) is implemented by the Browser and
+FreeEcho.2 channels; the `LocalChannel` returns "not implemented".
 
 **Registry** (`aifred/lib/audio_channels/__init__.py`):
 
@@ -181,6 +196,10 @@ def resolve(target_id: str) -> AudioOutputChannel | None:
     return None
 
 def all_targets(ctx: PluginContext) -> list[TargetInfo]: ...
+def all_channels() -> list[AudioOutputChannel]: ...
+
+# Built-in channels register themselves on import:
+register(LocalChannel()); register(BrowserChannel()); register(FreeEcho2Channel())
 ```
 
 **Format requirements per channel:**
@@ -189,56 +208,65 @@ def all_targets(ctx: PluginContext) -> list[TargetInfo]: ...
 |---|---|---|
 | `LocalChannel` | empty (mpv eats everything) | mpv internally |
 | `BrowserChannel` | empty (HTML5 loads the file directly) | browser internally |
-| `FreeEcho2Channel` | `(48000, 1, "s16le")` | ffmpeg subprocess |
+| `FreeEcho2Channel` | `(48000, 1, "s16le")` | mpv itself (`--audio-samplerate`/`--audio-channels`/`--audio-format`), no separate ffmpeg stage |
 
 **Discovery of the concrete targets** is always live — `list_targets()`
 queries at call time:
 - `LocalChannel` → always `[{"id":"local","ready":True}]`
-- `BrowserChannel` → reads the active Reflex session from `ctx`
-- `FreeEcho2Channel` → iterates `freeecho2_channel._devices.keys()`
+- `BrowserChannel` → `browser:<ctx.session_id>` of the current request
+- `FreeEcho2Channel` → iterates the connected speakers in `freeecho2_channel._devices`
+  (defined in `_shared.py`)
+
+`audio_targets()` hides the browser target when the request does not come from
+the browser.
 
 This way FreeEcho.2 speakers show up in `audio_targets()` automatically as soon as they
 connect via WebSocket — no user configuration needed.
 
 ## Plugin Configuration
 
-Maintainable in the UI (Plugin Settings → Audio Player). Example `settings.json`:
+**Local folder sources are discovered automatically**: every direct subfolder
+or symlink under `data/media/audio/` (`MEDIA_AUDIO_DIR`) becomes a
+`local_folder` source whose label is the folder name. Symlinks make NAS mounts
+transparent. They are maintained in the UI (Plugin Settings → Audio Player: add a
+source via file picker = create a symlink, remove it, rebuild/clear the index).
+Source map SSOT: `build_configured_source_map()` in
+[aifred/lib/audio_player_settings.py](../../../aifred/lib/audio_player_settings.py).
+
+The plugin's [`settings.json`](../../../aifred/plugins/tools/audio_player/settings.json)
+only holds the rest (shipped state):
 
 ```jsonc
 {
-  // Sources — items are referenced via labels, never raw paths/URLs.
-  "sources": {
-    "alarms":      { "type": "local_folder", "path": "/home/YOUR_USER/Audio/wecker" },
-    "music":       { "type": "local_folder", "path": "/home/YOUR_USER/Audio/musik" },
-    "hoerbuecher": { "type": "local_folder", "path": "/mnt/family-nas/Hoerbuecher" },
-    "sandbox":     { "type": "local_folder", "path": "./data/sandbox_output" },
-    "swr3":        { "type": "http_stream", "url": "https://liveradio.swr.de/sw282p3/swr3/play.mp3" },
-    "dlf":         { "type": "http_stream", "url": "https://st01.sslstream.dlf.de/dlf/01/128/mp3/stream.mp3" }
-  },
+  // Only http_stream entries count here — items are referenced via labels,
+  // never raw paths/URLs. Example entry:
+  //   "swr3": { "type": "http_stream", "url": "https://liveradio.swr.de/sw282p3/swr3/play.mp3" }
+  "sources": {},
+
+  // Area the file picker in the settings UI may reach
+  "picker": { "root": "/mnt" },
+
+  // Threshold of the TTS list filter (audio_processing.py)
+  "tts_list": { "full_max_items": 5 },
 
   // Resume behavior
   "resume": {
     "pre_roll_sec": 7,
     "pre_roll_for_streams": false,
     "min_audio_duration_for_pre_roll_sec": 60,
-    "position_save_interval_sec": 30
+    "position_save_interval_sec": 60
   },
 
   // Output default
   "targets": {
     "default": "auto"   // = derive from PluginContext.source
-                        // or "local", "browser", "freeecho2:wohnzimmer", ...
-  },
-
-  // Stream limits (DoS protection for HTTP sources)
-  "limits": {
-    "max_duration_min": 240,
-    "max_buffer_mb": 512,
-    "connect_timeout_sec": 10,
-    "read_timeout_sec": 30
+                        // or "local", "browser:<id>", "freeecho2:wohnzimmer", ...
   }
 }
 ```
+
+A source entry may set `audio_type` explicitly; otherwise it is derived from genre
+tag > filename > folder name (`resolve_audio_type()` in `audio_sources.py`).
 
 Live discovery (browser sessions, active FreeEcho.2 speakers) is **not** mirrored into
 `settings.json` — it follows at runtime from the channel
@@ -246,19 +274,28 @@ registry.
 
 ## Tool Inventory (Audio Player Plugin)
 
-15 tools, registered in `get_tools()`:
+14 tools, registered in `get_tools()`. The control tools (play … index_rebuild) are
+only listed for requests from `browser` and `freeecho2` (`_CONTROL_SOURCES`);
+e-mail, Telegram, Discord and unattended triggers only get the five read tools
+(status, list, list_unfinished, targets, search). The control tools are
+deliberately `TIER_READONLY` so the FreeEcho.2 channel may call them — the gate is
+the source, not the tier.
+
+For `target`, the control tools accept: omitted/`"auto"` = request origin, `"all"` =
+every active target, or a concrete id (`"local"`, `"browser:<id>"`,
+`"freeecho2:<room>"`).
 
 | Tool | Tier | Purpose |
 |---|---|---|
-| `audio_play(item, target=None, restart=False)` | WRITE_DATA | Start an item. `target=None` → auto from PluginContext. `restart=True` ignores the position state. |
-| `audio_play_folder(folder, target=None, restart=False)` | WRITE_DATA | Play a whole folder sequentially in natural order (`CD 1` < `CD 2` < `CD 10`). Currently only `target='browser'`. |
-| `audio_pause()` | READONLY | Pause the current playback. The position is saved. |
-| `audio_resume(item=None, target=None)` | WRITE_DATA | Smart resume: three cases automatically — let a paused stream continue, or load a different stream from the position state via `item`, or continue the last-played unfinished item. |
-| `audio_stop()` | READONLY | Stop playback (browser + local). The position is kept. |
-| `audio_seek(position_sec)` | READONLY | Jump to an absolute position. |
-| `audio_skip(delta_sec)` | READONLY | Relative forward/back. |
-| `audio_speed(factor)` | READONLY | 0.25–4.0× playback speed (mpv resamples correctly). |
-| `audio_status()` | READONLY | Current state: running/playing/paused, item, position, duration, speed. |
+| `audio_play(item, target=None, restart=True)` | READONLY | Start an item. `target=None` → auto from PluginContext. Default `restart=True` starts from the beginning; `restart=False` continues from the saved position. |
+| `audio_play_folder(folder, target=None, shuffle=False)` | READONLY | Play a whole folder sequentially in natural order (`CD 1` < `CD 2` < `CD 10`), optionally shuffled. Browser and FreeEcho.2 targets (the local channel has no queue). |
+| `audio_pause(target=None)` | READONLY | Pause playback on the target. |
+| `audio_resume(item=None, target=None)` | READONLY | Smart resume: three cases automatically — let a paused stream continue, or load a different stream from the position state via `item`, or continue the last-played unfinished item. |
+| `audio_stop(target=None)` | READONLY | Stop playback on the target. The position is kept. |
+| `audio_seek(position_sec, target=None)` | READONLY | Jump to an absolute position. |
+| `audio_skip(delta_sec, target=None)` | READONLY | Relative forward/back. |
+| `audio_speed(factor, target=None)` | READONLY | 0.25–4.0× playback speed (mpv resamples correctly). |
+| `audio_status(target=None)` | READONLY | State of one target, or of all targets without `target`: running/playing/paused, item, position, duration. |
 | `audio_list(source=None, subdir=None, limit=None)` | READONLY | List sources or items within a source. Prefers the SQLite index, falls back to a filesystem walk. |
 | `audio_list_unfinished()` | READONLY | Items with a saved position (≠ completed), sorted by date. |
 | `audio_targets()` | READONLY | Available output targets with status (live from the channel registry). |
@@ -272,33 +309,41 @@ registry.
 ```json
 {
   "hoerbuecher/Tolkien_HdR_Buch1.mp3": {
+    "uri": "/mnt/family-nas/Hoerbuecher/Tolkien_HdR_Buch1.mp3",
     "pos_sec": 15825.3,
-    "duration_sec": 39600,
+    "duration_sec": 39600.0,
     "last_played": "2026-05-04T22:13:00",
-    "source_label": "hoerbuecher",
     "completed": false
   },
   "youtube:dQw4w9WgXcQ": {
-    "pos_sec": 213,
-    "duration_sec": 213,
+    "uri": "…",
+    "pos_sec": 213.0,
+    "duration_sec": 213.0,
     "last_played": "2026-05-04T20:00:00",
-    "source_label": "youtube",
     "completed": true
   }
 }
 ```
 
+(`youtube:` keys are the planned convention of the YouTube plugin, Phase 2.0.)
+
 Write rules:
-- **RAM-only between save points** — the running position lives in the
-  AudioState singleton, no disk hit per update.
-- **Periodically every 60 s** as crash insurance against power loss/OOM
-  (configurable via `AUDIO_POSITION_SAVE_INTERVAL_SEC` in `config.py`,
-  default 60). Setting it to 0 → no periodic save.
-- **Immediately on `audio_pause()` and `audio_stop()`** — the most important
-  save point, because this is where the user's intent to resume is stored.
+- **Only at save points** — the position is read from mpv and written at the save
+  points below; every `audio_state.update()` writes the file atomically (tmp + rename).
+- **Periodically** as crash insurance against power loss/OOM: position save loop in
+  the mpv wrapper. Interval from `settings.json` → `resume.position_save_interval_sec`
+  (shipped: 60); the plugin applies it to the local channel before each play
+  (`audio_manager.configure_save_interval()`, code default
+  `POSITION_SAVE_INTERVAL_SEC = 30` in `audio_manager.py`). FreeEcho.2 streams use
+  `DEFAULT_SAVE_INTERVAL_SEC = 60` in `_freeecho2_stream.py`. Values ≤ 0 are ignored.
+- **Immediately on pause and stop** — the most important save point, because this
+  is where the user's intent to resume is stored.
+- On FreeEcho.2 wakes, `consumed_ms` from the puck overwrites the mpv position
+  (see "consumed_ms Position Sync").
 - On mpv `eof-reached` → `completed: true`, immediately.
-- On the next plugin start: `completed: true` entries older than
-  `AUDIO_STATE_CLEANUP_AGE_DAYS` are deleted.
+- `completed: true` entries older than `AUDIO_STATE_CLEANUP_AGE_DAYS` (config.py, 7)
+  are deleted at service start and daily at `GARBAGE_COLLECTION_HOUR`
+  (`cleanup_audio_state_task()`).
 
 ## Audio Index (SQLite/FTS5)
 
@@ -320,20 +365,25 @@ Falls back to a filesystem walk if the index for a source is still empty
 
 ## Auto-Target from PluginContext
 
+`_resolve_target(ctx, requested)` in
+[audio_player/__init__.py](../../../aifred/plugins/tools/audio_player/__init__.py)
+(simplified):
+
 ```python
 def _resolve_target(ctx: PluginContext, requested: str | None) -> str:
+    default = load_audio_player_settings().get("targets", {}).get("default", "auto")
     if requested:
         return requested
-    cfg_default = settings["targets"]["default"]
-    if cfg_default != "auto":
-        return cfg_default
+    if default != "auto":
+        return default
     if ctx.source == "browser":
         return f"browser:{ctx.session_id}"
     if ctx.source == "freeecho2":
-        return f"freeecho2:{ctx.metadata['room']}"   # ← Phase 3.0
-    if ctx.source in ("discord", "email", "telegram"):
-        return "local"   # text channels — audio not possible there
-    return "local"
+        room = ctx.metadata.get("room", "")
+        if room:
+            return f"freeecho2:{room}"
+        return "local"   # should not happen — logged as a warning
+    return "local"       # text channels (discord/email/telegram), CLI, cron
 ```
 
 User voice override: the LLM infers from the tool description and
@@ -360,9 +410,9 @@ Two classes:
 
 | Token | Server action | Wake phrase (example) |
 |---|---|---|
-| `_stop` | `channel.stop(target)` for the sending target | `Bitte Stopp`, `Ruhe bitte` |
-| `_pause` *(Phase 3.0c)* | `channel.pause(target)` | `Bitte Pause`, `Halt` |
-| `_resume` *(Phase 3.0c)* | `channel.resume(target)` (smart: unpause or last unfinished) | `Weiter`, `Fortsetzen` |
+| `_stop` | cancel the pipeline + `channel.stop(target)` for the sending target | `Bitte Stopp`, `Ruhe bitte` |
+| `_pause` | same server reaction as `_stop`: cancel the pipeline + stop the stream; the position is saved before mpv terminates, `_resume` continues from there | `Bitte Pause`, `Halt` |
+| `_resume` | cancel the pipeline + smart resume: load the last unfinished item from `audio_state.json` on this FreeEcho.2 (pre-roll 3 s) | `Weiter`, `Fortsetzen` |
 
 **2. FreeEcho.2 lifecycle tokens** — microphone/hardware of the FreeEcho.2 itself, **not**
 audio output. They stay internal to `freeecho2_channel` and are not part of the
@@ -370,8 +420,9 @@ audio output. They stay internal to `freeecho2_channel` and are not part of the
 
 | Token | Action | Wake phrase (default) |
 |---|---|---|
-| `_standby` *(Phase 3.0c)* | FreeEcho.2 microphone soft mute, Vosk only listens for `_activate` | `Entry passiv` |
-| `_activate` *(Phase 3.0c)* | Soft mute off | `Entry aktiv` |
+| `_standby` | FreeEcho.2 microphone soft mute, Vosk only listens for `_activate` | `Entry passiv` |
+| `_activate` | Soft mute off | `Entry aktiv` |
+| `_done` | Puck acknowledgement: proactive playback (chime + TTS) finished — wakes the alert queue for the next item | — (sent by the firmware) |
 
 `_standby` additionally calls `channel.stop(target)` for its own target
 — when the FreeEcho.2 sleeps, its running audio stream should end as
@@ -383,7 +434,7 @@ semantic part of the token.
 `_stop`/`_pause`/`_resume` at a FreeEcho.2 control **only** the stream
 **of that one FreeEcho.2 speaker**. Other output streams keep running. The server
 knows the source target (`freeecho2:wohnzimmer`) and specifically calls
-`channel.stop("freeecho2:wohnzimmer")`, not `stop_all()`.
+`channel.stop("freeecho2:wohnzimmer")`, not a global stop.
 
 Example: the living-room FreeEcho.2 plays an audiobook, the bedroom FreeEcho.2 plays
 radio, a browser tab plays music. Whoever says "Bitte Stopp" in the living room
@@ -391,13 +442,17 @@ stops only the audiobook — the other two streams keep running.
 
 ### Server Implementation Status
 
+All tokens are handled in `_handle_command_token(token, room)` in
+[freeecho2_channel/commands.py](../../../aifred/plugins/channels/freeecho2_channel/commands.py):
+
 | Token | Server handling |
 |---|---|
-| `_stop` | ✅ implemented ([freeecho2_channel:243](../../../aifred/plugins/channels/freeecho2_channel/__init__.py#L243)) — cancels LLM pipeline + browser audio. Phase 3.0c: additionally per-target stop. |
-| `_pause` | ❌ Phase 3.0c |
-| `_resume` | ❌ Phase 3.0c |
-| `_standby` | ❌ Phase 3.0c (code: "reserved for future use; ignored for now") |
-| `_activate` | ❌ Phase 3.0c |
+| `_stop` | ✅ `_cancel_pipeline_and_stop_stream()` — cancels the running pipeline task + LLM pipeline, stops only this FreeEcho.2's stream |
+| `_pause` | ✅ same as `_stop` (position save in `_cleanup_unlocked` before mpv terminates) |
+| `_resume` | ✅ `_cancel_pipeline_for_room()` + `_smart_resume_on_freeecho2()` |
+| `_standby` | ✅ same as `_stop` (the soft mute itself is FreeEcho.2-local) |
+| `_activate` | ✅ deliberately a no-op on the server (soft mute off is FreeEcho.2-local, no auto-resume) |
+| `_done` | ✅ `signal_playback_done(room)` for the alert queue |
 
 ## Security Layer
 
@@ -405,10 +460,11 @@ stops only the audiobook — the other two streams keep running.
 |---|---|
 | Path traversal (`audio_play("/etc/passwd.wav")`) | Whitelist of configured paths, `..` in the item string is rejected. Items are resolved against the `sources` map. |
 | SSRF via HTTP stream | The LLM knows no raw URLs. URLs only in the plugin config (user-maintained). `audio_play(item="swr3")` → plugin resolves to the configured URL. |
-| Internal network probing | If URLs are in the config after all: block `127.*`, `10.*`, `192.168.*`, `172.16-31.*` unless explicitly whitelisted in `internal_allowed_hosts`. |
+| Internal network probing | Not implemented: configured stream URLs are not checked against private address ranges (planned: block `127.*`, `10.*`, `192.168.*`, `172.16-31.*` with an explicit allowlist). Protection so far: URLs come only from the user-maintained config. |
 | Decoder vulnerabilities (manipulated MP3) | mpv runs as a subprocess with user privileges. `apt update` regularly. Optional: `firejail`/`bwrap` sandboxing. |
-| DoS via stream | `--demuxer-max-bytes=512MiB`, `--network-timeout=30`, `max_duration_min` limit. |
-| Credential leak | Auth via `credential_broker` — never cookies/headers in plugin code. |
+| DoS via stream | mpv arguments `--demuxer-max-bytes=512MiB`, `--network-timeout=30` (`audio_manager.py`, `_freeecho2_stream.py`). A duration limit does not exist. |
+| Prompt injection from external channels | Control tools are only listed for `browser`/`freeecho2` (`_CONTROL_SOURCES`). |
+| Credential leak | There are no authenticated audio sources yet; if they come: auth via `credential_broker`, never cookies/headers in plugin code. |
 
 ## Phase Plan
 
@@ -433,15 +489,16 @@ Instead of mpv→FIFO→SSE, a direct REST download was implemented:
 
 ### ✅ Phase 1.2 — Auto-Target Routing (done)
 
-`_resolve_target(ctx, requested)` in [audio_player/__init__.py:55-82](../../../aifred/plugins/tools/audio_player/__init__.py#L55).
-The `audio_targets()` tool currently lists only `local` + the browser session.
-FreeEcho.2 auto-routing is marked as TODO (falls back to `local`).
+`_resolve_target(ctx, requested)` in [audio_player/__init__.py](../../../aifred/plugins/tools/audio_player/__init__.py).
+Originally only `local` + the browser session; since Phase 3.0b `audio_targets()`
+also lists the connected FreeEcho.2 speakers, and FreeEcho.2 requests are routed to
+`freeecho2:<room>`.
 
 ### ✅ Phase 1.3 — Audiobook Workflow (done)
 
 Smart `audio_resume()` (three cases merged), pre-roll for
 audiobooks, `audio_list_unfinished()` with date sorting,
-`completed` cleanup on plugin start. The plugin prompt contains
+`completed` cleanup (service start + daily task). The plugin prompt contains
 detailed instructions (see `get_prompt_instructions`).
 
 ### ✅ Phase 1.4 — Audio Index (done, originally not in the plan)
@@ -476,12 +533,12 @@ buttons (SWR3, DLF, BBC, …).
 
 ### Phase 3.0 — FreeEcho.2 Output + Channel Refactor (before Phase 2)
 
-Five stages — tightly coupled, ~6 h total. Status: **a, b, c done; d, e open**.
+Five stages — tightly coupled, ~6 h total. Status: **a, b, c done; d open; e partly**.
 
 **✅ 3.0a — Channel protocol refactor** (done):
 - New folder `aifred/lib/audio_channels/` with `base.py` (protocol +
-  AudioFormat + TargetInfo + registry), `local.py`, `browser.py`,
-  `freeecho2.py` (stub).
+  AudioFormat + TargetInfo), `__init__.py` (registry), `local.py`, `browser.py`,
+  `freeecho2.py` (fully implemented since 3.0b).
 - Replace the existing if-else cascade in `_route_play()` with a registry
   lookup.
 - `audio_targets()` iterates the registry, no longer hardcoded.
@@ -495,32 +552,36 @@ Five stages — tightly coupled, ~6 h total. Status: **a, b, c done; d, e open**
       --audio-format=s16 --ao=pcm --ao-pcm-file=<fifo> \
       --ao-pcm-waveheader=no --input-ipc-server=<sock> <source>
   ```
-- Bridge: three new public methods in the FreeEcho2 channel —
-  `send_audio_start(room, channels, rate, audio_type, total_size?)`,
-  `send_audio_chunk(room, bytes)`, `send_audio_end(room)`. Shared by
-  TTS (`send_reply`) and FreeEcho2Channel.
+- Bridge: public send methods in the FreeEcho2 channel
+  ([ws_bridge.py](../../../aifred/plugins/channels/freeecho2_channel/ws_bridge.py)) —
+  `send_audio_flag(room, audio_type, **params)`,
+  `send_audio_start(room, total_size=None, channels=1)`,
+  `send_audio_chunk(room, data)`, `send_audio_end(room)`, plus
+  `send_heartbeat(room)` and `send_done(room, reason=None)`. Shared by TTS
+  (`send_reply` via the AudioOrchestrator) and `FreeEcho2Stream`.
 - One mpv instance per active FreeEcho.2 target — cleanly isolated,
   multi-room in parallel possible.
-- `audio_targets()` shows active FreeEcho.2 speakers live from
+- `audio_targets()` shows connected FreeEcho.2 speakers live from
   `freeecho2_channel._devices`.
 - Cleanup order: terminate mpv before cancelling the pump (otherwise the read
   hangs blocking in `os.read(fifo)`).
 
 **✅ 3.0c — Wake token server integration** (server done):
-- `_handle_command_token(token, room)` new in `freeecho2_channel`.
-- Per target: `_stop` calls `freeecho2_channel.stop(f"freeecho2:{room}")` plus
-  `cancel_pipeline(session_id)` (abort LLM inference, other streams
-  remain).
+- `_handle_command_token(token, room)` in
+  [freeecho2_channel/commands.py](../../../aifred/plugins/channels/freeecho2_channel/commands.py).
+- Per target: `_stop` resolves `freeecho2:{room}` via the channel registry and calls
+  `channel.stop(target_id)` plus `cancel_pipeline(session_id)` (abort LLM
+  inference, other streams remain).
 - `_pause`/`_resume` fully wired. `_standby`/`_activate` as well
   (soft mute on standby = local on the FreeEcho.2; the server only stops the stream).
-- **Open in the FreeEcho.2 repo:** `_pause`/`_resume` have to be added in `freeecho2_client.c`
-  as `WA_PAUSE`/`WA_RESUME`, otherwise the FreeEcho.2 filters them
-  as `WA_UNKNOWN` and does not send them to the server. The server
-  is ready as soon as the tokens arrive.
+- Firmware: `freeecho2_client.c` maps `_pause`/`_resume` to `WA_PAUSE`/`WA_RESUME`
+  and sends them to the server.
 
 **❌ 3.0d — Browser text parser + keyboard shortcuts** (~1 h, open):
-- Server-side parser `parse_audio_command(text)` in a new file
-  `aifred/lib/audio_commands.py`. Called before handing over to the LLM.
+- Server-side parser `parse_audio_command(text)` as a new lib helper (proposed:
+  `aifred/lib/audio_commands.py` — does not exist yet). Called before handing over to
+  the LLM. Not to be confused with the FreeEcho.2 wake tokens, which arrive as
+  `wake` frames and are handled in `freeecho2_channel/commands.py`.
   Works the same for **all** channels (browser, Telegram, Discord,
   e-mail).
 - Control character convention: `_` (consistent with the FreeEcho.2 tokens).
@@ -538,7 +599,13 @@ Five stages — tightly coupled, ~6 h total. Status: **a, b, c done; d, e open**
   `↑`/`↓` (vol ±10). Only active while audio is playing + focus is not in
   the chat input.
 
-**❌ 3.0e — Room following** (~1 h, open):
+**⚠️ 3.0e — Room following** (~1 h, partly):
+- Already there: `_resume` at FreeEcho.2 Y loads the last unfinished item from
+  `audio_state.json` on Y with 3 s pre-roll (`_smart_resume_on_freeecho2()`). If the
+  item was stopped/paused on the previous target, that is effectively room following.
+- Missing: a stream still running on the previous target is not stopped.
+
+Original plan:
 - `_resume` at FreeEcho.2 Y fetches the last active item to Y, stops it
   at the previous target (position is saved immediately), starts it
   at the new target with a short pre-roll (3 s, because the user acts deliberately).
@@ -581,15 +648,17 @@ synchronized position save. In the backlog.
 
 ## Audio Bus Refactor (FreeEcho.2 = dumb sink) — Phase 5.0
 
-**Status: 🚧 in progress (2026-05-10).** Consensus between the AIfred server
-instance and the FreeEcho.2 firmware instance is in place (negotiated via AI-Connect
-using the Salomo principle). Both sides are being rebuilt in parallel,
-no capability gate, no legacy fallback — the user flashes the
-firmware in one go.
+**Status: ✅ implemented (as of 2026-09-25).** Consensus between the AIfred server
+instance and the FreeEcho.2 firmware instance (negotiated 2026-05-10 via AI-Connect
+using the Salomo principle). Both sides were rebuilt in parallel,
+no capability gate, no legacy fallback. Server: `AudioOrchestrator` in
+[_audio_orchestrator.py](../../../aifred/lib/audio_channels/_audio_orchestrator.py),
+frame senders in `freeecho2_channel/ws_bridge.py`; firmware: `audio_flag` handling
+in `freeecho2_client.c`.
 
 ### Motivation
 
-Currently TTS and music on the FreeEcho.2 run over two separate paths:
+Before the refactor, TTS and music on the FreeEcho.2 ran over two separate paths:
 - TTS: `send_reply` → `audio_start(speech)` + chunks + `audio_end`
 - Music: mpv → FIFO → fifo_pump → continuous `audio_chunk` frames
 
@@ -610,10 +679,15 @@ type changes without a stream reset.
 
 ```
 (music                    )
+(speech                   )
 (tts                      )
 (alarm,        with_tts=B )
 (notification, with_tts=B )
 ```
+
+`speech` (audiobook/podcast/reading, voice VU on the puck) is allowed as well; server-side
+the whitelist lives in `_AUDIO_TYPE_SCHEMA` in `ws_bridge.py` and is validated
+before sending (`ValueError` instead of a firmware FATAL).
 
 Anything outside the whitelist → protocol error, connection close,
 FATAL log. Strict: no defaults, no hidden assumptions.
@@ -659,8 +733,10 @@ with different semantics:
 - `audio_flag` = type setting (LED + VU + source behavior)
 - `audio_start` = PCM stream setup header (optional `total_size`)
 
-`channels`/`rate` are not sent — the puck hardware is fixed at
-48 kHz mono int16, anything else would be redundant or FATAL.
+`rate` is not sent — the puck hardware is fixed at 48 kHz int16. `audio_start`
+does carry `channels` (1 or 2); currently all streams are mono
+(`_CHANNELS_PER_TYPE` in `_freeecho2_stream.py`, stereo for music/speech reverted
+on 2026-05-31 because of puck problems).
 
 ### Four Operations — Semantically Clear per Type
 
@@ -695,7 +771,7 @@ async def resume()
 async def stop()                                    # discard everything
 ```
 
-These act on the "currently active audio source" per room. The AudioOrchestrator
+Methods of `AudioOrchestrator`; they act on the "currently active audio source" per room. The AudioOrchestrator
 has exactly one active source (no source stack). A type change (e.g.
 music → TTS) means: end the old source cleanly, start the new one.
 
@@ -752,25 +828,26 @@ plus LED patterns.
 
 ### Implementation Phases (Server Side)
 
-1. **Phase 1**: Frame sender (`send_audio_flag`, slim
-   `send_audio_start`) in the plugin layer
-2. **Phase 2**: Stateful AudioOrchestrator per room with music stream
+1. ✅ **Phase 1**: Frame sender (`send_audio_flag`, slim
+   `send_audio_start`) in the plugin layer (`ws_bridge.py`)
+2. ✅ **Phase 2**: Stateful AudioOrchestrator per room with music stream
    and TTS buffer as two pump sources
-3. **Phase 3**: Switch `send_reply` over — removes the old
-   `pause_for_tts`/`resume_after_tts` pattern
-4. **Phase 4**: Audio tools layer — new tools `audio_alarm` /
-   `audio_notification` or extension of existing tools
+3. ✅ **Phase 3**: `send_reply` (`freeecho2_channel/tts_reply.py`) plays TTS via
+   `orc.play_tts()` — the old `pause_for_tts`/`resume_after_tts` pattern is gone
+4. ✅ **Phase 4** (solved differently): no `audio_alarm`/`audio_notification` tools;
+   instead the `freeecho2_announce` tool of the FreeEcho.2 channel (`audio_type`
+   `notification`/`alarm`) and proactive pushes (e.g. vision alerts) go through
+   the alert queue (`alert_queue.py`) → `orc.play_alarm()`/`orc.play_notification()`
 
 ## Open Questions
 
-1. **Auto-discovery of active FreeEcho.2 speakers for `audio_targets()`.** ✅ Solution
-   clear: `FreeEcho2Channel.list_targets()` accesses
-   `freeecho2_channel._devices.keys()` live.
+1. **Auto-discovery of active FreeEcho.2 speakers for `audio_targets()`.** ✅ Solved:
+   `FreeEcho2Channel.list_targets()` iterates `freeecho2_channel._devices` live.
 
-2. **Audiobook mode during TTS.** Auto-pause + resume sounds simple,
-   but while TTS is speaking the music stream must also be paused —
-   otherwise audio conflict at the FreeEcho.2. mpv does not do that automatically — we
-   have to call `pause` explicitly before the TTS stream.
+2. **Audiobook mode during TTS.** ✅ Decided (Phase 5.0, "no TTS takeover"): TTS on
+   the FreeEcho.2 replaces the music source — `play_tts()` ends the music cleanly,
+   the position comes from `consumed_ms`, the user continues via `audio_resume`.
+   An automatic resume after the TTS (Phase 4.0) does not exist.
 
 3. **Browser tab closed / inactive.** If the user closes the browser
    while an audiobook is playing, AIfred should:
@@ -779,15 +856,10 @@ plus LED patterns.
    c) Migrate to the FreeEcho.2? (smart, but complex)
    For now: pause on a "browser disconnected" event.
 
-4. **Multi-stream state per target.** Today's `audio_manager.py`
-   is a singleton — one mpv instance, one state. As soon as several
-   FreeEcho2Channel targets run in parallel, we need either
-   - one mpv instance per target (more memory, but cleanly isolated)
-   or
-   - a single mpv with several output pipelines (more complex, but
-     lighter).
-   Decision is made in Phase 3.0b.
+4. **Multi-stream state per target.** ✅ Decided in Phase 3.0b: one mpv instance per
+   FreeEcho.2 target (`FreeEcho2Stream`, cleanly isolated). `audio_manager.py`
+   remains the singleton for the local output only.
 
-5. **Re-activate `_tool_index_clear`?** Currently dead. After Phase 3.0,
-   check whether a user-facing "clear the index completely" tool makes sense;
-   otherwise remove it.
+5. **Re-activate `_tool_index_clear`?** ✅ Settled: the tool no longer exists.
+   Clearing the index per source is done in the settings UI
+   (`audio_index_clear_source`).

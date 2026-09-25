@@ -23,6 +23,11 @@ AIfred läuft auf deinem eigenen Rechner und arbeitet für dich über jeden Kana
 - ⚙️ **Lokale Inferenz, automatisch abgestimmt** — llama.cpp, vLLM und Ollama mit VRAM-bewusster Kontext-Kalibrierung über mehrere GPUs
 - 🔒 **Security im Framework verankert** — Berechtigungsstufen pro Kanal, Schutz gegen Prompt Injection, Credential Broker, Audit-Log
 
+<p align="center">
+  <img src="docs/images/multi-agent-debate.webp" alt="Auto-Konsens-Debatte in AIfred: AIfred antwortet, Sokrates kritisiert, Salomo fasst zusammen" width="820">
+  <br><sub>Auto-Konsens-Modus: AIfred antwortet, Sokrates kritisiert, Salomo fasst zusammen — lokales DeepSeek-V4-Flash über vLLM, mit Messwerten je Antwort.</sub>
+</p>
+
 ---
 
 ## 🔗 Komplexe Abläufe (Tool-Ketten)
@@ -85,6 +90,12 @@ Jedes Plugin ist ein Verzeichnis unter `aifred/plugins/tools/` oder `aifred/plug
 - **Jeder Agent sieht die Konversation aus seiner eigenen Perspektive**, Prompts werden aus bis zu zehn Schichten zusammengesetzt (Identität, Reasoning, Rollen, Aufgabe, Gedächtnis, Persönlichkeit, Tools, …)
 
 Details — Abläufe, Prompt-Dateien, Perspektiven, Labels: [Multi-Agent-System](docs/de/architecture/multi-agent.md).
+
+<p align="center">
+  <img src="docs/images/agent-editor.webp" alt="Agent-Editor: Identität, Stimme und Werkzeugauswahl mit Berechtigungsstufen" width="400">
+  <img src="docs/images/plugin-manager.webp" alt="Plugin Manager: Kanäle mit Sicherheitsstufe, Tool-Plugins zur Laufzeit schaltbar" width="400">
+  <br><sub>Agent-Editor (Werkzeuge je Agent mit Tier-Abzeichen) und Plugin Manager (Kanäle mit Sicherheitsstufe, Plugins zur Laufzeit an/aus).</sub>
+</p>
 
 ### 📡 Überall erreichbar — Message Hub
 

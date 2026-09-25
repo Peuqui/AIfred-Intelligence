@@ -18,10 +18,13 @@ Stellen Tools bereit, die das LLM während einer Unterhaltung aufrufen kann (Web
 **Pflicht-Interface** (`ToolPlugin`-Protocol in `aifred/lib/plugin_base.py`):
 
 ```python
+# aifred/plugins/tools/my_plugin/__init__.py
 from dataclasses import dataclass
-from aifred.lib.function_calling import Tool
-from aifred.lib.plugin_base import PluginContext
-from aifred.lib.security import TIER_READONLY
+from typing import Any
+
+from ....lib.function_calling import Tool
+from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.security import TIER_READONLY
 
 @dataclass
 class MyPlugin:
@@ -40,7 +43,8 @@ class MyPlugin:
         return [Tool(
             name="my_tool",
             tier=TIER_READONLY,  # PFLICHT: Security-Tier deklarieren
-            description="What this tool does",
+            # Text steht in prompts/tools/my_tool.txt (fehlt/leer → RuntimeError)
+            description=load_tool_description(__file__, "my_tool"),
             parameters={
                 "type": "object",
                 "properties": {
@@ -51,11 +55,12 @@ class MyPlugin:
             executor=_execute,
         )]
 
-    def get_prompt_instructions(self, lang: str) -> str:
-        """Prompt-Text, der in den System-Prompt des LLM eingefügt wird. Leer = keiner."""
-        return ""
+    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+        """Anleitung für den System-Prompt, aus den Fragmenten in prompts/<de|en>/."""
+        from ....lib.plugin_base import load_plugin_instructions
+        return load_plugin_instructions(self, lang, granted_tools)
 
-    def get_ui_status(self, tool_name: str, tool_args: dict, lang: str) -> str:
+    def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         """UI-Statustext, der während der Ausführung dieses Tools angezeigt wird. Leer = nicht zuständig."""
         return ""
 
@@ -64,14 +69,50 @@ plugin = MyPlugin()
 ```
 
 **Wichtige Punkte:**
-- Ein Plugin ist ein Verzeichnis `aifred/plugins/tools/<name>/` mit `__init__.py` und `i18n.json`
-- Muss ein Attribut `plugin` auf Modulebene bereitstellen
+- Ein Plugin ist ein Verzeichnis `aifred/plugins/tools/<name>/` — siehe [Verzeichnisaufbau eines Plugins](#verzeichnisaufbau-eines-plugins)
+- Muss ein Attribut `plugin` auf Modulebene bereitstellen; `plugin.name` muss dem Ordnernamen entsprechen (sonst loggt die Registry eine Warnung, und das Plugin ist im Plugin Manager unsichtbar)
 - **Name und Beschreibung kommen aus der eigenen `i18n.json` des Plugins** (`plugin_display_name`, `plugin_description`, jeweils DE und EN) — siehe [Plugin-i18n](#plugin-i18n)
 - **Jedes Tool MUSS einen `tier` deklarieren**, mit den benannten Konstanten aus `security.py`
-- `PluginContext` stellt bereit: `agent_id`, `lang`, `session_id`, `state`, `user_query`, `max_tier`, `source`
+- `PluginContext` stellt bereit: `agent_id`, `lang`, `session_id`, `state`, `user_query`, `max_tier`, `source`, `llm_history`, `metadata` (kanalspezifisch, z. B. die Telegram-`chat_id`)
 - Tool-Executors sind async-Funktionen, die Strings zurückgeben (JSON bei Fehlern)
-- Prompt-Anweisungen werden aus Dateien in `prompts/` geladen (nicht hardcodiert)
+- **Kein hardcodierter LLM-Text:** Tool-Beschreibungen kommen per `load_tool_description()` aus `prompts/tools/<tool>.txt`, Prompt-Anweisungen per `load_plugin_instructions()` aus `prompts/<de|en>/` — beide Dateien liegen im Plugin-Verzeichnis
+- `get_prompt_instructions()` bekommt `granted_tools` (die für den aktuellen Agenten freigeschalteten Tool-Namen, `None` = keine Whitelist) und liefert nur die Anleitung dieser Tools
 - **Credentials über den Broker**, niemals über `os.environ` oder `config.py`
+
+## Verzeichnisaufbau eines Plugins
+
+Jedes Plugin, ob Tool oder Channel, ist ein Python-Paket. Die Dateien, die die
+vorhandenen Plugins verwenden (z. B. `tools/calculator/`, `tools/vision/`,
+`channels/telegram_channel/`):
+
+```
+aifred/plugins/tools/my_plugin/
+    __init__.py            # Plugin-Code + Instanz auf Modulebene (Pflicht)
+    i18n.json              # plugin_display_name + plugin_description, DE und EN (Pflicht)
+    settings.json          # Nicht geheime Einstellungen (optional, schreibt das Settings-Modal)
+    prompts/
+        tools/
+            my_tool.txt    # Tool-Beschreibung für das Modell, nur Englisch
+        de/
+            _intro.txt     # Plugin-weite Anleitung, sobald mindestens ein Tool freigeschaltet ist
+            my_tool.txt    # Nur sichtbar, wenn my_tool freigeschaltet ist
+            my_tool+other_tool.txt  # Nur sichtbar, wenn BEIDE Tools freigeschaltet sind
+        en/
+            ...            # Dieselben Dateinamen wie in de/
+    tools.py, db.py, …     # Weitere Module nach Bedarf (z. B. epim, email_channel)
+```
+
+| Datei | Gelesen von | Verhalten |
+|-------|-------------|-----------|
+| `prompts/tools/<tool>.txt` | `load_tool_description(__file__, "<tool>")` | Bei jedem Toolkit-Build frisch gelesen; fehlende oder leere Datei → `RuntimeError`, kein Fallback-Text. Nur Englisch — Empfänger ist das Modell |
+| `prompts/<de\|en>/*.txt` | `load_plugin_instructions(plugin, lang, granted_tools)` | Dateiname = benötigte(s) Tool(s), mit `+` verknüpft (UND); `_intro.txt` wird vorangestellt, sobald mindestens ein Tool-Fragment greift. Übergangs-Fallback: eine flache `prompts/<de\|en>.txt`, plugin-weit gegated |
+| `i18n.json` | `plugin_display_name()`, `plugin_description()`, Settings-Modal | Siehe [Plugin-i18n](#plugin-i18n) |
+| `settings.json` | Channels: `BaseChannel.load_settings()` / `save_settings()`; Tools: `load_plugin_settings(__file__)` / `save_plugin_settings(__file__, …)` | Siehe [Credential-Speicherung](#credential-speicherung-secrets-gegen-settings) |
+
+Größere Plugins teilen sich zusätzlich in Unterpakete auf (z. B. `google_suite/` mit
+`calendar/`, `contacts/`, `drive/`, `tasks/`). Plugin-eigene Datendateien sind ebenfalls
+in Ordnung (z. B. `bible/book_aliases/de.json`). Gemeinsame Logik mehrerer Plugins gehört
+nach `aifred/lib/`, niemals in einen Import aus einem anderen Plugin.
 
 ### Channel-Plugins (`plugins/channels/`)
 
@@ -84,9 +125,12 @@ aifred/plugins/channels/my_channel/
     __init__.py     # Plugin-Code (BaseChannel-Unterklasse + Instanz auf Modulebene)
     i18n.json       # Name, Beschreibung, Credential-Labels (DE und EN, Pflicht)
     settings.json   # Automatisch erzeugt: nicht geheime Einstellungen (Ports, Hosts usw.)
+    prompts/tools/  # Beschreibungen der kanaleigenen Tools (z. B. telegram_send.txt)
 ```
 
-**Ordner löschen = Plugin ist komplett weg.** Keine Überbleibsel in `.env` oder in der zentralen `i18n.py`.
+Code, Texte und nicht geheime Einstellungen liegen alle im Ordner — in den zentralen
+UI-Übersetzungen (`aifred/lib/i18n/`) wird nichts eingetragen. Nur geheime Felder
+(`is_secret=True`) landen in der `.env`.
 
 **Pflicht-Interface** (`BaseChannel`-ABC in `aifred/lib/plugin_base.py`):
 
@@ -183,13 +227,14 @@ MyChannel_instance = MyChannel()
 ```
 
 **Wichtige Punkte:**
-- Das Plugin liegt in `aifred/plugins/channels/{name}_channel/`
-- Muss eine `BaseChannel`-Instanz auf Modulebene bereitstellen
+- Das Plugin liegt in `aifred/plugins/channels/{name}_channel/` (`BaseChannel` leitet den Pfad der `settings.json` aus diesem Ordnernamen ab)
+- Muss eine `BaseChannel`-Instanz auf Modulebene bereitstellen (die Registry übernimmt jede `BaseChannel`-Instanz im Modul)
 - `listener_loop()` muss unbegrenzt laufen und `asyncio.CancelledError` behandeln
 - `build_context()` sollte Prompts aus dem Verzeichnis `prompts/` laden
 - **Credentials über `broker.get()`**, niemals über `os.environ` oder globale Variablen aus `config.py`
-- Credential-Mapping in `credential_broker.py: _CREDENTIAL_MAP` ergänzen
-- Channel-Tools MÜSSEN benannte Tier-Konstanten verwenden (typischerweise `TIER_COMMUNICATE`)
+- `broker` löst `(service, key)` zur Umgebungsvariable `<SERVICE>_<KEY>` auf; einen Eintrag in `credential_broker.py: _CREDENTIAL_MAP` brauchst du nur, wenn der Variablenname davon abweicht
+- Channel-Tools MÜSSEN benannte Tier-Konstanten verwenden (typischerweise `TIER_COMMUNICATE`) und ihre Beschreibung per `load_tool_description(__file__, "<tool>")` laden
+- Optionale Properties: `always_reply` (Default `False`; `True` blendet den Auto-Reply-Schalter aus) und `has_allowlist` (Default `True`; `False` blendet die Allowlist-Zeile aus, z. B. FreeEcho.2)
 - **Ausgangsformatierung**: `outbound.text` in `send_reply()` durch `self.format_outbound()` leiten. Agenten erzeugen Markdown — nur Discord stellt es nativ dar. E-Mail/Telegram/EPIM usw. brauchen eine Umwandlung über `md_to_html` / `md_to_plain` aus `aifred/lib/markdown_render.py`.
 
 ## Markdown-Umwandlung für ausgehende Nachrichten
@@ -223,7 +268,7 @@ def format_outbound(self, text: str) -> dict[str, str]:
     return {"text": md_to_plain(text)}
 ```
 
-In `send_reply()` `self.format_outbound(outbound.text)` aufrufen und die passenden Felder an deinen Transport übergeben (SMTP, REST-API usw.). Konkrete Beispiele: siehe `email_channel/__init__.py`, `telegram_channel/__init__.py`, `discord_channel/__init__.py`.
+In `send_reply()` `self.format_outbound(outbound.text)` aufrufen und die passenden Felder an deinen Transport übergeben (SMTP, REST-API usw.). Konkrete Überschreibungen: siehe `email_channel/__init__.py` und `telegram_channel/__init__.py`; `discord_channel` nutzt den Default-Passthrough.
 
 **Warum ein Dict als Rückgabetyp?** Verschiedene Kanäle brauchen verschiedene Beigaben: E-Mail braucht sowohl `text` als auch `html` für `multipart/alternative`, Telegram unterstützte früher ein `parse_mode`-Flag, künftige Kanäle brauchen vielleicht andere Hinweise. Ein Dict hält das Interface flexibel, ohne dass die Parameter explodieren.
 
@@ -238,9 +283,9 @@ In `send_reply()` `self.format_outbound(outbound.text)` aufrufen und die passend
 
 `is_password=True` setzt automatisch `is_secret=True`.
 
-**Beim Start:** Die Werte aus der `settings.json` des Plugins werden von der Registry in `os.environ` geladen, sodass `credential_broker` und `is_configured()` nahtlos funktionieren.
+**Beim Start (Channels):** Findet die Registry einen Kanal, ruft sie `load_settings_to_env()` auf. Das kopiert die nicht leeren Werte aus der `settings.json` des Kanals nach `os.environ` (sie haben Vorrang vor der `.env`), sodass `credential_broker` und `is_configured()` nahtlos funktionieren.
 
-**Migration:** Wird ein Plugin zum ersten Mal geladen und hat noch keine `settings.json`, werden vorhandene `.env`-Werte nicht geheimer Felder automatisch migriert.
+**Tool-Plugins** lesen ihre `settings.json` direkt über `load_plugin_settings(__file__)` aus `aifred/lib/plugin_base.py` (Gegenstück: `save_plugin_settings(__file__, settings)`).
 
 ## Plugin-i18n
 
@@ -282,7 +327,9 @@ Credential-Labels und Tooltips stehen in derselben Datei:
 
 **Konvention:** Tooltip-Keys heißen `{label_key}_tooltip`.
 
-Die Methode `translate(key, lang)` des Plugins schlägt Übersetzungen in der `i18n.json` nach. Das Settings-Modal versucht zuerst die Plugin-i18n und greift dann auf die zentrale `aifred/lib/i18n.py` zurück.
+Das Settings-Modal löst Credential-Labels, Tooltips und die Labels von Dropdown-Optionen **ausschließlich** über die eigene `i18n.json` des Plugins auf (Tool- wie Channel-Plugins). Ein Key, den die Datei nicht enthält, wird so angezeigt, wie er geschrieben ist; ein fehlender Tooltip bleibt leer. Einen Rückfall auf die zentralen UI-Übersetzungen gibt es nicht — die liegen im Paket `aifred/lib/i18n/` (`de.json`, `en.json`, `TranslationManager` in `__init__.py`) und sind nicht für Plugin-Texte gedacht.
+
+Channel-Plugins haben zusätzlich `translate(key, lang="de")` (siehe unten): Es liefert den Eintrag für `lang`, sonst den `de`-Eintrag, sonst den Key selbst.
 
 ## Hilfsmethoden von BaseChannel
 
@@ -292,11 +339,13 @@ Jedes Channel-Plugin erbt diese Methoden von `BaseChannel`:
 |--------|-------------|
 | `load_settings()` | `settings.json` des Plugins lesen |
 | `save_settings(dict)` | `settings.json` des Plugins schreiben |
-| `get_setting(key)` | Einzelnen Einstellungswert holen |
-| `set_setting(key, value)` | Einzelnen Einstellungswert setzen |
+| `load_settings_to_env()` | Nicht leere Werte der `settings.json` nach `os.environ` kopieren (ruft die Registry beim Discovery auf) |
 | `load_i18n()` | `i18n.json` des Plugins lesen |
-| `translate(key, lang)` | Key über die `i18n.json` des Plugins übersetzen |
-| `channel_log(msg, level)` | Ins Debug-Log + stderr loggen (journalctl) |
+| `translate(key, lang="de")` | Key über die `i18n.json` des Plugins übersetzen (Default-Sprache `de`, Rückfall auf `de`, dann auf den Key) |
+| `format_outbound(text)` | Agenten-Markdown für den Kanal umwandeln (Default: Passthrough) |
+| `channel_log(msg, level="info")` | In Log-Datei + stderr loggen (journalctl), innerhalb eines `session_scope` zusätzlich in die Debug-Konsole im Browser |
+
+Tool-Plugins nutzen stattdessen die Hilfsfunktionen auf Modulebene aus `aifred/lib/plugin_base.py`: `load_plugin_settings()`, `save_plugin_settings()`, `load_plugin_i18n()`, `load_tool_description()`, `load_plugin_instructions()`.
 
 ## Debug-Meldungen
 
@@ -324,12 +373,12 @@ Plugins werden über den **Plugin Manager** verwaltet (Settings > Plugin Manager
 - Der Hauptschalter aktiviert/deaktiviert den gesamten Kanal (Tools + Listener)
 - Unterschalter steuern den Hintergrund-Listener (Monitor) und Auto-Reply
 - Änderungen wirken sofort, weil sie laufende Hintergrund-Worker starten/stoppen
-- Der Zustand wird in `settings.json` gespeichert (`channel_toggles`)
+- Der Zustand wird in AIfreds `data/settings.json` gespeichert (`channel_toggles`)
 
-**Tool-Plugins** (Calculator, Documents, EPIM usw.) haben Schalter, die **bei OK** wirken:
+**Tool-Plugins** (Calculator, Workspace, EPIM usw.) haben Schalter, die **bei OK** wirken:
 - Das Umschalten eines Tool-Plugins in der UI ändert nur den sichtbaren Zustand
-- Ein Klick auf OK übernimmt alle Änderungen auf einmal, indem Dateien nach/aus `plugins/disabled/` verschoben werden
-- Die Plugin-Datei wird physisch verschoben — was im Ordner liegt, ist aktiv, was in `disabled/` liegt, nicht
+- Ein Klick auf OK übernimmt alle Änderungen auf einmal, indem Plugin-Verzeichnisse nach/aus `plugins/disabled/` verschoben werden
+- Das Plugin-Verzeichnis wird physisch verschoben und bekommt seinen Typ als Präfix (`disabled/tool_<name>`, `disabled/channel_<name>`) — was in `tools/` oder `channels/` liegt, ist aktiv, was in `disabled/` liegt, nicht
 
 ### Unterschalter von Kanälen
 
@@ -345,29 +394,35 @@ Kanäle mit `always_reply = True` (z. B. Discord) zeigen nur den Hauptschalter.
 aifred/
 ├── lib/
 │   ├── plugin_base.py         # Interfaces (BaseChannel, ToolPlugin, PluginContext, CredentialField)
-│   ├── plugin_registry.py     # Discovery, Aktivieren/Deaktivieren, Auflisten, Migration
+│   │                          # + Helfer (load_tool_description, load_plugin_instructions, Plugin-i18n/-Settings)
+│   ├── plugin_registry.py     # Discovery, Aktivieren/Deaktivieren, Auflisten
 │   ├── security.py            # Tier-Konstanten, Filter, Sanitizing, Audit
 │   ├── credential_broker.py   # Zentrale Credential-Verwaltung
 │   ├── debug_bus.py           # debug(), session_scope, flush
-│   └── function_calling.py    # Klassen Tool, ToolKit
+│   ├── function_calling.py    # Klassen Tool, ToolKit
+│   ├── markdown_render.py     # md_to_html, md_to_plain (Ausgangsformatierung)
+│   └── i18n/                  # Zentrale UI-Übersetzungen (de.json, en.json, __init__.py) — nicht für Plugin-Texte
 └── plugins/
-    ├── channels/
-    │   ├── email_channel/     # E-Mail (IMAP/SMTP + E-Mail-Tools)
-    │   │   ├── __init__.py
-    │   │   └── i18n.json
-    │   ├── discord_channel/   # Discord (Bot + Tool discord_send)
-    │   │   ├── __init__.py
-    │   │   └── i18n.json
-    │   ├── telegram_channel/  # Telegram (Bot + Tool telegram_send)
-    │   │   ├── __init__.py
-    │   │   └── i18n.json
-    │   └── freeecho2_channel/ # FreeEcho.2-Sprachterminal (WebSocket)
-    │       ├── __init__.py
-    │       └── i18n.json
-    ├── tools/
-    │   ├── calculator.py      # calculate (Tier 0)
-    │   ├── epim/              # EPIM-Datenbank-CRUD (Tier 0/2/3)
-    │   ├── research.py        # web_search, web_fetch (Tier 0)
-    │   └── sandbox.py         # execute_code (Tier 2)
-    └── disabled/              # Deaktivierte Tool-Plugins (von der UI hierher verschoben)
+    ├── channels/              # jeder Kanal: __init__.py, i18n.json, settings.json, prompts/tools/
+    │   ├── discord_channel/   # Discord-Bot (+ discord_send)
+    │   ├── email_channel/     # IMAP IDLE + SMTP (+ E-Mail-Tools; client.py, config.py, tools.py)
+    │   ├── freeecho2_channel/ # FreeEcho.2-Lautsprecher über WebSocket (+ freeecho2_announce)
+    │   └── telegram_channel/  # Telegram-Bot (+ telegram_send)
+    ├── tools/                 # jedes Tool: __init__.py, i18n.json, prompts/ (settings.json bei Bedarf)
+    │   ├── audio_player/      # Lokale Audiodateien und Internet-Streams
+    │   ├── bible/             # Bibelstellen nachschlagen und durchsuchen
+    │   ├── calculator/        # calculate
+    │   ├── epim/              # EPIM-Termine, -Kontakte, -Notizen, -Aufgaben (db.py, tools.py)
+    │   ├── google_suite/      # Google Calendar, Contacts, Tasks, Drive (Unterpaket pro Dienst)
+    │   ├── judaica/           # Jüdischen Quellenkorpus nachschlagen und durchsuchen
+    │   ├── narrator/          # Liest Textdateien in eine Audiodatei ein
+    │   ├── research/          # web_search, web_fetch
+    │   ├── sandbox/           # execute_code, render_html
+    │   ├── scheduler_tool/    # Geplante Aufgaben und Erinnerungen
+    │   ├── subagent/          # delegate_task an Sub-Agenten
+    │   ├── system_monitor/    # system_status (CPU, RAM, VRAM, Platten, …)
+    │   ├── translator/        # DeepL translate, translate_file
+    │   ├── vision/            # Vigilantia: Snapshots, Szenenbeschreibungen, Watches
+    │   └── workspace/         # Dateien im Arbeitsverzeichnis + ChromaDB-Dokumentenindex
+    └── disabled/              # Deaktivierte Plugins (von der UI als tool_<name> / channel_<name> hierher verschoben)
 ```
