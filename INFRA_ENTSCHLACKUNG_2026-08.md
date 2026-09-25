@@ -1,7 +1,7 @@
 # Infrastruktur-Entschlackung — Plan & Evaluation (Stand 2026-08-15)
 
-Arbeitsdokument zur Konsolidierung des Inferenz-Stacks. Kontext: Kobold ist
-bereits entfernt; Qwen3.8-27B ist als neues Arbeitsmodell deployed (llama.cpp
+Arbeitsdokument zur Konsolidierung des Inferenz-Stacks. Kontext: Qwen3.8-27B
+ist als neues Arbeitsmodell deployed (llama.cpp
 via llama-swap, MTP + Vision + Effort-Stufen). Nächster Kandidat: Ollama.
 
 ---
@@ -52,7 +52,7 @@ GPU3").
 4. **Rückbau:** beide Ollama-Services stilllegen, Ollama-Sonderfälle
    entfernen (greedy GPU-Wahl-Doku, Zwei-Service-Konstrukt,
    Blob-Symlink-Logik im Autoscan). `backends/ollama.py`: Entscheidung
-   User (behalten für Fremd-User vs. Kobold-Präzedenz).
+   User (behalten für Fremd-User oder ganz entfernen).
 
 ### Gewinne
 
@@ -125,7 +125,6 @@ als Historical Notes markiert.
 
 ## 3. Erledigt / Verworfen
 
-- **Kobold**: entfernt (Präzedenz für Backend-Rückbau)
 - **Qwen3.6-27B**: gelöscht, ersetzt durch Qwen3.8-27B (2026-08-14)
 - **preserve_thinking turn-übergreifend**: bewusst verworfen (Kontextkosten,
   Anker-Effekt; frisches Nachprüfen hat sich als Qualitätsvorteil erwiesen)
