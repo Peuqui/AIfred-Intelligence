@@ -434,8 +434,9 @@ async def _verify_and_refine(
 
     Structure:
       Step 1  First verify at candidate.max_context. On OOM, try up to 15
-              fastest-first cascade shifts at that ctx (skipped for the
-              VLM lock_split split); if still no fit, fall back to
+              fastest-first cascade shifts at that ctx (also for the VLM
+              lock_split split — reserve GPUs are never a shift
+              destination, see ``_blocked_dest``); if still no fit, fall back to
               ``_binary_search_fitting_ctx`` — a cost-model-seeded binary
               search for the highest fitting ctx on the fixed split (SSOT
               for all variants).

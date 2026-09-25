@@ -863,7 +863,7 @@ VISION_CLUSTER_MAX_SECONDS = 300
 # 10 ist der Sweet Spot für das 4B-VLM: genug zeitliche Auflösung (bei einem
 # durchgehenden ~1-min-Cluster ein Bild alle ~6 s), ohne dass die Qualität
 # über zu viele fast gleiche Bilder kippt (das kleine Modell verliert dann
-# den Faden / halluziniert Bewegung). 10 @ 0,8 MP passt in VLM_NUM_CTX=9216;
+# den Faden / halluziniert Bewegung). 10 @ 2,07 MP passt in VLM_NUM_CTX=24576;
 # höher gehen heißt num_ctx mitziehen (siehe dort) und ggf. 8B-VLM.
 VISION_DESCRIBE_MAX_FRAMES = 10
 
@@ -1367,7 +1367,7 @@ MEDIA_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 # limit bounds that index: 200 lines are roughly 8k tokens. A full memory
 # refuses new entries; the agent merges or deletes.
 AGENT_MEMORY_COLLECTION_MAX = 200    # Max entries per agent collection
-AGENT_MEMORY_DISTANCE_THRESHOLD = 1.0  # Max distance for relevant memories (nomic-embed scale)
+AGENT_MEMORY_DISTANCE_THRESHOLD = 1.0  # Max distance for relevant memories (bge-m3 embeddings)
 AGENT_MEMORY_RESULTS = 5             # Semantic hits shown with their content
 AGENT_MEMORY_RECENT_COUNT = 3        # Newest entries shown with their content
 AGENT_MEMORY_SUMMARY_MAX_CHARS = 160  # summary = the entry's index line; longer is refused
@@ -1414,7 +1414,6 @@ BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selec
 # MESSAGE HUB CONFIGURATION
 # ============================================================
 MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "mp")  # Sessions created by hub belong to this user
-EMAIL_MONITOR_AUTO_REPLY = os.environ.get("EMAIL_MONITOR_AUTO_REPLY", "false").lower() == "true"
 
 # Scheduler: each run of a job sees what its previous runs delivered, so a
 # job like "a new psalm every morning" does not repeat itself.

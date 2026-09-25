@@ -29,17 +29,14 @@ Environment="PYTHONUNBUFFERED=1"
 Environment="NODE_OPTIONS=--max-old-space-size=4096"
 Environment="BUN_MAX_OLD_SPACE_SIZE=4096"
 # ─────────────────────────────────────────────────────────────────
-# Machine-specific overrides — uncomment + adjust if needed:
-#
-# Behind a nginx reverse-proxy at /aifred? Set the frontend path so
-# Reflex generates absolute asset URLs that include the prefix.
-# Environment=AIFRED_FRONTEND_PATH=aifred
-#
-# llama-swap not on the default port 11435?
-# Environment="LLAMACPP_URL=http://localhost:11435/v1"
-#
-# Calibration probe port collides with another service (default 9999)?
-# Environment="LLAMACPP_CALIBRATION_PORT=19999"
+# Machine-specific values do NOT belong here: install-services.sh
+# re-renders this file on every run and would overwrite them. Put them
+# into <project>/.env (loaded via EnvironmentFile above), e.g.
+#   AIFRED_FRONTEND_PATH=aifred           # app behind a proxy at /aifred
+#   LLAMACPP_URL=http://localhost:11435/v1
+#   LLAMACPP_CALIBRATION_PORT=19999       # default 9999 collides with another service
+# Extra ExecStartPre/ExecStopPost lines: a drop-in via
+# `sudo systemctl edit aifred-intelligence` (survives re-installs).
 # ─────────────────────────────────────────────────────────────────
 # Vite patch — allowedHosts from AIFRED_ALLOWED_HOST (.env) + dedupe of
 # shared frontend libs. Idempotent: safe to run on every start.

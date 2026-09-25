@@ -1,6 +1,7 @@
 """Top-level calibration orchestrator.
 
-Five sequential phases (``A``–``E``) each documented inline.  The output
+Sequential phases ``A`` (metadata/budget), ``1`` (base cells), ``E``
+(speed variant) and ``D`` (write), each documented inline.  The output
 protocol (``__RESULT__`` / ``__SPEED__`` strings) is preserved so that
 existing state-mixin parsers keep working without change.
 """

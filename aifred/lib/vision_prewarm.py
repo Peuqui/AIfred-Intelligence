@@ -147,7 +147,7 @@ async def prewarm_vlm(
     # Bildanalyse über llama-swap (SSOT-Umleitung in analyze_sequence).
     # Dann warmlaufen lassen heißt: das Profil per Mini-Request laden.
     # keep_alive/num_ctx sind Ollama-Konzepte — Residenz regelt die
-    # persistente vision-Gruppe, den Kontext die YAML (-c 9216).
+    # persistente vision-Gruppe, den Kontext die YAML (-c = VLM_NUM_CTX).
     from .vision_routing import visiond_profile_for
     visiond = visiond_profile_for(str(model))
     if visiond is not None:

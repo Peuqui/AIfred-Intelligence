@@ -461,7 +461,7 @@ class BaseChannel(ABC):
 
         settings.json has priority over .env for non-secret values.
         This ensures the latest saved config is used, not stale .env entries.
-        Runs at plugin discovery, after migration.
+        Runs at plugin discovery.
         """
         import os
         settings = self.load_settings()
