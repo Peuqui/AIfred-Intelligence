@@ -1015,9 +1015,10 @@ Iteration:
   5 GPUs = 192 GB VRAM (2× RTX 8000 48 GB + 3× V100 32 GB), alle P40
   raus (Stand 2026-07-10). Kein weiterer GPU-Ausbau geplant —
   allenfalls V100→RTX-8000-Tausch oder irgendwann ein neuer Server.
-- [ ] **vLLM als Haupt-Backend zurückholen** — war an die P40-Ablösung
-  gekoppelt (fehlender Pascal-Support), die ist durch. `docs/vllm/`
-  deshalb NICHT löschen, höchstens als Historical Notes markieren.
+- [x] ~~vLLM als Haupt-Backend zurückholen~~ ✅ vLLM-Einträge laufen unter
+  llama-swap produktiv (eigene Kalibrierung, siehe
+  `docs/*/architecture/calibration-vllm.md`). Die alten RTX-3060-Notizen
+  `docs/vllm/` sind am 2026-09-25 gelöscht; letzter Stand in Commit `d6ff5b5b`.
 
 ---
 

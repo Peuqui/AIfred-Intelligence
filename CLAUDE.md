@@ -56,7 +56,7 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 - **ChromaDB** (Docker, Daten in `data/chromadb/`) - Dokumente (`aifred_documents`) + Agent-Memory (`agent_memory_*`). KEIN Web-Research-Cache — bewusst entfernt, jede Recherche läuft frisch
 - **RAG über Dokumente** - agentengetrieben per `search_documents`-Tool (kein Auto-Inject)
 - **History Compression** - Automatische Kompression (siehe unten)
-- **Multi-Backend Support** - llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI
+- **Multi-Backend Support** - llama.cpp und vLLM (beide via llama-swap), Ollama, Cloud-APIs
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
 - **Message Hub** *(WIP)* - Background-Worker für externe Kanäle (E-Mail, Discord, Telegram, Signal). Architektur: [docs/de/architecture/message-hub.md](docs/de/architecture/message-hub.md)
 
@@ -82,7 +82,7 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 
 ### Architektur
 - Python/Reflex Anwendung (nicht Gradio!)
-- Backends: llama.cpp (via llama-swap), Ollama, vLLM, TabbyAPI
+- Backends: llama.cpp und vLLM (beide via llama-swap), Ollama, Cloud-APIs (Claude, Qwen, DeepSeek, Kimi)
 - Multi-Agent System:
   - AIfred (Hauptagent)
   - Sokrates (Kritiker)
@@ -277,5 +277,5 @@ journalctl --user -u aifred-intelligence -f
 
 **Model Discovery verwendet HuggingFace Cache:**
 - Siehe `aifred/lib/model_discovery.py` → `discover_huggingface_models()`
-- Scannt `~/.cache/huggingface/hub/models--*` für vLLM/TabbyAPI kompatible Modelle
+- Scannt `~/.cache/huggingface/hub/models--*` für vLLM-kompatible Modelle
 - Download-Anleitung siehe `~/.claude/CLAUDE.md` (global für alle Projekte)
