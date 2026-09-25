@@ -1,5 +1,10 @@
 # Benchmark-Analyse v2: Dog vs Cat Tribunal Sessions
 
+> **Historischer Benchmark.** Gemessen Anfang 2026 auf dem früheren Aufbau mit
+> Tesla P40 (Pascal). Der heutige AIfred-Rechner läuft mit 2× Quadro RTX 8000 +
+> 3× Tesla V100; die Zahlen beschreiben also nicht die aktuelle Leistung, bleiben
+> aber eine brauchbare Referenz für alle, die P40 oder ähnliche Pascal-Karten fahren.
+
 ## Übersicht
 
 Dieses Dokument analysiert **18 Cat/Dog Tribunal-Sessions** aus dem Verzeichnis `data/sessions/`, ausgeführt zwischen dem 20.02.2026 und dem 19.03.2026. Alle Sessions verwenden dieselbe Frage ("Was ist besser, Hund oder Katze?" / "What is better, dog or cat?") im Tribunal-Modus (AIfred -> Sokrates R1 -> AIfred R2 -> Sokrates R2 -> Salomo Verdict).

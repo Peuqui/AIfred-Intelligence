@@ -12,7 +12,8 @@ tool.
 - **Long polling:** New messages are fetched without running a webhook server
   (`drop_pending_updates=True` on start, so the backlog is skipped).
 - **User allowlist:** Only Telegram user IDs in `TELEGRAM_ALLOWED_USERS` are
-  processed. Empty allowlist = nobody, `*` = everybody.
+  processed. Empty allowlist = nobody; `*` is rejected (a world-open bot would
+  let anyone use your GPUs).
 - **Always reply:** The channel replies to every accepted message
   (`always_reply = True`).
 - **`/clear` command:** Resets the conversation by deleting the chat's routing
@@ -40,7 +41,7 @@ persisted to `.env`:
 | Key | Description |
 |-----|-------------|
 | `TELEGRAM_BOT_TOKEN` | Bot token from [@BotFather](https://t.me/BotFather) (stored as password). |
-| `TELEGRAM_ALLOWED_USERS` | Comma-separated Telegram **user IDs**. `*` = allow all, empty = allow none. The **first entry is the owner** and gets elevated permissions. |
+| `TELEGRAM_ALLOWED_USERS` | Comma-separated Telegram **user IDs**. Empty = allow none; `*` is not supported. The **first entry is the owner** and gets elevated permissions. |
 
 Find your user ID by messaging [@userinfobot](https://t.me/userinfobot) on
 Telegram. The channel only starts once `enabled` is set and a bot token is

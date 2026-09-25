@@ -10,7 +10,7 @@ Google Calendar, Contacts, Tasks, and Drive via OAuth 2.0. Orchestrator plugin w
 2. Enable the following APIs: **Google Calendar API**, **People API**, **Tasks API v1**, **Google Drive API**
 3. Add to **Authorized redirect URIs**:
    ```
-   https://narnia.spdns.de:8443/api/oauth/google/callback
+   https://example.com:8443/api/oauth/google/callback
    ```
 4. Add credentials to `.env`:
    ```
@@ -20,7 +20,7 @@ Google Calendar, Contacts, Tasks, and Drive via OAuth 2.0. Orchestrator plugin w
 5. Enable/disable sub-services in `aifred/plugins/tools/google_suite/settings.json` (default: all four enabled)
 6. Start the OAuth flow — generate an auth URL:
    ```bash
-   curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://narnia.spdns.de:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
+   curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://example.com:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
    ```
    Open the returned URL in a browser → Google login → redirected to callback URL → done.
 7. Check connection status:

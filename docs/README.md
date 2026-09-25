@@ -57,11 +57,6 @@ files are tagged below.
 | [TTS Model Comparison](en/models/tts-comparison.md) | [DE](de/models/tts-comparison.md) · [EN](en/models/tts-comparison.md) | All integrated TTS engines compared |
 | [MOSS-TTS 8B Notes](de/models/moss-tts-8b-notes.md) | DE | Running MOSS-TTS Delay 8B on Turing GPUs |
 
-## Blog / Posts
-
-- [Reddit Post: r/LocalLLaMA Follow-Up](en/blog/reddit-post-v2.md) (EN)
-- [Reddit Post: Tensor Split](en/blog/reddit-post-v5-tensor-split.md) (EN)
-
 ## Examples & Showcases
 
 - [Examples README](examples/README.md) — curated HTML showcases (tribunal
@@ -70,6 +65,6 @@ files are tagged below.
 
 ## Historical
 
-- [vLLM notes](vllm/README.md) — pre-state-refactor vLLM backend docs.
-  **Deliberately kept**: vLLM returns as the main backend after the GPU
-  migration (see TODO.md).
+- The old vLLM notes (`docs/vllm/`, RTX 3060 era, 2025-11) were removed on
+  2026-09-25; they describe code that no longer exists. Last version:
+  `git show d6ff5b5b:docs/vllm/README.md`.

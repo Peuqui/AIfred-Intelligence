@@ -1,5 +1,10 @@
 # Recommended Parameters per Model (llama-server)
 
+> **Historical benchmark.** Measured in early 2026 on the previous Tesla P40-based
+> setup (Pascal). The current AIfred machine runs 2× Quadro RTX 8000 + 3× Tesla V100,
+> so these numbers do not describe today's performance — they remain a useful
+> reference for anyone running P40 or similar Pascal cards.
+
 Last Updated: 2026-02-21 — Official Unsloth-Docs + Own Tests
 
 ---

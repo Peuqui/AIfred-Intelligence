@@ -1,5 +1,10 @@
 # Benchmark Model Overview
 
+> **Historical benchmark.** Measured in early 2026 on the previous Tesla P40-based
+> setup (Pascal). The current AIfred machine runs 2× Quadro RTX 8000 + 3× Tesla V100,
+> so these numbers do not describe today's performance — they remain a useful
+> reference for anyone running P40 or similar Pascal cards.
+
 ## Hardware Setup
 
 - **System**: AOOSTAR GEM 10 MiniPC (AMD Ryzen 9 7945HX, 32GB RAM)

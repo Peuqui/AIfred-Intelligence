@@ -33,7 +33,7 @@ Generischer OAuth 2.0 Broker für alle Google-Plugins und künftige Provider. Ve
 ### Beispiel: Auth-URL generieren
 
 ```bash
-curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://narnia.spdns.de:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
+curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://example.com:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
 ```
 
 ### Beispiel: Status prüfen

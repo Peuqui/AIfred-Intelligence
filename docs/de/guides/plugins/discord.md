@@ -26,12 +26,13 @@ Teilstücke aufgeteilt.
 ## Features
 
 - **WebSocket/Gateway:** Permanente Verbindung über die Discord Gateway API
-- **Channel + DM:** Empfängt Nachrichten aus Server-Kanälen und Direktnachrichten. DMs
-  werden immer angenommen; Server-Kanäle werden gegen die konfigurierten Channel-IDs
-  gefiltert (leere Liste = alle Kanäle)
-- **`/clear` Slash-Command:** Löscht alle Nachrichten im aktuellen Kanal. Funktioniert nur
-  in Server-Kanälen und erfordert, dass der aufrufende Benutzer die Berechtigung
-  `Nachrichten verwalten` besitzt
+- **Channel + DM:** Empfängt Nachrichten aus Server-Kanälen und Direktnachrichten. Jeder
+  Absender wird zuerst gegen die Pflicht-Allowlist geprüft (siehe unten); Server-Kanäle
+  werden zusätzlich gegen die konfigurierten Channel-IDs gefiltert (leere Liste = alle Kanäle)
+- **`/clear` Slash-Command:** Leert die Konversation — setzt immer AIfreds Kontext (Route)
+  zurück; in Server-Kanälen löscht er zusätzlich alle Nachrichten (dafür braucht der
+  aufrufende Benutzer die Berechtigung `Nachrichten verwalten`; in DMs können Bots nicht
+  massenhaft löschen)
 - **Markdown:** Ausgehender Text wird unverändert durchgereicht — Discord rendert Markdown
   (fett/kursiv/Code/Links) nativ
 
@@ -44,6 +45,7 @@ AIfred-Einstellungs-UI oder über `.env`):
 |------------|--------------|
 | `DISCORD_BOT_TOKEN` | Bot-Token aus dem Discord Developer Portal (geheim) |
 | `DISCORD_CHANNEL_IDS` | Kommagetrennte Channel-IDs, die überwacht werden (leer = alle Kanäle) |
+| `DISCORD_ALLOWED_USERS` | **Pflicht-Allowlist** der Absender: kommagetrennte numerische User-IDs. Leer = niemand; `*` wird **nicht** unterstützt. **Nutzer hinzufügen:** ihn den Bot einmal anschreiben lassen — seine User-ID erscheint im AIfred-Log (`blocked message from user <ID>`); über das Zahnrad des Plugins → *Erlaubte User-IDs* eintragen |
 
 Einrichtung:
 

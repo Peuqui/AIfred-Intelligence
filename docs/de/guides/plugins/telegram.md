@@ -12,7 +12,8 @@ proaktiv angeschrieben werden.
 - **Long Polling:** Neue Nachrichten werden ohne Webhook-Server abgerufen
   (`drop_pending_updates=True` beim Start, der Rückstau wird also übersprungen).
 - **User-Allowlist:** Nur Telegram-User-IDs in `TELEGRAM_ALLOWED_USERS` werden
-  verarbeitet. Leere Allowlist = niemand, `*` = alle.
+  verarbeitet. Leere Allowlist = niemand; `*` wird abgelehnt (ein weltoffener
+  Bot ließe jeden auf deine GPUs zugreifen).
 - **Immer antworten:** Der Channel antwortet auf jede akzeptierte Nachricht
   (`always_reply = True`).
 - **`/clear`-Befehl:** Setzt die Konversation zurück, indem der Routing-Table-
@@ -41,7 +42,7 @@ verwaltet und in `.env` persistiert:
 | Key | Beschreibung |
 |-----|--------------|
 | `TELEGRAM_BOT_TOKEN` | Bot-Token von [@BotFather](https://t.me/BotFather) (als Passwort gespeichert). |
-| `TELEGRAM_ALLOWED_USERS` | Kommagetrennte Telegram-**User-IDs**. `*` = alle erlaubt, leer = niemand erlaubt. Der **erste Eintrag ist der Owner** und erhält erhöhte Rechte. |
+| `TELEGRAM_ALLOWED_USERS` | Kommagetrennte Telegram-**User-IDs**. Leer = niemand erlaubt; `*` wird nicht unterstützt. Der **erste Eintrag ist der Owner** und erhält erhöhte Rechte. |
 
 Die eigene User-ID findest du, indem du [@userinfobot](https://t.me/userinfobot)
 in Telegram anschreibst. Der Channel startet erst, wenn `enabled` gesetzt ist und

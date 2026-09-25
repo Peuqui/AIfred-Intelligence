@@ -1,5 +1,10 @@
 # Tensor Split Benchmark: Speed Variant vs. Full Context
 
+> **Historical benchmark.** Measured in early 2026 on the previous Tesla P40-based
+> setup (Pascal). The current AIfred machine runs 2× Quadro RTX 8000 + 3× Tesla V100,
+> so these numbers do not describe today's performance — they remain a useful
+> reference for anyone running P40 or similar Pascal cards.
+
 Real-world performance comparison of two llama-swap configurations for the same model,
 measured through AIfred's multi-agent tribunal system (AIfred + Sokrates + Salomo, 2 rounds).
 
