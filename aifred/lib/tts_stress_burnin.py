@@ -8,8 +8,7 @@ the observed peak into :mod:`tts_vram_cache`.
 
 The calibration consumes the cached value plus a fixed headroom (see
 :data:`LLAMACPP_TTS_BURNIN_HEADROOM_MB` in config.py). No more
-hand-measured ``calibration_vram_reserve_mb`` per engine — the burn-in
-is the source of truth.
+hand-measured reserve per engine — the burn-in is the source of truth.
 
 Triggers:
 
