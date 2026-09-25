@@ -147,7 +147,7 @@ Configuration is in `data/user_mapping.json`:
 ```json
 {
   "Lord Helmchen": {
-    "telegram": ["8669153916"],
+    "telegram": ["123456789"],
     "discord": [],
     "email": ["receive@gmx.net"],
     "email_out": ["send@mail.de"]
@@ -182,7 +182,7 @@ but without a separate bot account.
 3. **Enable multi-device mode** (Advanced → Multi-device)
    - This makes Delta Chat watch the Sent folder
    - AIfred's replies then also appear as chat bubbles
-4. **Start a new chat** with AIfred's email address (e.g. `aifred@gmx.net`)
+4. **Start a new chat** with AIfred's email address (e.g. `aifred@example.com`)
 5. **Add the sender address to the allowlist** (`EMAIL_ALLOWED_SENDERS`)
 
 ### Notes

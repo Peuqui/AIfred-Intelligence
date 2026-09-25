@@ -21,12 +21,12 @@ def _msg(*ar_headers: str):
     return email_lib.message_from_string(raw)
 
 
-# Der echte GMX-Stempel der Testmail von markus.peuckert@mail.de (2026-07-06):
+# Ein echter GMX-Stempel (2026-07-06), Absender und IP anonymisiert:
 GMX_REAL = (
     "gmx.net; dkim=pass header.i=@mail.de header.s=mailde202009; "
-    "spf=pass smtp.mailfrom=markus.peuckert@mail.de; "
+    "spf=pass smtp.mailfrom=user@mail.de; "
     "dmarc=pass header.from=mail.de policy.dmarc=quarantine; "
-    "iprev=pass policy.iprev=62.201.172.24"
+    "iprev=pass policy.iprev=192.0.2.24"
 )
 
 
