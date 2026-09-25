@@ -148,7 +148,7 @@ Die Zuordnung wird in `data/user_mapping.json` konfiguriert:
 ```json
 {
   "Lord Helmchen": {
-    "telegram": ["8669153916"],
+    "telegram": ["123456789"],
     "discord": [],
     "email": ["empfang@gmx.net"],
     "email_out": ["versand@mail.de"]
@@ -179,11 +179,11 @@ oder Discord, aber ohne separaten Bot-Account.
 ### Einrichtung
 
 1. **Delta Chat installieren** (Desktop oder Mobil)
-2. **Eigenen E-Mail-Account hinzufügen** (z.B. `markus.peuckert@mail.de`)
+2. **Eigenen E-Mail-Account hinzufügen** (z.B. `du@example.com`)
 3. **Mehrgeräte-Modus aktivieren** (Erweitert → Mehrgeräte-Modus)
    - Dadurch überwacht Delta Chat den Gesendet-Ordner
    - AIfred's Antworten erscheinen dann auch als Chat-Blasen
-4. **Neuen Chat starten** mit AIfred's E-Mail-Adresse (z.B. `lord.helmchen@gmx.net`)
+4. **Neuen Chat starten** mit AIfred's E-Mail-Adresse (z.B. `aifred@example.com`)
 5. **Absender-Adresse in die Allowlist eintragen** (`EMAIL_ALLOWED_SENDERS`)
 
 ### Hinweise
