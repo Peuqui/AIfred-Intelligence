@@ -1,5 +1,7 @@
 # Web Research Plugin
 
+> **Deutsche Version:** [research.md](../../../de/guides/plugins/research.md)
+
 **File:** `aifred/plugins/tools/research/`
 
 Multi-API web search with automatic URL ranking and content scraping. Every

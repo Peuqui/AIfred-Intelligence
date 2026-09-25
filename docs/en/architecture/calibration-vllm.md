@@ -1,5 +1,7 @@
 # vLLM auto-calibration: the algorithm
 
+> **Deutsche Version:** [calibration-vllm.md](../../de/architecture/calibration-vllm.md)
+
 > SSOT companion to the code (`aifred/lib/calibration/vllm_flow.py`,
 > `vllm_probe.py`, `vllm_model_meta.py`). The code is the truth — this
 > document explains the decision rules and their measured rationale so

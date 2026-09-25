@@ -1,5 +1,7 @@
 # TTS-Container — Konventionen für neue Engines
 
+> **English version:** [tts-container-conventions.md](../../en/architecture/tts-container-conventions.md)
+
 Stand: 2026-05-23. Lebendes Dokument.
 
 Wenn AIfred eine neue TTS-Engine als Docker-Container einbindet, soll

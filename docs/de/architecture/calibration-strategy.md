@@ -1,5 +1,7 @@
 # Calibration-Strategie
 
+> **English version:** [calibration-strategy.md](../../en/architecture/calibration-strategy.md)
+
 > SSOT für die Layer-Distribution-Strategie. Wird verwendet von Algorithmus
 > und KI-Agent. Nicht doppelt diskutieren — bei Unklarheiten hier nachsehen
 > oder diese Datei aktualisieren.

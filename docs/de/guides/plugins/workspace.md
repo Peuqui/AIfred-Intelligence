@@ -1,5 +1,7 @@
 # Workspace Plugin
 
+> **English version:** [workspace.md](../../../en/guides/plugins/workspace.md)
+
 **Datei:** `aifred/plugins/tools/workspace/`
 
 Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) sowie die zentrale Verwaltung aller ChromaDB-Vektordatenbank-Collections.

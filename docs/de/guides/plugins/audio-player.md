@@ -1,5 +1,7 @@
 # Audio Player Plugin
 
+> **English version:** [audio-player.md](../../../en/guides/plugins/audio-player.md)
+
 **Datei:** `aifred/plugins/tools/audio_player/`
 
 Wiedergabe-Steuerung für lokale Audiodateien (Ordner via NAS oder lokale Platte)

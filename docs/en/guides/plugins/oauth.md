@@ -1,5 +1,7 @@
 # OAuth Broker
 
+> **Deutsche Version:** [oauth.md](../../../de/guides/plugins/oauth.md)
+
 **Files:** `aifred/lib/oauth/broker.py`, `aifred/lib/oauth/google.py`
 
 Generic OAuth 2.0 broker for all Google plugins and future providers. Handles token storage (Fernet-encrypted), CSRF protection via state parameter, and automatic token refresh 60 seconds before expiry.

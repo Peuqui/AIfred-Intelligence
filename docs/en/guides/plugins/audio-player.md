@@ -1,5 +1,7 @@
 # Audio Player Plugin
 
+> **Deutsche Version:** [audio-player.md](../../../de/guides/plugins/audio-player.md)
+
 **File:** `aifred/plugins/tools/audio_player/`
 
 Playback control for local audio files (folders mounted via NAS or local disk)

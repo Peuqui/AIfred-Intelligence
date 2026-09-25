@@ -1,5 +1,7 @@
 # Security Architecture
 
+> **English version:** [security.md](../../en/architecture/security.md)
+
 **Stand:** 2026-03-29
 **Prinzip:** Security wird im Framework erzwungen, nicht in Plugins.
 

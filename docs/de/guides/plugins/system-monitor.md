@@ -1,5 +1,7 @@
 # System Monitor Plugin
 
+> **English version:** [system-monitor.md](../../../en/guides/plugins/system-monitor.md)
+
 **Datei:** `aifred/plugins/tools/system_monitor/`
 
 Gibt Auskunft über den aktuellen Systemzustand: CPU-Last, RAM/Swap, GPU-VRAM und

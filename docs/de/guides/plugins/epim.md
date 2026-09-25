@@ -1,5 +1,7 @@
 # EPIM Plugin
 
+> **English version:** [epim.md](../../../en/guides/plugins/epim.md)
+
 **Datei:** `aifred/plugins/tools/epim/`
 
 CRUD-Operationen auf einer EssentialPIM Firebird-Datenbank. Ermöglicht dem LLM, Kontakte, Termine, Notizen, Aufgaben (Todos), Passwörter und weitere Entitäten zu verwalten.

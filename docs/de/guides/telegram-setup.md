@@ -1,5 +1,7 @@
 # Telegram Bot Setup
 
+> **English version:** [telegram-setup.md](../../en/guides/telegram-setup.md)
+
 ## 1. Bot erstellen
 
 1. Telegram öffnen, `@BotFather` anschreiben
@@ -35,11 +37,16 @@ Dem Bot eine Nachricht schicken. AIfred antwortet automatisch (`always_reply = T
 
 | Befehl | Beschreibung |
 |--------|-------------|
-| `/clear` | Konversation zurücksetzen (neue Session) |
+| `/clear` | Konversation leeren: Kontext zurücksetzen + alle erfassten Chat-Nachrichten löschen (Telegram-Grenzen: nur Nachrichten, die der Bot gesehen/gesendet hat und die jünger als 48 h sind) |
 
 ## Security
 
-- **Whitelist:** Nur User-IDs in `TELEGRAM_ALLOWED_USERS` dürfen schreiben. Leer = niemand.
+- **Whitelist (Pflicht):** Nur User-IDs in `TELEGRAM_ALLOWED_USERS` dürfen schreiben.
+  Leer = niemand; die `*`-Wildcard wird **nicht** unterstützt.
+  **User hinzufügen:** Lass ihn den Bot einmal anschreiben — der Versuch wird
+  abgelehnt, aber seine numerische User-ID erscheint im AIfred-Log
+  (`blocked message from <ID>`); trag diese ID in die Allowlist ein (Zahnrad des
+  Telegram-Plugins → *Erlaubte User-IDs*).
 - **Tier:** Eingehende Telegram-Nachrichten bekommen `max_tier=1` (TIER_COMMUNICATE). Kein Dateisystem-Zugriff, keine Code-Ausführung.
 - **Credentials:** Bot-Token wird über den Credential Broker verwaltet, nie im LLM-Kontext.
 - **Sanitization:** Alle ein-/ausgehenden Nachrichten werden durch die Security-Pipeline geschleust.

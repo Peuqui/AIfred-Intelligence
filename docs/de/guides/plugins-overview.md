@@ -1,5 +1,7 @@
 # Plugin-Übersicht
 
+> **English version:** [plugins-overview.md](../../en/guides/plugins-overview.md)
+
 AIfred verwendet ein einheitliches Plugin-System. Plugins werden automatisch erkannt — eine `.py`-Datei in `plugins/tools/` oder `plugins/channels/` ablegen, fertig.
 
 > **Entwickler-Guide:** [Plugin Development Guide (EN)](../../en/guides/plugin-development.md)

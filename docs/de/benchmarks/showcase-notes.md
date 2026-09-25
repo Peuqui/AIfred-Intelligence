@@ -1,5 +1,7 @@
 # AIfred Tribunal Benchmark: 6 Modelle im Vergleich (Deutsche Inferenz)
 
+> **English version:** [showcase-notes.md](../../en/benchmarks/showcase-notes.md)
+
 > **Historischer Benchmark.** Gemessen Anfang 2026 auf dem früheren Aufbau mit
 > Tesla P40 (Pascal). Der heutige AIfred-Rechner läuft mit 2× Quadro RTX 8000 +
 > 3× Tesla V100; die Zahlen beschreiben also nicht die aktuelle Leistung, bleiben

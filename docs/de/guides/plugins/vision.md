@@ -1,5 +1,7 @@
 # Vision-Plugin (Vigilantia)
 
+> **English version:** [vision.md](../../../en/guides/plugins/vision.md)
+
 **Datei:** `aifred/plugins/tools/vision/`
 
 Das Vision-Plugin sind AIfreds Augen. Es lässt den Assistenten auf
@@ -220,7 +222,7 @@ und -abgleich ausführt. Die Events fließen in die Vision-Datenbank:
 nicht überflutet. Event-Frames werden bei `save_event_frames=true` auf die
 Platte gespeichert, sodass die Chronik-Einträge ein Thumbnail tragen.
 
-## KI-Kameras (Edge-AI) {#ki-kameras-edge-ai}
+## KI-Kameras (Edge-AI)
 
 Kameras mit `profile: ai_camera` (siehe [Capabilities](#kamera-capabilities-optionale-rtsp_cameras-felder))
 erkennen Person/Fahrzeug/Tier **on-device**. AIfred pollt diese Erkennung

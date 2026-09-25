@@ -1,5 +1,7 @@
 # Email Channel Plugin
 
+> **Deutsche Version:** [email.md](../../../de/guides/plugins/email.md)
+
 **File:** `aifred/plugins/channels/email_channel/`
 
 Channel plugin for email communication via IMAP IDLE and SMTP.

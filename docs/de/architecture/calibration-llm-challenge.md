@@ -1,5 +1,7 @@
 # Calibration-Challenge: LLM gegen Algorithmus
 
+> **English version:** [calibration-llm-challenge.md](../../en/architecture/calibration-llm-challenge.md)
+
 > Übergabe-Dokument für die experimentelle Bewertung, ob eine LLM die
 > aktuelle algorithmische Calibration ablösen oder ergänzen kann.
 > Ausgangspunkt der Diskussion: aktuelle Calibration mit 6-13 Varianten

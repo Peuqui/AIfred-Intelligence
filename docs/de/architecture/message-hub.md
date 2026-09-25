@@ -1,5 +1,7 @@
 # Message Hub — Architektur & Implementierungsplan
 
+> **English version:** [message-hub.md](../../en/architecture/message-hub.md)
+
 **Stand:** 2026-03-28
 **Status:** Paket 1-5 implementiert — E-Mail-Kanal bereit zum Testen
 
@@ -58,7 +60,7 @@ sondern hat eigene Adressen (eigene E-Mail, eigener Discord-Bot, etc.).
                                      │
                           ┌──────────▼──────────┐
                           │   Outbound Reply    │
-                          │   (zurück über    │
+                          │   (zurück über      │
                           │    selben Kanal)    │
                           └─────────────────────┘
 ```
@@ -179,7 +181,7 @@ aber für den Message Hub ist erstmal nur der Hauptnutzer relevant.
 - [ ] Auto-Cleanup wenn Session gelöscht wird
 
 ### Paket 3: IMAP IDLE Listener ✅
-- [x] `aifred/lib/imap_listener.py` — IMAP IDLE für Push-Notifications
+- [x] `aifred/plugins/channels/email_channel/` — IMAP IDLE für Push-Notifications
 - [x] Eingehende Mails erkennen (In-Reply-To Header für Thread-Zuordnung)
 - [x] UID-basierte Erkennung neuer Mails
 - [x] Auto-Reconnect bei Verbindungsfehlern
@@ -311,13 +313,13 @@ Wird automatisch erstellt beim ersten Zugriff.
 | Envelope | `aifred/lib/envelope.py` | InboundMessage / OutboundMessage Dataclasses |
 | Message Hub | `aifred/lib/message_hub.py` | Worker-Lifecycle (register, start, stop) |
 | Routing Table | `aifred/lib/routing_table.py` | SQLite: (channel, channel_id) → session_id |
-| IMAP Listener | `aifred/lib/imap_listener.py` | IMAP IDLE, erkennt neue Mails |
+| IMAP Listener | `aifred/plugins/channels/email_channel/__init__.py` | IMAP IDLE, erkennt neue Mails (IMAP-/SMTP-Helfer in `client.py`) |
 | Processor | `aifred/lib/message_processor.py` | Session-Management, Engine-Aufruf, Auto-Reply |
 | Lifespan | `aifred/aifred.py` | Startup/Shutdown Hook + Worker-Registrierung |
 | Settings | `aifred/state/_settings_mixin.py` | UI-Toggles + Persistenz |
-| UI | `aifred/ui/settings_accordion.py` | Message Hub Sektion in Settings-Dropdown |
+| UI | `aifred/ui/agent_editor/plugins.py` | Kanal-Toggles (Listener, Auto-Reply) im Plugins-Tab |
 | Config | `aifred/lib/config.py` | MESSAGE_HUB_OWNER, EMAIL_MONITOR_AUTO_REPLY |
-| i18n | `aifred/lib/i18n.py` | Übersetzungen (DE/EN) |
+| i18n | `aifred/lib/i18n/` | Übersetzungen (DE/EN, `de.json` / `en.json`) |
 
 ---
 

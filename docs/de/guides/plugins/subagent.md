@@ -1,5 +1,7 @@
 # Sub-Agenten Plugin
 
+> **English version:** [subagent.md](../../../en/guides/plugins/subagent.md)
+
 **Datei:** `aifred/plugins/tools/subagent/`
 
 Ein Hauptagent (AIfred, Codine, jeder Agent aus `data/agents.json`) kann während
@@ -132,7 +134,6 @@ seinen Quelltext. Der Hauptagent fasst das Ergebnis in seiner Antwort nur
 zusammen und schreibt Code oder Dateien nicht erneut ab. Über den Message Hub
 (Telegram, E-Mail) gibt es keine Bubble; dort steht der Ablauf im Debug-Log der
 Session.
-
 
 **Kennzahlen:** Das Transkript endet mit derselben Kennzahlen-Zeile wie eine
 Antwort, kursiv in Klammern: TTFT, Prefill, Token pro Sekunde, Dauer, Modell

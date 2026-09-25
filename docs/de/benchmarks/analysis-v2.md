@@ -1,5 +1,7 @@
 # Benchmark-Analyse v2: Dog vs Cat Tribunal Sessions
 
+> **English version:** [analysis-v2.md](../../en/benchmarks/analysis-v2.md)
+
 > **Historischer Benchmark.** Gemessen Anfang 2026 auf dem früheren Aufbau mit
 > Tesla P40 (Pascal). Der heutige AIfred-Rechner läuft mit 2× Quadro RTX 8000 +
 > 3× Tesla V100; die Zahlen beschreiben also nicht die aktuelle Leistung, bleiben

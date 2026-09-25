@@ -1,5 +1,7 @@
 # Scheduler Plugin
 
+> **Deutsche Version:** [scheduler.md](../../../de/guides/plugins/scheduler.md)
+
 **File:** `aifred/plugins/tools/scheduler_tool/`
 
 Scheduled tasks and cron jobs that AIfred executes automatically at defined times.

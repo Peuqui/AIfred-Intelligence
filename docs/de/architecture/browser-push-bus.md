@@ -1,5 +1,7 @@
 # Browser Push Bus
 
+> **English version:** [browser-push-bus.md](../../en/architecture/browser-push-bus.md)
+
 Stand: 2026-05-22. Lebendes Dokument.
 
 Der **Browser Push Bus** ist der reflex-unabhängige Kanal, über den der

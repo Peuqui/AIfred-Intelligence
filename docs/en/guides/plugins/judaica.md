@@ -1,5 +1,7 @@
 # Judaica Plugin
 
+> **Deutsche Version:** [judaica.md](../../../de/guides/plugins/judaica.md)
+
 **File:** `aifred/plugins/tools/judaica/`
 
 Access to the Jewish source corpus — Tanakh, Talmud, Mishnah, Midrash, Halacha

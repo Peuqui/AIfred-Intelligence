@@ -1,5 +1,7 @@
 # Bibel-Plugin
 
+> **English version:** [bible.md](../../../en/guides/plugins/bible.md)
+
 **Datei:** `aifred/plugins/tools/bible/`
 
 Lesezugriff auf die Bibel über ein einziges Tool. Es kombiniert zwei

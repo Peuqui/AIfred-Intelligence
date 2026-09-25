@@ -1,5 +1,7 @@
 # OAuth Broker
 
+> **English version:** [oauth.md](../../../en/guides/plugins/oauth.md)
+
 **Dateien:** `aifred/lib/oauth/broker.py`, `aifred/lib/oauth/google.py`
 
 Generischer OAuth 2.0 Broker für alle Google-Plugins und künftige Provider. Verwaltet Token-Speicherung (Fernet-verschlüsselt), CSRF-Schutz über State-Parameter und automatischen Token-Refresh 60 Sekunden vor Ablauf.
@@ -10,14 +12,14 @@ Generischer OAuth 2.0 Broker für alle Google-Plugins und künftige Provider. Ve
 |-------|---------|
 | `aifred/lib/oauth/broker.py` | Generischer Broker: Provider-Registry, Token-Storage, Auto-Refresh |
 | `aifred/lib/oauth/google.py` | Google OAuth2 Provider (Calendar, Contacts, Drive, Tasks) |
-| `data/oauth_tokens.json` | Verschlüsselte Token-Datei (eine Eintrag pro Provider) |
+| `data/oauth_tokens.json` | Verschlüsselte Token-Datei (ein Eintrag pro Provider) |
 | `data/oauth_encryption_key.bin` | Fernet-Key — auto-generiert beim ersten Start, Rechte 0o600 |
 
 **Token-Sicherheit:** Jeder Provider-Token wird individuell Fernet-verschlüsselt. Die JSON-Datei zeigt die Struktur (Provider-Namen als Keys), aber alle Werte sind ohne den Key unlesbar.
 
 **CSRF-Schutz:** State-Token mit 10-Minuten-TTL. Nach Ablauf oder unbekanntem State wird der Callback abgelehnt.
 
-**Auto-Refresh:** `get_token()` prüft den Ablaufzeitpunkt und erneuert den Token transparent, falls er in weniger als 60 Sekunden ablaueft.
+**Auto-Refresh:** `get_token()` prüft den Ablaufzeitpunkt und erneuert den Token transparent, falls er in weniger als 60 Sekunden abläuft.
 
 ## API Endpoints
 
@@ -59,7 +61,7 @@ curl -X DELETE http://localhost:8002/api/oauth/google/
 | `SCOPES_TASKS` | `auth/tasks` | Google Tasks |
 | `SCOPES_PROFILE` | `openid`, `userinfo.email`, `userinfo.profile` | Benutzerprofil |
 
-**Hinweis:** Google stellt einen Refresh-Token nur einmal aus. Alle benötigen Scopes müssen beim ersten Auth-Flow angegeben werden. Ein nachträgliches Hinzufügen erfordert einen neuen OAuth-Flow.
+**Hinweis:** Google stellt einen Refresh-Token nur einmal aus. Alle benötigten Scopes müssen beim ersten Auth-Flow angegeben werden. Ein nachträgliches Hinzufügen erfordert einen neuen OAuth-Flow.
 
 ## Neuen Provider hinzufügen
 

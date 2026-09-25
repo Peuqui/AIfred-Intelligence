@@ -1,5 +1,7 @@
 # Arbeitspaket-Skizze: RPC-fähige KI-Kalibrierung
 
+> **English version:** [calibration-rpc.md](../../en/architecture/calibration-rpc.md)
+
 > Skizze für die Erweiterung des KI-Kalibrierers (`ai_agent.py`) um
 > verteilte Inferenz via llama.cpp RPC (Mini + Aragon). Status: geplant,
 > wartet auf reaktiviertes RPC-Setup (Kabel + Aragon).

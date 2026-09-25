@@ -1,5 +1,7 @@
 # TTS + VRAM Workflow — FreeEcho.2 & Browser
 
+> **English version:** [tts-vram-workflow.md](../../en/architecture/tts-vram-workflow.md)
+
 ## Grundprinzip
 
 **Nichts entladen außer es muss Platz gemacht werden.**

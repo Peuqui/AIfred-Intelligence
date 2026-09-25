@@ -1,5 +1,7 @@
 # Calculator Plugin
 
+> **Deutsche Version:** [calculator.md](../../../de/guides/plugins/calculator.md)
+
 **File:** `aifred/plugins/tools/calculator/`
 
 Safe evaluation of mathematical expressions. The expression is parsed via Python's

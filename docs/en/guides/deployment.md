@@ -1,8 +1,10 @@
 # AIfred Deployment Guide
 
+> **Deutsche Version:** [deployment.md](../../de/guides/deployment.md)
+
 Setup guide for a fresh AIfred installation with the llama.cpp backend (llama-swap).
 
-**Last updated:** 2026-07-18
+**Last updated:** 2026-09-25
 
 > **TL;DR — fastest path:** `./scripts/install-all.sh` from a fresh
 > clone handles dependencies, venv, Playwright, the Reflex routing
@@ -66,11 +68,6 @@ mkdir -p ~/bin
 wget -O ~/bin/llama-swap https://github.com/mostlygeek/llama-swap/releases/latest/download/llama-swap-linux-amd64
 chmod +x ~/bin/llama-swap
 
-# Create the config directory
-mkdir -p ~/.config/llama-swap
-```
-
-```bash
 # Create the config directory — the autoscan creates the config file itself
 mkdir -p ~/.config/llama-swap
 ```
@@ -110,9 +107,16 @@ sudo ./scripts/install-services.sh --no-overwrite  # keep existing service
                                                    # tweaks)
 ```
 
-The script reports `= Unverändert`, `♻️ Aktualisiert`, `✅ Neu installiert`
-or `🛡 Behalten` per file. `daemon-reload` and `restart` only fire when
-a unit actually changed — re-runs on a clean system are no-ops.
+The script reports `= Unchanged`, `♻️ Updated`, `✅ Newly installed` or
+`🛡 Kept` per file. `daemon-reload` only fires when a unit changed, and a
+service is only restarted when its own unit or drop-in changed — re-runs on
+a clean system are no-ops.
+
+| Unit | Runs |
+|---|---|
+| `aifred-chromadb.service` | `docker compose up -d chromadb searxng` — vector store + web search |
+| `aifred-intelligence.service` | the Reflex app (frontend `3002`, backend `8002`) |
+| `aifred-corpus-server.service` | optional corpus search API (`127.0.0.1:8005`, for `deploy/corpus/`) |
 
 The installer renders `systemd/aifred-intelligence.service` (and the
 chromadb / corpus units) into `/etc/systemd/system/`, substitutes the
@@ -134,6 +138,11 @@ ExecStartPre=/bin/bash <project>/scripts/patch-vite-config.sh
 ExecStart=<project>/venv/bin/python -m reflex run \
     --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 ```
+
+Don't edit the units under `/etc/systemd/system/` by hand — the templates in
+`systemd/` contain `__USER__` / `__PROJECT_DIR__` / `__DOCKER_BIN__`
+placeholders that only the installer fills in. Change the template and re-run
+`sudo ./scripts/install-services.sh`. Details: [systemd/README.md](../../../systemd/README.md).
 
 ### llama-swap service (with autoscan)
 
@@ -172,6 +181,131 @@ EOF
 sudo systemctl daemon-reload
 sudo systemctl enable llama-swap
 ```
+
+Adjust the two `$HOME/Projekte/AIfred-Intelligence` paths if you cloned the
+repo elsewhere.
+
+### llama-swap restart helper
+
+`scripts/llama-swap-restart` is the maintenance command after downloading a
+model or editing the llama-swap YAML. `install-services.sh` links it to
+`~/bin/llama-swap-restart`. It goes beyond `systemctl restart`:
+
+1. Stops `llama-swap.service` and waits until it is really inactive
+2. Kills leftover `llama-server` processes (SIGTERM, then SIGKILL)
+3. Waits until the GPU driver has released the VRAM
+4. Deletes orphaned lookup caches (`~/.cache/llama_lookup_*.bin`) whose model
+   is no longer in `config.yaml`
+5. Runs `llama-swap-build-config` (spec-decoding flags, TTS/vision profiles)
+6. Starts llama-swap (autoscan runs as `ExecStartPre`) and waits for `listening`
+
+```bash
+hf download <repo> --local-dir ~/models/<name>
+llama-swap-restart    # autoscan picks up the new model
+```
+
+---
+
+## 5a. Configuration and access
+
+### Environment (`.env`)
+
+Secrets and machine-specific values go into `.env` in the project root
+(gitignored; template: `.env.example`). The service loads it via
+`EnvironmentFile=`; most keys can also be set in the UI (settings, Plugin
+Manager), which writes them back to `.env`.
+
+| Variable | Purpose |
+|---|---|
+| `AIFRED_ALLOWED_HOST` | Your external domain — added to Vite's `allowedHosts` on every start |
+| `INJECT_API_TOKEN` | Token for `/api/chat/inject` (see [REST API](rest-api.md)) |
+| `WEBHOOK_API_TOKEN` | Token for `/api/agent/trigger` |
+| `AIFRED_SESSION_SECRET` | Signs the login cookies (optional — a random secret is persisted otherwise) |
+| `LLAMACPP_URL` | llama-swap URL (default `http://localhost:11435/v1`) |
+| `AIFRED_FRONTEND_PATH` | URL prefix when the app lives under a sub-path of a reverse proxy, e.g. `aifred` for `/aifred/` (default: none) |
+| `BACKEND_URL` | Only without a reverse proxy: backend URL for `/_upload/` as seen by the browser |
+| `BRAVE_API_KEY`, `TAVILY_API_KEY` | Optional extra search APIs (SearXNG needs no key) |
+| `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY` | Cloud LLM providers |
+| `DEEPL_API_KEY` | Translator plugin |
+| `TELEGRAM_*`, `DISCORD_*`, `EMAIL_*` | Channel plugins — see the [Telegram](telegram-setup.md) / [Discord](discord-setup.md) guides |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Suite plugin ([OAuth](plugins/oauth.md)) |
+
+`docker/.env` holds `SEARXNG_SECRET`, generated once by `install-all.sh`.
+Compose refuses to start without it.
+
+### User management
+
+Login is required. Accounts and the registration whitelist are managed with
+the admin CLI:
+
+```bash
+./aifred-admin users                          # whitelist (who may register)
+./aifred-admin add <username>                 # add to whitelist
+./aifred-admin remove <username>              # remove from whitelist
+./aifred-admin accounts                       # registered accounts
+./aifred-admin create <username> [password]   # account + whitelist in one step
+./aifred-admin delete <username> [--sessions] # delete account (optionally its sessions)
+```
+
+Workflow: add a name to the whitelist → the user registers in the web UI with
+username + password → logs in from any device.
+
+### Polkit rule (restart without sudo)
+
+AIfred restarts services itself: the restart button (`aifred-intelligence`),
+calibration (`llama-swap`) and the Ollama restart endpoint (`ollama`). For that
+the service user needs a Polkit rule:
+
+```bash
+sed 's/YOUR_USER/'"$USER"'/' scripts/polkit/10-aifred.rules \
+  | sudo tee /etc/polkit-1/rules.d/10-aifred.rules > /dev/null
+sudo chmod 644 /etc/polkit-1/rules.d/10-aifred.rules
+```
+
+The rule grants exactly these three units to exactly that user.
+
+### How the frontend finds the backend
+
+`rxconfig.py` sets `api_url` to `http://0.0.0.0:8002`; the Reflex frontend
+replaces `0.0.0.0` with the host the page was loaded from — no URL setting
+needed:
+- Over HTTPS (reverse proxy) it switches to `https`/`wss` on the standard port
+  **443** — the proxy must listen on 443 too, even if you open the page on
+  another port such as 8443.
+- Over plain HTTP (e.g. `http://<LAN-IP>:3002`) the browser talks to port
+  **8002** on that host directly — that is why the backend listens on all
+  interfaces (`--backend-host 0.0.0.0`). Every `/api` route except the token
+  endpoints requires the login cookie.
+
+### Why dev mode
+
+The service runs `reflex run` without `--env prod`. Production mode causes a
+flash of unstyled content on every reload (React Router 7 with
+`prerender: true` loads the CSS asynchronously). Dev mode costs a little more
+RAM, non-minified bundles and more console warnings — negligible for a home
+server.
+
+Two consequences:
+- `scripts/patch-vite-config.sh` runs before every start and patches the
+  generated `.web/vite.config.js`: `allowedHosts` from `AIFRED_ALLOWED_HOST`,
+  and `dedupe` for shared frontend libraries (without it `react-helmet` ends
+  up in several lazy chunks and the browser crashes with
+  *"Identifier 'scrollState' has already been declared"*). Idempotent.
+- `/api`, `/_upload` and `/_event` are **not** proxied by Vite — the reverse
+  proxy routes them to the backend (see [Access the web UI](#access-the-web-ui)).
+
+### Reflex patches
+
+Two patches against Reflex bugs are needed; re-check them after every Reflex
+upgrade:
+
+| Patch | Applied by | Why |
+|---|---|---|
+| `route.py` — `frontend_path` route matching | `scripts/patch-reflex.py` (installer) | Without it `on_load` never fires and the app hangs at "initialising…" |
+| `utils/exec.py` — `run_granian_backend()`: `reload=False`, `respawn_failed_workers=True`, `respawn_interval=3.5` | manual | Without it a backend worker that dies from a C-level crash is never respawned and AIfred stays dead until a manual restart |
+
+The second patch also turns off backend hot reload — restart the service after
+code changes.
 
 ---
 

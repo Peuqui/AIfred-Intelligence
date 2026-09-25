@@ -1,5 +1,7 @@
 # Recommended Parameters per Model (llama-server)
 
+> **Deutsche Version:** [model-params.md](../../de/benchmarks/model-params.md)
+
 > **Historical benchmark.** Measured in early 2026 on the previous Tesla P40-based
 > setup (Pascal). The current AIfred machine runs 2× Quadro RTX 8000 + 3× Tesla V100,
 > so these numbers do not describe today's performance — they remain a useful

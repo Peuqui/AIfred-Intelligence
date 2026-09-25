@@ -1,10 +1,12 @@
 # vLLM-Autokalibration: der Algorithmus
 
+> **English version:** [calibration-vllm.md](../../en/architecture/calibration-vllm.md)
+
 > SSOT-Begleitdokument zum Code (`aifred/lib/calibration/vllm_flow.py`,
 > `vllm_probe.py`, `vllm_model_meta.py`). Der Code ist die Wahrheit —
 > dieses Dokument erklärt die Entscheidungsregeln und ihre gemessenen
 > Begründungen, damit Dritte (und wir selbst) sie nachvollziehen können.
-> Messbelege: [vLLM-Autokalibration (Benchmarks)](../benchmarks/vllm-autokalibration.md).
+> Messbelege: [vLLM-Autokalibration (Benchmarks)](../benchmarks/vllm-autocalibration.md).
 > Schwesterdokument für llama.cpp: [calibration-strategy.md](calibration-strategy.md).
 
 ## Problemstellung
