@@ -14,7 +14,6 @@ class MOSSEngine(TTSEngine):
     needs_speed_postprocess = True
     supports_language = True
     suitable_for_channels = True
-    calibration_vram_reserve_mb = 0  # static allocation, no peak above idle
     display_order = 40
 
     image_name = "moss-tts-1.7b"
