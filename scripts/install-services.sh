@@ -389,7 +389,7 @@ echo "6️⃣  Symlinking llama-swap-restart into ~/bin..."
 # Symlink makes it globally callable if ~/bin is on PATH.
 USER_HOME=$(getent passwd "$ACTUAL_USER" | cut -d: -f6)
 USER_BIN="$USER_HOME/bin"
-RESTART_SCRIPT="$PROJECT_DIR/scripts/llama-swap-restart.sh"
+RESTART_SCRIPT="$PROJECT_DIR/scripts/llama-swap-restart"
 if [ -f "$RESTART_SCRIPT" ]; then
     if [ "$DRY_RUN" = "1" ]; then
         if [ -L "$USER_BIN/llama-swap-restart" ] && \

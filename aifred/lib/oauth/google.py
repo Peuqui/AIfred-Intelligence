@@ -19,7 +19,7 @@ Client credentials must be set in .env::
 
 Obtain them from Google Cloud Console → APIs & Services → Credentials
 → Create OAuth 2.0 Client ID (type: Web application).
-Register all redirect URIs you will use (e.g. narnia URL + local URL).
+Register all redirect URIs you will use (e.g. external URL + local URL).
 """
 
 from __future__ import annotations

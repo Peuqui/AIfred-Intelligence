@@ -510,7 +510,7 @@ TOOL_HEARTBEAT_INTERVAL_SEC = 20.0
 # 1-2 Tagen Normal-Use wieder voll aufgebaut ist, ist Loeschen bei Schwellwert-
 # Ueberschreitung pragmatischer als Truncation des Binaerformats.
 LOOKUP_CACHE_MAX_BYTES = 300 * 1024 * 1024  # 300 MB pro Lookup-Cache-Datei
-LOOKUP_CACHE_GLOB = "/home/mp/.cache/llama_lookup_*.bin"
+LOOKUP_CACHE_GLOB = str(Path.home() / ".cache" / "llama_lookup_*.bin")
 
 # Gemeinsamer Wartungsslot fuer alle Background-GC-Tasks (Lookup-Cache,
 # Vector-Cache, Audio-State). 03:00 lokale Zeit — vorhersagbar, ausserhalb

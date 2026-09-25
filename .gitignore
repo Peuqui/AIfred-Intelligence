@@ -53,9 +53,6 @@ settings.json
 .env
 .env.local
 
-# Machine-specific scripts (contain hardcoded paths/domains)
-scripts/patch-vite-config.sh
-
 # Logs
 *.log
 /var/log/

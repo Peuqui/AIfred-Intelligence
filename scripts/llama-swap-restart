@@ -38,6 +38,14 @@ tick() {
     _tlast=$now
 }
 
+# ── Pfade ────────────────────────────────────────────────────────────
+# Aus dem Ort des Skripts abgeleitet (Symlink in ~/bin wird aufgeloest),
+# damit jeder Clone unabhaengig von Benutzer und Verzeichnis funktioniert.
+# Der Config-Pfad folgt derselben Umgebungsvariablen wie aifred/lib/config.py.
+script_dir="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")" && pwd)"
+repo_dir="$(dirname "$script_dir")"
+config_yaml="${LLAMASWAP_CONFIG:-$HOME/.config/llama-swap/config.yaml}"
+
 echo "🔄 Stopping llama-swap..."
 stop_output=$(systemctl stop llama-swap 2>&1)
 stop_exit=$?
@@ -114,12 +122,11 @@ tick "VRAM-Freigabe abwarten + nvidia-smi"
 # Hier am Restart-Punkt aufraeumen: sammle alle Cache-Pfade, die in der
 # aktiven config noch referenziert werden — alle anderen Cache-Dateien
 # im selben Ordner sind verwaist und werden geloescht.
-config_yaml="/home/mp/.config/llama-swap/config.yaml"
 if [ -f "$config_yaml" ]; then
     in_use=$(grep -oE -- '--lookup-cache-dynamic[[:space:]]+[^[:space:]]+' "$config_yaml" 2>/dev/null \
              | awk '{print $2}' | sort -u)
     orphans_removed=0
-    for cache in /home/mp/.cache/llama_lookup_*.bin; do
+    for cache in "$HOME"/.cache/llama_lookup_*.bin; do
         [ -f "$cache" ] || continue  # kein Match → Glob bleibt Pattern
         if ! echo "$in_use" | grep -qFx "$cache"; then
             size=$(du -h "$cache" 2>/dev/null | cut -f1)
@@ -136,8 +143,8 @@ tick "Lookup-Cache-Cleanup"
 # Scannt die in config.yaml referenzierten GGUFs auf MTP-Tensoren
 # (nextn/mtp im Tensor-Namen). Falls vorhanden -> --spec-type draft-mtp.
 # Sonst ngram-mod als sicherer Default. Idempotent.
-build_config="/home/mp/bin/llama-swap-build-config"
-build_python="/home/mp/Projekte/AIfred-Intelligence/venv/bin/python"
+build_config="$script_dir/llama-swap-build-config"
+build_python="$repo_dir/venv/bin/python"
 if [ -x "$build_config" ] && [ -x "$build_python" ]; then
     echo "🔍 Pruefe Spec-Decoding-Flags pro Modell..."
     if ! AIFRED_CLI_MODE=1 "$build_python" "$build_config" 2>&1 | sed 's/^/   /'; then

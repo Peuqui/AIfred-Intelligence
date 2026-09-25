@@ -141,5 +141,5 @@ else
 fi
 
 echo ""
-echo "✅ Fertig. UI: https://narnia.spdns.de:8443/corpus/"
+echo "✅ Fertig. UI: https://example.com:8443/corpus/"
 echo "   Logs: journalctl -u aifred-corpus-server -f"

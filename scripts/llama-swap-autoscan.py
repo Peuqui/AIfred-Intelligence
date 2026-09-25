@@ -50,7 +50,9 @@ OLLAMA_PATHS = [
 
 HF_CACHE_DIR = Path.home() / ".cache" / "huggingface" / "hub"
 
-LLAMASWAP_CONFIG = Path.home() / ".config" / "llama-swap" / "config.yaml"
+LLAMASWAP_CONFIG = Path(os.environ.get(
+    "LLAMASWAP_CONFIG", str(Path.home() / ".config" / "llama-swap" / "config.yaml")
+))
 # Persists models that failed the compatibility test — not re-tested on subsequent runs.
 # Delete an entry manually to re-test after a llama.cpp update.
 AUTOSCAN_SKIP_FILE = LLAMASWAP_CONFIG.parent / "autoscan-skip.json"

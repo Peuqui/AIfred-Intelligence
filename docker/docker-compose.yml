@@ -52,7 +52,8 @@ services:
       - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
     environment:
       - SEARXNG_BASE_URL=http://localhost:8888/
-      - SEARXNG_SECRET=${SEARXNG_SECRET:-$(openssl rand -hex 32)}
+      # Generated once per machine by scripts/install-all.sh into docker/.env
+      - SEARXNG_SECRET=${SEARXNG_SECRET:?SEARXNG_SECRET missing - run scripts/install-all.sh or set it in docker/.env}
     networks:
       - aifred-network
     logging:

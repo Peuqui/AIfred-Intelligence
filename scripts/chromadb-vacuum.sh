@@ -22,8 +22,9 @@
 set -euo pipefail
 
 CONTAINER=aifred-chromadb
-VOLUME_HOST="/home/mp/Projekte/AIfred-Intelligence/data/chromadb"
-LOGFILE="/home/mp/Projekte/AIfred-Intelligence/data/logs/chromadb-vacuum.log"
+PROJECT_DIR="$(cd "$(dirname "$(readlink -f "${BASH_SOURCE[0]}")")/.." && pwd)"
+VOLUME_HOST="$PROJECT_DIR/data/chromadb"
+LOGFILE="$PROJECT_DIR/data/logs/chromadb-vacuum.log"
 
 mkdir -p "$(dirname "$LOGFILE")"
 {

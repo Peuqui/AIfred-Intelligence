@@ -38,13 +38,13 @@ und normalisiert:
      ``--language-model-only``. Sonst bleiben vLLM-Einträge unangetastet.
 
 Repo-Heimat: ``scripts/llama-swap-build-config`` im AIfred-Repo. Im PATH
-liegt ``~/bin/llama-swap-build-config`` als Symlink hierher — das
-Restart-Script ruft den absoluten ``/home/mp/bin/...`` Pfad auf, der
-Symlink leitet aufs Repo-File um.
+liegt ``~/bin/llama-swap-build-config`` als Symlink hierher; das
+Restart-Script ruft die Datei direkt neben sich im Repo auf.
 
 ENV:
-  LLAMA_SWAP_CONFIG  Pfad zur config.yaml (default: ~/.config/llama-swap/config.yaml)
-  AIFRED_REPO        Pfad zum AIfred-Repo (default: ~/Projekte/AIfred-Intelligence)
+  LLAMASWAP_CONFIG   Pfad zur config.yaml (default: ~/.config/llama-swap/config.yaml)
+  AIFRED_REPO        Pfad zum AIfred-Repo (default: das Repo, in dem dieses
+                     Script liegt)
                      — wird zum sys.path hinzugefügt, damit der TTS-Cleanup
                      ``aifred.lib.tts_engines`` importieren kann
 """
@@ -72,7 +72,7 @@ except ImportError:
 # ── Konfiguration ──────────────────────────────────────────────────────────
 CONFIG_PATH = Path(
     os.environ.get(
-        "LLAMA_SWAP_CONFIG",
+        "LLAMASWAP_CONFIG",
         str(Path.home() / ".config/llama-swap/config.yaml"),
     )
 )
@@ -84,7 +84,7 @@ LOOKUP_CACHE_DIR = Path.home() / ".cache"
 # Engine deinstalliert wurde). Optional: ohne den Import fällt der
 # Cleanup einfach aus und das Script läuft weiter.
 AIFRED_REPO = Path(
-    os.environ.get("AIFRED_REPO", str(Path.home() / "Projekte/AIfred-Intelligence"))
+    os.environ.get("AIFRED_REPO", str(Path(__file__).resolve().parent.parent))
 )
 if AIFRED_REPO.exists() and str(AIFRED_REPO) not in sys.path:
     sys.path.insert(0, str(AIFRED_REPO))
