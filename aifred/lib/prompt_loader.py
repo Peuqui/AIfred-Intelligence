@@ -489,7 +489,7 @@ def get_agent_system_prompt(
     Load system prompt for any configured agent.
 
     Uses agent_config.json to resolve prompt file paths, then merges
-    through the 6-layer system (Identity + Reasoning + [MultiAgent] + Task + [Memory] + Personality).
+    through the layer system of _merge_prompt_layers (identity, reasoning, multi-agent, task, memory, personality, tools, …).
 
     Args:
         agent_id: Agent identifier (e.g. "aifred", "sokrates", or any custom agent)
