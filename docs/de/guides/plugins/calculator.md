@@ -1,5 +1,7 @@
 # Calculator Plugin
 
+> **English version:** [calculator.md](../../../en/guides/plugins/calculator.md)
+
 **Datei:** `aifred/plugins/tools/calculator/`
 
 Sichere Auswertung mathematischer Ausdrücke. Der Ausdruck wird über das `ast`-Modul

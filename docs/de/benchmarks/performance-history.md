@@ -1,5 +1,7 @@
 # Performance-Chronik — llama.cpp- und vLLM-Inferenz auf dem MiniPC
 
+> **English version:** [performance-history.md](../../en/benchmarks/performance-history.md)
+
 Fortlaufende Dokumentation aller Performance-Meilensteine und Messwerte.
 **Pflegehinweis:** Bei jeder relevanten Änderung (llama.cpp-Flags,
 Kalibrierung, Hardware, neue Modelle) einen Meilenstein ergänzen und die
@@ -398,7 +400,7 @@ Random-Read-Latenz der Modellplatte (USB-NVMe, O_DIRECT, 4 KiB): **209 µs**.
 Hochgerechnet ~1,67 ms je Token für 8 PLE-Lookups, also grob 5 % bei 30 ms
 pro Token. Der Anteil steigt, je schneller das Modell wird.
 
-**MTP ist für dieses Modell in llama.cpp nicht verfuegbar** (arch `qwen4exp`:
+**MTP ist für dieses Modell in llama.cpp nicht verfügbar** (arch `qwen4exp`:
 0 nextn/mtp-Tensoren, `supports_mtp_export = False` im Konverter) — im
 Gegensatz zum 27B (arch `qwen35`, 4 MTP-Tensoren). Kein Anbieter-GGUF kann
 das ändern.

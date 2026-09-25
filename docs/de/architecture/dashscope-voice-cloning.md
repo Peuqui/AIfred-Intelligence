@@ -1,5 +1,7 @@
 # DashScope Qwen3-TTS — Cloud Voice Cloning
 
+> **English version:** [dashscope-voice-cloning.md](../../en/architecture/dashscope-voice-cloning.md)
+
 > Stand: 2026-06-25 | Region: international/Singapur (`dashscope-intl.aliyuncs.com`)
 > Code: [`aifred/lib/dashscope_enroll.py`](../../../aifred/lib/dashscope_enroll.py),
 > [`aifred/lib/tts_engines/dashscope.py`](../../../aifred/lib/tts_engines/dashscope.py),

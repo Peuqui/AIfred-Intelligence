@@ -1,5 +1,7 @@
 # Scheduler & Proactive Features
 
+> **Deutsche Version:** [scheduler.md](../../de/architecture/scheduler.md)
+
 **Date:** 2026-03-29
 
 AIfred can act autonomously on a schedule — without a user sending a message.

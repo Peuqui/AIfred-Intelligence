@@ -1,5 +1,7 @@
 # Sub-Agents Plugin
 
+> **Deutsche Version:** [subagent.md](../../../de/guides/plugins/subagent.md)
+
 **File:** `aifred/plugins/tools/subagent/`
 
 A main agent (AIfred, Codine, any agent in `data/agents.json`) can, during its
@@ -125,7 +127,6 @@ below. The main agent only summarises the result in its answer and does not
 copy code or files again. Through the Message Hub
 (Telegram, email) there is no bubble; the run is then in the session's debug
 log.
-
 
 **Metrics:** The transcript ends with the same performance line as an answer,
 italic in parentheses: TTFT, prefill, tokens per second, duration, model and

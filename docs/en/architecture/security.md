@@ -1,5 +1,7 @@
 # Security Architecture
 
+> **Deutsche Version:** [security.md](../../de/architecture/security.md)
+
 **Date:** 2026-03-29
 **Principle:** Security is enforced by the framework, not by plugins.
 

@@ -1,5 +1,7 @@
 # LLM Call Architecture
 
+> **Deutsche Version:** [llm-call.md](../../de/architecture/llm-call.md)
+
 **All LLM inference paths in AIfred Intelligence and how they connect.**
 
 ---

@@ -1,5 +1,7 @@
 # Proaktive Alert-Pipeline
 
+> **English version:** [proactive-alerts.md](../../en/architecture/proactive-alerts.md)
+
 Status: **in Umsetzung** (Paket 1 = Kern). Erster vertikaler Schnitt:
 unbekanntes Gesicht an scharfer Kamera → Telegram mit Bild.
 

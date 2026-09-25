@@ -1,5 +1,7 @@
 # Telegram Channel Plugin
 
+> **Deutsche Version:** [telegram.md](../../../de/guides/plugins/telegram.md)
+
 **File:** `aifred/plugins/channels/telegram_channel/`
 
 Channel plugin that connects a Telegram bot to the Message Hub. It listens for

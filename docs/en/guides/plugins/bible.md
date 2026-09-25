@@ -1,5 +1,7 @@
 # Bible Plugin
 
+> **Deutsche Version:** [bible.md](../../../de/guides/plugins/bible.md)
+
 **File:** `aifred/plugins/tools/bible/`
 
 Read access to the Bible via a single tool. It combines two lookup paths:

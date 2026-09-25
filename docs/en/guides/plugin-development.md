@@ -1,5 +1,7 @@
 # Plugin Development Guide
 
+> **Deutsche Version:** [plugin-development.md](../../de/guides/plugin-development.md)
+
 AIfred uses a unified plugin system. All plugins live in `aifred/plugins/`. System code (interfaces, registry, security) lives in `aifred/lib/`.
 
 > **Security:** Full security architecture: [docs/en/architecture/security.md](../architecture/security.md).

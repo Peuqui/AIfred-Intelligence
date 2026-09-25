@@ -1,5 +1,7 @@
 # vLLM-Autokalibration: Topologie-Suche und k-Sweep auf heterogenen GPUs
 
+> **English version:** [vllm-autocalibration.md](../../en/benchmarks/vllm-autocalibration.md)
+
 Stand: 2026-08-30 · Englische Fassung: [vllm-autocalibration.md](../../en/benchmarks/vllm-autocalibration.md)
 
 AIfreds Kalibrieren-Button vermisst vLLM-Checkpoints vollautomatisch:
@@ -9,7 +11,6 @@ Klassengrenzen), bootet und misst jede Sprosse real — bei kurzem **und**
 bei langem Kontext —, fährt einen Spekulationstiefen-Sweep (MTP, `k`)
 und persistiert das Ergebnis als llama-swap-Eintrag samt
 Betriebspunkt-Profil mit Hardware-Fingerprint.
-
 
 > Der Algorithmus selbst (Entscheidungsregeln, Phasen, Begründungen)
 > ist separat beschrieben: [calibration-vllm.md](../architecture/calibration-vllm.md).
@@ -390,7 +391,7 @@ Produktion läuft mit Spekulation.
 > **Qualitätsseite:** Dieses Dokument behandelt Tempo und Kalibration.
 > Wie sich die Quantisierungsformate auf die Antwortqualität auswirken —
 > und warum NVFP4 beim 27B deutsche Sätze ins Englische kippen lässt —
-> steht in [quantisierung-qualitaet.md](quantisierung-qualitaet.md).
+> steht in [quantization-quality.md](quantization-quality.md).
 
 ## Fazit: Netto-Bilanz (Stand 2026-08-30 nachts)
 

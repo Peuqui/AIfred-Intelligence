@@ -1,5 +1,7 @@
 # Sub-Agenten als Plugin
 
+> **English version:** [subagent-plugin.md](../../en/architecture/subagent-plugin.md)
+
 Architektur, Stand 20.09.2026, umgesetzt als Plugin `aifred/plugins/tools/subagent/`.
 Diese Seite beschreibt, was gebaut wurde und warum; die Nutzeranleitung steht
 unter [docs/de/guides/plugins/subagent.md](../guides/plugins/subagent.md). Englische Fassung:

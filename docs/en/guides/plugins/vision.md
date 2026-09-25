@@ -1,5 +1,7 @@
 # Vision Plugin (Vigilantia)
 
+> **Deutsche Version:** [vision.md](../../../de/guides/plugins/vision.md)
+
 **File:** `aifred/plugins/tools/vision/`
 
 The vision plugin is AIfred's eyes. It lets the assistant access connected
@@ -210,7 +212,7 @@ the vision database:
 the log. Event frames are saved to disk when `save_event_frames` is true, so the
 chronicle entries carry a thumbnail.
 
-## AI cameras (edge-AI) {#ai-cameras-edge-ai}
+## AI cameras (edge-AI)
 
 Cameras with `profile: ai_camera` (see [capabilities](#camera-capabilities-optional-rtsp_cameras-fields))
 detect person/vehicle/animal **on-device**. AIfred polls that detection

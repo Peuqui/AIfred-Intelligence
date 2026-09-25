@@ -4,7 +4,7 @@
 >
 > Stand 2026-09-01. Alle Zahlen von derselben Maschine (5-GPU-Mini,
 > 2× RTX 8000 sm75 + 3× V100 sm70), denselben drei Prompts und derselben
-> AIfred-Persona. Ergänzt [vllm-autokalibration.md](vllm-autokalibration.md),
+> AIfred-Persona. Ergänzt [vllm-autocalibration.md](vllm-autocalibration.md),
 > das die Tempo-Seite behandelt, um die Qualitätsseite.
 
 ## Warum dieses Dokument

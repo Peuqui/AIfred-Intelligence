@@ -1,5 +1,7 @@
 # TTS Model Comparison for AIfred Intelligence
 
+> **English version:** [tts-comparison.md](../../en/models/tts-comparison.md)
+
 > Stand: 2026-03-28 | Quellen: Community-Reviews, GitHub, HuggingFace
 
 ## AIfred-Anforderungen

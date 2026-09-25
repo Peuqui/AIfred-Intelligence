@@ -1,5 +1,7 @@
 # llama.cpp + llama-swap Setup Guide
 
+> **Deutsche Version:** [llamacpp-setup.md](../../de/guides/llamacpp-setup.md)
+
 Reference document for the llama.cpp integration in AIfred via llama-swap.
 Updated when hardware changes or new llama.cpp releases introduce relevant changes.
 
@@ -325,22 +327,20 @@ so CUDA0 = RTX 8000 and CUDA1 = P40. Tensor split values refer to CUDA0:CUDA1.
 
 ---
 
-## GPU-Management: Was automatisch geht, was manuell muss
+## GPU Management: What Is Automatic, What Must Be Manual
 
-> **Note:** The following section is currently only available in German.
+### Overview
 
-### Übersicht
-
-| Szenario | Autoscan | Kalibrierung | Manuell? |
+| Scenario | Autoscan | Calibration | Manual? |
 |----------|----------|--------------|----------|
-| Neue GGUF-Datei hinzufuegen | Erkennt automatisch, erstellt Profil mit korrektem Tensor-Split | Context + Speed-Split per Kalibrierung | Nein |
-| Neue lokale GPU einstecken | **Alle Profile** werden automatisch angepasst (Fingerprint-Erkennung) | Kalibrierung empfohlen fuer Context-Optimierung | Nein |
-| GPU entfernen | **Alle Profile** werden automatisch angepasst (Fingerprint-Erkennung) | Kalibrierung empfohlen fuer Context-Optimierung | Nein |
-| RPC-Worker hinzufuegen/entfernen | Nicht erkannt (RPC-Profile bleiben unangetastet) | Nicht unterstuetzt | **Ja** — `--rpc` muss manuell gesetzt werden |
+| Add a new GGUF file | Detected automatically, creates a profile with the correct tensor split | Context + speed split via calibration | No |
+| Plug in a new local GPU | **All profiles** are adjusted automatically (fingerprint detection) | Calibration recommended for context optimization | No |
+| Remove a GPU | **All profiles** are adjusted automatically (fingerprint detection) | Calibration recommended for context optimization | No |
+| Add/remove an RPC worker | Not detected (RPC profiles are left untouched) | Not supported | **Yes** — `--rpc` must be set manually |
 
-### GPU-Hardware-Fingerprint (automatische Erkennung)
+### GPU Hardware Fingerprint (automatic detection)
 
-Der Autoscan speichert einen Hardware-Fingerprint in der ersten Zeile der llama-swap Config:
+The autoscan stores a hardware fingerprint in the first line of the llama-swap config:
 
 ```yaml
 # gpu_hardware: RTX_8000:48564,P40:24576
@@ -349,15 +349,15 @@ models:
   ...
 ```
 
-Bei jedem llama-swap Neustart vergleicht der Autoscan die aktuelle Hardware mit dem
-gespeicherten Fingerprint (±512 MB Toleranz fuer Treiber-Varianz). Bei einer Aenderung:
+On every llama-swap restart the autoscan compares the current hardware with the
+stored fingerprint (±512 MB tolerance for driver variance). On a change:
 
-1. **Alle lokalen Profile** (manuell UND `[autoscan]`) bekommen einen neuen Tensor-Split
-2. RPC-Profile (`--rpc` im cmd) bleiben unangetastet
-3. Context (`-c`) und NGL (`-ngl`) werden **nicht** geaendert — dafuer ist die Kalibrierung da
-4. Hinweis: "Run 'Context kalibrieren' in AIfred to optimize context sizes"
+1. **All local profiles** (manual AND `[autoscan]`) get a new tensor split
+2. RPC profiles (`--rpc` in the cmd) are left untouched
+3. Context (`-c`) and NGL (`-ngl`) are **not** changed — that is what calibration is for
+4. Notice: "Run 'Context kalibrieren' in AIfred to optimize context sizes"
 
-**Beispielausgabe bei GPU-Aenderung:**
+**Example output on a GPU change:**
 ```
 ⚠️  GPU HARDWARE CHANGED!
    Stored:  RTX_8000:48564,P40:24576
@@ -366,88 +366,88 @@ gespeicherten Fingerprint (±512 MB Toleranz fuer Treiber-Varianz). Bei einer Ae
    → Run 'Context kalibrieren' in AIfred to optimize context sizes
 ```
 
-### Tensor-Split-Berechnung
+### Tensor Split Calculation
 
-Der Autoscan berechnet den Tensor-Split proportional zum VRAM:
+The autoscan calculates the tensor split proportionally to VRAM:
 
 ```python
-# Beispiel: 3 GPUs
+# Example: 3 GPUs
 per_gpu_vram = [48000, 24000, 12000]  # RTX 8000, P40, RTX 3060
 min_vram = 12000
-split_parts = [4, 2, 1]              # proportional zum VRAM
+split_parts = [4, 2, 1]              # proportional to VRAM
 # → "--tensor-split 4,2,1"
 ```
 
-**Regeln:**
-- Modell passt auf groesste GPU allein → kein Tensor-Split, nur `-dev CUDA0`
-- Modell braucht Multi-GPU → `--tensor-split X,Y[,Z...]` proportional zum VRAM
-- Bei GPU-Entfernung: Split wird reduziert oder entfernt (sofern Modell auf verbleibende GPUs passt)
+**Rules:**
+- Model fits on the largest GPU alone → no tensor split, only `-dev CUDA0`
+- Model needs multi-GPU → `--tensor-split X,Y[,Z...]` proportional to VRAM
+- On GPU removal: the split is reduced or removed (provided the model fits on the remaining GPUs)
 
-### Was die Kalibrierung (AIfred UI) zusaetzlich macht
+### What Calibration (AIfred UI) Does on Top
 
-"Context kalibrieren" in der AIfred UI fuehrt fuer das gewaehlte Modell durch:
+"Context kalibrieren" in the AIfred UI runs the following for the selected model:
 
-1. **Phase 1: GPU-only Context** — Binary Search fuer maximalen Context bei `-ngl 99`
-   - KV-Fallback-Chain: f16 → q8_0 (wenn < nativer Kontext) → q4_0 (letzter Ausweg, nur wenn q8_0 < 32K)
-   - VRAM-Balance: Erkennt Asymmetrie zwischen GPUs, verschiebt Layer (±1 pro Durchlauf)
-2. **Phase 2: Speed-Variante** — Min-GPU-Strategie: Berechnet minimale GPU-Anzahl fuer Modell-Gewichte
-   - Weniger GPU-Grenzen = weniger Transfer-Overhead = schnellere Inferenz (Tradeoff: reduzierter max. Kontext)
-   - Phase A: Binary Search fuer max. Layer auf schnellster GPU bei 32K Kontext (f16 KV)
-   - Phase B: Kontext-Maximierung mit eigener KV-Chain (f16 → q8_0 falls f16 < 32K)
-   - Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML mit eigenem KV-Quant
-3. **Phase 3: Hybrid NGL** — Falls GPU-only < 32K: Sucht optimalen `-ngl` mit CPU-Offload
-   - Erbt KV-Quantisierung von Phase 1 (keine eigene KV-Chain)
+1. **Phase 1: GPU-only context** — binary search for the maximum context at `-ngl 99`
+   - KV fallback chain: f16 → q8_0 (if < native context) → q4_0 (last resort, only if q8_0 < 32K)
+   - VRAM balance: detects asymmetry between GPUs, shifts layers (±1 per pass)
+2. **Phase 2: Speed variant** — min-GPU strategy: calculates the minimum number of GPUs for the model weights
+   - Fewer GPU boundaries = less transfer overhead = faster inference (tradeoff: reduced max. context)
+   - Phase A: binary search for the max. number of layers on the fastest GPU at 32K context (f16 KV)
+   - Phase B: context maximization with its own KV chain (f16 → q8_0 if f16 < 32K)
+   - Creates a separate `modell-speed` entry in the llama-swap YAML with its own KV quant
+3. **Phase 3: Hybrid NGL** — if GPU-only < 32K: searches for the optimal `-ngl` with CPU offload
+   - Inherits the KV quantization from Phase 1 (no KV chain of its own)
 
-Die Kalibrierung verfeinert den groben VRAM-proportionalen Split des Autoscans
-durch tatsaechliche Performance-Messungen.
+Calibration refines the autoscan's rough VRAM-proportional split
+with actual performance measurements.
 
-#### KV-Quantisierung: Entscheidungslogik
+#### KV Quantization: Decision Logic
 
-| Phase | KV-Chain | Schwellenwert | Kommentar |
+| Phase | KV chain | Threshold | Comment |
 |-------|----------|---------------|-----------|
-| Phase 1 (Base) | f16 → q8_0 → q4_0 | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | q8_0 wenn f16 < native, q4_0 nur wenn q8_0 < 32K |
-| Phase 2 (Speed) | f16 → q8_0 | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | Unabhaengig von Phase 1, eigenes KV im YAML |
-| Phase 3 (Hybrid) | Erbt von Phase 1 | — | Kein eigenes KV, maximiert GPU-Layer |
+| Phase 1 (Base) | f16 → q8_0 → q4_0 | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | q8_0 if f16 < native, q4_0 only if q8_0 < 32K |
+| Phase 2 (Speed) | f16 → q8_0 | `MIN_USEFUL_CONTEXT_TOKENS` (32K) | Independent of Phase 1, own KV in the YAML |
+| Phase 3 (Hybrid) | Inherits from Phase 1 | — | No KV of its own, maximizes GPU layers |
 
-**Hinweis:** f16 KV ist auf Hardware ohne Tensor Cores (z.B. Tesla P40) schneller als quantisiertes KV,
-da keine Dequantisierung noetig ist. Daher startet jede KV-Chain mit f16.
+**Note:** f16 KV is faster than quantized KV on hardware without Tensor Cores (e.g. Tesla P40),
+because no dequantization is needed. That is why every KV chain starts with f16.
 
-### Handlungsanleitung: Neue lokale GPU hinzufuegen
+### How-to: Add a New Local GPU
 
-1. **Physisch installieren**, Treiber pruefen: `nvidia-smi` muss alle GPUs zeigen
-2. **llama-swap neustarten**: `sudo systemctl restart llama-swap`
-   - Autoscan erkennt die neue GPU via Fingerprint-Vergleich
-   - **Alle Profile** (manuell + autoscan) bekommen automatisch den neuen Tensor-Split
-3. **Kalibrierung ausfuehren**: In AIfred UI "Context kalibrieren" fuer wichtige Modelle
-   (Context und Speed-Split werden an die neue Hardware-Konfiguration angepasst)
-4. **Performance pruefen**: tok/s kontrollieren, bei Bedarf Split-Ratios nachoptimieren
+1. **Install physically**, check drivers: `nvidia-smi` must show all GPUs
+2. **Restart llama-swap**: `sudo systemctl restart llama-swap`
+   - The autoscan detects the new GPU via fingerprint comparison
+   - **All profiles** (manual + autoscan) automatically get the new tensor split
+3. **Run calibration**: in the AIfred UI, "Context kalibrieren" for important models
+   (context and speed split are adapted to the new hardware configuration)
+4. **Check performance**: verify tok/s, fine-tune split ratios if needed
 
-### Handlungsanleitung: RPC-Worker (Remote-GPU) hinzufuegen/entfernen
+### How-to: Add/Remove an RPC Worker (Remote GPU)
 
-RPC wird vom Autoscan **nicht** unterstuetzt — vollstaendig manuell.
+RPC is **not** supported by the autoscan — fully manual.
 
-1. **Worker einrichten**: `rpc-server -H 0.0.0.0 -p 50052` auf dem Remote-Rechner
-2. **Konnektivitaet testen**: `bash -c 'echo > /dev/tcp/<IP>:<PORT>' && echo OK`
-3. **Neues Profil in llama-swap config** (oder bestehendes anpassen):
+1. **Set up the worker**: `rpc-server -H 0.0.0.0 -p 50052` on the remote machine
+2. **Test connectivity**: `bash -c 'echo > /dev/tcp/<IP>:<PORT>' && echo OK`
+3. **New profile in the llama-swap config** (or adapt an existing one):
    ```yaml
    Modell-rpc:
      cmd: 'llama-server --model <path> -ngl 99 --rpc <IP>:<PORT> ...'
      ttl: 3600
-     healthCheckTimeout: 900  # RPC-Modelle brauchen laenger zum Laden
+     healthCheckTimeout: 900  # RPC models take longer to load
    ```
-4. **AIfred RPC Quick-Check**: Prueft vor jeder Inferenz per TCP-Connect (3s Timeout)
-   ob der Worker erreichbar ist. Fehlermeldung sofort statt 15 Min warten.
-5. **Kein automatischer Tensor-Split**: llama.cpp verteilt bei RPC automatisch nach VRAM,
-   aber fuer optimale Performance ggf. manuellen `--tensor-split` setzen
-6. **Separate Profile**: Lokales Profil (CPU-Offload, schnelles Laden) UND RPC-Profil
-   (alle GPU, langsames Laden) als getrennte Eintraege — User waehlt in AIfred
+4. **AIfred RPC quick check**: before every inference, checks via TCP connect (3 s timeout)
+   whether the worker is reachable. Immediate error message instead of waiting 15 min.
+5. **No automatic tensor split**: llama.cpp distributes by VRAM automatically with RPC,
+   but for optimal performance you may want to set `--tensor-split` manually
+6. **Separate profiles**: local profile (CPU offload, fast loading) AND RPC profile
+   (all GPU, slow loading) as separate entries — the user picks one in AIfred
 
-### Warum RPC nicht automatisiert werden kann
+### Why RPC Cannot Be Automated
 
-- RPC-Endpoints sind Netzwerk-Ressourcen — kein lokaler Discovery-Mechanismus
-- Worker kann ein-/ausgeschaltet sein → dynamisch, nicht statisch konfigurierbar
-- Optimale Verteilung haengt von Netzwerklatenz ab (nicht nur VRAM)
-- `healthCheckTimeout` und `ttl` muessen an Ladezeit angepasst werden
+- RPC endpoints are network resources — there is no local discovery mechanism
+- A worker can be switched on or off → dynamic, not statically configurable
+- The optimal distribution depends on network latency (not only VRAM)
+- `healthCheckTimeout` and `ttl` must be adapted to the loading time
 
 ---
 
@@ -556,10 +556,10 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-User=mp
-Group=mp
+User=YOUR_USER
+Group=YOUR_USER
 ExecStartPre=/path/to/venv/bin/python /path/to/scripts/llama-swap-autoscan.py
-ExecStart=/home/mp/bin/llama-swap --config /home/mp/.config/llama-swap/config.yaml --listen :11435 --watch-config
+ExecStart=/home/YOUR_USER/bin/llama-swap --config /home/YOUR_USER/.config/llama-swap/config.yaml --listen :11435 --watch-config
 Restart=on-failure
 RestartSec=5
 Environment=PATH=/usr/local/cuda/bin:/usr/local/bin:/usr/bin:/bin
@@ -599,7 +599,7 @@ and configures them for llama-swap. It runs as `ExecStartPre` before every llama
 
 ### What the script does
 
-0. **GPU hardware fingerprint** — compares current GPUs against stored fingerprint in config. If hardware changed (GPU added/removed), updates tensor-split in ALL local profiles automatically (see [GPU-Management](#gpu-management-was-automatisch-geht-was-manuell-muss))
+0. **GPU hardware fingerprint** — compares current GPUs against stored fingerprint in config. If hardware changed (GPU added/removed), updates tensor-split in ALL local profiles automatically (see [GPU Management](#gpu-management-what-is-automatic-what-must-be-manual))
 1. **Scan Ollama manifests** — reads Ollama manifests from system and user paths, finds GGUF blobs, creates symlinks with descriptive filenames in `~/models/`
    - Example: `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`
    - Deduplication: multiple tags pointing to the same blob → longest/most descriptive name wins

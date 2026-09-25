@@ -1,5 +1,7 @@
 # Judaica Plugin
 
+> **English version:** [judaica.md](../../../en/guides/plugins/judaica.md)
+
 **Datei:** `aifred/plugins/tools/judaica/`
 
 Zugriff auf den jüdischen Quellkorpus — Tanach, Talmud, Mischna, Midrasch,

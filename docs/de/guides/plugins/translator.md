@@ -1,5 +1,7 @@
 # Translator Plugin (DeepL)
 
+> **English version:** [translator.md](../../../en/guides/plugins/translator.md)
+
 **Datei:** `aifred/plugins/tools/translator/`
 
 Textübersetzung via [DeepL API](https://www.deepl.com/docs-api). Unterstützt 30 Sprachen mit automatischer Quellsprach-Erkennung — laut Plugin-Beschreibung präziser als generische LLM-Übersetzungen.

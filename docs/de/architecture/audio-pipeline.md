@@ -1,5 +1,7 @@
 # Audio-Pipeline-Architektur
 
+> **English version:** [audio-pipeline.md](../../en/architecture/audio-pipeline.md)
+
 Stand: 2026-05-10. Lebendes Dokument — wird mit der Implementierung
 weiter ausgebaut.
 
@@ -207,8 +209,8 @@ UI-pflegbar (Plugin-Settings → Audio Player). Beispiel-`settings.json`:
 {
   // Quellen — Items werden über Labels referenziert, nie raw Pfade/URLs.
   "sources": {
-    "alarms":      { "type": "local_folder", "path": "/home/mp/Audio/wecker" },
-    "music":       { "type": "local_folder", "path": "/home/mp/Audio/musik" },
+    "alarms":      { "type": "local_folder", "path": "/home/YOUR_USER/Audio/wecker" },
+    "music":       { "type": "local_folder", "path": "/home/YOUR_USER/Audio/musik" },
     "hoerbuecher": { "type": "local_folder", "path": "/mnt/family-nas/Hoerbuecher" },
     "sandbox":     { "type": "local_folder", "path": "./data/sandbox_output" },
     "swr3":        { "type": "http_stream", "url": "https://liveradio.swr.de/sw282p3/swr3/play.mp3" },

@@ -1,5 +1,7 @@
 # Scheduler & Proaktive Features
 
+> **English version:** [scheduler.md](../../en/architecture/scheduler.md)
+
 **Stand:** 2026-03-29
 
 AIfred kann zeitgesteuert eigenständig handeln — ohne dass ein User eine Nachricht schickt.

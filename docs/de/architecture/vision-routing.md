@@ -1,5 +1,7 @@
 # Vision-Routing: Der llama.cpp-Describer-Pfad
 
+> **English version:** [vision-routing.md](../../en/architecture/vision-routing.md)
+
 Wie eine Bildanfrage (Chat-Bild-Upload, Sandbox-Screenshot) auf ein
 Vision-Modell verteilt wird, ohne das geladene Chat-LLM aus dem VRAM zu
 verdrängen. Stand: Vision-Umbau Paket 1 (2026-08-16) — der Side-Channel

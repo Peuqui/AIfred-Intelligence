@@ -1,10 +1,12 @@
 # Quantization formats and answer quality
 
+> **Deutsche Version:** [quantization-quality.md](../../de/benchmarks/quantization-quality.md)
+
 > As of 2026-09-01. All numbers from the same machine (5-GPU box,
 > 2× Quadro RTX 8000 sm75 + 3× Tesla V100 sm70), the same three prompts
 > and the same AIfred persona. Complements
-> [vllm-autokalibration.md](../../de/benchmarks/vllm-autokalibration.md)
-> (German), which covers the throughput side, with the quality side.
+> [vllm-autocalibration.md](vllm-autocalibration.md), which covers the
+> throughput side, with the quality side.
 
 ## Why this document
 

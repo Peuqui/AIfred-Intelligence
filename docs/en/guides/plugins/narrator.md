@@ -1,5 +1,7 @@
 # Narrator Plugin (document → audio)
 
+> **Deutsche Version:** [narrator.md](../../../de/guides/plugins/narrator.md)
+
 **File:** `aifred/plugins/tools/narrator/`
 
 Turns a whole text document from the documents tree into **one** audio file (MP3) — the spoken counterpart to `translate_file`. The file content is processed entirely server-side: read, split at paragraph boundaries into ~800-character chunks, synthesized chunk by chunk via the TTS engine, concatenated with ffmpeg, and written as MP3 (speech VBR ≈ 130 kbps, roughly 10x smaller than WAV) next to the source file. The text **never passes through the LLM context** — even a 100k-character transcript costs no context window.

@@ -1,5 +1,7 @@
 # Sandbox Plugin
 
+> **Deutsche Version:** [sandbox.md](../../../de/guides/plugins/sandbox.md)
+
 **File:** `aifred/plugins/tools/sandbox/`
 
 Isolated Python code execution in a bubblewrap-sandboxed subprocess — for

@@ -1,5 +1,7 @@
 # Benchmark Analysis v2: Dog vs Cat Tribunal Sessions
 
+> **Deutsche Version:** [analysis-v2.md](../../de/benchmarks/analysis-v2.md)
+
 > **Historical benchmark.** Measured in early 2026 on the previous Tesla P40-based
 > setup (Pascal). The current AIfred machine runs 2× Quadro RTX 8000 + 3× Tesla V100,
 > so these numbers do not describe today's performance — they remain a useful

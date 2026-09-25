@@ -6,1739 +6,213 @@
 
 # AIfred Intelligence
 
-**Autonomer KI-Assistent mit Tool Use, Sub-Agenten, Message Hub, Multi-Agent-Debatten, Vision/Kamera-Überwachung & lokaler LLM-Inferenz**
+**Ein selbst gehosteter KI-Assistent, der Dinge erledigt — Tool-Ketten, Sub-Agenten, Multi-Agent-Debatten, Sprache, Kameraüberwachung und lokale LLM-Inferenz auf deiner eigenen Hardware.**
 
-AIfred Intelligence ist ein vollwertiger KI-Assistent der lokal auf eigener Hardware läuft. Er verwaltet autonom E-Mails, Termine, Dokumente, Datenbanken und Kamera-Feeds — mit Function Calling, persistentem Gedächtnis, Multi-Agent-Debatten und lokaler VLM-Analyse. Keine Cloud-Abhängigkeit, volle Datenhoheit.
+AIfred läuft auf deinem eigenen Rechner und arbeitet für dich über jeden Kanal, den du nutzt: Er liest und beantwortet E-Mails, trägt Termine ein, verwaltet Kontakte, Dokumente und Datenbanken, behält deine Kameras im Blick und spricht mit dir über den Browser, Telegram, Discord oder ein Sprach-Terminal im Wohnzimmer. Lokale Modelle, persistentes Gedächtnis, keine Cloud-Abhängigkeit — deine Daten bleiben bei dir.
 
-**📺 [Beispiel-Showcases ansehen](https://peuqui.github.io/AIfred-Intelligence/)** - Exportierte Chats: Multi-Agent-Debatten, Chemie, Mathe, Coding und Web-Recherche.
+**📺 [Beispiel-Showcases](https://peuqui.github.io/AIfred-Intelligence/)** — exportierte Chats: Multi-Agent-Debatten, Chemie, Mathe, Coding und Web-Recherche.
 
-> ⭐ **Wenn AIfred dir nützlich ist, gib dem Repo bitte einen Stern.** Self-Hoster vergessen das gerne — aber Sterne sind das wichtigste Signal, das bei mir ankommt, dass dieses Projekt tatsächlich genutzt wird. Davon hängt ab, ob ich weiter daran arbeite.
+> ⭐ **Wenn AIfred dir nützlich ist, gib dem Repo bitte einen Stern.** Self-Hoster vergessen das gerne — aber Sterne sind das wichtigste Signal, das mir zeigt, dass das hier tatsächlich genutzt wird. Davon hängt direkt ab, ob ich weiter daran baue.
+
+**Auf einen Blick**
+- 🔗 **Autonome Tool-Ketten** über Plugins hinweg — ein Prompt, viele Schritte, aus jedem Kanal
+- 🎩 **Multi-Agent-System** — AIfred, Sokrates, Salomo und deine eigenen Agenten debattieren, kritisieren, urteilen — oder übernehmen als Sub-Agenten delegierte Aufgaben
+- 📡 **Überall erreichbar** — Web-UI, Telegram, Discord, E-Mail, Echo-Dot-Sprach-Terminal; läuft headless
+- 🎤 **Sprache** — Speech-to-Text plus acht TTS-Engines, lokales Voice Cloning, Streaming-Wiedergabe
+- 👁️ **Vision & Vigilantia** — Bildanalyse im Chat und kontinuierliche Kameraüberwachung mit Gesichtserkennung
+- ⚙️ **Lokale Inferenz, automatisch abgestimmt** — llama.cpp, vLLM und Ollama mit VRAM-bewusster Kontext-Kalibrierung über mehrere GPUs
+- 🔒 **Security im Framework verankert** — Berechtigungsstufen pro Kanal, Schutz gegen Prompt Injection, Credential Broker, Audit-Log
 
 ---
 
 ## 🔗 Komplexe Abläufe (Tool-Ketten)
 
-Der eigentliche Wert entsteht nicht aus einzelnen Tools, sondern aus **Ketten**, die AIfred autonom über mehrere Plugins hinweg abarbeitet — aus **jedem Kanal**: Browser, Sprach-Terminal (FreeEcho.2), Telegram, Discord, E-Mail.
+Der eigentliche Wert entsteht nicht aus einzelnen Tools, sondern aus **Ketten**, die AIfred selbstständig über mehrere Plugins hinweg abarbeitet — aus **jedem Kanal**: Browser, Sprach-Terminal (FreeEcho.2), Telegram, Discord, E-Mail.
 
-**Beispiel (real, end-to-end getestet):** Du fotografierst mit dem Handy eine Visitenkarte und sagst — getippt oder per Sprache:
+**Beispiel (real, end-to-end getestet):** Du fotografierst mit dem Handy eine Visitenkarte und sagst — getippt oder gesprochen:
 
-> *„Analysiere diese Visitenkarte, extrahiere alle Daten, leg den Kontakt in Google an, prüf nächste Woche einen freien Vormittag und trag einen zweistündigen Termin ein, und schick mir das Foto samt Kontaktdaten per Telegram."*
+> *„Analysiere diese Visitenkarte, extrahiere alle Daten, leg den Kontakt in Google an, prüf nächste Woche einen freien Vormittag, trag einen zweistündigen Termin ein und schick mir das Foto samt Kontaktdaten per Telegram."*
 
-AIfred führt das in einer durchgehenden Kette aus:
+AIfred führt das als eine durchgehende Kette aus:
 
 1. **👁️ Vision** — das VLM liest die Karte (Name, Telefon, E-Mail, Adresse, Web) direkt aus dem Bild
 2. **📇 Google Kontakte** — legt den Kontakt strukturiert an (`google_contacts_create`)
-3. **📅 Google Kalender** — prüft **zuerst** den Zeitraum auf freie Slots (`list_events`) und trägt **erst dann** den Termin ein — erkennt auch einen bereits bestehenden Termin und fragt nach, statt ein Duplikat zu erzeugen
-4. **📤 Telegram mit Anhang** — schickt dir das **Foto der Karte** als Anhang plus die Kontaktdaten als Text — ohne deine Chat-ID zu kennen (Owner-Default)
+3. **📅 Google Kalender** — prüft **zuerst** den Zeitraum auf freie Slots (`google_calendar_list_events`) und trägt **erst dann** den Termin ein; ein bereits bestehender Termin wird erkannt, und AIfred fragt nach, statt ein Duplikat anzulegen
+4. **📤 Telegram mit Anhang** — schickt dir das **Foto der Karte** plus die Kontaktdaten — ohne deine Chat-ID zu kennen (Owner-Default)
 
-Alles lokal, ein einziger Prompt, kein Zwischen-Klick. Dateien aus der Konversation (hochgeladene Bilder, in der Sandbox generierte PDFs/Plots) lassen sich session-isoliert über **jeden** Kanal als Anhang versenden.
+Alles lokal, ein einziger Prompt, kein Klick dazwischen. Dateien aus der Konversation (hochgeladene Bilder, PDFs oder Plots aus der Sandbox) lassen sich über **jeden** Kanal als Anhang versenden, isoliert pro Session.
 
 **Voraussetzungen & Stellschrauben:**
-- **Sicherheits-Tier:** Erstellende Tools (Kontakt/Termin anlegen, Code ausführen) laufen ab `WRITE_DATA`. Im Browser hast du das immer; externe Kanäle stellst du bei Bedarf im **Plugin Manager** höher (die Anhebung ist bewusst nur dort möglich — kein Absender kann sich selbst Rechte geben). Siehe [Security-Architektur](#-security-architektur)
-- **Vision + Tool-Ketten:** Für zuverlässige Tool-Aufrufe im Bild-Pfad den **Denkmodus für Vision ausschalten** (das 🧠-Icon am Vision-LLM, 💭-Icon -> Reasoning-Prompt-Injektion darf gesetzt bleiben). Reasoning-Modelle mit spekulativer Dekodierung (MoE/MTP) verschlucken sonst Tool-Calls nach dem Denken
+- **Sicherheits-Tier:** Etwas anlegen (Kontakt, Termin, Code ausführen) braucht `WRITE_DATA` oder höher. Im Browser hast du das immer; externe Kanäle stellst du bei Bedarf im **Plugin Manager** höher — bewusst nur dort, kein Absender kann sich selbst Rechte geben. Siehe [Sicherheit](#-sicherheit)
+- **Vision + Tool-Ketten:** Für zuverlässige Tool-Aufrufe im Bild-Pfad **Thinking für das Vision-LLM ausschalten** (🧠-Icon; der 💭-Reasoning-Prompt darf an bleiben). Reasoning-Modelle mit spekulativer Dekodierung (MoE/MTP) verschlucken sonst Tool-Calls nach dem Denken
 
 ---
 
 ## ✨ Features
 
-### 🧠 Autonome Fähigkeiten (Function Calling / Tool Use)
+### 🧠 Autonomer Agent & Tools
 
-Das LLM entscheidet autonom welche Tools es braucht — OpenAI-kompatible Tool-Infrastruktur mit Plugin-System:
+Das LLM entscheidet selbst, welche Tools es einsetzt — OpenAI-kompatibles Function Calling, bis zu 100 Tool-Calls pro Anfrage, jedes Tool kommt aus einem Plugin:
 
-- **Message Hub — AIfred als Kommunikationszentrale**: AIfred überwacht externe Kanäle und verarbeitet eingehende Nachrichten autonom. **Läuft headless** — kein Browser nötig. Channel-Plugins lauschen im Hintergrund, das LLM verarbeitet und antwortet über Discord/E-Mail eigenständig. Die Web-UI wird nur für die Ersteinrichtung (Credentials, Plugin-Toggles) und optionales Monitoring benötigt. **Einheitliches Plugin-System**: `.py`-Datei in `plugins/channels/` oder `plugins/tools/` ablegen — wird automatisch erkannt, keine Code-Änderungen nötig. **Eingebaute Kanäle**: E-Mail Monitor (IMAP IDLE Push-basiert + SMTP Auto-Reply), Discord (Bot mit Channel- + DM-Support, `/clear`-Befehl). **Plugin Manager** UI-Modal zum Ein-/Ausschalten aller Plugins zur Laufzeit (verschiebt Dateien nach `disabled/`). Pipeline: **Channel Listener** → **Envelope-Normalisierung** → **SQLite Routing Table** → **AIfred Engine-Aufruf** (mit vollem Toolkit inkl. Web-Recherche, Kalenderprüfung) → **Auto-Reply** (optional, per Toggle). Agent-Routing: Sokrates oder Salomo per Name ansprechen. **Hinweis**: Hub-Nachrichten werden ohne Browser-State verarbeitet — Fortschrittsanzeigen, Live-Streaming und Quellen-HTML stehen bei Hub-Nachrichten nicht zur Verfügung; dies ist systembedingt, keine Einschränkung. Siehe [Architektur & Setup](docs/de/architecture/message-hub.md)
-- **E-Mail-Integration**: E-Mails lesen, suchen und senden via IMAP/SMTP. Senden erfordert explizite Bestätigung (Entwurf → Prüfung → Bestätigung). Credentials über `.env` oder UI-Modal konfigurierbar
-- **EPIM-Datenbank-Integration**: Voller CRUD-Zugriff auf die [EssentialPIM](https://www.essentialpim.com/) Firebird 2.5 Datenbank — das LLM sucht, erstellt, ändert und löscht eigenständig Kalendertermine, Kontakte, Notizen, Todos und Passworteinträge. Automatische Name-zu-ID-Auflösung, Anti-Halluzinations-Schutz, 7-Tage-Datumsreferenz
-- **Workspace (Dateien & Dokumente)**: Dokumente hochladen (PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV), automatisches Chunking und Embedding in ChromaDB via **BGE-M3** (8192 Token Context, 1024-dim, multilingual). Token-genaues Chunking mit dem lokalen Qwen3-Tokenizer. Das LLM kann autonom Dateien durchsuchen, lesen (PDFs seitenweise), schreiben, bearbeiten, **umbenennen** und löschen — und dann in die Vektordatenbank einspeisen für semantische Suche mit **Folder-Filter** (`search_documents(query=…, folder="bibel/Schlachter")`) und **Chunk-Nachbar-Retrieval** (jeder Treffer liefert seine direkten Nachbar-Chunks für vollen Kontext). Dokument-Manager UI mit Preview, **Bulk-Folder-Index** (ein Klick für ganzen Baum), Live-Datei-Anzahl pro Ordner, **Orphan-Cleanup** (indexierte Einträge ohne Quell-Datei finden) und Toast-basierte Status-Meldungen
-- **Sandboxed Code-Ausführung**: LLM schreibt und führt Python-Code in isoliertem Subprocess aus. Unterstützt numpy, pandas, matplotlib, plotly, seaborn, scipy, sklearn. Interaktive HTML/JS-Visualisierungen (Plotly 3D, Canvas-Spiele, Simulationen) direkt im Chat: zugeklappt mit Link „Im Browser öffnen“, aufgeklappt das eingebettete Programm samt Quelltext. Gleiche Seiten und Bilder erscheinen je Antwort nur einmal
-- **Agenten-Langzeitgedächtnis**: Persistentes Gedächtnis pro Agent via ChromaDB (BGE-M3 Embeddings) — Agenten speichern eigenständig Erkenntnisse, kombinierter Recall (10 neueste + semantische Suche), Session-Pinning. Memory-Browser zum Inspizieren und Aufräumen. Inkognito-Modus (🔒)
-- **Tool-Output Token-Cap**: Ein einzelnes Tool-Result wird so begrenzt, dass `system + history + memory + tool_result ≤ 75%` des aktiven Modell-Contexts belegen — garantiert dem Modell 25% Headroom für seine Antwort. JSON-aware Truncation: results-Listen werden vom Ende her gestutzt (mit `_truncated`-Marker), damit das Modell weiterhin strukturierte Daten sieht
-- **Automatische Web-Recherche**: KI entscheidet selbst wann Recherche nötig ist. Multi-API (SearXNG primär, Tavily + Brave als Fallback) mit automatischem Scraping und LLM-basiertem URL-Ranking. Jede Recherche läuft frisch — kein Ergebnis-Cache, zeitkritische Antworten (Wetter, Preise, Nachrichten) stammen also nie aus einer früheren Suche
-- **Weitere Tool-Plugins**: **Audio Player** (lokale Audio-Dateien abspielen — WAV, MP3, OGG, FLAC), **Scheduler** (LLM legt Cron-/Intervall-/Einmal-Jobs an), **System Monitor** (CPU, RAM, GPU, Disk, Temperatur), **Google Suite** (OAuth 2.0 für Google Calendar + Contacts), **Translator** (DeepL, 30+ Sprachen, automatische Quellsprach-Erkennung), **Narrator** (ganze Dokumente → eine MP3 via TTS, Engine/Stimme über das Plugin-Zahnrad einstellbar; Multi-Voice-Hörspiele über `[SPRECHER]:`-Marker — eine Stimme pro Sprecher, beliebig viele Sprecher), **Bibel** (exakter Stellen-Lookup + thematische Vektorsuche), **Judaica** (jüdischer Quellkorpus: Tanach, Talmud, Mischna, Midrasch, Halacha, Kommentare), **Calculator** (`calculate`), dazu `web_fetch` (URLs abrufen) und `store_memory` (Gedächtnis)
-- **Plugin-Übersicht:** [Verfügbare Plugins](docs/de/guides/plugins-overview.md)
+- **E-Mail** — lesen, suchen, senden über IMAP/SMTP; Senden braucht eine ausdrückliche Bestätigung (Entwurf → Prüfung → Bestätigung)
+- **Google Suite** — Kalender, Kontakte, Drive und Tasks über OAuth 2.0
+- **EssentialPIM** — voller Lese-/Schreibzugriff auf die [EssentialPIM](https://www.essentialpim.com/)-Datenbank: Termine, Kontakte, Notizen, To-dos, Passworteinträge; Name-zu-ID-Auflösung und Schutz gegen Halluzinationen
+- **Workspace (Dateien & Dokumente)** — PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV hochladen; AIfred durchsucht, liest (PDFs seitenweise), schreibt, patcht, benennt um, kopiert, verschiebt und löscht Dateien, indexiert sie in ChromaDB (**bge-m3**, token-genaues Chunking) und durchsucht sie semantisch mit Ordner-Filter und Kontext aus Nachbar-Chunks. Dokument-Manager-UI mit Vorschau, Bulk-Indexierung ganzer Ordner und Orphan-Cleanup
+- **Sandboxed Code-Ausführung** — Python in einem isolierten Subprocess (numpy, pandas, matplotlib, plotly, scipy, sklearn, …); interaktive HTML/JS-Ergebnisse (Plotly 3D, Canvas-Spiele, Simulationen) direkt im Chat, geprüft per Screenshot aus einem Headless-Browser
+- **Web-Recherche** — der Agent entscheidet, wann er sucht: SearXNG (selbst gehostet) plus optional Tavily und Brave, LLM-basiertes URL-Ranking, paralleles Scraping inkl. PDFs; jede Recherche läuft frisch, kein Ergebnis-Cache. Modi und Pipeline: [Recherche-Pipeline](docs/de/architecture/research-pipeline.md)
+- **Langzeitgedächtnis** — Gedächtnis pro Agent in ChromaDB, wird vor jeder Antwort abgerufen; Agenten lesen, speichern, aktualisieren und löschen Einträge selbst. Memory-Browser zum Inspizieren, Inkognito-Modus 🔒
+- **Scheduler** — das LLM legt Cron-, Intervall- und Einmal-Jobs an; Ergebnisse kommen als Benachrichtigung, Kanal-Nachricht oder Webhook. Siehe [Scheduler](docs/de/architecture/scheduler.md)
+- **Weitere Plugins** — **Audio Player** (Bibliothekssuche, Ordner, Spulen, Geschwindigkeit, Fortsetzen), **System Monitor** (CPU, RAM, GPU, Disk, Temperaturen), **Translator** (DeepL, 30+ Sprachen), **Narrator** (ganze Dokumente → eine MP3, Multi-Voice-Hörspiele über `[SPEAKER]:`-Marker), **Bibel** und **Judaica** (exakte Stellen + thematische Vektorsuche über Tanach, Talmud, Mischna, Midrasch, Halacha, Kommentare), **Calculator**
+- **Tool-Output-Cap** — ein einzelnes Tool-Ergebnis wird so gekürzt, dass System + History + Gedächtnis + Ergebnis innerhalb von 75 % des Kontexts bleiben; JSON-aware, das Modell sieht weiterhin strukturierte Daten
+
+Jedes Plugin ist ein Verzeichnis unter `aifred/plugins/tools/` oder `aifred/plugins/channels/` — wird automatisch erkannt und ist zur Laufzeit im **Plugin Manager** schaltbar. Übersicht: [Verfügbare Plugins](docs/de/guides/plugins-overview.md) · eigene schreiben: [Plugin-Entwicklung](docs/de/guides/plugin-development.md).
 
 ### 🎩 Multi-Agent-System
 
-- **Sub-Agenten (Delegation)**: Jeder Agent kann eine abgegrenzte Aufgabe per `delegate_task` an einen Sub-Agenten abgeben — ein frischer Modellaufruf mit eigenem Kontextfenster, eigener Tool-Schleife und ohne Persona, Gespräch oder Gedächtnis des Aufrufers. Nur der Bericht des Sub-Agenten kommt beim Hauptagenten an; das vollständige Transkript (Denken, jeder Werkzeugaufruf samt Ergebnis) erscheint aufklappbar in der Chat-Bubble, nichts läuft unter dem Radar. Plugin-Einstellungen: erlaubte Werkzeug-Tiers (Vorgabe: lesen und Daten schreiben, kein Senden oder Löschen), Rekursionstiefe, optional Delegation an einen anderen Hauptagenten, der dann mit seiner Identity und Personality (Fachrolle, Arbeitsweise), seinem Modell und seinen Werkzeugen arbeitet. Manager-Arbeiter-Muster für lange Recherchen, Mehr-Dokument-Arbeit und Coding, ohne den Hauptkontext zu fluten. **Last verteilen, Prefill sparen:** Ein Hauptagent behält nur die Werkzeuge für den Alltag und delegiert Spezialarbeit an andere Hauptagenten mit deren Persona, Modell und Werkzeugen (etwa Codine für Code und Sandbox). Gemessen mit Qwen3.8-27B schrumpft AIfreds Prompt so von 31.730 auf 17.449 Token je Turn, rund 45 % weniger Prefill. Alles, was ein Sub-Agent erzeugt (Sandbox-Seiten samt Quelltext, Screenshots, Kamerabilder, Quellen), erscheint zugeklappt in der Bubble an der Stelle der Delegation. Siehe [Sub-Agenten Plugin](docs/de/guides/plugins/subagent.md)
-- **Multi-Agent Debate System**: AIfred + Sokrates + Salomo + Vision + unbegrenzt eigene Agenten
-- **Benutzerdefinierte Agenten**: Name, Emoji, Rolle, zweisprachige Prompts (DE/EN), eigenes Langzeitgedächtnis. Agenten-Editor in der UI
-- **Generischer Agenten-Kern**: Alle Per-Agent-Einstellungen (Modell, Sampling, Thinking-Modus, Kontextgröße, TTS-Stimme) leben in einer einzigen `agent_tuning`-Map — Custom-Agenten sind gleichberechtigte Bürger. Ein neu angelegter Agent bekommt automatisch seine eigene Settings-Zeile, Sampling-Zeile und Kontext-Spalte in der UI; keine Code-Änderungen, keine hardcodierten Agenten-Listen
-- **5 Diskussionsmodi**: Standard, Kritische Prüfung, Auto-Konsens, Tribunal, Symposion (mit Reflection-Layer ab Runde 2)
-- **Sprachgesteuerte Modus-Umschaltung**: Modi, Agenten und Research-Einstellungen per natürlicher Sprache umschalten — "Starte Tribunal", "Schalte auf Sokrates um", "Tiefrecherche und diskutiere X". Die Automatik-LLM erkennt Modus-Wechsel, persistente Agenten-Änderungen ("Ich möchte mit Pater Tuck weiter reden") und kombinierte Befehle in einem Satz. Funktioniert aus Browser, Sprach-Terminal (FreeEcho.2) und allen Kanälen
-- **Direkte Ansprache**: Jeden Agenten per Name adressieren — auch über Telegram, Discord und E-Mail via Message Hub
-- **User-Mapping**: Externe Identitäten (Telegram-ID, E-Mail-Adresse) werden auf AIfred-Benutzernamen gemappt (`data/user_mapping.json`) — AIfred erkennt dich über alle Kanäle
-- **6-Schichten Prompt-System**: Identität + Reasoning + Multi-Agent + Aufgabe + Gedächtnis + Persönlichkeit
+- **Agenten** — 🎩 AIfred (Butler & Gelehrter), 🏛️ Sokrates (Kritiker), 👑 Salomo (Richter), 📷 Vision, dazu die mitgelieferten eigenen Agenten 🔥 Pater Tuck, 🤖 Codine (Code & Sandbox), 🔴 HAL 9000, 🕎 Rabbi Shmuel — und beliebig viele eigene: Name, Emoji, Rolle, zweisprachige Prompts, eigenes Gedächtnis, eigenes Modell und eigene Stimme, angelegt im **Agenten-Editor**
+- **Fünf Diskussionsmodi**
 
-### ⚙️ LLM-Infrastruktur
+  | Modus | Ablauf | Wer entscheidet? |
+  |---|---|---|
+  | **Standard** | Ein Agent antwortet | — |
+  | **Kritische Prüfung** | AIfred → Sokrates (Kritik + Pro/Contra) | Du |
+  | **Auto-Konsens** | AIfred → Sokrates → Salomo, N Runden | Salomo (Abstimmung) |
+  | **Tribunal** | AIfred ↔ Sokrates, N Runden → Salomo | Salomo (Urteil) |
+  | **Symposion** | 2+ ausgewählte Agenten diskutieren, Reflection-Layer ab Runde 2 | Niemand — viele Perspektiven |
 
-- **Multi-Backend-Unterstützung**: llama.cpp via llama-swap (GGUF), Ollama (GGUF), vLLM (AWQ), TabbyAPI (EXL2), Cloud APIs (Qwen, DeepSeek, Claude)
-- **Verteilte Inferenz (RPC)**: Modelle über mehrere Rechner im LAN verteilen via llama.cpp RPC
-- **Automatische Kontext-Kalibrierung**: VRAM-bewusste Kontextgröße pro Backend mit Greedy-Cascade (zuerst die schnellste Compute-Klasse füllen, dann in die nächstlangsamere überlaufen), Binary Search, RoPE-Skalierung, Tensor-Split-Optimierung. Hardware-agnostisch — keine handgepflegten GPU-Listen im Code
-  - **2D-Matrix-Picker**: explizite Per-Zellen-Auswahl welche Varianten kalibriert werden sollen — `(VLM × TTS-Engine)` Grid plus eine "Kein VLM / Kein TTS"-Zeile. Jede Zelle wird zu einem eigenen llama-swap-Profil `<base>-vlm-<key>-tts-<engine>`, das der Chat-Pfad-Resolver automatisch wählt
-  - **Stress-Burn-In**: VLM- + TTS-VRAM-Footprints werden unter Last gemessen (Worst-Case bilinguale TTS-Synthese, VLM Context-Fill-Prewarm) statt hardkodiert zu sein. Ergebnisse gecacht in `data/vlm_vram_cache.json` / `data/tts_vram_cache.json`
-  - **Side-Channel Capacity-Guard**: Vor dem Schreiben eines `<base>-tts-<engine>-vlm-<key>`-Combo-Profils prüft der Kalibrator, ob `tts_reserve + vlm_reserve` auf die geteilte Side-Channel-GPU passt. Combos die zur Laufzeit OOM produzieren würden, werden mit klarer "Profile NOT written"-Meldung abgelehnt — keine vergiftete YAML
-  - **Persistentes Failure-Tracking**: Der Picker zeigt drei Zustände pro Zelle — grüner Punkt (kalibriert), roter Punkt (versucht aber gescheitert, mit Grund), leer (nie versucht). Fehler-Gründe: `capacity_exceeded`, `model_too_big`, `projection_failed`, `probe_unrecoverable`. Eine erfolgreiche Re-Kalibrierung löscht den roten Punkt automatisch
-  - **Strategy SSoT**: [docs/de/architecture/calibration-strategy.md](docs/de/architecture/calibration-strategy.md) ist die verbindliche algorithmische Referenz; Algorithmus + (optionaler) KI-Agenten-Pfad lesen beide daraus
-- **Denkmodus**: Chain-of-Thought-Reasoning (Qwen3, NemoTron, QwQ)
-- **History-Kompression**: Intelligente Kompression bei 70% Context-Auslastung für unbegrenzte Konversationen
-- **Automatisches Modell-Lifecycle**: Zero-Config — neue Modelle beim Start automatisch erkannt, entfernte bereinigt
-- **Sampling-Parameter**: Per-Agent Temperature, Top-K, Top-P, Min-P, Repeat-Penalty (Auto/Manual)
-- **Performance**: Direct-IO für schnelles Laden, Details in der [Modell-Parameter-Doku](docs/de/benchmarks/model-params.md)
+- **Sub-Agenten (Delegation)** — jeder Agent kann per `delegate_task` eine abgegrenzte Aufgabe an einen Sub-Agenten abgeben: ein frischer Modellaufruf mit eigenem Kontext und eigener Tool-Schleife. Nur der Bericht kommt beim Aufrufer an; das vollständige Transkript liegt zugeklappt in der Chat-Bubble. Eine Aufgabe kann auch an einen anderen Hauptagenten gehen, mit dessen Persona, Modell und Tools — gemessen mit Qwen3.8-27B schrumpft AIfreds Prompt so von 31.730 auf 17.449 Token pro Turn (≈ 45 % weniger Prefill). Siehe [Sub-Agenten](docs/de/guides/plugins/subagent.md)
+- **Agenten per Name ansprechen** — „Sokrates, was denkst du über …?" — in jedem Kanal; Moduswechsel per Sprache oder Text („Starte ein Tribunal und diskutiere X") in jeder Sprache
+- **Jeder Agent sieht die Konversation aus seiner eigenen Perspektive**, Prompts werden aus bis zu zehn Schichten zusammengesetzt (Identität, Reasoning, Rollen, Aufgabe, Gedächtnis, Persönlichkeit, Tools, …)
 
-### 🎤 Sprach-Interface
+Details — Abläufe, Prompt-Dateien, Perspektiven, Labels: [Multi-Agent-System](docs/de/architecture/multi-agent.md).
 
-- **STT** via Whisper Docker-Container (Dual-Device: CPU permanent + GPU mit TTL Auto-Unload, Web-UI für Modell-/Einstellungsverwaltung). Uploads werden nach Größe geroutet: Mikro-Diktate bleiben auf der CPU, große Dateien (Meetings) gehen auf die GPU-Engine (freieste Karte, UUID-gepinnt) mit Dauer-Schätzung per ffprobe — aussichtslose Läufe werden sofort abgelehnt, lange fragen per Dialog nach, und sind alle GPUs belegt, greift ein sichtbarer CPU-Fallback. Vor einem LLM-Kaltstart wird der GPU-Worker freigegeben (eine laufende Transkription bekommt erst eine Gnadenfrist)
-- **Meeting-Pipeline**: Große Audio-Uploads werden in der Original-Sprache transkribiert (`language=auto`) und als Workspace-Datei abgelegt (persistente Chat-Bubble mit klickbarem Link), auf Zuruf per DeepL übersetzt (`translate_file`) und zu einer handytauglichen MP3 vertont (`narrate_file`) — jeder Schritt hinterlässt eine Datei zum Prüfen oder Wiederholen
-- **TTS-Engines**: Qwen3-TTS (lokal, Voice Cloning, Streaming), XTTS v2 (Voice Cloning), Fish-Speech S2 Pro (Voice Cloning, Streaming), MOSS-TTS 1.7B, DashScope Qwen3-TTS (Cloud-Streaming), Edge TTS, Piper, eSpeak. Per-Agent TTS-Konfiguration (Stimme, Speed, Pitch, Ein/Aus pro Agent), nahtlose Echtzeit-Audioausgabe, Audio-Regenerate-Button pro Chat-Bubble
-- **Stress-Burn-In**: TTS-Engines werden bei erster Benutzung unter einer bilingualen Worst-Case-Synthese-Last vermessen. Peak-VRAM wird in `data/tts_vram_cache.json` gecacht — Kalibrierungen und Live-Inferenz nutzen den gemessenen Wert plus festes Headroom statt handgepflegter Reserven
-- **FreeEcho.2 Sprach-Terminal**: Dediziertes Sprachinterface für Echo Dot 2 Hardware (Custom-Firmware). Wake-Word-Erkennung, sofortiger Browser-Flush (User-Frage innerhalb 500ms nach STT sichtbar), verzögertes TTS-Container-Management (paralleler GPU-Cleanup während LLM-Inferenz)
+### 📡 Überall erreichbar — Message Hub
 
-### 👁️ Vision
+AIfred überwacht externe Kanäle und antwortet selbstständig — **headless**, kein Browser nötig. Die Web-UI dient nur der Einrichtung und dem Monitoring.
 
-- **Frame-Source-Pipeline**: Plugin-basiert — eine `frame_source`-Plugin-Datei unter `plugins/vision_sources/` ablegen, registriert sich automatisch beim FrameHub. Eingebaut: Webcam (V4L2 + MJPEG-Passthrough), Datei-Snapshot. Jede Quelle hat **Per-Kamera Alias + Auflösung + Briefing-Text** als Single-Source-of-Truth
-- **RTSP-/IP-/WLAN-Kameras**: `rtsp_source` — konfiguriert über `rtsp_cameras` in den Settings, nicht auto-gescannt. Zugangsdaten stehen nie in der Config: User/Passwort kommen aus dem **CredentialBroker** (`.env`), die fertige `rtsp://…`-URL wird erst beim Verbindungsaufbau gebaut und nie geloggt, gespeichert oder dem LLM gezeigt
-- **Live-Preview-Modal**: Multi-Source-Popup mit MJPEG-Streams, Per-Kamera-Auflösungs-Toggle, manueller Snapshot, **Teleprompter-Overlay** für die letzte VLM-Analyse. Stream-Eviction + Retry bei V4L2-Lock-Konflikt
-- **VLM Power-Toggle**: VLM kann on-demand geladen werden (`vision_mode=on-demand`) oder resident bleiben (`vision_mode=live`). `vision_mode=off` schaltet Vision komplett ab
-- **Side-Channel-Routing**: Die Kalibrierung schreibt ein separates `<base>-vlm-<key>` Profil in llama-swap, das die gemessene VLM-VRAM-Reserve auf der zweithöchsten Compute-Klassen-GPU hält. Der Chat-Pfad-Resolver wählt dieses Profil automatisch wenn Vision aktiv ist — das Haupt-LLM hat das richtige Cushion bereitstehend
-- **Per-Kamera Briefing**: Jede Kamera trägt einen eigenen Rollen-/Identitäts-Prompt (z.B. "Flur an der Haustür"), wird dem VLM-Call vorangestellt für kontextbewusste Analysen
-- **Plugin-Settings**: Eigene Route `/vision-settings` für Quellen, FPS, Face-Thresholds, Retention, Modellwahl
+- **Kanäle** — **Telegram**- und **Discord**-Bots, **E-Mail** (IMAP-IDLE-Push + SMTP-Antworten), **FreeEcho.2**-Sprach-Terminal; Dateien als Anhang in jedem Kanal
+- **Eine Pipeline** — Listener → Envelope-Normalisierung → SQLite-Routing-Table → AIfred-Engine mit dem vollen Toolkit → Antwort
+- **User-Mapping** — Telegram-IDs und E-Mail-Adressen werden auf AIfred-Benutzer gemappt (`data/user_mapping.json`), so erkennt AIfred dich überall
+- **REST API** — Fernsteuerung für Browser-Sessions plus ein Webhook-Endpoint für Headless-Läufe: [REST API](docs/de/guides/rest-api.md)
 
-### 🔍 Vigilantia (Kamera-Überwachung)
+Einrichtung: [Telegram](docs/de/guides/telegram-setup.md) · [Discord](docs/de/guides/discord-setup.md) · Architektur: [Message Hub](docs/de/architecture/message-hub.md).
 
-Der Watch-Modus der Vision-Pipeline — macht AIfred zum kontinuierlichen Überwachungs-Agenten. Code unter `plugins/tools/vision/`; Detail-Doku: [Vision/Vigilantia Plugin](docs/de/guides/plugins/vision.md).
+### 🎤 Sprache
 
-- **Master Eye + Background-Watcher**: Watcher-Threads pro Quelle (Motion + Face-Detect + optional VLM). Watcher-State überlebt Browser-Disconnects — läuft im Message-Hub-Worker-Prozess, nicht im Reflex-State
-- **Motion-Detection**: OpenCV Background-Subtraction (MOG2) mit konfigurierbarer Min-Area-Ratio, Warmup-Frames, Event-Throttling. Event-Frame wird beim Trigger auf Disk gespeichert
-- **Zonen-Masken (ignorieren / DSGVO-Schwärzung / ROI)**: Gemaltes Raster pro Quelle, drei Typen in einem Bild mischbar — rot ignoriert Bewegung (wackelnde Bäume), schwarz schwärzt Pixel vor dem Speichern *und* vor dem VLM (DSGVO: Straße/Nachbar nie auf Platte), grün = Region of Interest (nur dort wird beobachtet). Der Bewegungs-Schwellwert ist relativ zur beobachteten Fläche. Gemalt in einem eigenständigen Canvas-Editor über dem **Live-MJPEG**; Speichern greift live (kein Neustart), mit „Maske aktiv"-Toggle für die schnelle Gegenprobe
-- **PTZ-Steuerung (ONVIF)**: Minimaler ONVIF-Client (rohes SOAP über `requests`, keine Extra-Abhängigkeit) für Schwenk-/Neige-/Zoom-Kameras — `continuous_move`/`stop`/`absolute_move`/`goto_preset` + `aim_at_offset`; Auth über den CredentialBroker. Engine vorhanden, UI-/Tool-Anbindung ausstehend
-- **Gesichtserkennung**: `insightface` (Modell `buffalo_l`) mit **konfigurierbarem Execution-Provider** (CUDA, CPU, CoreML). Continuous-Detection-Modus für niedrige FPS-Streams. Known/Unsure/Unknown-Klassifikation via Cosine-Similarity gegen das **Personarium** (Identitäten-Datenbank). Per-Face Retention-Policy
-- **Personarium**: Identitäten-Verwaltungs-Modal — Gesichter aus Snapshots enrollen, Name + ID + Gruppe, Multi-Pose-Enrollment-Wizard (frontal + 4 Winkel), Bearbeiten + Löschen. Gesichter werden als ONNX-Embedding-Vektoren gespeichert, nicht als Rohbilder
-- **Casus Event-Browser**: Modal mit Filter (Typ, Quelle, Face-ID), Pagination, Per-Event-Thumbnail. Klick aufs Thumbnail → Vollbild-**Slideshow** (Pfeiltasten / Buttons, links = älter, rechts = neuer); manueller Aktualisieren-Button. Single-Event **VLM-Analyse** auf Knopfdruck (fragt den konfigurierten VLM "was passiert hier"). Bulk-Modus: N Events auswählen → Background-Worker fährt VLM über jedes mit Progress + Cancel
-- **pHash-Dedup + Cluster-Modus**: Perceptual-Hash auf jedem gespeicherten Frame, fast-identische Events werden zu Clustern zusammengefasst (`cluster_id` im SQLite-Schema). Cluster-Modus-Toggle im Casus zeigt eine Karte pro Cluster statt N fast-identische Motion-Events. Cluster-Stellschrauben (`VISION_CLUSTER_BUCKET_SECONDS`, `VISION_CLUSTER_PHASH_THRESHOLD`) liegen in `config.py`
-- **Auto-Beschreibung (Nacht + On-demand)**: Die Hintergrund-Überwachung lässt das VLM aus; Szenenbeschreibungen werden nachgezogen, geclustert (ein Call pro Vorkommnis, nicht pro Frame). Die nächtliche Garbage-Collection (03:00) beschreibt alle noch unerfassten Events *vor* dem Prune — Tageschronik morgens vollständig. `vision_query_events` mit `describe=true` zieht on-demand nur das abgefragte Fenster nach, für frische Daten des laufenden Tages. Geteilte Orchestrierung: `run_bulk_describe` in [vision_bulk.py](aifred/lib/vision_bulk.py)
-- **VRAM-Vorab-Check vor Bulk-Worker**: Bulk-VLM-Analyse bricht sauber ab wenn die Side-Channel-GPU nicht genug Headroom für die VLM-Batch hat — kein halbfertiger Lauf mit OOM mittendrin
-- **KI-Kameras (Edge-AI) als Trigger, eigene Detektoren entscheiden**: Kameras mit On-Device-Erkennung (`profile: ai_camera`) werden gepollt (`GetAiState`) — als billiger Vorfilter; entschieden wird dann von AIfreds eigenem YOLO/InsightFace, die Kamera-Behauptung allein löst nie einen Alarm aus. Per-Klasse-Policy (`EDGE_AI_CONFIRM`): Person/Fahrzeug brauchen YOLO-Bestätigung (killt IR-Fehlalarme), Tier vertraut der Kamera (Nano-YOLO ist da schwach). Eine multi-class YOLO-Inferenz bestätigt **und** zählt. Capability-getrieben statt modell-getrieben: Snap/Dual-Lens/PTZ als `rtsp_cameras`-Felder deklariert, Marken-Spezifika isoliert in `vision_snap`/`reolink_ai`. Details: [Vision-Plugin-Doku](docs/de/guides/plugins/vision.md)
-- **Aggregierte, benannte Alerts + Zählung**: Alle Gesichter eines Vorkommnisses werden zu einer Meldung pro Band zusammengefasst — jede erkannte Person genannt (ungedeckelt), Unbekannte gezählt; das VLM bekommt die Namen und nennt jede beim Namen. Personen/Fahrzeuge exakt gezählt
-- **Eine Snap-/AI-Session pro Kamera**: Watcher-Polling + on-demand Snapshot + Multipose-Preview teilen sich eine Reolink-Session pro Gerät (`vision_snap`, host-keyed) — frische Vollauflösungs-Snaps über die Snap-API (kein RTSP-Pufferlag), sauberer Logout beim Shutdown, kein „max session"-Stacking
-- **Vigilantia-Feed Live-Card**: Inline-UI-Karte auf der Hauptseite zeigt die letzten N Events aller Watcher-Quellen, aktualisiert via 500ms-Heartbeat (keine extra Timer, kein Per-Tick State-Delta — siehe [_vigilantia_feed_mixin.py](aifred/state/_vigilantia_feed_mixin.py))
-- **Vision-Tools**: Das LLM hat Tools für `vision_list_sources`, `vision_rescan_sources`, `vision_snapshot`, `vision_analyze`, `vision_enroll_face`, `vision_start_watch`, `vision_stop_watch`, `vision_list_active_watches`, `vision_query_events` — autonome Nutzung in Konversationen
-
-### 📷 Bildanalyse (Chat)
-
-- **Bild-Anhänge**: Bilder in den Chat ziehen, interaktives Crop-Modal, Multi-Bild-Nachrichten (bis 5 pro Turn)
-- **Multimodale LLMs**: DeepSeek-OCR, Qwen3-VL, Ministral-3, llama.cpp's `--mmproj` für kompatible Modelle
-- **VL Follow-Up**: Visuelle Q&A-Fortsetzung über mehrere Turns hinweg auf das gleiche Bild bezogen
-- **2-Modell-Architektur**: Dedizierte Vision-LLM für Bildverständnis, Ergebnisse werden an die Haupt-LLM als strukturiertes JSON übergeben
-
-### 🔒 Security-Architektur
-
-Mehrstufiges Sicherheitskonzept — Security wird im Framework erzwungen, nicht in Plugins:
-
-- **5-Stufen Permission-System** (Tier 0–4): READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN. Jedes Tool hat einen festen Tier mit farbigen Badges (T0–T3) im Agenten-Editor. Per-Channel Security-Tier konfigurierbar im Plugin Manager — steuert was jeder Kanal (FreeEcho.2, Discord, E-Mail, Telegram) tun darf
-- **Inbound Sanitization**: HTML-Strip, Zero-Width-Character-Entfernung, NFC-Normalisierung aller eingehenden Nachrichten
-- **Delimiter Defense**: Externe Nachrichten werden in `<external_message>` Tags gewrapped mit Sender, Channel und Trust-Level
-- **Security Boundary Prompt**: LLM wird instruiert, keine Anweisungen aus externen Nachrichten auszuführen
-- **Rule of Two**: Write-Tier Tools von externen Channels blockiert (kein Datei-Löschen per E-Mail)
-- **Rate Limiting**: Max Tool-Calls pro Zeitfenster pro Channel
-- **Chain Depth Limit**: Max 10 Tool-Calls pro Request (verhindert Endlos-Schleifen)
-- **Output Sanitization**: Secret-Patterns (API-Keys, Passwörter) werden aus Tool-Rückgaben entfernt
-- **Credential Broker**: Plugins greifen nie direkt auf Secrets zu — nur über `broker.get()`
-- **Audit-Log**: Jeder Tool-Aufruf wird protokolliert (Zeitstempel, Channel, Tool, Tier, Ergebnis)
-
-> **Details:** [Security-Architektur](docs/de/architecture/security.md)
-
-### 🖥️ UI & Session-Verwaltung
-
-- **Zentrales Einstellungs-Modal** (☰ Hamburger-Menü): Agenten-Editor (Metadata, TTS, Prompts), Memory-Browser (pro Agent mit Type-Filter), Datenbank-Verwaltung (ChromaDB-Dokumente — durchsuchen, einzeln oder komplett löschen), Plugin Manager, Audit-Log
-- **Benutzer-Authentifizierung**: Username + Passwort mit Whitelist-Registrierung
-- **Session-Verwaltung**: Chat-Liste mit LLM-generierten Titeln, Session-Wechsel, persistente History
-- **Chat teilen**: Export als portable HTML-Datei (KaTeX-Fonts inline, TTS-Audio eingebettet, offline-fähig)
-- **LaTeX & Chemie**: KaTeX für Mathe-Formeln, mhchem für Chemie
-- **HTML-Vorschau**: KI-generierter HTML-Code öffnet direkt im Browser
-- **Harmony-Template Support**: GPT-OSS-120B mit offiziellem Harmony-Format
-
-### 🎩 Multi-Agent Diskussionsmodi
-
-AIfred unterstützt verschiedene Diskussionsmodi mit Sokrates (Kritiker) und Salomo (Richter):
-
-| Modus | Ablauf | Wer entscheidet? |
-|-------|--------|------------------|
-| **Standard** | Beliebiger Agent antwortet (per Toggle wählbar) | — |
-| **Kritische Prüfung** | AIfred → Sokrates (+ Pro/Contra) → STOP | User |
-| **Auto-Konsens** | AIfred → Sokrates → Salomo (X Runden) | Salomo |
-| **Tribunal** | AIfred ↔ Sokrates (X Runden) → Salomo | Salomo (Urteil) |
-| **Symposion** | 2+ frei wählbare Agenten diskutieren (X Runden), Reflection-Layer ab Runde 2 | Kein Richter — Multiperspektive |
-
-**Symposion-Reflection** (ab Runde 2): Jeder Agent wird zusätzlich zu
-seinem normalen Beitrag gefragt: „Welche Aspekte der ursprünglichen
-Frage sind bisher unbeantwortet geblieben? Welche Perspektive wurde
-übersehen? Welche Annahme ist unhinterfragt geblieben?". Das erzeugt
-Tiefe ohne erzwungenen Widerspruch — Agenten adressieren Lücken statt
-ihre eigene Sicht ein zweites Mal zu wiederholen. Realisiert als
-additiver Prompt-Layer (`prompts/{de,en}/shared/symposion_reflection.txt`),
-ersetzt den Diskussions-Prompt nicht.
-
-**Agenten:**
-- 🎩 **AIfred** - Butler & Gelehrter - beantwortet Fragen (britischer Butler-Stil mit dezenter Noblesse)
-- 🏛️ **Sokrates** - Kritischer Philosoph - hinterfragt & liefert Alternativen mit sokratischer Methode
-- 👑 **Salomo** - Weiser Richter - synthetisiert Argumente und fällt finale Entscheidungen
-- 📷 **Vision** - Bildanalyst - OCR und visuelle Q&A (erbt AIfred's Persönlichkeit)
-- 🤖 **Eigene Agenten** - Benutzerdefinierte Agenten mit vollständiger Prompt-Anpassung
-
-**Anpassbare Persönlichkeiten:**
-- Alle Agenten-Prompts sind Textdateien in `prompts/de/` und `prompts/en/`
-- Agenten-Konfiguration in `data/agents.json` — Prompt-Pfade, Toggles, Rollen
-- Persönlichkeit kann in den UI-Einstellungen ein-/ausgeschaltet werden (behält Identität, entfernt Stil)
-- 6-Schichten Prompt-System: Identität (wer) + Reasoning (wie denken) + Multi-Agent (wer sind die anderen) + Aufgabe (was) + Gedächtnis (Langzeit, Inkognito-fähig) + Persönlichkeit (wie sprechen)
-- **Agenten-Editor**: Agenten erstellen, bearbeiten und löschen über die UI — DOM-basierte Eingaben, DE/EN Prompt-Bearbeitung, Emoji-Auswahl
-- **Memory-Browser**: ChromaDB-Gedächtnis pro Agent inspizieren und verwalten (Session-Zusammenfassungen, Erkenntnisse, etc.)
-- **Mehrsprachig**: Agenten antworten in der Sprache des Users (deutsche Prompts für Deutsch, englische Prompts für alle anderen Sprachen)
-
-**Direkte Agenten-Ansprache**:
-- Jeden Agenten direkt ansprechen: "Sokrates, was denkst du über...?" → Sokrates antwortet mit sokratischer Methode
-- AIfred direkt ansprechen: "AIfred, erkläre..." → AIfred antwortet ohne Sokrates-Analyse
-- Eigene Agenten über ID oder Anzeigename ansprechbar (automatisch per Intent-Erkennung)
-- **Aktiver-Agent-Toggle**: Pill-Buttons zur Auswahl welcher Agent im Standard-Modus antwortet
-- Unterstützt STT-Transkriptionsvarianten: "Alfred", "Eifred", "AI Fred"
-- Funktioniert auch am Satzende: "Gut erklärt. Sokrates." / "Prima gemacht. Alfred!"
-
-**Intelligentes Context-Handling** (v2.10.2):
-- Multi-Agent-Nachrichten verwenden `role: system` mit `[MULTI-AGENT CONTEXT]` Prefix
-- Speaker-Labels `[SOKRATES]:` und `[AIFRED]:` bleiben für LLM-Kontext erhalten
-- Verhindert, dass LLM Agenten-Austausch mit eigenen Antworten verwechselt
-- Alle Prompts erhalten automatisch aktuelles Datum/Uhrzeit für zeitbezogene Fragen
-
-**Perspektiven-System** (v2.10.3):
-- Jeder Agent sieht die Konversation aus seiner eigenen Perspektive
-- Sokrates sieht AIfred's Antworten als `[AIFRED]:` (user role), seine eigenen als `assistant`
-- AIfred sieht Sokrates' Kritik als `[SOKRATES]:` (user role), seine eigene als `assistant`
-- Verhindert Identitätsverwechslung zwischen Agenten bei mehrrundigen Debatten
-
-```
-┌─────────────────────────────────────────┐
-│          llm_history (gespeichert)      │
-│                                         │
-│  [AIFRED]: "Antwort 1"                  │
-│  [SOKRATES]: "Kritik"                   │
-│  [AIFRED]: "Antwort 2"                  │
-└─────────────────────────────────────────┘
-                    │
-                    ▼
-    ┌───────────────┼───────────────┐
-    │               │               │
-    ▼               ▼               ▼
-┌─────────┐   ┌──────────┐   ┌─────────┐
-│ AIfred  │   │ Sokrates │   │ Salomo  │
-│ ruft an │   │ ruft an  │   │ ruft an │
-└────┬────┘   └────┬─────┘   └────┬────┘
-     │             │              │
-     ▼             ▼              ▼
-┌─────────┐   ┌──────────┐   ┌─────────┐
-│assistant│   │  user    │   │  user   │
-│"Antw 1" │   │[AIFRED]: │   │[AIFRED]:│
-│  user   │   │assistant │   │  user   │
-│[SOKR].. │   │"Kritik"  │   │[SOKR].. │
-│assistant│   │  user    │   │  user   │
-│"Antw 2" │   │[AIFRED]: │   │[AIFRED]:│
-└─────────┘   └──────────┘   └─────────┘
-
-Eine Quelle, drei Sichten - je nachdem wer gerade spricht.
-Eigene Nachrichten = assistant (ohne Label), andere = user (mit Label).
-```
-
-**Strukturierte Kritik-Prompts** (v2.10.3):
-- Rundennummer-Platzhalter `{round_num}` - Sokrates weiß welche Runde es ist
-- Maximal 1-2 Kritikpunkte pro Runde
-- Sokrates kritisiert nur - entscheidet nie über Konsens (das ist Salomos Aufgabe)
-
-**Temperatursteuerung** (v2.10.4):
-- Auto-Modus: Intent-Detection bestimmt Basis-Temperatur (FACTUAL=0.2, MIXED=0.5, CREATIVE=1.1)
-- Manual-Modus: Per-Agent Temperatur in der Sampling-Tabelle
-- Konfigurierbarer Sokrates-Offset im Auto-Modus (Standard +0.2, max 1.0)
-- Alle Temperatur-Einstellungen im "LLM Parameters (Advanced)" Collapsible
-
-**Sampling-Parameter-Persistenz:**
-- **Temperature**: Wird in `settings.json` gespeichert (pro Agent, überlebt Neustart)
-- **Top-K, Top-P, Min-P, Repeat-Penalty**: NICHT gespeichert — werden bei jedem Neustart auf modellspezifische Defaults aus der llama-swap YAML-Config zurückgesetzt
-- **Modellwechsel**: Setzt ALLE Sampling-Parameter (inkl. Temperature) auf YAML-Defaults zurück
-- **Reset-Button (↺)**: Setzt ALLE Sampling-Parameter (inkl. Temperature) auf YAML-Defaults zurück
-
-**Trialog-Workflow (Auto-Konsens mit Salomo):**
-```
-┌─────────────┐     ┌─────────────────┐     ┌─────────────────────┐
-│   User      │────▶│   🎩 AIfred     │────▶│   🏛️ Sokrates       │
-│   Frage     │     │   THESE         │     │   ANTITHESE         │
-└─────────────┘     │   (Antwort)     │     │   (Kritik)          │
-                    └─────────────────┘     └──────────┬──────────┘
-                                                       │
-                              ┌─────────────────────────┘
-                              ▼
-                    ┌─────────────────────┐
-                    │   👑 Salomo         │
-                    │   SYNTHESE          │
-                    │   (Vermittlung)     │
-                    └──────────┬──────────┘
-                               │
-               ┌───────────────┴───────────────┐
-               ▼                               ▼
-          ┌────────┐                     ┌────────┐
-          │  LGTM  │                     │ Weiter │
-          │ Fertig │                     │ Runde  │
-          └────────┘                     └────────┘
-```
-
-**Tribunal-Workflow:**
-```
-┌─────────────┐     ┌─────────────────────────────────────┐
-│   User      │────▶│   🎩 AIfred ↔ 🏛️ Sokrates          │
-│   Frage     │     │   Debatte für X Runden              │
-└─────────────┘     └──────────────────┬──────────────────┘
-                                       │
-                                       ▼
-                    ┌─────────────────────────────────────┐
-                    │   👑 Salomo - Finales Urteil        │
-                    │   Wägt beide Seiten, entscheidet    │
-                    └─────────────────────────────────────┘
-```
-
-**Message-Anzeige-Format:**
-
-Jede Nachricht wird einzeln mit ihrem Emoji und Mode-Label angezeigt:
-
-| Rolle | Agent | Anzeigeformat | Beispiel |
-|-------|-------|---------------|----------|
-| **User** | — | 🙋 {Username} (rechtsbündig) | 🙋 User: "Was ist Python?" |
-| **Assistant** | `aifred` | 🎩 AIfred [{Modus} R{N}] (linksbündig) | 🎩 AIfred [Auto-Konsens: Überarbeitung R2] |
-| **Assistant** | `sokrates` | 🏛️ Sokrates [{Modus} R{N}] (linksbündig) | 🏛️ Sokrates [Tribunal: Kritik R1] |
-| **Assistant** | `salomo` | 👑 Salomo [{Modus} R{N}] (linksbündig) | 👑 Salomo [Tribunal: Urteil R3] |
-| **System** | — | 📊 Zusammenfassung (ausklappbar inline) | 📊 Zusammenfassung #1 (5 Nachrichten) |
-
-**Mode-Labels:**
-- Standard-Antworten: Kein Label (klare Anzeige)
-- Multi-Agent-Modi: `[{Modus}: {Aktion} R{N}]` Format
-  - Modus: `Auto-Konsens`, `Tribunal`, `Kritische Prüfung`
-  - Aktion: `Überarbeitung`, `Kritik`, `Synthese`, `Urteil`
-  - Runde: `R1`, `R2`, `R3`, etc.
-
-**Beispiele:**
-- Standard: `🎩 AIfred` (kein Label)
-- Auto-Konsens R1: `🎩 AIfred [Auto-Konsens: Überarbeitung R1]`
-- Tribunal R2: `🏛️ Sokrates [Tribunal: Kritik R2]`
-- Finales Urteil: `👑 Salomo [Tribunal: Urteil R3]`
-
-**Prompt-Dateien pro Modus:**
-| Modus | Agent | Prompt-Datei | Mode-Label | Anzeige-Beispiel |
-|-------|-------|--------------|------------|------------------|
-| **Standard** | AIfred | `aifred/system_rag` oder `system_minimal` | — | 🎩 AIfred |
-| **Direkt AIfred** | AIfred | `aifred/direct` | Direkte Antwort | 🎩 AIfred [Direkte Antwort] |
-| **Direkt Sokrates** | Sokrates | `sokrates/direct` | Direkte Antwort | 🏛️ Sokrates [Direkte Antwort] |
-| **Kritische Prüfung** | Sokrates | `sokrates/critic` | Kritische Prüfung | 🏛️ Sokrates [Kritische Prüfung] |
-| **Kritische Prüfung** | AIfred | `aifred/system_minimal` | Kritische Prüfung: Überarbeitung | 🎩 AIfred [Kritische Prüfung: Überarbeitung] |
-| **Auto-Konsens** R{N} | Sokrates | `sokrates/critic` | Auto-Konsens: Kritik R{N} | 🏛️ Sokrates [Auto-Konsens: Kritik R2] |
-| **Auto-Konsens** R{N} | AIfred | `aifred/system_minimal` | Auto-Konsens: Überarbeitung R{N} | 🎩 AIfred [Auto-Konsens: Überarbeitung R2] |
-| **Auto-Konsens** R{N} | Salomo | `salomo/mediator` | Auto-Konsens: Synthese R{N} | 👑 Salomo [Auto-Konsens: Synthese R2] |
-| **Tribunal** R{N} | Sokrates | `sokrates/tribunal` | Tribunal: Angriff R{N} | 🏛️ Sokrates [Tribunal: Angriff R1] |
-| **Tribunal** R{N} | AIfred | `aifred/defense` | Tribunal: Verteidigung R{N} | 🎩 AIfred [Tribunal: Verteidigung R1] |
-| **Tribunal** Final | Salomo | `salomo/judge` | Tribunal: Urteil R{N} | 👑 Salomo [Tribunal: Urteil R3] |
-
-**Hinweis:** Alle Prompts sind in `prompts/de/` (Deutsch) und `prompts/en/` (Englisch)
-
-**UI-Einstellungen:**
-- Sokrates-LLM und Salomo-LLM separat wählbar (können verschiedene Modelle sein)
-- Max. Debattenrunden (1-10, Standard: 3)
-- Diskussionsmodus im Settings-Panel
-- 💡 Hilfe-Icon öffnet Modal mit Übersicht aller Modi
-
-**Thinking-Support:**
-- Alle Agenten (AIfred, Sokrates, Salomo) unterstützen Thinking-Mode
-- `<think>`-Blöcke werden als Collapsible formatiert
-
-### 🔧 Technische Highlights
-- **Reflex-Framework**: React-Frontend aus Python generiert
-- **WebSocket-Streaming**: Echtzeit-Updates ohne Polling
-- **Adaptive Temperatur**: KI wählt Temperatur basierend auf Fragetyp
-- **Token-Management**: Dynamische Context-Window-Berechnung
-- **VRAM-bewusster Kontext**: Automatische Kontext-Größe basierend auf verfügbarem GPU-Speicher
-- **Debug-Konsole**: Umfangreiches Logging und Monitoring
-- **ChromaDB-Server-Modus**: Thread-sichere Vector-DB via Docker (0.0 Distance für exakte Matches)
-- **GPU-Erkennung**: Automatische Erkennung und Warnung bei inkompatiblen Backend-GPU-Kombinationen
-- **Kontext-Kalibrierung**: Intelligente Kalibrierung pro Modell für Ollama und llama.cpp
-  - **Ollama**: Binäre Suche mit automatischer VRAM/Hybrid-Modus-Erkennung (512 Token Präzision, 3 GB RAM-Reserve)
-  - **llama.cpp** (3-phasige Kalibrierung für Multi-GPU-Setups):
-    - **Phase 1** (GPU-only): Binäre Suche auf `-c` mit `ngl=99`, stoppt llama-swap, testet auf Temp-Port
-      - KV-Fallback-Chain: f16 → q8_0 (wenn < nativer Kontext) → q4_0 (letzter Ausweg, nur wenn q8_0 < 32K)
-      - Small-Model-Shortcut: Modelle mit `native_context ≤ 8192` werden direkt getestet (keine Binärsuche)
-      - flash-attn-Auto-Erkennung: Startfehler → automatischer Neuversuch ohne `--flash-attn`, aktualisiert llama-swap YAML bei Erfolg
-    - **Phase 2** (Speed-Variante): Min-GPU-Strategie — berechnet minimale GPU-Anzahl für Modell-Gewichte, weniger GPU-Grenzen = weniger Transfer-Overhead = schnellere Inferenz (Tradeoff: reduzierter max. Kontext). Eigene KV-Chain (f16 → q8_0), unabhängig von Phase 1. Erstellt separaten `modell-speed`-Eintrag in llama-swap YAML mit eigenem KV-Quant
-    - **Phase 3** (Hybrid-Fallback): Wenn Phase 1 < 32K → NGL-Reduzierung um VRAM für KV-Cache freizumachen. Erbt KV-Quantisierung von Phase 1
-    - Startfehler (unbekannte Architektur, falsche CUDA-Version) werden geloggt und nie als falsche Kalibrierungsdaten gespeichert
-  - Ergebnisse in einheitlichem `data/model_vram_cache.json` gespeichert
-- **llama-swap Autoscan**: Automatische Modell-Erkennung beim Service-Start (`scripts/llama-swap-autoscan.py`) — **kein manuelles YAML-Editieren nötig**
-  - Scannt Ollama-Manifests → erstellt beschreibende Symlinks in `~/models/` (z.B. `sha256-6335adf...` → `Qwen3-14B-Q8_0.gguf`)
-  - Scannt HuggingFace-Cache (`~/.cache/huggingface/hub/`) → erstellt Symlinks für heruntergeladene GGUFs
-  - VL-Modelle (mit passendem `mmproj-*.gguf`) erhalten automatisch das `--mmproj`-Argument
-  - **Kompatibilitätsprüfung**: Jedes neue Modell wird kurz mit llama-server gestartet — nicht unterstützte Architekturen (z.B. `deepseekocr`) werden erkannt und nicht in die Config aufgenommen
-  - **Skip-Liste** (`~/.config/llama-swap/autoscan-skip.json`): Inkompatible Modelle werden gespeichert und nicht bei jedem Neustart erneut geprüft. Eintrag löschen, um nach einem llama.cpp-Update erneut zu testen
-  - Erkennt neue GGUFs und erstellt llama-swap Config-Einträge mit optimalen Defaults (`-ngl 99`, `--flash-attn on`, `-ctk q8_0`, etc.)
-  - Pflegt `groups.main.members` in der YAML automatisch — alle Modelle teilen VRAM-Exklusivität ohne manuelles Editieren
-  - Erstellt vorläufige VRAM-Cache-Einträge (Kalibrierung über die UI speichert `vram_used_mb` während das Modell geladen ist)
-  - Erstellt `config.yaml` von Grund auf falls nicht vorhanden — kein manuelles Bootstrap nötig
-  - Läuft als `ExecStartPre` im systemd-Service → `ollama pull model` oder `hf download` genügt, um ein Modell hinzuzufügen
-- **Ctx/Speed-Schalter**: Pro-Agenten-Toggle zwischen zwei vorkalibrierten Varianten (Ctx = maximaler Kontext, ⚡ Speed = 32K + aggressive GPU-Lastverteilung)
-- **Parallele Web-Suche**: 2-3 optimierte Queries parallel auf APIs verteilt (Tavily, Brave, SearXNG), automatische URL-Deduplizierung, optionales self-hosted SearXNG
-- **Paralleles Scraping**: ThreadPoolExecutor scrapt 3-7 URLs gleichzeitig, erste erfolgreiche Ergebnisse werden verwendet
-- **Nicht-verfügbare Quellen**: Zeigt nicht scrapbare URLs mit Fehlergrund an (Cloudflare, 404, Timeout)
-- **PDF-Unterstützung**: Direkte Extraktion aus PDF-Dokumenten (AWMF-Leitlinien, PubMed PDFs) via PyMuPDF mit Browser-User-Agent
-
-### 🔊 Sprachschnittstelle (TTS-Engines)
-
-AIfred unterstützt 8 TTS-Engines mit unterschiedlichen Trade-offs zwischen Qualität, Latenz und Ressourcenverbrauch. Jede Engine wurde nach intensivem Ausprobieren für einen bestimmten Anwendungsfall gewählt. Die bevorzugte Engine ist der **lokale Qwen3-TTS-Container**.
+- **Speech-to-Text** — Whisper in Docker, ein permanenter CPU-Worker plus ein GPU-Worker, der sich im Leerlauf entlädt; Mikrofon-Diktate bleiben auf der CPU, große Uploads (Meetings) gehen auf die beste freie GPU, mit Dauer-Schätzung und Rückfrage bei langen Dateien
+- **Meeting-Pipeline** — in der Originalsprache transkribieren → bei Bedarf übersetzen (DeepL) → zu einer handytauglichen MP3 vertonen; jeder Schritt hinterlässt eine Datei
+- **FreeEcho.2-Sprach-Terminal** — Echo-Dot-2-Hardware mit Custom-Firmware: Wake-Word, die Frage erscheint innerhalb von ~500 ms nach STT im Browser
+- **Acht TTS-Engines**, Stimme, Geschwindigkeit und Tonhöhe pro Agent, lückenlose Streaming-Wiedergabe, Regenerate-Button pro Bubble:
 
 | Engine | Typ | Streaming | Qualität | Latenz* | Ressourcen |
-|--------|-----|-----------|----------|---------|------------|
-| **Qwen3-TTS 1.7B** | Lokal (Docker) | Satzweise | Hoch (Voice Cloning, 10 Sprachen inkl. DE nativ) | ~8,5s | ~5-7 GB VRAM |
-| **XTTS v2** | Lokal (Docker) | Satzweise | Hoch (Voice Cloning) | ~2,8s | ~2 GB VRAM |
-| **Fish-Speech S2 Pro** | Lokal (Docker) | Satzweise | Hoch (Voice Cloning, 80+ Sprachen) | ~11s | ~20-24 GB VRAM |
-| **MOSS-TTS 1.7B** | Lokal (Docker) | Keins (Batch nach Bubble) | Exzellent (bestes Open-Source) | ~14,8s | ~11,5 GB VRAM |
-| **DashScope Qwen3-TTS** | Cloud (API) | Satzweise | Hoch (Voice Cloning) | ~1-2s/Satz | Nur API-Key |
-| **Piper TTS** | Lokal | Satzweise | Mittel | <100ms | Nur CPU |
-| **eSpeak** | Lokal | Satzweise | Niedrig (robotisch) | <50ms | Nur CPU |
-| **Edge TTS** | Cloud | Satzweise | Gut | ~200ms | Nur Internet |
+|--------|------|-----------|---------|----------|-----------|
+| **Qwen3-TTS 1.7B** (Standard) | Lokal Docker | Satzweise | Hoch (Voice Cloning, 10 Sprachen inkl. nativem DE) | ~8,5 s | ~5–7 GB VRAM |
+| **XTTS v2** | Lokal Docker | Satzweise | Hoch (Voice Cloning) | ~2,8 s | ~2 GB VRAM |
+| **Fish-Speech S2 Pro** | Lokal Docker | Satzweise | Hoch (Voice Cloning, 80+ Sprachen) | ~11 s | ~20–24 GB VRAM |
+| **MOSS-TTS 1.7B** | Lokal Docker | Keins (Batch nach der Bubble) | Exzellent (bestes Open Source) | ~14,8 s | ~11,5 GB VRAM |
+| **DashScope Qwen3-TTS** | Cloud-API | Satzweise | Hoch (Voice Cloning) | ~1–2 s/Satz | API-Key |
+| **Piper** | Lokal | Satzweise | Mittel | < 100 ms | CPU |
+| **eSpeak** | Lokal | Satzweise | Niedrig (robotisch) | < 50 ms | CPU |
+| **Edge TTS** | Cloud | Satzweise | Gut | ~200 ms | Internet |
 
-\* Lokale Cloning-Engines im Head-to-Head-Test mit demselben bilingualen Testabsatz gemessen (V100, fp16) — vollständiger Vergleich in [TTS Model Comparison](docs/de/models/tts-comparison.md).
+\* Lokale Cloning-Engines direkt gegeneinander am selben zweisprachigen Absatz gemessen (V100, fp16) — vollständiger Vergleich und die Geschichte hinter jeder Engine: [TTS-Modellvergleich](docs/de/models/tts-comparison.md). Wegen seiner nicht-kommerziellen Lizenz bleibt Fish-Speech auf den Browser beschränkt. Der TTS-VRAM wird unter einem Worst-Case-Burn-In gemessen und gecacht, nicht von Hand eingestellt.
 
-**Warum mehrere Engines?**
+### 👁️ Vision & Vigilantia
 
-Die Suche nach der perfekten TTS-Erfahrung führte durch mehrere Iterationen:
+**Bildanalyse im Chat** — bis zu fünf Bilder pro Nachricht ablegen (inklusive Crop-Dialog), Folgefragen zum selben Bild, ein eigenes Vision-LLM (Qwen3-VL, DeepSeek-OCR, Ministral, jedes llama.cpp-Modell mit `--mmproj`) übergibt strukturiertes JSON an das Haupt-LLM.
 
-- **Edge TTS** war die erste Engine -- kostenlos, schnell, ordentliche Qualität, aber begrenzte Stimmen und kein Voice Cloning.
-- **XTTS v2** brachte hochwertiges Voice Cloning mit mehrsprachiger Unterstützung. Satzweises Streaming funktioniert gut: Während das LLM den nächsten Satz generiert, synthetisiert XTTS den aktuellen. Benötigt allerdings einen Docker-Container und ~2 GB VRAM.
-- **MOSS-TTS 1.7B** liefert die beste Sprachqualität aller Open-Source-Modelle (SIM 73-79%), aber zu einem Preis: ~15-22 Sekunden pro Satz (je nach GPU) macht es ungeeignet für Streaming. Audio wird als Batch nach der vollständigen Antwort generiert -- akzeptabel für kurze Antworten, aber frustrierend bei längeren.
-- **Qwen3-TTS 1.7B** (lokaler Docker-Container) ist die aktuelle Standard-Engine — der beste Kompromiss aus Qualität und Geschwindigkeit im Head-to-Head-Test. Voice Cloning ab ~3 Sekunden Referenz-Audio, 10 Sprachen mit nativem Deutsch, Apache-2.0-Lizenz. Referenzstimmen (`docker/tts/voices/`) werden beim Container-Start vorgewärmt; Speed/Pitch laufen zentral über ffmpeg-Nachbearbeitung.
-- **Fish-Speech S2 Pro** (5B Dual-AR, 80+ Sprachen) liefert hohe Cloning-Qualität, ist aber schwergewichtig: ~20-24 GB VRAM unter Last (die Kalibrierung reserviert 26 GB). Die Research-/Nicht-kommerziell-Lizenz hält es zudem aus den Channel-Dropdowns heraus (FreeEcho.2 etc.) — nur für Browser-Nutzung.
-- **DashScope Qwen3-TTS** ist das Cloud-Pendant zum lokalen Qwen3-TTS-Container — Voice Cloning über Alibaba Clouds API, ohne lokalen VRAM-Bedarf. Standardmäßig wird satzweises Streaming verwendet (wie XTTS), was bessere Intonation liefert. Ein Echtzeit-WebSocket-Modus (wortweise Chunks, ~200ms erster Audio-Chunk) ist ebenfalls implementiert, aber standardmäßig deaktiviert -- er tauscht etwas schlechtere Prosodie gegen schnelleres erstes Audio. Zum Reaktivieren den WebSocket-Block in `state.py:_init_streaming_tts()` auskommentieren (siehe Code-Kommentar dort).
-- **Piper TTS** und **eSpeak** dienen als leichtgewichtige Offline-Alternativen, die ohne Docker, GPU oder Internetverbindung funktionieren.
+**Vigilantia — Kameraüberwachung.** Der Watch-Modus der Vision-Pipeline macht AIfred zu einem kontinuierlichen Überwachungs-Agenten:
 
-Alle lokalen Engines folgen denselben Container-Konventionen (REST-API mit `/tts` + `/health`, gemeinsames Stimmen-Verzeichnis, Idle-Tracking) — eine neue Engine ist eine Subklasse in `aifred/lib/tts_engines/` plus ein Registry-Eintrag, keine verstreuten if/else-Kaskaden. Siehe [TTS-Container-Konventionen](docs/de/architecture/tts-container-conventions.md).
+- **Quellen** — Webcams (V4L2/MJPEG) und RTSP-/IP-Kameras; Zugangsdaten nur über den Credential Broker, nie geloggt oder dem LLM gezeigt
+- **Watcher pro Kamera** — Bewegungserkennung mit Zonen-Masken (ignorieren / DSGVO-Schwärzung / Region of Interest, über den Live-Stream gemalt), Gesichtserkennung (InsightFace) gegen die Identitäten-Datenbank **Personarium**, eigene YOLO-Bestätigung für Person-/Fahrzeug-/Tier-Ereignisse von KI-Kameras
+- **Benannte, zusammengefasste Alerts** — ein Alert pro Vorkommnis, jede erkannte Person beim Namen genannt, Unbekannte und Fahrzeuge gezählt
+- **Casus-Event-Browser** — Filter, Slideshow, VLM-Analyse pro Event oder im Bulk, Clustering fast identischer Events (pHash); nächtliche Auto-Beschreibung, damit die Chronik morgens vollständig ist
+- **Vision-Tools für das LLM** — Snapshot, Analyse, Gesichter enrollen, Watches starten/stoppen, Events abfragen
+- **Side-Channel-GPU** — das VLM bekommt seinen gemessenen VRAM auf einer separaten Karte, kalibriert zusammen mit dem Haupt-LLM
 
-**Wiedergabe-Architektur:**
-- Sichtbares HTML5 `<audio>`-Widget mit Blob-URL-Prefetching (nächste 2 Chunks werden als Blobs in den Speicher vorgeladen)
-- `preservesPitch: true` für Geschwindigkeitsanpassungen ohne Chipmunk-Effekt
-- Agentenspezifische Stimme/Tonhöhe/Geschwindigkeit — jeder Agent, eingebaut oder benutzerdefiniert, kann eine eigene Stimme haben
-- SSE-basiertes Audio-Streaming vom Backend zum Browser (persistente Verbindung, 15s Keepalive)
+Details: [Vision-/Vigilantia-Plugin](docs/de/guides/plugins/vision.md).
 
-### ⚠️ Modell-Empfehlungen
-- **Automatik-LLM** (Intent-Erkennung, Query-Optimierung, Adressaten-Erkennung): Mittlere Instruct-Modelle empfohlen
-  - **Empfohlen**: `qwen3:14b` (Q4 oder Q8 Quantisierung)
-  - Besseres semantisches Verständnis für komplexe Adressaten-Erkennung ("Was denkt Alfred über Salomos Antwort?")
-  - Kleine 4B-Modelle können bei nuancierten Satzsemantiken Schwierigkeiten haben
-  - Thinking-Modus wird automatisch für Automatik-Aufgaben deaktiviert (schnelle Entscheidungen)
-  - **„(wie AIfred-LLM)"**-Option verfügbar – nutzt dasselbe Modell wie AIfred ohne zusätzlichen VRAM
-- **Haupt-LLM**: Größere Modelle (14B+, idealerweise 30B+) für besseres Kontextverständnis und Prompt-Following
-  - Sowohl Instruct- als auch Thinking-Modelle funktionieren gut
-  - "Denkmodus" für Chain-of-Thought-Reasoning bei komplexen Aufgaben aktivieren
-  - **Sprach-Hinweis**: Kleine Modelle (4B-14B) antworten möglicherweise auf Englisch, wenn der RAG-Kontext überwiegend englische Web-Inhalte enthält - auch bei deutschen Prompts. Modelle ab 30B+ befolgen Sprachanweisungen zuverlässig, unabhängig von der Kontext-Sprache.
+### ⚙️ Lokale LLM-Infrastruktur
 
----
+- **Backends** — **llama.cpp** über llama-swap (GGUF) und **vLLM** (als Einträge im selben llama-swap-Katalog), **Ollama**, **Cloud-APIs** (Claude, Qwen, DeepSeek, Kimi); in der UI umschaltbar
+- **Automatische Kontext-Kalibrierung** — VRAM-bewusste Kontextgröße pro Modell mit Greedy-Cascade (zuerst die schnellste GPU-Klasse füllen, dann in die nächste überlaufen), Binary Search, RoPE-Skalierung, Tensor-Split-Optimierung, Speed-Varianten mit weniger GPUs; hardware-agnostisch, keine handgepflegten GPU-Listen. Ein 2D-Picker kalibriert jede Kombination aus VLM und TTS-Engine als eigenes Profil, mit einem Capacity-Guard für die geteilte Side-Channel-GPU. Algorithmus: [Kalibrierungsstrategie](docs/de/architecture/calibration-strategy.md) · vLLM: [vLLM-Kalibrierung](docs/de/architecture/calibration-vllm.md)
+- **Zero-Config-Modelle** — `ollama pull …` oder `hf download …`, dann `llama-swap-restart`: Der Autoscan findet das Modell, testet es, schreibt den YAML-Eintrag, die Gruppen und den VRAM-Cache. Siehe [llama.cpp-Einrichtung](docs/de/guides/llamacpp-setup.md)
+- **Tuning pro Agent** — Modell, Sampling, Reasoning-Prompt 💭 und Thinking 🧠 getrennt, Reasoning Effort, Kontextgröße und Speed-Variante pro Agent
+- **History-Kompression** — bei 70 % Context-Auslastung werden die ältesten Nachrichten zu Zusammenfassungen: Konversationen unbegrenzter Länge
+- **Verteilte Inferenz** — llama.cpp-RPC über mehrere Rechner im LAN
 
-## 🔄 Research Mode Workflows
+Einstellungen, Kompression, Performance-Tuning: [Konfiguration](docs/de/guides/configuration.md).
 
-Der Research-Modus (pro Session, Umschalter in der UI) legt fest, wie ein Agent an Informationen aus dem Web kommt. Jede Recherche läuft frisch — einen Ergebnis-Cache gibt es bewusst nicht: Wie ähnlich zwei Fragen sind, sagt nichts darüber, ob eine frühere Antwort noch stimmt (Wetter, Preise, Nachrichten). Innerhalb eines Gesprächs bleiben die Ergebnisse ohnehin in der History.
+### 🔒 Sicherheit
 
-| Modus | Was passiert | Tools für den Agenten |
-|-------|--------------|-----------------------|
-| **Eigenes Wissen** (`none`) | Direkte Antwort des Modells | ❌ keine |
-| **Automatik** (`automatik`, Standard) | Der Agent entscheidet per Tool-Call, ob und wonach er sucht | ✅ inkl. `web_search`, `web_fetch` |
-| **Websuche Schnell** (`quick`) | Recherche-Pipeline läuft vor der Antwort, Top 3 URLs | ✅ weiterhin verfügbar |
-| **Websuche Ausführlich** (`deep`) | Recherche-Pipeline läuft vor der Antwort, Top 7 URLs | ✅ weiterhin verfügbar |
+Vom Framework erzwungen, nicht den Plugins überlassen:
 
----
+- **Fünf Berechtigungsstufen** — READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN; jedes Tool hat einen festen Tier (Badges T0–T4 im Agenten-Editor), jeder Kanal ein konfigurierbares Maximum
+- **Schutz gegen Prompt Injection** — Inbound-Sanitization (HTML-Strip, Entfernen von Zero-Width-Zeichen, NFC), `<external_message>`-Einzäunung mit Absender und Trust-Level, Security-Boundary-Prompt, Recherche-Ergebnisse als nicht vertrauenswürdige Daten eingezäunt
+- **Rule of Two** — Tools der Schreib-Tiers sind für externe Kanäle gesperrt, sofern sie nicht im Plugin Manager hochgestuft werden
+- **Limits** — Rate Limiting pro Kanal, max. 100 Tool-Calls pro Anfrage
+- **Secrets** — Plugins bekommen Zugangsdaten nur über den Credential Broker; Secret-Muster werden aus Tool-Ausgaben entfernt
+- **Audit-Log** — jeder Tool-Aufruf mit Zeit, Kanal, Tool, Tier und Ergebnis
+- **Überall Login** — Konten mit Whitelist, signierte Cookies auf jeder API-Route, Tokens für die Fernsteuerungs-Endpoints
 
-### 🔄 Pre-Processing (alle Modi)
+Details: [Security-Architektur](docs/de/architecture/security.md).
 
-**Gemeinsamer erster Schritt** für alle Research-Modi:
+### 🖥️ UI & Sessions
 
-```
-Intent + Addressee Detection
-├─ LLM-Aufruf (Automatik-LLM) - ein kombinierter Aufruf
-├─ Prompt: automatik/intent_detection
-├─ Antwort: "INTENT|ADDRESSEE|LANGUAGE|MODE_SWITCH|IS_PURE_COMMAND"
-│  └─ z.B. "FACTUAL||DE||FALSE" oder "MIXED|sokrates|DE||FALSE"
-├─ Temperatur-Nutzung:
-│  ├─ Auto-Modus: FAKTISCH=0.2, GEMISCHT=0.5, KREATIV=1.0
-│  └─ Manueller Modus: Intent ignoriert, manueller Wert
-├─ Addressee: Direkte Agenten-Ansprache (sokrates/aifred/salomo/...)
-└─ Mode-Switch: gesprochene/getippte Konfigurationswechsel ("starte ein Tribunal")
-```
-
-Wird ein Agent direkt angesprochen, antwortet sofort dieser Agent — unabhängig vom gewählten Research-Modus oder der Temperatur-Einstellung.
-
-Vor jedem LLM-Aufruf läuft der History-Kompressions-Check (70 % des kleinsten Kontextfensters, siehe [History Compression System](#history-compression-system)).
+- **Einstellungs-Modal** (☰) — Agenten-Editor, Memory-Browser, Datenbank-Verwaltung, Plugin Manager, Audit-Log
+- **Konten** — Benutzername + Passwort, Whitelist-basierte Registrierung; Sessions gehören dir und folgen dir über Geräte hinweg
+- **Sessions** — Chat-Liste mit LLM-generierten Titeln; Agent, Diskussionsmodus und Recherche-Modus werden pro Session gespeichert
+- **Chat teilen** — Export als eigenständige HTML-Datei (KaTeX inline, TTS-Audio eingebettet, offline-fähig)
+- **LaTeX & Chemie** (KaTeX, mhchem), HTML-Vorschau, Harmony-Format für GPT-OSS
 
 ---
 
-### 🔎 Recherche-Pipeline
+## 🚀 Schnellstart
 
-Eine Pipeline (`execute_research()` in `aifred/lib/research_tools.py`) bedient sowohl den erzwungenen Pfad (Schnell/Ausführlich) als auch das `web_search`-Tool:
-
-```
-1. Query-Generierung (nur Schnell/Ausführlich)
-   ├─ Automatik-LLM, Prompt: automatik/query_generation (+ Vision-JSON falls vorhanden)
-   ├─ 3 Queries: #1 immer Englisch, #2-3 in der Sprache der Frage
-   └─ Tool-Pfad: entfällt — der Agent übergibt 1-3 Queries im web_search-Aufruf
-
-2. Multi-API-Websuche
-   ├─ Round-Robin: Query 1 → SearXNG (selbst gehostet), 2 → Tavily, 3 → Brave
-   │  (API-Keys optional), automatischer Fallback wenn eine API ausfällt;
-   │  eine einzelne Query geht parallel an alle APIs
-   ├─ URL-Deduplizierung über alle APIs
-   └─ Nicht scrapbare Domains gefiltert (data/non_scrapable_domains.txt:
-      Video-Plattformen, Social Media)
-
-3. URL-Ranking
-   ├─ Automatik-LLM, Prompt: automatik/url_ranking (numerische Ausgabe)
-   ├─ Sieht die Gesprächs-History (Folgefragen werden richtig gerankt)
-   └─ Top 3 (Schnell) bzw. Top 7 (Ausführlich und jeder web_search-Tool-Call)
-
-4. Paralleles Scraping
-   ├─ Zuerst trafilatura; Playwright (headless Chromium), wenn weniger
-   │  als 800 Wörter zurückkommen (PLAYWRIGHT_FALLBACK_THRESHOLD)
-   ├─ Kein Playwright-Versuch bei fehlgeschlagenen Downloads (404, Timeout, Bot-Schutz)
-   ├─ Fehlgeschlagene Quellen werden mit Fehlergrund angezeigt
-   └─ Haupt-Modell wird parallel vorgeladen (nicht bei vLLM — das bleibt resident)
-
-5. Kontext-Aufbau
-   ├─ build_context(): gescrapter Text, token-bewusst
-   └─ Quellen-Collapsible für die UI (genutzte + fehlgeschlagene Quellen)
-```
-
-**Wie die Ergebnisse beim Agenten ankommen:**
-- **Schnell/Ausführlich:** Der Kontext wird als eigene Nachricht direkt vor die Nutzerfrage gesetzt, als nicht vertrauenswürdige Daten umzäunt (Schutz gegen Prompt-Injection). Weil er nicht im System-Prompt steht, bleibt außerdem der Prompt-Präfix für den KV-Cache stabil.
-- **Automatik:** Das `web_search`-Ergebnis (genauso umzäunt) geht zurück in die Tool-Schleife; der Agent kann erneut suchen oder mit `web_fetch` eine einzelne Seite lesen.
-- **Message Hub** (Discord, E-Mail, ...): `hub_web_search()` — dieselben Bausteine ohne Browser-State.
-
----
-
-### 🔀 Decision Flow Diagram
-
-```
-USER INPUT
-    │
-    ▼
-┌──────────────────────────────────┐
-│ Intent + Addressee Detection     │
-│ (Automatik-LLM)                  │
-└──────────────────────────────────┘
-    │
-    ▼
-┌──────────────────────────────────┐
-│ Research-Modus?                  │
-└──────────────────────────────────┘
-    │
-    ├── none ────────────► Agent antwortet (ohne Tools)
-    │
-    ├── automatik ───────► Agent antwortet mit Tools
-    │                          │
-    │                          └─ web_search-Aufruf? ──► Recherche-Pipeline
-    │                               (Queries vom Agenten, Top 7)
-    │                               └─ Ergebnis zurück in die Tool-Schleife
-    │
-    └── quick / deep ────► Recherche-Pipeline
-                           (Queries vom Automatik-LLM, Top 3 / 7)
-                               │
-                               ▼
-                           Kontext vor die Frage
-                               │
-                               ▼
-                           Agent antwortet (Tools weiterhin verfügbar)
-```
-
-### 📁 Code-Struktur-Referenz
-
-**Kern-Einstiegspunkte:**
-- `aifred/state/_chat_mixin.py` - send_message(), Verteilung nach Research-Modus
-- `aifred/lib/multi_agent.py` - `run_generic_agent_direct_response()`: ein Antwortpfad für alle Agenten (erzwungene Recherche, Toolkit, Nachrichten)
-
-**Web-Recherche-Pipeline:**
-- `aifred/lib/research_tools.py` - `execute_research()` (Browser) und `hub_web_search()` (Message Hub)
-- `aifred/plugins/tools/research/` - Tools `web_search` / `web_fetch`
-- `aifred/lib/conversation_handler.py` - `generate_web_search_queries()`
-- `aifred/lib/research/query_processor.py` - Multi-API-Suche
-- `aifred/lib/research/url_ranker.py` - LLM-basiertes URL-Relevanz-Ranking
-- `aifred/lib/research/scraper_orchestrator.py` - Paralleles Scraping
-- `aifred/lib/tools/` - Such-APIs, Scraper, `build_context()`
-
-**Document-RAG-Pipeline:**
-- `aifred/lib/document_store.py` - ChromaDB Documents-Collection — token-genaues
-  Chunking (Qwen3-Tokenizer, Char-Fallback), `delete + upsert` für sauberes
-  Re-Indexing, zwei Embedding-Functions (Index/Query-Mode), Folder-Filter
-  + Chunk-Nachbar-Retrieval in `search()`
-- `aifred/lib/file_manager.py` - Single Source of Truth für Filesystem +
-  ChromaDB-Operationen (genutzt von Document UI und Workspace-Plugin):
-  list/create/delete/rename/index/deindex/search/list_orphaned
-
-**Unterstützende Module:**
-- `aifred/lib/embeddings.py` - bge-m3-Embedding-Function für die
-  ChromaDB-Collections (llama-swap-Embed-Profil oder Ollama; Index-Mode →
-  GPU, Query-Mode → CPU)
-- `aifred/lib/agent_memory.py` - ChromaDB-Memory pro Agent
-- `aifred/lib/tool_output_cap.py` - Token-Budget für Tool-Results
-  (75% Input-Ratio, JSON-aware Truncation, ContextVar-basiert)
-- `aifred/lib/debug_format.py` - Tool-Call/Result-Formatierung fürs
-  Debug-Panel (key=value-Rendering, Agent-Prefix, Token-Count)
-- `aifred/lib/intent_detector.py` - Intent, Addressee, Temperatur-Auswahl
-
-### 📝 Automatik-LLM Prompts Referenz
-
-Das Automatik-LLM nutzt dedizierte Prompts in `prompts/{de,en}/automatik/`:
-
-| Prompt | Sprache | Wann aufgerufen | Zweck |
-|--------|---------|-----------------|-------|
-| `intent_detection.txt` | nur EN | Pre-Processing | Intent (FACTUAL/MIXED/CREATIVE), Addressee, Sprache, Mode-Switch |
-| `query_generation.txt` | DE + EN | Schnell/Ausführlich, Phase 1 | 3 Suchanfragen erzeugen |
-| `url_ranking.txt` | nur EN | Pipeline-Phase 3 | URLs nach Relevanz ranken (Output: numerische Indizes) |
-
-**Sprach-Regeln:**
-- **nur EN**: Output ist strukturiert/numerisch (parsebar), Sprache beeinflusst Ergebnis nicht
-- **DE + EN**: Output hängt von User-Sprache ab oder erfordert semantisches Verständnis in dieser Sprache
-
-**Prompt-Verzeichnisstruktur:**
-```
-prompts/
-├── de/
-│   └── automatik/
-│       └── query_generation.txt       # Deutsche Queries für deutsche User
-└── en/
-    └── automatik/
-        ├── intent_detection.txt       # Universelle Intent-Erkennung
-        ├── query_generation.txt       # Englische Queries (Query 1 immer EN)
-        └── url_ranking.txt            # Numerischer Output (Indizes)
-```
-
----
-
-## 🌐 REST API (Fernsteuerung)
-
-AIfred bietet eine vollständige REST-API für programmatische Steuerung - ermöglicht Fernbedienung via Cloud, Automatisierungs-Systeme und Drittanbieter-Integrationen.
-
-### Session-Config als SSOT
-
-Agent-Auswahl, Diskussionsmodus und Research-Modus werden **pro Session** gespeichert, nicht global. Jede Chat-Session hat ihren eigenen `config`-Block direkt in der Session-Datei:
-
-```json
-{
-  "data": {
-    "config": {
-      "active_agent": "aifred",
-      "multi_agent_mode": "standard",
-      "symposion_agents": [],
-      "research_mode": "automatik"
-    }
-  }
-}
-```
-
-**Clean Default** bei neuer Session: Jeder neue Chat startet mit `aifred + standard + automatik` — nie geerbt von einer vorherigen Session.
-
-**Multi-Tab- und Cross-Channel-Sync** via Session-Datei-mtime-Watching: Wenn irgendein Writer (Browser-Tab, API, Email-Channel, Voice-Puck) die Session-Datei ändert, erkennen alle anderen Tabs mit dieser Session die Änderung innerhalb von 1 Sekunde und laden neu — ohne Polling, ohne Events, ohne Race Conditions. Ersetzt den Legacy-`update_flag`-Mechanismus vollständig.
-
-### Voice-basierter Modus-Wechsel
-
-Die Intent Detection läuft ohnehin vor jeder Nachricht und erkennt jetzt zusätzlich **sprachunabhängig** Modus-Wechsel-Kommandos. Du kannst sagen (oder tippen):
-- "Starte Tribunal und diskutiert den Klimawandel" — wechselt zu Tribunal UND antwortet direkt
-- "Schalt auf Tiefrecherche" — wechselt auf Tiefrecherche
-- "Démarre le tribunal" — funktioniert auch auf Französisch
-- "Nur Sokrates soll antworten" — fixiert den Agent auf Sokrates
-
-Der Detector extrahiert die **Rest-Frage** aus dem Satz, damit du Modus-Wechsel und inhaltliche Frage in einem Satz kombinieren kannst. Reine Kommandos erhalten eine Bestätigungs-Antwort; kombinierte Kommandos wechseln den Modus und bearbeiten die Rest-Frage direkt im neuen Modus.
-
-### Hauptmerkmale
-
-- **Vollständige Fernsteuerung**: AIfred von überall via HTTPS steuern
-- **Live Browser-Sync**: API-Änderungen erscheinen automatisch im Browser (kein Refresh nötig, mtime-basiert)
-- **Session-Management**: Zugriff und Verwaltung mehrerer Browser-Sessions
-- **Per-Session-Config**: Agent, Diskussionsmodus und Research-Modus pro Session gespeichert (nicht global)
-- **OpenAPI Dokumentation**: Interaktive Swagger UI unter `/docs`
-
-### API Endpoints
-
-Die API ermöglicht **reine Fernsteuerung** - Messages werden in Browser-Sessions injiziert, der Browser führt die vollständige Verarbeitung durch (Intent Detection, Multi-Agent, Research, etc.). So sieht der User alles live im Browser.
-
-| Endpoint | Methode | Beschreibung |
-|----------|---------|--------------|
-| `/api/health` | GET | Health-Check mit Backend-Status |
-| `/api/settings` | GET | Globale Einstellungen abrufen |
-| `/api/settings` | PATCH | Globale Einstellungen ändern (Backend, Modelle, TTS, …) |
-| `/api/session/config` | POST | Session-Config ändern (Agent, Modus, Research-Modus) |
-| `/api/models` | GET | Verfügbare Modelle auflisten |
-| `/api/chat/inject` | POST | Nachricht in Browser-Session injizieren |
-| `/api/chat/status` | GET | Inferenz-Status abfragen (is_generating, message_count) |
-| `/api/chat/history` | GET | Chat-Verlauf abrufen |
-| `/api/chat/clear` | POST | Chat-Verlauf löschen |
-| `/api/sessions` | GET | Alle Browser-Sessions auflisten |
-| `/api/system/restart-ollama` | POST | Ollama neustarten |
-| `/api/system/restart-aifred` | POST | AIfred neustarten |
-| `/api/calibrate` | POST | Kontext-Kalibrierung starten |
-
-**Global vs. pro Session:** `/api/settings` verwaltet nur wirklich globale Einstellungen (Backend, Modelle, TTS-Stimmen, Sprache, Sampling). Alles was zu einem bestimmten Chat gehört — Agent, Multi-Agent-Modus, Research-Modus, Symposion-Teilnehmer — läuft über `/api/session/config` und ist in der Session-Datei als SSOT gespeichert.
-
-### Browser-Synchronisation
-
-Wenn du Einstellungen änderst oder Nachrichten via API sendest, aktualisiert sich das Browser-UI automatisch:
-
-- **Chat-Sync**: Via API gesendete Nachrichten erscheinen im Browser innerhalb von 2 Sekunden
-- **Session-Config-Sync**: Änderungen an Modus / Agent / Research-Modus erreichen alle offenen Tabs innerhalb ~1 Sekunde via Session-Datei-mtime-Watching
-- **Globale Settings-Sync**: Model-Änderungen, TTS-Stimmen, Temperatur etc. werden live im UI aktualisiert
-- **Status-Polling**: Nutze `/api/chat/status` um auf Inferenz-Ende zu warten
-
-Dies ermöglicht echte Fernsteuerung - ändere AIfred's Konfiguration von einem anderen Gerät und sieh die Änderungen sofort in jedem verbundenen Browser.
-
-### Beispiel-Verwendung
+**Voraussetzungen:** Linux mit systemd, Python 3.10+, Docker, eine NVIDIA-GPU (CUDA) mit genug VRAM für die gewünschten Modelle und ein LLM-Backend — llama.cpp über llama-swap (empfohlen, [Einrichtung](docs/de/guides/llamacpp-setup.md)) oder Ollama (einfachster Einstieg).
 
 ```bash
-# Aktuelle globale Einstellungen abrufen
-curl http://localhost:8002/api/settings
-
-# Model ändern (globale Einstellung)
-curl -X PATCH http://localhost:8002/api/settings \
-  -H "Content-Type: application/json" \
-  -d '{"aifred_model": "qwen3:14b"}'
-
-# Eine Session in den Tribunal-Modus schalten (per-session)
-# Alle Tabs mit dieser Session erkennen die Änderung automatisch.
-curl -X POST http://localhost:8002/api/session/config \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "abc123...", "multi_agent_mode": "tribunal"}'
-
-# Agent und Research-Modus gleichzeitig wechseln
-curl -X POST http://localhost:8002/api/session/config \
-  -H "Content-Type: application/json" \
-  -d '{"session_id": "abc123...", "active_agent": "sokrates", "research_mode": "deep"}'
-
-# Nachricht injizieren (Browser verarbeitet und zeigt live)
-curl -X POST http://localhost:8002/api/chat/inject \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Was ist Python?", "device_id": "abc123..."}'
-
-# Inferenz-Status abfragen
-curl "http://localhost:8002/api/chat/status?device_id=abc123..."
-
-# Alle Browser-Sessions auflisten
-curl http://localhost:8002/api/sessions
-```
-
-### Anwendungsfälle
-
-- **Cloud-Steuerung**: AIfred von überall via HTTPS/API bedienen
-- **Home-Automation**: Integration mit Home Assistant, Node-RED, etc.
-- **Sprachassistenten**: Alexa/Google Home können AIfred-Anfragen senden
-- **Batch-Verarbeitung**: Automatisierte Abfragen via Scripts
-- **Mobile Apps**: Custom-Apps können die API nutzen
-
----
-
-## 🚀 Installation
-
-### Voraussetzungen
-- Python 3.10+
-- **LLM Backend** (wähle eins):
-  - **llama.cpp** via llama-swap (GGUF-Modelle) - beste Performance, volle GPU-Kontrolle ([Setup-Anleitung](docs/en/guides/llamacpp-setup.md))
-  - **Ollama** (einfach, GGUF-Modelle) - empfohlen für Einsteiger
-  - **vLLM** (schnell, AWQ-Modelle) - beste Performance für AWQ (erfordert Compute Capability 7.5+)
-  - **TabbyAPI** (ExLlamaV2/V3, EXL2-Modelle) - experimentell
-
-> **Zero-Config Modell-Management (llama.cpp-Backend):** Nach dem einmaligen Setup genügt `ollama pull model` oder `hf download ...`, dann llama-swap neu starten — der Autoscan konfiguriert alles automatisch (YAML-Einträge, Gruppen, VRAM-Cache). Vollständige Anleitung: [docs/de/guides/deployment.md](docs/de/guides/deployment.md).
-- 8GB+ RAM (12GB+ empfohlen für größere Modelle)
-- Docker (für ChromaDB: Dokumente und Agenten-Memory)
-- **GPU**: NVIDIA GPU empfohlen (siehe [GPU Compatibility Detection](#gpu-compatibility-detection))
-
-### Setup
-
-**Empfohlen: 1-Script-Installer** — übernimmt System-Dependencies, das
-Python-venv, alle Requirements, den Playwright-Browser, den
-Reflex-Routing-Patch, optional die Systemd-Services, die `.env`-Datei,
-den `bge-m3`-Embedding-Pull und das Anlegen eines ersten
-Whitelist-Users in einem Rutsch:
-
-```bash
-git clone https://github.com/yourusername/AIfred-Intelligence.git
+git clone https://github.com/Peuqui/AIfred-Intelligence.git
 cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-Das Script ist interaktiv (fragt nach Systemd-Service-Installation und
-nach einem Whitelist-User). Es erkennt `apt`, `dnf`, `pacman` und
-`brew` und installiert: `python3-venv`, `python3-pip`,
-`poppler-utils`, `ffmpeg`, `bubblewrap`, `docker`, `docker-compose-plugin`.
-Ollama selbst wird **nicht** automatisch installiert (der offizielle
-Installer ist `curl | sh` — bitte manuell installieren).
+Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, das bge-m3-Embedding-Modell, optionale systemd-Dienste und einen ersten Whitelist-Benutzer. Ollama selbst wird **nicht** automatisch installiert (sein offizieller Installer ist `curl | sh` — das machst du selbst).
 
----
+Danach:
+1. **Registrieren** in der Web-UI mit dem Benutzernamen von der Whitelist (`./aifred-admin add <name>` für weitere Benutzer)
+2. **Die UI über einen Reverse Proxy erreichen** — die App läuft als zwei Prozesse (Frontend `3002`, Backend `8002`); ohne Proxy bleiben Bilder und Audio leer. nginx-Beispiel: [Auf die Web-UI zugreifen](docs/de/guides/deployment.md#auf-die-web-ui-zugreifen)
+3. **Modelle hinzufügen** und in der UI **kalibrieren**
 
-Die folgenden Schritte beschreiben denselben Ablauf **manuell**, falls
-du es selbst Schritt für Schritt machen oder debuggen willst:
+Schritt für Schritt, Dienste, `.env`, Polkit, Vision- und Kamera-Einrichtung: [Einrichtungsanleitung](docs/de/guides/deployment.md).
 
-1. **Repository klonen**:
-```bash
-git clone https://github.com/yourusername/AIfred-Intelligence.git
-cd AIfred-Intelligence
-```
-
-2. **Virtual Environment erstellen**:
-```bash
-python3 -m venv venv
-source venv/bin/activate  # Linux/Mac
-# oder
-venv\Scripts\activate     # Windows
-```
-
-3. **Dependencies installieren**:
-```bash
-pip install -r requirements.txt
-# Playwright Browser installieren (für JS-heavy Seiten).
-# --with-deps installiert auch System-Libs (libnss3 etc.) — braucht sudo.
-# Plain `playwright install chromium` reicht auch, aber der Headless-Browser
-# kann später nicht starten falls libnss3/libxkbcommon0/etc. fehlen.
-sudo $(which playwright) install --with-deps chromium     # empfohlen auf frischen Servern
-# playwright install chromium                              # nur Binary (ohne System-Libs)
-# Reflex frontend_path Routing-Patch anwenden
-python scripts/patch-reflex.py
-```
-
-**Haupt-Dependencies** (siehe `requirements.txt`):
-| Kategorie | Packages |
-|-----------|----------|
-| Framework | reflex, fastapi, pydantic |
-| LLM Backends | httpx, openai, pynvml, psutil |
-| Web Research | trafilatura, playwright, requests, pymupdf |
-| Dokumente / Memory | chromadb, ollama, numpy |
-| Audio (STT/TTS) | TTS-Container unter `docker/tts/` (Qwen3-TTS, XTTS v2, Fish-Speech, MOSS-TTS), edge-tts, piper, openai-whisper (Docker) |
-
-4. **Umgebungsvariablen** (.env):
-```env
-# API Keys für Web-Recherche
-BRAVE_API_KEY=your_key_here
-TAVILY_API_KEY=your_key_here
-
-# Ollama Konfiguration
-OLLAMA_BASE_URL=http://localhost:11434
-```
-
-5. **LLM Models installieren**:
-
-**Option A: Ollama (GGUF) — Einfachste, empfohlene Variante**
-
-```bash
-# Embedding-Modell (Pflicht für Documents / Memory)
-ollama pull bge-m3
-
-# Empfohlene Core-Modelle — je nach verfügbarem VRAM auswählen:
-ollama pull qwen3:30b-instruct   # 18 GB, Haupt-LLM, 256K context
-ollama pull qwen3:8b             # 5.2 GB, Automatik, optional thinking
-ollama pull qwen2.5:3b           # 1.9 GB, Ultra-schnelle Automatik
-```
-
-Die Modelle werden beim Start von AIfred automatisch erkannt — kein
-manuelles YAML-Editieren nötig.
-
-**Option B: llama.cpp (GGUF) via llama-swap — Maximale GPU-Kontrolle**
-
-GGUFs nach `~/models/<name>/` ziehen, dann llama-swap neu starten — die
-Autoscan-Logik trägt YAML-Einträge automatisch nach. Details:
-[docs/en/guides/llamacpp-setup.md](docs/en/guides/llamacpp-setup.md) (englisch).
-
-```bash
-hf download <repo> --local-dir ~/models/<name>
-llama-swap-restart    # wird von install-services.sh als Symlink angelegt
-```
-
-**Option C: vLLM (AWQ) — Beste Performance**
-
-```bash
-pip install vllm
-
-# Empfohlene Modelle:
-# - Qwen3-8B-AWQ (~5GB, 40K→128K mit YaRN)
-# - Qwen3-14B-AWQ (~8GB, 32K→128K mit YaRN)
-# - Qwen2.5-14B-Instruct-AWQ (~8GB, 128K native)
-
-# vLLM Server starten mit YaRN (64K context)
-./venv/bin/vllm serve Qwen/Qwen3-14B-AWQ \
-  --quantization awq_marlin \
-  --port 8001 \
-  --rope-scaling '{"rope_type":"yarn","factor":2.0,"original_max_position_embeddings":32768}' \
-  --max-model-len 65536 \
-  --gpu-memory-utilization 0.85
-```
-
-**Option D: TabbyAPI (EXL2) — Experimentell**
-```bash
-# Noch nicht vollständig implementiert
-# Siehe: https://github.com/theroyallab/tabbyAPI
-```
-
-6. **Embedding-Modell pullen**:
-
-Die Vektordatenbank nutzt **BGE-M3** (multilingual, 8192 Token Context,
-1024-dim) via Ollama. Einmal ausreichend:
-```bash
-ollama pull bge-m3
-```
-Das Modell wird von den ChromaDB-Collections geteilt (indexierte
-Dokumente, Agenten-Memory). Zur
-Laufzeit wählt AIfred **GPU-Mode** fürs Bulk-Indexing (warm für
-~1 Min zwischen Chunks) und **CPU-Mode** für einzelne Suchen
-(warm für ~30 Min, kein VRAM-Konflikt mit dem aktiven LLM).
-
-7. **ChromaDB starten** (Docker):
-```bash
-cd docker
-docker compose up -d chromadb
-cd ..
-```
-
-**Optional: SearXNG auch starten** (lokale Suchmaschine):
-```bash
-cd docker
-docker compose --profile full up -d
-cd ..
-```
-
-**ChromaDB zurücksetzen** (bei Bedarf — löscht indexierte Dokumente und Agenten-Memory):
-
-*Option 1: Kompletter Reset (löscht alle Daten)*
-```bash
-cd docker
-docker compose stop chromadb
-sudo rm -rf ../data/chromadb/   # Dateien legt der Container an (root)
-docker compose up -d chromadb
-cd ..
-```
-
-*Option 2: Einzelne Collection löschen (während Container läuft)*
-```bash
-./venv/bin/python -c "
-import chromadb
-from chromadb.config import Settings
-
-client = chromadb.HttpClient(
-    host='localhost',
-    port=8000,
-    settings=Settings(anonymized_telemetry=False)
-)
-
-try:
-    client.delete_collection('aifred_documents')  # oder 'agent_memory_<agent_id>'
-    print('✅ Collection gelöscht')
-except Exception as e:
-    print(f'⚠️ Fehler: {e}')
-"
-```
-
-Einzelne Einträge oder eine ganze Collection lassen sich auch im Einstellungs-Modal löschen (Tabs Datenbank und Memory).
-
-8. **Qwen3-TTS Voice Cloning starten** (Empfohlen, Docker):
-
-Der lokale Qwen3-TTS-Container (1.7B-Base-Modell) ist die bevorzugte TTS-Engine — bester Kompromiss aus Qualität und Geschwindigkeit, Voice Cloning ab ~3 Sekunden Referenz-Audio, 10 Sprachen mit nativem Deutsch, Apache 2.0.
-
-```bash
-cd docker/tts/qwen3-tts
-docker compose up -d
-```
-
-**Features:**
-- Gemeinsames Stimmen-Verzeichnis `docker/tts/voices/<Name>/<Name>.wav` (+ optionales Transkript) — Referenzstimmen werden beim Container-Start vorgewärmt
-- Satzweises Streaming während der LLM-Generierung, Speed/Pitch über zentrale ffmpeg-Nachbearbeitung
-- ~5-7 GB VRAM auf der TTS-Side-Channel-GPU (die Kalibrierung reserviert 7,5 GB)
-- REST-API auf Port 5052 (`/tts`, `/health`, `/voices`) — dieselben Konventionen wie alle anderen TTS-Container
-
-9. **XTTS Voice Cloning starten** (Optional, Docker):
-
-XTTS v2 bietet hochwertige Stimmklonung mit mehrsprachiger Unterstützung und intelligenter GPU/CPU-Auswahl.
-
-```bash
-cd docker/tts/xtts
-docker compose up -d
-```
-
-Erster Start dauert ~2-3 Minuten (Modell-Download ~1.5GB). Danach ist XTTS als TTS-Engine in den UI-Einstellungen verfügbar.
-
-**Features:**
-- 58 eingebaute Stimmen + eigene Stimmklonung (6-10s Referenz-Audio)
-- Automatische GPU/CPU-Auswahl basierend auf verfügbarem VRAM
-- **Manueller CPU-Mode Toggle**: GPU-VRAM für größeres LLM-Kontextfenster sparen (langsamere TTS)
-- Mehrsprachige Unterstützung (16 Sprachen) mit automatischem Code-Switching (DE/EN gemischt)
-- Agentenspezifische Stimmen mit individueller Tonhöhe und Geschwindigkeit
-- **Multi-Agent TTS Queue**: Sequentielle Wiedergabe aller beteiligten Agenten in Sprechreihenfolge
-- Asynchrone TTS-Generierung (blockiert nächste LLM-Inferenz nicht)
-- **VRAM-Management**: Bei GPU-Mode werden ~2 GB VRAM reserviert und vom LLM-Kontextfenster abgezogen
-
-Siehe [docker/tts/xtts/README.md](docker/tts/xtts/README.md) für vollständige Dokumentation.
-
-10. **MOSS-TTS Voice Cloning starten** (Optional, Docker):
-
-MOSS-TTS (MossTTSLocal 1.7B) bietet State-of-the-Art Zero-Shot Voice Cloning in 20 Sprachen mit hervorragender Sprachqualität.
-
-```bash
-cd docker/tts/moss-tts
-docker compose up -d
-```
-
-Erster Start dauert ~5-10 Minuten (Modell-Download ~3-5 GB). Danach ist MOSS-TTS als TTS-Engine in den UI-Einstellungen verfügbar.
-
-**Features:**
-- Zero-Shot Voice Cloning (Referenz-Audio, keine Transkription nötig)
-- 20 Sprachen inkl. Deutsch und Englisch
-- Hervorragende Sprachqualität (EN SIM 73.42%, ZH SIM 78.82% - beste Open-Source)
-
-**Einschränkungen:**
-- **Hoher VRAM-Verbrauch**: ~11,5 GB in BF16 (vs. 2 GB bei XTTS)
-- **Nicht für Streaming geeignet**: ~18-22s pro Satz (vs. ~1-2s bei XTTS)
-- **VRAM-Management**: Bei GPU-Mode werden ~11,5 GB VRAM reserviert und vom LLM-Kontextfenster abgezogen
-- Empfohlen für hochqualitative Offline-Audiogenerierung, nicht für Echtzeit-Streaming
-
-11. **Fish-Speech S2 Pro starten** (Optional, Docker):
-
-Fish Audio S2 Pro (5B Dual-AR, 80+ Sprachen) bietet hochwertiges Voice Cloning über serverseitige Referenz-IDs.
-
-```bash
-cd docker/tts/fish-speech
-docker compose up -d
-```
-
-Der erste Start dauert eine Weile (~8 GB Weights werden von HuggingFace geladen). Hinweis: hoher VRAM-Bedarf (~20-24 GB unter Last, die Kalibrierung reserviert 26 GB) und Research-/Nicht-kommerziell-Lizenz — daher nicht für externe Kanäle (FreeEcho.2 etc.) verfügbar, nur Browser-Nutzung.
-
-12. **Starten**:
-```bash
-reflex run
-```
-
-Reflex startet **zwei** Prozesse: das Frontend (Node, Port `3002`) und das
-Backend (Granian/FastAPI, Port `8002`). Für die vollständige UI — inklusive
-Kamera-Vorschaubilder, Vigilantia-Live-Ansicht, Casus-Previews und Audio —
-einen Reverse-Proxy vor beide Prozesse stellen und die App darüber öffnen
-(keine Portnummer in der URL). Direkt `http://localhost:3002/aifred/` zu
-öffnen lädt zwar die Seiten, aber jeder `/api/*`- und `/_upload/*`-Request
-liefert 404, wodurch Bilder und Audio leer bleiben. Siehe
-**[Zugriff auf die Web-UI](docs/de/guides/deployment.md#auf-die-web-ui-zugreifen)**
-für ein generisches nginx-Routing-Beispiel.
-
----
-
-## ⚙️ Backend-Wechsel & Settings
-
-### Multi-Backend Support
-
-AIfred unterstützt verschiedene LLM-Backends, die in der UI dynamisch gewechselt werden können:
-
-- **llama.cpp** (via llama-swap): GGUF-Modelle, beste Roh-Performance (+43% Generation, +30% Prompt-Processing vs Ollama), volle GPU-Kontrolle, Multi-GPU-Unterstützung. Verwendet eine 3-stufige Architektur: **llama-swap** (Go-Proxy, Modell-Management) → **llama-server** (Inferenz) → **llama.cpp** (Library). Automatische VRAM-Kalibrierung via 3-phasiger Binärer Suche: GPU-only Kontext-Sizing → Speed-Variante mit optimierter Tensor-Split für maximalen Multi-GPU-Durchsatz → Hybrid NGL-Fallback für übergroße Modelle. Siehe [Setup-Anleitung](docs/en/guides/llamacpp-setup.md) (englisch).
-- **Ollama**: GGUF-Modelle (Q4/Q8), einfachste Installation, automatisches Modell-Management, gute Performance nach v2.32.0-Optimierungen
-- **vLLM**: AWQ-Modelle (4-bit), beste Performance mit AWQ Marlin Kernel
-- **TabbyAPI**: EXL2-Modelle (ExLlamaV2/V3) - experimentell, nur Basis-Unterstützung
-
-### GPU Compatibility Detection
-
-AIfred erkennt automatisch beim Start deine GPU und warnt vor inkompatiblen Backend-Konfigurationen:
-
-- **Tesla P40 / GTX 10 Series** (Pascal): Nutze llama.cpp oder Ollama (GGUF) - vLLM/AWQ wird nicht unterstützt
-- **RTX 20+ Series** (Turing/Ampere/Ada): llama.cpp (GGUF) oder vLLM (AWQ) empfohlen für beste Performance
-
-### Settings-Persistenz
-
-Settings werden in `data/settings.json` gespeichert:
-
-**Per-Backend Modell-Speicherung:**
-- Jedes Backend merkt sich seine zuletzt verwendeten Modelle
-- Beim Backend-Wechsel werden automatisch die richtigen Modelle wiederhergestellt
-- Beim ersten Start werden Defaults aus `aifred/lib/config.py` verwendet
-
-**Sampling-Parameter-Persistenz:**
-
-| Parameter | Gespeichert? | Bei Neustart | Bei Modellwechsel |
-|-----------|-------------|--------------|-------------------|
-| Temperature | Ja (settings.json) | Beibehalten | Reset auf YAML |
-| Top-K, Top-P, Min-P, Repeat-Penalty | Nein | Reset auf YAML | Reset auf YAML |
-
-Quelle der Sampling-Defaults: `--temp`, `--top-k`, `--top-p`, `--min-p`, `--repeat-penalty` Flags in der llama-swap YAML-Config (`~/.config/llama-swap/config.yaml`).
-
-`backend_models` ist die **einzige Wahrheitsquelle** für alle Modell-Felder
-(Haupt, Automatik, Vision, Sokrates, Salomo) — Browser-UI, REST-API
-(`PATCH /api/settings`) und Message Hub lesen und schreiben dieselbe
-per-Backend-Struktur, sodass ein Modellwechsel von jedem Einstiegspunkt aus
-alle Kanäle erreicht:
-```json
-{
-  "backend_type": "vllm",
-  "enable_thinking": true,
-  "backend_models": {
-    "ollama": {
-      "aifred_model": "qwen3:8b",
-      "automatik_model": "qwen2.5:3b",
-      "vision_model": "",
-      "sokrates_model": "",
-      "salomo_model": ""
-    },
-    "vllm": {
-      "aifred_model": "Qwen/Qwen3-8B-AWQ",
-      "automatik_model": "Qwen/Qwen3-4B-AWQ"
-    }
-  }
-}
-```
-
-### Reasoning Mode (Chain-of-Thought)
-
-AIfred unterstützt per-Agent Reasoning-Konfiguration für verbesserte Antwortqualität.
-
-**Per-Agent Reasoning Toggles** (v2.23.0):
-
-Jeder Agent (AIfred, Sokrates, Salomo) hat seinen eigenen Reasoning-Toggle in den LLM-Einstellungen. Diese Toggles steuern **beide** Mechanismen:
-
-1. **Reasoning Prompt**: Chain-of-Thought Anweisungen im System-Prompt (funktioniert für ALLE Modelle)
-2. **enable_thinking Flag**: Technisches Flag für Thinking-Modelle (Qwen3, QwQ, NemoTron)
-
-| Toggle | Reasoning Prompt | enable_thinking | Effekt |
-|--------|------------------|-----------------|--------|
-| **ON** | ✅ Injiziert | ✅ True | Voller CoT mit `<think>`-Blocks (Thinking-Modelle) |
-| **ON** | ✅ Injiziert | ✅ True | CoT-Anweisungen befolgt (Instruct-Modelle, kein `<think>`) |
-| **OFF** | ❌ Nicht injiziert | ❌ False | Direkte Antworten, kein Reasoning |
-
-**Design-Begründung:**
-- Instruct-Modelle (ohne native `<think>`-Tags) profitieren von CoT-Prompt-Anweisungen
-- Thinking-Modelle erhalten beides: CoT-Prompt + technisches Flag für `<think>`-Block-Generierung
-- Dieser einheitliche Ansatz ermöglicht konsistentes Verhalten unabhängig vom Modelltyp
-
-**Weitere Features:**
-- **Formatierung**: Denkprozess als ausklappbares Collapsible mit Modellname und Inferenzzeit
-- **Temperature**: Unabhängig vom Reasoning - nutzt Intent Detection (auto) oder manuellen Wert in der Sampling-Tabelle
-- **Automatik-LLM**: Reasoning immer DEAKTIVIERT für Automatik-Entscheidungen (8x schneller)
-
----
-
-## 🏗️ Architektur
-
-### Directory Structure
-```
-AIfred-Intelligence/
-├── aifred/
-│   ├── backends/          # LLM Backend Adapters
-│   │   ├── base.py           # Abstract Base Class
-│   │   ├── llamacpp.py       # llama.cpp Backend (GGUF via llama-swap)
-│   │   ├── ollama.py         # Ollama Backend (GGUF)
-│   │   ├── vllm.py           # vLLM Backend (AWQ)
-│   │   └── tabbyapi.py       # TabbyAPI Backend (EXL2)
-│   ├── lib/               # Core Libraries
-│   │   ├── multi_agent.py       # Multi-Agent System (AIfred, Sokrates, Salomo + Custom-Agenten)
-│   │   ├── context_manager.py   # History-Kompression
-│   │   ├── conversation_handler.py # Vision-Pipeline, Query-Generierung
-│   │   ├── config.py            # Default Settings
-│   │   ├── i18n/                # UI-Übersetzungen (Sprach-JSONs + Loader)
-│   │   ├── embeddings.py        # bge-m3-Embeddings für ChromaDB
-│   │   ├── model_vram_cache.py  # Unified VRAM Cache (alle Backends)
-│   │   ├── mpv_ipc.py           # Gemeinsamer mpv-JSON-IPC-Client (Browser + FreeEcho.2)
-│   │   ├── calibration/         # llama.cpp Binary Search Kalibrierung (flow, ctx_search, …)
-│   │   ├── api/                 # REST-API-Paket (core, chat, vision, browser_bus, …)
-│   │   ├── gguf_utils.py        # GGUF-Metadaten-Reader (nativer Kontext, Quant)
-│   │   ├── research/            # Web-Research Module
-│   │   │   ├── query_processor.py   # Multi-API-Suche
-│   │   │   ├── url_ranker.py        # LLM-basiertes URL-Ranking
-│   │   │   └── scraper_orchestrator.py # Paralleles Scraping
-│   │   └── tools/               # Tool-Implementierungen
-│   │       ├── search_tools.py      # Parallele Websuche
-│   │       └── scraper_tool.py      # Paralleles Web-Scraping
-│   ├── state/              # Reflex State (aus Feature-Mixins zusammengesetzt)
-│   │   ├── _chat_mixin.py       # Chat-Pipeline / send_message
-│   │   ├── _backend_mixin.py    # Backend-Init, Modellwahl
-│   │   ├── _calibration_mixin.py # Kalibrierungs-Orchestrierung
-│   │   └── …                    # Agent-Config, Editor, Vision, TTS, Auth, …
-│   ├── ui/                 # Reflex-UI-Komponenten (modals/, agent_editor/, settings_accordion/, …)
-│   ├── plugins/            # Dynamisch geladene Tools + Channels (Telegram, Discord, FreeEcho.2, …)
-│   └── aifred.py           # Hauptanwendung / App-Verdrahtung
-├── prompts/               # System Prompts (de/en)
-├── scripts/               # Utility Scripts
-├── docs/                  # Dokumentation
-│   └── de/ · en/                # Zweisprachige Guides + Architektur-Docs
-├── data/                  # Laufzeitdaten (Settings, Sessions, Caches)
-│   ├── settings.json            # Benutzereinstellungen
-│   ├── model_vram_cache.json    # VRAM-Kalibrierungsdaten (alle Backends)
-│   ├── sessions/                # Chat-Sessions
-│   ├── chromadb/                # ChromaDB-Volume (Dokumente, Agenten-Memory)
-│   └── logs/                    # Debug-Logs
-└── docker/                # Docker-Konfigurationen (ChromaDB, SearXNG)
-```
-
-### History Compression System
-
-Bei 70% Context-Auslastung werden automatisch ältere Konversationen komprimiert mit **PRE-MESSAGE Checks** (v2.12.0):
-
-| Parameter | Wert | Beschreibung |
-|-----------|------|--------------|
-| `HISTORY_COMPRESSION_TRIGGER` | 0.7 (70%) | Bei dieser Context-Auslastung wird komprimiert |
-| `HISTORY_COMPRESSION_TARGET` | 0.3 (30%) | Ziel nach Kompression (Platz für ~2 Roundtrips) |
-| `HISTORY_SUMMARY_RATIO` | 0.25 (4:1) | Summary = 25% des zu komprimierenden Inhalts |
-| `HISTORY_SUMMARY_MIN_TOKENS` | 500 | Minimum für sinnvolle Zusammenfassungen |
-| `HISTORY_SUMMARY_TOLERANCE` | 0.5 (50%) | Erlaubte Überschreitung, darüber wird gekürzt |
-| `HISTORY_SUMMARY_MAX_RATIO` | 0.2 (20%) | Max Context-Anteil für Summaries (NEU) |
-
-**Ablauf (PRE-MESSAGE):**
-1. **PRE-CHECK** vor jedem LLM-Aufruf (nicht danach!)
-2. **Trigger** bei 70% Context-Auslastung
-3. **Dynamisches max_summaries** basierend auf Context-Größe (20% Budget / 500 tok)
-4. **FIFO cleanup**: Falls zu viele Summaries, älteste wird zuerst gelöscht
-5. **Sammle** älteste Messages bis remaining < 30%
-6. **Komprimiere** gesammelte Messages zu Summary (4:1 Ratio)
-7. **Neue History** = [Summaries] + [verbleibende Messages]
-
-**Dynamische Summary-Limits:**
-| Context | Max Summaries | Berechnung |
-|---------|---------------|------------|
-| 4K | 1-2 | 4096 × 0.2 / 500 = 1,6 |
-| 8K | 3 | 8192 × 0.2 / 500 = 3,3 |
-| 32K | 10 | 32768 × 0.2 / 500 = 13 → gedeckelt bei 10 |
-
-**Token-Estimation:** Ignoriert `<details>`, `<span>`, `<think>` Tags (gehen nicht ans LLM)
-
-**Beispiele nach Context-Größe:**
-| Context | Trigger | Ziel | Komprimiert | Summary |
-|---------|---------|------|-------------|---------|
-| 7K | 4.900 tok | 2.100 tok | ~2.800 tok | ~700 tok |
-| 40K | 28.000 tok | 12.000 tok | ~16.000 tok | ~4.000 tok |
-| 200K | 140.000 tok | 60.000 tok | ~80.000 tok | ~20.000 tok |
-
-**Inline Summaries (UI, v2.14.2+):**
-- Summaries erscheinen inline wo die Kompression stattfand
-- Jede Summary als Collapsible mit Header (Nummer, Message-Count)
-- FIFO gilt nur für `llm_history` (LLM sieht 1 Summary)
-- `chat_history` behält ALLE Summaries (User sieht vollständige History)
-
-### ChromaDB: Dokumente & Agenten-Memory
-
-ChromaDB (Docker, Daten in `data/chromadb/`) enthält zwei Arten von Collections, beide mit bge-m3 eingebettet (`aifred/lib/embeddings.py`):
-
-| Collection | Inhalt | Zugriff |
-|------------|--------|---------|
-| `aifred_documents` | Indexierte Dokumente (token-genaue Chunks) | Agenten suchen per `search_documents`-Tool; Verwaltung über Document-UI und Workspace-Plugin |
-| `agent_memory_<agent_id>` | Langzeitgedächtnis pro Agent (Session-Zusammenfassungen, Erkenntnisse, ...) | Relevante Einträge werden vor einer Antwort abgerufen; neue speichern die Agenten per Tool |
-
-Web-Recherche-Ergebnisse werden **nicht** gespeichert — jede Recherche läuft frisch (siehe [Research Mode Workflows](#-research-mode-workflows)).
-
-**Wartung:** Einträge im Einstellungs-Modal durchsuchen und löschen (Tabs Datenbank und Memory). `scripts/chromadb-vacuum.sh` gibt den durch Löschungen frei gewordenen Platz ans Betriebssystem zurück (stoppt den Container für einige Sekunden).
-
----
-
-## 🔧 Konfiguration
-
-Alle wichtigen Parameter in `aifred/lib/config.py`:
-
-```python
-# History Compression (dynamisch, prozentual)
-HISTORY_COMPRESSION_TRIGGER = 0.7    # 70% - Wann komprimieren?
-HISTORY_COMPRESSION_TARGET = 0.3     # 30% - Wohin komprimieren?
-HISTORY_SUMMARY_RATIO = 0.25         # 25% = 4:1 Kompression
-HISTORY_SUMMARY_MIN_TOKENS = 500     # Minimum für Summaries
-HISTORY_SUMMARY_TOLERANCE = 0.5      # 50% Überschreitung erlaubt
-
-# Intent-basierte Temperatur
-INTENT_TEMPERATURE_FAKTISCH = 0.2    # Faktische Anfragen
-INTENT_TEMPERATURE_GEMISCHT = 0.5    # Gemischte Anfragen
-INTENT_TEMPERATURE_KREATIV = 1.0     # Kreative Anfragen
-
-# Backend-spezifische Default Models (in BACKEND_DEFAULT_MODELS)
-# Ollama: qwen3:4b-instruct-2507-q4_K_M (Automatik), qwen3-vl:8b (Vision)
-# vLLM: cpatonn/Qwen3-4B-Instruct-2507-AWQ-4bit, etc.
-```
-
-### HTTP Timeout Konfiguration
-
-In `aifred/backends/ollama.py`:
-- **HTTP Client Timeout**: 300 Sekunden (5 Minuten)
-- Erhöht von 60s für große Research-Anfragen mit 30KB+ Context
-- Verhindert Timeout-Fehler bei erster Token-Generation
-
-### Restart-Button Verhalten
-
-Der AIfred Restart-Button startet den systemd-Service neu:
-- Führt `systemctl restart aifred-intelligence` aus
-- Browser lädt automatisch nach kurzer Verzögerung neu
-- Debug-Logs werden geleert, Sessions bleiben erhalten
-
----
-
-## 📦 Deployment
-
-### Systemd Service
-
-Für produktiven Betrieb als Service sind vorkonfigurierte Service-Dateien im `systemd/` Verzeichnis verfügbar.
-
-#### Schnellinstallation
-
-```bash
-# 1. Services installieren (die Unit-Dateien NICHT von Hand kopieren!)
-#    Die Unit-Dateien enthalten Platzhalter __PROJECT_DIR__/__USER__, die
-#    nur dieses Skript (per sed) ersetzt. Es rendert + kopiert die Units
-#    und Drop-ins, macht daemon-reload, aktiviert + startet sie und legt
-#    den llama-swap-restart-Symlink in ~/bin an. Ein einfaches `cp` würde
-#    die Platzhalter stehen lassen — der Service startet dann nie.
-sudo ./scripts/install-services.sh
-
-# 2. Status prüfen
-systemctl status aifred-chromadb.service
-systemctl status aifred-intelligence.service
-
-# 3. Ersten User anlegen (für Login erforderlich)
-#    Ohne Whitelist-Eintrag wird JEDE Registrierung in der Web-UI abgelehnt.
-./aifred-admin add deinusername
-# Danach in der Web-UI mit Username + Passwort registrieren
-```
-
-Siehe [systemd/README.md](systemd/README.md) für Details, Troubleshooting und Monitoring.
-
-#### llama-swap Restart-Hilfsskript
-
-[`scripts/llama-swap-restart.sh`](scripts/llama-swap-restart.sh) ist das
-Wartungsskript, das du nach dem Download eines neuen Modells oder einer
-Änderung der llama-swap YAML-Config aufrufst. Es macht mehr als ein
-einfaches `systemctl restart`:
-
-1. Stoppt `llama-swap.service` und wartet auf `inactive`-Zustand
-2. Killt verbliebene `llama-server`-Prozesse (SIGTERM, dann SIGKILL)
-3. Wartet bis der GPU-Treiber das VRAM tatsächlich freigegeben hat
-4. **Räumt verwaiste Lookup-Cache-Dateien auf** in `~/.cache/llama_lookup_*.bin`,
-   deren Modell-Eintrag nicht mehr in der `config.yaml` steht
-5. Startet `llama-swap.service` und wartet auf die `listening`-Log-Zeile
-
-`scripts/install-services.sh` legt automatisch einen Symlink unter
-`~/bin/llama-swap-restart` an, damit du es von überall aufrufen kannst.
-Nach Download eines neuen GGUF-Modells:
-
-```bash
-hf download <repo> --local-dir ~/models/<name>
-llama-swap-restart  # Autoscan erkennt das neue Modell, fügt YAML-Eintrag hinzu
-```
-
-#### Discord-Kanal einrichten
-
-1. [Discord Developer Portal](https://discord.com/developers/applications) → "New Application"
-2. **Bot**-Seite: "Reset Token" → Token kopieren. **Message Content Intent** einschalten
-3. **Public Bot** ausschalten (nur du solltest den Bot hinzufügen können)
-4. **OAuth2**-Seite → URL-Generator: Scope `bot` auswählen, Berechtigungen: "Nachrichten senden", "Nachrichtenverlauf anzeigen", "Kanäle ansehen"
-5. Generierte URL im Browser öffnen → Server auswählen → Autorisieren
-6. Privaten Kanal auf dem Server erstellen (z.B. `#aifred`), Bot hinzufügen
-7. Rechtsklick auf den Kanal → "Kanal-ID kopieren" (Entwicklermodus: Discord Einstellungen → Erweitert → Entwicklermodus)
-8. In AIfred: Plugin Manager → Discord → Zahnrad → Bot-Token + Channel-ID eintragen → Speichern & Aktivieren
-
-#### Benutzerverwaltung (aifred-admin CLI)
-
-AIfred erfordert eine Benutzer-Authentifizierung. User werden über die Admin-CLI verwaltet:
-
-```bash
-./aifred-admin users              # Whitelist anzeigen (wer sich registrieren darf)
-./aifred-admin add <username>     # User zur Whitelist hinzufügen
-./aifred-admin remove <username>  # Aus der Whitelist entfernen
-./aifred-admin accounts           # Registrierte Accounts anzeigen
-./aifred-admin create <username> [password]   # Account + Whitelist in einem Schritt (fragt PW ab, wenn ausgelassen)
-./aifred-admin delete <username>  # Account löschen (mit Bestätigung)
-./aifred-admin delete <username> --sessions  # Auch die Sessions des Users löschen
-```
-
-**Ablauf:**
-1. Admin trägt den Username in die Whitelist ein: `./aifred-admin add alice`
-2. User registriert sich in der Web-UI mit Username + Passwort
-3. User kann sich nun von jedem Gerät mit seinen Zugangsdaten anmelden
-
-**⚠️ Wichtig:** Ohne Whitelist-Eintrag wird jede Registrierung in der Web-UI abgelehnt.
-
-#### Service-Dateien (Referenz)
-
-**1. ChromaDB Service** (`systemd/aifred-chromadb.service`):
-```ini
-[Unit]
-Description=AIfred ChromaDB (Docker)
-After=docker.service
-Requires=docker.service
-
-[Service]
-Type=oneshot
-RemainAfterExit=yes
-WorkingDirectory=/home/mp/Projekte/AIfred-Intelligence/docker
-ExecStart=/usr/bin/docker compose up -d chromadb
-ExecStop=/usr/bin/docker compose stop chromadb
-```
-
-**2. AIfred Intelligence Service** (`systemd/aifred-intelligence.service`):
-
-> ℹ️ Vereinfachter/illustrativer Auszug — die ausgelieferte Unit-Datei
-> enthält mehr (Drop-ins, einen `ExecStartPre`-Reflex-Patch, zusätzliche
-> Environment-Variablen). Deploye immer die echte Datei via
-> `sudo ./scripts/install-services.sh`, das ersetzt die
-> `__USER__`/`__PROJECT_DIR__`-Platzhalter für dich.
-
-```ini
-[Unit]
-Description=AIfred Intelligence Voice Assistant (Reflex Version)
-After=network.target ollama.service aifred-chromadb.service
-Wants=ollama.service aifred-chromadb.service
-
-[Service]
-Type=simple
-# Optionale .env-Datei (Secrets, machine-spezifische Overrides). Das
-# `-`-Präfix bedeutet "kein Fehler, wenn die Datei fehlt".
-EnvironmentFile=-__PROJECT_DIR__/.env
-User=__USER__
-Group=__USER__
-WorkingDirectory=__PROJECT_DIR__
-Environment="PATH=__PROJECT_DIR__/venv/bin:/usr/local/bin:/usr/bin:/bin"
-Environment="PYTHONUNBUFFERED=1"
-ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
-Restart=always
-KillMode=control-group
-RestartSec=10
-StandardOutput=journal
-StandardError=journal
-
-[Install]
-WantedBy=multi-user.target
-```
-
-**⚠️ Wichtig:** Bearbeite `/etc/systemd/system/` nicht von Hand — führe
-`sudo ./scripts/install-services.sh` aus, das die Platzhalter `__USER__`
-und `__PROJECT_DIR__` für dich ersetzt.
-
-#### Umgebungskonfiguration (.env)
-
-Für Produktions-/Externen Zugriff erstelle eine `.env` Datei im Projektverzeichnis (diese Datei ist in .gitignore und wird NICHT ins Repository gepusht):
-
-```bash
-# API Keys für Web-Recherche (optional)
-BRAVE_API_KEY=dein_brave_api_key
-TAVILY_API_KEY=dein_tavily_api_key
-
-# Ollama Konfiguration
-OLLAMA_BASE_URL=http://localhost:11434
-# WICHTIG: Setze OLLAMA_NUM_PARALLEL=1 in der Ollama Service-Konfiguration (siehe Performance-Abschnitt unten)
-
-# Backend-URL für statische Dateien (HTML-Preview, Bilder)
-# Mit NGINX: Leer lassen oder weglassen - NGINX leitet /_upload/ ans Backend
-# Ohne NGINX (Dev): Auf Backend-URL setzen für direkten Zugriff
-# BACKEND_URL=http://localhost:8002
-```
-
-**Wie findet das Frontend das Backend?**
-
-`rxconfig.py` setzt `api_url` auf `http://0.0.0.0:8002`. Das Reflex-Frontend ersetzt `0.0.0.0` durch den Hostnamen, von dem die Seite geladen wurde — eine URL-Einstellung ist nicht nötig:
-- Über HTTPS (nginx) wechselt es auf `https`/`wss` am Standard-Port **443** — nginx muss deshalb auch auf 443 lauschen, selbst wenn du die Seite über einen anderen Port wie 8443 öffnest
-- Über reines HTTP (z.B. `http://<LAN-IP>:3002`) spricht der Browser direkt Port **8002** dieses Rechners an — deshalb lauscht das Backend auf allen Schnittstellen (`--backend-host 0.0.0.0`)
-
-**Warum Dev-Modus?**
-
-AIfred betreibt Reflex im Dev-Modus — auf der ExecStart-Zeile steht kein `--env prod`. Der Produktionsmodus (`reflex run --env prod`) erzeugt bei jedem Seiten-Reload einen **FOUC (Flash of Unstyled Content)**: React Router 7 mit `prerender: true` lädt das CSS asynchron, der HTML-Code ist sichtbar, bevor das Emotion CSS-in-JS ankommt.
-
-**Dev-Modus Eigenschaften:**
-- ✅ Kein FOUC (CSS wird synchron geladen)
-- ⚠️ Etwas höherer RAM-Verbrauch (Hot Reload Server)
-- ⚠️ Mehr Console-Warnungen (React Strict Mode)
-- ⚠️ Nicht-minifizierte Bundles (etwas größer)
-
-Für einen lokalen Server im Heimnetz sind diese Nachteile vernachlässigbar.
-
-**Zusätzlich nötig für Dev-Modus mit externem Zugriff:**
-
-> ⚠️ **WICHTIG:** Die `.web/vite.config.js` Datei wird bei Reflex-Updates überschrieben!
-> Nach Updates das Patch-Script ausführen: `./scripts/patch-vite-config.sh`
-
-In `.web/vite.config.js` muss Folgendes konfiguriert werden:
-
-1. **allowedHosts** - für externen Domain-Zugriff:
-```javascript
-server: {
-  allowedHosts: ["deine-domain.de", "localhost", "127.0.0.1"],
-}
-```
-
-2. **proxy** - für API und TTS SSE Streaming (nötig bei Zugriff über Frontend-Port 3002):
-```javascript
-server: {
-  proxy: {
-    '/_upload': { target: 'http://0.0.0.0:8002', changeOrigin: true },
-    '/api': { target: 'http://0.0.0.0:8002', changeOrigin: true },
-  },
-}
-```
-
-Ohne den `/api` Proxy schlägt TTS-Streaming fehl mit "text/html instead of text/event-stream" Fehlern.
-
-2. Service aktivieren:
-```bash
-sudo systemctl daemon-reload
-sudo systemctl enable aifred-intelligence
-sudo systemctl start aifred-intelligence
-```
-
-3. **Optional: Polkit-Regel für Restart ohne sudo**
-
-Für den Restart-Button in der Web-UI ohne Passwort-Abfrage:
-
-`/etc/polkit-1/rules.d/50-aifred-restart.rules`:
-```javascript
-polkit.addRule(function(action, subject) {
-    if ((action.id == "org.freedesktop.systemd1.manage-units") &&
-        (action.lookup("unit") == "aifred-intelligence.service" ||
-         action.lookup("unit") == "ollama.service") &&
-        (action.lookup("verb") == "restart") &&
-        (subject.user == "mp")) {
-        return polkit.Result.YES;
-    }
-});
-```
-
----
-
-## ⚠️ Multi-User-Fähigkeiten & Einschränkungen
-
-AIfred ist als **Single-User-System** konzipiert, unterstützt aber 2-3 gleichzeitige Nutzer mit gewissen Einschränkungen.
-
-### ✅ Was funktioniert (gleichzeitige Nutzer)
-
-**Session-Isolation (Reflex Framework):**
-- Jeder Browser-Tab bekommt eine eigene Session mit eindeutigem `client_token` (UUID)
-- **Chat-Verlauf ist isoliert** - Nutzer sehen nicht die Konversationen der anderen
-- **Streaming-Antworten funktionieren parallel** - jeder Nutzer bekommt seine eigenen Echtzeit-Updates
-- **Request-Queue** - Ollama queued gleichzeitige Requests automatisch intern
-
-**Pro-Nutzer isolierter State:**
-- ✅ Chat-Verlauf (`chat_history`, `llm_history`)
-- ✅ Aktuelle Nachrichten und Streaming-Antworten
-- ✅ Bild-Uploads und Crop-State
-- ✅ Session-ID und Device-ID (Cookie-basiert)
-- ✅ Failed Sources und Debug-Messages
-
-### ⚠️ Was geteilt wird (globaler State)
-
-**Backend-Konfiguration (geteilt zwischen allen Nutzern):**
-- ⚠️ **Ausgewähltes Backend** (Ollama, vLLM, TabbyAPI, Cloud API)
-- ⚠️ **Backend-URL**
-- ⚠️ **Ausgewählte Modelle** (AIfred-LLM, Automatik-LLM, Sokrates-LLM, Salomo-LLM, Vision-LLM)
-- ⚠️ **Verfügbare Modelle-Liste**
-- ⚠️ **GPU-Info und VRAM-Cache**
-- ⚠️ **vLLM-Prozess-Manager**
-
-**Settings-Datei (`data/settings.json`):**
-- ⚠️ Alle Einstellungen sind global (Temperature, Multi-Agent-Modus, RoPE-Faktoren, etc.)
-- ⚠️ Wenn User A eine Einstellung ändert → sieht User B die Änderung sofort
-- ⚠️ Keine nutzer-spezifischen Einstellungs-Profile
-
-### 🎯 Praktische Nutzungs-Szenarien
-
-**✅ SICHER: Mehrere Nutzer senden Requests**
-```
-Timeline (Ollama queued Requests automatisch):
-─────────────────────────────────────────────────────
-User A: Sendet Frage → Ollama bearbeitet → Antwort an User A
-User B:               → Sendet Frage → Wartet in Queue → Ollama bearbeitet → Antwort an User B
-User C:                               → Sendet Frage → Wartet in Queue → Ollama bearbeitet → Antwort an User C
-```
-
-- Jeder Nutzer bekommt seine eigene korrekte Antwort
-- Ollamas interne Queue handhabt gleichzeitige Requests sequenziell
-- Keine Race Conditions, solange niemand während Requests die Settings ändert
-
-**⚠️ PROBLEMATISCH: Settings ändern während aktive Requests laufen**
-```
-User A: Sendet Request mit Qwen3:8b → Wird bearbeitet...
-User B: Wechselt Modell zu Llama3:70b → Globaler State ändert sich!
-User A: Request läuft weiter mit Qwen3-Parametern (OK - bereits übergeben)
-User A: Nächster Request würde Llama3 nutzen (unbeabsichtigt)
-```
-
-- Settings-Änderungen betreffen alle Nutzer sofort
-- Laufende Requests sind sicher (Parameter bereits ans Backend übergeben)
-- Neue Requests von User A würden User B's Settings nutzen
-
-### 📊 Speicher & Session-Verwaltung
-
-**Session-Speicherung:**
-- Sessions im RAM gespeichert (plain dict standardmäßig, kein Redis)
-- **Kein automatisches Ablaufen** - Sessions bleiben im Speicher bis zum Server-Neustart
-- Leere Sessions sind klein (~1-5 KB pro Session)
-- **Kein Problem**: Selbst 100 leere Sessions = ~500 KB RAM
-
-**Chat-Verlauf:**
-- Nutzer die regelmäßig ihren Chat-Verlauf löschen halten die Speichernutzung niedrig
-- Volle Konversationen (50+ Nachrichten) nutzen mehr RAM, sind aber handhabbar
-- History-Kompression (70% Trigger) hält Context handhabbar
-
-### 🔧 Design-Begründung
-
-**Warum ist die Backend-Konfiguration global?**
-
-AIfred ist für lokale Hardware mit begrenzten Ressourcen ausgelegt:
-- **Einzelne GPU**: Kann nur ein Modell gleichzeitig effizient laufen lassen
-- **VRAM-Beschränkungen**: Verschiedene Modelle pro Nutzer laden würde VRAM überschreiten
-- **Hardware ist single-user-orientiert**: Alle Nutzer müssen sich das konfigurierte Backend/Modelle teilen
-
-**Das ist beabsichtigt** - das System ist optimiert für:
-- **Primärer Use-Case**: 1 Nutzer, gelegentlich 2-3 Nutzer
-- **Geteilte Hardware**: Alle nutzen dieselbe GPU/Modelle
-- **Root-Kontrolle**: Administrator (du) verwaltet Einstellungen, andere nutzen das System wie konfiguriert
-
-### 🛡️ Empfehlungen für Multi-User-Setup
-
-1. **Nutzungsregeln etablieren:**
-   - Einen Admin (Root-User) bestimmen, der die Einstellungen verwaltet
-   - Andere Nutzer sollten Backend/Modell-Einstellungen nicht ändern
-   - Kommunizieren, wenn kritische Einstellungen geändert werden
-
-2. **Sichere gleichzeitige Nutzung:**
-   - ✅ Mehrere Nutzer können gleichzeitig Requests senden
-   - ✅ Jeder Nutzer bekommt seine eigene Antwort und Chat-Verlauf
-   - ⚠️ Vermeide Einstellungs-Änderungen während andere das System aktiv nutzen
-
-3. **Erwartetes Verhalten:**
-   - Nutzer sehen dieselben verfügbaren Modelle (geteiltes Dropdown)
-   - Einstellungs-Änderungen synchronisieren sich zwischen Browser-Tabs innerhalb 1-2 Sekunden (via `settings.json` Polling)
-   - **UI-Sync-Verzögerung**: Modell-Dropdown aktualisiert sich visuell möglicherweise erst beim Klicken/Öffnen (bekannte Reflex-Einschränkung)
-   - Multi-Agent-Modus und andere einfache Einstellungen synchronisieren sich sofort und sichtbar
-   - Das ist **by design** für Single-GPU-Hardware
-
-### 🚫 Was AIfred NICHT ist
-
-- ❌ **Kein Multi-Tenant-SaaS**: Keine nutzer-spezifischen Accounts, Quotas oder isolierte Ressourcen
-- ❌ **Nicht für >5 gleichzeitige Nutzer ausgelegt**: Request-Queue würde langsam werden
-- ❌ **Nicht für nicht-vertrauenswürdige Nutzer**: Jeder Nutzer kann globale Einstellungen ändern (keine Permissions/Rollen)
-
-### ✅ Was AIfred IST
-
-- ✅ **Persönlicher KI-Assistent** für Heim-/Büronutzung
-- ✅ **Familien-freundlich**: 2-3 Familienmitglieder können es gleichzeitig ohne Probleme nutzen
-- ✅ **Developer-fokussiert**: Root-User hat volle Kontrolle, andere nutzen es wie konfiguriert
-- ✅ **Hardware-optimiert**: Macht beste Nutzung der einzelnen GPU für alle Nutzer
-
-**Zusammenfassung**: AIfred funktioniert gut für kleine Gruppen (2-3 Nutzer), die Einstellungs-Änderungen koordinieren, ist aber nicht geeignet für großskalige Multi-User-Deployments oder nicht-vertrauenswürdige Nutzer-Zugriffe.
-
----
-
-## 🛠️ Development
-
-### Debug Logs
-```bash
-tail -f data/logs/aifred_debug.log
-```
-
-### Code-Qualitätsprüfung
-```bash
-# Syntax-Check
-python3 -m py_compile aifred/DATEI.py
-
-# Linting mit Ruff
-source venv/bin/activate && ruff check aifred/
-
-# Type-Checking mit mypy
-source venv/bin/activate && mypy aifred/ --ignore-missing-imports
-```
-
-## ⚡ Performance-Optimierung
-
-### Ollama: OLLAMA_NUM_PARALLEL=1 (Kritisch für Single-User)
-
-**Problem:** Ollamas Standard `OLLAMA_NUM_PARALLEL=2` **verdoppelt den KV-Cache** für einen ungenutzten zweiten Parallel-Slot. Das verschwendet ~50% des GPU-VRAM.
-
-**Auswirkung:**
-- Mit PARALLEL=2: 30B Modell passt ~111K Context (mit CPU-Offload)
-- Mit PARALLEL=1: 30B Modell passt ~222K Context (reines GPU, kein Offload)
-
-**Lösung:** Setze `OLLAMA_NUM_PARALLEL=1` in der Ollama systemd-Konfiguration:
-
-```bash
-# Override-Verzeichnis erstellen
-sudo mkdir -p /etc/systemd/system/ollama.service.d/
-
-# Override-Datei erstellen
-sudo tee /etc/systemd/system/ollama.service.d/override.conf << 'EOF'
-[Service]
-Environment="OLLAMA_NUM_PARALLEL=1"
-EOF
-
-# Änderungen anwenden
-sudo systemctl daemon-reload
-sudo systemctl restart ollama
-```
-
-**Wann PARALLEL=1 verwenden:**
-- Single-User Setups (Home Server, persönliche Workstation)
-- Maximales Context-Fenster für Research/RAG-Tasks benötigt
-
-**Wann PARALLEL=2+ beibehalten:**
-- Multi-User Server mit gleichzeitigen Anfragen
-- Load-Balancing Szenarien
-
-Nach dieser Änderung **Modelle neu kalibrieren** in der UI, um den freigewordenen VRAM zu nutzen.
-
-### llama.cpp vs Ollama Performance-Vergleich
-
-Benchmarks mit Qwen3-30B-A3B Q8_0 auf 2× Tesla P40 (48 GB VRAM gesamt — historische Messung aus der P40-Ära; der relative Vorteil überträgt sich auf neuere Hardware):
-
-| Metrik | llama.cpp | Ollama | Vorteil |
-|--------|:---------:|:------:|:-------:|
-| TTFT (Time to First Token) | 1,1s | 1,5s | llama.cpp -27% |
-| Generierungsgeschwindigkeit | 39,3 tok/s | 27,4 tok/s | llama.cpp +43% |
-| Prompt-Verarbeitung | 1.116 tok/s | 862 tok/s | llama.cpp +30% |
-| Intent-Erkennung | 0,8s | 0,7s | ähnlich |
-
-**Wann llama.cpp wählen:**
-- Maximale Generierungsgeschwindigkeit und Durchsatz
-- Multi-GPU-Setups (volle Tensor-Split-Kontrolle)
-- Große Kontextfenster (direkte VRAM-Kalibrierung)
-- Produktiv-Deployments wo jedes tok/s zählt
-
-**Wann Ollama wählen:**
-- Schnelles Setup und Experimentieren
-- Automatisches Modell-Management (`ollama pull`)
-- Einfachere Konfiguration für Einsteiger
-
----
-
-## 🔨 Troubleshooting
-
-### Häufige Probleme
-
-#### HTTP ReadTimeout bei Research-Anfragen
-**Problem**: `httpx.ReadTimeout` nach 60 Sekunden bei großen Recherchen
-**Lösung**: Timeout ist bereits auf 300s erhöht in `aifred/backends/ollama.py`
-**Falls weiterhin Probleme**: Ollama Service neustarten mit `systemctl restart ollama`
-
-#### Service startet nicht
-**Problem**: AIfred Service startet nicht oder stoppt sofort
-**Lösung**:
-```bash
-# Logs prüfen
-journalctl -u aifred-intelligence -n 50
-# Ollama Status prüfen
-systemctl status ollama
-```
-
-#### Restart-Button funktioniert nicht
-**Problem**: Restart-Button in Web-UI ohne Funktion
-**Lösung**: Polkit-Regel prüfen in `/etc/polkit-1/rules.d/50-aifred-restart.rules`
+**Ist AIfred etwas für mich?** Es ist ein persönlicher Assistent — gebaut für einen Benutzer, gut geeignet für einen Haushalt von zwei oder drei Personen. Backend, Modelle und Einstellungen teilen sich alle; es ist kein mandantenfähiger Dienst. Mehr: [Konfiguration → Mehrere Benutzer](docs/de/guides/configuration.md#mehrere-benutzer).
 
 ---
 
 ## 📚 Dokumentation
 
-Weitere Dokumentation im `docs/` Verzeichnis — vollständiger Index: [docs/README.md](docs/README.md). Highlights:
-- [Security-Architektur](docs/de/architecture/security.md)
-- [Scheduler & Proaktive Features](docs/de/architecture/scheduler.md)
-- [Plugin-Entwicklung](docs/en/guides/plugin-development.md) (mit Templates)
-- [Message Hub Architektur](docs/de/architecture/message-hub.md)
-- [LLM-Aufruf-Architektur](docs/en/architecture/llm-call.md)
-- [llama.cpp + llama-swap Setup Guide](docs/en/guides/llamacpp-setup.md)
-- [Deployment Guide](docs/de/guides/deployment.md)
-- [Tensor Split Benchmark: Speed vs. Full Context](docs/en/benchmarks/tensor-split.md)
-- [vLLM-Autokalibrations-Benchmark](docs/de/benchmarks/vllm-autokalibration.md) — automatische Topologie-Suche + MTP-k-Sweep auf gemischten Turing/Volta-GPUs
+Vollständiger Index: [docs/README.md](docs/README.md)
+
+| Thema | Dokumente |
+|---|---|
+| Einrichtung | [Deployment](docs/de/guides/deployment.md) · [llama.cpp + llama-swap](docs/de/guides/llamacpp-setup.md) · [Konfiguration](docs/de/guides/configuration.md) · [Telegram](docs/de/guides/telegram-setup.md) · [Discord](docs/de/guides/discord-setup.md) |
+| Nutzen & erweitern | [Plugins](docs/de/guides/plugins-overview.md) · [Plugin-Entwicklung](docs/de/guides/plugin-development.md) · [REST API](docs/de/guides/rest-api.md) |
+| Architektur | [Multi-Agent](docs/de/architecture/multi-agent.md) · [Recherche-Pipeline](docs/de/architecture/research-pipeline.md) · [LLM-Call](docs/de/architecture/llm-call.md) · [Message Hub](docs/de/architecture/message-hub.md) · [Security](docs/de/architecture/security.md) · [Scheduler](docs/de/architecture/scheduler.md) · [Codebasis](docs/de/architecture/codebase.md) |
+| Kalibrierung | [Strategie](docs/de/architecture/calibration-strategy.md) · [vLLM](docs/de/architecture/calibration-vllm.md) |
+| Benchmarks | [vLLM-Autokalibrierung](docs/de/benchmarks/vllm-autocalibration.md) · [Quantisierungsqualität](docs/de/benchmarks/quantization-quality.md) · [Tensor Split](docs/de/benchmarks/tensor-split.md) |
 
 ---
 
+## Star History
+
+![Star History](.github/traffic/star-history.svg)
+
+<sub>Vom Repo selbst erhoben: Ein täglicher Workflow zeichnet die Anzahl der Sterne auf und rendert das Diagramm. GitHub hat die Stargazer-API am 30.06.2026 auf Repo-Admins beschränkt, deshalb brauchen externe Diagramm-Dienste jetzt ein Token mit Schreibrechten.</sub>
+
 ## 📄 Lizenz
 
-PolyForm Noncommercial License 1.0.0 - siehe [LICENSE](LICENSE)
+PolyForm Noncommercial License 1.0.0 — siehe [LICENSE](LICENSE).
 
 Frei für persönliche, bildungsbezogene und nicht-kommerzielle Nutzung. Kommerzielle Nutzung erfordert eine separate Lizenz vom Autor.
 
@@ -1746,6 +220,6 @@ Frei für persönliche, bildungsbezogene und nicht-kommerzielle Nutzung. Kommerz
 
 ## ☕ Unterstützung
 
-Wenn dir dieses Projekt gefällt, kannst du mich unterstützen:
+Wenn du dieses Projekt nützlich findest, freue ich mich über deine Unterstützung:
 
 [![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/peuqui)

@@ -1,5 +1,7 @@
 # Plugin Overview
 
+> **Deutsche Version:** [plugins-overview.md](../../de/guides/plugins-overview.md)
+
 AIfred uses a unified plugin system. Plugins are auto-discovered — drop a `.py` file into `plugins/tools/` or `plugins/channels/`, done.
 
 > **Developer Guide:** [Plugin Development Guide](plugin-development.md)
@@ -98,6 +100,11 @@ Isolated Python code execution in subprocess.
 | `execute_code` | Run Python code (documents read-only) | WRITE_DATA |
 | `execute_code_write` | Run Python code with write access to documents | WRITE_SYSTEM |
 
+**Features:**
+- Isolated subprocess
+- Supports interactive HTML/JS visualizations
+- Timeout protection
+
 > **Details:** [Sandbox Plugin](plugins/sandbox.md)
 
 ---
@@ -120,6 +127,8 @@ Main agents delegate self-contained tasks to sub-agents: a fresh model run with 
 
 **File:** `plugins/tools/calculator/`
 
+Mathematical calculations.
+
 | Tool | Description | Tier |
 |------|------------|------|
 | `calculate` | Evaluate mathematical expressions | READONLY |
@@ -131,6 +140,8 @@ Main agents delegate self-contained tasks to sub-agents: a fresh model run with 
 ### Audio Player
 
 **File:** `plugins/tools/audio_player/`
+
+Audio playback on the server.
 
 | Tool | Description | Tier |
 |------|------------|------|

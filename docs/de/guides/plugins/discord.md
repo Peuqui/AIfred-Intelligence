@@ -1,5 +1,7 @@
 # Discord Channel Plugin
 
+> **English version:** [discord.md](../../../en/guides/plugins/discord.md)
+
 **Datei:** `aifred/plugins/channels/discord_channel/`
 
 Channel-Plugin, das AIfred als Bot (über `discord.py`) mit Discord verbindet. Es lauscht

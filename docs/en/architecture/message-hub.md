@@ -1,5 +1,7 @@
 # Message Hub — Architecture & Implementation Plan
 
+> **Deutsche Version:** [message-hub.md](../../de/architecture/message-hub.md)
+
 **Date:** 2026-03-28
 **Status:** Packages 1-5 implemented — e-mail channel ready for testing
 
@@ -179,7 +181,7 @@ but for the Message Hub only the primary user matters for now.
 - [ ] Auto-cleanup when a session is deleted
 
 ### Package 3: IMAP IDLE listener ✅
-- [x] `aifred/lib/imap_listener.py` — IMAP IDLE for push notifications
+- [x] `aifred/plugins/channels/email_channel/` — IMAP IDLE for push notifications
 - [x] Detect incoming mail (In-Reply-To header for thread matching)
 - [x] UID-based detection of new mail
 - [x] Auto-reconnect on connection errors
@@ -311,13 +313,13 @@ It is created automatically on first access.
 | Envelope | `aifred/lib/envelope.py` | InboundMessage / OutboundMessage dataclasses |
 | Message Hub | `aifred/lib/message_hub.py` | worker lifecycle (register, start, stop) |
 | Routing Table | `aifred/lib/routing_table.py` | SQLite: (channel, channel_id) → session_id |
-| IMAP Listener | `aifred/lib/imap_listener.py` | IMAP IDLE, detects new mail |
+| IMAP Listener | `aifred/plugins/channels/email_channel/__init__.py` | IMAP IDLE, detects new mail (IMAP/SMTP helpers in `client.py`) |
 | Processor | `aifred/lib/message_processor.py` | session management, engine call, auto-reply |
 | Lifespan | `aifred/aifred.py` | startup/shutdown hook + worker registration |
 | Settings | `aifred/state/_settings_mixin.py` | UI toggles + persistence |
-| UI | `aifred/ui/settings_accordion.py` | Message Hub section in the settings dropdown |
+| UI | `aifred/ui/agent_editor/plugins.py` | channel toggles (listener, auto-reply) in the Plugins tab |
 | Config | `aifred/lib/config.py` | MESSAGE_HUB_OWNER, EMAIL_MONITOR_AUTO_REPLY |
-| i18n | `aifred/lib/i18n.py` | translations (DE/EN) |
+| i18n | `aifred/lib/i18n/` | translations (DE/EN, `de.json` / `en.json`) |
 
 ---
 

@@ -1,5 +1,7 @@
 # Google Suite Plugin
 
+> **English version:** [google-suite.md](../../../en/guides/plugins/google-suite.md)
+
 **Dateien:** `aifred/plugins/tools/google_suite/`
 
 Google Calendar, Contacts, Tasks und Drive über OAuth 2.0. Orchestrator-Plugin mit vier aktivierbaren Sub-Services. Benötigt einmaligen OAuth-Flow in der Google Cloud Console. Den OAuth-Mechanismus (Token-Storage, Auto-Refresh, API-Endpoints) beschreibt [oauth.md](oauth.md).
@@ -192,7 +194,6 @@ AIfred ruft `google_drive_search(query="Projektplan")` auf.
 | `google_drive_delete_file` | Datei dauerhaft löschen | WRITE_DATA |
 | `google_drive_create_folder` | Neuen Ordner erstellen | WRITE_DATA |
 | `google_drive_move_file` | Datei in anderen Ordner verschieben | WRITE_DATA |
-
 
 ### Parameter `google_drive_search`
 

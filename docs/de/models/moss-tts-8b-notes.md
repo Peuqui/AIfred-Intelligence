@@ -1,5 +1,7 @@
 # MOSS-TTS 8B on Turing GPUs (RTX 8000 / RTX 6000)
 
+> **English version:** [moss-tts-8b-notes.md](../../en/models/moss-tts-8b-notes.md)
+
 > Stand: 2026-02-20 | Getestet auf: NVIDIA RTX 8000 (48 GB, Turing, CC 7.5)
 
 ## Zusammenfassung

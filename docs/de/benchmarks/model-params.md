@@ -1,5 +1,7 @@
 # Empfohlene Parameter pro Modell (llama-server)
 
+> **English version:** [model-params.md](../../en/benchmarks/model-params.md)
+
 > **Historischer Benchmark.** Gemessen Anfang 2026 auf dem früheren Aufbau mit
 > Tesla P40 (Pascal). Der heutige AIfred-Rechner läuft mit 2× Quadro RTX 8000 +
 > 3× Tesla V100; die Zahlen beschreiben also nicht die aktuelle Leistung, bleiben
@@ -188,6 +190,7 @@ Stand: 2026-02-21 — Offizielle Unsloth-Docs + Eigene Tests
 **Alle Modelle laufen stabil mit:**
 - ✅ --direct-io (2s Laden)
 - ✅ KV-Quant q4_0 für 200B+ Modelle
+- ✅ KV-Cache f16 für <100B Modelle
 - ✅ Optimierte Batch-Größen
 
 **Hinweis:** Bei Hardware-Upgrade (mehr VRAM) können die Original-Parameter aus der Tabelle oben getestet werden!

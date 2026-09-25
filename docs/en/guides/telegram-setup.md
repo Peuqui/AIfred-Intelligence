@@ -1,5 +1,7 @@
 # Telegram Bot Setup
 
+> **Deutsche Version:** [telegram-setup.md](../../de/guides/telegram-setup.md)
+
 ## 1. Create the Bot
 
 1. Open Telegram, message `@BotFather`

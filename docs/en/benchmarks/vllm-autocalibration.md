@@ -1,6 +1,6 @@
 # vLLM Auto-Calibration: Topology Search and k-Sweep on Heterogeneous GPUs
 
-Status: 2026-08-30 · German version: [vllm-autokalibration.md](../../de/benchmarks/vllm-autokalibration.md)
+Status: 2026-08-30 · German version: [vllm-autocalibration.md](../../de/benchmarks/vllm-autocalibration.md)
 
 AIfred's calibrate button measures vLLM checkpoints fully automatically:
 it unloads running models, builds a topology ladder from the installed

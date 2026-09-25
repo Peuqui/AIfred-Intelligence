@@ -1,8 +1,10 @@
 # AIfred-Einrichtungsanleitung
 
+> **English version:** [deployment.md](../../en/guides/deployment.md)
+
 Anleitung zur Einrichtung einer neuen AIfred-Installation mit dem llama.cpp-Backend (llama-swap).
 
-**Zuletzt aktualisiert:** 18.07.2026
+**Zuletzt aktualisiert:** 25.09.2026
 
 > **TL;DR – der schnellste Weg:** `./scripts/install-all.sh` aus einem frischen
 > Klon kümmert sich in einem Durchgang um Abhängigkeiten, venv, Playwright, den Reflex-Routing-
@@ -39,7 +41,7 @@ User <-> AIfred (Reflex web app) <-> llama-swap (:11435) <-> llama-server (per m
 
 ---
 
-## 2. „llama.cpp“ kompilieren
+## 2. llama.cpp kompilieren
 
 ```bash
 git clone https://github.com/ggml-org/llama.cpp ~/llama.cpp
@@ -66,11 +68,6 @@ mkdir -p ~/bin
 wget -O ~/bin/llama-swap https://github.com/mostlygeek/llama-swap/releases/latest/download/llama-swap-linux-amd64
 chmod +x ~/bin/llama-swap
 
-# Create the config directory
-mkdir -p ~/.config/llama-swap
-```
-
-```bash
 # Create the config directory — the autoscan creates the config file itself
 mkdir -p ~/.config/llama-swap
 ```
@@ -110,9 +107,16 @@ sudo ./scripts/install-services.sh --no-overwrite  # keep existing service
                                                    # tweaks)
 ```
 
-Das Skript meldet pro Datei `= Unverändert`, `♻️ Aktualisiert`, `✅ Neu installiert`
-oder `🛡 Behalten`. `daemon-reload` und `restart` werden nur ausgelöst, wenn
-sich eine Unit tatsächlich geändert hat – erneute Ausführungen auf einem sauberen System haben keine Auswirkungen.
+Das Skript meldet pro Datei `= Unchanged`, `♻️ Updated`, `✅ Newly installed`
+oder `🛡 Kept`. `daemon-reload` wird nur ausgelöst, wenn sich eine Unit geändert hat, und ein
+Dienst wird nur neu gestartet, wenn sich seine eigene Unit oder sein Drop-in geändert hat – erneute
+Ausführungen auf einem sauberen System haben keine Auswirkungen.
+
+| Unit | Startet |
+|---|---|
+| `aifred-chromadb.service` | `docker compose up -d chromadb searxng` — Vector Store + Websuche |
+| `aifred-intelligence.service` | die Reflex-App (Frontend `3002`, Backend `8002`) |
+| `aifred-corpus-server.service` | optionale Korpus-Such-API (`127.0.0.1:8005`, für `deploy/corpus/`) |
 
 Das Installationsskript rendert `systemd/aifred-intelligence.service` (und die
 chromadb-/Corpus-Einheiten) in `/etc/systemd/system/`, ersetzt die
@@ -134,6 +138,11 @@ ExecStartPre=/bin/bash <project>/scripts/patch-vite-config.sh
 ExecStart=<project>/venv/bin/python -m reflex run \
     --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 ```
+
+Bearbeite die Units unter `/etc/systemd/system/` nicht von Hand – die Vorlagen in
+`systemd/` enthalten die Platzhalter `__USER__` / `__PROJECT_DIR__` / `__DOCKER_BIN__`,
+die nur das Installationsskript ausfüllt. Ändere die Vorlage und führe
+`sudo ./scripts/install-services.sh` erneut aus. Details: [systemd/README.md](../../../systemd/README.md).
 
 ### llama-swap-Dienst (mit Autoscan)
 
@@ -173,6 +182,131 @@ sudo systemctl daemon-reload
 sudo systemctl enable llama-swap
 ```
 
+Passe die beiden Pfade `$HOME/Projekte/AIfred-Intelligence` an, wenn du das
+Repo woanders geklont hast.
+
+### llama-swap-Restart-Helfer
+
+`scripts/llama-swap-restart` ist der Wartungsbefehl nach dem Herunterladen eines
+Modells oder dem Bearbeiten der llama-swap-YAML. `install-services.sh` verlinkt ihn nach
+`~/bin/llama-swap-restart`. Er geht über `systemctl restart` hinaus:
+
+1. Stoppt `llama-swap.service` und wartet, bis der Dienst wirklich inaktiv ist
+2. Beendet übrig gebliebene `llama-server`-Prozesse (SIGTERM, dann SIGKILL)
+3. Wartet, bis der GPU-Treiber den VRAM freigegeben hat
+4. Löscht verwaiste Lookup-Caches (`~/.cache/llama_lookup_*.bin`), deren Modell
+   nicht mehr in `config.yaml` steht
+5. Führt `llama-swap-build-config` aus (Spec-Decoding-Flags, TTS-/Vision-Profile)
+6. Startet llama-swap (der Autoscan läuft als `ExecStartPre`) und wartet auf `listening`
+
+```bash
+hf download <repo> --local-dir ~/models/<name>
+llama-swap-restart    # autoscan picks up the new model
+```
+
+---
+
+## 5a. Konfiguration und Zugriff
+
+### Umgebung (`.env`)
+
+Secrets und rechnerspezifische Werte gehören in `.env` im Projektverzeichnis
+(gitignored; Vorlage: `.env.example`). Der Dienst lädt sie über
+`EnvironmentFile=`; die meisten Keys lassen sich auch in der UI setzen (Einstellungen, Plugin
+Manager), die sie nach `.env` zurückschreibt.
+
+| Variable | Zweck |
+|---|---|
+| `AIFRED_ALLOWED_HOST` | Deine externe Domain — wird bei jedem Start zu Vites `allowedHosts` hinzugefügt |
+| `INJECT_API_TOKEN` | Token für `/api/chat/inject` (siehe [REST API](rest-api.md)) |
+| `WEBHOOK_API_TOKEN` | Token für `/api/agent/trigger` |
+| `AIFRED_SESSION_SECRET` | Signiert die Login-Cookies (optional — sonst wird ein Zufalls-Secret persistiert) |
+| `LLAMACPP_URL` | llama-swap-URL (Standard `http://localhost:11435/v1`) |
+| `AIFRED_FRONTEND_PATH` | URL-Präfix, wenn die App unter einem Unterpfad eines Reverse-Proxys liegt, z. B. `aifred` für `/aifred/` (Standard: keiner) |
+| `BACKEND_URL` | Nur ohne Reverse-Proxy: Backend-URL für `/_upload/`, wie der Browser sie sieht |
+| `BRAVE_API_KEY`, `TAVILY_API_KEY` | Optionale zusätzliche Such-APIs (SearXNG braucht keinen Key) |
+| `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY` | Cloud-LLM-Provider |
+| `DEEPL_API_KEY` | Translator-Plugin |
+| `TELEGRAM_*`, `DISCORD_*`, `EMAIL_*` | Kanal-Plugins — siehe die Anleitungen für [Telegram](telegram-setup.md) / [Discord](discord-setup.md) |
+| `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google-Suite-Plugin ([OAuth](plugins/oauth.md)) |
+
+`docker/.env` enthält `SEARXNG_SECRET`, einmalig von `install-all.sh` erzeugt.
+Ohne diesen Wert verweigert Compose den Start.
+
+### Benutzerverwaltung
+
+Login ist Pflicht. Konten und die Registrierungs-Whitelist werden mit
+der Admin-CLI verwaltet:
+
+```bash
+./aifred-admin users                          # whitelist (who may register)
+./aifred-admin add <username>                 # add to whitelist
+./aifred-admin remove <username>              # remove from whitelist
+./aifred-admin accounts                       # registered accounts
+./aifred-admin create <username> [password]   # account + whitelist in one step
+./aifred-admin delete <username> [--sessions] # delete account (optionally its sessions)
+```
+
+Ablauf: Namen auf die Whitelist setzen → der User registriert sich in der Web-UI mit
+Benutzername + Passwort → loggt sich von jedem beliebigen Gerät aus ein.
+
+### Polkit-Regel (Neustart ohne sudo)
+
+AIfred startet Dienste selbst neu: der Neustart-Button (`aifred-intelligence`),
+die Kalibrierung (`llama-swap`) und der Ollama-Restart-Endpoint (`ollama`). Dafür
+braucht der Dienst-User eine Polkit-Regel:
+
+```bash
+sed 's/YOUR_USER/'"$USER"'/' scripts/polkit/10-aifred.rules \
+  | sudo tee /etc/polkit-1/rules.d/10-aifred.rules > /dev/null
+sudo chmod 644 /etc/polkit-1/rules.d/10-aifred.rules
+```
+
+Die Regel gewährt genau diese drei Units genau diesem User.
+
+### Wie das Frontend das Backend findet
+
+`rxconfig.py` setzt `api_url` auf `http://0.0.0.0:8002`; das Reflex-Frontend
+ersetzt `0.0.0.0` durch den Host, von dem die Seite geladen wurde — keine URL-Einstellung
+nötig:
+- Über HTTPS (Reverse-Proxy) wechselt es auf `https`/`wss` am Standardport
+  **443** — der Proxy muss also auch auf 443 lauschen, selbst wenn du die Seite über
+  einen anderen Port wie 8443 öffnest.
+- Über reines HTTP (z. B. `http://<LAN-IP>:3002`) spricht der Browser direkt mit Port
+  **8002** auf diesem Host — deshalb lauscht das Backend auf allen
+  Interfaces (`--backend-host 0.0.0.0`). Jede `/api`-Route außer den Token-Endpoints
+  verlangt den Login-Cookie.
+
+### Warum Dev-Modus
+
+Der Dienst führt `reflex run` ohne `--env prod` aus. Der Produktionsmodus verursacht bei
+jedem Neuladen ein kurzes Aufblitzen ungestylter Inhalte (React Router 7 mit
+`prerender: true` lädt das CSS asynchron). Der Dev-Modus kostet etwas mehr
+RAM, nicht minifizierte Bundles und mehr Konsolenwarnungen — vernachlässigbar für einen Heim-
+server.
+
+Zwei Konsequenzen:
+- `scripts/patch-vite-config.sh` läuft vor jedem Start und patcht die
+  generierte `.web/vite.config.js`: `allowedHosts` aus `AIFRED_ALLOWED_HOST`
+  und `dedupe` für gemeinsam genutzte Frontend-Bibliotheken (ohne das landet `react-helmet`
+  in mehreren Lazy-Chunks und der Browser stürzt ab mit
+  *"Identifier 'scrollState' has already been declared"*). Idempotent.
+- `/api`, `/_upload` und `/_event` werden **nicht** von Vite weitergeleitet — der Reverse-
+  Proxy leitet sie ans Backend (siehe [Auf die Web-UI zugreifen](#auf-die-web-ui-zugreifen)).
+
+### Reflex-Patches
+
+Zwei Patches gegen Reflex-Bugs sind nötig; prüfe sie nach jedem Reflex-Upgrade
+erneut:
+
+| Patch | Angewendet von | Warum |
+|---|---|---|
+| `route.py` — Route-Matching bei `frontend_path` | `scripts/patch-reflex.py` (Installationsskript) | Ohne ihn feuert `on_load` nie und die App bleibt bei „wird initialisiert…“ hängen |
+| `utils/exec.py` — `run_granian_backend()`: `reload=False`, `respawn_failed_workers=True`, `respawn_interval=3.5` | manuell | Ohne ihn wird ein Backend-Worker, der durch einen C-Level-Crash stirbt, nie neu gestartet, und AIfred bleibt tot bis zum manuellen Neustart |
+
+Der zweite Patch schaltet außerdem den Backend-Hot-Reload ab — starte den Dienst nach
+Code-Änderungen neu.
+
 ---
 
 ## 6. Modelle hinzufügen
@@ -193,10 +327,10 @@ sudo systemctl restart llama-swap
 
 Der Autoscan führt Folgendes durch:
 1. Liest das Ollama-Manifest, um den GGUF-Blob zu finden
-2. Einen Symlink `~/models/Qwen3-14B-Q8_0.gguf` → Ollama-Blob erstellen
-3. Einen 6-sekündigen Kompatibilitätstest mit llama-server durchführen
-4. Einen Eintrag in `~/.config/llama-swap/config.yaml` schreiben
-5. Die Liste `groups.main.members` in der Konfiguration aktualisieren
+2. Erstellt einen Symlink `~/models/Qwen3-14B-Q8_0.gguf` → Ollama-Blob
+3. Führt einen 6-sekündigen Kompatibilitätstest mit llama-server durch
+4. Schreibt einen Eintrag in `~/.config/llama-swap/config.yaml`
+5. Aktualisiert die Liste `groups.main.members` in der Konfiguration
 
 > **Einschränkung:** Über Ollama abgerufene Vision-Language-Modelle (VL) (z. B. `qwen3-vl`)
 > sind als **Vision**-Modell nicht mit llama-server kompatibel. Ollamas GGUF-
@@ -225,11 +359,11 @@ sudo systemctl restart llama-swap
 
 Der Autoscan führt Folgendes durch:
 1. Durchsucht `~/.cache/huggingface/hub/` nach GGUFs im aktiven Snapshot
-2. Einen Symlink `~/models/Qwen3-14B-Q8_0.gguf` → HF-Cache-Pfad erstellen
-3. Den Kompatibilitätstest ausführen und den YAML-Eintrag schreiben
-4. Die Liste `groups.main.members` in der Konfiguration aktualisieren
+2. Erstellt einen Symlink `~/models/Qwen3-14B-Q8_0.gguf` → HF-Cache-Pfad
+3. Führt den Kompatibilitätstest aus und schreibt den YAML-Eintrag
+4. Aktualisiert die Liste `groups.main.members` in der Konfiguration
 
-Wenn eine passende `mmproj-*.gguf`-Datei im selben HF-Snapshot vorhanden ist, kann der
+Wenn eine passende `mmproj-*.gguf`-Datei im selben HF-Snapshot vorhanden ist,
 kann der YAML-Eintrag automatisch `--mmproj` enthalten. Beachte jedoch, dass der
 llama-server-Vision-Pfad für aktuelle Qwen3-VL-Builds unzuverlässig ist – der
 unterstützte Vision-Pfad ist der dedizierte Ollama-VLM-Dienst (siehe Abschnitt 10).
@@ -321,7 +455,7 @@ miteinander verbindet:
 
 **Der Frontend-Port allein reicht nicht aus.** Wenn du die App direkt unter
 `http://<host>:3002/aifred/` öffnest, werden die Seiten geladen und der WebSocket funktioniert, aber jede
-`/api/*`- und `/_upload/*`-Anfragen einen 404-Fehler – daher bleiben Kamera-Miniaturansichten, das Vigilantia-
+`/api/*`- und `/_upload/*`-Anfrage liefert einen 404-Fehler – daher bleiben Kamera-Miniaturansichten, das Vigilantia-
 Live-Modal, Casus-Vorschauen und die Audiowiedergabe leer. Diese Routen existieren nur
 im Backend, und nur ein Reverse-Proxy vor beiden Prozessen macht
 sie unter einem gemeinsamen Origin erreichbar.
@@ -381,10 +515,10 @@ sudo systemctl restart llama-swap
 
 Der Autoscan führt Folgendes durch:
 1. Entfernt defekte Symlinks in `~/models/`
-2. Konfigurationseinträge entfernen, deren `--model`-Pfad nicht mehr existiert
-3. Veraltete Einträge aus der Kompatibilitäts-Skip-Liste entfernen
-4. Verwaiste VRAM-Cache-Einträge entfernen
-5. Die Liste `groups.main.members` aktualisieren
+2. Entfernt Konfigurationseinträge, deren `--model`-Pfad nicht mehr existiert
+3. Entfernt veraltete Einträge aus der Kompatibilitäts-Skip-Liste
+4. Entfernt verwaiste VRAM-Cache-Einträge
+5. Aktualisiert die Liste `groups.main.members`
 
 Beispiel für die Bereinigungsausgabe:
 ```
@@ -418,8 +552,8 @@ So führst du die Kalibrierung in der AIfred-Benutzeroberfläche durch:
 3. Wähle die gewünschten Varianten über den **2D-Matrix-Picker** aus:
    - Zeilen = VLM-Auswahl (Kein VLM / Vigilantia 4B / Vigilantia 8B)
    - Spalten = TTS-Engines (Kein TTS / Qwen3-TTS / XTTS / MOSS-TTS / Fish-Speech)
-   - Jede angekreuzte Zelle wird zu einem separaten `<base>-vlm-<key>-tts-<engine>`
- llama-swap-Profil, das der Chat-Path-Resolver automatisch übernimmt
+   - Jede angekreuzte Zelle wird zu einem separaten `<base>-vlm-<key>-tts-<engine>`-
+     llama-swap-Profil, das der Chat-Path-Resolver automatisch übernimmt
 4. Klicke auf **„Kalibrierung starten“**. Die Matrix zeigt pro Zelle drei Zustände an:
    - 🟢 grüner Punkt — kalibriert
    - 🔴 roter Punkt — versucht, aber fehlgeschlagen (mit der Maus darüberfahren, um den Grund zu sehen)
@@ -429,8 +563,8 @@ Was im Hintergrund abläuft:
 
 - **Greedy-Kaskade**: Fülle zuerst die schnellste Rechenklasse, weiche dann auf die
   nächste aus, minimiere die Anzahl aktiver GPUs
-- **Stress-Burn-in** bei der ersten TTS/VLM-Nutzung: Eine zweisprachige TTS-Synthese im Worst-Case-Szenario
-  Synthese-Schleife und eine VLM-Kontext-Füllung zum Vorwärmen messen den Spitzen-VRAM-Verbrauch unter
+- **Stress-Burn-in** bei der ersten TTS/VLM-Nutzung: Eine zweisprachige TTS-Synthese-Schleife im Worst-Case-Szenario
+  und eine VLM-Kontext-Füllung zum Vorwärmen messen den Spitzen-VRAM-Verbrauch unter
   Last. Ergebnisse werden in `data/tts_vram_cache.json` /
   `data/vlm_vram_cache.json` zwischengespeichert – nachfolgende Kalibrierungen nutzen die Messwerte wieder
 - **Side-Channel-Kapazitätsüberwachung**: Bevor ein `tts-engine + vlm`-
@@ -438,16 +572,16 @@ Was im Hintergrund abläuft:
   gemeinsam genutzte Side-Channel-GPU passen. Kombinationen, die zur Laufzeit einen OOM auslösen würden, werden
   mit einem roten Punkt abgelehnt
 - **Bias-verfolgte binäre Suche**: Wenn `llama-fit-params` durchgehend
-  deaktiviert ist (typisch bei MoE-Modellen), wird der Bias über alle Probes hinweg verfolgt und
+  danebenliegt (typisch bei MoE-Modellen), wird der Bias über alle Probes hinweg verfolgt und
   in die mathematische Projektion zurückgeführt, sodass die Suche bereits nach 3–5
-  Proben statt bei über 25 konvergiert
+  Proben statt über 25 konvergiert
 - Die Endergebnisse werden in `data/model_vram_cache.json` und als Profil-
   Einträge in `~/.config/llama-swap/config.yaml` gespeichert
 
 > **Strategie-Referenz (SSOT):** [calibration-strategy.md](../architecture/calibration-strategy.md)
 
 Ohne Kalibrierung funktioniert das Modell trotzdem – es läuft mit dem nativen
-Kontext. Wenn dieser den VRAM-Speicherplatz überschreitet, schlägt die erste Anfrage mit einem OOM-Fehler
+Kontext. Wenn dieser den VRAM überschreitet, schlägt die erste Anfrage mit einem OOM-Fehler
 fehl.
 
 ---
@@ -490,19 +624,19 @@ ollama pull qwen3-vl:8b-instruct-q8_0    # ~11 GB VRAM, more accurate
    - `off` – deaktiviert (Standard)
    - `on-demand` – VLM wird nur geladen, wenn ein Vision-Tool aufgerufen wird
    - `live` – VLM bleibt im VRAM resident (geringere Latenz, höhere
-   Leerlaufkosten)
+     Leerlaufkosten)
 2. Wähle das aktive VLM-Modell unter „Einstellungen“ → „Vision“ → „Modell“ aus
 3. (Optional) Konfiguriere die Gesichtserkennung:
    - Einstellungen → Vision → Gesichtserkennung → Ausführungsanbieter
- (CUDA / CPU / CoreML)
+     (CUDA / CPU / CoreML)
    - Schwellenwert für die Klassifizierung „bekannt“ vs. „unsicher“
 
 ### Kalibriere das LLM mit VLM-Unterstützung
 
 Wenn `vision_mode` auf `on-demand` oder `live` gesetzt ist, muss das LLM-Profil
 VRAM auf der Side-Channel-GPU für den VLM-Container reservieren. Führe die
-Kalibrierung (Abschnitt 9) erneut durch, wobei das Kästchen für **Vigilantia 4B** oder **Vigilantia 8B**
-– das erzeugt ein `<base>-vlm-<key>`-Profil, und der
+Kalibrierung (Abschnitt 9) erneut durch, wobei die Zeile **Vigilantia 4B** oder **Vigilantia 8B**
+angekreuzt ist – das erzeugt ein `<base>-vlm-<key>`-Profil, und der
 Resolver wählt es automatisch aus, wenn die Bildverarbeitung aktiv ist.
 
 ---
@@ -522,14 +656,14 @@ Wird auf die Bildverarbeitungspipeline aufgesetzt. Verwandelt AIfred in einen Ag
 
 Die Gesichtserkennungs-Pipeline stuft ein Gesicht nur dann als „bekannt“ ein, wenn du es
 zuvor **registriert** hast. Ohne Registrierung wird jedes Gesicht als
-`unbekanntes` Ereignis angezeigt.
+`unknown`-Ereignis angezeigt.
 
 1. Mach einen Schnappschuss eines Bildes von einer Kamera mit einem deutlich erkennbaren Gesicht
 2. Öffne das **Personarium**-Modal
 3. Multi-Pose-Assistent: Erfasse eine Frontalaufnahme + 4 Winkel
 4. Weise einen Namen + (optional) eine Gruppe zu
 5. Die Gesichtsvektoren werden im SQLite-Speicher abgelegt; beim nächsten Watcher-Durchlauf
-   werden übereinstimmende Gesichter als `bekannt` klassifiziert
+   werden übereinstimmende Gesichter als `known` klassifiziert
 
 **Kosten beim ersten Lauf:** Beim ersten Aufruf lädt `insightface` das
 `buffalo_l`-Modell (~280 MB) in `~/.insightface/models/` herunter. Nachfolgende
@@ -558,7 +692,7 @@ Einstellungen → Vision → Vigilantia:
   Live-Vorschau hat im Kopfbereich ihre eigene, unabhängige Drossel
 - `save_event_frames` — Speichert bei jedem Ereignis den Frame als JPEG
 - `face_detect.threshold_known` — Kosinus-Ähnlichkeit, ab der ein Gesicht
-  als `bekannt` gilt (Standard 0,6)
+  als `known` gilt (Standard 0,6)
 - `face_detect.threshold_unsure` — unterhalb von `known`, aber oberhalb dieses Wertes →
   `unsure` (Standard 0,5). Darunter → `unknown`
 - `events.retention_days_*` — Aufbewahrungsdauer pro Ereignistyp
@@ -567,13 +701,13 @@ Einstellungen → Vision → Vigilantia:
 
 Das **Casus**-Modal ist das zentrale Tool zur Ereignisüberprüfung:
 
-- Nach Typ filtern (Bewegung / Gesicht_bekannt / Gesicht_unsicher / Gesicht_unbekannt / VLM-Analyse)
+- Nach Typ filtern (motion / face_known / face_unsure / face_unknown / vlm_analysis)
 - Nach Quelle, Gesichts-ID oder Zeit filtern
 - **VLM-Analyse für einzelne Ereignisse**: Klicke auf ein beliebiges Ereignis → „Mit VLM analysieren“
   — führt das konfigurierte VLM auf dem gespeicherten Bild aus
 - **VLM-Massenanalyse**: Wähle N Ereignisse aus → Ein Hintergrundprozess führt die
   VLM für jedes einzelne durch, mit Fortschrittsanzeige und Abbruchoption. Eine VRAM-Vorabprüfung bricht den Vorgang sauber ab,
-  wenn nicht genügend Speicherplatz für den konfigurierten VLM-Stapel vorhanden ist
+  wenn nicht genügend VRAM-Reserve für den konfigurierten VLM-Stapel vorhanden ist
 - **Cluster-Modus umschalten**: Fasst nahezu identische Ereignisse (pHash-basiert)
   zu einer Karte pro Cluster zusammen – nützlich, wenn ein im Wind schwankender Ast
   sonst innerhalb von 10 Minuten 200 Bewegungsereignisse erzeugen würde
@@ -634,5 +768,5 @@ sudo systemctl restart llama-swap
 
 ## Verwandte Dokumente
 
-- [llamacpp-setup.md](../../en/guides/llamacpp-setup.md) (englisch) — Hardware-Benchmarks, Leistungsoptionen,
+- [llamacpp-setup.md](llamacpp-setup.md) — Hardware-Benchmarks, Leistungsoptionen,
   Multi-GPU-Konfiguration, Details zu Flash Attention

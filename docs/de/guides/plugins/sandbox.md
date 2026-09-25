@@ -1,5 +1,7 @@
 # Sandbox Plugin
 
+> **English version:** [sandbox.md](../../../en/guides/plugins/sandbox.md)
+
 **Datei:** `aifred/plugins/tools/sandbox/`
 
 Isolierte Python-Code-Ausführung in einem mit bubblewrap abgesicherten
