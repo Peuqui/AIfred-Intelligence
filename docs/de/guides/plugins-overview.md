@@ -351,7 +351,7 @@ Telegram Bot via Long Polling.
 - Absender-Allowlist (Pflicht — siehe unten)
 - `/clear` löscht die Konversation: Kontext-Reset + Bulk-Delete aller getrackten Chat-Nachrichten (Telegram-Limits gelten: nur Nachrichten, die der Bot gesehen/gesendet hat, jünger als 48 h)
 - Nachrichten, die während AIfred-Downtime eingingen, werden beim Start nachgeholt (Telegram puffert bis zu 24 h)
-- Auto-Reply konfigurierbar
+- Antwortet immer auf angenommene Nachrichten (kein Auto-Reply-Schalter)
 - Setup-Guide: [Telegram Setup](telegram-setup.md)
 
 **Allowlist (Pflicht):** Gleiches Modell wie Discord — der Bot antwortet nur User-IDs aus den Plugin-Settings (Zahnrad → *Allowed user IDs*). Leer = niemand, `*` wird **nicht** unterstützt. **Onboarding eines neuen Users:** einmal den Bot anschreiben lassen; die numerische User-ID erscheint im Log (`blocked message from <ID>`) — ins Allowlist-Feld eintragen.

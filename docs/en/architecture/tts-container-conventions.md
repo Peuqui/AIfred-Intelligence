@@ -2,7 +2,7 @@
 
 > **Deutsche Version:** [tts-container-conventions.md](../../de/architecture/tts-container-conventions.md)
 
-As of: 2026-05-23. Living document.
+As of: 2026-09-25. Living document.
 
 When AIfred integrates a new TTS engine as a Docker container, it should
 follow the conventions below. This keeps the audio setup
@@ -29,35 +29,34 @@ stuff base64-encoded WAV files into the JSON body of the API request
 
 ## Voice Directory on the Host Side
 
-```
-docker/<engine>/voices/        # mount source, read-only into the container
-```
-
-**Layout variant A — flat** (standard, XTTS / MOSS / Qwen3-TTS):
+All engines share **one** voice directory; each engine lives in its own
+folder next to it:
 
 ```
-voices/
-├── AIfred.wav      # 16 kHz mono, 5–15 s speech sample
-├── AIfred.txt      # transcript (improves cloning quality)
-├── HAL9000.wav
-├── HAL9000.txt
-└── ...
+docker/tts/
+├── voices/              # shared SSOT, mounted read-only into every container
+├── xtts/
+├── qwen3-tts/
+├── fish-speech/
+└── moss-tts/
 ```
 
-**Layout variant B — subfolder** (Fish-Speech native):
+Layout: one subfolder per speaker. It serves all engines at once —
+XTTS / MOSS / Qwen3-TTS read `<Name>/<Name>.wav` (+ `.txt`), Fish-Speech S2 Pro
+uses the folder name as `reference_id` and reads the `.lab` transcript:
 
 ```
 voices/
 ├── AIfred/
-│   ├── AIfred.wav
-│   └── AIfred.lab   # Fish-Speech calls the transcript .lab
-└── ...
+│   ├── AIfred.wav   # mono speech sample (the existing voices: 15–30 s)
+│   ├── AIfred.txt   # transcript (XTTS / MOSS / Qwen3-TTS, improves cloning quality)
+│   └── AIfred.lab   # same transcript under the name Fish-Speech expects
+├── HAL9000/
+├── Salomo/
+└── Sokrates/
 ```
 
-→ Variant A is the default. Variant B only if the container uses the
-`reference_id` scheme of the upstream server and that server expects exactly this
-structure (S2 Pro). In that case: follow upstream, don't
-go against the grain.
+The servers look for voices via `glob("*/*.wav")` — the speaker name is the file stem.
 
 ---
 
@@ -65,13 +64,14 @@ go against the grain.
 
 ```yaml
 volumes:
-  - ./voices:/app/voices:ro       # XTTS / MOSS / Qwen3 — flat standard path
+  - ../voices:/app/voices:ro       # XTTS / MOSS / Qwen3-TTS
   # OR for engines with a reference_id API:
-  - ./voices:/app/references:ro   # Fish-Speech S2 Pro
+  - ../voices:/app/references:ro   # Fish-Speech S2 Pro
 ```
 
 Read-only — the container must not write anything into the mount (the cache of
-pre-warmed embeddings goes into a separate named volume).
+pre-warmed embeddings goes into a separate named volume, e.g. XTTS: `xtts_voices`
+on `/app/custom_voices`).
 
 ---
 
@@ -122,9 +122,9 @@ this surcharge. Therefore:
 **Models to follow:**
 - Qwen3-TTS: `_warm_clone_prompts()` in [`docker/tts/qwen3-tts/server.py`](../../../docker/tts/qwen3-tts/server.py)
   builds x-vector + with-transcript prompts per speaker in `_clone_prompts`.
-- XTTS: identical pattern in [`docker/tts/xtts/server.py`](../../../docker/tts/xtts/server.py),
-  plus a disk cache as `.pth` so the second container start
-  already comes up with warm embeddings.
+- XTTS: identical pattern in [`docker/tts/xtts/server.py`](../../../docker/tts/xtts/server.py)
+  (`_custom_voices`), plus a disk cache as `.pth` in `/app/custom_voices` so the
+  second container start already comes up with warm embeddings.
 
 **Exceptions:**
 - MOSS-TTS has no pre-warming — the upstream `transformers` processor
@@ -157,9 +157,9 @@ Health checks, `/openapi`, `/keep_alive` itself and the WebUI must
 probe (see [`aifred/lib/tts_engine_manager.py`](../../../aifred/lib/tts_engine_manager.py))
 keeps the container alive forever.
 
-The env variable follows the scheme `<ENGINE>_KEEP_ALIVE=<minutes>` (e.g.
-`XTTS_KEEP_ALIVE=15`, `FISH_SPEECH_KEEP_ALIVE=30`), `0` disables the
-watchdog.
+The env variable follows the scheme `<ENGINE>_KEEP_ALIVE=<minutes>`
+(`XTTS_KEEP_ALIVE`, `MOSS_KEEP_ALIVE`, `QWEN3_KEEP_ALIVE`, `FISH_SPEECH_KEEP_ALIVE`;
+the `docker-compose.yml` files set 45 each), `0` disables the watchdog.
 
 ---
 
@@ -184,37 +184,50 @@ reading.
 ## Calibration Reserve (VRAM)
 
 So that LLM calibration does not plan too generously next to the TTS container,
-each engine defines a reserve in `aifred/lib/config.py`:
+the reserve per engine is **measured**, not hand-maintained:
 
-```python
-XTTS_VRAM_RESERVE_MB         = ...
-MOSS_TTS_VRAM_RESERVE_MB     = ...
-QWEN3_TTS_VRAM_RESERVE_MB    = ...
-FISH_SPEECH_VRAM_RESERVE_MB  = ...
-```
+- `resolve_tts_reserve(engine_key)` in
+  [`aifred/lib/tts_stress_burnin.py`](../../../aifred/lib/tts_stress_burnin.py)
+  returns the cached peak from
+  [`aifred/lib/tts_vram_cache.py`](../../../aifred/lib/tts_vram_cache.py)
+  (`data/tts_vram_cache.json`) plus `LLAMACPP_TTS_BURNIN_HEADROOM_MB`
+  (config.py, 512 MB).
+- On a cache miss, the stress burn-in runs first: start the container, fire a
+  deliberately long bilingual synthesis, poll the GPU memory every 100 ms, write the
+  peak into the cache. No TTL — the value stays until the reset button in the
+  calibration picker (`reset_tts_vram_cache`) clears the table or the entry is deleted.
+- Manual re-run: `python -m aifred.lib.tts_stress_burnin <engine_key>`.
+- The calibration (`_calibration_mixin.py`) plans the TTS GPU around this reserve;
+  the engine's `calibration_setup()` deliberately leaves the container cold
+  so the idle footprint is not counted twice.
 
-Determined empirically: idle + peak after the longest realistic
-bubble, plus ~1–2 GB headroom. Tunable via env var (see comments).
+There are no hand-set per-engine reserves: the calibration uses
+`resolve_tts_reserve()` only. Engines that grow during generation (Qwen3-TTS,
+Fish-Speech) override `calibration_setup()` so the container stays cold during
+calibration — the burn-in peak already includes its idle footprint.
 
 ---
 
 ## Checklist for a New TTS Engine
 
-1. Create a **voice directory** under `docker/<engine>/voices/`,
-   same speaker names as the other engines (AIfred, HAL9000,
-   Salomo, Sokrates), layout variant A unless prescribed by
-   upstream.
-2. **`docker-compose.yml`** with a read-only mount on `/app/voices` (or
-   `/app/references` for Fish-Speech-like engines).
+1. **Use the shared voice directory** `docker/tts/voices/` (AIfred, HAL9000,
+   Salomo, Sokrates); add missing transcripts there only if the engine needs a
+   different file name (like `.lab` for Fish-Speech).
+2. **`docker/tts/<engine>/docker-compose.yml`** with a read-only mount
+   `../voices:/app/voices:ro` (or `/app/references` for Fish-Speech-like engines).
 3. Add an **idle watchdog** with `<ENGINE>_KEEP_ALIVE`.
 4. **Pre-warming in the server code**, if possible (voice embeddings in
    `_clone_prompts`/`_custom_voices` or similar at startup).
 5. **`generate_speech()` method** in the new `TTSEngine` subclass
    under `aifred/lib/tts_engines/<engine>.py` — send only text + speaker name +
    language. Write the response as an audio body, never base64.
-6. **Engine registration** in `aifred/lib/tts_engines/` as a
-   `TTSEngine` subclass + entry in the `TTS_ENGINES` dict.
-7. **`<ENGINE>_VRAM_RESERVE_MB`** in `aifred/lib/config.py`.
+6. **Engine registration**: just the `TTSEngine` subclass (with `key`,
+   `label_short`, `needs_gpu`, `image_name`, `compose_subdir` if the folder name
+   differs from the key) in `aifred/lib/tts_engines/<engine>.py` —
+   [`registry.py`](../../../aifred/lib/tts_engines/registry.py) discovers it
+   automatically and builds `TTS_ENGINES`, no manual entry.
+7. **VRAM reserve**: nothing to maintain — the stress burn-in measures it on the
+   first calibration (see above).
 8. **Port** according to the scheme.
 9. Calibration profile in `~/.config/llama-swap/config.yaml` as a
    `<model>-tts-<engine>` variant (see the AIfred calibration docs).

@@ -90,6 +90,7 @@ class OutboundMessage:
     channel_id: str         # to the same thread/channel
     recipient: str          # to the same sender
     text: str               # reply text
+    media: str | None = None  # optional image (local path or URL) to attach
     metadata: dict          # channel-specific (subject for e-mail, etc.)
 ```
 
@@ -105,8 +106,8 @@ CREATE TABLE routes (
     channel TEXT NOT NULL,           -- "email", "discord", etc.
     channel_id TEXT NOT NULL,        -- thread ID, channel ID
     session_id TEXT NOT NULL,        -- AIfred session ID
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
     UNIQUE(channel, channel_id)
 );
 ```
@@ -119,30 +120,37 @@ CREATE TABLE routes (
 
 ## Agent Routing
 
-When a message is addressed to a specific agent, that agent is invoked:
+When a message is addressed to a specific agent, that agent answers.
+There is no function per agent: `process_inbound()` sets
+`message.target_agent`, and `_call_engine(agent=...)` passes it on to
+`call_llm(agent=...)` — this works for AIfred, Sokrates, Salomo and every
+custom agent from the agent configuration.
 
-- Default: `run_aifred_direct_response()`
-- "@Sokrates ..." → `run_sokrates_direct_response()`
-- "@Salomo ..." → `run_salomo_direct_response()`
-- Custom agents → the corresponding function
+Target-agent detection is LLM-based: `detect_target_agent_via_llm()` in
+`message_processor.py` wraps `detect_query_intent_and_addressee()` (the same
+detection as the browser) and returns `(agent_id, intent, detected_language,
+mode_switch_updates)`. Routing priority (highest wins):
 
-Target-agent detection is LLM-based and lives in `message_processor.py:
-process_inbound()`. Internal triggers can hard-pin the agent by setting
-`metadata["wake_agent"]` (e.g. the scheduler, see `scheduler.py`) —
-in that case no rerouting through intent detection takes place.
+1. `metadata["wake_agent"]` — internal triggers and channels hard-pin the
+   agent this way (e.g. the scheduler, see `scheduler.py`, or the FreeEcho.2
+   wake word). Intent detection still runs, but its addressee is overridden
+   (only if the wake agent is configured).
+2. The addressee the LLM detected in the current message
+3. The session's `active_agent` (sticky from the previous turn)
+4. Default `"aifred"`
 
 ---
 
 ## Auto-Reply Toggle
 
-- Default: **OFF** (messages are shown in the web UI, the user decides)
-- Toggle in the settings dropdown per channel:
-  - E-mail auto-reply: on/off
-  - Discord auto-reply: on/off
-  - Telegram auto-reply: on/off
-  - Signal auto-reply: on/off
-- When ON: AIfred replies immediately and automatically
-- When OFF: the message appears in the session, the user approves the reply
+- Default: **OFF** (`auto_reply` in `settings.json` → `channel_toggles`)
+- Toggle per channel in the Plugins tab of the settings page (see
+  [Activation](#activation)). It is only shown for channels without
+  `always_reply` — currently e-mail. Discord, Telegram and FreeEcho.2 declare
+  `always_reply = True` and always reply (no toggle).
+- When ON: AIfred replies immediately and automatically via the channel
+  (`plugin.send_reply()`)
+- When OFF: the reply is generated and stored in the session, but not sent
 
 ---
 
@@ -162,7 +170,10 @@ but for the Message Hub only the primary user matters for now.
 ## Allowlist / Security
 
 - Configurable per channel: who is allowed to contact AIfred?
-- Unknown senders are ignored or receive a standard reply
+  - E-mail: `EMAIL_ALLOWED_SENDERS` — addresses or `@domain`; empty = nobody,
+    `*` = everyone
+  - Telegram/Discord: numeric user IDs; empty = nobody, `*` is blocked
+- Unknown senders are ignored (only logged, no reply)
 - Extensible later: a pairing mechanism like OpenClaw
 
 ---
@@ -177,8 +188,9 @@ but for the Message Hub only the primary user matters for now.
 
 ### Package 2: Routing table ✅
 - [x] `aifred/lib/routing_table.py` — SQLite-based
-- [x] CRUD: get_route(), set_route(), delete_route(), get_routes_for_session()
-- [ ] Auto-cleanup when a session is deleted
+- [x] CRUD: get_route(), set_route(), delete_route(), delete_routes_for_session()
+- [x] Auto-cleanup when a session is deleted (`session_storage.py` calls
+  `delete_routes_for_session()`)
 
 ### Package 3: IMAP IDLE listener ✅
 - [x] `aifred/plugins/channels/email_channel/` — IMAP IDLE for push notifications
@@ -186,7 +198,7 @@ but for the Message Hub only the primary user matters for now.
 - [x] UID-based detection of new mail
 - [x] Auto-reconnect on connection errors
 - [x] Registered with the Message Hub as a worker
-- [ ] Allowlist check (who is allowed to mail?)
+- [x] Allowlist check (who is allowed to mail?) — `EMAIL_ALLOWED_SENDERS`
 
 ### Package 4: Processing pipeline + auto-reply ✅
 - [x] `aifred/lib/message_processor.py` — bridge between hub and engine
@@ -195,13 +207,16 @@ but for the Message Hub only the primary user matters for now.
 - [x] Send the reply via SMTP (when auto-reply is ON)
 - [x] Update the session with the conversation (update_chat_data)
 - [x] Agent routing (Sokrates/Salomo when addressed in the text)
-- [x] Config: MESSAGE_HUB_OWNER, EMAIL_MONITOR_AUTO_REPLY
+- [x] Config: MESSAGE_HUB_OWNER (auto-reply later moved to `channel_toggles`)
 
-### Package 5: Settings & UI
-- [ ] Config keys: MESSAGE_HUB_ENABLED, EMAIL_MONITOR_ENABLED, AUTO_REPLY_*
-- [ ] Extend the settings dropdown: Message Hub section
-- [ ] Toggle per channel: monitor on/off, auto-reply on/off
-- [ ] Allowlist configuration
+### Package 5: Settings & UI ✅
+- [x] Toggles persisted in `settings.json` → `channel_toggles` (`monitor`,
+  `listener`, `auto_reply` per channel) instead of the originally planned
+  config keys MESSAGE_HUB_ENABLED, EMAIL_MONITOR_ENABLED, AUTO_REPLY_*
+- [x] "Channels" section in the Plugins tab of the settings page
+  (`aifred/ui/agent_editor/plugins.py`)
+- [x] Toggle per channel: plugin on/off, monitor on/off, auto-reply on/off
+- [x] Allowlist configuration (credentials page via the gear icon)
 
 ### Package 6: Additional channels
 - [x] Discord bot plugin (`plugins/channels/discord_channel/`)
@@ -225,7 +240,13 @@ but for the Message Hub only the primary user matters for now.
 
 ### Prerequisites
 
-1. **E-mail credentials** must be set as environment variables (`.env`):
+1. **E-mail credentials** are read from environment variables. Usually
+   you enter them on the credentials page (gear icon in the e-mail row, see
+   [Activation](#activation)): saving writes the password and
+   `EMAIL_ENABLED=true` to `.env`, the other fields to
+   `aifred/plugins/channels/email_channel/settings.json` (loaded into the
+   environment at boot, takes priority over `.env`). Setting them directly in
+   `.env` works as well:
    ```
    EMAIL_ENABLED=true
    EMAIL_IMAP_HOST=imap.example.com
@@ -235,7 +256,10 @@ but for the Message Hub only the primary user matters for now.
    EMAIL_USER=aifred@example.com
    EMAIL_PASSWORD=secret
    EMAIL_FROM=aifred@example.com
+   EMAIL_ALLOWED_SENDERS=you@example.com, @family.example
+   EMAIL_SENT_FOLDER=Gesendet   # optional, this is the default
    ```
+   Without `EMAIL_ALLOWED_SENDERS` every mail is blocked (empty = nobody).
 
 2. **Message Hub owner** (optional, default: `mp`):
    ```
@@ -245,9 +269,12 @@ but for the Message Hub only the primary user matters for now.
 
 ### Activation
 
-1. Start AIfred (or restart it if `.env` changed)
-2. In the web UI: **Settings → Message Hub → E-Mail Monitor: ON**
-3. Optional: **Auto-Reply: ON** (AIfred answers automatically by e-mail)
+1. Start AIfred (or restart it if you edited `.env` by hand)
+2. In the web UI: menu icon (☰, top right) → **Settings** → tab **Plugins**
+   → section **Channels** → row **Email**: switch ON (if the plugin is not
+   configured yet, the credentials page opens)
+3. Below it: **Monitor: ON** (starts the IMAP IDLE listener)
+4. Optional: **Auto-Reply: ON** (appears only once Monitor is ON; AIfred answers automatically by e-mail)
 
 ### Flow: Incoming E-Mail
 
@@ -266,12 +293,16 @@ E-mail is fetched → InboundMessage (envelope)
   └── metadata: subject, Message-ID, references
   │
   ▼
-Agent routing: "Sokrates, ..." → target_agent = "sokrates"
+Sender gate: allowlist (EMAIL_ALLOWED_SENDERS), SPF/DKIM/DMARC "fail",
+auto-generated mail (RFC 3834) → dropped, only logged
   │
   ▼
 Routing table (SQLite): thread known?
   ├── YES → load the existing session
   └── NO  → create a new session (owner = MESSAGE_HUB_OWNER)
+  │
+  ▼
+Agent routing: "Sokrates, ..." → target_agent = "sokrates"
   │
   ▼
 AIfred engine: call_llm()
@@ -281,7 +312,8 @@ AIfred engine: call_llm()
   │
   ▼
 Update the session
-  ├── chat history: "[EMAIL] sender — subject" + body
+  ├── chat history: "[Email] sender — subject" + body
+  │   (channel name in the UI language, build_user_chat_content())
   └── LLM history: user text + AIfred's reply
   │
   ▼
@@ -318,7 +350,7 @@ It is created automatically on first access.
 | Lifespan | `aifred/aifred.py` | startup/shutdown hook + worker registration |
 | Settings | `aifred/state/_settings_mixin.py` | UI toggles + persistence |
 | UI | `aifred/ui/agent_editor/plugins.py` | channel toggles (listener, auto-reply) in the Plugins tab |
-| Config | `aifred/lib/config.py` | MESSAGE_HUB_OWNER, EMAIL_MONITOR_AUTO_REPLY |
+| Config | `aifred/lib/config.py` | MESSAGE_HUB_OWNER (auto-reply comes from `channel_toggles` in `settings.json`) |
 | i18n | `aifred/lib/i18n/` | translations (DE/EN, `de.json` / `en.json`) |
 
 ---

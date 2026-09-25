@@ -16,7 +16,7 @@
   - 1x Tesla P40 (24GB) via USB4
   - Total: **~115 GB VRAM** (4 GPUs)
 - **Backend**: llama.cpp via llama-swap, Direct-IO, flash-attn
-- **Embedding**: nomic-embed-text-v2-moe via Ollama (CPU mode, no VRAM usage)
+- **Embedding** (at the time of the benchmark): nomic-embed-text-v2-moe via Ollama (CPU mode, no VRAM usage); AIfred has since switched to bge-m3
 - **OS**: Ubuntu, Kernel 6.17.0-19-generic
 
 ## Models Under Test
@@ -41,8 +41,8 @@ Nemotron achieves 874K context (83% of native 1M) thanks to only 12B active para
 
 ## Benchmark 1: RAG Document Retrieval
 
-**Task**: "Liste alle Dokumente, die mit Transfusions- und Labormedizin zu tun haben, auf. Fasse sie ausfuehrlich zusammen."
-**RAG Context**: ~29K tokens (44-46 chunks from 6 documents auto-injected)
+**Task**: "Liste alle Dokumente, die mit Transfusions- und Labormedizin zu tun haben, auf. Fasse sie ausführlich zusammen."
+**RAG Context**: ~29K tokens (44-46 chunks from 6 documents, auto-injected into the prompt as AIfred did at the time of the benchmark; today document retrieval is agent-driven via the `search_documents` tool, without auto-injection)
 **Tools available**: list_documents, search_documents, web_search, store_memory, etc.
 **Expected**: 8-10 transfusion-related documents from a total of 24 in the database (472 chunks)
 
@@ -93,7 +93,7 @@ Nemotron achieves 874K context (83% of native 1M) thanks to only 12B active para
 
 **Qwen3-4B** (6/10):
 - Surprisingly usable for 4B — finds 5 docs, orderly summaries
-- No tool use — relies only on auto-injected RAG chunks
+- No tool use — relied only on the RAG chunks auto-injected at the time
 - Best PP speed (645 tok/s) but limited by model intelligence
 - Good for quick overviews, not for thorough analysis
 
@@ -104,9 +104,9 @@ Nemotron achieves 874K context (83% of native 1M) thanks to only 12B active para
 - Not recommended for RAG tasks
 
 **MiniMax-M2.5** (not testable):
-- OOM crash (segfault) when Ollama embedding model occupies ~900MB VRAM
-- Fixed by switching embedding to CPU mode (EMBEDDING_USE_GPU=False)
-- Needs recalibration with CPU embedding active
+- OOM crash (segfault) when the Ollama embedding model occupied ~900MB VRAM
+- At the time fixed by switching embedding to CPU mode (EMBEDDING_USE_GPU=False)
+- Would have needed recalibration with CPU embedding active; not re-measured
 
 **Qwen3-235B-A22B** (not testable):
 - Aborted due to extreme inference time
@@ -119,8 +119,8 @@ Nemotron achieves 874K context (83% of native 1M) thanks to only 12B active para
 3. **Model size != quality**: GPT-OSS (5.1B active) beats Qwen3-30B (3B active) and Qwen3-4B (4B)
 4. **Active parameters != speed**: Qwen3-Next-80B (3B active, 87GB) is faster than Qwen3.5-122B (10B active, 86GB)
 5. **Tool Use is critical**: Models that call list_documents find 8-10 docs, those without find only 5
-6. **Qwen3 Instruct models don't use tools with thinking enabled** — known bug, thinking disabled for Instruct + tools
-7. **Embedding on GPU causes OOM** for large models — CPU embedding (143ms vs 89ms) is the safe default
+6. **Qwen3 Instruct models didn't use tools with thinking enabled** — known bug at the time; thinking was disabled for Instruct + tools during the benchmark
+7. **Embedding on GPU caused OOM** for large models on that setup — CPU embedding (143ms vs 89ms) was the safe default at the time
 8. **PP speed matters more than TG** for RAG — large prompts (30K tokens) dominate total time
 
 ---

@@ -17,18 +17,36 @@ Summary:
 - **BASE**: greedy fill onto the fastest compute class, spillover onto
   the next slower one if needed. Min. GPUs, max. ctx.
 - **SPEED**: fewer GPUs than BASE via ctx reduction.
-- **TTS variants** (XTTS, Fish-Speech, MOSS): BASE/SPEED again, with a
-  TTS reserve on the second-highest compute class (side-channel GPU
-  via `pick_vlm_gpu`/`pick_tts_gpu`).
+- **TTS variants** (the installed GPU engines: XTTS, MOSS, Fish-Speech,
+  Qwen3-TTS): BASE/SPEED again, with a TTS reserve on the shared
+  side-channel card of the second-highest compute class (`pick_tts_gpu`/
+  `pick_vlm_gpu` → `pick_side_channel_gpu`). Fast path: re-projection of
+  the BASE GPU set via `calibrate_tts_variant_from_base`; full
+  re-calibration only if that finds no fit. Profiles whose GPU set is
+  disjoint from the TTS card are copied without probes (isolated mode).
 - **VLM variants** (qwen3-vl:4b, qwen3-vl:8b): analogous with a VLM reserve.
 - **Combo variants** (TTS×VLM): both reserves on the same
-  side-channel GPU. A combo is discarded if TTS+VLM overflow
+  side-channel card. A combo is discarded if TTS+VLM overflow
   the card (capacity check).
 
-Current LLM path: `calibration_mode = "ai"` calls
-[ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) — but **only
-for BASE**. Speed/TTS/VLM/combos still run algorithmically through
-`calibrate_tts_variant_from_base` (re-projection via fit-params).
+Current LLM path (as of 2026-09-25): `calibration_mode = "ai"` (default
+`"legacy"`) calls `calibrate_with_ai()` in
+[ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) — for **BASE,
+SPEED and the TTS/VLM/combo cells**:
+
+- BASE: `_try_ai_calibration()` in
+  [flow.py](../../../aifred/lib/calibration/flow.py).
+- SPEED: `_find_speed_candidate()` picks the smaller GPU set
+  deterministically, the AI optimizes ctx/split on exactly that locked set
+  (`_ai_variant_from_base(as_speed=True)`).
+- TTS/VLM/combo: `calibrate_tts_variant_from_base` dispatches to
+  `_ai_variant_from_base()` in AI mode instead of the algorithmic
+  projection. The isolated-mode copy in the calibration mixin stays
+  probe-free in both modes.
+- AI mode is terminal: on failure it reports an error, no fallback to the
+  algorithm.
+- Provider/model come from the `calibration` system agent in
+  `data/agents.json` (default provider `qwen`).
 
 ## Core hypothesis
 
@@ -109,8 +127,8 @@ Per variant (BASE, SPEED, each TTS, each VLM, each combo):
 - Model chosen from the pre-selected candidates, cache cleared.
 - Wall-clock stopwatch from "start" until "all profiles written to
   `~/.config/llama-swap/config.yaml`".
-- Same variant list for both paths (BASE + SPEED + 3 TTS + 2 VLM +
-  up to 6 combos).
+- Same variant list for both paths: BASE + SPEED + the same TTS, VLM and
+  combo cells ticked in the calibration picker (`calibration_matrix`).
 
 ### What the LLM (Claude) may do
 
@@ -146,7 +164,7 @@ between runs for a clean GPU state.
 |---|---|
 | LLM clearly wins (≥20% faster, same ctx values, deterministic) | Keep the AI path as an optional variant, split prompts per step (separate prompts for BASE + SPEED, re-projection stays algorithmic), possibly default later |
 | LLM competitive but not clearly better | Keep the AI path as a last resort for edge cases (unusual hardware, fit-params fails completely). No investment in a refactor |
-| LLM worse or non-deterministic | Throw out the AI path, delete [ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) + [prompts/de/calibration/system.txt](../../../prompts/de/calibration/system.txt) + the `calibration_mode` switch |
+| LLM worse or non-deterministic | Throw out the AI path, delete [ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) + the AI branches in [flow.py](../../../aifred/lib/calibration/flow.py) (`_try_ai_calibration`, `_ai_variant_from_base`) + `prompts/{de,en}/calibration/system.txt` + the `calibration` agent in `data/agents.json` + the `calibration_mode` switch |
 
 ## Binding rules for the LLM side
 
@@ -154,12 +172,15 @@ For the comparison to be fair, the LLM must **follow exactly the same algorithm*
 as described in [calibration-strategy.md](calibration-strategy.md).
 No "getting smarter" where the algorithm is conservative:
 
-- **Sorting**: compute_cap DESC → total_mb DESC → cuda_id ASC.
+- **Sorting**: compute_cap DESC → total_mb DESC → name → UUID
+  (`enumerate_gpus()` in `aifred/lib/calibration/gpu.py`).
 - **Order on OOM**: first max. 15 layer shifts at native ctx,
   **only then** ctx shrink. No shortcuts.
-- Take the **first-GPU handicap** (256 MB floor, max 500 MB) into account —
-  GPU0 has less usable VRAM due to display + KV cache output tensor
-  pinning.
+- Take the **first-GPU handicap** into account (idle measurement with
+  256 MB floor; an idle delta above 500 MB falls back to the floor; once
+  fit-params has run, model-derived via `first_gpu_handicap_mb()`) —
+  GPU0 has less usable VRAM due to display + llama.cpp main-device
+  buffers (output tensor, compute workspace, MTP draft).
 - **Native ctx is a hard cap** — never probe higher.
 - **Hybrid mode** (CPU offload) only if explicitly allowed.
 
@@ -176,7 +197,8 @@ If the AI path is expanded, new prompt layout:
 - Inter-step context: after the BASE result, `(ctx, split, measured_free_mb)`
   is passed on into the SPEED prompt.
 - Re-projection (TTS/VLM/combo) stays purely algorithmic — no
-  LLM reasoning there.
+  LLM reasoning there (today, AI mode also hands these cells to the AI,
+  see [Background](#background)).
 - `agents.json` schema: possibly a separate model + reasoning toggle per step.
 
 ## References
@@ -186,11 +208,11 @@ If the AI path is expanded, new prompt layout:
 - [aifred/lib/calibration/flow.py](../../../aifred/lib/calibration/flow.py) —
   `calibrate_llamacpp_model`
 - [aifred/lib/calibration/ai_agent.py](../../../aifred/lib/calibration/ai_agent.py) —
-  current LLM path (BASE only)
+  current LLM path (BASE, SPEED, TTS/VLM/combo cells)
 - [aifred/lib/calibration/optimizer.py](../../../aifred/lib/calibration/optimizer.py) —
   `fill_fastest_first`
-- [prompts/de/calibration/system.txt](../../../prompts/de/calibration/system.txt) —
-  current LLM system prompt
+- [prompts/en/calibration/system.txt](../../../prompts/en/calibration/system.txt) —
+  current LLM system prompt (`ai_agent.py` always loads it with `lang="en"`)
 - [data/vlm_vram_cache.json](../../../data/vlm_vram_cache.json),
   [data/tts_vram_cache.json](../../../data/tts_vram_cache.json) — burn-in lookups
 - [data/model_vram_cache.json](../../../data/model_vram_cache.json) — calibration cache

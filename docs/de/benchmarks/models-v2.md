@@ -16,7 +16,7 @@
   - 1× Tesla P40 (24 GB) über USB4
   - Gesamt: **~115 GB VRAM** (4 GPUs)
 - **Backend**: llama.cpp über llama-swap, Direct-IO, flash-attn
-- **Embedding**: nomic-embed-text-v2-moe über Ollama (CPU-Modus, kein VRAM-Verbrauch)
+- **Embedding** (zum Zeitpunkt des Benchmarks): nomic-embed-text-v2-moe über Ollama (CPU-Modus, kein VRAM-Verbrauch); AIfred nutzt inzwischen bge-m3
 - **OS**: Ubuntu, Kernel 6.17.0-19-generic
 
 ## Getestete Modelle
@@ -41,8 +41,8 @@ Nemotron schafft 874K Kontext (83 % des nativen 1M), weil es nur 12B aktive Para
 
 ## Benchmark 1: RAG-Dokumentensuche
 
-**Aufgabe**: „Liste alle Dokumente, die mit Transfusions- und Labormedizin zu tun haben, auf. Fasse sie ausfuehrlich zusammen."
-**RAG-Kontext**: ~29K Token (44–46 Chunks aus 6 Dokumenten automatisch eingespeist)
+**Aufgabe**: „Liste alle Dokumente, die mit Transfusions- und Labormedizin zu tun haben, auf. Fasse sie ausführlich zusammen."
+**RAG-Kontext**: ~29K Token (44–46 Chunks aus 6 Dokumenten, automatisch in den Prompt eingespeist, wie es AIfred zum Zeitpunkt des Benchmarks tat; heute sucht der Agent Dokumente selbst über das `search_documents`-Tool, ohne automatische Einspeisung)
 **Verfügbare Tools**: list_documents, search_documents, web_search, store_memory usw.
 **Erwartet**: 8–10 transfusionsbezogene Dokumente von insgesamt 24 in der Datenbank (472 Chunks)
 
@@ -93,7 +93,7 @@ Nemotron schafft 874K Kontext (83 % des nativen 1M), weil es nur 12B aktive Para
 
 **Qwen3-4B** (6/10):
 - Für 4B überraschend brauchbar — findet 5 Dokumente, ordentliche Zusammenfassungen
-- Keine Tool-Nutzung — verlässt sich nur auf die automatisch eingespeisten RAG-Chunks
+- Keine Tool-Nutzung — verließ sich nur auf die damals automatisch eingespeisten RAG-Chunks
 - Beste PP-Geschwindigkeit (645 tok/s), aber durch die Modellintelligenz begrenzt
 - Gut für schnelle Überblicke, nicht für gründliche Analysen
 
@@ -104,9 +104,9 @@ Nemotron schafft 874K Kontext (83 % des nativen 1M), weil es nur 12B aktive Para
 - Für RAG-Aufgaben nicht empfohlen
 
 **MiniMax-M2.5** (nicht testbar):
-- OOM-Absturz (Segfault), wenn das Ollama-Embedding-Modell ~900 MB VRAM belegt
-- Behoben durch Umstellung des Embeddings auf CPU-Modus (EMBEDDING_USE_GPU=False)
-- Muss mit aktivem CPU-Embedding neu kalibriert werden
+- OOM-Absturz (Segfault), wenn das Ollama-Embedding-Modell ~900 MB VRAM belegte
+- Damals behoben durch Umstellung des Embeddings auf CPU-Modus (EMBEDDING_USE_GPU=False)
+- Hätte mit aktivem CPU-Embedding neu kalibriert werden müssen; nicht nachgemessen
 
 **Qwen3-235B-A22B** (nicht testbar):
 - Wegen extremer Inference-Zeit abgebrochen
@@ -119,8 +119,8 @@ Nemotron schafft 874K Kontext (83 % des nativen 1M), weil es nur 12B aktive Para
 3. **Modellgröße != Qualität**: GPT-OSS (5,1B aktiv) schlägt Qwen3-30B (3B aktiv) und Qwen3-4B (4B)
 4. **Aktive Parameter != Tempo**: Qwen3-Next-80B (3B aktiv, 87 GB) ist schneller als Qwen3.5-122B (10B aktiv, 86 GB)
 5. **Tool-Nutzung ist entscheidend**: Modelle, die list_documents aufrufen, finden 8–10 Dokumente, die ohne nur 5
-6. **Qwen3-Instruct-Modelle nutzen bei aktiviertem Thinking keine Tools** — bekannter Bug, Thinking für Instruct + Tools deaktiviert
-7. **Embedding auf der GPU verursacht OOM** bei großen Modellen — CPU-Embedding (143 ms gegen 89 ms) ist der sichere Standard
+6. **Qwen3-Instruct-Modelle nutzten bei aktiviertem Thinking keine Tools** — damals bekannter Bug; Thinking war für Instruct + Tools während des Benchmarks deaktiviert
+7. **Embedding auf der GPU verursachte OOM** bei großen Modellen auf diesem Aufbau — CPU-Embedding (143 ms gegen 89 ms) war damals der sichere Standard
 8. **PP-Tempo zählt bei RAG mehr als TG** — große Prompts (30K Token) dominieren die Gesamtzeit
 
 ---
