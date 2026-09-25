@@ -438,30 +438,34 @@ class OpenAICompatibleBackend(LLMBackend):
         """URL of the server in front of the OpenAI ``/v1`` prefix (llama-swap)."""
         return self.base_url.rsplit("/v1", 1)[0]
 
-    # Last model the sidecar guard checked: it runs on a model switch, not on
-    # every request (no HTTP overhead in the steady state).
-    _last_guarded_model: str = ""
+    async def _free_gpus_for_load(self, model: str) -> None:
+        """Clear the cards before llama-swap loads ``model``.
 
-    async def _evict_conflicting_sidecars(self, model: str) -> None:
-        """Unload the sidecars that sit on a card the next model will load onto.
+        Runs for every request of every caller (browser, Message Hub,
+        scheduler, sub-agents) and acts only when ``model`` is not running,
+        i.e. when this request triggers a load — also a re-load of the same
+        model after its ttl expired. Two things may hold VRAM the
+        calibrated split counts as free:
 
-        The llama-swap ``vision`` and ``embed`` groups are ``persistent``:
-        llama-swap never unloads their ``-visiond`` describers and ``-embed``
-        servers for a main model (only their ttl does). A main model that
-        wants a card a sidecar holds then fails to start (2026-09-24:
-        DeepSeek-V4 over all five cards, the 4B describer on the fifth). So
-        before a load, every running sidecar whose GPUs overlap the target
-        entry's is unloaded. Profiles with a ``-vlm-`` marker keep a reserve
-        for the describer by calibration and never evict. A running target
-        is no load, so nothing is unloaded then (only ttl cleans up).
+        * Whisper's GPU worker: it loads only onto a card with free VRAM
+          (otherwise transcription falls back to the CPU), so it can sit on
+          a card an unloaded model will need again. Released first; a
+          running transcription gets WHISPER_RELEASE_WAIT_MAX_S.
+        * Sidecars: the llama-swap ``vision`` and ``embed`` groups are
+          ``persistent`` — llama-swap never unloads their ``-visiond``
+          describers and ``-embed`` servers for a main model (only their
+          ttl does). A main model that wants a card a sidecar holds then
+          fails to start (2026-09-24: DeepSeek-V4 over all five cards, the
+          4B describer on the fifth). Every running sidecar whose GPUs
+          overlap the target entry's is unloaded. Profiles with a ``-vlm-``
+          marker keep a reserve for the describer by calibration and never
+          evict; sidecars never evict each other.
         """
-        if model == self._last_guarded_model:
-            return
-        self._last_guarded_model = model
-        if "-vlm-" in model or model.endswith(("-visiond", "-embed")):
-            return
+        import asyncio
+
         import httpx
 
+        from ..lib.audio_processing import release_whisper_gpu
         from ..lib.calibration import parse_llamaswap_config
         from ..lib.calibration.gpu import gpu_uuids_by_index
         from ..lib.calibration.llamaswap_io import entry_gpu_uuids
@@ -475,8 +479,14 @@ class OpenAICompatibleBackend(LLMBackend):
                 running = [
                     m.get("model", "") for m in (resp.json().get("running") or [])
                 ]
+                if model in running:
+                    return
+                if await asyncio.to_thread(release_whisper_gpu):
+                    log_message(f"🎤 Whisper GPU worker released before loading '{model}'")
+                if "-vlm-" in model or model.endswith(("-visiond", "-embed")):
+                    return
                 sidecars = [m for m in running if m.endswith(("-visiond", "-embed"))]
-                if model in running or not sidecars:
+                if not sidecars:
                     return
                 config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
                 uuids = gpu_uuids_by_index()
@@ -502,7 +512,7 @@ class OpenAICompatibleBackend(LLMBackend):
         except (httpx.HTTPError, ValueError) as e:
             # The guard must not kill the chat, but it fails loudly: the load
             # may then fail on a held card, visible in the llama-swap log.
-            log_message(f"⚠️ Sidecar eviction check failed: {e}")
+            log_message(f"⚠️ GPU clean-up before load failed: {e}")
 
     @classmethod
     def _last_exception_line(cls, log_text: str) -> Optional[str]:

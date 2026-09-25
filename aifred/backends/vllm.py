@@ -56,8 +56,8 @@ class vLLMBackend(OpenAICompatibleBackend):
     # ------------------------------------------------------------------
 
     async def _pre_request_check(self, model: str) -> None:
-        """Unload sidecars that hold a card this model loads onto."""
-        await self._evict_conflicting_sidecars(model)
+        """Free the cards (Whisper GPU worker, sidecars) before a model load."""
+        await self._free_gpus_for_load(model)
 
     def _upstream_port(self) -> int | None:
         """Port des laufenden vLLM-Servers, laut llama-swap.

@@ -1240,18 +1240,6 @@ class WhisperGPUUnavailable(RuntimeError):
     """No GPU with enough free VRAM — caller may retry on CPU."""
 
 
-def whisper_gpu_busy() -> bool:
-    """True while the whisper-stt GPU worker is transcribing (False if the
-    service is down)."""
-    import requests
-    from .config import WHISPER_SERVICE_URL
-    try:
-        resp = requests.get(f"{WHISPER_SERVICE_URL}/status", timeout=3)
-        return bool(resp.ok and resp.json().get("gpu_busy"))
-    except (requests.RequestException, ValueError):
-        return False
-
-
 def release_whisper_gpu() -> bool:
     """Kill the whisper-stt GPU worker so its VRAM can't collide with an
     LLM cold start (calibrated splits assume empty cards).

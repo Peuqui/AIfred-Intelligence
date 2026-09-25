@@ -119,13 +119,16 @@ happens only via the profile's `ttl`** (e.g. 900 s idle for
 `ttl_for_model_size`).
 
 The conflict case — a main model wants a card a sidecar holds — is handled
-by AIfred itself: `_evict_conflicting_sidecars`
+by AIfred itself: `_free_gpus_for_load`
 ([`aifred/backends/base.py`](../../../aifred/backends/base.py))
-runs in `_pre_request_check` of the llama.cpp and vLLM backends (only on model
-change, cached via `_last_guarded_model`). Profiles with a `-vlm-` marker
-(reserve by calibration) and the sidecars themselves never evict. Otherwise the
-guard reads llama-swap's `/running`; if the target model is already running or
-no sidecar (`-visiond`, `-embed`) is loaded, nothing is touched. It then
+runs in `_pre_request_check` of the llama.cpp and vLLM backends on every
+request and reads llama-swap's `/running`. If the target model is already
+running, nothing is touched. Otherwise the request triggers a load (also a
+re-load of the same model after its ttl) and the guard first releases Whisper's
+GPU worker (`release_whisper_gpu`; a running transcription gets a grace
+period), then handles the sidecars. Profiles with a `-vlm-` marker (reserve by
+calibration) and the sidecars themselves never evict sidecars; with no sidecar
+(`-visiond`, `-embed`) loaded there is nothing more to do. It then
 compares the GPUs of the target entry and of each running sidecar
 (`CUDA_VISIBLE_DEVICES` from the llama-swap config, `entry_gpu_uuids`) and
 unloads every sidecar sharing a GPU via `POST /api/models/unload/<sidecar>`

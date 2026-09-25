@@ -1,4 +1,5 @@
-"""Sidecar guard: unload a describer/embedder only when the next model needs its card."""
+"""GPU clean-up before a load: the Whisper GPU worker always, a describer or
+embedder only when the next model needs its card."""
 
 import asyncio
 from typing import Any
@@ -71,18 +72,35 @@ class _Client:
         return _Response({})
 
 
-def _evicted(monkeypatch: pytest.MonkeyPatch, model: str, running: list[str]) -> list[str]:
+_whisper_releases: list[str] = []
+
+
+def _fake_release_whisper_gpu() -> bool:
+    _whisper_releases.append("gpu")
+    return False
+
+
+def _run(monkeypatch: pytest.MonkeyPatch, models: list[str], running: list[str]) -> list[str]:
+    """Run the pre-request check for each model in turn on one backend."""
+    import aifred.lib.audio_processing as audio_processing
     import aifred.lib.calibration as calibration
     from aifred.lib.calibration import gpu
 
     _Client.running, _Client.unloaded = running, []
+    _whisper_releases.clear()
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
     monkeypatch.setattr(calibration, "parse_llamaswap_config", lambda _: CONFIG)
     monkeypatch.setattr(gpu, "gpu_uuids_by_index", lambda: UUIDS)
+    monkeypatch.setattr(audio_processing, "release_whisper_gpu", _fake_release_whisper_gpu)
     backend = vLLMBackend.__new__(vLLMBackend)
     backend.base_url = "http://swap/v1"
-    asyncio.run(backend._pre_request_check(model))
+    for model in models:
+        asyncio.run(backend._pre_request_check(model))
     return _Client.unloaded
+
+
+def _evicted(monkeypatch: pytest.MonkeyPatch, model: str, running: list[str]) -> list[str]:
+    return _run(monkeypatch, [model], running)
 
 
 def test_guard_evicts_only_the_sidecar_on_a_shared_card(monkeypatch) -> None:
@@ -110,3 +128,22 @@ def test_guard_evicts_every_sidecar_when_the_cards_are_unknown(monkeypatch) -> N
         "bge-embed",
     ]
 
+
+
+def test_whisper_gpu_is_released_before_every_load(monkeypatch) -> None:
+    # Same model twice while it is not running = a re-load after its ttl
+    # expired: Whisper may have taken the card meanwhile, so both release.
+    _run(monkeypatch, ["pp4-vllm", "pp4-vllm"], ["bge-embed"])
+    assert _whisper_releases == ["gpu", "gpu"]
+
+
+def test_whisper_gpu_stays_when_the_target_already_runs(monkeypatch) -> None:
+    # No load, no clean-up: Whisper only took the card if VRAM was free.
+    _run(monkeypatch, ["pp4-vllm"], ["pp4-vllm"])
+    assert _whisper_releases == []
+
+
+def test_whisper_gpu_is_released_for_reserve_and_sidecar_loads(monkeypatch) -> None:
+    # A -vlm- profile or a describer loads onto the side card too.
+    assert _run(monkeypatch, ["pp4-vllm-vlm-qwen3vl4b", "vl4b-visiond"], []) == []
+    assert _whisper_releases == ["gpu", "gpu"]
