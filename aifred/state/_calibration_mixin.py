@@ -1396,11 +1396,11 @@ class CalibrationMixin(rx.State, mixin=True):
 
         Workflow:
         1. Stop llama-swap service (free VRAM)
-        2. Phase 1: GPU-only binary search (ngl=99)
-        3. Phase 2: Speed variant calibration (multi-GPU tensor-split, if Phase 1 succeeds)
-        4. Phase 3: Hybrid NGL+context search (if GPU-only < MIN_USEFUL_CONTEXT_TOKENS)
-        4. Update llama-swap YAML with calibrated -c and -ngl values
-        5. Restart llama-swap service
+        2. calibration/flow.py: Phase A (metadata, budget), Phase 1 (base
+           cells; hybrid NGL search only if enabled and GPU-only falls short),
+           Phase E (speed variant), Phase D (write)
+        3. Update llama-swap YAML with calibrated -c and -ngl values
+        4. Restart llama-swap service
         6. Test thinking capability
         """
         import subprocess
@@ -1780,8 +1780,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 self._cal_debug("🔄 llama-swap restarted")  # type: ignore[attr-defined]
                 return
 
-            # Step 2: Run calibration (Phase 1: GPU-only, Phase 2: Hybrid if needed,
-            #          Phase 3: Speed split for multi-GPU models)
+            # Step 2: Run calibration (flow.py phases A, 1, E, D — see its docstring)
             # Result format: __RESULT__:{ctx}:{ngl}:{mode}:{thinks|nothink}
             # Speed format:  __SPEED__:{layer_split},{context},{num_gpus},{kv_quant}
             #   layer_split is full distribution e.g. "26:11:11:0"
@@ -1799,7 +1798,7 @@ class CalibrationMixin(rx.State, mixin=True):
             speed_num_gpus = 0
             speed_kv_quant = "f16"
             speed_uuid_csv = ""
-            # Calibrate the base model — speed variant is created as Phase 2
+            # Calibrate the base model — speed variant is created in Phase E
             # (model_id is always base ID — SSOT, no suffix stripping needed)
             calibration_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
 
@@ -2257,8 +2256,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 # synthesis loop, polls peak VRAM, writes the
                                 # value to data/tts_vram_cache.json), so the
                                 # next call is fast. Hardware-agnostic — no
-                                # hand-pinned ``calibration_vram_reserve_mb``
-                                # values anymore.
+                                # hand-pinned per-engine reserves.
                                 from ..lib.tts_stress_burnin import (
                                     resolve_tts_reserve,
                                 )

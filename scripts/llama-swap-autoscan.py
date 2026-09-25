@@ -1298,7 +1298,7 @@ def _detect_mtp_via_build_config(gguf_file: Path) -> bool:
         modul.save_mtp_cache(cache)
         return ergebnis
     except Exception as fehler:  # noqa: BLE001 — Namensgebung darf nie scheitern
-        print(f"  ~ MTP-Erkennung uebersprungen ({type(fehler).__name__}: {fehler})")
+        print(f"  ~ MTP detection skipped ({type(fehler).__name__}: {fehler})")
         return False
 
 

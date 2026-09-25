@@ -4,8 +4,8 @@ Qwen3-TTS HTTP Server for AIfred.
 Provides a REST API for text-to-speech generation using the
 Qwen3-TTS-12Hz-1.7B-Base model with voice cloning.
 
-Reference voices are read from /app/voices/<name>.wav and (optionally)
-/app/voices/<name>.txt for the transcript. The reference is processed
+Reference voices are read from /app/voices/<name>/<name>.wav and (optionally)
+/app/voices/<name>/<name>.txt for the transcript (shared docker/tts/voices/ tree). The reference is processed
 into a clone-prompt exactly once per voice and cached in-memory for
 all subsequent requests (the docs call this the "fast path").
 

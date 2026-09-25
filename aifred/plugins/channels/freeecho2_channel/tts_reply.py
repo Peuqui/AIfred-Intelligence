@@ -31,12 +31,11 @@ class TtsReplyMixin(BaseChannel):
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send TTS audio back to the FreeEcho.2 device.
 
-        Geht ueber den AudioOrchestrator des FreeEcho2Channels. Der
-        macht alles in einem Aufruf: TTS-Takeover bei laufender Music
-        (mpv-pause + audio_flag(tts) + pump + audio_flag(music) +
-        mpv-resume) oder TTS-standalone. Kein eigenes Pause/Resume-
-        Handling mehr — der Orchestrator ist Single-Source-of-Truth
-        fuer Audio-State pro Room.
+        Geht ueber den AudioOrchestrator des FreeEcho2Channels
+        (``play_tts``): TTS laeuft immer standalone — laufende Music wird
+        dabei beendet (Position gespeichert, spaeter via ``audio_resume``).
+        Kein eigenes Pause/Resume-Handling — der Orchestrator ist
+        Single-Source-of-Truth fuer Audio-State pro Room.
         """
         room = outbound.channel_id
         ws = _devices.get(room)

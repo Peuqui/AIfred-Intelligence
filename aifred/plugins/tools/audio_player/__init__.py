@@ -8,8 +8,7 @@ The LLM never sees raw paths or URLs — only labels from settings.json.
 This is by design: see docs/de/architecture/audio-pipeline.md for the
 SSRF/path-traversal threat model.
 
-Phase 1.0: local playback only. Browser/FreeEcho.2 output adapters land in
-later phases.
+Output targets: local mpv, browser and FreeEcho.2 rooms (see ``_resolve_target``).
 """
 
 from __future__ import annotations

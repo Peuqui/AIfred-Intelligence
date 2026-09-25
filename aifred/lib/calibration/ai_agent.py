@@ -8,8 +8,9 @@ errors and unexpected VRAM patterns. The LLM sees a tool API:
   probe_config(ctx, tensor_split) → status + per-GPU free MB
   finalize(ctx, tensor_split, reasoning) → end the loop with a result
 
-It iterates until ``finalize`` is called or ``MAX_PROBES`` is exceeded;
-on errors or timeout the caller falls back to the legacy algorithm.
+It iterates until ``finalize`` is called or ``MAX_PROBES`` is exceeded.
+AI mode is terminal: on errors or timeout the calibration ends as an
+honest failure, it does not fall back to the legacy algorithm.
 
 Cost: ~10 ¢ with qwen-plus, ~60 ¢ with qwen-max for one calibration
 (15-probe cap, ~150 k input + ~25 k output cumulative).
@@ -247,7 +248,8 @@ def _build_system_prompt(
 
     # Force lang="en" — the prompt is for an LLM tool-use loop, not the
     # human UI. Tool-calling reasoning is more reliable on English
-    # regardless of UI locale, and we only ship the EN file.
+    # regardless of UI locale; the DE file is kept only for the
+    # bilingual prompt convention and is not loaded here.
     return load_prompt(
         prompt_name,
         lang="en",

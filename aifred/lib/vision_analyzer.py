@@ -152,7 +152,7 @@ async def analyze_sequence(
 
     ``max_pixels`` deckelt jedes Frame auf diese Gesamtpixelzahl (SSOT:
     ``downscale_for_vlm``). Default ist das Vigilantia-Ziel
-    (``VISION_VLM_MAX_PIXELS``, ~0,8 MP) — schnell, für Überwachung
+    (``VISION_VLM_MAX_PIXELS``, ~2,1 MP) — schnell, für Überwachung
     ausreichend. ``max_pixels <= 0`` schaltet den Downscale ab (volle
     Auflösung); das nutzt der bewusste ``vision_analyze``-Tool-Call, wenn
     der User echte Detailanalyse will.
