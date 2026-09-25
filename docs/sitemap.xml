@@ -2,80 +2,260 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://peuqui.github.io/AIfred-Intelligence/</loc>
-    <lastmod>2025-01-23</lastmod>
+    <lastmod>2026-08-08</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
   </url>
   <url>
-    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Hund_oder_Katze_DE.html</loc>
-    <lastmod>2025-01-23</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_EN.html</loc>
-    <lastmod>2025-01-23</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.8</priority>
-  </url>
-  <url>
-    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Hund_oder_Katze_MultiAgent_Debatte_DE.html</loc>
-    <lastmod>2025-01-23</lastmod>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Code_Review_MIT_Persoenlichkeiten_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
-    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Dog_or_Cat_MultiAgent_Debate_EN.html</loc>
-    <lastmod>2025-01-23</lastmod>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Code_Review_OHNE_Persoenlichkeiten_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Code_Review_WITHOUT_Personalities_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Code_Review_WITH_Personalities_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_Tribunal_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Dog_or_Cat_WITHOUT_Personalities_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Error_Handling_Tribunal_MIT_Persoenlichkeiten_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Error_Handling_Tribunal_OHNE_Persoenlichkeiten_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Error_Handling_Tribunal_WITHOUT_Personalities_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Error_Handling_Tribunal_WITH_Personalities_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Hund_oder_Katze_DE.html</loc>
+    <lastmod>2026-09-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Hund_oder_Katze_OHNE_Persoenlichkeiten_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/AIfred_Hund_oder_Katze_Tribunal_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_GLM-4.7-REAP-218B_Tribunal_DE.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_GPT-OSS-120B_Tribunal_DE.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_GPT-OSS-120B_Tribunal_EN.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_MiniMax-M2.5-IQ3_Tribunal_EN.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_MiniMax-M2.5-Q2_Tribunal_EN.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_Qwen3-235B-Q2_Tribunal_DE.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_Qwen3-235B-Q2_Tribunal_EN.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_Qwen3-235B-Q3_Tribunal_DE.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_Qwen3-Next-80B-Thinking_Tribunal_DE.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_Qwen3-Next-80B_Tribunal_DE.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_Qwen3-Next-80B_Tribunal_EN.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_Qwen3.5-122B_Tribunal_DE.html</loc>
+    <lastmod>2026-03-28</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Benchmark_Tensor_Split_EN.html</loc>
+    <lastmod>2026-02-19</lastmod>
     <changefreq>monthly</changefreq>
     <priority>0.7</priority>
   </url>
   <url>
     <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Chemie.html</loc>
-    <lastmod>2025-01-23</lastmod>
+    <lastmod>2026-02-13</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Chemistry_EN.html</loc>
-    <lastmod>2025-01-23</lastmod>
+    <lastmod>2026-02-13</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Math.html</loc>
-    <lastmod>2025-01-23</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  <url>
-    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Math_EN.html</loc>
-    <lastmod>2025-01-23</lastmod>
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Coding.html</loc>
-    <lastmod>2025-01-23</lastmod>
+    <lastmod>2026-09-25</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Coding_EN.html</loc>
-    <lastmod>2025-01-23</lastmod>
+    <lastmod>2026-09-25</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Hardware_Setup_Frankenstein_MiniPC.html</loc>
+    <lastmod>2026-08-08</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Math.html</loc>
+    <lastmod>2026-09-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Math_EN.html</loc>
+    <lastmod>2026-09-25</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Dog_or_Cat_MultiAgent_Debate_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Dog_or_Cat_Tribunal_Debate_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Error_Handling_Tribunal_Debate_EN.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Error_Handling_Tribunal_Debatte_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Hund_oder_Katze_MultiAgent_Debatte_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
+  </url>
+  <url>
+    <loc>https://peuqui.github.io/AIfred-Intelligence/examples/Showcase_Hund_oder_Katze_Tribunal_Debatte_DE.html</loc>
+    <lastmod>2026-02-13</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://peuqui.github.io/AIfred-Intelligence/examples/WebResearch.html</loc>
-    <lastmod>2025-01-23</lastmod>
+    <lastmod>2026-02-13</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.7</priority>
   </url>
   <url>
     <loc>https://peuqui.github.io/AIfred-Intelligence/examples/WebResearch_EN.html</loc>
-    <lastmod>2025-01-23</lastmod>
+    <lastmod>2026-02-13</lastmod>
     <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
+    <priority>0.7</priority>
   </url>
 </urlset>
