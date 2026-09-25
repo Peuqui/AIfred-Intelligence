@@ -62,7 +62,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             ),
             # Backend + Voice
             rx.hstack(
-                rx.text("Backend", font_size="11px", color="#aaa", flex_shrink="0"),
+                rx.text(t("agent_editor_tts_backend"), font_size="11px", color="#aaa", flex_shrink="0"),
                 rx.box(
                     rx.select(
                         AIState.tts_engines,
@@ -74,7 +74,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
                     flex="1",
                     min_width="0",
                 ),
-                rx.text("Voice", font_size="11px", color="#aaa", flex_shrink="0"),
+                rx.text(t("agent_editor_tts_voice"), font_size="11px", color="#aaa", flex_shrink="0"),
                 rx.box(
                     rx.select(
                         AIState.editor_tts_available_voices,
@@ -93,7 +93,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             ),
             # Speed + Pitch
             rx.hstack(
-                rx.text("Speed", font_size="11px", color="#aaa", width="55px"),
+                rx.text(t("agent_editor_tts_speed"), font_size="11px", color="#aaa", width="55px"),
                 rx.select(
                     # 0.05 steps in the speech-natural range so
                     # there's a value between 0.8 and 0.9 (0.85);
@@ -111,7 +111,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
                     size="1",
                     width="90px",
                 ),
-                rx.text("Pitch", font_size="11px", color="#aaa", width="40px"),
+                rx.text(t("agent_editor_tts_pitch"), font_size="11px", color="#aaa", width="55px"),
                 rx.select(
                     ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
                     value=AIState.editor_agent_tts_pitch,
@@ -128,7 +128,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             # setting — Fish-Speech auto-detects, Edge/Piper/eSpeak
             # encode the language in the voice itself.
             rx.hstack(
-                rx.text("Sprache", font_size="11px", color="#aaa", width="55px"),
+                rx.text(t("agent_editor_tts_language"), font_size="11px", color="#aaa", width="55px"),
                 rx.box(
                     rx.select(
                         AIState.tts_language_labels,
