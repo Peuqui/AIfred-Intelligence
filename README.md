@@ -110,7 +110,7 @@ Setup: [Telegram](docs/en/guides/telegram-setup.md) · [Discord](docs/en/guides/
 
 ### 🎤 Voice
 
-- **Speech-to-text** — Whisper in Docker, a permanent CPU worker plus a GPU worker that unloads when idle; microphone dictation stays on the CPU, large uploads (meetings) go to the best free GPU, with duration estimate and confirmation for long files
+- **Speech-to-text** — Whisper in Docker for browser and FreeEcho.2 alike: GPU first while a card has free VRAM, otherwise the permanent CPU worker; the GPU worker is released before any LLM load and unloads when idle. Large uploads (meetings) get a duration estimate and a confirmation for long files
 - **Meeting pipeline** — transcribe in the original language → translate on demand (DeepL) → narrate into a phone-friendly MP3; every step leaves a file
 - **FreeEcho.2 voice terminal** — Echo Dot 2 hardware with custom firmware: wake word, the question appears in the browser within ~500 ms after STT
 - **Eight TTS engines**, per-agent voice, speed and pitch, gapless streaming playback, regenerate button per bubble:

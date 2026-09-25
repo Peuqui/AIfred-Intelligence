@@ -70,8 +70,8 @@ class LlamaCppBackend(OpenAICompatibleBackend):
     # === Pre-request validation ===
 
     async def _pre_request_check(self, model: str) -> None:
-        """Describer-Eviction-Guard + RPC-Konnektivitätsprüfung."""
-        await self._evict_conflicting_sidecars(model)
+        """Karten vor einem Ladevorgang freiräumen + RPC-Konnektivitätsprüfung."""
+        await self._free_gpus_for_load(model)
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.calibration import parse_llamaswap_config
 

@@ -121,13 +121,16 @@ wird nur per `ttl` des Profils** (z.B. 900 s idle bei
 `ttl_for_model_size`).
 
 Den Konflikt-Fall — ein Hauptmodell will eine Karte, die ein Beiwagen belegt —
-räumt AIfred selbst: `_evict_conflicting_sidecars`
+räumt AIfred selbst: `_free_gpus_for_load`
 ([`aifred/backends/base.py`](../../../aifred/backends/base.py))
-läuft im `_pre_request_check` der llama.cpp- und vLLM-Backends (nur bei
-Modellwechsel, gecacht über `_last_guarded_model`). Profile mit `-vlm-`-Marker
-(Reserve per Kalibrierung) und die Beiwagen selbst räumen nie. Sonst liest der
-Guard llama-swaps `/running`; läuft das Ziel-Modell bereits oder ist kein
-Beiwagen (`-visiond`, `-embed`) geladen, wird nichts angerührt. Danach
+läuft im `_pre_request_check` der llama.cpp- und vLLM-Backends bei jeder
+Anfrage und liest llama-swaps `/running`. Läuft das Ziel-Modell bereits, wird
+nichts angerührt. Sonst löst die Anfrage einen Load aus (auch das Neuladen
+desselben Modells nach seiner ttl), und der Guard gibt zuerst Whispers
+GPU-Worker frei (`release_whisper_gpu`; eine laufende Transkription bekommt eine
+Gnadenfrist), dann kümmert er sich um die Beiwagen. Profile mit `-vlm-`-Marker
+(Reserve per Kalibrierung) und die Beiwagen selbst räumen keine Beiwagen; ist
+kein Beiwagen (`-visiond`, `-embed`) geladen, ist nichts weiter zu tun. Danach
 vergleicht er die GPUs des Ziel-Eintrags und jedes laufenden Beiwagens
 (`CUDA_VISIBLE_DEVICES` aus der llama-swap-config, `entry_gpu_uuids`) und
 entlädt jeden Beiwagen mit gemeinsamer GPU via
