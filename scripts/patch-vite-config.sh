@@ -6,41 +6,32 @@
 #   problems for production deployments behind a reverse proxy:
 #
 #   1. Vite refuses requests with a Host header that's not "localhost".
-#      Add your domain to allowedHosts so e.g. https://example.com works.
+#      AIFRED_ALLOWED_HOST adds your domain to allowedHosts so e.g.
+#      https://example.com works.
 #
 #   2. Reflex splits shared libs (react-helmet, react, …) into multiple
 #      lazy chunks. Without dedupe, react-helmet ends up duplicated, the
 #      browser crashes with "Identifier 'scrollState' has already been
 #      declared", the frontend worker dies and kills running indexer jobs.
 #
-# WHEN TO RUN:
-#   Once after `reflex run` first generated .web/vite.config.js, and
-#   again whenever Reflex regenerates it (rare — usually only after
-#   reflex version upgrades).
+# WHEN IT RUNS:
+#   As ExecStartPre of aifred-intelligence.service on every start
+#   (idempotent). Before the first frontend build .web/vite.config.js does
+#   not exist yet; the script then does nothing.
 #
-# HOW TO USE THIS TEMPLATE:
-#   1. Copy this file to scripts/patch-vite-config.sh
-#        cp scripts/patch-vite-config.sh.example scripts/patch-vite-config.sh
-#   2. Adjust ALLOWED_HOST below to your domain (or leave blank for none).
-#   3. Make executable:     chmod +x scripts/patch-vite-config.sh
-#   4. Run:                 ./scripts/patch-vite-config.sh
-#
-# NOTE: scripts/patch-vite-config.sh is .gitignored because the host name
-# is machine-specific. This .example file is committed as the template.
+# CONFIGURATION:
+#   AIFRED_ALLOWED_HOST in .env (loaded by the service unit). Unset or empty
+#   skips the allowedHosts step — enough for local-only access.
 
 set -euo pipefail
 
-# Absolute path to your project's vite.config.js — adjust if needed.
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 VITE_CONFIG="$PROJECT_DIR/.web/vite.config.js"
-
-# Your external domain — leave empty ("") to skip the allowedHosts step.
-ALLOWED_HOST=""    # <-- e.g. "example.com" or "narnia.spdns.de"
+ALLOWED_HOST="${AIFRED_ALLOWED_HOST:-}"
 
 if [ ! -f "$VITE_CONFIG" ]; then
-    echo "ℹ️  $VITE_CONFIG nicht gefunden — Reflex hat das Frontend noch nicht gebaut."
-    echo "   Bitte einmal 'reflex run' starten, dann dieses Script erneut ausführen."
+    echo "ℹ️  $VITE_CONFIG not found — Reflex has not built the frontend yet."
     exit 0
 fi
 
@@ -55,5 +46,3 @@ if ! grep -q "dedupe:" "$VITE_CONFIG"; then
     sed -i 's|mainFields: \["browser", "module", "jsnext"\],|mainFields: ["browser", "module", "jsnext"],\n    dedupe: ["react-helmet", "react", "react-dom", "@radix-ui/themes", "@emotion/react"],|' "$VITE_CONFIG"
     echo "✅ Patched vite.config.js with dedupe (react-helmet, react, react-dom, …)"
 fi
-
-echo "Done."

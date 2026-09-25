@@ -1,6 +1,6 @@
 # Corpus-Tool Deployment auf Narnia
 
-UI fuer die Vector-DB unter `https://narnia.spdns.de:8443/corpus/` —
+UI fuer die Vector-DB unter `https://example.com:8443/corpus/` —
 Suche, Uebersicht, Upload, Verwaltung. Backend (FastAPI) auf
 127.0.0.1:8005, reverse-proxied von nginx.
 
@@ -81,10 +81,10 @@ Logs: `journalctl -u aifred-corpus-server -f`
 curl http://127.0.0.1:8005/api/health
 
 # Ueber nginx:
-curl -k https://narnia.spdns.de:8443/corpus/api/health
+curl -k https://example.com:8443/corpus/api/health
 
 # Im Browser:
-https://narnia.spdns.de:8443/corpus/
+https://example.com:8443/corpus/
 ```
 
 ## CLI-Tool (kein Deployment noetig)

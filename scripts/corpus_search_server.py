@@ -2,7 +2,7 @@
 """HTTP service for the AIfred corpus: search + admin (browse, delete, reindex).
 
 Serves a FastAPI app on 127.0.0.1:8005 by default. Designed to be
-reverse-proxied by the Narnia nginx under /corpus/api/. The static
+reverse-proxied by nginx under /corpus/api/. The static
 HTML UI lives separately under /corpus/ (handled by nginx).
 
 Endpoints:
@@ -48,13 +48,11 @@ app = FastAPI(title="AIfred Corpus Search & Admin", version="1.0")
 # requests need no CORS grant at all. We restrict cross-origin access to an
 # explicit allowlist instead of "*" — a wildcard would let any website issue
 # requests against the (basic-auth-protected) admin API from a logged-in user's
-# browser. Extra origins via CORPUS_ALLOWED_ORIGINS (comma-separated); defaults
-# to the production reverse-proxy origin.
+# browser. Extra origins via CORPUS_ALLOWED_ORIGINS (comma-separated); unset
+# means none, which is all the same-origin UI needs.
 _allowed_origins = [
     o.strip()
-    for o in os.environ.get(
-        "CORPUS_ALLOWED_ORIGINS", "https://narnia.spdns.de:8443"
-    ).split(",")
+    for o in os.environ.get("CORPUS_ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
 app.add_middleware(

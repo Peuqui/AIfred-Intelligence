@@ -669,42 +669,54 @@ step_summary "2b — Project initialization"
 echo ""
 
 # ============================================================
-# STEP 2c: Start ChromaDB container (vector cache)
+# STEP 2c: Start ChromaDB (vector store) + SearXNG (web research)
 # ============================================================
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Step 2c: Start ChromaDB container${NC}"
+echo -e "${BLUE}  Step 2c: Start ChromaDB + SearXNG containers${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo "ChromaDB is required for the vector cache (RAG, documents, memory)."
+echo "ChromaDB is required for the vector store (RAG, documents, memory),"
+echo "SearXNG for web research."
 echo "Started independently of the systemd setup via docker compose"
 echo "so AIfred is immediately runnable even without the systemd path."
 echo ""
+
+# docker-compose.yml requires SEARXNG_SECRET (no literal fallback — a
+# default in the file would be the same, publicly known secret for every
+# install). Generated once per machine into docker/.env (gitignored), which
+# compose reads automatically; later runs keep the existing value.
+if [ ! -f "$PROJECT_DIR/docker/.env" ] || ! grep -q "^SEARXNG_SECRET=" "$PROJECT_DIR/docker/.env"; then
+    echo "SEARXNG_SECRET=$(python3 -c 'import secrets; print(secrets.token_hex(32))')" >> "$PROJECT_DIR/docker/.env"
+    chmod 600 "$PROJECT_DIR/docker/.env"
+    echo -e "${GREEN}✅ Generated SEARXNG_SECRET in docker/.env${NC}"
+fi
 
 CHROMA_STARTED=0
 if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
     # Check if the container is already running (idempotent — re-runs
     # should not disturb).
-    if docker_run "docker ps --format '{{.Names}}' 2>/dev/null | grep -qx aifred-chromadb"; then
-        echo -e "${GREEN}✅ ChromaDB container 'aifred-chromadb' already running${NC}"
+    if docker_run "docker ps --format '{{.Names}}' 2>/dev/null | grep -qx aifred-chromadb" \
+       && docker_run "docker ps --format '{{.Names}}' 2>/dev/null | grep -qx aifred-searxng"; then
+        echo -e "${GREEN}✅ Containers 'aifred-chromadb' + 'aifred-searxng' already running${NC}"
         CHROMA_STARTED=1
     else
-        echo "   Starting ChromaDB container..."
-        if docker_run "cd '$PROJECT_DIR/docker' && docker compose up -d chromadb"; then
-            echo -e "${GREEN}✅ docker compose up -d chromadb (exit 0)${NC}"
+        echo "   Starting ChromaDB + SearXNG containers..."
+        if docker_run "cd '$PROJECT_DIR/docker' && docker compose up -d chromadb searxng"; then
+            echo -e "${GREEN}✅ docker compose up -d chromadb searxng (exit 0)${NC}"
             CHROMA_STARTED=1
         else
-            echo -e "${YELLOW}⚠️  'docker compose up -d chromadb' failed.${NC}"
+            echo -e "${YELLOW}⚠️  'docker compose up -d chromadb searxng' failed.${NC}"
             echo "   Possible causes:"
             echo "     • docker daemon not running (sudo systemctl start docker)"
             echo "     • user not yet active in docker group (log out + in)"
             echo "   Catch up manually:"
-            echo "       cd $PROJECT_DIR/docker && docker compose up -d chromadb"
+            echo "       cd $PROJECT_DIR/docker && docker compose up -d chromadb searxng"
         fi
     fi
 else
-    echo -e "${YELLOW}⚠️  docker / docker compose not available — ChromaDB not started.${NC}"
+    echo -e "${YELLOW}⚠️  docker / docker compose not available — ChromaDB + SearXNG not started.${NC}"
     echo "   Catch up once docker works:"
-    echo "       cd $PROJECT_DIR/docker && docker compose up -d chromadb"
+    echo "       cd $PROJECT_DIR/docker && docker compose up -d chromadb searxng"
 fi
 
 # ─── Verification of step 2c: container running + healthy + responding ───
@@ -792,7 +804,27 @@ else
     STEP_FAILURES+=("ChromaDB port 8000 not reachable")
 fi
 
-step_summary "2c — ChromaDB container"
+# SearXNG: a JSON search on the loopback port proves the container is up AND
+# the JSON format is enabled in docker/searxng/settings.yml (AIfred needs it).
+echo ""
+echo -e "${BLUE}🔎 Verifying SearXNG service...${NC}"
+searxng_ok=0
+for _ in $(seq 1 15); do
+    if curl -sf --max-time 10 "http://127.0.0.1:8888/search?q=test&format=json" -o /dev/null 2>/dev/null; then
+        searxng_ok=1
+        break
+    fi
+    sleep 2
+done
+if [ "$searxng_ok" = "1" ]; then
+    echo -e "   ${GREEN}✅ verified:${NC} SearXNG answers JSON searches (port 8888)"
+else
+    echo -e "   ${RED}❌ MISSING:${NC} SearXNG does not answer on port 8888"
+    echo -e "      ${YELLOW}→ docker logs aifred-searxng${NC}"
+    STEP_FAILURES+=("SearXNG not reachable on port 8888")
+fi
+
+step_summary "2c — ChromaDB + SearXNG containers"
 echo ""
 sleep 1
 
@@ -1408,9 +1440,8 @@ for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
 done
 echo ""
 echo "   • Reverse proxy setup (own domain via nginx/caddy):"
-echo "       cp scripts/patch-vite-config.sh.example scripts/patch-vite-config.sh"
-echo "       # set ALLOWED_HOST=\"your-domain.tld\", then:"
-echo "       ./scripts/patch-vite-config.sh    # after the first 'reflex run'"
+echo "       # set AIFRED_ALLOWED_HOST=your-domain.tld in .env, then restart:"
+echo "       sudo systemctl restart aifred-intelligence"
 echo ""
 echo "📚 Documentation: $PROJECT_DIR/README.md"
 echo ""

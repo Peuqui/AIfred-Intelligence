@@ -57,11 +57,11 @@ docker compose logs searxng
 ```
 
 **Change secret key?**
-```bash
-# Generate new secret:
-openssl rand -hex 32
 
-# Add to settings.yml:
-server:
-  secret_key: "your_new_secret_here"
+The secret comes from `SEARXNG_SECRET` in `docker/.env` (gitignored; generated
+once by `scripts/install-all.sh`) and overrides `secret_key` in `settings.yml`.
+To rotate it, replace the value and recreate the container:
+```bash
+sed -i "s/^SEARXNG_SECRET=.*/SEARXNG_SECRET=$(openssl rand -hex 32)/" docker/.env
+cd docker && docker compose up -d searxng
 ```

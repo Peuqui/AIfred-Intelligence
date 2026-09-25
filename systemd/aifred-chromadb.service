@@ -1,5 +1,5 @@
 [Unit]
-Description=AIfred ChromaDB (Docker)
+Description=AIfred ChromaDB + SearXNG (Docker)
 After=docker.service
 Requires=docker.service
 PartOf=docker.service
@@ -12,9 +12,10 @@ WorkingDirectory=__PROJECT_DIR__/docker
 # per sed aus `command -v docker` aufgelöst — typisch /usr/bin/docker auf
 # apt-Hosts, /snap/bin/docker bei Snap-Docker, /usr/local/bin/docker bei
 # manuellem Install. systemd akzeptiert keinen Lookup über PATH bei ExecStart.
-ExecStart=__DOCKER_BIN__ compose up -d chromadb
-ExecStop=__DOCKER_BIN__ compose stop chromadb
-ExecReload=__DOCKER_BIN__ compose restart chromadb
+# SearXNG is the primary web-research backend, so it runs alongside ChromaDB.
+ExecStart=__DOCKER_BIN__ compose up -d chromadb searxng
+ExecStop=__DOCKER_BIN__ compose stop chromadb searxng
+ExecReload=__DOCKER_BIN__ compose restart chromadb searxng
 Restart=on-failure
 
 [Install]

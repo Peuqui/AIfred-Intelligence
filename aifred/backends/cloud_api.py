@@ -1,7 +1,7 @@
 """
 Cloud API Backend Adapter
 
-Supports Claude (Anthropic), Qwen (DashScope), and Kimi (Moonshot) APIs.
+Supports Claude (Anthropic), Qwen (DashScope), DeepSeek and Kimi (Moonshot) APIs.
 All providers use OpenAI-compatible endpoints.
 chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 """
@@ -41,7 +41,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
         Args:
             base_url: API endpoint URL
             api_key: API key for authentication
-            provider: Provider ID ("claude", "qwen", or "kimi")
+            provider: Provider ID (key of CLOUD_API_PROVIDERS)
         """
         self.provider = provider
         self.provider_config = CLOUD_API_PROVIDERS.get(provider, CLOUD_API_PROVIDERS["qwen"])

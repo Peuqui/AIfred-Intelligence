@@ -20,9 +20,9 @@ except ImportError:
 # When the browser sees this, it replaces it with window.location.hostname.
 #
 # This allows the same deployment to work via:
-#   - https://narnia.spdns.de:8443 (nginx/external)
-#   - https://narnia.spdns.de:443 (nginx/external alt port)
-#   - http://192.168.0.252:3002 (direct/local from other machines)
+#   - https://example.com:8443 (nginx/external)
+#   - https://example.com (nginx/external, default port)
+#   - http://<LAN-IP>:3002 (direct/local from other machines)
 #
 # The frontend JS (state.js getBackendURL) does the magic replacement.
 

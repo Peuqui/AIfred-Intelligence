@@ -27,7 +27,7 @@ class BackendFactory:
         "ollama": OllamaBackend,
         "vllm": vLLMBackend,
         "llamacpp": LlamaCppBackend,   # llama.cpp via llama-swap (GGUF, direct)
-        "cloud_api": CloudAPIBackend,  # Cloud APIs (Claude, Qwen, Kimi)
+        "cloud_api": CloudAPIBackend,  # Cloud APIs (Claude, Qwen, DeepSeek, Kimi)
     }
 
     @classmethod
@@ -45,7 +45,7 @@ class BackendFactory:
             backend_type: "ollama", "vllm", "llamacpp", "cloud_api"
             base_url: Override default base URL
             api_key: API key (for cloud backends)
-            provider: Cloud API provider ("claude", "qwen", "kimi") - only for cloud_api
+            provider: Cloud API provider (key of CLOUD_API_PROVIDERS) - only for cloud_api
 
         Returns:
             LLMBackend instance

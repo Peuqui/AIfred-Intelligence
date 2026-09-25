@@ -41,8 +41,8 @@ Environment="BUN_MAX_OLD_SPACE_SIZE=4096"
 # Calibration probe port collides with another service (default 9999)?
 # Environment="LLAMACPP_CALIBRATION_PORT=19999"
 # ─────────────────────────────────────────────────────────────────
-# Reflex patch — fixes the frontend_path route-matching bug
-# (see CLAUDE.md). Idempotent: safe to run on every start.
+# Vite patch — allowedHosts from AIFRED_ALLOWED_HOST (.env) + dedupe of
+# shared frontend libs. Idempotent: safe to run on every start.
 ExecStartPre=/bin/bash __PROJECT_DIR__/scripts/patch-vite-config.sh
 ExecStart=__PROJECT_DIR__/venv/bin/python -m reflex run --frontend-port 3002 --backend-port 8002 --backend-host 0.0.0.0
 Restart=always
