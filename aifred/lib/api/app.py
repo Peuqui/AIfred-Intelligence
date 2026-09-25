@@ -29,8 +29,9 @@ api_app = FastAPI(
 # ============================================================
 # App-Level Auth (login cookie required)
 # ============================================================
-# Defense in depth below nginx basic-auth: the backend binds 127.0.0.1, but
-# without this gate every local process (or an SSRF from a scraped page)
+# Defense in depth below nginx basic-auth: the backend listens on all
+# interfaces (LAN clients reach port 8002 directly, see rxconfig.py), so
+# without this gate anyone on the network (or an SSRF from a scraped page)
 # could hit /system/restart-*, /vision/snapshot, /chat/history etc. Same
 # cookie the web login sets (see AuthenticatedStaticFiles for the static
 # twin) — browser calls are same-origin and carry it automatically.

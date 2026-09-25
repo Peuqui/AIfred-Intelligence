@@ -1,0 +1,25 @@
+// Polkit rule: lets one user manage AIfred's services without sudo.
+//
+// AIfred restarts these units itself — the web UI's restart button
+// (aifred-intelligence), calibration (llama-swap) and the Ollama restart
+// endpoint (ollama). Without this rule those actions fail unless AIfred
+// runs as root, which it must not.
+//
+// Installation (replace YOUR_USER with the account AIfred runs as):
+//   sed 's/YOUR_USER/'"$USER"'/' scripts/polkit/10-aifred.rules \
+//     | sudo tee /etc/polkit-1/rules.d/10-aifred.rules > /dev/null
+//   sudo chmod 644 /etc/polkit-1/rules.d/10-aifred.rules
+// Polkit picks the file up immediately, no restart needed.
+
+polkit.addRule(function(action, subject) {
+    var allowed = [
+        "aifred-intelligence.service",
+        "llama-swap.service",
+        "ollama.service"
+    ];
+    if (action.id === "org.freedesktop.systemd1.manage-units" &&
+        subject.user === "YOUR_USER" &&
+        allowed.indexOf(action.lookup("unit")) >= 0) {
+        return polkit.Result.YES;
+    }
+});
