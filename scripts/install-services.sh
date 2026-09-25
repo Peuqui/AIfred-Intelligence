@@ -119,10 +119,21 @@ fi
 #   * exists + identical         → silent skip
 #   * exists + differs           → backup .pre-aifred-<timestamp> + write
 #                                  (SERVICES_CHANGED=1)
-# A global SERVICES_CHANGED flag tracks whether daemon-reload / restart
-# is needed. Idempotent re-runs can therefore run daily without
-# interrupting the service.
+# SERVICES_CHANGED (global) decides the daemon-reload; CHANGED_SERVICES
+# lists the services whose own unit or drop-in was written — only those
+# get restarted. Idempotent re-runs can therefore run daily without
+# interrupting a service.
 SERVICES_CHANGED=0
+CHANGED_SERVICES=" "
+
+_mark_changed() {
+    SERVICES_CHANGED=1
+    CHANGED_SERVICES="${CHANGED_SERVICES}$1 "
+}
+
+_service_changed() {
+    [[ "$CHANGED_SERVICES" == *" $1 "* ]]
+}
 
 # Render a service template to stdout (substitutes __USER__, __PROJECT_DIR__,
 # __DOCKER_BIN__). Separating render from write lets us cmp the rendered
@@ -152,7 +163,7 @@ install_service() {
             chmod 644 "$dst"
             echo "   ✅ Newly installed: ${name}"
         fi
-        SERVICES_CHANGED=1
+        _mark_changed "$name"
         return 0
     fi
 
@@ -183,7 +194,7 @@ install_service() {
         chmod 644 "$dst"
         echo "   ♻️  Updated:     ${name}  (backup: $(basename "$backup"))"
     fi
-    SERVICES_CHANGED=1
+    _mark_changed "$name"
 }
 
 # Helper: idempotently install a drop-in config (override.conf,
@@ -209,7 +220,7 @@ install_dropin() {
             chmod 644 "$dst"
             echo "   ✅ Drop-in new: ${svc_name}.d/${name}"
         fi
-        SERVICES_CHANGED=1
+        _mark_changed "$svc_name"
         return 0
     fi
 
@@ -237,7 +248,7 @@ install_dropin() {
         chmod 644 "$dst"
         echo "   ♻️  Drop-in updated: ${svc_name}.d/${name}  (backup: $(basename "$backup"))"
     fi
-    SERVICES_CHANGED=1
+    _mark_changed "$svc_name"
 }
 
 echo "1️⃣  Installing main services (chromadb + aifred-intelligence)..."
@@ -307,7 +318,7 @@ ensure_active() {
         fi
         local state; state="$(systemctl is-active "$svc" 2>/dev/null || true)"
         if [ "$state" = "active" ]; then
-            if [ "$SERVICES_CHANGED" = "1" ]; then
+            if _service_changed "$svc"; then
                 echo "   📝 WOULD restart: ${svc}  (unit changed, currently active)"
             else
                 echo "   = ${svc} already active, nothing to do"
@@ -318,7 +329,7 @@ ensure_active() {
         return 0
     fi
     if systemctl is-active --quiet "$svc"; then
-        if [ "$SERVICES_CHANGED" = "1" ]; then
+        if _service_changed "$svc"; then
             systemctl restart "$svc"
             echo "   🔄 Restarted: ${svc}  (unit file changed)"
         else
@@ -404,7 +415,9 @@ if [ -f "$RESTART_SCRIPT" ]; then
         sudo -u "$ACTUAL_USER" ln -sf "$RESTART_SCRIPT" "$USER_BIN/llama-swap-restart"
         echo "   ✅ Symlink: $USER_BIN/llama-swap-restart -> $RESTART_SCRIPT"
         # PATH hint if ~/bin is not on PATH
-        if ! sudo -u "$ACTUAL_USER" bash -c 'echo "$PATH"' | tr ':' '\n' | grep -qx "$USER_BIN"; then
+        # Login shell: ~/.profile adds ~/bin; a plain `bash -c` under sudo
+        # only sees sudo's secure_path and would always warn.
+        if ! sudo -u "$ACTUAL_USER" bash -lc 'echo "$PATH"' | tr ':' '\n' | grep -qx "$USER_BIN"; then
             echo "   ⚠️  $USER_BIN is not on PATH — add to ~/.bashrc:"
             echo "       export PATH=\"\$HOME/bin:\$PATH\""
         fi
