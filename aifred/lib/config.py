@@ -1413,7 +1413,11 @@ BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selec
 # ============================================================
 # MESSAGE HUB CONFIGURATION
 # ============================================================
-MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "mp")  # Sessions created by hub belong to this user
+# AIfred account that owns the sessions the hub creates (channels, scheduler,
+# webhook) and counts as "owner" in the security checks. Required — written
+# to .env by scripts/install-all.sh with the first user; the app refuses to
+# start without it (aifred.py, _message_hub_lifespan).
+MESSAGE_HUB_OWNER = os.environ.get("MESSAGE_HUB_OWNER", "")
 
 # Scheduler: each run of a job sees what its previous runs delivered, so a
 # job like "a new psalm every morning" does not repeat itself.
