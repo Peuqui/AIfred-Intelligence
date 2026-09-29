@@ -69,9 +69,17 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     # === Pre-request validation ===
 
-    async def _pre_request_check(self, model: str) -> None:
-        """Karten vor einem Ladevorgang freiräumen + RPC-Konnektivitätsprüfung."""
-        await self._free_gpus_for_load(model)
+    async def _pre_request_check(self, model: str) -> float:
+        """RPC-Konnektivitätsprüfung, dann das Modell über llama-swap laden.
+
+        Die RPC-Prüfung kommt zuerst: ein Ladevorgang mit unerreichbarem
+        RPC-Server hinge sonst bis zum Timeout.
+        """
+        await self._check_rpc_servers(model)
+        return await self._load_model(model)
+
+    async def _check_rpc_servers(self, model: str) -> None:
+        """Alle ``--rpc``-Endpoints des Modells müssen erreichbar sein."""
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.calibration import parse_llamaswap_config
 

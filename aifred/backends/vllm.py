@@ -55,9 +55,9 @@ class vLLMBackend(OpenAICompatibleBackend):
     # Echte Prefill-Rate aus vLLMs eigenen Zaehlern
     # ------------------------------------------------------------------
 
-    async def _pre_request_check(self, model: str) -> None:
-        """Free the cards (Whisper GPU worker, sidecars) before a model load."""
-        await self._free_gpus_for_load(model)
+    async def _pre_request_check(self, model: str) -> float:
+        """Load the model through llama-swap (freeing its cards first)."""
+        return await self._load_model(model)
 
     def _upstream_port(self) -> int | None:
         """Port des laufenden vLLM-Servers, laut llama-swap.

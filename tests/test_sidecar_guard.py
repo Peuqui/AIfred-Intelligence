@@ -7,6 +7,7 @@ from typing import Any
 import httpx
 import pytest
 
+from aifred.backends.base import BackendModelStartError
 from aifred.backends.vllm import vLLMBackend
 from aifred.lib.calibration.llamaswap_io import entry_gpu_uuids
 
@@ -42,18 +43,23 @@ CONFIG = {
 
 
 class _Response:
-    def __init__(self, payload: dict[str, Any]) -> None:
+    def __init__(self, payload: dict[str, Any], status_code: int = 200, text: str = "") -> None:
         self._payload = payload
+        self.status_code = status_code
+        self.text = text
 
     def json(self) -> dict[str, Any]:
         return self._payload
 
 
 class _Client:
-    """Stands in for httpx.AsyncClient: serves /running, records unloads."""
+    """Stands in for httpx.AsyncClient: serves /running, records unloads
+    and the loads through /upstream/<model>/health."""
 
     running: list[str] = []
     unloaded: list[str] = []
+    loaded: list[str] = []
+    load_answer = _Response({})
 
     def __init__(self, **_: Any) -> None:
         pass
@@ -65,6 +71,9 @@ class _Client:
         return None
 
     async def get(self, url: str) -> _Response:
+        if "/upstream/" in url:
+            self.loaded.append(url.split("/upstream/", 1)[1].removesuffix("/health"))
+            return self.load_answer
         return _Response({"running": [{"model": m} for m in self.running]})
 
     async def post(self, url: str) -> _Response:
@@ -86,7 +95,8 @@ def _run(monkeypatch: pytest.MonkeyPatch, models: list[str], running: list[str])
     import aifred.lib.calibration as calibration
     from aifred.lib.calibration import gpu
 
-    _Client.running, _Client.unloaded = running, []
+    _Client.running, _Client.unloaded, _Client.loaded = running, [], []
+    _Client.load_answer = _Response({})
     _whisper_releases.clear()
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
     monkeypatch.setattr(calibration, "parse_llamaswap_config", lambda _: CONFIG)
@@ -147,3 +157,32 @@ def test_whisper_gpu_is_released_for_reserve_and_sidecar_loads(monkeypatch) -> N
     # A -vlm- profile or a describer loads onto the side card too.
     assert _run(monkeypatch, ["pp4-vllm-vlm-qwen3vl4b", "vl4b-visiond"], []) == []
     assert _whisper_releases == ["gpu", "gpu"]
+
+
+def test_load_runs_only_for_a_model_that_is_not_running(monkeypatch) -> None:
+    _run(monkeypatch, ["pp4-vllm", "bge-embed"], ["bge-embed"])
+    assert _Client.loaded == ["pp4-vllm"]
+
+
+def test_load_time_is_measured_only_for_a_load(monkeypatch) -> None:
+    _run(monkeypatch, [], [])
+    backend = vLLMBackend.__new__(vLLMBackend)
+    backend.base_url = "http://swap/v1"
+    _Client.running = ["pp4-vllm"]
+    assert asyncio.run(backend._pre_request_check("pp4-vllm")) == 0.0
+    _Client.running = []
+    assert asyncio.run(backend._pre_request_check("pp4-vllm")) > 0.0
+
+
+def test_a_failed_load_names_the_upstream_exit(monkeypatch) -> None:
+    _run(monkeypatch, [], [])
+    backend = vLLMBackend.__new__(vLLMBackend)
+    backend.base_url = "http://swap/v1"
+    _Client.load_answer = _Response({}, 502, "upstream command exited prematurely")
+
+    async def cause() -> str:
+        return "ValueError: no GPU"
+
+    monkeypatch.setattr(backend, "_upstream_exit_cause", cause)
+    with pytest.raises(BackendModelStartError, match="ValueError: no GPU"):
+        asyncio.run(backend._pre_request_check("pp4-vllm"))

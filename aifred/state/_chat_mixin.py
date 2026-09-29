@@ -299,11 +299,12 @@ class ChatMixin(rx.State, mixin=True):
         # 1. Build marker (emoji + mode label + round number)
         marker = self._build_marker(agent, mode, round_num if round_num and round_num > 0 else None)
 
-        # 2. Format metadata footer — with the cold-start load time of this
-        # turn, if there was one (the first answer after the load carries it)
+        # 2. Format metadata footer — with the intent call's model load of
+        # this turn, if there was one (the first answer after it carries it,
+        # added to a load the answer's own call measured)
         msg_metadata = metadata.copy() if metadata else {}
         if self._pending_load_time and msg_metadata:
-            msg_metadata["load_time"] = self._pending_load_time
+            msg_metadata["load_time"] = msg_metadata.get("load_time", 0.0) + self._pending_load_time
             self._pending_load_time = 0.0
         meta_footer = self._format_panel_metadata(msg_metadata)
 
@@ -1221,12 +1222,10 @@ class ChatMixin(rx.State, mixin=True):
             # llama-swap loads models on-demand — first request triggers cold start.
             # Check /running BEFORE the first LLM call so the user knows why it's slow.
             # ============================================================
-            cold_start = False
             if self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
                 try:
                     running_models = await self._llamaswap_running_models()
                     if effective_auto not in running_models:
-                        cold_start = True
                         # Extract model details from llama-swap config
                         details = ""
                         try:
@@ -1245,7 +1244,7 @@ class ChatMixin(rx.State, mixin=True):
                         self.add_debug(f"🔄 Model Cold Start ({effective_auto}){details} — loading into VRAM, this may take a while")
                         log_message(f"🔄 Cold Start: {effective_auto}{details}")
                         # Whisper's GPU worker and sidecars are cleared by the
-                        # backend right before the load (_free_gpus_for_load).
+                        # backend right before the load (_load_model).
                         yield
                 except Exception:
                     pass  # Can't check — proceed normally, don't show false warnings
@@ -1271,13 +1270,11 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(f"🎯 Intent: {detected_intent} ({_reason}), Lang: {detected_language.upper()} (UI)")
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
             else:
-                # Beim Cold Start traegt dieser erste LLM-Aufruf das Laden des
-                # Modells; seine Dauer ist die Ladezeit (die Intent-Inferenz
-                # selbst liegt im Sekundenbereich) und landet als "Load" an
-                # der Antwort. Bild-/URL-only-Turns ohne Intent-Aufruf laden im
-                # Hauptaufruf und zeigen die Zeit in der TTFT.
-                from ..lib.timer import Timer
-                _intent_timer = Timer()
+                # Beim Cold Start laedt das Backend das Modell fuer diesen
+                # ersten LLM-Aufruf und misst die Ladezeit; sie landet als
+                # "Load" an der Antwort (add_agent_panel). Bild-/URL-only-Turns
+                # ohne Intent-Aufruf laden im Hauptaufruf, dort misst die
+                # Pipeline dieselbe Zeit.
                 (
                     detected_intent,
                     addressed_to,
@@ -1285,14 +1282,13 @@ class ChatMixin(rx.State, mixin=True):
                     mode_switch_updates,
                     is_pure_command,
                     intent_raw,
+                    self._pending_load_time,
                 ) = await detect_query_intent_and_addressee(
                     user_msg,
                     effective_auto,
                     llm_client,
                     automatik_num_ctx=auto_num_ctx,
                 )
-                if cold_start:
-                    self._pending_load_time = _intent_timer.elapsed()
                 # Log Intent Detection result to UI debug console (always visible)
                 from ..lib.intent_detector import format_intent_result
                 from ..lib.intent_detector import format_mode_switch_summary

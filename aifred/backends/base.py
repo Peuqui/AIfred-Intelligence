@@ -64,6 +64,8 @@ class LLMResponse:
     tokens_per_second: float = 0.0
     inference_time: float = 0.0
     model: str = ""
+    # Seconds the model load before this request took (0.0 = was running)
+    load_time: float = 0.0
 
 
 def done_metrics(prompt_tokens: int, work: InferenceWork, inference_time: float, model: str) -> Dict[str, Any]:
@@ -138,6 +140,8 @@ class LLMBackend(ABC):
 
         Yields:
             Dict with either:
+            - {"type": "model_load", "seconds": float} first, when the
+              request had to load the model (llama-swap backends)
             - {"type": "content", "text": str} for content chunks
             - {"type": "done", "metrics": {...}} for final metrics
 
@@ -236,8 +240,13 @@ class LLMBackend(ABC):
             vLLM:     {"dynamic_models": False, "dynamic_context": False, ...}
         """
 
-    async def _pre_request_check(self, model: str) -> None:
-        """Hook for pre-request validation (e.g. RPC connectivity). Override in subclasses."""
+    async def _pre_request_check(self, model: str) -> float:
+        """Hook run before every request (e.g. RPC connectivity, model load).
+
+        Returns the seconds a model load took (0.0 when nothing was loaded).
+        Override in subclasses.
+        """
+        return 0.0
 
     async def close(self) -> None:
         """
@@ -438,13 +447,55 @@ class OpenAICompatibleBackend(LLMBackend):
         """URL of the server in front of the OpenAI ``/v1`` prefix (llama-swap)."""
         return self.base_url.rsplit("/v1", 1)[0]
 
-    async def _free_gpus_for_load(self, model: str) -> None:
+    async def _load_model(self, model: str) -> float:
+        """Have llama-swap load ``model`` before the request; return the
+        seconds the load took (0.0 when it was already running).
+
+        llama-swap starts a model on the first request for it, so the load
+        used to hide in that request's TTFT. Loading it here through
+        ``/upstream/<model>/health`` (answered once the server is ready)
+        measures it on its own, for every caller (browser, Message Hub,
+        scheduler, sub-agents); the footer shows it as "Load".
+        """
+        import httpx
+
+        from ..lib.logging_utils import log_message
+        from ..lib.timer import Timer
+
+        root = self._llamaswap_root()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                resp = await client.get(f"{root}/running")
+                running = [
+                    m.get("model", "") for m in (resp.json().get("running") or [])
+                ]
+        except (httpx.HTTPError, ValueError) as e:
+            raise BackendConnectionError(
+                f"{self.BACKEND_NAME}: llama-swap not reachable at {root}: {e}"
+            )
+        if model in running:
+            return 0.0
+
+        await self._free_gpus_for_load(model, running)
+        log_message(f"🔄 Loading '{model}' via llama-swap")
+        timer = Timer()
+        try:
+            async with httpx.AsyncClient(timeout=self.DEFAULT_TIMEOUT) as client:
+                resp = await client.get(f"{root}/upstream/{model}/health")
+        except httpx.HTTPError as e:
+            raise await self._backend_error(e, model)
+        if resp.status_code != 200:
+            raise await self._backend_error(RuntimeError(resp.text), model)
+        load_s = timer.elapsed()
+        log_message(f"✅ '{model}' loaded in {load_s:.1f}s")
+        return load_s
+
+    async def _free_gpus_for_load(self, model: str, running: List[str]) -> None:
         """Clear the cards before llama-swap loads ``model``.
 
-        Runs for every request of every caller (browser, Message Hub,
-        scheduler, sub-agents) and acts only when ``model`` is not running,
-        i.e. when this request triggers a load — also a re-load of the same
-        model after its ttl expired. Two things may hold VRAM the
+        Called by ``_load_model`` only when ``model`` is not among the
+        ``running`` ones, i.e. when a load follows — also a re-load of the
+        same model after its ttl expired. Two things may hold VRAM the
         calibrated split counts as free:
 
         * Whisper's GPU worker: it loads only onto a card with free VRAM
@@ -475,12 +526,6 @@ class OpenAICompatibleBackend(LLMBackend):
         root = self._llamaswap_root()
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{root}/running")
-                running = [
-                    m.get("model", "") for m in (resp.json().get("running") or [])
-                ]
-                if model in running:
-                    return
                 if await asyncio.to_thread(release_whisper_gpu):
                     log_message(f"🎤 Whisper GPU worker released before loading '{model}'")
                 if "-vlm-" in model or model.endswith(("-visiond", "-embed")):
@@ -634,7 +679,7 @@ class OpenAICompatibleBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
-        await self._pre_request_check(model)
+        load_s = await self._pre_request_check(model)
 
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
@@ -668,10 +713,12 @@ class OpenAICompatibleBackend(LLMBackend):
             # Extract server-side timings if backend provides them
             server_timings = self._extract_server_timings(response)
 
-            return self._build_chat_response(
+            chat_response = self._build_chat_response(
                 text, tokens_prompt, tokens_generated,
                 inference_time, model, server_timings,
             )
+            chat_response.load_time = load_s
+            return chat_response
 
         except Exception as e:
             raise await self._backend_error(e, model)
@@ -770,7 +817,9 @@ class OpenAICompatibleBackend(LLMBackend):
         if options is None:
             options = LLMOptions()
 
-        await self._pre_request_check(model)
+        load_s = await self._pre_request_check(model)
+        if load_s:
+            yield {"type": "model_load", "seconds": load_s}
 
         openai_messages: List[Dict[str, Any]] = [
             {"role": msg.role, "content": msg.content} for msg in messages

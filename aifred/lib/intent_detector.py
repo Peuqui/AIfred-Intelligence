@@ -265,7 +265,7 @@ async def detect_query_intent_and_addressee(
     llm_client,
     llm_options: Optional[Dict] = None,
     automatik_num_ctx: Optional[int] = None
-) -> Tuple[str, Optional[str], str, Dict[str, Any], bool, str]:
+) -> Tuple[str, Optional[str], str, Dict[str, Any], bool, str, float]:
     """
     Detect intent, addressee, language, mode-switch, and pure-command flag.
 
@@ -286,9 +286,9 @@ async def detect_query_intent_and_addressee(
             int = explicit value (e.g. AUTOMATIK_LLM_NUM_CTX for different models).
 
     Returns:
-        Tuple[str, Optional[str], str, Dict[str, Any], bool, str]:
+        Tuple[str, Optional[str], str, Dict[str, Any], bool, str, float]:
             (intent, addressee, detected_language, mode_switch_updates,
-             is_pure_command, raw_response)
+             is_pure_command, raw_response, load_time)
 
             - intent: "FAKTISCH", "KREATIV" or "GEMISCHT"
             - addressee: "aifred", "sokrates", "salomo" or None
@@ -296,6 +296,10 @@ async def detect_query_intent_and_addressee(
             - mode_switch_updates: dict with config changes ({} if none)
             - is_pure_command: True iff message is ONLY a mode-switch command
             - raw_response: Raw LLM output for debugging
+            - load_time: Seconds the backend spent loading the model for
+              this call (0.0 = it was running). As the turn's first LLM call
+              it usually carries the cold start; callers add it to the
+              answer's metadata.
     """
     # Use English prompt for intent detection (universal, handles all languages)
     prompt = get_intent_detection_prompt(user_query=user_query, lang="en")
@@ -328,7 +332,10 @@ async def detect_query_intent_and_addressee(
         f"ModeSwitch: {mode_switch or '-'}, PureCmd: {is_pure_command}, "
         f"Raw: '{response_clean}'"
     )
-    return (intent, addressee, detected_language, mode_switch, is_pure_command, response_raw)
+    return (
+        intent, addressee, detected_language, mode_switch, is_pure_command,
+        response_raw, response.load_time,
+    )
 
 
 def get_temperature_for_intent(intent: str) -> float:
