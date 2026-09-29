@@ -1,7 +1,10 @@
 [Unit]
 Description=AIfred Intelligence Voice Assistant (Reflex Version)
+# After= keeps the order when Ollama is used as backend; Wants= does not
+# pull it in — the Ollama installer enables ollama.service itself, and
+# setups on llama-swap/vLLM do not need it running.
 After=network.target ollama.service aifred-chromadb.service
-Wants=ollama.service aifred-chromadb.service
+Wants=aifred-chromadb.service
 # Wants statt Requires: ChromaDB-Recreate (z.B. docker-auto-update.sh
 # 03:00) loest sonst einen Cascade-Stop von AIfred aus, was laufende
 # Indexierungs-Jobs killt. AIfred starten ohne ChromaDB ist unschoen,

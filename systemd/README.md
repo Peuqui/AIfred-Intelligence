@@ -92,7 +92,7 @@ systemctl status aifred-chromadb.service
 systemctl status aifred-chromadb.service
 docker ps | grep chromadb
 
-# 2. Check Ollama status
+# 2. Check Ollama status (only with Ollama as backend)
 systemctl status ollama.service
 
 # 3. Check logs
@@ -120,7 +120,6 @@ systemctl list-dependencies aifred-intelligence.service
 # aifred-intelligence.service
 # ├─aifred-chromadb.service
 # │ └─docker.service
-# ├─ollama.service
 # └─network.target
 ```
 
