@@ -189,7 +189,7 @@ def resolve_user_name(channel: str, channel_id: str, sender: str) -> str:
     return sender
 
 
-async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict]:
+async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, float]:
     """Detect target agent, intent, language and mode-switch via LLM.
 
     Uses detect_query_intent_and_addressee() — single source of truth, same
@@ -200,11 +200,12 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict]:
     insufficient VRAM.
 
     Returns:
-        (agent_id, intent, detected_language, mode_switch_updates)
+        (agent_id, intent, detected_language, mode_switch_updates, load_time)
 
         mode_switch_updates is a dict with optional keys ``active_agent``,
         ``multi_agent_mode``, ``research_mode``, ``symposion_agents`` —
         empty dict if the user did not request a mode change.
+        load_time is the model load this call had to wait for (0.0 = warm).
     """
     from .intent_detector import detect_query_intent_and_addressee
     from .llm_client import LLMClient
@@ -222,11 +223,11 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict]:
 
     if not automatik_model:
         log_message("Message Processor: no model for intent detection, defaulting to aifred")
-        return "aifred", "FAKTISCH", "de", {}
+        return "aifred", "FAKTISCH", "de", {}, 0.0
 
     client = LLMClient(backend_type)
 
-    intent, addressee, lang, mode_switch, _is_pure_cmd, _raw = await detect_query_intent_and_addressee(
+    intent, addressee, lang, mode_switch, _is_pure_cmd, _raw, load_time = await detect_query_intent_and_addressee(
         user_query=text,
         automatik_model=automatik_model,
         llm_client=client,
@@ -235,7 +236,7 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict]:
     from .intent_detector import format_intent_result
     agent = addressee or "aifred"
     log_message(f"🎯 {format_intent_result(intent, addressee, lang)}")
-    return agent, intent, lang, mode_switch
+    return agent, intent, lang, mode_switch, load_time
 
 
 async def dispatch_inbound(message: InboundMessage, channel_label: str) -> None:
@@ -374,7 +375,9 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
         # ── Phase 1: Detect target agent via LLM ─────────────
         try:
-            agent, intent, detected_lang, mode_switch_updates = await detect_target_agent_via_llm(message.text)
+            agent, intent, detected_lang, mode_switch_updates, intent_load_time = (
+                await detect_target_agent_via_llm(message.text)
+            )
         except Exception as e:
             log_message(f"❌ Intent detection FAILED (no fallback): {e}", "error")
             debug(f"❌ Intent detection FAILED: {e}")
@@ -487,6 +490,10 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             return None
 
         debug(f"✅ Response generated ({len(response_text)} chars)")
+        # A cold start usually happens in the intent call above; the answer
+        # carries it like in the browser (add_agent_panel).
+        if intent_load_time:
+            result_metadata["load_time"] = result_metadata.get("load_time", 0.0) + intent_load_time
 
         # ── Phase 3: Save response to session ─────────────────
         # M3: the user turn goes into llm_history HERE (wrapped) — see

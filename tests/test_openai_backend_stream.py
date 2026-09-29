@@ -80,11 +80,23 @@ def _toolkit() -> ToolKit:
     )
 
 
+def _offline_vllm(monkeypatch) -> vLLMBackend:
+    """vLLM backend whose pre-request check (llama-swap /running, model
+    load) stays off the network — the model counts as running."""
+    backend = vLLMBackend()
+
+    async def running(model: str) -> float:
+        return 0.0
+
+    monkeypatch.setattr(backend, "_pre_request_check", running)
+    return backend
+
+
 def test_swallowed_tool_call_is_reported(monkeypatch) -> None:
     """Round 1 as vLLM with a mismatched parser answers: finish_reason
     tool_calls, no call, no text. The loop must say so before it forces the
     final round without tools."""
-    backend = vLLMBackend()
+    backend = _offline_vllm(monkeypatch)
     monkeypatch.setattr(backend, "_read_counters", lambda: None)
     rounds = [
         [_chunk({"content": ""}), _chunk({}, finish_reason="tool_calls")],
@@ -116,7 +128,7 @@ def _tool_round_turn(monkeypatch, counter_states: list, toolkit: ToolKit | None 
     returns the done metrics. ``counter_states`` are the successive
     /metrics readings, one before and one after each request:
     (port, (prefill_tok, prefill_s, requests, gen_tok, decode_s))."""
-    backend = vLLMBackend()
+    backend = _offline_vllm(monkeypatch)
     readings = iter(counter_states)
     monkeypatch.setattr(backend, "_read_counters", lambda: next(readings))
     call = {"index": 0, "id": "c1", "type": "function",
@@ -190,7 +202,7 @@ def test_subagent_work_reported_by_a_tool_joins_the_turn(monkeypatch) -> None:
 def test_thinking_of_every_round_is_summed(monkeypatch) -> None:
     """The model thinks before the tool call and again before the answer;
     both blocks count, not only the first."""
-    backend = vLLMBackend()
+    backend = _offline_vllm(monkeypatch)
     monkeypatch.setattr(backend, "_read_counters", lambda: None)
     call = {"index": 0, "id": "c1", "type": "function",
             "function": {"name": "search_bible", "arguments": '{"query": "Psalm 91"}'}}

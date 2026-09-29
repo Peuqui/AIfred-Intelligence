@@ -54,6 +54,7 @@ class PipelineResult:
     metrics: dict[str, Any] = field(default_factory=dict)
     ttft: float = 0.0
     inference_time: float = 0.0
+    load_time: float = 0.0                              # model load before the answer (0 = warm)
     # The turn's measured work (tokens, prefill/decode/thinking time), the
     # one source of every token count and rate — see perf_metrics.
     work: InferenceWork = field(default_factory=InferenceWork.unmeasured)
@@ -209,6 +210,10 @@ async def run_llm_stream(
     Wraps llm_client.chat_stream() with retry, tracking, and metadata.
     Yields the same chunk types as chat_stream() (passthrough), plus:
     - {"type": "ttft", "value": float} — after first content token
+
+    A model load before the request (backend "model_load" chunk) is its own
+    number: TTFT and inference time are measured without it, and it lands
+    in the metadata as ``load_time``.
     - {"type": "pipeline_result", "result": PipelineResult} — after stream ends
 
     Args:
@@ -239,6 +244,7 @@ async def run_llm_stream(
     full_response = ""
     first_token = False
     ttft = 0.0
+    load_time = 0.0
     metrics: dict[str, Any] = {}
     silent_reply = False  # set True if any tool_result has silent_reply
     # Bubble artifacts in turn order (lib/bubble.py). Each gets an anchor in
@@ -295,9 +301,12 @@ async def run_llm_stream(
     async for chunk in stream:
         chunk_type = chunk["type"]
 
-        if chunk_type == "content":
+        if chunk_type == "model_load":
+            load_time += chunk["seconds"]
+
+        elif chunk_type == "content":
             if not first_token:
-                ttft = timer.elapsed()
+                ttft = timer.elapsed() - load_time
                 first_token = True
                 log_message(f"⚡ {agent_label} TTFT: {ttft:.2f}s")
                 yield {"type": "ttft", "value": ttft}
@@ -586,7 +595,7 @@ async def run_llm_stream(
 
     # Thinking blocks
     text_clean = strip_thinking_blocks(full_response) if full_response else ""
-    inference_time = timer.elapsed()
+    inference_time = timer.elapsed() - load_time
     # Measured by the backend over every request of the turn and the
     # sub-agents it ran; a stream that ended without its done chunk has no
     # measurement (the footer shows n/a rather than zeros).
@@ -605,6 +614,7 @@ async def run_llm_stream(
         agent_label=agent_label,
         response_chars=len(full_response),
         truncated=truncated,
+        load_time=load_time,
     )
 
     yield {
@@ -618,6 +628,7 @@ async def run_llm_stream(
             metrics=metrics,
             ttft=ttft,
             inference_time=inference_time,
+            load_time=load_time,
             work=work,
             artifacts=artifacts,
             final_text=final_text,
