@@ -276,28 +276,25 @@ echo "      Docker bin:  $DOCKER_BIN"
 echo
 
 # Corpus search server (FastAPI corpus search API).
-# Default yes: serves as backend for the corpus / Judaica search UI
-# behind nginx. Standalone AIfred works without it, but the repo
-# ships the service file and matching Python script
-# (scripts/corpus_search_server.py) — opt out by answering N.
-INSTALL_CORPUS=0
+# Backend of the corpus / Judaica search UI behind nginx only — AIfred's
+# own corpus tools read ChromaDB directly and do not need it. The unit is
+# always installed so it can be started on demand
+# (systemctl start aifred-corpus-server.service); starting it on boot is
+# opt-in (default no, also for non-interactive calls).
+CORPUS_AUTOSTART=0
 if [ -f "$SYSTEMD_DIR/aifred-corpus-server.service" ]; then
     echo "2️⃣  Corpus search server (FastAPI corpus search API)"
-    echo "   Default install — backend for the corpus / Judaica search UI."
+    echo "   Backend for the corpus / Judaica search UI; AIfred works without it."
+    install_service "$SYSTEMD_DIR/aifred-corpus-server.service"
     if [ -t 0 ]; then
-        read -p "   Install? (Y/n): " -n 1 -r CORPUS_REPLY
+        read -p "   Start on boot? (y/N): " -n 1 -r CORPUS_REPLY
         echo
-        if [[ ! $CORPUS_REPLY =~ ^[Nn]$ ]]; then
-            install_service "$SYSTEMD_DIR/aifred-corpus-server.service"
-            INSTALL_CORPUS=1
-        else
-            echo "   ⏭️  skipped"
-        fi
+        [[ $CORPUS_REPLY =~ ^[Yy]$ ]] && CORPUS_AUTOSTART=1
+    fi
+    if [ "$CORPUS_AUTOSTART" = "1" ]; then
+        echo "   ✅ Will start on boot"
     else
-        # Non-interactive: default-install (matches the default-yes).
-        install_service "$SYSTEMD_DIR/aifred-corpus-server.service"
-        INSTALL_CORPUS=1
-        echo "   ✅ Non-interactive call — default-installed"
+        echo "   ⏭️  On demand only: sudo systemctl start aifred-corpus-server.service"
     fi
 fi
 echo
@@ -363,17 +360,29 @@ if [ "$DRY_RUN" = "1" ]; then
             echo "   📝 WOULD enable: $s"
         fi
     done
-    [ "$INSTALL_CORPUS" = "1" ] && {
-        if systemctl is-enabled --quiet aifred-corpus-server.service 2>/dev/null; then
-            echo "   = aifred-corpus-server.service already enabled"
-        else
+    if [ -f "$SYSTEMD_DIR/aifred-corpus-server.service" ]; then
+        corpus_enabled=0
+        systemctl is-enabled --quiet aifred-corpus-server.service 2>/dev/null && corpus_enabled=1
+        if [ "$CORPUS_AUTOSTART" = "$corpus_enabled" ]; then
+            echo "   = aifred-corpus-server.service boot start unchanged"
+        elif [ "$CORPUS_AUTOSTART" = "1" ]; then
             echo "   📝 WOULD enable: aifred-corpus-server.service"
+        else
+            echo "   📝 WOULD disable: aifred-corpus-server.service"
         fi
-    }
+    fi
 else
     systemctl enable aifred-chromadb.service
     systemctl enable aifred-intelligence.service
-    [ "$INSTALL_CORPUS" = "1" ] && systemctl enable aifred-corpus-server.service
+    if [ -f "$SYSTEMD_DIR/aifred-corpus-server.service" ]; then
+        # The answer above decides both ways: N also turns off an earlier
+        # boot start (a running instance keeps running).
+        if [ "$CORPUS_AUTOSTART" = "1" ]; then
+            systemctl enable aifred-corpus-server.service
+        else
+            systemctl disable aifred-corpus-server.service
+        fi
+    fi
     echo "   ✅ Services enabled"
 fi
 echo
@@ -389,7 +398,7 @@ else
     echo "        sudo systemctl start aifred-chromadb.service"
 fi
 ensure_active aifred-intelligence.service
-if [ "$INSTALL_CORPUS" = "1" ]; then
+if [ "$CORPUS_AUTOSTART" = "1" ]; then
     ensure_active aifred-corpus-server.service
 fi
 echo
@@ -449,7 +458,7 @@ systemctl status aifred-chromadb.service --no-pager -l || true
 echo
 echo "--- AIfred Intelligence status ---"
 systemctl status aifred-intelligence.service --no-pager -l || true
-if [ "$INSTALL_CORPUS" = "1" ]; then
+if [ "$CORPUS_AUTOSTART" = "1" ]; then
     echo
     echo "--- AIfred Corpus Server status ---"
     systemctl status aifred-corpus-server.service --no-pager -l || true
@@ -530,7 +539,7 @@ else
     echo "      → journalctl -u aifred-intelligence.service -f"
 fi
 
-if [ "$INSTALL_CORPUS" = "1" ]; then
+if [ "$CORPUS_AUTOSTART" = "1" ]; then
     check_service_active aifred-corpus-server.service
 fi
 echo
