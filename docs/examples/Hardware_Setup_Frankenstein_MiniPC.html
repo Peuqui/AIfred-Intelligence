@@ -251,6 +251,27 @@ strong { color: #fff; }
 
 <p><strong>And the draft model decides how fast generation feels.</strong> The MTP-capable Qwen models draft with 90&ndash;96% acceptance. DeepSeek-V4-Flash instead uses a separate 11 GB DSpark sidecar draft (<code>--spec-type draft-dspark</code>) at 61&ndash;65% acceptance, and it is strongly content-dependent: writing structured code it drafts near its ceiling at 40&ndash;45 tok/s, while free-form reasoning text drops to around 20. That is why its answer-average lands below the 397B even though its prompt processing is roughly 1.8x faster and its time-to-first-token about 3x shorter. The PP advantage comes from the architecture &mdash; 43 layers, a sparse-attention indexer and a very cheap MLA KV cache &mdash; not from the draft model.</p>
 
+<h3>Update &mdash; September 2026: card-to-card copies and <code>iommu=pt</code></h3>
+<p class="subtitle">Copy throughput in MiB/s, 256 MiB blocks (150 MiB for NCCL, roughly the activations a pipeline stage hands on for an 18k-token prompt). Same script, two boots: the default IOMMU mode and the kernel parameter <code>iommu=pt</code>.</p>
+
+<table>
+<tr><th>Path</th><th>Default IOMMU</th><th><code>iommu=pt</code></th></tr>
+<tr><td>Host &rarr; card (pinned)</td><td>3,202</td><td>3,195</td></tr>
+<tr><td>Card &rarr; card direct (P2P), OCuLink cards</td><td>1,723&ndash;1,758</td><td><strong>3,124&ndash;3,129</strong></td></tr>
+<tr><td>Card &rarr; USB4 card direct (P2P)</td><td>1,937&ndash;1,955</td><td>761&ndash;784</td></tr>
+<tr><td>NCCL through host memory (what vLLM uses here)</td><td>3,074&ndash;3,184</td><td>unchanged</td></tr>
+<tr><td>NCCL P2P, OCuLink pairs</td><td>hangs</td><td>2,893&ndash;2,915 (3,138 with <code>NCCL_P2P_READ_ENABLE=1</code>)</td></tr>
+<tr><td>NCCL P2P with the USB4 card</td><td>hangs</td><td>hangs</td></tr>
+</table>
+
+<p>With the default IOMMU mode every direct copy between cards goes through address translation, and it shows: card-to-card was only about half as fast as going through host memory. Worse, NCCL's peer-to-peer transport hangs on every pair &mdash; which is why every vLLM profile on this machine runs with <code>NCCL_P2P_DISABLE=1</code> and moves pipeline-stage activations through host memory instead.</p>
+
+<p><code>iommu=pt</code> (passthrough) lets devices the kernel owns use physical addresses directly. On the four OCuLink cards direct copies nearly double to the full link rate, and NCCL P2P starts working. The catch: that is no faster than the host path, because both run into the same wall &mdash; every card sits on its own PCIe Gen3 x4 link, about 3.2 GB/s, and the data has to leave through one x4 link and enter through another either way. What P2P saves is traffic through host RAM, not time.</p>
+
+<p>The card behind the USB4 tunnel does not take part. The kernel treats devices behind an external-facing port as untrusted and keeps them in strict DMA translation in both modes, with no parameter to change that. Direct copies towards that card even got slower with <code>iommu=pt</code>, and NCCL P2P with it hangs either way. Peer-to-peer between the RTX 8000s and the V100s is not supported by the driver at all, independent of the IOMMU.</p>
+
+<p>Bottom line for this build: the host path through a Gen3 x4 link is already as fast as it gets, so vLLM stays on it. <code>iommu=pt</code> is what makes peer-to-peer usable at all on the OCuLink cards &mdash; worth knowing if you build something similar and wonder why NCCL just sits there.</p>
+
 <h2>Limitations</h2>
 <ul>
     <li>Mixed compute capabilities — P40s are CC 6.1, V100 is CC 7.0, RTX 8000s are CC 7.5. llama.cpp handles the mix happily; tensor-parallel backends are pickier.</li>
@@ -283,7 +304,7 @@ strong { color: #fff; }
 
 <div class="footer">
     <p><a href="https://github.com/Peuqui/AIfred-Intelligence">AIfred Intelligence</a> &bull; <a href="../">Back to Showcases</a></p>
-    <p>Setup by Peuqui &bull; updated August 2026</p>
+    <p>Setup by Peuqui &bull; updated September 2026</p>
 </div>
 
 </div>
