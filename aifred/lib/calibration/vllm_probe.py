@@ -780,7 +780,8 @@ _GENERATION_KEYS = (
 def generation_defaults(checkpoint: Path) -> dict[str, float]:
     """Sampling-Defaults des Checkpoints — SSOT fuer Kalibration UND
     AIfreds Sampling-Reset (generation_config.json, sonst die
-    llama-server-Defaults der Konfiguration)."""
+    llama-server-Defaults der Konfiguration), danach die Abweichungen
+    aus ``generation_overrides`` in vllm_runtime.yaml."""
     from ..config import (
         LLAMASERVER_DEFAULT_MIN_P, LLAMASERVER_DEFAULT_REPEAT_PENALTY,
         LLAMASERVER_DEFAULT_TEMPERATURE, LLAMASERVER_DEFAULT_TOP_K,
@@ -799,6 +800,15 @@ def generation_defaults(checkpoint: Path) -> dict[str, float]:
         for src_key, dst_key in _GENERATION_KEYS:
             if src_key in data:
                 defaults[dst_key] = data[src_key]
+    # Schluessel ist ein Pfadbestandteil des Checkpoints (HF-Cache-Ordner
+    # oder Modellordner), damit alle llama-swap-Varianten eines Modells
+    # dieselben Werte bekommen.
+    checkpoint_parts = Path(checkpoint).parts
+    for part, overrides in load_vllm_runtime().get("generation_overrides", {}).items():
+        if part in checkpoint_parts:
+            for src_key, dst_key in _GENERATION_KEYS:
+                if src_key in overrides:
+                    defaults[dst_key] = overrides[src_key]
     return defaults
 
 
