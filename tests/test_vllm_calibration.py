@@ -750,7 +750,10 @@ def test_speed_thresholds_come_from_runtime() -> None:
 # Sonden-Sampling: Produktions-Defaults statt greedy
 # ---------------------------------------------------------------------------
 
-def test_generation_defaults_reads_checkpoint(tmp_path: Path) -> None:
+def test_generation_defaults_reads_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(vllm_probe, "load_vllm_runtime", lambda: RUNTIME)
     (tmp_path / "generation_config.json").write_text(
         json.dumps({"temperature": 0.7, "top_k": 20, "top_p": 0.8,
                     "repetition_penalty": 1.05}))
@@ -762,6 +765,26 @@ def test_generation_defaults_reads_checkpoint(tmp_path: Path) -> None:
     assert vllm_probe.generation_defaults(tmp_path / "leer")["top_k"] == 40
 
 
+def test_generation_overrides_apply_to_every_variant_of_a_checkpoint(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = {**RUNTIME, "generation_overrides": {
+        "models--org--Model": {"temperature": 0.7}}}
+    monkeypatch.setattr(vllm_probe, "load_vllm_runtime", lambda: runtime)
+    snapshot = tmp_path / "models--org--Model" / "snapshots" / "abc"
+    snapshot.mkdir(parents=True)
+    (snapshot / "generation_config.json").write_text(
+        json.dumps({"temperature": 1.0, "top_k": 20}))
+    d = vllm_probe.generation_defaults(snapshot)
+    assert d["temperature"] == 0.7              # Abweichung gewinnt
+    assert d["top_k"] == 20                     # Rest bleibt aus der Datei
+    # Nur ganze Pfadbestandteile zaehlen, kein Teilstring-Treffer
+    other = tmp_path / "models--org--Model-Base"
+    other.mkdir()
+    (other / "generation_config.json").write_text(json.dumps({"temperature": 1.0}))
+    assert vllm_probe.generation_defaults(other)["temperature"] == 1.0
+
+
 def test_probe_sampling_sends_the_model_defaults() -> None:
     d = {"temperature": 1.0, "top_k": 20, "top_p": 0.95, "min_p": 0.05,
          "repeat_penalty": 1.1}
@@ -770,7 +793,10 @@ def test_probe_sampling_sends_the_model_defaults() -> None:
     assert sampling["repetition_penalty"] == 1.1
 
 
-def test_analyze_checkpoint_carries_generation_defaults(moe_checkpoint: Path) -> None:
+def test_analyze_checkpoint_carries_generation_defaults(
+    moe_checkpoint: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(vllm_probe, "load_vllm_runtime", lambda: RUNTIME)
     (moe_checkpoint / "generation_config.json").write_text(
         json.dumps({"temperature": 0.6}))
     meta = analyze_checkpoint(moe_checkpoint)
