@@ -233,8 +233,9 @@ class AgentConfigMixin(rx.State, mixin=True):
         effective = self._effective_reasoning_levels(agent)
         if levels_known and effort not in ("", *effective):
             set_agent_setting(self, agent, "reasoning_effort", "")
+            from ..lib.agent_config import get_agent_label
             self.add_debug(  # type: ignore[attr-defined]
-                f"🧠 {agent.capitalize()} reasoning effort '{effort}' "
+                f"🧠 {get_agent_label(agent)} reasoning effort '{effort}' "
                 f"unsupported by {owner_model} — cleared"
             )
             self._save_settings()  # type: ignore[attr-defined]
