@@ -41,6 +41,9 @@ COLORS = {
     "title": "#6e7781",
 }
 
+# Month labels on the x axis; about 55 px each at the chart width.
+MAX_X_TICKS = 13
+
 MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
@@ -132,11 +135,19 @@ def backfill_series(stars_file: Path, until: date) -> list[tuple[date, int]]:
 
 
 def month_ticks(first: date, last: date) -> list[date]:
-    """First of every month in range; the range start only if it stands alone.
+    """Month starts in range, thinned out so the labels do not overlap.
 
-    Labelling the start day as well would collide with the next month's
-    label whenever collection began late in a month.
+    A repository older than a year would otherwise get a label every month
+    (49 for NarcoCalc), which piles up into unreadable text. The step grows
+    to 2, 3, 6 or 12 months until at most MAX_X_TICKS remain; ticks sit on
+    months divisible by the step, so a yearly axis lands on January.
+
+    The range start is labelled only if at least half a step separates it
+    from the first month label — closer, the two would collide.
     """
+    months_in_range = (last.year - first.year) * 12 + last.month - first.month
+    step = next((s for s in (1, 2, 3, 6) if months_in_range / s <= MAX_X_TICKS), 12)
+
     ticks: list[date] = []
     year, month = first.year, first.month
     while True:
@@ -146,8 +157,9 @@ def month_ticks(first: date, last: date) -> list[date]:
         candidate = date(year, month, 1)
         if candidate > last:
             break
-        ticks.append(candidate)
-    if not ticks or (ticks[0] - first).days > 12:
+        if (month - 1) % step == 0:
+            ticks.append(candidate)
+    if not ticks or (ticks[0] - first).days > 15 * step:
         ticks.insert(0, first)
     return ticks
 
