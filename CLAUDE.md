@@ -1,26 +1,7 @@
 # Projekt-spezifische Regeln für AIfred-Intelligence
 
-(Allgemeine Regeln siehe ~/.claude/CLAUDE.md)
-
----
-
-## ⚠️ KRITISCH: Git-Workflow
-
-- **NIEMALS** automatisch commit oder push ausführen
-- Nur auf explizite Ansage des Users ("commit", "push")
-- Bei Änderungen: Zeigen, erklären, warten auf Freigabe
-
----
-
-## ⚠️ KRITISCH: Keine Fallbacks oder Backward-Compatibility
-
-- **NIEMALS** automatisch Fallback-Logik einbauen
-- **NIEMALS** Backward-Compatibility-Aliase erstellen (z.B. `new_func = old_func`)
-- Fallbacks (für alte Datenformate, fehlende Felder, Migration etc.) nur nach **expliziter** Absprache mit User
-- Backward-Compatibility nur wenn User es **ausdrücklich** wünscht
-- Im Zweifel: Alte Daten/Code löschen und sauber neu starten
-- GRUND: Fallbacks und Aliase verkomplizieren den Code und verstecken Probleme
-- **IMMER mit User abklären - GRUNDSÄTZLICH - WICHTIG!**
+(Allgemeine Regeln siehe ~/.claude/CLAUDE.md — dort stehen u. a. Git-Workflow, keine
+Fallbacks und keine Backward-Compatibility, Keep It Simple bei Race Conditions und Edge Cases)
 
 ---
 
@@ -37,17 +18,6 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 - Duplikate zwischen Plugins sind KEIN Refactoring-Grund, solange die
   gemeinsame Logik (noch) nicht in lib lebt — niemals als Fix ein Plugin
   aus dem anderen importieren lassen.
-
----
-
-## ⚠️ Keep It Simple - Auch bei Race Conditions und Edge Cases
-
-- **Bei Race Conditions:** Erst strukturell vermeiden, dann Locks/Mutexe wenn nötig
-- **Bei Edge Cases:** Prüfen ob der Edge Case überhaupt eintreten kann
-- **Vor jedem Fallback fragen:** "Ist das wirklich nötig oder kann ich das Problem anders lösen?"
-- Oft ist die einfachste Lösung: Code so strukturieren, dass das Problem gar nicht erst entsteht
-- Locks/Mutexe sind OK wenn wirklich unvermeidbar - aber **IMMER mit User besprechen**
-- GRUND: Jeder Fallback und jeder Lock ist potentiell versteckte Komplexität
 
 ---
 
