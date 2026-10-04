@@ -4,6 +4,7 @@ assets/external/
 .web
 # Virtual Environment
 venv/
+venv.*/
 env/
 ENV/
 
