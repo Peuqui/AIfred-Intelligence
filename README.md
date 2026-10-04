@@ -180,7 +180,7 @@ Details: [Security Architecture](docs/en/architecture/security.md).
 
 ## 🚀 Quick Start
 
-**Requirements:** Linux with systemd, Python 3.10+, Docker, an NVIDIA GPU (CUDA) with enough VRAM for the models you want, and one LLM backend — llama.cpp via llama-swap (recommended, [setup](docs/en/guides/llamacpp-setup.md)) or Ollama (easiest start).
+**Requirements:** Linux with systemd, Python 3.10+, Docker, an NVIDIA GPU (CUDA) with enough VRAM for the models you want plus the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (GPU containers for speech recognition and TTS), and one LLM backend — llama.cpp via llama-swap (recommended, [setup](docs/en/guides/llamacpp-setup.md)) or Ollama (easiest start).
 
 ```bash
 git clone https://github.com/Peuqui/AIfred-Intelligence.git
