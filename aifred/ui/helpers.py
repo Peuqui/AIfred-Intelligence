@@ -62,7 +62,7 @@ def plugin_text(accessor: Callable[[object, str], str], plugin: object) -> rx.Va
 
 # Custom image replaces the Unicode 🎩 for AIfred with the designed top hat
 _CUSTOM_EMOJI_MAP: dict[str, str] = {
-    "\U0001f3a9": "/AIfred-Zylinder.svg",
+    "\U0001f3a9": rx.asset("AIfred-Zylinder.svg"),
 }
 
 

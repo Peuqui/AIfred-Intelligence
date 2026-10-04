@@ -74,7 +74,7 @@ def _agent_toggle_button(agent: rx.Var) -> rx.Component:
             ),
             rx.cond(
                 agent["emoji"] == "\U0001f3a9",
-                rx.image(src="/AIfred-Zylinder.png", width="16px", height="16px", display="inline-block"),
+                rx.image(src=rx.asset("AIfred-Zylinder.png"), width="16px", height="16px", display="inline-block"),
                 rx.text(agent["emoji"], font_size="13px"),
             ),
             rx.text(agent["display_name"], font_size="12px"),
