@@ -188,7 +188,9 @@ cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-The interactive installer handles system packages (apt, dnf, pacman, brew), the Python venv and requirements, the Playwright browser, the Reflex patch, `.env`, ChromaDB + SearXNG, Whisper STT ([whisper-stt](https://github.com/Peuqui/whisper-stt), cloned next to AIfred), the bge-m3 embedding model, optional systemd services and a first whitelist user. Ollama itself is **not** installed automatically (its official installer is `curl | sh` — do that yourself).
+The interactive installer handles system packages (apt, dnf, pacman, brew), the Python venv and requirements, the Playwright browser, the Reflex patch, `.env`, ChromaDB + SearXNG, Whisper STT ([whisper-stt](https://github.com/Peuqui/whisper-stt), cloned next to AIfred), Ollama (offered via its official `curl | sh` installer, default yes) with the bge-m3 embedding model, a first whitelist user and the systemd services. Every step verifies itself and the run ends with a summary of what is missing.
+
+Tested end to end on a fresh Ubuntu 24.04 (container with GPU passthrough, October 2026). Every question can be answered in advance for an unattended install, e.g. `AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh` — all variables: [Unattended install](docs/en/guides/deployment.md#unattended-install).
 
 **Updating from before October 2026:** Whisper STT moved out of `docker/whisper/` into its own repo. After `git pull`, re-run `./scripts/install-all.sh` — it clones whisper-stt and replaces the old container; downloaded Whisper models are kept.
 

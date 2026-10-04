@@ -188,7 +188,9 @@ cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, Whisper STT ([whisper-stt](https://github.com/Peuqui/whisper-stt), wird neben AIfred geklont), das bge-m3-Embedding-Modell, optionale systemd-Dienste und einen ersten Whitelist-Benutzer. Ollama selbst wird **nicht** automatisch installiert (sein offizieller Installer ist `curl | sh` — das machst du selbst).
+Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, Whisper STT ([whisper-stt](https://github.com/Peuqui/whisper-stt), wird neben AIfred geklont), Ollama (angeboten über den offiziellen `curl | sh`-Installer, Standard ja) mit dem bge-m3-Embedding-Modell, einen ersten Whitelist-Benutzer und die systemd-Dienste. Jeder Schritt prüft sich selbst, am Ende steht eine Zusammenfassung, was noch fehlt.
+
+Vollständig getestet auf einem frischen Ubuntu 24.04 (Container mit durchgereichten GPUs, Oktober 2026). Jede Frage lässt sich vorab beantworten, für eine Installation ohne Rückfragen, z. B. `AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh` — alle Variablen: [Installation ohne Rückfragen](docs/de/guides/deployment.md#installation-ohne-rückfragen).
 
 **Update von einem Stand vor Oktober 2026:** Whisper STT ist aus `docker/whisper/` in ein eigenes Repo umgezogen. Nach `git pull` einmal `./scripts/install-all.sh` erneut ausführen — er klont whisper-stt und ersetzt den alten Container; bereits geladene Whisper-Modelle bleiben erhalten.
 
