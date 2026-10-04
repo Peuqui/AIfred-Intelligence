@@ -48,20 +48,12 @@ class XTTSEngine(TTSEngine):
         are prefixed with "★ " in the display name so the user can tell
         them apart from the 58 bundled speakers. Returns {} when the
         service is unreachable; caller falls back to ``voices_fallback``."""
-        import requests
-        try:
-            r = requests.get(f"{self.service_url}/voices", timeout=5)
-            if r.ok:
-                data = r.json()
-                voices = {}
-                for name in data.get("custom", []):
-                    voices[f"★ {name}"] = name
-                for name in data.get("builtin", []):
-                    voices[name] = name
-                return voices
-        except (requests.RequestException, ValueError) as e:
-            print(f"⚠️ Failed to fetch XTTS voices: {e}")
-        return {}
+        data = self._fetch_voices_json()
+        if not data:
+            return {}
+        voices = {f"★ {name}": name for name in data.get("custom", [])}
+        voices.update({name: name for name in data.get("builtin", [])})
+        return voices
 
     def is_running(self) -> bool:
         import requests
