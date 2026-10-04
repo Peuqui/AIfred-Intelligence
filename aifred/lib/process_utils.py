@@ -759,7 +759,9 @@ def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
 
 def start_whisper_container() -> tuple[bool, str]:
     """Start the Whisper STT Docker container."""
-    from .config import WHISPER_DOCKER_COMPOSE_PATH
+    from .config import WHISPER_DOCKER_COMPOSE_PATH, WHISPER_STT_DIR
+    if not os.path.exists(WHISPER_DOCKER_COMPOSE_PATH):
+        return False, f"whisper-stt not found at {WHISPER_STT_DIR} — run scripts/install-all.sh"
     return _docker_compose_action(WHISPER_DOCKER_COMPOSE_PATH, "up", "Whisper")
 
 

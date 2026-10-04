@@ -110,7 +110,7 @@ Setup: [Telegram](docs/en/guides/telegram-setup.md) · [Discord](docs/en/guides/
 
 ### 🎤 Voice
 
-- **Speech-to-text** — Whisper in Docker for browser and FreeEcho.2 alike: GPU first while a card has free VRAM, otherwise the permanent CPU worker; the GPU worker is released before any LLM load and unloads when idle. Large uploads (meetings) get a duration estimate and a confirmation for long files
+- **Speech-to-text** — Whisper in Docker ([whisper-stt](https://github.com/Peuqui/whisper-stt), set up by the installer) for browser and FreeEcho.2 alike: GPU first while a card has free VRAM, otherwise the permanent CPU worker; the GPU worker is released before any LLM load and unloads when idle. Large uploads (meetings) get a duration estimate and a confirmation for long files
 - **Meeting pipeline** — transcribe in the original language → translate on demand (DeepL) → narrate into a phone-friendly MP3; every step leaves a file
 - **FreeEcho.2 voice terminal** — Echo Dot 2 hardware with custom firmware: wake word, the question appears in the browser within ~500 ms after STT
 - **Eight TTS engines**, per-agent voice, speed and pitch, gapless streaming playback, regenerate button per bubble:
@@ -188,7 +188,9 @@ cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-The interactive installer handles system packages (apt, dnf, pacman, brew), the Python venv and requirements, the Playwright browser, the Reflex patch, `.env`, ChromaDB + SearXNG, the bge-m3 embedding model, optional systemd services and a first whitelist user. Ollama itself is **not** installed automatically (its official installer is `curl | sh` — do that yourself).
+The interactive installer handles system packages (apt, dnf, pacman, brew), the Python venv and requirements, the Playwright browser, the Reflex patch, `.env`, ChromaDB + SearXNG, Whisper STT ([whisper-stt](https://github.com/Peuqui/whisper-stt), cloned next to AIfred), the bge-m3 embedding model, optional systemd services and a first whitelist user. Ollama itself is **not** installed automatically (its official installer is `curl | sh` — do that yourself).
+
+**Updating from before October 2026:** Whisper STT moved out of `docker/whisper/` into its own repo. After `git pull`, re-run `./scripts/install-all.sh` — it clones whisper-stt and replaces the old container; downloaded Whisper models are kept.
 
 Then:
 1. **Register** in the web UI with the whitelisted username (`./aifred-admin add <name>` for more users)

@@ -893,31 +893,63 @@ echo -e "${BLUE}  Step 2e: Whisper STT (voice input)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
 echo "Whisper STT is the speech recognition behind the voice-input button in the UI."
-echo "Runs as its own Docker container (faster-whisper, CPU+GPU dual device)."
+echo "Runs as its own Docker container (faster-whisper, CPU+GPU dual device)"
+echo "from its own repo: https://github.com/Peuqui/whisper-stt"
 echo "First start: image build takes 5-10 min + model pull (~1.5 GB for 'medium')."
 echo ""
 
+WHISPER_REPO_URL="https://github.com/Peuqui/whisper-stt.git"
+# Same default as WHISPER_STT_DIR in aifred/lib/config.py: next to AIfred.
+WHISPER_STT_DIR="$(dirname "$PROJECT_DIR")/whisper-stt"
+WHISPER_STT_DIR_FROM_ENV=$(grep -E "^WHISPER_STT_DIR=" "$PROJECT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-)
+if [ -n "$WHISPER_STT_DIR_FROM_ENV" ]; then
+    WHISPER_STT_DIR="$WHISPER_STT_DIR_FROM_ENV"
+fi
+
 WHISPER_STARTED=0
-if [ -f "$PROJECT_DIR/docker/whisper/docker-compose.yml" ] \
-   && command -v docker &>/dev/null \
-   && docker compose version &>/dev/null 2>&1; then
-    # Idempotency check: is the container already running?
-    if docker_run "docker ps --format '{{.Names}}' | grep -qx whisper-stt"; then
-        echo -e "${GREEN}✅ Whisper container 'whisper-stt' already running${NC}"
-        WHISPER_STARTED=1
+if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; then
+    WHISPER_CHECKOUT_OK=0
+    if [ -d "$WHISPER_STT_DIR/.git" ]; then
+        echo "   Updating whisper-stt in $WHISPER_STT_DIR ..."
+        if ! git -C "$WHISPER_STT_DIR" pull --ff-only; then
+            echo -e "${YELLOW}⚠️  git pull failed — building from the current checkout.${NC}"
+            STEP_WARNINGS+=("whisper-stt not updated (git pull failed in $WHISPER_STT_DIR)")
+        fi
+        WHISPER_CHECKOUT_OK=1
     else
+        echo "   Cloning whisper-stt into $WHISPER_STT_DIR ..."
+        if git clone "$WHISPER_REPO_URL" "$WHISPER_STT_DIR"; then
+            WHISPER_CHECKOUT_OK=1
+        else
+            echo -e "${YELLOW}⚠️  git clone of $WHISPER_REPO_URL failed.${NC}"
+        fi
+    fi
+
+    if [ "$WHISPER_CHECKOUT_OK" = "1" ]; then
+        # Until 10/2026 Whisper lived in AIfred's docker/whisper/. The container
+        # name is fixed, so the old one has to go before the new one can start.
+        # The models survive: the volume 'whisper_models' is named explicitly.
+        WHISPER_OLD_DIR=$(docker_run "docker ps -a --filter name=^whisper-stt\$ --format '{{.Label \"com.docker.compose.project.working_dir\"}}'")
+        if [ -n "$WHISPER_OLD_DIR" ] \
+           && [ "$(readlink -f "$WHISPER_OLD_DIR")" != "$(readlink -f "$WHISPER_STT_DIR")" ]; then
+            echo -e "${YELLOW}ℹ️  Whisper STT moved into its own repo (whisper-stt).${NC}"
+            echo "   Replacing the old container from $WHISPER_OLD_DIR —"
+            echo "   downloaded models are kept (volume 'whisper_models')."
+            docker_run "docker rm -f whisper-stt" >/dev/null
+        fi
+
         echo "   Building + starting Whisper container (can take a while on first run)..."
-        if docker_run "cd '$PROJECT_DIR/docker/whisper' && docker compose up -d --build"; then
-            echo -e "${GREEN}✅ Whisper container started${NC}"
+        if docker_run "cd '$WHISPER_STT_DIR' && docker compose up -d --build"; then
+            echo -e "${GREEN}✅ Whisper container running${NC}"
             WHISPER_STARTED=1
         else
             echo -e "${YELLOW}⚠️  Whisper build/start failed.${NC}"
             echo "   Catch up manually:"
-            echo "       cd $PROJECT_DIR/docker/whisper && docker compose up -d --build"
+            echo "       cd $WHISPER_STT_DIR && docker compose up -d --build"
         fi
     fi
 else
-    echo -e "${YELLOW}⚠️  docker / docker compose not available or docker/whisper/ missing — skipped.${NC}"
+    echo -e "${YELLOW}⚠️  docker / docker compose not available — skipped.${NC}"
 fi
 
 # Verification — container running + port 5080 (external) listens.
@@ -926,7 +958,7 @@ echo -e "${BLUE}🔎 Verifying Whisper STT...${NC}"
 if [ "$WHISPER_STARTED" = "1" ]; then
     verify_step "whisper-stt container running" \
         "docker ps --format '{{.Names}}' | grep -qx whisper-stt" \
-        "cd docker/whisper && docker compose up -d --build"
+        "cd '$WHISPER_STT_DIR' && docker compose up -d --build"
     # Healthcheck inside the container: 30s interval + start_period 60s.
     # Poll generously because the model pull on a fresh start takes
     # 1-2 min.
@@ -947,7 +979,7 @@ if [ "$WHISPER_STARTED" = "1" ]; then
         STEP_WARNINGS+=("Whisper STT taking longer to come up — check docker logs whisper-stt")
     fi
 else
-    STEP_WARNINGS+=("Whisper STT not started — voice input in the UI won't work (cd docker/whisper && docker compose up -d --build)")
+    STEP_WARNINGS+=("Whisper STT not started — voice input in the UI won't work (see $WHISPER_REPO_URL)")
 fi
 step_summary "2e — Whisper STT"
 echo ""

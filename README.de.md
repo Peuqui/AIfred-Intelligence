@@ -110,7 +110,7 @@ Einrichtung: [Telegram](docs/de/guides/telegram-setup.md) · [Discord](docs/de/g
 
 ### 🎤 Sprache
 
-- **Speech-to-Text** — Whisper in Docker, für Browser und FreeEcho.2 gleich: zuerst die GPU, solange eine Karte freien VRAM hat, sonst der permanente CPU-Worker; vor jedem LLM-Ladevorgang wird der GPU-Worker freigegeben, im Leerlauf entlädt er sich. Große Uploads (Meetings) bekommen eine Dauer-Schätzung und eine Rückfrage bei langen Dateien
+- **Speech-to-Text** — Whisper in Docker ([whisper-stt](https://github.com/Peuqui/whisper-stt), richtet der Installer ein), für Browser und FreeEcho.2 gleich: zuerst die GPU, solange eine Karte freien VRAM hat, sonst der permanente CPU-Worker; vor jedem LLM-Ladevorgang wird der GPU-Worker freigegeben, im Leerlauf entlädt er sich. Große Uploads (Meetings) bekommen eine Dauer-Schätzung und eine Rückfrage bei langen Dateien
 - **Meeting-Pipeline** — in der Originalsprache transkribieren → bei Bedarf übersetzen (DeepL) → zu einer handytauglichen MP3 vertonen; jeder Schritt hinterlässt eine Datei
 - **FreeEcho.2-Sprach-Terminal** — Echo-Dot-2-Hardware mit Custom-Firmware: Wake-Word, die Frage erscheint innerhalb von ~500 ms nach STT im Browser
 - **Acht TTS-Engines**, Stimme, Geschwindigkeit und Tonhöhe pro Agent, lückenlose Streaming-Wiedergabe, Regenerate-Button pro Bubble:
@@ -188,7 +188,9 @@ cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, das bge-m3-Embedding-Modell, optionale systemd-Dienste und einen ersten Whitelist-Benutzer. Ollama selbst wird **nicht** automatisch installiert (sein offizieller Installer ist `curl | sh` — das machst du selbst).
+Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, Whisper STT ([whisper-stt](https://github.com/Peuqui/whisper-stt), wird neben AIfred geklont), das bge-m3-Embedding-Modell, optionale systemd-Dienste und einen ersten Whitelist-Benutzer. Ollama selbst wird **nicht** automatisch installiert (sein offizieller Installer ist `curl | sh` — das machst du selbst).
+
+**Update von einem Stand vor Oktober 2026:** Whisper STT ist aus `docker/whisper/` in ein eigenes Repo umgezogen. Nach `git pull` einmal `./scripts/install-all.sh` erneut ausführen — er klont whisper-stt und ersetzt den alten Container; bereits geladene Whisper-Modelle bleiben erhalten.
 
 Danach:
 1. **Registrieren** in der Web-UI mit dem Benutzernamen von der Whitelist (`./aifred-admin add <name>` für weitere Benutzer)
