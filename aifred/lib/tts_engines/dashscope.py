@@ -169,7 +169,9 @@ class DashScopeEngine(TTSEngine):
                 stream=True,
             )
             pcm_chunks: list[bytes] = []
-            for chunk in response:
+            # stream=True always returns the generator; the SDK annotates
+            # a plain Union without a stream overload.
+            for chunk in response:  # type: ignore[union-attr]
                 if chunk.output and chunk.output.audio and chunk.output.audio.data:
                     pcm_chunks.append(base64.b64decode(chunk.output.audio.data))
 

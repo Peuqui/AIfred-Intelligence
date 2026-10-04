@@ -114,6 +114,23 @@ class TTSEngine(ABC):
         back to :attr:`voices_fallback` in that case.
         """
 
+    def _fetch_voices_json(self) -> Optional[dict[str, Any]]:
+        """GET ``<service_url>/voices`` of a container engine. A stopped
+        container (connection refused) is the normal case and stays
+        silent; only a container that answers wrongly is worth a warning.
+        Returns ``None`` on any failure."""
+        import requests
+        try:
+            r = requests.get(f"{self.service_url}/voices", timeout=5)
+            r.raise_for_status()
+            data: dict[str, Any] = r.json()
+            return data
+        except requests.ConnectionError:
+            return None
+        except (requests.RequestException, ValueError) as e:
+            print(f"⚠️ Failed to fetch {self.label_short} voices: {e}")
+            return None
+
     # ── Language mapping (default: ISO codes pass through) ─────────
     @property
     def language_map(self) -> dict[str, str]:
