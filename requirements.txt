@@ -6,35 +6,35 @@
 
 # Core Framework
 reflex==0.8.28.post1
-pydantic==2.12.5         # For data models (required by Reflex State)
+pydantic==2.13.5         # For data models (required by Reflex State)
 
 # LLM Backends
 httpx==0.28.1           # For Ollama HTTP API
-fastapi==0.128.0        # REST API for external integrations
+fastapi==0.142.2        # REST API for external integrations
 openai==2.15.0           # For vLLM (OpenAI-compatible API)
-nvidia-ml-py==13.590.44      # NVIDIA GPU monitoring for VRAM detection (provides the pynvml module)
-psutil==7.2.0           # System resource monitoring (RAM for hybrid mode)
+nvidia-ml-py==13.615.71      # NVIDIA GPU monitoring for VRAM detection (provides the pynvml module)
+psutil==7.2.2           # System resource monitoring (RAM for hybrid mode)
 
 # Web Search & Scraping
-trafilatura==2.0.0     # Web content extraction (includes lxml)
-playwright==1.57.0      # JavaScript-heavy page scraping
+trafilatura==2.3.0     # Web content extraction (includes lxml)
+playwright==1.63.0      # JavaScript-heavy page scraping
 requests==2.34.2        # HTTP requests for search APIs (Brave, SearXNG)
-pymupdf==1.26.7         # PDF text extraction (AWMF guidelines, PubMed PDFs)
+pymupdf==1.28.2         # PDF text extraction (AWMF guidelines, PubMed PDFs)
 
 # Vector Database & Semantic Search
-chromadb==1.4.0        # Vector database for semantic caching
-ollama==0.6.1           # Ollama Python client for embeddings + Vision-Side-Channel
-numpy==2.2.6           # Required by chromadb embeddings + face embeddings
+chromadb==1.5.9        # Vector database for semantic caching
+ollama==0.6.3           # Ollama Python client for embeddings + Vision-Side-Channel
+numpy==2.5.3           # Required by chromadb embeddings + face embeddings
 
 # Vision Pipeline (frame_sources, face recognition, motion detection)
 opencv-python-headless==4.13.0.92  # V4L2 capture, JPEG encode, motion-detect
                               # (headless: no GUI libs — server-friendly)
 insightface==1.0.1        # Face detection (RetinaFace) + embedding (ArcFace)
-onnxruntime-gpu==1.26.0   # InsightFace inference backend on CUDA GPU
+onnxruntime-gpu==1.30.0   # InsightFace inference backend on CUDA GPU
 
 # Backend Calibration & OAuth (direct imports — pin even if transitively present)
 PyYAML==6.0.3             # llama-swap config read/write (aifred/lib/calibration/llamaswap_io.py)
-cryptography==46.0.5      # Fernet token encryption for OAuth (aifred/lib/oauth/broker.py)
+cryptography==50.0.2      # Fernet token encryption for OAuth (aifred/lib/oauth/broker.py)
 bcrypt==5.0.0             # Account password hashing (aifred/lib/session_storage.py)
 
 # Channel & Tool Plugins (eager-loaded at startup — missing pkg disables plugin)
@@ -46,35 +46,35 @@ fdb==2.0.4                # EPIM Firebird DB plugin (plugins/tools/epim/) — re
 
 # Audio Processing (TTS only — STT runs in its own Docker service, see below)
 edge-tts==7.2.8         # Text-to-Speech (7.2.3 had a NoAudioReceived bug)
-dashscope==1.25.12       # DashScope Qwen3-TTS Cloud API
+dashscope==1.27.7       # DashScope Qwen3-TTS Cloud API
 # Whisper STT: NOT needed here — own repo https://github.com/Peuqui/whisper-stt
 # (cloned and started by scripts/install-all.sh)
 
 # Configuration & Environment
-python-dotenv==1.2.1    # .env file support
+python-dotenv==1.2.4    # .env file support
 
 # Model Management
 huggingface_hub==1.16.1          # HuggingFace model downloads + `hf` CLI binary
                                 # (provides `hf download`, `hf upload`, etc.)
-gguf==0.17.1                    # GGUF metadata reading (native context detection)
+gguf==0.19.0                    # GGUF metadata reading (native context detection)
 
 # Document Processing
-chardet==7.3.0          # Automatic encoding detection for uploaded documents
+chardet==7.6.0          # Automatic encoding detection for uploaded documents
 python-docx==1.2.0      # Microsoft Word (.docx) text extraction
 openpyxl==3.1.5         # Microsoft Excel (.xlsx) text extraction
 python-pptx==1.0.2      # Microsoft PowerPoint (.pptx) text extraction
 odfpy==1.4.1            # LibreOffice/OpenDocument (.odt, .ods, .odp) text extraction
 
 # Utilities
-python-multipart==0.0.20
-platformdirs==4.5.1
-mistune==3.2.0          # Markdown-to-HTML for Chat Export
+python-multipart==0.0.32
+platformdirs==4.12.3
+mistune==3.3.4          # Markdown-to-HTML for Chat Export
 croniter==6.2.2         # Cron schedules of the scheduler (lib/scheduler.py)
 mutagen==1.47.0         # Audio tags for the audio player index (lib/audio_index.py)
 matplotlib==3.10.8      # Plots from the execute_python tool (lib/sandbox.py)
 transformers==5.9.0     # Qwen3 tokenizer download for context estimation (lib/context_manager.py)
 
 # Development
-pytest==9.0.2
-black==25.12.0
-Pillow==12.1.0
+pytest==9.1.1
+black==26.5.1
+Pillow==12.3.0
