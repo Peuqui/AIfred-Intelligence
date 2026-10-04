@@ -125,6 +125,28 @@ warn_step() {
     return 0
 }
 
+# ask <ENV_VAR> <prompt> [line]
+# Every question of this installer goes through here. When <ENV_VAR> is set,
+# its value is the answer (unattended installs, e.g. a sandbox run with
+# AIFRED_INSTALL_OLLAMA=n ...); without a terminal and without the variable
+# the answer is empty, i.e. the question's default; otherwise the user types
+# it — one key, or a whole line with "line". The answer ends up in REPLY.
+ask() {
+    local var="$1" prompt="$2" mode="${3:-key}"
+    if [ -n "${!var+x}" ]; then
+        REPLY="${!var}"
+        echo "${prompt}${REPLY}   (from $var)"
+    elif [ ! -t 0 ]; then
+        REPLY=""
+        echo "${prompt}   (default: no terminal, $var not set)"
+    elif [ "$mode" = "line" ]; then
+        read -r -p "$prompt" REPLY
+    else
+        read -r -p "$prompt" -n 1 REPLY
+        echo ""
+    fi
+}
+
 # step_summary <step-name>
 # Shows a mini summary after each step. The hit list is shown again
 # in the final summary — this is just direct per-step feedback.
@@ -597,8 +619,8 @@ else
     echo "   daemon. Source + instructions: https://ollama.com/download/linux"
     echo ""
     # Default YES — those who really don't want embeddings can skip.
-    read -p "Install Ollama now (curl | sh)? (Y/n): " -n 1 -r OLLAMA_REPLY
-    echo ""
+    ask AIFRED_INSTALL_OLLAMA "Install Ollama now (curl | sh)? (Y/n): "
+    OLLAMA_REPLY="$REPLY"
     if [[ ! $OLLAMA_REPLY =~ ^[Nn]$ ]]; then
         if ! command -v curl &>/dev/null; then
             echo -e "${RED}❌ curl missing — please run 'sudo apt install curl' first (or dnf/pacman/brew).${NC}"
@@ -839,8 +861,8 @@ echo "Piper is a local, fast offline TTS engine. The default engine is"
 echo "Edge-TTS (cloud) — Piper is only needed if you want an offline voice."
 echo "Size: pip package ~10 MB + models 20-110 MB each per voice."
 echo ""
-read -p "Set up Piper TTS? (y/N): " -n 1 -r PIPER_REPLY
-echo ""
+ask AIFRED_INSTALL_PIPER "Set up Piper TTS? (y/N): "
+PIPER_REPLY="$REPLY"
 PIPER_CHOSEN=0
 if [[ $PIPER_REPLY =~ ^[JjYy]$ ]]; then
     PIPER_CHOSEN=1
@@ -1165,7 +1187,9 @@ for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
     else
         _prompt="Build $_label? (y/N): "
     fi
-    read -p "$_prompt" -n 1 -r REPLY; echo
+    # fish-speech -> AIFRED_INSTALL_TTS_FISH_SPEECH (no '-' in variable names)
+    _engine_var="${_engine//-/_}"
+    ask "AIFRED_INSTALL_TTS_${_engine_var^^}" "$_prompt"
     if [[ $REPLY =~ ^[JjYy]$ ]]; then
         TTS_CHOSEN_ENGINES+=("$_engine")
         tts_build "$_engine" "$_label" || true
@@ -1211,9 +1235,8 @@ if [ "$DRY_RUN" = "1" ]; then
 else
     echo -e "${YELLOW}⚠️  Needs sudo!${NC}"
     echo ""
-    read -p "Install systemd services? (y/N): " -n 1 -r
+    ask AIFRED_INSTALL_SYSTEMD "Install systemd services? (y/N): "
 fi
-echo ""
 
 SYSTEMD_CHOSEN=0
 SYSTEMD_SVC_EXIT=0
@@ -1356,8 +1379,8 @@ else
 # 'skip'. This avoids the common silent-fail case where enter-enter
 # leads to a skipped step.
 while true; do
-    read -p "Username [$USER] (skip = skip with warning): " WHITELIST_USER
-    WHITELIST_USER="${WHITELIST_USER:-$USER}"
+    ask AIFRED_INSTALL_USER "Username [$USER] (skip = skip with warning): " line
+    WHITELIST_USER="${REPLY:-$USER}"
     if [ "$WHITELIST_USER" = "skip" ]; then
         echo -e "${YELLOW}⚠️  Whitelist user creation skipped.${NC}"
         echo -e "${YELLOW}   Login won't work in the UI until you catch up:${NC}"
@@ -1378,6 +1401,8 @@ while true; do
             break
         else
             echo -e "${YELLOW}⚠️  aifred-admin add failed — please try again or enter 'skip'.${NC}"
+            # A preset answer would fail the same way forever.
+            [ -n "${AIFRED_INSTALL_USER+x}" ] && break
         fi
     else
         echo -e "${YELLOW}⚠️  $PROJECT_DIR/aifred-admin not executable — skipping.${NC}"

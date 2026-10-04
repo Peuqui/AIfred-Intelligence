@@ -88,6 +88,24 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Unattended install
+
+`install-all.sh` asks five kinds of questions. Each can be answered in
+advance with an environment variable; a question whose variable is not set
+is asked as usual, or takes its default when there is no terminal:
+
+| Variable | Question | Values |
+|---|---|---|
+| `AIFRED_INSTALL_OLLAMA` | install Ollama (`curl \| sh`) | `y` / `n` (default `y`) |
+| `AIFRED_INSTALL_PIPER` | set up Piper TTS | `y` / `n` (default `n`) |
+| `AIFRED_INSTALL_TTS_<ENGINE>` | build a TTS container, one per folder in `docker/tts/` (`fish-speech` → `AIFRED_INSTALL_TTS_FISH_SPEECH`) | `y` / `n` (default `n`) |
+| `AIFRED_INSTALL_SYSTEMD` | install the systemd services | `y` / `n` (default `n`) |
+| `AIFRED_INSTALL_USER` | first whitelist user | a username, or `skip` (default: `$USER`) |
+
+```bash
+AIFRED_INSTALL_OLLAMA=n AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh
+```
+
 ---
 
 ## 5. Set up systemd services
