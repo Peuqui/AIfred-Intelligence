@@ -1,7 +1,8 @@
 services:
   # ChromaDB — documents (RAG) and agent memory (Essential - always needed)
   chromadb:
-    image: chromadb/chroma:latest
+    # Server version matches the chromadb client pinned in requirements.txt.
+    image: chromadb/chroma:1.5.9
     container_name: aifred-chromadb
     ports:
       # Bind to loopback only: AIfred runs on the host and reaches ChromaDB via
@@ -41,7 +42,7 @@ services:
 
   # SearXNG Search Engine (Primary web-research backend — always needed)
   searxng:
-    image: searxng/searxng:latest
+    image: searxng/searxng:2026.10.2-19ffbcd30
     container_name: aifred-searxng
     restart: unless-stopped
     ports:
