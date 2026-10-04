@@ -257,7 +257,7 @@ def may_use_memory(source: str, trust: str) -> bool:
 
 def may_send_outbound(source: str) -> bool:
     """Whether the agent may send messages itself. A scheduled job may not:
-    the scheduler delivers the run's final answer, so a send tool would only
+    the scheduler delivers the run's answer, so a send tool would only
     duplicate it (and bypass the job's delivery settings)."""
     return source != "scheduler"
 

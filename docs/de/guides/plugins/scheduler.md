@@ -33,7 +33,7 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 ## Features
 
 - **Drei Schedule-Typen:** `cron` (Cron-Ausdruck, z.B. `0 8 * * *` = täglich 8 Uhr), `interval` (Sekunden, z.B. `3600` = stündlich), `once` (ISO-Timestamp, z.B. `2026-03-30T10:00:00`)
-- **Delivery-Modi:** `review` (Standard, in UI anzeigen), `announce` (an einen Kanal senden), `webhook` (HTTP POST); zugestellt wird nur die Schlussantwort, der Agent verschickt nichts selbst
+- **Delivery-Modi:** `review` (Standard, in UI anzeigen), `announce` (an einen Kanal senden), `webhook` (HTTP POST); zugestellt wird die ganze Antwort wie im Browser (ohne Denkblöcke), der Agent verschickt nichts selbst
 - **Historie pro Job:** Jeder Lauf sieht, was die letzten Läufe zugestellt haben
 - **Tier-Begrenzung:** Jobs laufen mit `TIER_COMMUNICATE`, nicht mit dem Tier des erstellenden Users; Erinnerungen schreiben dürfen sie trotzdem, weil sie dem Owner gehören
 - **Isolierte Ausführung:** Jeder Job läuft aus seinem eigenen gespeicherten Payload

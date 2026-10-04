@@ -152,10 +152,14 @@ zusätzlich aus.
   gekürzt wurde (`history_excerpt`). Was ein Job exakt behalten muss, soll er
   laut Job-Prompt ins Gedächtnis schreiben. Jeder Lauf hat trotzdem eine
   eigene Session.
-- **Nur die Schlussantwort:** Zugestellt und protokolliert wird der Text nach
-  dem letzten Tool-Call (`outbound.metadata["final_text"]`). Arbeitsnotizen
-  aus früheren Tool-Runden bleiben in der Session. Endet der Lauf ohne
-  Schlussantwort, schlägt der Job fehl.
+- **Die ganze Antwort:** Zugestellt und protokolliert wird die Antwort, wie
+  sie im Browser erscheint, ohne Denkblöcke — derselbe `outbound.text`, den
+  jede Kanal-Antwort bekommt. Bis 04.10.2026 ging nur der Text nach dem
+  letzten Tool-Call raus; schrieb der Agent die Nachricht zuerst und
+  aktualisierte danach sein Gedächtnis, kam nur der Schlusssatz an. Gegen
+  Arbeitsnotizen in der Zustellung stehen der Job-Prompt und das Fehlen
+  jeder Sende-Aktion (die Notizen vom 15.09. stammten aus Versandversuchen
+  des Agenten). Liefert der Lauf keinen Text, schlägt der Job fehl.
 - **Kein Selbstversand:** Im Scheduler-Lauf fehlen alle Sende-Werkzeuge
   (`Tool.outbound`, `security.may_send_outbound`), beim `email`-Werkzeug die
   Aktion `send`. Zustellen tut ausschließlich der Scheduler.

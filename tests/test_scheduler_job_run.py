@@ -102,22 +102,22 @@ class TestHistoryExcerpt:
         assert sched.history_excerpt(text, 10) == "Ein sehr langer erster Satz ohne Pause. …"
 
 
-# ── Execution: final answer is delivered and recorded ────────
+# ── Execution: the whole answer is delivered and recorded ────
 
 class TestExecuteJob:
     def _job(self):
         return sched.get_job_store().add("News", "interval", "60", {"message": "Nachrichten"})
 
-    def test_delivers_and_records_final_text(self, monkeypatch):
+    def test_delivers_and_records_whole_answer(self, monkeypatch):
+        # The message written before a closing memory update must go out too
+        # (2026-10-04: only the sentence after update_memory was mailed).
         job = self._job()
         seen: dict = {}
+        answer = "Gebet und Psalm.\n\nAmen."
 
         async def fake_process_inbound(msg):
             seen["msg"] = msg
-            return SimpleNamespace(
-                text="Notizen\n\nAntwort",
-                metadata={"session_id": "sess", "final_text": "Antwort"},
-            )
+            return SimpleNamespace(text=answer, metadata={"session_id": "sess"})
 
         async def fake_deliver(j, text, session_id):
             seen["delivered"] = (text, session_id)
@@ -127,17 +127,17 @@ class TestExecuteJob:
         asyncio.run(sched._execute_job(job))
 
         assert seen["msg"].text.startswith("[Geplanter Job: News]")
-        assert seen["delivered"] == ("Antwort", "sess")
-        assert [t for _, t in sched.get_job_store().recent_runs(job.job_id, 5)] == ["Antwort"]
+        assert seen["delivered"] == (answer, "sess")
+        assert [t for _, t in sched.get_job_store().recent_runs(job.job_id, 5)] == [answer]
 
-    def test_missing_final_answer_raises(self, monkeypatch):
+    def test_empty_answer_raises(self, monkeypatch):
         job = self._job()
 
         async def fake_process_inbound(msg):
-            return SimpleNamespace(text="Notizen", metadata={"session_id": "sess", "final_text": ""})
+            return SimpleNamespace(text="", metadata={"session_id": "sess"})
 
         monkeypatch.setattr("aifred.lib.message_processor.process_inbound", fake_process_inbound)
-        with pytest.raises(RuntimeError, match="without a final answer"):
+        with pytest.raises(RuntimeError, match="no response"):
             asyncio.run(sched._execute_job(job))
 
 

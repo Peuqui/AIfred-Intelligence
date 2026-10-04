@@ -33,7 +33,7 @@ result is handed to the configured delivery mode.
 ## Features
 
 - **Three schedule types:** `cron` (cron expression, e.g. `0 8 * * *` = daily 8am), `interval` (seconds, e.g. `3600` = every hour), `once` (ISO timestamp, e.g. `2026-03-30T10:00:00`)
-- **Delivery modes:** `review` (default, show in UI), `announce` (send to a channel), `webhook` (HTTP POST); only the final answer is delivered, the agent sends nothing itself
+- **Delivery modes:** `review` (default, show in UI), `announce` (send to a channel), `webhook` (HTTP POST); the whole answer is delivered as the browser shows it (without thinking), the agent sends nothing itself
 - **History per job:** each run sees what the last runs delivered
 - **Tier capping:** Jobs run at `TIER_COMMUNICATE`, not at the creating user's tier; they may still write memories because they belong to the owner
 - **Isolated execution:** Each job runs from its own stored payload

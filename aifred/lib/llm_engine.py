@@ -307,7 +307,6 @@ async def call_llm(
             "type": "result",
             "data": {
                 "response_clean": response_clean,
-                "response_final": pipeline_result.final_text,
                 # Message Hub view of the bubble: text and artifacts without
                 # thinking (the hub bubble never showed tag collapsibles).
                 "response_display": render_bubble(

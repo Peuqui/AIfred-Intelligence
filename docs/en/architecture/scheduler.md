@@ -151,9 +151,13 @@ in addition.
   `SCHEDULER_HISTORY_EXCERPT_CHARS` characters, never cut mid-sentence, with
   "…" when shortened (`history_excerpt`). Whatever a job must keep exactly, the
   job prompt tells it to store in memory. Each run still has its own session.
-- **Final answer only:** delivered and recorded is the text after the last
-  tool call (`outbound.metadata["final_text"]`). Working notes from earlier
-  tool rounds stay in the session. A run without a final answer fails.
+- **The whole answer:** delivered and recorded is the answer as the browser
+  shows it, without thinking — the same `outbound.text` every channel reply
+  gets. Until 2026-10-04 only the text after the last tool call went out; when
+  the agent wrote the message first and updated its memory afterwards, only
+  the closing sentence arrived. The job prompt and the absence of any sending
+  action keep working notes out of the delivery (the notes of 09/15 came from
+  the agent's own sending attempts). A run without text fails.
 - **No self-sending:** a scheduler run has no sending tools (`Tool.outbound`,
   `security.may_send_outbound`), and the `email` tool has no `send` action.
   Only the scheduler delivers.
