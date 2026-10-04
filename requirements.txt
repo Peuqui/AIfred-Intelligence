@@ -65,6 +65,14 @@ openpyxl==3.1.5         # Microsoft Excel (.xlsx) text extraction
 python-pptx==1.0.2      # Microsoft PowerPoint (.pptx) text extraction
 odfpy==1.4.1            # LibreOffice/OpenDocument (.odt, .ods, .odp) text extraction
 
+# Libraries the execute_python tool promises the agents (its tool prompt lists
+# numpy, pandas, matplotlib, scipy, sklearn, seaborn, plotly)
+pandas==3.0.1
+scipy==1.18.1
+scikit-learn==1.8.0
+seaborn==0.13.2
+plotly==6.6.0
+
 # Utilities
 python-multipart==0.0.32
 platformdirs==4.12.3
@@ -75,6 +83,10 @@ matplotlib==3.10.8      # Plots from the execute_python tool (lib/sandbox.py)
 transformers==5.9.0     # Qwen3 tokenizer download for context estimation (lib/context_manager.py)
 
 # Development
+ruff==0.15.8            # Linting (CLAUDE.md quality checks)
+mypy==1.19.1            # Type checking (CLAUDE.md quality checks)
+types-PyYAML==6.0.12.20250915   # mypy stubs
+types-requests==2.32.4.20260107 # mypy stubs
 pytest==9.1.1
 black==26.5.1
 Pillow==12.3.0
