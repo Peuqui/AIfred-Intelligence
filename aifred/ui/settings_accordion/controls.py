@@ -69,7 +69,6 @@ def _agent_toggle(
     checked_var,
     on_change_handler,
     tooltip_text: str | rx.Var,
-    color_scheme: str = "orange",
     emoji_is_var: bool = False,
 ) -> rx.Component:
     """Single agent toggle with tooltip (Personality/Reasoning/Thinking)."""
@@ -81,7 +80,7 @@ def _agent_toggle(
                 checked=checked_var,
                 on_change=on_change_handler,
                 size="1",
-                color_scheme=color_scheme,
+                color_scheme="orange",
                 variant="surface",
             ),
             spacing="1",

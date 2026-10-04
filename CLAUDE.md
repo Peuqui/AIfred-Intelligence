@@ -226,6 +226,22 @@ respawn_interval=3.5,
 
 ---
 
+## ⚠️ Reflex Patch: Typen der Komponenten-Pakete (mypy)
+
+Reflex 0.9 liefert die Komponenten in eigenen Paketen (`reflex_components_*`)
+mit `.pyi`-Stubs, aber **ohne `py.typed`** (PEP 561, noch in 0.9.10.post1).
+mypy ignoriert die Stubs dann, jede Komponente wird `Any` → ~200
+`no-any-return`-Fehler. Zweiter Fehler: In
+`reflex_components_core/core/cond.py` stehen TypeVars mitten in der
+`@overload`-Serie von `cond`; mypy verwirft deshalb die sieben
+Wert-Überladungen, und `rx.cond(var, "a", "b")` scheitert mit `call-overload`.
+
+`scripts/patch-reflex.py` setzt die Marker und zieht die TypeVars vor die
+Serie (Laufzeit unverändert). **Bei Reflex-Update:** Skript erneut laufen
+lassen, `--check` meldet, ob upstream inzwischen gefixt ist.
+
+---
+
 ## AIfred Systemdienst
 
 AIfred läuft als PolKit Systemdienst (NICHT als root!):
