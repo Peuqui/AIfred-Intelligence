@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>AIfred Corpus</title>
+<title>AIfred Bibliothek</title>
 <style>
   :root {
     --bg: #0f172a;
@@ -260,7 +260,7 @@
   .hit .content { white-space: pre-wrap; font-size: 0.9rem; line-height: 1.55; }
   /* Quellen-Etikett unten rechts im Chunk-Block — kursiv, dezent, aber
      genug Kontrast um lesbar zu sein. Nutzt display_source vom Server
-     (gemappt aus filename via deploy/corpus/source_labels.json). */
+     (gemappt aus filename via deploy/bibliothek/source_labels.json). */
   .hit .source-tag {
     display: block;
     text-align: right;
@@ -445,7 +445,7 @@
 <body>
 
 <header>
-  <h1>AIfred Corpus</h1>
+  <h1>AIfred Bibliothek</h1>
   <div class="sub">Vector-DB Suche, Verwaltung, Upload &mdash; ChromaDB / bge-m3</div>
 </header>
 
@@ -1573,7 +1573,7 @@ $('col-go').addEventListener('click', async () => {
 });
 
 // "Sammlung leeren" — Bulk-Delete aller Items. Backend lehnt das fuer
-// aifred_documents ab (User-Korpus → File-/Folder-Aktionen verwenden).
+// aifred_documents ab (Bibliothek des Users → File-/Folder-Aktionen verwenden).
 $('col-clear').addEventListener('click', async () => {
   if (!colCurrent) return;
   const name = colCurrent.name;

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Search the AIfred Vector-DB corpus from the command line.
+"""Search the AIfred Bibliothek (vector DB documents) from the command line.
 
 Two modes:
 - **semantic** (default): bge-m3 vector search, like the LLM agents see it.
@@ -10,10 +10,10 @@ Two modes:
   whether a quoted phrase actually appears in a translation).
 
 Examples:
-    venv/bin/python scripts/search_corpus.py "Heiliger Geist" \\
+    venv/bin/python scripts/bibliothek_search.py "Heiliger Geist" \\
         --folder bibel --n 10
-    venv/bin/python scripts/search_corpus.py --grep "ewigen Gericht verfallen"
-    venv/bin/python scripts/search_corpus.py --grep "Ruach Hakodesh" \\
+    venv/bin/python scripts/bibliothek_search.py --grep "ewigen Gericht verfallen"
+    venv/bin/python scripts/bibliothek_search.py --grep "Ruach Hakodesh" \\
         --folder judaica/kommentare
 
 Pipe-friendly with --json for tooling integration.
@@ -159,14 +159,14 @@ def format_hit(hit: dict[str, Any], idx: int, needle: str | None) -> str:
 
 def main() -> int:
     p = argparse.ArgumentParser(
-        prog="search_corpus",
+        prog="bibliothek_search",
         description="Search the AIfred vector DB (semantic or literal).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog=textwrap.dedent("""
             Examples:
-              search_corpus "Heiliger Geist" --folder bibel --n 10
-              search_corpus --grep "ewigen Gericht verfallen"
-              search_corpus --grep "Ruach Hakodesh" --folder judaica/kommentare
+              bibliothek_search "Heiliger Geist" --folder bibel --n 10
+              bibliothek_search --grep "ewigen Gericht verfallen"
+              bibliothek_search --grep "Ruach Hakodesh" --folder judaica/kommentare
         """),
     )
     p.add_argument("query", nargs="?", default=None,

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""HTTP service for the AIfred corpus: search + admin (browse, delete, reindex).
+"""HTTP service for the AIfred Bibliothek: search + admin (browse, delete, reindex).
 
 Serves a FastAPI app on 127.0.0.1:8005 by default. Designed to be
-reverse-proxied by nginx under /corpus/api/. The static
-HTML UI lives separately under /corpus/ (handled by nginx).
+reverse-proxied by nginx under /bibliothek/api/. The static
+HTML UI lives separately under /bibliothek/ (handled by nginx).
 
 Endpoints:
 - GET  /api/health                      health check
@@ -15,7 +15,7 @@ Endpoints:
 - POST /api/search                      semantic OR literal search (mode=...)
 
 Run manually:
-    venv/bin/python scripts/corpus_search_server.py
+    venv/bin/python scripts/bibliothek_server.py
 """
 
 from __future__ import annotations
@@ -42,17 +42,17 @@ os.environ.setdefault("AIFRED_CLI_MODE", "1")
 from aifred.lib.document_store import get_document_store  # noqa: E402
 from aifred.lib.config import DOCUMENTS_DIR  # noqa: E402
 
-app = FastAPI(title="AIfred Corpus Search & Admin", version="1.0")
+app = FastAPI(title="AIfred Bibliothek", version="1.0")
 
-# The UI is served from the same origin (nginx /corpus/), so same-origin
+# The UI is served from the same origin (nginx /bibliothek/), so same-origin
 # requests need no CORS grant at all. We restrict cross-origin access to an
 # explicit allowlist instead of "*" — a wildcard would let any website issue
 # requests against the (basic-auth-protected) admin API from a logged-in user's
-# browser. Extra origins via CORPUS_ALLOWED_ORIGINS (comma-separated); unset
+# browser. Extra origins via BIBLIOTHEK_ALLOWED_ORIGINS (comma-separated); unset
 # means none, which is all the same-origin UI needs.
 _allowed_origins = [
     o.strip()
-    for o in os.environ.get("CORPUS_ALLOWED_ORIGINS", "").split(",")
+    for o in os.environ.get("BIBLIOTHEK_ALLOWED_ORIGINS", "").split(",")
     if o.strip()
 ]
 app.add_middleware(
@@ -72,11 +72,11 @@ def _store():
 
 # ─── Source-Label-Mapping ────────────────────────────────────────────
 # Per-Hit human-readable source label for the search UI. Loaded once at
-# startup from deploy/corpus/source_labels.json — first prefix-match
+# startup from deploy/bibliothek/source_labels.json — first prefix-match
 # wins. Specific entries (e.g. "judaica/tanakh/tora/01_genesis") must
 # come before generic ones ("judaica/tanakh/tora/") in the JSON.
 
-_SOURCE_LABELS_PATH = REPO_ROOT / "deploy" / "corpus" / "source_labels.json"
+_SOURCE_LABELS_PATH = REPO_ROOT / "deploy" / "bibliothek" / "source_labels.json"
 
 
 def _load_source_labels() -> list[tuple[str, str]]:
@@ -678,8 +678,8 @@ def search(req: SearchRequest) -> dict[str, Any]:
                 "total": len(hits), "results": _enrich_hits(hits)}
 
     if req.mode == "phrase":
-        # Volltext-Phrase-Suche mit Stem-Toleranz ueber das ganze (gefilterte)
-        # Korpus. Kein Embedding-Cap — wenn der User eine Phrase sucht, will
+        # Volltext-Phrase-Suche mit Stem-Toleranz ueber den ganzen (gefilterten)
+        # Bestand. Kein Embedding-Cap — wenn der User eine Phrase sucht, will
         # er ALLE Vorkommen, nicht nur die top-N nach Distance.
         regex = _build_phrase_regex(req.query)
         if regex is None:
@@ -934,14 +934,14 @@ def delete_collection_item(name: str, item_id: str) -> dict[str, Any]:
 def clear_collection(name: str) -> dict[str, Any]:
     """Wipe all items from a collection. DB-only, no file-system touch.
 
-    Refused for ``aifred_documents`` — that's the user corpus and clearing
+    Refused for ``aifred_documents`` — that's the user's library and clearing
     it would silently destroy the indexed bibel/judaica/kommentare data.
     Use folder-/file-level deletes for the documents collection instead.
     """
     if name == "aifred_documents":
         raise HTTPException(
             400,
-            "Refusing to clear aifred_documents (user corpus). "
+            "Refusing to clear aifred_documents (the user's library). "
             "Use folder/file deletion instead.",
         )
     col = _get_collection(name)
@@ -1040,7 +1040,7 @@ def collection_search(name: str, req: GenericSearchRequest) -> dict[str, Any]:
 def main() -> int:
     import uvicorn
     uvicorn.run(
-        "scripts.corpus_search_server:app",
+        "scripts.bibliothek_server:app",
         host="127.0.0.1",
         port=8005,
         log_level="info",

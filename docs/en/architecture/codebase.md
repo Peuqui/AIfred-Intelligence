@@ -40,7 +40,7 @@ AIfred-Intelligence/
 ├── docker/                  # ChromaDB + SearXNG (docker-compose.yml), tts/
 ├── systemd/                 # Unit templates, rendered by scripts/install-services.sh
 ├── scripts/                 # Installers, llama-swap autoscan/restart, patches, maintenance
-├── deploy/                  # Optional extras (corpus search UI behind nginx)
+├── deploy/                  # Optional extras (AIfred Bibliothek: document UI behind nginx)
 ├── docs/{de,en}/            # Documentation (index: docs/README.md)
 └── tests/                   # pytest suite
 ```

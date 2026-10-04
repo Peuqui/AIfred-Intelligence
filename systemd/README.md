@@ -19,9 +19,10 @@ The main AIfred service (Reflex app, frontend `3002`, backend `8002`).
   `Wants=` instead of `Requires=`
 - Automatic restart on failure, logging via journald
 
-### 3. `aifred-corpus-server.service` (optional)
-FastAPI corpus search API on `127.0.0.1:8005` — backend for the corpus UI in
-`deploy/corpus/`. The installer asks before installing it.
+### 3. `aifred-bibliothek.service` (optional)
+FastAPI search & admin API of the AIfred Bibliothek on `127.0.0.1:8005` —
+backend for the UI in `deploy/bibliothek/`. Always installed; the installer
+asks whether it starts on boot (default: on demand only).
 
 ## Installation
 

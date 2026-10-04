@@ -462,8 +462,8 @@ class DocumentStore:
     def collection(self) -> "_ResilientCollection":
         """Public, retry-on-stale collection accessor.
 
-        Use this from external code (corpus_search_server, file_manager,
-        search_corpus CLI) instead of `_collection` directly. Calls forward
+        Use this from external code (bibliothek_server, file_manager,
+        bibliothek_search CLI) instead of `_collection` directly. Calls forward
         to the underlying ChromaDB collection; on NotFoundError the store
         reconnects once and retries.
 

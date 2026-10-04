@@ -1,5 +1,5 @@
 {
-  "_comment": "Pattern-list for human-readable source labels in the corpus search UI. Order matters — first prefix-match wins. Specific entries before generic ones.",
+  "_comment": "Pattern-list for human-readable source labels in the AIfred Bibliothek search UI. Order matters — first prefix-match wins. Specific entries before generic ones.",
   "_format": "Each entry: [filename-prefix, display-label]",
   "patterns": [
     ["judaica/tanakh/tora/01_genesis",          "Tora — Genesis (1. Buch Mose)"],
