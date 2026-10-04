@@ -228,7 +228,7 @@ if [ "$PKG" = "apt" ]; then
     for cmd in python3 pdftotext ffmpeg bwrap docker; do
         command -v "$cmd" &>/dev/null || NEED_APT_UPDATE=1
     done
-    python3 -c 'import venv' &>/dev/null || NEED_APT_UPDATE=1
+    python3 -c 'import ensurepip' &>/dev/null || NEED_APT_UPDATE=1
     python3 -m pip --version &>/dev/null || NEED_APT_UPDATE=1
     docker compose version &>/dev/null 2>&1 || NEED_APT_UPDATE=1
     [ "$NEED_APT_UPDATE" = "1" ] && apt_ensure_update
@@ -276,7 +276,9 @@ install_one() {
 # Required packages (failure aborts)
 install_one "Python 3" "command -v python3" \
     apt:python3 dnf:python3 pacman:python brew:python@3.12
-install_one "python3-venv (PEP 405 venv module)" "python3 -c 'import venv'" \
+# 'import venv' succeeds on Debian/Ubuntu without python3-venv; creating a
+# venv then fails for the missing ensurepip, which only that package ships.
+install_one "python3-venv (venv with ensurepip)" "python3 -c 'import ensurepip'" \
     apt:python3-venv dnf:python3 pacman:python brew:python@3.12
 install_one "python3-pip" "command -v pip3 || python3 -m pip --version" \
     apt:python3-pip dnf:python3-pip pacman:python-pip brew:python@3.12
@@ -380,8 +382,8 @@ echo -e "${BLUE}🔎 Verifying system dependencies...${NC}"
 verify_step "python3 (>=3.10) callable" \
     "python3 -c 'import sys; sys.exit(0 if sys.version_info >= (3,10) else 1)'" \
     "sudo apt install python3 (or dnf/pacman/brew)"
-verify_step "python3-venv module importable" \
-    "python3 -c 'import venv'" \
+verify_step "python3-venv: ensurepip importable" \
+    "python3 -c 'import ensurepip'" \
     "sudo apt install python3-venv"
 verify_step "pip3 callable" \
     "python3 -m pip --version" \
