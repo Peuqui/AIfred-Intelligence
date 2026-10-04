@@ -39,6 +39,7 @@ bcrypt==5.0.0             # Account password hashing (aifred/lib/session_storage
 
 # Channel & Tool Plugins (eager-loaded at startup — missing pkg disables plugin)
 discord.py==2.7.1         # Discord channel plugin (plugins/channels/discord_channel/)
+python-telegram-bot==22.7  # Telegram channel plugin (plugins/channels/telegram_channel/)
 fdb==2.0.4                # EPIM Firebird DB plugin (plugins/tools/epim/) — requires
                         # additionally a Firebird 2.5 embedded lib under lib/firebird25/
                         # and EPIM_DB_PATH configured in plugin settings (UI)
@@ -68,6 +69,10 @@ odfpy==1.4.1            # LibreOffice/OpenDocument (.odt, .ods, .odp) text extra
 python-multipart==0.0.20
 platformdirs==4.5.1
 mistune==3.2.0          # Markdown-to-HTML for Chat Export
+croniter==6.2.2         # Cron schedules of the scheduler (lib/scheduler.py)
+mutagen==1.47.0         # Audio tags for the audio player index (lib/audio_index.py)
+matplotlib==3.10.8      # Plots from the execute_python tool (lib/sandbox.py)
+transformers==5.9.0     # Qwen3 tokenizer download for context estimation (lib/context_manager.py)
 
 # Development
 pytest==9.0.2
