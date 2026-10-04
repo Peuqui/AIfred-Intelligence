@@ -7,6 +7,8 @@ mit dem Rest der UI. i18n über den t()-Helper aus ui/helpers.py.
 
 from __future__ import annotations
 
+from typing import Literal
+
 import reflex as rx
 
 from ..state import AIState
@@ -369,7 +371,8 @@ def _sources_section() -> rx.Component:
 
 
 def _rtsp_field(
-    label_key: str, field: str, placeholder: str = "", input_type: str = "text"
+    label_key: str, field: str, placeholder: str = "",
+    input_type: Literal["text", "password"] = "text",
 ) -> rx.Component:
     """Ein beschriftetes Formularfeld, gebunden an AIState.rtsp_form[field]."""
     return rx.vstack(

@@ -72,7 +72,8 @@ def _tts_section() -> rx.Component:
                     checked=AIState.tts_streaming_enabled,
                     on_change=AIState.toggle_tts_streaming,
                     size="1",
-                    disabled=~(AIState.enable_tts & AIState.tts_autoplay),
+                    # Var negation; mypy sees the plain bool fields → int.
+                    disabled=~(AIState.enable_tts & AIState.tts_autoplay),  # type: ignore[arg-type]
                 ),
                 rx.text(
                     rx.cond(AIState.tts_streaming_enabled, "ON", "OFF"),

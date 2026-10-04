@@ -335,7 +335,7 @@ def _bulk_bar() -> rx.Component:
     nur der Start-Button."""
     progress_pct = rx.cond(
         AIState.casus_bulk_total > 0,
-        AIState.casus_bulk_progress * 100 / AIState.casus_bulk_total,
+        AIState.casus_bulk_progress * 100 // AIState.casus_bulk_total,
         0,
     )
     return rx.cond(
