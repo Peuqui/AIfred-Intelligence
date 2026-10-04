@@ -88,6 +88,24 @@ source venv/bin/activate
 pip install -r requirements.txt
 ```
 
+### Installation ohne Rückfragen
+
+`install-all.sh` stellt fünf Arten von Fragen. Jede lässt sich vorab über
+eine Umgebungsvariable beantworten; ist die Variable nicht gesetzt, wird wie
+gewohnt gefragt — ohne Terminal gilt die Standardantwort:
+
+| Variable | Frage | Werte |
+|---|---|---|
+| `AIFRED_INSTALL_OLLAMA` | Ollama installieren (`curl \| sh`) | `y` / `n` (Standard `y`) |
+| `AIFRED_INSTALL_PIPER` | Piper-TTS einrichten | `y` / `n` (Standard `n`) |
+| `AIFRED_INSTALL_TTS_<ENGINE>` | TTS-Container bauen, je Ordner in `docker/tts/` (`fish-speech` → `AIFRED_INSTALL_TTS_FISH_SPEECH`) | `y` / `n` (Standard `n`) |
+| `AIFRED_INSTALL_SYSTEMD` | systemd-Dienste installieren | `y` / `n` (Standard `n`) |
+| `AIFRED_INSTALL_USER` | erster Whitelist-Benutzer | ein Benutzername oder `skip` (Standard: `$USER`) |
+
+```bash
+AIFRED_INSTALL_OLLAMA=n AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh
+```
+
 ---
 
 ## 5. systemd-Dienste einrichten
