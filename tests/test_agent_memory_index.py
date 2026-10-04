@@ -122,3 +122,29 @@ def test_summary_limit_refuses_long_or_multiline(memory):
     assert memory._collections["pater"].count() == 0
     asyncio.run(store(content="x", memory_type="counsel", summary="a" * 160))
     assert memory._collections["pater"].count() == 1
+
+
+def test_content_must_not_repeat_old_or_new_summary(memory):
+    # 2026-10-04: the psalm list carried "zuletzt Psalm 84" in its content
+    # while the summary already said Psalm 122.
+    tools = {t.name: t for t in memory.make_toolkit("pater").tools}
+    store, update = tools["store_memory"].executor, tools["update_memory"].executor
+    old = "Psalmen-Liste; zuletzt Psalm 84"
+    asyncio.run(store(content="- Psalm 84", memory_type="counsel", summary=old))
+    memory_id = next(iter(memory._collections["pater"].rows))
+
+    with pytest.raises(ValueError, match="repeats the summary"):
+        asyncio.run(update(memory_id=memory_id, content=f"{old}\n- Psalm 84\n- Psalm 122",
+                           summary="Psalmen-Liste; zuletzt Psalm 122"))
+    with pytest.raises(ValueError, match="repeats the summary"):
+        asyncio.run(update(memory_id=memory_id, content="Psalmen-Liste; zuletzt Psalm 122\n- Psalm 122",
+                           summary="Psalmen-Liste; zuletzt Psalm 122"))
+    with pytest.raises(ValueError, match="repeats the summary"):
+        asyncio.run(store(content="Kurzer Fakt\nDetails", memory_type="insight", summary="Kurzer Fakt"))
+
+    asyncio.run(update(memory_id=memory_id, content="- Psalm 84\n- Psalm 122",
+                       summary="Psalmen-Liste; zuletzt Psalm 122"))
+    assert memory.stored_summary("pater", memory_id) == "Psalmen-Liste; zuletzt Psalm 122"
+    # A short fact may consist of its summary alone.
+    asyncio.run(store(content="Kurzer Fakt", memory_type="insight", summary="Kurzer Fakt"))
+    assert memory._collections["pater"].count() == 2

@@ -1,0 +1,1 @@
+summary too long ({length} chars): write one short sentence of at most {max_chars} characters, on one line, and call the tool again
