@@ -652,6 +652,44 @@ class AgentEditorMixin(rx.State, mixin=True):
     def sched_type_display(self) -> str:
         return self._sched_label_for_value(self._SCHED_TYPE_OPTIONS, self.scheduler_edit_type, self.ui_language)
 
+    # Plain setters for the editor inputs — Reflex 0.9 no longer generates
+    # set_<var> on its own.
+    def set_scheduler_edit_name(self, value: str) -> None:
+        self.scheduler_edit_name = value
+
+    def set_scheduler_edit_message(self, value: str) -> None:
+        self.scheduler_edit_message = value
+
+    def set_scheduler_edit_channel(self, value: str) -> None:
+        self.scheduler_edit_channel = value
+
+    def set_scheduler_edit_tier(self, value: str) -> None:
+        self.scheduler_edit_tier = value
+
+    def set_scheduler_edit_webhook_url(self, value: str) -> None:
+        self.scheduler_edit_webhook_url = value
+
+    def set_scheduler_edit_recipient(self, value: str) -> None:
+        self.scheduler_edit_recipient = value
+
+    def set_scheduler_cron_min(self, value: str) -> None:
+        self.scheduler_cron_min = value
+
+    def set_scheduler_cron_hour(self, value: str) -> None:
+        self.scheduler_cron_hour = value
+
+    def set_scheduler_cron_dom(self, value: str) -> None:
+        self.scheduler_cron_dom = value
+
+    def set_scheduler_interval_value(self, value: str) -> None:
+        self.scheduler_interval_value = value
+
+    def set_scheduler_once_date(self, value: str) -> None:
+        self.scheduler_once_date = value
+
+    def set_scheduler_once_time(self, value: str) -> None:
+        self.scheduler_once_time = value
+
     def set_scheduler_type_from_label(self, label: str) -> None:
         self.scheduler_edit_type = self._sched_value_for_label(self._SCHED_TYPE_OPTIONS, label, "cron")
 
