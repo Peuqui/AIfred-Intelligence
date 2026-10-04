@@ -5,7 +5,7 @@
 # Multi-Backend LLM Chat Assistant with PWA support
 
 # Core Framework
-reflex==0.8.28.post1
+reflex==0.9.12
 pydantic==2.13.5         # For data models (required by Reflex State)
 
 # LLM Backends
