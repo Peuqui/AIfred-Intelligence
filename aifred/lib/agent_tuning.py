@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from typing import Optional
 
-import reflex as rx
+from dataclasses import dataclass, field
 
 from .config import (
     DEFAULT_MIN_P,
@@ -36,7 +36,8 @@ from .config import (
 CANONICAL_AGENTS = ("aifred", "sokrates", "salomo", "vision")
 
 
-class AgentTuning(rx.Base):
+@dataclass
+class AgentTuning:
     """Runtime tuning for one agent (model, sampling, thinking, speed, ctx).
 
     ``model_id`` is always the BASE id (no variant suffix); empty means
@@ -57,7 +58,7 @@ class AgentTuning(rx.Base):
     reasoning: bool = True
     thinking: bool = True
     reasoning_effort: str = ""
-    reasoning_levels: list[str] = []
+    reasoning_levels: list[str] = field(default_factory=list)
     # Template-default level shown in the "On" label ("An (xhigh)") —
     # derived from the model's chat template at load, not persisted.
     reasoning_default: str = ""
@@ -110,7 +111,8 @@ def default_agent_tuning() -> dict[str, AgentTuning]:
 # ── UI row models (rendered via rx.foreach in the settings accordion) ──
 
 
-class SamplingRow(rx.Base):
+@dataclass
+class SamplingRow:
     """One row in the per-agent sampling table."""
 
     id: str = ""
@@ -124,7 +126,8 @@ class SamplingRow(rx.Base):
     repeat_penalty: str = ""
 
 
-class CtxRow(rx.Base):
+@dataclass
+class CtxRow:
     """One column in the manual-context control."""
 
     id: str = ""
@@ -134,7 +137,8 @@ class CtxRow(rx.Base):
     value: int = 0
 
 
-class AgentModelRow(rx.Base):
+@dataclass
+class AgentModelRow:
     """One secondary-agent model row (Sokrates/Salomo/custom agents)."""
 
     id: str = ""
@@ -146,7 +150,7 @@ class AgentModelRow(rx.Base):
     personality_tooltip: str = ""
     reasoning: bool = True
     thinking_mode: str = ""
-    thinking_options: list[str] = []
+    thinking_options: list[str] = field(default_factory=list)
     has_speed_variant: bool = False
     speed_mode: bool = False
     rope_display: str = "1.0x"

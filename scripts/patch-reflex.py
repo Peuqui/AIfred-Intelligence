@@ -1,21 +1,14 @@
 #!/usr/bin/env python3
-"""Patch two Reflex problems AIfred depends on being fixed.
+"""Patch a Reflex problem AIfred depends on being fixed.
 
-1. ``reflex/route.py`` — routing breaks when ``frontend_path`` is set.
-   Reflex (≥ 0.8.24) calls ``path.removeprefix(config.frontend_path)`` in
-   ``route.get_route()``. The browser-side path always starts with ``/``
-   (e.g. ``/aifred/``), while ``frontend_path`` does not — so the prefix
-   never matches and ``on_load`` never fires. AIfred hangs on
-   "wird initialisiert...". Fix: prepend the slash.
-
-2. ``reflex/utils/exec.py`` — a crashed backend worker is never respawned.
-   ``reflex run`` starts granian with backend hot-reload; in that mode
-   granian (2.6) ignores ``respawn_failed_workers``, so a worker killed by a
-   C-level crash (e.g. a libc segfault in opencv/ffmpeg) stays dead while
-   the master lives on and systemd's ``Restart=always`` never fires. Fix:
-   no hot-reload (code changes need a service restart anyway) and respawn
-   failed workers; a crash loop ends the master, then systemd restarts the
-   service.
+``reflex/utils/exec.py`` — a crashed backend worker is never respawned.
+``reflex run`` starts granian with backend hot-reload; in that mode
+granian (2.6) ignores ``respawn_failed_workers``, so a worker killed by a
+C-level crash (e.g. a libc segfault in opencv/ffmpeg) stays dead while
+the master lives on and systemd's ``Restart=always`` never fires. Fix:
+no hot-reload (code changes need a service restart anyway) and respawn
+failed workers; a crash loop ends the master, then systemd restarts the
+service.
 
 Idempotent — running it twice is a no-op. A patch is only applied when its
 original text is found verbatim, so a changed upstream file is reported,
@@ -35,11 +28,6 @@ from pathlib import Path
 
 # (file relative to the reflex package, original text, replacement)
 PATCHES: list[tuple[str, str, str]] = [
-    (
-        "route.py",
-        'path = path.removeprefix(config.frontend_path)',
-        'path = path.removeprefix("/" + config.frontend_path)',
-    ),
     (
         "utils/exec.py",
         """        reload=True,
