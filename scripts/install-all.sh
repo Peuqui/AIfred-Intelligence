@@ -1258,6 +1258,81 @@ sleep 1
 
 fi  # end of "if [ "$DRY_RUN" = "1" ] / else" — steps 1-2g
 
+# The first user comes before the services: creating it writes
+# MESSAGE_HUB_OWNER to .env, and AIfred refuses to start without it.
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Create whitelist user${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo "AIfred needs at least one whitelist user so someone can register"
+echo "in the web UI. Without this entry registration rejects every"
+echo "username — the UI loads but no one gets in."
+echo "This first user also owns the sessions the Message Hub creates"
+echo "(Telegram, Discord, e-mail, FreeEcho.2, scheduler) — MESSAGE_HUB_OWNER."
+echo ""
+
+# Tracking flag for the final summary (health check reads it).
+WHITELIST_USER_CREATED=0
+
+if [ "$DRY_RUN" = "1" ]; then
+    if [ -f "$PROJECT_DIR/data/allowed_users.json" ]; then
+        echo -e "${YELLOW}📝 DRY-RUN: allowed_users.json already exists — would be skipped.${NC}"
+    else
+        echo -e "${YELLOW}📝 DRY-RUN: WOULD prompt for whitelist user (writes data/allowed_users.json).${NC}"
+    fi
+    echo ""
+else
+
+# Repeat until a user is created OR the user explicitly types
+# 'skip'. This avoids the common silent-fail case where enter-enter
+# leads to a skipped step.
+while true; do
+    ask AIFRED_INSTALL_USER "Username [$USER] (skip = skip with warning): " line
+    WHITELIST_USER="${REPLY:-$USER}"
+    if [ "$WHITELIST_USER" = "skip" ]; then
+        echo -e "${YELLOW}⚠️  Whitelist user creation skipped.${NC}"
+        echo -e "${YELLOW}   Login won't work in the UI until you catch up:${NC}"
+        echo "       ./aifred-admin add <username>"
+        break
+    fi
+    if [ -x "$PROJECT_DIR/aifred-admin" ]; then
+        if "$PROJECT_DIR/aifred-admin" add "$WHITELIST_USER"; then
+            WHITELIST_USER_CREATED=1
+            # Owner of Message-Hub sessions. An existing value is kept — it
+            # may deliberately name another account.
+            if grep -q "^MESSAGE_HUB_OWNER=" "$PROJECT_DIR/.env" 2>/dev/null; then
+                echo -e "${GREEN}✅ MESSAGE_HUB_OWNER already set in .env — kept${NC}"
+            else
+                printf '\n# Owner of Message-Hub sessions (an AIfred username)\nMESSAGE_HUB_OWNER=%s\n' "$WHITELIST_USER" >> "$PROJECT_DIR/.env"
+                echo -e "${GREEN}✅ MESSAGE_HUB_OWNER=$WHITELIST_USER written to .env${NC}"
+            fi
+            break
+        else
+            echo -e "${YELLOW}⚠️  aifred-admin add failed — please try again or enter 'skip'.${NC}"
+            # A preset answer would fail the same way forever.
+            [ -n "${AIFRED_INSTALL_USER+x}" ] && break
+        fi
+    else
+        echo -e "${YELLOW}⚠️  $PROJECT_DIR/aifred-admin not executable — skipping.${NC}"
+        break
+    fi
+done
+fi  # end of "if [ "$DRY_RUN" = "1" ] / else" — whitelist user prompt
+
+# ─── Verification of whitelist user ───
+if [ "$WHITELIST_USER_CREATED" = "1" ]; then
+    echo ""
+    echo -e "${BLUE}🔎 Verifying whitelist user...${NC}"
+    verify_step "allowed_users.json exists" \
+        "[ -f '$PROJECT_DIR/data/allowed_users.json' ]" \
+        "./aifred-admin add <username>"
+    verify_step "Whitelist user '$WHITELIST_USER' registered" \
+        "'$PROJECT_DIR/aifred-admin' users | grep -qiF '$WHITELIST_USER'" \
+        "./aifred-admin add $WHITELIST_USER"
+fi
+
+
 # ============================================================
 # STEP 3: Systemd services installation (optional, WITH sudo)
 # ============================================================
@@ -1386,78 +1461,6 @@ elif [ "$SYSTEMD_CHOSEN" = "1" ]; then
         STEP_WARNINGS+=("AIfred frontend port 3002 taking longer — first Bun/Vite build")
     fi
     step_summary "3 — Systemd services"
-fi
-
-echo ""
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Create whitelist user${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "AIfred needs at least one whitelist user so someone can register"
-echo "in the web UI. Without this entry registration rejects every"
-echo "username — the UI loads but no one gets in."
-echo "This first user also owns the sessions the Message Hub creates"
-echo "(Telegram, Discord, e-mail, FreeEcho.2, scheduler) — MESSAGE_HUB_OWNER."
-echo ""
-
-# Tracking flag for the final summary (health check reads it).
-WHITELIST_USER_CREATED=0
-
-if [ "$DRY_RUN" = "1" ]; then
-    if [ -f "$PROJECT_DIR/data/allowed_users.json" ]; then
-        echo -e "${YELLOW}📝 DRY-RUN: allowed_users.json already exists — would be skipped.${NC}"
-    else
-        echo -e "${YELLOW}📝 DRY-RUN: WOULD prompt for whitelist user (writes data/allowed_users.json).${NC}"
-    fi
-    echo ""
-else
-
-# Repeat until a user is created OR the user explicitly types
-# 'skip'. This avoids the common silent-fail case where enter-enter
-# leads to a skipped step.
-while true; do
-    ask AIFRED_INSTALL_USER "Username [$USER] (skip = skip with warning): " line
-    WHITELIST_USER="${REPLY:-$USER}"
-    if [ "$WHITELIST_USER" = "skip" ]; then
-        echo -e "${YELLOW}⚠️  Whitelist user creation skipped.${NC}"
-        echo -e "${YELLOW}   Login won't work in the UI until you catch up:${NC}"
-        echo "       ./aifred-admin add <username>"
-        break
-    fi
-    if [ -x "$PROJECT_DIR/aifred-admin" ]; then
-        if "$PROJECT_DIR/aifred-admin" add "$WHITELIST_USER"; then
-            WHITELIST_USER_CREATED=1
-            # Owner of Message-Hub sessions. An existing value is kept — it
-            # may deliberately name another account.
-            if grep -q "^MESSAGE_HUB_OWNER=" "$PROJECT_DIR/.env" 2>/dev/null; then
-                echo -e "${GREEN}✅ MESSAGE_HUB_OWNER already set in .env — kept${NC}"
-            else
-                printf '\n# Owner of Message-Hub sessions (an AIfred username)\nMESSAGE_HUB_OWNER=%s\n' "$WHITELIST_USER" >> "$PROJECT_DIR/.env"
-                echo -e "${GREEN}✅ MESSAGE_HUB_OWNER=$WHITELIST_USER written to .env${NC}"
-            fi
-            break
-        else
-            echo -e "${YELLOW}⚠️  aifred-admin add failed — please try again or enter 'skip'.${NC}"
-            # A preset answer would fail the same way forever.
-            [ -n "${AIFRED_INSTALL_USER+x}" ] && break
-        fi
-    else
-        echo -e "${YELLOW}⚠️  $PROJECT_DIR/aifred-admin not executable — skipping.${NC}"
-        break
-    fi
-done
-fi  # end of "if [ "$DRY_RUN" = "1" ] / else" — whitelist user prompt
-
-# ─── Verification of whitelist user ───
-if [ "$WHITELIST_USER_CREATED" = "1" ]; then
-    echo ""
-    echo -e "${BLUE}🔎 Verifying whitelist user...${NC}"
-    verify_step "allowed_users.json exists" \
-        "[ -f '$PROJECT_DIR/data/allowed_users.json' ]" \
-        "./aifred-admin add <username>"
-    verify_step "Whitelist user '$WHITELIST_USER' registered" \
-        "'$PROJECT_DIR/aifred-admin' users | grep -qiF '$WHITELIST_USER'" \
-        "./aifred-admin add $WHITELIST_USER"
 fi
 
 echo ""
