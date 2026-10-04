@@ -1,0 +1,1 @@
+The content repeats the summary line "{line}". The summary is stored separately and shown as the entry's line in your memory index - write the content without it and call the tool again.

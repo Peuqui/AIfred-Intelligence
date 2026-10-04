@@ -139,6 +139,13 @@ class AgentMemory:
             )
         return matches[0]
 
+    def stored_summary(self, agent_id: str, memory_id: str) -> str:
+        """Summary of one memory as stored (referenced by ID or unique ID prefix)."""
+        col = self._collection(agent_id)
+        full_id = self._resolve_id(agent_id, memory_id)
+        meta = col.get(ids=[full_id], include=["metadatas"])["metadatas"][0]
+        return str(meta.get("summary", ""))
+
     async def update(
         self, agent_id: str, memory_id: str, content: str, summary: str,
         memory_type: str = "", session_id: str = "",
@@ -304,18 +311,31 @@ class AgentMemory:
             # The summary is the entry's line in the memory index (and what is
             # embedded for search): refuse, never truncate - the model rewrites it.
             if not summary_fits_index(summary):
-                raise ValueError(
-                    f"summary too long ({len(summary.strip())} chars): write one short sentence "
-                    f"of at most {AGENT_MEMORY_SUMMARY_MAX_CHARS} characters, on one line, "
-                    "and call the tool again"
-                )
+                raise ValueError(load_shared_tool_description("memory_summary_too_long.txt").format(
+                    length=len(summary.strip()), max_chars=AGENT_MEMORY_SUMMARY_MAX_CHARS,
+                ))
+
+        def check_content(content: str, summaries: list[str]) -> None:
+            # A summary line copied into the content goes stale with the next
+            # update (2026-10-04: the psalm list kept "zuletzt Psalm 84" in its
+            # content under a summary saying Psalm 122). A content that is
+            # nothing but the summary is fine - short facts have no more.
+            lines = {line.strip() for line in content.splitlines()}
+            for summary in summaries:
+                line = summary.strip()
+                if line and line in lines and content.strip() != line:
+                    raise ValueError(
+                        load_shared_tool_description("memory_content_repeats_summary.txt").format(line=line)
+                    )
 
         async def store_memory(content: str, memory_type: str, summary: str) -> str:
             check_summary(summary)
+            check_content(content, [summary])
             return await self.store(agent_id, content, memory_type, summary, session_id=session_id)
 
         async def update_memory(memory_id: str, content: str, summary: str, memory_type: str = "") -> str:
             check_summary(summary)
+            check_content(content, [summary, self.stored_summary(agent_id, memory_id)])
             return await self.update(
                 agent_id, memory_id, content, summary,
                 memory_type=memory_type, session_id=session_id,
