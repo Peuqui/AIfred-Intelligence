@@ -1,0 +1,10 @@
+# Installed with: pip install --no-deps -r requirements-nodeps.txt
+# (scripts/setup-python.sh does it). Dependencies of these packages are pinned
+# in requirements.txt; pip must not pull its own (see the insightface note there).
+insightface==1.0.1
+# chromadb, piper-tts and insightface pull the CPU onnxruntime, which shares
+# its module directory with onnxruntime-gpu — installed last and with
+# --force-reinstall, the GPU build's files win (CUDAExecutionProvider).
+# 1.26 = last build for CUDA 12; 1.30 needs CUDA 13, whose cuDNN dropped
+# Volta (V100) — the CUDA provider then failed silently and faces ran on the CPU.
+onnxruntime-gpu==1.26.0
