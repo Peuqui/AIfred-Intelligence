@@ -527,10 +527,17 @@ verify_step "import numpy (cv2 + face embeddings)" \
 # Vigilantia, an import failure isn't a blocker — hence warn_step.
 warn_step "import insightface (vigilantia face recognition, optional)" \
     "'$PROJECT_DIR/venv/bin/python' -c 'import insightface'" \
-    "pip install insightface onnxruntime-gpu  (only if vigilantia is used)"
+    "pip install --no-deps -r requirements-nodeps.txt  (only if vigilantia is used)"
 warn_step "import onnxruntime (insightface inference backend, optional)" \
     "'$PROJECT_DIR/venv/bin/python' -c 'import onnxruntime'" \
     "pip install onnxruntime-gpu  (CUDA) or onnxruntime  (CPU-only)"
+# A CPU onnxruntime installed next to onnxruntime-gpu overwrites it — face
+# recognition then silently runs on the CPU.
+if command -v nvidia-smi &>/dev/null && nvidia-smi -L &>/dev/null; then
+    warn_step "onnxruntime offers CUDA (face recognition on the GPU)" \
+        "'$PROJECT_DIR/venv/bin/python' -c 'import onnxruntime as o; assert \"CUDAExecutionProvider\" in o.get_available_providers()'" \
+        "venv/bin/pip install --no-deps --force-reinstall -r requirements-nodeps.txt"
+fi
 # Webcam access via V4L2 requires the user account to be in the
 # 'video' group. Otherwise opencv can't open /dev/video* and
 # vigilantia source discovery returns "no devices" despite a

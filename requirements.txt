@@ -27,10 +27,21 @@ ollama==0.6.3           # Ollama Python client for embeddings + Vision-Side-Chan
 numpy==2.5.3           # Required by chromadb embeddings + face embeddings
 
 # Vision Pipeline (frame_sources, face recognition, motion detection)
-opencv-python-headless==4.13.0.92  # V4L2 capture, JPEG encode, motion-detect
+opencv-python-headless==5.0.0.93  # V4L2 capture, JPEG encode, motion-detect
                               # (headless: no GUI libs — server-friendly)
-insightface==1.0.1        # Face detection (RetinaFace) + embedding (ArcFace)
-onnxruntime-gpu==1.30.0   # InsightFace inference backend on CUDA GPU
+# insightface itself lives in requirements-nodeps.txt (installed with --no-deps):
+# its own dependencies would add a second opencv (opencv-python, overwriting
+# cv2) and CPU onnxruntime (overwriting onnxruntime-gpu — faces then ran on
+# CPU). Its real dependencies are listed here instead:
+onnx==1.23.1
+scikit-image==0.26.0
+tqdm==4.70.1
+onnxruntime==1.26.0     # CPU build pulled by chromadb/piper/insightface; same version as the GPU build
+# onnxruntime-gpu: see requirements-nodeps.txt (must be installed last)
+# CUDA runtime + cuDNN for onnxruntime-gpu, preloaded by vision_filters/face_detect.py
+nvidia-cuda-runtime-cu12==12.8.90
+nvidia-cublas-cu12==12.8.4.1
+nvidia-cudnn-cu12==9.10.2.21
 
 # Backend Calibration & OAuth (direct imports — pin even if transitively present)
 PyYAML==6.0.3             # llama-swap config read/write (aifred/lib/calibration/llamaswap_io.py)
