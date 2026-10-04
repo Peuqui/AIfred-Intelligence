@@ -49,9 +49,10 @@ if [ "$PY_MAJOR" -lt 3 ] || { [ "$PY_MAJOR" -eq 3 ] && [ "$PY_MINOR" -lt 10 ]; }
     exit 1
 fi
 
-# Verify venv module is available — Debian/Ubuntu split this out (python3-venv).
-if ! python3 -c 'import venv' &>/dev/null; then
-    echo -e "${RED}❌ Python venv-Modul fehlt.${NC}"
+# Verify venv can be created — Debian/Ubuntu split ensurepip out into
+# python3-venv; 'import venv' alone succeeds without it.
+if ! python3 -c 'import ensurepip' &>/dev/null; then
+    echo -e "${RED}❌ Python venv (ensurepip) fehlt.${NC}"
     echo "   Installiere mit: sudo apt install python3-venv"
     exit 1
 fi
