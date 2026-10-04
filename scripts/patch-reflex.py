@@ -1,19 +1,25 @@
 #!/usr/bin/env python3
-"""Patch a Reflex bug that breaks routing when ``frontend_path`` is set.
+"""Patch two Reflex problems AIfred depends on being fixed.
 
-Reflex (≥ 0.8.24) calls ``path.removeprefix(config.frontend_path)`` in
-``route.get_route()``. The browser-side path always starts with ``/``
-(e.g. ``/aifred/``), while ``frontend_path`` does not — so the prefix
-never matches and ``on_load`` never fires. AIfred hangs on
-"wird initialisiert...".
+1. ``reflex/route.py`` — routing breaks when ``frontend_path`` is set.
+   Reflex (≥ 0.8.24) calls ``path.removeprefix(config.frontend_path)`` in
+   ``route.get_route()``. The browser-side path always starts with ``/``
+   (e.g. ``/aifred/``), while ``frontend_path`` does not — so the prefix
+   never matches and ``on_load`` never fires. AIfred hangs on
+   "wird initialisiert...". Fix: prepend the slash.
 
-The fix prepends a slash:
+2. ``reflex/utils/exec.py`` — a crashed backend worker is never respawned.
+   ``reflex run`` starts granian with backend hot-reload; in that mode
+   granian (2.6) ignores ``respawn_failed_workers``, so a worker killed by a
+   C-level crash (e.g. a libc segfault in opencv/ffmpeg) stays dead while
+   the master lives on and systemd's ``Restart=always`` never fires. Fix:
+   no hot-reload (code changes need a service restart anyway) and respawn
+   failed workers; a crash loop ends the master, then systemd restarts the
+   service.
 
-    path = path.removeprefix("/" + config.frontend_path)
-
-This script is idempotent — running it twice is a no-op. It only patches
-when the buggy line is found verbatim, so a future upstream fix won't be
-overwritten.
+Idempotent — running it twice is a no-op. A patch is only applied when its
+original text is found verbatim, so a changed upstream file is reported,
+never overwritten blindly.
 
 Usage:
     venv/bin/python scripts/patch-reflex.py
@@ -27,18 +33,37 @@ import importlib.util
 import sys
 from pathlib import Path
 
-BUGGY = 'path = path.removeprefix(config.frontend_path)'
-FIXED = 'path = path.removeprefix("/" + config.frontend_path)'
+# (file relative to the reflex package, original text, replacement)
+PATCHES: list[tuple[str, str, str]] = [
+    (
+        "route.py",
+        'path = path.removeprefix(config.frontend_path)',
+        'path = path.removeprefix("/" + config.frontend_path)',
+    ),
+    (
+        "utils/exec.py",
+        """        reload=True,
+        reload_paths=get_reload_paths(),
+        reload_ignore_worker_failure=True,
+        reload_ignore_patterns=HOTRELOAD_IGNORE_PATTERNS,
+        reload_tick=100,
+""",
+        """        # AIfred patch (scripts/patch-reflex.py): no backend hot-reload, so
+        # granian respawns a crashed worker instead of leaving it dead.
+        reload=False,
+        respawn_failed_workers=True,
+        respawn_interval=3.5,
+""",
+    ),
+]
 
 
-def find_route_py() -> Path | None:
-    """Locate reflex/route.py inside the current Python environment."""
+def find_reflex_dir() -> Path | None:
+    """Locate the reflex package inside the current Python environment."""
     spec = importlib.util.find_spec("reflex")
     if spec is None or spec.origin is None:
         return None
-    reflex_dir = Path(spec.origin).parent
-    candidate = reflex_dir / "route.py"
-    return candidate if candidate.exists() else None
+    return Path(spec.origin).parent
 
 
 def main() -> int:
@@ -50,37 +75,31 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    route_py = find_route_py()
-    if route_py is None:
-        print("❌ reflex/route.py not found — is reflex installed in this Python env?", file=sys.stderr)
+    reflex_dir = find_reflex_dir()
+    if reflex_dir is None:
+        print("❌ reflex not found — is it installed in this Python env?", file=sys.stderr)
         return 2
 
-    text = route_py.read_text(encoding="utf-8")
-
-    if FIXED in text:
-        print(f"✅ Already patched: {route_py}")
-        return 0
-
-    if BUGGY not in text:
-        # Either fixed upstream with a different line, or the file changed shape.
-        # Don't try to be clever — let the user investigate.
-        print(f"ℹ️  Buggy line not found in {route_py}.")
-        print("   Either Reflex fixed it upstream (great, no action needed)")
-        print("   or the file shape changed and this patcher is stale.")
-        print("   Check CLAUDE.md → 'Reflex Patch: frontend_path Route-Matching Bug' for details.")
-        return 0 if not args.check else 1
-
-    if args.check:
-        print(f"⚠️  Reflex needs patching: {route_py}")
-        return 1
-
-    patched = text.replace(BUGGY, FIXED, 1)
-    route_py.write_text(patched, encoding="utf-8")
-    print(f"✅ Patched {route_py}")
-    print(f"   '{BUGGY}'")
-    print("   →")
-    print(f"   '{FIXED}'")
-    return 0
+    status = 0
+    for rel_path, original, replacement in PATCHES:
+        target = reflex_dir / rel_path
+        text = target.read_text(encoding="utf-8")
+        if replacement in text:
+            print(f"✅ Already patched: {target}")
+            continue
+        if original not in text:
+            # Fixed upstream with a different shape, or this patcher is stale —
+            # don't guess, let the user investigate (CLAUDE.md, Reflex patches).
+            print(f"ℹ️  Original text not found in {target} — patch not applied.")
+            status = 1
+            continue
+        if args.check:
+            print(f"⚠️  Needs patching: {target}")
+            status = 1
+            continue
+        target.write_text(text.replace(original, replacement, 1), encoding="utf-8")
+        print(f"✅ Patched {target}")
+    return status if args.check else 0
 
 
 if __name__ == "__main__":

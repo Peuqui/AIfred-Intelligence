@@ -905,7 +905,7 @@ if [[ $PIPER_REPLY =~ ^[JjYy]$ ]]; then
     PIPER_CHOSEN=1
     # Install piper-tts pip package (not in requirements.txt since optional).
     echo "📥 Installing piper-tts into venv..."
-    if "$PROJECT_DIR/venv/bin/pip" install piper-tts; then
+    if "$PROJECT_DIR/venv/bin/pip" install piper-tts==1.3.0; then
         echo -e "${GREEN}✅ piper-tts installed${NC}"
         # Model selection via helper script (reads PIPER_VOICES from config.py).
         if [ -f "$SCRIPT_DIR/install-piper-models.py" ]; then
@@ -917,12 +917,12 @@ if [[ $PIPER_REPLY =~ ^[JjYy]$ ]]; then
         fi
     else
         echo -e "${RED}❌ piper-tts pip install failed — skipping model download.${NC}"
-        echo "   Catch up: source venv/bin/activate && pip install piper-tts"
+        echo "   Catch up: source venv/bin/activate && pip install piper-tts==1.3.0"
         echo "             python scripts/install-piper-models.py"
     fi
 else
     echo -e "${YELLOW}⏭️  Piper TTS skipped.${NC}"
-    echo "   Catch up: source venv/bin/activate && pip install piper-tts"
+    echo "   Catch up: source venv/bin/activate && pip install piper-tts==1.3.0"
     echo "             python scripts/install-piper-models.py"
 fi
 
@@ -933,7 +933,7 @@ if [ "$PIPER_CHOSEN" = "1" ]; then
     echo -e "${BLUE}🔎 Verifying Piper TTS...${NC}"
     verify_step "piper binary in venv callable" \
         "[ -x '$PROJECT_DIR/venv/bin/piper' ] && '$PROJECT_DIR/venv/bin/piper' --help" \
-        "source venv/bin/activate && pip install piper-tts"
+        "source venv/bin/activate && pip install piper-tts==1.3.0"
     # At least one .onnx model in piper_models/ must exist, otherwise
     # TTS has no voice to use. Glob via shopt+nullglob in a subshell.
     warn_step "At least one Piper voice model in piper_models/" \
