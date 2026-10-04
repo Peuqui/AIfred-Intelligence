@@ -40,12 +40,12 @@ fdb>=2.0                # EPIM Firebird DB plugin (plugins/tools/epim/) — requ
                         # additionally a Firebird 2.5 embedded lib under lib/firebird25/
                         # and EPIM_DB_PATH configured in plugin settings (UI)
 
-# Audio Processing (TTS only — STT runs in Docker container: docker/whisper/)
+# Audio Processing (TTS only — STT runs in its own Docker service, see below)
 edge-tts>=7.2.1         # Text-to-Speech (7.2.3 had NoAudioReceived bug — fixed
                         # in later versions, pin loosened to >= 2026-05-25)
 dashscope>=1.24.6       # DashScope Qwen3-TTS Cloud API
-# Whisper STT: NOT needed here — runs as Docker service (docker/whisper/)
-# Build: cd docker/whisper && docker compose build && docker compose up -d
+# Whisper STT: NOT needed here — own repo https://github.com/Peuqui/whisper-stt
+# (cloned and started by scripts/install-all.sh)
 
 # Configuration & Environment
 python-dotenv>=1.0.0    # .env file support

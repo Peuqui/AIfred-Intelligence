@@ -80,9 +80,9 @@ CONSOLE_DEBUG_ENABLED = True
 # File Debug: Write messages to log file
 FILE_DEBUG_ENABLED = True
 
-# Whisper STT: runs as Docker container (docker/whisper/)
-# Config constants in docker-compose.yml, not here.
-# See WHISPER_SERVICE_URL and WHISPER_DOCKER_COMPOSE_PATH below.
+# Whisper STT: Docker container from its own repo (github.com/Peuqui/whisper-stt)
+# Config constants in its docker-compose.yml, not here.
+# See WHISPER_SERVICE_URL and WHISPER_STT_DIR below.
 
 # ============================================================
 # LANGUAGE CONFIGURATION (i18n)
@@ -1176,7 +1176,12 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
 # compose paths inside their respective TTSEngine class (convention:
 # ``docker/tts/<compose_subdir or key>/docker-compose.yml``).
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-WHISPER_DOCKER_COMPOSE_PATH = os.path.join(_PROJECT_ROOT, "docker", "whisper", "docker-compose.yml")
+# Whisper STT is its own repo (github.com/Peuqui/whisper-stt), cloned next to
+# AIfred by scripts/install-all.sh — keep that default in sync with the script.
+WHISPER_STT_DIR = os.environ.get(
+    "WHISPER_STT_DIR", os.path.join(os.path.dirname(_PROJECT_ROOT), "whisper-stt"),
+)
+WHISPER_DOCKER_COMPOSE_PATH = os.path.join(WHISPER_STT_DIR, "docker-compose.yml")
 
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)
 WHISPER_SERVICE_URL = "http://localhost:5080"

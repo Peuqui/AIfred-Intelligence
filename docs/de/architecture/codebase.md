@@ -37,7 +37,7 @@ AIfred-Intelligence/
 │   └── ui/                  # Reflex-UI-Komponenten (modals/, agent_editor/, settings_accordion/, …)
 ├── prompts/{de,en}/         # Alles, was das LLM sieht — nie im Code hardcodiert
 ├── data/                    # Laufzeitdaten: settings.json, sessions/, chromadb/, logs/, Caches
-├── docker/                  # ChromaDB + SearXNG (docker-compose.yml), tts/, whisper/
+├── docker/                  # ChromaDB + SearXNG (docker-compose.yml), tts/
 ├── systemd/                 # Unit-Vorlagen, gerendert von scripts/install-services.sh
 ├── scripts/                 # Installer, llama-swap-Autoscan/-Restart, Patches, Wartung
 ├── deploy/                  # Optionale Extras (Korpus-Such-UI hinter nginx)
