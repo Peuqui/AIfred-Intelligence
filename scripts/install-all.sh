@@ -193,7 +193,7 @@ echo "  • python3 (>=3.10), python3-venv, python3-pip — Python runtime + ven
 echo "  • poppler-utils — pdftotext for clean PDF indexing"
 echo "  • ffmpeg        — audio concat for TTS (XTTS, Edge-TTS multi-chunk)"
 echo "  • bubblewrap    — sandbox for the 'execute_python' tool"
-echo "  • docker + docker-compose-plugin — ChromaDB vector cache + Whisper STT"
+echo "  • docker + docker compose plugin — ChromaDB vector cache + Whisper STT"
 echo ""
 
 # Detect package manager
@@ -354,7 +354,16 @@ docker_run() {
 if ! docker compose version &>/dev/null 2>&1; then
     echo -e "${YELLOW}⚠️  docker compose plugin missing — installing...${NC}"
     case "$PKG" in
-        apt)    sudo apt install -y docker-compose-plugin ;;
+        apt)
+            # Ubuntu ships the plugin as docker-compose-v2 (next to its
+            # docker.io); docker-compose-plugin only exists in Docker's own
+            # apt repo. Take the one this machine's sources offer.
+            apt_ensure_update
+            if apt-cache show docker-compose-v2 &>/dev/null; then
+                sudo apt install -y docker-compose-v2
+            else
+                sudo apt install -y docker-compose-plugin
+            fi ;;
         dnf)    sudo dnf install -y docker-compose-plugin ;;
         pacman) sudo pacman -S --noconfirm docker-compose ;;
         brew)   brew install docker-compose ;;
@@ -391,7 +400,7 @@ verify_step "docker client callable" \
     "sudo apt install docker.io"
 verify_step "docker compose plugin callable" \
     "docker compose version" \
-    "sudo apt install docker-compose-plugin"
+    "sudo apt install docker-compose-v2  (Ubuntu) or docker-compose-plugin (Docker's repo)"
 # Daemon reachability. If DOCKER_GROUP_NEEDS_RELOGIN, wrap via sg.
 verify_step "docker daemon reachable (server responds)" \
     "$([ "$DOCKER_GROUP_NEEDS_RELOGIN" = "1" ] && echo "sg docker -c 'docker info'" || echo "docker info")" \
