@@ -11,7 +11,12 @@ pydantic==2.13.5         # For data models (required by Reflex State)
 # LLM Backends
 httpx==0.28.1           # For Ollama HTTP API
 fastapi==0.142.2        # REST API for external integrations
-openai==2.15.0           # For vLLM (OpenAI-compatible API)
+openai==3.24.0           # For vLLM (OpenAI-compatible API)
+httpx2==2.13.1           # openai 3 transport (separate from httpx above)
+httpcore2==2.13.1
+truststore==0.10.4
+jiter==0.17.0
+typing_extensions==4.16.0
 nvidia-ml-py==13.615.71      # NVIDIA GPU monitoring for VRAM detection (provides the pynvml module)
 psutil==7.2.2           # System resource monitoring (RAM for hybrid mode)
 
