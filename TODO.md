@@ -992,16 +992,16 @@ Iteration:
   Funktional kein Bug (deklariert in `_chat_mixin.py:58`), nur Stil.
   Multi-Agent-Tribunal-Reset-Logik beachten.
 
-- [ ] **Echte Stemmer für Korpus-Phrase-Suche (DE + EN).** Aktuell läuft
+- [ ] **Echte Stemmer für die Phrase-Suche der Bibliothek (DE + EN).** Aktuell läuft
   Phrase-Highlight + Backend-Phrase-Filter mit einer Holzhammer-Heuristik
   (Wort >= 6 Zeichen → letzte 2 Zeichen weg, dann `\w*` dahinter). Deckt
   häufige deutsche Flexionen (heiliger / heiligen / Heiligtum) und
   englische Plurale grob ab, aber linguistisch nicht sauber. Nächster
   Schritt: Snowball-Stemmer für DE und EN integrieren (z.B. `pystemmer`
   Backend-seitig in `_build_phrase_regex`, `snowball-stemmers` JS-seitig
-  für `highlight()` in `deploy/corpus/index.html`). Sprachwahl: aus dem
+  für `highlight()` in `deploy/bibliothek/index.html`). Sprachwahl: aus dem
   Folder ableiten oder UI-Toggle. Gilt für den `phrase`-Mode in
-  `corpus_search_server.py` und die Highlight-Funktion im Korpus-Browser.
+  `bibliothek_server.py` und die Highlight-Funktion der Bibliothek.
 
 ---
 

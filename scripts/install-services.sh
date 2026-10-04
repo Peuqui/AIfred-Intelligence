@@ -275,26 +275,26 @@ echo "      Project dir: $PROJECT_DIR"
 echo "      Docker bin:  $DOCKER_BIN"
 echo
 
-# Corpus search server (FastAPI corpus search API).
-# Backend of the corpus / Judaica search UI behind nginx only — AIfred's
-# own corpus tools read ChromaDB directly and do not need it. The unit is
-# always installed so it can be started on demand
-# (systemctl start aifred-corpus-server.service); starting it on boot is
+# AIfred Bibliothek (FastAPI document search & admin API).
+# Backend of the Bibliothek UI behind nginx only (deploy/bibliothek/) —
+# AIfred's own document tools read ChromaDB directly and do not need it.
+# The unit is always installed so it can be started on demand
+# (systemctl start aifred-bibliothek.service); starting it on boot is
 # opt-in (default no, also for non-interactive calls).
-CORPUS_AUTOSTART=0
-if [ -f "$SYSTEMD_DIR/aifred-corpus-server.service" ]; then
-    echo "2️⃣  Corpus search server (FastAPI corpus search API)"
-    echo "   Backend for the corpus / Judaica search UI; AIfred works without it."
-    install_service "$SYSTEMD_DIR/aifred-corpus-server.service"
+BIBLIOTHEK_AUTOSTART=0
+if [ -f "$SYSTEMD_DIR/aifred-bibliothek.service" ]; then
+    echo "2️⃣  AIfred Bibliothek (FastAPI document search & admin API)"
+    echo "   Backend for the Bibliothek UI; AIfred works without it."
+    install_service "$SYSTEMD_DIR/aifred-bibliothek.service"
     if [ -t 0 ]; then
-        read -p "   Start on boot? (y/N): " -n 1 -r CORPUS_REPLY
+        read -p "   Start on boot? (y/N): " -n 1 -r BIBLIOTHEK_REPLY
         echo
-        [[ $CORPUS_REPLY =~ ^[Yy]$ ]] && CORPUS_AUTOSTART=1
+        [[ $BIBLIOTHEK_REPLY =~ ^[Yy]$ ]] && BIBLIOTHEK_AUTOSTART=1
     fi
-    if [ "$CORPUS_AUTOSTART" = "1" ]; then
+    if [ "$BIBLIOTHEK_AUTOSTART" = "1" ]; then
         echo "   ✅ Will start on boot"
     else
-        echo "   ⏭️  On demand only: sudo systemctl start aifred-corpus-server.service"
+        echo "   ⏭️  On demand only: sudo systemctl start aifred-bibliothek.service"
     fi
 fi
 echo
@@ -360,27 +360,27 @@ if [ "$DRY_RUN" = "1" ]; then
             echo "   📝 WOULD enable: $s"
         fi
     done
-    if [ -f "$SYSTEMD_DIR/aifred-corpus-server.service" ]; then
-        corpus_enabled=0
-        systemctl is-enabled --quiet aifred-corpus-server.service 2>/dev/null && corpus_enabled=1
-        if [ "$CORPUS_AUTOSTART" = "$corpus_enabled" ]; then
-            echo "   = aifred-corpus-server.service boot start unchanged"
-        elif [ "$CORPUS_AUTOSTART" = "1" ]; then
-            echo "   📝 WOULD enable: aifred-corpus-server.service"
+    if [ -f "$SYSTEMD_DIR/aifred-bibliothek.service" ]; then
+        bibliothek_enabled=0
+        systemctl is-enabled --quiet aifred-bibliothek.service 2>/dev/null && bibliothek_enabled=1
+        if [ "$BIBLIOTHEK_AUTOSTART" = "$bibliothek_enabled" ]; then
+            echo "   = aifred-bibliothek.service boot start unchanged"
+        elif [ "$BIBLIOTHEK_AUTOSTART" = "1" ]; then
+            echo "   📝 WOULD enable: aifred-bibliothek.service"
         else
-            echo "   📝 WOULD disable: aifred-corpus-server.service"
+            echo "   📝 WOULD disable: aifred-bibliothek.service"
         fi
     fi
 else
     systemctl enable aifred-chromadb.service
     systemctl enable aifred-intelligence.service
-    if [ -f "$SYSTEMD_DIR/aifred-corpus-server.service" ]; then
+    if [ -f "$SYSTEMD_DIR/aifred-bibliothek.service" ]; then
         # The answer above decides both ways: N also turns off an earlier
         # boot start (a running instance keeps running).
-        if [ "$CORPUS_AUTOSTART" = "1" ]; then
-            systemctl enable aifred-corpus-server.service
+        if [ "$BIBLIOTHEK_AUTOSTART" = "1" ]; then
+            systemctl enable aifred-bibliothek.service
         else
-            systemctl disable aifred-corpus-server.service
+            systemctl disable aifred-bibliothek.service
         fi
     fi
     echo "   ✅ Services enabled"
@@ -398,8 +398,8 @@ else
     echo "        sudo systemctl start aifred-chromadb.service"
 fi
 ensure_active aifred-intelligence.service
-if [ "$CORPUS_AUTOSTART" = "1" ]; then
-    ensure_active aifred-corpus-server.service
+if [ "$BIBLIOTHEK_AUTOSTART" = "1" ]; then
+    ensure_active aifred-bibliothek.service
 fi
 echo
 
@@ -458,10 +458,10 @@ systemctl status aifred-chromadb.service --no-pager -l || true
 echo
 echo "--- AIfred Intelligence status ---"
 systemctl status aifred-intelligence.service --no-pager -l || true
-if [ "$CORPUS_AUTOSTART" = "1" ]; then
+if [ "$BIBLIOTHEK_AUTOSTART" = "1" ]; then
     echo
-    echo "--- AIfred Corpus Server status ---"
-    systemctl status aifred-corpus-server.service --no-pager -l || true
+    echo "--- AIfred Bibliothek status ---"
+    systemctl status aifred-bibliothek.service --no-pager -l || true
 fi
 echo
 
@@ -539,8 +539,8 @@ else
     echo "      → journalctl -u aifred-intelligence.service -f"
 fi
 
-if [ "$CORPUS_AUTOSTART" = "1" ]; then
-    check_service_active aifred-corpus-server.service
+if [ "$BIBLIOTHEK_AUTOSTART" = "1" ]; then
+    check_service_active aifred-bibliothek.service
 fi
 echo
 

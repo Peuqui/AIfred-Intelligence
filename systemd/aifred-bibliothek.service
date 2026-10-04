@@ -1,5 +1,5 @@
 [Unit]
-Description=AIfred Corpus Search & Admin API (FastAPI)
+Description=AIfred Bibliothek — document search & admin API (FastAPI)
 After=network-online.target
 Wants=network-online.target
 # ChromaDB sollte vorher laufen — falls als systemd-Service vorhanden,
@@ -10,7 +10,7 @@ Type=simple
 User=__USER__
 Group=__USER__
 WorkingDirectory=__PROJECT_DIR__
-ExecStart=__PROJECT_DIR__/venv/bin/python scripts/corpus_search_server.py
+ExecStart=__PROJECT_DIR__/venv/bin/python scripts/bibliothek_server.py
 Restart=on-failure
 RestartSec=5
 # Logs in journal

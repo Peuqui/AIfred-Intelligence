@@ -93,7 +93,7 @@ pip install -r requirements.txt
 ## 5. Set up systemd services
 
 For the AIfred-side services (chromadb + intelligence + optional
-corpus-server) use the installer script — it's update-safe:
+Bibliothek) use the installer script — it's update-safe:
 
 ```bash
 sudo ./scripts/install-services.sh                 # install or update,
@@ -116,10 +116,10 @@ a clean system are no-ops.
 |---|---|
 | `aifred-chromadb.service` | `docker compose up -d chromadb searxng` — vector store + web search |
 | `aifred-intelligence.service` | the Reflex app (frontend `3002`, backend `8002`) |
-| `aifred-corpus-server.service` | optional corpus search API (`127.0.0.1:8005`, for `deploy/corpus/`) |
+| `aifred-bibliothek.service` | optional search & admin API of the AIfred Bibliothek (`127.0.0.1:8005`, for `deploy/bibliothek/`) |
 
 The installer renders `systemd/aifred-intelligence.service` (and the
-chromadb / corpus units) into `/etc/systemd/system/`, substitutes the
+chromadb / Bibliothek units) into `/etc/systemd/system/`, substitutes the
 real user + project paths, reloads systemd and enables the units. These
 are **system-level services** (`WantedBy=multi-user.target`, running as
 `User=<you>`) — manage them with `sudo systemctl`, not `systemctl --user`.
