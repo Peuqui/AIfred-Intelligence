@@ -48,12 +48,14 @@ def _memory_entry_editor() -> rx.Component:
             color_scheme="orange",
             width="100%",
         ),
+        # As tall as its text, like the read-only view: switching to edit
+        # must not shrink the entry into a scroll box.
         rx.text_area(
             value=AIState.memory_edit_content,
             on_change=AIState.set_memory_edit_content,
-            rows="6",
             color_scheme="orange",
             width="100%",
+            style={"& textarea": {"field_sizing": "content"}},
         ),
         rx.hstack(
             rx.button(
