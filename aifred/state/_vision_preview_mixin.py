@@ -343,7 +343,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             "if (!window.__aifredVLMSSEInjected) {"
             "  window.__aifredVLMSSEInjected = true;"
             "  var s = document.createElement('script');"
-            "  s.src = '/vlm_sse_manager.js?v=11';"
+            f"  s.src = '{rx.asset('vlm_sse_manager.js')}';"
             "  s.async = true;"
             "  document.head.appendChild(s);"
             "  console.log('[AIfred-VLM] injected script tag');"

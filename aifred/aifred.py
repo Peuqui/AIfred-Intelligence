@@ -732,14 +732,16 @@ console.log('✂️ Crop handler loaded');
     # das angehängte <script> liegt außerhalb von Reacts Baum, überlebt
     # Remounts und wird nur einmal hinzugefügt. Bei custom.js-Änderungen
     # ?v= hochzählen (Cache-Bust).
-    custom_js_loader = """
-(function() {
+    # rx.asset: frontend_path prefix (Reflex 0.9 no longer adds it to plain
+    # "/..." paths) and a content-hash version instead of a hand-kept ?v=N.
+    custom_js_loader = f"""
+(function() {{
     if (document.getElementById('aifred-custom-js')) return;
     var s = document.createElement('script');
     s.id = 'aifred-custom-js';
-    s.src = '/custom.js?v=31';
+    s.src = '{rx.asset("custom.js")}';
     document.head.appendChild(s);
-})();
+}})();
 """
 
     # Lightbox für Content-Bilder: in der Bubble verkleinert (CSS), Klick
@@ -967,7 +969,7 @@ console.log('✂️ Crop handler loaded');
                 # Left side: Title and subtitle
                 rx.vstack(
                     rx.hstack(
-                        rx.image(src="/AIfred-Zylinder.png", width="32px", height="32px"),
+                        rx.image(src=rx.asset("AIfred-Zylinder.png"), width="32px", height="32px"),
                         rx.heading("AIfred Intelligence", size="6"),
                         align="center",
                         spacing="2",
@@ -1270,7 +1272,7 @@ app = rx.App(
     ],
     head_components=[
         # SVG Favicon - uses system emoji font for consistent 🎩 display
-        rx.el.link(rel="icon", type="image/svg+xml", href="/favicon.svg"),
+        rx.el.link(rel="icon", type="image/svg+xml", href=rx.asset("favicon.svg")),
         # CSS Custom Properties - inject UI layout constants from config.py
         rx.el.style(f"""
             :root {{

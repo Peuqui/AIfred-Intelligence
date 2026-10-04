@@ -3,6 +3,11 @@
 
 console.log('🔧 custom.js loaded');
 
+// Where this app's static assets live: the directory custom.js itself was
+// loaded from ("/aifred/" behind the proxy, "/" without frontend_path).
+// Lazily loaded assets (KaTeX) are fetched relative to it.
+const AIFRED_ASSET_BASE = new URL('.', document.getElementById('aifred-custom-js').src).pathname;
+
 // Reflex (SPA) can re-inject custom.js on re-renders/navigations, which would
 // stack every document-level listener — one arrow press was firing the Casus
 // nav handler 3× (= 3 images per keypress). bindDocKeydownOnce dedupes by key,
@@ -1596,7 +1601,7 @@ function loadKatexScript() {
 
     return new Promise((resolve, reject) => {
         const script = document.createElement('script');
-        script.src = '/katex/katex.min.js';
+        script.src = AIFRED_ASSET_BASE + 'katex/katex.min.js';
         script.onload = () => {
             console.log('📐 KaTeX script loaded');
             katexLoaded = true;
@@ -1618,7 +1623,7 @@ function loadMhchemExtension() {
 
     return new Promise((resolve) => {
         const script = document.createElement('script');
-        script.src = '/katex/mhchem.min.js';
+        script.src = AIFRED_ASSET_BASE + 'katex/mhchem.min.js';
         script.onload = () => {
             console.log('🧪 KaTeX mhchem extension loaded (chemistry support)');
             mhchemLoaded = true;
