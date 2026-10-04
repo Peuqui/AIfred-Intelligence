@@ -297,6 +297,10 @@ install_one "curl (Ollama installer fetches install.sh via curl)" "command -v cu
 # (seen on a fresh Ubuntu 24.04 minimal install).
 install_one "zstd (Ollama installer unpacks with it)" "command -v zstd" \
     apt:zstd dnf:zstd pacman:zstd brew:zstd
+# Reflex installs its JS runtime (bun) on first start and unpacks it with
+# unzip — without it the AIfred service dies in a restart loop.
+install_one "unzip (Reflex unpacks its JS runtime bun with it)" "command -v unzip" \
+    apt:unzip dnf:unzip pacman:unzip brew:unzip
 # ca-certificates: without an up-to-date cert bundle, TLS connects to
 # huggingface.co/ollama.com fail on some minimal images. Only needed
 # on apt (dnf/pacman/brew ship one with their TLS tools).
@@ -357,6 +361,17 @@ docker_run() {
     fi
 }
 
+# docker_check <cmd> — the same for verify_step: prints <cmd> wrapped in sg
+# while the fresh group membership is not active, else <cmd> itself. Without
+# it every Docker check fails right after the installer set Docker up.
+docker_check() {
+    if [ "$DOCKER_GROUP_NEEDS_RELOGIN" = "1" ] && command -v sg &>/dev/null; then
+        printf 'sg docker -c %q' "$1"
+    else
+        printf '%s' "$1"
+    fi
+}
+
 if ! docker compose version &>/dev/null 2>&1; then
     echo -e "${YELLOW}⚠️  docker compose plugin missing — installing...${NC}"
     case "$PKG" in
@@ -407,9 +422,8 @@ verify_step "docker client callable" \
 verify_step "docker compose plugin callable" \
     "docker compose version" \
     "sudo apt install docker-compose-v2  (Ubuntu) or docker-compose-plugin (Docker's repo)"
-# Daemon reachability. If DOCKER_GROUP_NEEDS_RELOGIN, wrap via sg.
 verify_step "docker daemon reachable (server responds)" \
-    "$([ "$DOCKER_GROUP_NEEDS_RELOGIN" = "1" ] && echo "sg docker -c 'docker info'" || echo "docker info")" \
+    "$(docker_check "docker info")" \
     "sudo systemctl start docker  (or log out/in if group is fresh)"
 # GPU containers (Whisper STT, local TTS) need the NVIDIA Container Toolkit;
 # without it docker refuses them with 'could not select device driver
@@ -1002,7 +1016,7 @@ echo ""
 echo -e "${BLUE}🔎 Verifying Whisper STT...${NC}"
 if [ "$WHISPER_STARTED" = "1" ]; then
     verify_step "whisper-stt container running" \
-        "docker ps --format '{{.Names}}' | grep -qx whisper-stt" \
+        "$(docker_check "docker ps --format '{{.Names}}' | grep -qx whisper-stt")" \
         "cd '$WHISPER_STT_DIR' && docker compose up -d --build"
     # Healthcheck inside the container: 30s interval + start_period 60s.
     # Poll generously because the model pull on a fresh start takes
@@ -1069,7 +1083,7 @@ echo ""
 echo -e "${BLUE}🔎 Verifying SearXNG...${NC}"
 if [ "$SEARXNG_STARTED" = "1" ]; then
     verify_step "searxng container running" \
-        "docker ps --format '{{.Names}}' | grep -qx searxng" \
+        "$(docker_check "docker ps --format '{{.Names}}' | grep -qx aifred-searxng")" \
         "cd docker && docker compose --profile full up -d searxng"
     # SearXNG needs a few seconds before HTTP responds — image usually
     # already pulled (~50 MB), actual boot ~5s. 60s polling generous.
@@ -1234,7 +1248,7 @@ if [ ${#TTS_CHOSEN_ENGINES[@]} -gt 0 ]; then
         _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
         _img="$(tts_compose_image "$PROJECT_DIR/docker/tts/$_engine/docker-compose.yml" 2>/dev/null)"
         verify_step "$_label image '$_img' present" \
-            "docker image inspect '$_img'" \
+            "$(docker_check "docker image inspect '$_img'")" \
             "cd docker/tts/$_engine && docker compose build"
     done
     step_summary "2g — Local TTS containers"
