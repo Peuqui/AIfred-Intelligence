@@ -473,7 +473,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         from .message_builder import stamp_user_turn, user_turn_stamp
         user_llm_text = stamp_user_turn(llm_context, user_turn_stamp())
 
-        response_text, response_display, response_final, result_metadata, history_notes = await _call_engine(
+        response_text, response_display, result_metadata, history_notes = await _call_engine(
             user_text=user_llm_text,
             session_id=session_id,
             agent=message.target_agent,
@@ -509,10 +509,8 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         outbound_text = sanitize_outbound(response_text)
 
         # Prefix with agent name if not AIfred (so user knows who answered)
-        final_text = sanitize_outbound(response_final)
         if message.target_agent != "aifred":
             outbound_text = f"— {agent_display_name} —\n\n{outbound_text}"
-            final_text = f"— {agent_display_name} —\n\n{final_text}"
 
         # ── Phase 4: Auto-reply if enabled ────────────────────
         reply_metadata = plugin.build_reply_metadata(message) if plugin else {}
@@ -525,9 +523,6 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         # webhook) hand it to their delivery layer, threading channels (email)
         # register it so the next answer returns to this session.
         reply_metadata["session_id"] = session_id
-        # Internal triggers deliver only the answer after the last tool call;
-        # the rounds before it are working notes that stay in the session.
-        reply_metadata["final_text"] = final_text
         outbound = OutboundMessage(
             channel=message.channel,
             channel_id=message.channel_id,
@@ -566,12 +561,11 @@ async def _call_engine(
     source: str = "browser",
     metadata: Optional[dict] = None,
     trust: str = "external",
-) -> tuple[str, str, str, dict, list[str]]:
+) -> tuple[str, str, dict, list[str]]:
     """Call the AIfred engine with full toolkit (memory + plugins).
 
-    Returns (response_clean, response_display, response_final, metadata_dict,
-    history_notes); response_final is the answer after the turn's last tool
-    call, history_notes what its tools left for the llm_history
+    Returns (response_clean, response_display, metadata_dict, history_notes);
+    history_notes is what the turn's tools left for the llm_history
     (PipelineResult.history_notes).
     Debug messages go through the Debug Bus (session_scope must be active).
     """
@@ -597,7 +591,7 @@ async def _call_engine(
 
     if not model:
         log_message(f"Message Processor: no model configured for {agent}/{backend_type}", "error")
-        return "", "", "", {}, []
+        return "", "", {}, []
 
     # Load existing LLM history from session
     session = load_session(session_id)
@@ -674,15 +668,15 @@ async def _call_engine(
                     result_meta = data.get("metadata_dict", {})
                     return (
                         data["response_clean"], data["response_display"],
-                        data["response_final"], result_meta, data["history_notes"],
+                        result_meta, data["history_notes"],
                     )
     except Exception as exc:
         log_message(f"Message Processor: engine error — {exc}", "error")
         debug(f"❌ Engine error: {exc}")
-        return "", "", "", {}, []
+        return "", "", {}, []
 
     joined = "".join(response_parts)
-    return joined, joined, joined, {}, []
+    return joined, joined, {}, []
 
 
 def channel_display_label(channel: str) -> str:

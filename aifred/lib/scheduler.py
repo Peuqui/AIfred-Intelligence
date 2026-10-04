@@ -440,17 +440,12 @@ async def _execute_job(job: Job) -> None:
     if not session_id:
         raise RuntimeError(f"process_inbound returned no session_id for job '{job.name}'")
 
-    # Only the answer after the agent's last tool call goes out; the rounds
-    # before it are working notes and stay in the session.
-    final_text = outbound.metadata.get("final_text", "").strip()
-    if not final_text:
-        raise RuntimeError(
-            f"Job '{job.name}' ended on a tool call without a final answer "
-            f"(session {session_id[:8]}) — nothing to deliver"
-        )
-
-    store.add_run(job.job_id, session_id, final_text)
-    await _deliver_result(job, final_text, session_id)
+    # The whole answer goes out, as the browser shows it (without thinking) —
+    # the same outbound text every channel reply gets. Cutting it at the last
+    # tool call lost the message whenever the agent wrote it first and then
+    # updated its memory (2026-10-04).
+    store.add_run(job.job_id, session_id, outbound.text)
+    await _deliver_result(job, outbound.text, session_id)
 
 
 def history_excerpt(text: str, limit: int) -> str:
