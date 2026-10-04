@@ -74,6 +74,9 @@ config = rx.Config(
     # Disable sitemap plugin (not needed) — Reflex 0.8.28+ wants the
     # plugin class, not the dotted-string path.
     disable_plugins=[SitemapPlugin],
+    # The UI is built on Radix Themes; Reflex 0.9 wants that explicit
+    # (implicit enablement is removed in 1.0).
+    plugins=[rx.plugins.RadixThemesPlugin()],
     # Hide "Built with Reflex" badge
     show_built_with_reflex=False,
 )
