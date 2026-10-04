@@ -293,6 +293,10 @@ install_one "bubblewrap (bwrap)" "command -v bwrap" \
 # out of the box.
 install_one "curl (Ollama installer fetches install.sh via curl)" "command -v curl" \
     apt:curl dnf:curl pacman:curl brew:curl
+# Ollama's installer unpacks its archive with zstd and aborts without it
+# (seen on a fresh Ubuntu 24.04 minimal install).
+install_one "zstd (Ollama installer unpacks with it)" "command -v zstd" \
+    apt:zstd dnf:zstd pacman:zstd brew:zstd
 # ca-certificates: without an up-to-date cert bundle, TLS connects to
 # huggingface.co/ollama.com fail on some minimal images. Only needed
 # on apt (dnf/pacman/brew ship one with their TLS tools).
@@ -407,6 +411,14 @@ verify_step "docker compose plugin callable" \
 verify_step "docker daemon reachable (server responds)" \
     "$([ "$DOCKER_GROUP_NEEDS_RELOGIN" = "1" ] && echo "sg docker -c 'docker info'" || echo "docker info")" \
     "sudo systemctl start docker  (or log out/in if group is fresh)"
+# GPU containers (Whisper STT, local TTS) need the NVIDIA Container Toolkit;
+# without it docker refuses them with 'could not select device driver
+# "nvidia"'. Not installed here: it needs NVIDIA's own package repository.
+if command -v nvidia-smi &>/dev/null && nvidia-smi -L &>/dev/null; then
+    verify_step "NVIDIA Container Toolkit (GPUs for Docker containers)" \
+        "command -v nvidia-ctk" \
+        "install per https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html, then: sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker"
+fi
 
 step_summary "1 — System dependencies"
 echo ""
@@ -522,7 +534,7 @@ verify_step "playwright binary in venv" \
     "[ -x '$PROJECT_DIR/venv/bin/playwright' ]" \
     "pip install playwright in venv"
 verify_step "Playwright Chromium browser installed" \
-    "ls $HOME/.cache/ms-playwright/chromium-*/chrome-linux/chrome 2>/dev/null | head -1 | grep -q ." \
+    "ls $HOME/.cache/ms-playwright/chromium-*/chrome-linux64/chrome 2>/dev/null | head -1 | grep -q ." \
     "venv/bin/playwright install chromium  (browser binary)"
 # Chromium launchable — if system libs are missing (libnss3,
 # libxkbcommon0, libasound2t64 etc.), the browser launch throws a
