@@ -106,10 +106,11 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
         raise HTTPException(status_code=404, detail=f"no connected FreeEcho.2 room '{request.room}'")
 
     pause_ms = ANNOUNCE_PAUSE_MS if request.pause_ms is None else request.pause_ms
-    # One stream: the PUCK plays start and end tone, the Echo plugin decides it by rule
-    # (start tone before the first, end tone after the last paragraph) — no flags from the caller.
+    # One stream: whether a start tone before the first and an end tone after the last paragraph
+    # are requested is a setting of the Echo plugin (which sound plays, the puck decides) —
+    # no flags from the caller.
     metadata = {
-        "audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True, "start_tone": True, "end_tone": True,
+        "audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True,
         "paragraphs": paragraphs, "pause_ms": pause_ms,
     }
     spoken = " ".join(paragraphs)

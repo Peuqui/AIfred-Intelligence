@@ -26,5 +26,21 @@
   "freeecho2_cred_language": {
     "de": "Haushaltssprache (STT + Ansagen)",
     "en": "Household language (STT + announcements)"
+  },
+  "freeecho2_cred_notification_start_tone": {
+    "de": "Ding vor Ansagen anfordern (Ton legt der Puck fest)",
+    "en": "Request the start tone (ding) before announcements (the puck decides which sound)"
+  },
+  "freeecho2_cred_notification_end_tone": {
+    "de": "Dong nach Ansagen anfordern (Ton legt der Puck fest)",
+    "en": "Request the end tone (dong) after announcements (the puck decides which sound)"
+  },
+  "freeecho2_cred_speech_unit": {
+    "de": "Sprachausgabe: satzweise, absatzweise oder alles am Stück",
+    "en": "Speech output: sentence by sentence, paragraph by paragraph or whole text at once"
+  },
+  "freeecho2_cred_speech_unit_tooltip": {
+    "de": "Satzweise: die erste Sprache kommt am frühesten. Absatzweise: oft bessere Betonung, etwas später. Alles am Stück: beste Qualität, die erste Sprache kommt erst nach der kompletten Erzeugung.",
+    "en": "Sentence by sentence: the first speech comes earliest. Paragraph by paragraph: often better prosody, a bit later. Whole text: best quality, the first speech only after everything is rendered."
   }
 }

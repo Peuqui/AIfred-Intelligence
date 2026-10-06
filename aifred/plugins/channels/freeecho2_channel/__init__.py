@@ -129,6 +129,30 @@ class FreeEchoChannel(ConnectionMixin):
                 # and i18n of tool replies (see channel_language()).
                 options=[("de", "Deutsch"), ("en", "English")],
             ),
+            CredentialField(
+                env_key="FREEECHO2_NOTIFICATION_START_TONE",
+                label_key="freeecho2_cred_notification_start_tone",
+                placeholder="true",
+                # Ob Ansagen den Beginn-Ton (Ding) anfordern; den Ton selbst legt der Puck fest.
+                options=[("true", "On"), ("false", "Off")],
+            ),
+            CredentialField(
+                env_key="FREEECHO2_NOTIFICATION_END_TONE",
+                label_key="freeecho2_cred_notification_end_tone",
+                placeholder="true",
+                # Ob Ansagen den Ende-Ton (Dong) anfordern; den Ton selbst legt der Puck fest.
+                options=[("true", "On"), ("false", "Off")],
+            ),
+            CredentialField(
+                env_key="FREEECHO2_SPEECH_UNIT",
+                label_key="freeecho2_cred_speech_unit",
+                placeholder="sentence",
+                options=[
+                    ("sentence", "Sentence by sentence"),
+                    ("paragraph", "Paragraph by paragraph"),
+                    ("whole", "Whole text at once"),
+                ],
+            ),
         ]
 
     def is_configured(self) -> bool:
@@ -162,6 +186,12 @@ class FreeEchoChannel(ConnectionMixin):
             "freeecho2", "language",
             values.get("FREEECHO2_LANGUAGE", "de") or "de",
         )
+        for field_key, broker_key in (
+            ("FREEECHO2_NOTIFICATION_START_TONE", "notification_start_tone"),
+            ("FREEECHO2_NOTIFICATION_END_TONE", "notification_end_tone"),
+            ("FREEECHO2_SPEECH_UNIT", "speech_unit"),
+        ):
+            broker.set_runtime("freeecho2", broker_key, values.get(field_key, ""))
 
     # ── Tools ─────────────────────────────────────────────────
 

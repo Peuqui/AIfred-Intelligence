@@ -178,12 +178,16 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
   Token, 403 bei falschem). Pfad ist von der Login-Cookie-Pflicht ausgenommen.
 - Body `{"room": "...", "text": "..."}` ODER `{"room": "...", "texts": ["Absatz", ...],
   "pause_ms": 1000, "speaker": "Whisper"}`; `room` = Raumname, `@gruppe` oder `*`.
-  `texts` = mehrere Absätze als EINE Ansage (ein Ding vorn, ein Dong hinten — die Töne entscheidet
-  das Echo-Plugin nach Regel, ohne LLM und ohne Flags vom Aufrufer; `pause_ms` = Stille zwischen
-  den Absätzen); `speaker` nur für die Sitzungs-Historie.
+  `texts` = mehrere Absätze als EINE Ansage (`pause_ms` = Stille zwischen den Absätzen); `speaker`
+  nur für die Sitzungs-Historie. Ob ein Ding vor und ein Dong nach der Ansage angefordert wird,
+  ist eine Plugin-Einstellung (`FREEECHO2_NOTIFICATION_START_TONE` / `_END_TONE`, an/aus), nicht
+  Sache des Aufrufers; welcher Ton das ist, legt der Puck fest (`notification_wav` / `_end_wav`).
   `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.
-- Satzweises Streaming (SSOT der Satzaufteilung: `audio_processing.split_text_for_streaming_tts`):
-  der erste Satz wird erzeugt und läuft los, die übrigen entstehen währenddessen; braucht ein Segment
+- Einheit der Sprachausgabe (Plugin-Einstellung `FREEECHO2_SPEECH_UNIT`): `sentence` (Standard),
+  `paragraph` oder `whole` (alles am Stück, beste Qualität, die erste Sprache kommt erst nach der
+  kompletten Erzeugung). Satzweises Streaming (SSOT der Satzaufteilung:
+  `audio_processing.split_text_for_streaming_tts`): der erste Satz wird erzeugt und läuft los, die
+  übrigen entstehen währenddessen; braucht ein Segment
   länger als `FREEECHO2_KEEPALIVE_SEC` (10 s), hält ein 20-ms-Stille-Chunk den Strom offen
   (das 30-s-Inaktivitäts-Timeout des Pucks löst nie aus, er ist die einzige Erkennung einer toten
   Verbindung). Jede Ansage wird in der Sitzung des Raums dokumentiert (`record_autonomous_turn`).

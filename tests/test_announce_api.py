@@ -46,14 +46,15 @@ def test_missing_server_token_is_503(client: TestClient, monkeypatch: pytest.Mon
     assert client.get("/audio/announce/rooms", headers=AUTH).status_code == 503
 
 
-def test_announce_delivers_with_both_tones(client: TestClient) -> None:
+def test_announce_leaves_the_tones_to_the_plugin_setting(client: TestClient) -> None:
     response = _post(client, text="Hallo")
     assert response.status_code == 200
     assert response.json() == {"success": True, "rooms": ["wohnzimmer"]}
     channel, room, text, session_id, metadata = client.delivered[0]  # type: ignore[attr-defined]
     assert (channel, room, text, session_id) == ("freeecho2", "wohnzimmer", "Hallo", None)
+    # no tone flags from the caller: the Echo plugin's setting decides
     assert metadata == {
-        "audio_type": "notification", "proactive": True, "start_tone": True, "end_tone": True,
+        "audio_type": "notification", "proactive": True,
         "paragraphs": ["Hallo"], "pause_ms": announce.ANNOUNCE_PAUSE_MS,
     }
 
@@ -64,10 +65,10 @@ def test_several_paragraphs_are_one_announcement(client: TestClient) -> None:
     assert len(client.delivered) == 1  # type: ignore[attr-defined]
     _, _, text, _, metadata = client.delivered[0]  # type: ignore[attr-defined]
     assert text == "Erster Absatz. Zweiter Absatz."
-    # one stream: start tone before the first and end tone after the last paragraph, set by rule
+    # one stream: the paragraphs travel together, tones are not the caller's business
     assert metadata["paragraphs"] == ["Erster Absatz.", "Zweiter Absatz."]
     assert metadata["pause_ms"] == 700
-    assert (metadata["start_tone"], metadata["end_tone"]) == (True, True)
+    assert "start_tone" not in metadata and "end_tone" not in metadata
 
 
 def test_the_announcement_is_documented_in_the_rooms_session(client: TestClient) -> None:

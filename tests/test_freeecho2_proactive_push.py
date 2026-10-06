@@ -163,21 +163,40 @@ class TestSendReplyProactive:
         # play_notification(tts_pcm, start_tone=…, end_tone=…) — pruefe Args.
         assert orc.play_notification.await_args.args[0]  # Sprache nicht-leer
         kwargs = orc.play_notification.await_args.kwargs
-        # Ohne Angabe wie bisher: nur der Beginn-Ton
+        # Plugin-Einstellung ohne Angabe: Beginn- und Ende-Ton werden angefordert
         assert kwargs.get("start_tone") is True
-        assert kwargs.get("end_tone") is False
+        assert kwargs.get("end_tone") is True
         # Vor der Ansage wird ein laufender Strom pausiert
         orc.pause_for_announcement.assert_awaited_once()
         orc.play_tts.assert_not_awaited()
 
-    def test_tones_from_metadata_reach_the_puck(self, push_setup):
-        """Die Ansage-API verlangt Beginn- UND Ende-Ton: beide Flags aus
-        outbound.metadata kommen unverändert bei play_notification an."""
+    @pytest.mark.parametrize(("start_setting", "end_setting", "start_tone", "end_tone"), [
+        ("true", "true", True, True),
+        ("false", "true", False, True),
+        ("true", "false", True, False),
+        ("false", "false", False, False),
+    ])
+    def test_the_plugin_setting_decides_the_tones(
+        self, push_setup, monkeypatch, start_setting, end_setting, start_tone, end_tone,
+    ):
+        """Ob Ding/Dong angefordert wird, bestimmt die Plugin-Einstellung (welcher Ton das
+        ist, legt der Puck fest); der Aufrufer schickt keine Flags."""
+        monkeypatch.setenv("FREEECHO2_NOTIFICATION_START_TONE", start_setting)
+        monkeypatch.setenv("FREEECHO2_NOTIFICATION_END_TONE", end_setting)
         _rid, _ws, orc, audio_ch = push_setup
-        outbound = _make_outbound("Ansage", proactive=True, start_tone=True, end_tone=True)
+        outbound = _make_outbound("Ansage", proactive=True)
         self._patched_call(audio_ch, outbound, _make_inbound(sender="system"))
         kwargs = orc.play_notification.await_args.kwargs
-        assert (kwargs["start_tone"], kwargs["end_tone"]) == (True, True)
+        assert (kwargs["start_tone"], kwargs["end_tone"]) == (start_tone, end_tone)
+
+    def test_an_alarm_always_starts_with_its_sound_and_has_no_end_tone(self, push_setup, monkeypatch):
+        monkeypatch.setenv("FREEECHO2_NOTIFICATION_START_TONE", "false")
+        monkeypatch.setenv("FREEECHO2_NOTIFICATION_END_TONE", "true")
+        _rid, _ws, orc, audio_ch = push_setup
+        outbound = _make_outbound("Brand!", audio_type="alarm")
+        self._patched_call(audio_ch, outbound, _make_inbound(sender="system"))
+        kwargs = orc.play_alarm.await_args.kwargs
+        assert (kwargs["start_tone"], kwargs["end_tone"]) == (True, False)
 
     def test_explicit_proactive_metadata_uses_play_notification(self, push_setup):
         """Alternative: Caller markiert outbound.metadata.proactive=True

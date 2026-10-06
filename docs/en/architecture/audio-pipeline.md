@@ -726,7 +726,12 @@ the puck stays dumb.
 | doorbell (no speech) | `audio_flag(notification, start_tone=true)` → `audio_start(total_size=0)` → `audio_end(end_tone=true)` |
 | announcement over running music/TTS | `wake(_pause)` → wait for the puck's acknowledgement → announcement as above; the server sends NO `_resume` afterwards |
 
-**Sentence-wise streaming** (announcements and replies via `TtsReplyMixin`): the text is split into
+**Speech unit:** plugin setting `FREEECHO2_SPEECH_UNIT` — `sentence` (default), `paragraph` (at blank lines) or
+`whole` (everything at once, no streaming: better prosody, but the first speech only comes after everything is
+rendered). Start/end tone for announcements: `FREEECHO2_NOTIFICATION_START_TONE` / `_END_TONE` (on/off; the alarm
+sound is always the start tone); which sound plays is decided by the puck.
+
+**Sentence-wise streaming** (announcements and replies via `TtsReplyMixin`): with `sentence` the text is split into
 sentences by `split_text_for_streaming_tts` (the same sentence detection as browser streaming); the first
 sentence is synthesized and starts playing, a producer task appends the rest to a growing `TTSBuffer`
 (thread-safe, `total_size` in `audio_start` is unknown then). Announcements with several paragraphs
