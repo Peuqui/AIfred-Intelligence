@@ -233,7 +233,9 @@ Ein Wake-Wort kann statt zur LLM-Pipeline zu einem externen Dienst führen (z. B
 Agent-Orc). `voice_routes.json` im FreeEcho.2-Plugin (maschinenlokal, Vorlage
 `voice_routes.example.json`) ordnet den Agentennamen aus dem Wake-Frame einem Ziel zu
 (`url`, `token_file`, `timeout_seconds`). Nach der Spracherkennung schickt `_route_voice`
-`{room, text}` (der Text NACH dem Wake-Wort) per `POST` mit Bearer-Token aus der Token-Datei und schließt
+`room` und `text` (der Text NACH dem Wake-Wort) als Query-Parameter und die Aufnahme des Pucks
+unverändert als Body (`audio/wav`, 16 kHz, mono, 16 Bit; kein multipart, der Empfänger braucht kein
+Zusatzpaket) per `POST` mit Bearer-Token aus der Token-Datei und schließt
 die Runde am Puck mit `done` (`reason=routed_to_<name>`). Bei jedem Fehler: laut loggen,
 `reason=route_failed`, KEIN Rückfall in die LLM-Pipeline.
 

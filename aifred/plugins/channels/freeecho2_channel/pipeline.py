@@ -164,7 +164,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 # nicht AIfreds LLM-Pipeline. Die Runde am Puck schließt die Weiche selbst.
                 voice_route = load_voice_routes().get(wake_agent) if wake_agent else None
                 if voice_route is not None:
-                    await self._route_voice(room, str(wake_agent), voice_route, text)
+                    await self._route_voice(room, str(wake_agent), voice_route, text, wav_path)
                     return
 
                 # Flush user question to session immediately so browser shows it
@@ -291,16 +291,16 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 Path(wav_path).unlink(missing_ok=True)
 
     async def _route_voice(
-        self, room: str, route_name: str, route: dict, text: str,
+        self, room: str, route_name: str, route: dict, text: str, wav_path: str,
     ) -> None:
-        """Die erkannte Äußerung an die Route schicken, den Austausch in die Session
+        """Die erkannte Äußerung samt Aufnahme an die Route schicken, den Austausch in die Session
         schreiben (Chat- UND LLM-History) und die Runde am Puck schließen. Bei Fehler laut
         loggen und mit ``route_failed`` schließen — KEIN Rückfall in die LLM-Pipeline (sie
         würde eine Frage beantworten, die für jemand anderen gedacht war)."""
         from ....lib.message_processor import record_routed_voice_turn
 
         try:
-            outcome = await forward_voice(route, room, text)
+            outcome = await forward_voice(route, room, text, wav_path)
         except Exception as exc:  # noqa: BLE001 — jeder Fehler endet im Log + route_failed
             self.channel_log(
                 f"[FreeEcho.2 {room}] voice route '{route_name}' failed: {exc!r}", "error",

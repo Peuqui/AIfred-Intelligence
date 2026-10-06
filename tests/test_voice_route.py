@@ -68,7 +68,9 @@ def orc_endpoint(tmp_path: Path):
 
     async def handler(request: web.Request) -> web.Response:
         seen["auth"] = request.headers.get("Authorization")
-        seen["body"] = await request.json()
+        seen["query"] = dict(request.query)
+        seen["content_type"] = request.content_type
+        seen["body"] = await request.read()
         if seen["auth"] != "Bearer geheim":
             return web.json_response({"detail": "no"}, status=401)
         return web.json_response({"action": "asked", "agent": "Whisper"})
@@ -81,33 +83,42 @@ def orc_endpoint(tmp_path: Path):
     run_with_loop(runner.cleanup())
 
 
-def test_the_utterance_goes_to_the_route_with_the_bearer_token(orc_endpoint):
+@pytest.fixture
+def recording(tmp_path: Path) -> str:
+    path = tmp_path / "aufnahme.wav"
+    path.write_bytes(b"RIFF....WAVEdata")
+    return str(path)
+
+
+def test_the_utterance_goes_to_the_route_with_the_bearer_token(orc_endpoint, recording):
     route, seen, _ = orc_endpoint
-    outcome = run_with_loop(forward_voice(route, "Buero-Puck-2", "Whisper committe bitte"))
+    outcome = run_with_loop(forward_voice(route, "Buero-Puck-2", "Whisper committe bitte äöü", recording))
     assert outcome == {"action": "asked", "agent": "Whisper"}
     assert seen["auth"] == "Bearer geheim"
-    assert seen["body"] == {"room": "Buero-Puck-2", "text": "Whisper committe bitte"}
+    assert seen["query"] == {"room": "Buero-Puck-2", "text": "Whisper committe bitte äöü"}
+    assert seen["content_type"] == "audio/wav"
+    assert seen["body"] == b"RIFF....WAVEdata"       # the recording, unchanged
 
 
-def test_a_wrong_token_is_an_error(orc_endpoint):
+def test_a_wrong_token_is_an_error(orc_endpoint, recording):
     route, _, token = orc_endpoint
     token.write_text("falsch")
     with pytest.raises(httpx.HTTPStatusError):
-        run_with_loop(forward_voice(route, "buero", "x"))
+        run_with_loop(forward_voice(route, "buero", "x", recording))
 
 
-def test_an_empty_token_file_is_an_error(orc_endpoint):
+def test_an_empty_token_file_is_an_error(orc_endpoint, recording):
     route, _, token = orc_endpoint
     token.write_text("  \n")
     with pytest.raises(ValueError, match="empty"):
-        run_with_loop(forward_voice(route, "buero", "x"))
+        run_with_loop(forward_voice(route, "buero", "x", recording))
 
 
-def test_an_unreachable_route_is_an_error(orc_endpoint):
+def test_an_unreachable_route_is_an_error(orc_endpoint, recording):
     route, _, _ = orc_endpoint
     route = {**route, "url": "http://127.0.0.1:1/api/voice"}
     with pytest.raises(httpx.HTTPError):
-        run_with_loop(forward_voice(route, "buero", "x"))
+        run_with_loop(forward_voice(route, "buero", "x", recording))
 
 
 # ── Die Weiche im Kanal ──────────────────────────────────────────────
@@ -127,7 +138,7 @@ def routed(monkeypatch):
 def test_success_closes_the_round_and_documents_it(routed, monkeypatch):
     channel, recorded = routed
     monkeypatch.setattr(pipeline, "forward_voice", AsyncMock(return_value={"action": "asked", "agent": "Whisper"}))
-    run(channel._route_voice("buero", "orc", ROUTE, "Whisper, committe bitte"))
+    run(channel._route_voice("buero", "orc", ROUTE, "Whisper, committe bitte", "/tmp/a.wav"))
     channel.send_done.assert_awaited_once_with("buero", reason="routed_to_orc")
     assert recorded == [{
         "sender": "buero", "text": "Whisper, committe bitte", "route_name": "orc",
@@ -141,7 +152,7 @@ def test_success_closes_the_round_and_documents_it(routed, monkeypatch):
 def test_failure_is_loud_closes_with_route_failed_and_does_not_fall_back(routed, monkeypatch, error):
     channel, recorded = routed
     monkeypatch.setattr(pipeline, "forward_voice", AsyncMock(side_effect=error))
-    run(channel._route_voice("buero", "orc", ROUTE, "hallo"))
+    run(channel._route_voice("buero", "orc", ROUTE, "hallo", "/tmp/a.wav"))
     channel.send_done.assert_awaited_once_with("buero", reason="route_failed")
     assert recorded[0]["outcome"].startswith("failed (")
 
