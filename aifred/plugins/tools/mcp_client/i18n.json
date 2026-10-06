@@ -1,0 +1,10 @@
+{
+  "plugin_display_name": {
+    "de": "MCP-Client",
+    "en": "MCP Client"
+  },
+  "plugin_description": {
+    "de": "Bindet beliebige MCP-Server an: Ihre Werkzeuge erscheinen als AIfred-Tools. Server stehen in servers.json neben dem Plugin (stdio, SSE oder HTTP).",
+    "en": "Connects arbitrary MCP servers: their tools appear as AIfred tools. Servers are listed in servers.json next to the plugin (stdio, SSE or HTTP)."
+  }
+}
