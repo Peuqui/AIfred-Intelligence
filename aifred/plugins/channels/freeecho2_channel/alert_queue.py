@@ -132,9 +132,18 @@ async def _alert_worker(room: str) -> None:
             await orc.pause_for_announcement(FREEECHO2_PAUSE_ACK_TIMEOUT_SEC)
             # play_* wartet jetzt bis der Pump durch ist (audio_end raus).
             if audio_type == "alarm":
-                await orc.play_alarm(tts_pcm, start_tone=start_tone, end_tone=end_tone)
+                completed = await orc.play_alarm(
+                    tts_pcm, start_tone=start_tone, end_tone=end_tone,
+                )
             else:
-                await orc.play_notification(tts_pcm, start_tone=start_tone, end_tone=end_tone)
+                completed = await orc.play_notification(
+                    tts_pcm, start_tone=start_tone, end_tone=end_tone,
+                )
+            if not completed:
+                # Abbruch (Stopp/Standby/Sende-Fehler): der Puck quittiert nach einem
+                # Abbruch NICHT mit _done — nicht darauf warten, die nächste Ansage läuft.
+                log_message(f"[FreeEcho.2 {room}] announcement aborted — not waiting for _done")
+                continue
             # FRISCHES Event pro Item, publiziert erst NACH der Wiedergabe und
             # direkt vor send_done: Das frühere clear-then-wait auf dem
             # wiederverwendeten per-Room-Event konnte während der gesamten
