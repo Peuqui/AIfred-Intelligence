@@ -8,6 +8,7 @@ from .base import TTSEngine
 
 class MOSSEngine(TTSEngine):
     key = "moss"
+    default_speech_unit = "whole"
     label_short = "MOSS-TTS"
     runs_in_container = True
     needs_gpu = True

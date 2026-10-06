@@ -40,8 +40,10 @@ class TTSConfigMixin(rx.State, mixin=True):
     # MOSS-TTS device ("cuda", "cpu", or "" if not running)
     # Used by context_manager/context_utils for VRAM reservation
     moss_tts_device: str = ""
-    # Streaming TTS toggle (config only — streaming logic is elsewhere)
-    tts_streaming_enabled: bool = True  # Enable streaming TTS (vs waiting for full response)
+    # Unit of the spoken output per engine (config only — the streaming logic is elsewhere):
+    # "sentence" (streaming), "paragraph" or "whole" (wait for the full response). SSOT for
+    # browser and channels: lib.tts_engines.speech_unit_for(engine) reads the same setting.
+    tts_speech_unit: str = "sentence"
 
     # ── Narrator plugin (narrate_file) engine selection ──────────
     # "auto" = follow the spoken-output engine. When that is off, use
@@ -518,11 +520,21 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")  # type: ignore[attr-defined]
         self._save_tts_toggles_for_engine(self.tts_engine)
 
-    def toggle_tts_streaming(self):
-        """Toggle streaming TTS (sentence-by-sentence vs complete response)"""
-        self.tts_streaming_enabled = not self.tts_streaming_enabled
-        mode = "Streaming (realtime)" if self.tts_streaming_enabled else "Standard (after response)"
-        self.add_debug(f"🔊 TTS Mode: {mode}")  # type: ignore[attr-defined]
+    @rx.var(deps=["tts_speech_unit"], auto_deps=False)
+    def tts_streaming_enabled(self) -> bool:
+        """Streaming = the spoken output starts before the response is complete (every unit
+        except "whole"); the frontend and the streaming mixin ask this."""
+        return self.tts_speech_unit != "whole"
+
+    def set_tts_speech_unit(self, unit: str):
+        """Choose the unit of the spoken output for the current engine (saved per engine,
+        applies system-wide to every agent and every channel)."""
+        from ..lib.tts_engines import SPEECH_UNITS
+
+        if unit not in SPEECH_UNITS:
+            raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
+        self.tts_speech_unit = unit
+        self.add_debug(f"🔊 TTS unit: {unit}")  # type: ignore[attr-defined]
         self._save_tts_toggles_for_engine(self.tts_engine)
 
 
@@ -798,7 +810,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             self._save_agent_voices_for_engine(engine_key)
 
     def _save_tts_toggles_for_engine(self, engine_key: str):
-        """Save current TTS toggles (autoplay, streaming) for the specified engine."""
+        """Save current TTS toggles (autoplay, speech unit) for the specified engine."""
         from ..lib.settings import load_settings
 
         settings = load_settings() or {}
@@ -807,30 +819,25 @@ class TTSConfigMixin(rx.State, mixin=True):
 
         settings["tts_toggles_per_engine"][engine_key] = {
             "autoplay": self.tts_autoplay,
-            "streaming": self.tts_streaming_enabled,
+            "unit": self.tts_speech_unit,
         }
         self._write_settings_file(settings)  # type: ignore[attr-defined]
 
     def _restore_tts_toggles_for_engine(self, engine_key: str):
         """Restore TTS toggles from settings for the specified engine.
 
-        Falls back to engine-specific defaults if no saved preferences exist.
+        The unit comes from the engine plugin's SSOT (the saved choice, else the engine's
+        default); auto-play is on unless the user switched it off for this engine.
         """
         from ..lib.settings import load_settings
-        from ..lib.config import TTS_TOGGLE_DEFAULTS
+        from ..lib.config import TTS_AUTOPLAY_DEFAULT
+        from ..lib.tts_engines import speech_unit_for
 
         settings = load_settings() or {}
-        saved_toggles = settings.get("tts_toggles_per_engine", {}).get(engine_key)
-
-        if saved_toggles:
-            self.tts_autoplay = saved_toggles.get("autoplay", True)
-            self.tts_streaming_enabled = saved_toggles.get("streaming", True)
-            self.add_debug(f"🔊 Restored TTS toggles for {engine_key}: autoplay={self.tts_autoplay}, streaming={self.tts_streaming_enabled}")  # type: ignore[attr-defined]
-        else:
-            defaults = TTS_TOGGLE_DEFAULTS.get(engine_key, {"autoplay": True, "streaming": True})
-            self.tts_autoplay = defaults["autoplay"]
-            self.tts_streaming_enabled = defaults["streaming"]
-            self.add_debug(f"🔊 Default TTS toggles for {engine_key}: autoplay={self.tts_autoplay}, streaming={self.tts_streaming_enabled}")  # type: ignore[attr-defined]
+        saved_toggles = settings.get("tts_toggles_per_engine", {}).get(engine_key) or {}
+        self.tts_autoplay = saved_toggles.get("autoplay", TTS_AUTOPLAY_DEFAULT)
+        self.tts_speech_unit = speech_unit_for(engine_key)
+        self.add_debug(f"🔊 TTS toggles for {engine_key}: autoplay={self.tts_autoplay}, unit={self.tts_speech_unit}")  # type: ignore[attr-defined]
 
     # ── Language-based Voice Switching ─────────────────────────────
 

@@ -183,9 +183,11 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
   ist eine Plugin-Einstellung (`FREEECHO2_NOTIFICATION_START_TONE` / `_END_TONE`, an/aus), nicht
   Sache des Aufrufers; welcher Ton das ist, legt der Puck fest (`notification_wav` / `_end_wav`).
   `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.
-- Einheit der Sprachausgabe (Plugin-Einstellung `FREEECHO2_SPEECH_UNIT`): `sentence` (Standard),
+- Einheit der Sprachausgabe: EINE Einstellung pro TTS-Engine, systemweit für alle Agenten und Kanäle
+  (Browser: Sprachausgabe-Panel; Speicher `tts_toggles_per_engine[engine]["unit"]`; Standard je Engine in
+  `TTSEngine.default_speech_unit`; Lesen über `lib.tts_engines.speech_unit_for`): `sentence`,
   `paragraph` oder `whole` (alles am Stück, beste Qualität, die erste Sprache kommt erst nach der
-  kompletten Erzeugung). Satzweises Streaming (SSOT der Satzaufteilung:
+  kompletten Erzeugung). Das Echo-Plugin liest sie nur, es kennt keine eigene Einstellung dafür. Satzweises Streaming (SSOT der Satzaufteilung:
   `audio_processing.split_text_for_streaming_tts`): der erste Satz wird erzeugt und läuft los, die
   übrigen entstehen währenddessen; braucht ein Segment
   länger als `FREEECHO2_KEEPALIVE_SEC` (10 s), hält ein 20-ms-Stille-Chunk den Strom offen

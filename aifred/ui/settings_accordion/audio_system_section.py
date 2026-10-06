@@ -6,7 +6,7 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import t, native_select_tts, native_select_stt
+from ..helpers import _NATIVE_SELECT_STYLE, t, native_select_tts, native_select_stt
 
 
 def _tts_section() -> rx.Component:
@@ -65,20 +65,19 @@ def _tts_section() -> rx.Component:
                 ),
                 rx.box(),
             ),
-            # Streaming TTS Toggle Group
+            # Unit of the spoken output (per engine, system-wide): sentence-by-sentence streaming,
+            # paragraph by paragraph, or the whole response at once
             rx.hstack(
-                rx.text("Streaming", font_size="11px", color="#d4a14a"),
-                rx.switch(
-                    checked=AIState.tts_streaming_enabled,
-                    on_change=AIState.toggle_tts_streaming,
-                    size="1",
+                rx.text(t("tts_speech_unit_label"), font_size="11px", color="#d4a14a"),
+                rx.el.select(
+                    rx.el.option(t("tts_unit_sentence"), value="sentence"),
+                    rx.el.option(t("tts_unit_paragraph"), value="paragraph"),
+                    rx.el.option(t("tts_unit_whole"), value="whole"),
+                    value=AIState.tts_speech_unit,
+                    on_change=AIState.set_tts_speech_unit,
                     # Var negation; mypy sees the plain bool fields → int.
                     disabled=~(AIState.enable_tts & AIState.tts_autoplay),  # type: ignore[arg-type]
-                ),
-                rx.text(
-                    rx.cond(AIState.tts_streaming_enabled, "ON", "OFF"),
-                    font_size="10px",
-                    color=rx.cond(AIState.tts_streaming_enabled, "#d4a14a", "#666"),
+                    style=_NATIVE_SELECT_STYLE,
                 ),
                 spacing="1",
                 align="center",

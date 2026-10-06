@@ -409,7 +409,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             agent: Agent name for per-agent voice settings
         """
         log_message(f"🔊 TTS Init: Starting streaming TTS for agent={agent}")
-        log_message(f"🔊 TTS Init: enable_tts={self.enable_tts}, tts_streaming_enabled={self.tts_streaming_enabled}, engine={self.tts_engine}")  # type: ignore[attr-defined]
+        log_message(f"🔊 TTS Init: enable_tts={self.enable_tts}, tts_speech_unit={self.tts_speech_unit}, engine={self.tts_engine}")  # type: ignore[attr-defined]
         # Reset content-hint flags so a new response starts with a clean slate.
         # Otherwise stale streaming state from the previous response (e.g. a
         # list counter stuck above threshold) would suppress early sentences.
@@ -644,6 +644,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         from ..lib.audio_processing import (
             TTS_MIN_SENTENCE_WORDS,
+            extract_complete_paragraphs,
             extract_complete_sentences,
             strip_collapsible_content_streaming,
             buffer_has_open_collapsible,
@@ -667,8 +668,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
             log_message("🔊 TTS Chunk: Inside collapsible block, waiting...")
             return
 
-        # Try to extract complete sentences
-        sentences, remaining = extract_complete_sentences(self._tts_sentence_buffer)
+        # Complete units out of the rolling buffer: sentences, or whole paragraphs for the
+        # "paragraph" unit ("whole" never reaches here: streaming is off then)
+        extract = extract_complete_paragraphs if self.tts_speech_unit == "paragraph" else extract_complete_sentences
+        sentences, remaining = extract(self._tts_sentence_buffer)
         self._tts_sentence_buffer = remaining
 
         if sentences:

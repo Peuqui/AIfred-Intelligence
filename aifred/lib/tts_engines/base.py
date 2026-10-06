@@ -6,6 +6,13 @@ from pathlib import Path
 from typing import Any, Optional
 
 
+#: Einheiten der Sprachausgabe: wie viel Text auf einmal an die Engine geht. ``sentence`` =
+#: satzweises Streaming (früheste erste Sprache), ``paragraph`` = absatzweise (oft bessere
+#: Betonung), ``whole`` = alles am Stück (beste Qualität, die erste Sprache kommt erst nach der
+#: kompletten Erzeugung). SSOT für Browser und alle Kanäle.
+SPEECH_UNITS = ("sentence", "paragraph", "whole")
+
+
 class TTSEngine(ABC):
     """One TTS backend, all in one place.
 
@@ -57,6 +64,11 @@ class TTSEngine(ABC):
     #: (FreeEcho.2 etc.). Excludes engines that need extra credentials
     #: a channel device probably doesn't have wired up.
     suitable_for_channels: bool = True
+
+    #: Standard-Einheit dieser Engine (siehe ``SPEECH_UNITS``); die Wahl des Users pro Engine
+    #: steht in den Einstellungen (``tts_toggles_per_engine``) und gilt systemweit für alle Agenten.
+    #: Schnelle Engines streamen satzweise, langsame lokale rendern besser am Stück.
+    default_speech_unit: str = "sentence"
 
     #: Sort key for the UI engine dropdown — lower numbers come first.
     #: Convention: 10 = most-recommended GPU container, 80 = cloud/CLI
