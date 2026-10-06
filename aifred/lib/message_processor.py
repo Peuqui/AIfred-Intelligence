@@ -991,6 +991,63 @@ async def announce_to_channel(
         return False
 
 
+def _session_for_channel(channel: str, channel_id: str, owner: str = MESSAGE_HUB_OWNER) -> str:
+    """The session of a channel conversation: the routed one, or a fresh one that gets a
+    route. SSoT for every autonomous or routed write into a channel's session."""
+    route = routing_table.get_route(channel, channel_id)
+    if route:
+        return route.session_id
+    session_id = secrets.token_hex(16)
+    # Tag with the origin channel so the session's provenance stays
+    # visible. Same contract as process_inbound: the browser's auto-load
+    # picks up a fresh alert when it is the most recent session — that is
+    # wanted, the user restarts to see what came in.
+    create_empty_session(session_id, owner=owner, channel=channel)
+    routing_table.set_route(channel, channel_id, session_id)
+    return session_id
+
+
+def record_routed_voice_turn(
+    channel: str, channel_id: str, *, sender: str, text: str, route_name: str, outcome: str,
+) -> str:
+    """Documents a spoken exchange that AIfred only routed on (no LLM answer): the user's
+    words and the outcome go into the channel's session — chat history AND llm_history, the
+    same shapes as every other channel (user message wrapped in the external-message fence,
+    the outcome as an autonomous event). Returns the session_id.
+    """
+    from datetime import datetime
+    from .message_builder import stamp_user_turn, user_turn_stamp
+    from .security import resolve_trust_label, wrap_external_message
+    from .session_storage import load_session, session_rmw_lock
+
+    session_id = _session_for_channel(channel, channel_id)
+    # "[channel] sender — → route": the subject carries where the words went
+    message = InboundMessage(
+        channel=channel, channel_id=channel_id, sender=sender, text=text,
+        timestamp=datetime.now(), metadata={"subject": f"→ {route_name}"},
+    )
+    save_user_to_session(session_id, message)
+
+    trust = resolve_trust_label(channel, sender, message.metadata)
+    wrapped = wrap_external_message(
+        f"[{channel_display_label(channel)} from {sender}, routed to {route_name}]\n\n{text}",
+        sender, channel, trust,
+    )
+    with session_rmw_lock:
+        session = load_session(session_id)
+        data = (session or {}).get("data", {})
+        llm_history = [
+            *data.get("llm_history", []),
+            {"role": "user", "content": stamp_user_turn(wrapped, user_turn_stamp())},
+        ]
+        update_chat_data(
+            session_id, list(data.get("chat_history", [])),
+            llm_history=llm_history, owner=MESSAGE_HUB_OWNER,
+        )
+    record_autonomous_turn(channel, channel_id, route_name, f"{route_name}: {outcome}")
+    return session_id
+
+
 def record_autonomous_turn(
     channel: str, channel_id: str, title: str, text: str, *,
     media: str | None = None,
@@ -1012,17 +1069,7 @@ def record_autonomous_turn(
     kennt keine Galerie, dann trägt ``media`` das Bild."""
     from .session_storage import load_session
 
-    route = routing_table.get_route(channel, channel_id)
-    if route:
-        session_id = route.session_id
-    else:
-        session_id = secrets.token_hex(16)
-        # Tag with the origin channel so the session's provenance stays
-        # visible. Same contract as process_inbound: the browser's auto-load
-        # picks up a fresh alert when it is the most recent session — that is
-        # wanted, the user restarts to see what came in.
-        create_empty_session(session_id, owner=owner, channel=channel)
-        routing_table.set_route(channel, channel_id, session_id)
+    session_id = _session_for_channel(channel, channel_id, owner)
 
     content = text
     image_urls: list[str] = []

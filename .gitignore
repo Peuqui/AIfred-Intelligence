@@ -140,3 +140,6 @@ backups/
 
 # MCP-Client-Plugin: maschinenlokale Serverliste
 aifred/plugins/tools/mcp_client/servers.json
+
+# FreeEcho.2-Sprachweichen: maschinenlokale Routentabelle (Vorlage: voice_routes.example.json)
+aifred/plugins/channels/freeecho2_channel/voice_routes.json
