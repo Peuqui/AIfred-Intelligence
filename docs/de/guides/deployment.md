@@ -312,11 +312,13 @@ RAM, nicht minifizierte Bundles und mehr Konsolenwarnungen — vernachlässigbar
 server.
 
 Zwei Konsequenzen:
-- `scripts/patch-vite-config.sh` läuft vor jedem Start und patcht die
-  generierte `.web/vite.config.js`: `allowedHosts` aus `AIFRED_ALLOWED_HOST`
-  und `dedupe` für gemeinsam genutzte Frontend-Bibliotheken (ohne das landet `react-helmet`
-  in mehreren Lazy-Chunks und der Browser stürzt ab mit
-  *"Identifier 'scrollState' has already been declared"*). Idempotent.
+- Die generierte `.web/vite.config.js` wird bei **jedem Compile neu geschrieben**
+  (Reflex 0.9), ein nachträglicher Patch der Datei hält deshalb nicht.
+  `allowedHosts` kommt aus `AIFRED_ALLOWED_HOST` über `vite_allowed_hosts` in
+  `rxconfig.py`; `dedupe` für gemeinsam genutzte Frontend-Bibliotheken (ohne das landet
+  `react-helmet` in mehreren Lazy-Chunks und der Browser stürzt ab mit
+  *"Identifier 'scrollState' has already been declared"*) setzt `scripts/patch-reflex.py`
+  im Reflex-Template. `scripts/patch-vite-config.sh` (ExecStartPre) ist damit wirkungslos.
 - `/api`, `/_upload` und `/_event` werden **nicht** von Vite weitergeleitet — der Reverse-
   Proxy leitet sie ans Backend (siehe [Auf die Web-UI zugreifen](#auf-die-web-ui-zugreifen)).
 
