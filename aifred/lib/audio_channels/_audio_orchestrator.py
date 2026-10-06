@@ -122,7 +122,7 @@ class AudioOrchestrator:
         self._active_type: Optional[str] = None  # music/tts/alarm/notification
         self._stream: Optional["FreeEcho2Stream"] = None  # nur fuer music
         self._tts_buffer: Optional[TTSBuffer] = None  # nur fuer tts
-        self._tts_pump_task: Optional[asyncio.Task[None]] = None
+        self._tts_pump_task: Optional[asyncio.Task[bool]] = None
         self._end_tone: bool = False  # end_tone des Buffer-Stroms im audio_end
         self._paused: bool = False
         self._lock = asyncio.Lock()
@@ -201,34 +201,41 @@ class AudioOrchestrator:
 
     async def play_alarm(
         self, tts_pcm: Optional[bytes] = None, *, start_tone: bool, end_tone: bool,
-    ) -> None:
+    ) -> bool:
         """Alarm: der Puck spielt seine lokale Alarm-WAV (``start_tone``), danach
         optional Sprache (``tts_pcm``) und der Ende-Ton (``end_tone``).
 
         Wenn der Use-Case einen längeren/aufdringlichen Wecker verlangt,
         loopt der **Caller** play_alarm() mehrfach. _stop bricht den Loop ab.
+        Rückgabe wie bei ``_play_buffer``.
         """
-        await self._play_buffer("alarm", tts_pcm, start_tone=start_tone, end_tone=end_tone)
+        return await self._play_buffer(
+            "alarm", tts_pcm, start_tone=start_tone, end_tone=end_tone,
+        )
 
     async def play_notification(
         self, tts_pcm: Optional[bytes] = None, *, start_tone: bool, end_tone: bool,
-    ) -> None:
+    ) -> bool:
         """Ansage: Beginn-Ton (``start_tone``), Sprache (``tts_pcm``), Ende-Ton
         (``end_tone``). Ohne Sprache folgen die beiden Töne direkt aufeinander
         (Türklingel): Strom mit null Chunks. Beide Flags sind Pflicht, der Puck
-        lehnt die Frames sonst als Protokollfehler ab.
+        lehnt die Frames sonst als Protokollfehler ab. Rückgabe wie bei ``_play_buffer``.
         """
-        await self._play_buffer(
+        return await self._play_buffer(
             "notification", tts_pcm, start_tone=start_tone, end_tone=end_tone,
         )
 
     async def _play_buffer(
         self, audio_type: str, pcm: Optional[bytes], *, start_tone: bool, end_tone: bool,
-    ) -> None:
+    ) -> bool:
         """Gemeinsamer Ablauf aller Buffer-Audioarten (SSOT): Flag → audio_start →
         Chunks (0..n) → audio_end. Wartet **synchron**, bis der Pump-Task durch ist
         (oder via pause/stop gecancelt) — erst dann sind alle Frames am Wire, sonst
-        rast der Caller los und triggert STATE→IDLE vor den PCM-Bytes."""
+        rast der Caller los und triggert STATE→IDLE vor den PCM-Bytes.
+
+        Rückgabe: ``True`` bei natürlichem Ende (der Puck quittiert dann mit ``_done``),
+        ``False`` bei Abbruch (Stopp/Pause, Sende-Fehler): nach einem Abbruch sendet
+        der Puck KEIN ``_done`` — der Aufrufer darf nicht darauf warten."""
         async with self._lock:
             await self._reset_active_unlocked()
             self._tts_buffer = TTSBuffer(pcm or b"")
@@ -256,9 +263,9 @@ class AudioOrchestrator:
         # ist normal: pause/stop hat den Pump-Task waehrend des Streams
         # abgebrochen, Cursor bleibt fuer spaeteres resume erhalten.
         try:
-            await task
+            return await task
         except asyncio.CancelledError:
-            pass
+            return False
 
     async def pause_for_announcement(self, timeout_sec: float) -> None:
         """Vor Ansage/Alarm: einen laufenden pausierbaren Strom (music/tts) per
@@ -410,11 +417,12 @@ class AudioOrchestrator:
         self._active_type = None
         self._paused = False
 
-    async def _pump_tts_buffer(self) -> None:
+    async def _pump_tts_buffer(self) -> bool:
         """Background-Task: pumpt TTSBuffer als standalone-TTS in WS.
 
         Endet wenn Buffer leer ODER Task gecancelt wird (pause/stop).
-        Bei normalem Ende: schickt audio_end. Bei cancel: KEIN audio_end
+        Bei normalem Ende: schickt audio_end, Rückgabe ``True``. Bei Sende-Fehler:
+        audio_end ohne Ende-Ton, ``False``. Bei cancel: KEIN audio_end
         — der Buffer kann noch resumed werden.
         """
         total = self._tts_buffer.total_bytes if self._tts_buffer is not None else 0
@@ -439,7 +447,7 @@ class AudioOrchestrator:
                     )
                     # Stream sauber schließen; ein Abbruch spielt keinen Ende-Ton
                     await self.bridge.send_audio_end(self.room, end_tone=False)
-                    return
+                    return False
                 sent_chunks += 1
                 sent_bytes += len(chunk)
             # Normal beendet — Stream voll durchgelaufen
@@ -453,6 +461,7 @@ class AudioOrchestrator:
                     self._active_type = None
                     self._tts_buffer = None
                     self._tts_pump_task = None
+            return True
         except asyncio.CancelledError:
             # Pause oder stop — KEIN audio_end, Buffer-Cursor bleibt
             log_message(

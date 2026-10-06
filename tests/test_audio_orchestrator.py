@@ -191,6 +191,37 @@ class TestPlayNotification:
             run(orc.play_notification(b"\x00" * 10))
 
 
+class TestPlayResult:
+    """Natürliches Ende → True (der Puck quittiert mit _done), Abbruch → False
+    (nach einem Abbruch sendet der Puck KEIN _done)."""
+
+    def test_natural_end_returns_true(self, bridge):
+        orc = AudioOrchestrator("room1", bridge)
+        assert run(orc.play_notification(b"\x00" * 100, start_tone=True, end_tone=True)) is True
+        assert run(orc.play_alarm(None, start_tone=True, end_tone=False)) is True
+
+    def test_send_failure_returns_false(self, bridge):
+        bridge.send_audio_chunk.return_value = False
+        orc = AudioOrchestrator("room1", bridge)
+        assert run(orc.play_notification(b"\x00" * 100, start_tone=True, end_tone=True)) is False
+
+    def test_stop_returns_false(self, bridge):
+        async def slow_chunk(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            return True
+        bridge.send_audio_chunk.side_effect = slow_chunk
+        orc = AudioOrchestrator("room1", bridge)
+        pcm = b"\x00" * (TTSBuffer.CHUNK_SIZE * 5)
+
+        async def scenario():
+            task = asyncio.create_task(orc.play_notification(pcm, start_tone=True, end_tone=True))
+            await asyncio.sleep(0.005)
+            await orc.stop()
+            return await task
+
+        assert run(scenario()) is False
+
+
 class TestPumpAbort:
     def test_failed_chunk_closes_the_stream_without_end_tone(self, bridge):
         bridge.send_audio_chunk.return_value = False

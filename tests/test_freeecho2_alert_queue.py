@@ -32,6 +32,7 @@ class _FakeOrc:
         # ("pause", timeout) | (audio_type, has_speech, start_tone, end_tone)
         self.calls: list[tuple] = []
         self.pause_error: Exception | None = None
+        self.completed = True   # False = Abbruch (der Puck quittiert dann nicht mit _done)
         self.bridge = _FakeBridge()
 
     async def pause_for_announcement(self, timeout_sec):
@@ -41,9 +42,11 @@ class _FakeOrc:
 
     async def play_alarm(self, tts_pcm=None, *, start_tone, end_tone):
         self.calls.append(("alarm", tts_pcm is not None, start_tone, end_tone))
+        return self.completed
 
     async def play_notification(self, tts_pcm=None, *, start_tone, end_tone):
         self.calls.append(("notification", tts_pcm is not None, start_tone, end_tone))
+        return self.completed
 
 
 class _FakeCh:
@@ -109,6 +112,32 @@ def test_doorbell_without_speech(monkeypatch):
         fe.signal_playback_done("kueche")
         await asyncio.sleep(0.02)
         w = fe._alert_workers["kueche"]
+        w.cancel()
+        try:
+            await w
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(go())
+
+
+def test_aborted_announcement_does_not_wait_for_done(monkeypatch):
+    """Nach einem Abbruch (Stopp/Standby) sendet der Puck KEIN _done: die Queue
+    wartet nicht darauf, die nächste Ansage läuft sofort."""
+    orc = _FakeOrc()
+    orc.completed = False
+    monkeypatch.setattr(ac, "resolve", lambda key: _FakeCh(orc))
+    _reset_state()
+
+    async def go():
+        await fe.enqueue_alert("diele", "notification", b"pcm-1", start_tone=True, end_tone=True)
+        await fe.enqueue_alert("diele", "notification", b"pcm-2", start_tone=True, end_tone=True)
+        await asyncio.sleep(0.1)    # viel kürzer als die _done-Wartezeit (>= 15 s)
+        assert [c for c in orc.calls if c[0] == "notification"] == [
+            ("notification", True, True, True), ("notification", True, True, True),
+        ]
+        assert orc.bridge.done_calls == []   # der Stopp-Pfad hat sein done schon geschickt
+        w = fe._alert_workers["diele"]
         w.cancel()
         try:
             await w
