@@ -180,8 +180,9 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
   `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.
 - 404 bei unbekanntem/nicht verbundenem Raum, 413 bei Text über `ANNOUNCE_MAX_CHARS`
   (Standard 1200, kein stilles Kürzen). Chime fest `notification`, nie `alarm`; Beginn- und Ende-Ton
-  spielt der Puck selbst (`audio_flag(notification, start_tone, end_tone)`, Slots
-  `notification_wav` / `notification_end_wav` in der Puck-Oberfläche).
+  spielt der Puck selbst (Protokoll v2: `audio_flag(…, start_tone)` und `audio_end(end_tone)`, Slots
+  `notification_wav` / `notification_end_wav` in der Puck-Oberfläche). Läuft Musik/Hörbuch/TTS, hält der Server
+  sie vor der Ansage per `_pause` am Puck an und wartet auf die Bestätigung (sonst wird die Ansage verworfen).
 - Port 8002 (Backend), nicht 3002.
 
 ---

@@ -124,8 +124,8 @@ class TtsReplyMixin(BaseChannel):
             # metadata.audio_type aus dem Caller (alert_bus mappt severity →
             # audio_type; explizite scheduler-Sends koennen es selbst setzen).
             # Default "notification" wenn unklar.
-            # Frame-Sequenz: audio_flag(alarm|notification, with_tts=True) +
-            # audio_flag(tts) + audio_start + chunks + audio_end — der
+            # Frame-Sequenz: audio_flag(alarm|notification, start_tone) +
+            # audio_start + chunks + audio_end(end_tone) — der
             # Orchestrator macht alles in einem Aufruf.
             # Normal-Reply (User hat selbst getriggert) bleibt ohne Chime.
             # is_proactive ist oben schon bestimmt (TTS-State-Sicherstellung).

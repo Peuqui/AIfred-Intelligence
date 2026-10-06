@@ -2,12 +2,14 @@
 
 Audio-Bus-Protokoll (Phase 5.0): siehe docs/de/architecture/
 audio-pipeline.md "Audio-Bus-Refactor" für Frame-Sequenzen und
-Tupel-Whitelist. Vier Methoden:
+Tupel-Whitelist. Protokoll v2 — jeder Strom, auch Alarm/Ansage/Türklingel:
 
-  1. send_audio_flag(room, audio_type, **params)  — Type-Setting (LED+VU)
-  2. send_audio_start(room, total_size?)          — PCM-Stream-Setup
-  3. send_audio_chunk(room, bytes)                — beliebig oft
-  4. send_audio_end(room)                         — End-Marker
+  1. send_audio_flag(room, audio_type, start_tone=B) — Type-Setting (LED+VU)
+  2. send_audio_start(room, total_size?)             — PCM-Stream-Setup
+  3. send_audio_chunk(room, bytes)                   — 0..n mal
+  4. send_audio_end(room, end_tone=B)                — End-Marker
+
+dazu pause_stream(room, timeout): server-initiierte Pause vor einer Ansage.
 
 audio_flag und audio_start sind GETRENNT mit unterschiedlicher
 Semantik (audio_flag = Type-Wechsel ohne Stream-Reset). Frame-
@@ -27,7 +29,7 @@ from typing import Any
 
 from ....lib.plugin_base import BaseChannel
 
-from ._shared import _devices, _fmt_mib
+from ._shared import _devices, _fmt_mib, _pause_acks
 
 
 class WsBridgeMixin(BaseChannel):
@@ -41,13 +43,14 @@ class WsBridgeMixin(BaseChannel):
     # — die Firmware-FATAL-Pfade sehen wir damit nur bei echter
     # Network-Korruption, nicht bei Server-Logik-Bugs. Strikt:
     # unbekannte Felder, falsche Typen, fehlende Pflicht-Felder → raise.
+    # Protokoll v2: jeder Typ trägt start_tone (Beginn-Ton am Puck); danach folgt
+    # IMMER audio_start, 0..n Chunks und audio_end(end_tone).
     _AUDIO_TYPE_SCHEMA: dict[str, set[str]] = {
-        "music":        set(),          # Stereo-VU am Puck
-        "speech":       set(),          # Voice-VU (Hoerbuch / Podcast / Lesung)
-        "tts":          set(),          # Voice-VU (XTTS-Generator-Output)
-        "alarm":        {"with_tts"},   # einmal abspielen; Server loopt
-        # einmal abspielen; start_tone/end_tone wählen Beginn- und Ende-Ton
-        "notification": {"with_tts", "start_tone", "end_tone"},
+        "music":        {"start_tone"},   # Stereo-VU am Puck
+        "speech":       {"start_tone"},   # Voice-VU (Hoerbuch / Podcast / Lesung)
+        "tts":          {"start_tone"},   # Voice-VU (XTTS-Generator-Output)
+        "alarm":        {"start_tone"},   # einmal abspielen; Server loopt
+        "notification": {"start_tone"},   # Ansage / Türklingel
     }
 
     @classmethod
@@ -137,10 +140,10 @@ class WsBridgeMixin(BaseChannel):
         """Schickt ein audio_flag-Frame: Type-Setting (LED + VU + Source-Verhalten).
 
         Wird verwendet für (siehe Doku audio-pipeline.md):
-        - vor audio_start bei music/tts (initial setting)
-        - alleine für alarm/notification (kein PCM danach, falls with_tts=false)
+        - vor audio_start bei JEDEM Typ (initial setting, ``start_tone`` Pflicht)
         - mid-stream für Type-Switch (z.B. music → tts während Music läuft;
-          gleiche Source bleibt, 30 ms Linear-Fade auf Puck-Seite)
+          gleiche Source bleibt, 30 ms Linear-Fade auf Puck-Seite): dort
+          ``start_tone=False``, ein Beginn-Ton würde die Source ersetzen
 
         ``audio_type`` muss in der Whitelist sein. ``params`` sind type-
         spezifisch (siehe ``_AUDIO_TYPE_SCHEMA``). Server-side strikt
@@ -168,9 +171,9 @@ class WsBridgeMixin(BaseChannel):
     ) -> bool:
         """Signalisiert PCM-Stream-Setup an den FreeEcho.2.
 
-        Wird IMMER nach einem ``audio_flag(music)`` oder ``audio_flag(tts)``
-        gesendet, BEVOR die binary chunks fließen. Bei alarm/notification
-        ohne TTS-Tail gibt's kein audio_start (Puck spielt lokale WAV).
+        Wird IMMER nach einem ``audio_flag`` gesendet, BEVOR die binary chunks
+        fließen (auch bei alarm/notification; ohne Sprache folgen null Chunks
+        und gleich das audio_end — Türklingel).
 
         Format: 48 kHz int16 little-endian, Endpoint-Constraint der
         FreeEcho.2-Hardware (Rate ist fix, nicht verhandelbar). ``rate``
@@ -217,8 +220,37 @@ class WsBridgeMixin(BaseChannel):
             room, {"type": "heartbeat"}, "send_heartbeat", quiet=True,
         )
 
-    async def send_audio_end(self, room: str) -> bool:
-        return await self._send_frame(room, {"type": "audio_end"}, "send_audio_end")
+    async def send_audio_end(self, room: str, *, end_tone: bool) -> bool:
+        """``audio_end`` mit Pflichtfeld ``end_tone`` (Ende-Ton am Puck). Bei Stopp
+        und Abbruch ``False``: ein Abbruch spielt keinen Ende-Ton."""
+        if not isinstance(end_tone, bool):
+            raise ValueError(f"audio_end: end_tone must be bool, got {end_tone!r}")
+        return await self._send_frame(
+            room, {"type": "audio_end", "end_tone": end_tone}, "send_audio_end",
+        )
+
+    async def pause_stream(self, room: str, timeout_sec: float) -> None:
+        """Server-initiierte Pause: den Puck bitten, den laufenden Strom
+        anzuhalten, und auf seine Bestätigung warten (commands.py löst das
+        Future, sobald Stream gestoppt und Position gespeichert sind).
+
+        Der Puck nimmt eine Ansage nur im Leerlauf oder in der Pause an;
+        ohne Bestätigung wird sie verworfen. Raises bei Sendefehler/Timeout.
+        """
+        future: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        _pause_acks[room] = future
+        try:
+            if not await self._send_frame(
+                room, {"type": "wake", "room": room, "agent": "_pause"}, "send_pause",
+            ):
+                raise ConnectionError(f"pause command to '{room}' could not be sent")
+            await asyncio.wait_for(future, timeout=timeout_sec)
+        except asyncio.TimeoutError as exc:
+            raise TimeoutError(
+                f"puck '{room}' did not acknowledge _pause within {timeout_sec:.1f} s"
+            ) from exc
+        finally:
+            _pause_acks.pop(room, None)
 
     async def send_done(self, room: str, reason: str | None = None) -> bool:
         """SSoT for the ``done`` frame — the canonical turn boundary.

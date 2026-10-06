@@ -87,6 +87,8 @@ def push_setup():
     orc.play_tts = AsyncMock(return_value=None)
     orc.play_notification = AsyncMock(return_value=None)
     orc.play_alarm = AsyncMock(return_value=None)
+    # Läuft Musik: Worker pausiert vor der Ansage (hier: nichts zu pausieren)
+    orc.pause_for_announcement = AsyncMock(return_value=None)
     # Design A: der Worker schickt nach play_* das done-Frame via bridge.
     orc.bridge.send_done = AsyncMock(return_value=True)
 
@@ -158,13 +160,14 @@ class TestSendReplyProactive:
         dummy = _make_inbound(sender="system")
         self._patched_call(audio_ch, outbound, dummy)
         orc.play_notification.assert_awaited_once()
-        # play_notification(with_tts=True, tts_pcm=...) — pruefe Args.
+        # play_notification(tts_pcm, start_tone=…, end_tone=…) — pruefe Args.
+        assert orc.play_notification.await_args.args[0]  # Sprache nicht-leer
         kwargs = orc.play_notification.await_args.kwargs
-        assert kwargs.get("with_tts") is True
-        assert kwargs.get("tts_pcm")  # nicht-leer
         # Ohne Angabe wie bisher: nur der Beginn-Ton
         assert kwargs.get("start_tone") is True
         assert kwargs.get("end_tone") is False
+        # Vor der Ansage wird ein laufender Strom pausiert
+        orc.pause_for_announcement.assert_awaited_once()
         orc.play_tts.assert_not_awaited()
 
     def test_tones_from_metadata_reach_the_puck(self, push_setup):
@@ -236,9 +239,9 @@ class TestSendReplyAudioType:
         dummy = _make_inbound(sender="system")
         self._patched_call(audio_ch, outbound, dummy)
         orc.play_alarm.assert_awaited_once()
+        assert orc.play_alarm.await_args.args[0]  # Sprache nicht-leer
         kwargs = orc.play_alarm.await_args.kwargs
-        assert kwargs.get("with_tts") is True
-        assert kwargs.get("tts_pcm")
+        assert (kwargs["start_tone"], kwargs["end_tone"]) == (True, False)
         orc.play_notification.assert_not_awaited()
 
     def test_audio_type_notification_uses_play_notification(self, push_setup):

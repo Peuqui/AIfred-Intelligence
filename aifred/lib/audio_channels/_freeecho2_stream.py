@@ -80,11 +80,11 @@ def fe2_channels_for_type(audio_type: str) -> int:
 # Audio-Bus-Protokoll (Phase 5.0): siehe docs/de/architecture/
 # audio-pipeline.md "Audio-Bus-Refactor".
 SendChunk = Callable[[str, bytes], Awaitable[bool]]
-# send_audio_flag(room, audio_type, **params) — Type-Setting (LED+VU)
+# send_audio_flag(room, audio_type, start_tone=B) — Type-Setting (LED+VU)
 SendFlag = Callable[..., Awaitable[bool]]
 # send_audio_start(room, total_size?) — PCM-Stream-Setup-Header
 SendStart = Callable[..., Awaitable[bool]]
-SendEnd = Callable[[str], Awaitable[bool]]
+SendEnd = Callable[..., Awaitable[bool]]
 SendHeartbeat = Callable[[str], Awaitable[bool]]
 
 HEARTBEAT_INTERVAL_SEC = 5.0
@@ -376,7 +376,7 @@ class FreeEcho2Stream:
             # The wire sends can fail (return False) or raise on a dead socket;
             # either way mpv is already running and must be reaped on abort.
             try:
-                flag_ok = await self._send_flag(self.room, audio_type)
+                flag_ok = await self._send_flag(self.room, audio_type, start_tone=False)
                 log_message(
                     f"FreeEcho2Stream[{self.room}]: → audio_flag({audio_type}) "
                     f"sent ok={flag_ok}"
@@ -524,7 +524,7 @@ class FreeEcho2Stream:
 
         # FreeEcho.2 signalisieren dass der Stream aus ist
         try:
-            await self._send_end(self.room)
+            await self._send_end(self.room, end_tone=False)
         except Exception as exc:  # noqa: BLE001
             log_message(
                 f"FreeEcho2Stream[{self.room}]: send_end failed: {exc}", "warning"

@@ -24,16 +24,26 @@ class _FakeBridge:
         return True
 
 
+PAUSE_TIMEOUT = fe.FREEECHO2_PAUSE_ACK_TIMEOUT_SEC
+
+
 class _FakeOrc:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, bool] | tuple[str, bool, bool, bool]] = []
+        # ("pause", timeout) | (audio_type, has_speech, start_tone, end_tone)
+        self.calls: list[tuple] = []
+        self.pause_error: Exception | None = None
         self.bridge = _FakeBridge()
 
-    async def play_alarm(self, with_tts, tts_pcm=None):
-        self.calls.append(("alarm", with_tts))
+    async def pause_for_announcement(self, timeout_sec):
+        self.calls.append(("pause", timeout_sec))
+        if self.pause_error is not None:
+            raise self.pause_error
 
-    async def play_notification(self, with_tts, tts_pcm=None, *, start_tone, end_tone):
-        self.calls.append(("notification", with_tts, start_tone, end_tone))
+    async def play_alarm(self, tts_pcm=None, *, start_tone, end_tone):
+        self.calls.append(("alarm", tts_pcm is not None, start_tone, end_tone))
+
+    async def play_notification(self, tts_pcm=None, *, start_tone, end_tone):
+        self.calls.append(("notification", tts_pcm is not None, start_tone, end_tone))
 
 
 class _FakeCh:
@@ -62,12 +72,17 @@ def test_alerts_play_sequentially_paced_by_done(monkeypatch):
 
         # Worker plays #1 and then BLOCKS waiting for _done.
         await asyncio.sleep(0.05)
-        assert orc.calls == [("alarm", True)], "only #1 played, waiting for _done"
+        assert orc.calls == [
+            ("pause", PAUSE_TIMEOUT), ("alarm", True, True, False),
+        ], "only #1 played, waiting for _done"
 
         # Puck reports done → #2 may play.
         fe.signal_playback_done("wohnzimmer")
         await asyncio.sleep(0.05)
-        assert orc.calls == [("alarm", True), ("notification", True, True, True)]
+        assert orc.calls == [
+            ("pause", PAUSE_TIMEOUT), ("alarm", True, True, False),
+            ("pause", PAUSE_TIMEOUT), ("notification", True, True, True),
+        ]
 
         fe.signal_playback_done("wohnzimmer")
         await asyncio.sleep(0.02)
@@ -82,7 +97,7 @@ def test_alerts_play_sequentially_paced_by_done(monkeypatch):
     asyncio.run(go())
 
 
-def test_with_tts_false_when_no_pcm(monkeypatch):
+def test_doorbell_without_speech(monkeypatch):
     orc = _FakeOrc()
     monkeypatch.setattr(ac, "resolve", lambda key: _FakeCh(orc))
     _reset_state()
@@ -90,10 +105,42 @@ def test_with_tts_false_when_no_pcm(monkeypatch):
     async def go():
         await fe.enqueue_alert("kueche", "notification", None, start_tone=True, end_tone=True)
         await asyncio.sleep(0.05)
-        assert orc.calls == [("notification", False, True, True)]
+        assert orc.calls == [("pause", PAUSE_TIMEOUT), ("notification", False, True, True)]
         fe.signal_playback_done("kueche")
         await asyncio.sleep(0.02)
         w = fe._alert_workers["kueche"]
+        w.cancel()
+        try:
+            await w
+        except asyncio.CancelledError:
+            pass
+
+    asyncio.run(go())
+
+
+def test_unacknowledged_pause_drops_only_that_announcement(monkeypatch):
+    """Bestätigt der Puck die Pause nicht, wird die Ansage verworfen (laut
+    geloggt), ohne _done-Wartezeit; die nächste Ansage der Queue läuft."""
+    orc = _FakeOrc()
+    orc.pause_error = TimeoutError("no ack")
+    monkeypatch.setattr(ac, "resolve", lambda key: _FakeCh(orc))
+    _reset_state()
+
+    async def go():
+        await fe.enqueue_alert("flur", "notification", b"pcm-1", start_tone=True, end_tone=True)
+        await asyncio.sleep(0.05)
+        # verworfen: kein play_*, kein done-Frame
+        assert orc.calls == [("pause", PAUSE_TIMEOUT)]
+        assert orc.bridge.done_calls == []
+
+        orc.pause_error = None
+        await fe.enqueue_alert("flur", "notification", b"pcm-2", start_tone=True, end_tone=True)
+        await asyncio.sleep(0.05)
+        assert orc.calls[-1] == ("notification", True, True, True)
+
+        fe.signal_playback_done("flur")
+        await asyncio.sleep(0.02)
+        w = fe._alert_workers["flur"]
         w.cancel()
         try:
             await w

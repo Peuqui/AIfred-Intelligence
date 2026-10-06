@@ -14,6 +14,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Coroutine
 
+from ....lib.config import FREEECHO2_PAUSE_ACK_TIMEOUT_SEC
+
 # Item: (audio_type, tts_pcm, start_tone, end_tone); die Töne gelten nur für notification
 _alert_queues: dict[str, "asyncio.Queue[tuple[str, bytes | None, bool, bool]]"] = {}
 _alert_workers: dict[str, asyncio.Task] = {}
@@ -125,15 +127,14 @@ async def _alert_worker(room: str) -> None:
                     "warning",
                 )
                 continue
-            with_tts = tts_pcm is not None
-            # play_* wartet jetzt bis der Tail-Pump durch ist (audio_end raus).
+            # Läuft Musik/Hörbuch/TTS: erst per _pause am Puck anhalten (bestätigt), sonst
+            # nimmt der Puck die Ansage nicht an. Ohne Bestätigung wird verworfen.
+            await orc.pause_for_announcement(FREEECHO2_PAUSE_ACK_TIMEOUT_SEC)
+            # play_* wartet jetzt bis der Pump durch ist (audio_end raus).
             if audio_type == "alarm":
-                await orc.play_alarm(with_tts=with_tts, tts_pcm=tts_pcm)
+                await orc.play_alarm(tts_pcm, start_tone=start_tone, end_tone=end_tone)
             else:
-                await orc.play_notification(
-                    with_tts=with_tts, tts_pcm=tts_pcm,
-                    start_tone=start_tone, end_tone=end_tone,
-                )
+                await orc.play_notification(tts_pcm, start_tone=start_tone, end_tone=end_tone)
             # FRISCHES Event pro Item, publiziert erst NACH der Wiedergabe und
             # direkt vor send_done: Das frühere clear-then-wait auf dem
             # wiederverwendeten per-Room-Event konnte während der gesamten
@@ -162,7 +163,7 @@ async def _alert_worker(room: str) -> None:
                 )
         except Exception as e:  # noqa: BLE001
             log_message(
-                f"[FreeEcho.2 {room}] alert worker error: {e}", "warning",
+                f"[FreeEcho.2 {room}] alert worker error — announcement dropped: {e}", "error",
             )
         finally:
             queue.task_done()

@@ -678,12 +678,19 @@ type changes without a stream reset.
 ### Tuple Whitelist (strict, FATAL on violation)
 
 ```
-(music                    )
-(speech                   )
-(tts                      )
-(alarm,        with_tts=B )
-(notification, with_tts=B, start_tone=B, end_tone=B )
+(music,        start_tone=B )
+(speech,       start_tone=B )
+(tts,          start_tone=B )
+(alarm,        start_tone=B )
+(notification, start_tone=B )
 ```
+
+**Protocol v2:** every type carries `start_tone` in the flag (required bool, start tone on the
+puck); `audio_start`, 0..n chunks and `audio_end` with `end_tone` (required bool, end tone on
+the puck) ALWAYS follow. `with_tts` is gone: an announcement with speech and a doorbell
+(start/end tone without speech) are the same sequence, the doorbell with zero chunks.
+A stop or abort sends `audio_end(end_tone=false)`. A flag inside the same stream (type switch)
+carries `start_tone=false`; announcements/alarms never arrive mid-stream.
 
 `speech` (audiobook/podcast/reading, voice VU on the puck) is allowed as well; server-side
 the whitelist lives in `_AUDIO_TYPE_SCHEMA` in `ws_bridge.py` and is validated
@@ -706,10 +713,8 @@ the puck stays dumb.
 |---|---|---|
 | `music` | Server mpv FIFO → WS stream | Server pumps |
 | `tts` | Server TTS render → WS stream | Server pumps |
-| `alarm` | FreeEcho.2-local WAV (UI-configurable) | Puck-local — no server PCM, play once |
-| `alarm` + `with_tts=true` | Local WAV + TTS tail stream | Puck plays 1×, then server TTS |
-| `notification` | FreeEcho.2-local WAV (UI-configurable) | Puck-local — no server PCM, play once |
-| `notification` + `with_tts=true` | Local WAV + TTS tail stream | Puck plays 1×, then server TTS |
+| `alarm` | start tone `alarm_wav` (UI-configurable) + optional server TTS | Puck plays the tone, server pumps the speech (buffer, 0..n chunks) |
+| `notification` | start tone `notification_wav`, end tone `notification_end_wav` + optional server TTS | Puck plays the tones, server pumps the speech; without speech = doorbell |
 
 ### Frame Sequences (finalized)
 
@@ -717,9 +722,16 @@ the puck stays dumb.
 |---|---|
 | Music | `audio_flag(music)` → `audio_start` → chunks → `audio_end` |
 | TTS standalone | `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
-| alarm without tail | only `audio_flag(alarm, with_tts=false)` — no PCM, no audio_end |
-| alarm with tail | `audio_flag(alarm, with_tts=true)` → `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
-| notification without/with tail | analogous |
+| alarm / notification with speech | `audio_flag(T, start_tone)` → `audio_start` → chunks → `audio_end(end_tone)` |
+| doorbell (no speech) | `audio_flag(notification, start_tone=true)` → `audio_start(total_size=0)` → `audio_end(end_tone=true)` |
+| announcement over running music/TTS | `wake(_pause)` → wait for the puck's acknowledgement → announcement as above; the server sends NO `_resume` afterwards |
+
+**Pause before announcement/alarm** (`AudioOrchestrator.pause_for_announcement`): the puck only accepts
+notification/alarm when idle or paused. While a pausable stream (music/tts) runs, the server sends
+`{"type":"wake","room":…,"agent":"_pause"}` and waits (timeout `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC`, default 3 s)
+for the acknowledgement `{"wake","agent":"_pause","consumed_ms":N}`. It goes through the command handler like a spoken
+“please pause” (stop stream, save position); “please continue” then reloads from that position.
+Without the acknowledgement the announcement is dropped and logged loudly.
 
 **No more TTS takeover** (consensus spec 2026-05-10): TTS while music is playing
 replaces the music source completely. Music is stopped cleanly (mpv terminate,
@@ -764,8 +776,9 @@ a restart would be a bug, not a feature).
 ```python
 async def play_music(stream)                        # register music stream
 async def play_tts(pcm_data)                        # TTS standalone (replaces music)
-async def play_alarm(with_tts, tts_pcm=None)        # puck-local + opt. TTS tail
-async def play_notification(with_tts, tts_pcm=None, *, start_tone, end_tone)  # start/end tone on the puck
+async def play_alarm(tts_pcm=None, *, start_tone, end_tone)         # alarm tone + opt. speech
+async def play_notification(tts_pcm=None, *, start_tone, end_tone)  # start/end tone on the puck, no speech = doorbell
+async def pause_for_announcement(timeout_sec)       # pause a running stream on the puck (acknowledged)
 async def pause()                                   # type-aware
 async def resume()
 async def stop()                                    # discard everything

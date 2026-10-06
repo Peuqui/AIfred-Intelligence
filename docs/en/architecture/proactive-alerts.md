@@ -97,14 +97,15 @@ through the same SSoT path as all other sinks (`send_reply` with a dummy
   (or `outbound.metadata.proactive=True`) and puts chime + TTS into the
   room's **alert queue** (`enqueue_alert`, `alert_queue.py`): one worker per
   room plays the items one after another via the `AudioOrchestrator` — either
-  `play_alarm(with_tts=True, tts_pcm=…)` (conspicuous `alarm_wav` sound) or
-  `play_notification(with_tts=True, tts_pcm=…)` (gentle
-  `notification_wav` sound) — and waits for the Puck's `_done` before the next
+  `play_alarm(tts_pcm, start_tone, end_tone)` (conspicuous `alarm_wav` sound) or
+  `play_notification(tts_pcm, start_tone, end_tone)` (gentle `notification_wav` sound,
+  optionally `notification_end_wav` at the end); while music/audiobook/TTS runs it is
+  paused on the puck first (`pause_for_announcement`, acknowledged) — and waits for the Puck's `_done` before the next
   item (with a timeout derived from the playback length). The emit path does
   not block. The sequence on the wire:
-  `audio_flag(alarm, with_tts=True)` or `audio_flag(notification, with_tts=True, start_tone, end_tone)` → `audio_flag(tts)` →
-  `audio_start` → PCM chunks → `audio_end`, then `done`. The Puck first plays the
-  local sound, buffers the TTS stream in parallel and switches seamlessly to
+  `audio_flag(alarm|notification, start_tone)` →
+  `audio_start` → PCM chunks (0..n) → `audio_end(end_tone)`, then `done`. The Puck first plays the
+  start tone, buffers the stream in parallel and switches seamlessly to
   the speech — no "speaking out of nowhere" effect.
 - **Sound choice via metadata.audio_type** — `_default_deliver` maps
   `ev.severity`: `critical` and `warning` → `"alarm"`, otherwise (`info`) →

@@ -52,8 +52,12 @@ if TYPE_CHECKING:
     from ._freeecho2_stream import FreeEcho2Stream
 
 
-# Audio-Types die Server-Pumping erfordern (vs. Puck-lokal)
-PUMPED_TYPES = frozenset({"music", "tts"})
+# Audio-Types, die ein Ansage/Alarm pausieren muss (der Puck nimmt sie nur im Leerlauf
+# oder in der Pause an) — der Puck bestätigt das serverseitig angestoßene _pause
+PAUSABLE_TYPES = frozenset({"music", "tts"})
+
+# Audio-Types, die aus einem fertigen Puffer (TTSBuffer) gepumpt werden
+BUFFER_TYPES = frozenset({"tts", "alarm", "notification"})
 
 # Audio-Types bei denen Pause = Stop (semantisch transient)
 TRANSIENT_TYPES = frozenset({"alarm", "notification"})
@@ -99,20 +103,17 @@ class TTSBuffer:
 class AudioOrchestrator:
     """Per-Room State-Machine fuer Audio-Output via FreeEcho.2.
 
-    Drei Use-Case-Klassen:
+    Zwei Use-Case-Klassen (Protokoll v2: jeder Strom = Flag → audio_start →
+    Chunks (0..n) → audio_end):
 
     1. **Stream-Audio** (music): mpv-Subprocess pumpt PCM via FIFO →
        fifo_pump_task → WS. Pause/Resume via mpv-IPC.
-    2. **Buffer-Audio** (tts): Server haelt vorgerendertes PCM in
-       ``TTSBuffer``, pumpt chunks direkt. Pause merkt Cursor, Resume
-       pumpt weiter.
-    3. **Puck-lokal** (alarm, notification): Server schickt nur
-       ``audio_flag``-Frame mit Tupel-Parametern, kein PCM. Puck spielt
-       seine lokale WAV in Loop / 1x. Pause = Stop.
+    2. **Buffer-Audio** (tts, alarm, notification): Server haelt vorgerendertes
+       PCM in ``TTSBuffer`` (bei der Tuerklingel leer), pumpt chunks direkt.
+       Pause merkt Cursor (tts), bei alarm/notification = Stop.
 
-    Bei TTS-Tail an alarm/notification: nach dem Puck-lokal-Frame wird
-    sofort ein ``audio_flag(tts)`` + ``audio_start`` + chunks + ``audio_end``
-    gesendet. Puck queued das, spielt sequenziell.
+    Beginn- und Ende-Ton spielt der Puck selbst (``start_tone`` im Flag,
+    ``end_tone`` im audio_end); der Server wählt nur, ob.
     """
 
     def __init__(self, room: str, bridge: Any) -> None:
@@ -122,6 +123,7 @@ class AudioOrchestrator:
         self._stream: Optional["FreeEcho2Stream"] = None  # nur fuer music
         self._tts_buffer: Optional[TTSBuffer] = None  # nur fuer tts
         self._tts_pump_task: Optional[asyncio.Task[None]] = None
+        self._end_tone: bool = False  # end_tone des Buffer-Stroms im audio_end
         self._paused: bool = False
         self._lock = asyncio.Lock()
 
@@ -192,32 +194,60 @@ class AudioOrchestrator:
         consumed_ms vom Puck in audio_state.json gespeichert). User holt
         Music spaeter via ``audio_resume`` zurueck (Pre-Roll greift).
 
-        Frame-Sequenz: audio_flag(tts) + audio_start + chunks + audio_end.
-
-        PCM wird im TTSBuffer gehalten — bei pause/resume bleibt der
-        Cursor erhalten, kein Re-Render. Wartet **synchron** bis der
-        Pump-Task durch ist (oder via pause/stop gecancelt). Returnt
-        damit erst wenn alle Frames am Wire sind — sonst rast der
-        Caller (z.B. send_reply → Speaking-Phase-Ende) los und
-        triggert STATE→IDLE bevor die PCM-Bytes raus sind.
+        Frame-Sequenz: audio_flag(tts) + audio_start + chunks + audio_end,
+        ohne Beginn- und Ende-Ton.
         """
+        await self._play_buffer("tts", pcm_data, start_tone=False, end_tone=False)
+
+    async def play_alarm(
+        self, tts_pcm: Optional[bytes] = None, *, start_tone: bool, end_tone: bool,
+    ) -> None:
+        """Alarm: der Puck spielt seine lokale Alarm-WAV (``start_tone``), danach
+        optional Sprache (``tts_pcm``) und der Ende-Ton (``end_tone``).
+
+        Wenn der Use-Case einen längeren/aufdringlichen Wecker verlangt,
+        loopt der **Caller** play_alarm() mehrfach. _stop bricht den Loop ab.
+        """
+        await self._play_buffer("alarm", tts_pcm, start_tone=start_tone, end_tone=end_tone)
+
+    async def play_notification(
+        self, tts_pcm: Optional[bytes] = None, *, start_tone: bool, end_tone: bool,
+    ) -> None:
+        """Ansage: Beginn-Ton (``start_tone``), Sprache (``tts_pcm``), Ende-Ton
+        (``end_tone``). Ohne Sprache folgen die beiden Töne direkt aufeinander
+        (Türklingel): Strom mit null Chunks. Beide Flags sind Pflicht, der Puck
+        lehnt die Frames sonst als Protokollfehler ab.
+        """
+        await self._play_buffer(
+            "notification", tts_pcm, start_tone=start_tone, end_tone=end_tone,
+        )
+
+    async def _play_buffer(
+        self, audio_type: str, pcm: Optional[bytes], *, start_tone: bool, end_tone: bool,
+    ) -> None:
+        """Gemeinsamer Ablauf aller Buffer-Audioarten (SSOT): Flag → audio_start →
+        Chunks (0..n) → audio_end. Wartet **synchron**, bis der Pump-Task durch ist
+        (oder via pause/stop gecancelt) — erst dann sind alle Frames am Wire, sonst
+        rast der Caller los und triggert STATE→IDLE vor den PCM-Bytes."""
         async with self._lock:
             await self._reset_active_unlocked()
-            self._tts_buffer = TTSBuffer(pcm_data)
-            self._active_type = "tts"
+            self._tts_buffer = TTSBuffer(pcm or b"")
+            self._active_type = audio_type
+            self._end_tone = end_tone
             self._paused = False
 
-            await self.bridge.send_audio_flag(self.room, "tts")
+            await self.bridge.send_audio_flag(self.room, audio_type, start_tone=start_tone)
             await self.bridge.send_audio_start(
                 self.room, total_size=self._tts_buffer.total_bytes,
             )
             self._tts_pump_task = asyncio.create_task(
                 self._pump_tts_buffer(),
-                name=f"freeecho2-{self.room}-tts-pump",
+                name=f"freeecho2-{self.room}-{audio_type}-pump",
             )
             log_message(
-                f"AudioOrchestrator[{self.room}]: → tts active "
-                f"({_fmt_mib(self._tts_buffer.total_bytes)})"
+                f"AudioOrchestrator[{self.room}]: → {audio_type} active "
+                f"({_fmt_mib(self._tts_buffer.total_bytes)}, start_tone={start_tone}, "
+                f"end_tone={end_tone})"
             )
             task = self._tts_pump_task
 
@@ -225,108 +255,26 @@ class AudioOrchestrator:
         # eingreifen (sie wuerden auf den Lock blockieren). CancelledError
         # ist normal: pause/stop hat den Pump-Task waehrend des Streams
         # abgebrochen, Cursor bleibt fuer spaeteres resume erhalten.
-        if task is not None:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
 
-    async def play_alarm(
-        self, with_tts: bool, tts_pcm: Optional[bytes] = None,
-    ) -> None:
-        """Trigger einen Puck-lokalen Alarm-Sound (einmal abspielen).
+    async def pause_for_announcement(self, timeout_sec: float) -> None:
+        """Vor Ansage/Alarm: einen laufenden pausierbaren Strom (music/tts) per
+        server-initiiertem ``_pause`` am Puck anhalten und seine Bestätigung abwarten.
 
-        Server schickt nur das audio_flag-Tupel — KEIN PCM (Puck spielt
-        seine UI-konfigurierte lokale WAV). Bei ``with_tts=True`` folgt
-        SOFORT (gleicher Funktionsaufruf) der TTS-Tail-Stream.
-
-        Wenn der Use-Case einen längeren/aufdringlichen Wecker verlangt,
-        loopt der **Caller** play_alarm() mehrfach (kein Loop-Counter im
-        Frame). _stop bricht dann den Caller-Loop ab.
+        Der Puck nimmt notification/alarm nur im Leerlauf oder in der Pause an.
+        Die Bestätigung läuft durch denselben Weg wie ein gesprochenes „Bitte
+        Pause“ (Stream stoppen, Position speichern); „Bitte weiter“ lädt danach
+        wie gewohnt ab dieser Position neu. KEIN ``_resume`` von hier. Nicht unter
+        ``_lock`` aufrufen: die Bestätigung stoppt den Orchestrator selbst.
+        Raises, wenn der Puck nicht bestätigt (die Ansage wird dann verworfen).
         """
-        task: Optional[asyncio.Task[None]] = None
-        async with self._lock:
-            await self._reset_active_unlocked()
-            self._active_type = "alarm"
-            self._paused = False
-
-            await self.bridge.send_audio_flag(
-                self.room, "alarm", with_tts=with_tts,
-            )
-            log_message(
-                f"AudioOrchestrator[{self.room}]: → alarm "
-                f"(with_tts={with_tts})"
-            )
-
-            # TTS-Tail: schick es direkt nach dem alarm-Tupel raus,
-            # Puck queued das hinter den lokalen Sound.
-            if with_tts and tts_pcm:
-                self._tts_buffer = TTSBuffer(tts_pcm)
-                await self.bridge.send_audio_flag(self.room, "tts")
-                await self.bridge.send_audio_start(
-                    self.room, total_size=self._tts_buffer.total_bytes,
-                )
-                self._tts_pump_task = asyncio.create_task(
-                    self._pump_tts_buffer(),
-                    name=f"freeecho2-{self.room}-tts-tail-pump",
-                )
-                task = self._tts_pump_task
-
-        # Tail-Pump AUSSERHALB des Locks auspumpen lassen — so weiß der Caller
-        # (Alert-Worker), dass audio_end raus ist, bevor er das done-Frame
-        # schickt. pause/stop können den Pump weiter canceln (CancelledError
-        # ist normal). Ohne Tail kehrt play_alarm sofort zurück (Wecker-Loop).
-        if task is not None:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
-
-    async def play_notification(
-        self, with_tts: bool, tts_pcm: Optional[bytes] = None, *,
-        start_tone: bool, end_tone: bool,
-    ) -> None:
-        """Trigger Puck-lokale Notification-Sounds.
-
-        Analog zu ``play_alarm`` — nur einmal abspielen statt Loop.
-        ``start_tone`` spielt den Beginn-Ton vor der Ansage, ``end_tone`` den
-        Ende-Ton danach (ohne Ansage direkt hintereinander, Türklingel).
-        Beide sind Pflicht: der Puck lehnt das Frame sonst als Protokollfehler ab.
-        """
-        task: Optional[asyncio.Task[None]] = None
-        async with self._lock:
-            await self._reset_active_unlocked()
-            self._active_type = "notification"
-            self._paused = False
-
-            await self.bridge.send_audio_flag(
-                self.room, "notification", with_tts=with_tts,
-                start_tone=start_tone, end_tone=end_tone,
-            )
-            log_message(
-                f"AudioOrchestrator[{self.room}]: → notification "
-                f"(with_tts={with_tts}, start_tone={start_tone}, end_tone={end_tone})"
-            )
-
-            if with_tts and tts_pcm:
-                self._tts_buffer = TTSBuffer(tts_pcm)
-                await self.bridge.send_audio_flag(self.room, "tts")
-                await self.bridge.send_audio_start(
-                    self.room, total_size=self._tts_buffer.total_bytes,
-                )
-                self._tts_pump_task = asyncio.create_task(
-                    self._pump_tts_buffer(),
-                    name=f"freeecho2-{self.room}-tts-tail-pump",
-                )
-                task = self._tts_pump_task
-
-        # Tail-Pump auspumpen lassen (siehe play_alarm) — Caller weiß danach,
-        # dass audio_end raus ist und kann das done-Frame schicken.
-        if task is not None:
-            try:
-                await task
-            except asyncio.CancelledError:
-                pass
+        if self._active_type not in PAUSABLE_TYPES or self._paused:
+            return
+        log_message(f"AudioOrchestrator[{self.room}]: pausing {self._active_type} for announcement")
+        await self.bridge.pause_stream(self.room, timeout_sec)
 
     async def pause(self) -> bool:
         """Type-aware pause.
@@ -448,12 +396,11 @@ class AudioOrchestrator:
                 )
             self._stream = None
 
-        # audio_end-Marker an Puck (nur fuer Stream-/Buffer-Audio die
-        # einen audio_start hatten — bei alarm/notification ohne Tail
-        # gibt's auch kein audio_end laut Spec)
-        if self._active_type in PUMPED_TYPES:
+        # audio_end-Marker an Puck (Protokoll v2: jeder Strom hatte ein audio_start);
+        # ein Stopp/Abbruch spielt keinen Ende-Ton
+        if self._active_type is not None:
             try:
-                await self.bridge.send_audio_end(self.room)
+                await self.bridge.send_audio_end(self.room, end_tone=False)
             except Exception as exc:  # noqa: BLE001
                 log_message(
                     f"AudioOrchestrator[{self.room}]: send_audio_end error: {exc}",
@@ -490,17 +437,19 @@ class AudioOrchestrator:
                         f"{sent_bytes} bytes",
                         "warning",
                     )
+                    # Stream sauber schließen; ein Abbruch spielt keinen Ende-Ton
+                    await self.bridge.send_audio_end(self.room, end_tone=False)
                     return
                 sent_chunks += 1
                 sent_bytes += len(chunk)
-            # Normal beendet — TTS-Stream voll durchgelaufen
-            await self.bridge.send_audio_end(self.room)
+            # Normal beendet — Stream voll durchgelaufen
+            await self.bridge.send_audio_end(self.room, end_tone=self._end_tone)
             log_message(
                 f"AudioOrchestrator[{self.room}]: TTS pump complete "
                 f"({sent_chunks} chunks / {sent_bytes} bytes) — audio_end sent"
             )
             async with self._lock:
-                if self._active_type == "tts":
+                if self._active_type in BUFFER_TYPES:
                     self._active_type = None
                     self._tts_buffer = None
                     self._tts_pump_task = None

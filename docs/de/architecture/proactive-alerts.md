@@ -97,15 +97,16 @@ das durch denselben SSoT-Pfad wie alle anderen Sinks (`send_reply` mit dummy
   (oder `outbound.metadata.proactive=True`) und legt Chime + TTS in die
   **Alert-Queue** des Rooms (`enqueue_alert`, `alert_queue.py`): ein Worker pro
   Room spielt die Einträge nacheinander über den `AudioOrchestrator` ab —
-  entweder `play_alarm(with_tts=True, tts_pcm=…)` (auffälliger `alarm_wav`-Sound)
-  oder `play_notification(with_tts=True, tts_pcm=…)` (sanfter
-  `notification_wav`-Sound) — und wartet vor dem nächsten Eintrag auf das `_done`
+  entweder `play_alarm(tts_pcm, start_tone, end_tone)` (auffälliger `alarm_wav`-Sound)
+  oder `play_notification(tts_pcm, start_tone, end_tone)` (sanfter
+  `notification_wav`-Sound, optional `notification_end_wav` am Ende) — läuft dabei Musik/Hörbuch/TTS, wird sie
+  vorher per `_pause` am Puck angehalten (`pause_for_announcement`, bestätigt) — und wartet vor dem nächsten Eintrag auf das `_done`
   des Pucks (mit einem aus der Wiedergabedauer abgeleiteten Timeout). Der
   Emit-Pfad blockiert nicht. Die Sequenz auf dem Wire:
-  `audio_flag(alarm, with_tts=True)` bzw. `audio_flag(notification, with_tts=True, start_tone, end_tone)` → `audio_flag(tts)` →
-  `audio_start` → PCM-Chunks → `audio_end`, danach `done`. Der Puck spielt erst den
-  lokalen Sound, puffert parallel den TTS-Stream und wechselt nahtlos auf
-  die Sprache — kein „Spricht aus dem Nichts"-Effekt.
+  `audio_flag(alarm|notification, start_tone)` →
+  `audio_start` → PCM-Chunks (0..n) → `audio_end(end_tone)`, danach `done`. Der Puck spielt erst den
+  Beginn-Ton, puffert parallel den Stream und wechselt nahtlos auf die Sprache — kein
+  „Spricht aus dem Nichts"-Effekt.
 - **Sound-Wahl per metadata.audio_type** — `_default_deliver` mappt
   `ev.severity`: `critical` und `warning` → `"alarm"`, sonst (`info`) →
   `"notification"`. Der Wert reist via `announce_to_channel(..., metadata=
