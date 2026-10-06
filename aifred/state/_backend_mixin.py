@@ -576,10 +576,6 @@ class BackendMixin(rx.State, mixin=True):
                     # tts_autoplay/tts_streaming_enabled: loaded per-engine by _restore_tts_toggles_for_engine below
                     self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)  # type: ignore[attr-defined, has-type]
                     self.tts_pitch = saved_settings.get("tts_pitch", self.tts_pitch)  # type: ignore[attr-defined, has-type]
-                    saved_whisper = saved_settings.get("whisper_model", self.whisper_model_key)  # type: ignore[attr-defined, has-type]
-                    if "(" in saved_whisper:  # type: ignore[operator]
-                        saved_whisper = saved_whisper.split("(")[0].strip()  # type: ignore[union-attr]
-                    self.whisper_model_key = saved_whisper  # type: ignore[attr-defined, has-type]
                     self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)  # type: ignore[attr-defined, has-type]
                     self.enter_sends_message = saved_settings.get("enter_sends_message", self.enter_sends_message)  # type: ignore[attr-defined, has-type]
 

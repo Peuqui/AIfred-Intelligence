@@ -373,22 +373,6 @@ def native_select_tts(value_var, on_change_handler, options_list) -> rx.Componen
     )
 
 
-def native_select_stt(value_var, on_change_handler, options_list) -> rx.Component:
-    """Native HTML <select> for STT Settings (Mobile)
-
-    Same styling as backend/model selects for consistent mobile experience.
-    """
-    return rx.el.select(
-        rx.foreach(
-            options_list,
-            lambda option: rx.el.option(option, value=option),
-        ),
-        value=value_var,
-        on_change=on_change_handler,
-        style={**_NATIVE_SELECT_STYLE, "flex": "1"},
-    )
-
-
 def native_select_generic(value_var, on_change_handler, options_pairs) -> rx.Component:
     """Native HTML <select> for generic key/value options (Mobile)
 

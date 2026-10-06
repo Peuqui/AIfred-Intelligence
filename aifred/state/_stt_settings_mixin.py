@@ -16,6 +16,10 @@ class STTSettingsMixin(rx.State, mixin=True):
 
     stt_available: bool = False          # Service erreichbar?
     stt_available_models: list[str] = []
+    stt_engines: list[str] = []
+    stt_engine: str = ""
+    stt_qualities: list[str] = []
+    stt_quality: str = ""
     stt_gpu_model: str = ""
     stt_cpu_model: str = ""
     stt_num_speakers: int = 0
@@ -26,7 +30,8 @@ class STTSettingsMixin(rx.State, mixin=True):
     stt_gpu_ttl_minutes: int = 30
     # Status-Anzeige: tatsächlich geladenes GPU-Modell (Degradierungskette!)
     stt_gpu_model_loaded: str = ""
-    stt_cpu_loaded: bool = False
+    # Welches CPU-Modell wirklich im Speicher liegt ("" = keins) — je nach Engine Whisper-Modell oder Parakeet-Qualität
+    stt_cpu_loaded_label: str = ""
     stt_save_message: str = ""
 
     def load_stt_settings(self) -> None:
@@ -47,6 +52,10 @@ class STTSettingsMixin(rx.State, mixin=True):
 
         self.stt_available = True
         self.stt_available_models = data.get("available_models", [])
+        self.stt_engines = data.get("engines", [])
+        self.stt_engine = data.get("engine", "")
+        self.stt_qualities = data.get("parakeet_qualities", [])
+        self.stt_quality = data.get("quality", "")
         self.stt_gpu_model = data.get("gpu_model", "")
         self.stt_cpu_model = data.get("cpu_model", "")
         self.stt_num_speakers = int(data.get("num_speakers", 0))
@@ -56,12 +65,25 @@ class STTSettingsMixin(rx.State, mixin=True):
         self.stt_condition_on_previous = bool(data.get("condition_on_previous_text", True))
         self.stt_gpu_ttl_minutes = int(data.get("gpu_ttl_minutes", 30))
         self.stt_gpu_model_loaded = data.get("gpu_model_loaded") or ""
-        self.stt_cpu_loaded = bool(data.get("cpu_loaded", False))
+        if data.get("parakeet_cpu_loaded"):
+            self.stt_cpu_loaded_label = f"parakeet-{data['parakeet_cpu_loaded']}"
+        elif data.get("cpu_loaded"):
+            self.stt_cpu_loaded_label = str(self.stt_cpu_model)
+        else:
+            self.stt_cpu_loaded_label = ""
 
     @rx.event
     def refresh_stt_settings(self) -> None:
         """Explizites Neuladen (Refresh-Button)."""
         self.load_stt_settings()
+
+    @rx.event
+    def stt_set_engine(self, value: str) -> None:
+        self.stt_engine = value
+
+    @rx.event
+    def stt_set_quality(self, value: str) -> None:
+        self.stt_quality = value
 
     @rx.event
     def stt_set_gpu_model(self, value: str) -> None:
@@ -112,6 +134,8 @@ class STTSettingsMixin(rx.State, mixin=True):
         from ..lib.i18n import t
 
         payload = {
+            "engine": self.stt_engine,
+            "quality": self.stt_quality,
             "gpu_model": self.stt_gpu_model,
             "cpu_model": self.stt_cpu_model,
             "num_speakers": self.stt_num_speakers,
