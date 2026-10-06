@@ -66,7 +66,8 @@ def _tts_section() -> rx.Component:
                 rx.box(),
             ),
             # Unit of the spoken output (per engine, system-wide): sentence-by-sentence streaming,
-            # paragraph by paragraph, or the whole response at once
+            # paragraph by paragraph, or the whole response at once. Always visible: it also
+            # governs the Echo Dot, which does not depend on the browser's TTS/autoplay toggles.
             rx.hstack(
                 rx.text(t("tts_speech_unit_label"), font_size="11px", color="#d4a14a"),
                 rx.el.select(
@@ -75,14 +76,10 @@ def _tts_section() -> rx.Component:
                     rx.el.option(t("tts_unit_whole"), value="whole"),
                     value=AIState.tts_speech_unit,
                     on_change=AIState.set_tts_speech_unit,
-                    # Var negation; mypy sees the plain bool fields → int.
-                    disabled=~(AIState.enable_tts & AIState.tts_autoplay),  # type: ignore[arg-type]
                     style=_NATIVE_SELECT_STYLE,
                 ),
                 spacing="1",
                 align="center",
-                opacity=rx.cond(AIState.enable_tts & AIState.tts_autoplay, "1", "0"),
-                pointer_events=rx.cond(AIState.enable_tts & AIState.tts_autoplay, "auto", "none"),
             ),
             spacing="2",
             align="center",
