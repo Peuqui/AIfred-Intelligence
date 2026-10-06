@@ -26,5 +26,9 @@
   "freeecho2_cred_language": {
     "de": "Haushaltssprache (STT + Ansagen)",
     "en": "Household language (STT + announcements)"
+  },
+  "freeecho2_cred_end_tone_wav": {
+    "de": "Ende-Ton nach Ansagen (WAV, 48 kHz mono 16 Bit; leer = aus)",
+    "en": "End tone after announcements (WAV, 48 kHz mono 16 bit; empty = off)"
   }
 }

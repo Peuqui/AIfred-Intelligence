@@ -10,9 +10,11 @@ Audio.
 from __future__ import annotations
 
 import asyncio
+import wave
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from ....lib.credential_broker import broker
 from ....lib.formatting import format_number
 from ....lib.plugin_base import BaseChannel
 
@@ -21,6 +23,30 @@ from .alert_queue import _PCM_BYTES_PER_SEC, enqueue_alert
 
 if TYPE_CHECKING:
     from ....lib.envelope import InboundMessage, OutboundMessage
+
+# Format of the TTS stream the puck is fed (see _convert_to_pcm): an end tone
+# of another format would play too fast, too slow or as noise.
+_END_TONE_RATE_HZ = 48000
+_END_TONE_CHANNELS = 1
+_END_TONE_SAMPLE_BYTES = 2
+
+
+def _end_tone_pcm() -> bytes:
+    """PCM of the configured end tone, empty when none is configured.
+    Fail-loud on a missing file or the wrong format: a silent skip would hide
+    a misconfiguration that only shows as a missing sound."""
+    path = broker.get("freeecho2", "end_tone_wav")
+    if not path:
+        return b""
+    with wave.open(path, "rb") as tone:
+        if (tone.getframerate(), tone.getnchannels(), tone.getsampwidth()) != (
+            _END_TONE_RATE_HZ, _END_TONE_CHANNELS, _END_TONE_SAMPLE_BYTES,
+        ):
+            raise ValueError(
+                f"end tone {path}: needs {_END_TONE_RATE_HZ} Hz, {_END_TONE_CHANNELS} channel, "
+                f"{_END_TONE_SAMPLE_BYTES * 8} bit"
+            )
+        return tone.readframes(tone.getnframes())
 
 
 class TtsReplyMixin(BaseChannel):
@@ -141,6 +167,8 @@ class TtsReplyMixin(BaseChannel):
                         "warning",
                     )
                     audio_type = "notification"
+                if outbound.metadata.get("end_tone"):
+                    pcm_data += _end_tone_pcm()
                 self.channel_log(
                     f"[FreeEcho.2 {room}] Proactive push ({audio_type}): "
                     f"chime + TTS {_fmt_mib(len(pcm_data))} ({secs}s) "
