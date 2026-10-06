@@ -61,7 +61,6 @@ class SettingsResponse(BaseModel):
     enable_tts: bool = False
     tts_voice: str = "Deutsch (Katja)"
     tts_engine: str = "edge"
-    whisper_model_key: str = "small"
 
     # UI
     ui_language: str = "de"
@@ -104,7 +103,6 @@ class SettingsUpdate(BaseModel):
     enable_tts: Optional[bool] = None
     tts_voice: Optional[str] = None
     tts_engine: Optional[str] = None
-    whisper_model_key: Optional[str] = None
 
     # UI
     ui_language: Optional[str] = None
@@ -190,7 +188,6 @@ async def get_settings():
         # Handle different field names in settings.json
         tts_voice=settings.get("voice", settings.get("tts_voice", "Deutsch (Katja)")),
         tts_engine=settings.get("tts_engine", "edge"),
-        whisper_model_key=settings.get("whisper_model", settings.get("whisper_model_key", "small")),
         ui_language=settings.get("ui_language", "de"),
         user_name=settings.get("user_name", "")
     )
@@ -236,7 +233,6 @@ async def update_settings(update: SettingsUpdate):
     # Map API field names to settings.json field names (non-model fields)
     field_mapping = {
         "tts_voice": "voice",
-        "whisper_model_key": "whisper_model",
     }
 
     target_backend = update_dict.get("backend_type") or settings.get("backend_type", "llamacpp")

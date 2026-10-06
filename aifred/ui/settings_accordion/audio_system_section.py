@@ -1,4 +1,4 @@
-"""Settings: TTS-/STT-Sektionen + System-Neustart-Buttons."""
+"""Settings: TTS-Sektion + System-Neustart-Buttons (STT: Hamburger-Menü, Tab „STT“)."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import _NATIVE_SELECT_STYLE, t, native_select_tts, native_select_stt
+from ..helpers import _NATIVE_SELECT_STYLE, t, native_select_tts
 
 
 def _tts_section() -> rx.Component:
@@ -154,40 +154,6 @@ def _tts_section() -> rx.Component:
         # in the Agent-Editor plugin tab (narrator_settings_modal).
         # Agent voices are configured in the Agent Editor modal
         spacing="2",
-        width="100%",
-    )
-
-
-def _stt_section() -> rx.Component:
-    return rx.vstack(
-        rx.text(t("stt_heading"), font_weight="bold", font_size="12px"),
-        # Whisper Model Selection
-        rx.hstack(
-            rx.text(t("stt_model_label"), font_size="11px", font_weight="500", width="80px"),
-            rx.cond(
-                AIState.is_mobile,
-                # Mobile: Native select
-                native_select_stt(
-                    AIState.whisper_model_display,
-                    AIState.set_whisper_model,
-                    [t("stt_model_tiny"), t("stt_model_base"), t("stt_model_small"), t("stt_model_medium"), t("stt_model_large")],
-                ),
-                # Desktop: Radix UI select
-                rx.select(
-                    [t("stt_model_tiny"), t("stt_model_base"), t("stt_model_small"), t("stt_model_medium"), t("stt_model_large")],
-                    value=AIState.whisper_model_display,
-                    on_change=AIState.set_whisper_model,
-                    size="2",
-                ),
-            ),
-            spacing="2",
-            align="center",
-            width="100%",
-        ),
-        # Device is now fixed to CPU (configured in config.py)
-        # GPU would use precious VRAM needed for LLM inference
-        # REMOVED: Show Transcription Toggle (moved to top, near recording buttons)
-        spacing="3",
         width="100%",
     )
 

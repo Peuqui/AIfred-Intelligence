@@ -19,7 +19,6 @@ from .agent_model_rows import (
 from .audio_system_section import (
     _restart_buttons,
     _restart_info,
-    _stt_section,
     _tts_section,
 )
 from .backend_section import (
@@ -67,10 +66,6 @@ def settings_accordion() -> rx.Component:
 
                 # TTS (Text-to-Speech) Section
                 _tts_section(),
-
-                # STT (Speech-to-Text) Section
-                rx.divider(margin_top="12px", margin_bottom="12px"),
-                _stt_section(),
 
                 # Restart Buttons
                 rx.divider(),

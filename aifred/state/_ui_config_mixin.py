@@ -28,7 +28,6 @@ class UIConfigMixin(rx.State, mixin=True):
     research_mode_display: str = "\u2728 Automatik (KI entscheidet)"  # UI display value
 
     # ── STT (Whisper) Settings ────────────────────────────────────
-    whisper_model_key: str = "small"  # Whisper model key (tiny/base/small/medium/large)
     show_transcription: bool = False  # Show transcribed text for editing before sending
 
     # ── Text-Input Behavior ──────────────────────────────────────
@@ -240,53 +239,8 @@ class UIConfigMixin(rx.State, mixin=True):
         self._persist_session_config()  # type: ignore[attr-defined]
 
     # ================================================================
-    # STT (WHISPER) SETTINGS
+    # STT
     # ================================================================
-
-    @rx.var(deps=["whisper_model_key", "ui_language"], auto_deps=False)
-    def whisper_model_display(self) -> str:
-        """Get localized display name for current Whisper model.
-
-        Maps key (tiny/base/small/medium/large) to translated display name.
-        """
-        from ..lib.i18n import TranslationManager
-
-        # Translation map: key -> translation_key
-        key_to_translation = {
-            "tiny": "stt_model_tiny",
-            "base": "stt_model_base",
-            "small": "stt_model_small",
-            "medium": "stt_model_medium",
-            "large-v3": "stt_model_large",
-            "large": "stt_model_large",  # Alias
-        }
-        translation_key = key_to_translation.get(self.whisper_model_key, "stt_model_small")
-        return TranslationManager.get_text(translation_key, self.ui_language)  # type: ignore[attr-defined]
-
-    def set_whisper_model(self, model_display_name: str) -> None:
-        """Set Whisper model and push to Docker container.
-
-        Updates the container config via /config API, then unloads both
-        models so the next transcription loads the new model.
-        """
-        import requests
-        from ..lib.config import WHISPER_SERVICE_URL
-
-        model_key = model_display_name.split("(")[0].strip() if "(" in model_display_name else model_display_name
-        self.whisper_model_key = model_key
-        self._save_settings()  # type: ignore[attr-defined]
-
-        # Push to Docker container + unload old models
-        try:
-            requests.post(
-                f"{WHISPER_SERVICE_URL}/config",
-                json={"model": model_key},
-                timeout=5,
-            )
-            requests.post(f"{WHISPER_SERVICE_URL}/unload?device=all", timeout=5)
-            self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (unloaded, reloads on next STT)")  # type: ignore[attr-defined]
-        except requests.ConnectionError:
-            self.add_debug(f"\U0001f3a4 Whisper Model: {model_key} (container not running)")  # type: ignore[attr-defined]
 
     def toggle_show_transcription(self) -> None:
         """Toggle show transcription mode."""

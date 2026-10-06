@@ -156,7 +156,6 @@ class SettingsMixin(rx.State, mixin=True):
             # tts_autoplay/tts_streaming_enabled: per-engine only (tts_toggles_per_engine)
             "tts_playback_rate": self.tts_playback_rate,  # type: ignore[attr-defined, has-type]
             "tts_pitch": self.tts_pitch,  # type: ignore[attr-defined, has-type]
-            "whisper_model": self.whisper_model_key,  # type: ignore[attr-defined, has-type]
             "show_transcription": self.show_transcription,  # type: ignore[attr-defined, has-type]
             "enter_sends_message": self.enter_sends_message,  # type: ignore[attr-defined, has-type]
             # Language-specific TTS voices (user preferences per engine/language)

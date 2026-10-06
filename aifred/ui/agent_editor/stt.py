@@ -83,11 +83,11 @@ def _stt_view() -> rx.Component:
                         ),
                         rx.badge(
                             rx.cond(
-                                AIState.stt_cpu_loaded,
-                                "CPU: " + AIState.stt_cpu_model,
+                                AIState.stt_cpu_loaded_label != "",
+                                "CPU: " + AIState.stt_cpu_loaded_label,
                                 "CPU: \u2014",
                             ),
-                            color_scheme=rx.cond(AIState.stt_cpu_loaded, "green", "gray"),
+                            color_scheme=rx.cond(AIState.stt_cpu_loaded_label != "", "green", "gray"),
                             variant="soft",
                         ),
                         rx.spacer(),
@@ -99,6 +99,26 @@ def _stt_view() -> rx.Component:
                         ),
                         width="100%",
                         align="center",
+                    ),
+                    _stt_row(
+                        t("stt_engine"),
+                        rx.select(
+                            AIState.stt_engines,
+                            value=AIState.stt_engine,
+                            on_change=AIState.stt_set_engine,
+                            size="1",
+                        ),
+                        t("stt_engine_hint"),
+                    ),
+                    _stt_row(
+                        t("stt_quality"),
+                        rx.select(
+                            AIState.stt_qualities,
+                            value=AIState.stt_quality,
+                            on_change=AIState.stt_set_quality,
+                            size="1",
+                        ),
+                        t("stt_quality_hint"),
                     ),
                     _stt_row(
                         t("stt_gpu_model"),
