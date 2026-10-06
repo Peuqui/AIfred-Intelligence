@@ -1,21 +1,20 @@
-"""Reply-Pfad + TTS-Engine-Handling des FreeEcho.2-Channels.
+"""Reply-Pfad des FreeEcho.2-Channels.
 
 ``send_reply`` schickt die TTS-Antwort über den AudioOrchestrator an den
-Puck (reaktiv) bzw. in die Alert-Queue (proaktiv). Die ``_ensure_tts_*``/
-``_force_tts_switch``-Helfer verwalten den GPU-TTS-Engine-State (SSOT:
-``tts_engine_manager``), ``_run_tts``/``_convert_to_pcm`` erzeugen das
-Audio.
+Puck (reaktiv) bzw. in die Alert-Queue (proaktiv). Die Sprach-Erzeugung
+(Engine-Bereitschaft, Synthese, satzweiser Strom) liegt im Kern
+(``lib.speech_synthesis``); das Plugin gibt nur Engine und Sprache vor.
 """
 
 from __future__ import annotations
 
-import asyncio
-from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ....lib.audio_channels._audio_orchestrator import TTSBuffer, silence_pcm
 from ....lib.audio_processing import build_speech_segments
 from ....lib.plugin_base import BaseChannel
+from ....lib.speech_synthesis import (
+    ensure_tts_ready, force_tts_switch, gpu_tts_combo_fits, start_speech_stream,
+)
 from ....lib.tts_engines import speech_unit_for
 
 from ._shared import _devices, channel_language, notification_tone_enabled
@@ -65,7 +64,7 @@ class TtsReplyMixin(BaseChannel):
             # verdrängen, das Base-Profil neu laden und das TTS TROTZDEM ohne
             # VRAM lassen ("produced no audio"). Statt 20s blind zu thrashen:
             # erkennen, klar melden, Ansage überspringen.
-            if not self._gpu_tts_combo_fits():
+            if not gpu_tts_combo_fits(self._get_wanted_tts()):
                 self.channel_log(
                     f"[FreeEcho.2 {room}] GPU-TTS '{self._get_wanted_tts()}' has "
                     f"no calibrated variant for the active model — skipping voice "
@@ -75,7 +74,7 @@ class TtsReplyMixin(BaseChannel):
                 )
                 return
             self.channel_log(f"[FreeEcho.2 {room}] Deferred TTS switch starting")
-            await self._force_tts_switch()
+            await force_tts_switch(self._get_wanted_tts())
 
         # Proaktive Pushes (Vision-Alert, freeecho2_announce) kommen OHNE
         # vorausgegangene LLM-Inferenz → es gibt kein tts_deferred-Flag, und
@@ -88,12 +87,17 @@ class TtsReplyMixin(BaseChannel):
             or bool(outbound.metadata.get("proactive"))
         )
         if is_proactive:
-            await self._ensure_tts_ready(room)
+            await ensure_tts_ready(self._get_wanted_tts(), f"FreeEcho.2 {room}")
 
         # Satzweises Streaming: der erste Satz wird erzeugt und läuft los, während die
         # übrigen noch erzeugt werden (SSOT der Satzaufteilung: lib.audio_processing).
+        # channel_language() = Haushaltssprache — ohne sie synthetisieren sprachsensitive
+        # Engines (xtts, dashscope) mit dem "de"-Default der lib.
         agent = original.target_agent if original else "aifred"
-        buffer = await self._start_speech_stream(room, self._speech_segments(outbound), agent)
+        buffer = await start_speech_stream(
+            self._speech_segments(outbound), agent, self._get_wanted_tts(),
+            channel_language(), f"FreeEcho.2 {room}",
+        )
         if buffer is None:
             return
 
@@ -175,309 +179,7 @@ class TtsReplyMixin(BaseChannel):
             speech_unit_for(self._get_wanted_tts()),
         )
 
-    async def _synthesize_pcm(self, text: str, agent: str, room: str) -> bytes | None:
-        """Ein Satz → 48-kHz-PCM; ``None`` (laut geloggt), wenn Erzeugung oder Konvertierung scheitert."""
-        tts_path = await self._run_tts(text, agent=agent)
-        if not tts_path:
-            self.channel_log(f"[FreeEcho.2 {room}] TTS failed", "error")
-            return None
-        try:
-            pcm = await self._convert_to_pcm(tts_path, 48000)
-        finally:
-            Path(tts_path).unlink(missing_ok=True)
-        if not pcm:
-            self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
-            return None
-        return pcm
-
-    async def _start_speech_stream(
-        self, room: str, segments: "list[str | int]", agent: str,
-    ) -> TTSBuffer | None:
-        """Den ersten Satz erzeugen und den Puffer zurückgeben; die übrigen Segmente
-        erzeugt ein Hintergrund-Task und hängt sie an, während der Pump schon sendet.
-        ``None``, wenn nichts zu sprechen ist oder der erste Satz scheitert."""
-        if not segments:
-            self.channel_log(f"[FreeEcho.2 {room}] nothing to speak", "warning")
-            return None
-        first = segments[0]
-        if not isinstance(first, str):
-            raise ValueError("a speech stream starts with a sentence, not with silence")
-        pcm = await self._synthesize_pcm(first, agent, room)
-        if pcm is None:
-            return None
-        buffer = TTSBuffer(growing=True)
-        buffer.append(pcm)
-        rest = segments[1:]
-        if rest:
-            buffer.producer = asyncio.create_task(
-                self._produce_speech(buffer, rest, agent, room),
-                name=f"freeecho2-{room}-speech-producer",
-            )
-        else:
-            buffer.close()
-        return buffer
-
-    async def _produce_speech(
-        self, buffer: TTSBuffer, segments: "list[str | int]", agent: str, room: str,
-    ) -> None:
-        """Erzeuger des satzweisen Streamings: hängt Sprache und Stille an den Puffer.
-        Scheitert ein Satz, wird der Strom ohne Ende-Ton geschlossen (laut geloggt)."""
-        try:
-            for segment in segments:
-                if isinstance(segment, int):
-                    buffer.append(silence_pcm(segment))
-                    continue
-                pcm = await self._synthesize_pcm(segment, agent, room)
-                if pcm is None:
-                    buffer.close(failed=True)
-                    return
-                buffer.append(pcm)
-            buffer.close()
-        except asyncio.CancelledError:
-            raise
-        except Exception as exc:  # noqa: BLE001 — der Strom muss in jedem Fall sauber enden
-            self.channel_log(f"[FreeEcho.2 {room}] speech producer error: {exc!r}", "error")
-            buffer.close(failed=True)
-
     def _get_wanted_tts(self) -> str:
-        """Get the TTS engine this plugin wants."""
+        """Die TTS-Engine, die dieses Plugin will (Plugin-Einstellung)."""
         from ....lib.credential_broker import broker
-        return broker.get("freeecho2", "tts_engine") or "piper"
-
-    def _get_backend_type(self) -> str:
-        """Get the current LLM backend type."""
-        from ....state._base import _global_backend_state
-        return _global_backend_state.get("backend_type") or "llamacpp"
-
-    def _gpu_tts_combo_fits(self) -> bool:
-        """True if the wanted GPU-TTS engine actually fits alongside the active
-        LLM — i.e. the model has a calibrated TTS variant in the vram cache.
-
-        Lightweight/cloud engines (Edge/Piper/DashScope) need no GPU, so they
-        always fit. Returns True optimistically when the model id is unknown
-        (don't block on missing info).
-
-        Guards the deferred TTS switch: for a GPU-filling model (e.g. the 397B)
-        the TTS combo is FAIL in the cache; switching anyway would evict the
-        LLM, reload its base profile and still leave the TTS without VRAM
-        ("produced no audio"). Better to detect + skip than to thrash for 20s.
-        """
-        from ....lib.tts_engine_manager import GPU_ENGINES
-        wanted = self._get_wanted_tts()
-        if wanted not in GPU_ENGINES:
-            return True
-        from ....lib.settings import load_settings
-        from ....lib.model_vram_cache import is_tts_variant_calibrated
-        settings = load_settings() or {}
-        backend = self._get_backend_type()
-        model_id = str(
-            settings.get("backend_models", {}).get(backend, {}).get("aifred", "")
-        )
-        if not model_id:
-            return True
-        return is_tts_variant_calibrated(model_id, wanted)
-
-    async def _ensure_tts_state(self) -> bool:
-        """Ensure TTS state before LLM inference (SSOT: ensure_tts_state).
-
-        Returns True if deferred (LLM loaded, caller should inferize first).
-        Returns False if TTS is ready and LLM will load with correct profile.
-        """
-        from ....lib.tts_engine_manager import ensure_tts_state, GPU_ENGINES
-        from ....lib.debug_bus import debug, _current_session
-
-        wanted = self._get_wanted_tts()
-        # Map lightweight engines to "" (no GPU TTS needed).
-        # The SSOT still needs to run: if a GPU TTS container is in VRAM
-        # but we switched to Edge/Piper/eSpeak, it must be cleaned up.
-        wanted_gpu = wanted if wanted in GPU_ENGINES else ""
-
-        backend_type = self._get_backend_type()
-
-        # Capture session_id from the calling coroutine's context
-        # so debug() in the executor thread can route to the session.
-        caller_session_id = _current_session.get()
-
-        def _run() -> bool:
-            # Propagate session context into executor thread
-            token = _current_session.set(caller_session_id) if caller_session_id else None
-            try:
-                gen = ensure_tts_state(
-                    wanted_tts=wanted_gpu,
-                    backend_type=backend_type,
-                    check_defer=True,
-                )
-                deferred = False
-                try:
-                    while True:
-                        msg = next(gen)
-                        debug(f"🔊 {msg}")
-                except StopIteration as e:
-                    if e.value:
-                        deferred = e.value.deferred
-                return deferred
-            finally:
-                if token is not None:
-                    _current_session.reset(token)
-
-        return await asyncio.get_running_loop().run_in_executor(None, _run)
-
-    async def _force_tts_switch(self) -> None:
-        """Force TTS switch after deferred inference (FreeEcho.2 optimization).
-
-        Called after LLM used existing model. Now: switch TTS, then
-        restart LLM with TTS-calibrated profile. All blocking, sequential.
-        """
-        from ....lib.tts_engine_manager import force_tts_switch, GPU_ENGINES
-        from ....lib.debug_bus import debug, _current_session
-
-        wanted = self._get_wanted_tts()
-        # Map lightweight engines to "" — force_tts_switch needs GPU key or ""
-        wanted_gpu = wanted if wanted in GPU_ENGINES else ""
-        backend_type = self._get_backend_type()
-        caller_session_id = _current_session.get()
-
-        def _run() -> None:
-            token = _current_session.set(caller_session_id) if caller_session_id else None
-            try:
-                gen = force_tts_switch(wanted_gpu, backend_type)
-                try:
-                    while True:
-                        msg = next(gen)
-                        debug(f"🔊 {msg}")
-                except StopIteration:
-                    pass
-            finally:
-                if token is not None:
-                    _current_session.reset(token)
-
-        await asyncio.get_running_loop().run_in_executor(None, _run)
-
-    async def _ensure_tts_ready(self, room: str) -> None:
-        """SSoT für 'TTS-Engine jetzt synchron bereitstellen' — für proaktive
-        Pushes (Vision-Alert, freeecho2_announce), die OHNE vorausgehende
-        LLM-Inferenz kommen.
-
-        Nutzt dieselben Primitive wie der Chat-Flow (``_ensure_tts_state`` +
-        ``_force_tts_switch``), nur ohne Inferenz dazwischen: TTS-State
-        sicherstellen, und falls das große LLM die GPU blockiert (deferred),
-        den Modell-Swap LLM → TTS sofort erzwingen. Identisches Verhalten wie
-        bei einem echten Puck-Request, nur ohne Antwort-Generierung."""
-        deferred = await self._ensure_tts_state()
-        if deferred:
-            self.channel_log(
-                f"[FreeEcho.2 {room}] Proactive TTS switch "
-                f"(no prior inference — loading TTS engine)"
-            )
-            await self._force_tts_switch()
-
-    async def _run_tts(self, text: str, agent: str = "aifred") -> str | None:
-        """Generate TTS audio file from text. Returns absolute file path.
-
-        Uses the FreeEcho.2 plugin's TTS engine setting combined with
-        per-agent voice configuration from agents.json (``tts_voices``
-        block). Independent of the browser UI TTS toggle.
-
-        TTS container readiness is ensured by _ensure_tts_state() / _force_tts_switch()
-        BEFORE this method is called. No VRAM management here.
-        """
-        from ....lib.credential_broker import broker
-        from ....lib.config import PROJECT_ROOT
-        from ....lib.agent_config import get_tts_voice_default
-        from ....lib.settings import load_settings
-
-        # Engine from plugin settings
-        engine = broker.get("freeecho2", "tts_engine") or "piper"
-
-        # Voice priority: 1. User settings (per engine+agent), 2. Defaults, 3. Fallback.
-        # Fall back to "aifred" (the system's default agent) when the
-        # requested agent has neither user setting nor default — keeps the
-        # historical behaviour where custom agents inherited aifred's voice.
-        settings = load_settings() or {}
-        user_voices = settings.get("tts_agent_voices_per_engine", {}).get(engine, {})
-        user_cfg = user_voices.get(agent) or user_voices.get("aifred", {})
-        default_cfg = get_tts_voice_default(agent, engine)
-        if not default_cfg.get("voice"):
-            default_cfg = get_tts_voice_default("aifred", engine)
-
-        # User setting wins, then default, then hardcoded fallback
-        voice = ""
-        if isinstance(user_cfg, dict):
-            voice = str(user_cfg.get("voice", ""))
-        elif isinstance(user_cfg, str):
-            voice = user_cfg
-        if not voice:
-            from ....lib.config import PUCK_TTS_FALLBACK_VOICE
-            voice = str(default_cfg.get("voice", PUCK_TTS_FALLBACK_VOICE))
-
-        speed_str = str(default_cfg.get("speed", "1.0"))
-        if isinstance(user_cfg, dict) and user_cfg.get("speed"):
-            speed_str = str(user_cfg["speed"])
-
-        pitch_str = str(default_cfg.get("pitch", "1.0"))
-        if isinstance(user_cfg, dict) and user_cfg.get("pitch"):
-            pitch_str = str(user_cfg["pitch"])
-
-        # Parser = lib-SSOT (geteilt mit _resolve_agent_tts im Browser-Pfad);
-        # None → fail-loud statt stillem Default (bewusste Channel-Policy).
-        from ....lib.tts_engines import parse_speed_factor
-        speed = parse_speed_factor(speed_str)
-        pitch = parse_speed_factor(pitch_str)
-        if speed is None or pitch is None:
-            self.channel_log(
-                f"Invalid TTS speed/pitch in settings for agent '{agent}' "
-                f"(speed='{speed_str}', pitch='{pitch_str}') — no TTS", "error",
-            )
-            return None
-
-        try:
-            from ....lib.audio_processing import generate_tts
-            # channel_language() = Haushaltssprache (FREEECHO2_LANGUAGE) —
-            # ohne sie synthetisieren sprachsensitive Engines (xtts,
-            # dashscope) mit dem "de"-Default der lib.
-            result: str | None = await generate_tts(
-                text, voice, speed, engine, pitch=pitch, agent=agent,
-                language=channel_language(),
-            )
-            if not result:
-                # No fallback to another engine (project rule) — the device
-                # stays silent. The engine already logged the specific cause
-                # (e.g. network/internet unreachable) to debug.log; this line
-                # makes the failure visible in the session debug console.
-                self.channel_log(
-                    f"TTS engine '{engine}' produced no audio — device stays "
-                    f"silent (no fallback by design)", "error",
-                )
-                return None
-            # Convert URL path (/_upload/tts_audio/xxx.wav) to absolute file path
-            if result.startswith("/_upload/"):
-                return str(PROJECT_ROOT / "data" / result.removeprefix("/_upload/"))
-            return result
-        except Exception as e:
-            self.channel_log(f"TTS ({engine}) failed: {e}", "error")
-            return None
-
-    async def _convert_to_pcm(self, audio_path: str, target_rate: int) -> bytes | None:
-        """Convert audio file to raw PCM (mono, int16, target_rate)."""
-        # Use ffmpeg to convert any audio format to raw PCM
-        cmd = [
-            "ffmpeg", "-y", "-i", audio_path,
-            "-ar", str(target_rate),
-            "-ac", "1",
-            "-f", "s16le",
-            "-acodec", "pcm_s16le",
-            "pipe:1",
-        ]
-        try:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-            )
-            stdout, stderr = await proc.communicate()
-            if proc.returncode == 0:
-                return stdout
-            self.channel_log(f"ffmpeg error: {stderr.decode()[:200]}", "error")
-        except FileNotFoundError:
-            self.channel_log("ffmpeg not found", "error")
-        return None
+        return str(broker.get("freeecho2", "tts_engine") or "piper")

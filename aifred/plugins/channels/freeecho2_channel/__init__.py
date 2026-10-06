@@ -168,7 +168,7 @@ class FreeEchoChannel(ConnectionMixin):
         )
 
         # Engine setting is saved here, actual start happens on first FreeEcho.2 request
-        # via ensure_engine_ready() in _run_tts()
+        # via ensure_engine_ready() in lib.speech_synthesis
         new_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
         broker.set_runtime("freeecho2", "tts_engine", new_engine)
 

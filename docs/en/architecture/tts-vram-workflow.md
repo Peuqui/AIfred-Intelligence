@@ -117,7 +117,7 @@ another agent's voice.
 3. `self.tts_voice` (global state default) — only for agents without an engine default
 
 ### FreeEcho.2
-SSOT: `_run_tts()` in `tts_reply.py`. Engine from the plugin setting
+SSOT: `_run_tts()` in `lib/speech_synthesis.py`. Engine from the plugin setting
 (`freeecho2`/`tts_engine`, default `piper`).
 1. User setting for agent+engine (`tts_agent_voices_per_engine[engine][agent]` in `settings.json`)
 2. User setting for AIfred (only if the agent has none)
@@ -148,7 +148,7 @@ On intent detection (`format_intent_result()` in `intent_detector.py`):
 | `force_tts_switch()` | `tts_engine_manager.py` | After deferred inference: load TTS + switch profile |
 | `_do_switch()` | `tts_engine_manager.py` | Full engine switch (unload → load) |
 | `set_tts_engine_or_off()` | `_tts_config_mixin.py` | Browser dropdown handler |
-| `_run_tts()` | `plugins/channels/freeecho2_channel/tts_reply.py` | FreeEcho.2 audio generation + voice resolution |
+| `_run_tts()` | `lib/speech_synthesis.py` | FreeEcho.2 audio generation + voice resolution |
 | `_ensure_tts_state()` / `_force_tts_switch()` | `plugins/channels/freeecho2_channel/tts_reply.py` | FreeEcho.2 wrappers around the SSOT functions |
 | `_queue_tts_for_agent()` | `_tts_streaming_mixin.py` | Browser TTS generation |
 | `_resolve_agent_tts()` | `_tts_streaming_mixin.py` | Browser voice/speed/pitch resolution |

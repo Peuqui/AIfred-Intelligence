@@ -125,15 +125,15 @@ class TestSendReplyProactive:
     und Audio-Channel-Auflosungen. Vermeidet GPU/Whisper-Calls."""
 
     def _patched_call(self, audio_ch_mock, outbound, original):
-        """send_reply mit den teuren Teilen gemockt: _run_tts gibt
+        """send_reply mit den teuren Teilen gemockt: _run_tts (lib) gibt
         einen Stub-Pfad, _convert_to_pcm gibt nicht-leere Bytes, der
         FreeEcho2Channel-Resolver liefert unseren Mock-Orchestrator.
         Path.unlink ist no-op."""
         ch = FreeEchoChannel()
-        with patch.object(
-            ch, "_run_tts", AsyncMock(return_value="/tmp/dummy.wav")
-        ), patch.object(
-            ch, "_convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
+        with patch(
+            "aifred.lib.speech_synthesis._run_tts", AsyncMock(return_value="/tmp/dummy.wav")
+        ), patch(
+            "aifred.lib.speech_synthesis._convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
         ), patch(
             "aifred.lib.audio_channels.resolve", return_value=audio_ch_mock
         ), patch(
@@ -240,10 +240,10 @@ class TestSendReplyAudioType:
 
     def _patched_call(self, audio_ch_mock, outbound, original):
         ch = FreeEchoChannel()
-        with patch.object(
-            ch, "_run_tts", AsyncMock(return_value="/tmp/dummy.wav")
-        ), patch.object(
-            ch, "_convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
+        with patch(
+            "aifred.lib.speech_synthesis._run_tts", AsyncMock(return_value="/tmp/dummy.wav")
+        ), patch(
+            "aifred.lib.speech_synthesis._convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
         ), patch(
             "aifred.lib.audio_channels.resolve", return_value=audio_ch_mock
         ), patch(

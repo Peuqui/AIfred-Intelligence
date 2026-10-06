@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from ....lib.formatting import format_number
+from ....lib.speech_synthesis import ensure_tts_state
 
 from ._shared import _pending_wake_agent
 from .tts_reply import TtsReplyMixin
@@ -180,7 +181,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 # Ensure TTS state (MOSS/XTTS loading, VRAM management).
                 # Messages go to UI via debug() (session context propagated to executor).
                 hub.update("processing")
-                tts_deferred = await self._ensure_tts_state()
+                tts_deferred = await ensure_tts_state(self._get_wanted_tts())
 
                 # Acquire the active GPU TTS engine for the duration of this
                 # pipeline so concurrent channels can't stop it mid-flight.
