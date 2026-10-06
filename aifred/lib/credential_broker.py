@@ -101,6 +101,8 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("inject", "api_token"): "INJECT_API_TOKEN",
     # Webhook API
     ("webhook", "api_token"): "WEBHOOK_API_TOKEN",
+    # Announce API (spoken announcements to FreeEcho.2 without an LLM)
+    ("announce", "api_token"): "ANNOUNCE_API_TOKEN",
     # Web session secret (signs username/auto-login cookies). Optional —
     # falls back to a persisted random secret if unset (see lib/auth.py).
     ("auth", "session_secret"): "AIFRED_SESSION_SECRET",

@@ -16,6 +16,8 @@ Endpoints (all prefixed with /api):
 - GET  /chat/status         - Get chat/generation status
 - POST /chat/clear          - Clear chat history
 - GET  /chat/history        - Get chat history
+- GET  /audio/announce/rooms - Rooms an announcement can go to (Bearer token)
+- POST /audio/announce      - Spoken announcement to FreeEcho.2, no LLM (Bearer token)
 - POST /system/restart-ollama   - Restart Ollama service
 - POST /system/restart-aifred   - Restart AIfred service
 - POST /system/reset-defaults   - Reset to default settings
@@ -35,6 +37,7 @@ from . import system  # noqa: E402
 from . import browser_bus  # noqa: E402
 from . import agents  # noqa: E402
 from . import audio  # noqa: E402
+from . import announce  # noqa: E402
 from . import vision  # noqa: E402
 
 from .browser_bus import browser_push, browser_queue_clear  # noqa: E402
@@ -52,5 +55,6 @@ __all__ = [
     "browser_bus",
     "agents",
     "audio",
+    "announce",
     "vision",
 ]
