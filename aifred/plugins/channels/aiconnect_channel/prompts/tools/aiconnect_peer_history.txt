@@ -1,0 +1,1 @@
+Show the latest messages exchanged with one peer of the AI-Connect network, as stored on the Bridge. Use this to recall what was already discussed with that peer before writing to it again. Does not wake the peer.

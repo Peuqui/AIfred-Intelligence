@@ -88,6 +88,15 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("telegram", "bot_token"): "TELEGRAM_BOT_TOKEN",
     ("telegram", "allowed_users"): "TELEGRAM_ALLOWED_USERS",
     ("telegram", "enabled"): "TELEGRAM_ENABLED",
+    # AI-Connect
+    ("aiconnect", "bridge_host"): "AICONNECT_BRIDGE_HOST",
+    ("aiconnect", "bridge_port"): "AICONNECT_BRIDGE_PORT",
+    ("aiconnect", "bridge_token"): "AICONNECT_BRIDGE_TOKEN",
+    ("aiconnect", "peer_name"): "AICONNECT_PEER_NAME",
+    ("aiconnect", "allowed_peers"): "AICONNECT_ALLOWED_PEERS",
+    ("aiconnect", "reply_limit"): "AICONNECT_REPLY_LIMIT",
+    ("aiconnect", "reply_window_minutes"): "AICONNECT_REPLY_WINDOW_MINUTES",
+    ("aiconnect", "enabled"): "AICONNECT_ENABLED",
     # HTTP API control endpoints (gate remote control of the agent)
     ("inject", "api_token"): "INJECT_API_TOKEN",
     # Webhook API

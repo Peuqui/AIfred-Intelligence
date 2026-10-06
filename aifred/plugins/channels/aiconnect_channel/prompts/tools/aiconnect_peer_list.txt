@@ -1,0 +1,1 @@
+List the peers that are currently online in the AI-Connect network (other assistants such as coding sessions on this or other machines), each with its state (busy, idle, waiting) and the one-line status it reports. Reading this costs nothing and wakes nobody — look here first when asked what the other assistants are doing.

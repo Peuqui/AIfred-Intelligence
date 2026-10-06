@@ -1,0 +1,46 @@
+{
+  "plugin_display_name": {
+    "de": "AI-Connect",
+    "en": "AI-Connect"
+  },
+  "plugin_description": {
+    "de": "AIfred als Teilnehmer im AI-Connect-Netz: antwortet auf Nachrichten erlaubter Peers (andere Assistenten wie Coding-Sessions) und kann Peers auf Anfrage anschreiben.",
+    "en": "AIfred as a participant in the AI-Connect network: answers messages of allowed peers (other assistants such as coding sessions) and can write to peers on request."
+  },
+  "aiconnect_cred_bridge_host": {
+    "de": "Bridge-Host",
+    "en": "Bridge host"
+  },
+  "aiconnect_cred_bridge_port": {
+    "de": "Port",
+    "en": "Port"
+  },
+  "aiconnect_cred_bridge_token": {
+    "de": "Bridge-Token",
+    "en": "Bridge token"
+  },
+  "aiconnect_cred_peer_name": {
+    "de": "Peer-Name (Host:Projekt)",
+    "en": "Peer name (Host:Project)"
+  },
+  "aiconnect_cred_allowed_peers": {
+    "de": "Erlaubte Peers (Komma-getrennt; kein '*')",
+    "en": "Allowed peers (comma-separated; no '*')"
+  },
+  "aiconnect_cred_allowed_peers_tooltip": {
+    "de": "Kommagetrennte Peer-Namen oder Muster, z. B. Mini:vllm-research, Mini:*.\nPeers sehen Sie mit peer_list.\nLeer = niemand erlaubt (fail-closed); ein einzelnes '*' wird nicht unterstützt.\nNur diese Peers lösen einen AIfred-Durchlauf aus; der Name geblockter Absender steht im Log.",
+    "en": "Comma-separated peer names or patterns, e.g. Mini:vllm-research, Mini:*.\nSee peers with peer_list.\nEmpty = allow none (fail-closed); a bare '*' is not supported.\nOnly these peers trigger an AIfred run; the name of blocked senders appears in the log."
+  },
+  "aiconnect_cred_reply_limit": {
+    "de": "Antwort-Limit pro Peer",
+    "en": "Reply limit per peer"
+  },
+  "aiconnect_cred_reply_limit_tooltip": {
+    "de": "Schutz vor Endlosschleifen: so viele Nachrichten eines Peers beantwortet AIfred im Zeitfenster. Weitere werden verworfen und im Log vermerkt.",
+    "en": "Loop guard: AIfred answers this many messages of one peer within the window. Further ones are dropped and noted in the log."
+  },
+  "aiconnect_cred_reply_window": {
+    "de": "Zeitfenster (Minuten)",
+    "en": "Window (minutes)"
+  }
+}

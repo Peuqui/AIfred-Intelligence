@@ -1562,6 +1562,7 @@ SECURITY_RATE_LIMITS: dict[str, int] = {
     "email": 5,         # Max 5 tool calls per minute
     "discord": 10,
     "telegram": 10,
+    "aiconnect": 10,
     "cron": 20,
     "webhook": 3,
 }
