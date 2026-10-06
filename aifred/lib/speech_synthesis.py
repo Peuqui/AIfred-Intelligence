@@ -215,19 +215,42 @@ async def synthesize_pcm(text: str, agent: str, engine: str, language: str, labe
     return pcm
 
 
+def _speakable_segments(segments: "list[str | int]") -> "list[str | int]":
+    """Texte von Markdown, Emojis, Code, Links usw. befreien (SSOT: ``clean_text_for_tts``,
+    dieselbe wie im Browser-Chat) — einmal hier statt in jedem TTS-Server. Was danach leer
+    ist, entfällt; Stille ohne Sprache davor ergibt keinen Sinn und entfällt ebenfalls."""
+    from .audio_processing import clean_text_for_tts, reset_content_hint_flags
+
+    # Der Reiniger ist für den Strom EINER Antwort gebaut (Hinweise wie "Hier steht Code."
+    # kommen je Antwort einmal): frisch beginnen. Läuft in einem Zug, ohne await.
+    reset_content_hint_flags()
+    speakable: list[str | int] = []
+    for segment in segments:
+        if isinstance(segment, int):
+            if speakable:
+                speakable.append(segment)
+            continue
+        cleaned = clean_text_for_tts(segment)
+        if cleaned:
+            speakable.append(cleaned)
+    while speakable and isinstance(speakable[-1], int):
+        speakable.pop()
+    return speakable
+
+
 async def start_speech_stream(
     segments: "list[str | int]", agent: str, engine: str, language: str, label: str,
 ) -> TTSBuffer | None:
     """Den ersten Satz erzeugen und den Puffer zurückgeben; die übrigen Segmente
     (Texte als ``str``, Stille als ``int`` ms) erzeugt ein Hintergrund-Task und hängt
     sie an, während der Abnehmer schon sendet. ``None``, wenn nichts zu sprechen ist
-    oder der erste Satz scheitert."""
+    oder der erste Satz scheitert. Die Texte werden vor der Synthese bereinigt."""
+    segments = _speakable_segments(segments)
     if not segments:
         log_message(f"[{label}] nothing to speak", "warning")
         return None
     first = segments[0]
-    if not isinstance(first, str):
-        raise ValueError("a speech stream starts with a sentence, not with silence")
+    assert isinstance(first, str)  # _speakable_segments: Stille steht nie am Anfang
     pcm = await synthesize_pcm(first, agent, engine, language, label)
     if pcm is None:
         return None

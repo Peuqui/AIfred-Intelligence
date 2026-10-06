@@ -66,9 +66,22 @@ class TestSpeechStream:
     def test_nothing_to_speak_gives_no_stream(self):
         assert start([], fake_tts([])) is None
 
-    def test_start_with_silence_is_a_programming_error(self):
-        try:
-            start([100, "Satz hier."], fake_tts([]))
-        except ValueError:
-            return
-        raise AssertionError("expected ValueError")
+
+class TestCleaning:
+    def test_markdown_and_emojis_are_not_spoken(self):
+        spoken: list[str] = []
+        start(["**Wichtig** ist das hier. 😀", 100, "Und ein [Link](http://a.b) dazu."], fake_tts(spoken))
+        assert spoken == ["Wichtig ist das hier.", "Und ein Link dazu."]
+
+    def test_leading_silence_is_dropped(self):
+        spoken: list[str] = []
+        start([100, "Satz hier genau."], fake_tts(spoken))
+        assert spoken == ["Satz hier genau."]
+
+    def test_segments_that_are_empty_after_cleaning_are_dropped(self):
+        spoken: list[str] = []
+        start(["😀😀", 100, "Nur dieser Satz hier."], fake_tts(spoken))
+        assert spoken == ["Nur dieser Satz hier."]
+
+    def test_only_unspeakable_text_gives_no_stream(self):
+        assert start(["😀"], fake_tts([])) is None
