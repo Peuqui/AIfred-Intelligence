@@ -41,6 +41,7 @@ from typing import TYPE_CHECKING, Any, Optional
 
 from ..formatting import format_number
 from ..logging_utils import log_message
+from ._freeecho2_stream import PCM_CHUNK_BYTES
 
 
 def _fmt_mib(num_bytes: int) -> str:
@@ -66,8 +67,8 @@ class TTSBuffer:
     Bei Resume: ab Cursor weiter pumpen — KEIN Re-Render.
     """
 
-    # 512 KB Chunks — gleiche Groesse wie das alte send_reply
-    CHUNK_SIZE = 512 * 1024
+    # Gleiche Frame-Groesse wie der Musik-Stream (SSOT, Begruendung dort)
+    CHUNK_SIZE = PCM_CHUNK_BYTES
 
     def __init__(self, pcm_data: bytes) -> None:
         self._pcm = pcm_data

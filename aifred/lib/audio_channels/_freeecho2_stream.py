@@ -38,7 +38,12 @@ from ..mpv_ipc import MpvIpcClient
 MPV_BINARY = "/usr/bin/mpv"
 SOCKET_WAIT_TIMEOUT_SEC = 5.0
 COMMAND_TIMEOUT_SEC = 5.0
-READ_CHUNK_SIZE = 64 * 1024   # ~666ms @ 48kHz mono int16 — gut für Latenz
+# Größe jedes PCM-Frames zum Puck — SSOT für Musik/Hörbuch UND Ansagen (TTSBuffer).
+# ~666 ms @ 48 kHz mono int16. Klein halten: Das Senden eines Frames darf höchstens
+# 10 s dauern (FreeEchoChannel._CHUNK_SEND_TIMEOUT_SEC); ist der Ring am Puck voll,
+# wartet jedes Frame so lange, wie es abzuspielen dauert. Messung 06.10.2026 an einer
+# 80-s-Ansage: mit 512-KB-Frames (5,3 s) vertrug der Puck nur ~4,6 s Stocken, mit 64 KB ~9 s.
+PCM_CHUNK_BYTES = 64 * 1024
 DEFAULT_SAVE_INTERVAL_SEC = 60
 
 FE2_SAMPLE_RATE = 48000
@@ -788,7 +793,7 @@ class FreeEcho2Stream:
                         break
 
                 try:
-                    chunk = os.read(fd, READ_CHUNK_SIZE)
+                    chunk = os.read(fd, PCM_CHUNK_BYTES)
                 except BlockingIOError:
                     # Kein Writer / Pipe leer — kurz warten und nochmal.
                     await asyncio.sleep(idle_sleep)
