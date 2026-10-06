@@ -39,6 +39,7 @@ def _piper_default_model() -> Path:
 
 class PiperEngine(TTSEngine):
     key = "piper"
+    default_speech_unit = "whole"
     label_short = "Piper"
     runs_in_container = False
     needs_gpu = False

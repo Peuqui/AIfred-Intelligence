@@ -10,15 +10,15 @@ Audio.
 from __future__ import annotations
 
 import asyncio
-import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ....lib.audio_channels._audio_orchestrator import TTSBuffer, silence_pcm
-from ....lib.audio_processing import split_text_for_streaming_tts
+from ....lib.audio_processing import build_speech_segments
 from ....lib.plugin_base import BaseChannel
+from ....lib.tts_engines import speech_unit_for
 
-from ._shared import _devices, channel_language, notification_tone_enabled, speech_unit
+from ._shared import _devices, channel_language, notification_tone_enabled
 from .alert_queue import enqueue_alert
 
 if TYPE_CHECKING:
@@ -164,31 +164,16 @@ class TtsReplyMixin(BaseChannel):
 
     # ── Satzweises Sprach-Streaming ────────────────────────────
 
-    @staticmethod
-    def _speech_segments(outbound: "OutboundMessage") -> "list[str | int]":
-        """Was gesprochen wird, in Reihenfolge: Texte (str) und Stille zwischen
-        Absätzen (int, ms). ``metadata["paragraphs"]`` (+ ``pause_ms``) bei Ansagen mit
-        mehreren Absätzen, sonst der ganze Text als ein Absatz. Wie fein der Text für die
-        TTS-Engine zerlegt wird, bestimmt FREEECHO2_SPEECH_UNIT: Sätze, Absätze (an Leerzeilen)
-        oder alles am Stück (kein Streaming: erst die komplette Sprache, dann die Ausgabe)."""
+    def _speech_segments(self, outbound: "OutboundMessage") -> "list[str | int]":
+        """Was gesprochen wird, in Reihenfolge: Texte (str) und Stille zwischen Absätzen
+        (int, ms). Wie fein der Text für die TTS-Engine zerlegt wird (satzweise, absatzweise,
+        am Stück), ist die Einstellung der gewählten Engine (SSOT: ``speech_unit_for``) —
+        das Plugin kennt sie nicht, es liest sie nur."""
         paragraphs = outbound.metadata.get("paragraphs") or [outbound.text]
-        pause_ms = int(outbound.metadata.get("pause_ms", 0))
-        unit = speech_unit()
-        if unit == "whole":
-            whole = "\n\n".join(p.strip() for p in paragraphs if p.strip())
-            return [whole] if whole else []
-        segments: list[str | int] = []
-        for paragraph in paragraphs:
-            if unit == "sentence":
-                pieces = split_text_for_streaming_tts(paragraph)
-            else:
-                pieces = [block.strip() for block in re.split(r"\n\s*\n", paragraph) if block.strip()]
-            for index, piece in enumerate(pieces):
-                # Stille zwischen Absätzen; bei absatzweiser Ausgabe ist jedes Stück ein Absatz
-                if segments and pause_ms and (index == 0 or unit == "paragraph"):
-                    segments.append(pause_ms)
-                segments.append(piece)
-        return segments
+        return build_speech_segments(
+            paragraphs, int(outbound.metadata.get("pause_ms", 0)),
+            speech_unit_for(self._get_wanted_tts()),
+        )
 
     async def _synthesize_pcm(self, text: str, agent: str, room: str) -> bytes | None:
         """Ein Satz → 48-kHz-PCM; ``None`` (laut geloggt), wenn Erzeugung oder Konvertierung scheitert."""

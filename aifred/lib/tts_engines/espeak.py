@@ -77,6 +77,7 @@ _AVAILABLE_VOICES: dict[str, tuple[str, str]] = _detect_available_voices()
 
 class EspeakEngine(TTSEngine):
     key = "espeak"
+    default_speech_unit = "whole"
     label_short = "eSpeak"
     runs_in_container = False
     needs_gpu = False

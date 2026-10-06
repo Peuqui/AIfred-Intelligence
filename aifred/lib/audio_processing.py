@@ -571,6 +571,39 @@ def split_text_for_streaming_tts(text: str) -> list[str]:
     return result
 
 
+def extract_complete_paragraphs(buffer: str) -> tuple[list[str], str]:
+    """Wie ``extract_complete_sentences``, aber an Absätzen (Leerzeilen): alles vor dem
+    letzten Absatzende ist vollständig, der angefangene letzte Absatz bleibt im Puffer."""
+    pieces = re.split(r"\n[ \t]*\n", buffer.replace("\r\n", "\n").replace("\r", "\n"))
+    return [piece.strip() for piece in pieces[:-1] if piece.strip()], pieces[-1]
+
+
+def build_speech_segments(paragraphs: list[str], pause_ms: int, unit: str) -> list[str | int]:
+    """Was die TTS-Engine einer fertigen Ansage der Reihe nach bekommt: Texte (``str``) und
+    Stille zwischen den Absätzen (``int``, ms), je nach Einheit (``tts_engines.SPEECH_UNITS``):
+    ``sentence`` = Sätze, ``paragraph`` = Absätze (an Leerzeilen), ``whole`` = EIN Text, bei dem
+    die Engine die Pause an der Leerzeile selbst setzt. SSOT für jeden Kanal."""
+    from .tts_engines import SPEECH_UNITS
+
+    if unit not in SPEECH_UNITS:
+        raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
+    if unit == "whole":
+        whole = "\n\n".join(p.strip() for p in paragraphs if p.strip())
+        return [whole] if whole else []
+    segments: list[str | int] = []
+    for paragraph in paragraphs:
+        if unit == "sentence":
+            pieces = split_text_for_streaming_tts(paragraph)
+        else:
+            pieces = [block.strip() for block in re.split(r"\n[ \t]*\n", paragraph) if block.strip()]
+        for index, piece in enumerate(pieces):
+            # Stille zwischen Absätzen; bei absatzweiser Ausgabe ist jedes Stück ein Absatz
+            if segments and pause_ms and (index == 0 or unit == "paragraph"):
+                segments.append(pause_ms)
+            segments.append(piece)
+    return segments
+
+
 def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     """
     Extract complete sentences from a text buffer.

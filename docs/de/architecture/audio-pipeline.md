@@ -728,9 +728,10 @@ Puck bleibt dumm.
 | Türklingel (ohne Sprache) | `audio_flag(notification, start_tone=true)` → `audio_start(total_size=0)` → `audio_end(end_tone=true)` |
 | Ansage über laufender Musik/TTS | `wake(_pause)` → Bestätigung des Pucks abwarten → Ansage wie oben; danach KEIN `_resume` vom Server |
 
-**Einheit der Sprachausgabe:** Plugin-Einstellung `FREEECHO2_SPEECH_UNIT` — `sentence` (Standard),
+**Einheit der Sprachausgabe:** eine Einstellung pro TTS-Engine (Browser-Panel, systemweit für alle Agenten und
+Kanäle; `lib.tts_engines.speech_unit_for`, Standard je Engine in `TTSEngine.default_speech_unit`) — `sentence`,
 `paragraph` (an Leerzeilen) oder `whole` (alles am Stück, kein Streaming: bessere Betonung, aber die erste
-Sprache kommt erst nach der kompletten Erzeugung). Beginn-/Ende-Ton bei Ansagen: `FREEECHO2_NOTIFICATION_START_TONE` /
+Sprache kommt erst nach der kompletten Erzeugung). Das Echo-Plugin liest sie nur. Beginn-/Ende-Ton bei Ansagen: `FREEECHO2_NOTIFICATION_START_TONE` /
 `_END_TONE` (an/aus; der Alarm-Ton ist immer der Beginn-Ton); welcher Ton spielt, legt der Puck fest.
 
 **Satzweises Streaming** (Ansagen und Antworten über `TtsReplyMixin`): Bei `sentence` wird der Text mit

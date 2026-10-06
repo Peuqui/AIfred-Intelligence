@@ -92,22 +92,6 @@ _DEFAULT_PORT = 9777
 _DEFAULT_PATH = "/ws/freeecho2"
 
 
-# Einheit der Sprachausgabe: wie viel Text auf einmal an die TTS-Engine geht. Kleinere Einheiten
-# = die erste Sprache kommt früher; größere = oft bessere Betonung/Qualität, dafür längeres Warten.
-SPEECH_UNITS = ("sentence", "paragraph", "whole")
-DEFAULT_SPEECH_UNIT = "sentence"
-
-
-def speech_unit() -> str:
-    """``sentence`` (satzweise), ``paragraph`` (absatzweise) oder ``whole`` (alles am Stück)
-    — Plugin-Einstellung FREEECHO2_SPEECH_UNIT; ein ungültiger Wert ist ein Konfigurationsfehler."""
-    from ....lib.credential_broker import broker
-    unit = broker.get("freeecho2", "speech_unit") or DEFAULT_SPEECH_UNIT
-    if unit not in SPEECH_UNITS:
-        raise ValueError(f"FREEECHO2_SPEECH_UNIT must be one of {SPEECH_UNITS}, got {unit!r}")
-    return unit
-
-
 def notification_tone_enabled(which: str) -> bool:
     """Ob Ansagen den Beginn- (``"start"``) bzw. Ende-Ton (``"end"``) am Puck anfordern
     (Plugin-Einstellung FREEECHO2_NOTIFICATION_START_TONE / _END_TONE). Welcher Ton das ist, legt

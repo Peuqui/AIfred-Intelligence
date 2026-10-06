@@ -424,20 +424,9 @@ TTS_DEFAULT_VOICES = {
 # ``aifred.lib.agent_config.get_tts_voice_default(agent_id, engine)`` or
 # ``get_tts_voice_defaults_for_engine(engine)``.
 
-# Per-engine TTS toggle defaults (autoplay, streaming)
-# MOSS-TTS: streaming=False because ~20s per sentence (not suitable for real-time)
-# XTTS/Edge: streaming=True (fast enough for sentence-by-sentence)
-# Piper/eSpeak: streaming=False (local, instant, full response preferred)
-TTS_TOGGLE_DEFAULTS: dict[str, dict[str, bool]] = {
-    "xtts": {"autoplay": True, "streaming": True},
-    "moss": {"autoplay": True, "streaming": False},
-    "fishspeech": {"autoplay": True, "streaming": True},
-    "edge": {"autoplay": True, "streaming": True},
-    "piper": {"autoplay": True, "streaming": False},
-    "espeak": {"autoplay": True, "streaming": False},
-    "dashscope": {"autoplay": True, "streaming": True},
-}
-
+# Auto-Play ist bei jeder TTS-Engine standardmäßig an. Die Standard-Einheit der Sprachausgabe
+# (satzweise / absatzweise / am Stück) trägt die Engine selbst: TTSEngine.default_speech_unit.
+TTS_AUTOPLAY_DEFAULT = True
 # ============================================================
 # CONTEXT MANAGEMENT
 # ============================================================

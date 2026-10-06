@@ -16,7 +16,7 @@ import importlib
 from pathlib import Path
 from typing import Iterator, Protocol
 
-from .base import TTSEngine
+from .base import SPEECH_UNITS, TTSEngine
 
 
 def _discover_engines() -> dict[str, TTSEngine]:
@@ -60,6 +60,22 @@ def installed_gpu_engines() -> list[TTSEngine]:
     engines the user can actually calibrate against right now. Used by
     the calibration picker so we never show engines that aren't usable."""
     return [e for e in gpu_engines() if e.is_installed()]
+
+
+def speech_unit_for(engine_key: str) -> str:
+    """Einheit der Sprachausgabe für eine Engine: die Wahl des Users (Einstellungen,
+    ``tts_toggles_per_engine``) oder der Standard der Engine. SSOT für den Browser UND
+    jeden Kanal (Echo, …) — gilt systemweit, nicht pro Agent."""
+    from ..settings import load_settings
+
+    engine = get_engine(engine_key)
+    if engine is None:
+        raise ValueError(f"unknown TTS engine {engine_key!r}")
+    saved = ((load_settings() or {}).get("tts_toggles_per_engine", {}).get(engine_key, {})).get("unit")
+    unit = saved or engine.default_speech_unit
+    if unit not in SPEECH_UNITS:
+        raise ValueError(f"speech unit of {engine_key!r} must be one of {SPEECH_UNITS}, got {unit!r}")
+    return unit
 
 
 def channel_engine_options() -> list[tuple[str, str]]:
