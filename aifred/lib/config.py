@@ -1580,6 +1580,9 @@ OUTBOUND_ATTACHMENT_MAX_BYTES = int(os.environ.get("OUTBOUND_ATTACHMENT_MAX_BYTE
 # instead of cut: an announcement is read aloud, ~1200 characters are roughly
 # 80 s of speech. env-overridable.
 ANNOUNCE_MAX_CHARS = int(os.environ.get("ANNOUNCE_MAX_CHARS", "1200"))
+# Vor einer Ansage/einem Alarm hält der Server einen laufenden Strom per _pause am Puck an
+# und wartet so lange auf dessen Bestätigung; danach wird die Ansage verworfen (laut geloggt).
+FREEECHO2_PAUSE_ACK_TIMEOUT_SEC = float(os.environ.get("FREEECHO2_PAUSE_ACK_TIMEOUT_SEC", "3"))
 
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION

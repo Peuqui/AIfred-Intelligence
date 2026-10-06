@@ -680,12 +680,19 @@ Type-Wechsel ohne Stream-Reset.
 ### Tupel-Whitelist (strikt, FATAL bei Verletzung)
 
 ```
-(music                    )
-(speech                   )
-(tts                      )
-(alarm,        with_tts=B )
-(notification, with_tts=B, start_tone=B, end_tone=B )
+(music,        start_tone=B )
+(speech,       start_tone=B )
+(tts,          start_tone=B )
+(alarm,        start_tone=B )
+(notification, start_tone=B )
 ```
+
+**Protokoll v2:** Jeder Typ trägt im Flag `start_tone` (Pflicht-bool, Beginn-Ton am Puck);
+danach folgt IMMER `audio_start`, 0..n Chunks und `audio_end` mit `end_tone` (Pflicht-bool,
+Ende-Ton am Puck). `with_tts` entfällt: eine Ansage mit Sprache und eine Türklingel
+(Beginn-/Ende-Ton ohne Sprache) sind derselbe Ablauf, die Türklingel mit null Chunks.
+Ein Stopp oder Abbruch sendet `audio_end(end_tone=false)`. Ein Flag mitten im selben Strom
+(Typ-Wechsel) trägt `start_tone=false`; Ansage/Alarm kommen nie mitten im Strom.
 
 `speech` (Hörbuch/Podcast/Lesung, Voice-VU am Puck) ist ebenfalls erlaubt;
 server-seitig liegt die Whitelist in `_AUDIO_TYPE_SCHEMA` in `ws_bridge.py` und wird
@@ -708,10 +715,8 @@ Puck bleibt dumm.
 |---|---|---|
 | `music` | Server-mpv-FIFO → WS-Stream | Server pumpt |
 | `tts` | Server-TTS-Render → WS-Stream | Server pumpt |
-| `alarm` | FreeEcho.2-lokale WAV (UI-konfigurierbar) | Puck-lokal — kein Server-PCM, einmal abspielen |
-| `alarm` + `with_tts=true` | Lokale WAV + TTS-Tail-Stream | Puck spielt 1×, dann Server-TTS |
-| `notification` | FreeEcho.2-lokale WAV (UI-konfigurierbar) | Puck-lokal — kein Server-PCM, einmal abspielen |
-| `notification` + `with_tts=true` | Lokale WAV + TTS-Tail-Stream | Puck spielt 1×, dann Server-TTS |
+| `alarm` | Beginn-Ton `alarm_wav` (UI-konfigurierbar) + optional Server-TTS | Puck spielt den Ton, Server pumpt die Sprache (Puffer, 0..n Chunks) |
+| `notification` | Beginn-Ton `notification_wav`, Ende-Ton `notification_end_wav` + optional Server-TTS | Puck spielt die Töne, Server pumpt die Sprache; ohne Sprache = Türklingel |
 
 ### Frame-Sequenzen (final fixiert)
 
@@ -719,9 +724,16 @@ Puck bleibt dumm.
 |---|---|
 | Music | `audio_flag(music)` → `audio_start` → chunks → `audio_end` |
 | TTS standalone | `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
-| alarm ohne Tail | nur `audio_flag(alarm, with_tts=false)` — kein PCM, kein audio_end |
-| alarm mit Tail | `audio_flag(alarm, with_tts=true)` → `audio_flag(tts)` → `audio_start` → chunks → `audio_end` |
-| notification ohne/mit Tail | analog |
+| alarm / notification mit Sprache | `audio_flag(T, start_tone)` → `audio_start` → chunks → `audio_end(end_tone)` |
+| Türklingel (ohne Sprache) | `audio_flag(notification, start_tone=true)` → `audio_start(total_size=0)` → `audio_end(end_tone=true)` |
+| Ansage über laufender Musik/TTS | `wake(_pause)` → Bestätigung des Pucks abwarten → Ansage wie oben; danach KEIN `_resume` vom Server |
+
+**Pause vor Ansage/Alarm** (`AudioOrchestrator.pause_for_announcement`): Der Puck nimmt notification/alarm nur im Leerlauf
+oder in der Pause an. Läuft ein pausierbarer Strom (music/tts), schickt der Server
+`{"type":"wake","room":…,"agent":"_pause"}` und wartet (Timeout `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC`,
+Standard 3 s) auf die Bestätigung `{"wake","agent":"_pause","consumed_ms":N}`. Sie läuft wie ein gesprochenes
+„Bitte Pause“ durch den Command-Handler (Stream stoppen, Position speichern); „Bitte weiter“ lädt danach ab
+dieser Position neu. Ohne Bestätigung wird die Ansage verworfen und laut geloggt.
 
 **Kein TTS-Takeover mehr** (Konsens-Spec 2026-05-10): TTS während Music läuft
 ersetzt die Music-Source komplett. Music wird sauber gestoppt (mpv terminate,
@@ -766,8 +778,9 @@ Restart noch klingelt wäre Bug, nicht Feature).
 ```python
 async def play_music(stream)                        # Music-Stream registrieren
 async def play_tts(pcm_data)                        # TTS-Standalone (ersetzt Music)
-async def play_alarm(with_tts, tts_pcm=None)        # Puck-lokal + opt. TTS-Tail
-async def play_notification(with_tts, tts_pcm=None, *, start_tone, end_tone)  # Beginn-/Ende-Ton am Puck
+async def play_alarm(tts_pcm=None, *, start_tone, end_tone)         # Alarm-Ton + opt. Sprache
+async def play_notification(tts_pcm=None, *, start_tone, end_tone)  # Beginn-/Ende-Ton am Puck, ohne Sprache = Türklingel
+async def pause_for_announcement(timeout_sec)       # laufenden Strom per _pause am Puck anhalten (bestätigt)
 async def pause()                                   # type-aware
 async def resume()
 async def stop()                                    # alles verwerfen

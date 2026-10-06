@@ -22,76 +22,37 @@ def run(coro):
 
 # ── Whitelist-Validation (synchron) ──────────────────────────────────
 
+ALL_TYPES = ("music", "speech", "tts", "alarm", "notification")
+
+
 class TestValidateAudioFlag:
-    def test_music_no_params_ok(self):
-        FreeEchoChannel._validate_audio_flag("music", {})
-
-    def test_tts_no_params_ok(self):
-        FreeEchoChannel._validate_audio_flag("tts", {})
-
-    def test_alarm_complete_ok(self):
-        FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": False})
-
-    def test_notification_complete_ok(self):
-        FreeEchoChannel._validate_audio_flag(
-            "notification", {"with_tts": True, "start_tone": True, "end_tone": False},
-        )
-
-    def test_alarm_with_tts_true_ok(self):
-        FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": True})
+    @pytest.mark.parametrize("audio_type", ALL_TYPES)
+    @pytest.mark.parametrize("start_tone", [True, False])
+    def test_every_type_takes_start_tone(self, audio_type, start_tone):
+        FreeEchoChannel._validate_audio_flag(audio_type, {"start_tone": start_tone})
 
     def test_unknown_audio_type_raises(self):
         with pytest.raises(ValueError, match="unknown audio_type"):
-            FreeEchoChannel._validate_audio_flag("nonsense", {})
+            FreeEchoChannel._validate_audio_flag("nonsense", {"start_tone": True})
 
-    def test_music_with_extra_field_raises(self):
-        with pytest.raises(ValueError, match="unexpected fields"):
-            FreeEchoChannel._validate_audio_flag("music", {"with_tts": True})
-
-    def test_alarm_extra_repeats_raises(self):
-        # Vereinfachte Spec: repeats ist KEIN Feld mehr, Server loopt
-        # play_alarm() falls aufdringlicher Wecker gewünscht.
-        with pytest.raises(ValueError, match="unexpected fields"):
-            FreeEchoChannel._validate_audio_flag(
-                "alarm", {"with_tts": False, "repeats": 3}
-            )
-
-    def test_alarm_missing_with_tts_raises(self):
+    @pytest.mark.parametrize("audio_type", ALL_TYPES)
+    def test_missing_start_tone_raises(self, audio_type):
         with pytest.raises(ValueError, match="missing required fields"):
-            FreeEchoChannel._validate_audio_flag("alarm", {})
+            FreeEchoChannel._validate_audio_flag(audio_type, {})
 
-    def test_notification_missing_with_tts_raises(self):
-        with pytest.raises(ValueError, match="missing required fields"):
-            FreeEchoChannel._validate_audio_flag("notification", {})
-
-    def test_notification_without_tones_raises(self):
-        # Seit der Firmware mit Beginn-/Ende-Ton sind beide Töne Pflicht
-        with pytest.raises(ValueError, match="missing required fields"):
-            FreeEchoChannel._validate_audio_flag("notification", {"with_tts": True})
-
-    def test_tone_must_be_bool(self):
-        with pytest.raises(ValueError, match="end_tone must be bool"):
-            FreeEchoChannel._validate_audio_flag(
-                "notification", {"with_tts": True, "start_tone": True, "end_tone": "yes"}
-            )
-
-    def test_alarm_with_tone_raises(self):
+    @pytest.mark.parametrize("field", ["with_tts", "end_tone", "repeats"])
+    def test_other_fields_raise(self, field):
+        # with_tts entfällt (Protokoll v2), end_tone gehört ins audio_end
         with pytest.raises(ValueError, match="unexpected fields"):
             FreeEchoChannel._validate_audio_flag(
-                "alarm", {"with_tts": False, "start_tone": True}
+                "alarm", {"start_tone": True, field: True},
             )
 
-    def test_alarm_with_tts_string_raises(self):
-        with pytest.raises(ValueError, match="with_tts must be bool"):
-            FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": "yes"})
-
-    def test_with_tts_int_raises(self):
-        # bool ist subclass von int in Python — wir wollen aber strikt
-        # bool, kein int-Aliasing (1/0 als with_tts ist ungültig).
-        with pytest.raises(ValueError, match="with_tts must be bool"):
-            FreeEchoChannel._validate_audio_flag(
-                "notification", {"with_tts": 1, "start_tone": True, "end_tone": True}
-            )
+    @pytest.mark.parametrize("bad", [1, 0, "yes", None])
+    def test_start_tone_must_be_strict_bool(self, bad):
+        # bool ist subclass von int in Python — wir wollen aber strikt bool
+        with pytest.raises(ValueError, match="start_tone must be bool"):
+            FreeEchoChannel._validate_audio_flag("notification", {"start_tone": bad})
 
 
 # ── JSON-Frame-Struktur (mock ws, async via run()) ──────────────────
@@ -120,52 +81,33 @@ def _all_jsons(ws):
 
 
 class TestSendAudioFlag:
-    def test_music(self, room):
+    @pytest.mark.parametrize("audio_type", ALL_TYPES)
+    def test_frame_per_type(self, room, audio_type):
         rid, ws = room
         ch = FreeEchoChannel()
-        assert run(ch.send_audio_flag(rid, "music")) is True
-        assert _last_json(ws) == {"type": "audio_flag", "audio_type": "music"}
-
-    def test_tts(self, room):
-        rid, ws = room
-        ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "tts"))
-        assert _last_json(ws) == {"type": "audio_flag", "audio_type": "tts"}
-
-    def test_alarm(self, room):
-        rid, ws = room
-        ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "alarm", with_tts=False))
+        assert run(ch.send_audio_flag(rid, audio_type, start_tone=True)) is True
         assert _last_json(ws) == {
-            "type": "audio_flag",
-            "audio_type": "alarm",
-            "with_tts": False,
+            "type": "audio_flag", "audio_type": audio_type, "start_tone": True,
         }
 
-    def test_notification(self, room):
+    def test_start_tone_false(self, room):
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(
-            rid, "notification", with_tts=True, start_tone=True, end_tone=True,
-        ))
-        assert _last_json(ws) == {
-            "type": "audio_flag",
-            "audio_type": "notification",
-            "with_tts": True,
-            "start_tone": True,
-            "end_tone": True,
-        }
+        run(ch.send_audio_flag(rid, "music", start_tone=False))
+        assert _last_json(ws)["start_tone"] is False
 
     def test_invalid_raises_before_wire(self, room):
         rid, ws = room
         ch = FreeEchoChannel()
         with pytest.raises(ValueError):
-            run(ch.send_audio_flag(rid, "nonsense"))
+            run(ch.send_audio_flag(rid, "nonsense", start_tone=True))
+        with pytest.raises(ValueError):
+            run(ch.send_audio_flag(rid, "music"))   # start_tone fehlt
         ws.send_str.assert_not_awaited()
 
     def test_no_room_returns_false(self):
         ch = FreeEchoChannel()
-        assert run(ch.send_audio_flag("no-such-room", "music")) is False
+        assert run(ch.send_audio_flag("no-such-room", "music", start_tone=False)) is False
 
 
 class TestSendAudioStart:
@@ -190,83 +132,125 @@ class TestSendAudioStart:
 
 
 class TestSendAudioEnd:
-    def test_frame(self, room):
+    @pytest.mark.parametrize("end_tone", [True, False])
+    def test_frame(self, room, end_tone):
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_end(rid))
-        assert _last_json(ws) == {"type": "audio_end"}
+        run(ch.send_audio_end(rid, end_tone=end_tone))
+        assert _last_json(ws) == {"type": "audio_end", "end_tone": end_tone}
+
+    def test_end_tone_is_required(self, room):
+        rid, ws = room
+        ch = FreeEchoChannel()
+        with pytest.raises(TypeError):
+            run(ch.send_audio_end(rid))
+        ws.send_str.assert_not_awaited()
+
+    @pytest.mark.parametrize("bad", [1, "yes", None])
+    def test_end_tone_must_be_strict_bool(self, room, bad):
+        rid, ws = room
+        ch = FreeEchoChannel()
+        with pytest.raises(ValueError, match="end_tone must be bool"):
+            run(ch.send_audio_end(rid, end_tone=bad))
+        ws.send_str.assert_not_awaited()
 
 
 # ── Frame-Sequenzen pro Use-Case (Spec-Tabelle aus der Doku) ────────
 
 class TestFrameSequences:
     def test_music(self, room):
-        # Spec: audio_flag(music) -> audio_start -> chunks -> audio_end
+        # Spec v2: audio_flag(music) -> audio_start -> chunks -> audio_end
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "music"))
+        run(ch.send_audio_flag(rid, "music", start_tone=False))
         run(ch.send_audio_start(rid))
         run(ch.send_audio_chunk(rid, b"\x00" * 100))
-        run(ch.send_audio_end(rid))
+        run(ch.send_audio_end(rid, end_tone=False))
         types = [f["type"] for f in _all_jsons(ws)]
         assert types == ["audio_flag", "audio_start", "audio_end"]
         assert ws.send_bytes.await_count == 1
 
     def test_tts_standalone(self, room):
-        # Spec: audio_flag(tts) -> audio_start(total_size) -> chunks -> audio_end
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "tts"))
+        run(ch.send_audio_flag(rid, "tts", start_tone=False))
         run(ch.send_audio_start(rid, total_size=500))
         run(ch.send_audio_chunk(rid, b"\x00" * 500))
-        run(ch.send_audio_end(rid))
+        run(ch.send_audio_end(rid, end_tone=False))
         frames = _all_jsons(ws)
         assert [f["type"] for f in frames] == [
             "audio_flag", "audio_start", "audio_end",
         ]
         assert frames[1]["total_size"] == 500
 
-    def test_alarm_no_tail(self, room):
-        # Spec: nur audio_flag(alarm,with_tts=false), kein PCM, kein audio_end
+    def test_notification_with_speech(self, room):
+        # Ansage: ein Strom, Beginn-Ton, Sprache, Ende-Ton — GENAU EIN audio_end
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "alarm", with_tts=False))
-        assert ws.send_str.await_count == 1
-        assert ws.send_bytes.await_count == 0
-
-    def test_alarm_with_tail(self, room):
-        # Spec: audio_flag(alarm,with_tts=true) -> audio_flag(tts) ->
-        #       audio_start -> chunks -> audio_end
-        # Wichtig: GENAU EIN audio_end am Ende, nicht zwischen Phasen.
-        rid, ws = room
-        ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "alarm", with_tts=True))
-        run(ch.send_audio_flag(rid, "tts"))
+        run(ch.send_audio_flag(rid, "notification", start_tone=True))
         run(ch.send_audio_start(rid, total_size=500))
         run(ch.send_audio_chunk(rid, b"\x00" * 500))
-        run(ch.send_audio_end(rid))
-        types = [f["type"] for f in _all_jsons(ws)]
-        assert types == ["audio_flag", "audio_flag", "audio_start", "audio_end"]
+        run(ch.send_audio_end(rid, end_tone=True))
+        frames = _all_jsons(ws)
+        assert [f["type"] for f in frames] == ["audio_flag", "audio_start", "audio_end"]
+        assert frames[0]["start_tone"] is True and frames[2]["end_tone"] is True
 
-    def test_notification_no_tail(self, room):
+    def test_doorbell_is_a_stream_without_chunks(self, room):
+        # Türklingel: Beginn- und Ende-Ton ohne Sprache = null Chunks, keine Sonderfälle
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(
-            rid, "notification", with_tts=False, start_tone=True, end_tone=True,
-        ))
-        assert ws.send_str.await_count == 1
+        run(ch.send_audio_flag(rid, "notification", start_tone=True))
+        run(ch.send_audio_start(rid, total_size=0))
+        run(ch.send_audio_end(rid, end_tone=True))
+        assert [f["type"] for f in _all_jsons(ws)] == [
+            "audio_flag", "audio_start", "audio_end",
+        ]
         assert ws.send_bytes.await_count == 0
 
     def test_type_switch_mid_stream(self, room):
-        # Spec: mid-stream Type-Switch -> nur audio_flag(neuer_type),
+        # Spec: mid-stream Type-Switch -> nur audio_flag(neuer_type, start_tone=false),
         # kein neuer audio_start, gleiche Source bleibt.
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "music"))
+        run(ch.send_audio_flag(rid, "music", start_tone=False))
         run(ch.send_audio_start(rid))
         run(ch.send_audio_chunk(rid, b"\x00" * 100))
-        run(ch.send_audio_flag(rid, "tts"))   # Switch ohne neuen audio_start
+        run(ch.send_audio_flag(rid, "tts", start_tone=False))   # Switch ohne neuen audio_start
         run(ch.send_audio_chunk(rid, b"\x00" * 100))
-        run(ch.send_audio_end(rid))
+        run(ch.send_audio_end(rid, end_tone=False))
         types = [f["type"] for f in _all_jsons(ws)]
         assert types == ["audio_flag", "audio_start", "audio_flag", "audio_end"]
+
+
+# ── Server-initiierte Pause vor einer Ansage ─────────────────────────
+
+class TestPauseStream:
+    def test_sends_pause_and_waits_for_ack(self, room):
+        from aifred.plugins.channels.freeecho2_channel._shared import signal_pause_ack
+        rid, ws = room
+        ch = FreeEchoChannel()
+
+        async def go():
+            task = asyncio.create_task(ch.pause_stream(rid, timeout_sec=2.0))
+            await asyncio.sleep(0.05)
+            assert not task.done(), "must wait for the puck's acknowledgement"
+            assert _last_json(ws) == {"type": "wake", "room": rid, "agent": "_pause"}
+            signal_pause_ack(rid)
+            await task
+
+        run(go())
+
+    def test_missing_ack_raises(self, room):
+        rid, ws = room
+        ch = FreeEchoChannel()
+        with pytest.raises(TimeoutError, match="did not acknowledge"):
+            run(ch.pause_stream(rid, timeout_sec=0.1))
+
+    def test_no_room_raises(self):
+        ch = FreeEchoChannel()
+        with pytest.raises(ConnectionError):
+            run(ch.pause_stream("no-such-room", timeout_sec=0.1))
+
+    def test_ack_without_pending_pause_is_ignored(self):
+        from aifred.plugins.channels.freeecho2_channel._shared import signal_pause_ack
+        signal_pause_ack("test-room")   # ein gesprochenes „Bitte Pause“: darf nichts auslösen

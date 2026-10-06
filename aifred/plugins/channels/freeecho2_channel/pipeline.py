@@ -243,7 +243,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                         else None
                     )
                     if orc is not None:
-                        await orc.play_notification(with_tts=False, start_tone=True, end_tone=False)
+                        await orc.play_notification(None, start_tone=True, end_tone=False)
                 except Exception as e:  # noqa: BLE001
                     self.channel_log(
                         f"[FreeEcho.2 {room}] calibration-gate notification failed: {e}",

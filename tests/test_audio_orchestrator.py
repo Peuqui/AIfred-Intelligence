@@ -72,6 +72,7 @@ def bridge():
     b.send_audio_start = AsyncMock(return_value=True)
     b.send_audio_chunk = AsyncMock(return_value=True)
     b.send_audio_end = AsyncMock(return_value=True)
+    b.pause_stream = AsyncMock(return_value=None)
     return b
 
 
@@ -109,9 +110,9 @@ class TestPlayTTS:
         orc = AudioOrchestrator("room1", bridge)
         run(orc.play_tts(b"\xab" * 1000))
 
-        # audio_flag(tts) wurde gesendet
+        # audio_flag(tts) ohne Beginn-Ton wurde gesendet
         flags = _flag_calls(bridge)
-        assert ("tts", {}) in flags
+        assert ("tts", {"start_tone": False}) in flags
 
         # audio_start mit total_size
         start_call = bridge.send_audio_start.await_args_list[0]
@@ -120,6 +121,8 @@ class TestPlayTTS:
         # Mindestens ein chunk + audio_end am Ende
         assert bridge.send_audio_chunk.await_count >= 1
         assert bridge.send_audio_end.await_count == 1
+        # TTS-Antwort ohne Ende-Ton
+        assert bridge.send_audio_end.await_args.kwargs == {"end_tone": False}
 
         # Nach komplettem Pump → IDLE (active_type clears in pump-finally)
         assert orc.is_idle is True
@@ -135,92 +138,147 @@ class TestPlayTTS:
 
 
 class TestPlayAlarm:
-    def test_no_tail_only_flag(self, bridge):
+    def test_without_speech_is_a_stream_without_chunks(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_alarm(with_tts=False))
+        run(orc.play_alarm(None, start_tone=True, end_tone=False))
 
-        assert orc.active_type == "alarm"
-        flags = _flag_calls(bridge)
-        # Genau 1 audio_flag mit alarm-Tupel (vereinfachte Spec: nur with_tts)
-        assert flags == [("alarm", {"with_tts": False})]
-        # Kein audio_start, kein chunk, kein audio_end
-        bridge.send_audio_start.assert_not_awaited()
+        # Protokoll v2: auch ein Alarm ohne Sprache ist Flag → audio_start → audio_end
+        assert _flag_calls(bridge) == [("alarm", {"start_tone": True})]
+        assert bridge.send_audio_start.await_args.kwargs == {"total_size": 0}
         bridge.send_audio_chunk.assert_not_awaited()
-        bridge.send_audio_end.assert_not_awaited()
+        assert bridge.send_audio_end.await_args.kwargs == {"end_tone": False}
+        assert orc.is_idle is True
 
-    def test_with_tail_sends_alarm_then_tts(self, bridge):
+    def test_with_speech_is_one_stream(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        tts_pcm = b"\x00" * 500
-        run(orc.play_alarm(with_tts=True, tts_pcm=tts_pcm))
+        run(orc.play_alarm(b"\x00" * 500, start_tone=True, end_tone=False))
 
-        async def _wait_for_pump():
-            for _ in range(50):
-                if bridge.send_audio_end.await_count > 0:
-                    return
-                await asyncio.sleep(0.01)
-        run(_wait_for_pump())
-
-        # Spec-Sequenz: audio_flag(alarm,with_tts=true) → audio_flag(tts) →
-        #               audio_start → chunks → audio_end
-        flags = _flag_calls(bridge)
-        assert flags == [
-            ("alarm", {"with_tts": True}),
-            ("tts", {}),
-        ]
+        # EIN Flag (kein zweites audio_flag(tts)), ein Start, Chunks, EIN audio_end
+        assert _flag_calls(bridge) == [("alarm", {"start_tone": True})]
         bridge.send_audio_start.assert_awaited_once()
+        assert bridge.send_audio_start.await_args.kwargs == {"total_size": 500}
         assert bridge.send_audio_chunk.await_count >= 1
-        # Genau EIN audio_end am Ende der Gesamt-Sequenz
         assert bridge.send_audio_end.await_count == 1
 
 
 class TestPlayNotification:
-    def test_no_tail(self, bridge):
+    def test_doorbell_is_a_stream_without_chunks(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_notification(with_tts=False, start_tone=True, end_tone=True))
-        assert _flag_calls(bridge) == [
-            ("notification", {"with_tts": False, "start_tone": True, "end_tone": True}),
-        ]
-        bridge.send_audio_start.assert_not_awaited()
+        run(orc.play_notification(None, start_tone=True, end_tone=True))
 
-    def test_with_tail(self, bridge):
+        # Türklingel: Beginn- und Ende-Ton ohne Sprache, keine Sonderfälle
+        assert _flag_calls(bridge) == [("notification", {"start_tone": True})]
+        assert bridge.send_audio_start.await_args.kwargs == {"total_size": 0}
+        bridge.send_audio_chunk.assert_not_awaited()
+        assert bridge.send_audio_end.await_args.kwargs == {"end_tone": True}
+        assert orc.is_idle is True
+
+    @pytest.mark.parametrize(("start_tone", "end_tone"), [
+        (True, True), (True, False), (False, True), (False, False),
+    ])
+    def test_tones_reach_flag_and_end(self, bridge, start_tone, end_tone):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_notification(
-            with_tts=True, tts_pcm=b"\x00" * 100, start_tone=True, end_tone=False,
-        ))
+        run(orc.play_notification(b"\x00" * 100, start_tone=start_tone, end_tone=end_tone))
 
-        async def _wait_for_pump():
-            for _ in range(50):
-                if bridge.send_audio_end.await_count > 0:
-                    return
-                await asyncio.sleep(0.01)
-        run(_wait_for_pump())
-
-        flags = _flag_calls(bridge)
-        assert flags == [
-            ("notification", {"with_tts": True, "start_tone": True, "end_tone": False}),
-            ("tts", {}),
-        ]
+        assert _flag_calls(bridge) == [("notification", {"start_tone": start_tone})]
         bridge.send_audio_start.assert_awaited_once()
+        assert bridge.send_audio_end.await_count == 1
+        assert bridge.send_audio_end.await_args.kwargs == {"end_tone": end_tone}
+
+    def test_tones_are_required(self, bridge):
+        orc = AudioOrchestrator("room1", bridge)
+        with pytest.raises(TypeError):
+            run(orc.play_notification(b"\x00" * 10))
+
+
+class TestPumpAbort:
+    def test_failed_chunk_closes_the_stream_without_end_tone(self, bridge):
+        bridge.send_audio_chunk.return_value = False
+        orc = AudioOrchestrator("room1", bridge)
+        run(orc.play_notification(b"\x00" * 100, start_tone=True, end_tone=True))
+
+        # Server gibt nach dem Sende-Fehler auf: Strom sauber zu, KEIN Ende-Ton
+        assert bridge.send_audio_end.await_count == 1
+        assert bridge.send_audio_end.await_args.kwargs == {"end_tone": False}
+
+
+class TestPauseForAnnouncement:
+    def _music_orc(self, bridge):
+        stream = MagicMock()
+        stream.pause = AsyncMock(return_value=True)
+        stream.stop = AsyncMock(return_value=True)
+        orc = AudioOrchestrator("room1", bridge)
+        run(orc.play_music(stream))
+        return orc
+
+    def test_running_music_is_paused_and_acknowledged(self, bridge):
+        orc = self._music_orc(bridge)
+        run(orc.pause_for_announcement(3.0))
+        bridge.pause_stream.assert_awaited_once_with("room1", 3.0)
+
+    def test_idle_needs_no_pause(self, bridge):
+        orc = AudioOrchestrator("room1", bridge)
+        run(orc.pause_for_announcement(3.0))
+        bridge.pause_stream.assert_not_awaited()
+
+    def test_already_paused_needs_no_pause(self, bridge):
+        orc = self._music_orc(bridge)
+        run(orc.pause())
+        run(orc.pause_for_announcement(3.0))
+        bridge.pause_stream.assert_not_awaited()
+
+    def test_running_tts_is_paused(self, bridge):
+        async def slow_chunk(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            return True
+        bridge.send_audio_chunk.side_effect = slow_chunk
+        orc = AudioOrchestrator("room1", bridge)
+        pcm = b"\x00" * (TTSBuffer.CHUNK_SIZE * 5)
+
+        async def scenario():
+            play = asyncio.create_task(orc.play_tts(pcm))
+            await asyncio.sleep(0.005)
+            await orc.pause_for_announcement(3.0)
+            play.cancel()
+            await asyncio.gather(play, return_exceptions=True)
+
+        run(scenario())
+        bridge.pause_stream.assert_awaited_once_with("room1", 3.0)
+
+    def test_missing_acknowledgement_propagates(self, bridge):
+        bridge.pause_stream.side_effect = TimeoutError("no ack")
+        orc = self._music_orc(bridge)
+        with pytest.raises(TimeoutError):
+            run(orc.pause_for_announcement(3.0))
 
 
 # ── Pause / Resume / Stop Type-Awareness ─────────────────────────────
 
 class TestPauseSemantics:
-    def test_pause_alarm_is_stop(self, bridge):
-        # alarm/notification = transient → pause = stop
+    @pytest.mark.parametrize("audio_type", ["alarm", "notification"])
+    def test_pause_transient_is_stop(self, bridge, audio_type):
+        # alarm/notification = transient → pause = stop (Stream läuft: Sprache)
+        async def slow_chunk(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            return True
+        bridge.send_audio_chunk.side_effect = slow_chunk
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_alarm(with_tts=False))
-        assert orc.active_type == "alarm"
+        play = orc.play_alarm if audio_type == "alarm" else orc.play_notification
+        pcm = b"\x00" * (TTSBuffer.CHUNK_SIZE * 5)
 
-        run(orc.pause())
-        assert orc.is_idle is True
-        assert orc.is_paused is False  # NICHT paused — wirklich gestoppt
+        async def scenario():
+            task = asyncio.create_task(play(pcm, start_tone=True, end_tone=True))
+            await asyncio.sleep(0.005)
+            assert orc.active_type == audio_type
+            await orc.pause()
+            await task
+            return orc.is_idle, orc.is_paused
 
-    def test_pause_notification_is_stop(self, bridge):
-        orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_notification(with_tts=False, start_tone=True, end_tone=False))
-        run(orc.pause())
-        assert orc.is_idle is True
+        is_idle, is_paused = run(scenario())
+        assert is_idle is True
+        assert is_paused is False  # NICHT paused — wirklich gestoppt
+        # Abbruch: audio_end ohne Ende-Ton
+        assert bridge.send_audio_end.await_args.kwargs == {"end_tone": False}
 
     def test_pause_tts_is_real_pause(self, bridge):
         # play_tts ist synchron (wartet auf pump-Ende) — pause muss
@@ -279,10 +337,22 @@ class TestPauseSemantics:
 
 class TestStop:
     def test_stop_alarm(self, bridge):
+        async def slow_chunk(*args, **kwargs):
+            await asyncio.sleep(0.01)
+            return True
+        bridge.send_audio_chunk.side_effect = slow_chunk
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_alarm(with_tts=False))
-        run(orc.stop())
+        pcm = b"\x00" * (TTSBuffer.CHUNK_SIZE * 5)
+
+        async def scenario():
+            task = asyncio.create_task(orc.play_alarm(pcm, start_tone=True, end_tone=False))
+            await asyncio.sleep(0.005)
+            assert await orc.stop() is True
+            await task
+
+        run(scenario())
         assert orc.is_idle is True
+        assert bridge.send_audio_end.await_args.kwargs == {"end_tone": False}
 
     def test_stop_tts_sends_audio_end(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
@@ -302,7 +372,7 @@ class TestStop:
 class TestTypeSwitch:
     def test_alarm_then_tts_resets_alarm(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_alarm(with_tts=False))
+        run(orc.play_alarm(None, start_tone=True, end_tone=False))
         run(orc.play_tts(b"\x00" * 100))
 
         # Erst war alarm aktiv, jetzt tts

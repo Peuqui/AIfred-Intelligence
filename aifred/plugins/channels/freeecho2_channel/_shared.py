@@ -67,6 +67,18 @@ def _required_auth_token() -> str:
 # directly after wake detection, and a new wake overwrites or clears this.
 _pending_wake_agent: dict[str, str] = {}
 
+# Offene server-initiierte Pausen pro Room: der Puck bestätigt ein {"wake","_pause"} mit
+# demselben Frame; commands.py löst das Future auf, sobald die Pause serverseitig
+# verarbeitet ist (Stream gestoppt, Position gespeichert).
+_pause_acks: "dict[str, asyncio.Future[None]]" = {}
+
+
+def signal_pause_ack(room: str) -> None:
+    """Die Bestätigung einer server-initiierten Pause ist verarbeitet."""
+    future = _pause_acks.get(room)
+    if future is not None and not future.done():
+        future.set_result(None)
+
 # Aktive Audio-Pipeline-Task pro Room. Der WebSocket-Reader startet
 # _handle_audio() als Background-Task und legt die Referenz hier ab, sodass
 # der Reader weiterhin Text-Frames (insbesondere "wake _stop") empfangen kann

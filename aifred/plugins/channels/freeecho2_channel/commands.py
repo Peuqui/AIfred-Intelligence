@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any
 from ....lib.formatting import format_clock, format_number
 from ....lib.plugin_base import BaseChannel
 
-from ._shared import _pending_wake_agent, _pipeline_tasks
+from ._shared import _pending_wake_agent, _pipeline_tasks, signal_pause_ack
 from .alert_queue import signal_playback_done
 
 if TYPE_CHECKING:
@@ -105,6 +105,9 @@ class CommandsMixin(BaseChannel):
                     self._override_position_with_consumed_ms(
                         room, consumed_ms, stream_offset_sec=stream_offset,
                     )
+                    if wake_agent == "_pause":
+                        # Bestätigung einer server-initiierten Pause (vor einer Ansage)
+                        signal_pause_ack(room)
                     await ws.send_str(json.dumps({"type": "status", "message": "ready"}))
                     return
 
