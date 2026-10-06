@@ -22,6 +22,7 @@ from ....lib.formatting import format_number
 
 from ._shared import _pending_wake_agent
 from .tts_reply import TtsReplyMixin
+from .voice_routes import forward_voice, load_voice_routes
 from .ws_bridge import WsBridgeMixin
 
 if TYPE_CHECKING:
@@ -158,6 +159,13 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
 
                 self.channel_log(f"[FreeEcho.2 {room}] STT ({_fe2_time.monotonic()-_fe2_t0:.1f}s): {text}")
 
+                # Sprach-Weiche: dieses Wake-Wort gehört einem externen Dienst (z. B. Agent-Orc),
+                # nicht AIfreds LLM-Pipeline. Die Runde am Puck schließt die Weiche selbst.
+                voice_route = load_voice_routes().get(wake_agent) if wake_agent else None
+                if voice_route is not None:
+                    await self._route_voice(room, str(wake_agent), voice_route, text)
+                    return
+
                 # Flush user question to session immediately so browser shows it
                 # BEFORE TTS setup (which can take 25s+) and LLM inference.
                 # Uses the same SSOT function as process_inbound.
@@ -280,6 +288,34 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                     release_tts(_engine)
             if wav_path:
                 Path(wav_path).unlink(missing_ok=True)
+
+    async def _route_voice(
+        self, room: str, route_name: str, route: dict, text: str,
+    ) -> None:
+        """Die erkannte Äußerung an die Route schicken, den Austausch in die Session
+        schreiben (Chat- UND LLM-History) und die Runde am Puck schließen. Bei Fehler laut
+        loggen und mit ``route_failed`` schließen — KEIN Rückfall in die LLM-Pipeline (sie
+        würde eine Frage beantworten, die für jemand anderen gedacht war)."""
+        from ....lib.message_processor import record_routed_voice_turn
+
+        try:
+            outcome = await forward_voice(route, room, text)
+        except Exception as exc:  # noqa: BLE001 — jeder Fehler endet im Log + route_failed
+            self.channel_log(
+                f"[FreeEcho.2 {room}] voice route '{route_name}' failed: {exc!r}", "error",
+            )
+            record_routed_voice_turn(
+                "freeecho2", room, sender=room, text=text, route_name=route_name,
+                outcome=f"failed ({type(exc).__name__}: {exc})",
+            )
+            await self.send_done(room, reason="route_failed")
+            return
+        self.channel_log(f"[FreeEcho.2 {room}] voice routed to '{route_name}': {outcome}")
+        record_routed_voice_turn(
+            "freeecho2", room, sender=room, text=text, route_name=route_name,
+            outcome=f"{outcome.get('action')} ({outcome.get('agent')})",
+        )
+        await self.send_done(room, reason=f"routed_to_{route_name}")
 
     async def _run_stt(self, wav_path: str) -> str:
         """Run Speech-to-Text via Whisper Docker service.

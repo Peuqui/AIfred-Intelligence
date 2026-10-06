@@ -227,6 +227,23 @@ aber für den Message Hub ist erstmal nur der Hauptnutzer relevant.
 
 ---
 
+## Sprach-Weichen (FreeEcho.2)
+
+Ein Wake-Wort kann statt zur LLM-Pipeline zu einem externen Dienst führen (z. B. „Hey Orc“ →
+Agent-Orc). `voice_routes.json` im FreeEcho.2-Plugin (maschinenlokal, Vorlage
+`voice_routes.example.json`) ordnet den Agentennamen aus dem Wake-Frame einem Ziel zu
+(`url`, `token_file`, `timeout_seconds`). Nach der Spracherkennung schickt `_route_voice`
+`{room, text}` (der Text NACH dem Wake-Wort) per `POST` mit Bearer-Token aus der Token-Datei und schließt
+die Runde am Puck mit `done` (`reason=routed_to_<name>`). Bei jedem Fehler: laut loggen,
+`reason=route_failed`, KEIN Rückfall in die LLM-Pipeline.
+
+Der Austausch wird wie bei den anderen Kanälen in der Sitzung des Raums dokumentiert
+(`message_processor.record_routed_voice_turn`): Chat-History (wer hat was gesagt, wohin ging es,
+was kam zurück) UND llm_history (Nutzer-Nachricht im External-Message-Rahmen, Ergebnis als autonomes
+Ereignis). Ansagen über `POST /api/audio/announce` landen über `record_autonomous_turn` in derselben Sitzung.
+
+---
+
 ## Design-Prinzipien
 
 - Envelope-Normalisierung (InboundMessage/OutboundMessage)

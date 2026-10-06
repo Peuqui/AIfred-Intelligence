@@ -1,0 +1,7 @@
+{
+  "orc": {
+    "url": "http://127.0.0.1:8770/api/voice",
+    "token_file": "~/.config/agent-orc/voice-token",
+    "timeout_seconds": 10
+  }
+}
