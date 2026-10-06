@@ -176,10 +176,19 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
 
 - Auth: `Authorization: Bearer <ANNOUNCE_API_TOKEN>` (`.env`), fail-closed (503 ohne
   Token, 403 bei falschem). Pfad ist von der Login-Cookie-Pflicht ausgenommen.
-- Body `{"room": "...", "text": "..."}`; `room` = Raumname, `@gruppe` oder `*`.
+- Body `{"room": "...", "text": "..."}` ODER `{"room": "...", "texts": ["Absatz", ...],
+  "pause_ms": 1000, "speaker": "Whisper"}`; `room` = Raumname, `@gruppe` oder `*`.
+  `texts` = mehrere Absätze als EINE Ansage (ein Ding vorn, ein Dong hinten — die Töne entscheidet
+  das Echo-Plugin nach Regel, ohne LLM und ohne Flags vom Aufrufer; `pause_ms` = Stille zwischen
+  den Absätzen); `speaker` nur für die Sitzungs-Historie.
   `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.
-- 404 bei unbekanntem/nicht verbundenem Raum, 413 bei Text über `ANNOUNCE_MAX_CHARS`
-  (Standard 1200, kein stilles Kürzen). Chime fest `notification`, nie `alarm`; Beginn- und Ende-Ton
+- Satzweises Streaming (SSOT der Satzaufteilung: `audio_processing.split_text_for_streaming_tts`):
+  der erste Satz wird erzeugt und läuft los, die übrigen entstehen währenddessen; braucht ein Segment
+  länger als `FREEECHO2_KEEPALIVE_SEC` (10 s), hält ein 20-ms-Stille-Chunk den Strom offen
+  (das 30-s-Inaktivitäts-Timeout des Pucks löst nie aus, er ist die einzige Erkennung einer toten
+  Verbindung). Jede Ansage wird in der Sitzung des Raums dokumentiert (`record_autonomous_turn`).
+- 404 bei unbekanntem/nicht verbundenem Raum, 413 bei Text über `ANNOUNCE_MAX_CHARS` je Eintrag
+  (Standard 1200) oder `ANNOUNCE_MAX_TOTAL_CHARS` insgesamt (Standard 4000), kein stilles Kürzen. Chime fest `notification`, nie `alarm`; Beginn- und Ende-Ton
   spielt der Puck selbst (Protokoll v2: `audio_flag(…, start_tone)` und `audio_end(end_tone)`, Slots
   `notification_wav` / `notification_end_wav` in der Puck-Oberfläche). Läuft Musik/Hörbuch/TTS, hält der Server
   sie vor der Ansage per `_pause` am Puck an und wartet auf die Bestätigung (sonst wird die Ansage verworfen).

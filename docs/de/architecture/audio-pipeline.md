@@ -728,6 +728,16 @@ Puck bleibt dumm.
 | Türklingel (ohne Sprache) | `audio_flag(notification, start_tone=true)` → `audio_start(total_size=0)` → `audio_end(end_tone=true)` |
 | Ansage über laufender Musik/TTS | `wake(_pause)` → Bestätigung des Pucks abwarten → Ansage wie oben; danach KEIN `_resume` vom Server |
 
+**Satzweises Streaming** (Ansagen und Antworten über `TtsReplyMixin`): Der Text wird mit
+`split_text_for_streaming_tts` (dieselbe Satzerkennung wie beim Browser-Streaming) in Sätze zerlegt;
+der erste Satz wird erzeugt und läuft los, ein Erzeuger-Task hängt die übrigen an einen wachsenden
+`TTSBuffer` (thread-sicher, `total_size` im `audio_start` ist dann unbekannt). Ansagen mit mehreren
+Absätzen (`texts`) sind EIN Strom: Stille zwischen den Absätzen = echte Null-Samples. Ist das nächste
+Segment nicht rechtzeitig fertig, sendet die Pumpe alle `FREEECHO2_KEEPALIVE_SEC` (10 s) einen
+20-ms-Stille-Chunk: Der Puck beendet einen Strom ohne Chunk nach 30 s (Notification/Alarm/TTS) bzw. 60 s
+(Musik) — das Timeout ist im Strom die einzige Erkennung einer still gestorbenen Verbindung und
+bleibt deshalb bestehen. Scheitert ein späterer Satz, schließt der Server den Strom mit `audio_end(end_tone=false)`.
+
 **Pause vor Ansage/Alarm** (`AudioOrchestrator.pause_for_announcement`): Der Puck nimmt notification/alarm nur im Leerlauf
 oder in der Pause an. Läuft ein pausierbarer Strom (music/tts), schickt der Server
 `{"type":"wake","room":…,"agent":"_pause"}` und wartet (Timeout `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC`,

@@ -1583,6 +1583,15 @@ ANNOUNCE_MAX_CHARS = int(os.environ.get("ANNOUNCE_MAX_CHARS", "1200"))
 # Vor einer Ansage/einem Alarm hält der Server einen laufenden Strom per _pause am Puck an
 # und wartet so lange auf dessen Bestätigung; danach wird die Ansage verworfen (laut geloggt).
 FREEECHO2_PAUSE_ACK_TIMEOUT_SEC = float(os.environ.get("FREEECHO2_PAUSE_ACK_TIMEOUT_SEC", "3"))
+# Satzweise gestreamte Sprache: dauert das nächste Segment länger als so viele Sekunden,
+# schickt der Server einen winzigen Stille-Chunk, damit das Inaktivitäts-Timeout des
+# Pucks (30 s, einzige Erkennung einer toten Verbindung im Strom) nie auslöst.
+FREEECHO2_KEEPALIVE_SEC = float(os.environ.get("FREEECHO2_KEEPALIVE_SEC", "10"))
+# POST /api/audio/announce mit mehreren Absätzen (texts): Gesamtlimit (413 statt Kürzen),
+# Standardpause zwischen den Absätzen und deren Obergrenze, jeweils in ms.
+ANNOUNCE_MAX_TOTAL_CHARS = int(os.environ.get("ANNOUNCE_MAX_TOTAL_CHARS", "4000"))
+ANNOUNCE_PAUSE_MS = int(os.environ.get("ANNOUNCE_PAUSE_MS", "1000"))
+ANNOUNCE_MAX_PAUSE_MS = int(os.environ.get("ANNOUNCE_MAX_PAUSE_MS", "5000"))
 
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION

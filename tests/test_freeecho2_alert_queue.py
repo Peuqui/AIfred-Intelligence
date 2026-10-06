@@ -40,12 +40,13 @@ class _FakeOrc:
         if self.pause_error is not None:
             raise self.pause_error
 
+    # Der Worker reicht immer einen TTSBuffer weiter; "has_speech" = der Puffer ist nicht leer
     async def play_alarm(self, tts_pcm=None, *, start_tone, end_tone):
-        self.calls.append(("alarm", tts_pcm is not None, start_tone, end_tone))
+        self.calls.append(("alarm", tts_pcm.total_bytes > 0, start_tone, end_tone))
         return self.completed
 
     async def play_notification(self, tts_pcm=None, *, start_tone, end_tone):
-        self.calls.append(("notification", tts_pcm is not None, start_tone, end_tone))
+        self.calls.append(("notification", tts_pcm.total_bytes > 0, start_tone, end_tone))
         return self.completed
 
 

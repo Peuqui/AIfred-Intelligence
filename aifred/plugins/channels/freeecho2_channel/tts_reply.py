@@ -13,11 +13,12 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ....lib.formatting import format_number
+from ....lib.audio_channels._audio_orchestrator import TTSBuffer, silence_pcm
+from ....lib.audio_processing import split_text_for_streaming_tts
 from ....lib.plugin_base import BaseChannel
 
-from ._shared import _devices, _fmt_mib, channel_language
-from .alert_queue import _PCM_BYTES_PER_SEC, enqueue_alert
+from ._shared import _devices, channel_language
+from .alert_queue import enqueue_alert
 
 if TYPE_CHECKING:
     from ....lib.envelope import InboundMessage, OutboundMessage
@@ -88,19 +89,14 @@ class TtsReplyMixin(BaseChannel):
         if is_proactive:
             await self._ensure_tts_ready(room)
 
-        # Generate TTS audio (agent-specific voice if configured)
+        # Satzweises Streaming: der erste Satz wird erzeugt und läuft los, während die
+        # übrigen noch erzeugt werden (SSOT der Satzaufteilung: lib.audio_processing).
         agent = original.target_agent if original else "aifred"
-        tts_path = await self._run_tts(outbound.text, agent=agent)
-        if not tts_path:
-            self.channel_log(f"[FreeEcho.2 {room}] TTS failed", "error")
+        buffer = await self._start_speech_stream(room, self._speech_segments(outbound), agent)
+        if buffer is None:
             return
 
         try:
-            pcm_data = await self._convert_to_pcm(tts_path, 48000)
-            if not pcm_data:
-                self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
-                return
-
             from ....lib import audio_channels
             ch = audio_channels.resolve(f"freeecho2:{room}")
             if ch is None or not hasattr(ch, "get_orchestrator"):
@@ -108,12 +104,14 @@ class TtsReplyMixin(BaseChannel):
                     f"[FreeEcho.2 {room}] FreeEcho2Channel unavailable — cannot send TTS",
                     "error",
                 )
+                buffer.discard()
                 return
             orc = ch.get_orchestrator(room)
             if orc is None:
                 self.channel_log(
                     f"[FreeEcho.2 {room}] orchestrator unavailable", "error",
                 )
+                buffer.discard()
                 return
 
             # Proaktive Push-Nachricht? Erkannt am dummy-inbound
@@ -129,7 +127,6 @@ class TtsReplyMixin(BaseChannel):
             # Orchestrator macht alles in einem Aufruf.
             # Normal-Reply (User hat selbst getriggert) bleibt ohne Chime.
             # is_proactive ist oben schon bestimmt (TTS-State-Sicherstellung).
-            secs = format_number(len(pcm_data) / _PCM_BYTES_PER_SEC, 1)
             if is_proactive:
                 audio_type = str(
                     outbound.metadata.get("audio_type") or "notification"
@@ -143,8 +140,7 @@ class TtsReplyMixin(BaseChannel):
                     audio_type = "notification"
                 self.channel_log(
                     f"[FreeEcho.2 {room}] Proactive push ({audio_type}): "
-                    f"chime + TTS {_fmt_mib(len(pcm_data))} ({secs}s) "
-                    f"→ alert queue"
+                    f"chime + streaming TTS → alert queue"
                 )
                 # In die room-Queue legen statt direkt abspielen: der Worker
                 # serialisiert (ein Alarm nach dem anderen, je nach _done),
@@ -152,19 +148,100 @@ class TtsReplyMixin(BaseChannel):
                 # Töne am Puck (nur notification): ohne Angabe wie bisher nur
                 # der Beginn-Ton; die Ansage-API verlangt beide ausdrücklich.
                 await enqueue_alert(
-                    room, audio_type, pcm_data,
+                    room, audio_type, buffer,
                     start_tone=bool(outbound.metadata.get("start_tone", True)),
                     end_tone=bool(outbound.metadata.get("end_tone", False)),
                 )
             else:
-                self.channel_log(
-                    f"[FreeEcho.2 {room}] Sending TTS: {_fmt_mib(len(pcm_data))} "
-                    f"({secs}s) via orchestrator"
-                )
-                await orc.play_tts(pcm_data)
+                self.channel_log(f"[FreeEcho.2 {room}] Sending TTS (streaming) via orchestrator")
+                await orc.play_tts(buffer)
             self.channel_log(f"[FreeEcho.2 {room}] TTS playback complete")
+        except BaseException:
+            buffer.discard()
+            raise
+
+    # ── Satzweises Sprach-Streaming ────────────────────────────
+
+    @staticmethod
+    def _speech_segments(outbound: "OutboundMessage") -> "list[str | int]":
+        """Was gesprochen wird, in Reihenfolge: Sätze (str) und Stille zwischen
+        Absätzen (int, ms). ``metadata["paragraphs"]`` (+ ``pause_ms``) bei Ansagen mit
+        mehreren Absätzen, sonst der ganze Text als ein Absatz."""
+        paragraphs = outbound.metadata.get("paragraphs") or [outbound.text]
+        pause_ms = int(outbound.metadata.get("pause_ms", 0))
+        segments: list[str | int] = []
+        for paragraph in paragraphs:
+            sentences = split_text_for_streaming_tts(paragraph)
+            if not sentences:
+                continue
+            if segments and pause_ms:
+                segments.append(pause_ms)
+            segments.extend(sentences)
+        return segments
+
+    async def _synthesize_pcm(self, text: str, agent: str, room: str) -> bytes | None:
+        """Ein Satz → 48-kHz-PCM; ``None`` (laut geloggt), wenn Erzeugung oder Konvertierung scheitert."""
+        tts_path = await self._run_tts(text, agent=agent)
+        if not tts_path:
+            self.channel_log(f"[FreeEcho.2 {room}] TTS failed", "error")
+            return None
+        try:
+            pcm = await self._convert_to_pcm(tts_path, 48000)
         finally:
             Path(tts_path).unlink(missing_ok=True)
+        if not pcm:
+            self.channel_log(f"[FreeEcho.2 {room}] TTS conversion failed", "error")
+            return None
+        return pcm
+
+    async def _start_speech_stream(
+        self, room: str, segments: "list[str | int]", agent: str,
+    ) -> TTSBuffer | None:
+        """Den ersten Satz erzeugen und den Puffer zurückgeben; die übrigen Segmente
+        erzeugt ein Hintergrund-Task und hängt sie an, während der Pump schon sendet.
+        ``None``, wenn nichts zu sprechen ist oder der erste Satz scheitert."""
+        if not segments:
+            self.channel_log(f"[FreeEcho.2 {room}] nothing to speak", "warning")
+            return None
+        first = segments[0]
+        if not isinstance(first, str):
+            raise ValueError("a speech stream starts with a sentence, not with silence")
+        pcm = await self._synthesize_pcm(first, agent, room)
+        if pcm is None:
+            return None
+        buffer = TTSBuffer(growing=True)
+        buffer.append(pcm)
+        rest = segments[1:]
+        if rest:
+            buffer.producer = asyncio.create_task(
+                self._produce_speech(buffer, rest, agent, room),
+                name=f"freeecho2-{room}-speech-producer",
+            )
+        else:
+            buffer.close()
+        return buffer
+
+    async def _produce_speech(
+        self, buffer: TTSBuffer, segments: "list[str | int]", agent: str, room: str,
+    ) -> None:
+        """Erzeuger des satzweisen Streamings: hängt Sprache und Stille an den Puffer.
+        Scheitert ein Satz, wird der Strom ohne Ende-Ton geschlossen (laut geloggt)."""
+        try:
+            for segment in segments:
+                if isinstance(segment, int):
+                    buffer.append(silence_pcm(segment))
+                    continue
+                pcm = await self._synthesize_pcm(segment, agent, room)
+                if pcm is None:
+                    buffer.close(failed=True)
+                    return
+                buffer.append(pcm)
+            buffer.close()
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:  # noqa: BLE001 — der Strom muss in jedem Fall sauber enden
+            self.channel_log(f"[FreeEcho.2 {room}] speech producer error: {exc!r}", "error")
+            buffer.close(failed=True)
 
     def _get_wanted_tts(self) -> str:
         """Get the TTS engine this plugin wants."""

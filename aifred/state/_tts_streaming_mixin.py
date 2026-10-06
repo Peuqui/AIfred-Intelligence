@@ -643,6 +643,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             return
 
         from ..lib.audio_processing import (
+            TTS_MIN_SENTENCE_WORDS,
             extract_complete_sentences,
             strip_collapsible_content_streaming,
             buffer_has_open_collapsible,
@@ -682,7 +683,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         # XTTS hallucinates on very short text (< 3 words).
         # Carry short sentences over to be merged with the next batch.
-        min_tts_words = 3
+        min_tts_words = TTS_MIN_SENTENCE_WORDS
 
         # Send each complete sentence to TTS IMMEDIATELY via create_task
         agent = getattr(self, '_tts_streaming_agent', 'aifred')

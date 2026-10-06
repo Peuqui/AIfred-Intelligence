@@ -532,6 +532,45 @@ ABBREVIATIONS_EN = {
 ABBREVIATIONS = ABBREVIATIONS_DE | ABBREVIATIONS_EN
 
 
+# Sätze mit weniger Wörtern werden mit dem nächsten zusammengelegt (die TTS-Engine
+# halluziniert bei sehr kurzen Sätzen). Gilt für das Streaming im Browser UND bei Ansagen.
+TTS_MIN_SENTENCE_WORDS = 3
+
+
+def split_text_for_streaming_tts(text: str) -> list[str]:
+    """Ein fertiger Text als Sätze für satzweises TTS-Streaming: dieselbe
+    Satzerkennung wie beim Browser-Streaming (``extract_complete_sentences``),
+    kurze Sätze (< ``TTS_MIN_SENTENCE_WORDS`` Wörter) wandern zum nächsten.
+
+    Der Aufrufer erzeugt Satz für Satz Sprache und streamt sie sofort, damit die erste
+    Sprache früh kommt, statt den ganzen Text abzuwarten.
+    """
+    # Absatzende erzwingt die Vollendung des letzten Satzes (wie im Streaming-Pfad)
+    sentences, remaining = extract_complete_sentences(text.rstrip() + "\n\n")
+    if remaining.strip():
+        sentences.append(remaining.strip())
+    result: list[str] = []
+    carry = ""
+    for sentence in sentences:
+        sentence = sentence.strip()
+        if not sentence:
+            continue
+        if carry:
+            sentence = f"{carry} {sentence}"
+            carry = ""
+        if len(sentence.split()) < TTS_MIN_SENTENCE_WORDS:
+            carry = sentence
+        else:
+            result.append(sentence)
+    if carry:
+        # Rest, der zu kurz zum Alleinstehen war, hängt am letzten Satz
+        if result:
+            result[-1] = f"{result[-1]} {carry}"
+        else:
+            result.append(carry)
+    return result
+
+
 def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     """
     Extract complete sentences from a text buffer.
