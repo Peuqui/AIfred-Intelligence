@@ -167,6 +167,23 @@ curl -s "http://localhost:8002/api/chat/inject" \
 
 ---
 
+## AIfred API - Ansagen auf den Echo Dot (ohne LLM)
+
+`POST /api/audio/announce` (`aifred/lib/api/announce.py`) liest einen fertigen Text auf
+einem FreeEcho.2-Raum vor — derselbe Zustellweg wie die proaktiven Alarme
+(`announce_to_channel` → TTS des Echo-Plugins → Alarm-Warteschlange, Ansagen eines
+Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
+
+- Auth: `Authorization: Bearer <ANNOUNCE_API_TOKEN>` (`.env`), fail-closed (503 ohne
+  Token, 403 bei falschem). Pfad ist von der Login-Cookie-Pflicht ausgenommen.
+- Body `{"room": "...", "text": "..."}`; `room` = Raumname, `@gruppe` oder `*`.
+  `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.
+- 404 bei unbekanntem/nicht verbundenem Raum, 413 bei Text über `ANNOUNCE_MAX_CHARS`
+  (Standard 1200, kein stilles Kürzen). Chime fest `notification`, nie `alarm`.
+- Port 8002 (Backend), nicht 3002.
+
+---
+
 ## ⚠️ Reflex Patch: frontend_path Route-Matching Bug
 
 **Reflex v0.8.24 hat einen Bug** im Route-Matching bei `frontend_path`:

@@ -1576,6 +1576,10 @@ SANDBOX_OUTPUT_DIR = DATA_DIR / "sandbox_output"
 # huge sandbox/upload file stalling the send or hitting provider limits
 # (Telegram bot API: 50 MB, most SMTP: ~25 MB). env-overridable.
 OUTBOUND_ATTACHMENT_MAX_BYTES = int(os.environ.get("OUTBOUND_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024)))
+# Max text length of POST /api/audio/announce. Longer texts are refused (413)
+# instead of cut: an announcement is read aloud, ~1200 characters are roughly
+# 80 s of speech. env-overridable.
+ANNOUNCE_MAX_CHARS = int(os.environ.get("ANNOUNCE_MAX_CHARS", "1200"))
 
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION
