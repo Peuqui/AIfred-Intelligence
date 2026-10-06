@@ -7,15 +7,19 @@ running announcement is not interrupted: items of one room play one after
 the other. Token-guarded like inject/webhook, with ``Authorization: Bearer``.
 """
 
-from typing import Dict, List
+from typing import Annotated, Dict, List
 
 from fastapi import Header, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 from ..auth import require_service_token
-from ..config import ANNOUNCE_MAX_CHARS
+from ..config import (
+    ANNOUNCE_MAX_CHARS, ANNOUNCE_MAX_PAUSE_MS, ANNOUNCE_MAX_TOTAL_CHARS, ANNOUNCE_PAUSE_MS,
+)
 from ..logging_utils import log_message
-from ..message_processor import announce_to_channel, resolve_announce_targets
+from ..message_processor import (
+    announce_to_channel, record_autonomous_turn, resolve_announce_targets,
+)
 from .app import api_app
 
 # Audio type of the puck chime: always the gentle one, "alarm" is not offered here
@@ -23,12 +27,35 @@ ANNOUNCE_AUDIO_TYPE = "notification"
 
 
 class AnnounceRequest(BaseModel):
-    """Spoken announcement request"""
+    """Spoken announcement request: ONE text or several paragraphs (``texts``)"""
     room: str = Field(
         ..., min_length=1,
         description="Room name from GET /audio/announce/rooms, '@group' for a group, '*' for all connected rooms",
     )
-    text: str = Field(..., min_length=1, description="Text to read aloud")
+    text: str | None = Field(None, min_length=1, description="Text to read aloud")
+    texts: List[Annotated[str, Field(min_length=1)]] | None = Field(
+        None, min_length=1,
+        description="Several paragraphs, read as ONE announcement (one start tone before the "
+        "first, one end tone after the last, silence between them)",
+    )
+    pause_ms: int | None = Field(
+        None, ge=0, le=ANNOUNCE_MAX_PAUSE_MS,
+        description="Silence between the paragraphs of texts in ms (default ANNOUNCE_PAUSE_MS)",
+    )
+    speaker: str | None = Field(
+        None, min_length=1, max_length=64,
+        description="Who is speaking (e.g. the agent's name); only recorded in the room's session history",
+    )
+
+    @model_validator(mode="after")
+    def _exactly_one_of_text_and_texts(self) -> "AnnounceRequest":
+        if (self.text is None) == (self.texts is None):
+            raise ValueError("give exactly one of 'text' and 'texts'")
+        return self
+
+    @property
+    def paragraphs(self) -> List[str]:
+        return self.texts if self.texts is not None else [self.text or ""]
 
 
 class AnnounceRoomsResponse(BaseModel):
@@ -57,24 +84,43 @@ async def announce_rooms(authorization: str | None = Header(None)) -> Dict[str, 
 
 @api_app.post("/audio/announce", response_model=AnnounceResponse, tags=["Audio"])
 async def announce(request: AnnounceRequest, authorization: str | None = Header(None)) -> Dict[str, object]:
-    """Read ``text`` aloud in ``room`` (404 for an unknown or not connected room,
-    413 for a text longer than ``ANNOUNCE_MAX_CHARS``)."""
+    """Read the text (or the paragraphs of ``texts`` as ONE announcement) aloud in ``room``
+    (404 for an unknown or not connected room, 413 for a text longer than
+    ``ANNOUNCE_MAX_CHARS`` per entry or ``ANNOUNCE_MAX_TOTAL_CHARS`` in total)."""
     _require_announce_token(authorization)
-    if len(request.text) > ANNOUNCE_MAX_CHARS:
+    paragraphs = request.paragraphs
+    too_long = [len(p) for p in paragraphs if len(p) > ANNOUNCE_MAX_CHARS]
+    if too_long:
         raise HTTPException(
             status_code=413,
-            detail=f"text has {len(request.text)} characters, the limit is {ANNOUNCE_MAX_CHARS}",
+            detail=f"an entry has {max(too_long)} characters, the limit is {ANNOUNCE_MAX_CHARS} per entry",
+        )
+    total = sum(len(p) for p in paragraphs)
+    if total > ANNOUNCE_MAX_TOTAL_CHARS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"the texts have {total} characters in total, the limit is {ANNOUNCE_MAX_TOTAL_CHARS}",
         )
     rooms = resolve_announce_targets("freeecho2", request.room)
     if not rooms:
         raise HTTPException(status_code=404, detail=f"no connected FreeEcho.2 room '{request.room}'")
 
-    metadata = {"audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True, "start_tone": True, "end_tone": True}
+    pause_ms = ANNOUNCE_PAUSE_MS if request.pause_ms is None else request.pause_ms
+    # One stream: the PUCK plays start and end tone, the Echo plugin decides it by rule
+    # (start tone before the first, end tone after the last paragraph) — no flags from the caller.
+    metadata = {
+        "audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True, "start_tone": True, "end_tone": True,
+        "paragraphs": paragraphs, "pause_ms": pause_ms,
+    }
+    spoken = " ".join(paragraphs)
     reached = [
         room for room in rooms
-        if await announce_to_channel("freeecho2", room, request.text, session_id=None, metadata=metadata)
+        if await announce_to_channel("freeecho2", room, spoken, session_id=None, metadata=metadata)
     ]
     if not reached:
         raise HTTPException(status_code=502, detail="the announcement could not be delivered")
-    log_message(f"Announce API: {len(request.text)} characters to {reached}")
+    speaker = request.speaker or "Ansage"
+    for room in reached:
+        record_autonomous_turn("freeecho2", room, speaker, f"{speaker}: {spoken}")
+    log_message(f"Announce API: {len(paragraphs)} paragraph(s), {total} characters to {reached}")
     return {"success": True, "rooms": reached}

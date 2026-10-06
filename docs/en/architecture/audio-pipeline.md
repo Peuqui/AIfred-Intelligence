@@ -726,6 +726,16 @@ the puck stays dumb.
 | doorbell (no speech) | `audio_flag(notification, start_tone=true)` → `audio_start(total_size=0)` → `audio_end(end_tone=true)` |
 | announcement over running music/TTS | `wake(_pause)` → wait for the puck's acknowledgement → announcement as above; the server sends NO `_resume` afterwards |
 
+**Sentence-wise streaming** (announcements and replies via `TtsReplyMixin`): the text is split into
+sentences by `split_text_for_streaming_tts` (the same sentence detection as browser streaming); the first
+sentence is synthesized and starts playing, a producer task appends the rest to a growing `TTSBuffer`
+(thread-safe, `total_size` in `audio_start` is unknown then). Announcements with several paragraphs
+(`texts`) are ONE stream: silence between the paragraphs = real zero samples. If the next segment is not
+ready in time, the pump sends a 20 ms silence chunk every `FREEECHO2_KEEPALIVE_SEC` (10 s): the puck ends a
+stream without chunks after 30 s (notification/alarm/TTS) or 60 s (music) — that timeout is the only
+detection of a silently dead connection inside the stream and therefore stays. If a later sentence fails,
+the server closes the stream with `audio_end(end_tone=false)`.
+
 **Pause before announcement/alarm** (`AudioOrchestrator.pause_for_announcement`): the puck only accepts
 notification/alarm when idle or paused. While a pausable stream (music/tts) runs, the server sends
 `{"type":"wake","room":…,"agent":"_pause"}` and waits (timeout `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC`, default 3 s)
