@@ -137,3 +137,6 @@ aifred/plugins/disabled/
 
 # Sicherungen von User-Configs vor Aenderungen (vllm_runtime.yaml, Betriebspunkte)
 backups/
+
+# MCP-Client-Plugin: maschinenlokale Serverliste
+aifred/plugins/tools/mcp_client/servers.json

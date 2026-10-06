@@ -1,0 +1,18 @@
+{
+  "my-server": {
+    "transport": "sse",
+    "url": "http://127.0.0.1:9998/sse",
+    "tier": 1,
+    "outbound": true,
+    "timeout_seconds": 15
+  },
+  "my-local-tool": {
+    "transport": "stdio",
+    "command": "/path/to/venv/bin/python",
+    "args": ["/path/to/server.py"],
+    "env": {"EXAMPLE": "value"},
+    "tier": 0,
+    "outbound": false,
+    "timeout_seconds": 30
+  }
+}

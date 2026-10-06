@@ -60,6 +60,11 @@ fdb==2.0.4                # EPIM Firebird DB plugin (plugins/tools/epim/) — re
                         # additionally a Firebird 2.5 embedded lib under lib/firebird25/
                         # and EPIM_DB_PATH configured in plugin settings (UI)
 
+# MCP client plugin (plugins/tools/mcp_client/) — connects to arbitrary MCP servers
+mcp==1.25.0               # pulls PyJWT + sse-starlette (installed together, 2026-10-06)
+PyJWT==2.15.1
+sse-starlette==3.5.0
+
 # Audio Processing (TTS only — STT runs in its own Docker service, see below)
 edge-tts==7.2.8         # Text-to-Speech (7.2.3 had a NoAudioReceived bug)
 dashscope==1.27.7       # DashScope Qwen3-TTS Cloud API
