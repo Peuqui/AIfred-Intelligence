@@ -10,6 +10,7 @@ Audio.
 from __future__ import annotations
 
 import asyncio
+import re
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -17,7 +18,7 @@ from ....lib.audio_channels._audio_orchestrator import TTSBuffer, silence_pcm
 from ....lib.audio_processing import split_text_for_streaming_tts
 from ....lib.plugin_base import BaseChannel
 
-from ._shared import _devices, channel_language
+from ._shared import _devices, channel_language, notification_tone_enabled, speech_unit
 from .alert_queue import enqueue_alert
 
 if TYPE_CHECKING:
@@ -145,13 +146,14 @@ class TtsReplyMixin(BaseChannel):
                 # In die room-Queue legen statt direkt abspielen: der Worker
                 # serialisiert (ein Alarm nach dem anderen, je nach _done),
                 # und der Emit-Pfad (Vision-Watcher) wird NICHT blockiert.
-                # Töne am Puck (nur notification): ohne Angabe wie bisher nur
-                # der Beginn-Ton; die Ansage-API verlangt beide ausdrücklich.
-                await enqueue_alert(
-                    room, audio_type, buffer,
-                    start_tone=bool(outbound.metadata.get("start_tone", True)),
-                    end_tone=bool(outbound.metadata.get("end_tone", False)),
-                )
+                # Töne am Puck: Ansagen laut Plugin-Einstellung (welcher Ton, legt der Puck
+                # fest); beim Alarm IST der Alarm-Ton der Beginn-Ton, einen Ende-Ton gibt es nicht.
+                if audio_type == "alarm":
+                    start_tone, end_tone = True, False
+                else:
+                    start_tone = notification_tone_enabled("start")
+                    end_tone = notification_tone_enabled("end")
+                await enqueue_alert(room, audio_type, buffer, start_tone=start_tone, end_tone=end_tone)
             else:
                 self.channel_log(f"[FreeEcho.2 {room}] Sending TTS (streaming) via orchestrator")
                 await orc.play_tts(buffer)
@@ -164,19 +166,28 @@ class TtsReplyMixin(BaseChannel):
 
     @staticmethod
     def _speech_segments(outbound: "OutboundMessage") -> "list[str | int]":
-        """Was gesprochen wird, in Reihenfolge: Sätze (str) und Stille zwischen
+        """Was gesprochen wird, in Reihenfolge: Texte (str) und Stille zwischen
         Absätzen (int, ms). ``metadata["paragraphs"]`` (+ ``pause_ms``) bei Ansagen mit
-        mehreren Absätzen, sonst der ganze Text als ein Absatz."""
+        mehreren Absätzen, sonst der ganze Text als ein Absatz. Wie fein der Text für die
+        TTS-Engine zerlegt wird, bestimmt FREEECHO2_SPEECH_UNIT: Sätze, Absätze (an Leerzeilen)
+        oder alles am Stück (kein Streaming: erst die komplette Sprache, dann die Ausgabe)."""
         paragraphs = outbound.metadata.get("paragraphs") or [outbound.text]
         pause_ms = int(outbound.metadata.get("pause_ms", 0))
+        unit = speech_unit()
+        if unit == "whole":
+            whole = "\n\n".join(p.strip() for p in paragraphs if p.strip())
+            return [whole] if whole else []
         segments: list[str | int] = []
         for paragraph in paragraphs:
-            sentences = split_text_for_streaming_tts(paragraph)
-            if not sentences:
-                continue
-            if segments and pause_ms:
-                segments.append(pause_ms)
-            segments.extend(sentences)
+            if unit == "sentence":
+                pieces = split_text_for_streaming_tts(paragraph)
+            else:
+                pieces = [block.strip() for block in re.split(r"\n\s*\n", paragraph) if block.strip()]
+            for index, piece in enumerate(pieces):
+                # Stille zwischen Absätzen; bei absatzweiser Ausgabe ist jedes Stück ein Absatz
+                if segments and pause_ms and (index == 0 or unit == "paragraph"):
+                    segments.append(pause_ms)
+                segments.append(piece)
         return segments
 
     async def _synthesize_pcm(self, text: str, agent: str, room: str) -> bytes | None:

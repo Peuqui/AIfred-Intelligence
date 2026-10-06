@@ -44,6 +44,46 @@ class TestSpeechSegments:
         assert FreeEchoChannel._speech_segments(_outbound("   ")) == []
 
 
+class TestSpeechUnit:
+    TEXT = "Erster Satz mit genug Wörtern. Zweiter Satz mit genug Wörtern.\n\nNeuer Absatz mit genug Wörtern."
+
+    def test_default_is_sentence_by_sentence(self, monkeypatch):
+        monkeypatch.delenv("FREEECHO2_SPEECH_UNIT", raising=False)
+        assert FreeEchoChannel._speech_segments(_outbound(self.TEXT)) == [
+            "Erster Satz mit genug Wörtern.", "Zweiter Satz mit genug Wörtern.", "Neuer Absatz mit genug Wörtern.",
+        ]
+
+    def test_paragraph_by_paragraph(self, monkeypatch):
+        monkeypatch.setenv("FREEECHO2_SPEECH_UNIT", "paragraph")
+        assert FreeEchoChannel._speech_segments(_outbound(self.TEXT, pause_ms=500)) == [
+            "Erster Satz mit genug Wörtern. Zweiter Satz mit genug Wörtern.", 500,
+            "Neuer Absatz mit genug Wörtern.",
+        ]
+
+    def test_whole_text_at_once(self, monkeypatch):
+        monkeypatch.setenv("FREEECHO2_SPEECH_UNIT", "whole")
+        segments = FreeEchoChannel._speech_segments(_outbound(
+            "", paragraphs=["Absatz eins hier.", "Absatz zwei dort."], pause_ms=500,
+        ))
+        # ein einziger Aufruf an die Engine, die Pause entsteht dort an der Leerzeile
+        assert segments == ["Absatz eins hier.\n\nAbsatz zwei dort."]
+
+    def test_a_given_paragraph_stays_one_piece_in_paragraph_mode(self, monkeypatch):
+        monkeypatch.setenv("FREEECHO2_SPEECH_UNIT", "paragraph")
+        assert FreeEchoChannel._speech_segments(_outbound(
+            "", paragraphs=["Erster langer Absatz. Mit zwei Sätzen darin.", "Zweiter Absatz."], pause_ms=300,
+        )) == ["Erster langer Absatz. Mit zwei Sätzen darin.", 300, "Zweiter Absatz."]
+
+    def test_an_invalid_unit_is_a_configuration_error(self, monkeypatch):
+        monkeypatch.setenv("FREEECHO2_SPEECH_UNIT", "word")
+        try:
+            FreeEchoChannel._speech_segments(_outbound("Irgendein Text hier."))
+        except ValueError as exc:
+            assert "FREEECHO2_SPEECH_UNIT" in str(exc)
+            return
+        raise AssertionError("expected ValueError")
+
+
 def _channel_with_fake_tts(spoken: list[str], fail_on: str | None = None) -> FreeEchoChannel:
     channel = FreeEchoChannel()
 
