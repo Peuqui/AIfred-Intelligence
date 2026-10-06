@@ -33,7 +33,9 @@ class TestValidateAudioFlag:
         FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": False})
 
     def test_notification_complete_ok(self):
-        FreeEchoChannel._validate_audio_flag("notification", {"with_tts": True})
+        FreeEchoChannel._validate_audio_flag(
+            "notification", {"with_tts": True, "start_tone": True, "end_tone": False},
+        )
 
     def test_alarm_with_tts_true_ok(self):
         FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": True})
@@ -62,6 +64,23 @@ class TestValidateAudioFlag:
         with pytest.raises(ValueError, match="missing required fields"):
             FreeEchoChannel._validate_audio_flag("notification", {})
 
+    def test_notification_without_tones_raises(self):
+        # Seit der Firmware mit Beginn-/Ende-Ton sind beide Töne Pflicht
+        with pytest.raises(ValueError, match="missing required fields"):
+            FreeEchoChannel._validate_audio_flag("notification", {"with_tts": True})
+
+    def test_tone_must_be_bool(self):
+        with pytest.raises(ValueError, match="end_tone must be bool"):
+            FreeEchoChannel._validate_audio_flag(
+                "notification", {"with_tts": True, "start_tone": True, "end_tone": "yes"}
+            )
+
+    def test_alarm_with_tone_raises(self):
+        with pytest.raises(ValueError, match="unexpected fields"):
+            FreeEchoChannel._validate_audio_flag(
+                "alarm", {"with_tts": False, "start_tone": True}
+            )
+
     def test_alarm_with_tts_string_raises(self):
         with pytest.raises(ValueError, match="with_tts must be bool"):
             FreeEchoChannel._validate_audio_flag("alarm", {"with_tts": "yes"})
@@ -71,7 +90,7 @@ class TestValidateAudioFlag:
         # bool, kein int-Aliasing (1/0 als with_tts ist ungültig).
         with pytest.raises(ValueError, match="with_tts must be bool"):
             FreeEchoChannel._validate_audio_flag(
-                "notification", {"with_tts": 1}
+                "notification", {"with_tts": 1, "start_tone": True, "end_tone": True}
             )
 
 
@@ -126,11 +145,15 @@ class TestSendAudioFlag:
     def test_notification(self, room):
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "notification", with_tts=True))
+        run(ch.send_audio_flag(
+            rid, "notification", with_tts=True, start_tone=True, end_tone=True,
+        ))
         assert _last_json(ws) == {
             "type": "audio_flag",
             "audio_type": "notification",
             "with_tts": True,
+            "start_tone": True,
+            "end_tone": True,
         }
 
     def test_invalid_raises_before_wire(self, room):
@@ -228,7 +251,9 @@ class TestFrameSequences:
     def test_notification_no_tail(self, room):
         rid, ws = room
         ch = FreeEchoChannel()
-        run(ch.send_audio_flag(rid, "notification", with_tts=False))
+        run(ch.send_audio_flag(
+            rid, "notification", with_tts=False, start_tone=True, end_tone=True,
+        ))
         assert ws.send_str.await_count == 1
         assert ws.send_bytes.await_count == 0
 

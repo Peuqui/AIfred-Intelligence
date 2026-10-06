@@ -14,7 +14,8 @@ from __future__ import annotations
 import asyncio
 from typing import Any, Coroutine
 
-_alert_queues: dict[str, "asyncio.Queue[tuple[str, bytes | None]]"] = {}
+# Item: (audio_type, tts_pcm, start_tone, end_tone); die Töne gelten nur für notification
+_alert_queues: dict[str, "asyncio.Queue[tuple[str, bytes | None, bool, bool]]"] = {}
 _alert_workers: dict[str, asyncio.Task] = {}
 _playback_done: dict[str, asyncio.Event] = {}
 # Event-Loop des WebSocket-Servers (aiohttp). Der proaktive Emit-Pfad
@@ -69,14 +70,16 @@ def signal_playback_done(room: str) -> None:
     _playback_done_event(room).set()
 
 
-async def _enqueue_on_ws_loop(room: str, audio_type: str, tts_pcm: "bytes | None") -> None:
+async def _enqueue_on_ws_loop(
+    room: str, audio_type: str, tts_pcm: "bytes | None", start_tone: bool, end_tone: bool,
+) -> None:
     """Put + Worker-Sicherstellung — läuft IMMER im ws-Loop, damit Queue,
     Worker und das spätere ws.send_bytes loop-konsistent sind."""
     queue = _alert_queues.get(room)
     if queue is None:
         queue = asyncio.Queue()
         _alert_queues[room] = queue
-    await queue.put((audio_type, tts_pcm))
+    await queue.put((audio_type, tts_pcm, start_tone, end_tone))
     worker = _alert_workers.get(room)
     if worker is None or worker.done():
         _alert_workers[room] = asyncio.create_task(
@@ -84,14 +87,19 @@ async def _enqueue_on_ws_loop(room: str, audio_type: str, tts_pcm: "bytes | None
         )
 
 
-async def enqueue_alert(room: str, audio_type: str, tts_pcm: "bytes | None") -> None:
+async def enqueue_alert(
+    room: str, audio_type: str, tts_pcm: "bytes | None", *,
+    start_tone: bool, end_tone: bool,
+) -> None:
     """Proaktiven Alarm in die room-Queue legen + Worker sicherstellen.
-    Kehrt sofort zurück (entkoppelt vom Emit-Pfad).
+    Kehrt sofort zurück (entkoppelt vom Emit-Pfad). ``start_tone``/``end_tone``
+    wählen bei notification Beginn- und Ende-Ton am Puck; alarm kennt sie nicht
+    und ignoriert sie.
 
     Der Emit-Pfad läuft typischerweise in einem anderen Event-Loop als der
     WebSocket; ``run_on_ws_loop`` schiebt Queue/Worker auf den ws-Loop, damit
     der Pump nicht cross-loop sendet."""
-    await run_on_ws_loop(_enqueue_on_ws_loop(room, audio_type, tts_pcm))
+    await run_on_ws_loop(_enqueue_on_ws_loop(room, audio_type, tts_pcm, start_tone, end_tone))
 
 
 async def _alert_worker(room: str) -> None:
@@ -103,7 +111,7 @@ async def _alert_worker(room: str) -> None:
 
     queue = _alert_queues[room]
     while True:
-        audio_type, tts_pcm = await queue.get()
+        audio_type, tts_pcm, start_tone, end_tone = await queue.get()
         try:
             ch = audio_channels.resolve(f"freeecho2:{room}")
             orc = (
@@ -122,7 +130,10 @@ async def _alert_worker(room: str) -> None:
             if audio_type == "alarm":
                 await orc.play_alarm(with_tts=with_tts, tts_pcm=tts_pcm)
             else:
-                await orc.play_notification(with_tts=with_tts, tts_pcm=tts_pcm)
+                await orc.play_notification(
+                    with_tts=with_tts, tts_pcm=tts_pcm,
+                    start_tone=start_tone, end_tone=end_tone,
+                )
             # FRISCHES Event pro Item, publiziert erst NACH der Wiedergabe und
             # direkt vor send_done: Das frühere clear-then-wait auf dem
             # wiederverwendeten per-Room-Event konnte während der gesamten
