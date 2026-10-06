@@ -32,19 +32,18 @@ def load_voice_routes(path: Path = ROUTES_FILE) -> dict[str, dict[str, Any]]:
 
 async def forward_voice(route: dict[str, Any], room: str, text: str, wav_path: str) -> dict[str, Any]:
     """Die erkannte Äußerung samt Aufnahme an das Ziel schicken und dessen JSON-Antwort
-    liefern: ``room`` und ``text`` als Query-Parameter, Body = die WAV des Pucks unverändert
-    (16 kHz, mono, 16 Bit), Bearer-Token aus der Token-Datei der Route. Kein multipart — der
-    Empfänger braucht dafür kein zusätzliches Paket. Raises bei Netzwerkfehler, fehlendem
-    Token und jedem Status außer 2xx."""
+    liefern: multipart/form-data mit den Feldern ``room``, ``text`` und der Datei ``audio`` (die
+    WAV des Pucks unverändert, 16 kHz, mono, 16 Bit), Bearer-Token aus der Token-Datei der
+    Route. Raises bei Netzwerkfehler, fehlendem Token und jedem Status außer 2xx."""
     token = Path(route["token_file"]).expanduser().read_text(encoding="utf-8").strip()
     if not token:
         raise ValueError(f"token file {route['token_file']} is empty")
     async with httpx.AsyncClient(timeout=route["timeout_seconds"]) as client:
         response = await client.post(
             route["url"],
-            headers={"Authorization": f"Bearer {token}", "Content-Type": "audio/wav"},
-            params={"room": room, "text": text},
-            content=Path(wav_path).read_bytes(),
+            headers={"Authorization": f"Bearer {token}"},
+            data={"room": room, "text": text},
+            files={"audio": ("aufnahme.wav", Path(wav_path).read_bytes(), "audio/wav")},
         )
     response.raise_for_status()
     outcome: dict[str, Any] = response.json()

@@ -68,9 +68,10 @@ def orc_endpoint(tmp_path: Path):
 
     async def handler(request: web.Request) -> web.Response:
         seen["auth"] = request.headers.get("Authorization")
-        seen["query"] = dict(request.query)
-        seen["content_type"] = request.content_type
-        seen["body"] = await request.read()
+        form = await request.post()
+        seen["fields"] = {k: v for k, v in form.items() if k != "audio"}
+        seen["audio_type"] = form["audio"].content_type
+        seen["body"] = form["audio"].file.read()
         if seen["auth"] != "Bearer geheim":
             return web.json_response({"detail": "no"}, status=401)
         return web.json_response({"action": "asked", "agent": "Whisper"})
@@ -95,8 +96,8 @@ def test_the_utterance_goes_to_the_route_with_the_bearer_token(orc_endpoint, rec
     outcome = run_with_loop(forward_voice(route, "Buero-Puck-2", "Whisper committe bitte äöü", recording))
     assert outcome == {"action": "asked", "agent": "Whisper"}
     assert seen["auth"] == "Bearer geheim"
-    assert seen["query"] == {"room": "Buero-Puck-2", "text": "Whisper committe bitte äöü"}
-    assert seen["content_type"] == "audio/wav"
+    assert seen["fields"] == {"room": "Buero-Puck-2", "text": "Whisper committe bitte äöü"}
+    assert seen["audio_type"] == "audio/wav"
     assert seen["body"] == b"RIFF....WAVEdata"       # the recording, unchanged
 
 
