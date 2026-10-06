@@ -89,14 +89,14 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("telegram", "allowed_users"): "TELEGRAM_ALLOWED_USERS",
     ("telegram", "enabled"): "TELEGRAM_ENABLED",
     # AI-Connect
-    ("aiconnect", "bridge_host"): "AICONNECT_BRIDGE_HOST",
-    ("aiconnect", "bridge_port"): "AICONNECT_BRIDGE_PORT",
-    ("aiconnect", "bridge_token"): "AICONNECT_BRIDGE_TOKEN",
-    ("aiconnect", "peer_name"): "AICONNECT_PEER_NAME",
-    ("aiconnect", "allowed_peers"): "AICONNECT_ALLOWED_PEERS",
-    ("aiconnect", "reply_limit"): "AICONNECT_REPLY_LIMIT",
-    ("aiconnect", "reply_window_minutes"): "AICONNECT_REPLY_WINDOW_MINUTES",
-    ("aiconnect", "enabled"): "AICONNECT_ENABLED",
+    ("ai_connect", "bridge_host"): "AI_CONNECT_BRIDGE_HOST",
+    ("ai_connect", "bridge_port"): "AI_CONNECT_BRIDGE_PORT",
+    ("ai_connect", "bridge_token"): "AI_CONNECT_BRIDGE_TOKEN",
+    ("ai_connect", "peer_name"): "AI_CONNECT_PEER_NAME",
+    ("ai_connect", "allowed_peers"): "AI_CONNECT_ALLOWED_PEERS",
+    ("ai_connect", "reply_limit"): "AI_CONNECT_REPLY_LIMIT",
+    ("ai_connect", "reply_window_minutes"): "AI_CONNECT_REPLY_WINDOW_MINUTES",
+    ("ai_connect", "enabled"): "AI_CONNECT_ENABLED",
     # HTTP API control endpoints (gate remote control of the agent)
     ("inject", "api_token"): "INJECT_API_TOKEN",
     # Webhook API
