@@ -226,6 +226,19 @@ respawn_interval=3.5,
 
 ---
 
+## ⚠️ Reflex Patch: vite.config.js (allowedHosts, dedupe)
+
+Reflex 0.9 schreibt `.web/vite.config.js` bei **jedem Compile** neu — nach dem
+`ExecStartPre`. Das `sed` aus `scripts/patch-vite-config.sh` wirkt deshalb nicht
+mehr (06.10.2026: „Blocked request. This host is not allowed", Domain gesperrt).
+`allowedHosts` setzt `vite_allowed_hosts` in `rxconfig.py` (aus
+`AIFRED_ALLOWED_HOST`), `dedupe` patcht `scripts/patch-reflex.py` ins Template
+`reflex_base/compiler/templates.py`. **Bei Reflex-Update:** `patch-reflex.py` erneut
+laufen lassen; danach prüfen: `grep -n "allowedHosts\|dedupe" .web/vite.config.js`.
+`patch-vite-config.sh` ist obsolet (Entfernen braucht eine Änderung der Unit).
+
+---
+
 ## ⚠️ Reflex Patch: Typen der Komponenten-Pakete (mypy)
 
 Reflex 0.9 liefert die Komponenten in eigenen Paketen (`reflex_components_*`)

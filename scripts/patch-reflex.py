@@ -22,6 +22,16 @@ value overloads — every ``rx.cond(var, "a", "b")`` then fails with
 call-overload. Moving the TypeVars above the series changes nothing at
 runtime.
 
+4. ``reflex_base/compiler/templates.py`` — the generated ``vite.config.js``
+has no ``resolve.dedupe``. Reflex splits shared libraries (react-helmet,
+react, …) into several lazy chunks; without dedupe react-helmet ends up
+twice and the browser dies with "Identifier 'scrollState' has already been
+declared". Since Reflex 0.9 every compile rewrites ``vite.config.js``, so
+the ``sed`` of ``scripts/patch-vite-config.sh`` (ExecStartPre, runs BEFORE
+the compile) is overwritten at once; the template is the one place that
+sticks. (``allowedHosts`` needs no patch: ``vite_allowed_hosts`` in
+``rxconfig.py``.)
+
 Idempotent — running it twice is a no-op. A patch is only applied when its
 original text is found verbatim, so a changed upstream file is reported,
 never overwritten blindly.
@@ -53,6 +63,15 @@ PATCHES: list[tuple[str, str, str]] = [
         reload=False,
         respawn_failed_workers=True,
         respawn_interval=3.5,
+""",
+    ),
+    (
+        "reflex_base/compiler/templates.py",
+        """    mainFields: ["browser", "module", "jsnext"],
+""",
+        """    mainFields: ["browser", "module", "jsnext"],
+    // AIfred patch (scripts/patch-reflex.py): one copy of the shared libraries.
+    dedupe: ["react-helmet", "react", "react-dom", "@radix-ui/themes", "@emotion/react"],
 """,
     ),
     (

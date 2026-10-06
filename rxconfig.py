@@ -79,4 +79,12 @@ config = rx.Config(
     plugins=[rx.plugins.RadixThemesPlugin()],
     # Hide "Built with Reflex" badge
     show_built_with_reflex=False,
+    # External domain behind the reverse proxy (AIFRED_ALLOWED_HOST in .env):
+    # Vite refuses any other Host header. Set here, not by editing
+    # .web/vite.config.js — every compile rewrites that file.
+    vite_allowed_hosts=(
+        [os.environ["AIFRED_ALLOWED_HOST"], "localhost", "127.0.0.1"]
+        if os.environ.get("AIFRED_ALLOWED_HOST")
+        else False
+    ),
 )
