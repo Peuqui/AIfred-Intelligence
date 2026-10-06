@@ -282,11 +282,15 @@ class AudioOrchestrator:
                 pass
 
     async def play_notification(
-        self, with_tts: bool, tts_pcm: Optional[bytes] = None,
+        self, with_tts: bool, tts_pcm: Optional[bytes] = None, *,
+        start_tone: bool, end_tone: bool,
     ) -> None:
-        """Trigger einen Puck-lokalen Notification-Sound.
+        """Trigger Puck-lokale Notification-Sounds.
 
         Analog zu ``play_alarm`` — nur einmal abspielen statt Loop.
+        ``start_tone`` spielt den Beginn-Ton vor der Ansage, ``end_tone`` den
+        Ende-Ton danach (ohne Ansage direkt hintereinander, Türklingel).
+        Beide sind Pflicht: der Puck lehnt das Frame sonst als Protokollfehler ab.
         """
         task: Optional[asyncio.Task[None]] = None
         async with self._lock:
@@ -296,10 +300,11 @@ class AudioOrchestrator:
 
             await self.bridge.send_audio_flag(
                 self.room, "notification", with_tts=with_tts,
+                start_tone=start_tone, end_tone=end_tone,
             )
             log_message(
                 f"AudioOrchestrator[{self.room}]: → notification "
-                f"(with_tts={with_tts})"
+                f"(with_tts={with_tts}, start_tone={start_tone}, end_tone={end_tone})"
             )
 
             if with_tts and tts_pcm:

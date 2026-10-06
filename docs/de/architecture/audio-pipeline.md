@@ -684,7 +684,7 @@ Type-Wechsel ohne Stream-Reset.
 (speech                   )
 (tts                      )
 (alarm,        with_tts=B )
-(notification, with_tts=B )
+(notification, with_tts=B, start_tone=B, end_tone=B )
 ```
 
 `speech` (Hörbuch/Podcast/Lesung, Voice-VU am Puck) ist ebenfalls erlaubt;
@@ -767,7 +767,7 @@ Restart noch klingelt wäre Bug, nicht Feature).
 async def play_music(stream)                        # Music-Stream registrieren
 async def play_tts(pcm_data)                        # TTS-Standalone (ersetzt Music)
 async def play_alarm(with_tts, tts_pcm=None)        # Puck-lokal + opt. TTS-Tail
-async def play_notification(with_tts, tts_pcm=None) # analog
+async def play_notification(with_tts, tts_pcm=None, *, start_tone, end_tone)  # Beginn-/Ende-Ton am Puck
 async def pause()                                   # type-aware
 async def resume()
 async def stop()                                    # alles verwerfen

@@ -129,14 +129,6 @@ class FreeEchoChannel(ConnectionMixin):
                 # and i18n of tool replies (see channel_language()).
                 options=[("de", "Deutsch"), ("en", "English")],
             ),
-            CredentialField(
-                env_key="FREEECHO2_END_TONE_WAV",
-                label_key="freeecho2_cred_end_tone_wav",
-                # Plays after announcements that ask for it (POST
-                # /api/audio/announce); empty = no end tone. Path, not a
-                # bundled sound: the sample's licence is the user's matter.
-                placeholder="/path/to/Dong.wav",
-            ),
         ]
 
     def is_configured(self) -> bool:
@@ -169,9 +161,6 @@ class FreeEchoChannel(ConnectionMixin):
         broker.set_runtime(
             "freeecho2", "language",
             values.get("FREEECHO2_LANGUAGE", "de") or "de",
-        )
-        broker.set_runtime(
-            "freeecho2", "end_tone_wav", values.get("FREEECHO2_END_TONE_WAV", ""),
         )
 
     # ── Tools ─────────────────────────────────────────────────

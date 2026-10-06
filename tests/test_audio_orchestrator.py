@@ -176,13 +176,17 @@ class TestPlayAlarm:
 class TestPlayNotification:
     def test_no_tail(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_notification(with_tts=False))
-        assert _flag_calls(bridge) == [("notification", {"with_tts": False})]
+        run(orc.play_notification(with_tts=False, start_tone=True, end_tone=True))
+        assert _flag_calls(bridge) == [
+            ("notification", {"with_tts": False, "start_tone": True, "end_tone": True}),
+        ]
         bridge.send_audio_start.assert_not_awaited()
 
     def test_with_tail(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_notification(with_tts=True, tts_pcm=b"\x00" * 100))
+        run(orc.play_notification(
+            with_tts=True, tts_pcm=b"\x00" * 100, start_tone=True, end_tone=False,
+        ))
 
         async def _wait_for_pump():
             for _ in range(50):
@@ -193,7 +197,7 @@ class TestPlayNotification:
 
         flags = _flag_calls(bridge)
         assert flags == [
-            ("notification", {"with_tts": True}),
+            ("notification", {"with_tts": True, "start_tone": True, "end_tone": False}),
             ("tts", {}),
         ]
         bridge.send_audio_start.assert_awaited_once()
@@ -214,7 +218,7 @@ class TestPauseSemantics:
 
     def test_pause_notification_is_stop(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
-        run(orc.play_notification(with_tts=False))
+        run(orc.play_notification(with_tts=False, start_tone=True, end_tone=False))
         run(orc.pause())
         assert orc.is_idle is True
 

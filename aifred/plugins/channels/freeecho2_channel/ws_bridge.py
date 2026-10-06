@@ -46,7 +46,8 @@ class WsBridgeMixin(BaseChannel):
         "speech":       set(),          # Voice-VU (Hoerbuch / Podcast / Lesung)
         "tts":          set(),          # Voice-VU (XTTS-Generator-Output)
         "alarm":        {"with_tts"},   # einmal abspielen; Server loopt
-        "notification": {"with_tts"},   # einmal abspielen
+        # einmal abspielen; start_tone/end_tone wählen Beginn- und Ende-Ton
+        "notification": {"with_tts", "start_tone", "end_tone"},
     }
 
     @classmethod
@@ -67,12 +68,11 @@ class WsBridgeMixin(BaseChannel):
             raise ValueError(
                 f"audio_flag({audio_type!r}): missing required fields {sorted(missing)}"
             )
-        # Type-Checks pro Feld
-        if "with_tts" in params:
-            v = params["with_tts"]
+        # Type-Checks pro Feld: alle Felder sind strikt bool (kein int-Aliasing)
+        for field, v in params.items():
             if not isinstance(v, bool):
                 raise ValueError(
-                    f"audio_flag({audio_type!r}): with_tts must be bool, got {v!r}"
+                    f"audio_flag({audio_type!r}): {field} must be bool, got {v!r}"
                 )
 
     async def _send_frame(

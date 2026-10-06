@@ -69,7 +69,7 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
     if not rooms:
         raise HTTPException(status_code=404, detail=f"no connected FreeEcho.2 room '{request.room}'")
 
-    metadata = {"audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True, "end_tone": True}
+    metadata = {"audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True, "start_tone": True, "end_tone": True}
     reached = [
         room for room in rooms
         if await announce_to_channel("freeecho2", room, request.text, session_id=None, metadata=metadata)

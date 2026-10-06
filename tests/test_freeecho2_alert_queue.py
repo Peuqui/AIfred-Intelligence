@@ -26,14 +26,14 @@ class _FakeBridge:
 
 class _FakeOrc:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, bool]] = []
+        self.calls: list[tuple[str, bool] | tuple[str, bool, bool, bool]] = []
         self.bridge = _FakeBridge()
 
     async def play_alarm(self, with_tts, tts_pcm=None):
         self.calls.append(("alarm", with_tts))
 
-    async def play_notification(self, with_tts, tts_pcm=None):
-        self.calls.append(("notification", with_tts))
+    async def play_notification(self, with_tts, tts_pcm=None, *, start_tone, end_tone):
+        self.calls.append(("notification", with_tts, start_tone, end_tone))
 
 
 class _FakeCh:
@@ -57,8 +57,8 @@ def test_alerts_play_sequentially_paced_by_done(monkeypatch):
 
     async def go():
         # Two alerts queued back-to-back (different occurrences).
-        await fe.enqueue_alert("wohnzimmer", "alarm", b"pcm-1")
-        await fe.enqueue_alert("wohnzimmer", "notification", b"pcm-2")
+        await fe.enqueue_alert("wohnzimmer", "alarm", b"pcm-1", start_tone=True, end_tone=False)
+        await fe.enqueue_alert("wohnzimmer", "notification", b"pcm-2", start_tone=True, end_tone=True)
 
         # Worker plays #1 and then BLOCKS waiting for _done.
         await asyncio.sleep(0.05)
@@ -67,7 +67,7 @@ def test_alerts_play_sequentially_paced_by_done(monkeypatch):
         # Puck reports done → #2 may play.
         fe.signal_playback_done("wohnzimmer")
         await asyncio.sleep(0.05)
-        assert orc.calls == [("alarm", True), ("notification", True)]
+        assert orc.calls == [("alarm", True), ("notification", True, True, True)]
 
         fe.signal_playback_done("wohnzimmer")
         await asyncio.sleep(0.02)
@@ -88,9 +88,9 @@ def test_with_tts_false_when_no_pcm(monkeypatch):
     _reset_state()
 
     async def go():
-        await fe.enqueue_alert("kueche", "notification", None)
+        await fe.enqueue_alert("kueche", "notification", None, start_tone=True, end_tone=True)
         await asyncio.sleep(0.05)
-        assert orc.calls == [("notification", False)]
+        assert orc.calls == [("notification", False, True, True)]
         fe.signal_playback_done("kueche")
         await asyncio.sleep(0.02)
         w = fe._alert_workers["kueche"]

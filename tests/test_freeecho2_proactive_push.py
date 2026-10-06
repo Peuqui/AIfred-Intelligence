@@ -162,7 +162,19 @@ class TestSendReplyProactive:
         kwargs = orc.play_notification.await_args.kwargs
         assert kwargs.get("with_tts") is True
         assert kwargs.get("tts_pcm")  # nicht-leer
+        # Ohne Angabe wie bisher: nur der Beginn-Ton
+        assert kwargs.get("start_tone") is True
+        assert kwargs.get("end_tone") is False
         orc.play_tts.assert_not_awaited()
+
+    def test_tones_from_metadata_reach_the_puck(self, push_setup):
+        """Die Ansage-API verlangt Beginn- UND Ende-Ton: beide Flags aus
+        outbound.metadata kommen unverändert bei play_notification an."""
+        _rid, _ws, orc, audio_ch = push_setup
+        outbound = _make_outbound("Ansage", proactive=True, start_tone=True, end_tone=True)
+        self._patched_call(audio_ch, outbound, _make_inbound(sender="system"))
+        kwargs = orc.play_notification.await_args.kwargs
+        assert (kwargs["start_tone"], kwargs["end_tone"]) == (True, True)
 
     def test_explicit_proactive_metadata_uses_play_notification(self, push_setup):
         """Alternative: Caller markiert outbound.metadata.proactive=True

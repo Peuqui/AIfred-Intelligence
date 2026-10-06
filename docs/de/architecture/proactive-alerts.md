@@ -102,7 +102,7 @@ das durch denselben SSoT-Pfad wie alle anderen Sinks (`send_reply` mit dummy
   `notification_wav`-Sound) — und wartet vor dem nächsten Eintrag auf das `_done`
   des Pucks (mit einem aus der Wiedergabedauer abgeleiteten Timeout). Der
   Emit-Pfad blockiert nicht. Die Sequenz auf dem Wire:
-  `audio_flag(alarm|notification, with_tts=True)` → `audio_flag(tts)` →
+  `audio_flag(alarm, with_tts=True)` bzw. `audio_flag(notification, with_tts=True, start_tone, end_tone)` → `audio_flag(tts)` →
   `audio_start` → PCM-Chunks → `audio_end`, danach `done`. Der Puck spielt erst den
   lokalen Sound, puffert parallel den TTS-Stream und wechselt nahtlos auf
   die Sprache — kein „Spricht aus dem Nichts"-Effekt.

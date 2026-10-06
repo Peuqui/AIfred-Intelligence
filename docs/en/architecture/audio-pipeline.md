@@ -682,7 +682,7 @@ type changes without a stream reset.
 (speech                   )
 (tts                      )
 (alarm,        with_tts=B )
-(notification, with_tts=B )
+(notification, with_tts=B, start_tone=B, end_tone=B )
 ```
 
 `speech` (audiobook/podcast/reading, voice VU on the puck) is allowed as well; server-side
@@ -765,7 +765,7 @@ a restart would be a bug, not a feature).
 async def play_music(stream)                        # register music stream
 async def play_tts(pcm_data)                        # TTS standalone (replaces music)
 async def play_alarm(with_tts, tts_pcm=None)        # puck-local + opt. TTS tail
-async def play_notification(with_tts, tts_pcm=None) # analogous
+async def play_notification(with_tts, tts_pcm=None, *, start_tone, end_tone)  # start/end tone on the puck
 async def pause()                                   # type-aware
 async def resume()
 async def stop()                                    # discard everything

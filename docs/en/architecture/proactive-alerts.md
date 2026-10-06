@@ -102,7 +102,7 @@ through the same SSoT path as all other sinks (`send_reply` with a dummy
   `notification_wav` sound) — and waits for the Puck's `_done` before the next
   item (with a timeout derived from the playback length). The emit path does
   not block. The sequence on the wire:
-  `audio_flag(alarm|notification, with_tts=True)` → `audio_flag(tts)` →
+  `audio_flag(alarm, with_tts=True)` or `audio_flag(notification, with_tts=True, start_tone, end_tone)` → `audio_flag(tts)` →
   `audio_start` → PCM chunks → `audio_end`, then `done`. The Puck first plays the
   local sound, buffers the TTS stream in parallel and switches seamlessly to
   the speech — no "speaking out of nowhere" effect.

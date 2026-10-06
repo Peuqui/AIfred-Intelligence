@@ -44,7 +44,9 @@ def test_announce_delivers_with_notification_chime(client: TestClient) -> None:
     assert response.json() == {"success": True, "rooms": ["wohnzimmer"]}
     channel, room, text, session_id, metadata = client.delivered[0]  # type: ignore[attr-defined]
     assert (channel, room, text, session_id) == ("freeecho2", "wohnzimmer", "Hallo", None)
-    assert metadata == {"audio_type": "notification", "proactive": True, "end_tone": True}
+    assert metadata == {
+        "audio_type": "notification", "proactive": True, "start_tone": True, "end_tone": True,
+    }
 
 
 def test_unknown_room_is_404(client: TestClient) -> None:
