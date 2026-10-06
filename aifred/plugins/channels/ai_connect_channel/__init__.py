@@ -56,7 +56,7 @@ def _is_peer_allowed(peer: str) -> bool:
     """Peer allowlist: comma-separated names or glob patterns (``Mini:*``).
     Empty = nobody (fail-closed); a bare ``*`` is refused like in the other
     channels, because every allowed peer can make AIfred run inference."""
-    raw = broker.get("aiconnect", "allowed_peers").strip()
+    raw = broker.get("ai_connect", "allowed_peers").strip()
     if not raw:
         return False
     patterns = [part.strip() for part in raw.split(",") if part.strip()]
@@ -70,8 +70,8 @@ def _reply_limit_reached(peer: str) -> bool:
     """Loop guard: two assistants that answer each other never stop on their
     own. Allows ``reply_limit`` turns per peer within ``reply_window_minutes``;
     a turn that passes is counted."""
-    limit = int(broker.get("aiconnect", "reply_limit"))
-    window = float(broker.get("aiconnect", "reply_window_minutes")) * 60
+    limit = int(broker.get("ai_connect", "reply_limit"))
+    window = float(broker.get("ai_connect", "reply_window_minutes")) * 60
     now = time.monotonic()
     times = _turn_times[peer]
     while times and now - times[0] > window:
@@ -97,7 +97,7 @@ class AIConnectChannel(BaseChannel):
 
     @property
     def name(self) -> str:
-        return "aiconnect"
+        return "ai_connect"
 
     @property
     def icon(self) -> str:
@@ -113,47 +113,47 @@ class AIConnectChannel(BaseChannel):
     def credential_fields(self) -> list[CredentialField]:
         return [
             CredentialField(
-                env_key="AICONNECT_BRIDGE_HOST",
-                label_key="aiconnect_cred_bridge_host",
+                env_key="AI_CONNECT_BRIDGE_HOST",
+                label_key="ai_connect_cred_bridge_host",
                 default="127.0.0.1",
                 group="bridge",
                 width_ratio=3,
             ),
             CredentialField(
-                env_key="AICONNECT_BRIDGE_PORT",
-                label_key="aiconnect_cred_bridge_port",
+                env_key="AI_CONNECT_BRIDGE_PORT",
+                label_key="ai_connect_cred_bridge_port",
                 default="9999",
                 group="bridge",
                 width_ratio=1,
             ),
             CredentialField(
-                env_key="AICONNECT_BRIDGE_TOKEN",
-                label_key="aiconnect_cred_bridge_token",
+                env_key="AI_CONNECT_BRIDGE_TOKEN",
+                label_key="ai_connect_cred_bridge_token",
                 is_password=True,
             ),
             # Placeholder only as a hint: the peer name must be chosen on purpose,
             # because a second session under the same name pushes the first one out.
             CredentialField(
-                env_key="AICONNECT_PEER_NAME",
-                label_key="aiconnect_cred_peer_name",
+                env_key="AI_CONNECT_PEER_NAME",
+                label_key="ai_connect_cred_peer_name",
                 placeholder="Host:AIfred",
             ),
             # Bewusst OHNE placeholder (siehe Telegram): ein Beispiel würde beim
             # ungeänderten Speichern zu einem echten Allowlist-Eintrag.
             CredentialField(
-                env_key="AICONNECT_ALLOWED_PEERS",
-                label_key="aiconnect_cred_allowed_peers",
+                env_key="AI_CONNECT_ALLOWED_PEERS",
+                label_key="ai_connect_cred_allowed_peers",
             ),
             CredentialField(
-                env_key="AICONNECT_REPLY_LIMIT",
-                label_key="aiconnect_cred_reply_limit",
+                env_key="AI_CONNECT_REPLY_LIMIT",
+                label_key="ai_connect_cred_reply_limit",
                 default="6",
                 group="loop_guard",
                 width_ratio=1,
             ),
             CredentialField(
-                env_key="AICONNECT_REPLY_WINDOW_MINUTES",
-                label_key="aiconnect_cred_reply_window",
+                env_key="AI_CONNECT_REPLY_WINDOW_MINUTES",
+                label_key="ai_connect_cred_reply_window",
                 default="10",
                 group="loop_guard",
                 width_ratio=1,
@@ -162,20 +162,20 @@ class AIConnectChannel(BaseChannel):
 
     def is_configured(self) -> bool:
         return (
-            broker.get("aiconnect", "enabled").lower() == "true"
-            and broker.is_set("aiconnect", "bridge_host")
-            and broker.is_set("aiconnect", "bridge_token")
-            and broker.is_set("aiconnect", "peer_name")
+            broker.get("ai_connect", "enabled").lower() == "true"
+            and broker.is_set("ai_connect", "bridge_host")
+            and broker.is_set("ai_connect", "bridge_token")
+            and broker.is_set("ai_connect", "peer_name")
         )
 
     def apply_credentials(self, values: dict[str, str]) -> None:
         """Update runtime credentials via the broker."""
-        broker.set_runtime("aiconnect", "enabled", "true")
+        broker.set_runtime("ai_connect", "enabled", "true")
         for field in self.credential_fields:
             value = values.get(field.env_key, "")
             if value:
-                service_key = field.env_key.removeprefix("AICONNECT_").lower()
-                broker.set_runtime("aiconnect", service_key, value)
+                service_key = field.env_key.removeprefix("AI_CONNECT_").lower()
+                broker.set_runtime("ai_connect", service_key, value)
 
     # ── Listener ──────────────────────────────────────────────
 
@@ -188,10 +188,10 @@ class AIConnectChannel(BaseChannel):
             return
 
         client = BridgeClient(
-            host=broker.get("aiconnect", "bridge_host"),
-            port=int(broker.get("aiconnect", "bridge_port")),
-            token=broker.get("aiconnect", "bridge_token"),
-            peer_name=broker.get("aiconnect", "peer_name"),
+            host=broker.get("ai_connect", "bridge_host"),
+            port=int(broker.get("ai_connect", "bridge_port")),
+            token=broker.get("ai_connect", "bridge_token"),
+            peer_name=broker.get("ai_connect", "peer_name"),
         )
         _bridge, _bridge_loop = client, asyncio.get_running_loop()
         self.channel_log(f"AI-Connect Plugin: joining the Bridge as '{client.peer_name}'...")
@@ -229,7 +229,7 @@ class AIConnectChannel(BaseChannel):
         from ....lib.message_processor import dispatch_inbound
 
         inbound = InboundMessage(
-            channel="aiconnect",
+            channel="ai_connect",
             channel_id=sender,
             sender=sender,
             text=_with_context(content, data.get("context")),
@@ -258,7 +258,7 @@ class AIConnectChannel(BaseChannel):
         """Prepare a peer message for the LLM with sender context."""
         from ....lib.prompt_loader import load_prompt
         return load_prompt(
-            "shared/channel_aiconnect",
+            "shared/channel_ai_connect",
             sender=message.sender,
             text=message.text,
         )
@@ -312,16 +312,16 @@ class AIConnectChannel(BaseChannel):
 
         return [
             Tool(
-                name="aiconnect_peer_list",
+                name="ai_connect_peer_list",
                 tier=TIER_READONLY,
-                description=load_tool_description(__file__, "aiconnect_peer_list"),
+                description=load_tool_description(__file__, "ai_connect_peer_list"),
                 parameters={"type": "object", "properties": {}},
                 executor=_execute_peer_list,
             ),
             Tool(
-                name="aiconnect_peer_history",
+                name="ai_connect_peer_history",
                 tier=TIER_READONLY,
-                description=load_tool_description(__file__, "aiconnect_peer_history"),
+                description=load_tool_description(__file__, "ai_connect_peer_history"),
                 parameters={
                     "type": "object",
                     "properties": {
@@ -333,10 +333,10 @@ class AIConnectChannel(BaseChannel):
                 executor=_execute_peer_history,
             ),
             Tool(
-                name="aiconnect_peer_send",
+                name="ai_connect_peer_send",
                 tier=TIER_COMMUNICATE,
                 outbound=True,
-                description=load_tool_description(__file__, "aiconnect_peer_send"),
+                description=load_tool_description(__file__, "ai_connect_peer_send"),
                 parameters={
                     "type": "object",
                     "properties": {
