@@ -363,6 +363,7 @@ class AgentEditorMixin(rx.State, mixin=True):
                 # Sender-Allowlist (TD8), NICHT channel_ids — das ist nur die
                 # Lausch-Liste, nicht die sicherheitsrelevante Einstellung.
                 "discord": broker.get("discord", "allowed_users") or "-",
+                "aiconnect": broker.get("aiconnect", "allowed_peers") or "-",
                 "freeecho2": "",
             }
             # Ensure all channels have a security tier entry
