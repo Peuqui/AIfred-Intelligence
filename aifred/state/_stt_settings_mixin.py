@@ -19,7 +19,8 @@ class STTSettingsMixin(rx.State, mixin=True):
     stt_engines: list[str] = []
     stt_engine: str = ""
     stt_qualities: list[str] = []
-    stt_quality: str = ""
+    stt_cpu_quality: str = ""
+    stt_gpu_quality: str = ""
     stt_gpu_model: str = ""
     stt_cpu_model: str = ""
     stt_num_speakers: int = 0
@@ -55,7 +56,8 @@ class STTSettingsMixin(rx.State, mixin=True):
         self.stt_engines = data.get("engines", [])
         self.stt_engine = data.get("engine", "")
         self.stt_qualities = data.get("parakeet_qualities", [])
-        self.stt_quality = data.get("quality", "")
+        self.stt_cpu_quality = data.get("cpu_quality", "")
+        self.stt_gpu_quality = data.get("gpu_quality", "")
         self.stt_gpu_model = data.get("gpu_model", "")
         self.stt_cpu_model = data.get("cpu_model", "")
         self.stt_num_speakers = int(data.get("num_speakers", 0))
@@ -82,8 +84,12 @@ class STTSettingsMixin(rx.State, mixin=True):
         self.stt_engine = value
 
     @rx.event
-    def stt_set_quality(self, value: str) -> None:
-        self.stt_quality = value
+    def stt_set_cpu_quality(self, value: str) -> None:
+        self.stt_cpu_quality = value
+
+    @rx.event
+    def stt_set_gpu_quality(self, value: str) -> None:
+        self.stt_gpu_quality = value
 
     @rx.event
     def stt_set_gpu_model(self, value: str) -> None:
@@ -135,7 +141,8 @@ class STTSettingsMixin(rx.State, mixin=True):
 
         payload = {
             "engine": self.stt_engine,
-            "quality": self.stt_quality,
+            "cpu_quality": self.stt_cpu_quality,
+            "gpu_quality": self.stt_gpu_quality,
             "gpu_model": self.stt_gpu_model,
             "cpu_model": self.stt_cpu_model,
             "num_speakers": self.stt_num_speakers,
