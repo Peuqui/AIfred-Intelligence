@@ -16,6 +16,7 @@ import httpx
 import edge_tts
 from pathlib import Path
 from .config import DATA_DIR
+from .i18n import t
 from .logging_utils import log_message
 
 
@@ -45,7 +46,7 @@ _code_hint_announced: bool = False
 _skip_block_tag: "str | None" = None
 _collapsible_tags_cache: "tuple[str, ...] | None" = None
 _list_streaming_count: int = 0       # consecutive list items seen (streaming mode)
-_list_hint_announced: bool = False   # "und weitere Einträge" emitted once per overflow
+_list_hint_announced: bool = False   # the "and more items" hint is emitted once per overflow
 
 
 # ---------------------------------------------------------------------------
@@ -924,7 +925,7 @@ def _collapsible_tags() -> "tuple[str, ...]":
     return _collapsible_tags_cache
 
 
-def clean_text_for_tts(text):
+def clean_text_for_tts(text, language):
     """
     Prepare text for TTS output: Remove elements that sound bad when read aloud.
 
@@ -950,11 +951,16 @@ def clean_text_for_tts(text):
 
     Args:
         text: Raw text from AI response
+        language: Language of the text (de, en); selects the spoken hints that replace
+            code, tables, formulas and long lists, taken from the i18n files
 
     Returns:
         str: Cleaned text suitable for TTS
     """
     global _skip_block_tag
+
+    def hint(key: str) -> str:
+        return t(key, lang=language)
 
     # Detect multi-line content (Re-Synth/regeneration mode) vs single-line (streaming mode)
     # Multi-line content should skip streaming state logic and use regex-based removal
@@ -1005,7 +1011,7 @@ def clean_text_for_tts(text):
         global _code_hint_announced
         if not _code_hint_announced:
             _code_hint_announced = True
-            return '\nHier steht Code.\n'
+            return f'\n{hint("tts_hint_code")}\n'
         return '\n'
     clean_text = re.sub(r'```.*?```', replace_code_block, clean_text, flags=re.DOTALL).strip()
 
@@ -1044,21 +1050,21 @@ def clean_text_for_tts(text):
         if is_table:
             if not _table_hint_announced:
                 _table_hint_announced = True
-                return "Hier wird eine Tabelle angezeigt."
+                return hint("tts_hint_table")
             return ""
 
         # Check for inline formula ($...$)
         if re.search(r'\$[^$]+\$', stripped):
             if not _formula_hint_announced:
                 _formula_hint_announced = True
-                return "Hier steht eine Formel."
+                return hint("tts_hint_formula")
             return ""
 
         # Check for inline code (`...`)
         if re.search(r'`[^`]+`', stripped):
             if not _code_hint_announced:
                 _code_hint_announced = True
-                return "Hier steht Code."
+                return hint("tts_hint_code")
             return ""
 
         # List-item detection (streaming mode): count consecutive items;
@@ -1070,7 +1076,7 @@ def clean_text_for_tts(text):
             if _list_streaming_count > _get_tts_list_max_items():
                 if not _list_hint_announced:
                     _list_hint_announced = True
-                    return "und weitere Einträge."
+                    return hint("tts_hint_more_items")
                 return ""
             # within threshold → fall through, item gets read normally
         elif _list_streaming_count > 0 and stripped and re.search(r'[a-zA-ZäöüÄÖÜß]{2,}', stripped):
@@ -1094,7 +1100,7 @@ def clean_text_for_tts(text):
             global _table_hint_announced
             if not _table_hint_announced:
                 _table_hint_announced = True
-                return '\nHier wird eine Tabelle angezeigt.\n'
+                return f'\n{hint("tts_hint_table")}\n'
             return '\n'
         clean_text = table_block_pattern.sub(replace_table, clean_text)
 
@@ -1114,7 +1120,7 @@ def clean_text_for_tts(text):
             r'^[ \t]*(?:[-*+]|\d+[.)])\s+', block, flags=re.MULTILINE,
         ))
         if item_count > _list_max_multi:
-            return f'\nHier wird eine Liste mit {item_count} Einträgen angezeigt.\n'
+            return f'\n{t("tts_hint_list", lang=language, items=item_count)}\n'
         return block
 
     clean_text = list_block_pattern.sub(_replace_long_list, clean_text)
@@ -1129,7 +1135,7 @@ def clean_text_for_tts(text):
         global _formula_hint_announced
         if not _formula_hint_announced:
             _formula_hint_announced = True
-            return ' Hier steht eine Formel. '
+            return f' {hint("tts_hint_formula")} '
         return ' '
     clean_text = re.sub(r'\$\$[^$]+\$\$', replace_formula, clean_text, flags=re.DOTALL)  # Block formulas
     clean_text = re.sub(r'\$[^$]+\$', replace_formula, clean_text)  # Inline formulas
@@ -1215,7 +1221,7 @@ def clean_text_for_tts(text):
         global _code_hint_announced
         if not _code_hint_announced:
             _code_hint_announced = True
-            return ' Hier steht Code. '
+            return f' {hint("tts_hint_code")} '
         return ''
     clean_text = re.sub(r'`[^`]+`', replace_inline_code, clean_text)
     clean_text = re.sub(r'`', '', clean_text)     # Stray backticks

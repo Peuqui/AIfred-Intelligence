@@ -232,7 +232,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             reset_content_hint_flags()
 
             # Clean text: Remove <think> tags, emojis, markdown, URLs, timing info
-            clean_text = clean_text_for_tts(content)
+            clean_text = clean_text_for_tts(content, self._resolve_tts_language(agent))
 
             if not clean_text or len(clean_text.strip()) < 5:
                 self.add_debug(f"🔇 TTS Queue: Text too short for {agent}")  # type: ignore[attr-defined]
@@ -750,7 +750,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         try:
             # Light cleanup - remove markdown, emojis, but keep the text mostly intact
-            clean_text = clean_text_for_tts(sentence)
+            clean_text = clean_text_for_tts(sentence, self._resolve_tts_language(agent))
 
             if not clean_text or not clean_text.strip():
                 # Empty sentence: mark as done and drain buffer
@@ -914,7 +914,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         # llm_history has format "[AGENT]: content" - remove the label
         content_without_label = re.sub(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', '', llm_content, flags=re.IGNORECASE)
-        clean_text = clean_text_for_tts(content_without_label)
+        tts_language = self._resolve_tts_language(agent)
+        clean_text = clean_text_for_tts(content_without_label, tts_language)
 
         if not clean_text or len(clean_text.strip()) < 5:
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} text too short after cleanup")
@@ -950,7 +951,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             "speed": speed_value,
             "pitch": pitch_value,
             "engine": str(self.tts_engine),  # type: ignore[attr-defined]
-            "language": self._last_detected_language or self.ui_language,  # type: ignore[attr-defined]
+            "language": tts_language,
             "session_id": str(self.session_id),  # type: ignore[attr-defined]
         }
 
