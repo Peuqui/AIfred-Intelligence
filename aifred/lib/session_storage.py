@@ -43,7 +43,7 @@ SESSION_ID_RE = re.compile(r"^[a-f0-9]{32}$")
 # One global RLock, deliberately not per-session: session ops are
 # ms-scale file I/O, strictly serial is the simplest correct model
 # (same decision as the EPIM DB serialization, EP6). RLock because the
-# multi-step writers (save_user_to_session etc.) nest into the locked
+# multi-step writers (save_inbound_to_session etc.) nest into the locked
 # helpers here. New RMW functions MUST take this lock.
 #
 # Known limit (fixed by the Unified Inference Pipeline, not by locking):

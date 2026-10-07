@@ -319,6 +319,11 @@ class CredentialField:
 class BaseChannel(ABC):
     """Abstract base class for all message channel plugins."""
 
+    # True: wer über diesen Kanal spricht, ist immer der eingetragene User (Echo-Puck,
+    # solange es keine Sprecher-Erkennung gibt). False: nur ein Treffer in
+    # user_mapping.json macht eine Nachricht zur User-Nachricht.
+    speaker_is_user: bool = False
+
     # ── Plugin Settings (settings.json in plugin directory) ────
 
     def _settings_path(self) -> "Path":
@@ -369,6 +374,12 @@ class BaseChannel(ABC):
     @property
     @abstractmethod
     def icon(self) -> str:
+        ...
+
+    @property
+    @abstractmethod
+    def emoji(self) -> str:
+        """Textzeichen für die Chat-Bubble (``icon`` ist ein Lucide-Name für die Einstellungen)."""
         ...
 
     @property

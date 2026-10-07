@@ -170,13 +170,16 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 # Flush user question to session immediately so browser shows it
                 # BEFORE TTS setup (which can take 25s+) and LLM inference.
                 # Uses the same SSOT function as process_inbound.
-                from ....lib.message_processor import save_user_to_session
+                from ....lib.message_processor import message_from_user, save_inbound_to_session
                 _early_msg = InboundMessage(
                     channel="freeecho2", channel_id=room, sender=room,
                     text=text, timestamp=datetime.now(timezone.utc),
                     metadata={"room": room},
                 )
-                save_user_to_session(session_id, _early_msg)
+                save_inbound_to_session(
+                    session_id, _early_msg,
+                    message_from_user(_early_msg.channel, _early_msg.channel_id, _early_msg.sender),
+                )
 
                 # Ensure TTS state (MOSS/XTTS loading, VRAM management).
                 # Messages go to UI via debug() (session context propagated to executor).

@@ -104,6 +104,10 @@ class AIConnectChannel(BaseChannel):
         return "network"  # Lucide icon
 
     @property
+    def emoji(self) -> str:
+        return "🔌"
+
+    @property
     def always_reply(self) -> bool:
         return True
 
