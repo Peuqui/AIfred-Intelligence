@@ -42,9 +42,10 @@ class AnnounceRequest(BaseModel):
         None, ge=0, le=ANNOUNCE_MAX_PAUSE_MS,
         description="Silence between the paragraphs of texts in ms (default ANNOUNCE_PAUSE_MS)",
     )
-    speaker: str | None = Field(
-        None, min_length=1, max_length=64,
-        description="Who is speaking (e.g. the agent's name); only recorded in the room's session history",
+    speaker: str = Field(
+        ..., min_length=1, max_length=64,
+        description="Who is speaking: the agent's name (required, no anonymous announcements); "
+        "recorded in the room's session history",
     )
 
     @model_validator(mode="after")
@@ -120,8 +121,7 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
     ]
     if not reached:
         raise HTTPException(status_code=502, detail="the announcement could not be delivered")
-    speaker = request.speaker or "Ansage"
     for room in reached:
-        record_autonomous_turn("freeecho2", room, speaker, f"{speaker}: {spoken}")
+        record_autonomous_turn("freeecho2", room, request.speaker, spoken, speaker=request.speaker)
     log_message(f"Announce API: {len(paragraphs)} paragraph(s), {total} characters to {reached}")
     return {"success": True, "rooms": reached}

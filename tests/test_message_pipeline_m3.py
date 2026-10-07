@@ -128,3 +128,12 @@ def test_announcement_carries_its_session_for_threading(monkeypatch) -> None:
     monkeypatch.setattr(mp, "_resolve_channel_recipient", lambda channel, recipient: "peuqui@example.org")
     ok = asyncio.run(mp.announce_to_channel("email", "", "Psalm 143", session_id="s" * 32))
     assert ok and sent["metadata"]["session_id"] == "s" * 32
+
+
+def test_history_entry_names_the_speaker_only_for_an_agent_message() -> None:
+    from aifred.lib.message_builder import build_autonomous_history_entry
+
+    automatic = build_autonomous_history_entry("scheduler", "Zeit für das Gebet")
+    assert automatic["content"] == "[AUTOMATISCHE MELDUNG (scheduler)]: Zeit für das Gebet"
+    named = build_autonomous_history_entry("freeecho2", "Commit ist durch", speaker="Codine")
+    assert named["content"] == "[NACHRICHT VON Codine (über freeecho2)]: Commit ist durch"

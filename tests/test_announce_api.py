@@ -24,7 +24,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
     # Die Session-Dokumentation nicht in echte Sessions schreiben
     monkeypatch.setattr(announce, "announce_to_channel", fake_announce)
-    monkeypatch.setattr(announce, "record_autonomous_turn", lambda *args, **kwargs: recorded.append(args))
+    monkeypatch.setattr(announce, "record_autonomous_turn", lambda *args, **kwargs: recorded.append((*args, kwargs["speaker"])))
     test_client = TestClient(api_app)
     test_client.delivered = delivered  # type: ignore[attr-defined]
     test_client.recorded = recorded  # type: ignore[attr-defined]
@@ -32,7 +32,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def _post(client: TestClient, **body):
-    return client.post("/audio/announce", headers=AUTH, json={"room": "wohnzimmer", **body})
+    return client.post("/audio/announce", headers=AUTH, json={"room": "wohnzimmer", "speaker": "Codine", **body})
 
 
 def test_rooms_need_the_token(client: TestClient) -> None:
@@ -74,13 +74,15 @@ def test_several_paragraphs_are_one_announcement(client: TestClient) -> None:
 def test_the_announcement_is_documented_in_the_rooms_session(client: TestClient) -> None:
     _post(client, texts=["Erster Absatz.", "Zweiter."], speaker="Whisper")
     assert client.recorded == [  # type: ignore[attr-defined]
-        ("freeecho2", "wohnzimmer", "Whisper", "Whisper: Erster Absatz. Zweiter."),
+        # Bubble: Sprecher nur in der Kopfzeile; das Modell sieht „Nachricht von <Sprecher>“
+        ("freeecho2", "wohnzimmer", "Whisper", "Erster Absatz. Zweiter.", "Whisper"),
     ]
 
 
-def test_without_speaker_the_session_says_announcement(client: TestClient) -> None:
-    _post(client, text="Hallo")
-    assert client.recorded[0][2] == "Ansage"  # type: ignore[attr-defined]
+def test_an_announcement_without_speaker_is_refused(client: TestClient) -> None:
+    response = client.post("/audio/announce", headers=AUTH, json={"room": "wohnzimmer", "text": "Hallo"})
+    assert response.status_code == 422
+    assert client.delivered == []  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize("body", [{}, {"text": "a", "texts": ["b"]}, {"texts": []}, {"texts": [""]}])
@@ -95,7 +97,7 @@ def test_pause_is_limited(client: TestClient) -> None:
 
 
 def test_unknown_room_is_404(client: TestClient) -> None:
-    response = client.post("/audio/announce", headers=AUTH, json={"room": "keller", "text": "Hallo"})
+    response = client.post("/audio/announce", headers=AUTH, json={"room": "keller", "text": "Hallo", "speaker": "Codine"})
     assert response.status_code == 404
     assert client.delivered == []  # type: ignore[attr-defined]
 
