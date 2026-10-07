@@ -47,7 +47,7 @@ def bundle_export_modal() -> rx.Component:
                 rx.text(t("bundle_export_desc"), font_size="11px", color="#aaa"),
                 rx.box(
                     rx.foreach(AIState.bundle_all_agents, _bundle_export_row),
-                    max_height="50vh",
+                    max_height="50dvh",
                     overflow_y="auto",
                     width="100%",
                     border="1px solid #333",
@@ -161,7 +161,7 @@ def bundle_import_modal() -> rx.Component:
             rx.text(t("bundle_import_desc"), font_size="11px", color="#aaa"),
             rx.box(
                 rx.foreach(AIState.bundle_import_agents, _bundle_import_row),
-                max_height="40vh",
+                max_height="40dvh",
                 overflow_y="auto",
                 width="100%",
                 border="1px solid #333",

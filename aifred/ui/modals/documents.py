@@ -649,9 +649,9 @@ def document_manager_page() -> rx.Component:
             # max_width deckelt weiterhin bei 95vw, damit die Breite auf
             # keinem Gerät über den Viewport hinauswächst.
             width=["95vw", "95vw", "1100px", "1400px", "1700px"],
-            height=["90vh", "90vh", "700px", "760px", "820px"],
+            height=["90dvh", "90dvh", "700px", "760px", "820px"],
             max_width="95vw",
-            max_height="90vh",
+            max_height="90dvh",
             overflow_y="hidden",
             position="relative",
             z_index="1001",

@@ -321,7 +321,7 @@ def channel_credentials_page() -> rx.Component:
             top="0",
             left="0",
             width="100vw",
-            height="100vh",
+            height="100dvh",
             z_index="1100",
             display="flex",
             justify_content="center",
