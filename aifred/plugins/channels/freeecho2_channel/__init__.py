@@ -78,6 +78,12 @@ class FreeEchoChannel(ConnectionMixin):
         return "radio"
 
     @property
+    def emoji(self) -> str:
+        return "🎤"
+
+    speaker_is_user = True
+
+    @property
     def always_reply(self) -> bool:
         return True
 

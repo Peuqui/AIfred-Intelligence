@@ -93,6 +93,10 @@ class EmailChannel(BaseChannel):
     def icon(self) -> str:
         return "mail"
 
+    @property
+    def emoji(self) -> str:
+        return "📧"
+
     # ── Credentials ───────────────────────────────────────────
 
     @property

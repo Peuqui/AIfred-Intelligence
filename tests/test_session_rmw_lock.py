@@ -5,7 +5,7 @@ worker thread, debug bus). Every read-modify-write must hold
 ``session_storage.session_rmw_lock`` for the whole load→mutate→save sequence,
 otherwise the later writer overwrites the earlier one (lost update).
 
-These tests hammer the REAL call sites (save_user_to_session, _append_response,
+These tests hammer the REAL call sites (save_inbound_to_session, _append_response,
 debug_bus._flush_to_session) from parallel threads — without the lock they
 lose entries and fail.
 """
@@ -28,7 +28,7 @@ def session_dir(tmp_path, monkeypatch):
 
 def _make_message(text: str) -> InboundMessage:
     return InboundMessage(
-        channel="testchannel",
+        channel="telegram",
         channel_id="thread-1",
         sender="tester",
         text=text,
@@ -52,14 +52,14 @@ class TestConcurrentSessionWrites:
 
     def test_concurrent_user_appends_no_lost_update(self, session_dir):
         """N threads append user messages in parallel — nothing may get lost."""
-        from aifred.lib.message_processor import save_user_to_session
+        from aifred.lib.message_processor import save_inbound_to_session
 
         sid = "a" * 32
         session_storage.create_empty_session(sid, owner="mp")
 
         def worker(worker_id: int):
             for i in range(self.N_ITER):
-                save_user_to_session(sid, _make_message(f"w{worker_id}-{i}"))
+                save_inbound_to_session(sid, _make_message(f"w{worker_id}-{i}"), from_user=True)
 
         _run_threads([lambda w=w: worker(w) for w in range(self.N_THREADS)])
 
@@ -67,7 +67,7 @@ class TestConcurrentSessionWrites:
         assert session is not None
         expected = self.N_THREADS * self.N_ITER
         assert len(session["data"]["chat_history"]) == expected
-        # M3: save_user_to_session writes the CHAT history only — the
+        # M3: save_inbound_to_session writes the CHAT history only — the
         # llm_history entry is appended (wrapped) via _append_response.
         assert "llm_history" not in session["data"]
 

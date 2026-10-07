@@ -437,6 +437,28 @@ def build_assistant_chat_entry(
     }
 
 
+def build_channel_chat_entry(content: str, channel: str, sender: str) -> dict:
+    """Build a chat_history dict for a message from someone who is not the user
+    (peer, scheduler job, alert, ...). Same shape as build_assistant_chat_entry,
+    so the bubble renders on the left: channel emoji, then "Channel · Sender".
+    ``agent`` carries the channel id — it is no agent, get_agent_config() yields None.
+    """
+    from .message_processor import channel_display_label, channel_emoji
+
+    return {
+        "role": "assistant",
+        "content": content,
+        "agent": channel,
+        "agent_display_name": f"{channel_display_label(channel)} \u00b7 {sender}",
+        "agent_emoji": channel_emoji(channel),
+        "metadata": {},
+        "timestamp": datetime.now().isoformat(),
+        "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
+        "has_audio": False,
+        "audio_urls_json": "[]",
+    }
+
+
 def build_inference_metadata(
     ttft: float | None,
     inference_time: float,

@@ -16,6 +16,7 @@ from typing import Iterator, Optional, Sequence
 
 from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage
+from .formatting import build_channel_chat_entry
 from .logging_utils import log_message
 from .routing_table import routing_table
 from .session_storage import create_empty_session, update_chat_data
@@ -162,31 +163,49 @@ def hub_notification_scope(
             _write("error" if notifier.failed else "done")
 
 
-def resolve_user_name(channel: str, channel_id: str, sender: str) -> str:
-    """Resolve external identity to AIfred user name via user_mapping.json.
+def _mapped_user_name(channel: str, channel_id: str, sender: str) -> str | None:
+    """AIfred user name for an external identity (user_mapping.json), None if unmapped.
 
     Checks if the channel_id (e.g. telegram user ID, email address)
-    is mapped to a known AIfred user. Returns the mapped name or
-    the original sender name if no mapping exists.
+    is mapped to a known AIfred user.
     """
     import json
     from .config import DATA_DIR
 
     mapping_path = DATA_DIR / "user_mapping.json"
     if not mapping_path.exists():
-        return sender
+        return None
 
     try:
         mappings = json.loads(mapping_path.read_text(encoding="utf-8"))
     except (json.JSONDecodeError, OSError):
-        return sender
+        return None
 
     for user_name, channels in mappings.items():
         ids = channels.get(channel, [])
         if channel_id in ids or sender in ids:
             return str(user_name)
 
-    return sender
+    return None
+
+
+def resolve_user_name(channel: str, channel_id: str, sender: str) -> str:
+    """Mapped AIfred user name, or the original sender name if no mapping exists."""
+    return _mapped_user_name(channel, channel_id, sender) or sender
+
+
+def message_from_user(channel: str, channel_id: str, sender: str) -> bool:
+    """SSOT: is this inbound message the user speaking (bubble on the right)?
+
+    Yes for a mapped identity, and for channels whose speaker is always the user
+    (BaseChannel.speaker_is_user). Everyone else — peers, jobs, alerts — is
+    shown on the left under their own name.
+    """
+    from .plugin_registry import get_channel
+    plugin = get_channel(channel)
+    if plugin is not None and plugin.speaker_is_user:
+        return True
+    return _mapped_user_name(channel, channel_id, sender) is not None
 
 
 async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, float]:
@@ -318,6 +337,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
     # 1b. Resolve external identity to AIfred user name
     original_sender = message.sender
+    from_user = message_from_user(message.channel, message.channel_id, message.sender)
     resolved_name = resolve_user_name(message.channel, message.channel_id, message.sender)
     if resolved_name != message.sender:
         log_message(f"User mapping: {message.sender} -> {resolved_name}")
@@ -446,7 +466,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
         # Save incoming message to session (chat + llm history)
         if not user_saved:
-            save_user_to_session(session_id, message)
+            save_inbound_to_session(session_id, message, from_user)
 
         # ── Phase 2: Call AIfred engine ───────────────────────
         hub.update("processing")
@@ -497,7 +517,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
         # ── Phase 3: Save response to session ─────────────────
         # M3: the user turn goes into llm_history HERE (wrapped) — see
-        # _append_response/save_user_to_session docstrings.
+        # _append_response/save_inbound_to_session docstrings.
         _append_response(
             session_id, response_text, response_display,
             metadata=result_metadata, agent=message.target_agent,
@@ -691,6 +711,14 @@ def channel_display_label(channel: str) -> str:
     return plugin_display_name(plugin, (load_settings() or {}).get("ui_language", "de"))
 
 
+def channel_emoji(channel: str) -> str:
+    """Bubble emoji of a channel: the plugin's own, else NON_PLUGIN_CHANNEL_EMOJIS."""
+    from .config import NON_PLUGIN_CHANNEL_EMOJIS
+    from .plugin_registry import get_channel as _get_ch
+    plugin = _get_ch(channel)
+    return plugin.emoji if plugin is not None else NON_PLUGIN_CHANNEL_EMOJIS[channel]
+
+
 def build_user_chat_content(message: InboundMessage) -> str:
     """Build the chat_history content string for a user message.
 
@@ -699,16 +727,27 @@ def build_user_chat_content(message: InboundMessage) -> str:
     """
     channel_label = channel_display_label(message.channel)
     subject = message.metadata.get("subject", "")
-    header = f"[{channel_label}] {message.sender}"
+    header = f"[{channel_emoji(message.channel)} {channel_label}] {message.sender}"
     if subject:
         header += f" — {subject}"
     return f"{header}\n\n{message.text}"
 
 
-def save_user_to_session(session_id: str, message: InboundMessage) -> None:
-    """Save user message to the session CHAT history (UI) and set update flag.
+def build_inbound_chat_entry(message: InboundMessage, from_user: bool) -> dict:
+    """chat_history entry of an inbound message: the user's own words on the right
+    ("[Channel] Sender" header), everyone else on the left under their own name."""
+    if from_user:
+        return {"role": "user", "content": build_user_chat_content(message)}
+    subject = message.metadata.get("subject", "")
+    content = f"**{subject}**\n\n{message.text}" if subject else message.text
+    return build_channel_chat_entry(content, message.channel, message.sender)
 
-    Single source of truth for persisting inbound user messages.
+
+def save_inbound_to_session(session_id: str, message: InboundMessage, from_user: bool) -> None:
+    """Save inbound message to the session CHAT history (UI) and set update flag.
+
+    Single source of truth for persisting inbound messages (see message_from_user
+    for who counts as the user).
     Called by process_inbound (normal path) or directly by channels
     that need early browser flush (FreeEcho.2 after STT).
 
@@ -728,7 +767,7 @@ def save_user_to_session(session_id: str, message: InboundMessage) -> None:
         data = session.get("data", {}) if session else {}
         existing_chat = data.get("chat_history", [])
 
-        existing_chat.append({"role": "user", "content": build_user_chat_content(message)})
+        existing_chat.append(build_inbound_chat_entry(message, from_user))
 
         # Browser detects via session file mtime-watch (SSOT)
         update_chat_data(
@@ -1026,7 +1065,9 @@ def record_routed_voice_turn(
         channel=channel, channel_id=channel_id, sender=sender, text=text,
         timestamp=datetime.now(), metadata={"subject": f"→ {route_name}"},
     )
-    save_user_to_session(session_id, message)
+    save_inbound_to_session(
+        session_id, message, message_from_user(channel, channel_id, sender),
+    )
 
     trust = resolve_trust_label(channel, sender, message.metadata)
     wrapped = wrap_external_message(
@@ -1115,7 +1156,7 @@ def record_autonomous_turn(
         session = load_session(session_id)
         data = (session or {}).get("data", {})
         chat_history = list(data.get("chat_history", []))
-        chat_history.append({"role": "assistant", "content": content})
+        chat_history.append(build_channel_chat_entry(content, channel, title))
         llm_history = [*data.get("llm_history", []), llm_entry]
         update_chat_data(session_id, chat_history, llm_history=llm_history, owner=owner)
 

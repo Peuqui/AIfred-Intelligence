@@ -77,6 +77,10 @@ class DiscordChannel(BaseChannel):
         return "message-circle"
 
     @property
+    def emoji(self) -> str:
+        return "💬"
+
+    @property
     def always_reply(self) -> bool:
         return True
 

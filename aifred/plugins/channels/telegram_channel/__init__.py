@@ -98,6 +98,10 @@ class TelegramChannel(BaseChannel):
         return "send"  # Lucide icon
 
     @property
+    def emoji(self) -> str:
+        return "✈️"
+
+    @property
     def always_reply(self) -> bool:
         return True
 
