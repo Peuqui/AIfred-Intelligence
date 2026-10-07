@@ -1382,7 +1382,7 @@ SANDBOX_WORK_DIR = "/tmp/aifred_sandbox"
 # interactions (click/fill/drag) and capture console messages + screenshots
 # so agents can verify their HTML/JS output actually works.
 # Chat-Bubble-Emoji der Kanäle ohne Plugin (Plugins liefern es selbst: BaseChannel.emoji)
-NON_PLUGIN_CHANNEL_EMOJIS = {"scheduler": "⏰", "webhook": "🪝", "vision": "📷"}
+NON_PLUGIN_CHANNEL_EMOJIS = {"scheduler": "⏰", "webhook": "🪝", "vision": "📷", "inject": "📥"}
 
 BROWSER_RENDER_CHANNEL = "chrome"            # Playwright browser channel (system Chrome)
 BROWSER_RENDER_TIMEOUT_SECONDS = 60          # hard cap for the whole render session

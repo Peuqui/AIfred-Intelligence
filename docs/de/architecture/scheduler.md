@@ -212,6 +212,7 @@ Token-basiert via Credential Broker (`WEBHOOK_API_TOKEN` in `.env`).
 
 ```json
 {
+    "sender": "Home Assistant",
     "message": "Was ist das Wetter heute?",
     "agent": "aifred",
     "token": "dein-geheimer-token",
@@ -235,6 +236,7 @@ Token-basiert via Credential Broker (`WEBHOOK_API_TOKEN` in `.env`).
 
 - Token wird gegen `WEBHOOK_API_TOKEN` geprüft (via Broker, nie im LLM-Kontext)
 - `max_tier` ist gekappt auf `DEFAULT_TIER_BY_SOURCE["webhook"]` (Default: 0 = read-only)
+- `sender` ist Pflicht (422 ohne) und reine Anzeige: `🪝 Webhook · <sender>` in der Bubble. Webhook und Scheduler gelten immer als Besitzer-Auslöser, die Rechte begrenzt `max_tier`
 - Jeder Trigger bekommt eine isolierte Session
 - Rate Limiting greift (aus Security-Layer S6)
 

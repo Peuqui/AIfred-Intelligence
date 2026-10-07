@@ -222,14 +222,14 @@ def resolve_trust_label(channel: str, sender: str, metadata: dict | None = None)
     decision (_is_owner: telegram user-id, email SPF/DKIM/DMARC per A9),
     so a forged From header cannot buy the "owner" label.
 
-    scheduler/webhook are internal triggers: their sender is set by our
-    own code (webhook behind require_service_token), there is no channel
-    identity to verify — the plain owner-name check is authoritative there.
+    scheduler/webhook are internal triggers: our own code (webhook behind
+    require_service_token) starts them, there is no channel identity to verify.
+    Their sender is a display name only (job name / caller name), so these
+    channels are always "owner" — the token and the pinned tier carry the security.
     """
     metadata = metadata or {}
     if channel in ("scheduler", "webhook"):
-        from .config import MESSAGE_HUB_OWNER
-        return "owner" if sender == MESSAGE_HUB_OWNER else "external"
+        return "owner"
     return "owner" if _is_owner(channel, sender, metadata) else "external"
 
 

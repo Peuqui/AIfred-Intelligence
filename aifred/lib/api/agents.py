@@ -9,6 +9,7 @@ from pydantic import BaseModel, Field
 
 from ..logging_utils import log_message
 from .app import api_app
+from .schemas import CallerName
 
 
 # ============================================================
@@ -17,6 +18,7 @@ from .app import api_app
 
 class AgentTriggerRequest(BaseModel):
     """Request to trigger an agent action."""
+    sender: CallerName
     message: str = Field(..., description="Message/prompt for the agent")
     agent: str = Field(default="aifred", description="Agent to use (aifred, sokrates, salomo)")
     token: str = Field(..., description="Auth token (configured in WEBHOOK_API_TOKEN env var)")
@@ -78,7 +80,7 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
         msg = InboundMessage(
             channel="webhook",
             channel_id=channel_id,
-            sender=MESSAGE_HUB_OWNER,
+            sender=request.sender,
             text=request.message,
             timestamp=datetime.now(),
             metadata={

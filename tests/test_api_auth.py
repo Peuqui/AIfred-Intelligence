@@ -95,7 +95,7 @@ class TestApiCookieGate:
         monkeypatch.setenv("INJECT_API_TOKEN", "")
         resp = client.post(
             "/api/chat/inject",
-            json={"session_id": "x", "message": "y", "token": "z"},
+            json={"sender": "Test", "session_id": "x", "message": "y", "token": "z"},
         )
         assert resp.status_code == 503
 
@@ -104,3 +104,15 @@ class TestApiCookieGate:
         # not the cookie gate.
         resp = client.get("/api/oauth/google/callback")
         assert resp.status_code != 403
+
+
+class TestCallerNameIsMandatory:
+    """inject, trigger and announce: every caller names itself (display only)."""
+
+    @pytest.mark.parametrize("path, body", [
+        ("/api/chat/inject", {"session_id": "x", "message": "y", "token": "z"}),
+        ("/api/agent/trigger", {"message": "y", "token": "z"}),
+        ("/api/audio/announce", {"room": "r", "text": "y"}),
+    ])
+    def test_missing_sender_is_422(self, client, path, body):
+        assert client.post(path, json=body).status_code == 422

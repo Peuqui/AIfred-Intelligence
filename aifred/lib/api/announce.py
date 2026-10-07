@@ -21,6 +21,7 @@ from ..message_processor import (
     announce_to_channel, record_autonomous_turn, resolve_announce_targets,
 )
 from .app import api_app
+from .schemas import CallerName
 
 # Audio type of the puck chime: always the gentle one, "alarm" is not offered here
 ANNOUNCE_AUDIO_TYPE = "notification"
@@ -42,11 +43,7 @@ class AnnounceRequest(BaseModel):
         None, ge=0, le=ANNOUNCE_MAX_PAUSE_MS,
         description="Silence between the paragraphs of texts in ms (default ANNOUNCE_PAUSE_MS)",
     )
-    speaker: str = Field(
-        ..., min_length=1, max_length=64,
-        description="Who is speaking: the agent's name (required, no anonymous announcements); "
-        "recorded in the room's session history",
-    )
+    speaker: CallerName
 
     @model_validator(mode="after")
     def _exactly_one_of_text_and_texts(self) -> "AnnounceRequest":
