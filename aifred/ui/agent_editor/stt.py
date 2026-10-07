@@ -114,15 +114,26 @@ def _stt_view() -> rx.Component:
                     # Qualitäten, Whisper getrennte Modelle für GPU und CPU.
                     rx.cond(
                         AIState.stt_engine == "parakeet",
-                        _stt_row(
-                            t("stt_quality"),
-                            rx.select(
-                                AIState.stt_qualities,
-                                value=AIState.stt_quality,
-                                on_change=AIState.stt_set_quality,
-                                size="1",
+                        rx.fragment(
+                            _stt_row(
+                                t("stt_gpu_quality"),
+                                rx.select(
+                                    AIState.stt_qualities,
+                                    value=AIState.stt_gpu_quality,
+                                    on_change=AIState.stt_set_gpu_quality,
+                                    size="1",
+                                ),
+                                t("stt_quality_hint"),
                             ),
-                            t("stt_quality_hint"),
+                            _stt_row(
+                                t("stt_cpu_quality"),
+                                rx.select(
+                                    AIState.stt_qualities,
+                                    value=AIState.stt_cpu_quality,
+                                    on_change=AIState.stt_set_cpu_quality,
+                                    size="1",
+                                ),
+                            ),
                         ),
                         rx.fragment(
                             _stt_row(
