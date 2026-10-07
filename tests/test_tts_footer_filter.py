@@ -14,18 +14,18 @@ def _footer() -> str:
 
 
 def test_footer_with_nested_parentheses_is_removed_completely() -> None:
-    spoken = clean_text_for_tts("Die Antwort lautet zweiundvierzig.\n\n" + _footer())
+    spoken = clean_text_for_tts("Die Antwort lautet zweiundvierzig.\n\n" + _footer(), "de")
     for fragment in ("TTFT", "tok/s", "Thinking", "Inference", "Source", "vllm", "PLE"):
         assert fragment not in spoken, (fragment, spoken)
     assert "zweiundvierzig" in spoken
 
 
 def test_text_after_the_footer_is_kept() -> None:
-    spoken = clean_text_for_tts("Erster Teil.\n\n" + _footer() + "\n\nZweiter Teil folgt hier.")
+    spoken = clean_text_for_tts("Erster Teil.\n\n" + _footer() + "\n\nZweiter Teil folgt hier.", "de")
     assert "Erster Teil" in spoken and "Zweiter Teil folgt hier" in spoken
     assert "TTFT" not in spoken
 
 
 def test_ordinary_parentheses_in_the_answer_stay() -> None:
-    spoken = clean_text_for_tts("Das Treffen ist am Montag (im grossen Saal) um zehn.")
+    spoken = clean_text_for_tts("Das Treffen ist am Montag (im grossen Saal) um zehn.", "de")
     assert "im grossen Saal" in spoken

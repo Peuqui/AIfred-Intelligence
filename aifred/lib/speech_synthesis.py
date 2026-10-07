@@ -215,7 +215,7 @@ async def synthesize_pcm(text: str, agent: str, engine: str, language: str, labe
     return pcm
 
 
-def _speakable_segments(segments: "list[str | int]") -> "list[str | int]":
+def _speakable_segments(segments: "list[str | int]", language: str) -> "list[str | int]":
     """Texte von Markdown, Emojis, Code, Links usw. befreien (SSOT: ``clean_text_for_tts``,
     dieselbe wie im Browser-Chat) — einmal hier statt in jedem TTS-Server. Was danach leer
     ist, entfällt; Stille ohne Sprache davor ergibt keinen Sinn und entfällt ebenfalls."""
@@ -230,7 +230,7 @@ def _speakable_segments(segments: "list[str | int]") -> "list[str | int]":
             if speakable:
                 speakable.append(segment)
             continue
-        cleaned = clean_text_for_tts(segment)
+        cleaned = clean_text_for_tts(segment, language)
         if cleaned:
             speakable.append(cleaned)
     while speakable and isinstance(speakable[-1], int):
@@ -245,7 +245,7 @@ async def start_speech_stream(
     (Texte als ``str``, Stille als ``int`` ms) erzeugt ein Hintergrund-Task und hängt
     sie an, während der Abnehmer schon sendet. ``None``, wenn nichts zu sprechen ist
     oder der erste Satz scheitert. Die Texte werden vor der Synthese bereinigt."""
-    segments = _speakable_segments(segments)
+    segments = _speakable_segments(segments, language)
     if not segments:
         log_message(f"[{label}] nothing to speak", "warning")
         return None

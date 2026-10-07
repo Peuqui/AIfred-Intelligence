@@ -85,3 +85,29 @@ class TestCleaning:
 
     def test_only_unspeakable_text_gives_no_stream(self):
         assert start(["😀"], fake_tts([])) is None
+
+
+class TestHintLanguage:
+    """Hinweise für Code usw. kommen aus den Übersetzungsdateien, in der Sprache des Textes."""
+
+    def test_the_hint_for_code_follows_the_language(self):
+        from aifred.lib.audio_processing import clean_text_for_tts, reset_content_hint_flags
+
+        text = "Look at this: ```print(1)``` and then continue."
+        reset_content_hint_flags()
+        assert "There is code here." in clean_text_for_tts(text, "en")
+        reset_content_hint_flags()
+        assert "Hier steht Code." in clean_text_for_tts(text, "de")
+
+    def test_the_stream_cleans_in_the_language_it_is_given(self):
+        spoken: list[str] = []
+        patches = fake_tts(spoken)
+
+        async def go():
+            await speech_synthesis.start_speech_stream(
+                ["Here is `x = 1` for you."], "aifred", "piper", "en", "test",
+            )
+
+        with patches[0], patches[1], patches[2]:
+            run(go())
+        assert spoken == ["There is code here."]  # a sentence with inline code becomes the hint
