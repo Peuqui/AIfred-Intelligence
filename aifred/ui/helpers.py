@@ -112,7 +112,7 @@ def _overlay_backdrop(
 
     Standard: absolut positioniert, füllt den fixed Container.
     ``fixed=True`` rendert die Variante der Audit-/Bundle-Modals
-    (position fixed, 100vw/100vh, eigener z-index).
+    (position fixed, 100vw/100dvh, eigener z-index).
     """
     props: dict[str, Any] = {}
     if on_click is not None:
@@ -123,7 +123,7 @@ def _overlay_backdrop(
             top="0",
             left="0",
             width="100vw",
-            height="100vh",
+            height="100dvh",
             background_color=color,
             z_index=z_index,
             **props,
@@ -169,7 +169,7 @@ def overlay_modal(
                 border_radius="12px",
                 padding="1.5em",
                 width=width,
-                max_height="92vh",
+                max_height="92dvh",
                 overflow_y="auto",
                 box_shadow="0 20px 60px rgba(0,0,0,0.5)",
             ),
@@ -178,7 +178,7 @@ def overlay_modal(
             top="0",
             left="0",
             width="100vw",
-            height="100vh",
+            height="100dvh",
             z_index=z_index,
         ),
     )
@@ -206,7 +206,7 @@ def overlay_scaffold(
         top="0",
         left="0",
         width="100vw",
-        height="100vh",
+        height="100dvh",
         z_index=z_index,
     )
     if flex_center:

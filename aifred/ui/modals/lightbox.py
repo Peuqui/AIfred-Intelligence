@@ -39,7 +39,7 @@ def image_lightbox_modal() -> rx.Component:
         rx.image(
             src=AIState.lightbox_image_url,
             max_width="90vw",
-            max_height="85vh",
+            max_height="85dvh",
             object_fit="contain",
             border_radius="8px",
             on_click=AIState.close_lightbox,
