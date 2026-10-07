@@ -139,13 +139,13 @@ Um Nachrichten direkt in eine Browser-Session zu injizieren (z.B. für Tests):
 
 ```bash
 # API Endpoint: POST http://localhost:8002/api/chat/inject
-# Parameter: session_id, message, token
+# Parameter: sender (Pflicht, nur Anzeige), session_id, message, token
 # Auth: token MUSS gesetzt sein (INJECT_API_TOKEN aus .env) — sonst 403/503
 
 curl -s "http://localhost:8002/api/chat/inject" \
   -X POST \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "SESSION_ID_HIER", "message": "Deine Nachricht hier", "token": "<INJECT_API_TOKEN>"}'
+  -d '{"sender": "Claude", "session_id": "SESSION_ID_HIER", "message": "Deine Nachricht hier", "token": "<INJECT_API_TOKEN>"}'
 
 # Erfolgreiche Antwort:
 # {"success":true,"message":"Message queued for browser processing","session_id":"...","queued":true}

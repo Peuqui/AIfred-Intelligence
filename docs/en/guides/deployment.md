@@ -246,6 +246,7 @@ Manager), which writes them back to `.env`.
 | `AIFRED_ALLOWED_HOST` | Your external domain — added to Vite's `allowedHosts` on every start |
 | `INJECT_API_TOKEN` | Token for `/api/chat/inject` (see [REST API](rest-api.md)) |
 | `WEBHOOK_API_TOKEN` | Token for `/api/agent/trigger` |
+| `ANNOUNCE_API_TOKEN` | Bearer token for `/api/audio/announce` |
 | `AIFRED_SESSION_SECRET` | Signs the login cookies (optional — a random secret is persisted otherwise) |
 | `LLAMACPP_URL` | llama-swap URL (default `http://localhost:11435/v1`) |
 | `LLAMACPP_CALIBRATION_PORT` | Port of the temporary calibration server (default `9999`) |

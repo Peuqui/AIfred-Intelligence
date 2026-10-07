@@ -6,11 +6,12 @@ from typing import Optional, Dict, Any, List
 
 from ..logging_utils import log_message
 from .app import api_app
-from .schemas import SystemActionResponse
+from .schemas import CallerName, SystemActionResponse
 
 
 class ChatInjectRequest(BaseModel):
     """Chat inject request - injects message into browser session"""
+    sender: CallerName
     message: str = Field(..., min_length=1, description="User message to inject")
     session_id: str = Field(..., description="Browser session session_id (required)")
     token: str = Field(
@@ -62,7 +63,16 @@ async def inject_message(request: ChatInjectRequest):
 
     log_message(f"📨 API: Injecting message to {request.session_id[:8]}...")
 
-    success = set_pending_message(request.session_id, request.message)
+    # The injected text acts as the user's own input; the header names who sent it
+    # (same "[Channel] Sender" header as every other channel message from the user).
+    from datetime import datetime
+    from ..envelope import InboundMessage
+    from ..message_processor import build_user_chat_content
+    headed = build_user_chat_content(InboundMessage(
+        channel="inject", channel_id=request.session_id, sender=request.sender,
+        text=request.message, timestamp=datetime.now(),
+    ))
+    success = set_pending_message(request.session_id, headed)
 
     if success:
         log_message(f"✅ API: Message queued for {request.session_id[:8]}...")

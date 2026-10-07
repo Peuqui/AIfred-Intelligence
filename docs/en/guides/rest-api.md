@@ -36,11 +36,17 @@ Interactive OpenAPI docs: `/api/docs` (login required, see below).
 |---|---|
 | `/api/chat/inject` | `token` field = `INJECT_API_TOKEN` from `.env` |
 | `/api/agent/trigger` | `token` field = `WEBHOOK_API_TOKEN` from `.env` |
+| `/api/audio/announce` · `/api/audio/announce/rooms` | header `Authorization: Bearer <ANNOUNCE_API_TOKEN>` from `.env` |
 | `/api/oauth/{provider}/callback` | none (arrives as provider redirect) |
 | **everything else** (incl. `/api/docs`) | login cookie `aifred_username`, as set by the web login |
 
 - Token endpoints answer **503** if the token is not configured and **403** if it
   is wrong. They are the intended entry points for scripts and other machines.
+- **Mandatory caller name:** every call to the three token endpoints that push something into
+  AIfred (`inject`, `trigger`, `announce`) names itself — `sender` (`announce`: `speaker`),
+  1–64 characters, **422** without it. The name is **display only** (bubble header, message to
+  the model); authentication is the token alone, never the name. One token covers all callers of an
+  endpoint — whoever holds it can claim any name.
 - Cookie routes answer **403 "Login cookie required"** without a valid, signed
   login cookie. From a script, copy the cookie from a logged-in browser and send
   it with `-b 'aifred_username=…'`. The cookie is signed with
@@ -58,7 +64,7 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/chat/inject` | POST | Queue a message into a browser session (`session_id`, `message`, `token`) |
+| `/api/chat/inject` | POST | Queue a message into a browser session (`sender`, `session_id`, `message`, `token`). It acts as your own input (right-hand bubble); the header names the sender: `[📥 Inject] <sender>` |
 | `/api/chat/status` | GET | `?session_id=` — `is_generating`, `message_count` |
 | `/api/chat/history` | GET | `?session_id=` — `chat_history` + `llm_history` (latest session if omitted) |
 | `/api/chat/clear` | POST | Clear a session's history (`session_id`) |
@@ -80,11 +86,31 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/agent/trigger` | POST | Webhook: run an agent headless (`message`, `agent`, `token`, `max_tier`, `delivery`: `review` / `announce` / `webhook`) |
+| `/api/agent/trigger` | POST | Webhook: run an agent headless (`sender`, `message`, `agent`, `token`, `max_tier`, `delivery`: `review` / `announce` / `webhook`). The job shows on the left as `🪝 Webhook · <sender>`; webhook and scheduler are always owner-level triggers, `max_tier` limits the rights |
 | `/api/agents/export` | GET | Export agent definitions |
 | `/api/agents/import/peek` · `/api/agents/import` | POST | Preview / import an agent export (multipart upload) |
 | `/api/oauth/{provider}/auth-url` · `/status` · `/callback` | GET | OAuth flow (Google) — see [OAuth](plugins/oauth.md) |
 | `/api/oauth/{provider}` | DELETE | Revoke a provider's tokens |
+
+### Announcements on the Echo puck (no LLM)
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/api/audio/announce` | POST | Read a ready-made text aloud in a room. Body: `room` (room name, `@group` or `*`), `text` OR `texts` (several paragraphs as ONE announcement, optional `pause_ms`), `speaker` (required: the speaker's name). 404 for an unknown room, 413 for a text that is too long (`ANNOUNCE_MAX_CHARS` per entry, `ANNOUNCE_MAX_TOTAL_CHARS` in total), 502 if it cannot be delivered |
+| `/api/audio/announce/rooms` | GET | The rooms connected right now (valid values of `room`) |
+
+The announcement appears in the room's session as `🎤 FreeEcho.2 · <speaker>`; the model sees it as
+"message from <speaker>".
+
+### Calls made by AIfred
+
+Besides answering the endpoints above, AIfred itself calls one kind of address only: the result of a
+scheduler or webhook job with `delivery: webhook`. It arrives as a `POST` to `webhook_url` (30 s
+timeout, no redirects, private/local addresses are refused):
+
+```json
+{"job_name": "Daily prayer", "job_id": 7, "result": "…", "timestamp": "2026-10-07T06:45:00"}
+```
 
 ### Media (used by the UI)
 
@@ -140,11 +166,16 @@ curl -s -b "$COOKIE" $API/sessions
 # Queue a message — the browser session runs the full pipeline
 curl -s -X POST $API/chat/inject \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "<session_id>", "message": "What is Python?", "token": "<INJECT_API_TOKEN>"}'
+  -d '{"sender": "my-script", "session_id": "<session_id>", "message": "What is Python?", "token": "<INJECT_API_TOKEN>"}'
 
 # Wait until the answer is done, then read it
 curl -s -b "$COOKIE" "$API/chat/status?session_id=<session_id>"
 curl -s -b "$COOKIE" "$API/chat/history?session_id=<session_id>"
+
+# Read a text aloud on the Echo puck (Bearer token, speaker is mandatory)
+curl -s -X POST $API/audio/announce \
+  -H "Authorization: Bearer <ANNOUNCE_API_TOKEN>" -H "Content-Type: application/json" \
+  -d '{"room": "Office", "text": "The commit is done.", "speaker": "Codine"}'
 
 # Switch this session to Tribunal with deep research
 curl -s -b "$COOKIE" -X POST $API/session/config \

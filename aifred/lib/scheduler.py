@@ -396,7 +396,6 @@ async def _execute_job(job: Job) -> None:
     """
     import secrets
     from datetime import datetime
-    from .config import MESSAGE_HUB_OWNER
     from .envelope import InboundMessage
     from .message_processor import process_inbound
 
@@ -415,7 +414,7 @@ async def _execute_job(job: Job) -> None:
     msg = InboundMessage(
         channel="scheduler",
         channel_id=secrets.token_hex(8),
-        sender=MESSAGE_HUB_OWNER,
+        sender=job.name,
         text=build_job_prompt(job, store),
         timestamp=datetime.now(),
         metadata={
