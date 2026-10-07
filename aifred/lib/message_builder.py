@@ -307,13 +307,17 @@ def image_marker(image_urls: Sequence[str]) -> str:
 
 
 def build_autonomous_history_entry(
-    channel: str, text: str, image_urls: Sequence[str] = (),
+    channel: str, text: str, image_urls: Sequence[str] = (), speaker: str | None = None,
 ) -> Dict[str, str]:
-    """llm_history entry for an autonomous event (e.g. a camera alert).
+    """llm_history entry for an event that came in on its own (e.g. a camera alert).
     Role ``assistant`` without an agent label: every perspective sees it as a
-    labelled message from someone else, never as its own words or the user's."""
+    labelled message from someone else, never as its own words or the user's.
+    ``speaker`` set: another agent speaks (named message); unset: the channel alone
+    is the sender (scheduler, timer, alert — an automatic notification)."""
     from .prompt_loader import load_prompt
     body = "\n\n".join(part for part in (text, image_marker(image_urls) if image_urls else "") if part)
+    if speaker:
+        return {"role": "assistant", "content": load_prompt("shared/agent_message", channel=channel, speaker=speaker, text=body)}
     return {"role": "assistant", "content": load_prompt("shared/autonomous_event", channel=channel, text=body)}
 
 

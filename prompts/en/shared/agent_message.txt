@@ -1,0 +1,1 @@
+[MESSAGE FROM {speaker} (via {channel})]: {text}

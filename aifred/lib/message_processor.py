@@ -1085,7 +1085,7 @@ def record_routed_voice_turn(
             session_id, list(data.get("chat_history", [])),
             llm_history=llm_history, owner=MESSAGE_HUB_OWNER,
         )
-    record_autonomous_turn(channel, channel_id, route_name, f"{route_name}: {outcome}")
+    record_autonomous_turn(channel, channel_id, route_name, outcome)
     return session_id
 
 
@@ -1094,6 +1094,7 @@ def record_autonomous_turn(
     media: str | None = None,
     media_gallery: list[str] | None = None,
     owner: str = MESSAGE_HUB_OWNER,
+    speaker: str | None = None,
 ) -> str:
     """SSoT for surfacing an autonomous event as a normal browser session.
     Routes to a (stable) session, appends an assistant chat turn, and writes a
@@ -1107,7 +1108,11 @@ def record_autonomous_turn(
     nichts Neues zu zeigen" (die Bilanz eines Vorkommnisses filtert bereits
     Gezeigtes heraus) und darf nicht auf ``media`` zurückfallen, sonst stünde
     genau das wiederholte Bild wieder in der Bubble. ``None`` = der Aufrufer
-    kennt keine Galerie, dann trägt ``media`` das Bild."""
+    kennt keine Galerie, dann trägt ``media`` das Bild.
+
+    ``speaker``: ein anderer Agent spricht (Name) — das Modell sieht dann eine
+    „Nachricht von <speaker>“ statt einer automatischen Meldung. Die Bubble
+    zeigt den Absender (``title``) in der Kopfzeile, der Text bleibt ohne Namen."""
     from .session_storage import load_session
 
     session_id = _session_for_channel(channel, channel_id, owner)
@@ -1148,7 +1153,7 @@ def record_autonomous_turn(
     # The model sees llm_history, not the bubble: without this entry it knows
     # nothing of the event and denies that any image was ever shown.
     from .message_builder import build_autonomous_history_entry
-    llm_entry = build_autonomous_history_entry(channel, text, image_urls)
+    llm_entry = build_autonomous_history_entry(channel, text, image_urls, speaker)
 
     # M4: load→append→save as ONE unit (see session_rmw_lock).
     from .session_storage import session_rmw_lock

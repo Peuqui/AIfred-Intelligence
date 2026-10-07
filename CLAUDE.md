@@ -179,7 +179,7 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
 - Body `{"room": "...", "text": "..."}` ODER `{"room": "...", "texts": ["Absatz", ...],
   "pause_ms": 1000, "speaker": "Whisper"}`; `room` = Raumname, `@gruppe` oder `*`.
   `texts` = mehrere Absätze als EINE Ansage (`pause_ms` = Stille zwischen den Absätzen); `speaker`
-  nur für die Sitzungs-Historie. Ob ein Ding vor und ein Dong nach der Ansage angefordert wird,
+  ist PFLICHT (Name des sprechenden Agenten, keine anonymen Ansagen, sonst 422): er steht in der Bubble-Kopfzeile, das Modell sieht „Nachricht von <speaker>“. Ob ein Ding vor und ein Dong nach der Ansage angefordert wird,
   ist eine Plugin-Einstellung (`FREEECHO2_NOTIFICATION_START_TONE` / `_END_TONE`, an/aus), nicht
   Sache des Aufrufers; welcher Ton das ist, legt der Puck fest (`notification_wav` / `_end_wav`).
   `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.

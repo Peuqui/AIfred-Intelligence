@@ -196,12 +196,13 @@ def test_the_routed_exchange_lands_in_chat_and_llm_history(session_store):
     assert chat[0]["role"] == "user"
     assert "Buero-Puck-2" in chat[0]["content"] and "→ orc" in chat[0]["content"]
     assert "Whisper, committe bitte" in chat[0]["content"]
-    assert chat[1]["role"] == "assistant" and "orc: asked (Whisper)" in chat[1]["content"]
+    assert chat[1]["role"] == "assistant" and chat[1]["content"] == "asked (Whisper)"
+    assert "orc" in chat[1]["agent_display_name"]
 
     llm = session_store["llm_history"]
     assert llm[0]["role"] == "user"
     assert "<external_message" in llm[0]["content"] and "Whisper, committe bitte" in llm[0]["content"]
-    assert llm[1]["role"] == "assistant" and "orc: asked (Whisper)" in llm[1]["content"]
+    assert llm[1]["role"] == "assistant" and "asked (Whisper)" in llm[1]["content"]
 
 
 def test_a_second_exchange_is_appended_not_replaced(session_store):
