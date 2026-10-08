@@ -1204,6 +1204,11 @@ class OpenAICompatibleBackend(LLMBackend):
                 # (and re-execute tool side effects). Surface immediately.
                 if yielded_any:
                     raise await self._backend_error(e, model)
+                # 400 = the server rejected the request itself (e.g. images
+                # for a text-only profile) — identical on every retry.
+                import openai
+                if isinstance(e, openai.BadRequestError):
+                    raise await self._backend_error(e, model)
                 elapsed = time.monotonic() - start_time
                 remaining = retry_timeout - elapsed
                 if remaining > retry_delay:

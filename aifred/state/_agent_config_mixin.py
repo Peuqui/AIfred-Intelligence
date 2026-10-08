@@ -485,12 +485,12 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.agent_settings import get_agent_setting
         from ..lib.vision_utils import is_vision_model_sync
         main_id: str = get_agent_setting(self, "aifred", "model_id")
-        if main_id and is_vision_model_sync(main_id):
-            return self._effective_model_id("aifred"), "aifred"
-        # Physically the same model under a diverging variant toggle —
-        # resolve via the AIfred bucket so no pointless swap is forced.
-        if get_agent_setting(self, "vision", "model_id") == main_id:
-            return self._effective_model_id("aifred"), "aifred"
+        # Decide on the profile that actually gets loaded: a -vlm- variant
+        # starts the same checkpoint with --language-model-only (no encoder,
+        # image limit 0), so the base id being vision-capable proves nothing.
+        effective_main = self._effective_model_id("aifred")
+        if main_id and is_vision_model_sync(effective_main):
+            return effective_main, "aifred"
         return self._effective_model_id("vision"), "vision"
 
     def _effective_vl_model_id(self) -> str:
