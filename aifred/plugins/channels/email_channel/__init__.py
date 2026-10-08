@@ -461,19 +461,6 @@ class EmailChannel(BaseChannel):
 
     # ── Reply ─────────────────────────────────────────────────
 
-    def format_outbound(self, text: str) -> dict[str, str]:
-        """Render agent Markdown into a multipart/alternative payload.
-
-        Email clients cannot render Markdown, so we send both an HTML
-        rendering (preferred by most modern clients) and a plain-text
-        fallback (legible in monospace clients and as text/plain). This
-        replaces the old behaviour of dumping raw Markdown into the
-        ``text/plain`` body where ``**bold**`` and table pipes were
-        visible to the recipient.
-        """
-        from ....lib.markdown_render import md_to_html, md_to_plain
-        return {"text": md_to_plain(text), "html": md_to_html(text)}
-
     async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
         """Send an email reply via SMTP."""
         from .client import send_email
@@ -493,14 +480,17 @@ class EmailChannel(BaseChannel):
         # rejects that with ValueError and the reply would never go out.
         recipient = outbound.recipient.replace("\r", " ").replace("\n", " ").strip()
 
-        rendered = self.format_outbound(outbound.text)
+        from .media import render_mail
+        mail = render_mail(outbound.text, sid, self.name)
         send_email(
             to=recipient,
             subject=subject,
-            body=rendered["text"],
-            html=rendered.get("html"),
+            body=mail.plain,
+            html=mail.html,
             reply_to_id=reply_to_id,
             session_id=sid,
+            attachments=[str(path) for path in mail.attachments],
+            inline_images=[(cid, str(path)) for cid, path in mail.inline_images],
         )
         from ....lib.debug_bus import debug
         debug(f"📤 Auto-reply sent to {recipient}")
