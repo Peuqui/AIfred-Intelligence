@@ -196,9 +196,6 @@ class BackendMixin(rx.State, mixin=True):
         # Different Automatik model — still needs TTS / Speed variants
         # if those toggles are active in the UI. Route through the SSOT
         # so the fallback rules stay identical to _effective_model_id.
-        if self.backend_type != "llamacpp":  # type: ignore[attr-defined]
-            return self.automatik_model_id  # type: ignore[attr-defined, no-any-return]
-
         from ..lib.calibration import resolve_effective_suffix
         from ..lib.config import LLAMASWAP_CONFIG_PATH
 
@@ -208,6 +205,7 @@ class BackendMixin(rx.State, mixin=True):
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             self.automatik_model_id,  # type: ignore[attr-defined]
+            self.backend_type,  # type: ignore[attr-defined]
             speed_on=self.agent_tuning["aifred"].speed_mode,  # type: ignore[attr-defined]
             # The Automatik model has no own state flag; whether ITS
             # ``-speed`` profile exists is checked by the resolver

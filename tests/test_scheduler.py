@@ -173,3 +173,23 @@ class TestJobPayload:
     def test_max_tier_stored(self, store):
         job = store.add("admin_job", "interval", "60", {}, max_tier=4)
         assert store.get(job.job_id).max_tier == 4
+
+
+class TestEnableRecalculatesNextRun:
+    def test_enable_moves_stale_next_run_to_future(self, store):
+        job = store.add("gebet", "cron", "45 6 * * *", {"message": "x"})
+        store.enable(job.job_id, enabled=False)
+        with store._connect() as conn:  # stale slot from before the job was switched off
+            conn.execute("UPDATE jobs SET next_run = '2026-10-06T06:45:00' WHERE job_id = ?", (job.job_id,))
+            conn.commit()
+        store.enable(job.job_id, enabled=True)
+        enabled = store.get(job.job_id)
+        assert enabled is not None and enabled.enabled is True
+        assert enabled.next_run > _now_iso()
+        assert store.get_due_jobs(_now_iso()) == []
+
+    def test_disable_keeps_next_run(self, store):
+        job = store.add("gebet", "cron", "45 6 * * *", {"message": "x"})
+        store.enable(job.job_id, enabled=False)
+        disabled = store.get(job.job_id)
+        assert disabled is not None and disabled.next_run == job.next_run

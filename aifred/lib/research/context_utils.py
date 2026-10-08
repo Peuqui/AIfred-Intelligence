@@ -167,6 +167,7 @@ def get_agent_num_ctx(
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             model_id,
+            backend_type,
             speed_on=get_agent_setting(state, owner, "speed_mode", False),
             has_speed_variant=get_agent_setting(state, owner, "has_speed_variant", False),
             tts_active=bool(getattr(state, "enable_tts", False)),

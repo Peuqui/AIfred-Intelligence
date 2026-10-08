@@ -283,11 +283,23 @@ class JobStore:
         return cursor.rowcount > 0
 
     def enable(self, job_id: int, enabled: bool = True) -> None:
-        """Enable or disable a job."""
+        """Enable or disable a job.
+
+        Enabling recalculates next_run from now: a job that was off keeps the
+        next_run of its last run, so switching it on would fire at once for
+        a slot that fell due while it was disabled.
+        """
+        job = self.get(job_id)
+        if not job:
+            return
+        next_run = (
+            _calculate_next_run(job.schedule_type, job.schedule_expr, _now_iso())
+            if enabled else job.next_run
+        )
         with self._connect() as conn:
             conn.execute(
-                "UPDATE jobs SET enabled = ? WHERE job_id = ?",
-                (1 if enabled else 0, job_id),
+                "UPDATE jobs SET enabled = ?, next_run = ? WHERE job_id = ?",
+                (1 if enabled else 0, next_run, job_id),
             )
             conn.commit()
 
