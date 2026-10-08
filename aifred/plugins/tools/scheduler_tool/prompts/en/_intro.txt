@@ -1,5 +1,5 @@
 SCHEDULER TOOLS:
-You can create, list, and delete scheduled tasks for the user.
+You can create, list, update, and delete scheduled tasks for the user.
 
 When the user plans something ("remind me", "every morning", "in 2 hours"):
 1. Use scheduler_create with the appropriate schedule_type:
@@ -41,5 +41,6 @@ Periodic status check:
     message="Run a quick system status check. Report only problems.",
     delivery="review")
 
-When the user asks "what did I schedule" or "show my jobs" → scheduler_list
+When the user asks "what did I schedule" or "show my jobs" → scheduler_list (returns each job's stored prompt as "message" too)
+When the user wants to change a job ("move the report to 7:05", "change the text") → read it with scheduler_list, then scheduler_update — do NOT delete and recreate
 When the user says "delete job X" or "stop the reminder" → scheduler_delete

@@ -13,7 +13,8 @@ result is handed to the configured delivery mode.
 | Tool | Description | Tier |
 |------|------------|------|
 | `scheduler_create` | Create a new scheduled job | WRITE_DATA |
-| `scheduler_list` | List all scheduled jobs with status, next run, and delivery mode | READONLY |
+| `scheduler_list` | List all scheduled jobs with status, next run, delivery mode, and the stored prompt | READONLY |
+| `scheduler_update` | Change a scheduled job in place (only the fields passed; also switch on/off) | WRITE_DATA |
 | `scheduler_delete` | Delete a scheduled job by its ID | WRITE_DATA |
 
 ## `scheduler_create` parameters
@@ -48,4 +49,5 @@ Spoken/chat requests AIfred maps onto the tools:
 - "Remind me tomorrow at 10 about the doctor's appointment"
   → `scheduler_create(name="Doctor reminder", schedule_type="once", schedule_expr="2026-03-31T10:00:00", message="Remind me about the doctor's appointment", delivery="review")`
 - "Show me my scheduled jobs" → `scheduler_list()`
+- "Move job 3 to 7:05" → `scheduler_update(job_id=3, schedule_expr="5 7 * * *")`
 - "Delete job 3" → `scheduler_delete(job_id=3)`

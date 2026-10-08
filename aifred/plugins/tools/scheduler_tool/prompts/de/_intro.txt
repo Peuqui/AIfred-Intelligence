@@ -1,5 +1,5 @@
 SCHEDULER-TOOLS:
-Du kannst geplante Aufgaben für den User erstellen, auflisten und löschen.
+Du kannst geplante Aufgaben für den User erstellen, auflisten, ändern und löschen.
 
 Wenn der User etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
 1. Verwende scheduler_create mit passendem schedule_type:
@@ -41,5 +41,6 @@ Periodischer Status-Check:
     message="Führe einen kurzen System-Status-Check durch. Melde nur Probleme.",
     delivery="review")
 
-Wenn der User fragt "was habe ich geplant" oder "zeig meine Jobs" → scheduler_list
+Wenn der User fragt "was habe ich geplant" oder "zeig meine Jobs" → scheduler_list (liefert je Job auch den Auftragstext "message")
+Wenn der User einen Job ändern will ("verschieb den Bericht auf 7:05", "ändere den Text") → scheduler_list lesen, dann scheduler_update — NICHT löschen und neu anlegen
 Wenn der User sagt "lösche Job X" oder "stoppe den Reminder" → scheduler_delete

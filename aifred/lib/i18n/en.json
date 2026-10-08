@@ -873,6 +873,7 @@
   "tool_audio_index_rebuild": "Rebuilding audio index...",
   "tool_scheduler_create": "Creating job: {name}",
   "tool_scheduler_delete": "Deleting job {job_id}",
+  "tool_scheduler_update": "Changing job {job_id}",
   "tool_scheduler_list": "Loading scheduled jobs...",
   "tool_epim_search": "📅 {entity}: {query}",
   "tool_epim_search_bare": "📅 {entity}...",

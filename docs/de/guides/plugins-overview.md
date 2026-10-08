@@ -163,6 +163,7 @@ Geplante Aufgaben für AIfred.
 |------|-------------|------|
 | `scheduler_create` | Zeitgesteuerten Job anlegen | WRITE_DATA |
 | `scheduler_list` | Alle geplanten Jobs auflisten | READONLY |
+| `scheduler_update` | Job ändern | WRITE_DATA |
 | `scheduler_delete` | Job löschen | WRITE_DATA |
 
 **Features:**

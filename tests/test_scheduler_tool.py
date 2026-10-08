@@ -1,4 +1,4 @@
-"""Tests for scheduler tool plugin — create, list, delete jobs via LLM."""
+"""Tests for scheduler tool plugin — create, list, update, delete jobs via LLM."""
 
 import asyncio
 import json
@@ -49,11 +49,12 @@ class TestSchedulerPlugin:
     def test_is_available(self, plugin):
         assert plugin.is_available() is True
 
-    def test_provides_three_tools(self, plugin, ctx):
+    def test_provides_four_tools(self, plugin, ctx):
         tools = plugin.get_tools(ctx)
         names = [t.name for t in tools]
         assert "scheduler_create" in names
         assert "scheduler_list" in names
+        assert "scheduler_update" in names
         assert "scheduler_delete" in names
 
     def test_tool_tiers(self, plugin, ctx):
@@ -61,6 +62,7 @@ class TestSchedulerPlugin:
         from aifred.lib.security import TIER_WRITE_DATA, TIER_READONLY
         assert tools["scheduler_create"].tier == TIER_WRITE_DATA
         assert tools["scheduler_list"].tier == TIER_READONLY
+        assert tools["scheduler_update"].tier == TIER_WRITE_DATA
         assert tools["scheduler_delete"].tier == TIER_WRITE_DATA
 
 
@@ -139,6 +141,70 @@ class TestSchedulerList:
         names = [j["name"] for j in data["jobs"]]
         assert "job1" in names
         assert "job2" in names
+
+
+class TestSchedulerUpdate:
+    def _create(self, tools):
+        return json.loads(_run(tools["scheduler_create"].executor(
+            name="report", schedule_type="cron", schedule_expr="15 7 * * *",
+            message="Original text", delivery="announce", channel="email",
+        )))["job_id"]
+
+    def test_list_shows_message(self, plugin, ctx):
+        tools = {t.name: t for t in plugin.get_tools(ctx)}
+        self._create(tools)
+        job = json.loads(_run(tools["scheduler_list"].executor()))["jobs"][0]
+        assert job["message"] == "Original text"
+        assert job["channel"] == "email"
+        assert job["agent"] == "aifred"
+
+    def test_update_changes_only_given_fields(self, plugin, ctx):
+        tools = {t.name: t for t in plugin.get_tools(ctx)}
+        job_id = self._create(tools)
+        data = json.loads(_run(tools["scheduler_update"].executor(
+            job_id=job_id, schedule_expr="5 7 * * *",
+        )))
+        assert data["success"] is True
+        assert data["job_id"] == job_id
+        assert data["schedule_expr"] == "5 7 * * *"
+        job = json.loads(_run(tools["scheduler_list"].executor()))["jobs"][0]
+        assert job["message"] == "Original text"
+        assert job["channel"] == "email"
+        assert job["expr"] == "5 7 * * *"
+
+    def test_update_message_and_enabled(self, plugin, ctx):
+        tools = {t.name: t for t in plugin.get_tools(ctx)}
+        job_id = self._create(tools)
+        data = json.loads(_run(tools["scheduler_update"].executor(
+            job_id=job_id, message="New text", enabled=False,
+        )))
+        assert data["enabled"] is False
+        job = json.loads(_run(tools["scheduler_list"].executor()))["jobs"][0]
+        assert job["message"] == "New text"
+        assert job["enabled"] is False
+
+    def test_update_invalid_cron_leaves_job_unchanged(self, plugin, ctx):
+        tools = {t.name: t for t in plugin.get_tools(ctx)}
+        job_id = self._create(tools)
+        data = json.loads(_run(tools["scheduler_update"].executor(
+            job_id=job_id, schedule_expr="not a cron",
+        )))
+        assert "error" in data
+        job = json.loads(_run(tools["scheduler_list"].executor()))["jobs"][0]
+        assert job["expr"] == "15 7 * * *"
+
+    def test_update_invalid_delivery(self, plugin, ctx):
+        tools = {t.name: t for t in plugin.get_tools(ctx)}
+        job_id = self._create(tools)
+        data = json.loads(_run(tools["scheduler_update"].executor(
+            job_id=job_id, delivery="pigeon",
+        )))
+        assert "error" in data
+
+    def test_update_nonexistent(self, plugin, ctx):
+        tools = {t.name: t for t in plugin.get_tools(ctx)}
+        data = json.loads(_run(tools["scheduler_update"].executor(job_id=9999, name="x")))
+        assert "error" in data
 
 
 class TestSchedulerDelete:

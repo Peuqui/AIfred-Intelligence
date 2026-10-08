@@ -163,6 +163,7 @@ Scheduled tasks for AIfred.
 |------|------------|------|
 | `scheduler_create` | Create a scheduled job | WRITE_DATA |
 | `scheduler_list` | List all scheduled jobs | READONLY |
+| `scheduler_update` | Change a job | WRITE_DATA |
 | `scheduler_delete` | Delete a job | WRITE_DATA |
 
 **Features:**
