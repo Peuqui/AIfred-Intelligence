@@ -80,3 +80,21 @@ class TestSharedModelSpeedFallback:
     def test_aifred_uses_own_speed(self):
         assert _run("aifred", _settings()) == "Qwen3.6-27B-speed"
         assert _run("aifred", _settings(aifred_speed_mode=False)) == "Qwen3.6-27B"
+
+
+class TestBackendGate:
+    """Regression 2026-10-08: the Hub resolved the bare base id under vLLM
+    while the browser loaded ``-vlm-…`` — llama-swap swapped on every
+    scheduler / channel request. The gate lives in resolve_effective_suffix."""
+
+    def _with_backend(self, backend_type):
+        s = _settings(aifred_speed_mode=True)
+        s["backend_type"] = backend_type
+        s["backend_models"][backend_type] = s["backend_models"]["llamacpp"]
+        return s
+
+    def test_vllm_resolves_variant_like_llamacpp(self):
+        assert _run("aifred", self._with_backend("vllm")) == "Qwen3.6-27B-speed"
+
+    def test_ollama_keeps_base_id(self):
+        assert _run("aifred", self._with_backend("ollama")) == "Qwen3.6-27B"

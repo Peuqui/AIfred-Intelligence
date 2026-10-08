@@ -796,6 +796,7 @@ def has_llamaswap_tts_variant(
 def resolve_effective_suffix(
     config_path: Path,
     base_id: str,
+    backend_type: str,
     *,
     speed_on: bool,
     has_speed_variant: bool,
@@ -804,14 +805,23 @@ def resolve_effective_suffix(
 ) -> str:
     """Convenience-Wrapper um :func:`resolve_variant_suffix`.
 
+    Leerer Suffix für Backends ohne llama-swap-Varianten (Ollama, Cloud):
+    das Gate lebt NUR hier, damit Browser, Hub, Scheduler und Kanäle
+    dieselbe Variante wählen. Ein eigenes Gate pro Aufrufer ließ den Hub
+    unter vLLM die Basis-Id laden, während der Browser ``-vlm-…`` lud
+    (llama-swap tauschte bei jeder Kanal-Anfrage).
+
     Holt den prozessweiten VLM-Zustand (``is_vision_active`` /
     ``get_active_vlm_key``) und die ``GPU_ENGINES``-Menge intern — die
     Callsites geben nur noch ihre eigenen Flags herein. SSOT für den
     vorher an vier Stellen kopierten Prolog; verhindert, dass eine
     Callsite bei der VLM-Ermittlung driftet.
     """
+    from ..config import LLAMASWAP_BACKENDS
     from ..tts_engine_manager import GPU_ENGINES
     from ..vision_prewarm import is_vision_active, get_active_vlm_key
+    if backend_type not in LLAMASWAP_BACKENDS:
+        return ""
     vlm_active = is_vision_active()
     vlm_key = get_active_vlm_key() if vlm_active else ""
     return resolve_variant_suffix(

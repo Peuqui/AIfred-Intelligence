@@ -451,7 +451,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         """
         from ..lib.agent_settings import get_agent_setting
         base_id: str = get_agent_setting(self, agent, "model_id")
-        if not base_id or self.backend_type not in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
+        if not base_id:
             return base_id
 
         from ..lib.calibration import resolve_effective_suffix
@@ -460,6 +460,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             base_id,
+            self.backend_type,  # type: ignore[attr-defined]
             speed_on=get_agent_setting(self, agent, "speed_mode"),
             has_speed_variant=get_agent_setting(self, agent, "has_speed_variant"),
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]

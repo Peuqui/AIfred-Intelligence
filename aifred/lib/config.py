@@ -1139,10 +1139,6 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     if agent == "automatik":
         speed_agent = "aifred"
 
-    if backend_type != "llamacpp":
-        # Other backends don't have llama-swap variants
-        return str(base_id)
-
     from .agent_settings import get_persisted_tuning
     from .calibration import parse_llamaswap_config, resolve_effective_suffix
 
@@ -1152,6 +1148,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     suffix = resolve_effective_suffix(
         Path(LLAMASWAP_CONFIG_PATH),
         base_id,
+        backend_type,
         speed_on=get_persisted_tuning(settings, speed_agent, "speed_mode", False),
         has_speed_variant=has_speed_variant,
         tts_active=settings.get("enable_tts", False),
