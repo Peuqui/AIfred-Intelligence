@@ -130,6 +130,7 @@
         "web_fetch",
         "scheduler_create",
         "scheduler_list",
+        "scheduler_update",
         "scheduler_delete",
         "delegate_task",
         "translate",

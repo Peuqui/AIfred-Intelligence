@@ -174,8 +174,13 @@ class JobStore:
         Keeps job_id, enabled, last_run and created_at (a delete+add would
         lose them and — worse — lose the job entirely if the add fails
         after the delete). retry_count resets like a fresh add.
+
+        Raises ValueError for an expression without a next run: the job
+        would never fire (get_due_jobs filters next_run IS NOT NULL).
         """
         next_run = _calculate_next_run(schedule_type, schedule_expr, _now_iso())
+        if next_run is None:
+            raise ValueError(f"Invalid {schedule_type} expression: '{schedule_expr}'")
         with self._connect() as conn:
             cursor = conn.execute(
                 """UPDATE jobs SET name = ?, schedule_type = ?, schedule_expr = ?,

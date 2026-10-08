@@ -1,4 +1,4 @@
-"""Scheduler plugin — create, list, and delete scheduled jobs via chat.
+"""Scheduler plugin — create, list, update, and delete scheduled jobs via chat.
 
 Allows the user to say things like:
 - "Fasse jeden Morgen um 7 meine E-Mails zusammen und schick es an Telegram"
@@ -30,6 +30,16 @@ class SchedulerPlugin:
     # lib/scheduler.py bleibt als DB-seitige Integritätsgrenze).
     _SCHEDULE_TYPES = ("cron", "interval", "once")
     _DELIVERY_MODES = ("review", "announce", "webhook")
+    # Payload fields shown by list and changed by update — one place.
+    _PAYLOAD_FIELDS = ("message", "agent", "delivery", "channel", "recipient", "webhook_url")
+
+    def _invalid_choice(self, schedule_type: str, delivery: str) -> str | None:
+        """Error JSON for an unknown schedule type or delivery mode, else None."""
+        if schedule_type not in self._SCHEDULE_TYPES:
+            return json.dumps({"error": f"Invalid schedule_type: {schedule_type}. Use: {', '.join(self._SCHEDULE_TYPES)}"})
+        if delivery not in self._DELIVERY_MODES:
+            return json.dumps({"error": f"Invalid delivery: {delivery}. Use: {', '.join(self._DELIVERY_MODES)}"})
+        return None
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.logging_utils import log_message
@@ -48,10 +58,9 @@ class SchedulerPlugin:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
 
-            if schedule_type not in self._SCHEDULE_TYPES:
-                return json.dumps({"error": f"Invalid schedule_type: {schedule_type}. Use: {', '.join(self._SCHEDULE_TYPES)}"})
-            if delivery not in self._DELIVERY_MODES:
-                return json.dumps({"error": f"Invalid delivery: {delivery}. Use: {', '.join(self._DELIVERY_MODES)}"})
+            error = self._invalid_choice(schedule_type, delivery)
+            if error:
+                return error
 
             store = get_job_store()
             payload: dict[str, Any] = {
@@ -120,9 +129,68 @@ class SchedulerPlugin:
                         "next_run": j.next_run,
                         "last_run": j.last_run,
                         "delivery": j.payload.get("delivery", "review"),
+                        **{k: j.payload[k] for k in self._PAYLOAD_FIELDS
+                           if k != "delivery" and j.payload.get(k)},
                     }
                     for j in jobs
                 ]
+            })
+
+        async def _update(
+            job_id: int,
+            name: str = "",
+            schedule_type: str = "",
+            schedule_expr: str = "",
+            message: str = "",
+            agent: str = "",
+            delivery: str = "",
+            channel: str = "",
+            recipient: str = "",
+            webhook_url: str = "",
+            enabled: bool | None = None,
+        ) -> str:
+            """Change a scheduled job in place; empty arguments stay unchanged."""
+            from ....lib.scheduler import get_job_store
+
+            store = get_job_store()
+            job = store.get(job_id)
+            if not job:
+                return json.dumps({"error": f"Job {job_id} not found"})
+            new_type = schedule_type or job.schedule_type
+            new_delivery = delivery or job.payload.get("delivery", "review")
+            error = self._invalid_choice(new_type, new_delivery)
+            if error:
+                return error
+
+            changes = {
+                "message": message, "agent": agent, "delivery": delivery,
+                "channel": channel, "recipient": recipient, "webhook_url": webhook_url,
+            }
+            payload = {**job.payload, **{k: v for k, v in changes.items() if v}}
+            try:
+                updated = store.update(
+                    job_id, name or job.name, new_type,
+                    schedule_expr or job.schedule_expr, payload, job.max_tier,
+                )
+            except ValueError as exc:
+                return json.dumps({"error": f"{exc} — job {job_id} unchanged"})
+            if updated is None:
+                return json.dumps({"error": f"Job {job_id} not found"})
+            # Enable after update: update() recalculates next_run from now, so a
+            # re-enabled job does not fire for a run that fell due while it was off.
+            if enabled is not None:
+                store.enable(job_id, enabled)
+                updated.enabled = enabled
+            log_message(f"Scheduler: job '{updated.name}' (id={job_id}) updated")
+            return json.dumps({
+                "success": True,
+                "job_id": updated.job_id,
+                "name": updated.name,
+                "schedule_type": updated.schedule_type,
+                "schedule_expr": updated.schedule_expr,
+                "enabled": updated.enabled,
+                "next_run": updated.next_run,
+                "delivery": updated.payload.get("delivery", "review"),
             })
 
         async def _delete(job_id: int) -> str:
@@ -203,6 +271,49 @@ class SchedulerPlugin:
                 executor=_list,
             ),
             Tool(
+                name="scheduler_update",
+                tier=TIER_WRITE_DATA,
+                description=load_tool_description(__file__, "scheduler_update"),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "job_id": {
+                            "type": "integer",
+                            "description": "ID of the job to change",
+                        },
+                        "name": {"type": "string", "description": "New name"},
+                        "schedule_type": {
+                            "type": "string",
+                            "enum": list(self._SCHEDULE_TYPES),
+                            "description": "New schedule type (then also pass schedule_expr)",
+                        },
+                        "schedule_expr": {
+                            "type": "string",
+                            "description": "New cron expression, interval in seconds, or ISO timestamp",
+                        },
+                        "message": {
+                            "type": "string",
+                            "description": "New prompt/message (replaces the old text completely)",
+                        },
+                        "agent": {"type": "string", "description": "New agent"},
+                        "delivery": {
+                            "type": "string",
+                            "enum": list(self._DELIVERY_MODES),
+                            "description": "New delivery mode",
+                        },
+                        "channel": {"type": "string", "description": "New channel for 'announce' delivery"},
+                        "recipient": {"type": "string", "description": "New recipient for 'announce' delivery"},
+                        "webhook_url": {"type": "string", "description": "New URL for 'webhook' delivery"},
+                        "enabled": {
+                            "type": "boolean",
+                            "description": "true = switch the job on, false = switch it off",
+                        },
+                    },
+                    "required": ["job_id"],
+                },
+                executor=_update,
+            ),
+            Tool(
                 name="scheduler_delete",
                 tier=TIER_WRITE_DATA,
                 description=load_tool_description(__file__, "scheduler_delete"),
@@ -229,6 +340,8 @@ class SchedulerPlugin:
         from ....lib.i18n import t
         if tool_name == "scheduler_create":
             return t("tool_scheduler_create", lang=lang, name=tool_args.get("name", ""))
+        if tool_name == "scheduler_update":
+            return t("tool_scheduler_update", lang=lang, job_id=tool_args.get("job_id", ""))
         if tool_name == "scheduler_delete":
             return t("tool_scheduler_delete", lang=lang, job_id=tool_args.get("job_id", ""))
         if tool_name == "scheduler_list":

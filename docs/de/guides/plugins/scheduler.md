@@ -13,7 +13,8 @@ das Ergebnis an den konfigurierten Delivery-Modus übergeben.
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
 | `scheduler_create` | Neuen geplanten Job anlegen | WRITE_DATA |
-| `scheduler_list` | Alle geplanten Jobs mit Status, nächstem Lauf und Delivery-Modus auflisten | READONLY |
+| `scheduler_list` | Alle geplanten Jobs mit Status, nächstem Lauf, Delivery-Modus und Auftragstext auflisten | READONLY |
+| `scheduler_update` | Geplanten Job an Ort und Stelle ändern (nur die übergebenen Felder; auch ein-/ausschalten) | WRITE_DATA |
 | `scheduler_delete` | Geplanten Job anhand seiner ID löschen | WRITE_DATA |
 
 ## `scheduler_create`-Parameter
@@ -48,4 +49,5 @@ Gesprochene bzw. Chat-Anfragen, die AIfred auf die Tools abbildet:
 - „Erinnere mich morgen um 10 an den Arzttermin"
   → `scheduler_create(name="Arzt-Reminder", schedule_type="once", schedule_expr="2026-03-31T10:00:00", message="Erinnere mich an den Arzttermin", delivery="review")`
 - „Zeig mir meine geplanten Jobs" → `scheduler_list()`
+- „Verschieb Job 3 auf 7:05" → `scheduler_update(job_id=3, schedule_expr="5 7 * * *")`
 - „Lösche Job 3" → `scheduler_delete(job_id=3)`
