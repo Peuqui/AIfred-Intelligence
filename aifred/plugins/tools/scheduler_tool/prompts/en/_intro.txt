@@ -16,6 +16,7 @@ When the user plans something ("remind me", "every morning", "in 2 hours"):
 4. Formulate the message as a PLAIN TEXT instruction (NO code, NO Python, NO variables!). The message is a prompt to the LLM at execution time.
 5. The message should describe ONLY the task, NOT the delivery. WRONG: "Generate a prayer and send it via Telegram". RIGHT: "Generate a short prayer." The scheduler handles delivery to the correct channel automatically.
 6. The LLM executing the job must NOT call telegram_send/discord_send/email itself. It only generates the response — the scheduler delivers it.
+7. If the e-mailed answer should contain an image or file from this run (e.g. a chart from the sandbox), the ANSWER itself writes the reference with the /_upload/… URL from the tool result: ![description](URL) embeds an image in the text, [name](URL) attaches the file; both can be combined. The job's message only says WHAT to show.
 
 IMPORTANT: When the user asks for system status, call system_status DIRECTLY — do NOT create a scheduler job for it!
 

@@ -10,6 +10,7 @@ mail. All IMAP/SMTP operations run in asyncio.to_thread() (blocking I/O).
 """
 
 import asyncio
+from pathlib import Path
 
 from ....lib.function_calling import Tool
 from ....lib.security import (
@@ -129,18 +130,27 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
             # Optional attachment via the cross-channel SSOT (session-isolated,
             # path-traversal safe, size-capped); the allowlist gate above is the
             # exfiltration guard.
-            attachment_path: str | None = None
+            explicit: list[Path] = []
             attachment = kwargs.get("attachment", "")
             if attachment:
                 from ....lib.vision_utils import resolve_outbound_attachment
                 path, err = resolve_outbound_attachment(attachment, session_id, source)
-                if err:
+                if err or path is None:
                     return f"Error: {err}"
-                attachment_path = str(path)
+                explicit.append(path)
+            # The body is Markdown: images/links to /_upload/… files in it are
+            # embedded/attached (same rendering as the channel reply path).
+            from .media import render_mail
+            try:
+                mail = render_mail(body, session_id, source, explicit)
+            except ValueError as exc:
+                return f"Error: {exc}"
             # session_id passed to send_email for route registration (single source of truth)
             result = await asyncio.to_thread(
-                send_email, to=to, subject=subject, body=body, session_id=session_id,
-                attachment=attachment_path,
+                send_email, to=to, subject=subject, body=mail.plain, html=mail.html,
+                session_id=session_id,
+                attachments=[str(path) for path in mail.attachments],
+                inline_images=[(cid, str(path)) for cid, path in mail.inline_images],
             )
             return result
 
@@ -221,13 +231,21 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
                     "n": {"type": "string", "description": "Number of emails to fetch (for check, default 10)"},
                     "to": {"type": "string", "description": "Recipient email address (for send)"},
                     "subject": {"type": "string", "description": "Email subject (for send)"},
-                    "body": {"type": "string", "description": "Email body (for send)"},
+                    "body": {
+                        "type": "string",
+                        "description": (
+                            "Email body as Markdown (for send). ![alt](/_upload/… URL) embeds an "
+                            "image from THIS conversation in the text, [name](/_upload/… URL) "
+                            "attaches the file."
+                        ),
+                    },
                     "attachment": {
                         "type": "string",
                         "description": (
                             "Optional (for send): URL of a file from THIS conversation to "
                             "attach (an uploaded image, or generated sandbox output like a "
-                            "PDF — its /_upload/... URL)."
+                            "PDF — its /_upload/... URL). To show an image inside the text "
+                            "instead, embed it in the body with ![alt](URL)."
                         ),
                     },
                     "folder": {"type": "string", "description": "IMAP folder (default INBOX)"},

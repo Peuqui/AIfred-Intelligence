@@ -20,7 +20,7 @@ The `email` tool dispatches by an `action` parameter:
 | `check` | – | `n` (default 10, capped at 20), `folder` (default INBOX) |
 | `read` | `msg_id` | `folder` (default INBOX) |
 | `search` | `query` | `folder` (default INBOX) |
-| `send` | `to`, `subject`, `body` | registers the session route |
+| `send` | `to`, `subject`, `body` (optional `attachment`) | registers the session route |
 | `move` | `msg_id`, `target_folder` | `folder` = source (default INBOX) |
 | `delete` | `msg_id` | `folder` (default INBOX) |
 | `mark` | `msg_id`, `flag` | `flag` ∈ `read` / `unread` / `flagged` / `unflagged` |
@@ -72,6 +72,18 @@ AIfred   → Auto-reply: "Here is what I would do: ... Please confirm."
 External → Reply: "Yes"          (lands in the same session via In-Reply-To)
 AIfred   → Executes the action, auto-reply: "Done."
 ```
+
+## Images and Attachments
+
+The mail text is Markdown and goes out as HTML plus a plain-text alternative. Files from the caller's own conversation (upload, sandbox output such as a chart) are addressed by their `/_upload/…` URL:
+
+| In the text | Result |
+|-------------|--------|
+| `![Trend](/_upload/sandbox_output/<session>/graph.png)` | image embedded (`cid:`, `multipart/related`), plain text `[image: Trend] (graph.png)` |
+| `[Raw data](/_upload/sandbox_output/<session>/data.csv)` | file attached, the link text stays in the text |
+| tool argument `attachment` | file attached (`email` tool only) |
+
+Both can be combined, also for the same file. Applies to `email` tool sends and to channel replies (scheduler announce, auto-reply). Resolution goes through `resolve_outbound_attachment`: only files of the caller's own session, path traversal and size limit enforced. An `/_upload/` reference that does not resolve aborts the send with an error (no silent omission). External image URLs and model-written `cid:` targets are blocked earlier by `sanitize_outbound`.
 
 ## Startup Recovery (Checkpoint)
 

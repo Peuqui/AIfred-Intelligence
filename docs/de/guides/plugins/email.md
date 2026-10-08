@@ -20,7 +20,7 @@ Das `email`-Tool dispatcht über einen `action`-Parameter:
 | `check` | – | `n` (Default 10, max. 20), `folder` (Default INBOX) |
 | `read` | `msg_id` | `folder` (Default INBOX) |
 | `search` | `query` | `folder` (Default INBOX) |
-| `send` | `to`, `subject`, `body` | registriert die Session-Route |
+| `send` | `to`, `subject`, `body` | `attachment` (URL aus dieser Konversation); registriert die Session-Route |
 | `move` | `msg_id`, `target_folder` | `folder` = Quelle (Default INBOX) |
 | `delete` | `msg_id` | `folder` (Default INBOX) |
 | `mark` | `msg_id`, `flag` | `flag` ∈ `read` / `unread` / `flagged` / `unflagged` |
@@ -71,6 +71,18 @@ AIfred   → Auto-Reply: "Hier was ich tun würde: ... Bitte bestätigen."
 Externer → Reply: "Ja"          (landet in gleicher Session via In-Reply-To)
 AIfred   → Führt Aktion aus, Auto-Reply: "Erledigt."
 ```
+
+## Bilder und Anhänge
+
+Der Mail-Text ist Markdown und geht als HTML plus Klartext-Alternative raus. Dateien aus der eigenen Konversation (Upload, Sandbox-Ausgabe wie ein Diagramm) werden über ihre `/_upload/…`-URL angesprochen:
+
+| Im Text | Ergebnis |
+|---------|----------|
+| `![Verlauf](/_upload/sandbox_output/<Session>/graph.png)` | Bild eingebettet (`cid:`, `multipart/related`), im Klartext `[image: Verlauf] (graph.png)` |
+| `[Rohdaten](/_upload/sandbox_output/<Session>/daten.csv)` | Datei angehängt, der Linktext bleibt im Text |
+| Tool-Argument `attachment` | Datei angehängt (nur beim `email`-Tool) |
+
+Beides lässt sich kombinieren, auch für dieselbe Datei. Gilt für den `email`-Tool-Versand und für Antworten des Kanals (Scheduler-Announce, Auto-Reply). Aufgelöst wird über `resolve_outbound_attachment`: nur Dateien der eigenen Session, Pfad-Traversal und Größenlimit gesperrt. Eine `/_upload/`-Referenz, die sich nicht auflösen lässt, bricht den Versand mit Fehler ab (kein stilles Weglassen). Externe Bild-URLs und `cid:`-Ziele aus dem Modelltext blockt `sanitize_outbound` vorher.
 
 ## Startup-Recovery (Checkpoint)
 

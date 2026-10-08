@@ -343,6 +343,26 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
     return results
 
 
+def _file_part(path: str, disposition: str, content_id: Optional[str] = None) -> email.message.Message:
+    """A MIME part for a local file; ``content_id`` makes it addressable as ``cid:``."""
+    import mimetypes
+    from email.mime.base import MIMEBase
+    from email import encoders as _encoders
+
+    ctype, _enc = mimetypes.guess_type(path)
+    maintype, _, subtype = (ctype or "application/octet-stream").partition("/")
+    part = MIMEBase(maintype, subtype or "octet-stream")
+    with open(path, "rb") as fh:
+        part.set_payload(fh.read())
+    _encoders.encode_base64(part)
+    if content_id:
+        part.add_header("Content-ID", f"<{content_id}>")
+    # Path(...).name strips any directory — the recipient sees just the
+    # filename, never a server path.
+    part.add_header("Content-Disposition", disposition, filename=Path(path).name)
+    return part
+
+
 def send_email(
     to: str,
     subject: str,
@@ -350,7 +370,8 @@ def send_email(
     reply_to_id: Optional[str] = None,
     session_id: Optional[str] = None,
     html: Optional[str] = None,
-    attachment: Optional[str] = None,
+    attachments: Optional[list[str]] = None,
+    inline_images: Optional[list[tuple[str, str]]] = None,
 ) -> str:
     """Send an email via SMTP. Returns confirmation string.
 
@@ -363,10 +384,12 @@ def send_email(
     to the plain version. Without ``html``, a plain-text-only message
     is sent (no multipart wrapping).
 
-    When ``attachment`` (a local file path) is given, the message above
-    becomes the body part of a multipart/mixed container with the file
-    attached. The caller is responsible for resolving/validating the path
-    (see resolve_outbound_attachment).
+    ``inline_images`` are ``(content_id, local path)`` pairs the HTML refers
+    to as ``cid:<content_id>``: the body becomes a multipart/related with the
+    images as inline parts (needs ``html``). ``attachments`` are local file
+    paths: the message above becomes the first part of a multipart/mixed
+    container with the files attached. The caller is responsible for
+    resolving/validating the paths (see resolve_outbound_attachment).
     """
     # Reject control characters in header values (CR/LF would otherwise raise
     # an opaque HeaderParseError deep in smtplib). to/subject come from
@@ -400,28 +423,23 @@ def send_email(
         body_part = MIMEText(body, "plain", "utf-8")
 
     msg: email.message.Message
-    if attachment:
-        # multipart/mixed: the body (text or alternative) as the first part,
-        # the file as an attachment part.
-        import mimetypes
-        from email.mime.base import MIMEBase
-        from email import encoders as _encoders
+    if inline_images:
+        if not html:
+            raise ValueError("Inline images need an HTML body")
+        # multipart/related: the body first, the images it refers to by cid.
+        related = MIMEMultipart("related")
+        related.attach(body_part)
+        for content_id, image_path in inline_images:
+            related.attach(_file_part(image_path, "inline", content_id))
+        body_part = related
 
+    if attachments:
+        # multipart/mixed: the body (text, alternative or related) as the
+        # first part, the files as attachment parts.
         mixed = MIMEMultipart("mixed")
         mixed.attach(body_part)
-        ctype, _enc = mimetypes.guess_type(attachment)
-        maintype, _, subtype = (ctype or "application/octet-stream").partition("/")
-        part = MIMEBase(maintype, subtype or "octet-stream")
-        with open(attachment, "rb") as fh:
-            part.set_payload(fh.read())
-        _encoders.encode_base64(part)
-        # Path(...).name strips any directory — the recipient sees just the
-        # filename, never a server path.
-        part.add_header(
-            "Content-Disposition", "attachment",
-            filename=Path(attachment).name,
-        )
-        mixed.attach(part)
+        for attachment_path in attachments:
+            mixed.attach(_file_part(attachment_path, "attachment"))
         msg = mixed
     else:
         msg = body_part

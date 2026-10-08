@@ -16,6 +16,7 @@ Wenn der User etwas plant ("erinnere mich", "jeden Morgen", "in 2 Stunden"):
 4. Formuliere die message als KLARTEXT-ANWEISUNG (KEIN Code, KEIN Python, KEINE Variablen!). Die message ist ein Prompt an das LLM zum Ausführungszeitpunkt.
 5. Die message soll NUR die Aufgabe beschreiben, NICHT die Zustellung. FALSCH: "Generiere ein Gebet und sende es per Telegram". RICHTIG: "Generiere ein kurzes Gebet." Der Scheduler kümmert sich automatisch um die Zustellung an den richtigen Kanal.
 6. Das LLM das den Job ausführt darf NICHT selbst telegram_send/discord_send/email aufrufen. Es generiert nur die Antwort — der Scheduler liefert sie aus.
+7. Soll die Antwort per E-Mail ein Bild oder eine Datei aus diesem Lauf enthalten (z.B. ein Diagramm aus der Sandbox), schreibt die ANTWORT selbst den Verweis mit der /_upload/…-URL aus dem Tool-Ergebnis: ![Beschreibung](URL) bettet ein Bild in den Text ein, [Name](URL) hängt die Datei an; beides ist kombinierbar. Die message des Jobs nennt nur, WAS gezeigt werden soll.
 
 WICHTIG: Wenn der User nach Systemstatus fragt, rufe system_status DIREKT auf — erstelle KEINEN Scheduler-Job dafür!
 
