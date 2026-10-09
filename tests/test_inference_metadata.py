@@ -56,7 +56,7 @@ def test_pipeline_takes_thinking_time_from_the_backend_work() -> None:
     async def run():
         result = None
         async for event in run_llm_stream(
-            _FakeClient(), "m", [], SimpleNamespace(), "AIfred", retry=False,  # type: ignore[arg-type]
+            _FakeClient(), "m", [], SimpleNamespace(), "AIfred", source="browser", retry=False,  # type: ignore[arg-type]
         ):
             if event["type"] == "pipeline_result":
                 result = event["result"]

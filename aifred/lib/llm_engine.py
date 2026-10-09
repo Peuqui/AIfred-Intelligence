@@ -228,7 +228,7 @@ async def call_llm(
 
         async for event in run_llm_stream(
             llm_client, model_choice, cast(list, messages), llm_options, agent_label,
-            toolkit=memory_toolkit, retry=False,
+            source=source, toolkit=memory_toolkit, retry=False,
         ):
             event_type = event["type"]
             if event_type == "content":

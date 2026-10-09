@@ -254,7 +254,7 @@ async def _stream_agent_to_history(
 
     async for event in run_llm_stream(
         llm_client, model, messages, options, agent_label,
-        toolkit=toolkit, on_debug=state.add_debug,
+        source="browser", toolkit=toolkit, on_debug=state.add_debug,
     ):
         event_type = event["type"]
 

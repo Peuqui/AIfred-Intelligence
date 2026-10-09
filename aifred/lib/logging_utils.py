@@ -6,7 +6,7 @@ Ported from Gradio legacy with adaptations for Reflex State Management
 UNIFIED LOGGING SYSTEM:
 - log_message(): Central function for all logging requirements
 - Config-controlled via CONSOLE_DEBUG_ENABLED and FILE_DEBUG_ENABLED
-- debug_print_prompt() and debug_print_messages(): Specialized formatting
+- log_raw_messages() and log_system_prompt(): Prompts sent to LLMs
 """
 
 import os
@@ -136,24 +136,6 @@ def log_message(message: str, category: str = "info") -> None:
             pass  # Queue full, old messages are in _console_messages
 
 
-def debug_print_prompt(prompt_type: str, prompt: str, model_name: str) -> None:
-    """
-    Logs prompt with standardized formatting
-
-    Args:
-        prompt_type: Type of prompt (e.g., "DECISION", "QUERY_OPT")
-        prompt: The actual prompt text
-        model_name: Name of the model receiving the prompt
-    """
-    log_message("=" * 60)
-    log_message(f"📋 {prompt_type} PROMPT to {model_name}:")
-    log_message("-" * 60)
-    log_message(prompt)
-    log_message("-" * 60)
-    log_message(f"Prompt length: {len(prompt)} chars, ~{len(prompt.split())} words")
-    log_message("=" * 60)
-
-
 def log_raw_messages(agent_name: str, messages: list, token_counter=None,
                      toolkit: object = None) -> None:
     """
@@ -225,39 +207,26 @@ def log_raw_messages(agent_name: str, messages: list, token_counter=None,
     log_message("=" * 80)
 
 
-def debug_print_messages(messages: list, model_name: str, context: str = "", **llm_params) -> None:
+def log_system_prompt(agent_label: str, source: str, messages: list) -> None:
+    """Log the complete system prompt of an LLM call with its channel (debug.log only).
+
+    Only logs when DEBUG_LOG_SYSTEM_PROMPT is True in config.py.
     """
-    Logs LLM messages array with standardized formatting
+    from .config import DEBUG_LOG_SYSTEM_PROMPT
 
-    Args:
-        messages: List of message dicts with 'role' and 'content'
-        model_name: Name of the model receiving the messages
-        context: Additional context (e.g., "(Decision)", "(Query-Opt)")
-        **llm_params: Additional LLM parameters to log (temperature, num_ctx, etc.)
-    """
-    log_message("=" * 60)
-    log_message(f"📨 MESSAGES to {model_name} {context}:")
-    log_message("-" * 60)
-    for i, msg in enumerate(messages):
-        log_message(f"Message {i+1} - Role: {msg['role']}")
-        content = msg['content']
+    if not DEBUG_LOG_SYSTEM_PROMPT:
+        return
 
-        # Preview first 500 chars for system prompts, full content for user messages
-        if len(content) > 500 and msg['role'] == 'system':
-            preview = content[:500]
-            log_message(f"Content (first 500 chars): {preview}")
-            log_message(f"... [{len(content) - 500} more chars]")
-        else:
-            log_message(f"Content: {content}")
-        log_message("-" * 60)
-
-    # Log additional parameters if provided
-    if llm_params:
-        param_str = ", ".join([f"{k}: {v}" for k, v in llm_params.items()])
-        log_message(f"Total Messages: {len(messages)}, {param_str}")
-    else:
-        log_message(f"Total Messages: {len(messages)}")
-    log_message("=" * 60)
+    for msg in messages:
+        role = msg.role if hasattr(msg, 'role') else msg.get("role")
+        if role != "system":
+            continue
+        content = msg.content if hasattr(msg, 'content') else msg.get("content", "")
+        log_message("=" * 80)
+        log_message(f"🧾 [SYSTEM PROMPT] {agent_label} | source={source} | {len(content)} chars")
+        log_message("-" * 80)
+        log_message(content)
+        log_message("=" * 80)
 
 
 # Console Separator constant (centrally defined, used everywhere)

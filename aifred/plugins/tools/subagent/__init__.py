@@ -484,7 +484,7 @@ async def run_subagent(
     try:
         async for event in run_llm_stream(
             llm_client, params.model, messages, options, agent_label,
-            toolkit=toolkit, retry=False,
+            source=ctx.source, toolkit=toolkit, retry=False,
         ):
             kind = event.get("type")
             if kind == "content":

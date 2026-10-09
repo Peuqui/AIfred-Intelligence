@@ -32,7 +32,7 @@ from .bubble import (
     image_markdown,
 )
 from .formatting import build_inference_metadata
-from .logging_utils import log_message, log_raw_messages
+from .logging_utils import log_message, log_raw_messages, log_system_prompt
 from .model_discovery import running_profile_label
 from .perf_metrics import InferenceWork
 from .timer import Timer
@@ -186,6 +186,8 @@ async def run_llm_stream(
     messages: list,
     options: 'LLMOptions',
     agent_label: str,
+    *,
+    source: str,
     toolkit: Any = None,
     retry: bool = True,
     on_debug: Callable[[str], None] | None = None,
@@ -207,12 +209,14 @@ async def run_llm_stream(
         messages: Message list (system + history + user)
         options: LLM options (temperature, num_ctx, etc.)
         agent_label: Display label for logs (e.g. "AIfred", "Sokrates")
+        source: Channel of the request ("browser", "scheduler", "hub", ...)
         toolkit: Optional toolkit with tools
         retry: Enable 500-error retry (default True)
         on_debug: Optional debug callback (e.g. state.add_debug)
     """
     # Raw debug logging
     log_raw_messages(f"{agent_label} (stream)", messages, estimate_tokens, toolkit=toolkit)
+    log_system_prompt(agent_label, source, messages)
 
     # Denkstufe sichtbar machen — sie ist KEIN Modell-Schalter, sondern eine
     # Jinja-Variable der Chat-Vorlage. Fehlt sie, setzt die Vorlage ihren

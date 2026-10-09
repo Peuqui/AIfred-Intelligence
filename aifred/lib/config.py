@@ -798,6 +798,11 @@ DEBUG_LOG_MAX_ENTRIES = 250
 # Shows full message list with role and content preview for each LLM call
 DEBUG_LOG_RAW_MESSAGES = False
 
+# Log the complete system prompt of every LLM call together with its channel
+# (browser, scheduler, hub, ...) to aifred_debug.log — compares the persona
+# across channels without the full history that DEBUG_LOG_RAW_MESSAGES writes.
+DEBUG_LOG_SYSTEM_PROMPT = True
+
 # Log the complete raw model output of every agent turn (thinking, text, tool
 # round text) and the full text of every tool result to aifred_debug.log.
 # Off: the log keeps the one-line tool-result preview and the turn metrics.
