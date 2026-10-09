@@ -217,7 +217,7 @@ async def _bulk_describe_impl(
             # Wrapped so a cancel mid-call aborts the VLM request instead of
             # waiting for it to finish (CPU-offload calls run for minutes).
             text = await _await_or_cancel(
-                analyze_cluster_with_vlm(member_ids, store=store),  # type: ignore[arg-type]
+                analyze_cluster_with_vlm(member_ids, store=store, explicit=False),  # type: ignore[arg-type]
                 cancel_cb,
             )
             if text is _CANCELLED:

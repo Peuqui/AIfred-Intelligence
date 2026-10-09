@@ -34,6 +34,7 @@ from .config import LLAMASWAP_BACKENDS
 
 import logging
 import re
+from dataclasses import dataclass
 
 from .ollama_models import DEFAULT_OLLAMA_HOST, list_ollama_vlm_models
 
@@ -111,6 +112,98 @@ def visiond_profile_for(name: str) -> str | None:
     return None
 
 
+class NoVisionModelError(RuntimeError):
+    """Kein Modell kann das Bild beschreiben, ohne das Chat-LLM zu verdrängen."""
+
+
+@dataclass(frozen=True)
+class Describer:
+    """Wer ein Bild beschreibt: Modell-/Profil-Id für ``analyze_sequence``
+    und ob das Laden das gerade geladene Chat-LLM verdrängt (dann sagt der
+    Aufrufer das vorher an)."""
+    model: str
+    evicts_chat_model: bool
+
+
+def _settings_model(role: str) -> str:
+    """Basis-Id der Rolle (``aifred``, ``vision``) im aktiven Backend laut
+    ``settings.json``."""
+    from .settings import persisted_settings
+    data = persisted_settings()
+    backend = str(data.get("backend_type") or "")
+    models = (data.get("backend_models") or {}).get(backend) or {}
+    return str(models.get(role) or "")
+
+
+def loaded_seeing_profile() -> str | None:
+    """Geladenes llama-swap-Profil mit eigenem Vision-Encoder — außer den
+    ``-visiond``-Describern selbst. ``None``, wenn keins sieht."""
+    from .vision_utils import has_native_vision
+    for profile in loaded_llamaswap_profiles():
+        if not profile.endswith("-visiond") and has_native_vision(profile):
+            return profile
+    return None
+
+
+def _vision_llm_describer(reason: str) -> Describer:
+    """Das Vision-LLM der Haupteinstellungen: parallel über sein
+    ``-visiond``-Profil, wenn es neben das Geladene passt — sonst lädt es
+    in seiner effektiven Variante (TTS-Reserve etc.) selbst und verdrängt
+    das Chat-LLM. ``reason`` landet im Fehler, wenn keins eingestellt ist."""
+    from .config import get_effective_model_from_settings
+    from .vision_vram_check import check_visiond_fits
+    vision = _settings_model("vision")
+    if not vision:
+        raise NoVisionModelError(f"{reason}; no vision LLM is configured")
+    visiond = visiond_profile_for(vision)
+    if visiond is not None and check_visiond_fits(visiond).fits:
+        return Describer(visiond, evicts_chat_model=False)
+    return Describer(
+        get_effective_model_from_settings("vision"), evicts_chat_model=True,
+    )
+
+
+def chat_describer(main_model: str) -> Describer:
+    """Regel A (Chat-Bilder, Symposion, Sandbox-Screenshots, hochgeladene
+    Bilder in vision_analyze): sieht ``main_model`` — das Modell, das den
+    Turn rechnet —, beschreibt es selbst; sonst das Vision-LLM der
+    Haupteinstellungen (der User hat das Bild ausdrücklich geschickt, es
+    darf also verdrängen)."""
+    from .vision_utils import is_vision_model_sync
+    if main_model and is_vision_model_sync(main_model):
+        return Describer(main_model, evicts_chat_model=False)
+    return _vision_llm_describer(f"main model '{main_model}' cannot see")
+
+
+def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:
+    """Regel B (Vigilantia: Watcher, Alarme, Türsteher, Kamerabilder).
+
+    1. Das Kamera-VLM passt neben das Geladene (oder es ist nichts
+       geladen) → das VLM über sein ``-visiond``-Profil.
+    2. Sonst sieht das geladene Modell → es beschreibt selbst.
+    3. Sonst nur auf ausdrückliche Bitte (Casus-Button, Agent-Tool): das
+       Vision-LLM der Haupteinstellungen, notfalls mit Verdrängung.
+       Automatische Pfade verdrängen nie → ``NoVisionModelError``, das Bild
+       geht ohne Beschreibung raus und lässt sich nachträglich beschreiben.
+
+    Ohne ``-visiond``-Profil (Ollama-Seitenkanal) bleibt das Modell
+    unverändert — dieser Weg prüft seinen Platz selbst.
+    """
+    from .vision_vram_check import check_visiond_fits
+    visiond = visiond_profile_for(vlm_model)
+    if visiond is None:
+        return Describer(vlm_model, evicts_chat_model=False)
+    fit = check_visiond_fits(visiond)
+    if fit.fits:
+        return Describer(visiond, evicts_chat_model=False)
+    seeing = loaded_seeing_profile()
+    if seeing is not None:
+        return Describer(seeing, evicts_chat_model=False)
+    if not explicit:
+        raise NoVisionModelError(fit.message)
+    return _vision_llm_describer(fit.message)
+
+
 def same_model(a: str, b: str) -> bool:
     """Bezeichnen beide Namen dasselbe Modell? Namens-normalisiert und ohne
     llama-swap-Varianten-Suffixe, also backend-übergreifend (``Qwen3VL-4B-
@@ -123,21 +216,6 @@ def same_model(a: str, b: str) -> bool:
     return _normalize(strip_variant_suffixes(a)) == _normalize(
         strip_variant_suffixes(b)
     )
-
-
-def active_chat_model() -> str:
-    """Basis-Id des Chat-LLM (Agent ``aifred``) im aktiven Backend.
-
-    Liest ``data/settings.json`` — dieselbe Quelle, aus der der State
-    beim Start sein ``agent_tuning`` füllt. Als Lib-Funktion, damit
-    Beschreibungs-Pfade ohne State-Zugriff wissen, welches Modell den
-    Chat bedient. Leerer String, wenn nichts konfiguriert ist.
-    """
-    from .settings import persisted_settings
-    data = persisted_settings()
-    backend = str(data.get("backend_type") or "")
-    models = (data.get("backend_models") or {}).get(backend) or {}
-    return str(models.get("aifred") or "")
 
 
 def loaded_llamaswap_profiles() -> list[str]:
@@ -163,44 +241,6 @@ def loaded_llamaswap_profiles() -> list[str]:
         for e in entries
         if str((e.get("status") or {}).get("value") or "") != "unloaded"
     ]
-
-
-def self_describer_profile(vision_model: str) -> str | None:
-    """Profil, über das das Chat-LLM seine eigenen Bilder beschreibt —
-    oder ``None``, wenn dieser Weg nicht offensteht.
-
-    Greift, wenn das eingestellte Vision-Modell dasselbe Modell ist wie
-    das Chat-LLM und dessen llama-swap-Profil einen eigenen Vision-Encoder
-    lädt (SSOT ``has_native_vision``: llama.cpp ``--mmproj``, vLLM ohne
-    ``--language-model-only``). Dann ist sowohl eine zweite ``-visiond``-Instanz
-    überflüssig (doppelter VRAM für dasselbe Modell) als auch das
-    ``-vlm-``-Reserveprofil (siehe ``_is_self_describer``).
-
-    Zurückgegeben wird das TATSÄCHLICH geladene Profil, nicht die Basis-Id:
-    bedient der Chat gerade eine ``-speed``- oder ``-tts-``-Variante, würde
-    ein Call auf die Basis-Id innerhalb der exklusiven ``main``-Gruppe erst
-    recht einen Swap auslösen. Ist nichts geladen, ist die Basis-Id sicher
-    (es gibt nichts zu verdrängen). Läuft etwas anderes, tritt der
-    Selbst-Describer-Weg NICHT an — dann bleibt es beim Parallel-Profil.
-
-    Modell-agnostisch: entschieden wird über Namens-Gleichheit und die
-    mmproj-Eigenschaft, nicht über Größenklassen.
-    """
-    from .vision_utils import has_native_vision
-    chat_model = active_chat_model()
-    if not same_model(vision_model, chat_model):
-        return None
-    if not has_native_vision(chat_model):
-        # Chat-LLM ohne eigenen Vision-Encoder (reines Textmodell) — es
-        # kann seine Bilder nicht selbst beschreiben.
-        return None
-    loaded = loaded_llamaswap_profiles()
-    if not loaded:
-        return chat_model
-    for profile in loaded:
-        if same_model(profile, chat_model):
-            return profile
-    return None
 
 
 def vision_swap_status(

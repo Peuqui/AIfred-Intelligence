@@ -18,7 +18,6 @@ from aifred.lib.vision_analyzer import (
     DEFAULT_MODEL,
     DEFAULT_NUM_CTX,
     VisionAnalysis,
-    analyze_frame,
     analyze_sequence,
 )
 
@@ -55,7 +54,7 @@ class TestAnalyzeFrame:
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_frame(_make_frame(0), "What is in this image?"))
+        result = run(analyze_sequence([_make_frame(0)], "What is in this image?"))
 
         assert isinstance(result, VisionAnalysis)
         assert result.text == "A cat sitting on a chair."
@@ -89,8 +88,8 @@ class TestAnalyzeFrame:
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
         run(
-            analyze_frame(
-                _make_frame(0),
+            analyze_sequence(
+                [_make_frame(0)],
                 "Describe",
                 model="qwen2.5vl:7b",
                 num_ctx=2048,
@@ -141,7 +140,7 @@ class TestErrorHandling:
         monkeypatch.setattr(ollama.AsyncClient, "generate", boom)
 
         with pytest.raises(RuntimeError, match="VLM call failed"):
-            run(analyze_frame(_make_frame(0), "hi"))
+            run(analyze_sequence([_make_frame(0)], "hi"))
 
 
 class TestResponseParsing:
@@ -160,7 +159,7 @@ class TestResponseParsing:
 
         monkeypatch.setattr(ollama.AsyncClient, "generate", fake_generate)
 
-        result = run(analyze_frame(_make_frame(0), "hi"))
+        result = run(analyze_sequence([_make_frame(0)], "hi"))
         assert result.text == "ok"
         assert result.metadata["eval_count"] == 5
 

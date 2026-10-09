@@ -530,35 +530,36 @@ class VisionPlugin:
             keep_alive: Any = -1 if _vision_mode() == "live" else str(
                 vlm_cfg.get("keep_alive", DEFAULT_KEEP_ALIVE)
             )
-            # Modellwahl folgt der User-Einstellung (gleiche Kopplungsregel
-            # wie der Chat-Vision-Pfad, siehe _chat_mixin): Das Haupt-LLM
-            # beschreibt die Bilder NUR, wenn der User Vision-LLM == AIfred-
-            # LLM gestellt hat (oder kein Vision-LLM gewählt ist) UND die
-            # effektive Variante nativ sehen kann (SSOT
-            # has_native_vision). Ein abweichend eingestelltes Vision-LLM
-            # gewinnt — ein 397B-Hauptmodell würde sonst jede Analyse
-            # minutenlang rechnen, obwohl ein schnelles 4B konfiguriert ist.
-            # Default bleibt das Side-Channel-VLM (Ollama), das weiterhin
-            # exklusiv die Überwachungs-Pipeline (Watcher/Alerts) bedient.
-            vlm_model = str(vlm_cfg.get("model", DEFAULT_MODEL))
-            from ....lib.settings import load_settings as _global_settings
-            _settings = _global_settings() or {}
-            from ....lib.config import LLAMASWAP_BACKENDS
-            _backend = str(_settings.get("backend_type") or "")
-            if _backend in LLAMASWAP_BACKENDS:
-                _saved = _settings.get("backend_models", {}).get(_backend, {})
-                _vision_choice = str(_saved.get("vision") or "")
-                if not _vision_choice or _vision_choice == str(_saved.get("aifred") or ""):
-                    from ....lib.config import get_effective_model_from_settings
-                    from ....lib.vision_utils import has_native_vision
-                    main_model = get_effective_model_from_settings("aifred")
-                    if main_model and has_native_vision(main_model):
-                        vlm_model = main_model
+            # Wer beschreibt (SSOT vision_routing): Kamerabilder nach Regel B
+            # — der Agent ruft im Auftrag des Users, darf also verdrängen;
+            # hochgeladene/gespeicherte Bilder nach Regel A (Hauptmodell,
+            # wenn es sieht, sonst das Vision-LLM der Haupteinstellungen).
+            from ....lib.config import get_effective_model_from_settings
+            from ....lib.logging_utils import log_message
+            from ....lib.vision_routing import (
+                NoVisionModelError, camera_describer, chat_describer,
+            )
+            try:
+                describer = (
+                    camera_describer(
+                        str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=True,
+                    )
+                    if source_id else chat_describer(
+                        get_effective_model_from_settings(ctx.agent_id)
+                    )
+                )
+            except NoVisionModelError as e:
+                return _err(f"no vision model available: {e}")
+            if describer.evicts_chat_model:
+                log_message(
+                    f"⚠️ Vision: loading {describer.model} evicts the chat "
+                    "model — it reloads for the rest of the answer"
+                )
             try:
                 result = await analyze_sequence(
                     frames,
                     actual_prompt,
-                    model=vlm_model,
+                    model=describer.model,
                     num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
                     keep_alive=keep_alive,
                     host=vlm_cfg.get("host"),

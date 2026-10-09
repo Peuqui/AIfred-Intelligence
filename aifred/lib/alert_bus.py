@@ -217,7 +217,7 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
     if segment_ids:
         try:
             return await analyze_cluster_with_vlm(
-                segment_ids, headcount=headcount,
+                segment_ids, headcount=headcount, explicit=False,
             )
         except Exception as e:  # noqa: BLE001
             logger.warning(
@@ -263,13 +263,15 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
             if ctx_file.exists():
                 frames.append(Frame(source_id=ev.source_id or "", timestamp=ts_v,
                                     image_bytes=ctx_file.read_bytes()))
-        return await analyze_frames_with_vlm(
+        description, _ = await analyze_frames_with_vlm(
             frames,
             base_prompt=get_vision_event_single_prompt(),
             source_id=ev.source_id or "",
             identity_names=identities,
             headcount=headcount,
+            explicit=False,
         )
+        return description
     except Exception as e:  # noqa: BLE001
         logger.warning("alert: VLM describe failed for %s: %s", ev.source_id, e)
         return None

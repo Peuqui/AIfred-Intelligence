@@ -1,18 +1,14 @@
 """VLM-Analyzer — Bild → Beschreibungstext.
 
-Zwei Backends, EIN Einstiegspunkt (``analyze_sequence``), Dispatch rein
-über das Modell:
+``analyze_sequence`` führt nur aus; WER beschreibt, entscheiden die Aufrufer
+über ``vision_routing`` (Regel A ``chat_describer``, Regel B
+``camera_describer``). Dispatch rein über das übergebene Modell:
 
-* Lädt das Modell laut llama-swap-Config einen eigenen Vision-Encoder
-  (SSOT: ``vision_utils.has_native_vision`` — llama.cpp und vLLM), beschreibt das Haupt-LLM
-  die Bilder selbst — OpenAI-kompatibler Call an llama-swap. Das nutzt
-  der Chat (``vision_analyze``-Tool), wenn die geladene Hauptmodell-
-  Variante Vision kann: beste Qualität, kein Model-Swap, Ergebnis
-  bleibt reiner Text in der History.
-* Alle anderen Modelle (qwen3-vl:4b & Co.) laufen wie gehabt über den
-  Ollama-Side-Channel — die Überwachungs-Pipeline (Watcher, Alerts)
-  bleibt damit unabhängig vom Chat-LLM: kein Swap, kein „Hauptchat
-  wird verdrängt" bei jedem Klingel-Event.
+* Lädt es laut llama-swap-Config einen eigenen Vision-Encoder (SSOT
+  ``vision_utils.has_native_vision`` — llama.cpp und vLLM, also auch die
+  ``-visiond``-Describer und ein sehendes Hauptmodell): OpenAI-kompatibler
+  Call an llama-swap.
+* Sonst der optionale Ollama-Seitenkanal (für Setups ohne llama-swap).
 
 Ollama-Spezifika:
 
@@ -101,35 +97,6 @@ def downscale_for_vlm(image_bytes: bytes, max_pixels: int) -> bytes:
     return buf.tobytes()
 
 
-async def analyze_frame(
-    frame: "Frame",
-    prompt: str,
-    *,
-    model: str = DEFAULT_MODEL,
-    num_ctx: int = DEFAULT_NUM_CTX,
-    keep_alive: str = DEFAULT_KEEP_ALIVE,
-    host: str | None = None,
-    extra_options: dict[str, Any] | None = None,
-    max_pixels: int = DEFAULT_MAX_PIXELS,
-) -> VisionAnalysis:
-    """VLM-Beschreibung für ein einzelnes Frame.
-
-    Wirft ``RuntimeError`` wenn Ollama nicht erreichbar oder das Modell
-    nicht gefunden — Caller entscheidet wie damit umgegangen wird
-    (Türsteher: Event loggen + Fallback auf Face-only).
-    """
-    return await analyze_sequence(
-        [frame],
-        prompt,
-        model=model,
-        num_ctx=num_ctx,
-        keep_alive=keep_alive,
-        host=host,
-        extra_options=extra_options,
-        max_pixels=max_pixels,
-    )
-
-
 async def analyze_sequence(
     frames: list["Frame"],
     prompt: str,
@@ -145,7 +112,6 @@ async def analyze_sequence(
 
     Bei N>1 sieht das VLM die Frames als zeitliche Reihe — gut für
     „was hat sich geändert", „was tut die Person gerade", etc.
-    Bei N=1 ist das identisch zu ``analyze_frame``.
 
     Reihenfolge der Frames ist signifikant — sie werden in der gegebenen
     Reihenfolge ans VLM gegeben.
@@ -180,26 +146,6 @@ async def analyze_sequence(
         _to_b64(downscale_for_vlm(f.image_bytes, max_pixels))
         for f in frames
     ]
-
-    # SSOT-Modellwahl für ALLE Caller (Vigilantia-Watcher, Türsteher,
-    # Event-Analyse, Sandbox, Chat), in dieser Reihenfolge:
-    #
-    # 1. Ist das Vision-Modell das Chat-LLM selbst und bringt es einen
-    #    eigenen Vision-Encoder mit, beschreibt es seine Bilder direkt —
-    #    kein zweiter Load desselben Modells. Achtung: das Chat-Profil
-    #    hat EINEN Slot (-np 1), die Beschreibung serialisiert also mit
-    #    dem Chat. Bewusst so (User-Entscheidung 24.08.2026): doppelter
-    #    VRAM für dasselbe Modell wäre schlimmer, und bei großen
-    #    Modellen passt die Parallel-Instanz ohnehin nicht.
-    # 2. Sonst das schlanke -visiond-Describer-Profil (llama-swap
-    #    vision-Gruppe, exclusive: false) — läuft parallel zum Chat-LLM.
-    #    Matcht auch Ollama-Schreibweisen (qwen3-vl:4b-…), der Watcher
-    #    migriert ohne Änderung seiner Plugin-Settings.
-    # 3. Ohne beides bleibt der bisherige Pfad unverändert.
-    from .vision_routing import self_describer_profile, visiond_profile_for
-    model = (
-        self_describer_profile(model) or visiond_profile_for(model) or model
-    )
 
     # Dispatch (SSOT: has_native_vision): llama-swap-Modelle mit nativem
     # Vision-Encoder beschreiben selbst, alles andere geht an Ollama.
