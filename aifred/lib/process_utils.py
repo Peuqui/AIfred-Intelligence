@@ -371,24 +371,11 @@ def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
     duerfen belegt bleiben). None = alle Karten.
     """
     from pathlib import Path
-    try:
-        out = subprocess.run(
-            ["nvidia-smi",
-             "--query-compute-apps=pid,process_name,used_memory,gpu_uuid",
-             "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=10,
-        )
-    except (subprocess.SubprocessError, FileNotFoundError):
-        return []
-    if out.returncode != 0:
-        return []
+    from .nvidia_smi import compute_apps
 
     procs: list[str] = []
-    for line in out.stdout.strip().splitlines():
-        parts = [p.strip() for p in line.split(",")]
-        if len(parts) < 4:
-            continue
-        pid, name, mem, uuid = parts[0], parts[1], parts[2], parts[3]
+    for app in compute_apps():
+        pid, name, mem, uuid = app["pid"], app["process_name"], app["used_memory"], app["gpu_uuid"]
         if gpu_uuids is not None and uuid not in gpu_uuids:
             continue
         tag = ""

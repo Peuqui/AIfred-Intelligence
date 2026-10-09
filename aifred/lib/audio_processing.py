@@ -1357,6 +1357,41 @@ def release_whisper_gpu() -> bool:
         return False
 
 
+def whisper_gpu_footprint() -> dict[str, int]:
+    """VRAM (MiB) the whisper-stt GPU worker holds, per GPU UUID — space a
+    model load gets back, because the load releases the worker first
+    (release_whisper_gpu in the backends' GPU guard). Empty when no worker
+    runs or the service is unreachable.
+
+    The service reports its worker's PID inside the container; nvidia-smi
+    reports host PIDs. ``NSpid`` in /proc/<pid>/status lists a process's PID
+    in every namespace — its last entry is the container's view, which
+    identifies the worker without counting other GPU containers (TTS).
+    """
+    import requests
+    from .config import WHISPER_SERVICE_URL
+    from .nvidia_smi import compute_apps
+
+    try:
+        status = requests.get(f"{WHISPER_SERVICE_URL}/status", timeout=3).json()
+    except (requests.RequestException, ValueError):
+        return {}
+    worker = status.get("gpu_worker_pid")
+    if not worker:
+        return {}
+    footprint: dict[str, int] = {}
+    for row in compute_apps():
+        try:
+            with open(f"/proc/{row['pid']}/status", encoding="ascii") as f:
+                nspid = next(line.split()[1:] for line in f if line.startswith("NSpid:"))
+        except (OSError, StopIteration):
+            continue
+        if nspid and int(nspid[-1]) == int(worker):
+            uuid = str(row["gpu_uuid"])
+            footprint[uuid] = footprint.get(uuid, 0) + int(row["used_memory"])
+    return footprint
+
+
 def get_audio_duration(audio_path: str) -> float:
     """Audio duration in seconds via ffprobe (0.0 if not determinable)."""
     import subprocess

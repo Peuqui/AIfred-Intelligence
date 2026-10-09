@@ -56,3 +56,27 @@ def query(
     except (subprocess.TimeoutExpired, FileNotFoundError) as e:
         logger.warning("nvidia-smi unavailable: %s", e)
         return None
+
+
+def compute_apps() -> list[dict[str, str]]:
+    """Processes holding GPU memory: ``pid``, ``process_name``,
+    ``used_memory`` (MiB) and ``gpu_uuid`` per entry (host PIDs). Empty list
+    when nothing runs or nvidia-smi is unavailable."""
+    fields = ("pid", "process_name", "used_memory", "gpu_uuid")
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", f"--query-compute-apps={','.join(fields)}",
+             "--format=csv,noheader,nounits"],
+            capture_output=True, text=True, timeout=10, check=False,
+        )
+    except (subprocess.TimeoutExpired, FileNotFoundError) as e:
+        logger.warning("nvidia-smi unavailable: %s", e)
+        return []
+    if result.returncode != 0:
+        return []
+    rows = []
+    for line in result.stdout.strip().splitlines():
+        values = [v.strip() for v in line.split(",")]
+        if len(values) == len(fields):
+            rows.append(dict(zip(fields, values)))
+    return rows
