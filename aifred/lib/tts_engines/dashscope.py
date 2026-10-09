@@ -124,7 +124,9 @@ class DashScopeEngine(TTSEngine):
         api_key credential. Speed/pitch are post-processed centrally
         via ffmpeg (the SDK has no native speed parameter)."""
         import base64
+        import io
         import os
+        import wave
         from ..audio_processing import (
             _generate_tts_filename,
             _validate_audio_output,
@@ -159,7 +161,10 @@ class DashScopeEngine(TTSEngine):
 
             log_message(f"🎤 DashScope TTS: voice={voice}, id={voice_id}, model={model}, lang={language_type}, text_length={len(text)}")
 
-            # Streaming mode — PCM chunks (24 kHz, 16-bit mono).
+            # Streaming mode — the chunks form ONE WAV stream: the first chunk
+            # starts with a RIFF header (sizes 0x7fffffff). Joined as raw PCM,
+            # that header plays as a ~1 ms full-scale burst — a click at the
+            # start of every synthesized sentence.
             response = dashscope.MultiModalConversation.call(
                 model=model,
                 api_key=api_key,
@@ -168,21 +173,25 @@ class DashScopeEngine(TTSEngine):
                 language_type=language_type,
                 stream=True,
             )
-            pcm_chunks: list[bytes] = []
+            wav_chunks: list[bytes] = []
             # stream=True always returns the generator; the SDK annotates
             # a plain Union without a stream overload.
             for chunk in response:  # type: ignore[union-attr]
                 if chunk.output and chunk.output.audio and chunk.output.audio.data:
-                    pcm_chunks.append(base64.b64decode(chunk.output.audio.data))
+                    wav_chunks.append(base64.b64decode(chunk.output.audio.data))
 
-            if not pcm_chunks:
+            if not wav_chunks:
                 log_message("❌ DashScope TTS: No audio chunks received")
                 return None
 
-            pcm_data = _apply_pcm_gain(b"".join(pcm_chunks), self.output_gain)
-            _write_pcm_to_wav(pcm_data, output_file)
+            with wave.open(io.BytesIO(b"".join(wav_chunks))) as wav_stream:
+                sample_rate = wav_stream.getframerate()
+                pcm_data = wav_stream.readframes(wav_stream.getnframes())
 
-            duration = len(pcm_data) / (24000 * 2)
+            pcm_data = _apply_pcm_gain(pcm_data, self.output_gain)
+            _write_pcm_to_wav(pcm_data, output_file, sample_rate)
+
+            duration = len(pcm_data) / (sample_rate * 2)
             if _validate_audio_output(output_file):
                 size = os.path.getsize(output_file)
                 log_message(f"✅ DashScope TTS: Audio saved → {output_file} ({size:,} bytes, {duration:.1f}s)")
