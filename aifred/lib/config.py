@@ -1456,6 +1456,12 @@ WORKSPACE_READ_MAX_BYTES = 25 * 1024 * 1024  # read_file tool: reject files larg
                                      # than this (the whole file is loaded into RAM;
                                      # a huge file would blow the worker's memory).
                                      # The model should page/line-range large files.
+READ_FILE_RENDER_DPI = 150           # read_file: PDF pages without a text layer
+                                     # (scans) are rendered as images at this
+                                     # resolution (A4 ≈ 1240×1754 px) for vision_analyze.
+READ_FILE_RENDER_MAX_PAGES = 12      # read_file: at most this many pages rendered per
+                                     # call (= MAX_IMAGES_PER_MESSAGE); the model asks
+                                     # for further pages via 'pages'.
 # ChromaDB vector store endpoint (workspace ChromaDB tools, documents, agent memory).
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8000"))

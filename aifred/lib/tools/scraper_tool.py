@@ -9,6 +9,7 @@ import io
 import logging
 import re
 import time
+import pymupdf
 import trafilatura
 from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
@@ -21,14 +22,6 @@ from .base import BaseTool
 from ..logging_utils import log_message
 from ..config import PLAYWRIGHT_FALLBACK_THRESHOLD
 from ..security import UnsafeURLError, validate_external_url
-
-# Optional: PyMuPDF for PDF extraction (best quality)
-try:
-    import fitz  # PyMuPDF
-    PYMUPDF_AVAILABLE = True
-except ImportError:
-    PYMUPDF_AVAILABLE = False
-    fitz = None
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -512,7 +505,7 @@ class WebScraperTool(BaseTool):
         """
         Extract text from PDF documents with PyMuPDF.
 
-        PyMuPDF (fitz) offers:
+        PyMuPDF offers:
         - Fastest text extraction
         - Best quality
         - Good table recognition
@@ -524,15 +517,6 @@ class WebScraperTool(BaseTool):
         Returns:
             Dict with extracted content or error
         """
-        if not PYMUPDF_AVAILABLE:
-            logger.warning("⚠️ PyMuPDF not installed → PDF support disabled")
-            return {
-                'success': False,
-                'method': 'pdf',
-                'source': url,
-                'error': 'PyMuPDF not installed (pip install pymupdf)'
-            }
-
         try:
             logger.info(f"📄 PDF-Download: {url}")
 
@@ -558,7 +542,7 @@ class WebScraperTool(BaseTool):
 
             # Open PDF from memory
             pdf_data = io.BytesIO(response.content)
-            doc = fitz.open(stream=pdf_data, filetype="pdf")
+            doc = pymupdf.open(stream=pdf_data, filetype="pdf")
 
             # Extract metadata
             metadata = doc.metadata
@@ -570,8 +554,8 @@ class WebScraperTool(BaseTool):
             # Extract text from all pages
             text_parts = []
             page_count = len(doc)  # Save before closing!
-            for page_num, page in enumerate(doc):
-                page_text = page.get_text("text")
+            for page_num in range(page_count):
+                page_text = doc[page_num].get_text("text")
                 if page_text.strip():
                     text_parts.append(page_text)
 

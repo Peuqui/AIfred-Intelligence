@@ -869,6 +869,17 @@ def save_image_to_file(
     return file_path
 
 
+def save_session_upload(image_bytes: bytes, session_id: str, stem: str, ext: str) -> Path:
+    """Store an image for a session exactly like a browser upload: resized to
+    VISION_MAX_IMAGE_DIMENSION, named ``<stem>_<timestamp>.<ext>``, under
+    data/upload/images/<session>/ — so vision_analyze accepts its URL and the
+    session cleanup removes it with the session."""
+    name = f"{stem}_{filename_timestamp(datetime.now())}.{ext}"
+    return save_image_to_file(
+        resize_image_if_needed(image_bytes), session_id, name, base_dir=UPLOAD_IMAGES_DIR,
+    )
+
+
 def get_image_url(image_path: Path) -> str:
     """
     Convert absolute file path to relative URL for UI display.

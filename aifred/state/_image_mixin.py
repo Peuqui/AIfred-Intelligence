@@ -117,15 +117,10 @@ class ImageMixin(rx.State, mixin=True):
 
     async def _process_image_upload(self, files: List[rx.UploadFile], from_camera: bool = False):
         """Internal handler for image uploads with validation (async generator for UI updates)"""
-        from datetime import datetime
-
         from ..lib.vision_utils import (
-            UPLOAD_IMAGES_DIR,
             validate_image_file,
-            resize_image_if_needed,
-            save_image_to_file,
+            save_session_upload,
             get_image_url,
-            filename_timestamp,
         )
 
         # Show loading state immediately
@@ -172,27 +167,12 @@ class ImageMixin(rx.State, mixin=True):
                     self.image_upload_warning = error or ""
                     continue
 
-                # Resize if needed (save bandwidth/VRAM)
-                resized_content = resize_image_if_needed(content)
-
-                # Build a unique, recognizable filename: original stem +
-                # microsecond timestamp. Camera shots have no meaningful
-                # original name, so use a "camera_" stem. No uuid prefix —
-                # the timestamp makes it unique within the session folder.
-                stamp = filename_timestamp(datetime.now())
+                # Resized, unique name (original stem + timestamp; camera shots
+                # have no meaningful name → "camera"), under the user-upload
+                # tree data/upload/images/<session>/ — SSOT save_session_upload.
                 ext = filename.rsplit(".", 1)[1].lower() if "." in filename else "jpg"
-                if from_camera:
-                    display_name = f"camera_{stamp}.{ext}"
-                else:
-                    stem = filename.rsplit(".", 1)[0] if "." in filename else filename
-                    display_name = f"{stem}_{stamp}.{ext}"
-
-                # Save under the user-upload tree (data/upload/images/<session>/),
-                # separate from the surveillance captures (vigilantia/).
-                image_path = save_image_to_file(
-                    resized_content, self.session_id, display_name,
-                    base_dir=UPLOAD_IMAGES_DIR,
-                )  # type: ignore[attr-defined]
+                stem = "camera" if from_camera else (filename.rsplit(".", 1)[0] if "." in filename else filename)
+                image_path = save_session_upload(content, self.session_id, stem, ext)  # type: ignore[attr-defined]
                 image_url = get_image_url(image_path)
                 saved_name = image_path.name
 
@@ -205,11 +185,11 @@ class ImageMixin(rx.State, mixin=True):
                         "name": saved_name,
                         "path": str(image_path),
                         "url": image_url,
-                        "size_kb": str(len(resized_content) // 1024),
+                        "size_kb": str(image_path.stat().st_size // 1024),
                     },
                 ]
 
-                self.add_debug(f"\U0001f4f7 Image uploaded: {saved_name} ({len(resized_content) // 1024} KB)")  # type: ignore[attr-defined]
+                self.add_debug(f"\U0001f4f7 Image uploaded: {saved_name} ({image_path.stat().st_size // 1024} KB)")  # type: ignore[attr-defined]
                 yield  # Update UI after each image
 
         finally:

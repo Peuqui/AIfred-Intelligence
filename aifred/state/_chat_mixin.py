@@ -891,28 +891,10 @@ class ChatMixin(rx.State, mixin=True):
 
             display_user_msg = user_msg
             if has_pending_images:
-                # Generate clickable image thumbnails as HTML. No <a> wrapper:
-                # the /_upload/ URL is picked up by the global lightbox handler
-                # (aifred.py lightbox_js) on click — a target="_blank" link would
-                # additionally open a redundant browser tab. Lightbox only.
-                image_html_parts: list[str] = []
-                for img in self.pending_images:  # type: ignore[attr-defined]
-                    url = img.get('url', '')
-                    if url:
-                        image_html_parts.append(
-                            f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
-                            f'border-radius:4px;cursor:zoom-in;">'
-                        )
-                # Flex row so multiple thumbnails sit side by side with a
-                # small gap instead of stacking. Class + inline style: the
-                # class rule (aifred.py stylesheet) also pins the 50px
-                # cover-crop look in case the markdown path drops inline
-                # styles on the way to the DOM.
-                image_html = (
-                    '<div class="aifred-thumbrow" '
-                    'style="display:flex;flex-wrap:wrap;gap:6px;">'
-                    + "".join(image_html_parts) + "</div>"
-                ) if image_html_parts else ""
+                from ..lib.formatting import build_thumbnail_row
+                image_html = build_thumbnail_row(
+                    [img.get("url", "") for img in self.pending_images if img.get("url")]  # type: ignore[attr-defined]
+                )
 
                 if not user_msg or user_msg.strip() == "":
                     # Image-only upload

@@ -1117,6 +1117,29 @@ def build_sandbox_iframe(url: str) -> str:
     )
 
 
+def build_thumbnail_row(urls: list[str]) -> str:
+    """Clickable 50px thumbnails side by side ("" without URLs) — uploaded
+    images in the user bubble, rendered document pages in an agent bubble.
+
+    No <a> wrapper: the /_upload/ URL is picked up by the global lightbox
+    handler (aifred.py lightbox_js) on click — a target="_blank" link would
+    additionally open a redundant browser tab. Class + inline style: the class
+    rule (aifred.py stylesheet) also pins the 50px cover-crop look in case the
+    markdown path drops inline styles on the way to the DOM.
+    """
+    if not urls:
+        return ""
+    images = "".join(
+        f'<img src="{url}" style="width:50px;height:50px;object-fit:cover;'
+        f'border-radius:4px;cursor:zoom-in;">'
+        for url in urls
+    )
+    return (
+        '<div class="aifred-thumbrow" style="display:flex;flex-wrap:wrap;gap:6px;">'
+        + images + "</div>"
+    )
+
+
 def build_sandbox_image(url: str) -> str:
     """Build a collapsible with embedded image for sandbox plot output."""
     return (

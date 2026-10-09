@@ -99,7 +99,7 @@ def _read_pdf(file_path: Path) -> str:
 
     pdftotext joins hyphenated line-breaks back into whole words and
     converts ligatures (ﬂ, ﬁ) to plain letters — both crucial for
-    embedding quality. PyMuPDF/fitz preserves them as-is which results
+    embedding quality. PyMuPDF preserves them as-is which results
     in fragmented embeddings (`Misch-` + `volk` as two halves, `Brotﬂ aden`
     as a strange unicode word).
     """
