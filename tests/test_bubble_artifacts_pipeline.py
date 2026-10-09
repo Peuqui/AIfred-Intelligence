@@ -58,7 +58,7 @@ class _Turn:
 def _result():
     async def run():
         async for event in run_llm_stream(
-            _Turn(), "m", [], SimpleNamespace(enable_thinking=False), "AIfred", retry=False,  # type: ignore[arg-type]
+            _Turn(), "m", [], SimpleNamespace(enable_thinking=False), "AIfred", source="browser", retry=False,  # type: ignore[arg-type]
         ):
             if event["type"] == "pipeline_result":
                 return event["result"]
