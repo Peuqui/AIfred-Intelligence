@@ -2,19 +2,14 @@
 
 > **English version:** [vision-routing.md](../../en/architecture/vision-routing.md)
 
-Wie eine Bildbeschreibung (Vigilantia, Sandbox-Screenshot, Vision-Tool) auf
-ein Vision-Modell verteilt wird, ohne das geladene Chat-LLM aus dem VRAM zu
-verdrängen. Stand (2026-09-25): Vision-Umbau Paket 1 (Describer-Pfad,
-2026-08-16) und Paket 2 (Vigilantia auf den Describer-Pfad migriert,
-2026-08-16) sind umgesetzt; seitdem dazugekommen: vom Autoscan erzeugte
-Describer-Profile, das Chat-LLM als eigener Describer und ein GPU-basierter
-Beiwagen-Eviction-Guard. Der Side-Channel läuft primär über
-llama.cpp/llama-swap; Ollama bleibt als Bestands-Pfad für Setups ohne
-Describer-Profile.
-
-Chat-Bild-Uploads (VL Direct, Symposion) nutzen diesen Pfad nicht: Dort wählt
-`_vl_choice` ([`aifred/state/_agent_config_mixin.py`](../../../aifred/state/_agent_config_mixin.py))
-ein vision-fähiges Hauptmodell selbst, sonst das Modell der Vision-Rolle.
+Wer ein Bild ansieht — Chat-Upload, Symposion, Sandbox-Screenshot,
+Vision-Tool, Vigilantia — und wie das Vision-Modell neben das geladene
+Chat-LLM kommt, ohne es aus dem VRAM zu verdrängen. Stand (2026-10-09): zwei
+Wahlregeln in [`aifred/lib/vision_routing.py`](../../../aifred/lib/vision_routing.py)
+ersetzen die frühere Vier-Stufen-Präzedenz; ob ein Describer daneben passt,
+entscheidet der gemessene Burn-in-Peak, nicht mehr allein ein reserviertes
+Profil. Der Side-Channel läuft primär über llama.cpp/llama-swap; Ollama bleibt
+als Pfad für Setups ohne Describer-Profile.
 
 ## Kernidee
 
@@ -45,53 +40,62 @@ für das Chat-LLM das `<base>-vlm-<key>`-Profil, das den Reserve-Slot
 das Vision-Modell das Chat-Modell selbst, gibt es nichts zu reservieren — die
 VLM-Stufen entfallen, das Basis-Profil mit vollem Kontext gewinnt.
 
-## Routing-Präzedenz
+## Wahlregeln
 
-SSOT ist die Modellwahl in `analyze_sequence`
-([`aifred/lib/vision_analyzer.py`](../../../aifred/lib/vision_analyzer.py))
-für alle ihre Caller (Vigilantia-Watcher, Türsteher, Event-Analyse, Bulk,
-Sandbox, Vision-Tool), erster Treffer gewinnt:
+Beide Regeln liefern einen `Describer(model, evicts_chat_model)`; verdrängt er
+das Chat-LLM, kündigt `eviction_notice` das an (das Neuladen kann bis zu
+mehreren Minuten dauern).
 
-1. **Das Chat-LLM beschreibt selbst** — `self_describer_profile`
-   ([`aifred/lib/vision_routing.py`](../../../aifred/lib/vision_routing.py)):
-   Das eingestellte Vision-Modell ist dasselbe Modell wie das Chat-LLM
-   (`same_model`, namens-normalisiert und ohne Varianten-Suffixe), und dessen
-   llama-swap-Profil lädt einen eigenen Vision-Encoder (`has_native_vision`:
-   llama.cpp `--mmproj`, vLLM ohne `--language-model-only`). Zurück kommt das
-   tatsächlich geladene Profil (z.B. eine `-speed`-Variante); läuft ein anderes
-   Modell, greift dieser Weg nicht. Kein zweiter Load desselben Modells — die
-   Beschreibung serialisiert mit dem Chat in dessen einzigem Slot (`-np 1`).
-2. **`<vision-modell>-visiond`-Profil existiert → dorthin routen** —
-   `visiond_profile_for`. Der bevorzugte Pfad: gleicher Backend, nur der
-   Profilname wechselt. Varianten-Suffixe der Rolle werden vor dem Lookup
-   gestrippt (`strip_variant_suffixes`), und auch Ollama-Schreibweisen
-   (`qwen3-vl:4b-instruct-q8_0`) matchen namens-normalisiert — so laufen ALLE
-   Vigilantia-Pfade über diese Auflösung, ohne dass ihre Plugin-Settings
-   angefasst wurden.
-   `prewarm_vlm` (vision_mode „live") lädt das Describer-Profil per
-   llama-swap-Request; `check_vlm_fits` (Bulk-Worker) entfällt bei
-   Describer-Pfad (Reserve-Slot ist die Garantie).
-3. **Sonst** bleibt das Modell unverändert. Dispatch über `has_native_vision`:
-   Ein llama-swap-Modell mit eigenem Vision-Encoder beschreibt über llama-swap,
-   alles andere geht an Ollama (`_analyze_via_ollama`, Bestands-Pfad für Setups
-   ohne `-visiond`-Profile).
+**Regel A — `chat_describer(main_model)`** (Chat-Uploads, Symposion,
+Sandbox-Screenshots, hochgeladene Bilder im Vision-Tool):
 
-Sandbox-Screenshots (`describe_sandbox_screenshots`,
-[`aifred/lib/sandbox.py`](../../../aifred/lib/sandbox.py)) bevorzugen die
-konfigurierte Vision-Rolle (deren `-visiond`-Profil); ein vision-fähiges
-Hauptmodell (`is_vision_model_sync`,
-[`aifred/lib/vision_utils.py`](../../../aifred/lib/vision_utils.py))
-beschreibt nur, wenn keine Vision-Rolle konfiguriert ist — sonst überschriebe
-jeder Describe-Call den Chat-Kontext im einzigen Slot. `is_vision_model_sync`
-entscheidet bei llama-swap-Einträgen danach, was ihr cmd lädt
-(`has_native_vision`), bei anderen Ids per Namensmuster auf der Basis-Id
-(`strip_variant_suffixes` — die Suffixe `-vlm-qwen3vl4b` und `-vllm` enthalten
-„vl" und würden sonst Textmodelle fälschlich als vision-fähig einstufen).
+1. Sieht das Hauptmodell selbst (`has_native_vision`), beschreibt es selbst.
+2. Sonst das Vision-LLM der Haupteinstellungen über sein `-visiond`-Profil,
+   wenn es daneben passt (`check_visiond_fits`, siehe unten).
+3. Sonst die effektive Variante des Vision-LLM — sie verdrängt das Chat-LLM.
+4. Ist kein Vision-LLM eingestellt: `NoVisionModelError`.
 
-`maybe_route_to_ollama` (`vision_routing.py`) bildet dieselbe Reihenfolge
-(`-visiond`-Profil vor Ollama-Side-Channel) für ein
-`(backend_url, backend_type, model)`-Tupel ab; im Produktivcode hat es derzeit
-keinen Aufrufer, nur Tests.
+**Regel B — `camera_describer(vlm_model, explicit=…)`** (Vigilantia-Watcher,
+Event-Analyse, Bulk, Vision-Tool mit Kamera-Quelle):
+
+1. Das Kamera-VLM (z.B. das 4B) passt neben das Geladene oder läuft schon →
+   sein `-visiond`-Profil.
+2. Sonst ein geladenes Profil, das selbst sehen kann.
+3. Sonst nur bei ausdrücklicher Anfrage (`explicit=True`, z.B. Casus oder der
+   Nutzer fragt AIfred) das Vision-LLM, verdrängend.
+4. Sonst `NoVisionModelError`: Automatische Pfade verdrängen nie; das Bild
+   geht ohne Beschreibung raus und lässt sich nachträglich beschreiben.
+
+Ein Ollama-Modell (kein llama-swap-Eintrag) bleibt unverändert. Den Versand
+übernimmt `analyze_sequence`
+([`aifred/lib/vision_analyzer.py`](../../../aifred/lib/vision_analyzer.py)) nur
+noch per Dispatch: `has_native_vision` → llama-swap, sonst Ollama.
+
+**Passt das daneben?** `check_visiond_fits`
+([`aifred/lib/vision_vram_check.py`](../../../aifred/lib/vision_vram_check.py)):
+ein schon geladenes Profil passt immer; sonst der Burn-in-Peak aus
+`data/vlm_vram_cache.json` (Modell × Kontext) plus `LLAMACPP_VLM_HEADROOM_MB`
+gegen den freien VRAM der Karten, auf die das Profil per
+`CUDA_VISIBLE_DEVICES` gepinnt ist (ungepinnt: Summe aller Karten). Fehlt
+die Messung oder die Karte, passt es nicht.
+
+### Chat-Bilder: VL Direct oder zwei Schritte
+
+`send_message` ([`aifred/state/_chat_mixin.py`](../../../aifred/state/_chat_mixin.py))
+fragt `_image_describer` ([`aifred/state/_agent_config_mixin.py`](../../../aifred/state/_agent_config_mixin.py)),
+die Regel A auf das effektive Hauptmodell anwendet:
+
+- **Hauptmodell sieht, ein Agent:** VL Direct — das Hauptmodell bekommt die
+  Bilder und antwortet als Agent (`_process_vision_request`).
+- **Sonst (oder Symposion mit ≥2 Agenten):** `_describe_images` beschreibt die
+  Bilder einmal neutral (`vision/task_instruction_handoff`, mit Nutzerfrage `…_handoff_question`), die Beschreibung
+  wird als `[Bildinhalt: …]` an den Nutzer-Turn gehängt, und die normale
+  Text-Pipeline antwortet — das Hauptmodell mit vollem Prompt, Werkzeugen und
+  Verlauf, bzw. alle Symposion-Agenten auf derselben Grundlage. Folgefragen
+  beantwortet der Agent bei Bedarf mit einem neuen Blick per `vision_analyze`
+  (die `/_upload/`-URL steht im Turn).
+- **Kein Vision-LLM:** Das Bild geht ohne Beschreibung weiter, mit Hinweis in
+  der Debug-Konsole.
 
 ## Entlade-Semantik (llama-swap-Gruppen)
 
@@ -143,14 +147,11 @@ versteht.
 
 `_build_vision_rich`
 ([`aifred/state/_backend_mixin.py`](../../../aifred/state/_backend_mixin.py))
-zeigt `🧠 Chat-LLM`, wenn das Vision-Modell das Chat-LLM selbst mit eigenem
-Vision-Encoder ist (Selbst-Describer, zuerst geprüft); sonst `⚡ No Swap`, wenn
-(a) ein `-visiond`-Profil existiert (Gruppen-Semantik garantiert Parallelität)
-**oder** (b) der Ollama-Side-Channel greift und das `-vlm-<key>`-Reserve-Profil
-(oder dessen `-speed`-Variante) für das aktuelle Chat-LLM kalibriert ist; sonst
-`🔄 Swap`. `vlm_key_for_model` matcht
-namens-normalisiert — auch die llama-swap-Schreibweise
-(`Qwen3VL-4B-Instruct-Q8_0`) aktiviert die Reserve-Automatik.
+folgt der Laufzeitwahl: `🧠 Chat-LLM`, wenn das Vision-Modell das Hauptmodell
+selbst mit eigenem Vision-Encoder ist; `⚡ No Swap`, wenn sein `-visiond`-Profil
+gerade daneben passt (`check_visiond_fits`) oder es ohne `-visiond`-Profil
+über den Ollama-Seitenkanal läuft; sonst `🔄 Swap`. Die Badges werden je
+Sitzung neu berechnet, nicht aus dem globalen Startzustand übernommen.
 
 ## Verifizierte Szenarien (2026-08-16)
 

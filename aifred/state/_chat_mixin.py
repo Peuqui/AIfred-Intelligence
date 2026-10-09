@@ -454,91 +454,67 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── VL Inference Helper ──────────────────────────────────────────
 
-    async def _symposion_vision_handoff(
+    async def _describe_images(
         self,
         local_images: list,
+        user_question: str,
         detected_language: str,
-    ) -> AsyncGenerator[None, None]:
-        """Describe an uploaded image ONCE, then let Symposion discuss it.
+        model_id: str,
+        settings_bucket: str,
+    ) -> str:
+        """Describe uploaded images ONCE for agents that answer without seeing them.
 
-        Symposion with >=2 agents normally never reaches the Vision Fast
-        Path's single-agent response — before this, an attached image made
-        it fall through to _process_vision_request(), which answers as
-        exactly one agent (whichever active_agent happened to be) and
-        bypasses run_symposion() entirely, regardless of the selected
-        lineup. A shared, neutral image description is the right amount of
-        vision here: the image is an objective fact all agents discuss from
-        the same basis, not a matter of individual perspective — and one
-        VL call instead of N avoids both the cost multiplication and the
-        risk of agents arguing from subtly different descriptions of the
-        same image.
+        Two cases share this step: a main model that cannot see (the vision
+        LLM describes, the main model answers as the agent with its full
+        prompt, tools and history), and Symposion with >=2 agents (one
+        neutral description all agents discuss from the same basis — one
+        VL call instead of N, and no agents arguing from subtly different
+        descriptions of the same image). The caller appends the result to
+        the user turn and continues with the normal text pipeline.
         """
+        from ..backends.base import LLMOptions
         from ..lib.llm_client import LLMClient
         from ..lib.prompt_loader import load_prompt
         from ..lib.vision_utils import load_image_as_base64
         from pathlib import Path
 
-        # SSOT VL-model choice (vision-capable main model first) —
-        # see _vl_choice. Sampling follows the model, not the role.
-        effective_vision_id, vl_bucket, _ = self._vl_choice(agent_turn=False)  # type: ignore[attr-defined]
-
-        desc_content: list[dict] = []
+        content: list[dict] = []
         for img in local_images:
             base64_data = load_image_as_base64(Path(img["path"]))
-            desc_content.append({
+            content.append({
                 "type": "image_url",
                 "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
             })
-        # SSOT vision perception, same body as the single-agent path — only
-        # the follow-up instruction differs (shared/neutral vs. answer-a-
-        # question), see vision/task_instruction_symposion.txt.
-        task_instruction = load_prompt("vision/task_instruction_symposion", lang=detected_language)
-        desc_content.append({
+        # SSOT vision perception, same body as VL Direct — only the
+        # follow-up instruction differs: a neutral hand-off, focused on the
+        # user's question when there is one (the describer must capture
+        # what the answering agent needs — it cannot look again itself).
+        task_instruction = (
+            load_prompt("vision/task_instruction_handoff_question", lang=detected_language, question=user_question)
+            if user_question
+            else load_prompt("vision/task_instruction_handoff", lang=detected_language)
+        )
+        content.append({
             "type": "text",
             "text": load_prompt("vision/task_adaptive", lang=detected_language, task_instruction=task_instruction),
         })
 
         llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)  # type: ignore[attr-defined]
-        from ..backends.base import LLMOptions
-        response = await llm_client.chat(
-            model=effective_vision_id,
-            messages=[{"role": "user", "content": desc_content}],
-            options=LLMOptions(
-                temperature=self.agent_tuning[vl_bucket].temperature,  # type: ignore[attr-defined]
-                num_ctx=self.agent_tuning[vl_bucket].max_context or None,  # type: ignore[attr-defined]
-                # Deliberately no thinking: a shared, neutral image
-                # description is a perception task, not a reasoning one.
-                enable_thinking=False,
-            ),
-        )
-        await llm_client.close()
-        description = response.text.strip()
-
-        from ..lib.prompt_loader import get_language
-        _de = get_language() == "de"
-        _label = "Bildinhalt" if _de else "Image content"
-        ch = self._chat_sub()
-        updated_content = f"{ch.llm_history[-1]['content']}\n\n[{_label}: {description}]"
-        ch.llm_history = [*ch.llm_history[:-1], {"role": "user", "content": updated_content}]
-        self.add_debug(f"📷 Symposion: shared image description ({effective_vision_id})")
-        yield
-
-        from ..lib.multi_agent import run_symposion
-        async for _ in run_symposion(self, updated_content, detected_language):  # type: ignore[arg-type]
-            yield
-
-        # Same finalization as _process_vision_request()/send_message()'s
-        # shared end-of-flow block: the Vision Fast Path always returns
-        # early from send_message() (see the "return" after this method's
-        # caller), so it never reaches that shared block and must trigger
-        # title generation + save itself — missed here originally, which
-        # is why Symposion-with-image sessions kept the placeholder title.
-        from ._base import track_orphan_task
-        track_orphan_task(asyncio.create_task(
-            self._generate_session_title(title_model_override=effective_vision_id)  # type: ignore[attr-defined]
-        ))
-        self._save_current_session()  # type: ignore[attr-defined]
-        self.refresh_session_list()  # type: ignore[attr-defined]
+        try:
+            response = await llm_client.chat(
+                model=model_id,
+                messages=[{"role": "user", "content": content}],
+                options=LLMOptions(
+                    temperature=self.agent_tuning[settings_bucket].temperature,  # type: ignore[attr-defined]
+                    num_ctx=self.agent_tuning[settings_bucket].max_context or None,  # type: ignore[attr-defined]
+                    # Deliberately no thinking: a neutral image description
+                    # is a perception task, not a reasoning one.
+                    enable_thinking=False,
+                ),
+            )
+        finally:
+            await llm_client.close()
+        return response.text.strip()
 
     async def _process_vision_request(
         self,
@@ -560,19 +536,13 @@ class ChatMixin(rx.State, mixin=True):
         memory, tools, and personality). For multi-agent modes with multiple
         selected agents, defaults to "aifred".
 
-        Model choice is SSOT ``_effective_vl_model_id``: a vision-capable
-        main model handles the image itself; the vision role only steps in
-        for non-vision-capable main models.
+        Only runs when the main model can see (see ``_image_describer``);
+        otherwise the vision LLM describes the image and the normal text
+        pipeline answers (``_describe_images``).
         """
         from ..lib.llm_engine import call_llm
 
-        # SSOT VL-model choice (vision-capable main model first, variant
-        # coupling included) — see _vl_choice. Sampling settings follow the
-        # MODEL that runs the turn (its agent_tuning row), not the role.
-        effective_vision_id, vl_bucket, _ = self._vl_choice(agent_turn=True)  # type: ignore[attr-defined]
-        if effective_vision_id != self.agent_tuning["vision"].model_id:  # type: ignore[attr-defined]
-            self.add_debug(f"⚡ VL model: {effective_vision_id}")  # type: ignore[attr-defined]
-            yield
+        effective_vision_id = self._effective_model_id("aifred")  # type: ignore[attr-defined]
 
         # VL acts as the active agent (memory, tools, personality)
         acting_agent = self.active_agent or "aifred"  # type: ignore[attr-defined]
@@ -609,7 +579,7 @@ class ChatMixin(rx.State, mixin=True):
             detected_intent=detected_intent,
             detected_language=detected_language,
             temperature_mode="manual",
-            temperature=self.agent_tuning[vl_bucket].temperature,  # type: ignore[attr-defined]
+            temperature=self.agent_tuning["aifred"].temperature,  # type: ignore[attr-defined]
             backend_type=self.backend_type,  # type: ignore[attr-defined]
             backend_url=self.backend_url,  # type: ignore[attr-defined]
             state=self,
@@ -1050,9 +1020,13 @@ class ChatMixin(rx.State, mixin=True):
                     )
 
             # ============================================================
-            # VISION FAST PATH: Images present → VL model handles everything
-            # Skip Intent Detection, Automatik and AIfred entirely.
-            # VL model receives: AIfred system prompt + user text + image(s).
+            # IMAGES: who looks at them (SSOT _image_describer)
+            # - Main model sees, single agent → VL Direct: it answers with
+            #   the image itself (skips Intent Detection and Automatik).
+            # - Otherwise the describer describes the image ONCE, the
+            #   description joins the user turn, and the normal text
+            #   pipeline answers below — main model as the agent with its
+            #   full prompt, tools and history; Symposion likewise.
             # ============================================================
             if has_pending_images:
                 import copy
@@ -1060,20 +1034,23 @@ class ChatMixin(rx.State, mixin=True):
                 self.clear_pending_images()  # type: ignore[attr-defined]
 
                 # Use UI language (no Intent Detection)
-                from ..lib.prompt_loader import get_language
+                from ..lib.prompt_loader import get_language, load_prompt
                 detected_language = get_language()
                 self._last_detected_language = detected_language  # type: ignore[attr-defined]
 
-                # SSOT VL-model choice (vision-capable main model first) —
-                # see _vl_choice. Sampling follows the model, not the role.
-                _eff_vl, _vl_bucket, _vl_evicts = self._vl_choice(agent_turn=True)  # type: ignore[attr-defined]
+                from ..lib.vision_routing import NoVisionModelError, eviction_notice
+                try:
+                    _eff_vl, _vl_bucket, _vl_evicts = self._image_describer()  # type: ignore[attr-defined]
+                except NoVisionModelError as exc:
+                    _eff_vl, _vl_bucket, _vl_evicts = "", "", False
+                    self.add_debug(f"⚠️ Vision: {exc} — the image goes on without a description")  # type: ignore[attr-defined]
+                    yield
                 if _vl_evicts:
-                    from ..lib.vision_routing import eviction_notice
                     self.add_debug(eviction_notice(_eff_vl))  # type: ignore[attr-defined]
                     yield
 
                 # Cold start warning (llama-swap: llamacpp + vllm)
-                if self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
+                if _eff_vl and self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
                     try:
                         running = await self._llamaswap_running_models()
                         if _eff_vl not in running:
@@ -1083,83 +1060,82 @@ class ChatMixin(rx.State, mixin=True):
                         pass
 
                 img_count = len(local_images)
-                self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {_eff_vl}")  # type: ignore[attr-defined]
-                yield
-
-                # Build multimodal content (images + text) for call_llm()
-                from ..lib.vision_utils import load_image_as_base64
-                from pathlib import Path
-
-                content_parts: list[dict] = []
-
-                # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL)
-                if not self.agent_tuning[_vl_bucket].thinking:  # type: ignore[attr-defined]
-                    content_parts.append({"type": "text", "text": "/no_think"})
-
-                # Images first (VL models handle it best this way)
-                for img in local_images:
-                    img_path = Path(img["path"])
-                    base64_data = load_image_as_base64(img_path)
-                    content_parts.append({
-                        "type": "image_url",
-                        "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
-                    })
-
-                # User text after images (fallback description if empty)
-                # Task-adaptive prompt: user text → Q&A, no text → OCR
-                has_user_text = bool(user_msg.strip())
-                prompt_text = stamp_user_turn(
-                    user_msg.strip() if has_user_text else (
-                        "Beschreibe und analysiere dieses Bild." if detected_language == "de"
-                        else "Describe and analyze this image."
-                    ),
-                    turn_stamp,
-                )
-                # File-URL reference for the CURRENT turn: the image itself is
-                # only base64 in this call — without its /_upload/ URL the
-                # model cannot hand the file to a tool (e.g. telegram_send
-                # attachment). Follow-up turns get the URL via the llm_history
-                # anchor; this line is the first-turn equivalent. MERGED into
-                # the single text part — a SECOND text part in the multimodal
-                # content breaks the VL chat-template/mmproj alignment (the
-                # model then only thinks and stops without tool calls).
-                _img_urls = [img.get("url", "") for img in local_images if img.get("url")]
-                if _img_urls:
-                    _ref = (
-                        "Datei-URL des Bildes — für Tool-Aufrufe verwenden, z.B. als attachment"
-                        if detected_language == "de"
-                        else "File URL of the image — use in tool calls, e.g. as attachment"
-                    )
-                    prompt_text = f"{prompt_text}\n\n[{_ref}: {', '.join(_img_urls)}]"
-                content_parts.append({"type": "text", "text": prompt_text})
-
-                # Symposion with >=2 agents: one shared image description,
-                # then the normal multi-agent discussion — not a single
-                # agent's private answer (see _symposion_vision_handoff).
-                if self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2:  # type: ignore[attr-defined]
-                    async for _ in self._symposion_vision_handoff(local_images, detected_language):
-                        yield
-                    return
-
-                # SSOT vision perception (vision/task_adaptive.txt): same
-                # "look at the image thoroughly" body regardless of image
-                # type; only the follow-up instruction differs by whether
-                # the user asked something specific.
-                from ..lib.prompt_loader import load_prompt
-                task_instruction = (
-                    load_prompt("vision/task_instruction_question", lang=detected_language, question=user_msg.strip())
-                    if has_user_text
-                    else load_prompt("vision/task_instruction_default", lang=detected_language)
-                )
-                vision_task_addon = load_prompt(
-                    "vision/task_adaptive", lang=detected_language, task_instruction=task_instruction,
-                )
-
-                async for _ in self._process_vision_request(
-                    user_msg, content_parts, "GEMISCHT", detected_language, vision_task_addon,
-                ):
+                _symposion = self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2  # type: ignore[attr-defined]
+                if _eff_vl == self._effective_model_id("aifred") and not _symposion:  # type: ignore[attr-defined]
+                    self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {_eff_vl}")  # type: ignore[attr-defined]
                     yield
-                return  # Vision fast path complete
+
+                    # Build multimodal content (images + text) for call_llm()
+                    from ..lib.vision_utils import load_image_as_base64
+                    from pathlib import Path
+
+                    content_parts: list[dict] = []
+
+                    # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL)
+                    if not self.agent_tuning["aifred"].thinking:  # type: ignore[attr-defined]
+                        content_parts.append({"type": "text", "text": "/no_think"})
+
+                    # Images first (VL models handle it best this way)
+                    for img in local_images:
+                        img_path = Path(img["path"])
+                        base64_data = load_image_as_base64(img_path)
+                        content_parts.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:image/jpeg;base64,{base64_data}"},
+                        })
+
+                    # User text after images (default question if empty)
+                    # Task-adaptive prompt: user text → Q&A, no text → OCR
+                    has_user_text = bool(user_msg.strip())
+                    prompt_text = stamp_user_turn(
+                        user_msg.strip() if has_user_text
+                        else load_prompt("vision/default_question", lang=detected_language),
+                        turn_stamp,
+                    )
+                    # File-URL reference for the CURRENT turn: the image itself is
+                    # only base64 in this call — without its /_upload/ URL the
+                    # model cannot hand the file to a tool (e.g. telegram_send
+                    # attachment). Follow-up turns get the URL via the llm_history
+                    # anchor; this line is the first-turn equivalent. MERGED into
+                    # the single text part — a SECOND text part in the multimodal
+                    # content breaks the VL chat-template/mmproj alignment (the
+                    # model then only thinks and stops without tool calls).
+                    _img_urls = [img.get("url", "") for img in local_images if img.get("url")]
+                    if _img_urls:
+                        _ref = load_prompt("vision/image_url_reference", lang=detected_language, urls=", ".join(_img_urls))
+                        prompt_text = f"{prompt_text}\n\n{_ref}"
+                    content_parts.append({"type": "text", "text": prompt_text})
+
+                    # SSOT vision perception (vision/task_adaptive.txt): same
+                    # "look at the image thoroughly" body regardless of image
+                    # type; only the follow-up instruction differs by whether
+                    # the user asked something specific.
+                    task_instruction = (
+                        load_prompt("vision/task_instruction_question", lang=detected_language, question=user_msg.strip())
+                        if has_user_text
+                        else load_prompt("vision/task_instruction_default", lang=detected_language)
+                    )
+                    vision_task_addon = load_prompt(
+                        "vision/task_adaptive", lang=detected_language, task_instruction=task_instruction,
+                    )
+
+                    async for _ in self._process_vision_request(
+                        user_msg, content_parts, "GEMISCHT", detected_language, vision_task_addon,
+                    ):
+                        yield
+                    return  # VL Direct complete
+
+                if _eff_vl:
+                    self.add_debug(f"📷 Image description ({img_count} image(s)) → {_eff_vl}")  # type: ignore[attr-defined]
+                    yield
+                    description = await self._describe_images(
+                        local_images, user_msg.strip(), detected_language, _eff_vl, _vl_bucket,
+                    )
+                    _block = load_prompt("vision/image_description_block", lang=detected_language, description=description)
+                    llm_user_content = f"{llm_user_content}\n\n{_block}"
+                    ch = self._chat_sub()
+                    ch.llm_history = [*ch.llm_history[:-1], {"role": "user", "content": llm_user_content}]
+                    yield
 
             # Create LLM client once - used for ALL LLM operations
             llm_client = LLMClient(
@@ -1194,32 +1170,6 @@ class ChatMixin(rx.State, mixin=True):
                 # Different model: use config constant
                 auto_num_ctx = AUTOMATIK_LLM_NUM_CTX
                 log_message(f"🔧 Automatik ≠ AIfred → Context: {auto_num_ctx}")
-
-            # ============================================================
-            # VL AUTOMATIK OVERRIDE: VL model loaded → use for Automatik
-            # Avoids unnecessary model switch: VL→Automatik→AIfred
-            # Instead: VL handles Automatik → then only 1 switch to AIfred
-            # (or 0 switches if VL = AIfred)
-            # Only for llamacpp (model swapping) and Automatik research mode.
-            # ============================================================
-            # SSOT VL-model choice — see _effective_vl_model_id. With a
-            # vision-capable main model this equals the main model, so the
-            # override below correctly becomes a no-op (no switch to save).
-            _eff_vl_id = self._effective_vl_model_id()  # type: ignore[attr-defined]
-            if (self.backend_type == "llamacpp"  # type: ignore[attr-defined]
-                    and _eff_vl_id
-                    and self.research_mode == "automatik"  # type: ignore[attr-defined]
-                    and effective_auto != _eff_vl_id):
-                try:
-                    _running = await self._llamaswap_running_models()
-                    if _eff_vl_id in _running:
-                        effective_auto = _eff_vl_id
-                        auto_num_ctx = None  # Let llama-swap use model's configured context
-                        self.add_debug(f"📷 VL Automatik: {effective_auto} already loaded → using for decision")
-                        log_message(f"📷 VL Automatik Override: {effective_auto} (saves model switch)")
-                        yield
-                except Exception:
-                    pass
 
             # ============================================================
             # COLD START DETECTION (llama.cpp only)

@@ -1,0 +1,1 @@
+[File URL of the image — use in tool calls, e.g. as attachment: {urls}]
