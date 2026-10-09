@@ -3,7 +3,6 @@
 from .help import (
     multi_agent_help_modal,
     reasoning_thinking_help_modal,
-    research_help_modal,
     model_lifecycle_help_modal,
 )
 from .login import login_dialog
@@ -16,7 +15,6 @@ from .bundles import bundle_export_modal, bundle_import_modal
 __all__ = [
     "multi_agent_help_modal",
     "reasoning_thinking_help_modal",
-    "research_help_modal",
     "model_lifecycle_help_modal",
     "login_dialog",
     "crop_modal",

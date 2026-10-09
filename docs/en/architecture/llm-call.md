@@ -86,9 +86,9 @@ Every LLM call in AIfred flows through a unified chunk-processing pipeline (`run
 
 ## Call Paths in Detail
 
-### 1. Normal Chat (OwnKnowledge)
+### 1. Normal Chat
 
-User sends message with `research_mode="none"`.
+Every agent gets its full toolkit and decides itself whether to use tools (web search, calculation, documents, …).
 
 ```
 _chat_mixin.py: send_message()
@@ -96,7 +96,7 @@ _chat_mixin.py: send_message()
   |     Returns: intent, addressee, detected_language,
   |              mode_switch_updates, is_pure_command, raw_response
   |-- History Compression (if >70% context utilization)
-  |-- run_generic_agent_direct_response("aifred", research_mode="none")
+  |-- run_generic_agent_direct_response("aifred")
   |
   v
 multi_agent.py: _run_agent_direct_response()
@@ -104,9 +104,10 @@ multi_agent.py: _run_agent_direct_response()
   |-- Agent model selection (state._effective_model_id)
   |-- num_ctx (get_agent_num_ctx)
   |-- System prompt (get_agent_direct_prompt)
-  |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=False)
-  |     -> Memory tools only (store_memory, update_memory, delete_memory,
-  |        read_memory); recalled memories are injected as context
+  |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
+  |     -> memory tools + all plugin tools (web_search, web_fetch, calculate,
+  |        execute_code, document tools, …); recalled memories are injected
+  |        as context before the question
   |-- Messages (build_messages_from_llm_history with perspective)
   |-- Temperature (auto from intent or manual)
   |-- LLM options (build_llm_options)
@@ -122,39 +123,7 @@ llm_pipeline.py: run_llm_stream()  <-- PIPELINE
   |-- PipelineResult
 ```
 
-### 2. Automatik Mode
-
-Identical to OwnKnowledge, except:
-
-- `research_tools_enabled=True` in `prepare_agent_toolkit()`
-- Toolkit includes: web_search, web_fetch, calculate, execute_code, document tools, etc.
-- System prompt includes tool descriptions
-- **The LLM autonomously decides** whether to use tools
-
-### 3. Quick/Deep Research
-
-Forced web research **before** the LLM call:
-
-```
-_run_agent_direct_response(..., research_mode="quick")
-  |-- _execute_forced_research(state, query, "quick")
-  |     |-- research_tools.py: execute_research()
-  |     |     1. Query generation (Automatik-LLM generates search terms)
-  |     |     2. Web search (SearXNG/Tavily/Brave, round-robin per query)
-  |     |     3. URL ranking (LLM evaluates relevance)
-  |     |     4. Web scraping (top N URLs)
-  |     |     5. Context building
-  |     |
-  |     v
-  |     state._research_context = prepared research results
-  |
-  |-- inject_before_question(messages, wrap_untrusted_data(research_context, 'web_research'))
-  |-- _stream_agent_to_history() -> run_llm_stream()
-```
-
-**quick** = top 3 URLs (`RESEARCH_QUICK_URLS`). **deep** = top 7 URLs (`RESEARCH_DEEP_URLS`). Every research runs fresh (no result cache). The toolkit is the same as in Automatik mode (`research_tools_enabled` is true for every `research_mode` other than `"none"`).
-
-### 4. Vision Pipeline (Image Upload)
+### 2. Vision Pipeline (Image Upload)
 
 Model selection: `_image_describer()` (rule A, see [Vision routing](vision-routing.md)).
 If the main model cannot see (or Symposion with ≥2 agents), `_describe_images()`
@@ -180,7 +149,7 @@ _chat_mixin.py: _process_vision_request()
   |-- _generate_session_title() (fire-and-forget task)
 ```
 
-### 5. Multi-Agent Debate Modes
+### 3. Multi-Agent Debate Modes
 
 All debate modes use `_stream_agent_to_history()` -> `run_llm_stream()` for each agent turn. The **perspective transformation** in `build_messages_from_llm_history()` ensures each agent sees the conversation from its own point of view:
 - Own messages -> `role: "assistant"`
@@ -238,7 +207,7 @@ run_symposion()
     |-- _stream_agent_to_history(agent_id) -> run_llm_stream()
 ```
 
-### 6. Direct Agent Addressing
+### 4. Direct Agent Addressing
 
 User writes "Sokrates, what do you think?" -> Intent detection recognizes `addressee="sokrates"`.
 
@@ -253,7 +222,7 @@ run_generic_agent_direct_response(agent_id="sokrates", ...)
 
 Same for Salomo and custom agents.
 
-### 7. Message Hub (Inbound Email)
+### 5. Message Hub (Inbound Email)
 
 Completely stateless — no Reflex State needed, only settings file and session storage.
 
@@ -295,7 +264,7 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |-- 7. generate_session_title() (if the session has no title yet)
 ```
 
-### 8. Session Title Generation
+### 6. Session Title Generation
 
 Does **not** use `run_llm_stream()` — simple non-streaming `client.chat()` with a hard timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s).
 
@@ -312,7 +281,7 @@ llm_engine.py: generate_session_title()
   |-- update_session_title(session_id, title)
 ```
 
-### 9. Intent Detection
+### 7. Intent Detection
 
 Also does **not** use `run_llm_stream()` — uses the small automatik model.
 
@@ -380,9 +349,7 @@ positives.
 
 | Path | Entry Point | Pipeline? | Notes |
 |---|---|---|---|
-| OwnKnowledge | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Memory-only toolkit |
-| Automatik | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Full toolkit, agent decides |
-| Quick/Deep | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Research context pre-injected |
+| Normal chat | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Full toolkit, agent decides |
 | Vision | `_process_vision_request` | `call_llm` -> `run_llm_stream` | Multimodal, acts as the active agent |
 | Direct Agent | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Agent-specific perspective |
 | Auto-Consensus | `run_sokrates_analysis` | `_stream_agent_to_history` -> `run_llm_stream` | Multiple rounds, voting |

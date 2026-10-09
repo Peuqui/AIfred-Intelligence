@@ -69,7 +69,7 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 | `/api/chat/history` | GET | `?session_id=` — `chat_history` + `llm_history` (latest session if omitted) |
 | `/api/chat/clear` | POST | Clear a session's history (`session_id`) |
 | `/api/sessions` | GET | List sessions (`session_id`, `last_seen`, `message_count`) |
-| `/api/session/config` | POST | Per-session config: `active_agent`, `multi_agent_mode`, `symposion_agents`, `research_mode` |
+| `/api/session/config` | POST | Per-session config: `active_agent`, `multi_agent_mode`, `symposion_agents` |
 
 ### Settings, models, system
 
@@ -126,7 +126,7 @@ timeout, no redirects, private/local addresses are refused):
 
 `/api/settings` holds what is truly global (backend, models, TTS voices,
 language, sampling). Everything that belongs to one conversation — agent,
-discussion mode, research mode, symposion participants — goes through
+discussion mode, symposion participants — goes through
 `/api/session/config` and is stored in the session file
 (`data/sessions/<session_id>.json`) as the single source of truth:
 
@@ -136,8 +136,7 @@ discussion mode, research mode, symposion participants — goes through
     "config": {
       "active_agent": "aifred",
       "multi_agent_mode": "standard",
-      "symposion_agents": [],
-      "research_mode": "automatik"
+      "symposion_agents": []
     }
   }
 }
@@ -177,10 +176,10 @@ curl -s -X POST $API/audio/announce \
   -H "Authorization: Bearer <ANNOUNCE_API_TOKEN>" -H "Content-Type: application/json" \
   -d '{"room": "Office", "text": "The commit is done.", "speaker": "Codine"}'
 
-# Switch this session to Tribunal with deep research
+# Switch this session to Tribunal
 curl -s -b "$COOKIE" -X POST $API/session/config \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "<session_id>", "multi_agent_mode": "tribunal", "research_mode": "deep"}'
+  -d '{"session_id": "<session_id>", "multi_agent_mode": "tribunal"}'
 
 # Change AIfred's model (global)
 curl -s -b "$COOKIE" -X PATCH $API/settings \

@@ -66,7 +66,7 @@ Globale Einstellungen liegen in `data/settings.json` und werden von der UI, der 
   Reasoning Effort, Persönlichkeit und die Schalter für Speed-Varianten.
 - Beim ersten Start werden die Standardwerte aus `aifred/lib/config.py`
   (`BACKEND_DEFAULT_MODELS`) verwendet.
-- Einstellungen pro Session (Agent, Diskussionsmodus, Recherchemodus) liegen **nicht** hier,
+- Einstellungen pro Session (Agent, Diskussionsmodus) liegen **nicht** hier,
   sondern in der Session-Datei — siehe [REST API → Global vs. pro Session](rest-api.md#global-vs-pro-session).
 
 **Persistenz der Sampling-Parameter**

@@ -26,7 +26,7 @@ one, update the other.
 | Doc | EN · DE | Content |
 |---|---|---|
 | Multi-agent system | [EN](en/architecture/multi-agent.md) · [DE](de/architecture/multi-agent.md) | Agents, discussion modes, prompt layers, perspectives |
-| Research pipeline | [EN](en/architecture/research-pipeline.md) · [DE](de/architecture/research-pipeline.md) | Research modes, pre-processing, pipeline, code map |
+| Research pipeline | [EN](en/architecture/research-pipeline.md) · [DE](de/architecture/research-pipeline.md) | When agents research, pre-processing, pipeline, code map |
 | LLM call | [EN](en/architecture/llm-call.md) · [DE](de/architecture/llm-call.md) | The path of a single LLM call through the stack |
 | Codebase overview | [EN](en/architecture/codebase.md) · [DE](de/architecture/codebase.md) | Directory map, conventions, checks |
 | Message Hub | [EN](en/architecture/message-hub.md) · [DE](de/architecture/message-hub.md) | Headless channel processing: listeners, envelopes, routing table |

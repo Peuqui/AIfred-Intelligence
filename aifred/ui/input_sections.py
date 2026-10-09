@@ -92,22 +92,6 @@ def _agent_toggle_button(agent: rx.Var) -> rx.Component:
     )
 
 
-def _research_pill(mode: str, label_key: str) -> rx.Component:
-    """Render a single research mode pill button."""
-    is_active = AIState.research_mode == mode
-    return rx.button(
-        t(label_key),
-        on_click=AIState.set_research_mode(mode),  # type: ignore[arg-type]
-        size="2",
-        variant=rx.cond(is_active, "solid", "soft"),
-        color_scheme=rx.cond(is_active, "orange", "gray"),
-        cursor="pointer",
-        font_size="12px",
-        padding_x="12px",
-        height="32px",
-    )
-
-
 # ============================================================
 # IMAGE / AUDIO UPLOAD SECTION
 # ============================================================
@@ -489,7 +473,7 @@ def image_upload_section() -> rx.Component:
 
 
 def text_input_section() -> rx.Component:
-    """Text input section with research mode"""
+    """Text input section with discussion mode and agent toggles"""
     return rx.vstack(
         # Image Upload Section (NEW)
         image_upload_section(),
@@ -519,34 +503,7 @@ def text_input_section() -> rx.Component:
             },
         ),
 
-        # Row 1: Research Mode Pills + Info Icon + Vigilantia-Live-Popover
-        rx.hstack(
-            _research_pill("automatik", "research_pill_auto"),
-            _research_pill("none", "research_pill_none"),
-            _research_pill("quick", "research_mode_quick"),
-            _research_pill("deep", "research_mode_deep"),
-            # Research mode help lightbulb (opens modal on click)
-            rx.tooltip(
-                rx.icon(
-                    "lightbulb",
-                    size=16,
-                    color="#FFD700",
-                    cursor="pointer",
-                    on_click=AIState.open_research_help,
-                    style={
-                        "transition": "transform 0.2s ease",
-                        "&:hover": {"transform": "scale(1.15)"},
-                    },
-                ),
-                content=t("choose_research_mode"),
-            ),
-            spacing="2",
-            align="center",
-            flex_wrap="wrap",
-            width="100%",
-        ),
-
-        # Row 2: Discussion Mode + Agent Toggles + LLM Parameters
+        # Discussion Mode + Agent Toggles + LLM Parameters
         rx.hstack(
             # Discussion Mode Dropdown
             rx.cond(
@@ -624,8 +581,7 @@ def text_input_section() -> rx.Component:
                     "Inkognito-Modus (kein Gedächtnis)",
                 ),
             ),
-            # Vigilantia-Live: rechtsbündig auf der Standard/Lock-Zeile
-            # (mehr horizontaler Platz als in Row 1 mit den Pills). Der
+            # Vigilantia-Live: rechtsbündig auf der Standard/Lock-Zeile. Der
             # Spacer schiebt nach rechts; die Card selbst wächst bis zu
             # ihrem max_width (50vw, gedeckelt bei 800px).
             rx.spacer(),

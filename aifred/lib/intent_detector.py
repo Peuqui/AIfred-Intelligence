@@ -20,11 +20,6 @@ from .context_manager import strip_thinking_blocks
 
 
 # Valid values for mode-switch field validation (defensive parsing).
-# research_mode is intentionally NOT switchable from here — the user
-# controls it via the UI toggle, and the answering agent decides per
-# query whether to invoke its web tools. The Automatik LLM is told the
-# same in its prompt; any stray ``research=…`` it still emits is silently
-# dropped by ``_parse_mode_switch`` below.
 _VALID_MULTI_AGENT_MODES = {
     "standard", "sokrates", "tribunal", "symposion",
     "critical_review", "auto_consensus",
@@ -45,7 +40,6 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
     continuation of that list; anywhere else they are ignored as before.
 
     Defensive parsing: unknown keys/values are ignored, never raises.
-    ``research=*`` keys are explicitly ignored — see module-level note.
 
     Args:
         mode_field: Raw mode switch string from LLM
@@ -98,9 +92,6 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
             if resolved is not None:
                 collecting_agents.append(resolved)
             updates["symposion_agents"] = collecting_agents
-        # ``research=*`` is intentionally not handled — user controls
-        # research mode via UI, and the answering agent decides per
-        # query whether it needs web tools.
 
     # All named agents failed to resolve → no usable list, drop the key
     # (an empty list would start a symposion with zero participants).
@@ -175,7 +166,6 @@ def parse_intent_addressee_language(
     Examples:
         "FACTUAL||DE||FALSE"                     → no mode switch
         "FACTUAL||EN|multi=tribunal|TRUE"        → pure tribunal command
-        "FACTUAL||DE|research=deep|FALSE"        → deep research + question
         "MIXED|sokrates|DE||FALSE"               → direct addressing Sokrates
 
     The user message is NEVER rewritten by the detector — IS_PURE_COMMAND only

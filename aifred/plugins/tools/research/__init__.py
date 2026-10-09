@@ -52,8 +52,8 @@ def get_research_tools(state: Optional[Any] = None, lang: str = "de", llm_histor
             async for _ in execute_research(
                 state=state,
                 user_query=queries[0],
+                queries=queries,
                 lang=lang,
-                pre_generated_queries=queries,
             ):
                 yield {"progress": ""}
             result = getattr(state, "_research_context", "")

@@ -439,7 +439,6 @@ def get_agent_system_prompt(
     return _merge_prompt_layers(
         agent_id, task_prompt, lang,
         multi_agent=multi_agent, memory=memory,
-        tools=kwargs.get('tools', True),
         source=kwargs.get('source', 'browser'),
     )
 
@@ -473,63 +472,6 @@ def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> 
     )
 
 
-def get_query_generation_prompt(
-    user_text: str,
-    has_images: bool = False,
-    vision_json: Optional[dict] = None,
-    lang: Optional[str] = None
-) -> str:
-    """
-    Load query generation prompt (ONLY queries, NO web decision).
-
-    Used in explicit web search modes (quick/deep) where the user has
-    already decided that web search is needed. This prompt ONLY generates
-    3 optimized search queries without deciding if search is necessary.
-
-    Output format is JSON:
-    - {"queries": ["q1", "q2", "q3"]}
-
-    Args:
-        user_text: User query text
-        has_images: Whether the message includes image(s)
-        vision_json: Structured data extracted from images by Vision-LLM
-        lang: Language override
-
-    Returns:
-        Formatted query generation prompt
-    """
-    # Build image context string
-    if has_images:
-        if lang == "en":
-            image_context = "\n\n⚠️ USER ATTACHED IMAGE(S) - This is an image analysis task!"
-        else:  # German (default)
-            image_context = "\n\n⚠️ BENUTZER HAT BILD(ER) ANGEHÄNGT - Dies ist eine Bildanalyse-Aufgabe!"
-    else:
-        image_context = ""
-
-    # Build Vision JSON context string
-    if vision_json:
-        import json
-        vision_json_context = f"""
-
-STRUKTURIERTE DATEN AUS BILD:
-```json
-{json.dumps(vision_json, ensure_ascii=False, indent=2)}
-```
-
-Diese Daten wurden automatisch aus dem Bild extrahiert."""
-    else:
-        vision_json_context = ""
-
-    return load_prompt(
-        'automatik/query_generation',
-        lang=lang,
-        user_text=user_text,
-        image_context=image_context,
-        vision_json_context=vision_json_context
-    )
-
-
 def load_multi_agent_roles(lang: Optional[str] = None) -> str:
     """
     Load shared multi-agent roles description.
@@ -557,7 +499,6 @@ def _merge_prompt_layers(
     lang: Optional[str] = None,
     multi_agent: bool = False,
     memory: bool = True,
-    tools: bool = False,
     source: str = "browser",
 ) -> str:
     """
@@ -572,8 +513,8 @@ def _merge_prompt_layers(
     5. Security boundary - only for external channels (source != "browser")
     6. Memory instructions (REMEMBER) - when memory active (not incognito)
     7. Personality (HOW do I speak) - toggleable via settings
-    8. Tool instructions (USE TOOLS) - when tools available, near the end so
-       the LLM prioritizes tool use
+    8. Tool instructions (USE TOOLS) - always, near the end so the LLM
+       prioritizes tool use
     9. Disciplines (date grounding, quote/currency discipline) - always, LAST
 
     Args:
@@ -582,7 +523,6 @@ def _merge_prompt_layers(
         lang: Language code (de/en), defaults to current language
         multi_agent: If True, include shared/multi_agent_roles.txt (for debate modes)
         memory: If True, include memory instructions (False in incognito mode)
-        tools: If True, include tool usage instructions
 
     Returns:
         Merged prompt string with all applicable layers
@@ -638,29 +578,28 @@ def _merge_prompt_layers(
         parts.append(personality)
 
     # Layer 8: Tool instructions — near the end so LLM prioritizes tool use
-    if tools:
-        tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
-        if tool_instructions:
-            parts.append(tool_instructions)
+    tool_instructions = load_prompt('shared/tool_instructions', lang=lang)
+    if tool_instructions:
+        parts.append(tool_instructions)
 
-        # Plugin-spezifische Anleitungen (dynamisch). Der Loader reicht die
-        # freigeschalteten Tool-Namen (Whitelist aus agents.json, dieselbe
-        # Quelle wie das Toolkit-Gate in prepare_agent_toolkit) an JEDES Plugin
-        # rein — das PLUGIN entscheidet selbst, welche (Per-Tool-)Fragmente es
-        # liefert, und gibt "" zurück, wenn der Agent kein Tool davon hat
-        # (siehe load_plugin_instructions). So bekommt ein Agent nie die
-        # Anleitung eines Tools, das er nicht aufrufen kann.
-        # allowed=None (keine Whitelist) = alle Tools erlaubt.
-        from .agent_config import get_agent_config
-        from .plugin_registry import discover_tools
-        _cfg = get_agent_config(agent)
-        allowed = set(_cfg.tools) if (_cfg and _cfg.tools is not None) else None
-        for p in discover_tools():
-            if not p.is_available():
-                continue
-            instr = p.get_prompt_instructions(lang, allowed)
-            if instr:
-                parts.append(instr)
+    # Plugin-spezifische Anleitungen (dynamisch). Der Loader reicht die
+    # freigeschalteten Tool-Namen (Whitelist aus agents.json, dieselbe
+    # Quelle wie das Toolkit-Gate in prepare_agent_toolkit) an JEDES Plugin
+    # rein — das PLUGIN entscheidet selbst, welche (Per-Tool-)Fragmente es
+    # liefert, und gibt "" zurück, wenn der Agent kein Tool davon hat
+    # (siehe load_plugin_instructions). So bekommt ein Agent nie die
+    # Anleitung eines Tools, das er nicht aufrufen kann.
+    # allowed=None (keine Whitelist) = alle Tools erlaubt.
+    from .agent_config import get_agent_config
+    from .plugin_registry import discover_tools
+    _cfg = get_agent_config(agent)
+    allowed = set(_cfg.tools) if (_cfg and _cfg.tools is not None) else None
+    for p in discover_tools():
+        if not p.is_available():
+            continue
+        instr = p.get_prompt_instructions(lang, allowed)
+        if instr:
+            parts.append(instr)
 
     # Layer 9: Disciplines — date grounding, quote/currency discipline,
     # decision clarification (always, LAST — recency bias for date grounding)
@@ -870,7 +809,6 @@ def get_aifred_defense_prompt(
 
 def get_agent_direct_prompt(
     agent_id: str, lang: Optional[str] = None, memory: bool = True,
-    tools: bool = False,
 ) -> str:
     """Load direct response prompt for any agent via layer merging.
 
@@ -879,7 +817,7 @@ def get_agent_direct_prompt(
     """
     task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
     return _merge_prompt_layers(
-        agent_id, task_prompt, lang, memory=memory, tools=tools,
+        agent_id, task_prompt, lang, memory=memory,
     )
 
 
@@ -924,17 +862,16 @@ def get_direct_prompt_tokens(
     lang: str = "de",
     *,
     memory: bool = True,
-    tools: bool = False,
 ) -> int:
     """Tokens des System-Prompts, den dieser Agent im naechsten Turn abschickt.
 
     Gemessen mit dem Tokenizer am Ergebnis von :func:`get_agent_direct_prompt`
-    — also an genau dem Text, den ``_run_agent_direct_response`` baut. Beide
-    Schalter gehoeren zwingend dazu: die Tools-Schicht allein wiegt rund 8.000
-    Tokens, bei 16k Kontext knapp die Haelfte des Fensters.
+    — also an genau dem Text, den ``_run_agent_direct_response`` baut (die
+    Tools-Schicht allein wiegt rund 8.000 Tokens, bei 16k Kontext knapp die
+    Haelfte des Fensters).
     """
     from .context_manager import count_tokens_with_tokenizer
-    prompt = get_agent_direct_prompt(agent, lang=lang, memory=memory, tools=tools)
+    prompt = get_agent_direct_prompt(agent, lang=lang, memory=memory)
     return count_tokens_with_tokenizer(prompt)
 
 
@@ -943,7 +880,6 @@ def get_max_direct_prompt_tokens(
     lang: str = "de",
     *,
     memory: bool = True,
-    tools: bool = False,
 ) -> int:
     """Groesster System-Prompt unter den Agenten, die in diesem Modus antworten.
 
@@ -951,17 +887,17 @@ def get_max_direct_prompt_tokens(
     bekommt — deshalb der schlechteste Fall.
     """
     aifred_tokens = get_direct_prompt_tokens(
-        "aifred", lang, memory=memory, tools=tools,
+        "aifred", lang, memory=memory,
     )
     if multi_agent_mode == "standard":
         return aifred_tokens
 
     sokrates_tokens = get_direct_prompt_tokens(
-        "sokrates", lang, memory=memory, tools=tools,
+        "sokrates", lang, memory=memory,
     )
     if multi_agent_mode in ["auto_consensus", "tribunal"]:
         salomo_tokens = get_direct_prompt_tokens(
-            "salomo", lang, memory=memory, tools=tools,
+            "salomo", lang, memory=memory,
         )
         return max(aifred_tokens, sokrates_tokens, salomo_tokens)
 

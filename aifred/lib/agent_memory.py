@@ -504,8 +504,8 @@ async def prepare_agent_toolkit(
         user_query: User's question (for memory recall)
         lang: Language for memory context
         memory_enabled: Include memory tools (store_memory)
-        research_tools_enabled: Include research tools (web_search, read_webpage)
-        state: AIState for research tools (needed for forced research pipeline)
+        research_tools_enabled: Include the plugin tools (web_search, web_fetch, …)
+        state: AIState for the plugin tools (browser path: progress, sources box)
         session_id: If set, memories from this session are excluded (already in chat history)
         max_tier: Maximum security tier for tools in this context
         source: Origin of the request (browser/email/discord/cron/webhook)

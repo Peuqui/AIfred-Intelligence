@@ -40,8 +40,8 @@ class TestExistingKeys:
         with _patched_agents():
             assert _parse_mode_switch("agent=HAL 9000") == {"active_agent": "hal"}
 
-    def test_research_ignored(self):
-        assert _parse_mode_switch("research=deep") == {}
+    def test_unknown_key_ignored(self):
+        assert _parse_mode_switch("volume=loud") == {}
 
     def test_bare_token_without_list_context_ignored(self):
         # A stray comma token with no preceding symposion_agents key

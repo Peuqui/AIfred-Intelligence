@@ -86,9 +86,9 @@ Jeder LLM-Call in AIfred läuft durch eine einheitliche Chunk-Processing-Pipelin
 
 ## Call-Pfade im Detail
 
-### 1. Normaler Chat (OwnKnowledge)
+### 1. Normaler Chat
 
-Der User sendet eine Nachricht mit `research_mode="none"`.
+Jeder Agent bekommt seinen vollen Werkzeugsatz und entscheidet selbst, ob er Werkzeuge nutzt (Websuche, Rechnen, Dokumente, …).
 
 ```
 _chat_mixin.py: send_message()
@@ -96,7 +96,7 @@ _chat_mixin.py: send_message()
   |     Liefert: intent, addressee, detected_language,
   |              mode_switch_updates, is_pure_command, raw_response
   |-- History-Kompression (bei >70 % Context-Auslastung)
-  |-- run_generic_agent_direct_response("aifred", research_mode="none")
+  |-- run_generic_agent_direct_response("aifred")
   |
   v
 multi_agent.py: _run_agent_direct_response()
@@ -104,9 +104,10 @@ multi_agent.py: _run_agent_direct_response()
   |-- Modellwahl des Agenten (state._effective_model_id)
   |-- num_ctx (get_agent_num_ctx)
   |-- System-Prompt (get_agent_direct_prompt)
-  |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=False)
-  |     -> Nur Memory-Tools (store_memory, update_memory, delete_memory,
-  |        read_memory); abgerufene Erinnerungen kommen als Kontext dazu
+  |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
+  |     -> Memory-Tools + alle Plugin-Tools (web_search, web_fetch, calculate,
+  |        execute_code, Dokument-Tools, …); abgerufene Erinnerungen kommen
+  |        als Kontext vor die Frage
   |-- Messages (build_messages_from_llm_history mit Perspektive)
   |-- Temperatur (automatisch aus dem Intent oder manuell)
   |-- LLM-Optionen (build_llm_options)
@@ -122,39 +123,7 @@ llm_pipeline.py: run_llm_stream()  <-- PIPELINE
   |-- PipelineResult
 ```
 
-### 2. Automatik-Modus
-
-Identisch mit OwnKnowledge, außer:
-
-- `research_tools_enabled=True` in `prepare_agent_toolkit()`
-- Das Toolkit enthält: web_search, web_fetch, calculate, execute_code, Dokument-Tools usw.
-- Der System-Prompt enthält Tool-Beschreibungen
-- **Das LLM entscheidet selbstständig**, ob es Tools verwendet
-
-### 3. Quick/Deep Research
-
-Erzwungene Web-Recherche **vor** dem LLM-Call:
-
-```
-_run_agent_direct_response(..., research_mode="quick")
-  |-- _execute_forced_research(state, query, "quick")
-  |     |-- research_tools.py: execute_research()
-  |     |     1. Query-Generierung (Automatik-LLM erzeugt Suchbegriffe)
-  |     |     2. Websuche (SearXNG/Tavily/Brave, Round-Robin pro Query)
-  |     |     3. URL-Ranking (LLM bewertet die Relevanz)
-  |     |     4. Web-Scraping (Top-N-URLs)
-  |     |     5. Kontextaufbau
-  |     |
-  |     v
-  |     state._research_context = aufbereitete Rechercheergebnisse
-  |
-  |-- inject_before_question(messages, wrap_untrusted_data(research_context, 'web_research'))
-  |-- _stream_agent_to_history() -> run_llm_stream()
-```
-
-**quick** = Top 3 URLs (`RESEARCH_QUICK_URLS`). **deep** = Top 7 URLs (`RESEARCH_DEEP_URLS`). Jede Recherche läuft frisch (kein Ergebnis-Cache). Das Toolkit ist dasselbe wie im Automatik-Modus (`research_tools_enabled` ist bei jedem `research_mode` außer `"none"` wahr).
-
-### 4. Vision-Pipeline (Bild-Upload)
+### 2. Vision-Pipeline (Bild-Upload)
 
 Modellwahl: `_image_describer()` (Regel A, siehe [Vision-Routing](vision-routing.md)).
 Kann das Hauptmodell nicht sehen (oder Symposion mit ≥2 Agenten), beschreibt
@@ -181,7 +150,7 @@ _chat_mixin.py: _process_vision_request()
   |-- _generate_session_title() (Fire-and-forget-Task)
 ```
 
-### 5. Multi-Agent-Debattenmodi
+### 3. Multi-Agent-Debattenmodi
 
 Alle Debattenmodi verwenden für jeden Agenten-Zug `_stream_agent_to_history()` -> `run_llm_stream()`. Die **Perspektiv-Transformation** in `build_messages_from_llm_history()` sorgt dafür, dass jeder Agent die Unterhaltung aus seiner eigenen Sicht sieht:
 - Eigene Nachrichten -> `role: "assistant"`
@@ -239,7 +208,7 @@ run_symposion()
     |-- _stream_agent_to_history(agent_id) -> run_llm_stream()
 ```
 
-### 6. Direkte Ansprache eines Agenten
+### 4. Direkte Ansprache eines Agenten
 
 Der User schreibt "Sokrates, was meinst du?" -> Die Intent-Erkennung erkennt `addressee="sokrates"`.
 
@@ -254,7 +223,7 @@ run_generic_agent_direct_response(agent_id="sokrates", ...)
 
 Genauso für Salomo und eigene Agenten.
 
-### 7. Message Hub (eingehende E-Mail)
+### 5. Message Hub (eingehende E-Mail)
 
 Vollständig zustandslos — kein Reflex-State nötig, nur die Settings-Datei und der Session-Speicher.
 
@@ -296,7 +265,7 @@ message_processor.py: dispatch_inbound() -> process_inbound(InboundMessage)
   |-- 7. generate_session_title() (wenn die Session noch keinen Titel hat)
 ```
 
-### 8. Generierung des Session-Titels
+### 6. Generierung des Session-Titels
 
 Verwendet **nicht** `run_llm_stream()` — einfaches, nicht streamendes `client.chat()` mit hartem Timeout (`SESSION_TITLE_TIMEOUT_SECONDS`, 300 s).
 
@@ -313,7 +282,7 @@ llm_engine.py: generate_session_title()
   |-- update_session_title(session_id, title)
 ```
 
-### 9. Intent-Erkennung
+### 7. Intent-Erkennung
 
 Verwendet ebenfalls **nicht** `run_llm_stream()` — nutzt das kleine Automatik-Modell.
 
@@ -381,9 +350,7 @@ zu vermeiden.
 
 | Pfad | Einstiegspunkt | Pipeline? | Hinweise |
 |---|---|---|---|
-| OwnKnowledge | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Toolkit nur mit Memory |
-| Automatik | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Volles Toolkit, Agent entscheidet |
-| Quick/Deep | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Recherche-Kontext vorab eingefügt |
+| Normaler Chat | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Volles Toolkit, Agent entscheidet |
 | Vision | `_process_vision_request` | `call_llm` -> `run_llm_stream` | Multimodal, handelt als aktiver Agent |
 | Direkter Agent | `_run_agent_direct_response` | `_stream_agent_to_history` -> `run_llm_stream` | Agentenspezifische Perspektive |
 | Auto-Konsens | `run_sokrates_analysis` | `_stream_agent_to_history` -> `run_llm_stream` | Mehrere Runden, Abstimmung |

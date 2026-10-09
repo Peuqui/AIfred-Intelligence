@@ -2,30 +2,28 @@
 
 > **English version:** [research-pipeline.md](../../en/architecture/research-pipeline.md)
 
-Wie eine Nachricht vorverarbeitet wird, wie der Recherche-Modus entscheidet, ob
-ein Agent ins Web geht, und was die Recherche-Pipeline tut. Den vollständigen
+Wie eine Nachricht vorverarbeitet wird, wie ein Agent ins Web geht und was die
+Recherche-Pipeline tut. Den vollständigen
 Weg eines einzelnen LLM-Calls beschreibt [LLM-Call-Architektur](llm-call.md).
 
 ---
 
-## Recherche-Modi
+## Wann recherchiert wird
 
-Der Recherche-Modus wird pro Session gesetzt (UI-Toggle, REST API oder per
-Sprache). Jede Recherche läuft frisch — es gibt bewusst keinen Ergebnis-Cache:
-Wie ähnlich sich zwei Fragen sind, sagt nichts darüber aus, ob eine frühere
+Jeder Agent bekommt in jedem Kanal (Browser, Message Hub, Scheduler) seinen
+vollen Werkzeugsatz und entscheidet selbst, ob er mit `web_search` /
+`web_fetch` ins Web geht. Wer keine Recherche will, sagt das in der Frage. Bis
+Oktober 2026 gab es dafür vier Recherche-Modi (Automatik, Wissen, Web Quick,
+Web Deep); sie sind abgeschafft (Archiv: Tag `archive-research-modes-2026-10-09`).
+
+Jede Recherche läuft frisch — es gibt bewusst keinen Ergebnis-Cache: Wie
+ähnlich sich zwei Fragen sind, sagt nichts darüber aus, ob eine frühere
 Antwort noch gilt (Wetter, Preise, Nachrichten). Innerhalb einer Konversation
 bleiben die Ergebnisse ohnehin in der History.
 
-| Modus | Was passiert | Tools für den Agenten |
-|------|--------------|---------------------|
-| **Eigenes Wissen** (`none`) | Direkte Antwort vom Modell | ❌ keine |
-| **Automatik** (`automatik`, Standard) | Der Agent entscheidet per Tool-Calls, ob und was gesucht wird | ✅ inkl. `web_search`, `web_fetch` |
-| **Schnelle Websuche** (`quick`) | Recherche-Pipeline läuft vor der Antwort, Top-3-URLs | ✅ weiterhin verfügbar |
-| **Tiefe Websuche** (`deep`) | Recherche-Pipeline läuft vor der Antwort, Top-7-URLs | ✅ weiterhin verfügbar |
-
 ---
 
-## Vorverarbeitung (alle Modi)
+## Vorverarbeitung
 
 ```
 Intent- + Adressaten-Erkennung
@@ -40,8 +38,8 @@ Intent- + Adressaten-Erkennung
 └─ Moduswechsel: gesprochene/getippte Konfigurationsänderungen ("starte ein Tribunal")
 ```
 
-Ein direkt angesprochener Agent wird sofort aktiviert, unabhängig von
-Recherche-Modus oder Temperatur-Einstellung. Die Nachricht selbst wird vom
+Ein direkt angesprochener Agent wird sofort aktiviert, unabhängig von der
+Temperatur-Einstellung. Die Nachricht selbst wird vom
 Detektor nie umgeschrieben (siehe
 [Moduswechsel](multi-agent.md#moduswechsel-per-sprache-oder-text)).
 
@@ -53,16 +51,12 @@ kleinsten Kontextfensters, siehe
 
 ## Die Pipeline
 
-Eine Pipeline (`execute_research()` in `aifred/lib/research_tools.py`) bedient
-sowohl den erzwungenen Pfad (quick/deep) als auch das `web_search`-Tool:
+Das `web_search`-Tool ruft die Pipeline auf (`execute_research()` in
+`aifred/lib/research_tools.py`, im Message Hub `hub_web_search()`); die 1-3
+Suchanfragen formuliert der Agent selbst in seinem Tool-Call:
 
 ```
-1. Query-Generierung (nur quick/deep)
-   ├─ Automatik-LLM, Prompt: automatik/query_generation (+ Vision-JSON, falls vorhanden)
-   ├─ 3 Queries: #1 immer Englisch, #2-3 in der Sprache der Frage
-   └─ Tool-Pfad: übersprungen — der Agent übergibt 1-3 Queries in seinem web_search-Call
-
-2. Multi-API-Websuche
+1. Multi-API-Websuche
    ├─ Round-Robin: Query 1 → SearXNG (selbst gehostet), 2 → Tavily, 3 → Brave
    │  (API-Keys optional), automatischer Fallback, wenn eine API ausfällt;
    │  eine einzelne Query geht parallel an alle APIs
@@ -70,12 +64,12 @@ sowohl den erzwungenen Pfad (quick/deep) als auch das `web_search`-Tool:
    └─ Nicht scrapbare Domains gefiltert (data/non_scrapable_domains.txt:
       Video-Plattformen, Social Media)
 
-3. URL-Ranking
+2. URL-Ranking
    ├─ Automatik-LLM, Prompt: automatik/url_ranking (numerische Ausgabe)
    ├─ Sieht die Konversations-History (Folgefragen werden korrekt gerankt)
-   └─ Top 3 (quick) oder Top 7 (deep und jeder web_search-Tool-Call)
+   └─ Top 7 (RESEARCH_SCRAPE_URLS)
 
-4. Paralleles Scraping
+3. Paralleles Scraping
    ├─ zuerst trafilatura; Playwright (Headless-Chromium), wenn es
    │  weniger als 800 Wörter liefert (PLAYWRIGHT_FALLBACK_THRESHOLD)
    ├─ PDFs (Leitlinien, Paper) per PyMuPDF extrahiert
@@ -83,7 +77,7 @@ sowohl den erzwungenen Pfad (quick/deep) als auch das `web_search`-Tool:
    ├─ Fehlgeschlagene Quellen werden mit Fehlergrund aufgelistet
    └─ Hauptmodell lädt parallel vor (nicht bei vLLM — das bleibt resident)
 
-5. Kontext-Aufbau
+4. Kontext-Aufbau
    ├─ build_context(): gescrapter Text, token-bewusst
    └─ Quellen-Collapsible für die UI (genutzte + fehlgeschlagene Quellen)
 ```
@@ -93,13 +87,10 @@ SearXNG ist das primäre Such-Backend und läuft als Container neben ChromaDB
 API-Keys in `.env`.
 
 **Wie die Ergebnisse beim Agenten ankommen:**
-- **Quick/Deep:** Der Kontext wird als eigene Nachricht direkt vor der
-  User-Frage eingefügt, eingezäunt als nicht vertrauenswürdige Daten (Schutz
-  gegen Prompt Injection). Dass er nicht im System-Prompt steht, hält außerdem
-  den Prompt-Präfix für den KV-Cache stabil.
-- **Automatik:** Das `web_search`-Ergebnis (genauso eingezäunt) geht zurück in
-  die Tool-Schleife; der Agent darf erneut suchen oder mit `web_fetch` eine
-  einzelne Seite lesen.
+- **Browser:** Das `web_search`-Ergebnis geht, eingezäunt als nicht
+  vertrauenswürdige Daten (Schutz gegen Prompt Injection), zurück in die
+  Tool-Schleife; der Agent darf erneut suchen oder mit `web_fetch` eine
+  einzelne Seite lesen. Die Quellen-Box kommt über die Antwort.
 - **Message Hub** (Discord, E-Mail, …): `hub_web_search()` — dieselben
   Bausteine ohne Browser-State.
 
@@ -117,26 +108,11 @@ USER-EINGABE
 └──────────────────────────────────┘
     │
     ▼
-┌──────────────────────────────────┐
-│ Recherche-Modus?                 │
-└──────────────────────────────────┘
+Agent antwortet mit vollem Werkzeugsatz
     │
-    ├── none ────────────► Agent antwortet (ohne Tools)
-    │
-    ├── automatik ───────► Agent antwortet mit Tools
-    │                          │
-    │                          └─ web_search-Call? ──► Recherche-Pipeline
-    │                               (Queries vom Agenten, Top 7)
-    │                               └─ Ergebnis zurück in die Tool-Schleife
-    │
-    └── quick / deep ────► Recherche-Pipeline
-                           (Queries vom Automatik-LLM, Top 3 / 7)
-                               │
-                               ▼
-                           Kontext vor der Frage
-                               │
-                               ▼
-                           Agent antwortet (Tools weiterhin verfügbar)
+    └─ web_search-Call? ──► Recherche-Pipeline
+         (Queries vom Agenten, Top 7)
+         └─ Ergebnis zurück in die Tool-Schleife
 ```
 
 ---
@@ -149,11 +125,10 @@ Das Automatik-LLM trifft diese Entscheidungen mit ausgeschaltetem Thinking
 | Prompt | Sprache | Wann | Zweck |
 |--------|----------|------|---------|
 | `intent_detection.txt` | nur EN | Vorverarbeitung | Intent, Adressat, Sprache, Moduswechsel |
-| `query_generation.txt` | DE + EN | Quick/Deep, Schritt 1 | 3 Suchanfragen erzeugen |
-| `url_ranking.txt` | nur EN | Schritt 3 | URLs nach Relevanz ranken (numerische Indizes) |
+| `url_ranking.txt` | nur EN | Schritt 2 | URLs nach Relevanz ranken (numerische Indizes) |
 
-*Nur EN*, wo die Ausgabe strukturiert oder numerisch ist und die Sprache sie
-nicht beeinflusst; *DE + EN*, wo die Ausgabe von der Sprache des Users abhängt.
+*Nur EN*, weil die Ausgabe strukturiert oder numerisch ist und die Sprache sie
+nicht beeinflusst.
 
 **Modellwahl:** Für die Automatik-Rolle eignet sich ein mittleres
 Instruct-Modell am besten — kleine 4B-Modelle tun sich mit feinerer
@@ -166,15 +141,14 @@ mit.
 ## Code-Landkarte
 
 **Einstiegspunkte**
-- `aifred/state/_chat_mixin.py` — `send_message()`, Dispatch nach Recherche-Modus
+- `aifred/state/_chat_mixin.py` — `send_message()`
 - `aifred/lib/multi_agent.py` — `run_generic_agent_direct_response()`: ein
-  Antwortpfad für alle Agenten (erzwungene Recherche, Toolkit, Nachrichten)
+  Antwortpfad für alle Agenten (Toolkit, Nachrichten)
 
 **Web-Recherche**
 - `aifred/lib/research_tools.py` — `execute_research()` (Browser) und
   `hub_web_search()` (Message Hub)
 - `aifred/plugins/tools/research/` — `web_search`- / `web_fetch`-Tools
-- `aifred/lib/conversation_handler.py` — `generate_web_search_queries()`
 - `aifred/lib/research/query_processor.py` — Multi-API-Suche
 - `aifred/lib/research/url_ranker.py` — LLM-basiertes URL-Ranking
 - `aifred/lib/research/scraper_orchestrator.py` — paralleles Scraping

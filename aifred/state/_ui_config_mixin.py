@@ -1,6 +1,6 @@
 """UI configuration mixin for AIfred state.
 
-Handles temperature, context settings, research mode, web search,
+Handles temperature, context settings, web search,
 STT configuration, and general UI state.
 """
 
@@ -10,7 +10,7 @@ import reflex as rx
 
 
 class UIConfigMixin(rx.State, mixin=True):
-    """Mixin for UI configuration, research mode, and STT."""
+    """Mixin for UI configuration and STT."""
 
     # ── Temperature ───────────────────────────────────────────────
     # Per-agent temperature lives in agent_tuning (SSOT) — no global var.
@@ -20,12 +20,6 @@ class UIConfigMixin(rx.State, mixin=True):
     # Per-agent manual values + toggles live in agent_tuning
     # (num_ctx_manual / num_ctx_manual_enabled) — persisted for vision only.
     num_ctx: int = 32768
-
-    # ── Research Settings ─────────────────────────────────────────
-    # NOTE: research_mode is now per-session (session_storage.DEFAULT_SESSION_CONFIG).
-    # Class default only applies before any session is loaded.
-    research_mode: str = "automatik"  # "quick", "deep", "automatik", "none"
-    research_mode_display: str = "\u2728 Automatik (KI entscheidet)"  # UI display value
 
     # ── STT (Whisper) Settings ────────────────────────────────────
     show_transcription: bool = False  # Show transcribed text for editing before sending
@@ -222,21 +216,6 @@ class UIConfigMixin(rx.State, mixin=True):
                 f"min_p {format_number(get_agent_setting(self, agent, 'min_p', 0.0), 2)}, "
                 f"rep {format_number(get_agent_setting(self, agent, 'repeat_penalty', 1.1), 2)}"
             )
-
-    # ================================================================
-    # RESEARCH MODE
-    # ================================================================
-
-    def set_research_mode(self, mode: str) -> None:
-        """Set research mode (from internal value, e.g. pill button click)."""
-        from ..lib.i18n import TranslationManager
-
-        self.research_mode = mode
-        self.research_mode_display = TranslationManager.get_research_mode_display(
-            mode, self.ui_language  # type: ignore[attr-defined]
-        )
-        self.add_debug(f"\U0001f50d Research mode: {mode}")  # type: ignore[attr-defined]
-        self._persist_session_config()  # type: ignore[attr-defined]
 
     # ================================================================
     # STT

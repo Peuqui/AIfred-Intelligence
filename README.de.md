@@ -172,7 +172,7 @@ Details: [Security-Architektur](docs/de/architecture/security.md).
 
 - **Einstellungs-Modal** (☰) — Agenten-Editor, Memory-Browser, Datenbank-Verwaltung, Plugin Manager, Audit-Log
 - **Konten** — Benutzername + Passwort, Whitelist-basierte Registrierung; Sessions gehören dir und folgen dir über Geräte hinweg
-- **Sessions** — Chat-Liste mit LLM-generierten Titeln; Agent, Diskussionsmodus und Recherche-Modus werden pro Session gespeichert
+- **Sessions** — Chat-Liste mit LLM-generierten Titeln; Agent und Diskussionsmodus werden pro Session gespeichert
 - **Chat teilen** — Export als eigenständige HTML-Datei (KaTeX inline, TTS-Audio eingebettet, offline-fähig)
 - **LaTeX & Chemie** (KaTeX, mhchem), HTML-Vorschau, Harmony-Format für GPT-OSS
 

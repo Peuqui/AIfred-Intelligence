@@ -222,7 +222,7 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, f
         (agent_id, intent, detected_language, mode_switch_updates, load_time)
 
         mode_switch_updates is a dict with optional keys ``active_agent``,
-        ``multi_agent_mode``, ``research_mode``, ``symposion_agents`` —
+        ``multi_agent_mode``, ``symposion_agents`` —
         empty dict if the user did not request a mode change.
         load_time is the model load this call had to wait for (0.0 = warm).
     """
@@ -407,8 +407,8 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         from .intent_detector import format_intent_result, format_mode_switch_summary
         from .session_storage import get_session_config, update_session_config
 
-        # Apply mode-switch updates (multi_agent_mode, research_mode,
-        # symposion_agents, active_agent) before routing — so any active_agent
+        # Apply mode-switch updates (multi_agent_mode, symposion_agents,
+        # active_agent) before routing — so any active_agent
         # override from a voice command takes effect immediately.
         if mode_switch_updates:
             update_session_config(session_id, **mode_switch_updates)

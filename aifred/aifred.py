@@ -20,7 +20,7 @@ from .lib.config import (
 # UI modules (extracted from this file)
 from .ui.helpers import t, left_column  # noqa: F401
 from .ui.modals import (  # noqa: F401
-    multi_agent_help_modal, research_help_modal, reasoning_thinking_help_modal,
+    multi_agent_help_modal, reasoning_thinking_help_modal,
     model_lifecycle_help_modal,
     login_dialog, crop_modal, image_lightbox_modal,
     document_manager_page, channel_credentials_page,
@@ -873,9 +873,6 @@ console.log('✂️ Crop handler loaded');
 
         # Multi-Agent Help Modal (Diskussionsmodi-Übersicht)
         multi_agent_help_modal(),
-
-        # Research Mode Help Modal
-        research_help_modal(),
 
         # Reasoning/Thinking Help Modal
         reasoning_thinking_help_modal(),

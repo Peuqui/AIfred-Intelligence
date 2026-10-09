@@ -24,27 +24,13 @@ from aifred.lib.prompt_loader import (
 class TestPromptSizeFollowsTurnFlags:
     """Gemessen wird der Prompt, den der Turn wirklich baut."""
 
-    def test_tools_layer_changes_the_measurement(self):
-        # Die Tools-Schicht ist der Posten, der den Fehlstart ausgeloest hat.
-        # Sie MUSS sich in der Zahl niederschlagen, sonst misst die
-        # Kompression wieder an der Realitaet vorbei.
-        without = get_max_direct_prompt_tokens(
-            "standard", "de", memory=True, tools=False,
-        )
-        with_tools = get_max_direct_prompt_tokens(
-            "standard", "de", memory=True, tools=True,
-        )
-        assert with_tools > without * 2
-
     def test_measures_the_direct_prompt_builder(self):
         # Gegen den alten Fehler: gemessen wird get_agent_direct_prompt mit
         # dem Tokenizer, nicht irgendein anderer Bauer mit einer Heuristik.
         expected = context_manager.count_tokens_with_tokenizer(
-            get_agent_direct_prompt("aifred", lang="de", memory=True, tools=False)
+            get_agent_direct_prompt("aifred", lang="de", memory=True)
         )
-        assert get_max_direct_prompt_tokens(
-            "standard", "de", memory=True, tools=False,
-        ) == expected
+        assert get_max_direct_prompt_tokens("standard", "de", memory=True) == expected
 
 
 class _FakeResponse:

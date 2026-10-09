@@ -14,7 +14,7 @@ the results stay in the history anyway.
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Optional, Sequence, TYPE_CHECKING
+from typing import Any, AsyncGenerator, Sequence, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -67,26 +67,23 @@ def research_note(source_count: int, queries: Sequence[str], lang: str) -> str:
 async def execute_research(
     state: 'AIState',
     user_query: str,
+    queries: list[str],
     lang: str = "de",
-    pre_generated_queries: Optional[list[str]] = None,
-    mode: str = "deep",
 ) -> AsyncGenerator[None, None]:
     """Execute the full research pipeline.
 
     Async generator — yields after state updates so Reflex can push
     progress (scraping progress bar, debug messages) to the browser.
 
-    Single function for both forced path and tool-call path:
-    1. Query generation (skipped if pre_generated_queries provided)
-    2. Multi-API search (Tavily/Brave/SearXNG)
-    3. URL ranking (LLM-based, with conversation history)
-    4. Parallel scraping
-    5. Context building
+    Runs the web_search tool's queries (browser path):
+    1. Multi-API search (Tavily/Brave/SearXNG)
+    2. URL ranking (LLM-based, with conversation history)
+    3. Parallel scraping
+    4. Context building
 
     Results stored in state._research_context, state._research_sources_html
     and state._research_note (the llm_history line, see research_note).
     """
-    from .conversation_handler import generate_web_search_queries
     from .research.query_processor import process_query_and_search
     from .research.url_ranker import rank_urls_by_relevance
     from .research.scraper_orchestrator import orchestrate_scraping
@@ -95,7 +92,7 @@ async def execute_research(
     from .llm_client import LLMClient
     from .research.context_utils import get_agent_num_ctx
 
-    # Automatik-LLM for query generation, URL ranking and any other
+    # Automatik-LLM for URL ranking and any other
     # research-pipeline helper inference. Two separate ids:
     #
     # * ``automatik_model_id_base`` — bare BASE id, fed into
@@ -126,29 +123,7 @@ async def execute_research(
 
     try:
         # ==============================================================
-        # PHASE 1: Query Generation (skipped if pre_generated_queries)
-        # ==============================================================
-        queries: list[str]
-        if pre_generated_queries:
-            queries = pre_generated_queries
-        else:
-            state.add_debug("🔍 Generating search queries...")
-            yield
-            query_result = await generate_web_search_queries(
-                user_text=user_query,
-                automatik_llm_client=automatik_llm_client,
-                automatik_model=automatik_model_id,
-                detected_language=lang,
-                llm_history=state._chat_sub().llm_history[:-1] if len(state._chat_sub().llm_history) > 1 else None,
-                automatik_num_ctx=automatik_num_ctx,
-            )
-            queries = query_result["queries"]
-            query_gen_time = query_result["generation_time"]
-            state.add_debug(f"✅ {len(queries)} queries ({query_gen_time:.1f}s)")
-            yield
-
-        # ==============================================================
-        # PHASE 2: Multi-API Web Search
+        # PHASE 1: Multi-API Web Search
         # (process_query_and_search logs the API-labeled queries)
         # ==============================================================
         related_urls: list[str] = []
@@ -182,11 +157,10 @@ async def execute_research(
             return
 
         # ==============================================================
-        # PHASE 3: LLM-based URL Ranking (with conversation history)
+        # PHASE 2: LLM-based URL Ranking (with conversation history)
         # ==============================================================
         if related_urls and titles and snippets:
-            from .config import RESEARCH_QUICK_URLS, RESEARCH_DEEP_URLS
-            top_n = RESEARCH_DEEP_URLS if mode == "deep" else RESEARCH_QUICK_URLS
+            from .config import RESEARCH_SCRAPE_URLS
             state.add_debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
             yield
 
@@ -198,7 +172,7 @@ async def execute_research(
                 automatik_llm_client=automatik_llm_client,
                 automatik_model=automatik_model_id,
                 llm_history=state._chat_sub().llm_history,
-                top_n=top_n,
+                top_n=RESEARCH_SCRAPE_URLS,
                 llm_options={},
                 automatik_num_ctx=automatik_num_ctx,
             )
@@ -208,7 +182,7 @@ async def execute_research(
             yield
 
         # ==============================================================
-        # PHASE 4: Parallel Web Scraping (with progress bar)
+        # PHASE 3: Parallel Web Scraping (with progress bar)
         # ==============================================================
         model_id = state._effective_model_id("aifred")
         # BASE id for the lookup — get_agent_num_ctx resolves the suffix itself
@@ -217,7 +191,6 @@ async def execute_research(
 
         async for item in orchestrate_scraping(
             related_urls=related_urls,
-            mode=mode,
             llm_client=llm_client,
             model_choice=model_id,
             preload_num_ctx=preload_num_ctx,
@@ -245,7 +218,7 @@ async def execute_research(
         yield
 
         # ==============================================================
-        # PHASE 5: Build context from scraped content
+        # PHASE 4: Build context from scraped content
         # ==============================================================
         if not tool_results:
             state.add_debug("⚠️ No sources available")
@@ -292,7 +265,7 @@ async def execute_research(
 # Hub search (Message Hub — no Reflex State, no async generators)
 # ============================================================
 
-async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str = "deep") -> tuple[str, int]:
+async def hub_web_search(queries: list[str], llm_history: list[dict]) -> tuple[str, int]:
     """Web search for Message Hub (Discord, Email).
 
     Uses the same building blocks as the full pipeline:
@@ -369,8 +342,8 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
         from .research.context_utils import get_model_native_context
         num_ctx = get_model_native_context(automatik_model_id, backend_type)
 
-        from .config import RESEARCH_QUICK_URLS, RESEARCH_DEEP_URLS
-        top_n = RESEARCH_DEEP_URLS if mode == "deep" else RESEARCH_QUICK_URLS
+        from .config import RESEARCH_SCRAPE_URLS
+        top_n = RESEARCH_SCRAPE_URLS
 
         if related_urls and titles and snippets:
             debug(f"🎯 Ranking {len(related_urls)} URLs by relevance...")
@@ -403,7 +376,6 @@ async def hub_web_search(queries: list[str], llm_history: list[dict], mode: str 
         preload_num_ctx, _ = get_stateless_num_ctx(aifred_model_id, backend_type)
         async for item in orchestrate_scraping(
             related_urls=related_urls,
-            mode=mode,
             llm_client=llm_client,
             model_choice=aifred_model_id,
             preload_num_ctx=preload_num_ctx,

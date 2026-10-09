@@ -511,11 +511,6 @@ class BackendMixin(rx.State, mixin=True):
                         # doesn't run during this synchronous settings restore.
                         self.cloud_api_key_configured = is_cloud_api_configured(saved_provider)
 
-                    # NOTE: research_mode is per-session now, loaded in _restore_session().
-                    # Here we just keep the class default (DEFAULT_SESSION_CONFIG["research_mode"]).
-                    from ..lib.i18n import TranslationManager
-                    self.research_mode_display = TranslationManager.get_research_mode_display(self.research_mode, self.ui_language)  # type: ignore[attr-defined, has-type, arg-type]
-
                     self.temperature_mode = saved_settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
                     # Load UI language and update global locale + prompt language
                     saved_ui_lang = saved_settings.get("ui_language", self.ui_language)  # type: ignore[attr-defined, has-type]

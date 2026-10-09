@@ -46,7 +46,6 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
   - `message_processor.py` - Processing Pipeline (Message → Engine → Reply)
   - `embeddings.py` - bge-m3-Embedding-Function für die ChromaDB-Collections
   - `research_tools.py` - Recherche-Pipeline (`execute_research`, `hub_web_search`)
-  - `conversation_handler.py` - Vision-Pipeline, Suchanfragen-Generierung
 - `prompts/de/` und `prompts/en/` - Alle Prompts (NICHT hardcodiert im Code!)
 - `aifred/backends/` - LLM-Backend Adapter
 

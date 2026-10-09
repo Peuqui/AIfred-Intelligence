@@ -650,7 +650,6 @@ DEFAULT_SESSION_CONFIG: Dict[str, Any] = {
     "active_agent": "aifred",
     "multi_agent_mode": "standard",
     "symposion_agents": [],
-    "research_mode": "automatik",
 }
 
 
@@ -666,7 +665,7 @@ def get_session_config(session_id: str) -> Dict[str, Any]:
 
     Returns:
         Config dict with keys: active_agent, multi_agent_mode,
-        symposion_agents, research_mode
+        symposion_agents
     """
     session = load_session(session_id)
     if not session:
@@ -691,7 +690,7 @@ def update_session_config(session_id: str, **config_updates: Any) -> bool:
     Args:
         session_id: Session identifier
         **config_updates: Fields to update (active_agent, multi_agent_mode,
-            symposion_agents, research_mode)
+            symposion_agents)
 
     Returns:
         True on success, False if session not found or write failed
