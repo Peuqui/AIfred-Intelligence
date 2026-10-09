@@ -9,7 +9,7 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from ....lib.config import (
     DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
@@ -17,6 +17,9 @@ from ....lib.config import (
     WORKSPACE_WRITE_EXTENSIONS,
 )
 from ....lib import file_manager as fm
+from ....lib.bubble import KIND_DOCUMENT_PAGES, BubbleArtifact
+from ....lib.message_builder import image_marker
+from ....lib.vision_utils import is_image_file
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM, retrieved_data_notice
 from ....lib.plugin_base import PluginContext, load_tool_description
@@ -40,6 +43,75 @@ def _container_text(file_path: Path) -> Optional[str]:
     if suffix not in CONTAINER_FORMATS:
         return None
     return PARSERS[suffix](file_path)
+
+
+def _page_selection(pages: str, total_pages: int) -> list[int]:
+    """0-based page indices for a range like "3", "1-5", "3,7,10-12"."""
+    selected: list[int] = []
+    for part in pages.split(","):
+        part = part.strip()
+        if "-" in part:
+            start, end = part.split("-", 1)
+            # Clamp to the actual page count BEFORE building the range —
+            # otherwise "1-2000000000" materializes a two-billion-element
+            # list and OOMs the worker.
+            selected.extend(range(max(1, int(start)) - 1, min(int(end), total_pages)))
+        else:
+            selected.append(int(part) - 1)
+    return [p for p in selected if 0 <= p < total_pages]
+
+
+def _read_pdf(file_path: Path, pages: str, session_id: str) -> tuple[dict[str, Any], list[str]]:
+    """Text of the selected PDF pages; pages without a text layer (scans) are
+    rendered as images into the session's upload folder instead — at most
+    READ_FILE_RENDER_MAX_PAGES per call. Returns the result dict and the
+    image URLs."""
+    import pymupdf
+    from ....lib.config import READ_FILE_RENDER_DPI, READ_FILE_RENDER_MAX_PAGES
+    from ....lib.vision_utils import get_image_url, save_session_upload
+
+    with pymupdf.open(str(file_path)) as doc:
+        total_pages = len(doc)
+        selected = _page_selection(pages, total_pages) if pages else list(range(total_pages))
+        text_parts: list[str] = []
+        image_less: list[int] = []
+        for index in selected:
+            text = doc[index].get_text()
+            if text.strip():
+                text_parts.append(f"--- Page {index + 1} ---\n{text}")
+            else:
+                image_less.append(index)
+        rendered = image_less[:READ_FILE_RENDER_MAX_PAGES]
+        urls: list[str] = []
+        for index in rendered:
+            png = doc[index].get_pixmap(dpi=READ_FILE_RENDER_DPI).tobytes("png")
+            path = save_session_upload(png, session_id, f"{file_path.stem}_p{index + 1}", "png")
+            urls.append(get_image_url(path))
+
+    result: dict[str, Any] = {
+        "filename": file_path.name,
+        "type": "pdf",
+        "total_pages": total_pages,
+        "content": "\n\n".join(text_parts),
+    }
+    if urls:
+        result["image_pages"] = [{"page": index + 1, "url": url} for index, url in zip(rendered, urls)]
+    not_rendered = [index + 1 for index in image_less[READ_FILE_RENDER_MAX_PAGES:]]
+    if not_rendered:
+        result["image_pages_not_rendered"] = not_rendered
+    return result, urls
+
+
+def _read_image(file_path: Path, session_id: str) -> tuple[dict[str, Any], list[str]]:
+    """An image file from the documents folder, copied into the session's
+    upload folder so the vision tools can look at it."""
+    from ....lib.vision_utils import get_image_url, save_session_upload
+
+    path = save_session_upload(
+        file_path.read_bytes(), session_id, file_path.stem, file_path.suffix.lower().lstrip("."),
+    )
+    url = get_image_url(path)
+    return {"filename": file_path.name, "type": "image", "image_url": url}, [url]
 
 
 def _chroma_client():  # type: ignore[no-untyped-def]
@@ -119,14 +191,28 @@ class WorkspacePlugin:
             executor=_list_files,
         ))
 
-        async def _read_file(filename: str, pages: str = "", line_start: int | str = 0, line_end: int | str = 0) -> str:
+        async def _read_file(
+            filename: str, pages: str = "", line_start: int | str = 0, line_end: int | str = 0,
+        ) -> AsyncGenerator[dict[str, Any], None]:
             """Read a file from data/documents/. PDFs support page selection; text
-            files and Office documents (extracted text) support line ranges."""
+            files and Office documents (extracted text) support line ranges.
+            Scanned PDF pages and image files come back as image URLs (shown as
+            thumbnails, kept in the llm_history) for the vision tools."""
+            result, image_urls = await _read_file_result(filename, pages, line_start, line_end)
+            if image_urls:
+                yield {"artifacts": [BubbleArtifact(KIND_DOCUMENT_PAGES, {"urls": image_urls}).to_dict()]}
+                yield {"note": image_marker(image_urls)}
+            yield {"result": result}
+
+        async def _read_file_result(
+            filename: str, pages: str, line_start: int | str, line_end: int | str,
+        ) -> tuple[str, list[str]]:
+            """The tool result (JSON) and the image URLs it prepared."""
             file_path, error = fm.safe_resolve(filename)
             if error:
-                return json.dumps({"error": error})
+                return json.dumps({"error": error}), []
             if not file_path or not file_path.exists():
-                return json.dumps({"error": f"File not found: {filename}"})
+                return json.dumps({"error": f"File not found: {filename}"}), []
 
             # Cap on file size: the whole file is loaded into RAM below, so a
             # very large file would blow the worker's memory. Point the model at
@@ -139,48 +225,20 @@ class WorkspacePlugin:
                         f"limit {WORKSPACE_READ_MAX_BYTES // 1024 // 1024} MB). "
                         "Use 'pages' (PDF) or 'line_start'/'line_end' (text, Office) to read a range."
                     )
-                })
+                }), []
 
             log_message(f"📄 read_file: {file_path.name}")
 
             try:
                 if file_path.suffix.lower() == ".pdf":
-                    import fitz  # PyMuPDF
-                    doc = fitz.open(str(file_path))
-                    total_pages = len(doc)
-
-                    if pages:
-                        # Parse page range: "3", "1-5", "3,7,10-12"
-                        selected: list[int] = []
-                        for part in pages.split(","):
-                            part = part.strip()
-                            if "-" in part:
-                                start, end = part.split("-", 1)
-                                # Clamp to the actual page count BEFORE building the
-                                # range — otherwise "1-2000000000" materializes a
-                                # two-billion-element list and OOMs the worker.
-                                start_i = max(1, int(start))
-                                end_i = min(int(end), total_pages)
-                                selected.extend(range(start_i - 1, end_i))
-                            else:
-                                selected.append(int(part) - 1)
-                        selected = [p for p in selected if 0 <= p < total_pages]
-                        text = "\n\n".join(
-                            f"--- Page {p + 1} ---\n{doc[p].get_text()}" for p in selected
-                        )
-                    else:
-                        text = "\n\n".join(
-                            f"--- Page {i + 1} ---\n{page.get_text()}" for i, page in enumerate(doc)
-                        )
-                    doc.close()
-
-                    log_message(f"  read_file: PDF {file_path.name} ({total_pages} pages, {len(text)} chars)")
-                    return json.dumps({
-                        "filename": file_path.name,
-                        "type": "pdf",
-                        "total_pages": total_pages,
-                        "content": text,
-                    }, ensure_ascii=False)
+                    result, image_urls = await asyncio.to_thread(_read_pdf, file_path, pages, ctx.session_id)
+                    log_message(
+                        f"  read_file: PDF {file_path.name} ({result['total_pages']} pages, "
+                        f"{len(result['content'])} chars, {len(image_urls)} rendered)"
+                    )
+                elif is_image_file(file_path):
+                    result, image_urls = await asyncio.to_thread(_read_image, file_path, ctx.session_id)
+                    log_message(f"  read_file: image {file_path.name} → {image_urls[0]}")
                 else:
                     # Office/ODF: extracted text; everything else: the file as text
                     container_text = await asyncio.to_thread(_container_text, file_path)
@@ -211,17 +269,19 @@ class WorkspacePlugin:
                         range_info = f"all {total_lines} lines"
 
                     log_message(f"  read_file: {file_path.name} ({range_info}, {len(text)} chars)")
-                    return json.dumps({
+                    result = {
                         "filename": file_path.name,
                         "type": file_path.suffix.lower().lstrip("."),
                         "total_lines": total_lines,
                         "range": range_info,
                         "size_kb": round(file_path.stat().st_size / 1024, 1),
                         "content": text,
-                    }, ensure_ascii=False)
+                    }
+                    image_urls = []
             except Exception as e:
                 log_message(f"  read_file failed: {e}")
-                return json.dumps({"error": f"Cannot read {filename}: {e}"})
+                return json.dumps({"error": f"Cannot read {filename}: {e}"}), []
+            return json.dumps(result, ensure_ascii=False), image_urls
 
         tools.append(Tool(
             name="read_file",
