@@ -204,24 +204,6 @@ SANDBOX_IMAGE_URL_MARKER = "SANDBOX_IMAGE_URL: "
 SANDBOX_VISION_FOCUS_MARKER = "SANDBOX_VISION_FOCUS: "
 
 
-def _configured_vision_model() -> Optional[str]:
-    """Effective model id of the "vision" agent role, or None if unset.
-
-    ``get_effective_model_from_settings("vision")`` inherits AIfred's model
-    when the role is empty — right for text agents sharing AIfred's LLM,
-    wrong here (a text model cannot describe images). So check the raw
-    ``backend_models`` entry first, mirroring the emptiness check the
-    browser path uses (``_image_mixin``).
-    """
-    from .config import get_effective_model_from_settings
-    from .settings import load_settings
-    settings = load_settings() or {}
-    backend_type = settings.get("backend_type", "llamacpp")
-    if not settings.get("backend_models", {}).get(backend_type, {}).get("vision", ""):
-        return None
-    return get_effective_model_from_settings("vision")
-
-
 async def describe_sandbox_screenshots(
     result_text: str, session_id: str, main_model: str
 ) -> AsyncIterator[dict[str, str]]:
@@ -230,11 +212,10 @@ async def describe_sandbox_screenshots(
     A text-only model cannot see the screenshots/plots that render_html and
     execute_code produce — the tool result only carries their URLs for the
     UI embed. This feeds the model a text description instead. Describer
-    choice: the configured "vision" role FIRST (own parallel server — the
-    chat slot's KV cache survives, see inline comment); a vision-capable
-    main model describes itself only when no vision role is configured.
-    Neither available → an explicit note in the tool result so the model
-    tells the user that visual verification is not possible right now.
+    choice: rule A (``vision_routing.chat_describer``) — the running model
+    itself when it can see, otherwise the vision LLM. Neither available →
+    an explicit note in the tool result so the model tells the user that
+    visual verification is not possible right now.
 
     All screenshots of one call go to the VLM as ONE ``analyze_sequence``
     request (chronological order) — so a vision_focus question may compare
@@ -251,7 +232,7 @@ async def describe_sandbox_screenshots(
     from datetime import datetime
 
     from .prompt_loader import load_prompt
-    from .vision_utils import is_vision_model_sync, url_to_file_path
+    from .vision_utils import url_to_file_path
 
     # Extract the caller's verification question (transport line from
     # render_html) and strip it — it steers the describer prompt, the main
@@ -275,41 +256,24 @@ async def describe_sandbox_screenshots(
         yield {"type": "result", "text": result_text}
         return
 
-    # Describer-Wahl: Vision-Rolle ZUERST — sie läuft als eigener Server
-    # (llama-swap vision-Gruppe) parallel zum Chat-LLM und lässt dessen
-    # Slot-KV-Cache unangetastet. Ein vision-fähiges Hauptmodell, das seine
-    # Screenshots selbst beschreibt, überschreibt dagegen mit jedem
-    # Describe-Call den Chat-Kontext im einzigen Slot (-np 1); bei großen
-    # Kontexten scheitert auch das RAM-Stashing (prompt state > cache-ram,
-    # Journal: "exceeds cache size limit, skipping") und der nächste
-    # Chat-Turn rechnet zigtausend Prompt-Tokens komplett neu (~5 min bei
-    # 110k). Selbstbeschreibung nur noch ohne konfigurierte Vision-Rolle.
-    # Chat-Bild-Uploads sind bewusst NICHT betroffen — _vl_choice
-    # priorisiert dort weiter das Hauptmodell (Teil des Chat-Turns selbst,
-    # kein Cache-Konflikt).
-    vision_model = _configured_vision_model()
-    if vision_model:
-        from .vision_routing import visiond_profile_for
-        describer = visiond_profile_for(vision_model) or vision_model
+    # Wer beschreibt: Regel A (SSOT vision_routing.chat_describer) —
+    # das laufende Modell selbst, wenn es sieht, sonst das Vision-LLM.
+    from .vision_routing import NoVisionModelError, chat_describer
+    try:
+        chosen = chat_describer(main_model)
+    except NoVisionModelError as e:
         yield {"type": "debug", "message": (
-            f"🖼️ Describing {len(urls)} sandbox image(s) via vision role "
-            f"model: {describer} (keeps chat KV cache untouched)"
-        )}
-    elif is_vision_model_sync(main_model):
-        describer = main_model
-        yield {"type": "debug", "message": (
-            f"🖼️ Describing {len(urls)} sandbox image(s) via vision-capable "
-            f"main model: {main_model} (no vision role configured)"
-        )}
-    else:
-        yield {"type": "debug", "message": (
-            "⚠️ Sandbox screenshot description unavailable: main model "
-            f"'{main_model}' is not vision-capable and no vision role "
-            "model is configured"
+            f"⚠️ Sandbox screenshot description unavailable: {e}"
         )}
         note = load_prompt("vision/sandbox_screenshot_unavailable")
         yield {"type": "result", "text": f"{result_text}\n\n{note}"}
         return
+    describer = chosen.model
+    yield {"type": "debug", "message": (
+        f"🖼️ Describing {len(urls)} sandbox image(s) via {describer}"
+        + (" (evicts the chat model, it reloads afterwards)"
+           if chosen.evicts_chat_model else "")
+    )}
 
     from .frame_sources import Frame
     frames: list[Frame] = []

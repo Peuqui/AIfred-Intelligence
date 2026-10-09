@@ -85,13 +85,21 @@ async def analyze_frames_with_vlm(
     identity_names: list[str] | None = None,
     headcount: int = 0,
     model: str | None = None,
-) -> str:
-    """SSoT-VLM-Call für Vigilantia: Prompt assemblieren (build_vlm_prompt)
-    und die Frames durch ``analyze_sequence`` schicken. Returnt den Text,
-    wirft bei leerer Antwort. Persistiert NICHT — das machen die Caller,
-    die wissen, an welchem Event die Beschreibung hängt."""
+    explicit: bool,
+) -> tuple[str, str]:
+    """SSoT-VLM-Call für Vigilantia: Prompt assemblieren (build_vlm_prompt),
+    den Beschreiber nach Regel B wählen (``vision_routing.camera_describer``)
+    und die Frames durch ``analyze_sequence`` schicken. ``explicit`` = der
+    User hat ausdrücklich gebeten (darf das Chat-LLM verdrängen).
+
+    Returnt ``(text, describer_model)``, wirft bei leerer Antwort und
+    ``NoVisionModelError``, wenn automatisch niemand beschreiben kann.
+    Persistiert NICHT — das machen die Caller, die wissen, an welchem Event
+    die Beschreibung hängt."""
+    from .logging_utils import log_message
     from .vision_analyzer import analyze_sequence
     from .vision_prewarm import get_active_vlm_model
+    from .vision_routing import camera_describer
 
     if not frames:
         raise ValueError("analyze_frames_with_vlm requires at least one frame")
@@ -105,11 +113,17 @@ async def analyze_frames_with_vlm(
         identity_names=identity_names,
         headcount=headcount,
     )
-    result = await analyze_sequence(frames, prompt, model=str(target_model))
+    describer = camera_describer(str(target_model), explicit=explicit)
+    if describer.evicts_chat_model:
+        log_message(
+            f"⚠️ Vision: loading {describer.model} evicts the chat model "
+            "— it reloads on the next chat message"
+        )
+    result = await analyze_sequence(frames, prompt, model=describer.model)
     description = (result.text or "").strip()
     if not description:
         raise RuntimeError("VLM returned empty response")
-    return description
+    return description, describer.model
 
 
 async def analyze_event_with_vlm(
@@ -184,12 +198,13 @@ async def analyze_event_with_vlm(
     elif _cls.get("confidence_band") == "known" and _cls.get("matched_name"):
         names = [str(_cls["matched_name"])]
 
-    description = await analyze_frames_with_vlm(
+    description, described_by = await analyze_frames_with_vlm(
         frames,
         base_prompt=target_prompt,
         source_id=source_id,
         identity_names=names,
         model=str(target_model),
+        explicit=True,
     )
 
     # Beschreibung in classification persistieren — wir mergen mit
@@ -197,12 +212,12 @@ async def analyze_event_with_vlm(
     existing = dict(target.get("classification") or {})
     existing["description"] = description
     existing["analyzed_at"] = datetime.now().isoformat(timespec="seconds")
-    existing["analyzed_by"] = str(target_model)
+    existing["analyzed_by"] = described_by
     _update_event_classification(store, int(event_id), existing)
 
     logger.info(
         "analyze_event_with_vlm: event=%d model=%s len=%d chars",
-        event_id, target_model, len(description),
+        event_id, described_by, len(description),
     )
     return description
 
@@ -261,6 +276,7 @@ async def analyze_cluster_with_vlm(
     prompt: str | None = None,
     store: VisionStore | None = None,
     model: str | None = None,
+    explicit: bool,
     max_frames: int | None = None,
     headcount: int = 0,
 ) -> str:
@@ -336,13 +352,14 @@ async def analyze_cluster_with_vlm(
     target_prompt = (prompt or get_vision_event_sequence_prompt()).strip()
     # Kamera-Briefing über die Quelle des Repräsentanten — Cluster sind pro
     # Quelle homogen (cluster_id entsteht pro Source).
-    description = await analyze_frames_with_vlm(
+    description, described_by = await analyze_frames_with_vlm(
         frames,
         base_prompt=target_prompt,
         source_id=frames[0].source_id,
         identity_names=identity_names,
         headcount=headcount,
         model=str(target_model),
+        explicit=explicit,
     )
 
     repr_id = int(event_ids[0])
@@ -350,13 +367,13 @@ async def analyze_cluster_with_vlm(
     existing = dict((target or {}).get("classification") or {})
     existing["description"] = description
     existing["analyzed_at"] = datetime.now().isoformat(timespec="seconds")
-    existing["analyzed_by"] = str(target_model)
+    existing["analyzed_by"] = described_by
     existing["frames_analyzed"] = len(frames)
     _update_event_classification(store, repr_id, existing)
 
     logger.info(
         "analyze_cluster_with_vlm: repr=%d members=%d keyframes=%d model=%s len=%d",
-        repr_id, len(event_ids), len(frames), target_model, len(description),
+        repr_id, len(event_ids), len(frames), described_by, len(description),
     )
     return description
 
@@ -378,4 +395,5 @@ async def describe_cluster_by_id(
         raise ValueError(f"cluster {cluster_id} has no events with frames")
     return await analyze_cluster_with_vlm(
         event_ids, store=store, headcount=headcount, model=model,
+        explicit=False,
     )

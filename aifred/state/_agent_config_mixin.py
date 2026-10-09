@@ -454,30 +454,24 @@ class AgentConfigMixin(rx.State, mixin=True):
         )
         return base_id + suffix
 
-    def _vl_choice(self) -> tuple[str, str]:
+    def _vl_choice(self) -> tuple[str, str, bool]:
         """SSOT model choice for image turns (VL Direct, Symposion image).
 
-        Returns ``(effective_model_id, settings_bucket)`` where the bucket
-        ("aifred" or "vision") names the agent_tuning row whose model won —
-        sampling settings (temperature, thinking, max_context) follow the
-        model that actually runs the image turn.
+        Rule A (:func:`aifred.lib.vision_routing.chat_describer`): the
+        loaded main (AIfred) profile describes images itself when it can
+        see; otherwise the vision LLM — in parallel via its ``-visiond``
+        profile when it fits, else it evicts the chat model.
 
-        Same priority rule as the sandbox-screenshot describer (SSOT
-        ``is_vision_model_sync``): a vision-capable main (AIfred) model
-        handles images ITSELF — it is already loaded (no swap) and usually
-        sees more than the small dedicated describer. The vision role
-        model only steps in for non-vision-capable main models.
+        Returns ``(model_id, settings_bucket, evicts_chat_model)``; the
+        bucket ("aifred" or "vision") names the agent_tuning row whose
+        model won — sampling settings follow the model that actually runs
+        the image turn.
         """
-        from ..lib.agent_settings import get_agent_setting
-        from ..lib.vision_utils import is_vision_model_sync
-        main_id: str = get_agent_setting(self, "aifred", "model_id")
-        # Decide on the profile that actually gets loaded: a -vlm- variant
-        # starts the same checkpoint with --language-model-only (no encoder,
-        # image limit 0), so the base id being vision-capable proves nothing.
+        from ..lib.vision_routing import chat_describer
         effective_main = self._effective_model_id("aifred")
-        if main_id and is_vision_model_sync(effective_main):
-            return effective_main, "aifred"
-        return self._effective_model_id("vision"), "vision"
+        describer = chat_describer(effective_main)
+        bucket = "aifred" if describer.model == effective_main else "vision"
+        return describer.model, bucket, describer.evicts_chat_model
 
     def _effective_vl_model_id(self) -> str:
         """Effective model ID for image turns — see :meth:`_vl_choice`."""

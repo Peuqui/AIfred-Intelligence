@@ -1835,11 +1835,19 @@ class VisionWatcher:
         # name + location + capture time straight from the image
         # (frame.timestamp is preserved, so the timestamps below stay correct).
         _, vlm_frame, _ = await self._finalize_output_frame(frame, save=False)
+        from .vision_routing import NoVisionModelError, camera_describer
+        try:
+            describer = camera_describer(
+                str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=False,
+            )
+        except NoVisionModelError as e:
+            logger.debug("continuous-VLM skipped for %s: %s", source_id, e)
+            return
         try:
             result = await analyze_sequence(
                 [vlm_frame],
                 prompt,
-                model=str(vlm_cfg.get("model", DEFAULT_MODEL)),
+                model=describer.model,
                 num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
                 keep_alive=keep_alive,
                 host=vlm_cfg.get("host"),
