@@ -16,7 +16,6 @@ from typing import Dict, List
 import reflex as rx
 
 from ..lib.logging_utils import initialize_debug_log, log_message
-from ..lib.prompt_loader import set_language
 from ..lib import config
 from ..lib.config import (
     CLOUD_API_PROVIDERS,
@@ -348,9 +347,6 @@ class BackendMixin(rx.State, mixin=True):
                         env_label = "Native Linux (no VRAM swapping)"
                     log_message(f"🖥️ Platform: {platform.system()} {kernel} — {env_label}")
 
-                    from ..lib.config import DEFAULT_LANGUAGE
-                    set_language(DEFAULT_LANGUAGE)
-                    log_message(f"🌍 Language mode: {DEFAULT_LANGUAGE}")
 
                     # Audio state cleanup task
                     import asyncio as _asyncio
@@ -526,7 +522,6 @@ class BackendMixin(rx.State, mixin=True):
                     if saved_ui_lang in ["de", "en"]:
                         self.ui_language = saved_ui_lang  # type: ignore[attr-defined, has-type]
                         set_ui_locale(saved_ui_lang)
-                        set_language(saved_ui_lang)
 
                     # Message Hub channel switches: the session must know them
                     # from the start, or its first settings save would lose them.
@@ -535,9 +530,6 @@ class BackendMixin(rx.State, mixin=True):
                     # Load user name and gender
                     self.user_name = saved_settings.get("user_name", self.user_name)  # type: ignore[attr-defined, has-type]
                     self.user_gender = saved_settings.get("user_gender", self.user_gender)  # type: ignore[attr-defined, has-type]
-                    from ..lib.prompt_loader import set_user_name, set_user_gender, set_personality_enabled, set_reasoning_enabled
-                    set_user_name(self.user_name)  # type: ignore[attr-defined, has-type, arg-type]
-                    set_user_gender(self.user_gender)  # type: ignore[attr-defined, has-type, arg-type]
 
                     # Load per-agent tuning (dict format, SSOT field list in
                     # agent_settings). Buckets for agents not yet in state
@@ -553,11 +545,6 @@ class BackendMixin(rx.State, mixin=True):
                         for field in (*PERSISTED_TUNING_FIELDS, "num_ctx_manual", "num_ctx_manual_enabled"):
                             if field in entry:
                                 setattr(bucket, field, entry[field])
-
-                    # Sync personality/reasoning toggles to prompt_loader
-                    for agent, bucket in self.agent_tuning.items():
-                        set_personality_enabled(agent, bucket.personality)
-                        set_reasoning_enabled(agent, bucket.reasoning)
 
                     # Restore the Vigilantia master switch (vigilantia_armed) +
                     # vision_mode / VLM model from the vision plugin's settings.json,

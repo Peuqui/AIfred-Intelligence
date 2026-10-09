@@ -133,15 +133,8 @@ def active_chat_model() -> str:
     Beschreibungs-Pfade ohne State-Zugriff wissen, welches Modell den
     Chat bedient. Leerer String, wenn nichts konfiguriert ist.
     """
-    import json
-    from .config import DATA_DIR
-    path = DATA_DIR / "settings.json"
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-    except (OSError, json.JSONDecodeError) as e:
-        logger.warning("settings.json unreadable (%s): %s", path, e)
-        return ""
+    from .settings import persisted_settings
+    data = persisted_settings()
     backend = str(data.get("backend_type") or "")
     models = (data.get("backend_models") or {}).get(backend) or {}
     return str(models.get("aifred") or "")

@@ -6,6 +6,7 @@ Falls back to config.py defaults if no settings file exists.
 """
 
 import json
+import os
 from typing import Dict, Any, Optional
 
 from .config import DATA_DIR
@@ -34,6 +35,29 @@ def load_settings() -> Optional[Dict[str, Any]]:
         return None
 
 
+_persisted_cache: tuple[int, Dict[str, Any]] | None = None
+
+
+def persisted_settings() -> Dict[str, Any]:
+    """Settings as persisted: settings.json over the config defaults.
+
+    SSOT for every reader outside the browser state (prompt layers for
+    browser, scheduler and hub alike). Re-read only when the file changed —
+    get_language() runs on every UI translation. Callers must not mutate
+    the returned dict.
+    """
+    global _persisted_cache
+    if not SETTINGS_FILE.exists():
+        return get_default_settings()
+    mtime = SETTINGS_FILE.stat().st_mtime_ns
+    if _persisted_cache is None or _persisted_cache[0] != mtime:
+        loaded = load_settings()
+        if loaded is None:  # unreadable file: load_settings already reported it
+            return get_default_settings()
+        _persisted_cache = (mtime, {**get_default_settings(), **loaded})
+    return _persisted_cache[1]
+
+
 def save_settings(settings: Dict[str, Any]) -> bool:
     """
     Save settings to file
@@ -48,8 +72,11 @@ def save_settings(settings: Dict[str, Any]) -> bool:
         # Create directory if it doesn't exist
         SETTINGS_DIR.mkdir(parents=True, exist_ok=True)
 
-        with open(SETTINGS_FILE, 'w', encoding='utf-8') as f:
+        # Atomic replace: persisted_settings() readers never see a half-written file
+        tmp_file = SETTINGS_FILE.with_suffix(".json.tmp")
+        with open(tmp_file, 'w', encoding='utf-8') as f:
             json.dump(settings, f, indent=2, ensure_ascii=False)
+        os.replace(tmp_file, SETTINGS_FILE)
 
         print(f"✅ Settings saved to {SETTINGS_FILE}")
         return True

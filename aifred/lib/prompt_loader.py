@@ -14,116 +14,49 @@ Personality System (v2.15.3+):
 from pathlib import Path
 from typing import Optional
 
+from .settings import persisted_settings
+
 # Base directory for prompts (relative to project root)
 PROMPTS_DIR = Path(__file__).parent.parent.parent / 'prompts'
-
-# Global language setting (synced with UI language)
-_current_language = "de"  # "de" or "en" (synced from ui_language)
-
-# Global user name (set once when settings are loaded)
-_current_user_name = ""
-
-# Global user gender for salutation (male/female)
-_current_user_gender = "male"
-
-# Global personality toggle states (loaded from settings)
-# Dynamically populated from agents.json via _init_toggle_dicts()
-_personality_enabled: dict[str, bool] = {}
-
-# Global reasoning toggle states (loaded from settings)
-_reasoning_enabled: dict[str, bool] = {}
-
-def _init_toggle_dicts() -> None:
-    """Initialize toggle dicts from agents.json defaults.
-
-    Called once at module load to populate the dicts with all configured agents.
-    Afterwards, sync_*_from_settings() overrides with persisted values.
-
-    Note: thinking toggles are NOT stored here — they are read directly from
-    the Reflex State (self.{agent}_thinking) to avoid stale module-level globals.
-    """
-    global _personality_enabled, _reasoning_enabled
-    from .agent_config import load_agents
-
-    agents = load_agents()
-    for agent_id, config in agents.items():
-        _personality_enabled.setdefault(agent_id, config.toggles.get("personality", True))
-        _reasoning_enabled.setdefault(agent_id, config.toggles.get("reasoning", False))
-
-
-# Populate on module load
-_init_toggle_dicts()
 
 # Cache for system prompt token counts (populated at startup)
 # Format: {"aifred": {"de": tokens, "en": tokens}, "sokrates": {...}, ...}
 _system_prompt_token_cache: dict[str, dict[str, int]] = {}
 
 
-def set_user_name(name: str):
-    """Set the global user name for prompts"""
-    global _current_user_name
-    _current_user_name = name.strip() if name else ""
-
+# Persona values (language, user name/gender, personality/reasoning toggles)
+# come from the persisted settings — one truth for browser, scheduler and hub,
+# independent of whether a browser session has loaded since the last restart.
 
 def get_user_name() -> str:
-    """Get the current user name"""
-    return _current_user_name
+    """User name from the persisted settings."""
+    return str(persisted_settings()["user_name"]).strip()
 
 
-def set_user_gender(gender: str):
-    """Set the global user gender for salutation (male/female)"""
-    global _current_user_gender
-    _current_user_gender = gender if gender in ("male", "female") else "male"
+def get_user_gender() -> str:
+    """User gender for salutation ("male"/"female") from the persisted settings."""
+    return str(persisted_settings()["user_gender"])
 
 
-def set_personality_enabled(agent: str, enabled: bool):
-    """
-    Set personality toggle state for an agent.
-
-    Args:
-        agent: Agent ID (e.g. "aifred", "sokrates", "salomo", or any custom agent)
-        enabled: True to enable personality style, False for factual responses
-    """
-    global _personality_enabled
-    _personality_enabled[agent] = enabled
+def _agent_toggle(agent: str, feature: str, default: bool) -> bool:
+    """Per-agent toggle: the saved tuning, or the agent's agents.json default
+    while the agent has no saved tuning yet (new custom agent)."""
+    saved = persisted_settings().get("agent_tuning", {}).get(agent, {})
+    if feature in saved:
+        return bool(saved[feature])
+    from .agent_config import get_agent_config
+    config = get_agent_config(agent)
+    return bool(config.toggles.get(feature, default)) if config else default
 
 
 def get_personality_enabled(agent: str) -> bool:
-    """
-    Get personality toggle state for an agent.
-
-    Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
-
-    Returns:
-        True if personality is enabled, False otherwise
-    """
-    return _personality_enabled.get(agent, True)
-
-
-def set_reasoning_enabled(agent: str, enabled: bool):
-    """
-    Set reasoning toggle state for an agent.
-
-    Args:
-        agent: Agent ID (e.g. "aifred", "sokrates", "salomo", or any custom agent)
-        enabled: True to enable chain-of-thought reasoning
-    """
-    global _reasoning_enabled
-    _reasoning_enabled[agent] = enabled
+    """Personality toggle of an agent (persisted settings)."""
+    return _agent_toggle(agent, "personality", default=True)
 
 
 def get_reasoning_enabled(agent: str) -> bool:
-    """
-    Get reasoning toggle state for an agent.
-
-    Args:
-        agent: Agent name ("aifred", "sokrates", "salomo")
-
-    Returns:
-        True if reasoning is enabled, False otherwise
-    """
-    return _reasoning_enabled.get(agent, False)
+    """Reasoning toggle of an agent (persisted settings)."""
+    return _agent_toggle(agent, "reasoning", default=False)
 
 
 def _resolve_prompt_file(agent: str, prompt_key: str, lang: Optional[str] = None) -> Optional[Path]:
@@ -143,7 +76,7 @@ def _resolve_prompt_file(agent: str, prompt_key: str, lang: Optional[str] = None
         Resolved Path if the file exists, None otherwise
     """
     if lang is None:
-        lang = _current_language
+        lang = get_language()
 
     from .agent_config import get_agent_config
     config = get_agent_config(agent)
@@ -178,7 +111,7 @@ def load_reasoning(agent: str, lang: Optional[str] = None) -> str:
         return ""
 
     if lang is None:
-        lang = _current_language
+        lang = get_language()
 
     reasoning_file = PROMPTS_DIR / lang / "utility" / "reasoning.txt"
 
@@ -258,25 +191,9 @@ def load_personality_reminder(agent: str, lang: Optional[str] = None) -> str:
     return reminder_file.read_text(encoding="utf-8").strip()
 
 
-def set_language(lang: str):
-    """
-    Set the global language for prompts.
-
-    This is synced with ui_language from state.py.
-
-    Args:
-        lang: "de" or "en"
-    """
-    global _current_language
-    if lang in ["de", "en"]:
-        _current_language = lang
-    else:
-        raise ValueError(f"Unsupported language: {lang}. Use 'de' or 'en'")
-
-
 def get_language() -> str:
-    """Get the current language setting"""
-    return _current_language
+    """UI/prompt language ("de"/"en") from the persisted settings."""
+    return str(persisted_settings()["ui_language"])
 
 
 def load_shared_tool_description(filename: str) -> str:
@@ -362,8 +279,8 @@ def _build_standard_placeholders(lang: str) -> dict:
         'epim_notetrees': epim_notetrees,
         'epim_calendars': epim_calendars,
         'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
-        'user_name': _current_user_name if _current_user_name else "",
-        'user_gender': ("männlich" if _current_user_gender == "male" else "weiblich") if lang == "de" else _current_user_gender,
+        'user_name': get_user_name(),
+        'user_gender': ("männlich" if get_user_gender() == "male" else "weiblich") if lang == "de" else get_user_gender(),
     }
 
 
@@ -410,7 +327,7 @@ def load_prompt(
     """
     # Determine language
     if lang is None:
-        lang = _current_language
+        lang = get_language()
 
     # Load from language-specific directory only (no fallback)
     prompt_file = PROMPTS_DIR / lang / f"{prompt_name}.txt"
@@ -523,25 +440,8 @@ def get_agent_system_prompt(
         agent_id, task_prompt, lang,
         multi_agent=multi_agent, memory=memory,
         tools=kwargs.get('tools', True),
-        user_name=kwargs.get('user_name'), user_gender=kwargs.get('user_gender'),
         source=kwargs.get('source', 'browser'),
     )
-
-
-def register_agent_toggles(agent_id: str, toggles: dict[str, bool]) -> None:
-    """Register toggle states for a new agent in the prompt loader.
-
-    Called when a new agent is created at runtime.
-    """
-    global _personality_enabled, _reasoning_enabled
-    _personality_enabled[agent_id] = toggles.get("personality", True)
-    _reasoning_enabled[agent_id] = toggles.get("reasoning", False)
-
-
-def unregister_agent_toggles(agent_id: str) -> None:
-    """Remove toggle states for a deleted agent."""
-    _personality_enabled.pop(agent_id, None)
-    _reasoning_enabled.pop(agent_id, None)
 
 
 # ============================================================
@@ -657,8 +557,6 @@ def _merge_prompt_layers(
     lang: Optional[str] = None,
     multi_agent: bool = False,
     memory: bool = True,
-    user_name: Optional[str] = None,
-    user_gender: Optional[str] = None,
     tools: bool = False,
     source: str = "browser",
 ) -> str:
@@ -684,8 +582,6 @@ def _merge_prompt_layers(
         lang: Language code (de/en), defaults to current language
         multi_agent: If True, include shared/multi_agent_roles.txt (for debate modes)
         memory: If True, include memory instructions (False in incognito mode)
-        user_name: User's display name (fallback: global _current_user_name)
-        user_gender: User's gender "male"/"female" (fallback: global _current_user_gender)
         tools: If True, include tool usage instructions
 
     Returns:
@@ -694,9 +590,8 @@ def _merge_prompt_layers(
     if lang is None:
         lang = get_language()
 
-    # Resolve user name/gender: explicit parameter > global cache
-    name = user_name if user_name is not None else _current_user_name
-    gender = user_gender if user_gender is not None else _current_user_gender
+    name = get_user_name()
+    gender = get_user_gender()
 
     parts = []
 
@@ -781,7 +676,7 @@ def get_vision_ir_context_prompt(lang: Optional[str] = None) -> str:
     das VLM IR-Helligkeiten als reale Farben beschreibt ("helles T-Shirt").
     In ``prompts/{lang}/vision/vision_ir_context.txt``."""
     if lang is None:
-        lang = _current_language
+        lang = get_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_ir_context.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -795,7 +690,7 @@ def get_vision_identity_context_prompt(
     SSoT für Alert-Beschreibung UND Live-Teleprompter. In
     ``prompts/{lang}/vision/vision_identity_context.txt`` ({names})."""
     if lang is None:
-        lang = _current_language
+        lang = get_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_identity_context.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip().replace("{names}", ", ".join(names))
@@ -809,7 +704,7 @@ def get_vision_headcount_context_prompt(
     Personen im Hintergrund beschreibt statt nur die vorderste. In
     ``prompts/{lang}/vision/vision_headcount_context.txt`` ({count})."""
     if lang is None:
-        lang = _current_language
+        lang = get_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_headcount_context.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip().replace("{count}", str(count))
@@ -820,7 +715,7 @@ def get_vision_continuous_first_prompt(lang: Optional[str] = None) -> str:
     Teleprompter, noch keine History). In
     ``prompts/{lang}/vision/vision_continuous_first.txt``."""
     if lang is None:
-        lang = _current_language
+        lang = get_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_continuous_first.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -831,7 +726,7 @@ def get_vision_continuous_delta_prompt(lang: Optional[str] = None) -> str:
     erlaubt). Aktuell nur vom deaktivierten History-Pfad referenziert. In
     ``prompts/{lang}/vision/vision_continuous_delta.txt``."""
     if lang is None:
-        lang = _current_language
+        lang = get_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_continuous_delta.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -841,7 +736,7 @@ def get_vision_event_single_prompt(lang: Optional[str] = None) -> str:
     """Prompt für die Einzelbild-Analyse eines gespeicherten Vision-Events
     (Casus-Button). In ``prompts/{lang}/vision/vision_event_single.txt``."""
     if lang is None:
-        lang = _current_language
+        lang = get_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_single.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -852,7 +747,7 @@ def get_vision_event_sequence_prompt(lang: Optional[str] = None) -> str:
     in Zeitreihenfolge — Szene + was sich verändert). Genutzt vom Cluster-/
     Bulk-Describe. In ``prompts/{lang}/vision/vision_event_sequence.txt``."""
     if lang is None:
-        lang = _current_language
+        lang = get_language()
     prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_sequence.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
@@ -975,7 +870,6 @@ def get_aifred_defense_prompt(
 
 def get_agent_direct_prompt(
     agent_id: str, lang: Optional[str] = None, memory: bool = True,
-    user_name: Optional[str] = None, user_gender: Optional[str] = None,
     tools: bool = False,
 ) -> str:
     """Load direct response prompt for any agent via layer merging.
@@ -985,9 +879,7 @@ def get_agent_direct_prompt(
     """
     task_prompt = load_prompt(f'{agent_id}/direct', lang=lang)
     return _merge_prompt_layers(
-        agent_id, task_prompt, lang, memory=memory,
-        user_name=user_name, user_gender=user_gender,
-        tools=tools,
+        agent_id, task_prompt, lang, memory=memory, tools=tools,
     )
 
 

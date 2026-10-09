@@ -1169,7 +1169,6 @@ class AgentEditorMixin(rx.State, mixin=True):
         """Save agent editor — receives DOM values JSON from UI call_script callback."""
         import json
         from ..lib.agent_config import update_agent, create_agent
-        from ..lib.prompt_loader import register_agent_toggles
 
         self.editor_dirty = False
 
@@ -1238,14 +1237,13 @@ class AgentEditorMixin(rx.State, mixin=True):
                 self.add_debug("\u26a0\ufe0f Agent-ID is required")  # type: ignore[attr-defined]
                 return None
 
-            new_config = create_agent(
+            create_agent(
                 agent_id=agent_id,
                 display_name=self.editor_display_name,
                 emoji=self.editor_emoji,
                 description=self._editor_description,
                 role=self.editor_role,
             )
-            register_agent_toggles(agent_id, new_config.toggles)
             self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
             self.add_debug(  # type: ignore[attr-defined]
                 f"\u2705 Agent '{self.editor_display_name}' created"
@@ -1269,11 +1267,9 @@ class AgentEditorMixin(rx.State, mixin=True):
 
         # Second click: actually delete
         from ..lib.agent_config import delete_agent
-        from ..lib.prompt_loader import unregister_agent_toggles
 
         try:
             delete_agent(agent_id)
-            unregister_agent_toggles(agent_id)
             self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
             self.add_debug(f"\U0001f5d1\ufe0f Agent '{agent_id}' deleted")  # type: ignore[attr-defined]
         except ValueError as e:

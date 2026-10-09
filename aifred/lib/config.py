@@ -100,6 +100,8 @@ DEFAULT_SETTINGS = {
     # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
     # They will be merged in settings.py get_default_settings()
     "user_name": "",  # User's name (leave empty - set via UI, saved in settings.json)
+    "user_gender": "male",  # Salutation of the user: "male" / "female"
+    "ui_language": DEFAULT_LANGUAGE,  # UI + prompt language: "de" / "en"
     "backend_type": "ollama",  # Default backend: "ollama", "vllm", "llamacpp"
     # Calibration mode: "legacy" (deterministic algorithm) or "ai-<model>"
     # (LLM-driven via DashScope/Qwen). UI auto-selects "legacy" when no

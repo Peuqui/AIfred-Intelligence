@@ -33,14 +33,14 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 from .agent_config import load_agents_raw, save_agents_raw
-from .config import DATA_DIR, PROJECT_ROOT
+from .config import PROJECT_ROOT
+from .settings import SETTINGS_FILE, save_settings
 
 BUNDLE_FORMAT_VERSION = 1
 
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 XTTS_VOICES_DIR = PROJECT_ROOT / "docker" / "xtts" / "voices"
 MOSS_VOICES_DIR = PROJECT_ROOT / "docker" / "moss-tts" / "voices"
-SETTINGS_FILE = DATA_DIR / "settings.json"
 
 ConflictStrategy = Literal["abort", "overwrite", "rename"]
 
@@ -61,12 +61,6 @@ def _load_settings() -> dict:
     with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
         data: dict = json.load(f)
         return data
-
-
-def _save_settings(settings: dict) -> None:
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-        json.dump(settings, f, indent=2, ensure_ascii=False)
 
 
 def _voice_file_name(voice: str) -> str:
@@ -344,7 +338,7 @@ def import_bundle(
             effective_ids.append(effective_id)
 
         save_agents_raw(agents)
-        _save_settings(settings)
+        save_settings(settings)
 
         for member in zf.namelist():
             if not member.startswith("voices/"):

@@ -45,14 +45,6 @@ from ..lib.config import (
 # methods — a module-level import changes mypy's SCC analysis order and
 # breaks type inference of the temperature state var.
 
-# Feature -> (emoji, prompt_loader setter name)
-# Note: thinking has no prompt_loader sync — read directly from State at runtime.
-_FEATURE_META: dict[str, tuple[str, str]] = {
-    "personality": ("", "set_personality_enabled"),
-    "reasoning": ("", "set_reasoning_enabled"),
-    "thinking": ("", ""),
-}
-
 # Per-agent emoji for personality toggles
 _PERSONALITY_EMOJI: dict[str, str] = {
     "aifred": "\U0001f3a9",      # top hat
@@ -109,7 +101,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     # ================================================================
 
     def _toggle_agent_feature(self, agent: str, feature: str) -> None:
-        """Toggle a boolean per-agent feature and persist + sync to prompt_loader.
+        """Toggle a boolean per-agent feature and persist it (prompt_loader reads settings.json).
 
         Works for personality and reasoning (thinking moved to the
         thinking-mode dropdown, see _set_agent_thinking_mode).
@@ -128,12 +120,6 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.add_debug(f"{emoji} {agent.capitalize()} {feature}: {status}")  # type: ignore[attr-defined]
 
         self._save_settings()  # type: ignore[attr-defined]
-
-        # Sync to prompt_loader (if setter exists — thinking has none)
-        setter_name = _FEATURE_META[feature][1]
-        if setter_name:
-            from ..lib import prompt_loader
-            getattr(prompt_loader, setter_name)(agent, new_val)
 
     # ── Thinking Mode (dropdown: off / on / effort level) ─────────
 
