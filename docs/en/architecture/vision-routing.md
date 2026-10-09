@@ -17,17 +17,29 @@ The chat LLM runs via **llama-swap** and occupies most of the VRAM.
 For image analysis there are dedicated **describer profiles** (`<base>-visiond`
 in the llama-swap config): lean instances of the same vision model with
 a small context (`-c 24576` = `VLM_NUM_CTX` in
-[`aifred/lib/config.py`](../../../aifred/lib/config.py)), without a draft
-model, pinned via `CUDA_VISIBLE_DEVICES` to the side-channel card. They run in
-the llama-swap group `vision` **in parallel** with the chat LLM — no model
-swap for an image description.
+[`aifred/lib/config.py`](../../../aifred/lib/config.py), enough for bursts of
+10 keyframes) and a quantized KV cache (`-ctk/-ctv q8_0` =
+`VLM_KV_CACHE_TYPE`; for the 4B a 7,396 instead of 8,988 MiB peak), without a
+draft model. The home profile `<base>-visiond` is pinned via
+`CUDA_VISIBLE_DEVICES` to the side-channel card; in addition every other card
+gets a **placement variant** `<base>-visiond-gpu<N>` with the same command
+line. `fitting_visiond`
+([`aifred/lib/vision_routing.py`](../../../aifred/lib/vision_routing.py))
+picks an already loaded placement when describing, otherwise the home if it
+fits, otherwise the fitting card with the most free VRAM — so the describer
+also runs next to a main model that occupies all five cards
+(DeepSeek-V4-Flash: the 4B on GPU 0). All of them run in the llama-swap group
+`vision` **in parallel** with the chat LLM — no model swap for an image
+description; the group holds exactly one describer.
 
 The profiles are maintained by the autoscan
 ([`scripts/llama-swap-autoscan.py`](../../../scripts/llama-swap-autoscan.py)):
 `ensure_visiond_profiles` creates a `-visiond` profile for every model with a
 matching `mmproj-*.gguf` (GPU pin via `pick_vlm_gpu`, member of the `vision`
-group), `enforce_visiond_ctx` pulls the `-c` of all `-visiond` profiles to
-`VLM_NUM_CTX` (SSOT), and `cleanup_stale_vlm_variants` removes `-vlm-`
+group), `enforce_visiond_flags` pulls `-c` and KV type of the home profiles to
+`VLM_NUM_CTX`/`VLM_KV_CACHE_TYPE` (SSOT), `sync_visiond_placements` derives
+the placement variants from their home (rewrites deviating ones, removes
+variants without home or card), and `cleanup_stale_vlm_variants` removes `-vlm-`
 variants whose describer no longer has a profile. The calibration discovers
 its describer choice from these profiles (`vlm_calibration_choices`).
 
@@ -166,7 +178,8 @@ Badges are recomputed per session, not taken from the global startup state.
 - Only create `-vlm-` reserve variants when the chat LLM really needs them
   (threshold logic). (The generation of `-visiond` profiles is done: autoscan,
   see above.)
-- Dynamic placement (describer on the card with the most free
-  VRAM instead of a fixed pin) via generated placement variants.
+- Burn-in per describer VLM: without a measurement in
+  `data/vlm_vram_cache.json` a profile never fits (e.g. Qwen3VL-30B-A3B so far
+  unmeasured).
 - Decommission the Ollama services (sudo, user decision) — since package 2
   no vision path calls Ollama anymore as long as describer profiles exist.

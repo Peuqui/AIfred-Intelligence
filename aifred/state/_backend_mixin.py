@@ -1175,17 +1175,16 @@ class BackendMixin(rx.State, mixin=True):
 
         Gleiche Logik wie die Laufzeitwahl (``vision_routing``):
         ``🧠 Chat-LLM`` — das Modell IST das Hauptmodell und sieht selbst;
-        ``⚡ No Swap`` (grün) — sein ``-visiond``-Profil passt gerade neben
-        das Geladene (``check_visiond_fits``) oder es läuft über den
+        ``⚡ No Swap`` (grün) — eine seiner ``-visiond``-Platzierungen passt
+        gerade neben das Geladene (``fitting_visiond``) oder es läuft über den
         Ollama-Seitenkanal; ``🔄 Swap`` (amber) — es verdrängt das
         Chat-LLM. Die Ollama-VLM-Liste wird EINmal geholt.
         """
         from ..lib.ollama_models import list_ollama_vlm_models
         from ..lib.vision_routing import (
-            same_model, vision_swap_status, visiond_profile_for,
+            fitting_visiond, same_model, vision_swap_status,
         )
         from ..lib.vision_utils import has_native_vision
-        from ..lib.vision_vram_check import check_visiond_fits
         try:
             oll_names = [m.name for m in list_ollama_vlm_models()]
         except (RuntimeError, OSError):
@@ -1197,11 +1196,11 @@ class BackendMixin(rx.State, mixin=True):
         for mid in vision_model_ids:
             if mid not in catalog:
                 continue
-            visiond = visiond_profile_for(mid)
+            visiond, fit = fitting_visiond(mid)
             if same_model(mid, aifred_base) and has_native_vision(aifred_base):
                 badge, color = "🧠 Chat-LLM", "green"
-            elif (visiond is not None and check_visiond_fits(visiond).fits) or (
-                visiond is None
+            elif visiond is not None or (
+                fit is None
                 and vision_swap_status(mid, self.backend_id, ollama_names=oll_names)
             ):
                 badge, color = "⚡ No Swap", "green"
