@@ -13,7 +13,6 @@ import reflex as rx
 from reflex.event import EventSpec
 
 from ..lib.i18n import TranslationManager
-from ..lib.prompt_loader import set_language
 from ..lib.plugin_base import plugin_display_name
 from ..lib.settings import SETTINGS_FILE, load_settings, save_settings
 
@@ -256,7 +255,7 @@ class SettingsMixin(rx.State, mixin=True):
 
         # NOTE: model ids live exclusively in backend_models (loaded at
         # backend init) — no flat model keys in settings.json anymore.
-        from ..lib.agent_settings import get_agent_setting, set_agent_setting
+        from ..lib.agent_settings import set_agent_setting
 
         # RoPE factors (agents: in the tuning dict; automatik: own field)
         self.automatik_rope_factor = settings.get("automatik_rope_factor", self.automatik_rope_factor)  # type: ignore[attr-defined, has-type]
@@ -265,7 +264,6 @@ class SettingsMixin(rx.State, mixin=True):
         # subset of PERSISTED_TUNING_FIELDS — reload serves API-driven
         # changes; thinking/reasoning/speed stay untouched here
         # (same behavior as before the loop-ification).
-        from ..lib.prompt_loader import set_personality_enabled
         saved_tuning = settings.get("agent_tuning", {})
         for agent, entry in saved_tuning.items():
             if agent not in self.agent_tuning:  # type: ignore[attr-defined]
@@ -274,10 +272,8 @@ class SettingsMixin(rx.State, mixin=True):
                 if field in entry:
                     set_agent_setting(self, agent, field, entry[field])
 
-            # Personality toggles (+ prompt_loader sync)
             if "personality" in entry:
                 set_agent_setting(self, agent, "personality", entry["personality"])
-            set_personality_enabled(agent, get_agent_setting(self, agent, "personality"))
 
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
@@ -300,12 +296,9 @@ class SettingsMixin(rx.State, mixin=True):
             self.ui_language = new_ui_lang
             from ..lib.formatting import set_ui_locale
             set_ui_locale(new_ui_lang)
-            set_language(new_ui_lang)  # Sync prompt language
 
         # User name
         self.user_name = settings.get("user_name", self.user_name)
-        from ..lib.prompt_loader import set_user_name
-        set_user_name(self.user_name)
 
         # Message Hub settings (per-channel toggles + security tiers)
         self._load_channel_settings(settings)
@@ -321,8 +314,6 @@ class SettingsMixin(rx.State, mixin=True):
             # Update global locale for number formatting
             from ..lib.formatting import set_ui_locale
             set_ui_locale(lang)
-            # Update prompt language for LLM responses
-            set_language(lang)
             # Update research_mode_display to match new language
             self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined, has-type]
                 self.research_mode, lang  # type: ignore[attr-defined, has-type, arg-type]
@@ -348,9 +339,6 @@ class SettingsMixin(rx.State, mixin=True):
     def save_user_name(self, name: str) -> None:
         """Save user name when input loses focus."""
         self.user_name = name.strip()
-        # Sync to prompt_loader for automatic injection into system prompts
-        from ..lib.prompt_loader import set_user_name
-        set_user_name(self.user_name)
         if self.user_name:
             self.add_debug(f"\U0001f464 User name: {self.user_name}")  # type: ignore[attr-defined, has-type]
         self._save_settings()
@@ -361,8 +349,6 @@ class SettingsMixin(rx.State, mixin=True):
         if isinstance(gender, list):
             gender = gender[0] if gender else "male"
         self.user_gender = gender
-        from ..lib.prompt_loader import set_user_gender
-        set_user_gender(gender)
         self.add_debug(f"\U0001f464 Gender: {'\u2642 male' if gender == 'male' else '\u2640 female'}")  # type: ignore[attr-defined, has-type]
         self._save_settings()
 
