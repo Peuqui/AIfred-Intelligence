@@ -19,9 +19,7 @@ class Qwen3LocalEngine(TTSEngine):
     image_name = "qwen3-tts-1.7b-base"
     compose_subdir = "qwen3-tts"
 
-    @property
-    def service_url(self) -> str:
-        return "http://localhost:5052"
+    default_port = 5052
 
     @property
     def language_map(self) -> dict[str, str]:
@@ -56,15 +54,15 @@ class Qwen3LocalEngine(TTSEngine):
         except (OSError, ValueError):
             return False
 
-    def start(self) -> tuple[bool, str]:
+    def _start_local(self) -> tuple[bool, str]:
         from ..process_utils import start_qwen3local_container
         return start_qwen3local_container()
 
-    def stop(self) -> tuple[bool, str]:
+    def _stop_local(self) -> tuple[bool, str]:
         from ..process_utils import stop_qwen3local_container
         return stop_qwen3local_container()
 
-    def ensure_ready(self, timeout: int | None = None) -> tuple[bool, str, str]:
+    def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_qwen3local_ready
         return ensure_qwen3local_ready(timeout=timeout or 240)
 

@@ -116,6 +116,18 @@ DEFAULT_SETTINGS = {
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
     "tts_engine": "edge",
+    # Rechner, die TTS-Container mit derselben API betreiben (Liste von
+    # {"name", "address", "ports": {engine_key: port}}); dieser Rechner ist
+    # implizit und steht hier nicht. Siehe aifred/lib/tts_escalation.py.
+    "tts_hosts": [],
+    # Eskalationsliste der Sprachausgabe, von oben nach unten: der erste
+    # passende Eintrag spricht. "host": None = dieser Rechner bzw. Cloud.
+    "tts_escalation": [
+        {"engine": "qwen3local", "host": None, "enabled": True},
+        {"engine": "xtts", "host": None, "enabled": True},
+        {"engine": "piper", "host": None, "enabled": True},
+        {"engine": "edge", "host": None, "enabled": True},
+    ],
     "show_transcription": False,
     "enable_gpu": True,
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key

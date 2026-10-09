@@ -26,9 +26,7 @@ class FishSpeechEngine(TTSEngine):
     image_name = "fish-speech-s2-pro"
     compose_subdir = "fish-speech"
 
-    @property
-    def service_url(self) -> str:
-        return "http://localhost:5053"
+    default_port = 5053
 
     @property
     def voices_fallback(self) -> dict[str, str]:
@@ -59,15 +57,15 @@ class FishSpeechEngine(TTSEngine):
         except (OSError, ValueError):
             return False
 
-    def start(self) -> tuple[bool, str]:
+    def _start_local(self) -> tuple[bool, str]:
         from ..process_utils import start_fishspeech_container
         return start_fishspeech_container()
 
-    def stop(self) -> tuple[bool, str]:
+    def _stop_local(self) -> tuple[bool, str]:
         from ..process_utils import stop_fishspeech_container
         return stop_fishspeech_container()
 
-    def ensure_ready(self, timeout: int | None = None) -> tuple[bool, str, str]:
+    def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_fishspeech_ready
         # 600 s default — first start has to pull ~8 GB of weights from
         # HuggingFace before the model can load.

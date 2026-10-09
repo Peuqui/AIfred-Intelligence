@@ -21,9 +21,7 @@ class XTTSEngine(TTSEngine):
 
     image_name = "xtts-rtx8000"
 
-    @property
-    def service_url(self) -> str:
-        return "http://localhost:5051"
+    default_port = 5051
 
     @property
     def voices_fallback(self) -> dict[str, str]:
@@ -67,15 +65,15 @@ class XTTSEngine(TTSEngine):
         except (OSError, ValueError):
             return False
 
-    def start(self) -> tuple[bool, str]:
+    def _start_local(self) -> tuple[bool, str]:
         from ..process_utils import start_xtts_container
         return start_xtts_container()
 
-    def stop(self) -> tuple[bool, str]:
+    def _stop_local(self) -> tuple[bool, str]:
         from ..process_utils import stop_xtts_container
         return stop_xtts_container()
 
-    def ensure_ready(self, timeout: int | None = None) -> tuple[bool, str, str]:
+    def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_xtts_ready
         # XTTS has its own CPU-fallback toggle; honour XTTS_FORCE_CPU=1
         # by skipping the ensure if explicitly forced (the LLM caller is

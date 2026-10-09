@@ -85,12 +85,39 @@ class TTSEngine(ABC):
     #: (MOSS key="moss" but dir="moss-tts").
     compose_subdir: Optional[str] = None
 
-    # ── Locations (overridable via @property in subclasses) ────────
+    #: Port of the engine's REST API — set by engines that run as an HTTP
+    #: service (the containers). None = no REST API (cloud/CLI engines);
+    #: such engines can only run on this machine or in the cloud.
+    default_port: Optional[int] = None
+
+    def __init__(self, address: str = "localhost", port: Optional[int] = None) -> None:
+        """``address``/``port`` of the REST API. The registry instances run on
+        this machine (``localhost``); :meth:`at_host` binds the same engine to
+        a remote TTS host (escalation entries)."""
+        self.address = address
+        self.port = port or self.default_port
+
+    def at_host(self, address: str, port: Optional[int] = None) -> "TTSEngine":
+        """The same engine, bound to a remote host. Raises ``ValueError`` for
+        engines without a REST API — they cannot run on another machine."""
+        if self.default_port is None:
+            raise ValueError(f"TTS engine {self.key!r} has no REST API and cannot run on a remote host")
+        return type(self)(address=address, port=port)
+
+    @property
+    def is_remote(self) -> bool:
+        """True for an instance bound to another machine. Remote engines are
+        never started or stopped from here — their host runs them."""
+        return self.address != "localhost"
+
+    # ── Locations ──────────────────────────────────────────────────
     @property
     def service_url(self) -> Optional[str]:
-        """HTTP base URL of the local container's REST API. None for
-        engines that don't run as a service we control."""
-        return None
+        """HTTP base URL of the engine's REST API. None for engines that
+        don't run as an HTTP service."""
+        if self.port is None:
+            return None
+        return f"http://{self.address}:{self.port}"
 
     @property
     def docker_compose_path(self) -> Optional[Path]:
@@ -190,18 +217,41 @@ class TTSEngine(ABC):
         return True
 
     def start(self) -> tuple[bool, str]:
-        """Bring the engine up. Returns ``(success, message)``."""
-        return True, "no-op"
+        """Bring the engine up. Returns ``(success, message)``. Only for
+        engines on this machine — a remote host runs its engines itself."""
+        self._require_local("start")
+        return self._start_local()
 
     def stop(self) -> tuple[bool, str]:
         """Take the engine down. Returns ``(success, message)``."""
-        return True, "no-op"
+        self._require_local("stop")
+        return self._stop_local()
 
     def ensure_ready(self, timeout: int | None = None) -> tuple[bool, str, str]:
         """Ensure the engine is up and serving. Returns
         ``(success, status_message, device)``. ``device`` is the engine's
         compute target ("cuda:0", "cpu", "") — empty for engines that
-        don't expose one."""
+        don't expose one. A remote engine is not started, only checked."""
+        if self.is_remote:
+            if self.is_running():
+                return True, f"{self.label_short} ready on {self.address}", ""
+            return False, f"{self.label_short} not serving on {self.address}", ""
+        return self._ensure_ready_local(timeout)
+
+    def _require_local(self, action: str) -> None:
+        if self.is_remote:
+            raise RuntimeError(
+                f"cannot {action} {self.key!r} on remote host {self.address} — the host runs it"
+            )
+
+    # Lifecycle hooks for engines on this machine — container engines override.
+    def _start_local(self) -> tuple[bool, str]:
+        return True, "no-op"
+
+    def _stop_local(self) -> tuple[bool, str]:
+        return True, "no-op"
+
+    def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         return True, "ready", ""
 
     # ── Speech generation ──────────────────────────────────────────

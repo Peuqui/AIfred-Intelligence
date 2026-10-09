@@ -20,9 +20,7 @@ class MOSSEngine(TTSEngine):
     image_name = "moss-tts-1.7b"
     compose_subdir = "moss-tts"
 
-    @property
-    def service_url(self) -> str:
-        return "http://localhost:5055"
+    default_port = 5055
 
     @property
     def voices_fallback(self) -> dict[str, str]:
@@ -49,15 +47,15 @@ class MOSSEngine(TTSEngine):
         except (OSError, ValueError):
             return False
 
-    def start(self) -> tuple[bool, str]:
+    def _start_local(self) -> tuple[bool, str]:
         from ..process_utils import start_moss_container
         return start_moss_container()
 
-    def stop(self) -> tuple[bool, str]:
+    def _stop_local(self) -> tuple[bool, str]:
         from ..process_utils import stop_moss_container
         return stop_moss_container()
 
-    def ensure_ready(self, timeout: int | None = None) -> tuple[bool, str, str]:
+    def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_moss_ready
         return ensure_moss_ready(timeout=timeout or 180)
 
