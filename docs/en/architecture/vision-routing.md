@@ -2,18 +2,14 @@
 
 > **Deutsche Version:** [vision-routing.md](../../de/architecture/vision-routing.md)
 
-How an image description (Vigilantia, sandbox screenshot, vision tool) is
-dispatched to a vision model without evicting the loaded chat LLM from VRAM.
-Status (2026-09-25): vision rework packages 1 (describer path, 2026-08-16)
-and 2 (Vigilantia migrated to the describer path, 2026-08-16) are
-implemented; since then: autoscan-generated describer profiles, the chat LLM
-as its own describer, and a GPU-based sidecar eviction guard. The side
-channel runs primarily via llama.cpp/llama-swap; Ollama remains as the legacy
-path for setups without describer profiles.
-
-Chat image uploads (VL Direct, Symposion) do not use this path: there,
-`_vl_choice` ([`aifred/state/_agent_config_mixin.py`](../../../aifred/state/_agent_config_mixin.py))
-picks a vision-capable main model itself, otherwise the model of the vision role.
+Who looks at an image — chat upload, Symposion, sandbox screenshot, vision
+tool, Vigilantia — and how the vision model gets next to the loaded chat LLM
+without evicting it from VRAM. Status (2026-10-09): two selection rules in
+[`aifred/lib/vision_routing.py`](../../../aifred/lib/vision_routing.py)
+replace the former four-step precedence; whether a describer fits alongside is
+decided by the measured burn-in peak, no longer by a reserved profile alone.
+The side channel runs primarily via llama.cpp/llama-swap; Ollama remains as
+the path for setups without describer profiles.
 
 ## Core idea
 
@@ -43,53 +39,60 @@ selects the `<base>-vlm-<key>` profile for the chat LLM, which leaves the reserv
 model is the chat model itself, there is nothing to reserve — the VLM tiers are
 skipped and the base profile with full context wins.
 
-## Routing precedence
+## Selection rules
 
-SSOT is the model choice in `analyze_sequence`
+Both rules return a `Describer(model, evicts_chat_model)`; when it evicts the
+chat LLM, `eviction_notice` announces it (reloading can take several minutes).
+
+**Rule A — `chat_describer(main_model)`** (chat uploads, Symposion, sandbox
+screenshots, uploaded images in the vision tool):
+
+1. If the main model can see (`has_native_vision`), it describes itself.
+2. Otherwise the vision LLM from the main settings via its `-visiond`
+   profile, if it fits alongside (`check_visiond_fits`, see below).
+3. Otherwise the effective variant of the vision LLM — it evicts the chat LLM.
+4. No vision LLM configured: `NoVisionModelError`.
+
+**Rule B — `camera_describer(vlm_model, explicit=…)`** (Vigilantia watcher,
+event analysis, bulk, vision tool with a camera source):
+
+1. The camera VLM (e.g. the 4B) fits next to what is loaded or already runs →
+   its `-visiond` profile.
+2. Otherwise a loaded profile that can see by itself.
+3. Otherwise, only on an explicit request (`explicit=True`, e.g. Casus or the
+   user asking AIfred), the vision LLM, evicting.
+4. Otherwise `NoVisionModelError`: automatic paths never evict; the image goes
+   out without a description and can be described later.
+
+An Ollama model (no llama-swap entry) stays unchanged. `analyze_sequence`
 ([`aifred/lib/vision_analyzer.py`](../../../aifred/lib/vision_analyzer.py))
-for all its callers (Vigilantia watcher, doorman, event analysis, bulk,
-sandbox, vision tool), first match wins:
+only dispatches: `has_native_vision` → llama-swap, otherwise Ollama.
 
-1. **The chat LLM describes itself** — `self_describer_profile`
-   ([`aifred/lib/vision_routing.py`](../../../aifred/lib/vision_routing.py)):
-   the configured vision model is the same model as the chat LLM
-   (`same_model`, name-normalized and without variant suffixes) and its
-   llama-swap profile loads its own vision encoder (`has_native_vision`:
-   llama.cpp `--mmproj`, vLLM without `--language-model-only`). Returned is the
-   profile actually loaded (e.g. a `-speed` variant); if a different model is
-   running, this path does not apply. No second load of the same model — the
-   description serializes with the chat in its single slot (`-np 1`).
-2. **A `<vision-model>-visiond` profile exists → route there** —
-   `visiond_profile_for`. The preferred path: same backend, only the profile
-   name changes. The role's variant suffixes are stripped before the lookup
-   (`strip_variant_suffixes`), and Ollama spellings
-   (`qwen3-vl:4b-instruct-q8_0`) also match after name normalization — so ALL
-   Vigilantia paths run through this resolution without their plugin settings
-   being touched.
-   `prewarm_vlm` (vision_mode "live") loads the describer profile via a
-   llama-swap request; `check_vlm_fits` (bulk worker) is skipped on the
-   describer path (the reserve slot is the guarantee).
-3. **Otherwise** the model stays unchanged. Dispatch via `has_native_vision`:
-   a llama-swap model with its own vision encoder describes via llama-swap,
-   everything else goes to Ollama (`_analyze_via_ollama`, legacy path for setups
-   without `-visiond` profiles).
+**Does it fit alongside?** `check_visiond_fits`
+([`aifred/lib/vision_vram_check.py`](../../../aifred/lib/vision_vram_check.py)):
+an already loaded profile always fits; otherwise the burn-in peak from
+`data/vlm_vram_cache.json` (model × context) plus `LLAMACPP_VLM_HEADROOM_MB`
+against the free VRAM of the cards the profile is pinned to via
+`CUDA_VISIBLE_DEVICES` (unpinned: sum of all cards). A missing measurement or
+card means it does not fit.
 
-Sandbox screenshots (`describe_sandbox_screenshots`,
-[`aifred/lib/sandbox.py`](../../../aifred/lib/sandbox.py)) prefer the
-configured vision role (its `-visiond` profile); a vision-capable main model
-(`is_vision_model_sync`,
-[`aifred/lib/vision_utils.py`](../../../aifred/lib/vision_utils.py)) describes
-only when no vision role is configured — otherwise every describe call would
-overwrite the chat context in the only slot. `is_vision_model_sync` decides
-for llama-swap entries by what their cmd loads (`has_native_vision`), and for
-other IDs by name patterns on the base ID (`strip_variant_suffixes` — the
-suffixes `-vlm-qwen3vl4b` and `-vllm` contain "vl" and would otherwise wrongly
-classify text models as vision-capable).
+### Chat images: VL Direct or two steps
 
-`maybe_route_to_ollama` (`vision_routing.py`) describes the same order
-(`-visiond` profile before the Ollama side channel) for a
-`(backend_url, backend_type, model)` tuple; in production code it currently
-has no caller, only tests.
+`send_message` ([`aifred/state/_chat_mixin.py`](../../../aifred/state/_chat_mixin.py))
+asks `_image_describer` ([`aifred/state/_agent_config_mixin.py`](../../../aifred/state/_agent_config_mixin.py)),
+which applies rule A to the effective main model:
+
+- **Main model can see, one agent:** VL Direct — the main model receives the
+  images and answers as the agent (`_process_vision_request`).
+- **Otherwise (or Symposion with ≥2 agents):** `_describe_images` describes
+  the images once, neutrally (`vision/task_instruction_handoff`, with a user question `…_handoff_question`); the
+  description is appended to the user turn as `[Image content: …]`, and the
+  normal text pipeline answers — the main model with its full prompt, tools
+  and history, or all Symposion agents from the same basis. For follow-up
+  questions the agent takes another look via `vision_analyze` when needed
+  (the `/_upload/` URL is in the turn).
+- **No vision LLM:** the image goes on without a description, with a note in
+  the debug console.
 
 ## Unload semantics (llama-swap groups)
 
@@ -140,14 +143,11 @@ the instance that understands the profiles.
 
 `_build_vision_rich`
 ([`aifred/state/_backend_mixin.py`](../../../aifred/state/_backend_mixin.py))
-shows `🧠 Chat-LLM` if the vision model is the chat LLM itself with its own
-vision encoder (self-describer, checked first); otherwise `⚡ No Swap` if
-(a) a `-visiond` profile exists (group semantics guarantee parallelism)
-**or** (b) the Ollama side channel applies and the `-vlm-<key>` reserve profile
-(or its `-speed` variant) is calibrated for the current chat LLM; otherwise
-`🔄 Swap`. `vlm_key_for_model` matches
-after name normalization — the llama-swap spelling
-(`Qwen3VL-4B-Instruct-Q8_0`) also activates the automatic reserve.
+follows the runtime choice: `🧠 Chat-LLM` if the vision model is the main
+model itself with its own vision encoder; `⚡ No Swap` if its `-visiond`
+profile currently fits alongside (`check_visiond_fits`) or, without a
+`-visiond` profile, it runs via the Ollama side channel; otherwise `🔄 Swap`.
+Badges are recomputed per session, not taken from the global startup state.
 
 ## Verified scenarios (2026-08-16)
 

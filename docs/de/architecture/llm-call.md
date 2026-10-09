@@ -156,21 +156,23 @@ _run_agent_direct_response(..., research_mode="quick")
 
 ### 4. Vision-Pipeline (Bild-Upload)
 
-Umgeht `_run_agent_direct_response()` und ruft `call_llm()` direkt auf:
+Modellwahl: `_image_describer()` (Regel A, siehe [Vision-Routing](vision-routing.md)).
+Kann das Hauptmodell nicht sehen (oder Symposion mit ≥2 Agenten), beschreibt
+`_describe_images()` die Bilder einmal, die Beschreibung kommt in den
+Nutzer-Turn, und es läuft die normale Text-Pipeline. Nur wenn das Hauptmodell
+selbst sieht, umgeht VL Direct `_run_agent_direct_response()` und ruft
+`call_llm()` direkt auf:
 
 ```
 _chat_mixin.py: _process_vision_request()
-  |-- Modellwahl: _vl_choice() -> (model_id, Settings-Bucket)
-  |     Ein visionfähiges Hauptmodell (AIfred) verarbeitet das Bild selbst;
-  |     das Vision-Modell springt nur bei nicht visionfähigem Hauptmodell ein
+  |-- Modell = effektives Hauptmodell (AIfred)
   |-- Handelnder Agent = aktiver Agent (Memory, Tools, Persönlichkeit)
   |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
   |-- call_llm(agent=<handelnder Agent>, multimodal_content=content_parts,
   |            external_toolkit=..., vision_task_addon=...)
   |     |-- System-Prompt: get_agent_system_prompt(agent, "task")
   |     |     + vision_task_addon
-  |     |-- temperature_mode="manual", Temperatur aus dem Bucket
-  |     |     des Modells, das den Turn ausführt
+  |     |-- temperature_mode="manual", Temperatur aus dem AIfred-Bucket
   |     |-- LLM-Optionen: build_llm_options(state, agent, ...)
   |     v
   |     run_llm_stream()  <-- PIPELINE

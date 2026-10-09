@@ -156,21 +156,22 @@ _run_agent_direct_response(..., research_mode="quick")
 
 ### 4. Vision Pipeline (Image Upload)
 
-Bypasses `_run_agent_direct_response()` and calls `call_llm()` directly:
+Model selection: `_image_describer()` (rule A, see [Vision routing](vision-routing.md)).
+If the main model cannot see (or Symposion with ≥2 agents), `_describe_images()`
+describes the images once, the description goes into the user turn, and the
+normal text pipeline runs. Only when the main model sees by itself does VL
+Direct bypass `_run_agent_direct_response()` and call `call_llm()` directly:
 
 ```
 _chat_mixin.py: _process_vision_request()
-  |-- Model selection: _vl_choice() -> (model_id, settings bucket)
-  |     A vision-capable main (AIfred) model handles the image itself;
-  |     the vision model only steps in for non-vision main models
+  |-- Model = effective main model (AIfred)
   |-- Acting agent = active agent (memory, tools, personality)
   |-- Toolkit: prepare_agent_toolkit(research_tools_enabled=True)
   |-- call_llm(agent=<acting agent>, multimodal_content=content_parts,
   |            external_toolkit=..., vision_task_addon=...)
   |     |-- System prompt: get_agent_system_prompt(agent, "task")
   |     |     + vision_task_addon
-  |     |-- temperature_mode="manual", temperature from the bucket
-  |     |     of the model that runs the turn
+  |     |-- temperature_mode="manual", temperature from the AIfred bucket
   |     |-- LLM options: build_llm_options(state, agent, ...)
   |     v
   |     run_llm_stream()  <-- PIPELINE
