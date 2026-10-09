@@ -1927,10 +1927,11 @@ def update_groups_in_yaml(config_path: Path) -> None:
     * ``main`` — everything that occupies VRAM, exclusive, one at a time.
     * ``embed`` — CPU-only servers (``-ngl 0``): persistent, so they stay
       loaded and never take part in the swap. They compete for no GPU.
-    * ``vision`` — the ``-visiond`` describer profiles. Verified 2026-09-01:
-      every one of them pins ``CUDA_VISIBLE_DEVICES`` to the single
-      side-channel card, so they never compete with ``main`` for VRAM.
-      ``swap: true`` inside the group keeps it at one describer at a time.
+    * ``vision`` — the ``-visiond`` describer profiles and their placement
+      variants (``-visiond-gpu<N>``), each pinned to one card. AIfred loads
+      a placement only when its card has room next to what runs (burn-in
+      peak, check_visiond_fits); ``swap: true`` inside the group keeps it
+      at one describer at a time.
 
     Flags for the two side groups are the ones that demonstrably worked
     before the regression: ``exclusive: false, swap: true, persistent: true``.
@@ -1941,7 +1942,8 @@ def update_groups_in_yaml(config_path: Path) -> None:
 
     all_models = parse_existing_yaml_models(config_path)
     cpu_only = _vram_free_models(config_path) & all_models
-    visiond = {m for m in all_models if m.endswith("-visiond")}
+    from vlm_naming import is_visiond_profile
+    visiond = {m for m in all_models if is_visiond_profile(m)}
     members = sorted(all_models - cpu_only - visiond)
 
     if not members:
@@ -2303,6 +2305,17 @@ def read_vlm_num_ctx() -> Optional[int]:
     return _read_aifred_config_int("VLM_NUM_CTX")
 
 
+def read_vlm_kv_cache_type() -> Optional[str]:
+    """``VLM_KV_CACHE_TYPE`` aus aifred/lib/config.py (SSOT)."""
+    try:
+        m = re.search(
+            r'^VLM_KV_CACHE_TYPE\s*=\s*"([^"]+)"', AIFRED_CONFIG_PY.read_text(), re.M,
+        )
+    except OSError:
+        return None
+    return m.group(1) if m else None
+
+
 def _find_mmproj_for(gguf_path: Path) -> Optional[Path]:
     """mmproj-Datei im Verzeichnis des Modells, deren Basisname (ohne
     ``mmproj-``-Präfix und Präzisions-Suffix) Präfix des Modell-Stems ist.
@@ -2334,9 +2347,12 @@ def _vlm_gpu_uuid() -> str:
 def ensure_visiond_profiles(config_path: Path) -> int:
     """Für jedes Basis-Chat-Modell mit mmproj ein ``-visiond``-Profil
     anlegen, falls es fehlt. Returnt Anzahl neuer Profile."""
+    from vlm_naming import is_visiond_profile
+
     ctx = read_vlm_num_ctx()
-    if not ctx:
-        print("  ⚠ VLM_NUM_CTX not readable — skipping visiond generation")
+    kv = read_vlm_kv_cache_type()
+    if not ctx or not kv:
+        print("  ⚠ VLM_NUM_CTX/VLM_KV_CACHE_TYPE not readable — skipping visiond generation")
         return 0
     model_cmds = _parse_model_cmds(config_path)
     if not model_cmds:
@@ -2346,7 +2362,7 @@ def ensure_visiond_profiles(config_path: Path) -> int:
     content = config_path.read_text()
     for name, cmd in sorted(model_cmds.items()):
         if (
-            name.endswith(("-visiond", "-embed", "-speed"))
+            is_visiond_profile(name) or name.endswith(("-embed", "-speed"))
             or "-vlm-" in name or "-tts-" in name
         ):
             continue
@@ -2365,7 +2381,7 @@ def ensure_visiond_profiles(config_path: Path) -> int:
         block = (
             f"  {profile}:\n"
             f"    cmd: {LLAMA_SERVER_BIN} -fit off --port ${{PORT}} "
-            f"--model {gguf} --mmproj {mmproj} -ngl 99 -c {ctx} "
+            f"--model {gguf} --mmproj {mmproj} -ngl 99 -c {ctx} -ctk {kv} -ctv {kv} "
             f"--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja "
             f"--no-context-shift --temp 0.8 --top-k 40 --top-p 0.95 "
             f"--min-p 0.05 --repeat-penalty 1.0\n"
@@ -2393,34 +2409,38 @@ def _insert_model_block(content: str, block: str) -> str:
 
 def _ensure_vision_group_member(content: str, profile: str) -> str:
     """``profile`` in groups.vision.members eintragen (Gruppe bei Bedarf
-    anlegen — non-exclusive + persistent wie die bestehende)."""
+    anlegen — non-exclusive + persistent wie die bestehende). Ein neues
+    Mitglied übernimmt die Einrückung der vorhandenen: update_groups_in_yaml
+    schreibt sechs Leerzeichen, llama-swap-build-config normalisiert auf
+    vier — eine abweichende Zeile faltet YAML in das vorige Mitglied, und
+    llama-swap startet nicht mehr (09.10.2026)."""
     vision_block = (
         "  vision:\n    exclusive: false\n    swap: true\n"
         "    persistent: true\n    members:\n"
     )
-    if re.search(rf"^    - {re.escape(profile)}$", content, re.M):
+    if re.search(rf"^ +- {re.escape(profile)}$", content, re.M):
         return content
     m = re.search(r"^groups:\n", content, re.M)
     if not m:
-        return content + f"\ngroups:\n{vision_block}    - {profile}\n"
+        return content + f"\ngroups:\n{vision_block}      - {profile}\n"
     vm = re.search(r"^  vision:\n(?:^    .*\n)*", content[m.end():], re.M)
     if not vm:
         insert_at = m.end()
-        return (
-            content[:insert_at]
-            + f"{vision_block}    - {profile}\n"
-            + content[insert_at:]
-        )
+        return content[:insert_at] + vision_block + f"      - {profile}\n" + content[insert_at:]
+    existing = re.search(r"^( +)- ", vm.group(0), re.M)
+    indent = existing.group(1) if existing else "      "
     insert_at = m.end() + vm.end()
-    return content[:insert_at] + f"    - {profile}\n" + content[insert_at:]
+    return content[:insert_at] + f"{indent}- {profile}\n" + content[insert_at:]
 
 
-def enforce_visiond_ctx(config_path: Path) -> int:
-    """``-c`` aller ``-visiond``-Profile auf VLM_NUM_CTX ziehen (SSOT in
-    aifred/lib/config.py) — ersetzt das frühere Hand-Nachziehen bei
-    Kontext-Änderungen. Returnt Anzahl angepasster Profile."""
+def enforce_visiond_flags(config_path: Path) -> int:
+    """``-c`` und KV-Cache-Typ (-ctk/-ctv) aller Heimat-``-visiond``-Profile
+    auf VLM_NUM_CTX / VLM_KV_CACHE_TYPE ziehen (SSOT in aifred/lib/config.py)
+    — die Platzierungs-Varianten übernehmen die Befehlszeile danach aus ihrer
+    Heimat (sync_visiond_placements). Returnt Anzahl angepasster Profile."""
     ctx = read_vlm_num_ctx()
-    if not ctx:
+    kv = read_vlm_kv_cache_type()
+    if not ctx or not kv:
         return 0
     model_cmds = _parse_model_cmds(config_path)
     content = config_path.read_text()
@@ -2429,13 +2449,83 @@ def enforce_visiond_ctx(config_path: Path) -> int:
         if not name.endswith("-visiond"):
             continue
         new_cmd = re.sub(r"(-c )\d+", rf"\g<1>{ctx}", cmd, count=1)
+        if re.search(r"(^| )-ctk ", new_cmd):
+            for flag in ("-ctk", "-ctv"):
+                new_cmd = re.sub(rf"((?:^| ){flag} )\S+", rf"\g<1>{kv}", new_cmd, count=1)
+        else:
+            new_cmd = re.sub(r"(-c \d+)", rf"\g<1> -ctk {kv} -ctv {kv}", new_cmd, count=1)
         if new_cmd != cmd:
             content = content.replace(cmd, new_cmd)
-            print(f"  ~ {name}: -c → {ctx}")
+            print(f"  ~ {name}: -c {ctx}, KV {kv}")
             fixed += 1
     if fixed:
         _write_config(config_path, content)
     return fixed
+
+
+def sync_visiond_placements(config_path: Path) -> int:
+    """Platzierungs-Varianten ``<home>-gpu<N>`` je Heimat-``-visiond``-Profil
+    auf jeder weiteren Karte: dieselbe Befehlszeile und TTL wie die Heimat,
+    nur ``CUDA_VISIBLE_DEVICES`` auf Karte N. AIfred lädt beim Beschreiben die
+    Variante, deren Karte gerade genug frei hat — so passt der Describer auch
+    neben ein Hauptmodell, das die Heimatkarte belegt. Die Heimat ist die
+    Wahrheit: abweichende Varianten werden neu geschrieben, Varianten ohne
+    Heimat oder Karte entfernt. Nur gepinnte Heimat-Profile bekommen
+    Varianten. Returnt Anzahl geänderter Einträge."""
+    import yaml as _yaml
+    from vlm_naming import VISIOND_SUFFIX, is_visiond_profile, visiond_placement
+
+    models = (_yaml.safe_load(config_path.read_text()) or {}).get("models") or {}
+    gpus = {int(r["index"]): str(r["uuid"]) for r in nvidia_smi.query("index,uuid")}
+
+    def pinned_uuid(entry: dict) -> str:
+        for item in entry.get("env") or []:
+            key, _, value = str(item).partition("=")
+            if key == "CUDA_VISIBLE_DEVICES":
+                return value.strip()
+        return ""
+
+    wanted: dict[str, tuple[dict, str]] = {}
+    for home, entry in models.items():
+        if not home.endswith(VISIOND_SUFFIX) or not pinned_uuid(entry):
+            continue
+        for index, uuid in gpus.items():
+            if uuid != pinned_uuid(entry):
+                wanted[visiond_placement(home, index)] = (entry, uuid)
+
+    content = config_path.read_text()
+    changed = 0
+    for name in models:
+        if is_visiond_profile(name) and not name.endswith(VISIOND_SUFFIX) and name not in wanted:
+            content = _remove_model_block(content, name)
+            content = "".join(
+                line for line in content.splitlines(keepends=True)
+                if line.strip() != f"- {name}"
+            )
+            print(f"  ✗ {name} — placement without home profile or GPU")
+            changed += 1
+    for name, (home_entry, uuid) in sorted(wanted.items()):
+        current = models.get(name)
+        if (
+            current
+            and current.get("cmd") == home_entry.get("cmd")
+            and current.get("ttl") == home_entry.get("ttl")
+            and pinned_uuid(current) == uuid
+        ):
+            continue
+        if current:
+            content = _remove_model_block(content, name)
+        block = f"  {name}:\n    cmd: {home_entry['cmd']}\n"
+        if home_entry.get("ttl") is not None:
+            block += f"    ttl: {home_entry['ttl']}\n"
+        block += f"    env:\n    - CUDA_VISIBLE_DEVICES={uuid}\n"
+        content = _insert_model_block(content, block)
+        content = _ensure_vision_group_member(content, name)
+        print(f"  {'~' if current else '+'} {name}")
+        changed += 1
+    if changed:
+        _write_config(config_path, content)
+    return changed
 
 
 # ``<basis>-vlm-<key>``, optional ``-speed``.
@@ -2769,14 +2859,16 @@ def main() -> None:
     stale_profiles = cleanup_stale_operating_points()
 
     # Vision-Describer pflegen: Profile für mmproj-Modelle anlegen,
-    # -c auf VLM_NUM_CTX ziehen, Varianten verwaister VLMs entfernen.
+    # -c/KV-Typ auf VLM_NUM_CTX/VLM_KV_CACHE_TYPE ziehen, Platzierungs-
+    # Varianten je Karte ableiten, Varianten verwaister VLMs entfernen.
     # Bewusst OHNE config_changed: Groups werden hier gezielt gepflegt,
     # update_groups_in_yaml soll nicht extra angestoßen werden.
     print("Maintaining -visiond describer profiles...")
     visiond_added = ensure_visiond_profiles(LLAMASWAP_CONFIG)
-    visiond_ctx_fixed = enforce_visiond_ctx(LLAMASWAP_CONFIG)
+    visiond_flags_fixed = enforce_visiond_flags(LLAMASWAP_CONFIG)
+    visiond_placements = sync_visiond_placements(LLAMASWAP_CONFIG)
     stale_vlm_variants = cleanup_stale_vlm_variants(LLAMASWAP_CONFIG)
-    if not (visiond_added or visiond_ctx_fixed or stale_vlm_variants):
+    if not (visiond_added or visiond_flags_fixed or visiond_placements or stale_vlm_variants):
         print("  visiond profiles up to date")
     if removed_symlinks or stale_models or stale_skip or stale_profiles:
         total = (len(removed_symlinks) + len(stale_models) + stale_skip
@@ -2908,8 +3000,10 @@ def main() -> None:
         parts.append(f"{yaml_added} added")
     if visiond_added:
         parts.append(f"{visiond_added} visiond profile(s) added")
-    if visiond_ctx_fixed:
-        parts.append(f"{visiond_ctx_fixed} visiond ctx updated")
+    if visiond_flags_fixed:
+        parts.append(f"{visiond_flags_fixed} visiond ctx/KV updated")
+    if visiond_placements:
+        parts.append(f"{visiond_placements} visiond placement(s) synced")
     if stale_vlm_variants:
         parts.append(f"{len(stale_vlm_variants)} stale -vlm variant(s) removed")
     if cache_added:

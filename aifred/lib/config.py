@@ -778,6 +778,14 @@ VISION_VLM_MAX_PIXELS = 2_100_000
 # Bei Änderung VLM neu kalibrieren.
 VLM_NUM_CTX = 24576
 
+# KV-Cache-Typ der ``-visiond``-Describer-Profile (llama.cpp -ctk/-ctv; der
+# Autoscan zieht alle Profile darauf). q8_0 statt f16 spart beim 4B-VLM bei
+# 24576 Token 1.598 MiB (gemessen 09.10.2026 auf einer RTX 8000: Spitze
+# 8.724 → 7.126 MiB) — damit passt der Describer neben ein Hauptmodell, das
+# alle Karten belegt, ohne die 10-Bild-Bursts zu kürzen. Bei Änderung VLM
+# neu kalibrieren (der Burn-in-Cache kennt nur Modell × Kontext).
+VLM_KV_CACHE_TYPE = "q8_0"
+
 # Hard wall-clock ceiling for a single Ollama VLM call (seconds). A VLM
 # request that lands on a GPU finishes in seconds; one that gets evicted
 # to CPU offload (no free VRAM next to a large resident LLM) runs for many

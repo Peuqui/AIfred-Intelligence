@@ -148,8 +148,11 @@ async def prewarm_vlm(
     # Dann warmlaufen lassen heißt: das Profil per Mini-Request laden.
     # keep_alive/num_ctx sind Ollama-Konzepte — Residenz regelt die
     # persistente vision-Gruppe, den Kontext die YAML (-c = VLM_NUM_CTX).
-    from .vision_routing import visiond_profile_for
-    visiond = visiond_profile_for(str(model))
+    from .vision_routing import fitting_visiond
+    visiond, fit = fitting_visiond(str(model))
+    if fit is not None and visiond is None:
+        logger.info("prewarm_vlm: describer does not fit next to the loaded models: %s", fit.message)
+        return False
     if visiond is not None:
         import httpx
 

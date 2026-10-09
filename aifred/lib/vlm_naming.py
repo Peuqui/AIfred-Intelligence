@@ -12,6 +12,29 @@ import re
 
 VISIOND_SUFFIX = "-visiond"
 
+# Platzierungs-Varianten eines Describer-Profils: ``<base>-visiond`` ist die
+# Heimat (gepinnt auf die Side-Channel-Karte), ``<base>-visiond-gpu<N>``
+# dieselbe Befehlszeile auf Karte N. Die Platzprüfung wählt beim Laden die
+# Variante, deren Karte gerade genug frei hat.
+_PLACEMENT_RE = re.compile(re.escape(VISIOND_SUFFIX) + r"-gpu\d+$")
+
+
+def visiond_home(name: str) -> str:
+    """Heimat-Profil zu einer Platzierungs-Variante (sonst ``name``)."""
+    if _PLACEMENT_RE.search(name):
+        return name[: name.rindex("-gpu")]
+    return name
+
+
+def is_visiond_profile(name: str) -> bool:
+    """Describer-Profil: Heimat ``<base>-visiond`` oder Platzierungs-Variante."""
+    return visiond_home(name).endswith(VISIOND_SUFFIX)
+
+
+def visiond_placement(home: str, gpu_index: int) -> str:
+    """Name der Platzierungs-Variante von ``home`` auf Karte ``gpu_index``."""
+    return f"{home}-gpu{gpu_index}"
+
 # Füll-Tokens, die für die Identität eines Describer-Modells keine Rolle
 # spielen und deshalb nicht in den ``-vlm-<key>``-Variantennamen gehören.
 _KEY_NOISE_TOKENS = frozenset({"instruct", "chat", "it", "ud", "mtp"})

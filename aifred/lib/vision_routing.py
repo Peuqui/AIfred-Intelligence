@@ -19,8 +19,12 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from .ollama_models import list_ollama_vlm_models
+
+if TYPE_CHECKING:
+    from .vision_vram_check import VRAMCheckResult
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +100,43 @@ def visiond_profile_for(name: str) -> str | None:
     return None
 
 
+def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
+    """Describer-Profil von ``name``, das gerade neben das Geladene passt.
+
+    Kandidaten sind das Heimat-Profil ``<base>-visiond`` und seine
+    Platzierungs-Varianten ``-visiond-gpu<N>`` (Autoscan). Reihenfolge:
+    eine schon geladene Platzierung; sonst die Heimat (die Side-Channel-
+    Karte, dort liegt der Describer allein), wenn sie passt; sonst die
+    passende Variante mit dem meisten freien VRAM. Rückgabe ``(profil,
+    prüfergebnis)`` — ``(None, prüfergebnis der heimat)``, wenn keine passt,
+    ``(None, None)`` ohne ``-visiond``-Profil.
+    """
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    from .config import LLAMASWAP_CONFIG_PATH
+    from .vision_vram_check import check_visiond_fits
+    from .vlm_naming import visiond_home
+
+    home = visiond_profile_for(name)
+    if home is None:
+        return None, None
+    placements = [home] + sorted(
+        p for p in parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+        if p != home and visiond_home(p) == home
+    )
+    loaded = set(loaded_llamaswap_profiles())
+    for profile in placements:
+        if profile in loaded:
+            return profile, check_visiond_fits(profile)
+    checks = [(profile, check_visiond_fits(profile)) for profile in placements]
+    home_check = checks[0][1]
+    if home_check.fits:
+        return home, home_check
+    fitting = [(profile, check) for profile, check in checks if check.fits]
+    if not fitting:
+        return None, home_check
+    return max(fitting, key=lambda item: item[1].free_mb)
+
+
 class NoVisionModelError(RuntimeError):
     """Kein Modell kann das Bild beschreiben, ohne das Chat-LLM zu verdrängen."""
 
@@ -132,8 +173,9 @@ def loaded_seeing_profile() -> str | None:
     """Geladenes llama-swap-Profil mit eigenem Vision-Encoder — außer den
     ``-visiond``-Describern selbst. ``None``, wenn keins sieht."""
     from .vision_utils import has_native_vision
+    from .vlm_naming import is_visiond_profile
     for profile in loaded_llamaswap_profiles():
-        if not profile.endswith("-visiond") and has_native_vision(profile):
+        if not is_visiond_profile(profile) and has_native_vision(profile):
             return profile
     return None
 
@@ -144,12 +186,11 @@ def _vision_llm_describer(reason: str) -> Describer:
     in seiner effektiven Variante (TTS-Reserve etc.) selbst und verdrängt
     das Chat-LLM. ``reason`` landet im Fehler, wenn keins eingestellt ist."""
     from .config import get_effective_model_from_settings
-    from .vision_vram_check import check_visiond_fits
     vision = _settings_model("vision")
     if not vision:
         raise NoVisionModelError(f"{reason}; no vision LLM is configured")
-    visiond = visiond_profile_for(vision)
-    if visiond is not None and check_visiond_fits(visiond).fits:
+    visiond, _ = fitting_visiond(vision)
+    if visiond is not None:
         return Describer(visiond, evicts_chat_model=False)
     return Describer(
         get_effective_model_from_settings("vision"), evicts_chat_model=True,
@@ -171,8 +212,9 @@ def chat_describer(main_model: str) -> Describer:
 def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:
     """Regel B (Vigilantia: Watcher, Alarme, Türsteher, Kamerabilder).
 
-    1. Das Kamera-VLM passt neben das Geladene (oder es ist nichts
-       geladen) → das VLM über sein ``-visiond``-Profil.
+    1. Das Kamera-VLM passt auf einer Karte neben das Geladene (oder es
+       ist nichts geladen) → das VLM über die passende ``-visiond``-
+       Platzierung (fitting_visiond).
     2. Sonst sieht das geladene Modell → es beschreibt selbst.
     3. Sonst nur auf ausdrückliche Bitte (Casus-Button, Agent-Tool): das
        Vision-LLM der Haupteinstellungen, notfalls mit Verdrängung.
@@ -185,14 +227,12 @@ def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:
     es würde im exklusiven Haupt-Slot das Chat-LLM verdrängen.
     """
     from .vision_utils import has_native_vision
-    from .vision_vram_check import check_visiond_fits
-    visiond = visiond_profile_for(vlm_model)
-    if visiond is None and not has_native_vision(vlm_model):
+    visiond, fit = fitting_visiond(vlm_model)
+    if fit is None and not has_native_vision(vlm_model):
         return Describer(vlm_model, evicts_chat_model=False)
     if visiond is not None:
-        fit = check_visiond_fits(visiond)
-        if fit.fits:
-            return Describer(visiond, evicts_chat_model=False)
+        return Describer(visiond, evicts_chat_model=False)
+    if fit is not None:
         reason = fit.message
     else:
         reason = f"'{vlm_model}' has no -visiond profile and would evict the chat model"

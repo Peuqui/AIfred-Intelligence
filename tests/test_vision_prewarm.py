@@ -30,15 +30,25 @@ def patched_settings(monkeypatch, tmp_path: Path):
 
     ``state["settings"]`` feeds _load_vision_settings (vision_mode/vlm),
     ``state["plugin_enabled"]`` feeds is_plugin_enabled (the override trigger)."""
-    state: dict = {"settings": {}, "plugin_enabled": True, "visiond": None}
+    state: dict = {"settings": {}, "plugin_enabled": True, "visiond": None, "visiond_fits": True}
 
     monkeypatch.setattr(vpw, "_load_vision_settings", lambda: state["settings"])
     monkeypatch.setattr(pr, "is_plugin_enabled", lambda *a, **k: state["plugin_enabled"])
     # Describer-Auflösung isolieren (sonst liest sie die ECHTE llama-swap-
     # config): Default None = Ollama-Fallback-Pfad; Tests für den
-    # llama-swap-Zweig setzen state["visiond"] auf einen Profilnamen.
+    # llama-swap-Zweig setzen state["visiond"] auf einen Profilnamen,
+    # state["visiond_fits"] False = keine Platzierung passt.
     import aifred.lib.vision_routing as vr
-    monkeypatch.setattr(vr, "visiond_profile_for", lambda name: state["visiond"])
+    from aifred.lib.vision_vram_check import VRAMCheckResult
+
+    def fitting(name):
+        if state["visiond"] is None:
+            return None, None
+        fit = VRAMCheckResult(fits=state["visiond_fits"], needed_mb=0, free_mb=0, gpu_index=-1,
+                              message="does not fit")
+        return (state["visiond"] if state["visiond_fits"] else None), fit
+
+    monkeypatch.setattr(vr, "fitting_visiond", fitting)
     return state
 
 
@@ -144,6 +154,24 @@ class TestPrewarm:
         assert run(vpw.prewarm_vlm()) is True
         assert captured["json"]["model"] == "Qwen3VL-4B-Instruct-Q8_0-visiond"
         assert captured["json"]["max_tokens"] == 1
+
+    def test_no_fitting_placement_skips_the_load(self, patched_settings, monkeypatch):
+        # Passt der Describer auf keiner Karte neben das Geladene, lädt der
+        # Prewarm nichts (kein Request, der das Chat-LLM verdrängen würde).
+        patched_settings["settings"] = {
+            "vision_mode": "live",
+            "vlm": {"model": "qwen3-vl:4b-instruct-q8_0"},
+        }
+        patched_settings["visiond"] = "Qwen3VL-4B-Instruct-Q8_0-visiond"
+        patched_settings["visiond_fits"] = False
+
+        import httpx
+
+        def no_client(*a, **k):
+            raise AssertionError("prewarm must not send a request")
+
+        monkeypatch.setattr(httpx, "AsyncClient", no_client)
+        assert run(vpw.prewarm_vlm()) is False
 
     def test_returns_false_when_no_model_configured(self, patched_settings):
         # live mode reaches the model check (on-demand would no-op earlier).

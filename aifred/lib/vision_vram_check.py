@@ -82,8 +82,9 @@ async def _query_ollama_running_models(host: str) -> list[dict[str, Any]]:
 
 
 def check_visiond_fits(profile: str) -> VRAMCheckResult:
-    """Passt das llama-swap-Describer-Profil ``<base>-visiond`` neben das,
-    was gerade geladen ist?
+    """Passt das llama-swap-Describer-Profil ``<base>-visiond`` (oder eine
+    Platzierungs-Variante ``-visiond-gpu<N>``) neben das, was gerade
+    geladen ist?
 
     Bedarf = Burn-in-Peak aus ``vlm_vram_cache`` beim Kontext des Profils
     plus ``LLAMACPP_VLM_HEADROOM_MB`` (dieselbe Reserve wie in der
@@ -104,8 +105,10 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
             message=f"VLM-Profil '{profile}' ist bereits geladen.",
         )
 
+    from .vlm_naming import VISIOND_SUFFIX, visiond_home
+
     entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)[profile]
-    base = profile.removesuffix("-visiond")
+    base = visiond_home(profile).removesuffix(VISIOND_SUFFIX)
     num_ctx = int(entry["current_context"])
     peak_mb = vlm_vram_cache.get(base, num_ctx)
     if peak_mb is None:
@@ -176,11 +179,12 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
         )
 
     # llama.cpp-Describer-Pfad: Existiert ein -visiond-Profil, entscheidet
-    # der gemessene Bedarf gegen den freien VRAM seiner Karte(n).
-    from .vision_routing import visiond_profile_for
-    visiond = visiond_profile_for(str(target))
-    if visiond is not None:
-        return check_visiond_fits(visiond)
+    # der gemessene Bedarf gegen den freien VRAM der Karte seiner passenden
+    # Platzierung (fitting_visiond).
+    from .vision_routing import fitting_visiond
+    _, fit = fitting_visiond(str(target))
+    if fit is not None:
+        return fit
 
     # Primary source: stress-prewarm-measured peak from the VLM VRAM
     # cache. Populated lazily by the calibration's resolve_vlm_reserve;
