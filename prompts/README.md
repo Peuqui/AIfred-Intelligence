@@ -61,17 +61,13 @@ Each agent uses a layered prompt architecture:
 | `judge.txt` | Final verdict for Tribunal mode |
 | `direct.txt` | Direct response task |
 
-## Shared Prompts (by language)
+## Automatik and Utility Prompts
 
 | File | Purpose | Placeholders |
 |------|---------|--------------|
-| `decision_making.txt` | Auto-mode decision (search/cache/knowledge) | `{user_text}`, `{image_context}`, `{vision_json_context}` |
-| `query_generation.txt` | Generate three web-search queries from user query (1× EN + 2× user-language) | `{user_text}`, `{vision_json_context}` |
-| `intent_detection.txt` | Detect query intent for temperature tuning | `{user_query}` |
-| `followup_intent_detection.txt` | Intent for follow-up queries | `{original_query}`, `{followup_query}` |
-| `history_summarization.txt` | Compress conversation history | *(content passed separately)* |
-| `cache_decision.txt` | Decide if cache hit is relevant | *(various)* |
-| `cache_metadata.txt` | Generate cache entry summary | `{sources_preview}` |
+| `en/automatik/intent_detection.txt` | Intent, addressee, language and mode switch of a message (EN only) | `{user_query}`, `{agent_list}` |
+| `en/automatik/url_ranking.txt` | Rank search-result URLs by relevance for `web_search` (EN only) | `{user_question}`, `{url_list}`, `{top_n}`, `{conversation_context}` |
+| `{de,en}/utility/history_summarization.txt` | Compress conversation history | `{conversation}`, `{max_tokens}`, `{max_words}` |
 
 ## Usage
 

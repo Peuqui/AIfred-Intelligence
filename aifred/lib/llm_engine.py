@@ -2,9 +2,8 @@
 LLM Engine - Zentrale Funktion für LLM-Aufrufe aller Agenten.
 
 Diese Funktion wird aufgerufen von:
-- state.py: research_mode == "none"
-- state.py: research_mode in ["quick", "deep"] wenn LLM web=false entscheidet
-- conversation_handler.py: Automatik-Modus wenn LLM web=false entscheidet
+- state/_chat_mixin.py: VL Direct (Bild-Upload, das Hauptmodell sieht selbst)
+- message_processor.py: Message Hub und Scheduler (E-Mail, Telegram, Echo Dot, …)
 
 Yields Dict-Messages die vom Aufrufer geroutet werden:
 - {"type": "debug", "message": str}
@@ -17,7 +16,7 @@ from typing import AsyncIterator, Dict, List, Optional, Any, cast
 
 from .llm_client import LLMClient, build_llm_options
 from .formatting import format_number, build_inference_metadata
-from .prompt_loader import get_agent_direct_prompt, get_agent_system_prompt
+from .prompt_loader import get_agent_system_prompt
 from .context_manager import estimate_tokens
 from .intent_detector import get_temperature_for_intent, get_temperature_label
 from .logging_utils import log_message
@@ -37,7 +36,6 @@ async def call_llm(
     backend_type: str,
     backend_url: Optional[str],
     state: Optional[Any] = None,
-    use_direct_prompt: bool = False,
     multimodal_content: Optional[List[Dict]] = None,
     memory_ctx: Optional[str] = None,
     vision_json_context: Optional[Dict] = None,
@@ -53,7 +51,7 @@ async def call_llm(
     source: str = "browser",
 ) -> AsyncIterator[Dict]:
     """
-    Generiert eine LLM-Antwort basierend auf eigenem Wissen (ohne Web-Recherche).
+    Generiert eine LLM-Antwort; Werkzeuge kommen über ``external_toolkit`` vom Aufrufer.
 
     Args:
         user_text: Die User-Nachricht
@@ -67,7 +65,6 @@ async def call_llm(
         backend_type: Backend-Typ ("ollama", "vllm", "llamacpp", "cloud_api")
         backend_url: Backend-URL
         state: AIState Objekt für num_ctx Lookup (optional)
-        use_direct_prompt: True wenn User AIfred direkt angesprochen hat
         multimodal_content: Multimodal Content für Bilder (optional)
         memory_ctx: Agent-Memory-Kontext aus prepare_agent_toolkit (vom Caller bereits gesammelte Erinnerungen; kommt als eigene Nachricht vor die Nutzerfrage)
         vision_json_context: Vision JSON Kontext (optional)
@@ -130,8 +127,6 @@ async def call_llm(
         # the user asked something specific).
         if vision_task_addon:
             system_prompt = f"{system_prompt}\n\n{vision_task_addon}"
-    elif use_direct_prompt:
-        system_prompt = get_agent_direct_prompt(agent, lang=detected_language)
     else:
         system_prompt = get_agent_system_prompt(agent, "task", lang=detected_language, source=source)
     # Agent Memory: recall + toolkit. Three possible sources:

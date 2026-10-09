@@ -66,7 +66,7 @@ Global settings live in `data/settings.json`, written by the UI, the REST API
   reasoning effort, personality and speed-variant toggles.
 - On first start the defaults from `aifred/lib/config.py`
   (`BACKEND_DEFAULT_MODELS`) are used.
-- Per-session settings (agent, discussion mode, research mode) are **not** here
+- Per-session settings (agent, discussion mode) are **not** here
   but in the session file — see [REST API → Global vs. per-session](rest-api.md#global-vs-per-session).
 
 **Sampling persistence**

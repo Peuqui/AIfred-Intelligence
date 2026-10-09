@@ -21,31 +21,11 @@ def _load_translations() -> Dict[str, Dict[str, str]]:
     }
 
 
-# Internal research-mode value -> translation key (SSOT: display texts
-# come from the translation files, the maps below are derived).
-_RESEARCH_MODE_KEYS: Dict[str, str] = {
-    "automatik": "research_mode_auto",
-    "none": "research_mode_none",
-    "quick": "research_mode_quick",
-    "deep": "research_mode_deep",
-}
-
-
 class TranslationManager:
     """Manages UI translations"""
 
     # Translation dictionary, loaded from the per-language JSON files
     _translations: Dict[str, Dict[str, str]] = _load_translations()
-
-    # Research mode mappings, derived from the translations
-    _reverse_research_mode_maps: Dict[str, Dict[str, str]] = {
-        lang: {value: strings[key] for value, key in _RESEARCH_MODE_KEYS.items()}
-        for lang, strings in _translations.items()
-    }
-    _research_mode_maps: Dict[str, Dict[str, str]] = {
-        lang: {display: value for value, display in mapping.items()}
-        for lang, mapping in _reverse_research_mode_maps.items()
-    }
 
     @staticmethod
     def _resolve_lang(lang: Optional[str]) -> str:
@@ -83,38 +63,6 @@ class TranslationManager:
 
         # Final fallback: return the key itself
         return key
-
-    @staticmethod
-    def get_research_mode_value(display_text: str, lang: Optional[str] = None) -> str:
-        """
-        Get internal research mode value for display text
-
-        Args:
-            display_text: Display text of research mode
-            lang: Language code or None for current language
-
-        Returns:
-            Internal mode value (none, quick, deep, automatik)
-        """
-        lang = TranslationManager._resolve_lang(lang)
-        mode_map = TranslationManager._research_mode_maps[lang]
-        return mode_map.get(display_text, "automatik")
-
-    @staticmethod
-    def get_research_mode_display(mode_value: str, lang: Optional[str] = None) -> str:
-        """
-        Get display text for research mode value
-
-        Args:
-            mode_value: Internal mode value (none, quick, deep, automatik)
-            lang: Language code or None for current language
-
-        Returns:
-            Display text for the mode
-        """
-        lang = TranslationManager._resolve_lang(lang)
-        reverse_mode_map = TranslationManager._reverse_research_mode_maps[lang]
-        return reverse_mode_map.get(mode_value, reverse_mode_map["automatik"])
 
 
 # Convenience function

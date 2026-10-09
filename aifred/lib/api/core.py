@@ -49,9 +49,6 @@ class SettingsResponse(BaseModel):
     temperature_mode: str = "auto"
     enable_thinking: bool = True
 
-    # Research
-    research_mode: str = "automatik"
-
     # Multi-Agent
     multi_agent_mode: str = "standard"
     max_debate_rounds: int = 3
@@ -90,9 +87,6 @@ class SettingsUpdate(BaseModel):
     temperature: Optional[float] = None
     temperature_mode: Optional[str] = None
     enable_thinking: Optional[bool] = None
-
-    # Research
-    research_mode: Optional[str] = None
 
     # Multi-Agent
     multi_agent_mode: Optional[str] = None
@@ -180,7 +174,6 @@ async def get_settings():
         temperature=_tuning(settings, "aifred", "temperature", DEFAULT_TEMPERATURE),
         temperature_mode=settings.get("temperature_mode", "auto"),
         enable_thinking=settings.get("enable_thinking", True),
-        research_mode=settings.get("research_mode", "automatik"),
         multi_agent_mode=settings.get("multi_agent_mode", "standard"),
         max_debate_rounds=settings.get("max_debate_rounds", 3),
         consensus_type=settings.get("consensus_type", "majority"),

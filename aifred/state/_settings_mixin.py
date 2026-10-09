@@ -124,7 +124,7 @@ class SettingsMixin(rx.State, mixin=True):
             # unrelated settings save would drop the key and silently revert
             # the AI calibration toggle to legacy on the next run.
             "calibration_mode": self.calibration_mode or "legacy",  # type: ignore[attr-defined, has-type]
-            # NOTE: research_mode, multi_agent_mode are per-session now (session_storage.DEFAULT_SESSION_CONFIG)
+            # NOTE: multi_agent_mode is per-session now (session_storage.DEFAULT_SESSION_CONFIG)
             # NOTE: per-agent tuning (temperature, sampling, thinking,
             # personality, speed) is appended below as "agent_tuning"
             "temperature_mode": self.temperature_mode,  # type: ignore[attr-defined, has-type]
@@ -241,7 +241,7 @@ class SettingsMixin(rx.State, mixin=True):
         # Core settings
         self.temperature_mode = settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
 
-        # NOTE: research_mode, multi_agent_mode, active_agent, symposion_agents
+        # NOTE: multi_agent_mode, active_agent, symposion_agents
         # are now per-session config, NOT global settings. They are loaded from
         # the session file in _restore_session().
 
@@ -314,10 +314,6 @@ class SettingsMixin(rx.State, mixin=True):
             # Update global locale for number formatting
             from ..lib.formatting import set_ui_locale
             set_ui_locale(lang)
-            # Update research_mode_display to match new language
-            self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined, has-type]
-                self.research_mode, lang  # type: ignore[attr-defined, has-type, arg-type]
-            )
             self.add_debug(f"\U0001f310 UI Language changed to: {lang}")  # type: ignore[attr-defined, has-type]
 
             # Auto-switch TTS voice to matching language
@@ -378,18 +374,12 @@ class SettingsMixin(rx.State, mixin=True):
                     self.backend_id, self.backend_id  # type: ignore[attr-defined, has-type]
                 )
 
-                # NOTE: research_mode, multi_agent_mode are now per-session.
+                # NOTE: multi_agent_mode is per-session.
                 # Reset to clean defaults (matches DEFAULT_SESSION_CONFIG).
                 from ..lib.session_storage import DEFAULT_SESSION_CONFIG
-                self.research_mode = DEFAULT_SESSION_CONFIG["research_mode"]  # type: ignore[attr-defined, has-type]
                 self.multi_agent_mode = DEFAULT_SESSION_CONFIG["multi_agent_mode"]  # type: ignore[attr-defined, has-type]
                 self.active_agent = DEFAULT_SESSION_CONFIG["active_agent"]  # type: ignore[attr-defined, has-type]
                 self.symposion_agents = list(DEFAULT_SESSION_CONFIG["symposion_agents"])  # type: ignore[attr-defined, has-type]
-
-                # Update research_mode_display to match reset research_mode
-                self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined, has-type]
-                    self.research_mode, self.ui_language  # type: ignore[attr-defined, has-type]
-                )
 
                 self.temperature_mode = saved_settings["temperature_mode"]  # type: ignore[attr-defined, has-type]
                 self.enable_tts = saved_settings["enable_tts"]  # type: ignore[attr-defined, has-type]

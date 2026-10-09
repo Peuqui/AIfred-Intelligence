@@ -159,8 +159,8 @@ def inject_before_question(
 ) -> None:
     """Flüchtigen Block als eigene Nachricht vor die Nutzerfrage haengen.
 
-    Fuer alles, was sich von Turn zu Turn aendert: Agenten-Erinnerungen,
-    erzwungene Web-Recherche. NICHT an den System-Prompt anhaengen — bei
+    Fuer alles, was sich von Turn zu Turn aendert, etwa Agenten-Erinnerungen.
+    NICHT an den System-Prompt anhaengen — bei
     Erinnerungen etwa ist der Abruf FRAGENABHAENGIG
     (``prepare_agent_toolkit(agent, user_query, ...)``), der Block aendert
     sich also von Turn zu Turn oder faellt ganz weg. Am System-Prompt

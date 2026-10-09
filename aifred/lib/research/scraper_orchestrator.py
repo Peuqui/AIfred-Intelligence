@@ -2,7 +2,7 @@
 Scraper Orchestrator - Parallel web scraping coordination
 
 Handles:
-- Scraping strategy based on mode (quick/deep)
+- Scrape limit (RESEARCH_SCRAPE_URLS)
 - Parallel scraping with ThreadPoolExecutor
 - Progress reporting
 - LLM preloading during scraping
@@ -18,7 +18,6 @@ from ..logging_utils import log_message
 
 async def orchestrate_scraping(
     related_urls: List[str],
-    mode: str,
     llm_client,
     model_choice: str,
     preload_num_ctx: int,
@@ -28,7 +27,6 @@ async def orchestrate_scraping(
 
     Args:
         related_urls: List of URLs to scrape
-        mode: Scraping mode ('quick' or 'deep')
         llm_client: Main LLM client (for preloading)
         model_choice: Main LLM model name
         preload_num_ctx: Context the following inference uses — from the
@@ -52,17 +50,9 @@ async def orchestrate_scraping(
 
     log_message(f"📋 {len(related_urls)} URLs found from search engine")
 
-    # Determine scraping strategy
-    from ..config import RESEARCH_QUICK_URLS, RESEARCH_DEEP_URLS
-
-    if mode == "deep":
-        scrape_limit = RESEARCH_DEEP_URLS
-        log_message(f"🔍 Deep mode: Scrape top {scrape_limit} URLs")
-    else:
-        scrape_limit = RESEARCH_QUICK_URLS
-        log_message(f"⚡ Quick mode: Scrape top {scrape_limit} URLs")
-
-    urls_to_scrape = related_urls[:scrape_limit]
+    from ..config import RESEARCH_SCRAPE_URLS
+    log_message(f"🔍 Scrape top {RESEARCH_SCRAPE_URLS} URLs")
+    urls_to_scrape = related_urls[:RESEARCH_SCRAPE_URLS]
 
     yield {"type": "debug", "message": "🌐 Web scraping starting (parallel)"}
 

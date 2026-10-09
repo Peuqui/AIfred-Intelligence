@@ -42,7 +42,6 @@ class ImageMixin(rx.State, mixin=True):
     # Help Modals
     multi_agent_help_open: bool = False
     reasoning_thinking_help_open: bool = False
-    research_help_open: bool = False
     model_lifecycle_help_open: bool = False
 
     # Mobile Detection
@@ -261,18 +260,6 @@ class ImageMixin(rx.State, mixin=True):
     def close_multi_agent_help(self) -> None:
         """Closes the multi-agent modes help modal"""
         self.multi_agent_help_open = False
-
-    # ------------------------------------------------------------------
-    # Research Mode Help Modal Handlers
-    # ------------------------------------------------------------------
-
-    def open_research_help(self) -> None:
-        """Opens the research modes help modal."""
-        self.research_help_open = True
-
-    def close_research_help(self) -> None:
-        """Closes the research modes help modal."""
-        self.research_help_open = False
 
     # ------------------------------------------------------------------
     # Reasoning/Thinking Help Modal Handlers

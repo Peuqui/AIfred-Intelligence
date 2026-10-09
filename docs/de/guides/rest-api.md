@@ -69,7 +69,7 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 | `/api/chat/history` | GET | `?session_id=` — `chat_history` + `llm_history` (ohne Angabe die neueste Session) |
 | `/api/chat/clear` | POST | History einer Session leeren (`session_id`) |
 | `/api/sessions` | GET | Sessions auflisten (`session_id`, `last_seen`, `message_count`) |
-| `/api/session/config` | POST | Konfiguration pro Session: `active_agent`, `multi_agent_mode`, `symposion_agents`, `research_mode` |
+| `/api/session/config` | POST | Konfiguration pro Session: `active_agent`, `multi_agent_mode`, `symposion_agents` |
 
 ### Einstellungen, Modelle, System
 
@@ -126,7 +126,7 @@ Ergebnis eines Scheduler- oder Webhook-Auftrags mit `delivery: webhook`. Es komm
 
 `/api/settings` enthält, was wirklich global ist (Backend, Modelle, TTS-Stimmen,
 Sprache, Sampling). Alles, was zu einer Unterhaltung gehört – Agent,
-Diskussionsmodus, Recherchemodus, Symposion-Teilnehmer – läuft über
+Diskussionsmodus, Symposion-Teilnehmer – läuft über
 `/api/session/config` und wird in der Session-Datei
 (`data/sessions/<session_id>.json`) als Single Source of Truth gespeichert:
 
@@ -136,8 +136,7 @@ Diskussionsmodus, Recherchemodus, Symposion-Teilnehmer – läuft über
     "config": {
       "active_agent": "aifred",
       "multi_agent_mode": "standard",
-      "symposion_agents": [],
-      "research_mode": "automatik"
+      "symposion_agents": []
     }
   }
 }
@@ -177,10 +176,10 @@ curl -s -X POST $API/audio/announce \
   -H "Authorization: Bearer <ANNOUNCE_API_TOKEN>" -H "Content-Type: application/json" \
   -d '{"room": "Büro", "text": "Der Commit ist durch.", "speaker": "Codine"}'
 
-# Switch this session to Tribunal with deep research
+# Switch this session to Tribunal
 curl -s -b "$COOKIE" -X POST $API/session/config \
   -H "Content-Type: application/json" \
-  -d '{"session_id": "<session_id>", "multi_agent_mode": "tribunal", "research_mode": "deep"}'
+  -d '{"session_id": "<session_id>", "multi_agent_mode": "tribunal"}'
 
 # Change AIfred's model (global)
 curl -s -b "$COOKIE" -X PATCH $API/settings \

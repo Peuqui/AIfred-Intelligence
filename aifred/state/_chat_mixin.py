@@ -65,9 +65,9 @@ class ChatMixin(rx.State, mixin=True):
     # Tool Status (shown in UI while agent uses tools)
     tool_status: str = ""  # e.g. "🌐 bibleserver.com/HFA/Psalm139"
 
-    # Outputs of the last execute_research run (forced quick/deep path and
-    # the web_search tool): the page content for the prompt, the sources
-    # collapsible for the bubble, and the llm_history line (research_note).
+    # Outputs of the last execute_research run (web_search tool): the page
+    # content for the tool result, the sources collapsible for the bubble,
+    # and the llm_history line (research_note).
     _research_context: str = ""
     _research_sources_html: str = ""
     _research_note: str = ""
@@ -732,14 +732,12 @@ class ChatMixin(rx.State, mixin=True):
                 context_limits.append(salomo_ctx)
 
         context_limit = min(context_limits) if context_limits else 4096
-        # Mit DENSELBEN Schaltern messen, mit denen _run_agent_direct_response
-        # den Prompt gleich baut — die Tools-Schicht allein wiegt ~8.000 Tokens.
-        # effective_research_mode ist an der Stelle immer self.research_mode.
+        # Mit DEMSELBEN Schalter messen, mit dem _run_agent_direct_response
+        # den Prompt gleich baut.
         system_prompt_tokens = get_max_direct_prompt_tokens(
             self.multi_agent_mode,  # type: ignore[attr-defined]
             detected_language,
             memory=self.agent_memory_enabled,  # type: ignore[attr-defined]
-            tools=self.research_mode != "none",  # type: ignore[attr-defined]
         )
 
         compression_model = get_largest_compression_model(
@@ -1270,11 +1268,7 @@ class ChatMixin(rx.State, mixin=True):
                 from ..lib.session_storage import update_session_config
 
                 # Apply to state (so the rest of the pipeline uses the new mode).
-                # NOTE: research_mode is intentionally NOT switchable here —
-                # the user controls it via the UI toggle, and the answering
-                # agent decides per query whether to invoke its web tools.
-                # ``_parse_mode_switch`` already drops any ``research=…`` from
-                # the LLM, so this dict only ever contains agent / multi keys.
+                # ``_parse_mode_switch`` only ever returns agent / multi keys.
                 if "active_agent" in mode_switch_updates:
                     self.active_agent = mode_switch_updates["active_agent"]  # type: ignore[attr-defined]
                 if "multi_agent_mode" in mode_switch_updates:
@@ -1387,51 +1381,10 @@ class ChatMixin(rx.State, mixin=True):
             yield
 
             # ============================================================
-            # KEYWORD/URL OVERRIDE: Force web research for explicit requests
-            # When user says "recherchiere" etc., always force web search
-            # regardless of model size or research_mode setting.
-            # ============================================================
-            effective_research_mode: str = self.research_mode  # type: ignore[attr-defined]
-
-            if effective_research_mode == "automatik":
-                from ..lib.research.query_processor import detect_urls_in_text
-                detected_urls = detect_urls_in_text(user_msg, max_urls=7)
-
-                explicit_keywords = [
-                    # German
-                    'recherchiere', 'recherchier',
-                    'suche im internet', 'such im internet',
-                    'schau nach', 'schau mal nach',
-                    'google', 'googel', 'google mal',
-                    'finde heraus', 'find heraus',
-                    'check das', 'prüfe das',
-                    # English
-                    'search for', 'search the web',
-                    'look up', 'look it up',
-                    'find out', 'research',
-                ]
-                user_lower = user_msg.lower()
-
-                # Forced research disabled — model uses web_fetch/web_search tools autonomously
-                # if detected_urls or any(kw in user_lower for kw in explicit_keywords):
-                #     if detected_urls:
-                #         self.add_debug(f"⚡ {len(detected_urls)} URL(s) detected → Forced Research")
-                #     else:
-                #         self.add_debug("⚡ Explicit research request → Forced Research")
-                #     effective_research_mode = "deep"
-                #     yield
-                if detected_urls:
-                    self.add_debug(f"🔗 {len(detected_urls)} URL(s) detected (model decides via tools)")
-                if any(kw in user_lower for kw in explicit_keywords):
-                    self.add_debug("🔍 Research keywords detected (model decides via tools)")
-
-            # ============================================================
             # UNIFIED AGENT RESPONSE (Single Source of Truth)
-            # All agents (AIfred, Sokrates, custom) use the same path.
-            # research_mode determines tool availability:
-            #   "none"      → no research tools
-            #   "automatik" → agent gets web_search/read_webpage tools
-            #   "quick"/"deep" → forced research before response
+            # All agents (AIfred, Sokrates, custom) use the same path, always
+            # with the full toolkit — the agent decides itself whether to
+            # research (web_search/web_fetch) or use any other tool.
             # ============================================================
 
             from ..lib.multi_agent import run_generic_agent_direct_response
@@ -1464,7 +1417,6 @@ class ChatMixin(rx.State, mixin=True):
                     responding_agent,
                     user_msg,
                     detected_language,
-                    research_mode=effective_research_mode,
                     detected_intent=detected_intent,
                     llm_user_text=llm_user_content,
                 ):

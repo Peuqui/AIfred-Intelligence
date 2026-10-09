@@ -125,8 +125,8 @@ class SessionMixin(rx.State, mixin=True):
             )
 
         # Update session_id, then restore full session state through the
-        # central path so active_agent, multi_agent_mode, symposion_agents,
-        # research_mode and audio state are picked up correctly.
+        # central path so active_agent, multi_agent_mode, symposion_agents
+        # and audio state are picked up correctly.
         self.session_id = session_id
 
         # Opening a session is activity: stamp last_seen so the next login
@@ -379,11 +379,10 @@ class SessionMixin(rx.State, mixin=True):
         self.current_session_title = data.get("title", "")
 
         # ── Session Config (SSOT für Agent/Mode) ──────────────────────
-        # Loads active_agent, multi_agent_mode, symposion_agents, research_mode
+        # Loads active_agent, multi_agent_mode, symposion_agents
         # from the session's config block. Falls back to hardcoded defaults
         # if the session has no config (new session).
         from ..lib.session_storage import DEFAULT_SESSION_CONFIG
-        from ..lib.i18n import TranslationManager
         config = dict(DEFAULT_SESSION_CONFIG)
         stored_config = data.get("config")
         if isinstance(stored_config, dict):
@@ -391,11 +390,6 @@ class SessionMixin(rx.State, mixin=True):
         self.active_agent = config["active_agent"]  # type: ignore[attr-defined]
         self.multi_agent_mode = config["multi_agent_mode"]  # type: ignore[attr-defined]
         self.symposion_agents = list(config["symposion_agents"])  # type: ignore[attr-defined]
-        self.research_mode = config["research_mode"]  # type: ignore[attr-defined]
-        # Update research_mode_display to match loaded research_mode + current UI language
-        self.research_mode_display = TranslationManager.get_research_mode_display(  # type: ignore[attr-defined]
-            self.research_mode, self.ui_language  # type: ignore[attr-defined]
-        )
 
         # Audio-Player-State aus Runtime-Memory restaurieren (nicht aus
         # Session-File). Tab-Reload setzt den Reflex-State auf Default
@@ -448,7 +442,7 @@ class SessionMixin(rx.State, mixin=True):
         """Persist agent/mode choices to the current session file (SSOT).
 
         Called from handlers (set_active_agent, set_multi_agent_mode,
-        set_research_mode, toggle_symposion_agent) to instantly save
+        toggle_symposion_agent) to instantly save
         the user's choice. Also updates _last_session_mtime so our own
         write doesn't trigger a reload in the tick-handler.
         """
@@ -463,7 +457,6 @@ class SessionMixin(rx.State, mixin=True):
             active_agent=self.active_agent,  # type: ignore[attr-defined]
             multi_agent_mode=self.multi_agent_mode,  # type: ignore[attr-defined]
             symposion_agents=list(self.symposion_agents),  # type: ignore[attr-defined]
-            research_mode=self.research_mode,  # type: ignore[attr-defined]
         )
 
         # Update mtime tracker so our own write doesn't trigger reload

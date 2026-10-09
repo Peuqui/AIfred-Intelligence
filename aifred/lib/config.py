@@ -116,7 +116,6 @@ DEFAULT_SETTINGS = {
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
     "tts_engine": "edge",
-    "research_mode": "automatik",  # Internal value: "automatik", "quick", "deep", "none"
     "show_transcription": False,
     "enable_gpu": True,
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
@@ -1043,10 +1042,9 @@ LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary searc
 # direkt bei seiner Quelle SECURITY_MAX_TOOL_CHAIN_DEPTH im
 # SECURITY-CONFIGURATION-Block weiter unten.
 
-# Forced-Research pipeline URL counts (quick vs deep).
+# Wie viele der gerankten URLs eine Websuche (web_search) scraped.
 # Es wird einmal gescraped, alles was klappt wird genommen — keine Re-Try-Logik.
-RESEARCH_QUICK_URLS = 3
-RESEARCH_DEEP_URLS = 7
+RESEARCH_SCRAPE_URLS = 7
 
 # Referenz-Auflösung für die Vision-Probe der Kalibrierung (Breite, Höhe).
 # Vision-Modelle (--mmproj) allozieren ihren CLIP-Compute-Buffer erst bei

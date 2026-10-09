@@ -159,7 +159,7 @@ class AIState(  # type: ignore[misc]
     - AgentConfigMixin: personality, reasoning, thinking, sampling, multi-agent
     - SettingsMixin: settings save/load, user preferences
     - CalibrationMixin: context calibration, backend restart
-    - UIConfigMixin: temperature mode, context, research mode, whisper
+    - UIConfigMixin: temperature mode, context, whisper
     - AuthMixin: login/logout, user authentication
     - ImageMixin: image upload, crop, lightbox
     - ExportMixin: chat export (HTML)

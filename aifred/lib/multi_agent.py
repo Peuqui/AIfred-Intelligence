@@ -11,7 +11,7 @@ This module contains the core Multi-Agent logic extracted from state.py.
 The functions work with async generators for streaming UI updates.
 """
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional, Sequence
+from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
 
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient, build_llm_options
@@ -214,7 +214,6 @@ async def _stream_agent_to_history(
     messages: list,
     options: LLMOptions,
     toolkit: Any = None,
-    history_notes: Sequence[str] = (),
 ) -> AsyncGenerator[dict[str, Any] | None, None]:
     """Stream an agent's response into current_ai_response (unified streaming).
 
@@ -229,8 +228,6 @@ async def _stream_agent_to_history(
     Args:
         agent: Agent key for state/TTS ("sokrates", "aifred", "salomo")
         agent_label: Display label for logs ("Sokrates", "AIfred Refinement", "Salomo")
-        history_notes: llm_history lines from before the stream (forced
-            research), placed before what the turn's own tools leave
     """
     from .llm_pipeline import run_llm_stream, PipelineResult
 
@@ -361,10 +358,8 @@ async def _stream_agent_to_history(
     state._spawn_tts_finalize()
 
     # Sync to llm_history with CLEAN text (no HTML collapsibles), plus what
-    # the turn's research and tools left for the next turn.
-    state._sync_to_llm_history(
-        agent, pipeline_result.text, [*history_notes, *pipeline_result.history_notes],
-    )
+    # the turn's tools left for the next turn.
+    state._sync_to_llm_history(agent, pipeline_result.text, pipeline_result.history_notes)
 
     # Clear streaming state (cleanup BEFORE yield)
     state._js_chunk_buffer = ""
@@ -446,36 +441,6 @@ async def _check_compression_if_needed(
     except Exception as e:
         state.add_debug(f"⚠️ Compression check failed: {e}")
         state.is_compressing = False
-
-
-# ============================================================
-# FORCED RESEARCH (keyword override → full pipeline)
-# ============================================================
-
-async def _execute_forced_research(
-    state: 'AIState',
-    user_query: str,
-    mode: str,
-    model_id: str,
-    lang: str,
-) -> AsyncGenerator[None, None]:
-    """Execute forced web research via the unified pipeline.
-
-    Delegates to execute_research() which handles the full pipeline:
-    Query generation → Multi-API search → URL ranking → Scraping → Context.
-
-    Results stored in state._research_context and state._research_sources_html.
-    """
-    from .research_tools import execute_research
-
-    async for _ in execute_research(
-        state=state,
-        user_query=user_query,
-        lang=lang,
-        mode=mode,
-        # No pre_generated_queries → Automatik-LLM generates them
-    ):
-        yield  # Forward yields for progress bar updates
 
 
 # ============================================================
@@ -668,7 +633,7 @@ def _finalize_debate(state: 'AIState') -> None:
 
 
 # ============================================================
-# UNIFIED AGENT RESPONSE (all agents, all research modes)
+# UNIFIED AGENT RESPONSE (all agents)
 # ============================================================
 
 async def _run_agent_direct_response(
@@ -679,28 +644,24 @@ async def _run_agent_direct_response(
     get_prompt_func: Any,
     user_query: str,
     detected_lang: Optional[str] = None,
-    research_mode: str = "none",
     detected_intent: Optional[str] = None,
     *,
     llm_user_text: str,
 ) -> AsyncGenerator[None, None]:
     """Unified response handler for all agents (AIfred, Sokrates, Salomo, custom).
 
-    Handles all research modes:
-    - "none": No research tools, agent answers from own knowledge
-    - "automatik": Agent gets web_search/read_webpage tools, decides autonomously
-    - "quick"/"deep": Forced web search executed before agent response, results injected as context
+    The agent always gets its full toolkit (memory + plugins) and decides
+    itself whether to research or use any other tool.
 
     Args:
         agent: Agent key ("aifred", "sokrates", "salomo", or custom agent id)
         agent_label: Display label for debug output
         emoji: Agent emoji for debug
         get_prompt_func: Prompt loader function returning system prompt
-        user_query: The user's question (raw — memory recall, research queries)
+        user_query: The user's question (raw — memory recall)
         llm_user_text: The stamped user turn as sent to the model — identical
             to the last llm_history entry (message_builder.stamp_user_turn)
         detected_lang: Language from intent detection, defaults to UI language
-        research_mode: "none", "automatik", "quick", or "deep"
         detected_intent: Intent from intent detection (FAKTISCH/KREATIV/GEMISCHT)
     """
     if detected_lang is None:
@@ -731,23 +692,19 @@ async def _run_agent_direct_response(
         agent_num_ctx, ctx_source = get_agent_num_ctx(agent, state, agent_base_id)
         state.add_debug(f"   🎯 Context: {format_number(agent_num_ctx)} ({ctx_source})")
 
-        # Combined toolkit: memory + research tools (based on research_mode)
+        # Full toolkit: memory + all plugin tools
         from .agent_memory import prepare_agent_toolkit
         memory_enabled = state.agent_memory_enabled  # type: ignore[attr-defined]
 
         # System prompt (memory layer depends on incognito toggle)
-        # Tools sind in allen Modi außer "none" verfügbar — auch in quick/deep,
-        # damit das Modell ergänzend suchen oder andere Tools (epim, audio,
-        # calculate, …) nutzen kann. "none" = bewusst keine Tools.
-        research_tools_enabled = research_mode != "none"
-        system_prompt = get_prompt_func(lang=detected_lang, memory=memory_enabled, tools=research_tools_enabled)
+        system_prompt = get_prompt_func(lang=detected_lang, memory=memory_enabled)
 
         memory_ctx, toolkit = await prepare_agent_toolkit(
             agent, user_query,
             lang=detected_lang or "de",
             memory_enabled=memory_enabled,
-            research_tools_enabled=research_tools_enabled,
-            state=state if research_tools_enabled else None,
+            research_tools_enabled=True,
+            state=state,
             session_id=state.session_id,
         )
         mem_tok = 0
@@ -760,22 +717,6 @@ async def _run_agent_direct_response(
             state.add_debug("🔒 Incognito mode (no memory)")
         yield  # type: ignore[misc]  # Flush debug messages (RAG, memory, toolkit)
 
-        # Forced web search (quick/deep): execute research pipeline BEFORE agent response
-        research_context = ""
-        research_notes: list[str] = []
-        if research_mode in ("quick", "deep"):
-            state.add_debug(f"🔎 Forced web research ({research_mode})...")
-            yield  # type: ignore[misc]
-            async for _ in _execute_forced_research(
-                state, user_query, research_mode, agent_model_id,
-                detected_lang or "de",
-            ):
-                yield  # type: ignore[misc]
-            research_context = getattr(state, "_research_context", "")
-            # Not a tool call, so its llm_history line does not come through
-            # the pipeline — hand it to the stream explicitly.
-            research_notes = [state._research_note]
-
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
             state._chat_sub().llm_history[:-1],
@@ -784,30 +725,19 @@ async def _run_agent_direct_response(
             detected_language=detected_lang
         )
 
-        # Inject research context into system prompt (forced web search results).
-        # Fence it as untrusted data — the scraped page content is fully
-        # attacker-controllable and would otherwise sit at system-prompt authority
-        # (indirect prompt-injection vector).
         messages.insert(0, {"role": "system", "content": system_prompt})
 
-        # Beides ans ENDE, direkt vor die Nutzerfrage. Am System-Prompt
-        # haengend verschieben diese Bloecke die vordersten Token jeder
-        # Anfrage und entwerten den Praefix-Cache fuer den ganzen Verlauf
-        # dahinter (2026-09-01: 32.842 neu gerechnete Token fuer einen
-        # 13.325-Token-Prompt). Beim Recherche-Block kommt hinzu, dass
-        # gescrapter Fremdinhalt so gar nicht erst auf System-Prompt-
-        # Autoritaet sitzt — die Umzaeunung bleibt zusaetzlich bestehen.
+        # Erinnerungen ans ENDE, direkt vor die Nutzerfrage. Am System-Prompt
+        # haengend verschieben sie die vordersten Token jeder Anfrage und
+        # entwerten den Praefix-Cache fuer den ganzen Verlauf dahinter
+        # (2026-09-01: 32.842 neu gerechnete Token fuer einen
+        # 13.325-Token-Prompt).
         if memory_ctx:
             inject_before_question(messages, memory_ctx)
-        if research_context:
-            from .security import wrap_untrusted_data
-            inject_before_question(
-                messages, wrap_untrusted_data(research_context, 'web_research')
-            )
 
         agent_temp = resolve_agent_temperature(state, agent)
 
-        # Token breakdown: System + Tools + Memory + RAG + Research + History = Total / Limit
+        # Token breakdown: System + Tools + Memory + History = Total / Limit
         sys_tok = estimate_tokens([{"content": system_prompt}], model_name=agent_model_id)
         hist_tok = estimate_tokens([m for m in messages if m["role"] != "system"], model_name=agent_model_id)
         tools_tok = estimate_toolkit_tokens(toolkit, model_name=agent_model_id)
@@ -817,18 +747,14 @@ async def _run_agent_direct_response(
         state._last_toolkit_tokens = tools_tok
         total_tok = sys_tok + tools_tok + hist_tok
 
-        # Break down sys_tok into components (all appended to system_prompt)
-        research_tok = estimate_tokens([{"content": research_context}]) if research_context else 0
-        base_sys_tok = sys_tok - mem_tok - research_tok
-
-        parts = [f"System {format_number(base_sys_tok)}"]
+        # The memory block sits among the non-system messages (before the
+        # question), so it is part of hist_tok — shown separately.
+        parts = [f"System {format_number(sys_tok)}"]
         if tools_tok:
             parts.append(f"Tools {format_number(tools_tok)}")
         if mem_tok:
             parts.append(f"Memory {format_number(mem_tok)}")
-        if research_tok:
-            parts.append(f"Research {format_number(research_tok)}")
-        parts.append(f"History {format_number(hist_tok)}")
+        parts.append(f"History {format_number(hist_tok - mem_tok)}")
         state.add_debug(f"📊 Prompt: {' + '.join(parts)} = {format_number(total_tok)} / {format_number(agent_num_ctx)} tok ({int(total_tok / agent_num_ctx * 100)}%)")
         state.add_debug(f"🌡️ Temperature: {format_number(agent_temp, 1)}")
 
@@ -859,7 +785,6 @@ async def _run_agent_direct_response(
             state=state, agent=agent, agent_label=agent_label,
             llm_client=llm_client, model=agent_model_id,
             messages=messages, options=agent_options, toolkit=toolkit,
-            history_notes=research_notes,
         ):
             if isinstance(item, dict):
                 result = item
@@ -876,19 +801,18 @@ async def _run_agent_direct_response(
         # Format thinking + sources (SSOT helper)
         formatted_response = _format_stream_result(result, agent_label, agent_model_id)
 
-        # Merge forced research sources (if any)
+        # Sources box of a web_search call in this turn (set by execute_research)
         research_sources = getattr(state, "_research_sources_html", "")
         if research_sources:
             formatted_response = f"{research_sources}\n\n{formatted_response}"
             state._research_sources_html = ""  # type: ignore[attr-defined]
 
         # Add to chat history
-        panel_mode = "web_research" if research_mode in ("quick", "deep") else "direct"
         panel_meta = {**metadata_dict, "audio_urls": audio_urls}
         state.add_agent_panel(
             agent=agent,
             content=formatted_response,
-            mode=panel_mode,
+            mode="direct",
             metadata=panel_meta,
             sync_llm_history=False
         )
@@ -918,18 +842,14 @@ async def run_generic_agent_direct_response(
     agent_id: str,
     user_query: str,
     detected_lang: Optional[str] = None,
-    research_mode: str = "none",
     detected_intent: Optional[str] = None,
     *,
     llm_user_text: str,
 ) -> AsyncGenerator[None, None]:
     """Any agent responds directly to user (generic routing).
 
-    This is the single entry point for all agent responses. Research mode
-    determines tool availability:
-    - "none": No research tools
-    - "automatik": Agent gets web_search/read_webpage tools
-    - "quick"/"deep": Forced research before response
+    This is the single entry point for all agent responses; the agent always
+    gets its full toolkit.
     """
     from .agent_config import get_agent_config
     from .prompt_loader import get_agent_direct_prompt
@@ -942,9 +862,8 @@ async def run_generic_agent_direct_response(
 
     async for _ in _run_agent_direct_response(
         state, agent_id, config.display_name, config.emoji,
-        lambda lang=None, memory=True, tools=False: get_agent_direct_prompt(agent_id, lang=lang, memory=memory, tools=tools),
+        lambda lang=None, memory=True: get_agent_direct_prompt(agent_id, lang=lang, memory=memory),
         user_query, detected_lang,
-        research_mode=research_mode,
         detected_intent=detected_intent,
         llm_user_text=llm_user_text,
     ):

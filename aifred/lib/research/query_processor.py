@@ -140,7 +140,7 @@ async def process_query_and_search(
         automatik_llm_client: Automatik LLM client
         llm_options: Optional Dict with enable_thinking toggle
         vision_json_context: Optional Vision JSON from image extraction (for query context)
-        pre_generated_queries: Search queries from the caller (tool-call arguments or generate_web_search_queries)
+        pre_generated_queries: Search queries from the caller (the web_search tool-call arguments)
 
     Yields:
         Dict: Debug messages and search results

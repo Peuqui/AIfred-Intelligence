@@ -610,7 +610,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     # ── Schedule dropdowns: values in code, labels from i18n ───────
     # Each option is (i18n key, stored value). The label shown is the key's
     # text in the UI language; a selected label maps back to its value in any
-    # loaded language (like TranslationManager's research mode maps).
+    # loaded language.
 
     _SCHED_TYPE_OPTIONS: list[tuple[str, str]] = [
         ("sched_type_cron", "cron"),

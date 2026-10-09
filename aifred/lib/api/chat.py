@@ -285,10 +285,6 @@ class SessionConfigRequest(BaseModel):
         None,
         description="Selected agents for Symposion mode (list of agent IDs)"
     )
-    research_mode: Optional[str] = Field(
-        None,
-        description="Research mode: 'none', 'quick', 'deep', 'automatik'"
-    )
 
 
 class SessionConfigResponse(BaseModel):
@@ -301,7 +297,7 @@ class SessionConfigResponse(BaseModel):
 @api_app.post("/session/config", response_model=SessionConfigResponse, tags=["Chat"])
 async def update_session_config_endpoint(request: SessionConfigRequest):
     """
-    Update the config block (agent, mode, research mode) of a session.
+    Update the config block (agent, discussion mode) of a session.
 
     Only the fields you provide are updated — omit a field to leave it
     unchanged. Browser tabs viewing this session detect the change
@@ -320,7 +316,7 @@ async def update_session_config_endpoint(request: SessionConfigRequest):
     if not updates:
         raise HTTPException(
             status_code=400,
-            detail="No config fields provided (at least one of: active_agent, multi_agent_mode, symposion_agents, research_mode)"
+            detail="No config fields provided (at least one of: active_agent, multi_agent_mode, symposion_agents)"
         )
 
     success = update_session_config(request.session_id, **updates)
