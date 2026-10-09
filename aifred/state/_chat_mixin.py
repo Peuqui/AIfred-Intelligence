@@ -480,7 +480,7 @@ class ChatMixin(rx.State, mixin=True):
 
         # SSOT VL-model choice (vision-capable main model first) —
         # see _vl_choice. Sampling follows the model, not the role.
-        effective_vision_id, vl_bucket, _ = self._vl_choice()  # type: ignore[attr-defined]
+        effective_vision_id, vl_bucket, _ = self._vl_choice(agent_turn=False)  # type: ignore[attr-defined]
 
         desc_content: list[dict] = []
         for img in local_images:
@@ -569,7 +569,7 @@ class ChatMixin(rx.State, mixin=True):
         # SSOT VL-model choice (vision-capable main model first, variant
         # coupling included) — see _vl_choice. Sampling settings follow the
         # MODEL that runs the turn (its agent_tuning row), not the role.
-        effective_vision_id, vl_bucket, _ = self._vl_choice()  # type: ignore[attr-defined]
+        effective_vision_id, vl_bucket, _ = self._vl_choice(agent_turn=True)  # type: ignore[attr-defined]
         if effective_vision_id != self.agent_tuning["vision"].model_id:  # type: ignore[attr-defined]
             self.add_debug(f"⚡ VL model: {effective_vision_id}")  # type: ignore[attr-defined]
             yield
@@ -1066,11 +1066,10 @@ class ChatMixin(rx.State, mixin=True):
 
                 # SSOT VL-model choice (vision-capable main model first) —
                 # see _vl_choice. Sampling follows the model, not the role.
-                _eff_vl, _vl_bucket, _vl_evicts = self._vl_choice()  # type: ignore[attr-defined]
+                _eff_vl, _vl_bucket, _vl_evicts = self._vl_choice(agent_turn=True)  # type: ignore[attr-defined]
                 if _vl_evicts:
-                    self.add_debug(  # type: ignore[attr-defined]
-                        f"⚠️ VL model {_eff_vl} evicts the chat model — it reloads on the next message"
-                    )
+                    from ..lib.vision_routing import eviction_notice
+                    self.add_debug(eviction_notice(_eff_vl))  # type: ignore[attr-defined]
                     yield
 
                 # Cold start warning (llama-swap: llamacpp + vllm)

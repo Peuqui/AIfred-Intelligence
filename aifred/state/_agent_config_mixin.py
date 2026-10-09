@@ -454,28 +454,39 @@ class AgentConfigMixin(rx.State, mixin=True):
         )
         return base_id + suffix
 
-    def _vl_choice(self) -> tuple[str, str, bool]:
-        """SSOT model choice for image turns (VL Direct, Symposion image).
+    def _vl_choice(self, *, agent_turn: bool) -> tuple[str, str, bool]:
+        """SSOT model choice for image turns.
 
         Rule A (:func:`aifred.lib.vision_routing.chat_describer`): the
-        loaded main (AIfred) profile describes images itself when it can
+        loaded main (AIfred) profile handles images itself when it can
         see; otherwise the vision LLM — in parallel via its ``-visiond``
         profile when it fits, else it evicts the chat model.
+
+        ``agent_turn``: the vision LLM answers AS the agent (VL Direct —
+        full system prompt, tools, history). The slim ``-visiond``
+        describer profile is too small for that (24k context), so such a
+        turn runs on the vision LLM's own chat profile and evicts a loaded
+        chat model. Describe-only turns (Symposion's shared description)
+        keep the parallel describer.
 
         Returns ``(model_id, settings_bucket, evicts_chat_model)``; the
         bucket ("aifred" or "vision") names the agent_tuning row whose
         model won — sampling settings follow the model that actually runs
         the image turn.
         """
-        from ..lib.vision_routing import chat_describer
+        from ..lib.vision_routing import chat_describer, loaded_llamaswap_profiles
         effective_main = self._effective_model_id("aifred")
         describer = chat_describer(effective_main)
-        bucket = "aifred" if describer.model == effective_main else "vision"
-        return describer.model, bucket, describer.evicts_chat_model
+        if describer.model == effective_main:
+            return effective_main, "aifred", False
+        if agent_turn and describer.model.endswith("-visiond"):
+            evicts = effective_main in loaded_llamaswap_profiles()
+            return self._effective_model_id("vision"), "vision", evicts
+        return describer.model, "vision", describer.evicts_chat_model
 
     def _effective_vl_model_id(self) -> str:
-        """Effective model ID for image turns — see :meth:`_vl_choice`."""
-        return self._vl_choice()[0]
+        """Effective model ID for agent image turns — see :meth:`_vl_choice`."""
+        return self._vl_choice(agent_turn=True)[0]
 
     # ================================================================
     # SPEED MODE TOGGLES (llamacpp only)

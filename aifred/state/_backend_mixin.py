@@ -768,7 +768,13 @@ class BackendMixin(rx.State, mixin=True):
             self.available_models_dict = _global_backend_state.get("available_models_dict", {})
             self.vision_models_cache = _global_backend_state.get("vision_models_cache", [])
             self.available_vision_models_list = _global_backend_state.get("available_vision_models_list", [])
-            self.available_vision_models_rich = _global_backend_state.get("available_vision_models_rich", [])
+            # Badges hängen vom gerade Geladenen ab (check_visiond_fits) —
+            # pro Sitzung neu berechnen statt den Stand vom Backend-Start zu
+            # übernehmen. Cloud-APIs haben keine Badges.
+            if self.backend_type == "cloud_api":
+                self.available_vision_models_rich = _global_backend_state.get("available_vision_models_rich", [])
+            else:
+                self.available_vision_models_rich = self._build_vision_rich(self.vision_models_cache)
 
             self.available_backends = _global_backend_state.get("available_backends", self.available_backends)
             self.available_backends_list = _global_backend_state.get("available_backends_list", self.available_backends_list)
@@ -1172,28 +1178,23 @@ class BackendMixin(rx.State, mixin=True):
     ) -> List[Dict[str, str]]:
         """Dropdown-Zeilen (Name + Swap-Badge + Farbe) für die Vision-Modelle.
 
-        Die Ollama-VLM-Liste wird EINmal geholt und für alle Modelle
-        wiederverwendet — kein API-Call pro Modell. ``⚡ No Swap`` (grün):
-        läuft über den Ollama-Side-Channel parallel; ``🔄 Swap`` (amber):
-        llama-swap verdrängt das Chat-Modell für die Bildanalyse.
+        Gleiche Logik wie die Laufzeitwahl (``vision_routing``):
+        ``🧠 Chat-LLM`` — das Modell IST das Hauptmodell und sieht selbst;
+        ``⚡ No Swap`` (grün) — sein ``-visiond``-Profil passt gerade neben
+        das Geladene (``check_visiond_fits``) oder es läuft über den
+        Ollama-Seitenkanal; ``🔄 Swap`` (amber) — es verdrängt das
+        Chat-LLM. Die Ollama-VLM-Liste wird EINmal geholt.
         """
+        from ..lib.ollama_models import list_ollama_vlm_models
         from ..lib.vision_routing import (
-            vision_swap_status, vlm_key_for_model, same_model,
+            same_model, vision_swap_status, visiond_profile_for,
         )
         from ..lib.vision_utils import has_native_vision
-        from ..lib.ollama_models import list_ollama_vlm_models
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.calibration.llamaswap_io import parse_llamaswap_config
+        from ..lib.vision_vram_check import check_visiond_fits
         try:
             oll_names = [m.name for m in list_ollama_vlm_models()]
         except (RuntimeError, OSError):
             oll_names = []
-        # llama-swap-Profile EINmal laden — ein kalibriertes -vlm-Profil
-        # landet nur bei Erfolg in der config (FAIL schreibt nichts).
-        try:
-            swap_models = set(parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).keys())
-        except (OSError, ValueError):
-            swap_models = set()
         aifred_base = self.agent_tuning["aifred"].model_id or ""
 
         catalog = self._vision_candidate_catalog()
@@ -1201,40 +1202,17 @@ class BackendMixin(rx.State, mixin=True):
         for mid in vision_model_ids:
             if mid not in catalog:
                 continue
-            display = catalog.get(mid, mid)
-            # "No Swap" auf zwei Wegen:
-            # (a) -visiond-Describer-Profil in llama-swap (vision-Gruppe,
-            #     exclusive: false) — lädt parallel zum Chat-LLM, per
-            #     Gruppen-Semantik nie ein Swap.
-            # (b) Ollama-Side-Channel UND das -vlm-Reserve-Profil für das
-            #     aktuelle Chat-LLM ist kalibriert (sonst fällt AIfred aufs
-            #     Base-Profil ohne V100-Reserve zurück → der Side-Channel
-            #     findet keinen Platz → doch ein Swap).
-            # (c) Das Chat-LLM SELBST als Describer: kein zweites Modell,
-            #     kein Reserve-Profil — es beschreibt mit seinem eigenen
-            #     Vision-Encoder. Vor (a)/(b) geprüft, denn dann ist das
-            #     -visiond-Profil gar nicht der Weg (siehe
-            #     vision_routing.self_describer_profile).
-            is_self = (
-                same_model(mid, aifred_base) and has_native_vision(aifred_base)
-            )
-            has_visiond = f"{mid}-visiond" in swap_models
-            has_ollama = vision_swap_status(
-                mid, self.backend_id, ollama_names=oll_names
-            )
-            key = vlm_key_for_model(mid)
-            profile_ok = bool(key) and (
-                f"{aifred_base}-vlm-{key}" in swap_models
-                or f"{aifred_base}-vlm-{key}-speed" in swap_models
-            )
-            no_swap = has_visiond or (has_ollama and profile_ok)
-            if is_self:
+            visiond = visiond_profile_for(mid)
+            if same_model(mid, aifred_base) and has_native_vision(aifred_base):
                 badge, color = "🧠 Chat-LLM", "green"
-            elif no_swap:
+            elif (visiond is not None and check_visiond_fits(visiond).fits) or (
+                visiond is None
+                and vision_swap_status(mid, self.backend_id, ollama_names=oll_names)
+            ):
                 badge, color = "⚡ No Swap", "green"
             else:
                 badge, color = "🔄 Swap", "orange"
-            rows.append({"id": mid, "label": display, "badge": badge, "color": color})
+            rows.append({"id": mid, "label": catalog[mid], "badge": badge, "color": color})
         return rows
 
     async def _detect_vision_models(self) -> None:
