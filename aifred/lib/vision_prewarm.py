@@ -156,6 +156,9 @@ async def prewarm_vlm(
     if visiond is not None:
         import httpx
 
+        from .vision_routing import release_stt_for_describer
+        await asyncio.to_thread(release_stt_for_describer, visiond)
+
         from .config import BACKEND_URLS
         url = BACKEND_URLS["llamacpp"].rstrip("/") + "/chat/completions"
         logger.info(

@@ -27,6 +27,18 @@ def _no_debug_log_file():
 
 
 @pytest.fixture(autouse=True)
+def _no_real_whisper_service(monkeypatch):
+    """Tests dürfen den echten whisper-stt-Dienst weder abfragen noch dessen
+    GPU-Worker beenden: Die Describer-Platzierung zählt seinen VRAM als
+    freigebbar und gibt ihn vor dem Laden frei. Ohne diese Sperre hätte ein
+    Testlauf Peuquis laufenden GPU-Worker abgeschossen. Tests für die
+    Zuordnung selbst überschreiben das gezielt."""
+    import aifred.lib.config as config
+    # Port 9 (discard) — nichts antwortet, jede Anfrage scheitert sofort.
+    monkeypatch.setattr(config, "WHISPER_SERVICE_URL", "http://127.0.0.1:9")
+
+
+@pytest.fixture(autouse=True)
 def _isolate_audit_db(tmp_path):
     """Tests dürfen nicht in die echte data/security/audit.db schreiben.
 

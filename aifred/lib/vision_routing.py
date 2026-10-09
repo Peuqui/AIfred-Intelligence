@@ -137,6 +137,32 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     return max(fitting, key=lambda item: item[1].free_mb)
 
 
+def release_stt_for_describer(profile: str) -> bool:
+    """Whisper-GPU-Worker freigeben, wenn er auf der Karte des Describer-
+    Profils sitzt, das gleich lädt (Rangfolge: Describer vor STT; die Platz-
+    prüfung hat seinen VRAM schon als frei gezählt). Blockiert bis zur
+    Gnadenfrist einer laufenden Transkription — aus async-Code per
+    ``asyncio.to_thread`` rufen. True, wenn ein Worker beendet wurde."""
+    from .audio_processing import release_whisper_gpu, whisper_gpu_footprint
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    from .config import LLAMASWAP_CONFIG_PATH
+
+    if profile in loaded_llamaswap_profiles():
+        return False
+    entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(profile) or {}
+    pinned = {
+        u.strip() for u in str((entry.get("env") or {}).get("CUDA_VISIBLE_DEVICES", "")).split(",")
+        if u.strip()
+    }
+    held = set(whisper_gpu_footprint())
+    if not held or (pinned and not pinned & held):
+        return False
+    released = release_whisper_gpu()
+    if released:
+        logger.info("Whisper GPU worker released for describer %s", profile)
+    return released
+
+
 class NoVisionModelError(RuntimeError):
     """Kein Modell kann das Bild beschreiben, ohne das Chat-LLM zu verdrängen."""
 
