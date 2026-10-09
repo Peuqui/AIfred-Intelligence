@@ -1,42 +1,26 @@
-"""Vision-Backend-Routing — Auto-Match zwischen llama-swap und Ollama für VL-Modelle.
+"""Vision-Routing — WER ein Bild beschreibt (SSOT für alle Bildpfade).
 
-Aktuelle Stack-Realität (siehe Memory ``vlm-models-need-dual-source``):
-Vision-LLMs müssen in beiden Backends parallel vorgehalten werden, weil
-keine Konvertierung zwischen den Formaten zuverlässig funktioniert. Im
-typischen Setup:
+* :func:`chat_describer` — Regel A (Chat-Upload, Symposion,
+  Sandbox-Screenshots, hochgeladene Bilder in ``vision_analyze``).
+* :func:`camera_describer` — Regel B (Vigilantia: Watcher, Alarme,
+  Casus, Bulk, Kamerabilder in ``vision_analyze``).
+* :func:`eviction_notice` — die Ansage, bevor ein Bildpfad das Chat-LLM
+  verdrängt.
 
-* Haupt-Chat-LLM läuft auf llama-swap (große Text-Modelle)
-* Vision-LLM ist im Settings-Dropdown aus llama-swap-Sicht ausgewählt
-  (z.B. ``Qwen3VL-4B-Instruct-Q8_0``)
-* Wenn der User ein Bild hochlädt würde llama-swap das Chat-LLM aus dem
-  VRAM swappen → 5-10 s Lag
-
-Routing-Lösung: hat das gewählte llama-swap-Modell ein Ollama-Pendant
-(z.B. ``qwen3-vl:4b-instruct-q8_0``), läuft der Vision-Call **stattdessen**
-über die Ollama-Side-Channel-Instanz — parallel, kein Swap. Das Pendant
-wird durch eine simple Normalisierungs-Heuristik gefunden:
-
-    ``Qwen3VL-4B-Instruct-Q8_0``      → ``qwen3vl4binstructq80``
-    ``qwen3-vl:4b-instruct-q8_0``     → ``qwen3vl4binstructq80``       → Match
-
-Wenn kein Pendant existiert, wird der Caller unverändert weitergeleitet —
-klassischer llama-swap-Pfad mit Swap.
-
-Public API:
-
-* :func:`find_ollama_equivalent` — match Name to Ollama tag, return None if no match
-* :func:`maybe_route_to_ollama` — re-route (backend_url, vision_model) tuple
+Parallel zum Chat-LLM laufen Describer als llama-swap ``-visiond``-Profile
+(``vision``-Gruppe, ``exclusive: false``); ob sie gerade daneben passen,
+entscheidet ``vision_vram_check.check_visiond_fits``. Der Ollama-Seitenkanal
+(:func:`find_ollama_equivalent`, :func:`vision_swap_status`) bleibt als
+optionaler Weg für Setups ohne llama-swap.
 """
 
 from __future__ import annotations
-
-from .config import LLAMASWAP_BACKENDS
 
 import logging
 import re
 from dataclasses import dataclass
 
-from .ollama_models import DEFAULT_OLLAMA_HOST, list_ollama_vlm_models
+from .ollama_models import list_ollama_vlm_models
 
 logger = logging.getLogger(__name__)
 
@@ -125,6 +109,15 @@ class Describer:
     evicts_chat_model: bool
 
 
+def eviction_notice(model: str) -> str:
+    """Ansage (Debug-Konsole), bevor ``model`` das Chat-LLM verdrängt —
+    eine Formulierung für alle Bildpfade."""
+    return (
+        f"⚠️ Vision: loading {model} evicts the chat model — "
+        "reloading it can take several minutes"
+    )
+
+
 def _settings_model(role: str) -> str:
     """Basis-Id der Rolle (``aifred``, ``vision``) im aktiven Backend laut
     ``settings.json``."""
@@ -186,22 +179,29 @@ def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:
        Automatische Pfade verdrängen nie → ``NoVisionModelError``, das Bild
        geht ohne Beschreibung raus und lässt sich nachträglich beschreiben.
 
-    Ohne ``-visiond``-Profil (Ollama-Seitenkanal) bleibt das Modell
-    unverändert — dieser Weg prüft seinen Platz selbst.
+    Ein Ollama-Modell (kein llama-swap-Eintrag) geht unverändert über den
+    optionalen Ollama-Seitenkanal, der seinen Platz selbst findet. Ein
+    llama-swap-Modell ohne ``-visiond``-Profil zählt als „passt nicht“ —
+    es würde im exklusiven Haupt-Slot das Chat-LLM verdrängen.
     """
+    from .vision_utils import has_native_vision
     from .vision_vram_check import check_visiond_fits
     visiond = visiond_profile_for(vlm_model)
-    if visiond is None:
+    if visiond is None and not has_native_vision(vlm_model):
         return Describer(vlm_model, evicts_chat_model=False)
-    fit = check_visiond_fits(visiond)
-    if fit.fits:
-        return Describer(visiond, evicts_chat_model=False)
+    if visiond is not None:
+        fit = check_visiond_fits(visiond)
+        if fit.fits:
+            return Describer(visiond, evicts_chat_model=False)
+        reason = fit.message
+    else:
+        reason = f"'{vlm_model}' has no -visiond profile and would evict the chat model"
     seeing = loaded_seeing_profile()
     if seeing is not None:
         return Describer(seeing, evicts_chat_model=False)
     if not explicit:
-        raise NoVisionModelError(fit.message)
-    return _vision_llm_describer(fit.message)
+        raise NoVisionModelError(reason)
+    return _vision_llm_describer(reason)
 
 
 def same_model(a: str, b: str) -> bool:
@@ -243,6 +243,11 @@ def loaded_llamaswap_profiles() -> list[str]:
     ]
 
 
+# Local on-prem backends where the optional Ollama side-channel makes sense.
+# Cloud-API is excluded — the user explicitly chose a cloud provider.
+_ROUTABLE_BACKENDS = frozenset({"llamacpp", "vllm"})
+
+
 def vision_swap_status(
     vision_model: str,
     backend_type: str,
@@ -252,13 +257,11 @@ def vision_swap_status(
 ) -> bool:
     """True wenn eine Bildanfrage mit diesem Vision-Modell OHNE Modell-Swap läuft.
 
-    „No Swap" heißt: der Vision-Call geht über den Ollama-Side-Channel
-    (parallel, das llama-swap-Chat-Modell bleibt geladen) statt das
-    Chat-Modell für die Dauer der Bildanalyse aus dem VRAM zu verdrängen.
-    Das ist genau dann der Fall, wenn das gewählte Modell über
-    :func:`maybe_route_to_ollama` umgeleitet würde — also wenn der aktive
-    Backend routbar ist (llama-swap/vLLM) UND ein Ollama-Pendant
-    existiert. Ist der Backend bereits Ollama, läuft es ohnehin ohne Swap.
+    Nur für den optionalen Ollama-Seitenkanal: „No Swap“ heißt, der
+    Vision-Call läuft parallel über Ollama, das llama-swap-Chat-Modell
+    bleibt geladen — wenn der aktive Backend routbar ist (llama-swap/vLLM)
+    UND ein Ollama-Pendant existiert. Ist der Backend Ollama, läuft es
+    ohnehin ohne Swap.
 
     ``ollama_names`` erlaubt dem Caller, die (teure) Ollama-VLM-Liste
     einmal zu holen und für viele Modelle wiederzuverwenden — dann fällt
@@ -323,60 +326,3 @@ def vlm_key_for_model(name: str) -> str:
             return choice.get("key", "")
     return ""
 
-
-# Local on-prem backends where re-routing to Ollama makes sense. Cloud-API
-# is excluded — the user explicitly chose a cloud provider and we don't
-# silently fall back to a local Ollama model with the same name.
-_ROUTABLE_BACKENDS = frozenset({"llamacpp", "vllm"})
-
-
-def maybe_route_to_ollama(
-    *,
-    backend_url: str | None,
-    backend_type: str,
-    vision_model: str,
-    ollama_host: str | None = None,
-) -> tuple[str | None, str, str, bool]:
-    """Decide whether the vision call should be routed swap-free.
-
-    Returns ``(backend_url, backend_type, vision_model, rerouted)``.
-
-    Precedence (first hit wins):
-
-    1. ``backend_type`` not routable (ollama, cloud_api): pass through
-       unchanged — Ollama läuft ohnehin parallel, Cloud ist explizite
-       User-Wahl.
-    2. Ein llama-swap ``<model>-visiond``-Profil existiert: dorthin
-       routen (gleicher Backend, nur Profilname getauscht). Das Profil
-       lebt in der ``vision``-Gruppe und lädt parallel zum Chat-LLM —
-       der bevorzugte Pfad seit dem Vision-Umbau (llama.cpp statt
-       Ollama-Side-Channel).
-    3. Ein Ollama-Pendant existiert: zum Ollama-Side-Channel routen
-       (Bestands-Pfad, bleibt für Setups ohne -visiond-Profile).
-    4. Sonst: unverändert durchreichen (klassischer Swap-Pfad).
-
-    The ``rerouted`` flag is mainly for logging / observability — callers
-    don't need to branch on it.
-    """
-    if backend_type not in _ROUTABLE_BACKENDS:
-        return backend_url, backend_type, vision_model, False
-    if backend_type in LLAMASWAP_BACKENDS:
-        # Beide Backends laufen ueber llama-swap — das -visiond-Profil
-        # (vision-Gruppe, parallel ladbar) ist auch unter vLLM der
-        # bevorzugte Pfad; der Ollama-Side-Channel bleibt Fallback.
-        profile = visiond_profile_for(vision_model)
-        if profile is not None:
-            logger.info(
-                "vision routing: %r → %r (llama-swap vision group, no swap)",
-                vision_model, profile,
-            )
-            return backend_url, backend_type, profile, True
-    equivalent = find_ollama_equivalent(vision_model, host=ollama_host)
-    if equivalent is None:
-        return backend_url, backend_type, vision_model, False
-    new_url = ollama_host or DEFAULT_OLLAMA_HOST
-    logger.info(
-        "vision routing: %r (%s) → %r (ollama side-channel)",
-        vision_model, backend_type, equivalent,
-    )
-    return new_url, "ollama", equivalent, True

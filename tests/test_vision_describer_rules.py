@@ -17,7 +17,7 @@ VISION_LLM = "Chat-VL-8B"
 def world(monkeypatch):
     def configure(*, fits: bool = True, loaded: list[str] | None = None,
                   vision_llm: str = VISION_LLM, visiond_for: dict | None = None):
-        seeing = {MAIN_SEEING, VISIOND, f"{VISION_LLM}-visiond"}
+        seeing = {MAIN_SEEING, VISIOND, f"{VISION_LLM}-visiond", VLM}
         monkeypatch.setattr(vision_utils, "is_vision_model_sync", lambda m: m in seeing)
         monkeypatch.setattr(vision_utils, "has_native_vision", lambda m: m in seeing)
         profiles = visiond_for if visiond_for is not None else {VLM: VISIOND}
@@ -97,3 +97,9 @@ def test_camera_without_visiond_profile_keeps_model_unchanged(world):
     world(visiond_for={})
     d = camera_describer("qwen3-vl:4b", explicit=False)
     assert (d.model, d.evicts_chat_model) == ("qwen3-vl:4b", False)
+
+
+def test_camera_llamaswap_model_without_visiond_never_evicts_automatically(world):
+    world(visiond_for={}, loaded=[MAIN])
+    with pytest.raises(NoVisionModelError):
+        camera_describer(VLM, explicit=False)

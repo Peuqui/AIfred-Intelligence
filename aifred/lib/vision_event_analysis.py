@@ -99,7 +99,7 @@ async def analyze_frames_with_vlm(
     from .logging_utils import log_message
     from .vision_analyzer import analyze_sequence
     from .vision_prewarm import get_active_vlm_model
-    from .vision_routing import camera_describer
+    from .vision_routing import camera_describer, eviction_notice
 
     if not frames:
         raise ValueError("analyze_frames_with_vlm requires at least one frame")
@@ -115,10 +115,7 @@ async def analyze_frames_with_vlm(
     )
     describer = camera_describer(str(target_model), explicit=explicit)
     if describer.evicts_chat_model:
-        log_message(
-            f"⚠️ Vision: loading {describer.model} evicts the chat model "
-            "— it reloads on the next chat message"
-        )
+        log_message(eviction_notice(describer.model))
     result = await analyze_sequence(frames, prompt, model=describer.model)
     description = (result.text or "").strip()
     if not description:

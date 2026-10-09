@@ -258,7 +258,7 @@ async def describe_sandbox_screenshots(
 
     # Wer beschreibt: Regel A (SSOT vision_routing.chat_describer) —
     # das laufende Modell selbst, wenn es sieht, sonst das Vision-LLM.
-    from .vision_routing import NoVisionModelError, chat_describer
+    from .vision_routing import NoVisionModelError, chat_describer, eviction_notice
     try:
         chosen = chat_describer(main_model)
     except NoVisionModelError as e:
@@ -269,10 +269,10 @@ async def describe_sandbox_screenshots(
         yield {"type": "result", "text": f"{result_text}\n\n{note}"}
         return
     describer = chosen.model
+    if chosen.evicts_chat_model:
+        yield {"type": "debug", "message": eviction_notice(describer)}
     yield {"type": "debug", "message": (
         f"🖼️ Describing {len(urls)} sandbox image(s) via {describer}"
-        + (" (evicts the chat model, it reloads afterwards)"
-           if chosen.evicts_chat_model else "")
     )}
 
     from .frame_sources import Frame

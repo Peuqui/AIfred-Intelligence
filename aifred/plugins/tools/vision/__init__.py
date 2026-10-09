@@ -538,6 +538,7 @@ class VisionPlugin:
             from ....lib.logging_utils import log_message
             from ....lib.vision_routing import (
                 NoVisionModelError, camera_describer, chat_describer,
+                eviction_notice,
             )
             try:
                 describer = (
@@ -551,10 +552,7 @@ class VisionPlugin:
             except NoVisionModelError as e:
                 return _err(f"no vision model available: {e}")
             if describer.evicts_chat_model:
-                log_message(
-                    f"⚠️ Vision: loading {describer.model} evicts the chat "
-                    "model — it reloads for the rest of the answer"
-                )
+                log_message(eviction_notice(describer.model))
             try:
                 result = await analyze_sequence(
                     frames,
