@@ -1445,6 +1445,8 @@ DOCUMENT_EMBED_BATCH_SIZE = 64      # Chunks pro Embed-API-Call beim Indexieren.
                                      # zwischen API-Overhead (kleinere Batches → mehr
                                      # Calls) und Worker-Responsiveness.
 DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
+MAX_IMAGES_PER_MESSAGE = 12        # = --limit-mm-per-prompt image in den vLLM-Profilen
+                                     # (llama-swap-Config); mehr lehnt vLLM mit 400 ab.
 WORKSPACE_READ_MAX_BYTES = 25 * 1024 * 1024  # read_file tool: reject files larger
                                      # than this (the whole file is loaded into RAM;
                                      # a huge file would blow the worker's memory).

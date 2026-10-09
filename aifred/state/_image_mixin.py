@@ -7,6 +7,8 @@ Part of the AIfred State refactoring (aifred/state/ package).
 import reflex as rx
 from typing import Dict, List
 
+from ..lib.config import MAX_IMAGES_PER_MESSAGE
+
 
 class ImageMixin(rx.State, mixin=True):
     """Mixin for image upload, crop, lightbox, help modals, and device detection."""
@@ -19,7 +21,7 @@ class ImageMixin(rx.State, mixin=True):
     is_uploading_image: bool = False
     pending_images: List[Dict[str, str]] = []
     image_upload_warning: str = ""
-    max_images_per_message: int = 5
+    max_images_per_message: int = MAX_IMAGES_PER_MESSAGE
     camera_available: bool = False
     _camera_detection_done: bool = False
 
