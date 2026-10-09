@@ -81,6 +81,82 @@ async def _query_ollama_running_models(host: str) -> list[dict[str, Any]]:
     return out
 
 
+def check_visiond_fits(profile: str) -> VRAMCheckResult:
+    """Passt das llama-swap-Describer-Profil ``<base>-visiond`` neben das,
+    was gerade geladen ist?
+
+    Bedarf = Burn-in-Peak aus ``vlm_vram_cache`` beim Kontext des Profils
+    plus ``LLAMACPP_VLM_HEADROOM_MB`` (dieselbe Reserve wie in der
+    Kalibrierung). Verglichen wird mit dem freien VRAM der Karte(n), auf
+    die das Profil per ``CUDA_VISIBLE_DEVICES`` gepinnt ist (ohne Pin: alle
+    Karten) — llama.cpp verteilt das Profil über genau diese Karten, also
+    zählt ihre Summe. Ist das Profil schon geladen, passt es.
+    """
+    from . import vlm_vram_cache
+    from .calibration.llamaswap_io import parse_llamaswap_config
+    from .config import LLAMACPP_VLM_HEADROOM_MB, LLAMASWAP_CONFIG_PATH
+    from .nvidia_smi import query
+    from .vision_routing import loaded_llamaswap_profiles
+
+    if profile in loaded_llamaswap_profiles():
+        return VRAMCheckResult(
+            fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
+            message=f"VLM-Profil '{profile}' ist bereits geladen.",
+        )
+
+    entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)[profile]
+    base = profile.removesuffix("-visiond")
+    num_ctx = int(entry["current_context"])
+    peak_mb = vlm_vram_cache.get(base, num_ctx)
+    if peak_mb is None:
+        return VRAMCheckResult(
+            fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
+            message=(
+                f"VLM '{base}' ist bei {num_ctx} Kontext nicht vermessen "
+                "(Burn-in fehlt) — Platzbedarf unbekannt."
+            ),
+        )
+    needed_mb = peak_mb + LLAMACPP_VLM_HEADROOM_MB
+
+    rows = query("index,uuid,memory.free") or []
+    free_by_uuid = {r["uuid"]: (int(r["index"]), int(r["memory.free"])) for r in rows}
+    pinned = [
+        u.strip() for u in str(entry["env"].get("CUDA_VISIBLE_DEVICES", "")).split(",")
+        if u.strip()
+    ]
+    if pinned:
+        missing = [u for u in pinned if u not in free_by_uuid]
+        if missing:
+            return VRAMCheckResult(
+                fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
+                message=(
+                    f"VLM-Profil '{profile}' ist auf eine nicht vorhandene "
+                    f"GPU gepinnt ({', '.join(missing)})."
+                ),
+            )
+        candidates = [free_by_uuid[u] for u in pinned]
+    else:
+        candidates = list(free_by_uuid.values())
+    if not candidates:
+        return VRAMCheckResult(
+            fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
+            message="nvidia-smi liefert keine GPUs.",
+        )
+    free_mb = sum(free for _, free in candidates)
+    gpu_index = candidates[0][0] if len(candidates) == 1 else -1
+    if free_mb >= needed_mb:
+        return VRAMCheckResult(
+            fits=True, needed_mb=needed_mb, free_mb=free_mb, gpu_index=gpu_index,
+        )
+    return VRAMCheckResult(
+        fits=False, needed_mb=needed_mb, free_mb=free_mb, gpu_index=gpu_index,
+        message=(
+            f"VLM '{base}' braucht {needed_mb} MiB, frei sind {free_mb} MiB "
+            f"auf {len(candidates)} GPU(s)."
+        ),
+    )
+
+
 async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     """Vor-Bulk-Check: passt das aktuell konfigurierte VLM auf eine
     der verfügbaren GPUs? Aus Sicht des Ollama-VLM-Daemons.
@@ -99,21 +175,12 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
             message="Kein VLM-Modell konfiguriert.",
         )
 
-    # llama.cpp-Describer-Pfad: Existiert ein -visiond-Profil, läuft die
-    # Analyse über llama-swap in den kalibrierten Reserve-Slot (persistente
-    # vision-Gruppe) — der Ollama-orientierte VRAM-Check ist dann
-    # gegenstandslos. Ein Lade-Fehler würde als RuntimeError des
-    # analyze-Calls sichtbar, nicht still verschluckt.
+    # llama.cpp-Describer-Pfad: Existiert ein -visiond-Profil, entscheidet
+    # der gemessene Bedarf gegen den freien VRAM seiner Karte(n).
     from .vision_routing import visiond_profile_for
     visiond = visiond_profile_for(str(target))
     if visiond is not None:
-        return VRAMCheckResult(
-            fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=(
-                f"VLM läuft als llama-swap-Describer '{visiond}' im "
-                "kalibrierten Reserve-Slot — kein Ollama-VRAM-Check nötig."
-            ),
-        )
+        return check_visiond_fits(visiond)
 
     # Primary source: stress-prewarm-measured peak from the VLM VRAM
     # cache. Populated lazily by the calibration's resolve_vlm_reserve;
@@ -142,9 +209,10 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
         except Exception:  # noqa: BLE001
             needed_mb = 8000  # Mid-range Default
 
-    # Plus 500 MB Reserve fürs KV-Cache + Workspace (über die
-    # gemessenen Werte hinaus, falls Context höher als üblich).
-    headroom_mb = max(needed_mb + 500, 1000)
+    # Plus Reserve fürs KV-Cache + Workspace (über die gemessenen Werte
+    # hinaus, falls Context höher als üblich) — dieselbe wie in der Kalibrierung.
+    from .config import LLAMACPP_VLM_HEADROOM_MB
+    headroom_mb = max(needed_mb + LLAMACPP_VLM_HEADROOM_MB, 1000)
 
     # Laufende Modelle einmal holen — für den "schon geladen"-Check UND
     # später die Blocker-Liste.
