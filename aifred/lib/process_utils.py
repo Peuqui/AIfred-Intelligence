@@ -327,7 +327,7 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
 
     Args:
         backend_type: Active LLM backend ("llamacpp", "ollama", "vllm")
-        keep_tts: TTS engine to keep running ("xtts" or "moss"). Empty = stop all.
+        keep_tts: Key of the TTS engine to keep running. Empty = stop all.
 
     Returns list of actions taken.
     """
