@@ -219,18 +219,12 @@ def get_agent_num_ctx(
         tts_mode = ", ".join(tts_mode_parts) if tts_mode_parts else "Manual"
 
         if 'xtts' in tts_engine.lower():
-            xtts_force_cpu = getattr(state, 'xtts_force_cpu', False)
-            device_mode = "CPU" if xtts_force_cpu else "GPU"
-
-            if not xtts_force_cpu:
-                vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
-                xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
-                original_ctx = num_ctx
-                num_ctx = max(2048, num_ctx - xtts_token_reserve)
-                source = f"{source} (XTTS: -{format_number(xtts_token_reserve)} tok)"
-                log_message(f"🔊 TTS: XTTS ({device_mode}), {tts_mode} | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(xtts_token_reserve)})")
-            else:
-                log_message(f"🔊 TTS: XTTS ({device_mode}), {tts_mode} | No VRAM reservation (CPU mode)")
+            vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
+            xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
+            original_ctx = num_ctx
+            num_ctx = max(2048, num_ctx - xtts_token_reserve)
+            source = f"{source} (XTTS: -{format_number(xtts_token_reserve)} tok)"
+            log_message(f"🔊 TTS: XTTS (GPU), {tts_mode} | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(xtts_token_reserve)})")
         elif 'moss' in tts_engine.lower():
             moss_device = getattr(state, 'moss_tts_device', '')
 

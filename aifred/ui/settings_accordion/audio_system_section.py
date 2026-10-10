@@ -120,32 +120,6 @@ def _tts_section() -> rx.Component:
                     width="100%",
                 ),
             ),
-            # XTTS CPU Mode Toggle (only when XTTS active)
-            rx.cond(
-                AIState.enable_tts & (AIState.tts_engine == "xtts"),
-                rx.tooltip(
-                  rx.hstack(
-                    rx.switch(
-                        checked=AIState.xtts_gpu_enabled,
-                        on_change=AIState.toggle_xtts_gpu,
-                        size="1",
-                    ),
-                    rx.text(
-                        rx.cond(
-                            AIState.xtts_force_cpu,
-                            t("xtts_device_cpu"),
-                            t("xtts_device_gpu"),
-                        ),
-                        font_size="10px",
-                        color="#d4a14a",
-                    ),
-                    spacing="1",
-                    align="center",
-                  ),
-                  content=t("xtts_container_restart_hint"),
-                ),
-                rx.fragment(),
-            ),
             spacing="2",
             align="center",
             width="100%",

@@ -75,16 +75,8 @@ class XTTSEngine(TTSEngine):
 
     def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_xtts_ready
-        # XTTS has its own CPU-fallback toggle; honour XTTS_FORCE_CPU=1
-        # by skipping the ensure if explicitly forced (the LLM caller is
-        # expected to know that XTTS won't take VRAM in that case).
         ok, msg = ensure_xtts_ready(timeout=timeout or 60)
-        device = ""
-        if ok and "cuda" in msg.lower():
-            device = "cuda"
-        elif ok and "cpu" in msg.lower():
-            device = "cpu"
-        return ok, msg, device
+        return ok, msg, "cuda" if ok else ""
 
     def generate_speech(
         self,

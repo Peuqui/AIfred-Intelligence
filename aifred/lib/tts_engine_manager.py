@@ -307,7 +307,6 @@ def stop_engine(engine: str) -> tuple[bool, str]:
 def ensure_engine_ready(
     engine: str,
     timeout: int | None = None,
-    xtts_force_cpu: bool = False,
 ) -> tuple[bool, str, str]:
     """Single SSOT for "start container + wait until model is loaded".
 
@@ -318,9 +317,6 @@ def ensure_engine_ready(
     Returns ``(success, status_message, device)``. ``device`` is the
     string the engine container reports for its compute target ("cuda:0",
     "cpu", …) — engines that don't expose one return "".
-
-    ``xtts_force_cpu`` is XTTS-specific (the CPU-mode toggle lives on
-    that engine alone); other engines ignore it.
     """
     from .tts_engines import get_engine
     eng = get_engine(engine)
@@ -328,20 +324,12 @@ def ensure_engine_ready(
         # Unknown / lightweight engine — nothing to start, treat as ready.
         return True, "", ""
 
-    # XTTS' CPU-mode toggle has to fire BEFORE the readiness probe.
-    if engine == "xtts":
-        from .process_utils import set_xtts_cpu_mode
-        cpu_ok, cpu_msg = set_xtts_cpu_mode(xtts_force_cpu)
-        if not cpu_ok:
-            return False, cpu_msg, ""
-
     return eng.ensure_ready(timeout=timeout)
 
 
 def ensure_tts_state(
     wanted_tts: str,
     backend_type: str = "llamacpp",
-    xtts_force_cpu: bool = False,
 ) -> Generator[str, None, TTSState]:
     """Ensure VRAM state matches TTS requirements. Yields status after each step.
 
@@ -350,7 +338,6 @@ def ensure_tts_state(
     Args:
         wanted_tts: Desired TTS engine ("xtts", "moss", or "" for none)
         backend_type: Active LLM backend ("llamacpp", "ollama", etc.)
-        xtts_force_cpu: Force XTTS to CPU mode (no VRAM needed)
 
     Yields:
         Status messages after each blocking step.
@@ -358,10 +345,6 @@ def ensure_tts_state(
     Returns:
         TTSState with success and changed flags.
     """
-    # XTTS CPU mode doesn't need GPU VRAM
-    if wanted_tts == "xtts" and xtts_force_cpu:
-        wanted_tts = ""
-
     # Lightweight engines don't need VRAM management
     if wanted_tts and wanted_tts not in GPU_ENGINES:
         return TTSState(success=True)
@@ -376,7 +359,7 @@ def ensure_tts_state(
 
     # Case 3: Want TTS but wrong/none running → switch
     if wanted_tts:
-        yield from _do_switch(wanted_tts, running, backend_type, xtts_force_cpu)
+        yield from _do_switch(wanted_tts, running, backend_type)
         # Get final state
         final_running = _detect_running_tts_engine()
         return TTSState(
@@ -420,7 +403,6 @@ def _do_switch(
     new_engine: str,
     old_engine: str,
     backend_type: str,
-    xtts_force_cpu: bool,
 ) -> Generator[str, None, None]:
     """Execute the actual TTS engine switch. Yields status after each step.
 
@@ -463,7 +445,7 @@ def _do_switch(
         if new_engine != "xtts":
             yield f"{new_engine.upper()}: Loading model..."
         started_ok, ready_msg, _device = ensure_engine_ready(
-            new_engine, xtts_force_cpu=xtts_force_cpu,
+            new_engine,
         )
         if ready_msg:
             yield ready_msg
@@ -475,7 +457,7 @@ def _do_switch(
         yield "TTS start failed next to warm LLM — freeing VRAM and retrying..."
         unload_all_gpu_models(backend_type, keep_tts=new_engine)
         started_ok, ready_msg, _device = ensure_engine_ready(
-            new_engine, xtts_force_cpu=xtts_force_cpu,
+            new_engine,
         )
         if ready_msg:
             yield ready_msg
