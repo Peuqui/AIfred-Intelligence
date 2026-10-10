@@ -63,6 +63,29 @@ Debug-Konsole und `debug.log` (englisch):
 🔊 [FreeEcho.2 buero] TTS escalation: voice change announced, dashscope@local continues
 ```
 
+## Anderer Rechner als TTS-Host
+
+Jeder Rechner mit NVIDIA-GPU, Docker und NVIDIA Container Toolkit (Linux oder WSL2) kann
+XTTS und Qwen3-TTS für AIfred bereitstellen — dieselben Container, dieselbe API.
+
+1. Repo klonen bzw. aktualisieren (`git pull --ff-only`), Images bauen:
+   `docker compose build` in `docker/tts/xtts` und `docker/tts/qwen3-tts`.
+2. Neben jede `docker-compose.yml` eine `.env` (nicht im Git):
+   ```
+   TTS_GPU_UUID=GPU-…            # nvidia-smi -L
+   TTS_RESTART=unless-stopped    # hier startet AIfred nichts — der Container läuft selbst
+   XTTS_KEEP_ALIVE=0             # bzw. QWEN3_KEEP_ALIVE=0: kein Selbst-Stopp nach Leerlauf
+   ```
+3. `docker compose up -d`, dann `curl localhost:5051/health` bzw. `:5052/health`.
+4. Port 5051/5052 vom AIfred-Rechner aus erreichbar machen (Firewall; unter WSL2 im NAT-Modus
+   `netsh interface portproxy`).
+5. In AIfred: Hauptmenü → Sprachausgabe → „Andere Rechner“ Name + Adresse eintragen, dann
+   Einträge „XTTS · <Name>“ / „Qwen3-TTS · <Name>“ hinzufügen und einsortieren. Weichen Ports
+   ab: `tts_hosts[].ports` in `settings.json`.
+
+Die Stimmen kommen aus `docker/tts/voices/` des Repos — gleicher Stand auf beiden Rechnern,
+sonst fehlt die Stimme und der Eintrag fällt aus.
+
 ## Browser — Menü
 
 ### Audio-Bereich (Haupt-Einstellungen)
