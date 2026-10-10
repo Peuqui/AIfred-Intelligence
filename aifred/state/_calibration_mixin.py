@@ -3325,7 +3325,7 @@ class CalibrationMixin(rx.State, mixin=True):
             self._persist_calibration_progress()
 
     # TTS calibration start/stop helpers — moved to TTSEngine subclasses
-    # (see aifred/lib/tts_engines/*.py). The Step-5 loop in run_calibration
+    # (see aifred/lib/tts_engines/*/engine.py). The Step-5 loop in run_calibration
     # iterates the registry and calls each engine's calibration_setup /
     # calibration_teardown directly.
 

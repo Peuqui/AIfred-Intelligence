@@ -300,7 +300,7 @@ def stop_engine(engine: str) -> tuple[bool, str]:
 
 
 # Engine-specific timeouts live on each TTSEngine subclass now (see
-# ensure_ready overrides in aifred/lib/tts_engines/*.py). XTTS=60s,
+# ensure_ready overrides in aifred/lib/tts_engines/*/engine.py). XTTS=60s,
 # MOSS=180s, Qwen3=240s as defaults.
 
 

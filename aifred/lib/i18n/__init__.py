@@ -103,10 +103,12 @@ def tts_label_to_key(label: str) -> str:
 
     Searches all languages since get_language() is unreliable in handler context.
     """
-    from ..config import TTS_ENGINE_KEYS
-    for lang_translations in TranslationManager._translations.values():
-        for key in TTS_ENGINE_KEYS:
-            if lang_translations.get(f"tts_engine_{key}") == label:
+    from ..tts_engines import TTS_ENGINES
+    for lang, translations in TranslationManager._translations.items():
+        if translations.get("tts_engine_off") == label:
+            return "off"
+        for key, engine in TTS_ENGINES.items():
+            if engine.label(lang) == label:
                 return key
     return label
 
@@ -115,5 +117,9 @@ def tts_key_to_label(key: str, lang: Optional[str] = None) -> str:
     """Map an internal TTS engine key to its translated display label.
 
     Used by the engine dropdowns (escalation list, agent editor, narrator).
+    The engines carry their labels in their own folder; only "off" lives here.
     """
-    return t(f"tts_engine_{key}", lang=lang)
+    if key == "off":
+        return t("tts_engine_off", lang=lang)
+    from ..tts_engines import require_engine
+    return require_engine(key).label(TranslationManager._resolve_lang(lang))

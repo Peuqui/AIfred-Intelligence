@@ -4,7 +4,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 
-from .base import TTSEngine, TTSFailure
+from ..base import TTSEngine, TTSFailure
 
 
 # Display name → (ONNX model filename, language code). Models live in
@@ -24,7 +24,7 @@ PIPER_VOICES: dict[str, tuple[str, str]] = {
 
 def _piper_binary() -> Path:
     """Platform-specific path to the piper executable in our venv."""
-    from ..config import PROJECT_ROOT
+    from ...config import PROJECT_ROOT
     if os.name == "nt":
         return PROJECT_ROOT / "venv" / "Scripts" / "piper.exe"
     return PROJECT_ROOT / "venv" / "bin" / "piper"
@@ -36,7 +36,7 @@ PIPER_STANDARD_VOICE = "Deutsch (Thorsten)"
 
 def _piper_default_model() -> Path:
     """Model file of :data:`PIPER_STANDARD_VOICE`."""
-    from ..config import PROJECT_ROOT
+    from ...config import PROJECT_ROOT
     model_filename, _lang = PIPER_VOICES[PIPER_STANDARD_VOICE]
     return PROJECT_ROOT / "piper_models" / model_filename
 
@@ -50,6 +50,7 @@ class PiperEngine(TTSEngine):
     # Piper applies its --length-scale internally — no ffmpeg needed.
     needs_speed_postprocess = False
     display_order = 60
+    in_default_escalation = True
 
     @property
     def voices_fallback(self) -> dict[str, str]:
@@ -71,10 +72,10 @@ class PiperEngine(TTSEngine):
         """Piper subprocess synth. Speed is applied natively via
         ``--length_scale`` (no ffmpeg post-processing needed)."""
         import subprocess
-        from ..audio_processing import _generate_tts_filename, TTS_AUDIO_DIR
-        from ..config import PROJECT_ROOT
-        from ..debug_bus import debug
-        from ..logging_utils import log_message
+        from ...audio_processing import _generate_tts_filename, TTS_AUDIO_DIR
+        from ...config import PROJECT_ROOT
+        from ...debug_bus import debug
+        from ...logging_utils import log_message
 
         filename = _generate_tts_filename("wav")
         output_file = str(TTS_AUDIO_DIR / filename)

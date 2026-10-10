@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import TTSEngine, shared_voice_names
+from ..base import TTSEngine, shared_voice_names
 
 
 class Qwen3LocalEngine(TTSEngine):
@@ -14,6 +14,7 @@ class Qwen3LocalEngine(TTSEngine):
     needs_speed_postprocess = True
     supports_language = True
     display_order = 10
+    in_default_escalation = True
 
     image_name = "qwen3-tts-1.7b-base"
     compose_subdir = "qwen3-tts"

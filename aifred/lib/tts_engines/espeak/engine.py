@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from .base import TTSEngine, TTSFailure
+from ..base import TTSEngine, TTSFailure
 
 
 # All catalogued eSpeak voices. Format: display_name → (espeak_voice_id, language).
@@ -100,9 +100,9 @@ class EspeakEngine(TTSEngine):
         words-per-minute ``-s`` flag."""
         import os
         import subprocess
-        from ..audio_processing import _generate_tts_filename, TTS_AUDIO_DIR
-        from ..debug_bus import debug
-        from ..logging_utils import log_message
+        from ...audio_processing import _generate_tts_filename, TTS_AUDIO_DIR
+        from ...debug_bus import debug
+        from ...logging_utils import log_message
 
         filename = _generate_tts_filename("wav")
         output_file = str(TTS_AUDIO_DIR / filename)

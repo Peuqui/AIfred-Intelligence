@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import TTSEngine, shared_voice_names
+from ..base import TTSEngine, shared_voice_names
 
 
 class FishSpeechEngine(TTSEngine):
@@ -45,7 +45,7 @@ class FishSpeechEngine(TTSEngine):
     def _device(self, health: dict[str, Any]) -> str:
         # Upstream /v1/health does not report a device; assume the card the
         # container was pinned to.
-        from ..process_utils import get_tts_gpu_uuid
+        from ...process_utils import get_tts_gpu_uuid
         return "cuda:0" if get_tts_gpu_uuid() else "cpu"
 
     def generate_speech(

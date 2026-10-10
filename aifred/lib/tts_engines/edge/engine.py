@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from .base import TTSEngine, TTSFailure
+from ..base import TTSEngine, TTSFailure
 
 
 class EdgeEngine(TTSEngine):
@@ -13,6 +13,7 @@ class EdgeEngine(TTSEngine):
     # Edge respects the rate parameter natively — no ffmpeg post.
     needs_speed_postprocess = False
     display_order = 80
+    in_default_escalation = True
     cloud = True
 
     # display name → Microsoft Neural Voice id. Static catalogue —
@@ -63,13 +64,13 @@ class EdgeEngine(TTSEngine):
         but for Edge we keep ``needs_speed_postprocess=False``)."""
         import concurrent.futures
         import os
-        from ..audio_processing import (
+        from ...audio_processing import (
             _generate_tts_filename,
             _validate_audio_output,
             _edge_tts_sync,
             TTS_AUDIO_DIR,
         )
-        from ..logging_utils import log_message
+        from ...logging_utils import log_message
 
         # Map display name → Microsoft voice id (Cherry → de-DE-KatjaNeural).
         voice_id = self.voices_fallback.get(voice, "de-DE-KatjaNeural")
