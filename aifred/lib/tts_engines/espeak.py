@@ -42,13 +42,8 @@ def _detect_available_voices() -> dict[str, tuple[str, str]]:
     import subprocess
     mbrola_available: set[str] = set()
     try:
-        espeak_cmd = "espeak-ng"
-        try:
-            subprocess.run([espeak_cmd, "--version"], capture_output=True, timeout=2)
-        except (FileNotFoundError, OSError):
-            espeak_cmd = "espeak"
         result = subprocess.run(
-            [espeak_cmd, "--voices=mb"], capture_output=True, text=True, timeout=5,
+            ["espeak-ng", "--voices=mb"], capture_output=True, text=True, timeout=5,
         )
         if result.returncode == 0:
             for line in result.stdout.split("\n")[1:]:
@@ -106,6 +101,7 @@ class EspeakEngine(TTSEngine):
         import os
         import subprocess
         from ..audio_processing import _generate_tts_filename, TTS_AUDIO_DIR
+        from ..debug_bus import debug
         from ..logging_utils import log_message
 
         filename = _generate_tts_filename("wav")
@@ -115,30 +111,24 @@ class EspeakEngine(TTSEngine):
         if voice_config:
             voice_lang, _ = voice_config
         else:
+            # Unknown voice (e.g. renamed): the engine's standard voice speaks
+            # instead of nothing — visible in the debug console.
             voice_lang = "de"
-            log_message(f"⚠️ eSpeak: Voice '{voice}' not found, using 'de'")
+            debug(f"⚠️ eSpeak: voice '{voice}' unknown — speaking with the standard voice 'de'")
 
         # eSpeak speed = words per minute (default ~175, range 80-500).
         # 1.0 → 175 wpm, 1.25 → 220 wpm, 2.0 → 350 wpm.
         wpm = int(175 * speed)
         log_message(f"🎤 eSpeak TTS: voice={voice_lang}, speed={speed}, wpm={wpm}")
 
-        # Prefer espeak-ng; fall back to legacy espeak if it isn't installed.
-        espeak_cmd = "espeak"
-        try:
-            if subprocess.run(["espeak-ng", "--version"], capture_output=True, timeout=5).returncode == 0:
-                espeak_cmd = "espeak-ng"
-        except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-            pass
-
         try:
             result = subprocess.run(
-                [espeak_cmd, "-v", voice_lang, "-s", str(wpm), "-w", output_file, text],
+                ["espeak-ng", "-v", voice_lang, "-s", str(wpm), "-w", output_file, text],
                 capture_output=True,
                 timeout=None,
             )
         except FileNotFoundError as exc:
-            raise TTSFailure("engine", "espeak/espeak-ng not installed (sudo apt install espeak-ng)") from exc
+            raise TTSFailure("engine", "espeak-ng not installed (sudo apt install espeak-ng)") from exc
         if result.returncode != 0 or not os.path.exists(output_file):
             err = result.stderr.decode() if result.stderr else "Unknown error"
             raise TTSFailure("engine", f"eSpeak exit {result.returncode}: {err[:200]}")
