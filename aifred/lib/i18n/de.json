@@ -158,6 +158,8 @@
   "tts_status_no_access": "kein Zugang",
   "tts_status_unreachable": "nicht erreichbar",
   "tts_status_sleeping": "schläft — startet bei Bedarf",
+  "tts_status_starting": "startet …",
+  "tts_status_start_failed": "Start fehlgeschlagen",
   "tts_host_test_ok": "✅ erreichbar · läuft: {running}",
   "tts_host_test_no_ssh": "ohne SSH · antwortet: {running}",
   "tts_host_test_button": "Verbindung testen",

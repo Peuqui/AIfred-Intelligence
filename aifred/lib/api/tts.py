@@ -3,8 +3,10 @@
 For the service control page: it shows AIfred's list (order, place, status)
 and starts or stops an entry's container through AIfred, so the card choice
 (``place_local_gpu_engine``) and the remote hosts (SSH) follow the same
-rules as AIfred's own speech. A start returns once the container is up; the
-model loads afterwards (the caller polls ``/tts/entries``). Token-guarded
+rules as AIfred's own speech. A start runs in the background (model loads
+take up to a minute or more); the list shows it as "starting", then running
+or "start failed" with the reason. Local starts run one at a time, so each
+sees the memory the previous one took. Token-guarded
 with ``Authorization: Bearer <TTS_CONTROL_API_TOKEN>``.
 """
 
@@ -30,6 +32,7 @@ class TTSEntry(BaseModel):
     status_text: str
     controllable: bool = Field(description="AIfred can start/stop its container")
     container: str | None = Field(description="Docker container name on this machine (logs, web UI), None otherwise")
+    detail: str | None = Field(description="Why the last start failed (status start_failed), None otherwise")
 
 
 class TTSEntryRequest(BaseModel):
@@ -55,7 +58,7 @@ async def tts_entries(
 ) -> List[Dict[str, object]]:
     """AIfred's TTS escalation list in speaking order, with the live status of each entry."""
     from ..i18n import t
-    from ..tts_escalation import entry_status, escalation_entries, is_controllable, location_label
+    from ..tts_escalation import entry_status, escalation_entries, is_controllable, location_label, start_failure
 
     _require_tts_token(authorization)
     entries = escalation_entries()
@@ -70,34 +73,36 @@ async def tts_entries(
             "status_text": t(f"tts_status_{status}", lang=lang),
             "controllable": is_controllable(entry),
             "container": entry.engine.service_dir if entry.host is None and entry.engine.runs_in_container else None,
+            "detail": start_failure(entry) if status == "start_failed" else None,
         }
         for entry, status in zip(entries, statuses)
     ]
 
 
 async def _act(request: TTSEntryRequest, verb: str) -> Dict[str, object]:
-    from ..tts_escalation import PlacementRefused, find_entry, halt_entry, launch_entry
+    from ..tts_escalation import find_entry, halt_entry, start_in_background
 
     try:
         entry = find_entry(request.engine, request.host)
     except LookupError as missing:
         raise HTTPException(status_code=404, detail=str(missing)) from missing
     try:
-        message = await (launch_entry(entry) if verb == "start" else halt_entry(entry))
-    except PlacementRefused as refused:
-        log_message(f"TTS API ({request.caller}): {verb} {entry.label} refused — {refused}")
-        raise HTTPException(status_code=409, detail=f"{entry.engine.label_short}: {refused}") from refused
+        if verb == "start":
+            message = "start requested" if start_in_background(entry) else "already starting"
+        else:
+            message = await halt_entry(entry)
     except RuntimeError as failed:
         log_message(f"TTS API ({request.caller}): {verb} {entry.label} failed — {failed}")
-        raise HTTPException(status_code=409, detail=str(failed)) from failed
-    log_message(f"TTS API ({request.caller}): {entry.label} {message}")
-    return {"success": True, "message": f"{entry.engine.label_short} {message}"}
+        raise HTTPException(status_code=409, detail=f"{entry.engine.label_short}: {failed}") from failed
+    log_message(f"TTS API ({request.caller}): {entry.label} — {message}")
+    return {"success": True, "message": f"{entry.engine.label_short}: {message}"}
 
 
 @api_app.post("/tts/start", response_model=TTSActionResponse, tags=["TTS"])
 async def tts_start(request: TTSEntryRequest, authorization: str | None = Header(None)) -> Dict[str, object]:
-    """Start the entry's container: locally on the card AIfred picks, on a host
-    over SSH (404 no such entry, 409 no card fits / not controllable / failed)."""
+    """Start the entry's container in the background: locally on the card AIfred
+    picks, on a host over SSH; /tts/entries shows the progress (404 no such
+    entry, 409 not controllable)."""
     _require_tts_token(authorization)
     return await _act(request, "start")
 
