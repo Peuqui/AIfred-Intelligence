@@ -37,6 +37,10 @@ def _load_i18n() -> dict[str, dict[str, str]]:
 # die Tools nicht lädt (latenter Bug bei frischer Installation).
 _SERVICE_ENABLED_DEFAULT = "true"
 
+# The one Drive folder the agents may work in (drive/agent_folder.py); the
+# document manager is not bound to it.
+_DRIVE_AGENT_FOLDER_DEFAULT = "AIfred-Intelligence"
+
 
 @dataclass
 class GooglePlugin:
@@ -108,6 +112,11 @@ class GooglePlugin:
                 options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
                 group="services",
             ),
+            CredentialField(
+                env_key="GOOGLE_DRIVE_AGENT_FOLDER",
+                label_key="google_drive_agent_folder",
+                default=_DRIVE_AGENT_FOLDER_DEFAULT,
+            ),
         ]
 
     def is_available(self) -> bool:
@@ -135,7 +144,9 @@ class GooglePlugin:
 
         if settings.get("GOOGLE_DRIVE_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
             from .drive.tools import get_drive_tools
-            tools.extend(get_drive_tools())
+            tools.extend(get_drive_tools(
+                settings.get("GOOGLE_DRIVE_AGENT_FOLDER", _DRIVE_AGENT_FOLDER_DEFAULT),
+            ))
 
         return tools
 

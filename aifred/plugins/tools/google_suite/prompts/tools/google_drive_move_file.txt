@@ -1,1 +1,1 @@
-Move a file to another folder.
+Move a file to another folder — both inside the agent folder of Google Drive.

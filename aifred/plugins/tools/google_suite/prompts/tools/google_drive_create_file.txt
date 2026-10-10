@@ -1,1 +1,1 @@
-Create a new text file in Google Drive and fill it with content.
+Create a new text file in the agent folder of Google Drive and fill it with content.

@@ -7,7 +7,7 @@
     },
     "parent_id": {
       "type": "string",
-      "description": "Parent folder ID (optional)"
+      "description": "Parent folder ID (optional, default: the agent folder '{agent_folder}')"
     }
   },
   "required": [

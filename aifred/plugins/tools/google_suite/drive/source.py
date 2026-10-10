@@ -16,9 +16,8 @@ import httpx
 
 from .....lib.document_sources import DocumentSourceError, SourceDownload, SourceEntry
 from .._common import _get_token, _google_request
-from .tools import DRIVE_API, UPLOAD_API, _escape_drive_term
+from ._api import DRIVE_API, FOLDER_MIME, UPLOAD_API, escape_drive_term
 
-FOLDER_MIME = "application/vnd.google-apps.folder"
 
 # Google-native type → (export type, file extension) for downloads.
 _EXPORT_FOR_DOWNLOAD: dict[str, tuple[str, str]] = {
@@ -81,14 +80,14 @@ class DriveDocumentSource:
                 return entries[:limit] if limit is not None else entries
 
     async def list_folder(self, folder_id: str) -> list[SourceEntry]:
-        parent = _escape_drive_term(folder_id or "root")
+        parent = escape_drive_term(folder_id or "root")
         try:
             return await self._files(f"'{parent}' in parents and trashed=false", None, "folder,name_natural")
         except Exception as exc:  # noqa: BLE001 — every failure reaches the user as one message
             raise _source_error(exc, "listing the folder") from exc
 
     async def search(self, query: str) -> list[SourceEntry]:
-        term = _escape_drive_term(query.strip())
+        term = escape_drive_term(query.strip())
         try:
             # Drive refuses orderBy on full-text queries: hits come by relevance.
             return await self._files(

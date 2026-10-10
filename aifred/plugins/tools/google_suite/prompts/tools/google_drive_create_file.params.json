@@ -11,7 +11,7 @@
     },
     "folder_id": {
       "type": "string",
-      "description": "Target folder ID (optional)"
+      "description": "Target folder ID (optional, default: the agent folder '{agent_folder}')"
     },
     "mime_type": {
       "type": "string",
