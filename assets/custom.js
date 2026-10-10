@@ -460,6 +460,17 @@ function playNextBubbleChunk() {
     const audioUrl = bubbleAudioUrls[bubbleAudioIndex];
     console.log(`🔊 Bubble Audio: Playing chunk ${bubbleAudioIndex + 1}/${bubbleAudioUrls.length}`);
 
+    if (typeof audioUrl === 'object') {
+        // Sentence the browser spoke for this bubble — speak it again.
+        const generation = browserSpeechGeneration;
+        speakInBrowser(audioUrl.speak).then(() => {
+            if (generation !== browserSpeechGeneration || !bubbleAudioPlaying) return;
+            bubbleAudioIndex++;
+            setTimeout(playNextBubbleChunk, 150);
+        });
+        return;
+    }
+
     // Use visible HTML5 player if available, otherwise create Audio element
     const player = document.getElementById('tts-audio-player');
     const usePlayer = player && player.style.display !== 'none';
@@ -488,6 +499,7 @@ function playNextBubbleChunk() {
  * Stop bubble audio playback
  */
 function stopBubbleAudio() {
+    cancelBrowserSpeech();
     bubbleAudioPlaying = false;
     bubbleAudioUrls = [];
     bubbleAudioIndex = 0;
@@ -517,6 +529,22 @@ function playBubbleAudio(audioUrl) {
 }
 
 /**
+ * What a bubble's play button plays: its audio URLs, then the sentences the
+ * browser spoke for it (browser entry, always last in the escalation list).
+ */
+function bubblePlaybackItems(button) {
+    const parse = (json) => {
+        if (!json) return [];
+        const items = JSON.parse(json);
+        return Array.isArray(items) ? items : [];
+    };
+    return [
+        ...parse(button.dataset.audioUrls),
+        ...parse(button.dataset.browserSpeech).map(utterance => ({speak: utterance})),
+    ];
+}
+
+/**
  * Initialize bubble audio buttons - hide those without audio URLs
  * Called after DOM updates to manage button visibility
  */
@@ -529,14 +557,9 @@ function initBubbleAudioButtons() {
         if (button.style.display !== value) button.style.display = value;
     };
     buttons.forEach((button, idx) => {
-        const audioUrlsJson = button.dataset.audioUrls;
-        if (!audioUrlsJson) {
-            setDisplay(button, 'none');
-            return;
-        }
         try {
-            const audioUrls = JSON.parse(audioUrlsJson);
-            if (!Array.isArray(audioUrls) || audioUrls.length === 0) {
+            const audioUrls = bubblePlaybackItems(button);
+            if (audioUrls.length === 0) {
                 setDisplay(button, 'none');
             } else {
                 setDisplay(button, 'inline-flex');
@@ -550,9 +573,8 @@ function initBubbleAudioButtons() {
                             stopBubbleAudio();
                             return;
                         }
-                        const freshUrlsJson = btn.dataset.audioUrls;
                         try {
-                            const freshUrls = JSON.parse(freshUrlsJson);
+                            const freshUrls = bubblePlaybackItems(btn);
                             console.log(`🔊 Button clicked, playing ${freshUrls.length} URLs (fresh read)`);
                             bubbleAudioActiveBtn = btn;
                             btn.classList.add('bubble-audio-playing');
@@ -652,7 +674,7 @@ window.initBubbleRegenerateButtons = initBubbleRegenerateButtons;
 // ============================================================
 
 // Queue state
-var ttsQueue = [];  // Array of audio URLs to play
+var ttsQueue = [];  // Audio URLs to play; {speak: utterance} items are spoken by the browser itself
 var ttsQueuePlaying = false;  // Is queue currently playing?
 var ttsQueueCurrentIndex = 0;  // Current playback position
 var ttsQueueVersion = 0;  // Track version to detect updates from backend
@@ -660,6 +682,50 @@ var ttsQueueVersion = 0;  // Track version to detect updates from backend
 // Blob prefetch: download upcoming chunks into memory for instant src switching
 var ttsBlobCache = {};  // originalURL → blobURL mapping
 var ttsPrefetchInFlight = new Set();  // URLs currently being fetched
+
+// ── Browser TTS (Web Speech API) ──────────────────────────
+// The escalation list's browser entry sends sentences instead of audio files
+// ({text, language, voice, rate, pitch}); the device speaks them. voice "Auto"
+// = a device voice for the language. Bumped on every stop/skip, so a sentence
+// cancelled mid-way does not advance a queue that has moved on.
+var browserSpeechGeneration = 0;
+
+function speakInBrowser(utterance) {
+    return new Promise(resolve => {
+        if (!window.speechSynthesis) {
+            console.warn('🔊 Browser TTS: speechSynthesis not available in this browser');
+            resolve();
+            return;
+        }
+        const spoken = new SpeechSynthesisUtterance(utterance.text);
+        spoken.lang = utterance.language;
+        const voices = speechSynthesis.getVoices();
+        if (utterance.voice && utterance.voice !== 'Auto') {
+            const named = voices.find(v => v.name === utterance.voice);
+            if (named) spoken.voice = named;
+        } else {
+            const lang = (utterance.language || '').toLowerCase();
+            const matching = voices.filter(v => v.lang.toLowerCase().startsWith(lang));
+            const pick = matching.find(v => v.default) || matching.find(v => v.localService) || matching[0];
+            if (pick) spoken.voice = pick;  // else the browser picks one for spoken.lang
+        }
+        spoken.rate = utterance.rate || 1.0;
+        spoken.pitch = utterance.pitch || 1.0;
+        spoken.onend = () => resolve();
+        spoken.onerror = (e) => {
+            if (e.error !== 'canceled' && e.error !== 'interrupted') console.warn('🔊 Browser TTS:', e.error);
+            resolve();
+        };
+        speechSynthesis.speak(spoken);
+    });
+}
+
+function cancelBrowserSpeech() {
+    browserSpeechGeneration++;
+    if (window.speechSynthesis) speechSynthesis.cancel();
+}
+
+window.speakInBrowser = speakInBrowser;
 
 /**
  * Update the TTS queue from backend state.
@@ -732,6 +798,22 @@ function playNextChunk() {
         return;
     }
 
+    const item = ttsQueue[ttsQueueCurrentIndex];
+    if (typeof item === 'object') {
+        // Spoken by the browser itself (escalation list's browser entry).
+        const chunkIndex = ttsQueueCurrentIndex;
+        const generation = browserSpeechGeneration;
+        ttsQueuePlaying = true;
+        speakInBrowser(item.speak).then(() => {
+            if (generation !== browserSpeechGeneration) return;  // stopped or skipped meanwhile
+            console.log(`🔊 TTS Queue: Browser sentence ${chunkIndex + 1} finished`);
+            ttsQueueCurrentIndex++;
+            playNextChunk();
+        });
+        prefetchChunks();
+        return;
+    }
+
     const player = document.getElementById('tts-audio-player');
     if (!player) {
         console.warn('🔊 TTS Queue: No audio player element found');
@@ -739,7 +821,7 @@ function playNextChunk() {
         return;
     }
 
-    const audioUrl = ttsQueue[ttsQueueCurrentIndex];
+    const audioUrl = item;
     const chunkIndex = ttsQueueCurrentIndex;
 
     // Use blob URL (in-memory, instant) if prefetched, otherwise original URL
@@ -797,6 +879,7 @@ function prefetchChunks() {
         const idx = ttsQueueCurrentIndex + i;
         if (idx >= ttsQueue.length) continue;
         const url = ttsQueue[idx];
+        if (typeof url !== 'string') continue;  // browser-spoken sentence, nothing to fetch
         if (ttsBlobCache[url] || ttsPrefetchInFlight.has(url)) continue;
 
         ttsPrefetchInFlight.add(url);
@@ -817,6 +900,7 @@ function prefetchChunks() {
  * Stop playback and reset state.
  */
 function stopPlayback() {
+    cancelBrowserSpeech();
     const player = document.getElementById('tts-audio-player');
     if (player) {
         player.pause();
@@ -847,6 +931,7 @@ function clearTtsQueue() {
  */
 function skipTtsQueueItem() {
     console.log('🔊 TTS Queue: Skipping current chunk');
+    cancelBrowserSpeech();
     const player = document.getElementById('tts-audio-player');
     if (player) {
         player.pause();
@@ -1014,6 +1099,26 @@ function startBrowserStream(sessionIdParam) {
                 return;
             }
 
+            if (kind === 'bubble_browser_speech') {
+                // What the browser spoke for the reply just finished: keep it on
+                // the newest bubble without playback, so its play button can read
+                // it out again. Sent before bubble_audio of the same reply.
+                ttsQueueVersion = data.version;
+                const audioBtns = document.querySelectorAll('.bubble-audio-btn');
+                for (let i = audioBtns.length - 1; i >= 0; i--) {
+                    const btn = audioBtns[i];
+                    const audio = btn.getAttribute('data-audio-urls');
+                    const speech = btn.getAttribute('data-browser-speech');
+                    if ((!audio || audio === '[]') && (!speech || speech === '[]')) {
+                        btn.setAttribute('data-browser-speech', url);
+                        lastAudioBubbleBtn = btn;
+                        console.log('🔊 Audio SSE: browser speech attached to latest bubble');
+                        break;
+                    }
+                }
+                return;
+            }
+
             if (kind === 'bubble_tts_note') {
                 // Who spoke the bubble just attached by bubble_audio (escalation
                 // list): the note sits next to that bubble's play button.
@@ -1139,6 +1244,10 @@ function startBrowserStream(sessionIdParam) {
                     player.playbackRate = factor;
                     console.log(`🔊 Audio Bus: speed → ${factor}×`);
                 }
+            } else if (kind === 'tts_speak') {
+                // Browser TTS — a sentence the device speaks, in the same queue.
+                const newQueue = [...ttsQueue, {speak: JSON.parse(url)}];
+                updateTtsQueue(newQueue, data.version);
             } else {
                 // TTS — gapless queue append for streaming inference output.
                 const newQueue = [...ttsQueue, url];
@@ -1561,9 +1670,10 @@ function initializeAllObservers() {
                 }
             }
             // Check for data-audio-urls attribute changes on existing buttons
-            if (mutation.type === 'attributes' && mutation.attributeName === 'data-audio-urls') {
+            if (mutation.type === 'attributes'
+                && (mutation.attributeName === 'data-audio-urls' || mutation.attributeName === 'data-browser-speech')) {
                 if (mutation.target.classList && mutation.target.classList.contains('bubble-audio-btn')) {
-                    console.log('🔊 Bubble Audio: data-audio-urls attribute changed');
+                    console.log(`🔊 Bubble Audio: ${mutation.attributeName} attribute changed`);
                     needsInit = true;
                 }
             }
@@ -1583,7 +1693,7 @@ function initializeAllObservers() {
         childList: true,
         subtree: true,
         attributes: true,
-        attributeFilter: ['data-audio-urls']
+        attributeFilter: ['data-audio-urls', 'data-browser-speech']
     });
 }
 

@@ -104,17 +104,31 @@ class NoSpeechAvailable(RuntimeError):
     """Kein Eintrag der Liste kann gerade sprechen."""
 
 
+@dataclass(frozen=True)
+class BrowserUtterance:
+    """What the browser entry hands to the page instead of an audio file:
+    the page speaks ``text`` with the Web Speech API (``voice`` "Auto" =
+    the device picks one for ``language``)."""
+
+    text: str
+    language: str
+    voice: str
+    rate: float
+    pitch: float
+
+
 def resolve_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
     """Stimme, Tempo und Tonhöhe eines Agenten für eine Engine (SSOT).
 
     Reihenfolge: Einstellung des Users für diese Engine und diesen Agenten,
     dann die des Agenten ``aifred``, dann der Standard des Agenten aus
-    ``agents.json``, dann der von ``aifred``. Ohne Stimme oder bei ungültigem
+    ``agents.json``, dann der von ``aifred``, dann die Standardstimme der
+    Engine (``default_voice``). Ohne Stimme oder bei ungültigem
     Tempo/Tonhöhe: :class:`TTSFailure` — der Eintrag fällt aus, die Liste
     geht weiter."""
     from .agent_config import get_tts_voice_default
     from .settings import persisted_settings
-    from .tts_engines import TTSFailure, parse_speed_factor
+    from .tts_engines import TTSFailure, parse_speed_factor, require_engine
 
     user_voices = persisted_settings().get("tts_agent_voices_per_engine", {}).get(engine_key, {})
     user_cfg = user_voices.get(agent) or user_voices.get("aifred") or {}
@@ -122,7 +136,7 @@ def resolve_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
     if not default_cfg.get("voice"):
         default_cfg = get_tts_voice_default("aifred", engine_key)
 
-    voice = str(user_cfg.get("voice") or default_cfg.get("voice") or "")
+    voice = str(user_cfg.get("voice") or default_cfg.get("voice") or require_engine(engine_key).default_voice or "")
     speed = parse_speed_factor(user_cfg.get("speed") or default_cfg.get("speed") or "1.0")
     pitch = parse_speed_factor(user_cfg.get("pitch") or default_cfg.get("pitch") or "1.0")
     if not voice:
@@ -132,17 +146,22 @@ def resolve_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
     return voice, speed, pitch
 
 
-async def _skip_reason(entry: EscalationEntry, report: Callable[[str], None]) -> str | None:
+async def _skip_reason(
+    entry: EscalationEntry, report: Callable[[str], None], *, in_browser: bool = False,
+) -> str | None:
     """Warum dieser Eintrag gerade nicht sprechen kann — ``None`` = er kann.
 
     Ein lokaler GPU-Eintrag, dessen Container nicht läuft, wird gestartet,
     wenn sein gemessener Spitzenbedarf in den freien Speicher einer Karte
-    passt; das Hauptmodell wird dafür nie neu geladen."""
+    passt; das Hauptmodell wird dafür nie neu geladen. Der Browser-Eintrag
+    spricht nur, wenn die Antwort in eine Browser-Sitzung geht."""
     import asyncio
 
     engine = entry.engine
     if not entry.enabled:
         return "disabled"
+    if engine.renders_in_browser and not in_browser:
+        return "speaks only into a browser session"
     if not engine.is_remote and not await asyncio.to_thread(engine.is_installed):
         return "docker image not built"
     if entry.host is not None and not entry.host.enabled:
@@ -332,16 +351,20 @@ class SpeechRun:
         *,
         entries: list[EscalationEntry] | None = None,
         report: Callable[[str], None] | None = None,
+        in_browser: bool = False,
     ) -> None:
         """``report`` receives the English debug lines (who speaks, skips,
         failures); default is the debug bus. The browser passes its own
-        console (``add_debug``) so the lines reach the session's console."""
+        console (``add_debug``) so the lines reach the session's console.
+        ``in_browser``: the reply goes into an open browser session, so the
+        browser entry may speak (its result is a :class:`BrowserUtterance`)."""
         import asyncio
 
         from .debug_bus import debug
 
         self.language = language
         self.label = label
+        self.in_browser = in_browser
         self._report = report or debug
         self._entries = entries if entries is not None else escalation_entries()
         self._current: EscalationEntry | None = None
@@ -361,7 +384,9 @@ class SpeechRun:
             for entry in self._entries:
                 if entry.label in self._failed:
                     continue
-                reason = await _skip_reason(entry, lambda message: self._report(f"🔊 [{self.label}] {message}"))
+                reason = await _skip_reason(
+                    entry, lambda message: self._report(f"🔊 [{self.label}] {message}"), in_browser=self.in_browser,
+                )
                 if reason is None:
                     self._report(f"🔊 [{self.label}] TTS escalation: {entry.label} speaks")
                     self._current = entry
@@ -371,20 +396,41 @@ class SpeechRun:
 
     async def synthesize(self, text: str, agent: str) -> str:
         """``text`` sprechen lassen; Audio-URL des Eintrags, der es geschafft hat.
-        :class:`NoSpeechAvailable`, wenn die Liste erschöpft ist."""
+        Für Läufe ohne Browser (Echo, Narrator, Neu-Synthese) — der
+        Browser-Eintrag ist dort übersprungen. :class:`NoSpeechAvailable`,
+        wenn die Liste erschöpft ist."""
+        if self.in_browser:
+            raise RuntimeError(f"[{self.label}] a browser run speaks through speak_in_browser")
+        result = await self._speak(text, agent)
+        if not isinstance(result, str):  # the browser entry is skipped without in_browser
+            raise RuntimeError(f"[{self.label}] browser entry spoke in a run without a browser")
+        return result
+
+    async def speak_in_browser(self, text: str, agent: str) -> "str | BrowserUtterance":
+        """Wie :meth:`synthesize` für eine Antwort in eine Browser-Sitzung: eine
+        Audio-URL oder, spricht der Browser-Eintrag, der Sprechauftrag für die Seite."""
+        if not self.in_browser:
+            raise RuntimeError(f"[{self.label}] speak_in_browser needs a run with in_browser=True")
+        return await self._speak(text, agent)
+
+    async def _speak(self, text: str, agent: str) -> "str | BrowserUtterance":
         from .audio_processing import generate_tts
         from .tts_engines import TTSFailure
 
         while True:
             entry = await self.entry()
             spoken_text = self._announcement(entry) + text
+            url: str | BrowserUtterance
             try:
                 voice, speed, pitch = resolve_voice(entry.engine.key, agent)
-                async with _engine_slots(entry.engine):
-                    url = await generate_tts(
-                        spoken_text, voice, speed, entry.engine,
-                        pitch=pitch, agent=agent, language=self.language,
-                    )
+                if entry.engine.renders_in_browser:
+                    url = BrowserUtterance(spoken_text, self.language, voice, speed, pitch)
+                else:
+                    async with _engine_slots(entry.engine):
+                        url = await generate_tts(
+                            spoken_text, voice, speed, entry.engine,
+                            pitch=pitch, agent=agent, language=self.language,
+                        )
             except TTSFailure as failure:
                 self._fail(entry, failure.reason, str(failure))
                 continue
@@ -453,12 +499,15 @@ async def choose_speaker(engine_key: str, label: str) -> EscalationEntry:
 
 
 def location_label(entry: EscalationEntry, lang: str) -> str:
-    """Wo ein Eintrag spricht: Name des Hosts, „Cloud“, „lokal“ (Container auf
-    diesem Rechner) oder „CPU“ (Prozess auf diesem Rechner)."""
+    """Wo ein Eintrag spricht: Name des Hosts, „Gerät“ (der Browser des Users),
+    „Cloud“, „lokal“ (Container auf diesem Rechner) oder „CPU“ (Prozess auf
+    diesem Rechner)."""
     from .i18n import t
 
     if entry.host is not None:
         return entry.host.name
+    if entry.engine.renders_in_browser:
+        return t("tts_location_device", lang=lang)
     if entry.engine.cloud:
         return t("tts_location_cloud", lang=lang)
     if entry.engine.runs_in_container:

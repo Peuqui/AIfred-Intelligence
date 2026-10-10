@@ -127,6 +127,8 @@ DEFAULT_SETTINGS = {
         {"engine": "dashscope", "host": None, "enabled": True},
         {"engine": "piper", "host": None, "enabled": True},
         {"engine": "edge", "host": None, "enabled": True},
+        # Last: the device speaks (browser replies only); nothing could take over after it.
+        {"engine": "browser", "host": None, "enabled": True},
     ],
     "show_transcription": False,
     "enable_gpu": True,

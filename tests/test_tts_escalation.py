@@ -133,6 +133,7 @@ class FakeEngine:
 
     cloud = False
     runs_in_container = True
+    renders_in_browser = False
     startup_timeout_s = 30
     max_parallel_requests = 2
 
@@ -409,3 +410,63 @@ class TestEntryStatus:
     def test_a_host_without_ssh_that_does_not_answer_is_unreachable(self):
         host = TTSHost(name="Box", address="box", enabled=True, ssh="")
         assert tts_escalation.entry_status(_entry(FakeEngine("xtts", remote=True, running=False), host)) == "unreachable"
+
+
+class TestBrowserEntry:
+    """The device speaks (Web Speech API): only for replies into a browser
+    session, handed to the page as a BrowserUtterance instead of a file."""
+
+    @pytest.fixture
+    def browser(self):
+        from aifred.lib.tts_engines import get_engine
+        return _entry(get_engine("browser"))
+
+    def test_it_is_skipped_outside_a_browser(self, spoken, browser):
+        run = SpeechRun("de", "t", entries=[browser, _entry(FakeEngine("piper"))])
+        assert _speak(run, "Hallo.") == ["/_upload/tts_audio/piper-1.wav"]
+
+    def test_outside_a_browser_it_alone_cannot_speak(self, spoken, browser):
+        with pytest.raises(NoSpeechAvailable):
+            _speak(SpeechRun("de", "t", entries=[browser]), "Hallo.")
+
+    def test_in_a_browser_the_page_gets_the_sentence(self, spoken, browser, monkeypatch):
+        monkeypatch.setattr(tts_escalation, "resolve_voice", lambda key, agent: ("Auto", 1.25, 1.0))
+        run = SpeechRun("de", "t", entries=[browser], in_browser=True)
+        result = asyncio.run(run.speak_in_browser("Hallo.", "aifred"))
+        assert result == tts_escalation.BrowserUtterance("Hallo.", "de", "Auto", 1.25, 1.0)
+        assert spoken == []                                  # no server synthesis
+        assert run.note("de") == "Browser · Gerät"
+
+    def test_it_takes_over_mid_text_with_the_announcement(self, spoken, browser):
+        run = SpeechRun("de", "t", entries=[_entry(FakeEngine("xtts", fail="unreachable", fail_after=1)), browser], in_browser=True)
+
+        async def go():
+            first = await run.speak_in_browser("Eins.", "aifred")
+            second = await run.speak_in_browser("Zwei.", "aifred")
+            return first, second
+
+        first, second = asyncio.run(go())
+        assert first == "/_upload/tts_audio/xtts-1.wav"
+        assert isinstance(second, tts_escalation.BrowserUtterance)
+        assert second.text.endswith("Zwei.") and second.text != "Zwei."   # voice change announced first
+
+    def test_the_two_ways_do_not_mix(self, spoken, browser):
+        with pytest.raises(RuntimeError, match="speak_in_browser"):
+            _speak(SpeechRun("de", "t", entries=[browser], in_browser=True), "Hallo.")
+        with pytest.raises(RuntimeError, match="in_browser=True"):
+            asyncio.run(SpeechRun("de", "t", entries=[browser]).speak_in_browser("Hallo.", "aifred"))
+
+    def test_without_any_configured_voice_the_engine_default_speaks(self, monkeypatch):
+        import aifred.lib.settings as settings_module
+        monkeypatch.setattr(settings_module, "persisted_settings", lambda: {})
+        monkeypatch.setattr("aifred.lib.agent_config.get_tts_voice_default", lambda agent, engine: {})
+        assert tts_escalation.resolve_voice("browser", "aifred") == ("Auto", 1.0, 1.0)
+
+    def test_the_narrator_cannot_pick_it(self):
+        with pytest.raises(NoSpeechAvailable, match="browser session"):
+            asyncio.run(tts_escalation.choose_speaker("browser", "narrator"))
+
+
+def test_the_browser_entry_is_last_in_the_default_list() -> None:
+    from aifred.lib.config import DEFAULT_SETTINGS
+    assert DEFAULT_SETTINGS["tts_escalation"][-1]["engine"] == "browser"

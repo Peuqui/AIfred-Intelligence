@@ -11,13 +11,13 @@ import json
 import os
 import re
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from typing import Any, Callable, List
 
 import reflex as rx
 
 from ..lib.logging_utils import log_message
-from ..lib.tts_escalation import NoSpeechAvailable, SpeechRun
+from ..lib.tts_escalation import BrowserUtterance, NoSpeechAvailable, SpeechRun
 
 
 @dataclass
@@ -35,7 +35,9 @@ class TTSBackendState:
     """
     pending_requests: list[str] = field(default_factory=list)        # Request-IDs of TTS tasks in flight
     completed_urls: dict[str, str] = field(default_factory=dict)     # {request_id: audio_url}
-    order_buffer: dict[int, tuple | None] = field(default_factory=dict)  # {seq: (url, rate, req_id) | None}
+    # Sentences the browser entry handed to the page, in order (dicts of BrowserUtterance).
+    browser_speech: list[dict[str, Any]] = field(default_factory=list)
+    order_buffer: dict[int, tuple | None] = field(default_factory=dict)  # {seq: (url | utterance, rate, req_id) | None}
     next_seq: int = 0   # Next sequence number to assign to a sentence
     push_seq: int = 0   # Next sequence number expected for queue push
     run: SpeechRun | None = None  # Escalation-list run of the reply being spoken
@@ -164,6 +166,31 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
     # ── TTS Queue Management ─────────────────────────────────────────
 
+    def _speak_reply_in_browser(self, utterance: BrowserUtterance, agent: str, tts_note: str) -> None:
+        """The browser entry speaks a whole reply: hand it to the page and keep
+        it on the agent's bubble, so its play button reads it out again."""
+        from ..lib.api import browser_push
+
+        spoken = asdict(utterance)
+        browser_push(self.session_id, "tts_speak", json.dumps(spoken, ensure_ascii=False))  # type: ignore[attr-defined]
+        _ch = self._chat_sub()
+        history = list(_ch.chat_history)
+        for i in range(len(history) - 1, -1, -1):
+            msg = history[i]
+            if msg.get("role") == "assistant" and msg.get("agent") == agent:
+                metadata = {**(msg.get("metadata") or {}), "browser_speech": [spoken], "tts_note": tts_note}
+                history[i] = {
+                    **msg,
+                    "metadata": metadata,
+                    "has_audio": True,
+                    "browser_speech_json": json.dumps([spoken], ensure_ascii=False),
+                    "tts_note": tts_note,
+                }
+                break
+        _ch.chat_history = history
+        self._save_current_session()  # type: ignore[attr-defined]
+        self.add_debug(f"🔊 TTS Queue: {_agent_label(agent)} spoken by the browser ({len(utterance.text)} chars)")  # type: ignore[attr-defined]
+
     async def _queue_tts_for_agent(self, content: str, agent: str) -> None:
         """Generate TTS and add to queue for sequential playback.
 
@@ -201,9 +228,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
             run = SpeechRun(
                 self._resolve_tts_language(agent), f"Browser {_agent_label(agent)}",
                 report=self.add_debug,  # type: ignore[attr-defined]
+                in_browser=True,
             )
-            audio_url = await run.synthesize(clean_text, agent)
+            spoken = await run.speak_in_browser(clean_text, agent)
             tts_note = run.note(self._resolve_tts_language(agent))
+            if isinstance(spoken, BrowserUtterance):
+                self._speak_reply_in_browser(spoken, agent, tts_note)
+                return
+            audio_url = spoken
 
             # Verify file exists
             filename = audio_url.split("/")[-1]
@@ -369,6 +401,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         tts_state = get_tts_backend_state(self.session_id)  # type: ignore[attr-defined]
         tts_state.pending_requests = []
         tts_state.completed_urls = {}
+        tts_state.browser_speech = []
         tts_state.order_buffer = {}
         tts_state.next_seq = 0
         tts_state.push_seq = 0
@@ -377,21 +410,23 @@ class TTSStreamingMixin(rx.State, mixin=True):
         tts_state.run = SpeechRun(
             self._resolve_tts_language(agent), f"Browser {_agent_label(agent)}",
             report=self.add_debug,  # type: ignore[attr-defined]
+            in_browser=True,
         )
 
         log_message("🔊 TTS Init: State initialized, ready for chunks")
 
-    async def _finalize_streaming_tts(self) -> list[str]:
+    async def _finalize_streaming_tts(self) -> tuple[list[str], list[dict[str, Any]]]:
         """Wait for the parallel sentence-based TTS tasks to complete and
-        return the combined audio URL. All engines run the same path —
-        no per-engine special cases here.
+        return the combined audio URL plus what the browser spoke itself.
+        All engines run the same path — no per-engine special cases here.
 
         Returns:
-            List with single combined audio URL, or empty list if no audio
+            (list with the single combined audio URL or empty, the sentences
+            the browser entry spoke — after the audio, it is last in the list)
         """
         if not self._tts_streaming_active:
             log_message("🔊 TTS Finalize: Not active, skipping")
-            return []
+            return [], []
 
         # --- Sentence-based parallel TTS (all engines) ---
 
@@ -463,16 +498,19 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 console_separator()
                 self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
 
+        browser_speech = list(tts_state.browser_speech)
+
         # Reset streaming state
         self._tts_sentence_buffer = ""
         self._tts_in_collapsible_block = False
         self._tts_streaming_active = False
         tts_state.pending_requests = []
         tts_state.completed_urls = {}
+        tts_state.browser_speech = []
         self._pending_audio_urls = []
         log_message("🔊 TTS Finalize: State reset complete")
 
-        return [combined_url] if combined_url else []
+        return ([combined_url] if combined_url else []), browser_speech
 
     def _streaming_tts_note(self) -> str:
         """Chat note of the reply just spoken (who spoke, switches with reason)."""
@@ -516,12 +554,12 @@ class TTSStreamingMixin(rx.State, mixin=True):
         and would never match the raw pipeline text.
         """
         try:
-            audio_urls = await self._finalize_streaming_tts()
+            audio_urls, browser_speech = await self._finalize_streaming_tts()
         except Exception as e:
             log_message(f"🔊 TTS Background: ❌ Finalize raised: {e}")
             return
 
-        if not audio_urls:
+        if not audio_urls and not browser_speech:
             return
 
         try:
@@ -550,6 +588,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             tts_note = self._streaming_tts_note()
             metadata = dict(msg.get("metadata", {}))
             metadata["audio_urls"] = audio_urls
+            metadata["browser_speech"] = browser_speech
             metadata["tts_note"] = tts_note
             metadata.setdefault("playback_rate", "1.0x")
             history[target] = {
@@ -557,24 +596,37 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 "metadata": metadata,
                 "has_audio": True,
                 "audio_urls_json": json.dumps(audio_urls),
+                "browser_speech_json": json.dumps(browser_speech, ensure_ascii=False),
                 "tts_note": tts_note,
             }
             ch.chat_history = history
-            log_message(f"🔊 TTS Background: ✅ Patched bubble #{target} with {len(audio_urls)} audio URL(s)")
+            log_message(
+                f"🔊 TTS Background: ✅ Patched bubble #{target} with {len(audio_urls)} audio URL(s), "
+                f"{len(browser_speech)} browser sentence(s)"
+            )
 
             # Reflex-independent live push: this bare create_task mutates
             # the server state above, but Reflex never pushes that delta to
             # the browser. So announce the combined URL over the existing
             # SSE audio bus — custom.js attaches it to the bubble's audio
             # button itself, no Reflex round-trip needed.
-            if audio_urls:
+            if audio_urls or browser_speech:
                 try:
                     from ..lib.api import browser_push
-                    browser_push(
-                        self.session_id,  # type: ignore[attr-defined]
-                        kind="bubble_audio",
-                        url=audio_urls[0],
-                    )
+                    # Browser speech first: custom.js attaches it to the newest
+                    # bubble without playback, then bubble_audio finds the same one.
+                    if browser_speech:
+                        browser_push(
+                            self.session_id,  # type: ignore[attr-defined]
+                            kind="bubble_browser_speech",
+                            url=json.dumps(browser_speech, ensure_ascii=False),
+                        )
+                    if audio_urls:
+                        browser_push(
+                            self.session_id,  # type: ignore[attr-defined]
+                            kind="bubble_audio",
+                            url=audio_urls[0],
+                        )
                     browser_push(
                         self.session_id,  # type: ignore[attr-defined]
                         kind="bubble_tts_note",
@@ -732,11 +784,17 @@ class TTSStreamingMixin(rx.State, mixin=True):
             # produziert. Tasks warten in der Semaphore-FIFO statt am Container.
             async with _tts_concurrency_sema:
                 try:
-                    audio_url: str | None = await run.synthesize(clean_text, agent)
+                    spoken: str | BrowserUtterance | None = await run.speak_in_browser(clean_text, agent)
                 except NoSpeechAvailable as exc:
                     log_message(f"🔊 TTS Generate: ⚠️ {exc}")
-                    audio_url = None
+                    spoken = None
 
+            if isinstance(spoken, BrowserUtterance):
+                # The page speaks it — no file; same ordered push as audio.
+                tts_state.order_buffer[seq] = (spoken, "1.0x", request_id)
+                self._drain_tts_order_buffer(session_id)
+                return
+            audio_url = spoken
             if audio_url:
                 filename = audio_url.split("/")[-1]
                 file_path = DATA_DIR / "tts_audio" / filename
@@ -806,11 +864,15 @@ class TTSStreamingMixin(rx.State, mixin=True):
             entry = tts_state.order_buffer[tts_state.push_seq]
 
             if entry is not None:
-                audio_url, playback_rate, request_id = entry
-                browser_push(session_id, "tts", audio_url, playback_rate=playback_rate)
+                item, playback_rate, request_id = entry
+                if isinstance(item, BrowserUtterance):
+                    utterance = asdict(item)
+                    browser_push(session_id, "tts_speak", json.dumps(utterance, ensure_ascii=False))
+                    tts_state.browser_speech.append(utterance)
+                else:
+                    browser_push(session_id, "tts", item, playback_rate=playback_rate)
+                    tts_state.completed_urls[request_id] = item
                 log_message(f"🔊 TTS Order: ✅ Pushed seq={tts_state.push_seq} to queue")
-                # Track completion
-                tts_state.completed_urls[request_id] = audio_url
                 tts_state.pending_requests = [r for r in tts_state.pending_requests if r != request_id]
             else:
                 log_message(f"🔊 TTS Order: Skipping seq={tts_state.push_seq} (empty/failed)")
@@ -946,12 +1008,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
         prev = new_history[bubble_index]
         new_metadata = dict(prev.get("metadata") or {})
         new_metadata["audio_urls"] = [session_audio_url]
+        new_metadata["browser_speech"] = []  # the new audio replaces what the browser spoke
         new_metadata["tts_note"] = tts_note
         new_history[bubble_index] = {
             **prev,
             "metadata": new_metadata,
             "has_audio": True,
             "audio_urls_json": json.dumps([session_audio_url]),
+            "browser_speech_json": "[]",
             "tts_note": tts_note,
         }
         _ch.chat_history = new_history

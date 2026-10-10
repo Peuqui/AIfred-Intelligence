@@ -113,6 +113,14 @@ class TTSEngine(ABC):
     #: such engines can only run on this machine or in the cloud.
     default_port: Optional[int] = None
 
+    #: True for the engine that speaks in the user's browser (Web Speech API):
+    #: no audio file on the server, only for replies into a browser session.
+    renders_in_browser: bool = False
+
+    #: Voice used when neither the user nor agents.json names one for an agent
+    #: (None = such an agent cannot speak on this engine).
+    default_voice: Optional[str] = None
+
     def __init__(self, address: str = "localhost", port: Optional[int] = None, gpu_uuid: str = "") -> None:
         """``address``/``port`` of the REST API. The registry instances run on
         this machine (``localhost``); :meth:`at_host` binds the same engine to

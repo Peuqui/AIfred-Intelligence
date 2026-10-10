@@ -86,21 +86,17 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Every entry that can still be added, as one choice "engine · place":
         engines with a built image (or none needed) on this machine, container
         engines on each host. Entries already in the list are left out."""
-        from ..lib.i18n import t
         from ..lib.settings import persisted_settings
         from ..lib.tts_engines import TTS_ENGINES
+        from ..lib.tts_escalation import EscalationEntry, location_label
 
         lang = _lang(self)
         settings = persisted_settings()
         taken = {(e["engine"], e["host"]) for e in settings["tts_escalation"]}
         options: List[Dict[str, str]] = []
         for key, engine in TTS_ENGINES.items():
-            if (key, None) not in taken and (not engine.runs_in_container or engine.is_installed()):
-                place = (
-                    t("tts_location_cloud", lang=lang) if engine.cloud
-                    else t("tts_location_local", lang=lang) if engine.runs_in_container
-                    else t("tts_location_cpu", lang=lang)
-                )
+            if (key, None) not in taken and engine.is_installed():
+                place = location_label(EscalationEntry(engine=engine, host=None, enabled=True), lang)
                 options.append({"label": f"{engine.label_short} · {place}", "value": f"{key}|"})
             if engine.default_port is None:
                 continue
