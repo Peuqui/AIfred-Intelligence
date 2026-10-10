@@ -45,6 +45,17 @@ def _post(path: str, engine: str = "qwen3local", host: str | None = None, header
     return TestClient(api_app).post(path, headers=headers, json={"engine": engine, "host": host, "caller": "Steuerseite"})
 
 
+def test_the_service_dir_is_the_container_name() -> None:
+    """The API names local containers by service_dir — every compose file must agree."""
+    import re
+
+    for engine in TTS_ENGINES.values():
+        if engine.runs_in_container:
+            compose = engine.docker_compose_path
+            assert compose is not None, engine.key
+            assert re.search(rf"container_name:\s*{re.escape(engine.service_dir)}\s*$", compose.read_text(), re.M), engine.key
+
+
 def test_every_endpoint_needs_the_token(aifred) -> None:
     client = TestClient(api_app)
     assert client.get("/tts/entries", params={"lang": "de"}).status_code == 403
@@ -63,6 +74,7 @@ def test_the_list_comes_in_aifreds_order_with_status(aifred) -> None:
     assert [(row["engine"], row["host"], row["controllable"]) for row in rows] == [
         ("qwen3local", None, True), ("qwen3local", "Box", True), ("edge", None, False),
     ]
+    assert [row["container"] for row in rows] == ["qwen3-tts", None, None]
     assert rows[0]["label"] == "Qwen3-TTS · lokal"
     assert rows[0]["status"] == "sleeping" and rows[0]["status_text"] == "schläft — startet bei Bedarf"
 

@@ -168,7 +168,8 @@ class TTSEngine(ABC):
     @property
     def service_dir(self) -> str:
         """Directory under ``docker/tts/`` — also the service name a TTS host's
-        control script (``scripts/tts-host-ctl.sh start <service>``) takes."""
+        control script (``scripts/tts-host-ctl.sh start <service>``) takes and
+        the ``container_name`` in that directory's docker-compose.yml."""
         return self.compose_subdir or self.key
 
     @property
