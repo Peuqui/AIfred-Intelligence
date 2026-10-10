@@ -63,7 +63,7 @@ class TtsReplyMixin(BaseChannel):
         # Wer spricht, entscheidet die Eskalationsliste: der erste passende
         # Eintrag von oben; das Hauptmodell wird dafür nie neu geladen.
         # channel_language() = Haushaltssprache — ohne sie synthetisieren
-        # sprachsensitive Engines (xtts, dashscope) mit dem "de"-Default der lib.
+        # sprachsensitive Engines (xtts, dashscope_audio3) mit dem "de"-Default der lib.
         run = SpeechRun(channel_language(), f"FreeEcho.2 {room}")
         try:
             speaker = await run.entry()

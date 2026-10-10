@@ -42,7 +42,6 @@
   "tts_engine_xtts": "XTTS v2 (Lokal, Voice Cloning)",
   "tts_engine_moss": "MOSS-TTS (Batch, nach Bubble)",
   "tts_engine_fishspeech": "Fish-Speech S2 Pro (Lokal, Voice Cloning, Streaming)",
-  "tts_engine_dashscope": "DashScope Qwen3-TTS (Cloud, Streaming)",
   "tts_engine_dashscope_audio3": "DashScope Qwen-Audio 3 (Cloud)",
   "tts_engine_piper": "Piper TTS (Lokal, Offline)",
   "tts_engine_espeak": "eSpeak (Roboter, Offline)",

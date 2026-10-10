@@ -1,4 +1,3 @@
-# Standalone scripts that pytest should not collect
 import os
 
 # Before any aifred import: pytest is a helper process, not the app. Without
@@ -8,9 +7,6 @@ import os
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
 import pytest  # noqa: E402
-
-collect_ignore = ["test_dashscope_tts.py", "test_dashscope_voice_clone.py"]
-
 
 @pytest.fixture(autouse=True, scope="session")
 def _no_debug_log_file():

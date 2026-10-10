@@ -69,12 +69,6 @@
           "speed": "1.25x",
           "pitch": "1.0",
           "enabled": true
-        },
-        "dashscope": {
-          "voice": "★ AIfred",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
         }
       },
       "tools": [
@@ -195,12 +189,6 @@
           "speed": "1.25x",
           "pitch": "1.0",
           "enabled": true
-        },
-        "dashscope": {
-          "voice": "★ Sokrates",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
         }
       },
       "tools": [
@@ -282,12 +270,6 @@
         },
         "edge": {
           "voice": "Deutsch (Florian)",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
-        },
-        "dashscope": {
-          "voice": "★ Salomo",
           "speed": "1.25x",
           "pitch": "1.0",
           "enabled": true
@@ -473,12 +455,6 @@
         },
         "fishspeech": {
           "voice": "HAL9000",
-          "speed": "1.0x",
-          "pitch": "1.0",
-          "enabled": true
-        },
-        "dashscope": {
-          "voice": "★ HAL9000",
           "speed": "1.0x",
           "pitch": "1.0",
           "enabled": true
