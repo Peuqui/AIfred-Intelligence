@@ -66,22 +66,29 @@ Debug console and `debug.log`:
 ## Another Machine as TTS Host
 
 Any machine with an NVIDIA GPU, Docker and the NVIDIA Container Toolkit (Linux or WSL2) can
-serve XTTS and Qwen3-TTS for AIfred — same containers, same API.
+serve XTTS and Qwen3-TTS for AIfred — same containers, same API. AIfred starts and stops them
+there via SSH, just like locally: the containers stop themselves after idle (`*_KEEP_ALIVE`),
+AIfred starts them on demand and waits until the model is loaded.
 
 1. Clone or update the repo (`git pull --ff-only`), build the images:
    `docker compose build` in `docker/tts/xtts` and `docker/tts/qwen3-tts`.
 2. Next to each `docker-compose.yml` a `.env` (not in Git):
    ```
    TTS_GPU_UUID=GPU-…            # nvidia-smi -L
-   TTS_RESTART=unless-stopped    # nobody starts it from AIfred here — it runs on its own
-   XTTS_KEEP_ALIVE=0             # or QWEN3_KEEP_ALIVE=0: no self-stop after idle
+   XTTS_KEEP_ALIVE=30            # or QWEN3_KEEP_ALIVE=30: idle minutes until self-stop
    ```
-3. `docker compose up -d`, then `curl localhost:5051/health` or `:5052/health`.
+3. AIfred's control key (AIfred machine: `~/.ssh/aifred_tts_host.pub`) in the TTS host's
+   `~/.ssh/authorized_keys`, pinned to the control script — AIfred can only start and stop TTS
+   containers with it, nothing else:
+   ```
+   command="<repo>/scripts/tts-host-ctl.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 AAAA… aifred-tts-host@…
+   ```
 4. Make ports 5051/5052 reachable from the AIfred machine (firewall; under WSL2 in NAT mode
-   `netsh interface portproxy`).
-5. In AIfred: main menu → spoken output → "Other machines" add name + address, then add the
-   entries "XTTS · <name>" / "Qwen3-TTS · <name>" and order them. Different ports:
-   `tts_hosts[].ports` in `settings.json`.
+   `netsh interface portproxy`), and the SSH port as well.
+5. In AIfred: spoken output → "Other machines" add name, address and SSH target
+   (`user@host:port`), then add the entries "XTTS · <name>" / "Qwen3-TTS · <name>" and order
+   them. The machine's switch on the main page stops its containers (VRAM free) or allows AIfred
+   to start them. Different ports: `tts_hosts[].ports` in `settings.json`.
 
 Voices come from the repo's `docker/tts/voices/` — same state on both machines, otherwise the
 voice is missing and the entry fails.

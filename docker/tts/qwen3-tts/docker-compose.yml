@@ -3,10 +3,7 @@ services:
     image: qwen3-tts-1.7b-base
     build: .
     container_name: qwen3-tts
-    # On this machine AIfred starts/stops the container ("no"). On another
-    # TTS host nobody does: set TTS_RESTART=unless-stopped (and *_KEEP_ALIVE=0)
-    # in a .env next to this file.
-    restart: "${TTS_RESTART:-no}"
+    restart: "no"  # AIfred starts it (locally, or on a TTS host via scripts/tts-host-ctl.sh)
     ports:
       - "5052:5052"
     deploy:
