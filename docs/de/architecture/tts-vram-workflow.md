@@ -33,7 +33,7 @@ Ein Eintrag **passt**, wenn er aktiv ist und:
 | Art | Bedingung |
 |-----|-----------|
 | Remote (Container auf `host`) | Health-Abfrage antwortet. Der Mini startet oder stoppt dort nie etwas. |
-| Lokal, GPU (XTTS, Qwen3, MOSS, Fish) | Container läuft — oder sein gemessener Burn-in-Peak (`tts_vram_cache`) + `LLAMACPP_TTS_BURNIN_HEADROOM_MB` passt in den **freien** Speicher der Sammelkarte (`pick_tts_gpu`); dann wird er gestartet. Ohne Messwert passt er nicht. |
+| Lokal, GPU (XTTS, Qwen3, MOSS, Fish) | Container läuft — oder sein gemessener Burn-in-Peak (`tts_vram_cache`) + `LLAMACPP_TTS_BURNIN_HEADROOM_MB` passt in den **freien** Speicher einer Karte: bevorzugt die Sammelkarte (`pick_tts_gpu`), sonst die Karte mit dem meisten freien Speicher; dort wird er gestartet. Ohne Messwert passt er nicht. Lädt später ein Modell, das die Karte braucht, räumt der GPU-Wächter der Backends den Container ab (`_release_tts_for_load`), außer der Engine, für die ein `-tts-<engine>`-Profil auf der Sammelkarte reserviert. |
 | Lokal ohne GPU / Cloud | Engine ist verfügbar (`is_running`, bei DashScope: API-Key gesetzt). |
 
 **Das Hauptmodell wird für TTS nie neu geladen.** Passt die lokale TTS nicht (z. B.

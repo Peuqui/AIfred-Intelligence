@@ -119,12 +119,12 @@ def resolve_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
     return voice, speed, pitch
 
 
-async def _skip_reason(entry: EscalationEntry) -> str | None:
+async def _skip_reason(entry: EscalationEntry, report: Callable[[str], None]) -> str | None:
     """Warum dieser Eintrag gerade nicht sprechen kann — ``None`` = er kann.
 
     Ein lokaler GPU-Eintrag, dessen Container nicht läuft, wird gestartet,
-    wenn sein gemessener Spitzenbedarf in den freien Speicher der
-    Sammelkarte passt; das Hauptmodell wird dafür nie neu geladen."""
+    wenn sein gemessener Spitzenbedarf in den freien Speicher einer Karte
+    passt; das Hauptmodell wird dafür nie neu geladen."""
     import asyncio
 
     engine = entry.engine
@@ -138,30 +138,45 @@ async def _skip_reason(entry: EscalationEntry) -> str | None:
         return f"not serving on {engine.address}"
     if not engine.needs_gpu:
         return "not available"
-    return await _start_local_gpu_engine(engine)
+    return await _start_local_gpu_engine(engine, report)
 
 
-async def _start_local_gpu_engine(engine: TTSEngine) -> str | None:
-    """Lokale GPU-Engine starten, wenn sie in den freien Speicher passt."""
+async def _start_local_gpu_engine(engine: TTSEngine, report: Callable[[str], None]) -> str | None:
+    """Lokale GPU-Engine starten, wenn ihr Spitzenbedarf auf eine Karte passt:
+    bevorzugt die Sammelkarte, sonst die Karte mit dem meisten freien Speicher.
+    Lädt das Hauptmodell später neu und braucht die Karte, räumt der
+    GPU-Wächter der Backends den Container wieder ab (Hauptmodell vor TTS)."""
     import asyncio
 
     from . import tts_vram_cache
     from .config import LLAMACPP_TTS_BURNIN_HEADROOM_MB
-    from .gpu_utils import get_free_vram_for_single_gpu
+    from .formatting import format_number
+    from .nvidia_smi import query
     from .vision_gpu_select import pick_tts_gpu
 
     peak = tts_vram_cache.get(engine.key)
     if peak is None:
         return "no burn-in peak measured — VRAM need unknown"
     needed = peak + LLAMACPP_TTS_BURNIN_HEADROOM_MB
-    gpu = await asyncio.to_thread(pick_tts_gpu)
-    free = await asyncio.to_thread(get_free_vram_for_single_gpu, gpu)
-    if free is None:
-        return f"free VRAM of GPU {gpu} unknown"
-    if free < needed:
-        from .formatting import format_number
-        return f"needs {format_number(needed)} MiB, free {format_number(free)} MiB on GPU {gpu}"
-    ok, message, _device = await asyncio.to_thread(engine.ensure_ready)
+    rows = await asyncio.to_thread(query, "index,uuid,memory.free") or []
+    cards = {int(row["index"]): (str(row["uuid"]), int(row["memory.free"])) for row in rows}
+    if not cards:
+        return "nvidia-smi lists no GPUs"
+    fitting = [index for index, (_uuid, free) in cards.items() if free >= needed]
+    if not fitting:
+        most = max(cards, key=lambda index: cards[index][1])
+        return (
+            f"needs {format_number(needed)} MiB, most free {format_number(cards[most][1])} MiB "
+            f"on GPU {most}"
+        )
+    home = await asyncio.to_thread(pick_tts_gpu)
+    gpu = home if home in fitting else max(fitting, key=lambda index: cards[index][1])
+    placed = engine if gpu == home else engine.on_gpu(cards[gpu][0])
+    report(
+        f"🔊 TTS escalation: starting {engine.key} on GPU {gpu} "
+        f"(needs {format_number(needed)} MiB, free {format_number(cards[gpu][1])} MiB)"
+    )
+    ok, message, _device = await asyncio.to_thread(placed.ensure_ready)
     return None if ok else f"start failed: {message}"
 
 
@@ -213,7 +228,7 @@ class SpeechRun:
             for entry in self._entries:
                 if entry.label in self._failed:
                     continue
-                reason = await _skip_reason(entry)
+                reason = await _skip_reason(entry, self._report)
                 if reason is None:
                     self._report(f"🔊 [{self.label}] TTS escalation: {entry.label} speaks")
                     self._current = entry
@@ -291,8 +306,10 @@ async def choose_speaker(engine_key: str, label: str) -> EscalationEntry:
 
     if not engine_key:
         return await SpeechRun("", label).entry()
+    from .debug_bus import debug
+
     entry = EscalationEntry(engine=require_engine(engine_key), host=None, enabled=True)
-    reason = await _skip_reason(entry)
+    reason = await _skip_reason(entry, debug)
     if reason is not None:
         raise NoSpeechAvailable(f"[{label}] TTS engine {engine_key!r} cannot speak now: {reason}")
     return entry

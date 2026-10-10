@@ -490,6 +490,38 @@ class OpenAICompatibleBackend(LLMBackend):
         log_message(f"✅ '{model}' loaded in {load_s:.1f}s")
         return load_s
 
+    @staticmethod
+    def _release_tts_for_load(model: str) -> None:
+        """Stop local TTS containers that sit on a card ``model`` will use.
+
+        The calibrated split counts those cards as free; only a ``-tts-<engine>``
+        profile reserves room — for that engine, on the side-channel card."""
+        from ..lib.calibration import parse_llamaswap_config
+        from ..lib.calibration.gpu import gpu_uuids_by_index
+        from ..lib.calibration.llamaswap_io import entry_gpu_uuids
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.logging_utils import log_message
+        from ..lib.process_utils import get_tts_gpu_uuid
+        from ..lib.tts_engine_manager import local_tts_gpu_footprint, stop_engine
+
+        footprint = local_tts_gpu_footprint()
+        if not footprint:
+            return
+        try:
+            target = entry_gpu_uuids(
+                parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)[model]["env"], gpu_uuids_by_index(),
+            )
+        except (KeyError, ValueError):
+            target = None  # unknown cards: every TTS container is in the way
+        home = get_tts_gpu_uuid()
+        for engine_key, per_card in footprint.items():
+            cards = set(per_card)
+            if f"-tts-{engine_key}" in model and cards == {home}:
+                continue
+            if target is None or cards & target:
+                stop_engine(engine_key)
+                log_message(f"🔊 TTS container {engine_key} stopped before loading '{model}' (needs its GPU)")
+
     async def _free_gpus_for_load(self, model: str, running: List[str]) -> None:
         """Clear the cards before llama-swap loads ``model``.
 
@@ -502,6 +534,10 @@ class OpenAICompatibleBackend(LLMBackend):
           (otherwise transcription falls back to the CPU), so it can sit on
           a card an unloaded model will need again. Released first; a
           running transcription gets WHISPER_RELEASE_WAIT_MAX_S.
+        * TTS containers the escalation list started into free VRAM: every
+          one on a card the target entry uses is stopped (main model ranks
+          above TTS) — except the engine a ``-tts-<engine>`` profile reserves
+          room for on the side-channel card.
         * Sidecars: the llama-swap ``vision`` and ``embed`` groups are
           ``persistent`` — llama-swap never unloads their ``-visiond``
           describers and ``-embed`` servers for a main model (only their
@@ -529,6 +565,7 @@ class OpenAICompatibleBackend(LLMBackend):
             async with httpx.AsyncClient(timeout=5.0) as client:
                 if await asyncio.to_thread(release_whisper_gpu):
                     log_message(f"🎤 Whisper GPU worker released before loading '{model}'")
+                await asyncio.to_thread(self._release_tts_for_load, model)
                 if "-vlm-" in model or is_visiond_profile(model) or model.endswith("-embed"):
                     return
                 sidecars = [m for m in running if is_visiond_profile(m) or m.endswith("-embed")]

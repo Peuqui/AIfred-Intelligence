@@ -127,6 +127,10 @@ class FakeEngine:
         self.started = True
         return True, "ready", ""
 
+    def on_gpu(self, gpu_uuid):
+        self.placed_on = gpu_uuid
+        return self
+
 
 def _entry(engine, host=None, enabled=True):
     return EscalationEntry(engine=engine, host=host, enabled=enabled)  # type: ignore[arg-type]
@@ -180,16 +184,34 @@ class TestSelection:
         _speak(run, "Hallo.")
         assert spoken == [("piper", "Hallo.")] and not gpu.started
 
+    @staticmethod
+    def _cards(monkeypatch, free_by_index):
+        monkeypatch.setattr("aifred.lib.tts_vram_cache.get", lambda key: 5000)   # + 512 headroom
+        monkeypatch.setattr("aifred.lib.vision_gpu_select.pick_tts_gpu", lambda: 4)
+        monkeypatch.setattr("aifred.lib.nvidia_smi.query", lambda fields: [
+            {"index": str(i), "uuid": f"GPU-{i}", "memory.free": str(free)} for i, free in free_by_index.items()
+        ])
+
     @pytest.mark.parametrize(("free_mib", "speaker"), [(3000, "piper"), (9000, "xtts")])
     def test_local_gpu_engine_starts_only_when_it_fits(self, spoken, monkeypatch, free_mib, speaker):
-        monkeypatch.setattr("aifred.lib.tts_vram_cache.get", lambda key: 5000)
-        monkeypatch.setattr("aifred.lib.vision_gpu_select.pick_tts_gpu", lambda: 4)
-        monkeypatch.setattr("aifred.lib.gpu_utils.get_free_vram_for_single_gpu", lambda gpu: free_mib)
+        self._cards(monkeypatch, {0: 1000, 4: free_mib})
         gpu = FakeEngine("xtts", running=False, gpu=True)
         run = SpeechRun("de", "t", entries=[_entry(gpu), _entry(FakeEngine("piper"))])
         _speak(run, "Hallo.")
         assert spoken == [(speaker, "Hallo.")]
         assert gpu.started is (speaker == "xtts")
+
+    def test_the_side_channel_card_comes_first(self, spoken, monkeypatch):
+        self._cards(monkeypatch, {0: 20000, 4: 6000})
+        gpu = FakeEngine("xtts", running=False, gpu=True)
+        _speak(SpeechRun("de", "t", entries=[_entry(gpu)]), "Hallo.")
+        assert gpu.started and not hasattr(gpu, "placed_on")
+
+    def test_otherwise_the_card_with_the_most_free_vram_that_fits(self, spoken, monkeypatch):
+        self._cards(monkeypatch, {0: 9700, 2: 7000, 4: 375})
+        gpu = FakeEngine("xtts", running=False, gpu=True)
+        _speak(SpeechRun("de", "t", entries=[_entry(gpu)]), "Hallo.")
+        assert gpu.placed_on == "GPU-0"
 
 
 class TestFailover:

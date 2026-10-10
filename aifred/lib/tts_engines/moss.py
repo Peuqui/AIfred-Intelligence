@@ -48,7 +48,7 @@ class MOSSEngine(TTSEngine):
 
     def _start_local(self) -> tuple[bool, str]:
         from ..process_utils import start_moss_container
-        return start_moss_container()
+        return start_moss_container(self.gpu_uuid)
 
     def _stop_local(self) -> tuple[bool, str]:
         from ..process_utils import stop_moss_container
@@ -56,7 +56,7 @@ class MOSSEngine(TTSEngine):
 
     def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_moss_ready
-        return ensure_moss_ready(timeout=timeout or 180)
+        return ensure_moss_ready(timeout=timeout or 180, gpu_uuid=self.gpu_uuid)
 
     def generate_speech(
         self,
