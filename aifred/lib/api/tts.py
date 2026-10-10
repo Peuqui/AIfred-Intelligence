@@ -29,6 +29,7 @@ class TTSEntry(BaseModel):
     status: str = Field(description="Status key: running, sleeping, no_image, host_off, …")
     status_text: str
     controllable: bool = Field(description="AIfred can start/stop its container")
+    container: str | None = Field(description="Docker container name on this machine (logs, web UI), None otherwise")
 
 
 class TTSEntryRequest(BaseModel):
@@ -68,6 +69,7 @@ async def tts_entries(
             "status": status,
             "status_text": t(f"tts_status_{status}", lang=lang),
             "controllable": is_controllable(entry),
+            "container": entry.engine.service_dir if entry.host is None and entry.engine.runs_in_container else None,
         }
         for entry, status in zip(entries, statuses)
     ]
