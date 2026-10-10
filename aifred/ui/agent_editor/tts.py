@@ -1,7 +1,8 @@
 """Agent-Editor: TTS-Tab — die Eskalationsliste der Sprachausgabe bearbeiten.
 
-Reihenfolge, An/Aus und Sprecheinheit der Einträge, andere Rechner mit
-TTS-Containern, neue Einträge. Die Liste lebt in ``settings.json``
+Oben die anderen Rechner mit TTS-Containern (Verbindungstest), darunter die
+Liste in Sprechreihenfolge mit Status je Eintrag, darunter das Hinzufügen
+(eine Auswahl „Engine · Ort“). Die Liste lebt in ``settings.json``
 (``tts_escalation``, ``tts_hosts``); der State dazu ist
 ``state/_tts_config_mixin.py``. An/Aus der Sprachausgabe, Autoplay und die
 Rechner-Schalter stehen auf der Hauptseite (Audio-Bereich).
@@ -34,8 +35,106 @@ def _icon_action(icon: str, on_click: Any, tooltip_key: str) -> rx.Component:
     )
 
 
+def _section_heading(key: str, *extra: rx.Component) -> rx.Component:
+    return rx.hstack(
+        rx.text(t(key), font_size="12px", font_weight="bold", color="#d4a14a"),
+        *extra,
+        spacing="2",
+        align="center",
+        width="100%",
+    )
+
+
+# ── Rechner ───────────────────────────────────────────────────────
+
+def _host_card(host: rx.Var) -> rx.Component:
+    name = host["name"].to(str)
+    return rx.vstack(
+        rx.hstack(
+            rx.icon("server", size=14, color="#888"),
+            rx.text(name, font_size="13px", font_weight="bold", color="#ddd"),
+            rx.text(host["address"].to(str), font_size="11px", color="#888"),
+            rx.text(host["ssh"].to(str), font_size="11px", color="#666"),
+            rx.box(flex="1"),
+            rx.button(
+                t("tts_host_test_button"),
+                on_click=AIState.test_tts_host(name),
+                size="1",
+                variant="soft",
+                color_scheme="gray",
+            ),
+            _icon_action("trash-2", AIState.remove_tts_host(name), "tts_host_remove"),
+            spacing="2",
+            align="center",
+            width="100%",
+        ),
+        rx.cond(
+            AIState.tts_host_test.contains(name),
+            rx.text(AIState.tts_host_test[name], font_size="11px", color="#aaa"),
+            rx.fragment(),
+        ),
+        spacing="1",
+        width="100%",
+        padding="8px 10px",
+        border="1px solid #333",
+        border_radius="8px",
+    )
+
+
+def _host_form() -> rx.Component:
+    return rx.hstack(
+        rx.input(
+            value=AIState.tts_new_host_name,
+            on_change=AIState.set_tts_new_host_name,
+            placeholder=t("tts_host_name_placeholder"),
+            size="1",
+            flex="1",
+        ),
+        rx.input(
+            value=AIState.tts_new_host_address,
+            on_change=AIState.set_tts_new_host_address,
+            placeholder=t("tts_host_address_placeholder"),
+            size="1",
+            flex="1",
+        ),
+        rx.input(
+            value=AIState.tts_new_host_ssh,
+            on_change=AIState.set_tts_new_host_ssh,
+            placeholder=t("tts_host_ssh_placeholder"),
+            size="1",
+            flex="1",
+        ),
+        rx.button(t("tts_host_save"), on_click=AIState.add_tts_host, size="1"),
+        spacing="1",
+        align="center",
+        width="100%",
+    )
+
+
+def _hosts_section() -> rx.Component:
+    return rx.vstack(
+        _section_heading(
+            "tts_hosts_heading",
+            rx.box(flex="1"),
+            rx.button(
+                rx.icon("plus", size=12),
+                t("tts_hosts_add"),
+                on_click=AIState.toggle_tts_host_form,
+                size="1",
+                variant="soft",
+            ),
+        ),
+        rx.foreach(AIState.tts_host_rows, _host_card),
+        rx.cond(AIState.tts_host_form_open, _host_form(), rx.fragment()),
+        spacing="2",
+        width="100%",
+    )
+
+
+# ── Liste ─────────────────────────────────────────────────────────
+
 def _entry_row(row: rx.Var) -> rx.Component:
-    """One escalation entry: order, on/off, label, speech unit, delete."""
+    """One escalation entry: order, on/off, label, status, speech unit, delete."""
     index = row["index"].to(int)
     return rx.hstack(
         _icon_action("chevron-up", AIState.move_tts_entry(index, -1), "tts_entry_up"),
@@ -68,6 +167,7 @@ def _entry_row(row: rx.Var) -> rx.Component:
             rx.badge(row["note"].to(str), color_scheme="red", size="1"),
             rx.fragment(),
         ),
+        rx.text(row["status"].to(str), font_size="11px", color="#888", white_space="nowrap"),
         rx.el.select(
             rx.el.option(t("tts_unit_sentence"), value="sentence"),
             rx.el.option(t("tts_unit_paragraph"), value="paragraph"),
@@ -83,114 +183,55 @@ def _entry_row(row: rx.Var) -> rx.Component:
     )
 
 
-def _add_entry_row() -> rx.Component:
-    return rx.hstack(
-        rx.el.select(
-            rx.el.option(t("tts_add_engine_placeholder"), value="", disabled=True),
-            rx.foreach(AIState.tts_add_engine_options, lambda label: rx.el.option(label, value=label)),
-            value=AIState.tts_new_entry_engine,
-            on_change=AIState.set_tts_new_entry_engine,
-            style={**_NATIVE_SELECT_STYLE_COMPACT, "flex": "1", "min_width": "0"},
-        ),
-        rx.el.select(
-            rx.foreach(AIState.tts_add_host_options, lambda label: rx.el.option(label, value=label)),
-            value=AIState.tts_new_entry_host,
-            on_change=AIState.set_tts_new_entry_host,
-            style={**_NATIVE_SELECT_STYLE_COMPACT, "flex": "1", "min_width": "0"},
-        ),
-        rx.button(
-            rx.icon("plus", size=12),
-            t("tts_add_entry"),
-            on_click=AIState.add_tts_entry,
-            disabled=AIState.tts_new_entry_engine == "",
-            size="1",
-            variant="soft",
-        ),
-        spacing="1",
-        align="center",
-        width="100%",
-    )
-
-
-def _hosts_block() -> rx.Component:
-    """Other machines that run TTS containers with the same API."""
+def _list_section() -> rx.Component:
     return rx.vstack(
-        rx.text(t("tts_hosts_heading"), font_size="11px", color="#d4a14a"),
-        rx.foreach(
-            AIState.tts_host_rows,
-            lambda host: rx.hstack(
-                rx.text(host["name"], font_size="12px", color="#ddd"),
-                rx.text(host["address"], font_size="11px", color="#888"),
-                rx.text(host["ssh"], font_size="11px", color="#666", flex="1"),
-                _icon_action("trash-2", AIState.remove_tts_host(host["name"]), "tts_host_remove"),
-                spacing="2",
-                align="center",
-                width="100%",
+        _section_heading(
+            "tts_list_heading",
+            rx.popover.root(
+                rx.popover.trigger(rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer")),
+                rx.popover.content(
+                    rx.text(t("tts_list_tooltip"), font_size="11px", color="#ddd", line_height="1.5"),
+                    max_width="340px",
+                    padding="10px",
+                ),
             ),
-        ),
-        rx.hstack(
-            rx.input(
-                value=AIState.tts_new_host_name,
-                on_change=AIState.set_tts_new_host_name,
-                placeholder=t("tts_host_name_placeholder"),
-                size="1",
-                flex="1",
-            ),
-            rx.input(
-                value=AIState.tts_new_host_address,
-                on_change=AIState.set_tts_new_host_address,
-                placeholder=t("tts_host_address_placeholder"),
-                size="1",
-                flex="1",
-            ),
-            rx.input(
-                value=AIState.tts_new_host_ssh,
-                on_change=AIState.set_tts_new_host_ssh,
-                placeholder=t("tts_host_ssh_placeholder"),
-                size="1",
-                flex="1",
-            ),
+            rx.box(flex="1"),
             rx.button(
-                rx.icon("plus", size=12),
-                on_click=AIState.add_tts_host,
+                rx.icon("refresh-cw", size=12),
+                t("tts_check_status"),
+                on_click=AIState.check_tts_status,
                 size="1",
                 variant="soft",
+                color_scheme="gray",
             ),
-            spacing="1",
-            align="center",
-            width="100%",
         ),
-        spacing="1",
+        rx.foreach(AIState.tts_escalation_rows, _entry_row),
+        # One choice adds the entry at the end of the list; arrows place it.
+        rx.el.select(
+            rx.el.option(t("tts_add_placeholder"), value=""),
+            rx.foreach(
+                AIState.tts_add_options,
+                lambda option: rx.el.option(option["label"], value=option["value"]),
+            ),
+            value="",
+            on_change=AIState.add_tts_entry,
+            style={**_NATIVE_SELECT_STYLE_COMPACT, "width": "100%"},
+        ),
+        spacing="2",
         width="100%",
     )
 
 
 def _tts_view() -> rx.Component:
-    """TTS-Tab: Eskalationsliste, andere Rechner, neue Einträge."""
+    """TTS-Tab: Rechner, Eskalationsliste, Hinzufügen."""
     return rx.vstack(
         _editor_header(),
         rx.box(
             rx.vstack(
-                rx.hstack(
-                    rx.text(t("tts_list_heading"), font_size="12px", color="#d4a14a"),
-                    rx.popover.root(
-                        rx.popover.trigger(rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer")),
-                        rx.popover.content(
-                            rx.text(t("tts_list_tooltip"), font_size="11px", color="#ddd", line_height="1.5"),
-                            max_width="340px",
-                            padding="10px",
-                        ),
-                    ),
-                    spacing="2",
-                    align="center",
-                ),
-                rx.foreach(AIState.tts_escalation_rows, _entry_row),
+                _hosts_section(),
                 rx.divider(),
-                _hosts_block(),
-                rx.divider(),
-                rx.text(t("tts_add_heading"), font_size="11px", color="#d4a14a"),
-                _add_entry_row(),
-                spacing="2",
+                _list_section(),
+                spacing="3",
                 width="100%",
             ),
             overflow_y="auto",

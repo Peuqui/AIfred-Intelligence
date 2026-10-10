@@ -35,8 +35,11 @@ class TTSConfigMixin(rx.State, mixin=True):
     # The escalation list lives in settings.json (tts_escalation, tts_hosts);
     # bumping this revision recomputes every var derived from it.
     tts_list_revision: int = 0
-    tts_new_entry_engine: str = ""
-    tts_new_entry_host: str = ""
+    # Status per list index (checked on demand, never starts anything) and the
+    # result of each host's connection test — both cleared when the list changes.
+    tts_entry_status: Dict[int, str] = {}
+    tts_host_test: Dict[str, str] = {}
+    tts_host_form_open: bool = False
     tts_new_host_name: str = ""
     tts_new_host_address: str = ""
     tts_new_host_ssh: str = ""
@@ -49,7 +52,8 @@ class TTSConfigMixin(rx.State, mixin=True):
     # ── Escalation list (computed) ────────────────────────────────
 
     @rx.var(
-        deps=["tts_list_revision", "ui_language", "agent_tuning", "backend_type", "llamaswap_revision"],
+        deps=["tts_list_revision", "tts_entry_status", "ui_language", "agent_tuning", "backend_type",
+              "llamaswap_revision"],
         auto_deps=False,
     )
     def tts_escalation_rows(self) -> List[Dict[str, Any]]:
@@ -72,28 +76,37 @@ class TTSConfigMixin(rx.State, mixin=True):
                 "unit": speech_unit_for(engine.key),
                 "reserved": entry.host is None and engine.key == reserved,
                 "note": "" if installed else t("tts_entry_not_installed", lang=lang),
+                "status": self.tts_entry_status.get(index, ""),
             })
         return rows
 
-    @rx.var(deps=["tts_list_revision"], auto_deps=False)
-    def tts_add_engine_options(self) -> List[str]:
-        """Engines that can be added (short names — where it runs is chosen
-        separately): every engine whose Docker image is built or needs none."""
-        from ..lib.tts_engines import TTS_ENGINES
-        return [
-            engine.label_short
-            for engine in TTS_ENGINES.values()
-            if not engine.runs_in_container or engine.is_installed()
-        ]
-
     @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
-    def tts_add_host_options(self) -> List[str]:
-        """Where a new entry runs: this machine or one of the hosts."""
+    def tts_add_options(self) -> List[Dict[str, str]]:
+        """Every entry that can still be added, as one choice "engine · place":
+        engines with a built image (or none needed) on this machine, container
+        engines on each host. Entries already in the list are left out."""
         from ..lib.i18n import t
         from ..lib.settings import persisted_settings
-        return [t("tts_location_this_machine", lang=_lang(self))] + [
-            str(host["name"]) for host in persisted_settings()["tts_hosts"]
-        ]
+        from ..lib.tts_engines import TTS_ENGINES
+
+        lang = _lang(self)
+        settings = persisted_settings()
+        taken = {(e["engine"], e["host"]) for e in settings["tts_escalation"]}
+        options: List[Dict[str, str]] = []
+        for key, engine in TTS_ENGINES.items():
+            if (key, None) not in taken and (not engine.runs_in_container or engine.is_installed()):
+                place = (
+                    t("tts_location_cloud", lang=lang) if engine.cloud
+                    else t("tts_location_local", lang=lang) if engine.runs_in_container
+                    else t("tts_location_cpu", lang=lang)
+                )
+                options.append({"label": f"{engine.label_short} · {place}", "value": f"{key}|"})
+            if engine.default_port is None:
+                continue
+            for host in settings["tts_hosts"]:
+                if (key, host["name"]) not in taken:
+                    options.append({"label": f"{engine.label_short} · {host['name']}", "value": f"{key}|{host['name']}"})
+        return options
 
     @rx.var(deps=["tts_list_revision"], auto_deps=False)
     def tts_host_rows(self) -> List[Dict[str, Any]]:
@@ -195,6 +208,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             return
         self._write_settings_file(settings)  # type: ignore[attr-defined]
         self.tts_list_revision += 1
+        self.tts_entry_status = {}
         yield
         if planned_tts_engine(model_id, settings) != before:
             yield from self._apply_planned_tts()
@@ -217,21 +231,10 @@ class TTSConfigMixin(rx.State, mixin=True):
             del settings["tts_escalation"][index]
         yield from self._edit_tts_lists(change)
 
-    def set_tts_new_entry_engine(self, label: str) -> None:
-        self.tts_new_entry_engine = label
-
-    def set_tts_new_entry_host(self, label: str) -> None:
-        self.tts_new_entry_host = label
-
-    def add_tts_entry(self):
-        from ..lib.i18n import t
-        from ..lib.tts_engines import TTS_ENGINES
-
-        engine_key = next(
-            key for key, engine in TTS_ENGINES.items() if engine.label_short == self.tts_new_entry_engine
-        )
-        host_label = self.tts_new_entry_host
-        host = None if host_label in ("", t("tts_location_this_machine", lang=_lang(self))) else host_label
+    def add_tts_entry(self, choice: str):
+        """Append the chosen "engine|host" (host empty = this machine/cloud)."""
+        engine_key, _, host_name = choice.partition("|")
+        host = host_name or None
 
         def change(settings: Dict[str, Any]) -> None:
             entries = settings["tts_escalation"]
@@ -273,6 +276,62 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.tts_new_host_name = ""
         self.tts_new_host_address = ""
         self.tts_new_host_ssh = ""
+        self.tts_host_form_open = False
+
+    def toggle_tts_host_form(self) -> None:
+        self.tts_host_form_open = not self.tts_host_form_open
+
+    @rx.event(background=True)  # type: ignore[operator]
+    async def check_tts_status(self):
+        """Fill the status column: what each entry would do right now —
+        checks only (health, image, host switch), never starts anything."""
+        import asyncio
+
+        from ..lib.i18n import t
+        from ..lib.tts_escalation import entry_status, escalation_entries
+
+        async with self:
+            lang = _lang(self)
+        statuses = {
+            index: t(f"tts_status_{key}", lang=lang)
+            for index, key in enumerate(
+                await asyncio.gather(*(asyncio.to_thread(entry_status, e) for e in escalation_entries()))
+            )
+        }
+        async with self:
+            self.tts_entry_status = statuses
+            self.add_debug(f"🔊 TTS status checked ({len(statuses)} entries)")  # type: ignore[attr-defined]
+
+    @rx.event(background=True)  # type: ignore[operator]
+    async def test_tts_host(self, name: str):
+        """Connection test of a host: SSH control (which containers run) or,
+        without SSH, whether its TTS ports answer."""
+        import asyncio
+
+        from ..lib.i18n import t
+        from ..lib.tts_escalation import escalation_entries, host_control
+
+        async with self:
+            lang = _lang(self)
+            self.tts_host_test = {**self.tts_host_test, name: "…"}
+        from ..lib.settings import persisted_settings
+        raw = next(h for h in persisted_settings()["tts_hosts"] if h["name"] == name)
+        if raw["ssh"]:
+            from ..lib.tts_escalation import TTSHost
+            host = TTSHost(name=name, address=raw["address"], enabled=raw["enabled"], ssh=raw["ssh"])
+            try:
+                running = (await asyncio.to_thread(host_control, host, "status")).split()
+                result = t("tts_host_test_ok", lang=lang, running=", ".join(running) or "—")
+            except RuntimeError as exc:
+                result = f"❌ {exc}"
+        else:
+            serving = [
+                e.engine.key for e in escalation_entries()
+                if e.host is not None and e.host.name == name and await asyncio.to_thread(e.engine.is_running)
+            ]
+            result = t("tts_host_test_no_ssh", lang=lang, running=", ".join(serving) or "—")
+        async with self:
+            self.tts_host_test = {**self.tts_host_test, name: result}
 
     @rx.event(background=True)  # type: ignore[operator]
     async def set_tts_host_enabled(self, name: str, enabled: bool):
