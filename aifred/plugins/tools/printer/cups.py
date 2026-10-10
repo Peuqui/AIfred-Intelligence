@@ -73,16 +73,31 @@ def submit(printer: str, path: Path, copies: int, pages: str, duplex: bool) -> s
 
 @dataclass
 class Supply:
-    """One consumable (toner, ink, drum …) with its fill level in percent
-    (None when the printer does not report one)."""
+    """One marker (toner, ink, drum, waste container …) with its level in
+    percent (None when the printer does not report one). For a waste
+    container (kind ``waste-…``) the level is how full it is."""
 
     name: str
+    kind: str
     level: int | None
     low_level: int | None
+    high_level: int | None
+
+    @property
+    def is_waste(self) -> bool:
+        return self.kind.startswith("waste")
 
     @property
     def low(self) -> bool:
-        return self.level is not None and self.low_level is not None and self.level <= self.low_level
+        """A consumable at or below its low mark — replace soon."""
+        return (not self.is_waste and self.level is not None and self.low_level is not None
+                and self.level <= self.low_level)
+
+    @property
+    def full(self) -> bool:
+        """A waste container at or above its high mark — empty or replace."""
+        return (self.is_waste and self.level is not None and self.high_level is not None
+                and self.level >= self.high_level)
 
 
 @dataclass
@@ -100,7 +115,7 @@ def _split(value: str) -> list[str]:
 
 
 def parse_attributes(output: str) -> dict[str, str]:
-    """``name (type) = value`` lines of ``ipptool -v`` (the first occurrence wins)."""
+    """``name (type) = value`` lines of ``ipptool -tv`` (the first occurrence wins)."""
     attributes: dict[str, str] = {}
     for line in output.splitlines():
         match = _IPP_LINE.match(line)
@@ -111,8 +126,10 @@ def parse_attributes(output: str) -> dict[str, str]:
 
 def status_from_attributes(printer: str, attributes: dict[str, str]) -> PrinterStatus:
     names = _split(attributes.get("marker-names", ""))
+    kinds = _split(attributes.get("marker-types", ""))
     levels = _split(attributes.get("marker-levels", ""))
     lows = _split(attributes.get("marker-low-levels", ""))
+    highs = _split(attributes.get("marker-high-levels", ""))
 
     def percent(values: list[str], index: int) -> int | None:
         # IPP reports -1 (unavailable), -2 (unknown), -3 (some remaining) as non-levels.
@@ -127,11 +144,18 @@ def status_from_attributes(printer: str, attributes: dict[str, str]) -> PrinterS
         reasons=[reason for reason in _split(attributes.get("printer-state-reasons", "")) if reason != "none"],
         message=attributes.get("printer-state-message", ""),
         queued_jobs=int(attributes.get("queued-job-count", "0") or 0),
-        supplies=[Supply(name, percent(levels, index), percent(lows, index)) for index, name in enumerate(names)],
+        supplies=[
+            Supply(
+                name, kinds[index] if index < len(kinds) else "",
+                percent(levels, index), percent(lows, index), percent(highs, index),
+            )
+            for index, name in enumerate(names)
+        ],
     )
 
 
 def status(printer: str) -> PrinterStatus:
     """State, warnings and supply levels as CUPS knows them for this printer."""
-    output = _run("ipptool", "-v", f"ipp://localhost/printers/{printer}", _IPP_GET_ATTRIBUTES)
+    # -t prints the test results, -v the attributes received — -v alone prints nothing.
+    output = _run("ipptool", "-tv", f"ipp://localhost/printers/{printer}", _IPP_GET_ATTRIBUTES)
     return status_from_attributes(printer, parse_attributes(output))
