@@ -21,12 +21,18 @@ class FakeRun:
         self.fail_on = fail_on
         self.language = language
         self.label = "test"
+        self.audio_urls: list[str] = []
 
     async def synthesize(self, text, agent):
         self.spoken.append(text)
         if text == self.fail_on:
             raise NoSpeechAvailable("[test] no TTS entry can speak")
-        return f"/_upload/tts_audio/{len(self.spoken)}.wav"
+        url = f"/_upload/tts_audio/{len(self.spoken)}.wav"
+        self.audio_urls.append(url)
+        return url
+
+    def note(self, lang):
+        return "Qwen3-TTS · Aragon"
 
 
 def fake_tts(spoken: list[str], fail_on: str | None = None, language: str = "de"):
@@ -118,3 +124,63 @@ class TestHintLanguage:
         spoken: list[str] = []
         start(["Here is `x = 1` for you."], fake_tts(spoken, language="en"))
         assert spoken == ["There is code here."]  # a sentence with inline code becomes the hint
+
+
+class TestSpokenAudioOnTheBubble:
+    """What the Echo spoke is kept on the reply's bubble like a browser reply's."""
+
+    def _stream(self, segments, session_id, fail_on=None, monkeypatch=None):
+        spoken: list[str] = []
+        saved: list[tuple] = []
+        attached: list[tuple] = []
+        monkeypatch.setattr("aifred.lib.audio_processing.save_audio_to_session",
+                            lambda urls, sid: saved.append((list(urls), sid)) or f"/_upload/audio/{sid}/joined.wav")
+        monkeypatch.setattr("aifred.lib.session_storage.attach_reply_audio",
+                            lambda sid, url, note: attached.append((sid, url, note)) or True)
+        fake_run, patches = fake_tts(spoken, fail_on)
+
+        async def go():
+            buffer = await speech_synthesis.start_speech_stream(segments, "aifred", fake_run, session_id=session_id)
+            if buffer is not None and buffer.producer is not None:
+                await buffer.producer
+
+        with patches[0], patches[1]:
+            run(go())
+        return saved, attached
+
+    def test_every_sentence_lands_on_the_bubble(self, monkeypatch):
+        saved, attached = self._stream(["Satz eins hier.", "Satz zwei dort."], "abc", monkeypatch=monkeypatch)
+        assert saved == [(["/_upload/tts_audio/1.wav", "/_upload/tts_audio/2.wav"], "abc")]
+        assert attached == [("abc", "/_upload/audio/abc/joined.wav", "Qwen3-TTS · Aragon")]
+
+    def test_a_single_sentence_too(self, monkeypatch):
+        saved, attached = self._stream(["Nur ein Satz."], "abc", monkeypatch=monkeypatch)
+        assert saved == [(["/_upload/tts_audio/1.wav"], "abc")] and len(attached) == 1
+
+    def test_a_broken_stream_keeps_what_was_spoken(self, monkeypatch):
+        saved, _ = self._stream(["Satz eins hier.", "Kaputt.", "Nie gesprochen."], "abc",
+                                fail_on="Kaputt.", monkeypatch=monkeypatch)
+        assert saved == [(["/_upload/tts_audio/1.wav"], "abc")]
+
+    def test_without_a_session_nothing_is_kept(self, monkeypatch):
+        saved, attached = self._stream(["Satz eins hier."], None, monkeypatch=monkeypatch)
+        assert saved == [] and attached == []
+
+
+def test_attach_reply_audio_takes_the_newest_reply_without_audio(tmp_path, monkeypatch):
+    import aifred.lib.session_storage as storage
+
+    sessions: dict = {"s": {"data": {"chat_history": [
+        {"role": "assistant", "content": "alt", "has_audio": False},
+        {"role": "user", "content": "Frage"},
+        {"role": "assistant", "content": "neu", "has_audio": False},
+        {"role": "assistant", "content": "mit Ton", "has_audio": True},
+    ]}}}
+    monkeypatch.setattr(storage, "load_session", lambda sid: sessions.get(sid))
+    monkeypatch.setattr(storage, "save_session", lambda sid, session: True)
+    assert storage.attach_reply_audio("s", "/_upload/audio/s/a.wav", "Edge · Cloud")
+    old, _, new, _ = sessions["s"]["data"]["chat_history"]
+    assert (new["has_audio"], new["tts_note"], new["audio_urls_json"]) == (True, "Edge · Cloud", '["/_upload/audio/s/a.wav"]')
+    assert new["metadata"]["audio_urls"] == ["/_upload/audio/s/a.wav"]
+    assert old["has_audio"] is False
+    assert storage.attach_reply_audio("missing", "x", "y") is False

@@ -373,6 +373,9 @@ class SpeechRun:
         self._switch_reason: str | None = None
         # Who spoke, in order, with the reason that made each successor take over.
         self._speakers: list[tuple[EscalationEntry, str | None]] = []
+        # The audio of every sentence synthesize() produced, in order — a
+        # device channel keeps it on the reply's bubble (speech_synthesis).
+        self.audio_urls: list[str] = []
         self._lock = asyncio.Lock()
 
     async def entry(self) -> EscalationEntry:
@@ -404,6 +407,7 @@ class SpeechRun:
         result = await self._speak(text, agent)
         if not isinstance(result, str):  # the browser entry is skipped without in_browser
             raise RuntimeError(f"[{self.label}] browser entry spoke in a run without a browser")
+        self.audio_urls.append(result)
         return result
 
     async def speak_in_browser(self, text: str, agent: str) -> "str | BrowserUtterance":

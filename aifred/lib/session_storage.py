@@ -640,6 +640,29 @@ def update_chat_data(
         return save_session(session_id, session)
 
 
+def attach_reply_audio(session_id: str, audio_url: str, tts_note: str) -> bool:
+    """Put spoken audio onto the newest assistant bubble that has none yet —
+    what a device channel (the Echo) spoke becomes listenable in the browser
+    like a browser reply's. False when the session has no such bubble."""
+    with session_rmw_lock:
+        session = load_session(session_id)
+        if session is None:
+            return False
+        history = session["data"].get("chat_history", [])
+        for message in reversed(history):
+            if message.get("role") != "assistant" or message.get("has_audio"):
+                continue
+            message["metadata"] = {
+                **(message.get("metadata") or {}),
+                "audio_urls": [audio_url], "tts_note": tts_note, "playback_rate": "1.0x",
+            }
+            message["has_audio"] = True
+            message["audio_urls_json"] = json.dumps([audio_url])
+            message["tts_note"] = tts_note
+            return save_session(session_id, session)
+        return False
+
+
 # ============================================================
 # Session Config (per-session agent/mode persistence)
 # ============================================================
