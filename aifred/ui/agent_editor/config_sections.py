@@ -269,7 +269,7 @@ def _prompts_section(is_new: rx.Var) -> rx.Component:
                 border_radius="6px",
                 auto_complete="off",
                 spell_check=False,
-                on_key_down=lambda _: AIState.mark_editor_dirty(),
+                on_change=lambda _: AIState.mark_editor_dirty("prompt"),
                 style={"resize": "vertical"},
             ),
             spacing="2",

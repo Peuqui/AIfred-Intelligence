@@ -290,9 +290,18 @@ class AgentEditorMixin(rx.State, mixin=True):
     _pending_agent_label: str = ""
     _pending_close: bool = False
 
-    def mark_editor_dirty(self) -> None:
-        """Mark editor as having unsaved changes (called on any keystroke)."""
+    # The text fields the user typed into since they were last filled. The
+    # fields are uncontrolled DOM inputs filled by script; one rebuilt without
+    # that push (e.g. after a reconnect) is empty, and saving it would wipe the
+    # stored text (10.10.2026: AIfred's identity and description emptied). So
+    # a text field is taken from the page only when the user changed it.
+    _editor_typed: List[str] = []
+
+    def mark_editor_dirty(self, field: str) -> None:
+        """Mark editor as having unsaved changes (any input in a text field)."""
         self.editor_dirty = True
+        if field not in self._editor_typed:
+            self._editor_typed = [*self._editor_typed, field]
 
     def close_agent_editor(self):
         """Close the agent editor — reset state + navigate back to chat."""
@@ -963,6 +972,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.editor_delete_confirm = ""
         self.editor_emoji_picker_open = False
         self.editor_dirty = False
+        self._editor_typed = []
         self.editor_reset_confirm = False
         self.editor_prompt_lang = self.ui_language  # type: ignore[attr-defined]
 
@@ -1110,6 +1120,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         """Switch prompt layer tab — load from disk and push to DOM."""
         import json as _json
         self.editor_prompt_tab = tab
+        self._editor_typed = [field for field in self._editor_typed if field != "prompt"]
         self._load_editor_prompt(tab)
         prompt_js = _json.dumps(self._editor_prompt_content)
         return rx.call_script(  # type: ignore[return-value]
@@ -1120,6 +1131,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         """Switch prompt language — load from disk and push to DOM."""
         import json as _json
         self.editor_prompt_lang = lang
+        self._editor_typed = [field for field in self._editor_typed if field != "prompt"]
         self._load_editor_prompt(self.editor_prompt_tab)
         prompt_js = _json.dumps(self._editor_prompt_content)
         return rx.call_script(  # type: ignore[return-value]
@@ -1192,19 +1204,21 @@ class AgentEditorMixin(rx.State, mixin=True):
         from ..lib.agent_config import update_agent, create_agent
 
         self.editor_dirty = False
+        typed, self._editor_typed = self._editor_typed, []
 
         try:
             vals = json.loads(dom_values)
         except (json.JSONDecodeError, TypeError):
             vals = {}
 
-        # Sync DOM values into state
-        if vals.get("name"):
+        # Sync only the text fields the user changed (see _editor_typed); a
+        # field cleared on purpose is saved empty.
+        if "name" in typed and vals.get("name"):
             self.editor_display_name = vals["name"]
-        if vals.get("description") is not None:
-            self._editor_description = vals["description"]
-        # Always sync prompt (even if empty — user may have cleared it)
-        self._editor_prompt_content = vals.get("prompt", self._editor_prompt_content)
+        if "description" in typed:
+            self._editor_description = vals.get("description", "")
+        if "prompt" in typed:
+            self._editor_prompt_content = vals.get("prompt", "")
 
         # Build tools whitelist from editor state
         # If all tools are enabled → save as None (= all allowed, no whitelist)
@@ -1343,6 +1357,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         """Second click — actually reset prompt to file on disk."""
         self.editor_reset_confirm = False
         self.editor_dirty = False
+        self._editor_typed = [field for field in self._editor_typed if field != "prompt"]
         import json as _json
         self._load_editor_prompt(self.editor_prompt_tab)
         prompt_js = _json.dumps(self._editor_prompt_content)
@@ -1353,6 +1368,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     def start_new_agent(self) -> None:
         """Switch editor to 'create new agent' mode (empty form)."""
         self.editor_agent_id = ""
+        self._editor_typed = []
         self.editor_display_name = ""
         self.editor_emoji = "\U0001f916"
         self._editor_description = ""
