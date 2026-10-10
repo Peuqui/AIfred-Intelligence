@@ -13,6 +13,7 @@ Cloud), nie nach dem Namen eines Rechners.
 """
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass, field
 from typing import Any, Callable
 
@@ -247,6 +248,20 @@ async def _start_local_gpu_engine(engine: TTSEngine, report: Callable[[str], Non
     return None if ok else f"start failed: {message}"
 
 
+_ENGINE_SLOTS: dict[tuple[str, str], "asyncio.Semaphore"] = {}
+
+
+def _engine_slots(engine: TTSEngine) -> "asyncio.Semaphore":
+    """Shared limit of simultaneous syntheses per engine and host
+    (``max_parallel_requests``) — across every reply and channel."""
+    import asyncio
+
+    key = (engine.key, engine.address)
+    if key not in _ENGINE_SLOTS:
+        _ENGINE_SLOTS[key] = asyncio.Semaphore(engine.max_parallel_requests)
+    return _ENGINE_SLOTS[key]
+
+
 class SpeechRun:
     """Eine Ansage oder Antwort: welcher Eintrag spricht, und was bei einem
     Ausfall passiert.
@@ -314,10 +329,11 @@ class SpeechRun:
             spoken_text = self._announcement(entry) + text
             try:
                 voice, speed, pitch = resolve_voice(entry.engine.key, agent)
-                url = await generate_tts(
-                    spoken_text, voice, speed, entry.engine,
-                    pitch=pitch, agent=agent, language=self.language,
-                )
+                async with _engine_slots(entry.engine):
+                    url = await generate_tts(
+                        spoken_text, voice, speed, entry.engine,
+                        pitch=pitch, agent=agent, language=self.language,
+                    )
             except TTSFailure as failure:
                 self._fail(entry, failure.reason, str(failure))
                 continue

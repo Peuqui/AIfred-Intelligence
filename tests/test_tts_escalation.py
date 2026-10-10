@@ -118,6 +118,7 @@ class FakeEngine:
     cloud = False
     runs_in_container = True
     startup_timeout_s = 30
+    max_parallel_requests = 2
 
     def is_running(self):
         return self.running

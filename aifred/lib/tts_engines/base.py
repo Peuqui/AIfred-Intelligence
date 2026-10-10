@@ -95,6 +95,11 @@ class TTSEngine(ABC):
     #: (MOSS key="moss" but dir="moss-tts").
     compose_subdir: Optional[str] = None
 
+    #: How many syntheses this engine (per host) may run at once. Measured on
+    #: a 3090 Ti: XTTS serves two in parallel without loss, Qwen3-TTS slows
+    #: down about five-fold (2× ~14 s instead of 2× ~2.7 s) — it gets 1.
+    max_parallel_requests: int = 2
+
     #: Seconds a container engine gets to come up and load its model —
     #: locally and on a TTS host alike. 0 for engines without a container.
     startup_timeout_s: int = 0
