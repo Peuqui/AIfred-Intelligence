@@ -24,6 +24,7 @@ from .config import (
     SANDBOX_MAX_FILE_SIZE_MB,
     SANDBOX_MAX_OUTPUT_BYTES,
     SANDBOX_MAX_PROCESSES,
+    SANDBOX_MATH_THREADS,
     SANDBOX_MAX_RAM_MB,
     SANDBOX_TIMEOUT_SECONDS,
     SANDBOX_WORK_DIR,
@@ -547,6 +548,11 @@ async def execute_sandboxed_code(
         "--setenv", "MPLBACKEND", "Agg",
         "--setenv", "PYTHONDONTWRITEBYTECODE", "1",
         "--setenv", "PYTHONUNBUFFERED", "1",
+        # Thread pools of the math libraries (numpy/scipy via OpenBLAS, OpenCV
+        # and scikit-learn via OpenMP) reserve address space per thread — with
+        # one per CPU they burst RLIMIT_AS on import (cv2: segfault, 10.10.2026).
+        "--setenv", "OPENBLAS_NUM_THREADS", str(SANDBOX_MATH_THREADS),
+        "--setenv", "OMP_NUM_THREADS", str(SANDBOX_MATH_THREADS),
         "--setenv", "PYTHONPATH", str(site_packages) if site_packages.exists() else "",
         "--setenv", "PATH", "/usr/bin:/bin",
         "--",

@@ -1387,6 +1387,9 @@ SANDBOX_MAX_FILE_SIZE_MB = 512       # RLIMIT_FSIZE: single-file write cap insid
                                      # sandbox — stops code filling the host disk/tmpfs.
 SANDBOX_MAX_PROCESSES = 64           # RLIMIT_NPROC: cap child processes so a fork bomb
                                      # can't multiply past the per-process RAM limit.
+SANDBOX_MATH_THREADS = 4             # OpenBLAS/OpenMP thread pools: each thread reserves
+                                     # address space — at 16 threads `import cv2` needed
+                                     # ~2,9 GB and crashed against SANDBOX_MAX_RAM_MB.
 SANDBOX_WORK_DIR = "/tmp/aifred_sandbox"
 
 # Browser-Render-Tool (render_html): Playwright drives the SYSTEM Chrome
