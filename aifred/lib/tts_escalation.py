@@ -80,3 +80,192 @@ def escalation_entries(settings: dict[str, Any] | None = None) -> list[Escalatio
     source = settings if settings is not None else persisted_settings()
     hosts = _parse_hosts(source["tts_hosts"])
     return [_bind_entry(raw, hosts) for raw in source["tts_escalation"]]
+
+
+# ── Auswahl und Synthese ───────────────────────────────────────────
+
+
+class NoSpeechAvailable(RuntimeError):
+    """Kein Eintrag der Liste kann gerade sprechen."""
+
+
+def resolve_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
+    """Stimme, Tempo und Tonhöhe eines Agenten für eine Engine (SSOT).
+
+    Reihenfolge: Einstellung des Users für diese Engine und diesen Agenten,
+    dann die des Agenten ``aifred``, dann der Standard des Agenten aus
+    ``agents.json``, dann der von ``aifred``. Ohne Stimme oder bei ungültigem
+    Tempo/Tonhöhe: :class:`TTSFailure` — der Eintrag fällt aus, die Liste
+    geht weiter."""
+    from .agent_config import get_tts_voice_default
+    from .settings import persisted_settings
+    from .tts_engines import TTSFailure, parse_speed_factor
+
+    user_voices = persisted_settings().get("tts_agent_voices_per_engine", {}).get(engine_key, {})
+    user_cfg = user_voices.get(agent) or user_voices.get("aifred") or {}
+    default_cfg = get_tts_voice_default(agent, engine_key)
+    if not default_cfg.get("voice"):
+        default_cfg = get_tts_voice_default("aifred", engine_key)
+
+    voice = str(user_cfg.get("voice") or default_cfg.get("voice") or "")
+    speed = parse_speed_factor(user_cfg.get("speed") or default_cfg.get("speed") or "1.0")
+    pitch = parse_speed_factor(user_cfg.get("pitch") or default_cfg.get("pitch") or "1.0")
+    if not voice:
+        raise TTSFailure("software", f"no voice configured for agent {agent!r} on {engine_key}")
+    if speed is None or pitch is None:
+        raise TTSFailure("software", f"invalid speed/pitch for agent {agent!r} on {engine_key}")
+    return voice, speed, pitch
+
+
+async def _skip_reason(entry: EscalationEntry) -> str | None:
+    """Warum dieser Eintrag gerade nicht sprechen kann — ``None`` = er kann.
+
+    Ein lokaler GPU-Eintrag, dessen Container nicht läuft, wird gestartet,
+    wenn sein gemessener Spitzenbedarf in den freien Speicher der
+    Sammelkarte passt; das Hauptmodell wird dafür nie neu geladen."""
+    import asyncio
+
+    engine = entry.engine
+    if not entry.enabled:
+        return "disabled"
+    if await asyncio.to_thread(engine.is_running):
+        return None
+    if engine.is_remote:
+        return f"not serving on {engine.address}"
+    if not engine.needs_gpu:
+        return "not available"
+    return await _start_local_gpu_engine(engine)
+
+
+async def _start_local_gpu_engine(engine: TTSEngine) -> str | None:
+    """Lokale GPU-Engine starten, wenn sie in den freien Speicher passt."""
+    import asyncio
+
+    from . import tts_vram_cache
+    from .config import LLAMACPP_TTS_BURNIN_HEADROOM_MB
+    from .gpu_utils import get_free_vram_for_single_gpu
+    from .vision_gpu_select import pick_tts_gpu
+
+    peak = tts_vram_cache.get(engine.key)
+    if peak is None:
+        return "no burn-in peak measured — VRAM need unknown"
+    needed = peak + LLAMACPP_TTS_BURNIN_HEADROOM_MB
+    gpu = await asyncio.to_thread(pick_tts_gpu)
+    free = await asyncio.to_thread(get_free_vram_for_single_gpu, gpu)
+    if free is None or free < needed:
+        return f"needs {needed} MiB, free {free} MiB on GPU {gpu}"
+    ok, message, _device = await asyncio.to_thread(engine.ensure_ready)
+    return None if ok else f"start failed: {message}"
+
+
+class SpeechRun:
+    """Eine Ansage oder Antwort: welcher Eintrag spricht, und was bei einem
+    Ausfall passiert.
+
+    Vor dem ersten Ton fällt ein Eintrag still aus (nur Debug-Zeile), der
+    nächste passende übernimmt. Fällt ein Eintrag aus, nachdem er schon
+    gesprochen hat, sagt der nächste zuerst den Stimmwechsel samt Grund an
+    und spricht dann den Satz, der nicht fertig wurde. Einmal ausgefallene
+    Einträge bleiben für diesen Lauf aus — die Stimme springt nicht hin und
+    her. Die Auswahl ist per Lock serialisiert, damit parallel erzeugte
+    Sätze keinen Container doppelt starten."""
+
+    def __init__(
+        self,
+        language: str,
+        label: str,
+        *,
+        entries: list[EscalationEntry] | None = None,
+    ) -> None:
+        import asyncio
+
+        self.language = language
+        self.label = label
+        self._entries = entries if entries is not None else escalation_entries()
+        self._current: EscalationEntry | None = None
+        self._failed: set[str] = set()
+        self._spoken: set[str] = set()
+        self._switch_reason: str | None = None
+        self._lock = asyncio.Lock()
+
+    async def entry(self) -> EscalationEntry:
+        """Der Eintrag, der jetzt spricht — beim ersten Aufruf ausgewählt.
+        :class:`NoSpeechAvailable`, wenn keiner kann."""
+        from .debug_bus import debug
+
+        async with self._lock:
+            if self._current is not None and self._current.label not in self._failed:
+                return self._current
+            for entry in self._entries:
+                if entry.label in self._failed:
+                    continue
+                reason = await _skip_reason(entry)
+                if reason is None:
+                    debug(f"🔊 [{self.label}] TTS escalation: {entry.label} speaks")
+                    self._current = entry
+                    return entry
+                debug(f"🔊 [{self.label}] TTS escalation: skip {entry.label} ({reason})")
+            raise NoSpeechAvailable(f"[{self.label}] no TTS entry can speak")
+
+    async def synthesize(self, text: str, agent: str) -> str:
+        """``text`` sprechen lassen; Audio-URL des Eintrags, der es geschafft hat.
+        :class:`NoSpeechAvailable`, wenn die Liste erschöpft ist."""
+        from .audio_processing import generate_tts
+        from .debug_bus import debug
+        from .tts_engines import TTSFailure
+
+        while True:
+            entry = await self.entry()
+            spoken_text = self._announcement(entry) + text
+            try:
+                voice, speed, pitch = resolve_voice(entry.engine.key, agent)
+                url = await generate_tts(
+                    spoken_text, voice, speed, entry.engine,
+                    pitch=pitch, agent=agent, language=self.language,
+                )
+            except TTSFailure as failure:
+                self._fail(entry, failure.reason, str(failure))
+                continue
+            except Exception as exc:  # noqa: BLE001 — any other error is ours: next entry
+                self._fail(entry, "software", f"{type(exc).__name__}: {exc}")
+                continue
+            if self._switch_reason is not None:
+                debug(f"🔊 [{self.label}] TTS escalation: voice change announced, {entry.label} continues")
+                self._switch_reason = None
+            self._spoken.add(entry.label)
+            return url
+
+    def _fail(self, entry: EscalationEntry, reason: str, detail: str) -> None:
+        from .debug_bus import debug
+
+        self._failed.add(entry.label)
+        debug(f"🔊 [{self.label}] TTS escalation: {entry.label} failed ({reason}): {detail}")
+        if entry.label in self._spoken and self._switch_reason is None:
+            self._switch_reason = reason
+
+    def _announcement(self, entry: EscalationEntry) -> str:
+        """Satz vor dem ersten Text des Nachfolgers nach einem Ausfall mitten im Text."""
+        from .i18n import t
+
+        if self._switch_reason is None:
+            return ""
+        target = entry.engine.label_short
+        if entry.host is not None:
+            target = t("tts_switch_target_remote", lang=self.language, engine=target, host=entry.host.name)
+        return t(f"tts_switch_{self._switch_reason}", lang=self.language, target=target) + " "
+
+
+async def choose_speaker(engine_key: str, label: str) -> EscalationEntry:
+    """Eine Engine für eine Aufgabe, die durchgehend dieselbe Stimme braucht
+    (Hörbuch): ``engine_key`` gesetzt → genau diese Engine auf diesem Rechner,
+    sofern sie gerade kann; leer → der oberste passende Eintrag der Liste.
+    :class:`NoSpeechAvailable` mit Grund, wenn keine kann."""
+    from .tts_engines import require_engine
+
+    if not engine_key:
+        return await SpeechRun("", label).entry()
+    entry = EscalationEntry(engine=require_engine(engine_key), host=None, enabled=True)
+    reason = await _skip_reason(entry)
+    if reason is not None:
+        raise NoSpeechAvailable(f"[{label}] TTS engine {engine_key!r} cannot speak now: {reason}")
+    return entry

@@ -1,11 +1,12 @@
 """TTS Engine Manager — Single Source of Truth for TTS engine lifecycle.
 
 Handles VRAM management, Docker container start/stop, and LLM backend
-restart when switching between TTS engines. Used by both the browser UI
-(Reflex state) and headless channels (FreeEcho.2, future voice control).
+restart when the browser switches the planned TTS engine (the one the LLM
+profile reserves VRAM for). Channels never switch it — they speak through
+the escalation list (``tts_escalation``), which only starts a local engine
+when it fits into free VRAM.
 
 Central function: ensure_tts_state(wanted_tts, backend_type)
-- Both browser and FreeEcho.2 call this with what they want.
 - It checks what's running, and adjusts if needed.
 """
 
@@ -171,9 +172,49 @@ class TTSState:
 
     success: bool = True
     changed: bool = False           # True if VRAM state was modified
-    deferred: bool = False          # True if LLM is loaded and caller should inferize first
     messages: list[str] = field(default_factory=list)
     moss_device: str = ""
+
+
+def _container_host_pids(compose_file: str) -> set[str]:
+    """Host PIDs of the processes inside a compose project's container(s)."""
+    import subprocess
+
+    ids = subprocess.run(
+        ["docker", "compose", "-f", compose_file, "ps", "-q"],
+        capture_output=True, text=True, timeout=10, check=False,
+    ).stdout.split()
+    pids: set[str] = set()
+    for container_id in ids:
+        top = subprocess.run(
+            ["docker", "top", container_id, "-eo", "pid"],
+            capture_output=True, text=True, timeout=10, check=False,
+        ).stdout.split()
+        pids.update(pid for pid in top[1:] if pid.isdigit())
+    return pids
+
+
+def local_tts_gpu_footprint() -> dict[str, dict[str, int]]:
+    """VRAM (MiB) of the running local GPU TTS containers:
+    ``{engine_key: {gpu_uuid: MiB}}``. nvidia-smi reports host PIDs, docker
+    top lists the container's host PIDs — their intersection is exactly the
+    TTS container, not the LLM or the Whisper worker next to it."""
+    from .nvidia_smi import compute_apps
+    from .tts_engines import gpu_engines
+
+    apps = compute_apps()
+    if not apps:
+        return {}
+    footprint: dict[str, dict[str, int]] = {}
+    for engine in gpu_engines():
+        if engine.docker_compose_path is None or not engine.is_running():
+            continue
+        pids = _container_host_pids(str(engine.docker_compose_path))
+        for app in apps:
+            if app["pid"] in pids:
+                per_card = footprint.setdefault(engine.key, {})
+                per_card[app["gpu_uuid"]] = per_card.get(app["gpu_uuid"], 0) + int(app["used_memory"])
+    return footprint
 
 
 def _detect_running_tts_engine(timeout: float = TTS_HEALTH_CHECK_TIMEOUT) -> str:
@@ -297,73 +338,25 @@ def ensure_engine_ready(
     return eng.ensure_ready(timeout=timeout)
 
 
-# Background TTS stop — runs parallel to LLM inference (Case 2b).
-# Keyed by engine name so concurrent stops on different engines (xtts vs
-# moss) don't overwrite each other's Thread reference. The previous
-# single-slot version dropped one stop into a black hole whenever two
-# different engines were stopped close together.
-_tts_stop_threads: dict[str, threading.Thread] = {}
-_tts_stop_lock = threading.Lock()
-
-
-def _start_async_tts_stop(engine: str) -> None:
-    """Start TTS container stop in background (parallel to LLM inference).
-
-    Docker compose down is CPU/IO, LLM inference is GPU — no interference.
-
-    If a previous stop for the *same engine* is still in flight, wait for
-    it before starting a new one — otherwise `docker compose down` racing
-    against itself.
-    """
-    with _tts_stop_lock:
-        prev = _tts_stop_threads.get(engine)
-        if prev is not None and prev.is_alive():
-            log_message(f"Awaiting previous TTS stop before starting new one ({engine})")
-            prev.join(timeout=30)
-        thread = threading.Thread(
-            target=stop_engine, args=(engine,), daemon=True, name=f"tts-stop-{engine}",
-        )
-        _tts_stop_threads[engine] = thread
-        thread.start()
-        log_message(f"Background TTS stop started: {engine}")
-
-
-def _await_tts_stop(timeout: float = 30) -> None:
-    """Wait for ALL background TTS stops to complete."""
-    with _tts_stop_lock:
-        threads = [t for t in _tts_stop_threads.values() if t.is_alive()]
-        if threads:
-            log_message(f"Waiting for {len(threads)} background TTS stop(s) to complete...")
-        _tts_stop_threads.clear()
-    # Join outside the lock so new stops aren't blocked while we wait.
-    for t in threads:
-        t.join(timeout=timeout)
-
-
 def ensure_tts_state(
     wanted_tts: str,
     backend_type: str = "llamacpp",
     xtts_force_cpu: bool = False,
-    check_defer: bool = False,
 ) -> Generator[str, None, TTSState]:
     """Ensure VRAM state matches TTS requirements. Yields status after each step.
 
     This is the SINGLE SOURCE OF TRUTH for TTS state management.
-    Both browser and FreeEcho.2 call this with what they want.
 
     Args:
         wanted_tts: Desired TTS engine ("xtts", "moss", or "" for none)
         backend_type: Active LLM backend ("llamacpp", "ollama", etc.)
         xtts_force_cpu: Force XTTS to CPU mode (no VRAM needed)
-        check_defer: If True and LLM is loaded, return deferred=True
-                     so caller can inferize first before switching.
-                     (FreeEcho.2 optimization: use existing LLM, switch after)
 
     Yields:
         Status messages after each blocking step.
 
     Returns:
-        TTSState with success, changed, deferred flags.
+        TTSState with success and changed flags.
     """
     # XTTS CPU mode doesn't need GPU VRAM
     if wanted_tts == "xtts" and xtts_force_cpu:
@@ -380,29 +373,6 @@ def ensure_tts_state(
         if running:
             yield f"{running.upper()} already running"
         return TTSState(success=True)
-
-    # Case 2a: FreeEcho.2 optimization — LLM loaded, want different GPU TTS
-    # Caller can inferize with current LLM first, then switch
-    if check_defer and wanted_tts and _is_llm_loaded(backend_type):
-        yield "LLM loaded, deferring TTS switch to after inference"
-        return TTSState(success=True, deferred=True)
-
-    # Case 2b: FreeEcho.2 optimization — LLM loaded, GPU TTS running but not needed
-    # (User switched to lightweight engine like Edge/Piper/eSpeak)
-    # Start container stop NOW (background thread) — docker compose down is
-    # CPU/IO and doesn't interfere with GPU inference running in parallel.
-    # After inference, force_tts_switch() will join the thread and load base model.
-    # Skip if an active pipeline still holds the engine (refcount > 0).
-    if check_defer and not wanted_tts and running and _is_llm_loaded(backend_type):
-        if is_tts_in_use(running):
-            yield (
-                f"{running.upper()} in use by {get_tts_refcount(running)} active pipeline(s) "
-                f"— stop deferred"
-            )
-            return TTSState(success=True)
-        _start_async_tts_stop(running)
-        yield f"LLM loaded, {running.upper()} stop started — deferring model switch to after inference"
-        return TTSState(success=True, deferred=True)
 
     # Case 3: Want TTS but wrong/none running → switch
     if wanted_tts:
@@ -524,67 +494,11 @@ def _do_switch(
         yield "LLM profile ready (TTS-calibrated)"
 
 
-def force_tts_switch(
-    wanted_tts: str,
-    backend_type: str = "llamacpp",
-    xtts_force_cpu: bool = False,
-) -> Generator[str, None, TTSState]:
-    """Ensure TTS + LLM with TTS-profile are loaded after deferred inference.
-
-    Called after FreeEcho.2 used the existing LLM (without TTS) for inference.
-    Now load TTS and switch LLM to TTS-calibrated profile.
-
-    Cases:
-    - wanted_tts="" → no GPU TTS needed, clean up container + load base model
-    - TTS already running (correct engine) → only switch LLM profile
-    - TTS not running → unload all, start TTS, load LLM with TTS profile
-    - Wrong TTS running → unload all, start correct TTS, load LLM with TTS profile
-    """
-    # No GPU TTS wanted — clean up and switch to base model
-    if not wanted_tts:
-        from .process_utils import stop_llama_swap
-
-        # Wait for background TTS stop (started in Case 2b, parallel to inference)
-        _await_tts_stop()
-
-        # Verify container is actually gone
-        still_running = _detect_running_tts_engine()
-        if still_running:
-            yield f"Stopping {still_running.upper()} (not yet stopped)..."
-            stop_engine(still_running)
-            yield f"{still_running.upper()} container stopped"
-
-        # Stop LLM (TTS variant), then restart llama-swap with the base
-        # profile selected. Same caveat as _do_switch step 4: llama-swap
-        # restarts, the LLM itself loads lazy on the next inference.
-        stop_llama_swap()
-        yield "VRAM freed: llama-swap stopped"
-        restart_llm_backend(backend_type)
-        model_info = get_effective_model_info(backend_type)
-        yield f"LLM profile ready: {model_info}" if model_info else "LLM profile ready (base)"
-        return TTSState(success=True, changed=True)
-
-    running = _detect_running_tts_engine()
-
-    if running == wanted_tts:
-        # TTS already running — just switch LLM to TTS profile
-        restart_llm_backend(backend_type)
-        model_info = get_effective_model_info(backend_type)
-        yield f"LLM profile switched: {model_info}" if model_info else "LLM profile switched"
-        return TTSState(success=True, changed=True)
-
-    # TTS not running or wrong engine — full switch (unload → TTS → LLM)
-    yield from _do_switch(wanted_tts, running, backend_type, xtts_force_cpu)
-
-    final_running = _detect_running_tts_engine()
-    return TTSState(success=final_running == wanted_tts, changed=True)
-
-
 def get_effective_model_info(backend_type: str = "llamacpp") -> str:
     """Get effective model + context info string after TTS/VRAM change.
 
     Single source of truth for the "model reloaded with X context" debug line.
-    Used by both browser (TTS toggle) and FreeEcho.2 (ensure_tts_state) paths.
+    Used by the browser's TTS toggle (ensure_tts_state).
     """
     from .config import get_effective_model_from_settings
     from .formatting import format_number

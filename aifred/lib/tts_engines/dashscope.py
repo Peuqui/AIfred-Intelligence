@@ -1,9 +1,8 @@
 """DashScope Qwen3-TTS — cloud streaming TTS, no local GPU."""
 from __future__ import annotations
 
-from typing import Optional
 
-from .base import TTSEngine
+from .base import TTSEngine, TTSFailure
 
 
 def _network_error_types() -> tuple:
@@ -92,13 +91,8 @@ class DashScopeEngine(TTSEngine):
         "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
     }
 
-    @property
-    def suitable_for_channels(self) -> bool:  # type: ignore[override]
-        """Cloud engine — only offer it in channel dropdowns (FreeEcho.2)
-        when the DashScope API key is configured. Without a key every
-        synthesis fails, so a keyless setup hides the dead option instead
-        of letting a user pick an engine that cannot work. The TTS itself
-        runs server-side, so the channel device needs no key of its own."""
+    def is_running(self) -> bool:
+        """Cloud engine: usable as soon as the API key is configured."""
         from ..credential_broker import broker
         return bool(broker.get("cloud_qwen", "api_key"))
 
@@ -118,7 +112,7 @@ class DashScopeEngine(TTSEngine):
         language: str,
         speed: float = 1.0,
         pitch: float = 1.0,
-    ) -> Optional[str]:
+    ) -> str:
         """DashScope cloud TTS — streaming mode collects PCM chunks and
         writes them as a single WAV file. Requires the ``cloud_qwen``
         api_key credential. Speed/pitch are post-processed centrally
@@ -144,8 +138,7 @@ class DashScopeEngine(TTSEngine):
             from ..credential_broker import broker
             api_key = broker.get("cloud_qwen", "api_key")
             if not api_key:
-                log_message("❌ DashScope TTS: API key not configured")
-                return None
+                raise TTSFailure("engine", "DashScope API key not configured")
 
             dashscope.base_http_api_url = self.base_url
             language_type = self.language_map_dashscope.get(language, "Auto")
@@ -181,8 +174,7 @@ class DashScopeEngine(TTSEngine):
                     wav_chunks.append(base64.b64decode(chunk.output.audio.data))
 
             if not wav_chunks:
-                log_message("❌ DashScope TTS: No audio chunks received")
-                return None
+                raise TTSFailure("engine", "DashScope returned no audio chunks")
 
             with wave.open(io.BytesIO(b"".join(wav_chunks))) as wav_stream:
                 sample_rate = wav_stream.getframerate()
@@ -192,25 +184,18 @@ class DashScopeEngine(TTSEngine):
             _write_pcm_to_wav(pcm_data, output_file, sample_rate)
 
             duration = len(pcm_data) / (sample_rate * 2)
-            if _validate_audio_output(output_file):
-                size = os.path.getsize(output_file)
-                log_message(f"✅ DashScope TTS: Audio saved → {output_file} ({size:,} bytes, {duration:.1f}s)")
-                return f"/_upload/tts_audio/{filename}"
-            log_message(f"⚠️ DashScope TTS: File missing or too small at {output_file}")
-            return None
-        except ImportError:
-            log_message("❌ DashScope TTS: dashscope SDK not installed. Run: pip install dashscope>=1.24.6")
-            return None
+            if not _validate_audio_output(output_file):
+                raise TTSFailure("engine", f"DashScope file missing or too small at {output_file}")
+            size = os.path.getsize(output_file)
+            log_message(f"✅ DashScope TTS: Audio saved → {output_file} ({size:,} bytes, {duration:.1f}s)")
+            return f"/_upload/tts_audio/{filename}"
+        except TTSFailure:
+            raise
+        except ImportError as e:
+            raise TTSFailure("software", "dashscope SDK not installed (pip install dashscope>=1.24.6)") from e
         except Exception as e:
-            # No fallback to another TTS engine (project rule) — surface the
-            # cause instead. Distinguish a network/internet outage from a real
-            # API/usage error so the debug console + log say "offline" plainly.
-            # Both go to debug.log and the UI console via log_message.
+            # A network/internet outage is "unreachable"; DashScope answering
+            # with an error (auth, quota, bad voice) is an engine failure.
             if isinstance(e, _network_error_types()):
-                log_message(
-                    f"❌ DashScope TTS: network/internet unreachable — "
-                    f"{type(e).__name__}: {e}", "error",
-                )
-            else:
-                log_message(f"❌ DashScope TTS error: {type(e).__name__}: {e}", "error")
-            return None
+                raise TTSFailure("unreachable", f"DashScope: {type(e).__name__}: {e}") from e
+            raise TTSFailure("engine", f"DashScope: {type(e).__name__}: {e}") from e

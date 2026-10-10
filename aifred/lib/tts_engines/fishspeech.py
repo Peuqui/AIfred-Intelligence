@@ -4,7 +4,7 @@ License: Fish Audio Research License — research/non-commercial only.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from .base import TTSEngine
 
@@ -17,10 +17,6 @@ class FishSpeechEngine(TTSEngine):
     # Speed isn't a native parameter for Fish-Speech — like Qwen3 / MOSS,
     # the audio rate is adjusted via ffmpeg post-processing.
     needs_speed_postprocess = True
-    # Lizenz steht der kommerziellen Nutzung im Weg; bewusst nicht in
-    # Channel-Dropdowns aufnehmen, damit Endgeräte (FreeEcho.2) den
-    # Engine nicht versehentlich anbieten.
-    suitable_for_channels = False
     display_order = 30
 
     image_name = "fish-speech-s2-pro"
@@ -78,56 +74,18 @@ class FishSpeechEngine(TTSEngine):
         language: str,
         speed: float = 1.0,
         pitch: float = 1.0,
-    ) -> Optional[str]:
+    ) -> str:
         """Fish Audio S2 Pro — voice cloning via server-side reference_id.
         The container reads ``/app/references/<voice>/<voice>.wav`` +
         ``.lab`` transcript itself (we mount the shared docker/tts/voices/
         read-only at that path), so the wire payload is just the voice
         id — no per-request base64 round-trip of a 1 MB WAV. Speed/pitch
         are post-processed centrally via ffmpeg."""
-        import os
-        import requests
-        from ..audio_processing import (
-            _generate_tts_filename,
-            _validate_audio_output,
-            TTS_AUDIO_DIR,
+        return self._synthesize_via_http(
+            "/v1/tts",
+            {"text": text, "format": "wav", "reference_id": voice, "normalize": True, "streaming": False},
+            "wav",
         )
-        from ..logging_utils import log_message
-
-        filename = _generate_tts_filename("wav")
-        output_file = str(TTS_AUDIO_DIR / filename)
-
-        try:
-            log_message(f"🎤 Fish-Speech: speaker={voice}, language={language}, text_length={len(text)}")
-            r = requests.post(
-                f"{self.service_url}/v1/tts",
-                json={
-                    "text": text,
-                    "format": "wav",
-                    "reference_id": voice,
-                    "normalize": True,
-                    "streaming": False,
-                },
-                timeout=None,
-            )
-            if r.status_code == 200:
-                with open(output_file, "wb") as fh:
-                    fh.write(r.content)
-                if _validate_audio_output(output_file):
-                    size = os.path.getsize(output_file)
-                    log_message(f"✅ Fish-Speech: Audio saved → {output_file} ({size} bytes)")
-                    return f"/_upload/tts_audio/{filename}"
-                log_message(f"⚠️ Fish-Speech: File missing or too small at {output_file}")
-                return None
-            err = r.text[:200] if r.text else f"HTTP {r.status_code}"
-            log_message(f"❌ Fish-Speech Error: {err}")
-            return None
-        except requests.exceptions.ConnectionError:
-            log_message("❌ Fish-Speech: Service not running. Start with: cd docker/tts/fish-speech && docker compose up -d")
-            return None
-        except Exception as e:
-            log_message(f"❌ Fish-Speech Exception: {e}")
-            return None
 
     def calibration_setup(self, debug: Any) -> bool:
         # Same pattern as Qwen3: do NOT load the container during

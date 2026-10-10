@@ -282,6 +282,7 @@ async def stress_burnin_tts(
     # pass speed=1.0 and pitch=1.0). Identical to what aifred uses for
     # chat-bubble synthesis — same code path, same edge-case handling.
     from .audio_processing import generate_tts
+    from .tts_engines import TTSFailure
 
     peak = 0
     successes = 0
@@ -291,21 +292,25 @@ async def stress_burnin_tts(
                 lang = "de" if i % 2 == 0 else "en"
                 text = _STRESS_TEXT_DE if lang == "de" else _STRESS_TEXT_EN
                 t_start = time.monotonic()
-                result = await generate_tts(
-                    text=text,
-                    voice_choice=voice_display,
-                    speed_choice=1.0,
-                    tts_engine=engine_key,
-                    pitch=1.0,
-                    agent="aifred",
-                    language=lang,
-                )
+                try:
+                    await generate_tts(
+                        text=text,
+                        voice_choice=voice_display,
+                        speed_choice=1.0,
+                        engine=engine,
+                        pitch=1.0,
+                        agent="aifred",
+                        language=lang,
+                    )
+                    failure = None
+                except TTSFailure as exc:
+                    failure = exc
                 t_elapsed = time.monotonic() - t_start
                 _running_peak = monitor.peak_mb
-                if result is None:
+                if failure is not None:
                     _log(
                         f"   ⚠️ synth {i+1}/{iterations} ({lang}): "
-                        f"{t_elapsed:.1f}s — returned None"
+                        f"{t_elapsed:.1f}s — failed: {failure}"
                     )
                 else:
                     successes += 1
@@ -325,7 +330,7 @@ async def stress_burnin_tts(
     finally:
         await asyncio.to_thread(engine.stop)
 
-    # Hard-fail when every synthesis call returned None — the measured
+    # Hard-fail when every synthesis call failed — the measured
     # "peak" would just be the container's idle footprint, not its real
     # inference footprint. Caching an idle-only value would mislead the
     # calibration into reserving too little VRAM on the TTS GPU, OOMing

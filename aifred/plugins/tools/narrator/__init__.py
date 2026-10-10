@@ -16,71 +16,39 @@ import json
 import shutil
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.plugin_base import PluginContext, load_tool_description
 
+if TYPE_CHECKING:
+    from ....lib.tts_engines import TTSEngine
 
-def _resolve_engine_and_voice(engine: str = "", voice: str = "") -> tuple[str, str]:
-    """Resolve the effective narrator engine and its default voice.
+
+async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple["TTSEngine", str]:
+    """Engine and default voice for a narration.
 
     Shared by narrate_file and list_narrator_voices so both always agree.
-    Engine-Entscheidung und Voice-Katalog laufen über die lib-SSOTs
-    (``resolve_narrator_engine``/``voice_names`` — geteilt mit der
-    Narrator-UI im ``_tts_config_mixin``). Voices are engine-bound — the
-    saved voice for the resolved engine wins, else the engine's own first
-    voice (never hand e.g. the "AIfred" clone name to Piper).
+    The engine comes from the TTS escalation list (``choose_speaker``: an
+    explicit key, or the topmost entry that can speak now) and stays the
+    same for the whole file. Voices are engine-bound — the saved narrator
+    voice for that engine wins, else the engine's own first voice (never
+    hand e.g. the "AIfred" clone name to Piper). Raises
+    ``NoSpeechAvailable`` when no engine can speak.
     """
-    from ....lib.config import NARRATE_DEFAULT_VOICE, TTS_DEFAULT_ENGINE
+    from ....lib.config import NARRATE_DEFAULT_VOICE
     from ....lib.settings import load_settings
-    from ....lib.tts_engines import get_engine, resolve_narrator_engine, voice_names
+    from ....lib.tts_engines import voice_names
+    from ....lib.tts_escalation import choose_speaker
 
-    _settings = load_settings() or {}
-    if not engine:
-        engine = resolve_narrator_engine(
-            _settings.get("narrator_engine", "auto"),
-            bool(_settings.get("enable_tts")),
-            _settings.get("tts_engine") or TTS_DEFAULT_ENGINE,
-            _settings.get("narrator_fallback_engine", "piper"),
-        )
+    eng_obj = (await choose_speaker(engine, "narrator")).engine
     if not voice:
-        voice = (_settings.get("narrator_voices") or {}).get(engine, "")
+        voice = ((load_settings() or {}).get("narrator_voices") or {}).get(eng_obj.key, "")
     if not voice:
-        eng_obj = get_engine(engine)
-        if eng_obj is not None:
-            names = voice_names(eng_obj)
-            voice = names[0] if names else ""
-    return engine, voice or NARRATE_DEFAULT_VOICE
-
-
-def _gpu_engine_conflict(engine: str) -> str | None:
-    """Clear error text when a GPU-bound engine cannot run right now.
-
-    A GPU TTS engine is only safe while the spoken output runs the SAME
-    engine — the LLM then sits in the matching -tts- calibration profile
-    and the container's VRAM is reserved. Anything else (spoken output
-    off, or on a different engine) would start a second uncoordinated
-    GPU consumer next to the LLM: OOM or a silent CPU fallback. Per
-    project rule there is no silent fallback — refuse with a clear
-    message instead. Returns ``None`` when the engine is fine.
-    """
-    from ....lib.settings import load_settings
-    from ....lib.tts_engines import get_engine
-
-    eng_obj = get_engine(engine)
-    if eng_obj is None or not eng_obj.needs_gpu:
-        return None
-    _settings = load_settings() or {}
-    if _settings.get("enable_tts") and _settings.get("tts_engine") == engine:
-        return None
-    return (
-        f"Engine '{engine}' needs GPU VRAM, but the spoken output is not "
-        f"running it — a second GPU TTS container next to the LLM is not "
-        f"coordinated. Use engine 'auto' or a GPU-free engine, or enable "
-        f"the spoken output with '{engine}' first."
-    )
+        names = voice_names(eng_obj)
+        voice = names[0] if names else ""
+    return eng_obj, voice or NARRATE_DEFAULT_VOICE
 
 
 @dataclass
@@ -118,20 +86,16 @@ class NarratorPlugin:
                 split_paragraph_chunks,
                 split_speaker_segments,
             )
-            from ....lib.tts_engine_manager import ensure_engine_ready
+            from ....lib.tts_engines import TTSFailure
+            from ....lib.tts_escalation import NoSpeechAvailable
 
-            # Resolve engine/voice from the narrator settings (UI row in the
-            # audio section) unless the caller passed them explicitly.
-            engine, voice = _resolve_engine_and_voice(engine, voice)
-            # Unbekannte Engine sofort klar melden — ensure_engine_ready
-            # behandelt sie als "ready" und erst generate_tts scheiterte
-            # dann mit irreführendem "TTS failed at chunk 1/N".
-            from ....lib.tts_engines import get_engine
-            if get_engine(engine) is None:
-                return json.dumps({"error": f"Unknown TTS engine: {engine}"})
-            conflict = _gpu_engine_conflict(engine)
-            if conflict:
-                return json.dumps({"error": conflict})
+            # Engine from the escalation list (or the caller's explicit key),
+            # ready to speak; voice from the narrator settings unless passed.
+            try:
+                eng_obj, voice = await _choose_engine_and_voice(engine, voice)
+            except (NoSpeechAvailable, ValueError) as exc:
+                return json.dumps({"error": str(exc)})
+            engine = eng_obj.key
 
             read = fm.read_file(filename)
             if not read.success:
@@ -153,10 +117,7 @@ class NarratorPlugin:
                         "speaker_voices must be a JSON object mapping "
                         "speaker labels to voice names"
                     )})
-                from ....lib.tts_engines import get_engine, voice_names
-                eng_obj = get_engine(engine)
-                if eng_obj is None:
-                    return json.dumps({"error": f"Unknown TTS engine: {engine}"})
+                from ....lib.tts_engines import voice_names
                 known_voices = set(voice_names(eng_obj))
                 unknown_voices = sorted(
                     v for v in speaker_voices.values() if v not in known_voices
@@ -188,14 +149,7 @@ class NarratorPlugin:
                 return json.dumps({"error": err})
             assert out_path is not None
 
-            # Container start can take minutes on cold start — keep the
-            # blocking wait off the event loop.
             loop = asyncio.get_running_loop()
-            ok, status, _device = await loop.run_in_executor(
-                None, lambda: ensure_engine_ready(engine)
-            )
-            if not ok:
-                return json.dumps({"error": f"TTS engine {engine}: {status}"})
 
             # A speaker change is always a hard chunk boundary; long
             # segments are still split at paragraph boundaries internally.
@@ -221,13 +175,15 @@ class NarratorPlugin:
 
             wav_urls: list[str] = []
             for i, (chunk_voice, chunk) in enumerate(voiced_chunks, 1):
-                url = await generate_tts(
-                    chunk, chunk_voice, 1.0, engine,
-                    pitch=1.0, agent="narrator", language=language,
-                )
-                if not url:
+                # One engine for the whole file — no voice change mid-book.
+                try:
+                    url = await generate_tts(
+                        chunk, chunk_voice, 1.0, eng_obj,
+                        pitch=1.0, agent="narrator", language=language,
+                    )
+                except TTSFailure as exc:
                     return json.dumps({
-                        "error": f"TTS failed at chunk {i}/{total}",
+                        "error": f"TTS failed at chunk {i}/{total}: {exc}",
                         "chunks_done": i - 1,
                     })
                 wav_urls.append(url)
@@ -290,17 +246,15 @@ class NarratorPlugin:
 
         async def _list_narrator_voices(engine: str = "") -> str:
             """Voice discovery for the effective narrator engine."""
-            from ....lib.tts_engines import get_engine, voice_names
+            from ....lib.tts_engines import voice_names
+            from ....lib.tts_escalation import NoSpeechAvailable
 
-            engine, default_voice = _resolve_engine_and_voice(engine)
-            conflict = _gpu_engine_conflict(engine)
-            if conflict:
-                return json.dumps({"error": conflict})
-            eng_obj = get_engine(engine)
-            if eng_obj is None:
-                return json.dumps({"error": f"Unknown TTS engine: {engine}"})
+            try:
+                eng_obj, default_voice = await _choose_engine_and_voice(engine)
+            except (NoSpeechAvailable, ValueError) as exc:
+                return json.dumps({"error": str(exc)})
             return json.dumps({
-                "engine": engine,
+                "engine": eng_obj.key,
                 "default_voice": default_voice,
                 "voices": voice_names(eng_obj),
             })
@@ -316,8 +270,9 @@ class NarratorPlugin:
                         "engine": {
                             "type": "string",
                             "description": (
-                                "Optional TTS engine key. Default: the engine "
-                                "the narrator settings resolve to."
+                                "Optional TTS engine key. Default: the first "
+                                "engine of the TTS escalation list that can "
+                                "speak now."
                             ),
                         },
                     },
@@ -365,11 +320,10 @@ class NarratorPlugin:
                         "engine": {
                             "type": "string",
                             "description": (
-                                "Optional TTS engine key. Default: resolved from "
-                                "the narrator settings. GPU-bound engines are "
-                                "only allowed while the spoken output runs the "
-                                "same engine — otherwise omit or pick a GPU-free "
-                                "engine."
+                                "Optional TTS engine key. Default: the first "
+                                "engine of the TTS escalation list that can "
+                                "speak now. A GPU engine is only used when it "
+                                "fits into free VRAM."
                             ),
                         },
                         "speaker_voices": {

@@ -5,37 +5,52 @@ from unittest.mock import patch
 
 from aifred.lib import speech_synthesis
 from aifred.lib.audio_channels._audio_orchestrator import silence_pcm
+from aifred.lib.tts_escalation import NoSpeechAvailable
 
 
 def run(coro):
     return asyncio.run(coro)
 
 
-def fake_tts(spoken: list[str], fail_on: str | None = None):
-    """Synthese und Konvertierung ersetzen: ein Satz wird zu Bytes seiner laufenden Nummer."""
-    async def fake_run_tts(text, agent, engine, language, label):
-        spoken.append(text)
-        return None if text == fail_on else f"/tmp/{len(spoken)}.wav"
+class FakeRun:
+    """Steht für ``SpeechRun``: ein Satz wird zur Audio-URL seiner laufenden Nummer;
+    ``fail_on`` = für diesen Satz kann kein Eintrag der Liste mehr sprechen."""
 
+    def __init__(self, spoken: list[str], fail_on: str | None = None, language: str = "de"):
+        self.spoken = spoken
+        self.fail_on = fail_on
+        self.language = language
+        self.label = "test"
+
+    async def synthesize(self, text, agent):
+        self.spoken.append(text)
+        if text == self.fail_on:
+            raise NoSpeechAvailable("[test] no TTS entry can speak")
+        return f"/_upload/tts_audio/{len(self.spoken)}.wav"
+
+
+def fake_tts(spoken: list[str], fail_on: str | None = None, language: str = "de"):
+    """Lauf und Konvertierung ersetzen: ein Satz wird zu Bytes seiner laufenden Nummer."""
     async def fake_convert(path, label):
         index = int(path.split("/")[-1].split(".")[0])
         return bytes([index]) * 10
 
-    return (
-        patch.object(speech_synthesis, "_run_tts", fake_run_tts),
+    return FakeRun(spoken, fail_on, language), (
         patch.object(speech_synthesis, "_convert_to_pcm", fake_convert),
         patch("pathlib.Path.unlink"),
     )
 
 
-def start(segments, patches):
+def start(segments, fake):
+    fake_run, patches = fake
+
     async def go():
-        buffer = await speech_synthesis.start_speech_stream(segments, "aifred", "piper", "de", "test")
+        buffer = await speech_synthesis.start_speech_stream(segments, "aifred", fake_run)
         if buffer is not None and buffer.producer is not None:
             await buffer.producer
         return buffer
 
-    with patches[0], patches[1], patches[2]:
+    with patches[0], patches[1]:
         return run(go())
 
 
@@ -101,13 +116,5 @@ class TestHintLanguage:
 
     def test_the_stream_cleans_in_the_language_it_is_given(self):
         spoken: list[str] = []
-        patches = fake_tts(spoken)
-
-        async def go():
-            await speech_synthesis.start_speech_stream(
-                ["Here is `x = 1` for you."], "aifred", "piper", "en", "test",
-            )
-
-        with patches[0], patches[1], patches[2]:
-            run(go())
+        start(["Here is `x = 1` for you."], fake_tts(spoken, language="en"))
         assert spoken == ["There is code here."]  # a sentence with inline code becomes the hint

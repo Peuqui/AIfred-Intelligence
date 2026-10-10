@@ -1,7 +1,6 @@
 """MOSS-TTS — zero-shot voice cloning, batch-after-bubble rendering."""
 from __future__ import annotations
 
-from typing import Optional
 
 from .base import TTSEngine
 
@@ -14,7 +13,6 @@ class MOSSEngine(TTSEngine):
     needs_gpu = True
     needs_speed_postprocess = True
     supports_language = True
-    suitable_for_channels = True
     display_order = 40
 
     image_name = "moss-tts-1.7b"
@@ -66,43 +64,9 @@ class MOSSEngine(TTSEngine):
         language: str,
         speed: float = 1.0,
         pitch: float = 1.0,
-    ) -> Optional[str]:
+    ) -> str:
         """MOSS-TTS zero-shot voice cloning. Same /tts shape as XTTS.
         Speed/pitch are post-processed centrally via ffmpeg."""
-        import os
-        import requests
-        from ..audio_processing import (
-            _generate_tts_filename,
-            _validate_audio_output,
-            TTS_AUDIO_DIR,
+        return self._synthesize_via_http(
+            "/tts", {"text": text, "speaker": voice, "language": language}, "ogg",
         )
-        from ..logging_utils import log_message
-
-        filename = _generate_tts_filename("ogg")
-        output_file = str(TTS_AUDIO_DIR / filename)
-
-        try:
-            log_message(f"🎤 MOSS-TTS: speaker={voice}, language={language}, text_length={len(text)}")
-            r = requests.post(
-                f"{self.service_url}/tts",
-                json={"text": text, "speaker": voice, "language": language},
-                timeout=None,
-            )
-            if r.status_code == 200:
-                with open(output_file, "wb") as fh:
-                    fh.write(r.content)
-                if _validate_audio_output(output_file):
-                    size = os.path.getsize(output_file)
-                    log_message(f"✅ MOSS-TTS: Audio saved → {output_file} ({size} bytes)")
-                    return f"/_upload/tts_audio/{filename}"
-                log_message(f"⚠️ MOSS-TTS: File missing or too small at {output_file}")
-                return None
-            err = r.text[:200] if r.text else f"HTTP {r.status_code}"
-            log_message(f"❌ MOSS-TTS Error: {err}")
-            return None
-        except requests.exceptions.ConnectionError:
-            log_message("❌ MOSS-TTS: Service not running. Start with: cd docker/tts/moss-tts && docker compose up -d")
-            return None
-        except Exception as e:
-            log_message(f"❌ MOSS-TTS Exception: {e}")
-            return None

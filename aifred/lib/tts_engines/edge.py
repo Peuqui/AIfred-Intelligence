@@ -1,9 +1,8 @@
 """Edge TTS — Microsoft cloud, always-on, used as fallback."""
 from __future__ import annotations
 
-from typing import Optional
 
-from .base import TTSEngine
+from .base import TTSEngine, TTSFailure
 
 
 class EdgeEngine(TTSEngine):
@@ -13,7 +12,6 @@ class EdgeEngine(TTSEngine):
     needs_gpu = False
     # Edge respects the rate parameter natively — no ffmpeg post.
     needs_speed_postprocess = False
-    suitable_for_channels = True
     display_order = 80
 
     # display name → Microsoft Neural Voice id. Static catalogue —
@@ -54,7 +52,7 @@ class EdgeEngine(TTSEngine):
         language: str,
         speed: float = 1.0,
         pitch: float = 1.0,
-    ) -> Optional[str]:
+    ) -> str:
         """Edge TTS — native async via edge-tts library. ``voice`` here
         is the display name; we map it through ``voices_fallback`` to
         the Microsoft voice id (``de-DE-KatjaNeural`` etc.). Speed is
@@ -79,31 +77,25 @@ class EdgeEngine(TTSEngine):
         rate_pct = round((speed - 1.0) * 100)
         rate = f"{rate_pct:+d}%"
 
-        if not text or len(text.strip()) < 1:
-            log_message("⚠️ Edge TTS: Empty text, skipping")
-            return None
+        if not text.strip():
+            raise TTSFailure("software", "Edge TTS called with empty text")
 
         log_message(f"🎤 Edge TTS: voice={voice_id}, rate={rate}, text_length={len(text)}")
         filename = _generate_tts_filename("mp3")
         output_file = str(TTS_AUDIO_DIR / filename)
 
+        # The upstream edge-tts library creates its own event loop, so
+        # we run it in a dedicated thread to avoid clashing with Reflex.
+        from edge_tts.exceptions import EdgeTTSException
         try:
-            # The upstream edge-tts library creates its own event loop, so
-            # we run it in a dedicated thread to avoid clashing with Reflex.
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(_edge_tts_sync, text, voice_id, rate, output_file)
-                success = future.result(timeout=None)
-            if not success:
-                log_message("❌ Edge TTS: Thread execution failed")
-                return None
-            if _validate_audio_output(output_file):
-                size = os.path.getsize(output_file)
-                log_message(f"✅ Edge TTS: Audio saved → {output_file} ({size} bytes)")
-                return f"/_upload/tts_audio/{filename}"
-            log_message(f"❌ Edge TTS: File missing or too small at {output_file}")
-            return None
-        except Exception as e:
-            log_message(f"❌ Edge TTS Exception: {type(e).__name__}: {e}")
-            import traceback
-            log_message(f"Edge TTS Traceback: {traceback.format_exc()}")
-            return None
+                executor.submit(_edge_tts_sync, text, voice_id, rate, output_file).result()
+        except EdgeTTSException as exc:
+            raise TTSFailure("engine", f"Edge TTS: {type(exc).__name__}: {exc}") from exc
+        except OSError as exc:  # aiohttp connection errors are OSError subclasses
+            raise TTSFailure("unreachable", f"Edge TTS: {type(exc).__name__}: {exc}") from exc
+        if not _validate_audio_output(output_file):
+            raise TTSFailure("engine", f"Edge TTS file missing or too small at {output_file}")
+        size = os.path.getsize(output_file)
+        log_message(f"✅ Edge TTS: Audio saved → {output_file} ({size} bytes)")
+        return f"/_upload/tts_audio/{filename}"

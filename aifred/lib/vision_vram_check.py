@@ -90,8 +90,8 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     plus ``LLAMACPP_VLM_HEADROOM_MB`` (dieselbe Reserve wie in der
     Kalibrierung). Verglichen wird mit dem freien VRAM der Karte(n), auf
     die das Profil per ``CUDA_VISIBLE_DEVICES`` gepinnt ist (ohne Pin: alle
-    Karten), plus dem, was der Whisper-GPU-Worker dort belegt — den gibt das
-    Laden frei — llama.cpp verteilt das Profil über genau diese Karten, also
+    Karten), plus dem, was TTS-Container und Whisper-GPU-Worker dort belegen —
+    die gibt das Laden frei — llama.cpp verteilt das Profil über genau diese Karten, also
     zählt ihre Summe. Ist das Profil schon geladen, passt es.
     """
     from . import vlm_vram_cache
@@ -122,11 +122,15 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
         )
     needed_mb = peak_mb + LLAMACPP_VLM_HEADROOM_MB
 
-    # Der Whisper-GPU-Worker steht unter dem Describer (Rangfolge Hauptmodell >
-    # Describer > TTS > STT): sein VRAM zählt als frei, denn das Laden gibt ihn
-    # vorher frei (GPU-Wächter, release_whisper_gpu).
+    # TTS-Container und Whisper-GPU-Worker stehen unter dem Describer
+    # (Rangfolge Hauptmodell > Describer > TTS > STT): ihr VRAM zählt als frei,
+    # denn das Laden gibt sie vorher frei (release_side_channels_for_describer).
     from .audio_processing import whisper_gpu_footprint
+    from .tts_engine_manager import local_tts_gpu_footprint
     releasable = whisper_gpu_footprint()
+    for per_card in local_tts_gpu_footprint().values():
+        for uuid, mib in per_card.items():
+            releasable[uuid] = releasable.get(uuid, 0) + mib
     rows = query("index,uuid,memory.free") or []
     free_by_uuid = {
         r["uuid"]: (int(r["index"]), int(r["memory.free"]) + releasable.get(r["uuid"], 0))

@@ -30,7 +30,6 @@ from typing import TYPE_CHECKING
 from ....lib.plugin_base import CredentialField, load_tool_description
 
 from ._shared import (
-    _channel_tts_options,
     _DEFAULT_PORT,
     _devices,
 )
@@ -120,14 +119,6 @@ class FreeEchoChannel(ConnectionMixin):
                 options=[("true", "On"), ("false", "Off")],
             ),
             CredentialField(
-                env_key="FREEECHO2_TTS_ENGINE",
-                label_key="freeecho2_cred_tts_engine",
-                placeholder="piper",
-                # Pulled from the central TTS-engine SSOT so newly added
-                # engines (Qwen3-TTS local etc.) show up here automatically.
-                options=_channel_tts_options(),
-            ),
-            CredentialField(
                 env_key="FREEECHO2_LANGUAGE",
                 label_key="freeecho2_cred_language",
                 placeholder="de",
@@ -172,11 +163,6 @@ class FreeEchoChannel(ConnectionMixin):
             "freeecho2", "auth_required",
             values.get("FREEECHO2_AUTH_REQUIRED", ""),
         )
-
-        # Engine setting is saved here, actual start happens on first FreeEcho.2 request
-        # via ensure_engine_ready() in lib.speech_synthesis
-        new_engine = values.get("FREEECHO2_TTS_ENGINE", "piper")
-        broker.set_runtime("freeecho2", "tts_engine", new_engine)
 
         broker.set_runtime(
             "freeecho2", "language",

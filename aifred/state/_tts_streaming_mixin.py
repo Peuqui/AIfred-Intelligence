@@ -226,6 +226,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             set_tts_agent,
         )
         from ..lib.config import DATA_DIR
+        from ..lib.tts_engines import TTSFailure, require_engine
 
         try:
             # Reset content-hint flags so this response starts clean.
@@ -256,7 +257,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 text=clean_text,
                 voice_choice=voice_choice,
                 speed_choice=speed_value,
-                tts_engine=self.tts_engine,  # type: ignore[attr-defined]
+                engine=require_engine(self.tts_engine),  # type: ignore[attr-defined]
                 pitch=pitch_value,
                 language=tts_language
             )
@@ -317,7 +318,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             else:
                 self.add_debug(f"⚠️ TTS Queue: Generation failed for {agent}")  # type: ignore[attr-defined]
 
-        except (FileNotFoundError, ValueError, RuntimeError) as e:
+        except (FileNotFoundError, ValueError, RuntimeError, TTSFailure) as e:
             self.add_debug(f"❌ TTS Queue Error ({agent}): {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS queue generation error for {agent}: {e}")
 
@@ -745,6 +746,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         from ..lib.audio_processing import clean_text_for_tts, generate_tts
         from ..lib.config import DATA_DIR
+        from ..lib.tts_engines import require_engine
 
         tts_state = get_tts_backend_state(session_id)
 
@@ -777,7 +779,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     text=clean_text,
                     voice_choice=voice_choice,
                     speed_choice=speed_value,
-                    tts_engine=tts_engine,
+                    engine=require_engine(tts_engine),
                     pitch=pitch_value,
                     agent=agent,  # Pass agent for correct filename prefix
                     language=tts_language
@@ -960,20 +962,22 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """Phase 2 (LANGSAM — läuft OHNE State-Lock): Synthese + Ablage im
         Session-Verzeichnis. Bewusst ohne jeden ``self``-State-Zugriff."""
         from ..lib.audio_processing import generate_tts, save_audio_to_session, set_tts_agent
+        from ..lib.tts_engines import TTSFailure, require_engine
 
         bubble_index = request["bubble_index"]
         set_tts_agent(request["agent"])
         # Generate TTS (complete bubble at once for best quality)
-        audio_url = await generate_tts(
-            text=request["clean_text"],
-            voice_choice=request["voice"],
-            speed_choice=request["speed"],
-            tts_engine=request["engine"],
-            pitch=request["pitch"],
-            language=request["language"],
-        )
-        if not audio_url:
-            log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} audio generation failed")
+        try:
+            audio_url = await generate_tts(
+                text=request["clean_text"],
+                voice_choice=request["voice"],
+                speed_choice=request["speed"],
+                engine=require_engine(request["engine"]),
+                pitch=request["pitch"],
+                language=request["language"],
+            )
+        except TTSFailure as exc:
+            log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} audio generation failed: {exc}")
             return None
 
         # Save to session directory for permanent storage

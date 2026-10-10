@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 
 
 #: Einheiten der Sprachausgabe: wie viel Text auf einmal an die Engine geht. ``sentence`` =
@@ -11,6 +11,21 @@ from typing import Any, Optional
 #: Betonung), ``whole`` = alles am Stück (beste Qualität, die erste Sprache kommt erst nach der
 #: kompletten Erzeugung). SSOT für Browser und alle Kanäle.
 SPEECH_UNITS = ("sentence", "paragraph", "whole")
+
+#: Warum eine Synthese gescheitert ist — bestimmt den Grund der Ansage beim
+#: Stimmwechsel: Server nicht erreichbar, Engine antwortet mit Fehler, Fehler
+#: im eigenen Code.
+FailureReason = Literal["unreachable", "engine", "software"]
+
+
+class TTSFailure(Exception):
+    """Eine Engine hat keine Sprache geliefert. Jede Engine wirft das statt
+    ``None`` zurückzugeben — die Eskalationsliste entscheidet, wer weitermacht."""
+
+    def __init__(self, reason: FailureReason, detail: str) -> None:
+        super().__init__(f"{reason}: {detail}")
+        self.reason: FailureReason = reason
+        self.detail = detail
 
 
 class TTSEngine(ABC):
@@ -59,11 +74,6 @@ class TTSEngine(ABC):
     #: that has no effect. Speed and pitch always apply (ffmpeg
     #: post-processing), so no equivalent flag exists for those.
     supports_language: bool = False
-
-    #: True if this engine should appear in channel-plugin dropdowns
-    #: (FreeEcho.2 etc.). Excludes engines that need extra credentials
-    #: a channel device probably doesn't have wired up.
-    suitable_for_channels: bool = True
 
     #: Standard-Einheit dieser Engine (siehe ``SPEECH_UNITS``); die Wahl des Users pro Engine
     #: steht in den Einstellungen (``tts_toggles_per_engine``) und gilt systemweit für alle Agenten.
@@ -262,11 +272,12 @@ class TTSEngine(ABC):
         language: str,
         speed: float = 1.0,
         pitch: float = 1.0,
-    ) -> Optional[str]:
+    ) -> str:
         """Synthesise ``text`` with ``voice`` into a WAV/MP3/OGG file.
 
         Returns a URL-style path the browser can fetch (e.g.
-        ``"/_upload/tts_audio/audio_123.wav"``), or ``None`` on failure.
+        ``"/_upload/tts_audio/audio_123.wav"``); raises :class:`TTSFailure`
+        when no audio comes back.
 
         ``language`` is the ISO short code (``"de"`` / ``"en"`` / …).
         The engine maps it through :attr:`language_map` if needed.
@@ -290,7 +301,7 @@ class TTSEngine(ABC):
         language: str,
         speed: float = 1.0,
         pitch: float = 1.0,
-    ) -> Optional[str]:
+    ) -> str:
         """Async wrapper around :meth:`generate_speech`. The default
         offloads the sync method to a thread-pool executor so blocking
         HTTP / subprocess calls don't stall the event loop. Engines with
@@ -302,6 +313,38 @@ class TTSEngine(ABC):
             None,
             self.generate_speech, text, voice, language, speed, pitch,
         )
+
+    def _synthesize_via_http(self, path: str, payload: dict[str, Any], extension: str) -> str:
+        """POST ``payload`` to ``<service_url><path>`` and store the returned
+        audio. Shared by all container engines (local or on a remote host).
+        Returns the URL-style path; raises :class:`TTSFailure` otherwise."""
+        import requests
+        from ..audio_processing import TTS_AUDIO_DIR, _generate_tts_filename, _validate_audio_output
+        from ..config import TTS_CONNECT_TIMEOUT_S, TTS_READ_TIMEOUT_S
+        from ..logging_utils import log_message
+
+        filename = _generate_tts_filename(extension)
+        output_file = TTS_AUDIO_DIR / filename
+        log_message(
+            f"🎤 {self.label_short} @ {self.address}: speaker={payload.get('speaker') or payload.get('reference_id')}, "
+            f"language={payload.get('language', '-')}, text_length={len(str(payload.get('text', '')))}"
+        )
+        try:
+            response = requests.post(
+                f"{self.service_url}{path}", json=payload,
+                timeout=(TTS_CONNECT_TIMEOUT_S, TTS_READ_TIMEOUT_S),
+            )
+        except (requests.ConnectionError, requests.ConnectTimeout) as exc:
+            raise TTSFailure("unreachable", f"{self.label_short} at {self.service_url}: {exc}") from exc
+        except requests.Timeout as exc:
+            raise TTSFailure("engine", f"{self.label_short} did not answer within {TTS_READ_TIMEOUT_S}s") from exc
+        if response.status_code != 200:
+            raise TTSFailure("engine", f"{self.label_short} HTTP {response.status_code}: {response.text[:200]}")
+        output_file.write_bytes(response.content)
+        if not _validate_audio_output(str(output_file)):
+            raise TTSFailure("engine", f"{self.label_short} returned no usable audio")
+        log_message(f"✅ {self.label_short}: audio saved → {output_file} ({output_file.stat().st_size} bytes)")
+        return f"/_upload/tts_audio/{filename}"
 
     # ── Calibration support (only container/GPU engines) ───────────
     def calibration_setup(self, debug: Any) -> bool:
