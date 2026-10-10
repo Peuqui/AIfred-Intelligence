@@ -22,6 +22,11 @@ DOC_HEADER_ICON_SIZE = 16
 DOC_HEADER_BUTTON_SIZE: Literal["1", "2", "3", "4"] = "2"
 
 
+def _file_count_label(count: rx.Var) -> rx.Var:
+    """"1 Datei" / "n Dateien" — one wording for every count in the window."""
+    return count.to(str) + rx.cond(count == 1, t("doc_file_suffix_one"), t("doc_files_suffix"))
+
+
 def _doc_file_row(item: rx.Var) -> rx.Component:
     """Single row in the document file explorer."""
     name = item["name"].to(str)
@@ -105,11 +110,7 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
             rx.text(item["size"].to(str), font_size="10px", color="#666",
                     min_width="60px", display=["none", "none", "block"]),
             rx.text(
-                item["file_count"].to(str) + rx.cond(
-                    item["file_count"].to(int) == 1,
-                    t("doc_file_suffix_one"),
-                    t("doc_files_suffix"),
-                ),
+                _file_count_label(item["file_count"].to(int)),
                 font_size="10px",
                 color=rx.cond(item["file_count"].to(int) == 0, "#555", "#888"),
                 min_width="60px",
@@ -679,7 +680,7 @@ def document_manager_page() -> rx.Component:
                                 ),
                                 # File count
                                 rx.text(
-                                    AIState.doc_file_list.length().to(str) + t("doc_files_suffix"),
+                                    _file_count_label(AIState.doc_file_list.length()),
                                     font_size="10px", color="#555", padding="4px 0",
                                 ),
                                 spacing="0", width="100%",
