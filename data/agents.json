@@ -124,7 +124,8 @@
         "email",
         "email_manage",
         "freeecho2_announce",
-        "telegram_send"
+        "telegram_send",
+        "read_file"
       ]
     },
     "sokrates": {
