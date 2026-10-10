@@ -17,15 +17,16 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Qwen3-TTS package — installed FIRST with all its declared deps. Pulls in
 # torch 2.12+cu130 by default, which we then deliberately force-replace
 # below with a torch+torchaudio combo whose ABI matches the host nvidia
-# driver / userspace cuda lib (cu128).
-RUN pip install --no-cache-dir -U qwen-tts
+# driver / userspace cuda lib (cu128). Versions pinned: a rebuild without
+# build cache must produce the same stack as the tested image.
+RUN pip install --no-cache-dir qwen-tts==0.1.1 transformers==4.57.3
 
 # Now downgrade torch / torchaudio to the cu128 wheels — qwen-tts itself
 # does not pin a torch range, so this is safe. The cu130 wheels segfault
 # in torchaudio._extension at import time on this host (driver mismatch).
 RUN pip install --no-cache-dir --force-reinstall \
     --extra-index-url https://download.pytorch.org/whl/cu128 \
-    "torch<2.6" "torchaudio<2.6"
+    torch==2.5.1 torchaudio==2.5.1
 
 # Flash-Attention 2: explicitly NOT installed.
 # We held the prebuilt wheel for cu12torch2.5cxx11abiFALSE/cp312 in our
@@ -41,10 +42,10 @@ RUN pip install --no-cache-dir --force-reinstall \
 # matching prebuilt wheel back in here and flip QWEN3_ATTN.
 
 # Flask + Gunicorn for the HTTP API (matches XTTS / MOSS-TTS pattern)
-RUN pip install --no-cache-dir flask gunicorn
+RUN pip install --no-cache-dir flask==3.1.3 gunicorn==26.2.0
 
-# Server
-COPY server.py /app/server.py
+# server.py is not baked in: docker-compose.yml mounts it, so a code change
+# needs a container restart, not a rebuild.
 WORKDIR /app
 
 # Port 5052 (XTTS=5051, Qwen3=5052, MOSS=5055).
