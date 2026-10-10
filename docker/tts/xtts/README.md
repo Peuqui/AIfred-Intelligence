@@ -9,7 +9,7 @@ Coqui XTTS v2 als Docker-Service für AIfred mit Voice Cloning und multilinguale
 - **58 Built-in Stimmen**: Sofort nutzbare Stimmen aus der XTTS-Bibliothek
 - **Custom Voices**: Eigene Stimmen persistent speichern (AIfred, Sokrates, ...)
 - **Auto-Chunking**: Lange Texte werden automatisch aufgeteilt (XTTS 400-Token-Limit)
-- **Smart Device Selection**: Automatische GPU/CPU-Auswahl basierend auf VRAM
+- **Nur GPU**: Läuft auf der per `TTS_GPU_UUID` zugewiesenen Karte; ohne GPU schlägt das Laden fehl (kein CPU-Ausweg), AIfreds Eskalationsliste nimmt dann den nächsten Eintrag
 - **Web UI**: Integriertes Test-Interface unter `http://localhost:5051`
 
 ## Quick Start
@@ -27,22 +27,8 @@ Erster Start dauert ~2-3 Minuten (Modell-Download ~1.5GB).
 
 | Variable | Default | Beschreibung |
 |----------|---------|--------------|
-| `XTTS_VRAM_THRESHOLD` | `2.0` | Minimum freies VRAM (GB) für GPU-Nutzung |
-| `XTTS_FORCE_CPU` | `0` | Erzwingt CPU-Modus wenn `1` oder `true` |
-| `CUDA_VISIBLE_DEVICES` | `0` | GPU-Index für CUDA |
-
-### Smart Device Selection
-
-XTTS prüft beim ersten Request den verfügbaren VRAM via `nvidia-smi`:
-
-- **GPU-Modus**: Wenn freies VRAM >= `XTTS_VRAM_THRESHOLD` (schnell, ~2-3s pro Satz)
-- **CPU-Modus**: Wenn VRAM nicht ausreicht (langsamer, ~15-30s, aber konkurriert nicht mit Ollama)
-
-```
-🔍 GPU 0 (NVIDIA GeForce RTX 3090 Ti): 19.18 GB free / 24.0 GB total
-✅ Sufficient VRAM (19.18 GB >= 2.0 GB) - using GPU
-🎯 Selected device: CUDA
-```
+| `TTS_GPU_UUID` | — | UUID der Karte (`nvidia-smi -L`); auf einem anderen Rechner in einer `.env` neben dieser Datei setzen |
+| `CUDA_VISIBLE_DEVICES` | `0` | GPU-Index für CUDA (innerhalb des Containers) |
 
 ## API Endpoints
 
@@ -139,12 +125,8 @@ curl http://localhost:5051/health
 ### CUDA out of memory
 
 ```bash
-# Prüfen welches Device gewählt wurde
-curl http://localhost:5051/status | jq .device
-
-# CPU-Modus erzwingen
-# In docker-compose.yml:
-# - XTTS_FORCE_CPU=1
+# VRAM-Belegung des Containers prüfen
+curl http://localhost:5051/status | jq .torch_memory
 ```
 
 ### Stimme klingt schlecht

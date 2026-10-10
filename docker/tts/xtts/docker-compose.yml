@@ -18,16 +18,6 @@ services:
       - CUDA_VISIBLE_DEVICES=0
       - COQUI_TOS_AGREED=1
       - HF_HUB_OFFLINE=1
-      # ============================================================
-      # Smart Device Selection
-      # ============================================================
-      # XTTS_VRAM_THRESHOLD: Minimum free VRAM (GB) to use GPU
-      # Default: 2.0 (XTTS needs ~1.5-2GB)
-      # If free VRAM < threshold: automatically falls back to CPU
-      - XTTS_VRAM_THRESHOLD=2.0
-      # XTTS_FORCE_CPU: Force CPU mode regardless of VRAM
-      # Set to "1" or "true" to always use CPU (read from .env file)
-      - XTTS_FORCE_CPU=${XTTS_FORCE_CPU:-0}
       # XTTS_EAGER_LOAD: Load model at startup (not on first request)
       - XTTS_EAGER_LOAD=${XTTS_EAGER_LOAD:-1}
       # ============================================================

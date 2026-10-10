@@ -659,8 +659,7 @@ class ChatMixin(rx.State, mixin=True):
 
         wanted = ""
         if self.enable_tts and self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-            if not (self.tts_engine == "xtts" and self.xtts_force_cpu):  # type: ignore[attr-defined]
-                wanted = self.tts_engine  # type: ignore[attr-defined]
+            wanted = self.tts_engine  # type: ignore[attr-defined]
 
         # Gate: a GPU-TTS engine on llama.cpp needs a calibrated
         # <model>-tts-<engine> profile. Without it the LLM would load the
@@ -685,7 +684,6 @@ class ChatMixin(rx.State, mixin=True):
         gen = ensure_tts_state(
             wanted_tts=wanted,
             backend_type=self.backend_type,  # type: ignore[attr-defined]
-            xtts_force_cpu=self.xtts_force_cpu,  # type: ignore[attr-defined]
         )
         # Jeder next()-Schritt des Generators ist ein KOMPLETTER blockierender
         # Brocken (Container-Start + Model-Load: bis zu Minuten). Ein nacktes

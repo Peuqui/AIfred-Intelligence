@@ -35,8 +35,6 @@ class TTSConfigMixin(rx.State, mixin=True):
     }
     # XTTS voices cache - refreshed when engine changes to XTTS
     xtts_voices_cache: List[str] = []
-    # XTTS CPU Mode - Force CPU inference (slower but saves GPU VRAM for LLM)
-    xtts_force_cpu: bool = False
     # MOSS-TTS device ("cuda", "cpu", or "" if not running)
     # Used by context_manager/context_utils for VRAM reservation
     moss_tts_device: str = ""
@@ -256,11 +254,6 @@ class TTSConfigMixin(rx.State, mixin=True):
     def close_narrator_settings(self) -> None:
         self.narrator_settings_open = False
 
-    @rx.var
-    def xtts_gpu_enabled(self) -> bool:
-        """Computed: True when GPU mode, False when CPU mode."""
-        return not self.xtts_force_cpu
-
     @rx.var(deps=["enable_tts"], auto_deps=False)
     def tts_player_visible(self) -> bool:
         """Returns True if TTS audio player should be visible.
@@ -456,7 +449,6 @@ class TTSConfigMixin(rx.State, mixin=True):
         gen = ensure_tts_state(
             wanted_tts=key if key in GPU_ENGINES else "",
             backend_type=self.backend_type,  # type: ignore[attr-defined]
-            xtts_force_cpu=self.xtts_force_cpu,
         )
         result = None
         try:
@@ -492,24 +484,6 @@ class TTSConfigMixin(rx.State, mixin=True):
                     yield
 
     # ── Voice / Speed / Pitch / Autoplay ──────────────────────────
-
-
-    def toggle_xtts_gpu(self, use_gpu: bool):
-        """Toggle XTTS GPU mode with immediate UI feedback."""
-        from ..lib.process_utils import set_xtts_cpu_mode
-
-        force_cpu = not use_gpu
-        self.xtts_force_cpu = force_cpu
-        mode_str = "GPU (auto)" if use_gpu else "CPU (forced)"
-        self.add_debug(f"🔊 XTTS: Wechsle zu {mode_str}...")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
-        yield
-
-        success, message = set_xtts_cpu_mode(force_cpu)
-        if success:
-            self.add_debug(f"✅ {message}")  # type: ignore[attr-defined]
-        else:
-            self.add_debug(f"❌ {message}")  # type: ignore[attr-defined]
 
 
     # Note: set_tts_speed removed - generation always at 1.0, tempo via browser playback rate

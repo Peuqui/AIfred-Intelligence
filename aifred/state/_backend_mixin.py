@@ -552,7 +552,6 @@ class BackendMixin(rx.State, mixin=True):
                     # Load TTS/STT Settings
                     self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
                     self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)  # type: ignore[attr-defined, has-type]
-                    self.xtts_force_cpu = saved_settings.get("xtts_force_cpu", self.xtts_force_cpu)  # type: ignore[attr-defined, has-type]
                     # tts_autoplay/tts_streaming_enabled: loaded per-engine by _restore_tts_toggles_for_engine below
                     self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)  # type: ignore[attr-defined, has-type]
                     self.tts_pitch = saved_settings.get("tts_pitch", self.tts_pitch)  # type: ignore[attr-defined, has-type]

@@ -129,99 +129,6 @@ def restart_service(service_name: str, check: bool = False) -> bool:
 # Docker Container Management
 # ============================================================
 
-def restart_docker_container(
-    compose_file: str,
-    service_name: str,
-    env_vars: dict[str, str] | None = None
-) -> tuple[bool, str]:
-    """
-    Restart a Docker container with optional environment variable changes.
-
-    Uses docker compose down + up to ensure env vars are reloaded.
-    If env_vars is provided, writes them to .env file before restart.
-
-    Args:
-        compose_file: Path to docker-compose.yml
-        service_name: Name of the service to restart (e.g., "xtts")
-        env_vars: Optional dict of environment variables to write to .env
-
-    Returns:
-        tuple[bool, str]: (success, message)
-    """
-    from pathlib import Path
-
-    compose_path = Path(compose_file)
-    if not compose_path.exists():
-        return False, f"docker-compose.yml not found: {compose_file}"
-
-    compose_dir = compose_path.parent
-
-    # Pass env vars via process environment (NOT .env file — avoids Reflex hot-reload).
-    # TTS compose files reference TTS_GPU_UUID; the value is the
-    # bandwidth-fastest GPU's NVIDIA UUID, detected once per process
-    # via _detect_tts_gpu_uuid().
-    proc_env = os.environ.copy()
-    proc_env["TTS_GPU_UUID"] = get_tts_gpu_uuid()
-    if env_vars:
-        proc_env.update(env_vars)
-
-    # Stop container
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "down"],
-            capture_output=True,
-            text=True,
-            cwd=str(compose_dir),
-            env=proc_env,
-        )
-        if result.returncode != 0:
-            return False, f"docker compose down failed: {result.stderr}"
-        log_message(f"Docker container '{service_name}' stopped")
-    except OSError as e:
-        return False, f"docker compose down error: {e}"
-
-    # Start container
-    try:
-        result = subprocess.run(
-            ["docker", "compose", "-f", str(compose_file), "up", "-d"],
-            capture_output=True,
-            text=True,
-            cwd=str(compose_dir),
-            env=proc_env,
-        )
-        if result.returncode != 0:
-            return False, f"docker compose up failed: {result.stderr}"
-        log_message(f"Docker container '{service_name}' started")
-    except OSError as e:
-        return False, f"docker compose up error: {e}"
-
-    return True, f"Container '{service_name}' restarted successfully"
-
-
-def set_xtts_cpu_mode(force_cpu: bool) -> tuple[bool, str]:
-    """
-    Set XTTS CPU mode and restart the container.
-
-    Args:
-        force_cpu: True = force CPU mode, False = auto-detect (prefer GPU)
-
-    Returns:
-        tuple[bool, str]: (success, message)
-    """
-    env_vars = {"XTTS_FORCE_CPU": "1" if force_cpu else "0"}
-    mode_str = "CPU" if force_cpu else "GPU (auto)"
-
-    success, message = restart_docker_container(
-        compose_file=_tts_compose("xtts"),
-        service_name="xtts",
-        env_vars=env_vars
-    )
-
-    if success:
-        return True, f"XTTS container restarted in {mode_str} mode (model loading...)"
-    return False, message
-
-
 def _detect_tts_gpu_uuid() -> str:
     """Pick the UUID of the GPU that TTS containers should pin to.
 
@@ -652,15 +559,7 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
     try:
         r = requests.get(f"{_url}/health", timeout=2)
         if r.ok and r.json().get("model_loaded"):
-            device = r.json().get("device", "unknown")
-            # If container is on CPU but a GPU is available, force a
-            # restart so the model lands on the GPU (the user is not
-            # in XTTS-on-CPU mode unless XTTS_FORCE_CPU was set).
-            if device == "cpu" and get_tts_gpu_uuid() and os.environ.get("XTTS_FORCE_CPU", "0").lower() not in ("1", "true", "yes"):
-                log_message("XTTS is on CPU but a GPU is available — restarting on GPU")
-                stop_xtts_container()
-            else:
-                return True, f"XTTS already ready ({device})"
+            return True, f"XTTS already ready ({r.json().get('device', 'unknown')})"
     except OSError:
         pass  # Container not running or not responding
 

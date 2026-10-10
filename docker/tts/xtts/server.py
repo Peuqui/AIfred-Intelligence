@@ -8,10 +8,10 @@ XTTS v2 is a voice cloning model - it requires a reference audio to clone.
 We provide built-in speaker embeddings from the model's speaker library,
 plus support for custom voice cloning from WAV files.
 
-**Smart Device Selection:**
-Automatically detects available VRAM and decides GPU vs CPU:
-- If CUDA available AND >= VRAM_THRESHOLD free: use GPU
-- Otherwise: use CPU (slower but doesn't compete with Ollama)
+**GPU only:** the model runs on the CUDA device the container is pinned to
+(TTS_GPU_UUID). Without a usable GPU the model load fails loudly — AIfred's
+TTS escalation list then moves on to the next entry instead of a silent,
+minutes-slow CPU run.
 
 Usage:
     POST /tts
@@ -45,17 +45,6 @@ logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
 
-# ============================================================
-# VRAM Configuration
-# ============================================================
-# Minimum free VRAM required to use GPU (in GB)
-# XTTS needs ~1.5-2GB base, cache clear after request should keep it low
-# TODO: Test actual VRAM usage with cache clearing enabled
-VRAM_THRESHOLD_GB = float(os.environ.get("XTTS_VRAM_THRESHOLD", "3.0"))
-
-# Force CPU mode (override auto-detection)
-FORCE_CPU = os.environ.get("XTTS_FORCE_CPU", "").lower() in ("1", "true", "yes")
-
 # Eager loading - load model at startup instead of first request
 EAGER_LOAD = os.environ.get("XTTS_EAGER_LOAD", "").lower() in ("1", "true", "yes")
 
@@ -66,7 +55,7 @@ _synthesizer = None
 _speaker_embeddings = None  # Pre-loaded speaker embeddings (built-in)
 _speaker_names = None  # Just the names (loaded without model for /voices endpoint)
 _custom_voices = {}  # Custom cloned voices
-_device = None  # "cuda" or "cpu" - set on model load
+_device = None  # "cuda" once the model is loaded
 
 # Auto-shutdown configuration (like Ollama's KEEP_ALIVE)
 # After KEEP_ALIVE_MINUTES of inactivity, container exits to free ALL VRAM
@@ -712,41 +701,13 @@ def check_system_vram() -> dict:
         return {"available": False, "reason": str(e)}
 
 
-def select_device() -> str:
-    """
-    Intelligently select GPU or CPU based on available VRAM.
-
-    Returns "cuda" or "cpu"
-    """
-    if FORCE_CPU:
-        logger.info("🔧 FORCE_CPU enabled - using CPU")
-        return "cpu"
-
-    # Check system VRAM via nvidia-smi (more accurate than torch)
-    vram_info = check_system_vram()
-
-    if not vram_info.get("available"):
-        logger.info(f"🔧 No GPU available ({vram_info.get('reason', 'unknown')}) - using CPU")
-        return "cpu"
-
-    # Find GPU with most free VRAM (in case of multi-GPU)
-    gpus = vram_info.get("gpus", [])
-    if not gpus:
-        logger.info("🔧 No GPUs found - using CPU")
-        return "cpu"
-
-    # Use GPU 0 (as configured in docker-compose)
-    gpu = gpus[0]
-    free_gb = gpu["free_gb"]
-
-    logger.info(f"🔍 GPU 0 ({gpu['name']}): {free_gb:.2f} GB free / {gpu['total_mb']/1024:.1f} GB total")
-
-    if free_gb >= VRAM_THRESHOLD_GB:
-        logger.info(f"✅ Sufficient VRAM ({free_gb:.2f} GB >= {VRAM_THRESHOLD_GB} GB) - using GPU")
-        return "cuda"
-    else:
-        logger.info(f"⚠️ Insufficient VRAM ({free_gb:.2f} GB < {VRAM_THRESHOLD_GB} GB) - using CPU")
-        return "cpu"
+def require_gpu() -> str:
+    """The model runs on CUDA only; no GPU is an error, not a CPU fallback."""
+    import torch
+    if not torch.cuda.is_available():
+        raise RuntimeError("XTTS needs a CUDA GPU — none is visible in this container")
+    logger.info(f"🔍 GPU 0: {torch.cuda.get_device_name(0)}")
+    return "cuda"
 
 
 def ensure_speaker_names_loaded():
@@ -787,9 +748,7 @@ def get_synthesizer():
         from TTS.tts.models.xtts import Xtts
         from TTS.utils.manage import ModelManager
 
-        # Select device based on available VRAM
-        _device = select_device()
-        logger.info(f"🎯 Selected device: {_device.upper()}")
+        _device = require_gpu()
 
         # Get model path
         manager = ModelManager()
@@ -807,14 +766,8 @@ def get_synthesizer():
         # Load model
         _synthesizer = Xtts.init_from_config(_config)
 
-        # Load checkpoint with appropriate device
-        if _device == "cuda":
-            _synthesizer.load_checkpoint(_config, checkpoint_dir=model_path, eval=True, use_deepspeed=False)
-            _synthesizer.cuda()
-        else:
-            # CPU mode - load without CUDA
-            _synthesizer.load_checkpoint(_config, checkpoint_dir=model_path, eval=True, use_deepspeed=False)
-            _synthesizer.cpu()
+        _synthesizer.load_checkpoint(_config, checkpoint_dir=model_path, eval=True, use_deepspeed=False)
+        _synthesizer.cuda()
 
         # Load speaker embeddings from the speaker library
         speaker_file = Path(model_path) / "speakers_xtts.pth"
@@ -1330,8 +1283,6 @@ def status():
     return jsonify({
         "model_loaded": _synthesizer is not None,
         "device": _device or "not loaded yet",
-        "force_cpu": FORCE_CPU,
-        "vram_threshold_gb": VRAM_THRESHOLD_GB,
         "system_vram": vram_info,
         "torch_memory": torch_info,
         "custom_voices": len(_custom_voices),
@@ -1612,13 +1563,8 @@ def tts():
                 "available_speakers": get_all_speakers()[:30]
             }), 400
 
-        # Move embeddings to the selected device
-        if _device == "cuda":
-            gpt_cond_latent = speaker_data["gpt_cond_latent"].cuda()
-            speaker_embedding = speaker_data["speaker_embedding"].cuda()
-        else:
-            gpt_cond_latent = speaker_data["gpt_cond_latent"].cpu()
-            speaker_embedding = speaker_data["speaker_embedding"].cpu()
+        gpt_cond_latent = speaker_data["gpt_cond_latent"].cuda()
+        speaker_embedding = speaker_data["speaker_embedding"].cuda()
 
         # Split text into chunks to avoid 400 token limit
         chunks = split_text_into_chunks(text)
@@ -1735,12 +1681,11 @@ def tts():
         logger.info(f"Generated audio: {temp_path} ({len(chunks)} chunks)")
 
         # Clear CUDA cache to free VRAM for other services (e.g., Ollama)
-        if _device == "cuda":
-            try:
-                torch.cuda.empty_cache()
-                logger.debug("CUDA cache cleared after TTS request")
-            except Exception:
-                pass
+        try:
+            torch.cuda.empty_cache()
+            logger.debug("CUDA cache cleared after TTS request")
+        except Exception:
+            pass
 
         # Request done - decrement counter and reset timer
         _active_requests -= 1
