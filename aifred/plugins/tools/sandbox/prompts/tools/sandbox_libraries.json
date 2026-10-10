@@ -8,6 +8,7 @@
   "plotly": "plotly (interactive HTML plots)",
   "networkx": "networkx (graphs)",
   "PIL": "Pillow / PIL (images)",
+  "cv2": "OpenCV / cv2 (image processing)",
   "skimage": "scikit-image (image processing)",
   "pymupdf": "pymupdf (create, read and edit PDF files: import pymupdf)",
   "docx": "python-docx (Word .docx: import docx)",
