@@ -74,15 +74,14 @@ class TTSConfigMixin(rx.State, mixin=True):
             })
         return rows
 
-    @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
+    @rx.var(deps=["tts_list_revision"], auto_deps=False)
     def tts_add_engine_options(self) -> List[str]:
-        """Engines that can be added: every engine whose Docker image is built
-        (or that needs none)."""
-        from ..lib.i18n import tts_key_to_label
+        """Engines that can be added (short names — where it runs is chosen
+        separately): every engine whose Docker image is built or needs none."""
         from ..lib.tts_engines import TTS_ENGINES
         return [
-            tts_key_to_label(key, lang=_lang(self))
-            for key, engine in TTS_ENGINES.items()
+            engine.label_short
+            for engine in TTS_ENGINES.values()
             if not engine.runs_in_container or engine.is_installed()
         ]
 
@@ -184,8 +183,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
         before = planned_tts_engine(model_id)
         settings = copy.deepcopy(persisted_settings())
-        change(settings)
         try:
+            change(settings)
             escalation_entries(settings)
         except (ValueError, KeyError) as exc:
             self.add_debug(f"❌ TTS list: {exc}")  # type: ignore[attr-defined]
@@ -221,9 +220,12 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.tts_new_entry_host = label
 
     def add_tts_entry(self):
-        from ..lib.i18n import t, tts_label_to_key
+        from ..lib.i18n import t
+        from ..lib.tts_engines import TTS_ENGINES
 
-        engine_key = tts_label_to_key(self.tts_new_entry_engine)
+        engine_key = next(
+            key for key, engine in TTS_ENGINES.items() if engine.label_short == self.tts_new_entry_engine
+        )
         host_label = self.tts_new_entry_host
         host = None if host_label in ("", t("tts_location_this_machine", lang=_lang(self))) else host_label
 

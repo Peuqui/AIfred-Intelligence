@@ -149,6 +149,7 @@
   "tts_entry_remove": "Remove entry",
   "tts_add_engine_placeholder": "Engine …",
   "tts_add_entry": "Add",
+  "tts_add_heading": "Add an entry to the list (engine and where it runs):",
   "tts_hosts_heading": "Other machines with TTS containers:",
   "tts_host_name_placeholder": "Name, e.g. Aragon",
   "tts_host_address_placeholder": "Address, e.g. 10.0.0.2",
