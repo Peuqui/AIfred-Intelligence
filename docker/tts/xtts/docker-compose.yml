@@ -3,7 +3,10 @@ services:
     image: xtts-rtx8000
     build: .
     container_name: xtts
-    restart: "no"  # Started/stopped by AIfred (ensure_engine_ready / switch_tts_engine)
+    # On this machine AIfred starts/stops the container ("no"). On another
+    # TTS host nobody does: set TTS_RESTART=unless-stopped (and *_KEEP_ALIVE=0)
+    # in a .env next to this file.
+    restart: "${TTS_RESTART:-no}"
     ports:
       - "5051:5051"
     deploy:
