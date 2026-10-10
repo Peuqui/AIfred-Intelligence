@@ -8,7 +8,7 @@ from typing import Any, Callable
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 
 
 @dataclass
@@ -89,16 +89,7 @@ class CalculatorPlugin:
                 description=(
                     load_tool_description(__file__, "calculate")
                 ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "expression": {
-                            "type": "string",
-                            "description": "Mathematical expression (e.g. '4832 * 0.17')",
-                        },
-                    },
-                    "required": ["expression"],
-                },
+                parameters=load_tool_parameters(__file__, "calculate"),
                 executor=_execute,
             ),
         ]

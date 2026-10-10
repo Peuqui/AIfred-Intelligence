@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "peer": {
+      "type": "string",
+      "description": "Full peer name, e.g. 'Mini:vllm-research'"
+    },
+    "limit": {
+      "type": "integer",
+      "description": "How many of the latest messages to return (default 20)"
+    }
+  },
+  "required": [
+    "peer"
+  ]
+}

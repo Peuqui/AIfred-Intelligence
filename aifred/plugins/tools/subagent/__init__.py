@@ -37,6 +37,7 @@ from ....lib.plugin_base import (
     load_plugin_instructions,
     load_plugin_settings,
     load_tool_description,
+    load_tool_parameters,
     save_plugin_settings,
 )
 from ....lib.sandbox import SANDBOX_HTML_URL_MARKER, SANDBOX_IMAGE_URL_MARKER
@@ -321,32 +322,14 @@ class SubAgentPlugin:
             return []
 
         candidates = delegation_candidates(ctx) if settings.delegate_to_other_agents else []
-        properties: dict[str, Any] = {
-            "task": {
-                "type": "string",
-                "description": (
-                    "The complete task, self-contained: everything the sub-agent "
-                    "must know, because it sees neither the conversation nor your memory."
-                ),
-            },
-            "expected_result": {
-                "type": "string",
-                "description": "What the report must contain so you can continue.",
-            },
-        }
-        required = ["task", "expected_result"]
         if candidates:
-            properties["agent"] = {
-                "type": "string",
-                "enum": candidates,
-                "description": (
-                    "Run the sub-agent as this agent: its identity and personality "
-                    "(role, expertise, working method), its model and its tool list "
-                    "instead of your own (a different model means a model swap per call). "
-                    "Pick the agent whose expertise and tool groups fit the task.\n"
-                    + delegation_legend(ctx, settings, depth, candidates)
-                ),
-            }
+            parameters = load_tool_parameters(__file__, TOOL_NAME, enums={"agent": candidates})
+            agent_param = parameters["properties"]["agent"]
+            agent_param["description"] += "\n" + delegation_legend(ctx, settings, depth, candidates)
+        else:
+            # No other agent to run as: the parameter is not offered at all.
+            parameters = load_tool_parameters(__file__, TOOL_NAME)
+            del parameters["properties"]["agent"]
 
         async def _delegate(
             task: str, expected_result: str, agent: Optional[str] = None,
@@ -361,7 +344,7 @@ class SubAgentPlugin:
                 name=TOOL_NAME,
                 tier=TIER_READONLY,
                 description=load_tool_description(__file__, TOOL_NAME),
-                parameters={"type": "object", "properties": properties, "required": required},
+                parameters=parameters,
                 executor=_delegate,
             ),
         ]

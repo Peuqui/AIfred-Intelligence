@@ -1,0 +1,54 @@
+{
+  "type": "object",
+  "properties": {
+    "job_id": {
+      "type": "integer",
+      "description": "ID of the job to change"
+    },
+    "name": {
+      "type": "string",
+      "description": "New name"
+    },
+    "schedule_type": {
+      "type": "string",
+      "enum": [],
+      "description": "New schedule type (then also pass schedule_expr)"
+    },
+    "schedule_expr": {
+      "type": "string",
+      "description": "New cron expression, interval in seconds, or ISO timestamp"
+    },
+    "message": {
+      "type": "string",
+      "description": "New prompt/message (replaces the old text completely)"
+    },
+    "agent": {
+      "type": "string",
+      "description": "New agent"
+    },
+    "delivery": {
+      "type": "string",
+      "enum": [],
+      "description": "New delivery mode"
+    },
+    "channel": {
+      "type": "string",
+      "description": "New channel for 'announce' delivery"
+    },
+    "recipient": {
+      "type": "string",
+      "description": "New recipient for 'announce' delivery"
+    },
+    "webhook_url": {
+      "type": "string",
+      "description": "New URL for 'webhook' delivery"
+    },
+    "enabled": {
+      "type": "boolean",
+      "description": "true = switch the job on, false = switch it off"
+    }
+  },
+  "required": [
+    "job_id"
+  ]
+}

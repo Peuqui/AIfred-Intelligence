@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Source file or folder relative to documents/"
+    },
+    "target_path": {
+      "type": "string",
+      "description": "Target path — a new path or an existing folder (source keeps its name)"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Replace an existing target (default false)"
+    }
+  },
+  "required": [
+    "path",
+    "target_path"
+  ]
+}

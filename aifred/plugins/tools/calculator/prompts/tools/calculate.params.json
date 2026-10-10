@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "expression": {
+      "type": "string",
+      "description": "Mathematical expression (e.g. '4832 * 0.17')"
+    }
+  },
+  "required": [
+    "expression"
+  ]
+}

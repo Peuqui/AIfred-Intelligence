@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "display_name": {
+      "type": "string",
+      "description": "Full name"
+    },
+    "email": {
+      "type": "string",
+      "description": "E-mail address (optional)"
+    },
+    "phone": {
+      "type": "string",
+      "description": "Phone number (optional)"
+    },
+    "organization": {
+      "type": "string",
+      "description": "Company / organization (optional)"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Notes (optional)"
+    },
+    "group": {
+      "type": "string",
+      "description": "Group name (optional, e.g. 'Familie')"
+    }
+  },
+  "required": [
+    "display_name"
+  ]
+}

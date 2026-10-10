@@ -1,0 +1,51 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Short descriptive name for the job"
+    },
+    "schedule_type": {
+      "type": "string",
+      "enum": [],
+      "description": "Type of schedule"
+    },
+    "schedule_expr": {
+      "type": "string",
+      "description": "Cron expression, interval in seconds, or ISO timestamp"
+    },
+    "message": {
+      "type": "string",
+      "description": "The prompt/message AIfred will process at the scheduled time"
+    },
+    "agent": {
+      "type": "string",
+      "description": "Agent to use (default: aifred)",
+      "default": "aifred"
+    },
+    "delivery": {
+      "type": "string",
+      "enum": [],
+      "description": "How to deliver the result (default: review)",
+      "default": "review"
+    },
+    "channel": {
+      "type": "string",
+      "description": "Target channel for 'announce' delivery (e.g. telegram, discord, email)"
+    },
+    "recipient": {
+      "type": "string",
+      "description": "Recipient for 'announce' delivery (email address, etc.)"
+    },
+    "webhook_url": {
+      "type": "string",
+      "description": "URL for 'webhook' delivery"
+    }
+  },
+  "required": [
+    "name",
+    "schedule_type",
+    "schedule_expr",
+    "message"
+  ]
+}

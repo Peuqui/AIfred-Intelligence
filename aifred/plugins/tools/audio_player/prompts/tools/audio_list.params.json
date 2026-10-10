@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string",
+      "description": "Source label. Omit to list all sources with item counts."
+    },
+    "subdir": {
+      "type": "string",
+      "description": "Optional sub-path inside the source (e.g. 'Klassik/Mozart') to narrow listing."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Optional cap on returned items. Omit (default) to return ALL — the token-budget cap protects context if the result is huge."
+    }
+  }
+}

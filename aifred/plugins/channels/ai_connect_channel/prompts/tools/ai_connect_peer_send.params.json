@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "to": {
+      "type": "string",
+      "description": "Full peer name, e.g. 'Mini:vllm-research'"
+    },
+    "message": {
+      "type": "string",
+      "description": "The message text to send"
+    }
+  },
+  "required": [
+    "to",
+    "message"
+  ]
+}

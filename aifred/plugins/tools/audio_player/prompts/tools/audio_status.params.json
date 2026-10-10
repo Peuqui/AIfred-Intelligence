@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "Optional target id. Omit to get all targets."
+    }
+  }
+}

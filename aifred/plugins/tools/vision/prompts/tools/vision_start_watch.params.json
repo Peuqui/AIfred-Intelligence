@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "source_id": {
+      "type": "string"
+    },
+    "fps": {
+      "type": "number",
+      "description": "Frames per second; default from settings."
+    },
+    "run_face_detect": {
+      "type": "boolean",
+      "description": "Run face_detect+recognize on each motion event."
+    }
+  },
+  "required": [
+    "source_id"
+  ]
+}

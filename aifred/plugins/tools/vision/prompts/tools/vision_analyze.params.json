@@ -1,0 +1,23 @@
+{
+  "type": "object",
+  "properties": {
+    "image_urls": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "image_url(s) EXACTLY as returned by vision_snapshot or an upload — must start with '/_upload/'. Multiple = temporal sequence. A single string is also accepted."
+    },
+    "prompt": {
+      "type": "string",
+      "description": "Question or instruction for the VLM. If omitted, the configured default prompt is used."
+    },
+    "source_id": {
+      "type": "string",
+      "description": "Source of the image (from the snapshot result) — applies the per-camera briefing. Optional."
+    }
+  },
+  "required": [
+    "image_urls"
+  ]
+}

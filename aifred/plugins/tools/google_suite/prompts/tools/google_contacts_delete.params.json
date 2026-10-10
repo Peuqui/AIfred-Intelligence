@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "resource_name": {
+      "type": "string",
+      "description": "Resource name of the contact"
+    }
+  },
+  "required": [
+    "resource_name"
+  ]
+}

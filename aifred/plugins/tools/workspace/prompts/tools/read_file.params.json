@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Filename relative to documents/ (e.g. 'report.pdf')"
+    },
+    "pages": {
+      "type": "string",
+      "description": "Page range for PDFs: '3', '1-5', '3,7,10-12' (empty = all pages)",
+      "default": ""
+    },
+    "line_start": {
+      "type": "integer",
+      "description": "First line to read (1-based). Use with line_end for large text files.",
+      "default": 0
+    },
+    "line_end": {
+      "type": "integer",
+      "description": "Last line to read (inclusive). 0 = until end of file.",
+      "default": 0
+    }
+  },
+  "required": [
+    "filename"
+  ]
+}

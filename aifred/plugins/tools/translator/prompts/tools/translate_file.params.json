@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Source file, relative to the documents root WITHOUT a 'documents/' prefix (e.g. 'deployment.md'). Use list_files first if you are unsure of the path."
+    },
+    "target_lang": {
+      "type": "string",
+      "description": "Target language code (e.g. 'EN', 'DE', 'FR', 'ES', 'JA')"
+    },
+    "output_filename": {
+      "type": "string",
+      "description": "Optional output path. Default: same folder, '<name>-<LANG>.<ext>' (e.g. 'deployment-DE.md')."
+    },
+    "source_lang": {
+      "type": "string",
+      "description": "Source language code (optional, auto-detected if omitted)"
+    },
+    "formality": {
+      "type": "string",
+      "enum": [],
+      "description": "Form of address / tone, for languages that distinguish it (DE, FR, ES, IT, NL, PL, PT, JA, RU). 'prefer_less' = informal (German 'du') — the default, right for documentation, chat and private messages. 'prefer_more' = formal (German 'Sie') — use for business or official correspondence, legal and customer-facing texts. 'default' leaves the choice to DeepL. Pick it from the target audience of the text; if the user states a preference, follow that."
+    }
+  },
+  "required": [
+    "filename",
+    "target_lang"
+  ]
+}

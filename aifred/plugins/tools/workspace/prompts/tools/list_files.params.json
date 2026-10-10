@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "subfolder": {
+      "type": "string",
+      "description": "Subfolder to list (empty = root of documents/)",
+      "default": ""
+    }
+  }
+}

@@ -1,0 +1,20 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Search terms. Will be AND-combined as prefix match."
+    },
+    "source": {
+      "type": "string",
+      "description": "Optional source label to limit search scope."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Optional cap on returned hits. Omit (default) to return ALL matches — the token-budget cap protects context if a query yields very many."
+    }
+  },
+  "required": [
+    "query"
+  ]
+}

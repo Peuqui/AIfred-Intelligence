@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "tasklist_id": {
+      "type": "string",
+      "description": "Task list ID (default: @default)"
+    },
+    "show_completed": {
+      "type": "boolean",
+      "description": "Include completed tasks (default: false)"
+    },
+    "max_results": {
+      "type": "integer",
+      "description": "Maximum number of results (default: 50)"
+    }
+  },
+  "required": []
+}

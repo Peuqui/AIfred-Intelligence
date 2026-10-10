@@ -1,0 +1,55 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [],
+      "description": "Action to perform"
+    },
+    "msg_id": {
+      "type": "string",
+      "description": "Message ID (for read)"
+    },
+    "query": {
+      "type": "string",
+      "description": "Search term (for search)"
+    },
+    "n": {
+      "type": "string",
+      "description": "Number of emails to fetch (for check, default 10)"
+    },
+    "to": {
+      "type": "string",
+      "description": "Recipient email address (for send)"
+    },
+    "subject": {
+      "type": "string",
+      "description": "Email subject (for send)"
+    },
+    "body": {
+      "type": "string",
+      "description": "Email body as Markdown (for send). ![alt](/_upload/… URL) embeds an image from THIS conversation in the text, [name](/_upload/… URL) attaches the file."
+    },
+    "attachment": {
+      "type": "string",
+      "description": "Optional (for send): URL of a file from THIS conversation to attach (an uploaded image, or generated sandbox output like a PDF — its /_upload/... URL). To show an image inside the text instead, embed it in the body with ![alt](URL)."
+    },
+    "folder": {
+      "type": "string",
+      "description": "IMAP folder (default INBOX)"
+    },
+    "flag": {
+      "type": "string",
+      "enum": [
+        "read",
+        "unread",
+        "flagged",
+        "unflagged"
+      ],
+      "description": "Flag for mark action"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}

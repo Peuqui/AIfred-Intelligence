@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "task": {
+      "type": "string",
+      "description": "The complete task, self-contained: everything the sub-agent must know, because it sees neither the conversation nor your memory."
+    },
+    "expected_result": {
+      "type": "string",
+      "description": "What the report must contain so you can continue."
+    },
+    "agent": {
+      "type": "string",
+      "enum": [],
+      "description": "Run the sub-agent as this agent: its identity and personality (role, expertise, working method), its model and its tool list instead of your own (a different model means a model swap per call). Pick the agent whose expertise and tool groups fit the task."
+    }
+  },
+  "required": [
+    "task",
+    "expected_result"
+  ]
+}

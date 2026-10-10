@@ -1,0 +1,27 @@
+{
+  "type": "object",
+  "properties": {
+    "html_url": {
+      "type": "string",
+      "description": "SANDBOX_HTML_URL from a previous execute_code result"
+    },
+    "wait_ms": {
+      "type": "integer",
+      "description": "Settle time in ms after page load before actions/screenshot (default 2000) — increase for slow-building pages"
+    },
+    "actions": {
+      "type": "array",
+      "description": "Optional interaction sequence, each item ONE of: {\"click\": \"<css-selector>\"} | {\"fill\": {\"selector\": \"<css>\", \"text\": \"...\"}} | {\"press\": \"<key e.g. Enter>\"} | {\"mouse_drag\": {\"from\": [x, y], \"to\": [x, y]}} | {\"wait_ms\": <int>} | {\"screenshot\": true} (intermediate shot). A final screenshot is always taken.",
+      "items": {
+        "type": "object"
+      }
+    },
+    "vision_focus": {
+      "type": "string",
+      "description": "Specific verification question for the automatic screenshot description, e.g. 'Is the wireframe terrain visible and does the laser beam end at the ground?'. The vision model answers it first, then describes the rest. All screenshots of this call are described together as one chronological sequence — before/after questions across shots are encouraged. Pass it whenever you rendered to verify a specific change."
+    }
+  },
+  "required": [
+    "html_url"
+  ]
+}

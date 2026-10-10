@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "collection_name": {
+      "type": "string",
+      "description": "Exact collection name (e.g. 'aifred_documents', 'agent_memory_aifred')"
+    },
+    "confirm": {
+      "type": "boolean",
+      "description": "Must be true. Only set after the user explicitly confirmed the irreversible deletion."
+    }
+  },
+  "required": [
+    "collection_name",
+    "confirm"
+  ]
+}

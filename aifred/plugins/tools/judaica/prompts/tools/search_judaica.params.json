@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "A reference (e.g. 'Berakhot 3', 'Pirkei Avot 1,1') or a topic (e.g. 'Was sagt der Talmud über Umkehr?')"
+    }
+  },
+  "required": [
+    "query"
+  ]
+}

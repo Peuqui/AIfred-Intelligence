@@ -11,7 +11,7 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description
+from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description, load_tool_parameters
 from ....lib.logging_utils import log_message
 
 if TYPE_CHECKING:
@@ -454,28 +454,7 @@ class DiscordChannel(BaseChannel):
                 tier=TIER_COMMUNICATE,
                 outbound=True,
                 description=load_tool_description(__file__, "discord_send"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "message": {
-                            "type": "string",
-                            "description": "The message text to send",
-                        },
-                        "channel_id": {
-                            "type": "string",
-                            "description": "Discord channel ID (optional, uses default channel if empty)",
-                        },
-                        "attachment": {
-                            "type": "string",
-                            "description": (
-                                "Optional: URL of a file from THIS conversation to attach "
-                                "(an uploaded image, or generated sandbox output like a PDF — "
-                                "its /_upload/... URL)."
-                            ),
-                        },
-                    },
-                    "required": ["message"],
-                },
+                parameters=load_tool_parameters(__file__, "discord_send"),
                 executor=_execute_discord_send,
             ),
         ]

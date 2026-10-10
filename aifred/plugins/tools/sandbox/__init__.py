@@ -15,7 +15,7 @@ from typing import Any, Optional
 from ....lib.function_calling import Tool
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.sandbox import (
     SANDBOX_HTML_URL_MARKER,
     SANDBOX_IMAGE_URL_MARKER,
@@ -186,20 +186,6 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
 
         return "\n\n".join(parts)
 
-    params = {
-        "type": "object",
-        "properties": {
-            "code": {
-                "type": "string",
-                "description": "Python code to execute",
-            },
-            "description": {
-                "type": "string",
-                "description": "Brief description of what the code does (for logging)",
-            },
-        },
-        "required": ["code"],
-    }
 
     _vb = _vendor_base()
     return [
@@ -207,62 +193,21 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
             name="execute_code",
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "execute_code").replace("{VENDOR_BASE}", _vb),
-            parameters=params,
+            parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code,
         ),
         Tool(
             name="execute_code_write",
             tier=TIER_WRITE_SYSTEM,
             description=load_tool_description(__file__, "execute_code_write"),
-            parameters=params,
+            parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code_write,
         ),
         Tool(
             name="render_html",
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "render_html").replace("{VENDOR_BASE}", _vb),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "html_url": {
-                        "type": "string",
-                        "description": "SANDBOX_HTML_URL from a previous execute_code result",
-                    },
-                    "wait_ms": {
-                        "type": "integer",
-                        "description": "Settle time in ms after page load before actions/screenshot (default 2000) — increase for slow-building pages",
-                    },
-                    "actions": {
-                        "type": "array",
-                        "description": (
-                            "Optional interaction sequence, each item ONE of: "
-                            '{"click": "<css-selector>"} | '
-                            '{"fill": {"selector": "<css>", "text": "..."}} | '
-                            '{"press": "<key e.g. Enter>"} | '
-                            '{"mouse_drag": {"from": [x, y], "to": [x, y]}} | '
-                            '{"wait_ms": <int>} | '
-                            '{"screenshot": true} (intermediate shot). '
-                            "A final screenshot is always taken."
-                        ),
-                        "items": {"type": "object"},
-                    },
-                    "vision_focus": {
-                        "type": "string",
-                        "description": (
-                            "Specific verification question for the automatic "
-                            "screenshot description, e.g. 'Is the wireframe "
-                            "terrain visible and does the laser beam end at "
-                            "the ground?'. The vision model answers it first, "
-                            "then describes the rest. All screenshots of this "
-                            "call are described together as one chronological "
-                            "sequence — before/after questions across shots "
-                            "are encouraged. Pass it whenever you rendered to "
-                            "verify a specific change."
-                        ),
-                    },
-                },
-                "required": ["html_url"],
-            },
+            parameters=load_tool_parameters(__file__, "render_html"),
             executor=_render_html,
         ),
     ]

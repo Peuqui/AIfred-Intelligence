@@ -14,7 +14,7 @@ import threading
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description
+from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description, load_tool_parameters
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 from ....lib.text_chunking import split_message
@@ -466,32 +466,7 @@ class TelegramChannel(BaseChannel):
                 tier=TIER_COMMUNICATE,
                 outbound=True,
                 description=load_tool_description(__file__, "telegram_send"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "message": {
-                            "type": "string",
-                            "description": "The message text to send",
-                        },
-                        "chat_id": {
-                            "type": "string",
-                            "description": (
-                                "Optional: Telegram chat ID to send to. Leave EMPTY to send "
-                                "to the user/owner — you do NOT need to know their chat id."
-                            ),
-                        },
-                        "attachment": {
-                            "type": "string",
-                            "description": (
-                                "Optional: URL of a file from THIS conversation to attach "
-                                "(an uploaded image, or generated sandbox output like a PDF — "
-                                "its /_upload/... URL). Images send as photo, other files as "
-                                "document. The message text becomes the caption."
-                            ),
-                        },
-                    },
-                    "required": ["message"],
-                },
+                parameters=load_tool_parameters(__file__, "telegram_send"),
                 executor=_execute_telegram_send,
             ),
         ]

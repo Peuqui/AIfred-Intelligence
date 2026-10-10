@@ -1,0 +1,9 @@
+{
+  "type": "object",
+  "properties": {
+    "target": {
+      "type": "string",
+      "description": "Optional. Omit for auto-target (request origin). Use 'all' for every active stream, or a specific id like 'freeecho2:wohnzimmer' / 'browser:abc123' / 'local'. Use audio_targets() to list available."
+    }
+  }
+}

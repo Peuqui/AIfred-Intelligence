@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Source file relative to documents/ (e.g. 'notes/draft.md')"
+    },
+    "target_path": {
+      "type": "string",
+      "description": "Target path — a file path or an existing folder (file keeps its name)"
+    },
+    "overwrite": {
+      "type": "boolean",
+      "description": "Replace an existing target (default false)"
+    }
+  },
+  "required": [
+    "path",
+    "target_path"
+  ]
+}

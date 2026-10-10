@@ -121,7 +121,13 @@ def load_tool_description(plugin_file: "str | Path", tool_name: str) -> str:
     return text
 
 
-def load_tool_parameters(plugin_file: "str | Path", tool_name: str) -> dict[str, Any]:
+def load_tool_parameters(
+    plugin_file: "str | Path",
+    tool_name: str,
+    *,
+    enums: "dict[str, list[Any]] | None" = None,
+    values: "dict[str, Any] | None" = None,
+) -> dict[str, Any]:
     """JSON-Schema der Tool-Parameter aus
     ``<plugin_dir>/prompts/tools/<tool_name>.params.json``.
 
@@ -130,8 +136,15 @@ def load_tool_parameters(plugin_file: "str | Path", tool_name: str) -> dict[str,
     :func:`load_tool_description` in die Plugin-Prompts, nicht in den Code.
     Nur Englisch, bei jedem Toolkit-Build frisch gelesen.
 
-    Fail-loud: fehlende Datei oder kein JSON-Objekt → RuntimeError beim
-    Toolkit-Build, kein eingebauter Ersatz.
+    Was der Code bestimmt, setzt er ein, statt es in der Datei zu doppeln:
+    ``enums`` = erlaubte Werte je Parameter (aus den Konstanten des Plugins;
+    die Datei markiert die Stelle mit ``"enum": []``), ``values`` =
+    ``{name}``-Platzhalter in den Beschreibungen (z. B. Grenzwerte aus der
+    Config).
+
+    Fail-loud: fehlende Datei, kein JSON-Objekt, ein Platzhalter oder
+    Parameter, den die Datei nicht kennt → RuntimeError beim Toolkit-Build,
+    kein eingebauter Ersatz.
     """
     import json
     from pathlib import Path
@@ -140,11 +153,24 @@ def load_tool_parameters(plugin_file: "str | Path", tool_name: str) -> dict[str,
         base = base.parent
     path = base / "prompts" / "tools" / f"{tool_name}.params.json"
     try:
-        schema = json.loads(path.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
+        raw = path.read_text(encoding="utf-8")
+    except OSError as e:
+        raise RuntimeError(f"tool parameter file missing or invalid: {path}") from e
+    for key, value in (values or {}).items():
+        placeholder = "{" + key + "}"
+        if placeholder not in raw:
+            raise RuntimeError(f"placeholder {placeholder} not in {path}")
+        raw = raw.replace(placeholder, str(value))
+    try:
+        schema = json.loads(raw)
+    except ValueError as e:
         raise RuntimeError(f"tool parameter file missing or invalid: {path}") from e
     if not isinstance(schema, dict) or schema.get("type") != "object":
         raise RuntimeError(f"tool parameter file is not an object schema: {path}")
+    for name, allowed in (enums or {}).items():
+        if schema.get("properties", {}).get(name, {}).get("enum") != []:
+            raise RuntimeError(f'parameter \'{name}\' has no "enum": [] slot in {path}')
+        schema["properties"][name]["enum"] = list(allowed)
     return schema
 
 

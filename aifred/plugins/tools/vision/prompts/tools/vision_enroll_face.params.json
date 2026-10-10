@@ -1,0 +1,19 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string"
+    },
+    "source_id": {
+      "type": "string"
+    },
+    "notes": {
+      "type": "string",
+      "default": ""
+    }
+  },
+  "required": [
+    "name",
+    "source_id"
+  ]
+}

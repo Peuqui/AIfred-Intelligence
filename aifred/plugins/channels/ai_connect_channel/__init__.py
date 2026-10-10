@@ -18,7 +18,7 @@ from typing import TYPE_CHECKING, Any, Awaitable, TypeVar
 
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description
+from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description, load_tool_parameters
 from .client import BRIDGE_SENDER, BridgeClient, BridgeFatalError
 
 if TYPE_CHECKING:
@@ -319,21 +319,14 @@ class AIConnectChannel(BaseChannel):
                 name="ai_connect_peer_list",
                 tier=TIER_READONLY,
                 description=load_tool_description(__file__, "ai_connect_peer_list"),
-                parameters={"type": "object", "properties": {}},
+                parameters=load_tool_parameters(__file__, "ai_connect_peer_list"),
                 executor=_execute_peer_list,
             ),
             Tool(
                 name="ai_connect_peer_history",
                 tier=TIER_READONLY,
                 description=load_tool_description(__file__, "ai_connect_peer_history"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "peer": {"type": "string", "description": "Full peer name, e.g. 'Mini:vllm-research'"},
-                        "limit": {"type": "integer", "description": "How many of the latest messages to return (default 20)"},
-                    },
-                    "required": ["peer"],
-                },
+                parameters=load_tool_parameters(__file__, "ai_connect_peer_history"),
                 executor=_execute_peer_history,
             ),
             Tool(
@@ -341,14 +334,7 @@ class AIConnectChannel(BaseChannel):
                 tier=TIER_COMMUNICATE,
                 outbound=True,
                 description=load_tool_description(__file__, "ai_connect_peer_send"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "to": {"type": "string", "description": "Full peer name, e.g. 'Mini:vllm-research'"},
-                        "message": {"type": "string", "description": "The message text to send"},
-                    },
-                    "required": ["to", "message"],
-                },
+                parameters=load_tool_parameters(__file__, "ai_connect_peer_send"),
                 executor=_execute_peer_send,
             ),
         ]

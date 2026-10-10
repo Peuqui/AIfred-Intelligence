@@ -22,7 +22,7 @@ from ....lib.message_builder import image_marker
 from ....lib.vision_utils import is_image_file
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM, retrieved_data_notice
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
 
@@ -178,16 +178,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "list_files")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "subfolder": {
-                        "type": "string",
-                        "description": "Subfolder to list (empty = root of documents/)",
-                        "default": "",
-                    },
-                },
-            },
+            parameters=load_tool_parameters(__file__, "list_files"),
             executor=_list_files,
         ))
 
@@ -289,31 +280,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "read_file")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Filename relative to documents/ (e.g. 'report.pdf')",
-                    },
-                    "pages": {
-                        "type": "string",
-                        "description": "Page range for PDFs: '3', '1-5', '3,7,10-12' (empty = all pages)",
-                        "default": "",
-                    },
-                    "line_start": {
-                        "type": "integer",
-                        "description": "First line to read (1-based). Use with line_end for large text files.",
-                        "default": 0,
-                    },
-                    "line_end": {
-                        "type": "integer",
-                        "description": "Last line to read (inclusive). 0 = until end of file.",
-                        "default": 0,
-                    },
-                },
-                "required": ["filename"],
-            },
+            parameters=load_tool_parameters(__file__, "read_file"),
             executor=_read_file,
         ))
 
@@ -370,20 +337,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "write_file")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Filename relative to documents/ (e.g. 'notes/summary.md')",
-                    },
-                    "content": {
-                        "type": "string",
-                        "description": "Full text content to write",
-                    },
-                },
-                "required": ["filename", "content"],
-            },
+            parameters=load_tool_parameters(__file__, "write_file"),
             executor=_write_file,
         ))
 
@@ -459,28 +413,7 @@ class WorkspacePlugin:
             name="patch_file",
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "patch_file"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Filename relative to documents/ (e.g. 'notes/summary.md')",
-                    },
-                    "old_string": {
-                        "type": "string",
-                        "description": "Exact text to replace — must occur exactly once in the file (include surrounding lines to make it unique)",
-                    },
-                    "new_string": {
-                        "type": "string",
-                        "description": "Replacement text",
-                    },
-                    "replace_all": {
-                        "type": "boolean",
-                        "description": "Replace EVERY occurrence instead of requiring a unique match (e.g. renaming a variable). Default false.",
-                    },
-                },
-                "required": ["filename", "old_string", "new_string"],
-            },
+            parameters=load_tool_parameters(__file__, "patch_file"),
             executor=_patch_file,
         ))
 
@@ -542,24 +475,7 @@ class WorkspacePlugin:
             name="search_in_file",
             tier=TIER_READONLY,
             description=load_tool_description(__file__, "search_in_file"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Filename relative to documents/ (e.g. 'notes/summary.md')",
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Literal text to search for (case-sensitive, no regex)",
-                    },
-                    "context_lines": {
-                        "type": "integer",
-                        "description": "Lines of context to show around each match (0-10, default 0)",
-                    },
-                },
-                "required": ["filename", "query"],
-            },
+            parameters=load_tool_parameters(__file__, "search_in_file"),
             executor=_search_in_file,
         ))
 
@@ -577,16 +493,7 @@ class WorkspacePlugin:
             name="create_folder",
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "create_folder"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "folder_name": {
-                        "type": "string",
-                        "description": "Folder path relative to documents/ (e.g. 'projects/2026')",
-                    },
-                },
-                "required": ["folder_name"],
-            },
+            parameters=load_tool_parameters(__file__, "create_folder"),
             executor=_create_folder,
         ))
 
@@ -615,16 +522,7 @@ class WorkspacePlugin:
             name="delete_file",
             tier=TIER_WRITE_SYSTEM,
             description=load_tool_description(__file__, "delete_file"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Filename relative to documents/ (e.g. 'old_notes.txt')",
-                    },
-                },
-                "required": ["filename"],
-            },
+            parameters=load_tool_parameters(__file__, "delete_file"),
             executor=_delete_file,
         ))
 
@@ -648,21 +546,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "delete_folder")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "folder_name": {
-                        "type": "string",
-                        "description": "Folder path relative to documents/ (e.g. 'old_project')",
-                    },
-                    "recursive": {
-                        "type": "boolean",
-                        "description": "If true, deletes folder and all contents (files + subfolders) recursively.",
-                        "default": False,
-                    },
-                },
-                "required": ["folder_name"],
-            },
+            parameters=load_tool_parameters(__file__, "delete_folder"),
             executor=_delete_folder,
         ))
 
@@ -683,24 +567,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "copy_file")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Source file relative to documents/ (e.g. 'notes/draft.md')",
-                    },
-                    "target_path": {
-                        "type": "string",
-                        "description": "Target path — a file path or an existing folder (file keeps its name)",
-                    },
-                    "overwrite": {
-                        "type": "boolean",
-                        "description": "Replace an existing target (default false)",
-                    },
-                },
-                "required": ["path", "target_path"],
-            },
+            parameters=load_tool_parameters(__file__, "copy_file"),
             executor=_copy_file,
         ))
 
@@ -721,24 +588,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "move_file")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Source file or folder relative to documents/",
-                    },
-                    "target_path": {
-                        "type": "string",
-                        "description": "Target path — a new path or an existing folder (source keeps its name)",
-                    },
-                    "overwrite": {
-                        "type": "boolean",
-                        "description": "Replace an existing target (default false)",
-                    },
-                },
-                "required": ["path", "target_path"],
-            },
+            parameters=load_tool_parameters(__file__, "move_file"),
             executor=_move_file,
         ))
 
@@ -760,20 +610,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "rename")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "path": {
-                        "type": "string",
-                        "description": "Current path relative to documents/ (e.g. 'notes/draft.md')",
-                    },
-                    "new_name": {
-                        "type": "string",
-                        "description": "New name (just the filename or folder name, not a full path)",
-                    },
-                },
-                "required": ["path", "new_name"],
-            },
+            parameters=load_tool_parameters(__file__, "rename"),
             executor=_rename,
         ))
 
@@ -812,16 +649,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "index_document")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "filename": {
-                        "type": "string",
-                        "description": "Filename in documents/ to index (e.g. 'report.pdf')",
-                    },
-                },
-                "required": ["filename"],
-            },
+            parameters=load_tool_parameters(__file__, "index_document"),
             executor=_index_document,
         ))
 
@@ -960,43 +788,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "search_documents")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search query — what are you looking for?",
-                    },
-                    "n_results": {
-                        "type": "integer",
-                        "description": f"Page size — number of similarity hits per page (default: 5, max: {DOCUMENT_SEARCH_MAX_RESULTS})",
-                        "default": 5,
-                    },
-                    "folder": {
-                        "type": "string",
-                        "description": (
-                            "Folder to restrict the search to. Includes all "
-                            "nested sub-folders automatically — pass 'bibel' "
-                            "to search both Schlachter and GuteNachricht, "
-                            "'judaica' to search everything Jewish, "
-                            "'bibel/Schlachter' to narrow to one translation. "
-                            "Omit to search across all indexed content."
-                        ),
-                    },
-                    "page": {
-                        "type": "integer",
-                        "description": (
-                            "1-based page number for pagination. page=1 (default) "
-                            "returns the top similarity hits, page=2 the next batch "
-                            "deeper into the ranking, etc. Use the SAME query when "
-                            "paginating. Watch has_more in the response to decide "
-                            "whether another page is worth fetching."
-                        ),
-                        "default": 1,
-                    },
-                },
-                "required": ["query"],
-            },
+            parameters=load_tool_parameters(__file__, "search_documents", values={"max_results": DOCUMENT_SEARCH_MAX_RESULTS}),
             executor=_search_documents,
         ))
 
@@ -1016,7 +808,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "list_indexed")
             ),
-            parameters={"type": "object", "properties": {}},
+            parameters=load_tool_parameters(__file__, "list_indexed"),
             executor=_list_indexed,
         ))
 
@@ -1045,7 +837,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "list_orphaned")
             ),
-            parameters={"type": "object", "properties": {}},
+            parameters=load_tool_parameters(__file__, "list_orphaned"),
             executor=_list_orphaned,
         ))
 
@@ -1087,7 +879,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "chromadb_stats")
             ),
-            parameters={"type": "object", "properties": {}},
+            parameters=load_tool_parameters(__file__, "chromadb_stats"),
             executor=_chromadb_stats,
         ))
 
@@ -1130,20 +922,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "chromadb_clear")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "collection_name": {
-                        "type": "string",
-                        "description": "Exact collection name (e.g. 'aifred_documents', 'agent_memory_aifred')",
-                    },
-                    "confirm": {
-                        "type": "boolean",
-                        "description": "Must be true. Only set after the user explicitly confirmed the irreversible deletion.",
-                    },
-                },
-                "required": ["collection_name", "confirm"],
-            },
+            parameters=load_tool_parameters(__file__, "chromadb_clear"),
             executor=_chromadb_clear,
         ))
 

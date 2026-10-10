@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "item": {
+      "type": "string",
+      "description": "Source label or label/relative-path (e.g. 'swr3', 'hoerbuecher/foo.mp3')"
+    },
+    "target": {
+      "type": "string",
+      "description": "Output destination. Omit to route to the request's origin. Use audio_targets() to list options."
+    },
+    "restart": {
+      "type": "boolean",
+      "description": "Default: true (start from beginning). Set false to resume from saved position — equivalent to calling audio_resume.",
+      "default": true
+    }
+  },
+  "required": [
+    "item"
+  ]
+}

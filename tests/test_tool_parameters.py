@@ -1,6 +1,7 @@
 """load_tool_parameters: Parameter-Schemas der Tools kommen aus den Plugin-Prompts."""
 
 import json
+from pathlib import Path
 
 import pytest
 
@@ -32,3 +33,20 @@ def test_missing_or_broken_schema_fails_loud(tmp_path, content):
         _write(tmp_path, "my_tool", content)
     with pytest.raises(RuntimeError, match="my_tool.params.json"):
         load_tool_parameters(_plugin_file(tmp_path), "my_tool")
+
+
+PLUGIN_SCHEMAS = sorted(
+    (Path(__file__).parent.parent / "aifred" / "plugins").rglob("prompts/tools/*.params.json")
+)
+
+
+@pytest.mark.parametrize("path", PLUGIN_SCHEMAS, ids=lambda path: path.stem)
+def test_every_plugin_schema_loads_and_requires_only_described_parameters(path):
+    """Also the tools of plugins that are not configured here (Discord, …)."""
+    schema = load_tool_parameters(path.parent.parent.parent, path.name.removesuffix(".params.json"))
+    assert set(schema.get("required", [])) <= set(schema.get("properties", {}))
+    assert (path.parent / path.name.replace(".params.json", ".txt")).exists(), "description file missing"
+
+
+def test_the_plugins_ship_their_schemas():
+    assert len(PLUGIN_SCHEMAS) >= 88

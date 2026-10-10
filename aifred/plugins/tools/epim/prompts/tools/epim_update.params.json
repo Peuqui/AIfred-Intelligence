@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "description": "Entity type: task, contact, note, note_tab, todo, password"
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "IDTASK/IDCONTACT etc. from epim_search results. IMPORTANT: Copy the FULL ID string exactly as returned — do not shorten or round it!"
+    },
+    "data": {
+      "type": "object",
+      "description": "Fields to update. Task: {start, end, title, location, text, priority, tags}. Use datetime format: YYYY-MM-DD HH:MM"
+    }
+  },
+  "required": [
+    "entity_type",
+    "entity_id",
+    "data"
+  ]
+}

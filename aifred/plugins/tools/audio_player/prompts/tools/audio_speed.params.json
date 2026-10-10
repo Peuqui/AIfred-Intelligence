@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "factor": {
+      "type": "number",
+      "description": "Speed multiplier (0.25 to 4.0)."
+    },
+    "target": {
+      "type": "string",
+      "description": "Optional target id. Omit to apply on the auto-resolved target."
+    }
+  },
+  "required": [
+    "factor"
+  ]
+}

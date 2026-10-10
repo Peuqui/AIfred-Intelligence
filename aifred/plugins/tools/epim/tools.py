@@ -396,7 +396,7 @@ def get_epim_tools(source: str = "browser") -> list[Tool]:
     # Tool definitions — Descriptions aus prompts/tools/ beim Plugin
     # (Standard-Konvention load_tool_description, nur EN, fail-loud)
     # ----------------------------------------------------------
-    from ....lib.plugin_base import load_tool_description
+    from ....lib.plugin_base import load_tool_description, load_tool_parameters
     search_desc = load_tool_description(__file__, "epim_search")
     get_desc = load_tool_description(__file__, "epim_get")
     create_desc = load_tool_description(__file__, "epim_create")
@@ -408,126 +408,35 @@ def get_epim_tools(source: str = "browser") -> list[Tool]:
             name="epim_search",
             tier=TIER_READONLY,
             description=search_desc,
-            parameters={
-                "type": "object",
-                "properties": {
-                    "entity_type": {
-                        "type": "string",
-                        "description": "Entity type: tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees",
-                    },
-                    "query": {
-                        "type": "string",
-                        "description": "Search text (title, name, subject)",
-                    },
-                    "date_from": {
-                        "type": "string",
-                        "description": "Start date filter (YYYY-MM-DD), only for tasks",
-                    },
-                    "date_to": {
-                        "type": "string",
-                        "description": "End date filter (YYYY-MM-DD), only for tasks",
-                    },
-                    "completed": {
-                        "type": "boolean",
-                        "description": "Filter by completion status, only for todos",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Max results (default: 20)",
-                    },
-                },
-                "required": ["entity_type"],
-            },
+            parameters=load_tool_parameters(__file__, "epim_search"),
             executor=_epim_search,
         ),
         Tool(
             name="epim_get",
             tier=TIER_READONLY,
             description=get_desc,
-            parameters={
-                "type": "object",
-                "properties": {
-                    "entity_type": {
-                        "type": "string",
-                        "description": "Entity type: task, contact, note",
-                    },
-                    "entity_id": {
-                        "type": "string",
-                        "description": "IDTASK/IDCONTACT/IDNOTE from epim_search results. IMPORTANT: Copy the FULL ID string exactly as returned — do not shorten or round it!",
-                    },
-                },
-                "required": ["entity_type", "entity_id"],
-            },
+            parameters=load_tool_parameters(__file__, "epim_get"),
             executor=_epim_get,
         ),
         Tool(
             name="epim_create",
             tier=TIER_WRITE_DATA,
             description=create_desc,
-            parameters={
-                "type": "object",
-                "properties": {
-                    "entity_type": {
-                        "type": "string",
-                        "description": "Entity type: task, contact, note, todo, password",
-                    },
-                    "data": {
-                        "type": "object",
-                        "description": (
-                            "Entity data. Task: {title, start, end, location, allday, text, priority, tags}. "
-                            "Contact: {name, fields: {Vorname, Nachname, Telefon, E-Mail, ...}, tags}. "
-                            "Note: {title, text, tab_name, tree_id, tags}. "
-                            "Todo: {title, start, end, priority, text, tags, list_id}. "
-                            "Password: {subject, fields: {key: value, ...}, tags, group_id}."
-                        ),
-                    },
-                },
-                "required": ["entity_type", "data"],
-            },
+            parameters=load_tool_parameters(__file__, "epim_create"),
             executor=_epim_create,
         ),
         Tool(
             name="epim_update",
             tier=TIER_WRITE_DATA,
             description=update_desc,
-            parameters={
-                "type": "object",
-                "properties": {
-                    "entity_type": {
-                        "type": "string",
-                        "description": "Entity type: task, contact, note, note_tab, todo, password",
-                    },
-                    "entity_id": {
-                        "type": "string",
-                        "description": "IDTASK/IDCONTACT etc. from epim_search results. IMPORTANT: Copy the FULL ID string exactly as returned — do not shorten or round it!",
-                    },
-                    "data": {
-                        "type": "object",
-                        "description": "Fields to update. Task: {start, end, title, location, text, priority, tags}. Use datetime format: YYYY-MM-DD HH:MM",
-                    },
-                },
-                "required": ["entity_type", "entity_id", "data"],
-            },
+            parameters=load_tool_parameters(__file__, "epim_update"),
             executor=_epim_update,
         ),
         Tool(
             name="epim_delete",
             tier=TIER_WRITE_SYSTEM,
             description=delete_desc,
-            parameters={
-                "type": "object",
-                "properties": {
-                    "entity_type": {
-                        "type": "string",
-                        "description": "Entity type: task, contact, note, todo, password",
-                    },
-                    "entity_id": {
-                        "type": "string",
-                        "description": "IDTASK/IDCONTACT etc. from epim_search results. IMPORTANT: Copy the FULL ID string exactly!",
-                    },
-                },
-                "required": ["entity_type", "entity_id"],
-            },
+            parameters=load_tool_parameters(__file__, "epim_delete"),
             executor=_epim_delete,
         ),
     ]

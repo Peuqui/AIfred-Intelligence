@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Filename in documents/ to index (e.g. 'report.pdf')"
+    }
+  },
+  "required": [
+    "filename"
+  ]
+}

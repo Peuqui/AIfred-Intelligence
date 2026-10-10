@@ -22,7 +22,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY
 # All Judaica source texts live under this folder. file_manager's
 # folder filter is a recursive prefix-match, so "judaica" covers the
@@ -76,20 +76,7 @@ class JudaicaPlugin:
                 description=(
                     load_tool_description(__file__, "search_judaica")
                 ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": (
-                                "A reference (e.g. 'Berakhot 3', 'Pirkei "
-                                "Avot 1,1') or a topic (e.g. 'Was sagt der "
-                                "Talmud über Umkehr?')"
-                            ),
-                        },
-                    },
-                    "required": ["query"],
-                },
+                parameters=load_tool_parameters(__file__, "search_judaica"),
                 executor=_execute,
             ),
         ]

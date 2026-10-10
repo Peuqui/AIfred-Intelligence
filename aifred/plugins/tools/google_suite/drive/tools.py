@@ -11,7 +11,7 @@ from typing import Any
 import httpx
 
 from .....lib.function_calling import Tool
-from .....lib.plugin_base import load_tool_description
+from .....lib.plugin_base import load_tool_description, load_tool_parameters
 from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
 from .._common import PLUGIN_DIR, _get_token, _google_request
 
@@ -279,15 +279,7 @@ def get_drive_tools() -> list[Tool]:
             description=(
                 load_tool_description(PLUGIN_DIR, "google_drive_list_files")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "folder_id":  {"type": "string", "description": "Folder ID (optional, default: root)"},
-                    "page_size":  {"type": "integer", "description": "Maximum number of results (default: 30)"},
-                    "order_by":   {"type": "string", "description": "Sort order (default: modifiedTime desc)"},
-                },
-                "required": [],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_list_files"),
             executor=list_files,
             tier=TIER_WRITE_DATA,  # reads private Drive data/content → block external channels
         ),
@@ -296,14 +288,7 @@ def get_drive_tools() -> list[Tool]:
             description=(
                 load_tool_description(PLUGIN_DIR, "google_drive_search")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query":     {"type": "string", "description": "Search term or raw Drive query"},
-                    "page_size": {"type": "integer", "description": "Maximum results (default: 20)"},
-                },
-                "required": ["query"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_search"),
             executor=search_files,
             tier=TIER_WRITE_DATA,  # reads private Drive data/content → block external channels
         ),
@@ -312,57 +297,28 @@ def get_drive_tools() -> list[Tool]:
             description=(
                 load_tool_description(PLUGIN_DIR, "google_drive_get_file")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "file_id": {"type": "string", "description": "ID of the file"},
-                },
-                "required": ["file_id"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_get_file"),
             executor=get_file,
             tier=TIER_WRITE_DATA,  # reads private Drive data/content → block external channels
         ),
         Tool(
             name="google_drive_create_file",
             description=load_tool_description(PLUGIN_DIR, "google_drive_create_file"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "name":      {"type": "string", "description": "File name (with extension, e.g. 'notiz.txt')"},
-                    "content":   {"type": "string", "description": "File content"},
-                    "folder_id": {"type": "string", "description": "Target folder ID (optional)"},
-                    "mime_type": {"type": "string", "description": "MIME type (default: text/plain)"},
-                },
-                "required": ["name", "content"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_create_file"),
             executor=create_file,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_drive_update_file",
             description=load_tool_description(PLUGIN_DIR, "google_drive_update_file"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "file_id":   {"type": "string", "description": "ID of the file to update"},
-                    "content":   {"type": "string", "description": "New file content"},
-                    "mime_type": {"type": "string", "description": "MIME type (default: text/plain)"},
-                },
-                "required": ["file_id", "content"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_update_file"),
             executor=update_file,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_drive_delete_file",
             description=load_tool_description(PLUGIN_DIR, "google_drive_delete_file"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "file_id": {"type": "string", "description": "ID of the file to delete"},
-                },
-                "required": ["file_id"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_delete_file"),
             executor=delete_file,
             # Repo-Konvention (lib/security.py): Deletes sind TIER_WRITE_SYSTEM
             # — hier besonders: Drive löscht ENDGÜLTIG, kein Papierkorb.
@@ -371,28 +327,14 @@ def get_drive_tools() -> list[Tool]:
         Tool(
             name="google_drive_create_folder",
             description=load_tool_description(PLUGIN_DIR, "google_drive_create_folder"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "name":      {"type": "string", "description": "Folder name"},
-                    "parent_id": {"type": "string", "description": "Parent folder ID (optional)"},
-                },
-                "required": ["name"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_create_folder"),
             executor=create_folder,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_drive_move_file",
             description=load_tool_description(PLUGIN_DIR, "google_drive_move_file"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "file_id":          {"type": "string", "description": "ID of the file to move"},
-                    "target_folder_id": {"type": "string", "description": "ID of the target folder"},
-                },
-                "required": ["file_id", "target_folder_id"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_move_file"),
             executor=move_file,
             tier=TIER_WRITE_DATA,
         ),

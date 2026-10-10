@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "ID of the event to delete"
+    },
+    "calendar_id": {
+      "type": "string",
+      "description": "Calendar ID (default: primary)"
+    }
+  },
+  "required": [
+    "event_id"
+  ]
+}

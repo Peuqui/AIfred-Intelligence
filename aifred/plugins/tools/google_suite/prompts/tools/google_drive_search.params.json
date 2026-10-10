@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Search term or raw Drive query"
+    },
+    "page_size": {
+      "type": "integer",
+      "description": "Maximum results (default: 20)"
+    }
+  },
+  "required": [
+    "query"
+  ]
+}

@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "source_id": {
+      "type": "string",
+      "description": "OPTIONAL camera filter. Omit to search ALL cameras (the usual case). If you set it, use an EXACT id from vision_list_sources or a prior tool result — never a guessed/remembered id, or you'll silently get zero results."
+    },
+    "event_type": {
+      "type": "string",
+      "description": "Filter. Use 'presence' for 'was anyone there?' (union of face_known/face_unknown/face_unsure/person, motion excluded). Other values: motion | face_known | face_unknown | face_unsure | person | vlm_analysis. Omit for everything."
+    },
+    "since_hours": {
+      "type": "number",
+      "description": "Only events newer than N hours."
+    },
+    "limit": {
+      "type": "integer",
+      "default": 50
+    }
+  },
+  "required": []
+}

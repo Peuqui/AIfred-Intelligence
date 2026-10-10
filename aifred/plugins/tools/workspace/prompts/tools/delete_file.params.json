@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Filename relative to documents/ (e.g. 'old_notes.txt')"
+    }
+  },
+  "required": [
+    "filename"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "resource_name": {
+      "type": "string",
+      "description": "Resource name (from google_contacts_search)"
+    },
+    "display_name": {
+      "type": "string",
+      "description": "New name (optional)"
+    },
+    "email": {
+      "type": "string",
+      "description": "New e-mail (optional)"
+    },
+    "phone": {
+      "type": "string",
+      "description": "New phone number (optional)"
+    },
+    "organization": {
+      "type": "string",
+      "description": "New organization (optional)"
+    },
+    "notes": {
+      "type": "string",
+      "description": "New notes (optional)"
+    },
+    "group": {
+      "type": "string",
+      "description": "Assign to group (optional)"
+    }
+  },
+  "required": [
+    "resource_name"
+  ]
+}

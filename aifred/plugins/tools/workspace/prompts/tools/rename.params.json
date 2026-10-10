@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Current path relative to documents/ (e.g. 'notes/draft.md')"
+    },
+    "new_name": {
+      "type": "string",
+      "description": "New name (just the filename or folder name, not a full path)"
+    }
+  },
+  "required": [
+    "path",
+    "new_name"
+  ]
+}

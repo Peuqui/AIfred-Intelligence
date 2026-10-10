@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "folder": {
+      "type": "string",
+      "description": "Source label or label/sub/path (e.g. 'hoerbuecher', 'hoerbuecher/Tolkien_HdR')."
+    },
+    "target": {
+      "type": "string",
+      "description": "Output destination. Omit to auto-route to where the request came from (FreeEcho.2 wake → that FreeEcho.2; browser input → that tab)."
+    },
+    "shuffle": {
+      "type": "boolean",
+      "description": "Play tracks in random order. Default: false (natural alphabetical).",
+      "default": false
+    }
+  },
+  "required": [
+    "folder"
+  ]
+}

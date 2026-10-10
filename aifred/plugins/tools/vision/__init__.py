@@ -29,7 +29,7 @@ from ....lib.frame_sources import (
     rescan as rescan_sources,
 )
 from ....lib.function_calling import Tool
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.vision_analyzer import (
     DEFAULT_KEEP_ALIVE,
@@ -286,7 +286,7 @@ class VisionPlugin:
         return Tool(
             name="vision_list_sources",
             description=load_tool_description(__file__, "vision_list_sources"),
-            parameters={"type": "object", "properties": {}, "required": []},
+            parameters=load_tool_parameters(__file__, "vision_list_sources"),
             executor=_exec,
             tier=TIER_READONLY,
         )
@@ -306,7 +306,7 @@ class VisionPlugin:
         return Tool(
             name="vision_rescan_sources",
             description=load_tool_description(__file__, "vision_rescan_sources"),
-            parameters={"type": "object", "properties": {}, "required": []},
+            parameters=load_tool_parameters(__file__, "vision_rescan_sources"),
             executor=_exec,
             tier=TIER_READONLY,
         )
@@ -419,26 +419,7 @@ class VisionPlugin:
         return Tool(
             name="vision_snapshot",
             description=load_tool_description(__file__, "vision_snapshot"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "source_id": {
-                        "type": "string",
-                        "description": "Source identifier (see vision_list_sources).",
-                    },
-                    "n_frames": {
-                        "type": "integer",
-                        "description": "1 = single photo; 2-10 = burst sequence for motion/film.",
-                        "default": 1,
-                    },
-                    "save": {
-                        "type": "boolean",
-                        "description": "Persist to session image dir.",
-                        "default": True,
-                    },
-                },
-                "required": ["source_id"],
-            },
+            parameters=load_tool_parameters(__file__, "vision_snapshot"),
             executor=_exec,
             # Live camera capture → surveillance/exfil vector from external
             # channels. Gated by SOURCE in get_tools (browser + Puck only) —
@@ -622,36 +603,7 @@ class VisionPlugin:
         return Tool(
             name="vision_analyze",
             description=load_tool_description(__file__, "vision_analyze"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "image_urls": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": (
-                            "image_url(s) EXACTLY as returned by "
-                            "vision_snapshot or an upload — must start with "
-                            "'/_upload/'. Multiple = temporal sequence. A "
-                            "single string is also accepted."
-                        ),
-                    },
-                    "prompt": {
-                        "type": "string",
-                        "description": (
-                            "Question or instruction for the VLM. If omitted, "
-                            "the configured default prompt is used."
-                        ),
-                    },
-                    "source_id": {
-                        "type": "string",
-                        "description": (
-                            "Source of the image (from the snapshot result) — "
-                            "applies the per-camera briefing. Optional."
-                        ),
-                    },
-                },
-                "required": ["image_urls"],
-            },
+            parameters=load_tool_parameters(__file__, "vision_analyze"),
             executor=_exec,
             # VLM description of camera imagery → exfil vector from external
             # channels. Gated by SOURCE in get_tools (browser + Puck only).
@@ -714,15 +666,7 @@ class VisionPlugin:
         return Tool(
             name="vision_enroll_face",
             description=load_tool_description(__file__, "vision_enroll_face"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "name": {"type": "string"},
-                    "source_id": {"type": "string"},
-                    "notes": {"type": "string", "default": ""},
-                },
-                "required": ["name", "source_id"],
-            },
+            parameters=load_tool_parameters(__file__, "vision_enroll_face"),
             executor=_exec,
             tier=TIER_WRITE_DATA,
         )
@@ -778,21 +722,7 @@ class VisionPlugin:
         return Tool(
             name="vision_start_watch",
             description=load_tool_description(__file__, "vision_start_watch"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "source_id": {"type": "string"},
-                    "fps": {
-                        "type": "number",
-                        "description": "Frames per second; default from settings.",
-                    },
-                    "run_face_detect": {
-                        "type": "boolean",
-                        "description": "Run face_detect+recognize on each motion event.",
-                    },
-                },
-                "required": ["source_id"],
-            },
+            parameters=load_tool_parameters(__file__, "vision_start_watch"),
             executor=_exec,
             tier=TIER_WRITE_DATA,
         )
@@ -816,11 +746,7 @@ class VisionPlugin:
         return Tool(
             name="vision_stop_watch",
             description=load_tool_description(__file__, "vision_stop_watch"),
-            parameters={
-                "type": "object",
-                "properties": {"source_id": {"type": "string"}},
-                "required": ["source_id"],
-            },
+            parameters=load_tool_parameters(__file__, "vision_stop_watch"),
             executor=_exec,
             tier=TIER_WRITE_DATA,
         )
@@ -854,7 +780,7 @@ class VisionPlugin:
         return Tool(
             name="vision_list_active_watches",
             description=load_tool_description(__file__, "vision_list_active_watches"),
-            parameters={"type": "object", "properties": {}, "required": []},
+            parameters=load_tool_parameters(__file__, "vision_list_active_watches"),
             executor=_exec,
             tier=TIER_READONLY,
         )
@@ -1035,37 +961,7 @@ class VisionPlugin:
         return Tool(
             name="vision_query_events",
             description=load_tool_description(__file__, "vision_query_events"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "source_id": {
-                        "type": "string",
-                        "description": (
-                            "OPTIONAL camera filter. Omit to search ALL "
-                            "cameras (the usual case). If you set it, use an "
-                            "EXACT id from vision_list_sources or a prior tool "
-                            "result — never a guessed/remembered id, or you'll "
-                            "silently get zero results."
-                        ),
-                    },
-                    "event_type": {
-                        "type": "string",
-                        "description": (
-                            "Filter. Use 'presence' for 'was anyone there?' "
-                            "(union of face_known/face_unknown/face_unsure/"
-                            "person, motion excluded). Other values: motion | "
-                            "face_known | face_unknown | face_unsure | person | "
-                            "vlm_analysis. Omit for everything."
-                        ),
-                    },
-                    "since_hours": {
-                        "type": "number",
-                        "description": "Only events newer than N hours.",
-                    },
-                    "limit": {"type": "integer", "default": 50},
-                },
-                "required": [],
-            },
+            parameters=load_tool_parameters(__file__, "vision_query_events"),
             executor=_exec,
             # Event history incl. VLM "who was home when" descriptions →
             # exfil vector from external channels. Gated by SOURCE in
