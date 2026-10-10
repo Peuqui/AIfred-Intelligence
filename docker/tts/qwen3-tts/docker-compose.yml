@@ -50,6 +50,8 @@ services:
       - QWEN3_KEEP_ALIVE=${QWEN3_KEEP_ALIVE:-45}
 
     volumes:
+      # Server code from the repo: a code change needs a restart, no rebuild
+      - ./server.py:/app/server.py:ro
       # HuggingFace cache: persists the model + tokenizer between container restarts
       - qwen3_models:/root/.cache/huggingface
       # Shared SSOT voices: docker/tts/voices/<Name>/<Name>.wav (+ optional
