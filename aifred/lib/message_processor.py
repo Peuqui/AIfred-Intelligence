@@ -1167,3 +1167,25 @@ def record_autonomous_turn(
 
     write_hub_notification(session_id, title, channel, "system", status="done")
     return session_id
+
+
+async def announce_into_rooms(
+    channel: str, rooms: list[str], text: str, speaker: str, metadata: dict,
+) -> list[str]:
+    """SSoT for an announcement someone makes out loud in rooms (an agent's
+    ``freeecho2_announce``, the announce API): per room the bubble first —
+    ``record_autonomous_turn`` in the room's session, ``speaker`` as sender —
+    then the announcement into that session, so what the puck speaks is kept
+    on that bubble (speech_synthesis.keep_spoken_audio). Recorded after, a
+    short announcement would be spoken before its bubble existed.
+
+    Returns the rooms reached. A room not reached keeps its bubble unspoken;
+    that is logged, not hidden."""
+    reached: list[str] = []
+    for room in rooms:
+        session_id = record_autonomous_turn(channel, room, speaker, text, speaker=speaker)
+        if await announce_to_channel(channel, room, text, session_id=session_id, metadata=metadata):
+            reached.append(room)
+        else:
+            log_message(f"Announcement by {speaker}: {channel}:{room} not reached — its bubble was not spoken", "warning")
+    return reached
