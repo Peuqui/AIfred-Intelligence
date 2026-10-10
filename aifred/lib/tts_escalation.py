@@ -496,3 +496,56 @@ def entry_status(entry: EscalationEntry) -> str:
     if entry.host is not None and not entry.host.ssh:
         return "unreachable"
     return "sleeping"
+
+
+def is_controllable(entry: EscalationEntry) -> bool:
+    """Whether AIfred can start and stop this entry's container: a local GPU
+    container, or a container on a host AIfred controls over SSH."""
+    if entry.host is not None:
+        return bool(entry.host.ssh)
+    return entry.engine.needs_gpu and entry.engine.runs_in_container
+
+
+def find_entry(engine_key: str, host_name: str | None, settings: dict[str, Any] | None = None) -> EscalationEntry:
+    """The list entry for an engine on a host (``None`` = this machine);
+    ``LookupError`` when the list has none."""
+    for entry in escalation_entries(settings):
+        if entry.engine.key == engine_key and (entry.host.name if entry.host else None) == host_name:
+            return entry
+    raise LookupError(f"no TTS list entry {engine_key}@{host_name or 'local'}")
+
+
+async def launch_entry(entry: EscalationEntry) -> str:
+    """Bring the entry's container up without waiting for the model (the
+    caller polls health): locally on the card ``place_local_gpu_engine``
+    picks, on a host over SSH. Returns what happened; ``PlacementRefused``
+    when no card fits, ``RuntimeError`` when the start fails or the entry
+    is not controllable or switched off."""
+    if not is_controllable(entry):
+        raise RuntimeError(f"{entry.label} has no container AIfred controls")
+    if entry.host is not None:
+        if not entry.host.enabled:
+            raise RuntimeError(f"{entry.host.name} is switched off")
+        await asyncio.to_thread(host_control, entry.host, "start", entry.engine.service_dir)
+        return f"started on {entry.host.name}"
+    if not await asyncio.to_thread(entry.engine.is_installed):
+        raise RuntimeError(f"no image built for {entry.engine.key}")
+    placement = await place_local_gpu_engine(entry.engine)
+    ok, message = await asyncio.to_thread(placement.engine.start)
+    if not ok:
+        raise RuntimeError(message)
+    return f"started on {placement.describe()}"
+
+
+async def halt_entry(entry: EscalationEntry) -> str:
+    """Stop the entry's container (VRAM free): locally via compose, on a
+    host over SSH. ``RuntimeError`` when it fails or is not controllable."""
+    if not is_controllable(entry):
+        raise RuntimeError(f"{entry.label} has no container AIfred controls")
+    if entry.host is not None:
+        await asyncio.to_thread(host_control, entry.host, "stop", entry.engine.service_dir)
+        return f"stopped on {entry.host.name}"
+    ok, message = await asyncio.to_thread(entry.engine.stop)
+    if not ok:
+        raise RuntimeError(message)
+    return "stopped"
