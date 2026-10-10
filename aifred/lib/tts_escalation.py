@@ -14,8 +14,10 @@ Cloud), nie nach dem Namen eines Rechners.
 from __future__ import annotations
 
 import asyncio
+import threading
+from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
-from typing import Any, Callable
+from typing import Any, AsyncIterator, Callable
 
 from .tts_engines import TTSEngine, get_engine
 
@@ -263,14 +265,37 @@ async def place_local_gpu_engine(engine: TTSEngine) -> GPUPlacement:
     return GPUPlacement(engine.on_gpu(cards[gpu][0]), gpu, needed, cards[gpu][1])
 
 
+# One local GPU start at a time: a container takes its memory only while the
+# model loads, so a second start chosen before that would see the first one's
+# card as still free and both could land on it. A thread lock, not an asyncio
+# one: starts come from several event loops (browser, the Echo plugin's
+# WebSocket loop, the message hub's loop). Polled without blocking, so a
+# cancelled waiter never ends up holding it.
+_LOCAL_GPU_START = threading.Lock()
+_LOCAL_GPU_START_POLL_S = 0.2
+
+
+@asynccontextmanager
+async def _one_local_gpu_start() -> AsyncIterator[None]:
+    while not _LOCAL_GPU_START.acquire(blocking=False):
+        await asyncio.sleep(_LOCAL_GPU_START_POLL_S)
+    try:
+        yield
+    finally:
+        _LOCAL_GPU_START.release()
+
+
 async def _start_local_gpu_engine(engine: TTSEngine, report: Callable[[str], None]) -> str | None:
     """Lokale GPU-Engine auf ihrer Karte starten und warten, bis sie bereit ist."""
-    try:
-        placement = await place_local_gpu_engine(engine)
-    except PlacementRefused as refused:
-        return str(refused)
-    report(f"TTS escalation: starting {engine.key} on {placement.describe()}")
-    ok, message, _device = await asyncio.to_thread(placement.engine.ensure_ready)
+    async with _one_local_gpu_start():
+        if await asyncio.to_thread(engine.is_running):
+            return None  # started by whoever held the lock before us
+        try:
+            placement = await place_local_gpu_engine(engine)
+        except PlacementRefused as refused:
+            return str(refused)
+        report(f"TTS escalation: starting {engine.key} on {placement.describe()}")
+        ok, message, _device = await asyncio.to_thread(placement.engine.ensure_ready)
     return None if ok else f"start failed: {message}"
 
 
@@ -478,10 +503,53 @@ def planned_tts_engine(model_id: str, settings: dict[str, Any] | None = None) ->
     return ""
 
 
+# Starts asked for from outside (the service control page) run in the
+# background: model loads take up to a minute or more, longer than a web
+# request should wait. Keyed by entry label; read back by entry_status.
+_STARTS_IN_FLIGHT: set[str] = set()
+_START_FAILURES: dict[str, str] = {}
+_BACKGROUND_STARTS: set["asyncio.Task[None]"] = set()
+
+
+def start_in_background(entry: EscalationEntry) -> bool:
+    """Start the entry like the escalation list would (``launch_entry``) as a
+    background task of the running event loop. False when it is already
+    starting. ``RuntimeError`` when AIfred does not control its container."""
+    if not is_controllable(entry):
+        raise RuntimeError(f"{entry.label} has no container AIfred controls")
+    if entry.label in _STARTS_IN_FLIGHT:
+        return False
+    _STARTS_IN_FLIGHT.add(entry.label)
+    _START_FAILURES.pop(entry.label, None)
+    task = asyncio.get_running_loop().create_task(_background_start(entry))
+    _BACKGROUND_STARTS.add(task)
+    task.add_done_callback(_BACKGROUND_STARTS.discard)
+    return True
+
+
+async def _background_start(entry: EscalationEntry) -> None:
+    from .logging_utils import log_message
+
+    try:
+        await launch_entry(entry, log_message)
+        log_message(f"TTS start: {entry.label} serving")
+    except RuntimeError as failed:
+        _START_FAILURES[entry.label] = str(failed)
+        log_message(f"TTS start: {entry.label} failed — {failed}")
+    finally:
+        _STARTS_IN_FLIGHT.discard(entry.label)
+
+
+def start_failure(entry: EscalationEntry) -> str | None:
+    """Why the last background start of this entry failed (until the next one)."""
+    return _START_FAILURES.get(entry.label)
+
+
 def entry_status(entry: EscalationEntry) -> str:
     """What an entry would do right now, as a key (``tts_status_<key>`` in
-    i18n): checks only — health, image, host switch, credentials — and never
-    starts anything. For the status column of the list editor."""
+    i18n): checks only — health, image, host switch, credentials, a
+    background start in flight or failed — and never starts anything. For
+    the status column of the list editor."""
     engine = entry.engine
     if not entry.enabled:
         return "disabled"
@@ -489,8 +557,12 @@ def entry_status(entry: EscalationEntry) -> str:
         return "host_off"
     if not engine.is_remote and engine.runs_in_container and not engine.is_installed():
         return "no_image"
+    if entry.label in _STARTS_IN_FLIGHT:
+        return "starting"
     if engine.is_running():
         return "cloud" if engine.cloud else "running" if engine.default_port else "ready"
+    if entry.label in _START_FAILURES:
+        return "start_failed"
     if engine.cloud:
         return "no_access"
     if entry.host is not None and not entry.host.ssh:
@@ -515,26 +587,16 @@ def find_entry(engine_key: str, host_name: str | None, settings: dict[str, Any] 
     raise LookupError(f"no TTS list entry {engine_key}@{host_name or 'local'}")
 
 
-async def launch_entry(entry: EscalationEntry) -> str:
-    """Bring the entry's container up without waiting for the model (the
-    caller polls health): locally on the card ``place_local_gpu_engine``
-    picks, on a host over SSH. Returns what happened; ``PlacementRefused``
-    when no card fits, ``RuntimeError`` when the start fails or the entry
-    is not controllable or switched off."""
+async def launch_entry(entry: EscalationEntry, report: Callable[[str], None]) -> None:
+    """Start the entry's container and wait until it serves — the same path
+    the escalation list takes before speaking (card choice, one local start
+    at a time, SSH on a host). ``RuntimeError`` with the reason when it
+    cannot run (not controllable, switched off, no card fits, start failed)."""
     if not is_controllable(entry):
         raise RuntimeError(f"{entry.label} has no container AIfred controls")
-    if entry.host is not None:
-        if not entry.host.enabled:
-            raise RuntimeError(f"{entry.host.name} is switched off")
-        await asyncio.to_thread(host_control, entry.host, "start", entry.engine.service_dir)
-        return f"started on {entry.host.name}"
-    if not await asyncio.to_thread(entry.engine.is_installed):
-        raise RuntimeError(f"no image built for {entry.engine.key}")
-    placement = await place_local_gpu_engine(entry.engine)
-    ok, message = await asyncio.to_thread(placement.engine.start)
-    if not ok:
-        raise RuntimeError(message)
-    return f"started on {placement.describe()}"
+    reason = await _skip_reason(entry, report)
+    if reason is not None:
+        raise RuntimeError(reason)
 
 
 async def halt_entry(entry: EscalationEntry) -> str:
