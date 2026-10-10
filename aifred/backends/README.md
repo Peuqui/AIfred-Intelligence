@@ -17,9 +17,21 @@ different view on it. Setup of llama-swap, the autoscan and the calibration:
 [docs/en/guides/llamacpp-setup.md](../../docs/en/guides/llamacpp-setup.md) and
 [docs/en/architecture/calibration-vllm.md](../../docs/en/architecture/calibration-vllm.md).
 
+Class hierarchy: `OllamaBackend` derives from `LLMBackend` directly;
+`LlamaCppBackend`, `vLLMBackend` and `CloudAPIBackend` derive from
+`OpenAICompatibleBackend`.
+
 Cloud API keys come from the environment variable named in the provider's
-`env_key` (e.g. `ANTHROPIC_API_KEY`); model lists are fetched from the
-provider's API, not hardcoded.
+`env_key` in `CLOUD_API_PROVIDERS` (`ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY`,
+`DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`); model lists are fetched from the
+provider's API, not hardcoded. Without an explicit provider the factory uses
+`qwen`.
+
+Before llama-swap loads a model, `OpenAICompatibleBackend` clears the cards: local
+TTS containers that sit on a card the model will use are stopped (a
+`-tts-<engine>` profile keeps its engine on the side-channel card). TTS gets its
+card back later through the TTS escalation list
+([docs/en/guides/configuration.md](../../docs/en/guides/configuration.md#speech-output-tts)).
 
 ## Creating a backend
 

@@ -23,7 +23,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY
 
 @dataclass
@@ -45,13 +45,8 @@ class MyPlugin:
             tier=TIER_READONLY,  # REQUIRED: declare security tier
             # Text lives in prompts/tools/my_tool.txt (missing/empty file → RuntimeError)
             description=load_tool_description(__file__, "my_tool"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query"},
-                },
-                "required": ["query"],
-            },
+            # Schema lives in prompts/tools/my_tool.params.json (missing/invalid → RuntimeError)
+            parameters=load_tool_parameters(__file__, "my_tool"),
             executor=_execute,
         )]
 
@@ -75,7 +70,7 @@ plugin = MyPlugin()
 - **Every Tool MUST declare a `tier`** using named constants from `security.py`
 - `PluginContext` provides: `agent_id`, `lang`, `session_id`, `state`, `user_query`, `max_tier`, `source`, `llm_history`, `metadata` (channel-specific, e.g. the Telegram `chat_id`)
 - Tool executors are async functions returning strings (JSON for errors)
-- **No hardcoded LLM text:** tool descriptions come from `prompts/tools/<tool>.txt` via `load_tool_description()`, prompt instructions from `prompts/<de|en>/` via `load_plugin_instructions()` — both files live inside the plugin directory
+- **No hardcoded LLM text:** tool descriptions come from `prompts/tools/<tool>.txt` via `load_tool_description()`, parameter schemas from `prompts/tools/<tool>.params.json` via `load_tool_parameters()`, prompt instructions from `prompts/<de|en>/` via `load_plugin_instructions()` — both files live inside the plugin directory
 - `get_prompt_instructions()` receives `granted_tools` (the tool names enabled for the current agent, `None` = no whitelist) and returns only the instructions of those tools
 - **Credentials via broker**, never via `os.environ` or `config.py`
 
@@ -93,6 +88,7 @@ aifred/plugins/tools/my_plugin/
     prompts/
         tools/
             my_tool.txt    # Tool description for the model, English only
+            my_tool.params.json  # JSON schema of the parameters, English only
         de/
             _intro.txt     # Plugin-wide instructions, shown once at least one tool is granted
             my_tool.txt    # Instructions shown only when my_tool is granted
@@ -105,6 +101,7 @@ aifred/plugins/tools/my_plugin/
 | File | Read by | Behaviour |
 |------|---------|-----------|
 | `prompts/tools/<tool>.txt` | `load_tool_description(__file__, "<tool>")` | Read fresh on every toolkit build; missing or empty file → `RuntimeError`, no fallback text. English only — the recipient is the model |
+| `prompts/tools/<tool>.params.json` | `load_tool_parameters(__file__, "<tool>", enums=…, values=…)` | See [Tool Parameters](#tool-parameters-promptstoolsparamsjson) |
 | `prompts/<de\|en>/*.txt` | `load_plugin_instructions(plugin, lang, granted_tools)` | File name = required tool(s), joined with `+` (AND); `_intro.txt` is prepended once at least one tool fragment applies. Transitional fallback: a flat `prompts/<de\|en>.txt`, gated plugin-wide |
 | `i18n.json` | `plugin_display_name()`, `plugin_description()`, settings modal | See [Plugin i18n](#plugin-i18n) |
 | `settings.json` | Channels: `BaseChannel.load_settings()` / `save_settings()`; tools: `load_plugin_settings(__file__)` / `save_plugin_settings(__file__, …)` | See [Credential Storage](#credential-storage-secrets-vs-settings) |
@@ -237,6 +234,36 @@ MyChannel_instance = MyChannel()
 - Optional properties: `always_reply` (default `False`; `True` hides the Auto-Reply toggle) and `has_allowlist` (default `True`; `False` hides the allowlist row, e.g. FreeEcho.2)
 - **Outbound formatting**: pipe `outbound.text` through `self.format_outbound()` in `send_reply()`. Agents produce Markdown — only Discord renders it natively. Email/Telegram/EPIM/etc. need conversion via `md_to_html` / `md_to_plain` from `aifred/lib/markdown_render.py`.
 
+## Tool Parameters (`prompts/tools/*.params.json`)
+
+The JSON schema of a tool's parameters lives, like its description, in the plugin
+directory rather than in code: `prompts/tools/<tool>.params.json`. The parameter
+descriptions are prompt material for the model (they steer how it fills the
+arguments), so the file is English only.
+
+`load_tool_parameters(__file__, "<tool>")` (`aifred/lib/plugin_base.py`) reads the
+file fresh on every toolkit build — edit the file and the next turn picks it up. The
+file holds an object schema (`"type": "object"`, `properties`, `required`). A tool
+without parameters gets `{"type": "object", "properties": {}, "required": []}`.
+
+What the code determines, it injects at load time instead of duplicating it in the file:
+
+- `enums={"param": [...]}` — allowed values taken from the plugin's constants. The file marks the spot with `"enum": []`.
+- `values={"name": value}` — replaces `{name}` placeholders in the file (e.g. a limit from the config inside a description).
+
+Fail-loud, no fallback: a missing or invalid file, a schema that is not an object, a
+placeholder or parameter the file does not know → `RuntimeError` at toolkit build.
+
+**Adding a tool:**
+
+1. Create `prompts/tools/<tool>.txt` (description) and `prompts/tools/<tool>.params.json` (schema).
+2. In the plugin, register `Tool(..., description=load_tool_description(__file__, "<tool>"), parameters=load_tool_parameters(__file__, "<tool>"), ...)`.
+3. The executor's argument names must match `properties`; `required` may only name described parameters.
+
+`tests/test_tool_parameters.py` loads every `*.params.json` under `aifred/plugins/`
+and checks that `required` names only described parameters and that the matching
+`<tool>.txt` exists.
+
 ## Outbound Markdown Conversion
 
 Agents in AIfred produce Markdown by default — fine for the browser UI and Discord (renders Markdown natively), but unreadable in email clients (`**bold**` shows as raw text), Telegram, EPIM and similar destinations.
@@ -345,7 +372,7 @@ Every channel plugin inherits these from `BaseChannel`:
 | `format_outbound(text)` | Convert agent Markdown for the channel (default: passthrough) |
 | `channel_log(msg, level="info")` | Log to log file + stderr (journalctl), mirrored into the browser debug console inside a `session_scope` |
 
-Tool plugins use the module-level helpers from `aifred/lib/plugin_base.py` instead: `load_plugin_settings()`, `save_plugin_settings()`, `load_plugin_i18n()`, `load_tool_description()`, `load_plugin_instructions()`.
+Tool plugins use the module-level helpers from `aifred/lib/plugin_base.py` instead: `load_plugin_settings()`, `save_plugin_settings()`, `load_plugin_i18n()`, `load_tool_description()`, `load_tool_parameters()`, `load_plugin_instructions()`.
 
 ## Debug Messages
 

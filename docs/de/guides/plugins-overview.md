@@ -99,11 +99,13 @@ Isolierte Python-Code-Ausführung in Subprocess.
 |------|-------------|------|
 | `execute_code` | Python-Code ausführen (Dokumente read-only) | WRITE_DATA |
 | `execute_code_write` | Python-Code ausführen mit Schreibzugriff auf Dokumente | WRITE_SYSTEM |
+| `render_html` | Von der Sandbox erzeugte HTML-Seite im Headless-Browser rendern und prüfen | WRITE_DATA |
 
 **Features:**
 - Isolierter Subprocess
 - Unterstützt interaktive HTML/JS-Visualisierungen
 - Timeout-Schutz
+- Bibliotheksliste aus `sandbox_libraries.json`, begrenzte Rechen-Threads (OpenCV importierbar)
 
 > **Details:** [Sandbox Plugin](plugins/sandbox.md)
 
@@ -193,7 +195,7 @@ Hardware-Status: CPU, RAM, GPU, Festplatte, Temperatur.
 
 **Verzeichnis:** `plugins/tools/google_suite/`
 
-OAuth 2.0 Integration für Google Calendar und Contacts. Orchestrator-Plugin mit aktivierbaren Sub-Services.
+OAuth 2.0 Integration für Google Calendar, Contacts, Tasks und Drive. Orchestrator-Plugin mit aktivierbaren Sub-Services. Die Tools für Tasks und Drive stehen im [Plugin-Guide](plugins/google-suite.md).
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
@@ -212,7 +214,8 @@ OAuth 2.0 Integration für Google Calendar und Contacts. Orchestrator-Plugin mit
 
 **Features:**
 - Ein OAuth-Login für alle Sub-Services (Scopes werden aggregiert)
-- Sub-Services per `settings.json` togglebar (Standard: Calendar + Contacts aktiv)
+- Sub-Services per `settings.json` togglebar (Standard: alle vier aktiv)
+- Drive: Agenten arbeiten nur im Agenten-Ordner (`GOOGLE_DRIVE_AGENT_FOLDER`); das Dokumentenfenster zeigt das ganze Drive (durchsuchbar, Download inkl. Export, Upload)
 - Gruppen-Support: Kontakte kategorisieren, nach Gruppe filtern
 - Fernet-verschlüsselte Token-Speicherung
 
@@ -240,13 +243,29 @@ Textübersetzung via DeepL API mit automatischer Quellsprach-Erkennung. 30+ Spra
 
 **Datei:** `plugins/tools/narrator/`
 
-Vertont ganze Textdokumente aus dem Workspace zu einer MP3-Datei — serverseitig gechunkt und synthetisiert, der Text passiert nie den LLM-Kontext. Engine, GPU-freier Fallback und Stimme (pro Engine) über das Zahnrad im Plugin-Tab einstellbar.
+Vertont ganze Textdokumente aus dem Workspace zu einer MP3-Datei — serverseitig gechunkt und synthetisiert, der Text passiert nie den LLM-Kontext. Die Engine kommt aus der TTS-Eskalationsliste, die Stimme (pro Engine) ist über das Zahnrad im Plugin-Tab einstellbar.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
 | `narrate_file` | Textdatei zu einer MP3-Audiodatei vertonen | WRITE_DATA |
+| `list_narrator_voices` | Stimmen der effektiven Engine auflisten | READONLY |
 
 > **Details:** [Narrator Plugin](plugins/narrator.md)
+
+---
+
+### Drucker (CUPS)
+
+**Datei:** `plugins/tools/printer/`
+
+Druckt Dateien aus dem Dokumentenbereich über CUPS und meldet Druckerzustand, Warnungen und Füllstände. Die Drucker kommen aus CUPS, keiner ist im Plugin fest eingetragen.
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `print_file` | Datei aus dem Dokumentenbereich drucken (Kopien, Seiten, beidseitig) | COMMUNICATE |
+| `printer_status` | Zustand, Warnungen, Auftragsschlange und Füllstände | READONLY |
+
+> **Details:** [Drucker Plugin](plugins/printer.md)
 
 ---
 
@@ -409,6 +428,7 @@ aifred/plugins/
 │   ├── scheduler_tool/     # Geplante Aufgaben
 │   ├── translator/         # DeepL-Übersetzung
 │   ├── narrator/           # Dokument → MP3 (narrate_file)
+│   ├── printer/            # Drucken + Druckerstatus (CUPS)
 │   ├── vision/             # Kamera-Snapshots, VLM, Gesichtserkennung
 │   ├── bible/              # Bibel-Lookup + thematische Suche
 │   ├── judaica/            # Jüdischer Quellkorpus

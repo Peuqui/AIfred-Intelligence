@@ -186,14 +186,73 @@ AIfred calls `google_drive_search(query="project plan")`.
 
 | Tool | Description | Tier |
 |------|-------------|------|
-| `google_drive_list_files` | List files (optionally filtered by folder) | READONLY |
-| `google_drive_search` | Full-text search in Drive | READONLY |
-| `google_drive_get_file` | Read file content (Google Docs → plain text, Sheets → CSV) | READONLY |
+| `google_drive_list_files` | List the contents of a folder inside the agent folder (without `folder_id`: the agent folder itself) | WRITE_DATA |
+| `google_drive_search` | Full-text search inside the agent folder | WRITE_DATA |
+| `google_drive_get_file` | Read file content (Google Docs → plain text, Sheets → CSV; capped at 5 MB) | WRITE_DATA |
 | `google_drive_create_file` | Create a new text file with content | WRITE_DATA |
 | `google_drive_update_file` | Overwrite file content | WRITE_DATA |
-| `google_drive_delete_file` | Permanently delete a file | WRITE_DATA |
+| `google_drive_delete_file` | Permanently delete a file (no trash) | WRITE_SYSTEM |
 | `google_drive_create_folder` | Create a new folder | WRITE_DATA |
 | `google_drive_move_file` | Move a file to a different folder | WRITE_DATA |
+
+The read tools are deliberately `WRITE_DATA`: they expose private Drive content and
+therefore stay blocked for external channels (email, Discord, Telegram). The cap for
+`google_drive_get_file` is `DRIVE_MAX_DOWNLOAD_BYTES` (environment variable, default
+5 MiB).
+
+## Agent Folder
+
+**File:** `aifred/plugins/tools/google_suite/drive/agent_folder.py`
+
+The agents work in **one** Drive folder only. Its name is the setting
+`GOOGLE_DRIVE_AGENT_FOLDER` (plugin settings, default `AIfred-Intelligence`); the
+folder is looked up directly under "My Drive" and created on first access if missing.
+
+- **Free inside:** read, write, move, delete and create subfolders — in the agent folder and all its subfolders.
+- **Never the folder itself:** the tools refuse to change, move or delete the agent folder.
+- **Nothing outside:** any `file_id` or `folder_id` outside the agent folder is rejected with an error. Without `folder_id` the agent folder applies. Search returns only hits from inside.
+- The boundary is resolved on every toolkit build; a renamed setting or a folder created meanwhile counts from the next turn.
+- If "My Drive" holds several folders of that name the boundary is ambiguous and the tools report an error; so do they for an empty setting value.
+- The user's **document manager** does not go through this boundary: it sees the whole Drive (see below).
+
+## Drive in the Document Manager
+
+**Files:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/state/_document_mixin.py`, `aifred/ui/modals/documents.py`, `aifred/lib/api/documents.py`
+
+With the Drive sub-service enabled (`GOOGLE_DRIVE_ENABLED`) and Google connected, the
+document manager shows a second source, "Google Drive", next to the local folder
+(switch at the top). It is a live view, not a mirror of the Drive.
+
+| Function | Behaviour |
+|----------|-----------|
+| Browsing | Open folders, path bar, up/root; refresh button. The view starts at "My Drive" |
+| Search | Input field in the toolbar, searches the whole Drive by file name and full text (at most 100 hits, by relevance) |
+| Download | Arrow icon per file; the file is streamed, never routed through Reflex state (`GET /api/documents/source/{key}/file/{id}`, login cookie). 404 for an unknown source, 502 if the source fails |
+| Export | Google's own formats have no file and are exported: Docs → `.docx`, Sheets → `.xlsx`, Slides → `.pptx`, Drawings → `.pdf`. Other Google formats and folders cannot be downloaded |
+| Upload | The document manager's upload goes into the currently open Drive folder (root: "My Drive"); the same size limit as locally applies (`DOCUMENT_MAX_FILE_SIZE_MB`) |
+
+Not available for Drive rows: indexing, renaming, deleting and preview — those stay with
+the local folder.
+
+### Architecture: Document Sources
+
+The document manager knows no plugins. A tool plugin offers a source through the optional
+attribute `document_source` (an object satisfying the `DocumentSource` protocol in
+`aifred/lib/document_sources.py`, or `None` while it offers none). `document_sources()`
+collects them from the enabled, available plugins; a disabled plugin simply offers no
+source (plugin atomicity, the core imports no plugin).
+
+| Part | Purpose |
+|------|---------|
+| `key`, `label(lang)` | stable id (`google_drive`) and name in the switch |
+| `list_folder(folder_id)` | folder contents; folders are addressed by id, `""` = root |
+| `search(query)` | search across the whole source |
+| `download(file_id)` | streamed download (`SourceDownload`) |
+| `upload(folder_id, name, data, mime)` | upload a file |
+
+Sources raise only `DocumentSourceError` (a message for the user, shown as a toast).
+The state (active source, folder trail, search term) lives in `_document_mixin.py`.
+A further source (e.g. Nextcloud) therefore needs only a plugin with `document_source`.
 
 ### Parameters `google_drive_search`
 

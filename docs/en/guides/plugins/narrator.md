@@ -15,12 +15,17 @@ The narrator reads **verbatim**: no translation, no summarizing, no correction. 
 3. `translate_file` → DeepL translation as its own file
 4. `narrate_file` → MP3 next to the source file, downloadable via the documents button (e.g. for your phone)
 
-## Settings (gear icon in the Agent-Editor plugin tab)
+## Engine choice and settings
 
-- **Engine**: the selection is deliberately limited to `(same as spoken output)` + GPU-free engines. `(same as spoken output)` follows the main TTS engine; when spoken output is **off**, the GPU-free fallback engine is used instead — the loaded LLM keeps its VRAM. There are no explicit GPU engines: they would start a second, uncoordinated TTS container next to the LLM (OOM or CPU-fallback risk). GPU narration — e.g. with clone voices — runs exclusively via `(same as spoken output)` with the spoken output **enabled** on the desired GPU engine.
-- **GPU-free**: only engines without GPU requirements are selectable (Piper, Edge, eSpeak, DashScope — depending on installation). Default: Piper (local, offline).
-- **Voice**: stored **per engine**. The list shows only the effective engine's own voices (`engine.get_voices()`) — clone voices like "AIfred" appear only on cloning engines; Piper lists its built-in speakers (Thorsten, Karlsson, …).
-- **Runtime guard**: if a GPU engine still reaches the narrate path (tool parameter `engine`, stale saved setting) without the spoken output running it, the tool aborts with a clear error — no silent fallback.
+**Engine:** The narrator has no engine setting of its own. It takes the engine from the **TTS escalation list** (`aifred/lib/tts_escalation.py`, `choose_speaker`):
+
+- Without the `engine` parameter: the topmost list entry that can speak now. A local GPU entry whose container is not running is started if its measured peak need fits into the free VRAM of a card — the main model is never reloaded for it. If it does not fit, the list moves on.
+- With the `engine` parameter (engine key, e.g. `piper`): exactly that engine on this machine, provided it can speak now; otherwise an error with the reason (`NoSpeechAvailable`), no switching to another engine.
+- The chosen engine stays for the **whole file**: no voice change in the middle of an audiobook, not even on a failure.
+
+The engines live as plugins in `aifred/lib/tts_engines/<key>/engine.py` (each with its own `i18n.json`); order, hosts and activation of the list: [TTS + VRAM workflow](../../architecture/tts-vram-workflow.md).
+
+**Voice** (gear icon in the Agent-Editor plugin tab, `narrator_voices` in the settings): stored **per engine**. The dialog has two selects — the engine whose voice is being edited (only engines that are ready here or listed on another host) and that engine's own voices (`voice_names`). It therefore does not choose the engine of the narration. Voice resolution order: the `voice` parameter, else the saved voice of the chosen engine, else its first own voice (never the clone name "AIfred" for e.g. Piper), finally `NARRATE_DEFAULT_VOICE` (`AIfred`).
 
 ## Tools
 
@@ -33,14 +38,14 @@ The narrator reads **verbatim**: no translation, no summarizing, no correction. 
 
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `filename` | Yes | Source file relative to the documents root (e.g. `documents/meeting-DE.txt`) |
+| `filename` | Yes | Source file relative to the documents root, without a `documents/` prefix (e.g. `meeting-DE.txt`) |
 | `output_filename` | No | Default: `<name>.mp3` in the same folder; a `.wav` suffix skips the MP3 encode |
-| `voice` | No | Default: the saved voice for the resolved engine, else its first own voice |
+| `voice` | No | Default: the saved voice for the chosen engine, else its first own voice |
 | `language` | No | Language code of the text (default `de`) |
-| `engine` | No | Default: resolved via the plugin settings (see above) |
+| `engine` | No | Engine key. Default: the topmost entry of the TTS escalation list that can speak now (see above) |
 | `speaker_voices` | No | Multi-voice mapping speaker label → voice name (see below) |
 
-Returns (JSON): `written`, `chunks`, `chars`, `engine`, `voice`, `size_mb` — in multi-voice mode additionally `speaker_voices`, `segments`.
+Returns (JSON): `written`, `url`, `chunks`, `chars`, `engine`, `voice`, `size_mb` — in multi-voice mode additionally `speaker_voices`, `segments`.
 
 ## Multi-voice mode (audio drama)
 
