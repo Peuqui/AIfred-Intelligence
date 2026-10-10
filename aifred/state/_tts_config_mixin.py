@@ -393,12 +393,12 @@ class TTSConfigMixin(rx.State, mixin=True):
     editor_tts_engine: str = TTS_DEFAULT_ENGINE
     _editor_tts_settings: Dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ...}
 
-    @rx.var(deps=["ui_language"], auto_deps=False)
+    @rx.var(deps=["ui_language", "tts_list_revision"], auto_deps=False)
     def tts_editor_engine_options(self) -> List[str]:
-        """'Off' (agent muted) plus every engine."""
-        from ..lib.config import TTS_ENGINE_KEYS
+        """'Off' (agent muted) plus every usable engine."""
         from ..lib.i18n import tts_key_to_label
-        return [tts_key_to_label(key, lang=_lang(self)) for key in TTS_ENGINE_KEYS]
+        from ..lib.tts_escalation import usable_engine_keys
+        return [tts_key_to_label(key, lang=_lang(self)) for key in ["off", *usable_engine_keys()]]
 
     @rx.var(deps=["ui_language", "editor_tts_engine", "tts_agents", "editor_agent_id"], auto_deps=False)
     def editor_tts_engine_label(self) -> str:
@@ -525,16 +525,12 @@ class TTSConfigMixin(rx.State, mixin=True):
         from ..lib.plugin_registry import is_plugin_enabled
         return is_plugin_enabled("narrator")
 
-    @rx.var(deps=["ui_language"], auto_deps=False)
+    @rx.var(deps=["ui_language", "tts_list_revision"], auto_deps=False)
     def narrator_engine_options(self) -> List[str]:
-        """Engines whose narrator voice can be set (images built or none needed)."""
+        """Engines whose narrator voice can be set (usable here or on a list host)."""
         from ..lib.i18n import tts_key_to_label
-        from ..lib.tts_engines import TTS_ENGINES
-        return [
-            tts_key_to_label(key, lang=_lang(self))
-            for key, engine in TTS_ENGINES.items()
-            if not engine.runs_in_container or engine.is_installed()
-        ]
+        from ..lib.tts_escalation import usable_engine_keys
+        return [tts_key_to_label(key, lang=_lang(self)) for key in usable_engine_keys()]
 
     @rx.var(deps=["ui_language", "narrator_voice_engine"], auto_deps=False)
     def narrator_engine_display(self) -> str:
