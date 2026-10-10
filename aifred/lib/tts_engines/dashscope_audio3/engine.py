@@ -7,7 +7,7 @@ switched off.
 """
 from __future__ import annotations
 
-from .base import TTSEngine, TTSFailure
+from ..base import TTSEngine, TTSFailure
 
 # Display name → Alibaba voice id (docs: "Qwen-Audio TTS voice list", 10.10.2026).
 # All of them speak German understandably despite the docs listing only
@@ -47,7 +47,7 @@ def _network_error_types() -> tuple:
 def _cloned_voices() -> dict[str, str]:
     """Enrolled cloned voices from the mapping: '★ Name' → voice id. Read live
     (cheap JSON read) so a freshly enrolled WAV shows up without a restart."""
-    from ..dashscope_enroll import load_mapping
+    from ...dashscope_enroll import load_mapping
     return {
         f"★ {name}": entry["voice_id"]
         for name, entry in load_mapping().items()
@@ -63,6 +63,7 @@ class DashScopeAudio3Engine(TTSEngine):
     needs_speed_postprocess = True
     supports_language = True
     display_order = 50
+    in_default_escalation = True
     cloud = True
     default_voice = "Mary"
 
@@ -85,7 +86,7 @@ class DashScopeAudio3Engine(TTSEngine):
 
     def is_running(self) -> bool:
         """Cloud engine: usable as soon as the API key is configured."""
-        from ..credential_broker import broker
+        from ...credential_broker import broker
         return bool(broker.get("cloud_qwen", "api_key"))
 
     @property
@@ -108,8 +109,8 @@ class DashScopeAudio3Engine(TTSEngine):
         """Synthesise ``text`` and fetch the WAV file. Needs the ``cloud_qwen``
         api_key credential. Speed/pitch are post-processed centrally via ffmpeg."""
         import requests
-        from ..credential_broker import broker
-        from ..logging_utils import log_message
+        from ...credential_broker import broker
+        from ...logging_utils import log_message
 
         try:
             api_key = broker.get("cloud_qwen", "api_key")
@@ -153,14 +154,14 @@ class DashScopeAudio3Engine(TTSEngine):
         import io
         import os
         import wave
-        from ..audio_processing import (
+        from ...audio_processing import (
             _generate_tts_filename,
             _validate_audio_output,
             _apply_pcm_gain,
             _write_pcm_to_wav,
             TTS_AUDIO_DIR,
         )
-        from ..logging_utils import log_message
+        from ...logging_utils import log_message
 
         filename = _generate_tts_filename("wav")
         output_file = str(TTS_AUDIO_DIR / filename)

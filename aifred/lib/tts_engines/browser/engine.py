@@ -8,7 +8,7 @@ a voice, so nothing could take over after it.
 """
 from __future__ import annotations
 
-from .base import TTSEngine
+from ..base import TTSEngine
 
 #: The page picks a device voice for the reply's language.
 BROWSER_AUTO_VOICE = "Auto"
@@ -24,6 +24,7 @@ class BrowserEngine(TTSEngine):
     needs_speed_postprocess = False
     supports_language = True
     display_order = 90
+    in_default_escalation = True
     default_voice = BROWSER_AUTO_VOICE
 
     @property

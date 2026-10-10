@@ -10,7 +10,7 @@ import requests
 
 from aifred.lib import credential_broker
 from aifred.lib.tts_engines import TTS_ENGINES, TTSFailure, get_engine
-from aifred.lib.tts_engines import dashscope_audio3
+from aifred.lib.tts_engines.dashscope_audio3 import engine as dashscope_audio3
 
 
 def _wav_bytes() -> bytes:

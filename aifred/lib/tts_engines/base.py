@@ -1,6 +1,8 @@
 """Abstract base class for TTS engines."""
 from __future__ import annotations
 
+import json
+import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Literal, Optional
@@ -119,6 +121,10 @@ class TTSEngine(ABC):
     #: in that case (MOSS).
     restart_when_on_cpu: bool = False
 
+    #: True if the engine is part of the escalation list a fresh install starts
+    #: with (``config.DEFAULT_SETTINGS["tts_escalation"]``), in ``display_order``.
+    in_default_escalation: bool = False
+
     #: True for engines that run in someone else's cloud (DashScope, Edge) —
     #: the text leaves the house. Shown as a label in the escalation list.
     cloud: bool = False
@@ -163,6 +169,19 @@ class TTSEngine(ABC):
         """True for an instance bound to another machine. Remote engines are
         never started or stopped from here — their host runs them."""
         return self.address != "localhost"
+
+    # ── Own folder + label ─────────────────────────────────────────
+    @property
+    def package_dir(self) -> Path:
+        """Folder of the engine (``tts_engines/<key>/``): its code, ``i18n.json``
+        and whatever else belongs to it."""
+        return Path(sys.modules[type(self).__module__].__file__ or "").parent
+
+    def label(self, lang: str) -> str:
+        """Long, translated name for the engine dropdowns — from the engine's own
+        ``i18n.json`` (``{"de": ..., "en": ...}``)."""
+        labels: dict[str, str] = json.loads((self.package_dir / "i18n.json").read_text(encoding="utf-8"))
+        return labels[lang]
 
     # ── Locations ──────────────────────────────────────────────────
     @property

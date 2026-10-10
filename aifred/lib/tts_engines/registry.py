@@ -1,7 +1,7 @@
 """Plugin registry — auto-discovers all ``TTSEngine`` subclasses.
 
-Drop a new ``foo.py`` into this package that defines a ``TTSEngine``
-subclass with ``key`` and ``label_short``, and it lights up everywhere
+Drop a new folder ``foo/`` with ``engine.py`` (a ``TTSEngine`` subclass with
+``key`` and ``label_short``) and ``i18n.json`` into this package, and it lights up everywhere
 (UI dropdown, calibration picker, channel-plugin options) — no extra
 registration code, no central dict to keep in sync.
 
@@ -20,16 +20,13 @@ from .base import SPEECH_UNITS, TTSEngine
 
 
 def _discover_engines() -> dict[str, TTSEngine]:
-    """Import every sibling ``*.py`` module so its TTSEngine subclass
-    registers itself, then build the ordered ``{key: instance}`` dict."""
+    """Import ``<engine>/engine.py`` of every engine folder so its TTSEngine
+    subclass registers itself, then build the ordered ``{key: instance}`` dict."""
     pkg_dir = Path(__file__).parent
     pkg_name = __name__.rsplit(".", 1)[0]   # "aifred.lib.tts_engines"
-    skip = {"__init__", "base", "registry"}
 
-    for py_file in sorted(pkg_dir.glob("*.py")):
-        if py_file.stem in skip:
-            continue
-        importlib.import_module(f"{pkg_name}.{py_file.stem}")
+    for engine_file in sorted(pkg_dir.glob("*/engine.py")):
+        importlib.import_module(f"{pkg_name}.{engine_file.parent.name}.engine")
 
     # __subclasses__() returns direct subclasses only — fine because
     # engines inherit straight from TTSEngine. Sort by display_order so
@@ -56,6 +53,16 @@ def require_engine(key: str) -> TTSEngine:
     if engine is None:
         raise ValueError(f"unknown TTS engine {key!r}")
     return engine
+
+
+def default_escalation() -> list[dict[str, object]]:
+    """Escalation list of a fresh install: the engines with
+    ``in_default_escalation``, in ``display_order`` (the browser, which speaks
+    last, has the highest)."""
+    return [
+        {"engine": e.key, "host": None, "enabled": True}
+        for e in TTS_ENGINES.values() if e.in_default_escalation
+    ]
 
 
 def gpu_engines() -> Iterator[TTSEngine]:

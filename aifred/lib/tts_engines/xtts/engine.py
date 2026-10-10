@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import TTSEngine, shared_voice_names
+from ..base import TTSEngine, shared_voice_names
 
 
 class XTTSEngine(TTSEngine):
@@ -17,6 +17,7 @@ class XTTSEngine(TTSEngine):
     # XTTS allocates statically at model load — no dynamic peak above
     # idle, so the base default (no calibration VRAM reserve) applies.
     display_order = 20
+    in_default_escalation = True
 
     image_name = "xtts-rtx8000"
 

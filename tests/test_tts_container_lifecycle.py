@@ -6,10 +6,10 @@ from typing import Any
 import pytest
 
 from aifred.lib.tts_engines import TTS_ENGINES
-from aifred.lib.tts_engines.fishspeech import FishSpeechEngine
-from aifred.lib.tts_engines.moss import MOSSEngine
-from aifred.lib.tts_engines.qwen3local import Qwen3LocalEngine
-from aifred.lib.tts_engines.xtts import XTTSEngine
+from aifred.lib.tts_engines.fishspeech.engine import FishSpeechEngine
+from aifred.lib.tts_engines.moss.engine import MOSSEngine
+from aifred.lib.tts_engines.qwen3local.engine import Qwen3LocalEngine
+from aifred.lib.tts_engines.xtts.engine import XTTSEngine
 
 CONTAINER_ENGINES = [e for e in TTS_ENGINES.values() if e.runs_in_container]
 

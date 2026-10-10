@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import TTSEngine, shared_voice_names
+from ..base import TTSEngine, shared_voice_names
 
 
 class MOSSEngine(TTSEngine):

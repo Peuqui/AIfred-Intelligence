@@ -96,6 +96,12 @@ DEFAULT_LANGUAGE = "de"
 # ============================================================
 # DEFAULT SETTINGS
 # ============================================================
+def default_tts_escalation() -> list[dict[str, object]]:
+    """Escalation list of a fresh install, taken from the engines themselves."""
+    from .tts_engines import default_escalation
+    return default_escalation()
+
+
 DEFAULT_SETTINGS = {
     # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
     # They will be merged in settings.py get_default_settings()
@@ -121,15 +127,7 @@ DEFAULT_SETTINGS = {
     "tts_hosts": [],
     # Eskalationsliste der Sprachausgabe, von oben nach unten: der erste
     # passende Eintrag spricht. "host": None = dieser Rechner bzw. Cloud.
-    "tts_escalation": [
-        {"engine": "qwen3local", "host": None, "enabled": True},
-        {"engine": "xtts", "host": None, "enabled": True},
-        {"engine": "dashscope_audio3", "host": None, "enabled": True},
-        {"engine": "piper", "host": None, "enabled": True},
-        {"engine": "edge", "host": None, "enabled": True},
-        # Last: the device speaks (browser replies only); nothing could take over after it.
-        {"engine": "browser", "host": None, "enabled": True},
-    ],
+    "tts_escalation": default_tts_escalation(),
     "show_transcription": False,
     "enable_gpu": True,
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
@@ -285,7 +283,7 @@ BACKEND_LABELS = {
     "cloud_api": "Cloud APIs",
 }
 
-# Engine-specific voice catalogues now live in aifred/lib/tts_engines/<engine>.py.
+# Engine-specific voice catalogues now live in aifred/lib/tts_engines/<engine>/.
 # config.py stays engine-agnostic — adding a new engine is a one-file drop.
 
 # ============================================================
@@ -293,8 +291,8 @@ BACKEND_LABELS = {
 # ============================================================
 # Engine list is derived from the TTSEngine plugin registry — the
 # single source of truth for "which TTS engines exist" lives in
-# ``aifred/lib/tts_engines/`` (one file per engine, auto-discovered).
-# To add a new engine, drop a file there; no edit needed here.
+# ``aifred/lib/tts_engines/`` (one folder per engine, auto-discovered).
+# To add a new engine, drop a folder there; no edit needed here.
 def _build_tts_engine_keys() -> list[str]:
     from .tts_engines import TTS_ENGINES
     return ["off", *TTS_ENGINES.keys()]
@@ -304,7 +302,7 @@ TTS_ENGINE_KEYS = _build_tts_engine_keys()
 # Default TTS engine — preselected in fresh state and in the agent
 # editor's backend dropdown until the user picks one. Single source of
 # truth: the state mixins read this instead of each hardcoding a key.
-TTS_DEFAULT_ENGINE = "qwen3local"
+TTS_DEFAULT_ENGINE = str(default_tts_escalation()[0]["engine"])
 
 # narrate_file (narrator plugin): characters per TTS synthesis call.
 # Qwen3-TTS is LLM-based — page-length inputs risk omissions, prosody
@@ -322,7 +320,7 @@ TTS_VOICES_DIR = PROJECT_ROOT / "docker" / "tts" / "voices"
 NARRATE_DEFAULT_VOICE = "AIfred"
 
 # ============================================================
-# TTS engine specifics live in aifred/lib/tts_engines/<engine>.py.
+# TTS engine specifics live in aifred/lib/tts_engines/<engine>/.
 # Each engine class owns its service URL, voice fallback list, compose
 # directory, VRAM reserve, and Docker image name. config.py stays
 # engine-agnostic on purpose — adding a new engine is a one-file drop.
@@ -397,38 +395,6 @@ def sort_voices_custom_first(voices: list[str]) -> list[str]:
     builtin = sorted(v for v in voices if not v.startswith("★"))
     return custom + builtin
 
-
-# ============================================================
-# DEFAULT TTS VOICES PER LANGUAGE
-# ============================================================
-# When UI language changes, these voices are selected as defaults.
-# User can override in Settings → saved per language in assistant_settings.json
-TTS_DEFAULT_VOICES = {
-    "edge": {
-        "de": "Deutsch (Katja)",
-        "en": "Englisch (Jenny)",
-    },
-    "piper": {
-        "de": "Deutsch (Thorsten)",
-        "en": "Deutsch (Thorsten)",  # No English Piper model yet
-    },
-    "espeak": {
-        "de": "Deutsch Standard",
-        "en": "Englisch mbrola UK (M)",  # User preference: en1
-    },
-    "xtts": {
-        "de": "★ AIfred",  # Custom voice
-        "en": "★ AIfred",  # Custom voice (multilingual)
-    },
-    "moss": {
-        "de": "AIfred",  # Custom voice
-        "en": "AIfred",  # Custom voice (multilingual)
-    },
-    "fishspeech": {
-        "de": "AIfred",  # Custom cloned voice
-        "en": "AIfred",  # Custom cloned voice (multilingual)
-    },
-}
 
 # Per-agent TTS voice defaults moved to data/agents.json under each
 # agent's ``tts_voices`` block. Access them via

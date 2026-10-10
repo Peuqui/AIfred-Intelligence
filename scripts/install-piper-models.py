@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Interactive Piper TTS voice-model downloader.
 
-Reads the voice catalog from aifred/lib/tts_engines/piper.py (the single
+Reads the voice catalog from aifred/lib/tts_engines/piper/engine.py (the single
 source of truth for which voices the UI offers), presents a numbered multi-select
 prompt, and downloads the .onnx + .onnx.json files from the official
 Piper-Voices HuggingFace repo into piper_models/.
@@ -33,7 +33,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # Reflex app and reset the live debug log.
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
-from aifred.lib.tts_engines.piper import PIPER_VOICES  # noqa: E402
+from aifred.lib.tts_engines.piper.engine import PIPER_VOICES  # noqa: E402
 
 HF_BASE = "https://huggingface.co/rhasspy/piper-voices/resolve/main"
 MODELS_DIR = REPO_ROOT / "piper_models"
@@ -133,7 +133,7 @@ def main() -> int:
 
     voices = list(PIPER_VOICES.items())  # [(display_name, (filename, lang)), ...]
     if not voices:
-        print("⚠️  No voices configured in aifred/lib/tts_engines/piper.py PIPER_VOICES.")
+        print("⚠️  No voices configured in aifred/lib/tts_engines/piper/engine.py PIPER_VOICES.")
         return 1
 
     print()
