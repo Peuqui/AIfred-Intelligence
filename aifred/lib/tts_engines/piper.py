@@ -30,10 +30,15 @@ def _piper_binary() -> Path:
     return PROJECT_ROOT / "venv" / "bin" / "piper"
 
 
+#: Standard voice when the requested one is unknown — a key of PIPER_VOICES.
+PIPER_STANDARD_VOICE = "Deutsch (Thorsten)"
+
+
 def _piper_default_model() -> Path:
-    """Default model when the requested voice isn't found."""
+    """Model file of :data:`PIPER_STANDARD_VOICE`."""
     from ..config import PROJECT_ROOT
-    return PROJECT_ROOT / "piper_models" / "de_DE-thorsten-medium.onnx"
+    model_filename, _lang = PIPER_VOICES[PIPER_STANDARD_VOICE]
+    return PROJECT_ROOT / "piper_models" / model_filename
 
 
 class PiperEngine(TTSEngine):
@@ -68,6 +73,7 @@ class PiperEngine(TTSEngine):
         import subprocess
         from ..audio_processing import _generate_tts_filename, TTS_AUDIO_DIR
         from ..config import PROJECT_ROOT
+        from ..debug_bus import debug
         from ..logging_utils import log_message
 
         filename = _generate_tts_filename("wav")
@@ -78,8 +84,10 @@ class PiperEngine(TTSEngine):
             model_filename, _lang = voice_config
             model_path = PROJECT_ROOT / "piper_models" / model_filename
         else:
+            # Unknown voice (e.g. renamed): the engine's standard voice speaks
+            # instead of nothing — visible in the debug console.
             model_path = _piper_default_model()
-            log_message(f"⚠️ Piper: Voice '{voice}' not found, using default")
+            debug(f"⚠️ Piper: voice '{voice}' unknown — speaking with the standard voice {model_path.stem}")
 
         # length_scale inverts speed: higher = slower (1.0 = normal,
         # 0.8 ≈ 1.25× faster, 0.5 = 2× faster).
