@@ -126,7 +126,8 @@
         "freeecho2_announce",
         "telegram_send",
         "print_file",
-        "printer_status"
+        "printer_status",
+        "list_files"
       ]
     },
     "sokrates": {
