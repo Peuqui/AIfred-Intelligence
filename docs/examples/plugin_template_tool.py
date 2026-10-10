@@ -8,12 +8,23 @@ Directory structure:
         __init__.py                 # this file (plugin code)
         i18n.json                   # REQUIRED: plugin_display_name + plugin_description (de + en)
         prompts/tools/hello.txt     # REQUIRED: tool description the LLM sees (English)
+        prompts/tools/hello.params.json  # REQUIRED: JSON schema of the parameters (English)
         prompts/de/_intro.txt       # optional: prompt instructions (both languages)
         prompts/en/_intro.txt
 
-Nothing the LLM reads is hardcoded here — descriptions and instructions
-live in the prompt files. Plugins never import other plugins; shared logic
+Nothing the LLM reads is hardcoded here — descriptions, parameter schemas and
+instructions live in the prompt files. Plugins never import other plugins; shared logic
 belongs in aifred/lib/. Guide: docs/en/guides/plugin-development.md
+
+Content of prompts/tools/hello.params.json for this example:
+
+    {
+      "type": "object",
+      "properties": {
+        "name": {"type": "string", "description": "Name of the person to greet"}
+      },
+      "required": ["name"]
+    }
 
 This example provides a simple 'hello' tool that the LLM can call.
 """
@@ -23,7 +34,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY
 
 
@@ -47,16 +58,7 @@ class HelloPlugin:
                 name="hello",
                 tier=TIER_READONLY,  # permission tier, see aifred/lib/security.py
                 description=load_tool_description(__file__, "hello"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "Name of the person to greet",
-                        },
-                    },
-                    "required": ["name"],
-                },
+                parameters=load_tool_parameters(__file__, "hello"),
                 executor=_execute_hello,
             ),
         ]

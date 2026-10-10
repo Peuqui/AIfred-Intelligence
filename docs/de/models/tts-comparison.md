@@ -12,7 +12,32 @@
 - **Streaming-fähig** (Satz-für-Satz TTS während LLM streamt)
 - **VRAM-Budget**: RTX 3090 Ti (24 GB), LLM läuft parallel
 
-## Aktuell: XTTS v2
+## Stand im Projekt (2026-10-10)
+
+AIfred wählt keine feste Engine mehr, sondern geht eine **Eskalationsliste** durch (siehe
+[tts-escalation.md](../architecture/tts-escalation.md)): der erste Eintrag, der sprechen kann, spricht.
+Die Standardliste einer frischen Installation ist Qwen3-TTS → XTTS → DashScope Qwen-Audio 3 → Piper
+→ Edge → Browser. Die Tabelle fasst zusammen, was die Engines im Code über sich selbst angeben
+(`aifred/lib/tts_engines/<key>/engine.py`); „—“ heißt: Die Engine nutzt den Sprachparameter nicht,
+die Sprache steckt in der Stimme oder wird aus dem Text erkannt. Qualitäts- und Latenzurteile
+stehen weiter unten in den Praxis-Tests, nicht in dieser Tabelle.
+
+| Engine | Schlüssel | `display_order` | Läuft als | Sprachparameter | Standard-Einheit | parallele Anfragen (Anzahl) | Standardliste |
+|---|---|---|---|---|---|---|---|
+| Qwen3-TTS | `qwen3local` | 10 | Container (GPU) | Ja | satzweise | 1 | ja |
+| XTTS v2 | `xtts` | 20 | Container (GPU) | Ja | satzweise | 2 | ja |
+| Fish-Speech S2 Pro | `fishspeech` | 30 | Container (GPU) | — | satzweise | 2 | nein |
+| MOSS-TTS | `moss` | 40 | Container (GPU) | Ja | am Stück | 2 | nein |
+| DashScope Qwen-Audio 3 | `dashscope_audio3` | 50 | Cloud | Ja | satzweise | 2 | ja |
+| Piper | `piper` | 60 | lokal (CPU), Offline | — | am Stück | 2 | ja |
+| eSpeak | `espeak` | 70 | lokal (CPU), Offline | — | am Stück | 2 | nein |
+| Edge TTS | `edge` | 80 | Cloud | — | satzweise | 2 | ja |
+| Browser | `browser` | 90 | Gerät des Nutzers | Ja | satzweise | 2 | ja |
+
+Die Cloud-Engines schicken den Text an den Anbieter (Edge, DashScope), alle anderen verarbeiten
+lokal bzw. im eigenen Netz (TTS-Hosts).
+
+## Referenz: XTTS v2
 
 Gute Betonung, Sprachpausen, multilingual (17+ Sprachen inkl. DE), Voice Cloning.
 Schwächen: Halluzination bei kurzem Text (< 3 Wörter), nicht sehr expressiv,
@@ -63,7 +88,7 @@ Latenz akzeptabel, da der LLM ohnehin satzweise streamt.
 
 | Modell | Parameter | Sprachen | DE | Voice Cloning | Expressiv | Streaming | Speed (RTFX) | Sample Rate | VRAM | Architektur | Lizenz |
 |--------|-----------|----------|-----|---------------|-----------|-----------|-------------|-------------|------|-------------|--------|
-| **XTTS v2** (aktuell) | ~1.5B | 17+ | Ja | Ja (6-15s Audio) | Mittel | Nein (Chunk-basiert) | ~0.5-1x | 24 kHz | ~2-4 GB | Autoregressive + DVAE | CPML |
+| **XTTS v2** (Referenz) | ~1.5B | 17+ | Ja | Ja (6-15s Audio) | Mittel | Nein (Chunk-basiert) | ~0.5-1x | 24 kHz | ~2-4 GB | Autoregressive + DVAE | CPML |
 | **F5-TTS** | ~335M | EN+CN (DE via Fine-Tune) | Ja (3 Fine-Tunes) | Ja (Zero-Shot, 10-15s) | Sehr hoch | Nein (Flow-basiert) | RTF 0.15 (~7x) | 24 kHz | ~2 GB | Flow Matching DiT | CC-BY-NC 4.0 (Weights) / MIT (Code) |
 | **Qwen3-TTS** | 1.7B | 10 (CN,EN,DE,FR,JA,KO,RU,PT,ES,IT) | Ja (nativ) | Ja (3s Audio) | Hoch | Ja (via Fork) | ~1.8x | 24 kHz | ~4-6 GB | LLM-basiert | Apache 2.0 |
 | **Higgs-Audio V2** | 3B | 50+ | Ja | Ja (3-10s Audio) | Sehr hoch (beste) | Unklar | ~1.8x | 24 kHz | ~8-12 GB | Llama-3.2-3B + DualFFN | Apache 2.0 |
