@@ -30,6 +30,13 @@ def _gpu_engine_keys() -> set[str]:
 
 GPU_ENGINES = _gpu_engine_keys()
 
+
+def _label(engine_key: str) -> str:
+    """Name of a TTS engine in status lines."""
+    from .tts_engines import require_engine
+    return require_engine(engine_key).label_short
+
+
 # HTTP timeout for TTS health checks (seconds).
 # Normal response: <100ms. This is only a safety net for hung connections.
 TTS_HEALTH_CHECK_TIMEOUT = 5
@@ -39,9 +46,9 @@ TTS_HEALTH_CHECK_TIMEOUT = 5
 # TTS engine refcount — protects active pipelines from stop_engine() races.
 # =============================================================================
 #
-# Use case: a FreeEcho.2 request acquires "xtts" at the start of its pipeline and
+# Use case: a FreeEcho.2 request acquires a GPU engine at the start of its pipeline and
 # releases it after the audio is sent. If the browser (or another channel)
-# calls ensure_tts_state() with `wanted_tts != "xtts"` while the FreeEcho.2 is mid-
+# calls ensure_tts_state() with `wanted_tts` of another engine while the FreeEcho.2 is mid-
 # pipeline, the stop_engine() call would tear down the container under the
 # FreeEcho.2's feet. The refcount makes ensure_tts_state() skip the stop while any
 # active holder still needs the engine.
@@ -336,7 +343,7 @@ def ensure_tts_state(
     This is the SINGLE SOURCE OF TRUTH for TTS state management.
 
     Args:
-        wanted_tts: Desired TTS engine ("xtts", "moss", or "" for none)
+        wanted_tts: Desired TTS engine key, or "" for none
         backend_type: Active LLM backend ("llamacpp", "ollama", etc.)
 
     Yields:
@@ -354,7 +361,7 @@ def ensure_tts_state(
     # Case 1: Already correct
     if running == wanted_tts:
         if running:
-            yield f"{running.upper()} already running"
+            yield f"{_label(running)} already running"
         return TTSState(success=True)
 
     # Case 3: Want TTS but wrong/none running → switch
@@ -375,11 +382,11 @@ def ensure_tts_state(
     if running:
         if is_tts_in_use(running):
             yield (
-                f"{running.upper()} in use by {get_tts_refcount(running)} active pipeline(s) "
+                f"{_label(running)} in use by {get_tts_refcount(running)} active pipeline(s) "
                 f"— stop deferred"
             )
             return TTSState(success=True)
-        yield f"Stopping {running.upper()} (not needed)..."
+        yield f"Stopping {_label(running)} (not needed)..."
         success, msg = stop_engine(running)
         yield msg
         # Verify the container is actually gone — if the stop silently failed,
@@ -392,7 +399,7 @@ def ensure_tts_state(
                 break
             time.sleep(0.5)
         else:
-            yield f"⚠️ {running.upper()} still responds after stop — VRAM may not be free"
+            yield f"⚠️ {_label(running)} still responds after stop — VRAM may not be free"
             return TTSState(success=False, changed=True)
         return TTSState(success=success, changed=True)
 
@@ -427,7 +434,7 @@ def _do_switch(
     # Step 1: Stop old engine
     if old_engine and old_engine in GPU_ENGINES:
         success, msg = stop_engine(old_engine)
-        yield f"{old_engine.upper()} stopped" if success else f"{old_engine.upper()} stop failed: {msg}"
+        yield f"{_label(old_engine)} stopped" if success else f"{_label(old_engine)} stop failed: {msg}"
 
     # Step 2: Free VRAM — only if the LLM isn't already on the matching variant.
     # LLM must be stopped to make room for the new TTS engine ONLY when the
@@ -442,8 +449,7 @@ def _do_switch(
     if new_engine in GPU_ENGINES:
         # Yield a per-engine "loading…" line so the UI shows progress
         # before the (possibly minute-long) container start blocks.
-        if new_engine != "xtts":
-            yield f"{new_engine.upper()}: Loading model..."
+        yield f"{_label(new_engine)}: Loading model..."
         started_ok, ready_msg, _device = ensure_engine_ready(
             new_engine,
         )

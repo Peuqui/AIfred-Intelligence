@@ -5,7 +5,7 @@ import json
 import sys
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Iterator, Literal, Optional
 
 
 #: Einheiten der Sprachausgabe: wie viel Text auf einmal an die Engine geht. ``sentence`` =
@@ -486,6 +486,12 @@ class TTSEngine(ABC):
             raise TTSFailure("engine", f"{self.label_short} returned no usable audio")
         log_message(f"✅ {self.label_short}: audio saved → {output_file} ({format_number(output_file.stat().st_size)} bytes)")
         return f"/_upload/tts_audio/{filename}"
+
+    def prepare_voices(self) -> Iterator[str]:
+        """Make the engine's voices ready before it speaks (idempotent), yielding
+        one progress line per step. Default: nothing to prepare — the DashScope
+        engine registers its cloned voices with the cloud here."""
+        return iter(())
 
     # ── Calibration support (only container/GPU engines) ───────────
     def calibration_setup(self, debug: Any) -> bool:

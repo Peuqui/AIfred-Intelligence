@@ -7,6 +7,8 @@ switched off.
 """
 from __future__ import annotations
 
+from typing import Iterator
+
 from ..base import TTSEngine, TTSFailure
 
 # Display name → Alibaba voice id (docs: "Qwen-Audio TTS voice list", 10.10.2026).
@@ -97,6 +99,15 @@ class DashScopeAudio3Engine(TTSEngine):
     def get_voices(self) -> dict[str, str]:
         # Fixed catalog; no live discovery endpoint.
         return self.voices_fallback
+
+    def prepare_voices(self) -> Iterator[str]:
+        """Enroll new or changed reference voices (idempotent via WAV hash —
+        instant when nothing changed) so the cloned voices are ready."""
+        from ...credential_broker import broker
+        from ...dashscope_enroll import enroll_progress
+        api_key = broker.get("cloud_qwen", "api_key")
+        if api_key:
+            yield from enroll_progress(api_key)
 
     def generate_speech(
         self,

@@ -13,8 +13,8 @@ Bundle layout (ZIP):
   agents/<id>/tts.json          tts_agent_voices_per_engine[*][<id>]
   agents/<id>/prompts/de/*.txt
   agents/<id>/prompts/en/*.txt
-  voices/xtts/<name>.wav        optional, deduplicated across agents
-  voices/moss-tts/<name>.wav
+  voices/<name>/<name>.wav      optional, deduplicated across agents; the whole
+  voices/<name>/<name>.txt|.lab folder of the shared voice tree (TTS_VOICES_DIR)
 
 Voice samples live at the top level (not per-agent) so a WAV that's
 referenced by multiple agents is included only once. Plugins/tools listed
@@ -33,14 +33,12 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 from .agent_config import load_agents_raw, save_agents_raw
-from .config import PROJECT_ROOT
+from .config import PROJECT_ROOT, TTS_VOICES_DIR
 from .settings import SETTINGS_FILE, save_settings
 
 BUNDLE_FORMAT_VERSION = 1
 
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
-XTTS_VOICES_DIR = PROJECT_ROOT / "docker" / "xtts" / "voices"
-MOSS_VOICES_DIR = PROJECT_ROOT / "docker" / "moss-tts" / "voices"
 
 ConflictStrategy = Literal["abort", "overwrite", "rename"]
 
@@ -76,24 +74,6 @@ def _is_safe_member(name: str) -> bool:
     return ".." not in parts
 
 
-def _engine_voice_dir(engine_or_dir: str) -> Path | None:
-    """Map engine identifier or bundle dir name to the on-disk voices dir."""
-    if engine_or_dir == "xtts":
-        return XTTS_VOICES_DIR
-    if engine_or_dir in ("moss", "moss-tts"):
-        return MOSS_VOICES_DIR
-    return None
-
-
-def _engine_to_bundle_dir(engine: str) -> str | None:
-    """Map settings.json engine name to the bundle directory name."""
-    if engine == "xtts":
-        return "xtts"
-    if engine == "moss":
-        return "moss-tts"
-    return None
-
-
 # ─────────────────────────────────────────────────────────────────────────
 # Export
 # ─────────────────────────────────────────────────────────────────────────
@@ -122,7 +102,7 @@ def export_bundle(agent_ids: Iterable[str]) -> bytes:
     }
 
     buf = io.BytesIO()
-    added_voices: set[tuple[str, str]] = set()  # (bundle_dir, stem) — dedup
+    added_voices: set[str] = set()  # voice folders already in the ZIP
 
     with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as zf:
         zf.writestr("manifest.json", json.dumps(manifest, indent=2, ensure_ascii=False))
@@ -156,19 +136,15 @@ def export_bundle(agent_ids: Iterable[str]) -> bytes:
                 for prompt_file in sorted(prompt_dir.glob("*.txt")):
                     zf.write(prompt_file, f"{base}/prompts/{lang}/{prompt_file.name}")
 
-            for engine, entry in tts_per_engine.items():
+            for entry in tts_per_engine.values():
                 voice_stem = _voice_file_name(entry.get("voice", ""))
-                if not voice_stem:
+                voice_dir = TTS_VOICES_DIR / voice_stem
+                # Built-in speakers and cloud voices have no folder in the tree.
+                if not voice_stem or voice_stem in added_voices or not voice_dir.is_dir():
                     continue
-                bundle_dir = _engine_to_bundle_dir(engine)
-                if bundle_dir is None:
-                    continue
-                if (bundle_dir, voice_stem) in added_voices:
-                    continue
-                src = (_engine_voice_dir(engine) or Path("/dev/null")) / f"{voice_stem}.wav"
-                if src.is_file():
-                    zf.write(src, f"voices/{bundle_dir}/{voice_stem}.wav")
-                    added_voices.add((bundle_dir, voice_stem))
+                for voice_file in sorted(voice_dir.iterdir()):
+                    zf.write(voice_file, f"voices/{voice_stem}/{voice_file.name}")
+                added_voices.add(voice_stem)
 
     return buf.getvalue()
 
@@ -346,27 +322,15 @@ def import_bundle(
             vparts = Path(member).parts
             if len(vparts) != 3:
                 continue
-            bundle_dir, filename = vparts[1], vparts[2]
-            if not _BUNDLE_FILE_RE.match(filename):
-                warnings.append(f"Skipped unsafe voice filename: {member}")
+            voice_name, filename = vparts[1], vparts[2]
+            if not all(_BUNDLE_FILE_RE.match(part) and not part.startswith(".") for part in (voice_name, filename)):
+                warnings.append(f"Skipped unsafe voice path: {member}")
                 continue
-            voice_engine_dir = _engine_voice_dir(bundle_dir)
-            if voice_engine_dir is None:
-                warnings.append(f"Unbekannter Voice-Engine-Pfad: {member}")
-                continue
-            voice_engine_dir.mkdir(parents=True, exist_ok=True)
-            voice_root = voice_engine_dir.resolve()
-            target = (voice_engine_dir / filename).resolve()
-            try:
-                target.relative_to(voice_root)
-            except ValueError:
-                warnings.append(f"Skipped voice outside engine dir: {member}")
-                continue
+            target = TTS_VOICES_DIR / voice_name / filename
             if target.exists():
-                warnings.append(
-                    f"Voice '{bundle_dir}/{filename}' existierte schon — übersprungen."
-                )
+                warnings.append(f"Voice '{voice_name}/{filename}' existierte schon — übersprungen.")
                 continue
+            target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(zf.read(member))
 
     return effective_ids, warnings
