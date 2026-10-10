@@ -107,6 +107,7 @@ class PrinterPlugin:
                 return json.dumps({"error": str(failed)})
             result: dict[str, Any] = asdict(state)
             result["low_supplies"] = [supply.name for supply in state.supplies if supply.low]
+            result["full_waste_containers"] = [supply.name for supply in state.supplies if supply.full]
             return json.dumps(result, ensure_ascii=False)
 
         return [

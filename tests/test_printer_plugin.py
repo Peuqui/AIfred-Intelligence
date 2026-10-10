@@ -21,8 +21,10 @@ IPPTOOL_OUTPUT = """\
         printer-state-message (textWithoutLanguage) = Paper empty in tray 1
         queued-job-count (integer) = 2
         marker-names (1setOf nameWithoutLanguage) = Black Toner,Waste Toner Box
-        marker-levels (1setOf integer) = 8,-3
-        marker-low-levels (1setOf integer) = 10,-1
+        marker-types (1setOf keyword) = toner,waste-toner
+        marker-levels (1setOf integer) = 8,96
+        marker-low-levels (1setOf integer) = 10,0
+        marker-high-levels (1setOf integer) = 100,95
 """
 
 
@@ -31,10 +33,18 @@ class TestStatusParsing:
         state = cups.status_from_attributes("Kyocera", cups.parse_attributes(IPPTOOL_OUTPUT))
         assert (state.state, state.queued_jobs, state.message) == ("idle", 2, "Paper empty in tray 1")
         assert state.reasons == ["media-empty-warning", "toner-low-warning"]
-        assert [(s.name, s.level, s.low) for s in state.supplies] == [
-            ("Black Toner", 8, True),
-            ("Waste Toner Box", None, False),      # -3 = "some remaining", no percentage
+        assert [(s.name, s.level, s.low, s.full) for s in state.supplies] == [
+            ("Black Toner", 8, True, False),
+            ("Waste Toner Box", 96, False, True),   # waste: the level is how full it is
         ]
+
+    def test_an_empty_waste_box_is_no_warning_and_unknown_levels_are_none(self) -> None:
+        # The Kyocera at 10.10.2026: waste box at 0 with low mark 0 — must not count as "low".
+        attributes = {"marker-names": "Black,Waste", "marker-types": "toner,waste-toner",
+                      "marker-levels": "-3,0", "marker-low-levels": "3,0", "marker-high-levels": "100,95"}
+        black, waste = cups.status_from_attributes("P", attributes).supplies
+        assert (black.level, black.low) == (None, False)    # -3 = "some remaining", no percentage
+        assert (waste.low, waste.full) == (False, False)
 
     def test_none_is_no_warning(self) -> None:
         attributes = {"printer-state": "idle", "printer-state-reasons": "none"}
@@ -126,4 +136,5 @@ def test_printer_status_names_the_low_supplies(printing, monkeypatch: pytest.Mon
     monkeypatch.setattr(cups, "_run", lambda *command: IPPTOOL_OUTPUT)
     result = _call(tools["printer_status"])
     assert result["printer"] == "Kyocera" and result["low_supplies"] == ["Black Toner"]
+    assert result["full_waste_containers"] == ["Waste Toner Box"]
     assert result["reasons"] == ["media-empty-warning", "toner-low-warning"]
