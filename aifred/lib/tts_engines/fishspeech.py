@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import TTSEngine
+from .base import TTSEngine, shared_voice_names
 
 
 class FishSpeechEngine(TTSEngine):
@@ -27,20 +27,13 @@ class FishSpeechEngine(TTSEngine):
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        # Voices come from the shared docker/tts/voices/ tree (mounted at /app/references).
-        # The wav+txt pair convention is the same as MOSS / Qwen3.
-        return {
-            "AIfred":   "AIfred",
-            "HAL9000":  "HAL9000",
-            "Salomo":   "Salomo",
-            "Sokrates": "Sokrates",
-        }
+        # The shared voice tree is mounted at /app/references (wav+txt pairs).
+        return {name: name for name in shared_voice_names()}
 
     def get_voices(self) -> dict[str, str]:
         """Fish-Speech uses static reference files from /app/references —
         no live discovery endpoint we want to use. The on-disk
-        docker/tts/voices/ tree is the source of truth, and
-        the static voices_fallback mirrors its contents."""
+        voice tree is the source of truth (``shared_voice_names``)."""
         return dict(self.voices_fallback)
 
     def is_running(self) -> bool:

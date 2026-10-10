@@ -26,11 +26,9 @@ import wave
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 
-from .config import PROJECT_ROOT
+from .config import PROJECT_ROOT, TTS_VOICES_DIR
 from .logging_utils import log_message
 
-# Shared SSOT voice folder (one subfolder per speaker, each with <Name>.wav).
-VOICES_DIR = PROJECT_ROOT / "docker" / "tts" / "voices"
 MAPPING_PATH = PROJECT_ROOT / "data" / "tts" / "dashscope_voices.json"
 
 # Enrollment endpoint + models (Singapore / international region).
@@ -131,13 +129,13 @@ def enroll_progress(api_key: str) -> Iterator[str]:
     if not api_key:
         yield "❌ DashScope enroll: no cloud_qwen API key configured — skipping"
         return
-    if not VOICES_DIR.exists():
-        yield f"❌ DashScope enroll: voices dir not found: {VOICES_DIR}"
+    if not TTS_VOICES_DIR.exists():
+        yield f"❌ DashScope enroll: voices dir not found: {TTS_VOICES_DIR}"
         return
 
     mapping = load_mapping()
     enrolled = skipped = failed = 0
-    for sub in sorted(VOICES_DIR.iterdir()):
+    for sub in sorted(TTS_VOICES_DIR.iterdir()):
         wav = sub / f"{sub.name}.wav"
         if not sub.is_dir() or not wav.exists():
             continue

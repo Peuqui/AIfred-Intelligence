@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-from .base import TTSEngine
+from .base import TTSEngine, shared_voice_names
 
 
 class MOSSEngine(TTSEngine):
@@ -23,11 +23,7 @@ class MOSSEngine(TTSEngine):
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        return {
-            "AIfred":   "AIfred",
-            "Salomo":   "Salomo",
-            "Sokrates": "Sokrates",
-        }
+        return {name: name for name in shared_voice_names()}
 
     def get_voices(self) -> dict[str, str]:
         data = self._fetch_voices_json()
