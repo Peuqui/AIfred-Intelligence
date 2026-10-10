@@ -1,0 +1,2 @@
+PRINTER STATUS: printer_status
+printer_status reports state, warnings (e.g. paper empty, toner low, paper jam), queued jobs and supply levels. When something is wrong, say concretely what to do (load paper, replace toner).

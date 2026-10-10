@@ -1,0 +1,5 @@
+PRINTING: print_file
+With print_file you print a file from the documents area on the default printer.
+- Print only when explicitly asked, and only what was asked for (pages, copies).
+- PDF, text, PNG/JPEG and PostScript print directly. Have other formats converted to PDF first.
+- After printing, say briefly what was printed on which printer.

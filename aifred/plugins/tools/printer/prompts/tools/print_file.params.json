@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Path of the file inside the documents area, as list_files shows it (e.g. 'rechnungen/2026-10.pdf')"
+    },
+    "copies": {
+      "type": "integer",
+      "description": "Number of copies (default 1; the plugin caps it)"
+    },
+    "pages": {
+      "type": "string",
+      "description": "Page selection, e.g. '1-3,5' (empty = all pages)"
+    },
+    "duplex": {
+      "type": "boolean",
+      "description": "Print on both sides (long edge); default single-sided"
+    }
+  },
+  "required": ["filename"]
+}

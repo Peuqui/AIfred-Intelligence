@@ -1,0 +1,1 @@
+Read the printer's current state from CUPS: idle/processing/stopped, warnings (e.g. media-empty, toner-low, paper jam), queued jobs and supply levels in percent with the ones that are low. Use it when asked about the printer, before printing something long, or in a scheduled check.
