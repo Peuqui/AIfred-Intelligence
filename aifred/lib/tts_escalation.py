@@ -422,6 +422,16 @@ def first_enabled_entry(settings: dict[str, Any] | None = None) -> EscalationEnt
     return next((entry for entry in escalation_entries(settings) if entry.enabled), None)
 
 
+def usable_engine_keys(settings: dict[str, Any] | None = None) -> list[str]:
+    """Engines whose voices are worth configuring, in registry order: ready on
+    this machine (image built, or none needed) or in the list on another host.
+    Engine dropdowns offer only these — an engine nobody can run is noise."""
+    from .tts_engines import TTS_ENGINES
+
+    remote = {entry.engine.key for entry in escalation_entries(settings) if entry.host is not None}
+    return [key for key, engine in TTS_ENGINES.items() if key in remote or engine.is_installed()]
+
+
 def planned_tts_engine(model_id: str, settings: dict[str, Any] | None = None) -> str:
     """Die lokale GPU-Engine, für die das LLM-Profil ``<model>-tts-<engine>``
     Platz freihält: der oberste aktive lokale GPU-Eintrag, für den das Modell

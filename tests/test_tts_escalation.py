@@ -47,6 +47,22 @@ def test_host_port_overrides_engine_default() -> None:
     assert entry.enabled is False
 
 
+def test_usable_engines_are_built_here_or_listed_on_another_host(monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib.tts_engines import TTS_ENGINES
+
+    built_here = {"qwen3local", "xtts", "edge"}
+    for key, engine in TTS_ENGINES.items():
+        monkeypatch.setattr(engine, "is_installed", lambda key=key: key in built_here)
+    hosts = [{"name": "Box", "address": "box.lan", "enabled": True, "ssh": ""}]
+    entries = [
+        {"engine": "fishspeech", "host": "Box", "enabled": False},  # disabled still counts
+        {"engine": "moss", "host": None, "enabled": True},          # listed locally, image missing
+    ]
+    usable = tts_escalation.usable_engine_keys(_settings(hosts, entries))
+    assert set(usable) == built_here | {"fishspeech"}
+    assert usable == [key for key in TTS_ENGINES if key in usable]  # registry order
+
+
 def test_order_is_preserved() -> None:
     entries = [
         {"engine": "piper", "host": None, "enabled": True},
