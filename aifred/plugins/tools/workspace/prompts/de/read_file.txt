@@ -1,0 +1,1 @@
+- read_file → Datei lesen, indexiert oder nicht (PDFs seitenweise mit pages="1-5", Textdateien und Office-Dokumente mit line_start/line_end). Bei großen Textdateien (>100 KB) IMMER line_start/line_end benutzen.

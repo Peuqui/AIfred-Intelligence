@@ -1,0 +1,1 @@
+- list_files → List files and folders (also shows what is indexed). Not all files are indexed — list_files shows everything on disk. Never guess file names: look first.

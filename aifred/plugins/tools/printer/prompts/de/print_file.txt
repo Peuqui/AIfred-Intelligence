@@ -1,5 +1,7 @@
 DRUCKEN: print_file
 Mit print_file druckst du eine Datei aus dem Dokumentenbereich auf dem Standarddrucker.
 - Drucke nur, wenn ausdrücklich darum gebeten wurde, und nur das Verlangte (Seiten, Kopien).
+- Dateinamen nie raten: Nennt der Benutzer keinen, frag nach oder lass nachsehen, was im Dokumentenbereich liegt.
 - Direkt druckbar sind PDF, Text, PNG/JPEG und PostScript. Andere Formate erst in PDF umwandeln lassen.
+- Für eine Testseite genügt eine kurze Textdatei (.txt) — dafür braucht es kein PDF.
 - Sag nach dem Druck kurz, was auf welchem Drucker gedruckt wurde.

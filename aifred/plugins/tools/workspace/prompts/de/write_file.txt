@@ -1,0 +1,1 @@
+- write_file → Textdatei komplett schreiben/überschreiben (.txt, .md, .csv, .json, .xml, .html — HTML wird automatisch im Chat eingebettet). Eine bestehende Datei vorher IMMER mit read_file ansehen.

@@ -1,0 +1,1 @@
+- list_orphaned → Index-Einträge finden, deren Datei nicht mehr auf der Festplatte liegt

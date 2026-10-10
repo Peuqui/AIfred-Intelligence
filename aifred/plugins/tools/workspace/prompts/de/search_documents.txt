@@ -1,1 +1,11 @@
+- search_documents → Indexierte Dokumente semantisch durchsuchen.
 Frage zu EINER bestimmten Datei (auch frisch hochgeladen, noch nicht indexiert) → read_file (große Dateien abschnittweise). Suche über viele Dokumente → ERST list_indexed (oder list_files), DANN search_documents mit mehreren Suchbegriffen — nicht indexierte Dateien findet es nicht.
+
+SEMANTISCHE SUCHE — Pagination statt Reformulation:
+Wenn du bei breiten Themen mehr Material brauchst als die erste search_documents-
+Antwort liefert, **paginiere** mit demselben Query und page=2, page=3, ... — NICHT
+den Suchbegriff umformulieren. Semantische Suche ist deterministisch für denselben
+Query; Synonyme oder umgestellte Wortvarianten landen oft im selben Vektor-Bereich
+und liefern überlappende Treffer. Pagination wandert dagegen tiefer im Ranking
+und fördert neues Material zutage. Achte auf has_more in der Antwort — ist es
+true, lohnt sich page=N+1.

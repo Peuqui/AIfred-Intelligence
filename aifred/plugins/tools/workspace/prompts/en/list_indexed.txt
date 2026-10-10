@@ -1,0 +1,1 @@
+- list_indexed → Show all indexed documents (list_files shows the disk, list_indexed the vector database)

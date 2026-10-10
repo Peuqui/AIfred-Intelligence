@@ -1,0 +1,1 @@
+- chromadb_stats → Show all collections of the vector database with entry counts

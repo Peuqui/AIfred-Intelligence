@@ -1,0 +1,1 @@
+- list_files → Dateien und Ordner auflisten (zeigt auch, was indexiert ist). Nicht alle Dateien sind indexiert — list_files zeigt alles, was auf der Festplatte liegt. Dateinamen nie raten: erst nachsehen.

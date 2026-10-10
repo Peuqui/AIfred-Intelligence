@@ -1,0 +1,1 @@
+- chromadb_clear → Alle Einträge einer Collection löschen

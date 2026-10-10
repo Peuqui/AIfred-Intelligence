@@ -1,1 +1,11 @@
+- search_documents → Search indexed documents semantically.
 Question about ONE specific file (also a freshly uploaded, not yet indexed one) → read_file (large files in ranges). Search across many documents → FIRST list_indexed (or list_files), THEN search_documents with multiple queries — it does not find files that are not indexed.
+
+SEMANTIC SEARCH — paginate, don't reformulate:
+When a broad topic needs more material than the first search_documents call
+returns, **paginate** with the SAME query and page=2, page=3, ... — do NOT
+reword the query. Semantic search is deterministic for the same query;
+synonyms or rearranged wording often land in the same vector region and
+return overlapping chunks. Pagination instead moves deeper into the ranking
+and surfaces new material. Watch has_more in the response — true means
+page=N+1 is worth fetching.

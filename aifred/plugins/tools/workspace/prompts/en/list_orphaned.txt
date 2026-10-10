@@ -1,0 +1,1 @@
+- list_orphaned → Find index entries whose file no longer exists on disk

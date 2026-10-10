@@ -1,0 +1,1 @@
+- chromadb_clear → Clear all entries from a collection

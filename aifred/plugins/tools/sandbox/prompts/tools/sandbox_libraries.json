@@ -1,0 +1,22 @@
+{
+  "numpy": "numpy (arrays, math)",
+  "pandas": "pandas (tables, CSV/Excel I/O)",
+  "scipy": "scipy (scientific computing)",
+  "sklearn": "scikit-learn (machine learning)",
+  "matplotlib": "matplotlib (static plots; savefig also writes PDF)",
+  "seaborn": "seaborn (statistical plots)",
+  "plotly": "plotly (interactive HTML plots)",
+  "networkx": "networkx (graphs)",
+  "PIL": "Pillow / PIL (images)",
+  "skimage": "scikit-image (image processing)",
+  "pymupdf": "pymupdf (create, read and edit PDF files: import pymupdf)",
+  "docx": "python-docx (Word .docx: import docx)",
+  "openpyxl": "openpyxl (Excel .xlsx)",
+  "xlsxwriter": "xlsxwriter (Excel .xlsx with charts)",
+  "pptx": "python-pptx (PowerPoint .pptx: import pptx)",
+  "lxml": "lxml (XML/HTML parsing)",
+  "yaml": "PyYAML (import yaml)",
+  "tabulate": "tabulate (text tables)",
+  "dateutil": "python-dateutil (dates)",
+  "pytz": "pytz (time zones)"
+}

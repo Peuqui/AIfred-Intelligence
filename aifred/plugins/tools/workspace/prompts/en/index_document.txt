@@ -1,0 +1,1 @@
+- index_document → Index a file into the vector database

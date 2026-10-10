@@ -1,0 +1,1 @@
+- patch_file → Targeted edit in a text file: replace an exact old text excerpt (must occur exactly ONCE) with new text; replace_all=true deliberately replaces ALL occurrences (e.g. renaming a variable). For small corrections ALWAYS use patch_file instead of write_file — write_file with partial content would destroy the file. ALWAYS read_file first.
