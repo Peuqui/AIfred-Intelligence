@@ -348,6 +348,12 @@ TTS_READ_TIMEOUT_S = 600
 # Eintrag, bevor er spricht; antwortet ein anderer Rechner nicht so schnell,
 # übernimmt der nächste Eintrag (Direktstrecke: ~1 ms Ping).
 TTS_HEALTH_TIMEOUT_S = 0.5
+# Steuerung der TTS-Container auf einem anderen Rechner per SSH: eigener
+# Schlüssel, auf dem TTS-Host in authorized_keys auf scripts/tts-host-ctl.sh
+# festgelegt (siehe docs/*/architecture/tts-vram-workflow.md).
+TTS_HOST_SSH_KEY = Path.home() / ".ssh" / "aifred_tts_host"
+TTS_HOST_SSH_CONNECT_TIMEOUT_S = 3
+TTS_HOST_SSH_COMMAND_TIMEOUT_S = 60
 
 # Long text used for the calibration-time test inference that drives the
 # Qwen3-TTS KV-cache up to its real-world high-water mark. About ~800

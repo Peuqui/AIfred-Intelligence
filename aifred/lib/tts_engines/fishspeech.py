@@ -23,6 +23,7 @@ class FishSpeechEngine(TTSEngine):
     compose_subdir = "fish-speech"
 
     default_port = 5053
+    startup_timeout_s = 600
 
     @property
     def voices_fallback(self) -> dict[str, str]:
@@ -66,7 +67,7 @@ class FishSpeechEngine(TTSEngine):
         from ..process_utils import ensure_fishspeech_ready
         # 600 s default — first start has to pull ~8 GB of weights from
         # HuggingFace before the model can load.
-        return ensure_fishspeech_ready(timeout=timeout or 600, gpu_uuid=self.gpu_uuid)
+        return ensure_fishspeech_ready(timeout=timeout or self.startup_timeout_s, gpu_uuid=self.gpu_uuid)
 
     def generate_speech(
         self,

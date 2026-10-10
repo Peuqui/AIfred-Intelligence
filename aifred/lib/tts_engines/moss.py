@@ -19,6 +19,7 @@ class MOSSEngine(TTSEngine):
     compose_subdir = "moss-tts"
 
     default_port = 5055
+    startup_timeout_s = 180
 
     @property
     def voices_fallback(self) -> dict[str, str]:
@@ -56,7 +57,7 @@ class MOSSEngine(TTSEngine):
 
     def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_moss_ready
-        return ensure_moss_ready(timeout=timeout or 180, gpu_uuid=self.gpu_uuid)
+        return ensure_moss_ready(timeout=timeout or self.startup_timeout_s, gpu_uuid=self.gpu_uuid)
 
     def generate_speech(
         self,

@@ -21,10 +21,17 @@ from .tts_engines import TTSEngine, get_engine
 
 @dataclass(frozen=True)
 class TTSHost:
-    """Ein anderer Rechner mit TTS-Containern."""
+    """Ein anderer Rechner mit TTS-Containern.
+
+    ``enabled``: aus = seine Einträge werden übersprungen und seine Container
+    gestoppt (VRAM frei). ``ssh``: ``user@host:port`` — AIfred startet und
+    stoppt die Container dort über ``scripts/tts-host-ctl.sh`` (eigener
+    Schlüssel, erzwungener Befehl); leer = die Container laufen von selbst."""
 
     name: str
     address: str
+    enabled: bool
+    ssh: str
     ports: dict[str, int] = field(default_factory=dict)
 
 
@@ -54,7 +61,10 @@ def _parse_hosts(raw_hosts: list[dict[str, Any]]) -> dict[str, TTSHost]:
         for engine_key in ports:
             if get_engine(engine_key) is None:
                 raise ValueError(f"tts_hosts[{name}]: port for unknown TTS engine {engine_key!r}")
-        hosts[name] = TTSHost(name=name, address=str(raw["address"]), ports=ports)
+        hosts[name] = TTSHost(
+            name=name, address=str(raw["address"]), enabled=bool(raw["enabled"]),
+            ssh=str(raw["ssh"]), ports=ports,
+        )
     return hosts
 
 
@@ -132,13 +142,70 @@ async def _skip_reason(entry: EscalationEntry, report: Callable[[str], None]) ->
         return "disabled"
     if not engine.is_remote and not await asyncio.to_thread(engine.is_installed):
         return "docker image not built"
+    if entry.host is not None and not entry.host.enabled:
+        return f"host {entry.host.name} switched off"
     if await asyncio.to_thread(engine.is_running):
         return None
-    if engine.is_remote:
-        return f"not serving on {engine.address}"
+    if entry.host is not None:
+        if not entry.host.ssh:
+            return f"not serving on {engine.address}"
+        return await _start_remote_engine(entry.engine, entry.host, report)
     if not engine.needs_gpu:
         return "not available"
     return await _start_local_gpu_engine(engine, report)
+
+
+def host_control(host: TTSHost, *command: str) -> str:
+    """Run the TTS host's control script via SSH (``start <service>``,
+    ``stop``, ``status``) and return its output. The key is pinned to that
+    script on the host, so nothing else can run. ``RuntimeError`` with the
+    host's message on failure."""
+    import subprocess
+
+    from .config import TTS_HOST_SSH_COMMAND_TIMEOUT_S, TTS_HOST_SSH_CONNECT_TIMEOUT_S, TTS_HOST_SSH_KEY
+
+    target, _, port = host.ssh.rpartition(":")
+    if not target or not port.isdigit():
+        raise RuntimeError(f"tts_hosts[{host.name}].ssh must be user@host:port, got {host.ssh!r}")
+    try:
+        result = subprocess.run(
+            [
+                "ssh", "-i", str(TTS_HOST_SSH_KEY), "-o", "BatchMode=yes", "-o", "IdentitiesOnly=yes",
+                "-o", f"ConnectTimeout={TTS_HOST_SSH_CONNECT_TIMEOUT_S}", "-p", port, target, *command,
+            ],
+            capture_output=True, text=True, timeout=TTS_HOST_SSH_COMMAND_TIMEOUT_S, check=False,
+        )
+    except subprocess.TimeoutExpired as exc:
+        raise RuntimeError(f"{host.name}: '{' '.join(command)}' timed out") from exc
+    if result.returncode != 0:
+        raise RuntimeError(f"{host.name}: '{' '.join(command)}' failed: {result.stderr.strip()[-300:]}")
+    return result.stdout
+
+
+async def _start_remote_engine(engine: TTSEngine, host: TTSHost, report: Callable[[str], None]) -> str | None:
+    """Start the engine's container on the TTS host and wait until it serves
+    — the reply waits for it (a fast remote card beats a worse fallback)."""
+    import asyncio
+    import time
+
+    from .formatting import format_number
+
+    report(f"🔊 TTS escalation: starting {engine.key} on {host.name}")
+    started = time.monotonic()
+    try:
+        await asyncio.to_thread(host_control, host, "start", engine.service_dir)
+    except RuntimeError as exc:
+        return f"start failed: {exc}"
+    deadline = started + engine.startup_timeout_s
+    while time.monotonic() < deadline:
+        if await asyncio.to_thread(engine.is_running):
+            report(
+                f"🔊 TTS escalation: {engine.key} on {host.name} ready after "
+                f"{format_number(time.monotonic() - started, 1)} s"
+            )
+            return None
+        await asyncio.sleep(1)
+    return f"not ready on {host.name} within {format_number(engine.startup_timeout_s)} s"
 
 
 async def _start_local_gpu_engine(engine: TTSEngine, report: Callable[[str], None]) -> str | None:

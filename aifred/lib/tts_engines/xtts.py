@@ -21,6 +21,7 @@ class XTTSEngine(TTSEngine):
     image_name = "xtts-rtx8000"
 
     default_port = 5051
+    startup_timeout_s = 60
 
     @property
     def voices_fallback(self) -> dict[str, str]:
@@ -75,7 +76,7 @@ class XTTSEngine(TTSEngine):
 
     def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_xtts_ready
-        ok, msg = ensure_xtts_ready(timeout=timeout or 60, gpu_uuid=self.gpu_uuid)
+        ok, msg = ensure_xtts_ready(timeout=timeout or self.startup_timeout_s, gpu_uuid=self.gpu_uuid)
         return ok, msg, "cuda" if ok else ""
 
     def generate_speech(

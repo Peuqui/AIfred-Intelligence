@@ -19,6 +19,7 @@ class Qwen3LocalEngine(TTSEngine):
     compose_subdir = "qwen3-tts"
 
     default_port = 5052
+    startup_timeout_s = 240
 
     @property
     def language_map(self) -> dict[str, str]:
@@ -64,7 +65,7 @@ class Qwen3LocalEngine(TTSEngine):
 
     def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_qwen3local_ready
-        return ensure_qwen3local_ready(timeout=timeout or 240, gpu_uuid=self.gpu_uuid)
+        return ensure_qwen3local_ready(timeout=timeout or self.startup_timeout_s, gpu_uuid=self.gpu_uuid)
 
     def generate_speech(
         self,
