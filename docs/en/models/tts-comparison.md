@@ -12,7 +12,32 @@
 - **Streaming-capable** (sentence-by-sentence TTS while the LLM streams)
 - **VRAM budget**: RTX 3090 Ti (24 GB), LLM runs in parallel
 
-## Current: XTTS v2
+## Status in the Project (2026-10-10)
+
+AIfred no longer picks one fixed engine but walks an **escalation list** (see
+[tts-escalation.md](../architecture/tts-escalation.md)): the first entry that can speak, speaks.
+The default list of a fresh install is Qwen3-TTS → XTTS → DashScope Qwen-Audio 3 → Piper → Edge →
+Browser. The table summarizes what the engines declare about themselves in code
+(`aifred/lib/tts_engines/<key>/engine.py`); "—" means the engine does not use the language
+parameter (the language is part of the voice or detected from the text). Quality and latency
+judgments are in the practical tests further down, not in this table.
+
+| Engine | Key | `display_order` | Runs as | Language parameter | Default unit | parallel requests (count) | Default list |
+|---|---|---|---|---|---|---|---|
+| Qwen3-TTS | `qwen3local` | 10 | container (GPU) | Yes | sentence | 1 | yes |
+| XTTS v2 | `xtts` | 20 | container (GPU) | Yes | sentence | 2 | yes |
+| Fish-Speech S2 Pro | `fishspeech` | 30 | container (GPU) | — | sentence | 2 | no |
+| MOSS-TTS | `moss` | 40 | container (GPU) | Yes | whole | 2 | no |
+| DashScope Qwen-Audio 3 | `dashscope_audio3` | 50 | cloud | Yes | sentence | 2 | yes |
+| Piper | `piper` | 60 | local (CPU), offline | — | whole | 2 | yes |
+| eSpeak | `espeak` | 70 | local (CPU), offline | — | whole | 2 | no |
+| Edge TTS | `edge` | 80 | cloud | — | sentence | 2 | yes |
+| Browser | `browser` | 90 | user's device | Yes | sentence | 2 | yes |
+
+The cloud engines send the text to the provider (Edge, DashScope); all others process locally or on
+your own network (TTS hosts).
+
+## Reference: XTTS v2
 
 Good intonation, speech pauses, multilingual (17+ languages incl. DE), voice
 cloning. Weaknesses: hallucination on short text (< 3 words), not very
@@ -63,7 +88,7 @@ latency is acceptable, since the LLM streams sentence by sentence anyway.
 
 | Model | Parameters | Languages | DE | Voice Cloning | Expressive | Streaming | Speed (RTFX) | Sample Rate | VRAM | Architecture | License |
 |-------|-----------|-----------|-----|---------------|-----------|-----------|-------------|-------------|------|--------------|---------|
-| **XTTS v2** (current) | ~1.5B | 17+ | Yes | Yes (6-15s audio) | Medium | No (chunk-based) | ~0.5-1x | 24 kHz | ~2-4 GB | Autoregressive + DVAE | CPML |
+| **XTTS v2** (reference) | ~1.5B | 17+ | Yes | Yes (6-15s audio) | Medium | No (chunk-based) | ~0.5-1x | 24 kHz | ~2-4 GB | Autoregressive + DVAE | CPML |
 | **F5-TTS** | ~335M | EN+CN (DE via fine-tune) | Yes (3 fine-tunes) | Yes (zero-shot, 10-15s) | Very high | No (flow-based) | RTF 0.15 (~7x) | 24 kHz | ~2 GB | Flow Matching DiT | CC-BY-NC 4.0 (weights) / MIT (code) |
 | **Qwen3-TTS** | 1.7B | 10 (CN,EN,DE,FR,JA,KO,RU,PT,ES,IT) | Yes (native) | Yes (3s audio) | High | Yes (via fork) | ~1.8x | 24 kHz | ~4-6 GB | LLM-based | Apache 2.0 |
 | **Higgs-Audio V2** | 3B | 50+ | Yes | Yes (3-10s audio) | Very high (best) | Unclear | ~1.8x | 24 kHz | ~8-12 GB | Llama-3.2-3B + DualFFN | Apache 2.0 |
