@@ -424,15 +424,10 @@ def ensure_qwen3local_ready(timeout: int = 240, gpu_uuid: str = "") -> tuple[boo
     inference has materialised the full KV-cache working-set (~7.5 GB
     on V100). This way the subsequent LLM calibration sees the correct
     free-VRAM budget. Load+warmup together take ~60-90 s on V100, so
-    240 s gives generous headroom.
-
-    If the container is already running but on CPU (someone started it
-    earlier without TTS_GPU_UUID), force a restart so the model lands on
-    the GPU — otherwise the TTS-variant calibration sees ~5 GB on the
-    wrong card and the LLM gets the wrong context budget.
+    240 s gives generous headroom. The server loads on the GPU only.
 
     Returns:
-        Tuple of (success, message, device) where device is "cuda:0", "cpu", or "".
+        Tuple of (success, message, device) where device is "cuda:0" or "".
     """
     import time
     import requests
@@ -443,15 +438,7 @@ def ensure_qwen3local_ready(timeout: int = 240, gpu_uuid: str = "") -> tuple[boo
         r = requests.get(f"{_url}/health", timeout=2)
         if r.ok and r.json().get("model_loaded"):
             device = r.json().get("device", "unknown")
-            # If we have a GPU available but the container landed on CPU
-            # (started without TTS_GPU_UUID somehow), restart it so the
-            # model lands where it should.
-            if device == "cpu" and get_tts_gpu_uuid():
-                log_message("Qwen3-TTS is on CPU but a GPU is available — restarting on GPU")
-                stop_qwen3local_container()
-                # fall through to the normal start path below
-            else:
-                return True, f"Qwen3-TTS already ready ({device})", device
+            return True, f"Qwen3-TTS already ready ({device})", device
     except OSError:
         pass
 
