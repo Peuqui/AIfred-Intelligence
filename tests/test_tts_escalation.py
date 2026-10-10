@@ -224,7 +224,7 @@ class TestSelection:
         self._cards(monkeypatch, {0: 20000, 4: 6000})
         gpu = FakeEngine("xtts", running=False, gpu=True)
         _speak(SpeechRun("de", "t", entries=[_entry(gpu)]), "Hallo.")
-        assert gpu.started and not hasattr(gpu, "placed_on")
+        assert gpu.started and gpu.placed_on == "GPU-4"   # the live choice, always by UUID
 
     def test_otherwise_the_card_with_the_most_free_vram_that_fits(self, spoken, monkeypatch):
         self._cards(monkeypatch, {0: 9700, 2: 7000, 4: 375})

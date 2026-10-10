@@ -209,13 +209,34 @@ async def _start_remote_engine(engine: TTSEngine, host: TTSHost, report: Callabl
     return f"not ready on {host.name} within {format_number(engine.startup_timeout_s)} s"
 
 
-async def _start_local_gpu_engine(engine: TTSEngine, report: Callable[[str], None]) -> str | None:
-    """Lokale GPU-Engine starten, wenn ihr Spitzenbedarf auf eine Karte passt:
-    bevorzugt die Sammelkarte, sonst die Karte mit dem meisten freien Speicher.
-    Lädt das Hauptmodell später neu und braucht die Karte, räumt der
-    GPU-Wächter der Backends den Container wieder ab (Hauptmodell vor TTS)."""
-    import asyncio
+class PlacementRefused(Exception):
+    """No card can take the engine right now; the message says why."""
 
+
+@dataclass(frozen=True)
+class GPUPlacement:
+    """Where a local GPU engine goes: the engine bound to its card."""
+
+    engine: TTSEngine
+    gpu: int
+    needed_mib: int
+    free_mib: int
+
+    def describe(self) -> str:
+        from .formatting import format_number
+        return (
+            f"GPU {self.gpu} (needs {format_number(self.needed_mib)} MiB, "
+            f"free {format_number(self.free_mib)} MiB)"
+        )
+
+
+async def place_local_gpu_engine(engine: TTSEngine) -> GPUPlacement:
+    """The card for a local GPU engine — the one rule for every caller (the
+    escalation list, the start API): its burn-in peak plus headroom must fit;
+    the side-channel card first, else the fitting card with the most free
+    memory. ``PlacementRefused`` when none fits or the need is unknown.
+    Should the main model later need that card, the backends' GPU guard
+    clears the container again (main model before TTS)."""
     from . import tts_vram_cache
     from .config import LLAMACPP_TTS_BURNIN_HEADROOM_MB
     from .formatting import format_number
@@ -224,27 +245,32 @@ async def _start_local_gpu_engine(engine: TTSEngine, report: Callable[[str], Non
 
     peak = tts_vram_cache.get(engine.key)
     if peak is None:
-        return "no burn-in peak measured — VRAM need unknown"
+        raise PlacementRefused("no burn-in peak measured — VRAM need unknown")
     needed = peak + LLAMACPP_TTS_BURNIN_HEADROOM_MB
     rows = await asyncio.to_thread(query, "index,uuid,memory.free") or []
     cards = {int(row["index"]): (str(row["uuid"]), int(row["memory.free"])) for row in rows}
     if not cards:
-        return "nvidia-smi lists no GPUs"
+        raise PlacementRefused("nvidia-smi lists no GPUs")
     fitting = [index for index, (_uuid, free) in cards.items() if free >= needed]
     if not fitting:
         most = max(cards, key=lambda index: cards[index][1])
-        return (
+        raise PlacementRefused(
             f"needs {format_number(needed)} MiB, most free {format_number(cards[most][1])} MiB "
             f"on GPU {most}"
         )
     home = await asyncio.to_thread(pick_tts_gpu)
     gpu = home if home in fitting else max(fitting, key=lambda index: cards[index][1])
-    placed = engine if gpu == home else engine.on_gpu(cards[gpu][0])
-    report(
-        f"TTS escalation: starting {engine.key} on GPU {gpu} "
-        f"(needs {format_number(needed)} MiB, free {format_number(cards[gpu][1])} MiB)"
-    )
-    ok, message, _device = await asyncio.to_thread(placed.ensure_ready)
+    return GPUPlacement(engine.on_gpu(cards[gpu][0]), gpu, needed, cards[gpu][1])
+
+
+async def _start_local_gpu_engine(engine: TTSEngine, report: Callable[[str], None]) -> str | None:
+    """Lokale GPU-Engine auf ihrer Karte starten und warten, bis sie bereit ist."""
+    try:
+        placement = await place_local_gpu_engine(engine)
+    except PlacementRefused as refused:
+        return str(refused)
+    report(f"TTS escalation: starting {engine.key} on {placement.describe()}")
+    ok, message, _device = await asyncio.to_thread(placement.engine.ensure_ready)
     return None if ok else f"start failed: {message}"
 
 
