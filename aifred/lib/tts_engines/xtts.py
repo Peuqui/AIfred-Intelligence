@@ -48,31 +48,10 @@ class XTTSEngine(TTSEngine):
         voices.update({name: name for name in data.get("builtin", [])})
         return voices
 
-    def is_running(self) -> bool:
-        import requests
-        from ..config import TTS_HEALTH_TIMEOUT_S
-        try:
-            r = requests.get(f"{self.service_url}/health", timeout=TTS_HEALTH_TIMEOUT_S)
-            if not (r.ok and r.json().get("model_loaded")):
-                return False
-            # XTTS-specific: distinguish from MOSS/Qwen3 by the
-            # "custom_voices" field that only XTTS' /health returns.
-            return "custom_voices" in r.json()
-        except (OSError, ValueError):
-            return False
-
-    def _start_local(self) -> tuple[bool, str]:
-        from ..process_utils import start_xtts_container
-        return start_xtts_container(self.gpu_uuid)
-
-    def _stop_local(self) -> tuple[bool, str]:
-        from ..process_utils import stop_xtts_container
-        return stop_xtts_container()
-
-    def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
-        from ..process_utils import ensure_xtts_ready
-        ok, msg = ensure_xtts_ready(timeout=timeout or self.startup_timeout_s, gpu_uuid=self.gpu_uuid)
-        return ok, msg, "cuda" if ok else ""
+    def _model_ready(self, health: dict[str, Any]) -> bool:
+        # The "custom_voices" field only XTTS' /health returns tells it apart
+        # from MOSS / Qwen3.
+        return super()._model_ready(health) and "custom_voices" in health
 
     def generate_speech(
         self,

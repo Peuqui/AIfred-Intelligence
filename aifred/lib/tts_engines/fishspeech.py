@@ -23,6 +23,7 @@ class FishSpeechEngine(TTSEngine):
     compose_subdir = "fish-speech"
 
     default_port = 5053
+    health_path = "/v1/health"
     startup_timeout_s = 600
 
     @property
@@ -36,31 +37,16 @@ class FishSpeechEngine(TTSEngine):
         voice tree is the source of truth (``shared_voice_names``)."""
         return dict(self.voices_fallback)
 
-    def is_running(self) -> bool:
-        import requests
-        from ..config import TTS_HEALTH_TIMEOUT_S
-        try:
-            # Fish-Speech's /v1/health just returns 200 OK with an empty
-            # body once the model finished loading — that's the readiness
-            # signal we treat as "model_loaded=true".
-            r = requests.get(f"{self.service_url}/v1/health", timeout=TTS_HEALTH_TIMEOUT_S)
-            return r.ok
-        except (OSError, ValueError):
-            return False
+    def _model_ready(self, health: dict[str, Any]) -> bool:
+        # /v1/health answers 200 with an empty body once the model is loaded —
+        # that alone is the readiness signal.
+        return True
 
-    def _start_local(self) -> tuple[bool, str]:
-        from ..process_utils import start_fishspeech_container
-        return start_fishspeech_container(self.gpu_uuid)
-
-    def _stop_local(self) -> tuple[bool, str]:
-        from ..process_utils import stop_fishspeech_container
-        return stop_fishspeech_container()
-
-    def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
-        from ..process_utils import ensure_fishspeech_ready
-        # 600 s default — first start has to pull ~8 GB of weights from
-        # HuggingFace before the model can load.
-        return ensure_fishspeech_ready(timeout=timeout or self.startup_timeout_s, gpu_uuid=self.gpu_uuid)
+    def _device(self, health: dict[str, Any]) -> str:
+        # Upstream /v1/health does not report a device; assume the card the
+        # container was pinned to.
+        from ..process_utils import get_tts_gpu_uuid
+        return "cuda:0" if get_tts_gpu_uuid() else "cpu"
 
     def generate_speech(
         self,

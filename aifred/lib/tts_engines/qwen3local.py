@@ -42,27 +42,6 @@ class Qwen3LocalEngine(TTSEngine):
         data = self._fetch_voices_json()
         return {name: name for name in data.get("voices", [])} if data else {}
 
-    def is_running(self) -> bool:
-        import requests
-        from ..config import TTS_HEALTH_TIMEOUT_S
-        try:
-            r = requests.get(f"{self.service_url}/health", timeout=TTS_HEALTH_TIMEOUT_S)
-            return bool(r.ok and r.json().get("model_loaded"))
-        except (OSError, ValueError):
-            return False
-
-    def _start_local(self) -> tuple[bool, str]:
-        from ..process_utils import start_qwen3local_container
-        return start_qwen3local_container(self.gpu_uuid)
-
-    def _stop_local(self) -> tuple[bool, str]:
-        from ..process_utils import stop_qwen3local_container
-        return stop_qwen3local_container()
-
-    def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
-        from ..process_utils import ensure_qwen3local_ready
-        return ensure_qwen3local_ready(timeout=timeout or self.startup_timeout_s, gpu_uuid=self.gpu_uuid)
-
     def generate_speech(
         self,
         text: str,
