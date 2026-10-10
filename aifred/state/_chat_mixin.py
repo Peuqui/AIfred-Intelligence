@@ -954,6 +954,7 @@ class ChatMixin(rx.State, mixin=True):
             # Click-Stack) und dann sich selbst entfernt.
             tts_streaming = self._tts_streaming_wanted("aifred")  # type: ignore[attr-defined]
             if tts_streaming:
+                await self._wait_for_tts_finalize()  # type: ignore[attr-defined]
                 self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
                 from ..lib.api import browser_queue_clear
                 browser_queue_clear(self.session_id)  # type: ignore[attr-defined]

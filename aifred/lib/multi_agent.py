@@ -244,6 +244,7 @@ async def _stream_agent_to_history(
     # _tts_streaming_wanted includes the per-agent voice toggle — without
     # it a disabled Sokrates/Salomo voice was synthesized anyway.
     if state._tts_streaming_wanted(agent):
+        await state._wait_for_tts_finalize()
         state._init_streaming_tts(agent=agent)
 
     # Consume pipeline event stream
