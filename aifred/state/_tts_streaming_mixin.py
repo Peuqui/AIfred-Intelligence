@@ -41,6 +41,9 @@ class TTSBackendState:
     next_seq: int = 0   # Next sequence number to assign to a sentence
     push_seq: int = 0   # Next sequence number expected for queue push
     run: SpeechRun | None = None  # Escalation-list run of the reply being spoken
+    # Background finalize of the previous reply: it waits on THIS state, so the next
+    # reply must not reinitialize it before the task is done.
+    finalize_task: asyncio.Task[None] | None = None
 
 
 _tts_backend_states: dict[str, TTSBackendState] = {}
@@ -531,9 +534,22 @@ class TTSStreamingMixin(rx.State, mixin=True):
             return
         self._tts_finalize_spawned = True
         from ._base import track_orphan_task
-        track_orphan_task(asyncio.create_task(
+        task = asyncio.create_task(
             self._finalize_streaming_tts_in_background(self._tts_streaming_agent)
-        ))
+        )
+        get_tts_backend_state(self.session_id).finalize_task = task  # type: ignore[attr-defined]
+        track_orphan_task(task)
+
+    async def _wait_for_tts_finalize(self) -> None:
+        """Let the previous reply's finalize finish before a new reply initializes
+        the TTS state. Both work on the same state: initializing while the
+        finalize still waits for its sentences resets its counters (it ends
+        with "0 tasks") and its reset then switches off the new reply's
+        streaming — every second agent of a symposion stayed silent."""
+        task = get_tts_backend_state(self.session_id).finalize_task  # type: ignore[attr-defined]
+        if task is not None and not task.done():
+            log_message("🔊 TTS Init: waiting for the previous reply's TTS finalize")
+            await task
 
     async def _finalize_streaming_tts_in_background(self, agent: str) -> None:
         """Fire-and-forget finalize: wait for all pending TTS tasks in the
