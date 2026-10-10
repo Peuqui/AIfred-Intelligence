@@ -36,8 +36,6 @@ QWEN3_EAGER_LOAD         load model at startup (1/0, default 0)
 QWEN3_WARMUP             run a long dummy inference after load so the KV-cache
                          working-set is fully allocated before /health flips
                          to model_loaded=true (1/0, default 1 when EAGER_LOAD)
-QWEN3_FORCE_CPU          force CPU (1/0, default 0)
-QWEN3_VRAM_THRESHOLD     minimum free VRAM in GB to use GPU (default 4.0)
 QWEN3_KEEP_ALIVE         minutes of idle before auto-shutdown (default 30,
                          0 disables)
 QWEN3_DEFAULT_SPEAKER    fallback speaker name if request omits one
@@ -68,8 +66,6 @@ DTYPE_NAME = os.environ.get("QWEN3_DTYPE", "bfloat16").lower()
 ATTN_IMPL  = os.environ.get("QWEN3_ATTN", "sdpa")
 EAGER_LOAD = os.environ.get("QWEN3_EAGER_LOAD", "0").lower() in ("1", "true", "yes")
 WARMUP = os.environ.get("QWEN3_WARMUP", "1" if EAGER_LOAD else "0").lower() in ("1", "true", "yes")
-FORCE_CPU  = os.environ.get("QWEN3_FORCE_CPU", "0").lower() in ("1", "true", "yes")
-VRAM_THRESHOLD_GB = float(os.environ.get("QWEN3_VRAM_THRESHOLD", "4.0"))
 KEEP_ALIVE_MINUTES = int(os.environ.get("QWEN3_KEEP_ALIVE", "30"))
 DEFAULT_SPEAKER = os.environ.get("QWEN3_DEFAULT_SPEAKER", "AIfred")
 DEFAULT_LANGUAGE = os.environ.get("QWEN3_DEFAULT_LANGUAGE", "German")
@@ -122,35 +118,18 @@ _WARMUP_TEXT = (
 )
 
 
-def _choose_dtype(device: str = "cuda:0"):
-    """Resolve QWEN3_DTYPE to a torch dtype.
-
-    fp16 is the V100 sweet spot (has fp16 Tensor Cores, no bf16 hardware
-    path), but the CPU backend has several ops missing for Half tensors
-    (e.g. `replication_pad1d` blows up during the speech-tokenizer's
-    reference-audio preprocessing). So whenever we'd fall back to CPU
-    we promote fp16 → bf16 silently. bf16 and fp32 always work
-    everywhere.
-    """
+def _choose_dtype():
+    """Resolve QWEN3_DTYPE to a torch dtype (fp16 is the V100 sweet spot:
+    fp16 Tensor Cores, no bf16 hardware path)."""
     cfg = {"float16": torch.float16, "bfloat16": torch.bfloat16, "float32": torch.float32}
-    dtype = cfg.get(DTYPE_NAME, torch.bfloat16)
-    if device == "cpu" and dtype is torch.float16:
-        logger.warning(
-            "float16 has missing ops on CPU (e.g. replication_pad1d); "
-            "promoting to bfloat16 for the CPU fallback."
-        )
-        dtype = torch.bfloat16
-    return dtype
+    return cfg.get(DTYPE_NAME, torch.bfloat16)
 
 
-def _choose_device() -> str:
-    if FORCE_CPU or not torch.cuda.is_available():
-        return "cpu"
-    free, _ = torch.cuda.mem_get_info(0)
-    free_gb = free / (1024 ** 3)
-    if free_gb < VRAM_THRESHOLD_GB:
-        logger.warning(f"Free VRAM {free_gb:.1f} GB < threshold {VRAM_THRESHOLD_GB} GB — falling back to CPU")
-        return "cpu"
+def _require_gpu() -> str:
+    """GPU only: without a visible CUDA device the load fails loudly and
+    AIfred's TTS escalation list moves on — no silent, minutes-slow CPU run."""
+    if not torch.cuda.is_available():
+        raise RuntimeError("Qwen3-TTS needs a CUDA GPU — none is visible in this container")
     return "cuda:0"
 
 
@@ -175,15 +154,15 @@ def _load_model():
 
         from qwen_tts import Qwen3TTSModel
 
-        _device = _choose_device()
-        dtype = _choose_dtype(_device)
-        attn = ATTN_IMPL if _device.startswith("cuda") else "sdpa"
+        _device = _require_gpu()
+        dtype = _choose_dtype()
+        attn = ATTN_IMPL
 
         logger.info(f"Loading {MODEL_NAME} → device={_device} dtype={dtype} attn={attn}")
         t0 = time.time()
         _model = Qwen3TTSModel.from_pretrained(
             MODEL_NAME,
-            device_map=_device if _device != "cpu" else None,
+            device_map=_device,
             dtype=dtype,
             attn_implementation=attn,
         )
