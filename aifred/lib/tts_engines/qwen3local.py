@@ -47,8 +47,9 @@ class Qwen3LocalEngine(TTSEngine):
 
     def is_running(self) -> bool:
         import requests
+        from ..config import TTS_HEALTH_TIMEOUT_S
         try:
-            r = requests.get(f"{self.service_url}/health", timeout=2)
+            r = requests.get(f"{self.service_url}/health", timeout=TTS_HEALTH_TIMEOUT_S)
             return bool(r.ok and r.json().get("model_loaded"))
         except (OSError, ValueError):
             return False

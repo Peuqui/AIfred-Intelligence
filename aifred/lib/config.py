@@ -345,6 +345,10 @@ TTS_KEEPALIVE_HTTP_TIMEOUT = 5
 # Stück auf langsamen Karten Minuten brauchen.
 TTS_CONNECT_TIMEOUT_S = 3
 TTS_READ_TIMEOUT_S = 600
+# Health-Abfrage eines TTS-Containers: Die Eskalationsliste fragt damit jeden
+# Eintrag, bevor er spricht; antwortet ein anderer Rechner nicht so schnell,
+# übernimmt der nächste Eintrag (Direktstrecke: ~1 ms Ping).
+TTS_HEALTH_TIMEOUT_S = 0.5
 
 # Long text used for the calibration-time test inference that drives the
 # Qwen3-TTS KV-cache up to its real-world high-water mark. About ~800
