@@ -173,7 +173,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 _early_msg = InboundMessage(
                     channel="freeecho2", channel_id=room, sender=room,
                     text=text, timestamp=datetime.now(timezone.utc),
-                    metadata={"room": room},
+                    metadata={"room": room, "wake_agent": wake_agent},
                 )
                 save_inbound_to_session(
                     session_id, _early_msg,
