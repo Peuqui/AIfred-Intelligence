@@ -74,8 +74,11 @@ class TtsReplyMixin(BaseChannel):
         # Satzweises Streaming: der erste Satz wird erzeugt und läuft los, während die
         # übrigen noch erzeugt werden (SSOT der Satzaufteilung: lib.audio_processing).
         agent = original.target_agent if original else "aifred"
+        # session_id: the bubble of this reply gets what the puck spoke, so it
+        # can be replayed in the browser like a browser reply.
         buffer = await start_speech_stream(
             self._speech_segments(outbound, speaker.engine.key), agent, run,
+            session_id=outbound.metadata.get("session_id"),
         )
         if buffer is None:
             return
