@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 
 if TYPE_CHECKING:
     from ....lib.tts_engines import TTSEngine
@@ -264,20 +264,7 @@ class NarratorPlugin:
                 name="list_narrator_voices",
                 tier=TIER_READONLY,
                 description=load_tool_description(__file__, "list_narrator_voices"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "engine": {
-                            "type": "string",
-                            "description": (
-                                "Optional TTS engine key. Default: the first "
-                                "engine of the TTS escalation list that can "
-                                "speak now."
-                            ),
-                        },
-                    },
-                    "required": [],
-                },
+                parameters=load_tool_parameters(__file__, "list_narrator_voices"),
                 executor=_list_narrator_voices,
             ),
             Tool(
@@ -286,63 +273,7 @@ class NarratorPlugin:
                 # write_file / translate_file.
                 tier=TIER_WRITE_DATA,
                 description=load_tool_description(__file__, "narrate_file"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "filename": {
-                            "type": "string",
-                            "description": (
-                                "Source text file, relative to the documents root "
-                                "WITHOUT a 'documents/' prefix "
-                                "(e.g. 'meeting-DE.txt'). Use list_files "
-                                "first if you are unsure of the path."
-                            ),
-                        },
-                        "output_filename": {
-                            "type": "string",
-                            "description": (
-                                "Optional output path. Default: same folder, "
-                                "'<name>.mp3'. Use a '.wav' suffix to skip the "
-                                "MP3 encode."
-                            ),
-                        },
-                        "voice": {
-                            "type": "string",
-                            "description": (
-                                "Reference voice name (default: AIfred). Must be "
-                                "one of the cloned voices of the TTS engine."
-                            ),
-                        },
-                        "language": {
-                            "type": "string",
-                            "description": "Language code of the text (e.g. 'de', 'en'). Default 'de'.",
-                        },
-                        "engine": {
-                            "type": "string",
-                            "description": (
-                                "Optional TTS engine key. Default: the first "
-                                "engine of the TTS escalation list that can "
-                                "speak now. A GPU engine is only used when it "
-                                "fits into free VRAM."
-                            ),
-                        },
-                        "speaker_voices": {
-                            "type": "object",
-                            "additionalProperties": {"type": "string"},
-                            "description": (
-                                "Optional multi-voice mapping: speaker label → "
-                                "voice name. Lines in the source file starting "
-                                "with '[LABEL]:' switch to that speaker's voice "
-                                "(the marker itself is not spoken); text before "
-                                "the first marker uses the default voice. Voice "
-                                "names are engine-specific — call "
-                                "list_narrator_voices first and use names from "
-                                "its result."
-                            ),
-                        },
-                    },
-                    "required": ["filename"],
-                },
+                parameters=load_tool_parameters(__file__, "narrate_file"),
                 executor=_narrate_file,
             ),
         ]

@@ -121,6 +121,33 @@ def load_tool_description(plugin_file: "str | Path", tool_name: str) -> str:
     return text
 
 
+def load_tool_parameters(plugin_file: "str | Path", tool_name: str) -> dict[str, Any]:
+    """JSON-Schema der Tool-Parameter aus
+    ``<plugin_dir>/prompts/tools/<tool_name>.params.json``.
+
+    Die Beschreibungen der Parameter sind wie die Tool-Description
+    Prompt-Material für das Modell und gehören deshalb neben
+    :func:`load_tool_description` in die Plugin-Prompts, nicht in den Code.
+    Nur Englisch, bei jedem Toolkit-Build frisch gelesen.
+
+    Fail-loud: fehlende Datei oder kein JSON-Objekt → RuntimeError beim
+    Toolkit-Build, kein eingebauter Ersatz.
+    """
+    import json
+    from pathlib import Path
+    base = Path(plugin_file)
+    if base.is_file():
+        base = base.parent
+    path = base / "prompts" / "tools" / f"{tool_name}.params.json"
+    try:
+        schema = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as e:
+        raise RuntimeError(f"tool parameter file missing or invalid: {path}") from e
+    if not isinstance(schema, dict) or schema.get("type") != "object":
+        raise RuntimeError(f"tool parameter file is not an object schema: {path}")
+    return schema
+
+
 def load_plugin_settings(plugin_file: "str | Path") -> dict[str, str]:
     """``settings.json`` neben dem Plugin lesen — das Tool-Plugin-Pendant
     zu :meth:`BaseChannel.load_settings` (SSOT statt Boilerplate pro

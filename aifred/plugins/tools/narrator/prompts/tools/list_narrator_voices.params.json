@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "engine": {
+      "type": "string",
+      "description": "Optional TTS engine key. Default: the first engine of the TTS escalation list that can speak now."
+    }
+  },
+  "required": []
+}
