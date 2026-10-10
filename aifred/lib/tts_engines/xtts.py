@@ -54,8 +54,9 @@ class XTTSEngine(TTSEngine):
 
     def is_running(self) -> bool:
         import requests
+        from ..config import TTS_HEALTH_TIMEOUT_S
         try:
-            r = requests.get(f"{self.service_url}/health", timeout=2)
+            r = requests.get(f"{self.service_url}/health", timeout=TTS_HEALTH_TIMEOUT_S)
             if not (r.ok and r.json().get("model_loaded")):
                 return False
             # XTTS-specific: distinguish from MOSS/Qwen3 by the

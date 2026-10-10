@@ -44,11 +44,12 @@ class FishSpeechEngine(TTSEngine):
 
     def is_running(self) -> bool:
         import requests
+        from ..config import TTS_HEALTH_TIMEOUT_S
         try:
             # Fish-Speech's /v1/health just returns 200 OK with an empty
             # body once the model finished loading — that's the readiness
             # signal we treat as "model_loaded=true".
-            r = requests.get(f"{self.service_url}/v1/health", timeout=2)
+            r = requests.get(f"{self.service_url}/v1/health", timeout=TTS_HEALTH_TIMEOUT_S)
             return r.ok
         except (OSError, ValueError):
             return False
