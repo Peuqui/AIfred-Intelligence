@@ -2,7 +2,8 @@
 
 > **English version:** [configuration.md](../../en/guides/configuration.md)
 
-Backends, Einstellungen, Reasoning, History-Kompression, der Vector Store, die wichtigsten
+Backends, Einstellungen, Sprachausgabe (TTS-Eskalationsliste), Reasoning, History-Kompression,
+der Vector Store, Umgebungsvariablen und Plugin-Einstellungen, die wichtigsten
 Stellschrauben in `config.py`, Performance-Tuning und was Mehrbenutzerbetrieb bedeutet.
 Installation und Dienste: [Einrichtungsanleitung](deployment.md).
 
@@ -20,7 +21,8 @@ Umschaltbar in den UI-Einstellungen:
 | **Cloud-APIs** | Provider-Modelle | Claude (Anthropic), Qwen (DashScope), DeepSeek, Kimi (Moonshot) — OpenAI-kompatibel |
 
 **Cloud-APIs** brauchen nur den Key in `.env` (`ANTHROPIC_API_KEY`,
-`DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`). Die Modelllisten werden
+`DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`). Der DashScope-Key
+bedient auch die Cloud-TTS-Engine Qwen-Audio 3 (siehe [Sprachausgabe](#sprachausgabe-tts)). Die Modelllisten werden
 live vom `/models`-Endpoint des Providers geholt; jeder Provider merkt sich sein
 zuletzt genutztes Modell; `-vl`-Varianten bleiben aus dem Dropdown für das Haupt-LLM draußen; der Token-Verbrauch
 erscheint in der Debug-Konsole. Praktisch, um große Modelle ohne Hardware auszuprobieren,
@@ -69,6 +71,8 @@ Globale Einstellungen liegen in `data/settings.json` und werden von der UI, der 
 - Einstellungen pro Session (Agent, Diskussionsmodus) liegen **nicht** hier,
   sondern in der Session-Datei — siehe [REST API → Global vs. pro Session](rest-api.md#global-vs-pro-session).
 
+- **`tts_hosts`** und **`tts_escalation`** enthalten die Sprachausgabe, siehe unten.
+
 **Persistenz der Sampling-Parameter**
 
 | Parameter | Bei Neustart | Bei Modellwechsel |
@@ -79,6 +83,57 @@ Globale Einstellungen liegen in `data/settings.json` und werden von der UI, der 
 Maßgeblich für die Sampling-Standardwerte sind die Flags `--temp`, `--top-k`,
 `--top-p`, `--min-p` und `--repeat-penalty` im Eintrag des Modells in
 `~/.config/llama-swap/config.yaml`.
+
+---
+
+## Sprachausgabe (TTS)
+
+Es gibt keine einzelne feste TTS-Engine. `tts_escalation` in `data/settings.json`
+ist eine geordnete Liste; für jede Antwort (und jede Ansage) spricht der **erste
+Eintrag, der kann**. Bearbeitet wird sie im **TTS-Tab des Agent-Editors**
+(Reihenfolge, An/Aus, Status je Eintrag, Sprecheinheit); die Sprachausgabe
+ein- und ausschalten sowie Autoplay stehen auf der Hauptseite.
+
+- **Eintrag** = Engine plus Ort: `{"engine": "<key>", "host": null | "<Hostname>", "enabled": true}`.
+  `host: null` heißt dieser Rechner (bei Cloud-Engines die Cloud).
+- **Engines** (je ein Ordner in `aifred/lib/tts_engines/`): `qwen3local`,
+  `xtts`, `fishspeech`, `moss` (lokal, Docker, GPU), `dashscope_audio3`
+  (Alibaba Qwen-Audio 3, Cloud, braucht `DASHSCOPE_API_KEY`), `piper`, `espeak`
+  (lokal, CPU), `edge` (Cloud) und `browser` (Web Speech API; spricht nur in eine
+  offene Browser-Sitzung). Die Qwen3-TTS-Cloud-Engine früherer Versionen wurde durch
+  Qwen-Audio 3 ersetzt; ein Listeneintrag mit einem nicht mehr vorhandenen
+  Engine-Schlüssel macht die Liste ungültig.
+- **Frische Installation:** Qwen3-TTS lokal → XTTS lokal → Qwen-Audio 3 → Piper →
+  Edge → Browser.
+- **Lokaler GPU-Eintrag:** Läuft sein Container nicht, wird er gestartet, wenn
+  sein gemessener VRAM-Spitzenbedarf (Burn-in) plus Reserve auf eine Karte passt —
+  zuerst die Side-Channel-Karte. Das Hauptmodell wird dafür nie neu geladen;
+  braucht das Hauptmodell die Karte später, wird der TTS-Container gestoppt
+  (Hauptmodell vor TTS).
+- **`tts_hosts`**: andere Rechner, auf denen die TTS-Container mit derselben API
+  laufen, `{"name", "address", "enabled", "ssh", "ports": {Engine: Port}}`. An
+  einen Host gebundene Einträge werden übersprungen, solange der Host
+  ausgeschaltet ist. Mit `ssh` (`user@host:port`) startet und stoppt AIfred die
+  Container dort über `scripts/tts-host-ctl.sh` mit dem Schlüssel
+  `~/.ssh/aifred_tts_host` (`TTS_HOST_SSH_KEY` in `config.py`); ohne `ssh` müssen
+  die Container von selbst laufen. Einrichtung:
+  [Einrichtung → TTS-Hosts](deployment.md#tts-hosts-andere-rechner-mit-tts-containern).
+- **Ausfälle:** Ein Eintrag, der vor dem ersten Ton ausfällt, wird still
+  übersprungen (nur Debug-Zeile); fällt einer nach dem Sprechen aus, wird er
+  ersetzt, der Nachfolger sagt den Stimmwechsel an und wiederholt den
+  unfertigen Satz. Ein ausgefallener Eintrag bleibt für den Rest dieser Antwort
+  draußen. Die Chat-Bubble vermerkt, wer gesprochen hat.
+- **Stimme, Tempo, Tonhöhe** gelten pro Agent und Engine
+  (`tts_agent_voices_per_engine`; Standards aus `agents.json`). Hat ein Agent auf
+  einer Engine keine Stimme, fällt dieser Eintrag aus, die Liste geht weiter.
+- **Sprecheinheit** — `sentence`, `paragraph` oder `whole` — ist eine Einstellung
+  pro Engine, gültig für alle Agenten und Kanäle (`tts_toggles_per_engine`).
+- Eine kaputte Liste (unbekannte Engine, unbekannter Host, doppelter Hostname) ist
+  ein Fehler und wird nicht still übergangen.
+
+Details: [Audio-Pipeline](../architecture/audio-pipeline.md),
+[TTS- und VRAM-Ablauf](../architecture/tts-vram-workflow.md),
+[TTS-Container-Konventionen](../architecture/tts-container-conventions.md).
 
 ---
 
@@ -172,6 +227,44 @@ docker compose up -d chromadb
 
 Eine einzelne Collection lässt sich im Einstellungs-Modal oder über den Python-Client
 löschen (`chromadb.HttpClient(host='localhost', port=8000).delete_collection(...)`).
+
+---
+
+## Umgebungsvariablen und Plugin-Einstellungen
+
+Zwei Orte, je nachdem, was ein Wert ist:
+
+- **`.env`** (Prozess-Umgebung): Geheimnisse und Stellschrauben, die beim Start
+  gelesen werden. Die UI schreibt Geheimnisse dorthin. Grundausstattung:
+  [Einrichtung → Umgebung](deployment.md#umgebung-env).
+- **Plugin-Einstellungen** (Plugin-Manager): nicht geheime Optionen eines Plugins,
+  gespeichert in der `settings.json` neben dem Plugin. Sie sind keine
+  Umgebungsvariablen, auch wenn ihre Schlüssel großgeschrieben sind.
+
+Zusätzliche `.env`-Schlüssel, die der Code liest (nur Namen und Bedeutung):
+
+| Schlüssel | Bedeutung |
+|---|---|
+| `ANNOUNCE_API_TOKEN` | Bearer-Token für `POST /api/audio/announce` (ohne Token 503) |
+| `ANNOUNCE_MAX_CHARS` | Längster einzelner Ansagetext, längere werden mit 413 abgelehnt |
+| `ANNOUNCE_MAX_TOTAL_CHARS` | Grenze für alle Absätze einer Ansage zusammen |
+| `ANNOUNCE_PAUSE_MS`, `ANNOUNCE_MAX_PAUSE_MS` | Standardpause zwischen Absätzen und deren Obergrenze |
+| `FREEECHO2_KEEPALIVE_SEC` | Braucht ein Sprachsegment länger, bekommt der Strom einen Stille-Chunk, damit das 30-s-Inaktivitäts-Timeout des Pucks nie auslöst |
+| `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | Wie lange nach dem Anhalten eines laufenden Stroms vor einer Ansage auf die Bestätigung des Pucks gewartet wird; sonst wird die Ansage verworfen |
+| `TTS_CONTROL_API_TOKEN` | Bearer-Token der TTS-Start/Stopp-API für die Dienste-Steuerseite |
+| `OUTBOUND_ATTACHMENT_MAX_BYTES` | Größte Datei, die ein Kanal-Sendetool anhängen darf |
+| `DRIVE_MAX_DOWNLOAD_BYTES` | Größte Drive-Datei, die das Drive-Tool der Agenten herunterlädt |
+
+Wichtige Plugin-Einstellungen:
+
+| Plugin | Schlüssel | Bedeutung |
+|---|---|---|
+| Google Suite | `GOOGLE_DRIVE_AGENT_FOLDER` | Name des einen Drive-Ordners, in dem die Agenten arbeiten (wird angelegt, falls er fehlt). Darin lesen, schreiben, verschieben und löschen sie, außerhalb nichts; den Ordner selbst können sie weder ändern noch löschen. Der Dokumentenmanager ist nicht daran gebunden |
+| Google Suite | `GOOGLE_DRIVE_ENABLED`, `GOOGLE_CALENDAR_ENABLED`, `GOOGLE_CONTACTS_ENABLED`, `GOOGLE_TASKS_ENABLED` | Jeden Google-Dienst ein- oder ausschalten; Drive aus nimmt es auch aus dem Dokumentenmanager |
+| FreeEcho.2 | `FREEECHO2_LANGUAGE` | Haushaltssprache: `de` oder `en` (STT-Sprache, Prompt-Sprache, Tool-Antworten) |
+| FreeEcho.2 | `FREEECHO2_NOTIFICATION_START_TONE`, `FREEECHO2_NOTIFICATION_END_TONE` | Ob Ansagen den Beginn-Ton (Ding) und den Ende-Ton (Dong) anfordern; welcher Klang das ist, legt der Puck fest |
+| Drucker | `PRINTER_DEFAULT` | Standarddrucker, gewählt aus dem, was CUPS auflistet (ein einziger Drucker wird automatisch genommen) |
+| Drucker | `PRINTER_MAX_COPIES` | Obergrenze für `copies` in `print_file` |
 
 ---
 

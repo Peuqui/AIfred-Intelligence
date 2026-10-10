@@ -15,12 +15,17 @@ Der Narrator vertont **1:1**: kein Übersetzen, kein Zusammenfassen, keine Korre
 3. `translate_file` → DeepL-Übersetzung als eigene Datei
 4. `narrate_file` → MP3 neben der Quelldatei, über den Dokumente-Button herunterladbar (z. B. fürs Handy)
 
-## Einstellungen (Zahnrad im Plugin-Tab des Agent-Editors)
+## Engine-Wahl und Einstellungen
 
-- **Engine**: Auswahl ist bewusst auf `(wie Sprachausgabe)` + GPU-freie Engines beschränkt. `(wie Sprachausgabe)` folgt der Haupt-TTS-Engine; ist die Sprachausgabe **aus**, greift stattdessen die GPU-freie Fallback-Engine — das geladene LLM behält sein VRAM. Explizite GPU-Engines gibt es nicht: sie würden einen zweiten, unkoordinierten TTS-Container neben dem LLM starten (OOM- bzw. CPU-Fallback-Risiko). GPU-Vertonung — etwa mit Klonstimmen — läuft ausschließlich über `(wie Sprachausgabe)` bei **eingeschalteter** Sprachausgabe mit der gewünschten GPU-Engine.
-- **GPU-frei**: nur Engines ohne GPU-Bedarf wählbar (Piper, Edge, eSpeak, DashScope — je nach Installation). Standard: Piper (lokal, offline).
-- **Stimme**: wird **pro Engine** gespeichert. Die Liste zeigt ausschließlich die eigenen Stimmen der effektiv gewählten Engine (`engine.get_voices()`) — Klon-Stimmen wie „AIfred" erscheinen nur bei Klon-Engines, Piper listet seine eingebauten Sprecher (Thorsten, Karlsson, …).
-- **Runtime-Guard**: Landet trotzdem eine GPU-Engine im narrate-Pfad (Tool-Parameter `engine`, veraltetes gespeichertes Setting), die nicht der aktiven Sprachausgabe entspricht, bricht das Tool mit einem Klartext-Fehler ab — kein stiller Fallback.
+**Engine:** Der Narrator hat keine eigene Engine-Einstellung. Er nimmt die Engine aus der **TTS-Eskalationsliste** (`aifred/lib/tts_escalation.py`, `choose_speaker`):
+
+- Ohne Parameter `engine`: der oberste Eintrag der Liste, der jetzt sprechen kann. Ein lokaler GPU-Eintrag, dessen Container nicht läuft, wird gestartet, wenn sein gemessener Spitzenbedarf in den freien VRAM einer Karte passt — das Hauptmodell wird dafür nie neu geladen. Passt er nicht, geht die Liste weiter.
+- Mit Parameter `engine` (Engine-Schlüssel, z. B. `piper`): genau diese Engine auf diesem Rechner, sofern sie jetzt kann; sonst Fehler mit Grund (`NoSpeechAvailable`), kein Ausweichen auf eine andere Engine.
+- Die gewählte Engine bleibt für die **ganze Datei**: kein Stimmwechsel mitten im Hörbuch, auch nicht bei einem Ausfall.
+
+Die Engines liegen als Plugins in `aifred/lib/tts_engines/<key>/engine.py` (je mit eigener `i18n.json`); Reihenfolge, Hosts und Aktivierung der Liste: [TTS + VRAM-Workflow](../../architecture/tts-vram-workflow.md).
+
+**Stimme** (Zahnrad im Plugin-Tab des Agent-Editors, `narrator_voices` in den Einstellungen): wird **pro Engine** gespeichert. Der Dialog hat zwei Auswahlfelder — die Engine, deren Stimme bearbeitet wird (nur Engines, die hier bereit sind oder in der Liste auf einem anderen Host stehen), und deren eigene Stimmen (`voice_names`). Es wählt damit nicht die Engine der Vertonung. Reihenfolge der Stimmenwahl: Parameter `voice`, sonst die gespeicherte Stimme der gewählten Engine, sonst deren erste eigene Stimme (nie der Klonname „AIfred“ für z. B. Piper), zuletzt `NARRATE_DEFAULT_VOICE` (`AIfred`).
 
 ## Tools
 
@@ -33,14 +38,14 @@ Der Narrator vertont **1:1**: kein Übersetzen, kein Zusammenfassen, keine Korre
 
 | Parameter | Pflicht | Beschreibung |
 |-----------|---------|-------------|
-| `filename` | Ja | Quelldatei relativ zum Dokumenten-Root (z. B. `documents/meeting-DE.txt`) |
+| `filename` | Ja | Quelldatei relativ zum Dokumenten-Root, ohne `documents/`-Präfix (z. B. `meeting-DE.txt`) |
 | `output_filename` | Nein | Standard: `<name>.mp3` im selben Ordner; Endung `.wav` überspringt den MP3-Encode |
-| `voice` | Nein | Standard: gespeicherte Stimme der aufgelösten Engine, sonst deren erste eigene Stimme |
+| `voice` | Nein | Standard: gespeicherte Stimme der gewählten Engine, sonst deren erste eigene Stimme |
 | `language` | Nein | Sprachcode des Texts (Standard `de`) |
-| `engine` | Nein | Standard: Auflösung über die Plugin-Einstellungen (siehe oben) |
+| `engine` | Nein | Engine-Schlüssel. Standard: oberster Eintrag der TTS-Eskalationsliste, der jetzt sprechen kann (siehe oben) |
 | `speaker_voices` | Nein | Multi-Voice-Mapping Sprecher-Label → Stimmenname (siehe unten) |
 
-Rückgabe (JSON): `written`, `chunks`, `chars`, `engine`, `voice`, `size_mb` — im Multi-Voice-Modus zusätzlich `speaker_voices`, `segments`.
+Rückgabe (JSON): `written`, `url`, `chunks`, `chars`, `engine`, `voice`, `size_mb` — im Multi-Voice-Modus zusätzlich `speaker_voices`, `segments`.
 
 ## Multi-Voice-Modus (Hörspiel)
 

@@ -2,8 +2,9 @@
 
 > **Deutsche Version:** [configuration.md](../../de/guides/configuration.md)
 
-Backends, settings, reasoning, history compression, the vector store, the main
-`config.py` knobs, performance tuning and what multi-user operation means.
+Backends, settings, speech output (TTS escalation list), reasoning, history
+compression, the vector store, environment variables and plugin settings, the
+main `config.py` knobs, performance tuning and what multi-user operation means.
 Installation and services: [Deployment Guide](deployment.md).
 
 ---
@@ -20,7 +21,8 @@ Switchable in the UI settings:
 | **Cloud APIs** | provider models | Claude (Anthropic), Qwen (DashScope), DeepSeek, Kimi (Moonshot) — OpenAI-compatible |
 
 **Cloud APIs** need only the key in `.env` (`ANTHROPIC_API_KEY`,
-`DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`). Model lists are
+`DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY`). The DashScope key
+also serves the cloud TTS engine Qwen-Audio 3 (see [Speech output](#speech-output-tts)). Model lists are
 fetched live from the provider's `/models` endpoint; each provider remembers its
 last model; `-vl` variants are kept out of the main-LLM dropdown; token usage
 appears in the debug console. Handy for trying large models without hardware,
@@ -69,6 +71,8 @@ Global settings live in `data/settings.json`, written by the UI, the REST API
 - Per-session settings (agent, discussion mode) are **not** here
   but in the session file — see [REST API → Global vs. per-session](rest-api.md#global-vs-per-session).
 
+- **`tts_hosts`** and **`tts_escalation`** hold the speech output, see below.
+
 **Sampling persistence**
 
 | Parameter | On restart | On model change |
@@ -79,6 +83,55 @@ Global settings live in `data/settings.json`, written by the UI, the REST API
 Source of truth for the sampling defaults are the `--temp`, `--top-k`,
 `--top-p`, `--min-p`, `--repeat-penalty` flags of the model's entry in
 `~/.config/llama-swap/config.yaml`.
+
+---
+
+## Speech output (TTS)
+
+There is no single fixed TTS engine. `tts_escalation` in `data/settings.json` is
+an ordered list; for every reply (and every announcement) the **first entry
+that can speak** does. Edit it in the **TTS tab of the Agent Editor** (order,
+on/off, status per entry, speech unit); switching speech output on or off and
+autoplay are on the main page.
+
+- **Entry** = engine plus place: `{"engine": "<key>", "host": null | "<host name>", "enabled": true}`.
+  `host: null` means this machine (or the cloud for cloud engines).
+- **Engines** (one folder each in `aifred/lib/tts_engines/`): `qwen3local`,
+  `xtts`, `fishspeech`, `moss` (local Docker, GPU), `dashscope_audio3`
+  (Alibaba Qwen-Audio 3, cloud, needs `DASHSCOPE_API_KEY`), `piper`, `espeak`
+  (local, CPU), `edge` (cloud) and `browser` (Web Speech API; speaks only into an
+  open browser session). The Qwen3-TTS cloud engine of earlier versions was
+  replaced by Qwen-Audio 3; a list entry with an engine key that no longer exists
+  makes the list invalid.
+- **Fresh install:** Qwen3-TTS local → XTTS local → Qwen-Audio 3 → Piper → Edge →
+  browser.
+- **Local GPU entry:** if its container is not running, it is started when its
+  measured VRAM peak (burn-in) plus headroom fits on a card — the side-channel
+  card first. The main model is never reloaded for it; if the main model needs
+  the card later, the TTS container is stopped (main model before TTS).
+- **`tts_hosts`**: other machines running the TTS containers with the same API,
+  `{"name", "address", "enabled", "ssh", "ports": {engine: port}}`. Entries
+  bound to a host are skipped while the host is switched off. With `ssh`
+  (`user@host:port`) AIfred starts and stops the containers there through
+  `scripts/tts-host-ctl.sh` using the key `~/.ssh/aifred_tts_host`
+  (`TTS_HOST_SSH_KEY` in `config.py`); without it the containers must run on
+  their own. Setup: [Deployment → TTS hosts](deployment.md#tts-hosts-other-machines-with-tts-containers).
+- **Failure handling:** an entry that fails before the first sound is skipped
+  silently (debug line only); one that fails after speaking is replaced, the
+  successor announces the voice change and repeats the unfinished sentence. A
+  failed entry stays out for the rest of that reply. The chat bubble notes who
+  spoke.
+- **Voice, speed, pitch** are per agent and engine
+  (`tts_agent_voices_per_engine`; defaults from `agents.json`). An agent without
+  a voice on an engine makes that entry fail, the list continues.
+- **Speech unit** — `sentence`, `paragraph` or `whole` — is one setting per
+  engine, valid for all agents and channels (`tts_toggles_per_engine`).
+- A broken list (unknown engine, unknown host, duplicate host name) is an error,
+  not silently ignored.
+
+Details: [Audio pipeline](../architecture/audio-pipeline.md),
+[TTS + VRAM workflow](../architecture/tts-vram-workflow.md),
+[TTS container conventions](../architecture/tts-container-conventions.md).
 
 ---
 
@@ -172,6 +225,43 @@ docker compose up -d chromadb
 
 A single collection can be deleted in the settings modal or via the Python
 client (`chromadb.HttpClient(host='localhost', port=8000).delete_collection(...)`).
+
+---
+
+## Environment variables and plugin settings
+
+Two places, depending on what a value is:
+
+- **`.env`** (process environment): secrets and tunables read at start. The UI
+  writes secrets there. Base set: [Deployment → Environment](deployment.md#environment-env).
+- **Plugin settings** (Plugin Manager): non-secret options of a plugin, stored in
+  the `settings.json` next to the plugin. They are not environment variables
+  even though they carry upper-case keys.
+
+Additional `.env` keys read by the code (names and meaning only):
+
+| Key | Meaning |
+|---|---|
+| `ANNOUNCE_API_TOKEN` | Bearer token for `POST /api/audio/announce` (503 without it) |
+| `ANNOUNCE_MAX_CHARS` | Longest single announcement text, longer is refused with 413 |
+| `ANNOUNCE_MAX_TOTAL_CHARS` | Limit for all paragraphs of one announcement together |
+| `ANNOUNCE_PAUSE_MS`, `ANNOUNCE_MAX_PAUSE_MS` | Default pause between paragraphs and its upper bound |
+| `FREEECHO2_KEEPALIVE_SEC` | A speech segment taking longer than this gets a silence chunk, so the puck's 30 s inactivity timeout never fires |
+| `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | How long to wait for the puck's confirmation after pausing a running stream before an announcement; otherwise the announcement is dropped |
+| `TTS_CONTROL_API_TOKEN` | Bearer token of the TTS start/stop API used by the service control page |
+| `OUTBOUND_ATTACHMENT_MAX_BYTES` | Largest file a channel send tool may attach |
+| `DRIVE_MAX_DOWNLOAD_BYTES` | Largest Drive file the agents' Drive tool downloads |
+
+Plugin settings worth knowing:
+
+| Plugin | Key | Meaning |
+|---|---|---|
+| Google Suite | `GOOGLE_DRIVE_AGENT_FOLDER` | Name of the one Drive folder the agents work in (created if missing). They read, write, move and delete inside it and nowhere else; the folder itself cannot be changed or deleted by them. The Document Manager is not bound to it |
+| Google Suite | `GOOGLE_DRIVE_ENABLED`, `GOOGLE_CALENDAR_ENABLED`, `GOOGLE_CONTACTS_ENABLED`, `GOOGLE_TASKS_ENABLED` | Switch each Google service on or off; Drive off also removes it from the Document Manager |
+| FreeEcho.2 | `FREEECHO2_LANGUAGE` | Household language: `de` or `en` (STT language prior, prompt language, tool replies) |
+| FreeEcho.2 | `FREEECHO2_NOTIFICATION_START_TONE`, `FREEECHO2_NOTIFICATION_END_TONE` | Whether announcements request the start tone (ding) and end tone (dong); which sound that is, the puck decides |
+| Printer | `PRINTER_DEFAULT` | Default printer, chosen from what CUPS lists (a single printer is picked automatically) |
+| Printer | `PRINTER_MAX_COPIES` | Upper bound for `copies` in `print_file` |
 
 ---
 

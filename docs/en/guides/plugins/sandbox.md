@@ -13,10 +13,12 @@ calculations, data analysis, simulations and (interactive) visualizations.
 |------|------------|------|
 | `execute_code` | Run Python code; `data/documents/` mounted **read-only** | WRITE_DATA |
 | `execute_code_write` | Run Python code with **write access** to `data/documents/` | WRITE_SYSTEM |
+| `render_html` | Render and check an HTML page produced by a sandbox run (`SANDBOX_HTML_URL`) in the headless browser (console messages, screenshot, optional click/input actions) | WRITE_DATA |
 
 Both tools share the same parameters and run the identical sandbox — they only
 differ in whether the documents directory is writable. The function-calling
-pipeline filters by tier, so low-tier contexts only ever see `execute_code`.
+pipeline filters by tier: contexts below WRITE_DATA see no sandbox tool, contexts
+below WRITE_SYSTEM only `execute_code`.
 
 ### Parameters
 
@@ -34,7 +36,15 @@ Code runs in a subprocess wrapped by **bubblewrap (`bwrap`)** with
 - **No filesystem access** beyond `/usr`, `/etc` (read-only), a private `/tmp`,
   the venv interpreter + site-packages (read-only), and the per-run work dir
 - **Resource limits:** RAM via `RLIMIT_AS` (default 2048 MB), CPU time and a wall-clock
-  **timeout of 30 seconds** (`RLIMIT_CPU` + `asyncio.wait_for`); core dumps disabled
+  **timeout of 30 seconds** (`RLIMIT_CPU` + `asyncio.wait_for`); core dumps disabled;
+  additionally a cap on the size of a single written file (`RLIMIT_FSIZE`,
+  `SANDBOX_MAX_FILE_SIZE_MB`) and on the number of child processes (`RLIMIT_NPROC`,
+  `SANDBOX_MAX_PROCESSES`)
+- **Limited compute threads:** `OPENBLAS_NUM_THREADS` and `OMP_NUM_THREADS` are set to
+  `SANDBOX_MATH_THREADS` (default 4). The thread pools of numpy/scipy (OpenBLAS) as well
+  as OpenCV and scikit-learn (OpenMP) reserve address space per thread; with one thread
+  per CPU they burst `RLIMIT_AS` on import (`import cv2` crashed). With the cap, OpenCV
+  is importable
 - **Inside the sandbox:** the user's documents appear under the relative path
   `documents/` (read-only for `execute_code`, read-write for `execute_code_write`)
 
@@ -62,8 +72,20 @@ another page, and the same page under two names appears once in the chat. Plots 
 
 ## Available libraries
 
-`math`, `statistics`, `numpy`, `pandas`, `matplotlib`, `scipy`, `sklearn`,
-`seaborn`, `plotly`.
+The sandbox runs the interpreter of AIfred's own venv (read-only, no network): what is
+installed there can be imported — nothing can be installed from inside a run. The Python
+standard library is always there.
+
+Which libraries the model is told about in the tool description is defined in
+`aifred/plugins/tools/sandbox/prompts/tools/sandbox_libraries.json`
+(`{"module name": "description for the model"}`). Only entries that are really installed
+in the venv are named (`importlib.util.find_spec`); the list says what the sandbox has,
+not what it might have. New library: install it into the venv, then add it to the file.
+
+Current candidates: `numpy`, `pandas`, `scipy`, `sklearn`, `matplotlib`, `seaborn`,
+`plotly`, `networkx`, `PIL` (Pillow), `cv2` (OpenCV), `skimage` (scikit-image), `pymupdf`,
+`docx` (python-docx), `openpyxl`, `xlsxwriter`, `pptx` (python-pptx), `lxml`, `yaml`
+(PyYAML), `tabulate`, `dateutil`, `pytz`.
 
 ## Configuration
 
@@ -72,5 +94,8 @@ Defaults in `aifred/lib/config.py`:
 - `SANDBOX_TIMEOUT_SECONDS` = 30
 - `SANDBOX_MAX_RAM_MB` = 2048
 - `SANDBOX_MAX_OUTPUT_BYTES` = 1_000_000
+- `SANDBOX_MAX_FILE_SIZE_MB` = 512
+- `SANDBOX_MAX_PROCESSES` = 64
+- `SANDBOX_MATH_THREADS` = 4
 - `SANDBOX_WORK_DIR` = `/tmp/aifred_sandbox`
 - `SANDBOX_OUTPUT_DIR` = `data/sandbox_output/`

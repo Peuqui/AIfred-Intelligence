@@ -18,7 +18,7 @@ AIfred läuft auf deinem eigenen Rechner und arbeitet für dich über jeden Kana
 - 🔗 **Autonome Tool-Ketten** über Plugins hinweg — ein Prompt, viele Schritte, aus jedem Kanal
 - 🎩 **Multi-Agent-System** — AIfred, Sokrates, Salomo und deine eigenen Agenten debattieren, kritisieren, urteilen — oder übernehmen als Sub-Agenten delegierte Aufgaben
 - 📡 **Überall erreichbar** — Web-UI, Telegram, Discord, E-Mail, Echo-Dot-Sprach-Terminal; läuft headless
-- 🎤 **Sprache** — Speech-to-Text plus acht TTS-Engines, lokales Voice Cloning, Streaming-Wiedergabe
+- 🎤 **Sprache** — Speech-to-Text plus eine TTS-Eskalationsliste über neun Engines (lokal, andere Rechner, Cloud, Browser), Voice Cloning, gesprochene Ansagen auf dem Echo Dot
 - 👁️ **Vision & Vigilantia** — Bildanalyse im Chat und kontinuierliche Kameraüberwachung mit Gesichtserkennung
 - ⚙️ **Lokale Inferenz, automatisch abgestimmt** — llama.cpp, vLLM und Ollama mit VRAM-bewusster Kontext-Kalibrierung über mehrere GPUs
 - 🔒 **Security im Framework verankert** — Berechtigungsstufen pro Kanal, Schutz gegen Prompt Injection, Credential Broker, Audit-Log
@@ -60,14 +60,14 @@ Alles lokal, ein einziger Prompt, kein Klick dazwischen. Dateien aus der Konvers
 Das LLM entscheidet selbst, welche Tools es einsetzt — OpenAI-kompatibles Function Calling, bis zu 100 Tool-Calls pro Anfrage, jedes Tool kommt aus einem Plugin:
 
 - **E-Mail** — lesen, suchen, senden über IMAP/SMTP; Senden braucht eine ausdrückliche Bestätigung (Entwurf → Prüfung → Bestätigung)
-- **Google Suite** — Kalender, Kontakte, Drive und Tasks über OAuth 2.0
+- **Google Suite** — Kalender, Kontakte, Drive und Tasks über OAuth 2.0; die Agenten arbeiten in genau einem Drive-Ordner (Einstellung `GOOGLE_DRIVE_AGENT_FOLDER`) und nirgends sonst, der Dokumentenmanager zeigt dein ganzes Drive
 - **EssentialPIM** — voller Lese-/Schreibzugriff auf die [EssentialPIM](https://www.essentialpim.com/)-Datenbank: Termine, Kontakte, Notizen, To-dos, Passworteinträge; Name-zu-ID-Auflösung und Schutz gegen Halluzinationen
-- **Workspace (Dateien & Dokumente)** — PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV hochladen; AIfred durchsucht, liest (PDFs seitenweise), schreibt, patcht, benennt um, kopiert, verschiebt und löscht Dateien, indexiert sie in ChromaDB (**bge-m3**, token-genaues Chunking) und durchsucht sie semantisch mit Ordner-Filter und Kontext aus Nachbar-Chunks. Dokument-Manager-UI mit Vorschau, Bulk-Indexierung ganzer Ordner und Orphan-Cleanup
+- **Workspace (Dateien & Dokumente)** — PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV hochladen; AIfred durchsucht, liest (PDFs seitenweise), schreibt, patcht, benennt um, kopiert, verschiebt und löscht Dateien, indexiert sie in ChromaDB (**bge-m3**, token-genaues Chunking) und durchsucht sie semantisch mit Ordner-Filter und Kontext aus Nachbar-Chunks. Dokument-Manager-UI mit Vorschau, Bulk-Indexierung ganzer Ordner und Orphan-Cleanup; **Google Drive** erscheint dort als zweite, live angebundene Quelle (Durchsuchen, Suchen, Download, Upload — ohne lokale Kopie)
 - **Sandboxed Code-Ausführung** — Python in einem isolierten Subprocess (numpy, pandas, matplotlib, plotly, scipy, sklearn, …); interaktive HTML/JS-Ergebnisse (Plotly 3D, Canvas-Spiele, Simulationen) direkt im Chat, geprüft per Screenshot aus einem Headless-Browser
 - **Web-Recherche** — der Agent entscheidet, wann er sucht: SearXNG (selbst gehostet) plus optional Tavily und Brave, LLM-basiertes URL-Ranking, paralleles Scraping inkl. PDFs; jede Recherche läuft frisch, kein Ergebnis-Cache. Modi und Pipeline: [Recherche-Pipeline](docs/de/architecture/research-pipeline.md)
 - **Langzeitgedächtnis** — Gedächtnis pro Agent in ChromaDB, wird vor jeder Antwort abgerufen; Agenten lesen, speichern, aktualisieren und löschen Einträge selbst. Memory-Browser zum Inspizieren, Inkognito-Modus 🔒
 - **Scheduler** — das LLM legt Cron-, Intervall- und Einmal-Jobs an; Ergebnisse kommen als Benachrichtigung, Kanal-Nachricht oder Webhook. Siehe [Scheduler](docs/de/architecture/scheduler.md)
-- **Weitere Plugins** — **Audio Player** (Bibliothekssuche, Ordner, Spulen, Geschwindigkeit, Fortsetzen), **System Monitor** (CPU, RAM, GPU, Disk, Temperaturen), **Translator** (DeepL, 30+ Sprachen), **Narrator** (ganze Dokumente → eine MP3, Multi-Voice-Hörspiele über `[SPEAKER]:`-Marker), **Bibel** und **Judaica** (exakte Stellen + thematische Vektorsuche über Tanach, Talmud, Mischna, Midrasch, Halacha, Kommentare), **Calculator**
+- **Weitere Plugins** — **Audio Player** (Bibliothekssuche, Ordner, Spulen, Geschwindigkeit, Fortsetzen), **System Monitor** (CPU, RAM, GPU, Disk, Temperaturen), **Drucker** (CUPS: `print_file` mit Kopien, Seitenbereich und Duplex, `printer_status` mit Füllständen — ein Scheduler-Job kann ihn abfragen und auf jedem Kanal melden), **Translator** (DeepL, 30+ Sprachen), **Narrator** (ganze Dokumente → eine MP3, Multi-Voice-Hörspiele über `[SPEAKER]:`-Marker), **Bibel** und **Judaica** (exakte Stellen + thematische Vektorsuche über Tanach, Talmud, Mischna, Midrasch, Halacha, Kommentare), **Calculator**
 - **Tool-Output-Cap** — ein einzelnes Tool-Ergebnis wird so gekürzt, dass System + History + Gedächtnis + Ergebnis innerhalb von 75 % des Kontexts bleiben; JSON-aware, das Modell sieht weiterhin strukturierte Daten
 
 Jedes Plugin ist ein Verzeichnis unter `aifred/plugins/tools/` oder `aifred/plugins/channels/` — wird automatisch erkannt und ist zur Laufzeit im **Plugin Manager** schaltbar. Übersicht: [Verfügbare Plugins](docs/de/guides/plugins-overview.md) · eigene schreiben: [Plugin-Entwicklung](docs/de/guides/plugin-development.md).
@@ -112,21 +112,24 @@ Einrichtung: [Telegram](docs/de/guides/telegram-setup.md) · [Discord](docs/de/g
 
 - **Speech-to-Text** — Whisper in Docker ([whisper-stt](https://github.com/Peuqui/whisper-stt), richtet der Installer ein), für Browser und FreeEcho.2 gleich: zuerst die GPU, solange eine Karte freien VRAM hat, sonst der permanente CPU-Worker; vor jedem LLM-Ladevorgang wird der GPU-Worker freigegeben, im Leerlauf entlädt er sich. Große Uploads (Meetings) bekommen eine Dauer-Schätzung und eine Rückfrage bei langen Dateien
 - **Meeting-Pipeline** — in der Originalsprache transkribieren → bei Bedarf übersetzen (DeepL) → zu einer handytauglichen MP3 vertonen; jeder Schritt hinterlässt eine Datei
-- **FreeEcho.2-Sprach-Terminal** — Echo-Dot-2-Hardware mit Custom-Firmware: Wake-Word, die Frage erscheint innerhalb von ~500 ms nach STT im Browser
-- **Acht TTS-Engines**, Stimme, Geschwindigkeit und Tonhöhe pro Agent, lückenlose Streaming-Wiedergabe, Regenerate-Button pro Bubble:
+- **FreeEcho.2-Sprach-Terminal** — Echo-Dot-2-Hardware mit Custom-Firmware: Wake-Word, die Frage erscheint innerhalb von ~500 ms nach STT im Browser. Die Haushaltssprache (Deutsch oder Englisch: STT-Sprache, Prompt-Sprache, Tool-Antworten) ist eine Einstellung des Kanal-Plugins
+- **Gesprochene Ansagen ohne LLM** — `POST /api/audio/announce` liest einen fertigen Text (oder mehrere Absätze als eine Ansage) in einem Raum, einer Gruppe oder allen Räumen vor; ein laufender Strom wird vorher angehalten, Beginn- und Ende-Ton sind Plugin-Einstellungen. Siehe [REST-API](docs/de/guides/rest-api.md)
+- **TTS-Eskalationsliste** ([Details](docs/de/architecture/tts-escalation.md)) — statt einer festen Engine steht im TTS-Tab des Agent-Editors eine geordnete Liste aus Einträgen (Engine plus Ort); je Antwort spricht der erste Eintrag, der kann. Ein lokaler GPU-Container wird gestartet, wenn sein gemessener VRAM-Spitzenbedarf auf eine Karte passt (das Hauptmodell wird dafür nie neu geladen); andere Rechner mit TTS-Containern (`tts_hosts`) werden per SSH über `scripts/tts-host-ctl.sh` gestartet und gestoppt (sofern ein SSH-Ziel eingetragen ist). Fällt ein Eintrag aus, übernimmt der nächste; nach einem Ausfall mitten im Text sagt der Nachfolger den Stimmwechsel an und wiederholt den unfertigen Satz, die Bubble vermerkt, wer gesprochen hat. Die Liste einer frischen Installation: Qwen3-TTS lokal → XTTS lokal → Qwen-Audio 3 (Cloud) → Piper → Edge → Browser (spricht nur in eine offene Browser-Sitzung). Die Sprecheinheit (Satz, Absatz, Ganzes) ist eine Einstellung pro Engine
+- **Neun TTS-Engines**, Stimme, Geschwindigkeit und Tonhöhe pro Agent, lückenlose Streaming-Wiedergabe, Regenerate-Button pro Bubble:
 
-| Engine | Typ | Streaming | Qualität | Latenz* | Ressourcen |
+| Engine | Typ | Standard-Sprecheinheit | Qualität | Latenz* | Ressourcen |
 |--------|------|-----------|---------|----------|-----------|
-| **Qwen3-TTS 1.7B** (Standard) | Lokal Docker | Satzweise | Hoch (Voice Cloning, 10 Sprachen inkl. nativem DE) | ~8,5 s | ~5–7 GB VRAM |
-| **XTTS v2** | Lokal Docker | Satzweise | Hoch (Voice Cloning) | ~2,8 s | ~2 GB VRAM |
-| **Fish-Speech S2 Pro** | Lokal Docker | Satzweise | Hoch (Voice Cloning, 80+ Sprachen) | ~11 s | ~20–24 GB VRAM |
-| **MOSS-TTS 1.7B** | Lokal Docker | Keins (Batch nach der Bubble) | Exzellent (bestes Open Source) | ~14,8 s | ~11,5 GB VRAM |
-| **DashScope Qwen3-TTS** | Cloud-API | Satzweise | Hoch (Voice Cloning) | ~1–2 s/Satz | API-Key |
-| **Piper** | Lokal | Satzweise | Mittel | < 100 ms | CPU |
-| **eSpeak** | Lokal | Satzweise | Niedrig (robotisch) | < 50 ms | CPU |
-| **Edge TTS** | Cloud | Satzweise | Gut | ~200 ms | Internet |
+| **Qwen3-TTS 1.7B** | Lokal Docker | Satz | Hoch (Voice Cloning, 10 Sprachen inkl. nativem DE) | ~8,5 s | ~5–7 GB VRAM |
+| **XTTS v2** | Lokal Docker | Satz | Hoch (Voice Cloning) | ~2,8 s | ~2 GB VRAM |
+| **Fish-Speech S2 Pro** | Lokal Docker | Satz | Hoch (Voice Cloning, 80+ Sprachen) | ~11 s | ~20–24 GB VRAM |
+| **MOSS-TTS 1.7B** | Lokal Docker | Ganzes | Exzellent (bestes Open Source) | ~14,8 s | ~11,5 GB VRAM |
+| **DashScope Qwen-Audio 3** | Cloud-API | Satz | Hoch (Systemstimmen, geklonte Stimmen für das Flash-Modell) | — | `DASHSCOPE_API_KEY` |
+| **Piper** | Lokal | Ganzes | Mittel | < 100 ms | CPU |
+| **eSpeak** | Lokal | Ganzes | Niedrig (robotisch) | < 50 ms | CPU |
+| **Edge TTS** | Cloud | Satz | Gut | ~200 ms | Internet |
+| **Browser** | Web Speech API des Geräts | — | je nach Gerät | — | keine auf dem Server |
 
-\* Lokale Cloning-Engines direkt gegeneinander am selben zweisprachigen Absatz gemessen (V100, fp16) — vollständiger Vergleich und die Geschichte hinter jeder Engine: [TTS-Modellvergleich](docs/de/models/tts-comparison.md). Wegen seiner nicht-kommerziellen Lizenz bleibt Fish-Speech auf den Browser beschränkt. Der TTS-VRAM wird unter einem Worst-Case-Burn-In gemessen und gecacht, nicht von Hand eingestellt.
+\* Lokale Cloning-Engines direkt gegeneinander am selben zweisprachigen Absatz gemessen (V100, fp16) — vollständiger Vergleich und die Geschichte hinter jeder Engine: [TTS-Modellvergleich](docs/de/models/tts-comparison.md). Fish-Speech, eSpeak und MOSS stehen nicht in der Standardliste (Fish-Speech: nicht-kommerzielle Lizenz). Der TTS-VRAM wird unter einem Worst-Case-Burn-In gemessen und gecacht, nicht von Hand eingestellt.
 
 ### 👁️ Vision & Vigilantia
 
@@ -212,8 +215,8 @@ Vollständiger Index: [docs/README.md](docs/README.md)
 | Thema | Dokumente |
 |---|---|
 | Einrichtung | [Deployment](docs/de/guides/deployment.md) · [llama.cpp + llama-swap](docs/de/guides/llamacpp-setup.md) · [Konfiguration](docs/de/guides/configuration.md) · [Telegram](docs/de/guides/telegram-setup.md) · [Discord](docs/de/guides/discord-setup.md) |
-| Nutzen & erweitern | [Plugins](docs/de/guides/plugins-overview.md) · [Plugin-Entwicklung](docs/de/guides/plugin-development.md) · [REST API](docs/de/guides/rest-api.md) |
-| Architektur | [Multi-Agent](docs/de/architecture/multi-agent.md) · [Recherche-Pipeline](docs/de/architecture/research-pipeline.md) · [LLM-Call](docs/de/architecture/llm-call.md) · [Message Hub](docs/de/architecture/message-hub.md) · [Security](docs/de/architecture/security.md) · [Scheduler](docs/de/architecture/scheduler.md) · [Codebasis](docs/de/architecture/codebase.md) |
+| Nutzen & erweitern | [Plugins](docs/de/guides/plugins-overview.md) · [Drucker](docs/de/guides/plugins/printer.md) · [Google Suite](docs/de/guides/plugins/google-suite.md) · [Plugin-Entwicklung](docs/de/guides/plugin-development.md) · [REST API](docs/de/guides/rest-api.md) |
+| Architektur | [Multi-Agent](docs/de/architecture/multi-agent.md) · [Recherche-Pipeline](docs/de/architecture/research-pipeline.md) · [LLM-Call](docs/de/architecture/llm-call.md) · [Message Hub](docs/de/architecture/message-hub.md) · [Security](docs/de/architecture/security.md) · [Scheduler](docs/de/architecture/scheduler.md) · [Sprachausgabe / TTS-Eskalation](docs/de/architecture/tts-escalation.md) · [Codebasis](docs/de/architecture/codebase.md) |
 | Kalibrierung | [Strategie](docs/de/architecture/calibration-strategy.md) · [vLLM](docs/de/architecture/calibration-vllm.md) |
 | Benchmarks | [vLLM-Autokalibrierung](docs/de/benchmarks/vllm-autocalibration.md) · [Quantisierungsqualität](docs/de/benchmarks/quantization-quality.md) · [Tensor Split](docs/de/benchmarks/tensor-split.md) |
 

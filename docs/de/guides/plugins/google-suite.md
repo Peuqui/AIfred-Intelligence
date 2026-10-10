@@ -186,14 +186,75 @@ AIfred ruft `google_drive_search(query="Projektplan")` auf.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `google_drive_list_files` | Dateien auflisten (optional nach Ordner gefiltert) | READONLY |
-| `google_drive_search` | Volltextsuche im Drive | READONLY |
-| `google_drive_get_file` | Dateiinhalt lesen (Google Docs → Klartext, Sheets → CSV) | READONLY |
+| `google_drive_list_files` | Inhalt eines Ordners im Agenten-Ordner auflisten (ohne `folder_id`: der Agenten-Ordner selbst) | WRITE_DATA |
+| `google_drive_search` | Volltextsuche im Agenten-Ordner | WRITE_DATA |
+| `google_drive_get_file` | Dateiinhalt lesen (Google Docs → Klartext, Sheets → CSV; Obergrenze 5 MB) | WRITE_DATA |
 | `google_drive_create_file` | Neue Textdatei erstellen und befüllen | WRITE_DATA |
 | `google_drive_update_file` | Dateiinhalt überschreiben | WRITE_DATA |
-| `google_drive_delete_file` | Datei dauerhaft löschen | WRITE_DATA |
+| `google_drive_delete_file` | Datei dauerhaft löschen (kein Papierkorb) | WRITE_SYSTEM |
 | `google_drive_create_folder` | Neuen Ordner erstellen | WRITE_DATA |
 | `google_drive_move_file` | Datei in anderen Ordner verschieben | WRITE_DATA |
+
+Die Lese-Tools sind bewusst `WRITE_DATA`: Sie legen private Drive-Inhalte offen und
+bleiben damit für externe Kanäle (E-Mail, Discord, Telegram) gesperrt. Die Obergrenze
+für `google_drive_get_file` ist `DRIVE_MAX_DOWNLOAD_BYTES` (Umgebungsvariable,
+Standard 5 MiB).
+
+## Agenten-Ordner
+
+**Datei:** `aifred/plugins/tools/google_suite/drive/agent_folder.py`
+
+Die Agenten arbeiten nur in **einem** Drive-Ordner. Sein Name steht in der Einstellung
+`GOOGLE_DRIVE_AGENT_FOLDER` (Plugin-Einstellungen, Standard `AIfred-Intelligence`); der
+Ordner wird direkt unter „Meine Ablage“ gesucht und beim ersten Zugriff angelegt, wenn
+er fehlt.
+
+- **Innerhalb frei:** lesen, schreiben, verschieben, löschen und Unterordner anlegen — im Agenten-Ordner und in allen Unterordnern.
+- **Nie der Ordner selbst:** Ändern, Verschieben und Löschen des Agenten-Ordners lehnen die Tools ab.
+- **Nichts außerhalb:** Jede `file_id` oder `folder_id` außerhalb des Agenten-Ordners wird mit einer Fehlermeldung abgewiesen. Ohne `folder_id` gilt der Agenten-Ordner. Die Suche liefert nur Treffer von innen.
+- Die Grenze wird bei jedem Aufbau des Toolkits neu bestimmt; eine umbenannte Einstellung oder ein inzwischen angelegter Ordner gilt ab dem nächsten Turn.
+- Gibt es mehrere gleichnamige Ordner in „Meine Ablage“, ist die Grenze nicht eindeutig und die Tools melden einen Fehler; ein leerer Einstellungswert ebenso.
+- Das **Dokumentenfenster** des Anwenders geht nicht durch diese Grenze: Es sieht das ganze Drive (siehe unten).
+
+## Drive im Dokumentenfenster
+
+**Dateien:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/state/_document_mixin.py`, `aifred/ui/modals/documents.py`, `aifred/lib/api/documents.py`
+
+Ist der Drive-Sub-Service aktiv (`GOOGLE_DRIVE_ENABLED`) und Google verbunden, erscheint im
+Dokumentenfenster neben dem lokalen Ordner eine zweite Quelle „Google Drive“
+(Umschalter oben). Es ist eine Live-Ansicht, kein Abbild des Drives.
+
+| Funktion | Verhalten |
+|----------|-----------|
+| Durchsuchen | Ordner öffnen, Pfad-Leiste, Hoch/Wurzel; Aktualisieren-Schaltfläche. Ohne Ordner-Auswahl beginnt die Ansicht in „Meine Ablage“ |
+| Suche | Eingabefeld in der Werkzeugleiste, durchsucht das ganze Drive nach Dateiname und Volltext (höchstens 100 Treffer, nach Relevanz) |
+| Download | Pfeil-Symbol je Datei; die Datei wird gestreamt, nicht durch den Reflex-State geleitet (`GET /api/documents/source/{key}/file/{id}`, Login-Cookie). 404 bei unbekannter Quelle, 502 bei Fehler der Quelle |
+| Export | Googles eigene Formate haben keine Datei und werden exportiert: Docs → `.docx`, Sheets → `.xlsx`, Slides → `.pptx`, Zeichnungen → `.pdf`. Andere Google-Formate und Ordner sind nicht herunterladbar |
+| Upload | Der Upload des Dokumentenfensters lädt in den gerade geöffneten Drive-Ordner (Wurzel: „Meine Ablage“); es gilt dieselbe Größenobergrenze wie lokal (`DOCUMENT_MAX_FILE_SIZE_MB`) |
+
+Nicht verfügbar für Drive-Zeilen: Indexieren, Umbenennen, Löschen und Vorschau — das bleibt
+dem lokalen Ordner vorbehalten.
+
+### Architektur: Dokumentenquellen
+
+Das Dokumentenfenster kennt keine Plugins. Ein Tool-Plugin bietet eine Quelle über das
+optionale Attribut `document_source` an (ein Objekt, das das Protokoll `DocumentSource` aus
+`aifred/lib/document_sources.py` erfüllt, oder `None`, solange das Plugin sie nicht anbietet).
+`document_sources()` sammelt sie bei den aktivierten, verfügbaren Plugins ein; ein
+deaktiviertes Plugin bietet schlicht keine Quelle an (Plugin-Atomarität, der Kern importiert
+kein Plugin).
+
+| Teil | Aufgabe |
+|------|---------|
+| `key`, `label(lang)` | stabile Kennung (`google_drive`) und Name im Umschalter |
+| `list_folder(folder_id)` | Ordnerinhalt; Ordner werden über IDs angesprochen, `""` = Wurzel |
+| `search(query)` | Suche über die ganze Quelle |
+| `download(file_id)` | gestreamter Download (`SourceDownload`) |
+| `upload(folder_id, name, data, mime)` | Datei hochladen |
+
+Quellen werfen nur `DocumentSourceError` (Meldung für den Anwender, erscheint als Toast).
+Der Zustand (aktive Quelle, Ordnerpfad, Suchbegriff) liegt in `_document_mixin.py`.
+Eine weitere Quelle (z. B. Nextcloud) braucht damit nur ein Plugin mit `document_source`.
 
 ### Parameter `google_drive_search`
 

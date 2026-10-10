@@ -11,20 +11,24 @@ Alles bleibt geladen bis die nächste Anforderung etwas anderes braucht.
 
 Die vier GPU-Engines **XTTS**, **MOSS-TTS**, **Qwen3-TTS** und **Fish-Speech**
 belegen VRAM (jeweils Docker-Container mit GPU, Port je Engine: `default_port`).
-Piper, Edge, eSpeak, DashScope brauchen kein VRAM. Dieselben Container können auf
-einem anderen Rechner laufen (Eintrag in `tts_hosts`).
+Piper, Edge, eSpeak, DashScope Qwen-Audio 3 und die Browser-Engine brauchen kein VRAM.
+Dieselben Container können auf einem anderen Rechner laufen (Eintrag in `tts_hosts`).
+Die Engines liegen je in `aifred/lib/tts_engines/<key>/`, das gemeinsame Container-Gerüst steht
+in `base.py` (siehe [tts-container-conventions.md](tts-container-conventions.md)).
 
-Die Engine, für die das LLM-Profil (`<modell>-tts-<engine>`) Platz reserviert, schaltet
-der Browser (`ensure_tts_state`). Kanäle schalten sie nie um.
+Die Engine, für die das LLM-Profil (`<modell>-tts-<engine>`) Platz reserviert, plant die
+Eskalationsliste (`planned_tts_engine()`); den VRAM-Stand dafür stellt der Browser her
+(`ensure_tts_state`). Kanäle schalten sie nie um. Aufbau, Reihenfolge und Hosts der Liste:
+[tts-escalation.md](tts-escalation.md).
 
 ## Eskalationsliste (Browser, FreeEcho.2, Narrator)
 
 Browser, Kanäle mit eigenem Lautsprecher (FreeEcho.2) und der Narrator wählen ihre
 Engine nicht selbst, sondern über die **globale Eskalationsliste** (`lib/tts_escalation.py`).
-Zwei Listen in `settings.json`:
+Zwei Listen in `settings.json` (ausführlich in [tts-escalation.md](tts-escalation.md)):
 
 - `tts_hosts`: andere Rechner, die TTS-Container mit derselben API betreiben
-  (`name`, `address`, optional `ports` je Engine). Dieser Rechner ist implizit.
+  (`name`, `address`, `enabled`, `ssh`, optional `ports` je Engine). Dieser Rechner ist implizit.
 - `tts_escalation`: geordnete Einträge `{"engine", "host", "enabled"}`; `host: null`
   = dieser Rechner (bzw. Cloud). Der erste passende Eintrag von oben spricht.
 
@@ -32,9 +36,10 @@ Ein Eintrag **passt**, wenn er aktiv ist und:
 
 | Art | Bedingung |
 |-----|-----------|
-| Remote (Container auf `host`) | Health-Abfrage antwortet. Der Mini startet oder stoppt dort nie etwas. |
-| Lokal, GPU (XTTS, Qwen3, MOSS, Fish) | Container läuft — oder sein gemessener Burn-in-Peak (`tts_vram_cache`) + `LLAMACPP_TTS_BURNIN_HEADROOM_MB` passt in den **freien** Speicher einer Karte: bevorzugt die Sammelkarte (`pick_tts_gpu`), sonst die Karte mit dem meisten freien Speicher; dort wird er gestartet. Ohne Messwert passt er nicht. Lädt später ein Modell, das die Karte braucht, räumt der GPU-Wächter der Backends den Container ab (`_release_tts_for_load`), außer der Engine, für die ein `-tts-<engine>`-Profil auf der Sammelkarte reserviert. |
+| Remote (Container auf `host`) | Host ist eingeschaltet und die Health-Abfrage antwortet. Ist beim Host ein SSH-Ziel (`ssh`) eingetragen und der Container schläft, startet AIfred ihn über `scripts/tts-host-ctl.sh` und wartet bis `startup_timeout_s`; ohne SSH-Ziel läuft er von selbst oder der Eintrag fällt aus. |
+| Lokal, GPU (XTTS, Qwen3, MOSS, Fish) | Docker-Image ist gebaut und der Container läuft — oder sein gemessener Burn-in-Peak (`tts_vram_cache`) + `LLAMACPP_TTS_BURNIN_HEADROOM_MB` passt in den **freien** Speicher einer Karte: bevorzugt die Sammelkarte (`pick_tts_gpu`), sonst die Karte mit dem meisten freien Speicher; dort wird er gestartet. Ohne Messwert passt er nicht. Lädt später ein Modell, das die Karte braucht, räumt der GPU-Wächter der Backends den Container ab (`_release_tts_for_load`), außer der Engine, für die ein `-tts-<engine>`-Profil auf der Sammelkarte reserviert. |
 | Lokal ohne GPU / Cloud | Engine ist verfügbar (`is_running`, bei DashScope: API-Key gesetzt). |
+| Browser | nur wenn die Antwort in eine offene Browser-Sitzung geht; sonst übersprungen. |
 
 **Das Hauptmodell wird für TTS nie neu geladen.** Passt die lokale TTS nicht (z. B.
 DeepSeek auf allen Karten), geht es still zum nächsten Eintrag — Aragon, Cloud, Piper.
@@ -60,7 +65,7 @@ Debug-Konsole und `debug.log` (englisch):
 🔊 [FreeEcho.2 buero] TTS escalation: skip xtts@Aragon (not serving on 10.0.0.2)
 🔊 [FreeEcho.2 buero] TTS escalation: qwen3local@local speaks
 🔊 [FreeEcho.2 buero] TTS escalation: qwen3local@local failed (unreachable): …
-🔊 [FreeEcho.2 buero] TTS escalation: voice change announced, dashscope@local continues
+🔊 [FreeEcho.2 buero] TTS escalation: voice change announced, dashscope_audio3@cloud continues
 ```
 
 ## Anderer Rechner als TTS-Host
@@ -77,7 +82,7 @@ und stoppt sie dort per SSH, genau wie lokal: Die Container beenden sich nach Le
    TTS_GPU_UUID=GPU-…            # nvidia-smi -L
    XTTS_KEEP_ALIVE=30            # bzw. QWEN3_KEEP_ALIVE=30: Minuten Leerlauf bis zum Selbst-Stopp
    ```
-3. AIfreds Steuer-Schlüssel (AIfred-Rechner: `~/.ssh/aifred_tts_host.pub`) in
+3. Der Steuer-Schlüssel von AIfred (AIfred-Rechner: `~/.ssh/aifred_tts_host.pub`) in
    `~/.ssh/authorized_keys` des TTS-Hosts, festgelegt auf das Steuer-Skript — damit kann AIfred
    nur TTS-Container starten und stoppen, sonst nichts:
    ```
@@ -87,8 +92,8 @@ und stoppt sie dort per SSH, genau wie lokal: Die Container beenden sich nach Le
    `netsh interface portproxy`), ebenso den SSH-Port.
 5. In AIfred: Sprachausgabe → „Andere Rechner“ Name, Adresse und SSH-Ziel (`user@host:port`)
    eintragen, dann Einträge „XTTS · <Name>“ / „Qwen3-TTS · <Name>“ hinzufügen und einsortieren.
-   Der Schalter des Rechners auf der Hauptseite stoppt seine Container (VRAM frei) bzw. erlaubt
-   AIfred, sie zu starten. Weichen Ports ab: `tts_hosts[].ports` in `settings.json`.
+   Der Schalter des Rechners auf der Hauptseite (`tts_hosts[].enabled`) stoppt seine Container
+   (VRAM frei) bzw. erlaubt AIfred, sie zu starten. Weichen Ports ab: `tts_hosts[].ports` in `settings.json`.
 
 Die Stimmen kommen aus `docker/tts/voices/` des Repos — gleicher Stand auf beiden Rechnern,
 sonst fehlt die Stimme und der Eintrag fällt aus.
@@ -118,7 +123,7 @@ sonst fehlt die Stimme und der Eintrag fällt aus.
 
 ### Chat-Vermerk
 Neben dem Abspielknopf der Bubble steht, wer gesprochen hat (`SpeechRun.note()`, Feld `tts_note`),
-bei einem Wechsel mit Grund, z. B. „🔊 XTTS · Aragon → DashScope · Cloud (Serverausfall)“. Beim
+bei einem Wechsel mit Grund, z. B. „🔊 XTTS · Aragon → DashScope Audio 3 · Cloud (Serverausfall)“. Beim
 Streaming kommt er per Push `bubble_tts_note` (custom.js).
 
 ## Autoplay + Streaming
@@ -129,6 +134,10 @@ Streaming kommt er per Push `bubble_tts_note` (custom.js).
 | ON | OFF | Queue: Gesamtes Audio nach Inferenz, dann abspielen |
 | OFF | * | Audio wird generiert (Play-Button), aber nicht automatisch abgespielt. Streaming-Wert wird ignoriert. |
 
+„Streaming“ ist kein eigener Schalter, sondern folgt der Einheit der Sprachausgabe des obersten
+aktiven Listeneintrags (`tts_speech_unit`): jede Einheit außer `whole` heißt Streaming. Siehe
+[tts-escalation.md](tts-escalation.md).
+
 ## Voice-Auflösung
 
 SSOT für alle Wege (Browser, FreeEcho.2, Neusynthese): `resolve_voice()` in
@@ -138,7 +147,8 @@ eines anderen Agenten.
 2. User-Setting für AIfred (nur wenn der Agent keins hat)
 3. Engine-Default des Agenten aus `data/agents.json` (`tts_voices.<engine>`, via `get_tts_voice_default()`)
 4. Engine-Default von AIfred aus `data/agents.json`, wenn der Default des Agenten keine Voice hat
-5. Keine Voice → der Eintrag fällt aus (`TTSFailure`), die Liste geht weiter
+5. Standardstimme der Engine (`default_voice`, z. B. `Auto` im Browser, `Mary` bei DashScope)
+6. Keine Voice → der Eintrag fällt aus (`TTSFailure`), die Liste geht weiter
 
 Der Narrator nutzt `narrator_voices[engine]`, sonst die erste eigene Stimme der Engine.
 
@@ -160,7 +170,10 @@ Bei der Intent-Detection (`format_intent_result()` in `intent_detector.py`):
 
 | Funktion | Datei | Beschreibung |
 |----------|-------|-------------|
-| `ensure_tts_state()` | `tts_engine_manager.py` | SSOT: Prüft/stellt VRAM-State her |
+| `ensure_tts_state()` | `tts_engine_manager.py` | SSOT: Prüft/stellt den VRAM-Stand für die geplante Engine her |
+| `planned_tts_engine()` | `lib/tts_escalation.py` | Engine, für die das LLM-Profil Platz hält (oberster aktiver lokaler GPU-Eintrag mit TTS-Profil) |
+| `place_local_gpu_engine()` | `lib/tts_escalation.py` | Kartenwahl für lokale GPU-Engines (Burn-in-Peak + Reserve, Sammelkarte zuerst) |
+| `acquire_tts()` / `release_tts()` | `tts_engine_manager.py` | Referenzzähler: eine laufende Pipeline schützt ihre Engine vor dem Stopp |
 | `_do_switch()` | `tts_engine_manager.py` | Voller Engine-Wechsel (entladen → laden) |
 | `_edit_tts_lists()` / `_apply_planned_tts()` | `_tts_config_mixin.py` | Listen-Editor im Menü, VRAM-Neuplanung |
 | `SpeechRun` / `choose_speaker()` | `lib/tts_escalation.py` | Eskalationsliste: Auswahl, Ausfall, Ansage |

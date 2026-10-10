@@ -2,7 +2,7 @@
 
 > **English version:** [tts-container-conventions.md](../../en/architecture/tts-container-conventions.md)
 
-Stand: 2026-09-25. Lebendes Dokument.
+Stand: 2026-10-10. Lebendes Dokument.
 
 Wenn AIfred eine neue TTS-Engine als Docker-Container einbindet, soll
 sie sich an die Konventionen unterhalb fügen. So bleibt das Audio-Setup
@@ -102,10 +102,83 @@ Body ist die Audio-Datei. Kein JSON-Wrapping um die Bytes — wir sparen
 uns das base64-Decodieren auf der AIfred-Seite.
 
 Implementierung pro Engine: die `generate_speech()`-Methode der jeweiligen
-`TTSEngine`-Subklasse unter
-[`aifred/lib/tts_engines/<engine>.py`](../../../aifred/lib/tts_engines/)
-(z.B. `xtts.py`). `audio_processing.py` dispatcht nur noch auf
-`eng.generate_speech_async(...)`.
+`TTSEngine`-Subklasse in
+[`aifred/lib/tts_engines/<key>/engine.py`](../../../aifred/lib/tts_engines/)
+(z.B. `xtts/engine.py`). Container-Engines rufen dafür `_synthesize_via_http()` der
+Basisklasse auf. `audio_processing.py` dispatcht nur auf `eng.generate_speech_async(...)`.
+
+---
+
+## Engine-Struktur im Code
+
+Jede Engine liegt in **einem eigenen Ordner** `aifred/lib/tts_engines/<key>/`:
+
+```
+aifred/lib/tts_engines/
+├── base.py              # TTSEngine: Basisklasse samt Container-Gerüst
+├── registry.py          # findet die Ordner, baut TTS_ENGINES
+├── xtts/
+│   ├── engine.py        # die TTSEngine-Subklasse
+│   └── i18n.json        # {"de": "...", "en": "..."} — Beschriftung für Dropdowns
+├── qwen3local/ · moss/ · fishspeech/ · piper/ · edge/ · espeak/ · browser/ · dashscope_audio3/
+```
+
+- Der **Ordnername ist der Engine-Key**. `registry.py` importiert `*/engine.py` jedes Ordners;
+  die `TTSEngine`-Subklasse meldet sich damit an, sortiert nach `display_order`. Es gibt kein
+  zentrales Dict und keine Liste, die mitzupflegen wäre.
+- `i18n.json` enthält die lange Beschriftung in Deutsch und Englisch (`engine.label(lang)`).
+- Die **Standard-Eskalationsliste** einer frischen Installation leitet sich aus den Engines ab:
+  alle mit `in_default_escalation = True`, in `display_order`
+  (`registry.default_escalation()`, über `config.default_tts_escalation()` in
+  `DEFAULT_SETTINGS["tts_escalation"]`). Der Browser hat die höchste `display_order` und
+  steht damit zuletzt. Siehe [tts-escalation.md](tts-escalation.md).
+
+### Container-Gerüst in `base.py`
+
+Start, Stopp und Bereitschaft eines Containers stehen **einmal** in
+[`base.py`](../../../aifred/lib/tts_engines/base.py) (`start()`, `stop()`, `ensure_ready()`,
+`is_running()`). Eine Container-Engine setzt nur Klassenattribute und überschreibt Haken, wo
+ihr Container abweicht:
+
+| Attribut / Haken | Bedeutung | Standard |
+|------------------|-----------|----------|
+| `runs_in_container`, `needs_gpu` | Docker-Container; belegt VRAM | `False` |
+| `image_name` | lokales Docker-Image — dessen Existenz entscheidet über „installiert“ (`is_installed()`) | `None` |
+| `compose_subdir` | Ordner unter `docker/tts/`, wenn er vom Key abweicht (`moss` → `moss-tts`) | Key |
+| `default_port` | Port der REST-API; `None` = kein REST (Cloud/CLI), die Engine kann nicht auf einem anderen Rechner laufen | `None` |
+| `health_path` | Health-Endpunkt relativ zur Service-URL | `/health` |
+| `_model_ready(health)` | wann die Health-Antwort „Modell geladen“ heißt | `health["model_loaded"]` |
+| `_device(health)` | Rechenziel aus der Health-Antwort (`cuda:0`, `cpu`) | `health["device"]` |
+| `startup_timeout_s` | Sekunden, bis Container und Modell bereit sein müssen (> 0 bei Container-Engines) | 0 |
+| `restart_when_on_cpu` | Container einmal neu starten, wenn er auf der CPU landet, obwohl eine GPU frei ist (MOSS) | `False` |
+| `max_parallel_requests` | gleichzeitige Synthesen je Engine und Rechner | 2 |
+| `in_default_escalation` | Teil der Standard-Eskalationsliste | `False` |
+| `cloud` | Text verlässt das Haus (Etikett in der Liste) | `False` |
+| `default_speech_unit` | Standard-Einheit der Sprachausgabe (`sentence`/`paragraph`/`whole`) | `sentence` |
+| `default_voice` | Stimme, wenn weder User noch `agents.json` eine nennen | `None` |
+
+Zeiten der vorhandenen Container-Engines: XTTS 60 s, Qwen3-TTS 240 s, MOSS 180 s, Fish-Speech
+600 s (`startup_timeout_s`); Qwen3-TTS hat `max_parallel_requests = 1`.
+
+Dasselbe Gerüst gilt für Container auf einem anderen Rechner (`at_host()`): dort wird nichts
+von hier gestartet, nur die Health-Abfrage genutzt, der Host startet seine Container selbst
+(siehe [tts-vram-workflow.md](tts-vram-workflow.md)).
+
+### Vollständigkeitstest
+
+[`tests/test_tts_engine_completeness.py`](../../../tests/test_tts_engine_completeness.py)
+prüft für alle Engines:
+
+- Jeder Ordner mit `engine.py` enthält genau eine registrierte Engine; der Ordnername ist der Key.
+- Jede Engine hat ihren Ordner (`package_dir`) und nicht-leere Beschriftungen in `de` und `en`,
+  die sich über `tts_key_to_label` / `tts_label_to_key` verlustfrei umkehren lassen.
+- Jede Container-Engine stimmt mit ihrer `docker-compose.yml` überein (`image:`-Name,
+  Host-Port `default_port`) und hat `startup_timeout_s > 0`.
+- Engines ohne Container deklarieren weder `image_name` noch eine compose-Datei.
+- Die Standard-Eskalationsliste kommt aus den Engines, der Browser steht zuletzt, alle Einträge
+  sind aktiv und `host: null`.
+
+---
 
 ---
 
@@ -204,7 +277,7 @@ plant, wird die Reserve pro Engine **gemessen**, nicht von Hand gepflegt:
 
 Handgesetzte Reserven pro Engine gibt es nicht: Die Kalibrierung nutzt
 ausschließlich `resolve_tts_reserve()`. Engines, die während der Generierung
-wachsen (Qwen3-TTS, Fish-Speech), überschreiben `calibration_setup()`, damit der
+wachsen (XTTS, Qwen3-TTS, Fish-Speech), überschreiben `calibration_setup()`, damit der
 Container während der Kalibrierung kalt bleibt — der Burn-in-Peak enthält seinen
 Leerlauf-Bedarf bereits.
 
@@ -220,16 +293,21 @@ Leerlauf-Bedarf bereits.
 3. **Idle-Watchdog** mit `<ENGINE>_KEEP_ALIVE` ergänzen.
 4. **Vorwärmung im Server-Code**, wenn möglich (Voice-Embeddings in
    `_clone_prompts`/`_custom_voices` o.ä. beim Startup).
-5. **`generate_speech()`-Methode** in der neuen `TTSEngine`-Subklasse
-   unter `aifred/lib/tts_engines/<engine>.py` — nur Text + Speaker-Name +
-   Sprache senden. Antwort als Audio-Body schreiben, niemals base64.
-6. **Engine-Registrierung**: nur die `TTSEngine`-Subklasse (mit `key`,
-   `label_short`, `needs_gpu`, `image_name`, `compose_subdir` falls der Ordnername
-   vom Key abweicht) in `aifred/lib/tts_engines/<engine>.py` —
-   [`registry.py`](../../../aifred/lib/tts_engines/registry.py) findet sie
-   automatisch und baut `TTS_ENGINES`, kein manueller Eintrag.
+5. **Engine-Ordner** `aifred/lib/tts_engines/<key>/` mit `engine.py` (`TTSEngine`-Subklasse:
+   `key`, `label_short`, `display_order`, bei Container-Engines `runs_in_container`, `needs_gpu`,
+   `image_name`, `default_port`, `startup_timeout_s`, ggf. `compose_subdir`, `health_path`,
+   `_model_ready`, `_device`, `restart_when_on_cpu`) und `i18n.json` (`de`/`en`). Der Ordnername
+   ist der Key und muss dem Suffix der llama-swap-Profile `<modell>-tts-<key>` entsprechen.
+   Start/Stopp/Bereitschaft kommen aus der Basisklasse — nicht nachbauen.
+6. **`generate_speech()`**: nur Text + Speaker-Name + Sprache senden (bei Container-Engines
+   über `_synthesize_via_http()`), Antwort als Audio-Body, niemals base64; bei Ausfall
+   `TTSFailure` werfen statt `None` zurückzugeben.
+   **Registrierung:** nichts weiter — [`registry.py`](../../../aifred/lib/tts_engines/registry.py)
+   findet den Ordner automatisch. Soll die Engine in der Standard-Eskalationsliste stehen:
+   `in_default_escalation = True`.
 7. **VRAM-Reserve**: nichts zu pflegen — der Stress-Burn-In misst sie bei der
    ersten Kalibrierung (siehe oben).
 8. **Port** nach Schema.
+   Zum Schluss `python -m pytest tests/test_tts_engine_completeness.py`.
 9. Calibration-Profil im `~/.config/llama-swap/config.yaml` als
    `<model>-tts-<engine>` Variante (siehe AIfred-Calibration-Doku).

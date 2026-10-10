@@ -11,15 +11,16 @@ one, update the other.
 
 | Doc | EN · DE | Content |
 |---|---|---|
-| Deployment | [EN](en/guides/deployment.md) · [DE](de/guides/deployment.md) | Fresh install, services, `.env`, Polkit, reverse proxy, calibration, vision + Vigilantia setup |
+| Deployment | [EN](en/guides/deployment.md) · [DE](de/guides/deployment.md) | Fresh install, services, `.env`, Polkit, reverse proxy, calibration, TTS hosts (other machines with TTS containers), vision + Vigilantia setup |
 | llama.cpp + llama-swap | [EN](en/guides/llamacpp-setup.md) · [DE](de/guides/llamacpp-setup.md) | 3-tier architecture, autoscan, GPU management |
-| Configuration & operation | [EN](en/guides/configuration.md) · [DE](de/guides/configuration.md) | Backends, settings, reasoning, history compression, ChromaDB, performance, multi-user |
-| REST API | [EN](en/guides/rest-api.md) · [DE](de/guides/rest-api.md) | Browser remote control, endpoints, auth, examples |
+| Configuration & operation | [EN](en/guides/configuration.md) · [DE](de/guides/configuration.md) | Backends, settings, speech output (TTS escalation list), reasoning, history compression, ChromaDB, `.env` keys and plugin settings, performance, multi-user |
+| REST API | [EN](en/guides/rest-api.md) · [DE](de/guides/rest-api.md) | Browser remote control, endpoints, auth, spoken announcements, examples |
 | Plugin overview | [EN](en/guides/plugins-overview.md) · [DE](de/guides/plugins-overview.md) | All tool + channel plugins, security tiers |
 | Plugin development | [EN](en/guides/plugin-development.md) · [DE](de/guides/plugin-development.md) | Writing tool/channel plugins, templates in `docs/examples/` |
 | Telegram setup | [EN](en/guides/telegram-setup.md) · [DE](de/guides/telegram-setup.md) | Bot creation, allowlist, first contact |
 | Discord setup | [EN](en/guides/discord-setup.md) · [DE](de/guides/discord-setup.md) | Bot creation, IDs, allowlist |
-| Per-plugin guides | [EN](en/guides/plugins/) · [DE](de/guides/plugins/) | One doc per plugin (email, discord, vision, workspace, …) |
+| Per-plugin guides | [EN](en/guides/plugins/) · [DE](de/guides/plugins/) | One doc per plugin (email, discord, vision, workspace, google-suite incl. Drive agent folder, …) |
+| Printer plugin | [EN](en/guides/plugins/printer.md) · [DE](de/guides/plugins/printer.md) | Printing and printer status through CUPS |
 
 ## Architecture
 
@@ -28,7 +29,7 @@ one, update the other.
 | Multi-agent system | [EN](en/architecture/multi-agent.md) · [DE](de/architecture/multi-agent.md) | Agents, discussion modes, prompt layers, perspectives |
 | Research pipeline | [EN](en/architecture/research-pipeline.md) · [DE](de/architecture/research-pipeline.md) | When agents research, pre-processing, pipeline, code map |
 | LLM call | [EN](en/architecture/llm-call.md) · [DE](de/architecture/llm-call.md) | The path of a single LLM call through the stack |
-| Codebase overview | [EN](en/architecture/codebase.md) · [DE](de/architecture/codebase.md) | Directory map, conventions, checks |
+| Codebase overview | [EN](en/architecture/codebase.md) · [DE](de/architecture/codebase.md) | Directory map (incl. `tts_engines/<key>/`), conventions, checks |
 | Message Hub | [EN](en/architecture/message-hub.md) · [DE](de/architecture/message-hub.md) | Headless channel processing: listeners, envelopes, routing table |
 | Scheduler | [EN](en/architecture/scheduler.md) · [DE](de/architecture/scheduler.md) | Job store, cron, webhook API |
 | Security | [EN](en/architecture/security.md) · [DE](de/architecture/security.md) | Tiers, owner elevation, auth |
@@ -43,7 +44,8 @@ one, update the other.
 | Vision routing | [EN](en/architecture/vision-routing.md) · [DE](de/architecture/vision-routing.md) | Swap vs. no-swap decision for vision workloads |
 | TTS container conventions | [EN](en/architecture/tts-container-conventions.md) · [DE](de/architecture/tts-container-conventions.md) | Rules for integrating new TTS engines |
 | TTS + VRAM workflow | [EN](en/architecture/tts-vram-workflow.md) · [DE](de/architecture/tts-vram-workflow.md) | TTS container lifecycle for browser and FreeEcho.2 |
-| DashScope voice cloning | [EN](en/architecture/dashscope-voice-cloning.md) · [DE](de/architecture/dashscope-voice-cloning.md) | Cloud Qwen3-TTS voice cloning |
+| TTS escalation list | [EN](en/architecture/tts-escalation.md) · [DE](de/architecture/tts-escalation.md) | Who speaks (order, hosts, placement), speech unit, browser engine, TTS start API, announce API |
+| DashScope Qwen-Audio 3 | [EN](en/architecture/dashscope-voice-cloning.md) · [DE](de/architecture/dashscope-voice-cloning.md) | Cloud TTS, system voices, voice cloning via enrollment |
 
 ## Benchmarks
 

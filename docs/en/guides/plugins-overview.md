@@ -99,11 +99,13 @@ Isolated Python code execution in subprocess.
 |------|------------|------|
 | `execute_code` | Run Python code (documents read-only) | WRITE_DATA |
 | `execute_code_write` | Run Python code with write access to documents | WRITE_SYSTEM |
+| `render_html` | Render and check an HTML page produced by the sandbox in the headless browser | WRITE_DATA |
 
 **Features:**
 - Isolated subprocess
 - Supports interactive HTML/JS visualizations
 - Timeout protection
+- Library list from `sandbox_libraries.json`, limited compute threads (OpenCV importable)
 
 > **Details:** [Sandbox Plugin](plugins/sandbox.md)
 
@@ -193,7 +195,7 @@ Hardware status: CPU, RAM, GPU, disk, temperature.
 
 **Directory:** `plugins/tools/google_suite/`
 
-OAuth 2.0 integration for Google Calendar and Contacts. Orchestrator plugin with toggleable sub-services.
+OAuth 2.0 integration for Google Calendar, Contacts, Tasks and Drive. Orchestrator plugin with toggleable sub-services. The Tasks and Drive tools are listed in the [plugin guide](plugins/google-suite.md).
 
 | Tool | Description | Tier |
 |------|------------|------|
@@ -212,7 +214,8 @@ OAuth 2.0 integration for Google Calendar and Contacts. Orchestrator plugin with
 
 **Features:**
 - Single OAuth login for all sub-services (scopes aggregated)
-- Sub-services toggleable via `settings.json` (default: Calendar + Contacts on)
+- Sub-services toggleable via `settings.json` (default: all four on)
+- Drive: agents work only in the agent folder (`GOOGLE_DRIVE_AGENT_FOLDER`); the document manager shows the whole Drive (searchable, download incl. export, upload)
 - Group support: categorize contacts, filter by group
 - Fernet-encrypted token storage
 
@@ -240,13 +243,29 @@ Text translation via DeepL API with automatic source language detection. 30+ lan
 
 **File:** `plugins/tools/narrator/`
 
-Narrates whole text documents from the workspace into one MP3 file — chunked and synthesized server-side, the text never passes through the LLM context. Engine, GPU-free fallback and voice (per engine) configurable via the gear icon in the plugin tab.
+Narrates whole text documents from the workspace into one MP3 file — chunked and synthesized server-side, the text never passes through the LLM context. The engine comes from the TTS escalation list; the voice (per engine) is configurable via the gear icon in the plugin tab.
 
 | Tool | Description | Tier |
 |------|-------------|------|
 | `narrate_file` | Narrate a text file into one MP3 audio file | WRITE_DATA |
+| `list_narrator_voices` | List the effective engine's voices | READONLY |
 
 > **Details:** [Narrator Plugin](plugins/narrator.md)
+
+---
+
+### Printer (CUPS)
+
+**File:** `plugins/tools/printer/`
+
+Prints files from the documents area through CUPS and reports printer state, warnings and supply levels. The printers come from CUPS; none is hard-wired in the plugin.
+
+| Tool | Description | Tier |
+|------|------------|------|
+| `print_file` | Print a file from the documents area (copies, pages, duplex) | COMMUNICATE |
+| `printer_status` | State, warnings, job queue and supply levels | READONLY |
+
+> **Details:** [Printer Plugin](plugins/printer.md)
 
 ---
 
@@ -431,6 +450,7 @@ aifred/plugins/
 │   ├── scheduler_tool/     # Scheduled tasks
 │   ├── translator/         # DeepL translation
 │   ├── narrator/           # document → MP3 (narrate_file)
+│   ├── printer/            # printing + printer status (CUPS)
 │   ├── vision/             # Camera snapshots, VLM, face recognition
 │   ├── bible/              # Bible lookup + thematic search
 │   ├── judaica/            # Jewish source corpus

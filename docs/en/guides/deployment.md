@@ -4,7 +4,7 @@
 
 Setup guide for a fresh AIfred installation with the llama.cpp backend (llama-swap).
 
-**Last updated:** 2026-09-25
+**Last updated:** 2026-10-10
 
 > **TL;DR — fastest path:** `./scripts/install-all.sh` from a fresh
 > clone handles dependencies, venv, Playwright, the Reflex routing
@@ -243,17 +243,19 @@ Manager), which writes them back to `.env`.
 | Variable | Purpose |
 |---|---|
 | `MESSAGE_HUB_OWNER` | **Required.** AIfred account that owns Message-Hub sessions (channels, scheduler, webhook); written by `install-all.sh` with the first user — AIfred refuses to start without it |
-| `AIFRED_ALLOWED_HOST` | Your external domain — added to Vite's `allowedHosts` on every start |
+| `AIFRED_ALLOWED_HOST` | Your external domain — becomes Vite's `allowedHosts` (via `vite_allowed_hosts` in `rxconfig.py`) |
 | `INJECT_API_TOKEN` | Token for `/api/chat/inject` (see [REST API](rest-api.md)) |
 | `WEBHOOK_API_TOKEN` | Token for `/api/agent/trigger` |
 | `ANNOUNCE_API_TOKEN` | Bearer token for `/api/audio/announce` |
+| `TTS_CONTROL_API_TOKEN` | Bearer token of the TTS start/stop API (service control page) |
+| `ANNOUNCE_MAX_CHARS`, `ANNOUNCE_MAX_TOTAL_CHARS`, `FREEECHO2_KEEPALIVE_SEC` and further tunables | See [Configuration → Environment variables and plugin settings](configuration.md#environment-variables-and-plugin-settings) |
 | `AIFRED_SESSION_SECRET` | Signs the login cookies (optional — a random secret is persisted otherwise) |
 | `LLAMACPP_URL` | llama-swap URL (default `http://localhost:11435/v1`) |
 | `LLAMACPP_CALIBRATION_PORT` | Port of the temporary calibration server (default `9999`) |
 | `AIFRED_FRONTEND_PATH` | URL prefix when the app lives under a sub-path of a reverse proxy, e.g. `aifred` for `/aifred/` (default: none) |
 | `BACKEND_URL` | Only without a reverse proxy: backend URL for `/_upload/` as seen by the browser |
 | `BRAVE_API_KEY`, `TAVILY_API_KEY` | Optional extra search APIs (SearXNG needs no key) |
-| `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY` | Cloud LLM providers |
+| `ANTHROPIC_API_KEY`, `DASHSCOPE_API_KEY`, `DEEPSEEK_API_KEY`, `MOONSHOT_API_KEY` | Cloud LLM providers; `DASHSCOPE_API_KEY` also enables the cloud TTS engine Qwen-Audio 3 |
 | `DEEPL_API_KEY` | Translator plugin |
 | `TELEGRAM_*`, `DISCORD_*`, `EMAIL_*` | Channel plugins — see the [Telegram](telegram-setup.md) / [Discord](discord-setup.md) guides |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Google Suite plugin ([OAuth](plugins/oauth.md)) |
@@ -327,15 +329,17 @@ Two consequences:
 
 ### Reflex patches
 
-Two patches against Reflex bugs are needed; re-check them after every Reflex
-upgrade:
+`scripts/patch-reflex.py` (run by the installer; `--check` reports whether the
+patches are in place) applies these patches against Reflex 0.9 problems; re-run
+it after every Reflex upgrade:
 
-| Patch | Applied by | Why |
-|---|---|---|
-| `route.py` — `frontend_path` route matching | `scripts/patch-reflex.py` (installer) | Without it `on_load` never fires and the app hangs at "initialising…" |
-| `utils/exec.py` — `run_granian_backend()`: `reload=False`, `respawn_failed_workers=True`, `respawn_interval=3.5` | manual | Without it a backend worker that dies from a C-level crash is never respawned and AIfred stays dead until a manual restart |
+| Patch | Why |
+|---|---|
+| `reflex/utils/exec.py` — `run_granian_backend()`: `reload=False`, `respawn_failed_workers=True`, `respawn_interval=3.5` | Without it a backend worker that dies from a C-level crash is never respawned and AIfred stays dead until a manual restart |
+| `reflex_base/compiler/templates.py` — `resolve.dedupe` in the generated `vite.config.js` | Without it `react-helmet` ends up in several chunks and the browser crashes |
+| `py.typed` markers in `reflex_components_*` and TypeVars moved in `reflex_components_core/core/cond.py` | Only for `mypy` (development), no runtime effect |
 
-The second patch also turns off backend hot reload — restart the service after
+The first patch also turns off backend hot reload — restart the service after
 code changes.
 
 ---
@@ -614,7 +618,7 @@ To calibrate in the AIfred UI:
 2. Click **"Calibrate"** next to the model selector
 3. Pick the variants you want via the **2D matrix picker**:
    - Rows = VLM choices (No VLM / Vigilantia 4B / Vigilantia 8B)
-   - Columns = TTS engines (No TTS / Qwen3-TTS / XTTS / MOSS-TTS / Fish-Speech)
+   - Columns = No TTS plus every local GPU TTS engine whose image is built on this machine (Qwen3-TTS, XTTS, MOSS-TTS, Fish-Speech)
    - Each ticked cell becomes a separate `<base>-vlm-<key>-tts-<engine>`
      llama-swap profile that the chat-path resolver picks up automatically
 4. Click **"Kalibrierung starten"**. The matrix shows three states per cell:
@@ -649,6 +653,54 @@ autoscan's `llama-fit-params` fit. If `llama-fit-params` is missing next to
 32,768, q4_0 KV). Should the projection overestimate what fits, the model
 fails with an OOM error on load or on the first long request — then run
 calibration (or lower `-c` by hand, see [Troubleshooting](#oom-crash--context-too-large)).
+
+---
+
+## 9a. Speech output on several machines (TTS hosts)
+
+Speech output follows the **TTS escalation list** (`tts_escalation` in
+`data/settings.json`, edited in the TTS tab of the Agent Editor; semantics in
+[Configuration → Speech output](configuration.md#speech-output-tts)). Local
+engines run as Docker containers from `docker/tts/<service>/`; AIfred starts
+them on demand and they stop themselves after their idle time
+(`*_KEEP_ALIVE`, in minutes, in the `.env` beside the compose file).
+
+**Local containers**
+- `install-all.sh` builds the images you choose (step "Local TTS containers").
+  It skips an image that already exists, so after a `git pull` that changed a
+  `Dockerfile` rebuild by hand: `cd docker/tts/<service> && docker compose build`.
+- The `server.py` of each service is mounted from the checkout: a code change
+  needs a container restart, no rebuild.
+- Containers are not started at boot (`restart: "no"`); AIfred starts them
+  when a list entry needs them and a card has room.
+- **Voices are read when the container starts.** The reference voices live in
+  `docker/tts/voices/<Name>/<Name>.wav` (plus optional `<Name>.txt`
+  transcript) and are mounted read-only; a voice added or changed later is only
+  seen after the container has been restarted (stop it, the next use starts it
+  again).
+
+### TTS hosts: other machines with TTS containers
+
+A second machine with a GPU can take over TTS (and free the VRAM of the main
+machine). The host runs the same containers with the same API.
+
+1. On the TTS host: clone the repository, build the images you need (as above),
+   and create a `.env` beside each `docker/tts/<service>/docker-compose.yml` with
+   `TTS_GPU_UUID` (card UUID from `nvidia-smi -L`) and optionally the idle time.
+2. Optional, so that AIfred can start and stop the containers: create an SSH key
+   on the AIfred machine at `~/.ssh/aifred_tts_host` and authorise it on the host
+   with a forced command, so it can run nothing but the control script:
+   `command="<path to checkout>/scripts/tts-host-ctl.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 <public key>`.
+   The script accepts `start <service>`, `stop [<service>]` and `status`
+   (`<service>` = a folder in `docker/tts/` with a compose file).
+3. In the Agent Editor (TTS tab) add the machine under "Other machines with TTS
+   containers": name, address, and `user@host:port` for SSH (empty = the
+   containers run on their own). Then add list entries "engine · machine".
+
+**After a `git pull` on a TTS host**, restart its containers so they pick up
+new code and voices: `scripts/tts-host-ctl.sh stop` on that host (or the
+`stop` command over SSH); the next use starts them again. If a `Dockerfile`
+changed, rebuild first.
 
 ---
 

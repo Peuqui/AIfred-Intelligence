@@ -2,7 +2,7 @@
 
 > **Deutsche Version:** [tts-container-conventions.md](../../de/architecture/tts-container-conventions.md)
 
-As of: 2026-09-25. Living document.
+As of: 2026-10-10. Living document.
 
 When AIfred integrates a new TTS engine as a Docker container, it should
 follow the conventions below. This keeps the audio setup
@@ -102,10 +102,81 @@ the body is the audio file. No JSON wrapping around the bytes — we save
 ourselves the base64 decoding on the AIfred side.
 
 Implementation per engine: the `generate_speech()` method of the respective
-`TTSEngine` subclass under
-[`aifred/lib/tts_engines/<engine>.py`](../../../aifred/lib/tts_engines/)
-(e.g. `xtts.py`). `audio_processing.py` now only dispatches to
-`eng.generate_speech_async(...)`.
+`TTSEngine` subclass in
+[`aifred/lib/tts_engines/<key>/engine.py`](../../../aifred/lib/tts_engines/)
+(e.g. `xtts/engine.py`). Container engines call the base class's `_synthesize_via_http()`
+for it. `audio_processing.py` only dispatches to `eng.generate_speech_async(...)`.
+
+---
+
+## Engine Structure in the Code
+
+Every engine lives in **its own folder** `aifred/lib/tts_engines/<key>/`:
+
+```
+aifred/lib/tts_engines/
+├── base.py              # TTSEngine: base class including the container scaffolding
+├── registry.py          # finds the folders, builds TTS_ENGINES
+├── xtts/
+│   ├── engine.py        # the TTSEngine subclass
+│   └── i18n.json        # {"de": "...", "en": "..."} — label for dropdowns
+├── qwen3local/ · moss/ · fishspeech/ · piper/ · edge/ · espeak/ · browser/ · dashscope_audio3/
+```
+
+- The **folder name is the engine key**. `registry.py` imports `*/engine.py` of every folder;
+  the `TTSEngine` subclass thereby registers itself, sorted by `display_order`. There is no
+  central dict and no list to keep in sync.
+- `i18n.json` holds the long label in German and English (`engine.label(lang)`).
+- The **default escalation list** of a fresh install is derived from the engines: all with
+  `in_default_escalation = True`, in `display_order`
+  (`registry.default_escalation()`, via `config.default_tts_escalation()` in
+  `DEFAULT_SETTINGS["tts_escalation"]`). The browser has the highest `display_order` and so
+  comes last. See [tts-escalation.md](tts-escalation.md).
+
+### Container scaffolding in `base.py`
+
+Start, stop and readiness of a container exist **once** in
+[`base.py`](../../../aifred/lib/tts_engines/base.py) (`start()`, `stop()`, `ensure_ready()`,
+`is_running()`). A container engine only sets class attributes and overrides hooks where its
+container differs:
+
+| Attribute / hook | Meaning | Default |
+|------------------|---------|---------|
+| `runs_in_container`, `needs_gpu` | Docker container; occupies VRAM | `False` |
+| `image_name` | local Docker image — its existence decides "installed" (`is_installed()`) | `None` |
+| `compose_subdir` | folder under `docker/tts/` if it differs from the key (`moss` → `moss-tts`) | key |
+| `default_port` | port of the REST API; `None` = no REST (cloud/CLI), the engine cannot run on another machine | `None` |
+| `health_path` | health endpoint relative to the service URL | `/health` |
+| `_model_ready(health)` | when the health answer means "model loaded" | `health["model_loaded"]` |
+| `_device(health)` | compute target from the health answer (`cuda:0`, `cpu`) | `health["device"]` |
+| `startup_timeout_s` | seconds for container and model to become ready (> 0 for container engines) | 0 |
+| `restart_when_on_cpu` | restart the container once if it lands on the CPU although a GPU is free (MOSS) | `False` |
+| `max_parallel_requests` | simultaneous syntheses per engine and machine | 2 |
+| `in_default_escalation` | part of the default escalation list | `False` |
+| `cloud` | the text leaves the house (label in the list) | `False` |
+| `default_speech_unit` | default unit of spoken output (`sentence`/`paragraph`/`whole`) | `sentence` |
+| `default_voice` | voice when neither the user nor `agents.json` names one | `None` |
+
+Times of the existing container engines: XTTS 60 s, Qwen3-TTS 240 s, MOSS 180 s, Fish-Speech
+600 s (`startup_timeout_s`); Qwen3-TTS has `max_parallel_requests = 1`.
+
+The same scaffolding applies to containers on another machine (`at_host()`): nothing is started
+from here, only the health check is used, the host starts its containers itself (see
+[tts-vram-workflow.md](tts-vram-workflow.md)).
+
+### Completeness test
+
+[`tests/test_tts_engine_completeness.py`](../../../tests/test_tts_engine_completeness.py)
+checks for all engines:
+
+- Every folder with an `engine.py` holds exactly one registered engine; the folder name is the key.
+- Every engine has its folder (`package_dir`) and non-empty labels in `de` and `en` that
+  round-trip through `tts_key_to_label` / `tts_label_to_key`.
+- Every container engine matches its `docker-compose.yml` (`image:` name, host port
+  `default_port`) and has `startup_timeout_s > 0`.
+- Engines without a container declare neither `image_name` nor a compose file.
+- The default escalation list comes from the engines, the browser comes last, all entries are
+  enabled and `host: null`.
 
 ---
 
@@ -202,7 +273,7 @@ the reserve per engine is **measured**, not hand-maintained:
   so the idle footprint is not counted twice.
 
 There are no hand-set per-engine reserves: the calibration uses
-`resolve_tts_reserve()` only. Engines that grow during generation (Qwen3-TTS,
+`resolve_tts_reserve()` only. Engines that grow during generation (XTTS, Qwen3-TTS,
 Fish-Speech) override `calibration_setup()` so the container stays cold during
 calibration — the burn-in peak already includes its idle footprint.
 
@@ -218,16 +289,21 @@ calibration — the burn-in peak already includes its idle footprint.
 3. Add an **idle watchdog** with `<ENGINE>_KEEP_ALIVE`.
 4. **Pre-warming in the server code**, if possible (voice embeddings in
    `_clone_prompts`/`_custom_voices` or similar at startup).
-5. **`generate_speech()` method** in the new `TTSEngine` subclass
-   under `aifred/lib/tts_engines/<engine>.py` — send only text + speaker name +
-   language. Write the response as an audio body, never base64.
-6. **Engine registration**: just the `TTSEngine` subclass (with `key`,
-   `label_short`, `needs_gpu`, `image_name`, `compose_subdir` if the folder name
-   differs from the key) in `aifred/lib/tts_engines/<engine>.py` —
-   [`registry.py`](../../../aifred/lib/tts_engines/registry.py) discovers it
-   automatically and builds `TTS_ENGINES`, no manual entry.
+5. **Engine folder** `aifred/lib/tts_engines/<key>/` with `engine.py` (`TTSEngine` subclass:
+   `key`, `label_short`, `display_order`, for container engines `runs_in_container`, `needs_gpu`,
+   `image_name`, `default_port`, `startup_timeout_s`, optionally `compose_subdir`, `health_path`,
+   `_model_ready`, `_device`, `restart_when_on_cpu`) and `i18n.json` (`de`/`en`). The folder name
+   is the key and must match the suffix of the llama-swap profiles `<model>-tts-<key>`.
+   Start/stop/readiness come from the base class — do not rebuild them.
+6. **`generate_speech()`**: send only text + speaker name + language (for container engines
+   via `_synthesize_via_http()`), response as an audio body, never base64; on failure raise
+   `TTSFailure` instead of returning `None`.
+   **Registration:** nothing more — [`registry.py`](../../../aifred/lib/tts_engines/registry.py)
+   discovers the folder automatically. If the engine belongs in the default escalation list:
+   `in_default_escalation = True`.
 7. **VRAM reserve**: nothing to maintain — the stress burn-in measures it on the
    first calibration (see above).
 8. **Port** according to the scheme.
+   Finally run `python -m pytest tests/test_tts_engine_completeness.py`.
 9. Calibration profile in `~/.config/llama-swap/config.yaml` as a
    `<model>-tts-<engine>` variant (see the AIfred calibration docs).
