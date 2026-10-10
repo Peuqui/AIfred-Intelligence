@@ -193,8 +193,11 @@ def docker_compose_action(
         # Pass TTS_GPU_UUID as env variable (no file writes to avoid Reflex hot-reload).
         # Detection is cached per process — see get_tts_gpu_uuid().
         proc_env = os.environ.copy()
-        if action == "up":
-            proc_env["TTS_GPU_UUID"] = gpu_uuid or get_tts_gpu_uuid()
+        # Ohne erkannte Karte bleibt der Wert aus der .env neben der compose-Datei
+        # gültig (eine leere Variable würde ihn überschreiben).
+        card = (gpu_uuid or get_tts_gpu_uuid()) if action == "up" else ""
+        if card:
+            proc_env["TTS_GPU_UUID"] = card
         result = subprocess.run(
             cmd,
             capture_output=True,
