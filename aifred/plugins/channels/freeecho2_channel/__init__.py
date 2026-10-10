@@ -188,10 +188,8 @@ class FreeEchoChannel(ConnectionMixin):
         async def _execute_announce(
             message: str, target: str = "*", audio_type: str = "notification",
         ) -> str:
-            from ....lib.message_processor import (
-                announce_to_channel,
-                resolve_announce_targets,
-            )
+            from ....lib.agent_config import get_agent_config
+            from ....lib.message_processor import announce_into_rooms, resolve_announce_targets
 
             if audio_type not in ("alarm", "notification"):
                 # Geloggt statt still koerziert (Projekt-Regel) — tts_reply
@@ -209,12 +207,11 @@ class FreeEchoChannel(ConnectionMixin):
                              f"{target!r}",
                 })
             meta = {"audio_type": audio_type, "proactive": True}
-            reached = []
-            for room in rooms:
-                if await announce_to_channel(
-                    "freeecho2", room, message, session_id=None, metadata=meta,
-                ):
-                    reached.append(room)
+            # Like the announce API: a bubble in each room's session (the agent
+            # as sender) with what the puck speaks kept on it.
+            agent = get_agent_config(ctx.agent_id)
+            speaker = agent.display_name if agent else ctx.agent_id
+            reached = await announce_into_rooms("freeecho2", rooms, message, speaker, meta)
             return json.dumps({
                 "success": bool(reached),
                 "audio_type": audio_type,

@@ -17,17 +17,26 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
                         lambda channel, target: ["wohnzimmer"] if target in ("*", "wohnzimmer") else [])
     delivered: list[tuple] = []
     recorded: list[tuple] = []
+    order: list[str] = []
 
     async def fake_announce(channel, room, text, *, session_id, metadata):
         delivered.append((channel, room, text, session_id, metadata))
+        order.append("announce")
         return True
 
+    def fake_record(channel, room, title, text, *, speaker):
+        recorded.append((channel, room, title, text, speaker))
+        order.append("record")
+        return f"session-{room}"
+
     # Die Session-Dokumentation nicht in echte Sessions schreiben
-    monkeypatch.setattr(announce, "announce_to_channel", fake_announce)
-    monkeypatch.setattr(announce, "record_autonomous_turn", lambda *args, **kwargs: recorded.append((*args, kwargs["speaker"])))
+    import aifred.lib.message_processor as message_processor
+    monkeypatch.setattr(message_processor, "announce_to_channel", fake_announce)
+    monkeypatch.setattr(message_processor, "record_autonomous_turn", fake_record)
     test_client = TestClient(api_app)
     test_client.delivered = delivered  # type: ignore[attr-defined]
     test_client.recorded = recorded  # type: ignore[attr-defined]
+    test_client.order = order  # type: ignore[attr-defined]
     return test_client
 
 
@@ -51,7 +60,8 @@ def test_announce_leaves_the_tones_to_the_plugin_setting(client: TestClient) -> 
     assert response.status_code == 200
     assert response.json() == {"success": True, "rooms": ["wohnzimmer"]}
     channel, room, text, session_id, metadata = client.delivered[0]  # type: ignore[attr-defined]
-    assert (channel, room, text, session_id) == ("freeecho2", "wohnzimmer", "Hallo", None)
+    # the room's session: the puck's audio is kept on the bubble recorded there
+    assert (channel, room, text, session_id) == ("freeecho2", "wohnzimmer", "Hallo", "session-wohnzimmer")
     # no tone flags from the caller: the Echo plugin's setting decides
     assert metadata == {
         "audio_type": "notification", "proactive": True,
@@ -77,6 +87,8 @@ def test_the_announcement_is_documented_in_the_rooms_session(client: TestClient)
         # Bubble: Sprecher nur in der Kopfzeile; das Modell sieht „Nachricht von <Sprecher>“
         ("freeecho2", "wohnzimmer", "Whisper", "Erster Absatz. Zweiter.", "Whisper"),
     ]
+    # the bubble first, so a short announcement cannot be spoken before it exists
+    assert client.order == ["record", "announce"]  # type: ignore[attr-defined]
 
 
 def test_an_announcement_without_speaker_is_refused(client: TestClient) -> None:

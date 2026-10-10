@@ -17,9 +17,7 @@ from ..config import (
     ANNOUNCE_MAX_CHARS, ANNOUNCE_MAX_PAUSE_MS, ANNOUNCE_MAX_TOTAL_CHARS, ANNOUNCE_PAUSE_MS,
 )
 from ..logging_utils import log_message
-from ..message_processor import (
-    announce_to_channel, record_autonomous_turn, resolve_announce_targets,
-)
+from ..message_processor import announce_into_rooms, resolve_announce_targets
 from .app import api_app
 from .schemas import CallerName
 
@@ -112,17 +110,7 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
         "paragraphs": paragraphs, "pause_ms": pause_ms,
     }
     spoken = " ".join(paragraphs)
-    # The bubble first, then the announcement into its session: the puck's
-    # audio is kept on that bubble (speech_synthesis.keep_spoken_audio), and
-    # a short announcement is spoken before a bubble recorded afterwards
-    # would even exist.
-    reached = []
-    for room in rooms:
-        session_id = record_autonomous_turn("freeecho2", room, request.speaker, spoken, speaker=request.speaker)
-        if await announce_to_channel("freeecho2", room, spoken, session_id=session_id, metadata=metadata):
-            reached.append(room)
-        else:
-            log_message(f"Announce API: {room} not reached — the bubble in its session was not spoken", "warning")
+    reached = await announce_into_rooms("freeecho2", rooms, spoken, request.speaker, metadata)
     if not reached:
         raise HTTPException(status_code=502, detail="the announcement could not be delivered")
     log_message(f"Announce API: {len(paragraphs)} paragraph(s), {total} characters to {reached}")
