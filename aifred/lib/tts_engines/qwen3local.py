@@ -20,6 +20,7 @@ class Qwen3LocalEngine(TTSEngine):
 
     default_port = 5052
     startup_timeout_s = 240
+    max_parallel_requests = 1
 
     @property
     def language_map(self) -> dict[str, str]:
