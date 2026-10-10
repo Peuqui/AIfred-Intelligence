@@ -15,9 +15,13 @@ import atexit
 import httpx
 import edge_tts
 from pathlib import Path
+from typing import TYPE_CHECKING
 from .config import DATA_DIR
 from .i18n import t
 from .logging_utils import log_message
+
+if TYPE_CHECKING:
+    from .tts_engines import TTSEngine
 
 
 # TTS Audio output directory (temporary chunks, 24h cleanup)
@@ -887,13 +891,14 @@ def buffer_has_open_collapsible(text: str) -> bool:
     return False
 
 
-def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
+def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> None:
     """
     Synchronous Edge TTS wrapper - runs in separate event loop.
 
     This is needed because edge_tts uses aiohttp which can conflict with
     Reflex's event loop, causing crashes. Running in a fresh event loop
-    in a thread avoids this issue.
+    in a thread avoids this issue. Errors propagate to the caller, which
+    classifies them for the escalation list.
     """
 
     async def _do_tts():
@@ -905,10 +910,6 @@ def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> bool:
     asyncio.set_event_loop(loop)
     try:
         loop.run_until_complete(_do_tts())
-        return True
-    except Exception as e:
-        log_message(f"❌ Edge TTS sync error: {type(e).__name__}: {e}")
-        return False
     finally:
         loop.close()
 
@@ -1529,14 +1530,25 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
         return "", 0.0
 
 
-async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: float = 1.0, agent: str = "aifred", language: str = "de"):
-    """Generate TTS audio from text via the engine plugin registry.
+async def generate_tts(
+    text: str,
+    voice_choice: str,
+    speed_choice: float,
+    engine: "TTSEngine",
+    pitch: float = 1.0,
+    agent: str = "aifred",
+    language: str = "de",
+) -> str:
+    """Generate TTS audio from text with one engine instance.
 
-    Dispatches to ``eng.generate_speech_async(...)`` — that's the
+    Dispatches to ``engine.generate_speech_async(...)`` — that's the
     one place that knows about each engine. After the engine returns,
     the central ffmpeg post-processor applies pitch / speed for engines
     that don't handle them natively (flagged via
     ``needs_speed_postprocess`` on the engine class).
+
+    Which engine (and on which host) speaks is the escalation list's
+    decision (``aifred.lib.tts_escalation``); this function just runs it.
 
     Args:
         text: Text for TTS (already cleaned).
@@ -1544,31 +1556,25 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
             to mark custom-cloned voices is stripped here so engines
             see the clean name.
         speed_choice: Speed multiplier (e.g. 1.25).
-        tts_engine: Engine key (e.g. ``"xtts"``, ``"moss"``,
-            ``"dashscope"``, ``"piper"``, ``"espeak"``, ``"edge"``).
-            Must be registered in ``aifred.lib.tts_engines``.
+        engine: Engine instance — from the registry (this machine) or
+            bound to a remote host.
         pitch: Pitch factor (0.8 = 20 % lower, 1.0 = unchanged).
         agent: Agent name for filename prefix.
         language: Language ISO short code (e.g. ``"de"``).
 
     Returns:
-        Audio URL (``/_upload/tts_audio/<name>``) or None on failure.
+        Audio URL (``/_upload/tts_audio/<name>``). Raises
+        :class:`~aifred.lib.tts_engines.TTSFailure` when the engine
+        delivers no audio.
     """
-    from .tts_engines import get_engine
-
     # Set agent/engine for the filename helper BEFORE any TTS call —
     # parallel create_task calls would otherwise race on these globals.
     set_tts_agent(agent)
-    set_tts_engine(tts_engine)
+    set_tts_engine(engine.key)
 
     # Strip the UI ★ prefix centrally — engines see the clean voice name.
     if voice_choice.startswith("★ "):
         voice_choice = voice_choice[2:]
-
-    eng = get_engine(tts_engine)
-    if eng is None:
-        log_message(f"❌ TTS Error: unknown engine {tts_engine!r}")
-        return None
 
     # SSOT: name the engine that actually synthesises — on EVERY call, for
     # every caller (browser, FreeEcho.2, proactive pushes). Goes to debug.log
@@ -1576,36 +1582,29 @@ async def generate_tts(text, voice_choice, speed_choice, tts_engine, pitch: floa
     # one can verify which engine really ran, not just trust the dropdown.
     from .debug_bus import debug
     debug(
-        f"🔊 TTS: engine={tts_engine}, voice={voice_choice}, agent={agent}, "
+        f"🔊 TTS: engine={engine.key}@{engine.address}, voice={voice_choice}, agent={agent}, "
         f"lang={language}, speed={speed_choice}, pitch={pitch}"
     )
 
-    try:
-        audio_url = await eng.generate_speech_async(
-            text, voice_choice, language, speed_choice, pitch,
+    audio_url = await engine.generate_speech_async(
+        text, voice_choice, language, speed_choice, pitch,
+    )
+
+    # ffmpeg post-process: only for engines that don't handle speed
+    # natively. Pitch is universally a post-step (no engine has it).
+    needs_speed = engine.needs_speed_postprocess and abs(speed_choice - 1.0) >= 0.01
+    needs_pitch = abs(pitch - 1.0) >= 0.01
+    if needs_pitch or needs_speed:
+        filename = audio_url.split("/")[-1]
+        local_path = str(TTS_AUDIO_DIR / filename)
+        ffmpeg_speed = speed_choice if needs_speed else 1.0
+        ffmpeg_pitch = pitch if needs_pitch else 1.0
+        loop = asyncio.get_running_loop()
+        await loop.run_in_executor(
+            None, apply_audio_adjustments, local_path, ffmpeg_pitch, ffmpeg_speed,
         )
 
-        # ffmpeg post-process: only for engines that don't handle speed
-        # natively. Pitch is universally a post-step (no engine has it).
-        needs_speed = eng.needs_speed_postprocess and abs(speed_choice - 1.0) >= 0.01
-        needs_pitch = abs(pitch - 1.0) >= 0.01
-        if audio_url and (needs_pitch or needs_speed):
-            filename = audio_url.split("/")[-1]
-            local_path = str(TTS_AUDIO_DIR / filename)
-            ffmpeg_speed = speed_choice if needs_speed else 1.0
-            ffmpeg_pitch = pitch if needs_pitch else 1.0
-            loop = asyncio.get_running_loop()
-            await loop.run_in_executor(
-                None, apply_audio_adjustments, local_path, ffmpeg_pitch, ffmpeg_speed,
-            )
-
-        return audio_url
-
-    except (OSError, httpx.HTTPError) as e:
-        log_message(f"❌ TTS Error: {e}")
-        import traceback
-        log_message(f"Traceback: {traceback.format_exc()}")
-        return None
+    return audio_url
 
 
 # ============================================================

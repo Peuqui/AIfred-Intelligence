@@ -12,10 +12,9 @@ from typing import TYPE_CHECKING
 
 from ....lib.audio_processing import build_speech_segments
 from ....lib.plugin_base import BaseChannel
-from ....lib.speech_synthesis import (
-    ensure_tts_ready, force_tts_switch, gpu_tts_combo_fits, start_speech_stream,
-)
+from ....lib.speech_synthesis import start_speech_stream
 from ....lib.tts_engines import speech_unit_for
+from ....lib.tts_escalation import NoSpeechAvailable, SpeechRun
 
 from ._shared import _devices, channel_language, notification_tone_enabled
 from .alert_queue import enqueue_alert
@@ -54,49 +53,29 @@ class TtsReplyMixin(BaseChannel):
             )
             return
 
-        # If TTS was deferred (LLM was loaded without TTS, used for fast inference),
-        # now switch: unload LLM → load TTS engine → restart LLM with TTS profile.
-        # Must happen BEFORE _run_tts() which needs the TTS engine running.
-        if original and original.metadata.get("tts_deferred"):
-            # Vorab-Check: passt das gewünschte GPU-TTS überhaupt zum aktiven
-            # LLM? Bei einem GPU-füllenden Modell (z.B. dem 397B) steht die
-            # TTS-Kombo im vram-cache auf FAIL — ein Switch würde das LLM
-            # verdrängen, das Base-Profil neu laden und das TTS TROTZDEM ohne
-            # VRAM lassen ("produced no audio"). Statt 20s blind zu thrashen:
-            # erkennen, klar melden, Ansage überspringen.
-            if not gpu_tts_combo_fits(self._get_wanted_tts()):
-                self.channel_log(
-                    f"[FreeEcho.2 {room}] GPU-TTS '{self._get_wanted_tts()}' has "
-                    f"no calibrated variant for the active model — skipping voice "
-                    f"output (a switch would evict the LLM and still fail for lack "
-                    f"of VRAM). Use a cloud TTS (DashScope) with large models.",
-                    "error",
-                )
-                return
-            self.channel_log(f"[FreeEcho.2 {room}] Deferred TTS switch starting")
-            await force_tts_switch(self._get_wanted_tts())
-
-        # Proaktive Pushes (Vision-Alert, freeecho2_announce) kommen OHNE
-        # vorausgegangene LLM-Inferenz → es gibt kein tts_deferred-Flag, und
-        # die TTS-Engine ist evtl. gar nicht geladen (GPUs idle). Genau wie
-        # bei einem echten Puck-Request den TTS-State sicherstellen und ggf.
-        # den Modell-Swap (LLM → TTS) erzwingen, BEVOR _run_tts läuft — sonst
-        # bleibt die Ansage stumm.
+        # Proaktive Pushes (Vision-Alert, freeecho2_announce) kommen ohne
+        # vorausgegangene LLM-Inferenz; sie bekommen Chime und Alert-Queue.
         is_proactive = (
             (original is not None and original.sender == "system")
             or bool(outbound.metadata.get("proactive"))
         )
-        if is_proactive:
-            await ensure_tts_ready(self._get_wanted_tts(), f"FreeEcho.2 {room}")
+
+        # Wer spricht, entscheidet die Eskalationsliste: der erste passende
+        # Eintrag von oben; das Hauptmodell wird dafür nie neu geladen.
+        # channel_language() = Haushaltssprache — ohne sie synthetisieren
+        # sprachsensitive Engines (xtts, dashscope) mit dem "de"-Default der lib.
+        run = SpeechRun(channel_language(), f"FreeEcho.2 {room}")
+        try:
+            speaker = await run.entry()
+        except NoSpeechAvailable as exc:
+            self.channel_log(f"[FreeEcho.2 {room}] {exc} — reply stays silent", "error")
+            return
 
         # Satzweises Streaming: der erste Satz wird erzeugt und läuft los, während die
         # übrigen noch erzeugt werden (SSOT der Satzaufteilung: lib.audio_processing).
-        # channel_language() = Haushaltssprache — ohne sie synthetisieren sprachsensitive
-        # Engines (xtts, dashscope) mit dem "de"-Default der lib.
         agent = original.target_agent if original else "aifred"
         buffer = await start_speech_stream(
-            self._speech_segments(outbound), agent, self._get_wanted_tts(),
-            channel_language(), f"FreeEcho.2 {room}",
+            self._speech_segments(outbound, speaker.engine.key), agent, run,
         )
         if buffer is None:
             return
@@ -131,7 +110,7 @@ class TtsReplyMixin(BaseChannel):
             # audio_start + chunks + audio_end(end_tone) — der
             # Orchestrator macht alles in einem Aufruf.
             # Normal-Reply (User hat selbst getriggert) bleibt ohne Chime.
-            # is_proactive ist oben schon bestimmt (TTS-State-Sicherstellung).
+            # is_proactive ist oben schon bestimmt.
             if is_proactive:
                 audio_type = str(
                     outbound.metadata.get("audio_type") or "notification"
@@ -168,18 +147,13 @@ class TtsReplyMixin(BaseChannel):
 
     # ── Satzweises Sprach-Streaming ────────────────────────────
 
-    def _speech_segments(self, outbound: "OutboundMessage") -> "list[str | int]":
+    def _speech_segments(self, outbound: "OutboundMessage", engine_key: str) -> "list[str | int]":
         """Was gesprochen wird, in Reihenfolge: Texte (str) und Stille zwischen Absätzen
         (int, ms). Wie fein der Text für die TTS-Engine zerlegt wird (satzweise, absatzweise,
-        am Stück), ist die Einstellung der gewählten Engine (SSOT: ``speech_unit_for``) —
+        am Stück), ist die Einstellung der sprechenden Engine (SSOT: ``speech_unit_for``) —
         das Plugin kennt sie nicht, es liest sie nur."""
         paragraphs = outbound.metadata.get("paragraphs") or [outbound.text]
         return build_speech_segments(
             paragraphs, int(outbound.metadata.get("pause_ms", 0)),
-            speech_unit_for(self._get_wanted_tts()),
+            speech_unit_for(engine_key),
         )
-
-    def _get_wanted_tts(self) -> str:
-        """Die TTS-Engine, die dieses Plugin will (Plugin-Einstellung)."""
-        from ....lib.credential_broker import broker
-        return str(broker.get("freeecho2", "tts_engine") or "piper")

@@ -10,75 +10,58 @@ Alles bleibt geladen bis die nächste Anforderung etwas anderes braucht.
 ## GPU-TTS Engines
 
 Die vier GPU-Engines **XTTS**, **MOSS-TTS**, **Qwen3-TTS** und **Fish-Speech**
-belegen VRAM (jeweils Docker-Container mit GPU).
-Piper, Edge, eSpeak, DashScope brauchen kein VRAM.
+belegen VRAM (jeweils Docker-Container mit GPU, Port je Engine: `default_port`).
+Piper, Edge, eSpeak, DashScope brauchen kein VRAM. Dieselben Container können auf
+einem anderen Rechner laufen (Eintrag in `tts_hosts`).
 
-## FreeEcho.2 — Fälle
+Die Engine, für die das LLM-Profil (`<modell>-tts-<engine>`) Platz reserviert, schaltet
+der Browser (`ensure_tts_state`). Kanäle schalten sie nie um.
 
-Der FreeEcho.2 hat eine **eigene TTS-Engine** (konfiguriert im Plugin, unabhängig vom Browser).
+## Eskalationsliste (FreeEcho.2, Narrator)
 
-Die FreeEcho.2-Pipeline ruft vor der Inferenz `ensure_tts_state(..., check_defer=True)`
-auf. Sobald ein LLM geladen ist und eine andere GPU-TTS als die laufende gewünscht
-wird, wird der Wechsel **verschoben**: Erst läuft die Inferenz auf dem geladenen LLM,
-vor der Audio-Generierung folgt `force_tts_switch()` (Fälle 2 und 4).
+Kanäle mit eigenem Lautsprecher (FreeEcho.2) und der Narrator wählen ihre Engine
+nicht selbst, sondern über die **globale Eskalationsliste** (`lib/tts_escalation.py`).
+Zwei Listen in `settings.json`:
 
-Vor dem verschobenen Wechsel prüft `_gpu_tts_combo_fits()`, ob das aktive Modell eine
-kalibrierte TTS-Variante für die gewünschte GPU-TTS hat. Wenn nicht, wird die
-Sprachausgabe mit einem Fehler-Log übersprungen (ein Wechsel würde das LLM
-verdrängen und der TTS trotzdem kein VRAM lassen).
+- `tts_hosts`: andere Rechner, die TTS-Container mit derselben API betreiben
+  (`name`, `address`, optional `ports` je Engine). Dieser Rechner ist implizit.
+- `tts_escalation`: geordnete Einträge `{"engine", "host", "enabled"}`; `host: null`
+  = dieser Rechner (bzw. Cloud). Der erste passende Eintrag von oben spricht.
 
-### Fall 1: VRAM leer (nichts geladen)
-1. TTS starten (z.B. XTTS)
-2. LLM mit TTS-Profil laden (z.B. `GPT-OSS-120B-A5B-UD-Q8_K_XL-tts-xtts`)
-3. Inferenz
-4. Audio generieren
-5. **Alles bleibt geladen**
+Ein Eintrag **passt**, wenn er aktiv ist und:
 
-### Fall 2: LLM geladen, keine TTS (Deferred Path)
-1. Inferenz mit bestehendem LLM (schnell, kein Reload)
-2. Alles entladen (VRAM freimachen)
-3. TTS starten
-4. llama-swap mit TTS-Profil neu starten (das LLM selbst lädt bei der nächsten Anfrage wieder)
-5. Audio generieren
-6. **Alles bleibt geladen**
+| Art | Bedingung |
+|-----|-----------|
+| Remote (Container auf `host`) | Health-Abfrage antwortet. Der Mini startet oder stoppt dort nie etwas. |
+| Lokal, GPU (XTTS, Qwen3, MOSS, Fish) | Container läuft — oder sein gemessener Burn-in-Peak (`tts_vram_cache`) + `LLAMACPP_TTS_BURNIN_HEADROOM_MB` passt in den **freien** Speicher der Sammelkarte (`pick_tts_gpu`); dann wird er gestartet. Ohne Messwert passt er nicht. |
+| Lokal ohne GPU / Cloud | Engine ist verfügbar (`is_running`, bei DashScope: API-Key gesetzt). |
 
-Ausnahme: Läuft das LLM schon auf der passenden `-tts-<engine>`-Variante (z.B. weil
-sich der TTS-Container per Idle-Watchdog selbst beendet hat), startet `_do_switch()`
-den Container neben dem warmen LLM — kein Entladen, kein llama-swap-Neustart.
+**Das Hauptmodell wird für TTS nie neu geladen.** Passt die lokale TTS nicht (z. B.
+DeepSeek auf allen Karten), geht es still zum nächsten Eintrag — Aragon, Cloud, Piper.
 
-### Fall 3: LLM + richtige TTS schon geladen
-1. Inferenz mit TTS-Profil (kein Reload nötig)
-2. Audio generieren
-3. **Alles bleibt geladen**
+**Ausfall:** Jede Engine wirft `TTSFailure` mit Grund (`unreachable`, `engine`,
+`software`) statt `None` zu liefern. `SpeechRun` (eine Antwort/Ansage):
 
-### Fall 4: LLM + falsche TTS geladen (z.B. MOSS statt XTTS) — ebenfalls verschoben
-1. Inferenz mit bestehendem LLM (kein Reload)
-2. Falsche TTS stoppen, alles entladen
-3. Richtige TTS starten
-4. LLM mit neuem TTS-Profil laden
-5. Audio generieren
-6. **Alles bleibt geladen**
+- Ausfall **vor dem ersten Ton** → still zum nächsten Eintrag (nur Debug-Zeile).
+- Ausfall **mitten im Text** → der Nachfolger sagt zuerst den Stimmwechsel samt Grund
+  an (`tts_switch_*` in `lib/i18n/{de,en}.json`) und spricht dann den unfertigen Satz.
+- Ein ausgefallener Eintrag bleibt für den Rest der Antwort aus.
 
-### Fall 5: Nur TTS geladen, kein LLM
-1. LLM mit TTS-Profil dazuladen
-2. Inferenz
-3. Audio generieren
-4. **Alles bleibt geladen**
+Der Narrator nimmt den obersten passenden Eintrag (oder die vom Agenten genannte
+Engine) und bleibt für die ganze Datei dabei — kein Stimmwechsel mitten im Hörbuch.
 
-### Fall 6: Nur falsche TTS geladen, kein LLM
-1. Alles entladen
-2. Richtige TTS starten
-3. LLM mit TTS-Profil laden
-4. Inferenz
-5. Audio generieren
-6. **Alles bleibt geladen**
+**Rangfolge auf den Karten:** Hauptmodell > Describer > TTS > STT. Der Describer zählt
+den VRAM von TTS-Container und Whisper-GPU-Worker als frei und gibt beide vor dem
+Laden frei (`release_side_channels_for_describer`); eine laufende Ansage wechselt
+dann zum nächsten Eintrag.
 
-### Fall 7: LLM + GPU-TTS geladen, Plugin steht auf einer leichten Engine (Piper/Edge/eSpeak/DashScope)
-1. Stopp des GPU-TTS-Containers startet im Hintergrund (außer eine aktive Pipeline
-   hält ihn noch)
-2. Inferenz mit bestehendem LLM
-3. `force_tts_switch("")` wartet auf den Stopp, startet llama-swap mit dem Basis-Profil neu
-4. Audio mit der leichten Engine generieren
+Debug-Konsole und `debug.log` (englisch):
+```
+🔊 [FreeEcho.2 buero] TTS escalation: skip xtts@Aragon (not serving on 10.0.0.2)
+🔊 [FreeEcho.2 buero] TTS escalation: qwen3local@local speaks
+🔊 [FreeEcho.2 buero] TTS escalation: qwen3local@local failed (unreachable): …
+🔊 [FreeEcho.2 buero] TTS escalation: voice change announced, dashscope@local continues
+```
 
 ## Browser — TTS Umschaltung
 
@@ -94,10 +77,8 @@ den Container neben dem warmen LLM — kein Entladen, kein llama-swap-Neustart.
 - Änderungen werden nur als **Settings** gespeichert, kein sofortiger VRAM-Wechsel
 
 ### FreeEcho.2-Plugin
-- Eigene Engine-Einstellung im Plugin (Credential-Broker)
-- Unabhängig vom Browser-Backend
-- Änderung → nur Setting, kein sofortiger Wechsel
-- Nächste FreeEcho.2-Anfrage nutzt die neuen Settings
+- Keine eigene Engine-Einstellung — es spricht über die Eskalationsliste
+- Die Einheit der Sprachausgabe (Satz/Absatz/am Stück) ist die der sprechenden Engine
 
 ## Autoplay + Streaming
 
@@ -116,14 +97,13 @@ die Voice eines anderen Agenten.
 2. Engine-Default des Agenten aus `data/agents.json` (`tts_voices.<engine>`)
 3. `self.tts_voice` (globaler State-Default) — nur für Agenten ohne Engine-Default
 
-### FreeEcho.2
-SSOT: `_run_tts()` in `lib/speech_synthesis.py`. Engine aus der Plugin-Einstellung
-(`freeecho2`/`tts_engine`, Default `piper`).
+### Eskalationsliste (FreeEcho.2)
+SSOT: `resolve_voice()` in `lib/tts_escalation.py`, je Engine des sprechenden Eintrags.
 1. User-Setting für Agent+Engine (`tts_agent_voices_per_engine[engine][agent]` in `settings.json`)
 2. User-Setting für AIfred (nur wenn der Agent keins hat)
 3. Engine-Default des Agenten aus `data/agents.json` (`tts_voices.<engine>`, via `get_tts_voice_default()`)
 4. Engine-Default von AIfred aus `data/agents.json`, wenn der Default des Agenten keine Voice hat
-5. `PUCK_TTS_FALLBACK_VOICE` (config.py), wenn der Default-Eintrag gar kein `voice`-Feld hat
+5. Keine Voice → der Eintrag fällt aus (`TTSFailure`), die Liste geht weiter
 
 ## Debug-Ausgaben
 
@@ -133,7 +113,6 @@ Statusmeldungen 🔊 voran):
 ```
 🔊 LLM profile ready: GPT-OSS-120B-A5B-UD-Q8_K_XL-tts-xtts (ctx: 131.072)
 ```
-Lief die TTS schon (`force_tts_switch()`): `🔊 LLM profile switched: …`.
 
 Bei der Intent-Detection (`format_intent_result()` in `intent_detector.py`):
 ```
@@ -145,10 +124,11 @@ Bei der Intent-Detection (`format_intent_result()` in `intent_detector.py`):
 | Funktion | Datei | Beschreibung |
 |----------|-------|-------------|
 | `ensure_tts_state()` | `tts_engine_manager.py` | SSOT: Prüft/stellt VRAM-State her |
-| `force_tts_switch()` | `tts_engine_manager.py` | Nach Deferred-Inferenz: TTS laden + Profil wechseln |
 | `_do_switch()` | `tts_engine_manager.py` | Voller Engine-Wechsel (entladen → laden) |
 | `set_tts_engine_or_off()` | `_tts_config_mixin.py` | Browser-Dropdown Handler |
-| `_run_tts()` | `lib/speech_synthesis.py` | FreeEcho.2 Audio-Generierung + Voice-Auflösung |
-| `_ensure_tts_state()` / `_force_tts_switch()` | `plugins/channels/freeecho2_channel/tts_reply.py` | FreeEcho.2-Wrapper um die SSOT-Funktionen |
+| `SpeechRun` / `choose_speaker()` | `lib/tts_escalation.py` | Eskalationsliste: Auswahl, Ausfall, Ansage |
+| `resolve_voice()` | `lib/tts_escalation.py` | Voice/Speed/Pitch je Engine (Kanäle, Narrator) |
+| `start_speech_stream()` | `lib/speech_synthesis.py` | Satzweiser PCM-Strom für Kanäle mit Lautsprecher |
+| `release_side_channels_for_describer()` | `lib/vision_routing.py` | Describer verdrängt TTS und STT |
 | `_queue_tts_for_agent()` | `_tts_streaming_mixin.py` | Browser TTS-Generierung |
 | `_resolve_agent_tts()` | `_tts_streaming_mixin.py` | Browser-Auflösung von Voice/Speed/Pitch |

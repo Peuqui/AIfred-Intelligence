@@ -19,7 +19,6 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Optional
 
 from ....lib.formatting import format_number
-from ....lib.speech_synthesis import ensure_tts_state
 
 from ._shared import _pending_wake_agent
 from .tts_reply import TtsReplyMixin
@@ -168,7 +167,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                     return
 
                 # Flush user question to session immediately so browser shows it
-                # BEFORE TTS setup (which can take 25s+) and LLM inference.
+                # BEFORE LLM inference.
                 # Uses the same SSOT function as process_inbound.
                 from ....lib.message_processor import message_from_user, save_inbound_to_session
                 _early_msg = InboundMessage(
@@ -181,10 +180,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                     message_from_user(_early_msg.channel, _early_msg.channel_id, _early_msg.sender),
                 )
 
-                # Ensure TTS state (MOSS/XTTS loading, VRAM management).
-                # Messages go to UI via debug() (session context propagated to executor).
                 hub.update("processing")
-                tts_deferred = await ensure_tts_state(self._get_wanted_tts())
 
                 # Acquire the active GPU TTS engine for the duration of this
                 # pipeline so concurrent channels can't stop it mid-flight.
@@ -226,7 +222,6 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 metadata={
                     "wav_path": wav_path,
                     "room": room,
-                    "tts_deferred": tts_deferred,
                     "wake_agent": wake_agent,
                 },
             )

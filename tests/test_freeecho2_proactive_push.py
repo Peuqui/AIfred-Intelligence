@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -27,6 +28,20 @@ from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel, _devices
 
 def run(coro):
     return asyncio.run(coro)
+
+
+class FakeSpeechRun:
+    """Steht für ``tts_escalation.SpeechRun``: Piper spricht, jede Synthese gelingt."""
+
+    def __init__(self, language, label):
+        self.language = language
+        self.label = label
+
+    async def entry(self):
+        return SimpleNamespace(engine=SimpleNamespace(key="piper"))
+
+    async def synthesize(self, text, agent):
+        return "/_upload/tts_audio/dummy.wav"
 
 
 # ── Recipient-Resolution ────────────────────────────────────────────
@@ -125,13 +140,13 @@ class TestSendReplyProactive:
     und Audio-Channel-Auflosungen. Vermeidet GPU/Whisper-Calls."""
 
     def _patched_call(self, audio_ch_mock, outbound, original):
-        """send_reply mit den teuren Teilen gemockt: _run_tts (lib) gibt
-        einen Stub-Pfad, _convert_to_pcm gibt nicht-leere Bytes, der
+        """send_reply mit den teuren Teilen gemockt: die Eskalationsliste
+        (FakeSpeechRun) liefert eine Stub-URL, _convert_to_pcm gibt nicht-leere Bytes, der
         FreeEcho2Channel-Resolver liefert unseren Mock-Orchestrator.
         Path.unlink ist no-op."""
         ch = FreeEchoChannel()
         with patch(
-            "aifred.lib.speech_synthesis._run_tts", AsyncMock(return_value="/tmp/dummy.wav")
+            "aifred.plugins.channels.freeecho2_channel.tts_reply.SpeechRun", FakeSpeechRun
         ), patch(
             "aifred.lib.speech_synthesis._convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
         ), patch(
@@ -241,7 +256,7 @@ class TestSendReplyAudioType:
     def _patched_call(self, audio_ch_mock, outbound, original):
         ch = FreeEchoChannel()
         with patch(
-            "aifred.lib.speech_synthesis._run_tts", AsyncMock(return_value="/tmp/dummy.wav")
+            "aifred.plugins.channels.freeecho2_channel.tts_reply.SpeechRun", FakeSpeechRun
         ), patch(
             "aifred.lib.speech_synthesis._convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
         ), patch(

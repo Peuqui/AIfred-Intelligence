@@ -49,6 +49,15 @@ def get_engine(key: str) -> TTSEngine | None:
     return TTS_ENGINES.get(key)
 
 
+def require_engine(key: str) -> TTSEngine:
+    """Like :func:`get_engine`, but an unknown key is an error (``ValueError``)
+    — for call sites where the key comes from validated settings."""
+    engine = TTS_ENGINES.get(key)
+    if engine is None:
+        raise ValueError(f"unknown TTS engine {key!r}")
+    return engine
+
+
 def gpu_engines() -> Iterator[TTSEngine]:
     """Iterate engines that occupy GPU VRAM (and therefore need to be
     juggled by the VRAM manager / LLM calibration)."""
@@ -76,16 +85,6 @@ def speech_unit_for(engine_key: str) -> str:
     if unit not in SPEECH_UNITS:
         raise ValueError(f"speech unit of {engine_key!r} must be one of {SPEECH_UNITS}, got {unit!r}")
     return unit
-
-
-def channel_engine_options() -> list[tuple[str, str]]:
-    """``(key, short_label)`` pairs for channel-plugin dropdowns (FreeEcho.2).
-    Replaces ``config.get_tts_engine_channel_options``."""
-    return [
-        (e.key, e.label_short)
-        for e in TTS_ENGINES.values()
-        if e.suitable_for_channels
-    ]
 
 
 class VoiceCatalog(Protocol):

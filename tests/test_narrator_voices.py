@@ -1,74 +1,76 @@
-"""Tests für die Narrator-Engine/Voice-Auflösung + list_narrator_voices."""
+"""Tests für die Narrator-Engine/Voice-Auswahl + list_narrator_voices."""
 
 from __future__ import annotations
 
 import asyncio
 import json
+from types import SimpleNamespace
 
 import pytest
 
-from aifred.plugins.tools.narrator import (
-    _gpu_engine_conflict,
-    _resolve_engine_and_voice,
-    plugin,
-)
 from aifred.lib.tts_engines import voice_names
+from aifred.lib.tts_escalation import NoSpeechAvailable
 from aifred.lib.plugin_base import PluginContext
+from aifred.plugins.tools.narrator import _choose_engine_and_voice, plugin
 
 
 class _FakeEngine:
-    def __init__(self, voices: dict[str, str], needs_gpu: bool = False):
+    def __init__(self, key: str, voices: dict[str, str]):
+        self.key = key
         self._voices = voices
         self.voices_fallback = voices
-        self.needs_gpu = needs_gpu
 
     def get_voices(self) -> dict[str, str]:
         return self._voices
 
 
+ENGINES = {
+    "piper": _FakeEngine("piper", {"Deutsch (Thorsten)": "t", "Deutsch (Ramona)": "r"}),
+    "edge": _FakeEngine("edge", {"Deutsch (Katja)": "k", "Deutsch (Conrad)": "c"}),
+}
+
+
 @pytest.fixture
 def fake_env(monkeypatch):
-    """Settings + Engine-Registry mocken (lazy imports → Modul-Patch greift)."""
+    """Settings und Eskalationsliste mocken: die Liste liefert ``list_top``,
+    ein expliziter Schlüssel genau diese Engine (lazy imports → Modul-Patch greift)."""
     settings: dict = {}
-    engines = {
-        "piper": _FakeEngine({"Deutsch (Thorsten)": "t", "Deutsch (Ramona)": "r"}),
-        "edge": _FakeEngine({"Deutsch (Katja)": "k", "Deutsch (Conrad)": "c"}),
-        "qwen3local": _FakeEngine(
-            {"AIfred": "a", "Sokrates": "s"}, needs_gpu=True,
-        ),
-    }
+    state = SimpleNamespace(list_top="piper", asked=[])
+
+    async def choose_speaker(engine_key: str, label: str):
+        state.asked.append(engine_key)
+        key = engine_key or state.list_top
+        if key not in ENGINES:
+            raise NoSpeechAvailable(f"[{label}] TTS engine {key!r} cannot speak now")
+        return SimpleNamespace(engine=ENGINES[key])
+
     monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: settings)
-    monkeypatch.setattr("aifred.lib.tts_engines.get_engine", engines.get)
-    return settings
+    monkeypatch.setattr("aifred.lib.tts_escalation.choose_speaker", choose_speaker)
+    return SimpleNamespace(settings=settings, state=state)
 
 
-class TestResolveEngineAndVoice:
+def _choose(engine: str = "", voice: str = "") -> tuple[str, str]:
+    eng, chosen_voice = asyncio.run(_choose_engine_and_voice(engine, voice))
+    return eng.key, chosen_voice
+
+
+class TestChooseEngineAndVoice:
+    def test_without_engine_the_list_decides(self, fake_env):
+        assert _choose() == ("piper", "Deutsch (Thorsten)")
+        assert fake_env.state.asked == [""]
+
     def test_explicit_engine_uses_saved_voice(self, fake_env):
-        fake_env["narrator_voices"] = {"edge": "Deutsch (Katja)"}
-        assert _resolve_engine_and_voice("edge") == ("edge", "Deutsch (Katja)")
-
-    def test_auto_off_tts_resolves_fallback_engine(self, fake_env):
-        fake_env.update({
-            "narrator_engine": "auto",
-            "enable_tts": False,
-            "narrator_fallback_engine": "piper",
-        })
-        engine, voice = _resolve_engine_and_voice()
-        assert engine == "piper"
-        # Keine gespeicherte Stimme → erste eigene Stimme der Engine.
-        assert voice == "Deutsch (Thorsten)"
+        fake_env.settings["narrator_voices"] = {"edge": "Deutsch (Katja)"}
+        assert _choose("edge") == ("edge", "Deutsch (Katja)")
 
     def test_saved_voice_is_engine_bound(self, fake_env):
         # Die für Edge gespeicherte Stimme darf Piper nicht erreichen.
-        fake_env["narrator_voices"] = {"edge": "Deutsch (Katja)"}
-        engine, voice = _resolve_engine_and_voice("piper")
-        assert (engine, voice) == ("piper", "Deutsch (Thorsten)")
+        fake_env.settings["narrator_voices"] = {"edge": "Deutsch (Katja)"}
+        assert _choose("piper") == ("piper", "Deutsch (Thorsten)")
 
     def test_explicit_voice_wins(self, fake_env):
-        fake_env["narrator_voices"] = {"edge": "Deutsch (Katja)"}
-        assert _resolve_engine_and_voice("edge", "Deutsch (Conrad)") == (
-            "edge", "Deutsch (Conrad)",
-        )
+        fake_env.settings["narrator_voices"] = {"edge": "Deutsch (Katja)"}
+        assert _choose("edge", "Deutsch (Conrad)") == ("edge", "Deutsch (Conrad)")
 
 
 class TestVoiceNames:
@@ -93,45 +95,15 @@ class TestVoiceNames:
         assert voice_names(_StoppedContainerEngine()) == ["AIfred", "Salomo"]
 
 
-class TestGpuEngineConflict:
-    def test_gpu_engine_spoken_output_off_is_refused(self, fake_env):
-        fake_env["enable_tts"] = False
-        msg = _gpu_engine_conflict("qwen3local")
-        assert msg is not None and "qwen3local" in msg
-
-    def test_gpu_engine_different_spoken_engine_is_refused(self, fake_env):
-        fake_env.update({"enable_tts": True, "tts_engine": "xtts"})
-        assert _gpu_engine_conflict("qwen3local") is not None
-
-    def test_gpu_engine_matching_spoken_engine_is_allowed(self, fake_env):
-        fake_env.update({"enable_tts": True, "tts_engine": "qwen3local"})
-        assert _gpu_engine_conflict("qwen3local") is None
-
-    def test_gpu_free_engine_always_allowed(self, fake_env):
-        fake_env["enable_tts"] = False
-        assert _gpu_engine_conflict("edge") is None
-
-    def test_list_voices_tool_refuses_conflicting_gpu_engine(self, fake_env):
-        fake_env["enable_tts"] = False
-        ctx = PluginContext(agent_id="aifred", lang="de", session_id="test")
-        tool = {t.name: t for t in plugin.get_tools(ctx)}["list_narrator_voices"]
-        res = json.loads(asyncio.run(tool.executor(engine="qwen3local")))
-        assert "error" in res and "qwen3local" in res["error"]
-
-
 class TestListNarratorVoicesTool:
     def _tool(self):
         ctx = PluginContext(agent_id="aifred", lang="de", session_id="test")
         tools = {t.name: t for t in plugin.get_tools(ctx)}
         return tools["list_narrator_voices"]
 
-    def test_lists_effective_engine_voices(self, fake_env):
-        fake_env.update({
-            "narrator_engine": "auto",
-            "enable_tts": False,
-            "narrator_fallback_engine": "edge",
-            "narrator_voices": {"edge": "Deutsch (Katja)"},
-        })
+    def test_lists_voices_of_the_engine_the_list_picks(self, fake_env):
+        fake_env.state.list_top = "edge"
+        fake_env.settings["narrator_voices"] = {"edge": "Deutsch (Katja)"}
         res = json.loads(asyncio.run(self._tool().executor()))
         assert res == {
             "engine": "edge",
@@ -144,6 +116,14 @@ class TestListNarratorVoicesTool:
         assert res["engine"] == "piper"
         assert res["voices"] == ["Deutsch (Thorsten)", "Deutsch (Ramona)"]
 
-    def test_unknown_engine_is_clear_error(self, fake_env):
+    def test_engine_that_cannot_speak_is_clear_error(self, fake_env):
         res = json.loads(asyncio.run(self._tool().executor(engine="nope")))
         assert "error" in res and "nope" in res["error"]
+
+
+def test_unknown_engine_key_is_clear_error():
+    """Ohne Mock: ``choose_speaker`` kennt den Schlüssel nicht → Fehlertext, kein Absturz."""
+    ctx = PluginContext(agent_id="aifred", lang="de", session_id="test")
+    tool = {t.name: t for t in plugin.get_tools(ctx)}["list_narrator_voices"]
+    res = json.loads(asyncio.run(tool.executor(engine="nope")))
+    assert "error" in res and "nope" in res["error"]

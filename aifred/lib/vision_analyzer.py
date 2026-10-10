@@ -346,14 +346,14 @@ async def _analyze_via_llamacpp(
     # BACKEND_URLS["llamacpp"] ist bereits die OpenAI-Basis-URL (…/v1).
     url = BACKEND_URLS["llamacpp"].rstrip("/") + "/chat/completions"
 
-    # Describer vor STT: sitzt der Whisper-GPU-Worker auf der Karte des
-    # Profils, das gleich lädt, muss er weichen (dieser Weg läuft nicht über
-    # den GPU-Wächter der Chat-Backends).
-    from .vision_routing import release_stt_for_describer
+    # Describer vor TTS und STT: sitzen TTS-Container oder Whisper-GPU-Worker
+    # auf der Karte des Profils, das gleich lädt, müssen sie weichen (dieser
+    # Weg läuft nicht über den GPU-Wächter der Chat-Backends).
+    from .vision_routing import release_side_channels_for_describer
     from .vlm_naming import is_visiond_profile
     if is_visiond_profile(model):
         import asyncio
-        await asyncio.to_thread(release_stt_for_describer, model)
+        await asyncio.to_thread(release_side_channels_for_describer, model)
 
     started = time.perf_counter()
     try:

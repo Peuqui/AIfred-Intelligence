@@ -1,7 +1,7 @@
 """Qwen3-TTS local container — streaming voice cloning on a single HBM GPU."""
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from .base import TTSEngine
 
@@ -13,7 +13,6 @@ class Qwen3LocalEngine(TTSEngine):
     needs_gpu = True
     needs_speed_postprocess = True
     supports_language = True
-    suitable_for_channels = True
     display_order = 10
 
     image_name = "qwen3-tts-1.7b-base"
@@ -73,52 +72,16 @@ class Qwen3LocalEngine(TTSEngine):
         language: str,
         speed: float = 1.0,
         pitch: float = 1.0,
-    ) -> Optional[str]:
+    ) -> str:
         """Qwen3-TTS — same /tts shape as XTTS/MOSS but with the full
         language name instead of the ISO code. Reference voices are
         warmed at container startup from /app/voices/*.wav. Speed/pitch
-        are post-processed centrally via ffmpeg."""
-        import os
-        import requests
-        from ..audio_processing import (
-            _generate_tts_filename,
-            _validate_audio_output,
-            TTS_AUDIO_DIR,
-        )
-        from ..logging_utils import log_message
-
-        # WAV end-to-end (cleaner for downstream ffmpeg adjustments, and
-        # the Puck channel already prefers WAV).
-        filename = _generate_tts_filename("wav")
-        output_file = str(TTS_AUDIO_DIR / filename)
-
+        are post-processed centrally via ffmpeg. WAV end-to-end (cleaner
+        for downstream ffmpeg adjustments, and the Puck channel prefers WAV)."""
         qwen3_lang = self.language_map.get(language.lower(), "English")
-
-        try:
-            log_message(f"🎤 Qwen3-TTS: speaker={voice}, language={qwen3_lang}, text_length={len(text)}")
-            r = requests.post(
-                f"{self.service_url}/tts",
-                json={"text": text, "speaker": voice, "language": qwen3_lang},
-                timeout=None,
-            )
-            if r.status_code == 200:
-                with open(output_file, "wb") as fh:
-                    fh.write(r.content)
-                if _validate_audio_output(output_file):
-                    size = os.path.getsize(output_file)
-                    log_message(f"✅ Qwen3-TTS: Audio saved → {output_file} ({size} bytes)")
-                    return f"/_upload/tts_audio/{filename}"
-                log_message(f"⚠️ Qwen3-TTS: File missing or too small at {output_file}")
-                return None
-            err = r.text[:200] if r.text else f"HTTP {r.status_code}"
-            log_message(f"❌ Qwen3-TTS Error: {err}")
-            return None
-        except requests.exceptions.ConnectionError:
-            log_message("❌ Qwen3-TTS: Service not running. Start with: cd docker/tts/qwen3-tts && docker compose up -d")
-            return None
-        except Exception as e:
-            log_message(f"❌ Qwen3-TTS Exception: {e}")
-            return None
+        return self._synthesize_via_http(
+            "/tts", {"text": text, "speaker": voice, "language": qwen3_lang}, "wav",
+        )
 
     def calibration_setup(self, debug: Any) -> bool:
         # Do NOT load the container during calibration. The reserve is the

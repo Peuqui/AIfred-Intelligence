@@ -10,7 +10,6 @@ from __future__ import annotations
 import asyncio
 from typing import TYPE_CHECKING
 
-from ....lib.config import get_tts_engine_channel_options
 from ....lib.formatting import format_number
 
 if TYPE_CHECKING:
@@ -20,12 +19,6 @@ if TYPE_CHECKING:
 def _fmt_mib(num_bytes: int) -> str:
     """Bytes als MiB mit 1 Nachkomma (locale-aware Tausender/Dezimal)."""
     return f"{format_number(num_bytes / (1024 * 1024), 1)} MiB"
-
-
-def _channel_tts_options() -> list[tuple[str, str]]:
-    """Thin wrapper around the central SSOT so the CredentialField stays
-    readable and the SSOT call is documented at the call site."""
-    return get_tts_engine_channel_options()
 
 
 # Connected FreeEcho.2 devices: room_name → WebSocketResponse

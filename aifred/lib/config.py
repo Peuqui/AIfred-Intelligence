@@ -125,6 +125,7 @@ DEFAULT_SETTINGS = {
     "tts_escalation": [
         {"engine": "qwen3local", "host": None, "enabled": True},
         {"engine": "xtts", "host": None, "enabled": True},
+        {"engine": "dashscope", "host": None, "enabled": True},
         {"engine": "piper", "host": None, "enabled": True},
         {"engine": "edge", "host": None, "enabled": True},
     ],
@@ -286,9 +287,6 @@ BACKEND_LABELS = {
 # Engine-specific voice catalogues now live in aifred/lib/tts_engines/<engine>.py.
 # config.py stays engine-agnostic — adding a new engine is a one-file drop.
 
-# FreeEcho.2 TTS fallback voice (last resort if no agent/AIfred voice configured)
-PUCK_TTS_FALLBACK_VOICE = "Deutsch (Karlsson)"
-
 # ============================================================
 # TTS ENGINES
 # ============================================================
@@ -318,23 +316,6 @@ NARRATE_CHUNK_LIMIT_CHARS = 800
 # Must match a reference voice shipped in docker/tts/voices/.
 NARRATE_DEFAULT_VOICE = "AIfred"
 
-# Channel-plugin TTS-engine dropdown options — derived from the
-# TTSEngine registry (aifred.lib.tts_engines). Each engine declares
-# ``suitable_for_channels`` itself, so adding a new engine to the
-# FreeEcho-style dropdowns is a one-line change in its TTSEngine class.
-# The previous TTS_ENGINE_SHORT_LABELS and TTS_ENGINE_KEYS_FOR_CHANNELS
-# constants are gone — they were duplicates of metadata that now lives
-# on the engine classes directly.
-
-def get_tts_engine_channel_options() -> list[tuple[str, str]]:
-    """SSOT for the channel-plugin TTS-engine dropdown options.
-
-    Returns a list of (key, short_label) pairs in registry order,
-    filtered to engines that ``suitable_for_channels``.
-    """
-    from .tts_engines import channel_engine_options
-    return channel_engine_options()
-
 # ============================================================
 # TTS engine specifics live in aifred/lib/tts_engines/<engine>.py.
 # Each engine class owns its service URL, voice fallback list, compose
@@ -357,6 +338,13 @@ TTS_KEEPALIVE_INTERVAL_SECONDS = 300
 # Per-request HTTP timeout when pinging /keep_alive — should be tiny,
 # the endpoint just resets a timer and returns immediately.
 TTS_KEEPALIVE_HTTP_TIMEOUT = 5
+
+# Synthese-Aufrufe an TTS-Container (lokal oder auf einem anderen Rechner):
+# Verbindungsaufbau kurz, damit ein toter Server sofort als Ausfall gilt und
+# die Eskalationsliste weitergeht; Lesen großzügig, weil ganze Absätze am
+# Stück auf langsamen Karten Minuten brauchen.
+TTS_CONNECT_TIMEOUT_S = 3
+TTS_READ_TIMEOUT_S = 600
 
 # Long text used for the calibration-time test inference that drives the
 # Qwen3-TTS KV-cache up to its real-world high-water mark. About ~800
