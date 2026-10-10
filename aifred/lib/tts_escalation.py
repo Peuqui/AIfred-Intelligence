@@ -190,7 +190,7 @@ async def _start_remote_engine(engine: TTSEngine, host: TTSHost, report: Callabl
 
     from .formatting import format_number
 
-    report(f"🔊 TTS escalation: starting {engine.key} on {host.name}")
+    report(f"TTS escalation: starting {engine.key} on {host.name}")
     started = time.monotonic()
     try:
         await asyncio.to_thread(host_control, host, "start", engine.service_dir)
@@ -200,7 +200,7 @@ async def _start_remote_engine(engine: TTSEngine, host: TTSHost, report: Callabl
     while time.monotonic() < deadline:
         if await asyncio.to_thread(engine.is_running):
             report(
-                f"🔊 TTS escalation: {engine.key} on {host.name} ready after "
+                f"TTS escalation: {engine.key} on {host.name} ready after "
                 f"{format_number(time.monotonic() - started, 1)} s"
             )
             return None
@@ -240,7 +240,7 @@ async def _start_local_gpu_engine(engine: TTSEngine, report: Callable[[str], Non
     gpu = home if home in fitting else max(fitting, key=lambda index: cards[index][1])
     placed = engine if gpu == home else engine.on_gpu(cards[gpu][0])
     report(
-        f"🔊 TTS escalation: starting {engine.key} on GPU {gpu} "
+        f"TTS escalation: starting {engine.key} on GPU {gpu} "
         f"(needs {format_number(needed)} MiB, free {format_number(cards[gpu][1])} MiB)"
     )
     ok, message, _device = await asyncio.to_thread(placed.ensure_ready)
@@ -295,7 +295,7 @@ class SpeechRun:
             for entry in self._entries:
                 if entry.label in self._failed:
                     continue
-                reason = await _skip_reason(entry, self._report)
+                reason = await _skip_reason(entry, lambda message: self._report(f"🔊 [{self.label}] {message}"))
                 if reason is None:
                     self._report(f"🔊 [{self.label}] TTS escalation: {entry.label} speaks")
                     self._current = entry
@@ -376,7 +376,7 @@ async def choose_speaker(engine_key: str, label: str) -> EscalationEntry:
     from .debug_bus import debug
 
     entry = EscalationEntry(engine=require_engine(engine_key), host=None, enabled=True)
-    reason = await _skip_reason(entry, debug)
+    reason = await _skip_reason(entry, lambda message: debug(f"🔊 [{label}] {message}"))
     if reason is not None:
         raise NoSpeechAvailable(f"[{label}] TTS engine {engine_key!r} cannot speak now: {reason}")
     return entry
@@ -424,3 +424,23 @@ def planned_tts_engine(model_id: str, settings: dict[str, Any] | None = None) ->
         ):
             return engine.key
     return ""
+
+
+def entry_status(entry: EscalationEntry) -> str:
+    """What an entry would do right now, as a key (``tts_status_<key>`` in
+    i18n): checks only — health, image, host switch, credentials — and never
+    starts anything. For the status column of the list editor."""
+    engine = entry.engine
+    if not entry.enabled:
+        return "disabled"
+    if entry.host is not None and not entry.host.enabled:
+        return "host_off"
+    if not engine.is_remote and engine.runs_in_container and not engine.is_installed():
+        return "no_image"
+    if engine.is_running():
+        return "cloud" if engine.cloud else "running" if engine.default_port else "ready"
+    if engine.cloud:
+        return "no_access"
+    if entry.host is not None and not entry.host.ssh:
+        return "unreachable"
+    return "sleeping"

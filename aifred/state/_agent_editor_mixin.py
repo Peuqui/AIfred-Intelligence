@@ -281,6 +281,8 @@ class AgentEditorMixin(rx.State, mixin=True):
         # Now populate DOM fields (page exists now) — only the config tab has them
         if self.agent_editor_mode == "config":
             yield self._push_editor_dom()
+        elif self.agent_editor_mode == "tts":
+            yield type(self).check_tts_status  # type: ignore[attr-defined]
 
     # Dirty flag — set on any keystroke in editor fields
     editor_dirty: bool = False
@@ -360,8 +362,10 @@ class AgentEditorMixin(rx.State, mixin=True):
             # STT-Tab: Config live vom Whisper-Service lesen (SSOT dort).
             self.load_stt_settings()
         elif tab == "tts":
-            # TTS-Tab: Liste frisch aus settings.json (ein anderer Weg kann sie geändert haben).
+            # TTS-Tab: Liste frisch aus settings.json (ein anderer Weg kann sie geändert haben),
+            # dann den Status der Einträge prüfen.
             self.tts_list_revision += 1  # type: ignore[attr-defined]
+            yield type(self).check_tts_status  # type: ignore[attr-defined]
         elif tab == "plugins":
             # Load tool toggles + channel allowlists for the plugins tab.
             # list_all_plugins() (not discover_tools) so DISABLED tool plugins

@@ -372,3 +372,23 @@ class TestRemoteHost:
         host = TTSHost(name="Aragon", address="10.0.0.2", enabled=True, ssh="mp@10.0.0.2")
         with pytest.raises(RuntimeError, match="user@host:port"):
             tts_escalation.host_control(host, "status")
+
+
+class TestEntryStatus:
+    @pytest.mark.parametrize(("entry_kwargs", "engine_kwargs", "expected"), [
+        ({"enabled": False}, {}, "disabled"),
+        ({}, {"running": True}, "running"),
+        ({}, {"running": False}, "sleeping"),
+    ])
+    def test_local_container_states(self, entry_kwargs, engine_kwargs, expected):
+        engine = FakeEngine("xtts", **engine_kwargs)
+        engine.default_port = 5051  # type: ignore[attr-defined]
+        assert tts_escalation.entry_status(_entry(engine, **entry_kwargs)) == expected
+
+    def test_a_switched_off_host_wins_over_health(self):
+        off = TTSHost(name="Aragon", address="10.0.0.2", enabled=False, ssh="mp@10.0.0.2:2222")
+        assert tts_escalation.entry_status(_entry(FakeEngine("xtts", remote=True), off)) == "host_off"
+
+    def test_a_host_without_ssh_that_does_not_answer_is_unreachable(self):
+        host = TTSHost(name="Box", address="box", enabled=True, ssh="")
+        assert tts_escalation.entry_status(_entry(FakeEngine("xtts", remote=True, running=False), host)) == "unreachable"
