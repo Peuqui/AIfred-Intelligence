@@ -21,6 +21,7 @@ Endpoints (all prefixed with /api):
 - GET  /tts/entries         - The TTS escalation list in order, with live status (Bearer token)
 - POST /tts/start           - Start an entry's container: AIfred's card, or the host via SSH (Bearer token)
 - POST /tts/stop            - Stop an entry's container (Bearer token)
+- GET  /documents/source/{key}/file/{id} - Download from a further document source (login cookie)
 - POST /system/restart-ollama   - Restart Ollama service
 - POST /system/restart-aifred   - Restart AIfred service
 - POST /system/reset-defaults   - Reset to default settings
@@ -43,6 +44,7 @@ from . import audio  # noqa: E402
 from . import announce  # noqa: E402
 from . import vision  # noqa: E402
 from . import tts  # noqa: E402
+from . import documents  # noqa: E402
 
 from .browser_bus import browser_push, browser_queue_clear  # noqa: E402
 
@@ -62,4 +64,5 @@ __all__ = [
     "announce",
     "vision",
     "tts",
+    "documents",
 ]

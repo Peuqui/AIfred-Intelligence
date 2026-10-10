@@ -85,15 +85,18 @@ def _is_safe_name(name: str) -> bool:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def _format_size(size_bytes: int) -> str:
+def format_size(size_bytes: int) -> str:
+    """File size for the document browser (locale-aware, format_number)."""
+    from .formatting import format_number
+
     if size_bytes < 1024:
-        return f"{size_bytes} B"
+        return f"{format_number(size_bytes)} B"
     if size_bytes < 1024 * 1024:
-        return f"{size_bytes / 1024:.1f} KB"
-    return f"{size_bytes / (1024 * 1024):.1f} MB"
+        return f"{format_number(size_bytes / 1024, 1)} KB"
+    return f"{format_number(size_bytes / (1024 * 1024), 1)} MB"
 
 
-def _format_stamp(epoch: float) -> str:
+def format_stamp(epoch: float) -> str:
     """Timestamp for the document browser, same shape as the storage tab.
 
     Note on ``st_ctime``: Linux has no creation time in ``stat()`` — it is
@@ -153,8 +156,8 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
             "name": d.name,
             "type": "folder",
             "size": "",
-            "created": _format_stamp(d_stat.st_ctime),
-            "modified": _format_stamp(d_stat.st_mtime),
+            "created": format_stamp(d_stat.st_ctime),
+            "modified": format_stamp(d_stat.st_mtime),
             "indexed": False,
             "chunks": 0,
             "file_count": file_count,
@@ -166,9 +169,9 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
         items.append({
             "name": f.name,
             "type": "file",
-            "size": _format_size(st.st_size),
-            "created": _format_stamp(st.st_ctime),
-            "modified": _format_stamp(st.st_mtime),
+            "size": format_size(st.st_size),
+            "created": format_stamp(st.st_ctime),
+            "modified": format_stamp(st.st_mtime),
             "indexed": chunk_count > 0,
             "chunks": chunk_count,
             "file_count": 0,  # only meaningful for folders, kept for schema consistency

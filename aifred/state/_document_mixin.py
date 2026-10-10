@@ -103,6 +103,10 @@ class DocumentMixin(rx.State, mixin=True):
         """Page-Load-Hook fuer ``/documents`` — Setup-Logic die frueher
         in open_document_manager lag (vor dem Multi-Route-Split)."""
         self.doc_current_folder = ""
+        self.doc_source = "local"
+        self.doc_remote_trail = []
+        self.doc_remote_query = ""
+        self._load_doc_source_options()
         self._refresh_file_list()
         self.document_manager_open = True
 
@@ -156,6 +160,112 @@ class DocumentMixin(rx.State, mixin=True):
         """Navigate to root documents folder."""
         self.doc_current_folder = ""
         self._refresh_file_list()
+
+    # ================================================================
+    # FURTHER SOURCES (lib.document_sources — e.g. Google Drive)
+    # ================================================================
+    # The local folder is the source "local"; others come from enabled
+    # plugins and are addressed by folder id. Their rows carry id and
+    # download_url instead of the local index/rename/delete fields.
+
+    doc_source: str = "local"
+    doc_source_options: List[Dict[str, str]] = []  # [{key, label}], local first
+    doc_remote_trail: List[Dict[str, str]] = []    # opened folders [{id, name}], root = empty
+    doc_remote_query: str = ""                     # active search ("" = folder listing)
+    doc_remote_query_input: str = ""
+
+    @rx.var
+    def doc_is_remote(self) -> bool:
+        return self.doc_source != "local"
+
+    @rx.var
+    def doc_remote_path_text(self) -> str:
+        return " / ".join(folder["name"] for folder in self.doc_remote_trail)
+
+    def _load_doc_source_options(self) -> None:
+        from ..lib.document_sources import document_sources
+        from ..lib.i18n import t
+
+        lang = self.ui_language  # type: ignore[attr-defined]
+        self.doc_source_options = [{"key": "local", "label": t("doc_source_local", lang=lang)}] + [
+            {"key": key, "label": source.label(lang)} for key, source in document_sources().items()
+        ]
+
+    async def _refresh_remote_list(self) -> EventSpec | None:
+        """List the open folder (or the search hits) of the current source."""
+        from datetime import datetime
+
+        from ..lib.document_sources import DocumentSourceError, get_document_source
+        from ..lib.file_manager import format_size, format_stamp
+        from ..lib.i18n import t
+
+        folder_id = self.doc_remote_trail[-1]["id"] if self.doc_remote_trail else ""
+        try:
+            source = get_document_source(self.doc_source)
+            entries = await (source.search(self.doc_remote_query) if self.doc_remote_query else source.list_folder(folder_id))
+        except (LookupError, DocumentSourceError) as failed:
+            self.doc_file_list = []
+            self.add_debug(f"⚠️ Document source {self.doc_source}: {failed}")  # type: ignore[attr-defined]
+            return rx.toast.error(
+                t("doc_source_failed", lang=self.ui_language, error=str(failed)),  # type: ignore[attr-defined]
+                duration=6000, position="top-center",
+            )
+        self.doc_file_list = [
+            {
+                "id": entry.id,
+                "name": entry.name,
+                "type": "folder" if entry.is_folder else "file",
+                "size": format_size(entry.size_bytes) if entry.size_bytes is not None else "",
+                "modified": format_stamp(datetime.fromisoformat(entry.modified).timestamp()) if entry.modified else "",
+                "download_url": f"/api/documents/source/{self.doc_source}/file/{entry.id}",
+            }
+            for entry in entries
+        ]
+        self.doc_selected_files = []
+        return None
+
+    async def set_doc_source(self, key: str | list[str]) -> EventSpec | None:
+        """Switch between the local folder and a further source (the segmented
+        control's on_change is typed str | list[str]; single choice = str)."""
+        if isinstance(key, list):
+            key = key[0]
+        self.doc_source = key
+        self.doc_remote_trail = []
+        self.doc_remote_query = ""
+        self.doc_remote_query_input = ""
+        self.document_preview_filename = ""
+        self.document_preview_content = ""
+        if key == "local":
+            self._refresh_file_list()
+            return None
+        return await self._refresh_remote_list()
+
+    async def doc_open_remote_folder(self, folder_id: str, name: str) -> EventSpec | None:
+        self.doc_remote_trail = [*self.doc_remote_trail, {"id": folder_id, "name": name}]
+        self.doc_remote_query = ""
+        return await self._refresh_remote_list()
+
+    async def doc_remote_up(self) -> EventSpec | None:
+        self.doc_remote_trail = self.doc_remote_trail[:-1]
+        self.doc_remote_query = ""
+        return await self._refresh_remote_list()
+
+    async def doc_remote_root(self) -> EventSpec | None:
+        self.doc_remote_trail = []
+        self.doc_remote_query = ""
+        self.doc_remote_query_input = ""
+        return await self._refresh_remote_list()
+
+    def set_doc_remote_query_input(self, value: str) -> None:
+        self.doc_remote_query_input = value
+
+    async def doc_remote_search(self) -> EventSpec | None:
+        """Search the whole source (empty input = back to the open folder)."""
+        self.doc_remote_query = self.doc_remote_query_input.strip()
+        return await self._refresh_remote_list()
+
+    async def doc_remote_refresh(self) -> EventSpec | None:
+        return await self._refresh_remote_list()
 
     # ================================================================
     # CREATE / DELETE FOLDER
@@ -283,6 +393,22 @@ class DocumentMixin(rx.State, mixin=True):
                     yield  # type: ignore[misc]
                     continue
 
+                if self.doc_source != "local":
+                    # Further source (e.g. Google Drive): into the open folder there.
+                    import mimetypes
+
+                    from ..lib.document_sources import get_document_source
+                    folder_id = self.doc_remote_trail[-1]["id"] if self.doc_remote_trail else ""
+                    mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
+                    await get_document_source(self.doc_source).upload(folder_id, filename, content, mime)
+                    self.document_upload_status = t(
+                        "doc_upload_saved", lang=self.ui_language,  # type: ignore[attr-defined]
+                        filename=filename,
+                    )
+                    self.add_debug(f"\U0001f4c4 Document uploaded to {self.doc_source}: {filename}")  # type: ignore[attr-defined]
+                    yield  # type: ignore[misc]
+                    continue
+
                 # Save to disk (in current folder). Defense-in-depth: resolve
                 # and reject if the final path escapes DOCUMENTS_DIR.
                 file_path = (target_dir / filename).resolve()
@@ -302,7 +428,10 @@ class DocumentMixin(rx.State, mixin=True):
                 yield  # type: ignore[misc]
 
             # Refresh file list
-            self._refresh_file_list()
+            if self.doc_source == "local":
+                self._refresh_file_list()
+            else:
+                yield await self._refresh_remote_list()  # type: ignore[misc]
 
         except Exception as e:
             self.document_upload_status = f"\u274c {e}"
