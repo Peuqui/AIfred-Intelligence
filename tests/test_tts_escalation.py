@@ -31,7 +31,7 @@ def test_local_entry_uses_registry_engine() -> None:
 
 
 def test_remote_entry_binds_engine_to_host_address() -> None:
-    hosts = [{"name": "Aragon", "address": "10.0.0.2"}]
+    hosts = [{"name": "Aragon", "address": "10.0.0.2", "enabled": True, "ssh": ""}]
     [entry] = escalation_entries(_settings(hosts, [{"engine": "qwen3local", "host": "Aragon", "enabled": True}]))
     assert entry.label == "qwen3local@Aragon"
     assert entry.engine.service_url == "http://10.0.0.2:5052"
@@ -41,7 +41,7 @@ def test_remote_entry_binds_engine_to_host_address() -> None:
 
 
 def test_host_port_overrides_engine_default() -> None:
-    hosts = [{"name": "Box", "address": "box.lan", "ports": {"xtts": 6051}}]
+    hosts = [{"name": "Box", "address": "box.lan", "enabled": True, "ssh": "", "ports": {"xtts": 6051}}]
     [entry] = escalation_entries(_settings(hosts, [{"engine": "xtts", "host": "Box", "enabled": False}]))
     assert entry.engine.service_url == "http://box.lan:6051"
     assert entry.enabled is False
@@ -61,9 +61,9 @@ def test_order_is_preserved() -> None:
     [
         ([], [{"engine": "nope", "host": None, "enabled": True}], "unknown TTS engine"),
         ([], [{"engine": "xtts", "host": "Ghost", "enabled": True}], "unknown host"),
-        ([{"name": "A", "address": "a"}], [{"engine": "piper", "host": "A", "enabled": True}], "no REST API"),
-        ([{"name": "A", "address": "a"}, {"name": "A", "address": "b"}], [], "duplicate host"),
-        ([{"name": "A", "address": "a", "ports": {"nope": 1}}], [], "unknown TTS engine"),
+        ([{"name": "A", "address": "a", "enabled": True, "ssh": ""}], [{"engine": "piper", "host": "A", "enabled": True}], "no REST API"),
+        ([{"name": "A", "address": "a", "enabled": True, "ssh": ""}, {"name": "A", "address": "b", "enabled": True, "ssh": ""}], [], "duplicate host"),
+        ([{"name": "A", "address": "a", "enabled": True, "ssh": "", "ports": {"nope": 1}}], [], "unknown TTS engine"),
     ],
 )
 def test_broken_list_fails_loud(hosts: list[dict], entries: list[dict], message: str) -> None:
@@ -113,9 +113,11 @@ class FakeEngine:
         self.fail_after = fail_after
         self.calls = 0
         self.started = False
+        self.service_dir = key
 
     cloud = False
     runs_in_container = True
+    startup_timeout_s = 30
 
     def is_running(self):
         return self.running
@@ -136,7 +138,7 @@ def _entry(engine, host=None, enabled=True):
     return EscalationEntry(engine=engine, host=host, enabled=enabled)  # type: ignore[arg-type]
 
 
-ARAGON = TTSHost(name="Aragon", address="10.0.0.2")
+ARAGON = TTSHost(name="Aragon", address="10.0.0.2", enabled=True, ssh="")
 
 
 @pytest.fixture
@@ -316,7 +318,7 @@ class TestNoteAndPlanning:
             lambda path, model_id, key: key == "xtts",
         )
         settings = _settings(
-            [{"name": "Aragon", "address": "10.0.0.2"}],
+            [{"name": "Aragon", "address": "10.0.0.2", "enabled": True, "ssh": ""}],
             [
                 {"engine": "qwen3local", "host": "Aragon", "enabled": True},   # remote — never reserved
                 {"engine": "qwen3local", "host": None, "enabled": True},       # no calibrated profile
@@ -327,3 +329,46 @@ class TestNoteAndPlanning:
         assert tts_escalation.planned_tts_engine("model", settings) == "xtts"
         settings["tts_escalation"][2]["enabled"] = False
         assert tts_escalation.planned_tts_engine("model", settings) == ""
+
+
+class TestRemoteHost:
+    def test_a_switched_off_host_is_skipped(self, spoken):
+        off = TTSHost(name="Aragon", address="10.0.0.2", enabled=False, ssh="mp@10.0.0.2:2222")
+        run = SpeechRun("de", "t", entries=[
+            _entry(FakeEngine("xtts", remote=True), off), _entry(FakeEngine("piper")),
+        ])
+        _speak(run, "Hallo.")
+        assert spoken == [("piper", "Hallo.")]
+
+    def test_a_stopped_container_is_started_over_ssh_and_waited_for(self, spoken, monkeypatch):
+        host = TTSHost(name="Aragon", address="10.0.0.2", enabled=True, ssh="mp@10.0.0.2:2222")
+        remote = FakeEngine("xtts", remote=True, running=False)
+        calls: list[tuple] = []
+
+        def control(h, *command):
+            calls.append(command)
+            remote.running = True   # the container comes up
+            return ""
+
+        monkeypatch.setattr(tts_escalation, "host_control", control)
+        run = SpeechRun("de", "t", entries=[_entry(remote, host), _entry(FakeEngine("piper"))])
+        _speak(run, "Hallo.")
+        assert calls == [("start", "xtts")]
+        assert spoken == [("xtts", "Hallo.")]          # the reply waited for Aragon
+
+    def test_a_failed_remote_start_moves_on(self, spoken, monkeypatch):
+        host = TTSHost(name="Aragon", address="10.0.0.2", enabled=True, ssh="mp@10.0.0.2:2222")
+        remote = FakeEngine("xtts", remote=True, running=False)
+
+        def control(h, *command):
+            raise RuntimeError("Aragon: connection refused")
+
+        monkeypatch.setattr(tts_escalation, "host_control", control)
+        run = SpeechRun("de", "t", entries=[_entry(remote, host), _entry(FakeEngine("piper"))])
+        _speak(run, "Hallo.")
+        assert spoken == [("piper", "Hallo.")]
+
+    def test_ssh_target_must_name_a_port(self):
+        host = TTSHost(name="Aragon", address="10.0.0.2", enabled=True, ssh="mp@10.0.0.2")
+        with pytest.raises(RuntimeError, match="user@host:port"):
+            tts_escalation.host_control(host, "status")

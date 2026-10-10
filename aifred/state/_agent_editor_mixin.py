@@ -227,6 +227,8 @@ class AgentEditorMixin(rx.State, mixin=True):
     # (z.B. zurueck von /audio-settings) den Tab-Mode auf "config"
     # zurueckschlaegt.
     _agent_editor_needs_init: bool = True
+    # Tab the next full open lands on (open_tts_settings opens the TTS tab).
+    _agent_editor_start_tab: str = "config"
 
     def open_agent_editor(self):
         """Navigate to the agent-editor page.
@@ -236,6 +238,14 @@ class AgentEditorMixin(rx.State, mixin=True):
         (Refresh-Dropdown, Load-First-Agent, DOM-Push, Tab=config).
         """
         self._agent_editor_needs_init = True
+        return rx.redirect("/agent-editor")
+
+    def open_tts_settings(self):
+        """Open the agent editor on its TTS tab (gear icon next to the
+        spoken-output switch on the main page)."""
+        self._agent_editor_needs_init = True
+        self._agent_editor_start_tab = "tts"
+        self.tts_list_revision += 1  # type: ignore[attr-defined]
         return rx.redirect("/agent-editor")
 
     def on_load_agent_editor(self):
@@ -250,7 +260,8 @@ class AgentEditorMixin(rx.State, mixin=True):
             return
         self._agent_editor_needs_init = False
         self._refresh_agent_dropdown()
-        self.agent_editor_mode = "config"
+        self.agent_editor_mode = self._agent_editor_start_tab
+        self._agent_editor_start_tab = "config"
         self.agent_editor_open = True
         self.editor_delete_confirm = ""
         self.editor_emoji_picker_open = False
@@ -267,8 +278,9 @@ class AgentEditorMixin(rx.State, mixin=True):
         # Yield to render the page DOM first
         yield
 
-        # Now populate DOM fields (page exists now)
-        yield self._push_editor_dom()
+        # Now populate DOM fields (page exists now) — only the config tab has them
+        if self.agent_editor_mode == "config":
+            yield self._push_editor_dom()
 
     # Dirty flag — set on any keystroke in editor fields
     editor_dirty: bool = False
@@ -347,6 +359,9 @@ class AgentEditorMixin(rx.State, mixin=True):
         elif tab == "stt":
             # STT-Tab: Config live vom Whisper-Service lesen (SSOT dort).
             self.load_stt_settings()
+        elif tab == "tts":
+            # TTS-Tab: Liste frisch aus settings.json (ein anderer Weg kann sie geändert haben).
+            self.tts_list_revision += 1  # type: ignore[attr-defined]
         elif tab == "plugins":
             # Load tool toggles + channel allowlists for the plugins tab.
             # list_all_plugins() (not discover_tools) so DISABLED tool plugins

@@ -95,6 +95,10 @@ class TTSEngine(ABC):
     #: (MOSS key="moss" but dir="moss-tts").
     compose_subdir: Optional[str] = None
 
+    #: Seconds a container engine gets to come up and load its model —
+    #: locally and on a TTS host alike. 0 for engines without a container.
+    startup_timeout_s: int = 0
+
     #: True for engines that run in someone else's cloud (DashScope, Edge) —
     #: the text leaves the house. Shown as a label in the escalation list.
     cloud: bool = False
@@ -154,8 +158,13 @@ class TTSEngine(ABC):
         if not self.runs_in_container:
             return None
         from ..config import PROJECT_ROOT
-        subdir = self.compose_subdir or self.key
-        return Path(PROJECT_ROOT) / "docker" / "tts" / subdir / "docker-compose.yml"
+        return Path(PROJECT_ROOT) / "docker" / "tts" / self.service_dir / "docker-compose.yml"
+
+    @property
+    def service_dir(self) -> str:
+        """Directory under ``docker/tts/`` — also the service name a TTS host's
+        control script (``scripts/tts-host-ctl.sh start <service>``) takes."""
+        return self.compose_subdir or self.key
 
     @property
     def voices_fallback(self) -> dict[str, str]:

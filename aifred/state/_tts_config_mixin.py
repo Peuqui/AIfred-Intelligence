@@ -39,6 +39,7 @@ class TTSConfigMixin(rx.State, mixin=True):
     tts_new_entry_host: str = ""
     tts_new_host_name: str = ""
     tts_new_host_address: str = ""
+    tts_new_host_ssh: str = ""
 
     # Narrator (narrate_file) voice PER ENGINE — voices are engine-bound.
     narrator_voices: Dict[str, str] = {}
@@ -95,10 +96,13 @@ class TTSConfigMixin(rx.State, mixin=True):
         ]
 
     @rx.var(deps=["tts_list_revision"], auto_deps=False)
-    def tts_host_rows(self) -> List[Dict[str, str]]:
+    def tts_host_rows(self) -> List[Dict[str, Any]]:
         from ..lib.settings import persisted_settings
         return [
-            {"name": str(host["name"]), "address": str(host["address"])}
+            {
+                "name": str(host["name"]), "address": str(host["address"]),
+                "ssh": str(host["ssh"]), "enabled": bool(host["enabled"]),
+            }
             for host in persisted_settings()["tts_hosts"]
         ]
 
@@ -252,17 +256,58 @@ class TTSConfigMixin(rx.State, mixin=True):
     def set_tts_new_host_address(self, value: str) -> None:
         self.tts_new_host_address = value.strip()
 
+    def set_tts_new_host_ssh(self, value: str) -> None:
+        self.tts_new_host_ssh = value.strip()
+
     def add_tts_host(self):
-        name, address = self.tts_new_host_name, self.tts_new_host_address
+        name, address, ssh = self.tts_new_host_name, self.tts_new_host_address, self.tts_new_host_ssh
         if not name or not address:
             self.add_debug("❌ TTS host: name and address are required")  # type: ignore[attr-defined]
             return
 
         def change(settings: Dict[str, Any]) -> None:
-            settings["tts_hosts"].append({"name": name, "address": address, "ports": {}})
+            if any(h["name"] == name for h in settings["tts_hosts"]):
+                raise ValueError(f"host {name!r} already exists")
+            settings["tts_hosts"].append({"name": name, "address": address, "enabled": True, "ssh": ssh, "ports": {}})
         yield from self._edit_tts_lists(change)
         self.tts_new_host_name = ""
         self.tts_new_host_address = ""
+        self.tts_new_host_ssh = ""
+
+    @rx.event(background=True)  # type: ignore[operator]
+    async def set_tts_host_enabled(self, name: str, enabled: bool):
+        """Switch a TTS host on or off. Off stops its containers (VRAM free) and
+        the list skips its entries; on starts the containers of its enabled
+        entries ahead of the next reply. Background event: SSH may take seconds."""
+        import asyncio
+
+        from ..lib.tts_escalation import escalation_entries, host_control
+
+        def change(settings: Dict[str, Any]) -> None:
+            for host in settings["tts_hosts"]:
+                if host["name"] == name:
+                    host["enabled"] = enabled
+
+        async with self:
+            for _ in self._edit_tts_lists(change):
+                pass
+            entries = [e for e in escalation_entries() if e.host is not None and e.host.name == name]
+            self.add_debug(f"🔊 TTS host {name}: {'on' if enabled else 'off'}")  # type: ignore[attr-defined]
+        if not entries or not entries[0].host or not entries[0].host.ssh:
+            return
+        host = entries[0].host
+        try:
+            if enabled:
+                for service in dict.fromkeys(e.engine.service_dir for e in entries if e.enabled):
+                    await asyncio.to_thread(host_control, host, "start", service)
+                message = f"🔊 TTS host {name}: containers started"
+            else:
+                await asyncio.to_thread(host_control, host, "stop")
+                message = f"🔊 TTS host {name}: containers stopped, VRAM free"
+        except RuntimeError as exc:
+            message = f"❌ TTS host {name}: {exc}"
+        async with self:
+            self.add_debug(message)  # type: ignore[attr-defined]
 
     def remove_tts_host(self, name: str):
         def change(settings: Dict[str, Any]) -> None:
