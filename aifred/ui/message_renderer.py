@@ -119,7 +119,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
             type="button",
             title=t("audio_play_tooltip"),
             disabled=AIState.tts_regenerating,
-            **{"data-audio-urls": msg["audio_urls_json"]},
+            **{"data-audio-urls": msg["audio_urls_json"], "data-browser-speech": msg["browser_speech_json"]},
             class_name="bubble-audio-btn",
             style={
                 "display": "none",  # JS zeigt Button wenn Audio vorhanden

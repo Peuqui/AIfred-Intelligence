@@ -349,6 +349,7 @@ class ChatMixin(rx.State, mixin=True):
         new_message["failed_sources"] = []
         new_message["has_audio"] = bool(audio_urls)
         new_message["audio_urls_json"] = json.dumps(audio_urls) if audio_urls else "[]"
+        new_message["browser_speech_json"] = "[]"
         new_message["tts_note"] = ""
 
         # 5. Append to chat_history (no more replace_last!).
@@ -913,6 +914,7 @@ class ChatMixin(rx.State, mixin=True):
                     "failed_sources": [],
                     "has_audio": False,
                     "audio_urls_json": "[]",
+                    "browser_speech_json": "[]",
                     "tts_note": "",
                 },
             ]
@@ -1286,6 +1288,7 @@ class ChatMixin(rx.State, mixin=True):
                             "failed_sources": [],
                             "has_audio": False,
                             "audio_urls_json": "[]",
+                            "browser_speech_json": "[]",
                             "tts_note": "",
                         },
                     ]
