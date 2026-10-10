@@ -197,8 +197,9 @@ def _tts_section() -> rx.Component:
         # visible while the browser's spoken output is off.
         rx.text(t("tts_list_heading"), font_size="11px", color="#d4a14a"),
         rx.foreach(AIState.tts_escalation_rows, _entry_row),
-        _add_entry_row(),
         _hosts_block(),
+        rx.text(t("tts_add_heading"), font_size="11px", color="#d4a14a"),
+        _add_entry_row(),
         spacing="2",
         width="100%",
     )
