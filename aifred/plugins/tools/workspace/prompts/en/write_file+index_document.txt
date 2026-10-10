@@ -1,0 +1,1 @@
+After writing or editing a file: ask whether it should be indexed.

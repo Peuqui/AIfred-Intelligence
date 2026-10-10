@@ -1,0 +1,1 @@
+- chromadb_stats → Alle Collections der Vektordatenbank mit Eintragsanzahl anzeigen

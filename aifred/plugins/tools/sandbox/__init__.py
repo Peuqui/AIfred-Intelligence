@@ -57,6 +57,25 @@ def _vendor_base() -> str:
     return "/vendor"
 
 
+def _available_libraries() -> str:
+    """The libraries a sandbox run can import, for the tool descriptions.
+
+    The sandbox runs AIfred's own venv (lib.sandbox), so what imports here
+    imports there. Candidates and their purpose live in
+    prompts/tools/sandbox_libraries.json; only installed ones are named —
+    the list says what the sandbox really has, not what it might have.
+    Nothing can be installed from inside a run (read-only venv, no network)."""
+    import importlib.util
+    import json
+    from pathlib import Path
+
+    candidates = json.loads(
+        (Path(__file__).parent / "prompts" / "tools" / "sandbox_libraries.json").read_text(encoding="utf-8"),
+    )
+    available = [purpose for module, purpose in candidates.items() if importlib.util.find_spec(module) is not None]
+    return "Python standard library plus " + ", ".join(available)
+
+
 def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
     """Create sandbox tools for LLM function calling.
 
@@ -188,18 +207,20 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
 
 
     _vb = _vendor_base()
+    _libraries = _available_libraries()
     return [
         Tool(
             name="execute_code",
             tier=TIER_WRITE_DATA,
-            description=load_tool_description(__file__, "execute_code").replace("{VENDOR_BASE}", _vb),
+            description=load_tool_description(__file__, "execute_code")
+            .replace("{VENDOR_BASE}", _vb).replace("{AVAILABLE_LIBRARIES}", _libraries),
             parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code,
         ),
         Tool(
             name="execute_code_write",
             tier=TIER_WRITE_SYSTEM,
-            description=load_tool_description(__file__, "execute_code_write"),
+            description=load_tool_description(__file__, "execute_code_write").replace("{AVAILABLE_LIBRARIES}", _libraries),
             parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code_write,
         ),

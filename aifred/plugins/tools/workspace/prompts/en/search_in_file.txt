@@ -1,0 +1,1 @@
+- search_in_file → Find lines containing a text in a file (line numbers, optional context lines). For large files ALWAYS search first, then read or change only the relevant range.

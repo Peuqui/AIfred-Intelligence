@@ -1,0 +1,1 @@
+- patch_file → Gezielte Änderung in einer Textdatei: exakten alten Textausschnitt (muss genau EINMAL vorkommen) durch neuen ersetzen; replace_all=true ersetzt bewusst ALLE Vorkommen (z. B. Variable umbenennen). Für kleine Korrekturen IMMER patch_file statt write_file — write_file mit Teilinhalt würde die Datei zerstören. Vorher IMMER read_file.

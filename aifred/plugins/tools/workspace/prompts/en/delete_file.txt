@@ -1,0 +1,1 @@
+- delete_file → Delete a file (disk + vector database index)

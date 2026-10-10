@@ -1,0 +1,1 @@
+- list_indexed → Alle indexierten Dokumente anzeigen (list_files zeigt die Festplatte, list_indexed die Vektordatenbank)
