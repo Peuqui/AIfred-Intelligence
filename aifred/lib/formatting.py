@@ -434,6 +434,7 @@ def build_assistant_chat_entry(
         "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
         "has_audio": False,
         "audio_urls_json": "[]",
+        "tts_note": "",
     }
 
 
@@ -456,6 +457,7 @@ def build_channel_chat_entry(content: str, channel: str, sender: str) -> dict:
         "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
         "has_audio": False,
         "audio_urls_json": "[]",
+        "tts_note": "",
     }
 
 

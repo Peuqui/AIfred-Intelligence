@@ -75,6 +75,7 @@ class DashScopeEngine(TTSEngine):
     needs_speed_postprocess = True
     supports_language = True
     display_order = 50
+    cloud = True
 
     # DashScope service endpoints + model identifiers.
     base_url: str = "https://dashscope-intl.aliyuncs.com/api/v1"

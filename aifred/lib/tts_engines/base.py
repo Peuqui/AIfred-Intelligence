@@ -95,6 +95,10 @@ class TTSEngine(ABC):
     #: (MOSS key="moss" but dir="moss-tts").
     compose_subdir: Optional[str] = None
 
+    #: True for engines that run in someone else's cloud (DashScope, Edge) —
+    #: the text leaves the house. Shown as a label in the escalation list.
+    cloud: bool = False
+
     #: Port of the engine's REST API — set by engines that run as an HTTP
     #: service (the containers). None = no REST API (cloud/CLI engines);
     #: such engines can only run on this machine or in the cloud.
@@ -321,6 +325,7 @@ class TTSEngine(ABC):
         import requests
         from ..audio_processing import TTS_AUDIO_DIR, _generate_tts_filename, _validate_audio_output
         from ..config import TTS_CONNECT_TIMEOUT_S, TTS_READ_TIMEOUT_S
+        from ..formatting import format_number
         from ..logging_utils import log_message
 
         filename = _generate_tts_filename(extension)
@@ -337,13 +342,13 @@ class TTSEngine(ABC):
         except (requests.ConnectionError, requests.ConnectTimeout) as exc:
             raise TTSFailure("unreachable", f"{self.label_short} at {self.service_url}: {exc}") from exc
         except requests.Timeout as exc:
-            raise TTSFailure("engine", f"{self.label_short} did not answer within {TTS_READ_TIMEOUT_S}s") from exc
+            raise TTSFailure("engine", f"{self.label_short} did not answer within {format_number(TTS_READ_TIMEOUT_S)} s") from exc
         if response.status_code != 200:
             raise TTSFailure("engine", f"{self.label_short} HTTP {response.status_code}: {response.text[:200]}")
         output_file.write_bytes(response.content)
         if not _validate_audio_output(str(output_file)):
             raise TTSFailure("engine", f"{self.label_short} returned no usable audio")
-        log_message(f"✅ {self.label_short}: audio saved → {output_file} ({output_file.stat().st_size} bytes)")
+        log_message(f"✅ {self.label_short}: audio saved → {output_file} ({format_number(output_file.stat().st_size)} bytes)")
         return f"/_upload/tts_audio/{filename}"
 
     # ── Calibration support (only container/GPU engines) ───────────

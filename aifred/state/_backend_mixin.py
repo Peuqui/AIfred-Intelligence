@@ -197,6 +197,7 @@ class BackendMixin(rx.State, mixin=True):
         # so the fallback rules stay identical to _effective_model_id.
         from ..lib.calibration import resolve_effective_suffix
         from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.tts_escalation import planned_tts_engine
 
         # Automatik mirrors the AIfred agent's Speed toggle — it doesn't
         # have an independent UI control, so a separate
@@ -212,7 +213,7 @@ class BackendMixin(rx.State, mixin=True):
             # model's property here.
             has_speed_variant=True,
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
-            tts_engine=self.tts_engine,  # type: ignore[attr-defined]
+            tts_engine=planned_tts_engine(self.automatik_model_id),  # type: ignore[attr-defined]
         )
         return self.automatik_model_id + suffix  # type: ignore[attr-defined, no-any-return]
 
@@ -551,27 +552,13 @@ class BackendMixin(rx.State, mixin=True):
 
                     # Load TTS/STT Settings
                     self.enable_tts = saved_settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
-                    self.tts_engine = saved_settings.get("tts_engine", self.tts_engine)  # type: ignore[attr-defined, has-type]
-                    # tts_autoplay/tts_streaming_enabled: loaded per-engine by _restore_tts_toggles_for_engine below
+                    self.tts_autoplay = saved_settings.get("tts_autoplay", self.tts_autoplay)  # type: ignore[attr-defined, has-type]
+                    self.tts_agents = saved_settings.get("tts_agents", self.tts_agents)  # type: ignore[attr-defined, has-type]
+                    self.narrator_voices = saved_settings.get("narrator_voices", self.narrator_voices)  # type: ignore[attr-defined, has-type]
                     self.tts_playback_rate = saved_settings.get("tts_playback_rate", self.tts_playback_rate)  # type: ignore[attr-defined, has-type]
                     self.tts_pitch = saved_settings.get("tts_pitch", self.tts_pitch)  # type: ignore[attr-defined, has-type]
                     self.show_transcription = saved_settings.get("show_transcription", self.show_transcription)  # type: ignore[attr-defined, has-type]
                     self.enter_sends_message = saved_settings.get("enter_sends_message", self.enter_sends_message)  # type: ignore[attr-defined, has-type]
-
-                    # Load TTS voice
-                    user_voices = saved_settings.get("tts_voices_per_language", {})
-                    engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
-                    saved_voice = user_voices.get(engine_key, {}).get(self.ui_language)  # type: ignore[attr-defined, has-type]
-                    if saved_voice:
-                        self.tts_voice = saved_voice  # type: ignore[attr-defined, has-type]
-                    else:
-                        self.tts_voice = saved_settings.get("voice", self.tts_voice)  # type: ignore[attr-defined, has-type]
-
-                    self._restore_agent_voices_for_engine(engine_key)  # type: ignore[attr-defined, has-type]
-                    self._restore_tts_toggles_for_engine(engine_key)  # type: ignore[attr-defined, has-type]
-
-                    if self.tts_engine == "xtts":  # type: ignore[attr-defined, has-type]
-                        self._refresh_xtts_voices()  # type: ignore[attr-defined, has-type]
 
                     # Load vLLM YaRN Settings
                     self.enable_yarn = saved_settings.get("enable_yarn", self.enable_yarn)

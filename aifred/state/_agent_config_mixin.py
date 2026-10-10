@@ -427,7 +427,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         fallback when a variant isn't actually present in the YAML).
 
         SSOT for the active profile is the user's UI toggle
-        (``enable_tts`` + ``tts_engine``), NOT the live container state.
+        (``enable_tts``) plus the planned engine of the escalation list
+        (``planned_tts_engine``), NOT the live container state.
         Probing the container via HTTP every call would leak transient
         states (idle KEEP_ALIVE, busy with a batch of sentences,
         restart in progress) into model resolution.
@@ -442,6 +443,7 @@ class AgentConfigMixin(rx.State, mixin=True):
 
         from ..lib.calibration import resolve_effective_suffix
         from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.tts_escalation import planned_tts_engine
 
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
@@ -450,7 +452,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             speed_on=get_agent_setting(self, agent, "speed_mode"),
             has_speed_variant=get_agent_setting(self, agent, "has_speed_variant"),
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
-            tts_engine=self.tts_engine,  # type: ignore[attr-defined]
+            tts_engine=planned_tts_engine(base_id),
         )
         return base_id + suffix
 

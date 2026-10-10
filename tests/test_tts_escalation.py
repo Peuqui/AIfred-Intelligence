@@ -114,8 +114,14 @@ class FakeEngine:
         self.calls = 0
         self.started = False
 
+    cloud = False
+    runs_in_container = True
+
     def is_running(self):
         return self.running
+
+    def is_installed(self):
+        return True
 
     def ensure_ready(self, timeout=None):
         self.started = True
@@ -270,3 +276,32 @@ class TestResolveVoice:
     def test_no_voice_at_all_fails_the_entry(self, voices):
         with pytest.raises(TTSFailure, match="no voice configured"):
             tts_escalation.resolve_voice("xtts", "aifred")
+
+
+class TestNoteAndPlanning:
+    def test_the_note_names_every_speaker_and_the_reason_of_a_switch(self, spoken):
+        run = SpeechRun("de", "t", entries=[
+            _entry(FakeEngine("xtts", remote=True, fail="unreachable", fail_after=1), ARAGON),
+            _entry(FakeEngine("piper")),
+        ])
+        assert run.note("de") == ""
+        _speak(run, "Eins.", "Zwei.")
+        assert run.note("de") == "XTTS · Aragon → PIPER · lokal (Serverausfall)"
+
+    def test_planned_engine_is_the_topmost_enabled_local_gpu_entry_with_a_profile(self, monkeypatch):
+        monkeypatch.setattr(
+            "aifred.lib.calibration.has_llamaswap_tts_variant",
+            lambda path, model_id, key: key == "xtts",
+        )
+        settings = _settings(
+            [{"name": "Aragon", "address": "10.0.0.2"}],
+            [
+                {"engine": "qwen3local", "host": "Aragon", "enabled": True},   # remote — never reserved
+                {"engine": "qwen3local", "host": None, "enabled": True},       # no calibrated profile
+                {"engine": "xtts", "host": None, "enabled": True},
+                {"engine": "piper", "host": None, "enabled": True},
+            ],
+        )
+        assert tts_escalation.planned_tts_engine("model", settings) == "xtts"
+        settings["tts_escalation"][2]["enabled"] = False
+        assert tts_escalation.planned_tts_engine("model", settings) == ""

@@ -56,6 +56,7 @@ class ChatMessage(TypedDict):
     # Audio replay (top-level for Reflex UI access)
     has_audio: bool  # True if audio_urls is non-empty
     audio_urls_json: str  # JSON string of audio URLs (for JS playback)
+    tts_note: str  # Who spoke the audio (escalation list), shown next to the play button
 
 # ============================================================
 # Module-Level Backend State (Global across all sessions)

@@ -9,8 +9,6 @@ from typing import Tuple, TYPE_CHECKING
 
 from ..config import (
     MAIN_LLM_FALLBACK_CONTEXT,
-    XTTS_VRAM_MB,
-    MOSS_TTS_VRAM_MB,
     VRAM_CONTEXT_RATIO_DENSE,
     VRAM_CONTEXT_RATIO_MOE
 )
@@ -156,10 +154,12 @@ def get_agent_num_ctx(
         # (e.g. 194k) while llama-server is actually configured at the
         # TTS-variant context (e.g. 117k), and a long tool loop runs
         # past the real limit without ever triggering history compression.
-        # SSOT is the State toggle (enable_tts + tts_engine), not a live
-        # container probe — same rationale as _effective_model_id.
+        # SSOT is the State toggle (enable_tts) plus the planned engine of
+        # the escalation list, not a live container probe — same rationale
+        # as _effective_model_id.
         from ..calibration import parse_llamaswap_config, resolve_effective_suffix
         from ..config import LLAMASWAP_CONFIG_PATH
+        from ..tts_escalation import planned_tts_engine
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 
         # Resolve the variant via the SSOT — same rules as the model-id
@@ -171,7 +171,7 @@ def get_agent_num_ctx(
             speed_on=get_agent_setting(state, owner, "speed_mode", False),
             has_speed_variant=get_agent_setting(state, owner, "has_speed_variant", False),
             tts_active=bool(getattr(state, "enable_tts", False)),
-            tts_engine=getattr(state, "tts_engine", ""),
+            tts_engine=planned_tts_engine(model_id),
         )
         effective_id = model_id + suffix
 
@@ -205,40 +205,22 @@ def get_agent_num_ctx(
     # For llamacpp: llama-swap YAML has separate TTS-calibrated profiles with
     # adjusted tensor-split. The -c value IS the ground truth — no reduction needed.
     # For vLLM/cloud: context is fixed at server startup.
-    enable_tts = getattr(state, 'enable_tts', False)
-    tts_engine = getattr(state, 'tts_engine', '')
-
-    if enable_tts and backend_type == "ollama":
-        tts_streaming = getattr(state, 'tts_streaming', False)
-        tts_autoplay = getattr(state, 'tts_autoplay', False)
-        tts_mode_parts = []
-        if tts_streaming:
-            tts_mode_parts.append("Streaming")
-        if tts_autoplay:
-            tts_mode_parts.append("Auto-Play")
-        tts_mode = ", ".join(tts_mode_parts) if tts_mode_parts else "Manual"
-
-        if 'xtts' in tts_engine.lower():
+    if getattr(state, 'enable_tts', False) and backend_type == "ollama":
+        # The first enabled local GPU entry of the escalation list is the TTS
+        # engine expected to share the card — reserve its measured burn-in peak.
+        from .. import tts_vram_cache
+        from ..tts_escalation import escalation_entries
+        engine = next(
+            (e.engine for e in escalation_entries() if e.enabled and e.host is None and e.engine.needs_gpu),
+            None,
+        )
+        peak = tts_vram_cache.get(engine.key) if engine is not None else None
+        if engine is not None and peak is not None:
             vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
-            xtts_token_reserve = int(XTTS_VRAM_MB / vram_ratio)
+            token_reserve = int(peak / vram_ratio)
             original_ctx = num_ctx
-            num_ctx = max(2048, num_ctx - xtts_token_reserve)
-            source = f"{source} (XTTS: -{format_number(xtts_token_reserve)} tok)"
-            log_message(f"🔊 TTS: XTTS (GPU), {tts_mode} | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(xtts_token_reserve)})")
-        elif 'moss' in tts_engine.lower():
-            moss_device = getattr(state, 'moss_tts_device', '')
-
-            if moss_device == "cuda":
-                vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
-                moss_token_reserve = int(MOSS_TTS_VRAM_MB / vram_ratio)
-                original_ctx = num_ctx
-                num_ctx = max(2048, num_ctx - moss_token_reserve)
-                source = f"{source} (MOSS: -{format_number(moss_token_reserve)} tok)"
-                log_message(f"🔊 TTS: MOSS-TTS (GPU), {tts_mode} | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(moss_token_reserve)})")
-            else:
-                log_message(f"🔊 TTS: MOSS-TTS ({moss_device or 'not loaded'}), {tts_mode} | No VRAM reservation")
-        else:
-            # Other TTS engines (Edge TTS, Google TTS, etc.) - no VRAM impact
-            log_message(f"🔊 TTS: {tts_engine}, {tts_mode} | No VRAM impact (cloud/CPU)")
+            num_ctx = max(2048, num_ctx - token_reserve)
+            source = f"{source} ({engine.label_short}: -{format_number(token_reserve)} tok)"
+            log_message(f"🔊 TTS: {engine.label_short} reserve | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(token_reserve)})")
 
     return (num_ctx, source)

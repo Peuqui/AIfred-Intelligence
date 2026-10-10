@@ -17,10 +17,10 @@ einem anderen Rechner laufen (Eintrag in `tts_hosts`).
 Die Engine, für die das LLM-Profil (`<modell>-tts-<engine>`) Platz reserviert, schaltet
 der Browser (`ensure_tts_state`). Kanäle schalten sie nie um.
 
-## Eskalationsliste (FreeEcho.2, Narrator)
+## Eskalationsliste (Browser, FreeEcho.2, Narrator)
 
-Kanäle mit eigenem Lautsprecher (FreeEcho.2) und der Narrator wählen ihre Engine
-nicht selbst, sondern über die **globale Eskalationsliste** (`lib/tts_escalation.py`).
+Browser, Kanäle mit eigenem Lautsprecher (FreeEcho.2) und der Narrator wählen ihre
+Engine nicht selbst, sondern über die **globale Eskalationsliste** (`lib/tts_escalation.py`).
 Zwei Listen in `settings.json`:
 
 - `tts_hosts`: andere Rechner, die TTS-Container mit derselben API betreiben
@@ -63,22 +63,33 @@ Debug-Konsole und `debug.log` (englisch):
 🔊 [FreeEcho.2 buero] TTS escalation: voice change announced, dashscope@local continues
 ```
 
-## Browser — TTS Umschaltung
+## Browser — Menü
 
-### Engine-Dropdown (Haupt-Einstellungen)
-- Umschaltung erfolgt **sofort** (nicht nur Setting ändern)
-- `set_tts_engine_or_off()` steuert: VRAM freimachen, neuen Container starten, LLM mit Profil neu laden
-- "Aus" → `enable_tts=False`, GPU-Container stoppen
+### Audio-Bereich (Haupt-Einstellungen)
+- Schalter **Sprachausgabe an/aus** (`set_enable_tts`) und **Auto-Play** (global, Standard aus, `tts_autoplay`)
+- **Liste:** Pfeile (Reihenfolge), An/Aus, Etikett „Engine · lokal/Host/Cloud/CPU“, Sprecheinheit
+  der Engine (`tts_toggles_per_engine[engine].unit`), Löschen; „Hinzufügen“ bietet nur Engines mit
+  gebautem Image an. **Hosts:** Name und Adresse (Ports nur in `settings.json`)
+- „VRAM reserviert“ markiert `planned_tts_engine()`. Ändert sich diese Engine durch Umsortieren oder
+  Schalten, plant `_apply_planned_tts()` das VRAM neu (`ensure_tts_state`, ggf. LLM-Profilwechsel) —
+  nur hier, nie beim Sprechen
+- Vor jeder Antwort startet `_phase_tts_container_checks()` nur die reservierte Engine, falls sie
+  nicht läuft; eine andere lokale Engine, die die Liste in freien Speicher gestartet hat, bleibt
 
 ### Agent-Editor (pro Agent)
-- Backend-Dropdown pro Agent: Wählt welches Backend für diesen Agenten gilt
-- "Aus" → Agent bekommt kein TTS (`enabled=False`)
-- Voice leer → Fallback auf den Engine-Default des Agenten aus `agents.json`, dann auf die globale `tts_voice` (siehe Voice-Auflösung)
-- Änderungen werden nur als **Settings** gespeichert, kein sofortiger VRAM-Wechsel
+- Engine-Dropdown nur zum Pflegen der Stimme je Engine (`tts_agent_voices_per_engine`) — wer spricht,
+  entscheidet die Liste
+- „Aus“ schaltet den Agenten für alle Engines stumm (`tts_agents[agent].enabled`); die Sprache je
+  Agent steht ebenfalls dort (`tts_agents[agent].language`)
 
 ### FreeEcho.2-Plugin
 - Keine eigene Engine-Einstellung — es spricht über die Eskalationsliste
 - Die Einheit der Sprachausgabe (Satz/Absatz/am Stück) ist die der sprechenden Engine
+
+### Chat-Vermerk
+Neben dem Abspielknopf der Bubble steht, wer gesprochen hat (`SpeechRun.note()`, Feld `tts_note`),
+bei einem Wechsel mit Grund, z. B. „🔊 XTTS · Aragon → DashScope · Cloud (Serverausfall)“. Beim
+Streaming kommt er per Push `bubble_tts_note` (custom.js).
 
 ## Autoplay + Streaming
 
@@ -90,25 +101,21 @@ Debug-Konsole und `debug.log` (englisch):
 
 ## Voice-Auflösung
 
-### Browser
-SSOT: `_resolve_agent_tts()` in `_tts_streaming_mixin.py`. Ein Agent leiht sich nie
-die Voice eines anderen Agenten.
-1. Per-Agent-Voice des Users für die aktive Engine (`tts_agent_voices[agent]["voice"]`)
-2. Engine-Default des Agenten aus `data/agents.json` (`tts_voices.<engine>`)
-3. `self.tts_voice` (globaler State-Default) — nur für Agenten ohne Engine-Default
-
-### Eskalationsliste (FreeEcho.2)
-SSOT: `resolve_voice()` in `lib/tts_escalation.py`, je Engine des sprechenden Eintrags.
+SSOT für alle Wege (Browser, FreeEcho.2, Neusynthese): `resolve_voice()` in
+`lib/tts_escalation.py`, je Engine des sprechenden Eintrags. Ein Agent leiht sich nie die Voice
+eines anderen Agenten.
 1. User-Setting für Agent+Engine (`tts_agent_voices_per_engine[engine][agent]` in `settings.json`)
 2. User-Setting für AIfred (nur wenn der Agent keins hat)
 3. Engine-Default des Agenten aus `data/agents.json` (`tts_voices.<engine>`, via `get_tts_voice_default()`)
 4. Engine-Default von AIfred aus `data/agents.json`, wenn der Default des Agenten keine Voice hat
 5. Keine Voice → der Eintrag fällt aus (`TTSFailure`), die Liste geht weiter
 
+Der Narrator nutzt `narrator_voices[engine]`, sonst die erste eigene Stimme der Engine.
+
 ## Debug-Ausgaben
 
 Bei jedem LLM-Profil-Wechsel wird das effektive Modell + Kontext angezeigt
-(`get_effective_model_info()`; FreeEcho.2 und das Browser-Dropdown stellen den
+(`get_effective_model_info()`; das Browser-Menü stellt den
 Statusmeldungen 🔊 voran):
 ```
 🔊 LLM profile ready: GPT-OSS-120B-A5B-UD-Q8_K_XL-tts-xtts (ctx: 131.072)
@@ -125,10 +132,9 @@ Bei der Intent-Detection (`format_intent_result()` in `intent_detector.py`):
 |----------|-------|-------------|
 | `ensure_tts_state()` | `tts_engine_manager.py` | SSOT: Prüft/stellt VRAM-State her |
 | `_do_switch()` | `tts_engine_manager.py` | Voller Engine-Wechsel (entladen → laden) |
-| `set_tts_engine_or_off()` | `_tts_config_mixin.py` | Browser-Dropdown Handler |
+| `_edit_tts_lists()` / `_apply_planned_tts()` | `_tts_config_mixin.py` | Listen-Editor im Menü, VRAM-Neuplanung |
 | `SpeechRun` / `choose_speaker()` | `lib/tts_escalation.py` | Eskalationsliste: Auswahl, Ausfall, Ansage |
 | `resolve_voice()` | `lib/tts_escalation.py` | Voice/Speed/Pitch je Engine (Kanäle, Narrator) |
 | `start_speech_stream()` | `lib/speech_synthesis.py` | Satzweiser PCM-Strom für Kanäle mit Lautsprecher |
 | `release_side_channels_for_describer()` | `lib/vision_routing.py` | Describer verdrängt TTS und STT |
-| `_queue_tts_for_agent()` | `_tts_streaming_mixin.py` | Browser TTS-Generierung |
-| `_resolve_agent_tts()` | `_tts_streaming_mixin.py` | Browser-Auflösung von Voice/Speed/Pitch |
+| `_queue_tts_for_agent()` / `_tts_generate_sentence_async()` | `_tts_streaming_mixin.py` | Browser: Warteschlange und satzweises Streaming über `SpeechRun` |

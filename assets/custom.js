@@ -909,6 +909,10 @@ function getSessionIdFromCookie() {
  *
  * @param {string} sessionIdParam - Optional session ID (else read from cookie)
  */
+// Play button of the bubble that received audio last (bubble_audio push) —
+// the bubble_tts_note push that follows labels exactly that bubble.
+let lastAudioBubbleBtn = null;
+
 function startBrowserStream(sessionIdParam) {
     const sessionId = sessionIdParam || getSessionIdFromCookie();
     if (!sessionId) {
@@ -1002,9 +1006,22 @@ function startBrowserStream(sessionIdParam) {
                 }
                 if (pendingBtn) {
                     pendingBtn.setAttribute('data-audio-urls', JSON.stringify([url]));
+                    lastAudioBubbleBtn = pendingBtn;
                     console.log('🔊 Audio SSE: bubble_audio attached to latest bubble');
                 } else {
                     console.warn('🔊 Audio SSE: bubble_audio — no pending bubble found');
+                }
+                return;
+            }
+
+            if (kind === 'bubble_tts_note') {
+                // Who spoke the bubble just attached by bubble_audio (escalation
+                // list): the note sits next to that bubble's play button.
+                const note = lastAudioBubbleBtn && lastAudioBubbleBtn.parentElement
+                    ? lastAudioBubbleBtn.parentElement.querySelector('.bubble-tts-note')
+                    : null;
+                if (note) {
+                    note.textContent = url ? '🔊 ' + url : '';
                 }
                 return;
             }

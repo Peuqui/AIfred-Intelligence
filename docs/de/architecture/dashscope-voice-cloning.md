@@ -36,11 +36,11 @@ hörbar besseren Akzent/Charakter (empirisch bestätigt: 25 s > 10 s). Die offiz
 Doku empfiehlt 10–20 s (max. 60 s) — beides liegt im erlaubten Rahmen; entscheidend
 ist saubere, rauschfreie Referenz.
 
-## Automatisches Enrollment beim Engine-Switch
+## Automatisches Enrollment
 
-Wer DashScope als TTS-Engine anwählt, bekommt seine geklonten Stimmen **automatisch**
-— kein manueller Anstoß. Ablauf ([`_tts_config_mixin.py`](../../../aifred/state/_tts_config_mixin.py)
-→ `set_tts_engine_or_off`):
+Steht DashScope aktiv in der Eskalationsliste, werden die geklonten Stimmen beim Einschalten der
+Sprachausgabe und bei jeder Änderung der Liste **automatisch** abgeglichen — kein manueller Anstoß.
+Ablauf ([`_tts_config_mixin.py`](../../../aifred/state/_tts_config_mixin.py) → `_apply_planned_tts`):
 
 1. SSOT-Stimmenordner [`docker/tts/voices/<Name>/<Name>.wav`](../../../docker/tts/voices/)
    wird gescannt.
@@ -64,7 +64,7 @@ aktuelle WAV-Hash mit dem gespeicherten übereinstimmt:
 
 Dadurch ist der Switch nach dem ersten Lauf effektiv instant (nur Hash-Checks).
 **Re-Enrollment erzwingen:** Mapping-Eintrag (oder die ganze Datei) löschen — der
-Ordner wird nicht zur Laufzeit überwacht, Auslöser ist immer der Engine-Switch.
+Ordner wird nicht zur Laufzeit überwacht, Auslöser ist das Einschalten der Sprachausgabe oder eine Änderung der Liste.
 
 ### Stimmenliste
 

@@ -13,6 +13,7 @@ class EdgeEngine(TTSEngine):
     # Edge respects the rate parameter natively — no ffmpeg post.
     needs_speed_postprocess = False
     display_order = 80
+    cloud = True
 
     # display name → Microsoft Neural Voice id. Static catalogue —
     # Edge has no live discovery endpoint we use.

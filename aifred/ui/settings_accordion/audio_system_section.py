@@ -2,131 +2,203 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import _NATIVE_SELECT_STYLE, t, native_select_tts
+from ..helpers import _NATIVE_SELECT_STYLE_COMPACT, t
+
+
+def _icon_action(icon: str, on_click: Any, tooltip_key: str) -> rx.Component:
+    return rx.tooltip(
+        rx.icon_button(
+            rx.icon(icon, size=12),
+            on_click=on_click,
+            size="1",
+            variant="ghost",
+            color_scheme="gray",
+        ),
+        content=t(tooltip_key),
+    )
+
+
+def _entry_row(row: rx.Var) -> rx.Component:
+    """One escalation entry: order, on/off, label, speech unit, delete."""
+    index = row["index"].to(int)
+    return rx.hstack(
+        _icon_action("chevron-up", AIState.move_tts_entry(index, -1), "tts_entry_up"),
+        _icon_action("chevron-down", AIState.move_tts_entry(index, 1), "tts_entry_down"),
+        rx.switch(
+            checked=row["enabled"].to(bool),
+            on_change=lambda enabled: AIState.set_tts_entry_enabled(index, enabled),
+            size="1",
+        ),
+        rx.text(
+            row["label"].to(str),
+            font_size="12px",
+            color=rx.cond(row["enabled"].to(bool), "#ddd", "#666"),
+            flex="1",
+            min_width="0",
+            white_space="nowrap",
+            overflow="hidden",
+            text_overflow="ellipsis",
+        ),
+        rx.cond(
+            row["reserved"].to(bool),
+            rx.tooltip(
+                rx.badge(t("tts_entry_reserved"), color_scheme="amber", size="1"),
+                content=t("tts_entry_reserved_tooltip"),
+            ),
+            rx.fragment(),
+        ),
+        rx.cond(
+            row["note"].to(str) != "",
+            rx.badge(row["note"].to(str), color_scheme="red", size="1"),
+            rx.fragment(),
+        ),
+        rx.el.select(
+            rx.el.option(t("tts_unit_sentence"), value="sentence"),
+            rx.el.option(t("tts_unit_paragraph"), value="paragraph"),
+            rx.el.option(t("tts_unit_whole"), value="whole"),
+            value=row["unit"].to(str),
+            on_change=lambda unit: AIState.set_tts_entry_unit(row["engine"].to(str), unit),
+            style={**_NATIVE_SELECT_STYLE_COMPACT, "flex_shrink": "0"},
+        ),
+        _icon_action("trash-2", AIState.remove_tts_entry(index), "tts_entry_remove"),
+        spacing="1",
+        align="center",
+        width="100%",
+    )
+
+
+def _add_entry_row() -> rx.Component:
+    return rx.hstack(
+        rx.el.select(
+            rx.el.option(t("tts_add_engine_placeholder"), value="", disabled=True),
+            rx.foreach(AIState.tts_add_engine_options, lambda label: rx.el.option(label, value=label)),
+            value=AIState.tts_new_entry_engine,
+            on_change=AIState.set_tts_new_entry_engine,
+            style={**_NATIVE_SELECT_STYLE_COMPACT, "flex": "1", "min_width": "0"},
+        ),
+        rx.el.select(
+            rx.foreach(AIState.tts_add_host_options, lambda label: rx.el.option(label, value=label)),
+            value=AIState.tts_new_entry_host,
+            on_change=AIState.set_tts_new_entry_host,
+            style={**_NATIVE_SELECT_STYLE_COMPACT, "flex": "1", "min_width": "0"},
+        ),
+        rx.button(
+            rx.icon("plus", size=12),
+            t("tts_add_entry"),
+            on_click=AIState.add_tts_entry,
+            disabled=AIState.tts_new_entry_engine == "",
+            size="1",
+            variant="soft",
+        ),
+        spacing="1",
+        align="center",
+        width="100%",
+    )
+
+
+def _hosts_block() -> rx.Component:
+    """Other machines that run TTS containers with the same API."""
+    return rx.vstack(
+        rx.text(t("tts_hosts_heading"), font_size="11px", color="#d4a14a"),
+        rx.foreach(
+            AIState.tts_host_rows,
+            lambda host: rx.hstack(
+                rx.text(host["name"], font_size="12px", color="#ddd"),
+                rx.text(host["address"], font_size="11px", color="#888", flex="1"),
+                _icon_action("trash-2", AIState.remove_tts_host(host["name"]), "tts_host_remove"),
+                spacing="2",
+                align="center",
+                width="100%",
+            ),
+        ),
+        rx.hstack(
+            rx.input(
+                value=AIState.tts_new_host_name,
+                on_change=AIState.set_tts_new_host_name,
+                placeholder=t("tts_host_name_placeholder"),
+                size="1",
+                flex="1",
+            ),
+            rx.input(
+                value=AIState.tts_new_host_address,
+                on_change=AIState.set_tts_new_host_address,
+                placeholder=t("tts_host_address_placeholder"),
+                size="1",
+                flex="1",
+            ),
+            rx.button(
+                rx.icon("plus", size=12),
+                on_click=AIState.add_tts_host,
+                size="1",
+                variant="soft",
+            ),
+            spacing="1",
+            align="center",
+            width="100%",
+        ),
+        spacing="1",
+        width="100%",
+    )
 
 
 def _tts_section() -> rx.Component:
-    # TTS (Text-to-Speech) Section
+    """Spoken output: on/off, autoplay, and the escalation list (the first
+    entry from the top that can speak right now speaks)."""
     return rx.vstack(
-        # Row 1: Label + AutoPlay + Streaming toggles
         rx.hstack(
             rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
-            # Lightbulb: explains why some engines are greyed out.
             rx.popover.root(
                 rx.popover.trigger(
-                    rx.tooltip(
-                        rx.icon(
-                            "lightbulb",
-                            size=14,
-                            color="#FFD700",
-                            cursor="pointer",
-                            style={
-                                "transition": "transform 0.2s ease",
-                                "&:hover": {"transform": "scale(1.15)"},
-                            },
-                        ),
-                        content=t("tts_engine_disabled_tooltip"),
+                    rx.icon(
+                        "lightbulb",
+                        size=14,
+                        color="#FFD700",
+                        cursor="pointer",
+                        style={
+                            "transition": "transform 0.2s ease",
+                            "&:hover": {"transform": "scale(1.15)"},
+                        },
                     ),
                 ),
                 rx.popover.content(
-                    rx.text(
-                        t("tts_engine_disabled_tooltip"),
-                        font_size="11px",
-                        color="#ddd",
-                        line_height="1.5",
-                    ),
+                    rx.text(t("tts_list_tooltip"), font_size="11px", color="#ddd", line_height="1.5"),
                     max_width="340px",
                     padding="10px",
                 ),
             ),
-            # Spacer
             rx.box(flex="1"),
-            # Autoplay Toggle Group (only show when TTS enabled)
-            rx.cond(
-                AIState.enable_tts,
-                rx.hstack(
-                    rx.text(t("tts_autoplay_label"), font_size="11px", color="#d4a14a"),
-                    rx.switch(
-                        checked=AIState.tts_autoplay,
-                        on_change=AIState.toggle_tts_autoplay,
-                        size="1",
-                    ),
-                    rx.text(
-                        rx.cond(AIState.tts_autoplay, "ON", "OFF"),
-                        font_size="10px",
-                        color=rx.cond(AIState.tts_autoplay, "#d4a14a", "#666"),
-                    ),
-                    spacing="1",
-                    align="center",
-                ),
-                rx.box(),
+            rx.switch(
+                checked=AIState.enable_tts,
+                on_change=AIState.set_enable_tts,
+                size="1",
             ),
-            # Unit of the spoken output (per engine, system-wide): sentence-by-sentence streaming,
-            # paragraph by paragraph, or the whole response at once. Always visible: it also
-            # governs the Echo Dot, which does not depend on the browser's TTS/autoplay toggles.
-            rx.hstack(
-                rx.text(t("tts_speech_unit_label"), font_size="11px", color="#d4a14a"),
-                rx.el.select(
-                    rx.el.option(t("tts_unit_sentence"), value="sentence"),
-                    rx.el.option(t("tts_unit_paragraph"), value="paragraph"),
-                    rx.el.option(t("tts_unit_whole"), value="whole"),
-                    value=AIState.tts_speech_unit,
-                    on_change=AIState.set_tts_speech_unit,
-                    style=_NATIVE_SELECT_STYLE,
-                ),
-                spacing="1",
-                align="center",
+            rx.text(
+                rx.cond(AIState.enable_tts, "ON", "OFF"),
+                font_size="10px",
+                color=rx.cond(AIState.enable_tts, "#d4a14a", "#666"),
+            ),
+            rx.text(t("tts_autoplay_label"), font_size="11px", color="#d4a14a"),
+            rx.switch(
+                checked=AIState.tts_autoplay,
+                on_change=AIState.toggle_tts_autoplay,
+                size="1",
             ),
             spacing="2",
             align="center",
             width="100%",
         ),
-        # Row 2: Engine/Off dropdown + XTTS GPU toggle
-        rx.hstack(
-            rx.cond(
-                AIState.is_mobile,
-                native_select_tts(
-                    AIState.tts_engine_or_off,
-                    AIState.set_tts_engine_or_off,
-                    AIState.tts_engine_options,
-                ),
-                rx.select.root(
-                    rx.select.trigger(width="100%"),
-                    rx.select.content(
-                        rx.foreach(
-                            AIState.tts_engine_options,
-                            lambda opt: rx.select.item(
-                                opt["label"],
-                                value=opt["label"].to(str),
-                                disabled=opt["disabled"].to(bool),
-                                # Radix barely dims disabled
-                                # items in the dark theme —
-                                # force a visible greyed-out
-                                # look.
-                                opacity=rx.cond(
-                                    opt["disabled"].to(bool),
-                                    "0.4", "1",
-                                ),
-                            ),
-                        ),
-                    ),
-                    value=AIState.tts_engine_or_off,
-                    on_change=AIState.set_tts_engine_or_off,
-                    size="2",
-                    width="100%",
-                ),
-            ),
-            spacing="2",
-            align="center",
-            width="100%",
-        ),
-        # Narrator (narrate_file) engine/voice: configured via the gear icon
-        # in the Agent-Editor plugin tab (narrator_settings_modal).
-        # Agent voices are configured in the Agent Editor modal
+        # The list also governs the Echo Dot and the narrator, so it stays
+        # visible while the browser's spoken output is off.
+        rx.text(t("tts_list_heading"), font_size="11px", color="#d4a14a"),
+        rx.foreach(AIState.tts_escalation_rows, _entry_row),
+        _add_entry_row(),
+        _hosts_block(),
         spacing="2",
         width="100%",
     )

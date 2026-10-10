@@ -14,7 +14,7 @@ Cloud), nie nach dem Namen eines Rechners.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Callable
 
 from .tts_engines import TTSEngine, get_engine
 
@@ -38,8 +38,10 @@ class EscalationEntry:
 
     @property
     def label(self) -> str:
-        """Kurzname für Debug-Zeilen und Chat-Vermerke, z. B. ``xtts@Aragon``."""
-        return f"{self.engine.key}@{self.host.name if self.host else 'local'}"
+        """Kurzname für Debug-Zeilen, z. B. ``xtts@Aragon``, ``edge@cloud``."""
+        if self.host is not None:
+            return f"{self.engine.key}@{self.host.name}"
+        return f"{self.engine.key}@{'cloud' if self.engine.cloud else 'local'}"
 
 
 def _parse_hosts(raw_hosts: list[dict[str, Any]]) -> dict[str, TTSHost]:
@@ -128,6 +130,8 @@ async def _skip_reason(entry: EscalationEntry) -> str | None:
     engine = entry.engine
     if not entry.enabled:
         return "disabled"
+    if not engine.is_remote and not await asyncio.to_thread(engine.is_installed):
+        return "docker image not built"
     if await asyncio.to_thread(engine.is_running):
         return None
     if engine.is_remote:
@@ -152,8 +156,11 @@ async def _start_local_gpu_engine(engine: TTSEngine) -> str | None:
     needed = peak + LLAMACPP_TTS_BURNIN_HEADROOM_MB
     gpu = await asyncio.to_thread(pick_tts_gpu)
     free = await asyncio.to_thread(get_free_vram_for_single_gpu, gpu)
-    if free is None or free < needed:
-        return f"needs {needed} MiB, free {free} MiB on GPU {gpu}"
+    if free is None:
+        return f"free VRAM of GPU {gpu} unknown"
+    if free < needed:
+        from .formatting import format_number
+        return f"needs {format_number(needed)} MiB, free {format_number(free)} MiB on GPU {gpu}"
     ok, message, _device = await asyncio.to_thread(engine.ensure_ready)
     return None if ok else f"start failed: {message}"
 
@@ -176,23 +183,30 @@ class SpeechRun:
         label: str,
         *,
         entries: list[EscalationEntry] | None = None,
+        report: Callable[[str], None] | None = None,
     ) -> None:
+        """``report`` receives the English debug lines (who speaks, skips,
+        failures); default is the debug bus. The browser passes its own
+        console (``add_debug``) so the lines reach the session's console."""
         import asyncio
+
+        from .debug_bus import debug
 
         self.language = language
         self.label = label
+        self._report = report or debug
         self._entries = entries if entries is not None else escalation_entries()
         self._current: EscalationEntry | None = None
         self._failed: set[str] = set()
         self._spoken: set[str] = set()
         self._switch_reason: str | None = None
+        # Who spoke, in order, with the reason that made each successor take over.
+        self._speakers: list[tuple[EscalationEntry, str | None]] = []
         self._lock = asyncio.Lock()
 
     async def entry(self) -> EscalationEntry:
         """Der Eintrag, der jetzt spricht — beim ersten Aufruf ausgewählt.
         :class:`NoSpeechAvailable`, wenn keiner kann."""
-        from .debug_bus import debug
-
         async with self._lock:
             if self._current is not None and self._current.label not in self._failed:
                 return self._current
@@ -201,17 +215,16 @@ class SpeechRun:
                     continue
                 reason = await _skip_reason(entry)
                 if reason is None:
-                    debug(f"🔊 [{self.label}] TTS escalation: {entry.label} speaks")
+                    self._report(f"🔊 [{self.label}] TTS escalation: {entry.label} speaks")
                     self._current = entry
                     return entry
-                debug(f"🔊 [{self.label}] TTS escalation: skip {entry.label} ({reason})")
+                self._report(f"🔊 [{self.label}] TTS escalation: skip {entry.label} ({reason})")
             raise NoSpeechAvailable(f"[{self.label}] no TTS entry can speak")
 
     async def synthesize(self, text: str, agent: str) -> str:
         """``text`` sprechen lassen; Audio-URL des Eintrags, der es geschafft hat.
         :class:`NoSpeechAvailable`, wenn die Liste erschöpft ist."""
         from .audio_processing import generate_tts
-        from .debug_bus import debug
         from .tts_engines import TTSFailure
 
         while True:
@@ -229,17 +242,31 @@ class SpeechRun:
             except Exception as exc:  # noqa: BLE001 — any other error is ours: next entry
                 self._fail(entry, "software", f"{type(exc).__name__}: {exc}")
                 continue
+            if entry.label not in self._spoken:
+                self._speakers.append((entry, self._switch_reason))
             if self._switch_reason is not None:
-                debug(f"🔊 [{self.label}] TTS escalation: voice change announced, {entry.label} continues")
+                self._report(f"🔊 [{self.label}] TTS escalation: voice change announced, {entry.label} continues")
                 self._switch_reason = None
             self._spoken.add(entry.label)
             return url
 
-    def _fail(self, entry: EscalationEntry, reason: str, detail: str) -> None:
-        from .debug_bus import debug
+    def note(self, lang: str) -> str:
+        """Vermerk für die Chat-Blase: wer gesprochen hat, bei einem Wechsel mit
+        Grund, z. B. ``XTTS · Aragon → DashScope · Cloud (Serverausfall)``.
+        Leer, wenn noch niemand gesprochen hat."""
+        from .i18n import t
 
+        parts = []
+        for entry, reason in self._speakers:
+            part = f"{entry.engine.label_short} · {location_label(entry, lang)}"
+            if reason is not None:
+                part += f" ({t(f'tts_reason_{reason}', lang=lang)})"
+            parts.append(part)
+        return " → ".join(parts)
+
+    def _fail(self, entry: EscalationEntry, reason: str, detail: str) -> None:
         self._failed.add(entry.label)
-        debug(f"🔊 [{self.label}] TTS escalation: {entry.label} failed ({reason}): {detail}")
+        self._report(f"🔊 [{self.label}] TTS escalation: {entry.label} failed ({reason}): {detail}")
         if entry.label in self._spoken and self._switch_reason is None:
             self._switch_reason = reason
 
@@ -269,3 +296,47 @@ async def choose_speaker(engine_key: str, label: str) -> EscalationEntry:
     if reason is not None:
         raise NoSpeechAvailable(f"[{label}] TTS engine {engine_key!r} cannot speak now: {reason}")
     return entry
+
+
+# ── Bausteine für Browser und Menü ─────────────────────────────────
+
+
+def location_label(entry: EscalationEntry, lang: str) -> str:
+    """Wo ein Eintrag spricht: Name des Hosts, „Cloud“, „lokal“ (Container auf
+    diesem Rechner) oder „CPU“ (Prozess auf diesem Rechner)."""
+    from .i18n import t
+
+    if entry.host is not None:
+        return entry.host.name
+    if entry.engine.cloud:
+        return t("tts_location_cloud", lang=lang)
+    if entry.engine.runs_in_container:
+        return t("tts_location_local", lang=lang)
+    return t("tts_location_cpu", lang=lang)
+
+
+def first_enabled_entry(settings: dict[str, Any] | None = None) -> EscalationEntry | None:
+    """Der oberste aktive Eintrag — seine Sprecheinheit bestimmt, ob der Browser
+    satzweise streamt (der tatsächlich sprechende Eintrag steht erst beim ersten
+    Satz fest)."""
+    return next((entry for entry in escalation_entries(settings) if entry.enabled), None)
+
+
+def planned_tts_engine(model_id: str, settings: dict[str, Any] | None = None) -> str:
+    """Die lokale GPU-Engine, für die das LLM-Profil ``<model>-tts-<engine>``
+    Platz freihält: der oberste aktive lokale GPU-Eintrag, für den das Modell
+    ein kalibriertes TTS-Profil hat. ``""``, wenn keiner passt — dann lädt das
+    Basisprofil, und lokale GPU-Einträge sprechen nur, wenn Platz frei ist."""
+    from pathlib import Path
+
+    from .calibration import has_llamaswap_tts_variant
+    from .config import LLAMASWAP_CONFIG_PATH
+
+    for entry in escalation_entries(settings):
+        engine = entry.engine
+        if (
+            entry.enabled and entry.host is None and engine.needs_gpu
+            and has_llamaswap_tts_variant(Path(LLAMASWAP_CONFIG_PATH), model_id, engine.key)
+        ):
+            return engine.key
+    return ""

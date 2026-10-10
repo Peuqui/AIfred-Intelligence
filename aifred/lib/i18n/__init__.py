@@ -114,6 +114,6 @@ def tts_label_to_key(label: str) -> str:
 def tts_key_to_label(key: str, lang: Optional[str] = None) -> str:
     """Map an internal TTS engine key to its translated display label.
 
-    Used by tts_engine_or_off computed var for dropdown display.
+    Used by the engine dropdowns (escalation list, agent editor, narrator).
     """
     return t(f"tts_engine_{key}", lang=lang)

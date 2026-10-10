@@ -36,11 +36,12 @@ audibly better accent/character (empirically confirmed: 25 s > 10 s). The offici
 docs recommend 10–20 s (max 60 s) — both are within bounds; what matters is a clean,
 noise-free reference.
 
-## Automatic enrollment on engine switch
+## Automatic enrollment
 
-Selecting DashScope as the TTS engine enrolls the cloned voices **automatically** —
-no manual trigger. Flow ([`_tts_config_mixin.py`](../../../aifred/state/_tts_config_mixin.py)
-→ `set_tts_engine_or_off`):
+While DashScope is an enabled entry of the escalation list, the cloned voices are synced
+**automatically** when the spoken output is switched on and on every change of the list — no
+manual trigger. Flow ([`_tts_config_mixin.py`](../../../aifred/state/_tts_config_mixin.py)
+→ `_apply_planned_tts`):
 
 1. The SSOT voices folder [`docker/tts/voices/<Name>/<Name>.wav`](../../../docker/tts/voices/)
    is scanned.
@@ -63,7 +64,7 @@ name is in the mapping AND the current WAV hash matches the stored one:
 
 This makes the switch effectively instant after the first run (hash checks only).
 **Force a re-enroll:** delete the mapping entry (or the whole file) — the folder is
-not watched at runtime; the trigger is always the engine switch.
+not watched at runtime; the trigger is switching the spoken output on or changing the list.
 
 ### Voice list
 

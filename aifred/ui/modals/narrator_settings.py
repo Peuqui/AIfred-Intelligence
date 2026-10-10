@@ -2,9 +2,9 @@
 
 Opened via the gear icon in the Agent-Editor plugin tab
 (``NarratorPlugin.settings_event_name = "open_narrator_settings"``).
-Family-A overlay (same look as Vigilantia/Casus): engine
-("(same as spoken output)" + usable engines), GPU-free fallback
-(auto mode only), and the narration voice.
+Family-A overlay (same look as Vigilantia/Casus): the narration voice per
+engine. Which engine narrates is the escalation list's decision (topmost
+entry that can speak); the engine selector only picks whose voice to edit.
 """
 
 import reflex as rx
@@ -63,23 +63,10 @@ def narrator_settings_modal() -> rx.Component:
                 rx.select(
                     AIState.narrator_engine_options,
                     value=AIState.narrator_engine_display,
-                    on_change=AIState.set_narrator_engine,
+                    on_change=AIState.set_narrator_voice_engine,
                     size="2",
                 ),
-            ),
-            rx.cond(
-                AIState.narrator_engine == "auto",
-                _row(
-                    "narrator_fallback_label",
-                    rx.select(
-                        AIState.narrator_fallback_options,
-                        value=AIState.narrator_fallback_display,
-                        on_change=AIState.set_narrator_fallback_engine,
-                        size="2",
-                    ),
-                    tooltip_key="narrator_fallback_tooltip",
-                ),
-                rx.fragment(),
+                tooltip_key="narrator_engine_tooltip",
             ),
             _row(
                 "narrator_voice_label",

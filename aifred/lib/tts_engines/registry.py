@@ -114,23 +114,6 @@ def voice_names(engine: VoiceCatalog) -> list[str]:
     return list((voices or engine.voices_fallback).keys())
 
 
-def resolve_narrator_engine(
-    narrator_engine: str,
-    enable_tts: bool,
-    tts_engine: str,
-    fallback_engine: str,
-) -> str:
-    """Narrator-Engine-Entscheidung — SSOT für Plugin UND UI-Mixin:
-    ``"auto"`` folgt bei aktivem TTS der Sprach-Engine, sonst dem
-    GPU-freien Fallback (die geladene LLM behält ihr VRAM). Nimmt reine
-    Werte statt State/Settings, damit beide Aufrufer (Reflex-Var mit
-    deps, Plugin mit settings.json) dieselbe Logik teilen können.
-    """
-    if narrator_engine and narrator_engine != "auto":
-        return narrator_engine
-    return tts_engine if enable_tts else fallback_engine
-
-
 def parse_speed_factor(raw: object) -> "float | None":
     """``"1.25x"``/``"1.25"``/``1.25`` → 1.25; ``None``/``""``/Müll → None.
 

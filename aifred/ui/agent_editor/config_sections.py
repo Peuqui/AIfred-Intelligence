@@ -65,7 +65,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
                 rx.text(t("agent_editor_tts_backend"), font_size="11px", color="#aaa", flex_shrink="0"),
                 rx.box(
                     rx.select(
-                        AIState.tts_engines,
+                        AIState.tts_editor_engine_options,
                         value=AIState.editor_tts_engine_label,
                         on_change=AIState.set_editor_tts_engine,
                         size="1",

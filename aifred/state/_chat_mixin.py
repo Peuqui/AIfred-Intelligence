@@ -349,6 +349,7 @@ class ChatMixin(rx.State, mixin=True):
         new_message["failed_sources"] = []
         new_message["has_audio"] = bool(audio_urls)
         new_message["audio_urls_json"] = json.dumps(audio_urls) if audio_urls else "[]"
+        new_message["tts_note"] = ""
 
         # 5. Append to chat_history (no more replace_last!).
         # Reassign instead of .append() so Reflex picks up the change.
@@ -378,8 +379,7 @@ class ChatMixin(rx.State, mixin=True):
         streaming_active = self._tts_streaming_wanted(agent)  # type: ignore[attr-defined]
         if should_generate_tts and not streaming_active:
             # Check per-agent TTS enabled setting
-            agent_tts_enabled = self.tts_agent_voices.get(agent, {}).get("enabled", True)  # type: ignore[attr-defined]
-            if agent_tts_enabled:
+            if self.tts_agent_enabled(agent):  # type: ignore[attr-defined]
                 # Schedule TTS generation as background task
                 # This runs async without blocking add_agent_panel().
                 # Track the task in _orphan_tasks so the asyncio runtime
@@ -435,8 +435,7 @@ class ChatMixin(rx.State, mixin=True):
         # Same rules as add_agent_panel: autoplay required (no consumer
         # otherwise), skip if streaming TTS already spoke the sentences.
         if self.enable_tts and self.tts_autoplay and not self._tts_streaming_wanted("aifred"):  # type: ignore[attr-defined]
-            agent_tts_enabled = self.tts_agent_voices.get("aifred", {}).get("enabled", True)  # type: ignore[attr-defined]
-            if agent_tts_enabled:
+            if self.tts_agent_enabled("aifred"):  # type: ignore[attr-defined]
                 # Wait for TTS to complete so we can update message metadata with audio URL
                 await self._queue_tts_for_agent(ai_text, agent="aifred")  # type: ignore[attr-defined]
                 yield  # Update UI with audio button (chat_history was reassigned in _queue_tts_for_agent)
@@ -650,36 +649,26 @@ class ChatMixin(rx.State, mixin=True):
     # ── Main Send Message ────────────────────────────────────────────
 
     async def _phase_tts_container_checks(self) -> AsyncGenerator[None, None]:
-        """Ensure VRAM state matches TTS requirements before LLM loads.
+        """Ensure the planned TTS engine (the one the LLM profile reserves
+        VRAM for) is up before the LLM loads.
 
-        Uses ensure_tts_state (SSOT) — same function as FreeEcho.2.
-        Browser passes what it wants, function handles the rest.
+        Another local GPU engine that the escalation list started into free
+        VRAM is left alone — switching it here would reload the LLM, and the
+        LLM ranks above TTS. Only the menu (reordering the list) switches the
+        planned engine.
         """
-        from ..lib.tts_engine_manager import ensure_tts_state, GPU_ENGINES
+        from ..lib.tts_engine_manager import _detect_running_tts_engine, ensure_tts_state
+        from ..lib.tts_escalation import planned_tts_engine
 
-        wanted = ""
-        if self.enable_tts and self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
-            wanted = self.tts_engine  # type: ignore[attr-defined]
-
-        # Gate: a GPU-TTS engine on llama.cpp needs a calibrated
-        # <model>-tts-<engine> profile. Without it the LLM would load the
-        # base profile (TTS GPU planned full) and the container start
-        # would OOM. Force wanted="" so ensure_tts_state stops any
-        # running container and the LLM keeps the base profile. Catches
-        # the cases the dropdown can't (model switched after selecting,
-        # leftover container, stale settings.json).
-        if wanted and self.backend_type == "llamacpp":  # type: ignore[attr-defined]
-            from ..lib.calibration import has_llamaswap_tts_variant
-            from ..lib.config import LLAMASWAP_CONFIG_PATH
-            if not has_llamaswap_tts_variant(
-                LLAMASWAP_CONFIG_PATH, self.agent_tuning["aifred"].model_id, wanted,  # type: ignore[attr-defined]
-            ):
-                self.add_debug(  # type: ignore[attr-defined]
-                    f"⚠️ No calibrated {wanted} profile for "
-                    f"{self.agent_tuning["aifred"].model_id} — voice output disabled "  # type: ignore[attr-defined]
-                    f"for this model (calibrate it first)"
-                )
-                wanted = ""
+        if not self.enable_tts:  # type: ignore[attr-defined]
+            return
+        wanted = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
+        if not wanted:
+            return
+        running = await asyncio.to_thread(_detect_running_tts_engine)
+        if running and running != wanted:
+            self.add_debug(f"🔊 {running} runs (started by the escalation list) — planned {wanted} not forced")  # type: ignore[attr-defined]
+            return
 
         gen = ensure_tts_state(
             wanted_tts=wanted,
@@ -824,6 +813,7 @@ class ChatMixin(rx.State, mixin=True):
                 from ..lib.calibration import diagnose_uncalibrated_combo
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
                 from ..lib.tts_engine_manager import GPU_ENGINES
+                from ..lib.tts_escalation import planned_tts_engine
                 from ..lib.vision_prewarm import (
                     is_vision_active,
                     get_active_vlm_key,
@@ -834,7 +824,7 @@ class ChatMixin(rx.State, mixin=True):
                     LLAMASWAP_CONFIG_PATH,
                     self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
                     tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
-                    tts_engine=self.tts_engine,  # type: ignore[attr-defined]
+                    tts_engine=planned_tts_engine(self.agent_tuning["aifred"].model_id),  # type: ignore[attr-defined]
                     gpu_tts_engines=GPU_ENGINES,
                     vlm_active=_vlm_active_chat,
                     vlm_key=_vlm_key_chat,
@@ -923,6 +913,7 @@ class ChatMixin(rx.State, mixin=True):
                     "failed_sources": [],
                     "has_audio": False,
                     "audio_urls_json": "[]",
+                    "tts_note": "",
                 },
             ]
             # Anchor the image location in the user turn of llm_history: the image
@@ -985,7 +976,7 @@ class ChatMixin(rx.State, mixin=True):
             # Acquire active GPU TTS engine + start keep-alive ping for the
             # duration of the pipeline. Prevents the container from idle-out
             # during long inference or web research (analogous to FreeEcho.2 channel).
-            if self.enable_tts and self.tts_engine in GPU_ENGINES:  # type: ignore[attr-defined]
+            if self.enable_tts:  # type: ignore[attr-defined]
                 _active_engine = _detect_running_tts_engine()
                 if _active_engine:
                     acquire_tts(_active_engine)
@@ -1295,6 +1286,7 @@ class ChatMixin(rx.State, mixin=True):
                             "failed_sources": [],
                             "has_audio": False,
                             "audio_urls_json": "[]",
+                            "tts_note": "",
                         },
                     ]
                     ch.llm_history = [

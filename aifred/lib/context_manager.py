@@ -768,7 +768,8 @@ async def summarize_history_if_needed(
             },
             "timestamp": datetime.datetime.now().isoformat(),
             "has_audio": False,
-            "audio_urls_json": "[]"
+            "audio_urls_json": "[]",
+            "tts_note": "",
         }
 
         # ============================================================
