@@ -38,6 +38,7 @@ class TTSConfigMixin(rx.State, mixin=True):
     # Status per list index (checked on demand, never starts anything) and the
     # result of each host's connection test — both cleared when the list changes.
     tts_entry_status: Dict[int, str] = {}
+    tts_status_checking: bool = False
     tts_host_test: Dict[str, str] = {}
     tts_host_form_open: bool = False
     tts_new_host_name: str = ""
@@ -292,6 +293,7 @@ class TTSConfigMixin(rx.State, mixin=True):
 
         async with self:
             lang = _lang(self)
+            self.tts_status_checking = True
         statuses = {
             index: t(f"tts_status_{key}", lang=lang)
             for index, key in enumerate(
@@ -300,6 +302,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         }
         async with self:
             self.tts_entry_status = statuses
+            self.tts_status_checking = False
             self.add_debug(f"🔊 TTS status checked ({len(statuses)} entries)")  # type: ignore[attr-defined]
 
     @rx.event(background=True)  # type: ignore[operator]

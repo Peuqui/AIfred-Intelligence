@@ -200,6 +200,7 @@ def _list_section() -> rx.Component:
                 rx.icon("refresh-cw", size=12),
                 t("tts_check_status"),
                 on_click=AIState.check_tts_status,
+                loading=AIState.tts_status_checking,
                 size="1",
                 variant="soft",
                 color_scheme="gray",
