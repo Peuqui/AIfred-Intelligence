@@ -1,0 +1,5 @@
+DRUCKEN: print_file
+Mit print_file druckst du eine Datei aus dem Dokumentenbereich auf dem Standarddrucker.
+- Drucke nur, wenn ausdrücklich darum gebeten wurde, und nur das Verlangte (Seiten, Kopien).
+- Direkt druckbar sind PDF, Text, PNG/JPEG und PostScript. Andere Formate erst in PDF umwandeln lassen.
+- Sag nach dem Druck kurz, was auf welchem Drucker gedruckt wurde.

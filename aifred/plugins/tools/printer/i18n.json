@@ -1,0 +1,26 @@
+{
+  "plugin_display_name": {
+    "de": "Drucker",
+    "en": "Printer"
+  },
+  "plugin_description": {
+    "de": "Druckt Dateien aus dem Dokumentenbereich über CUPS und liest Druckerzustand, Warnungen und Füllstände.",
+    "en": "Prints files from the documents area through CUPS and reads printer state, warnings and supply levels."
+  },
+  "printer_cred_default": {
+    "de": "Standarddrucker",
+    "en": "Default printer"
+  },
+  "printer_cred_default_tooltip": {
+    "de": "Die Auswahl listet, was CUPS gerade erreicht. Gibt es nur einen Drucker, wird er ohne Auswahl benutzt.",
+    "en": "The options list what CUPS reaches right now. With a single printer it is used without a choice."
+  },
+  "printer_cred_max_copies": {
+    "de": "Höchstzahl Kopien pro Auftrag",
+    "en": "Maximum copies per job"
+  },
+  "printer_cred_max_copies_tooltip": {
+    "de": "Schutz gegen Vertipper des Modells: Mehr Kopien lehnt print_file ab.",
+    "en": "Guard against the model's typos: print_file refuses more copies."
+  }
+}

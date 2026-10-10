@@ -1,0 +1,1 @@
+Print a file from the documents area on the printer (CUPS default printer). Printable directly: PDF, plain text, PNG/JPEG images, PostScript — anything else (Office documents, HTML) must be converted to PDF first. Returns the printer and the job id. Paper is used: print only what was asked for.

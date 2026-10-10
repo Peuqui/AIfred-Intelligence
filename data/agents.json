@@ -124,7 +124,9 @@
         "email",
         "email_manage",
         "freeecho2_announce",
-        "telegram_send"
+        "telegram_send",
+        "print_file",
+        "printer_status"
       ]
     },
     "sokrates": {
@@ -533,7 +535,9 @@
         "delete_memory",
         "ai_connect_peer_list",
         "ai_connect_peer_history",
-        "ai_connect_peer_send"
+        "ai_connect_peer_send",
+        "print_file",
+        "printer_status"
       ]
     },
     "rabbi": {

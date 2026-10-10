@@ -1,0 +1,2 @@
+DRUCKERSTATUS: printer_status
+printer_status liefert Zustand, Warnungen (z. B. Papier leer, Toner niedrig, Papierstau), wartende Aufträge und Füllstände. Nenne bei Problemen konkret, was zu tun ist (Papier nachlegen, Toner tauschen).
