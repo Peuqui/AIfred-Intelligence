@@ -104,12 +104,20 @@ class TTSEngine(ABC):
     #: such engines can only run on this machine or in the cloud.
     default_port: Optional[int] = None
 
-    def __init__(self, address: str = "localhost", port: Optional[int] = None) -> None:
+    def __init__(self, address: str = "localhost", port: Optional[int] = None, gpu_uuid: str = "") -> None:
         """``address``/``port`` of the REST API. The registry instances run on
         this machine (``localhost``); :meth:`at_host` binds the same engine to
-        a remote TTS host (escalation entries)."""
+        a remote TTS host (escalation entries). ``gpu_uuid``: card a local
+        container starts on ("" = the side-channel card)."""
         self.address = address
         self.port = port or self.default_port
+        self.gpu_uuid = gpu_uuid
+
+    def on_gpu(self, gpu_uuid: str) -> "TTSEngine":
+        """The same local engine, started on another card (the escalation
+        list picks one with enough free VRAM)."""
+        self._require_local("place")
+        return type(self)(gpu_uuid=gpu_uuid)
 
     def at_host(self, address: str, port: Optional[int] = None) -> "TTSEngine":
         """The same engine, bound to a remote host. Raises ``ValueError`` for

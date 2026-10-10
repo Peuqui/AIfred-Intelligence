@@ -56,7 +56,7 @@ class Qwen3LocalEngine(TTSEngine):
 
     def _start_local(self) -> tuple[bool, str]:
         from ..process_utils import start_qwen3local_container
-        return start_qwen3local_container()
+        return start_qwen3local_container(self.gpu_uuid)
 
     def _stop_local(self) -> tuple[bool, str]:
         from ..process_utils import stop_qwen3local_container
@@ -64,7 +64,7 @@ class Qwen3LocalEngine(TTSEngine):
 
     def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_qwen3local_ready
-        return ensure_qwen3local_ready(timeout=timeout or 240)
+        return ensure_qwen3local_ready(timeout=timeout or 240, gpu_uuid=self.gpu_uuid)
 
     def generate_speech(
         self,

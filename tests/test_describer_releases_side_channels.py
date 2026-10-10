@@ -114,3 +114,45 @@ def test_tts_on_another_card_keeps_running(card, monkeypatch):
     monkeypatch.setattr(tts_engine_manager, "local_tts_gpu_footprint", lambda: {"xtts": {OTHER: 3000}})
     monkeypatch.setattr(tts_engine_manager, "stop_engine", lambda key: pytest.fail("must not stop"))
     assert vision_routing.release_side_channels_for_describer(PROFILE) is False
+
+
+class TestTtsBeforeModelLoad:
+    """GPU guard of the backends: a model load clears TTS containers off its cards."""
+
+    @pytest.fixture
+    def guard(self, monkeypatch):
+        from aifred.lib import process_utils
+        from aifred.lib.calibration import gpu as calibration_gpu
+        stopped: list[str] = []
+
+        def stop(key: str) -> tuple[bool, str]:
+            stopped.append(key)
+            return True, ""
+
+        monkeypatch.setattr(tts_engine_manager, "stop_engine", stop)
+        monkeypatch.setattr(process_utils, "get_tts_gpu_uuid", lambda: OTHER)
+        monkeypatch.setattr(calibration_gpu, "gpu_uuids_by_index", lambda: [CARD, OTHER])
+        monkeypatch.setattr("aifred.lib.calibration.parse_llamaswap_config", lambda _p: {
+            "Big": {"env": {"CUDA_VISIBLE_DEVICES": CARD}},
+            "Big-tts-xtts": {"env": {"CUDA_VISIBLE_DEVICES": f"{CARD},{OTHER}"}},
+        })
+        return stopped
+
+    def _release(self, model):
+        from aifred.backends.base import OpenAICompatibleBackend
+        OpenAICompatibleBackend._release_tts_for_load(model)
+
+    def test_tts_on_a_card_the_model_needs_is_stopped(self, guard, monkeypatch):
+        monkeypatch.setattr(tts_engine_manager, "local_tts_gpu_footprint", lambda: {"xtts": {CARD: 3680}})
+        self._release("Big")
+        assert guard == ["xtts"]
+
+    def test_tts_on_another_card_stays(self, guard, monkeypatch):
+        monkeypatch.setattr(tts_engine_manager, "local_tts_gpu_footprint", lambda: {"xtts": {OTHER: 3680}})
+        self._release("Big")
+        assert guard == []
+
+    def test_the_engine_a_tts_profile_reserves_stays_on_the_side_channel_card(self, guard, monkeypatch):
+        monkeypatch.setattr(tts_engine_manager, "local_tts_gpu_footprint", lambda: {"xtts": {OTHER: 3680}})
+        self._release("Big-tts-xtts")
+        assert guard == []

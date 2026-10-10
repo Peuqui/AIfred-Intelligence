@@ -67,7 +67,7 @@ class XTTSEngine(TTSEngine):
 
     def _start_local(self) -> tuple[bool, str]:
         from ..process_utils import start_xtts_container
-        return start_xtts_container()
+        return start_xtts_container(self.gpu_uuid)
 
     def _stop_local(self) -> tuple[bool, str]:
         from ..process_utils import stop_xtts_container
@@ -75,7 +75,7 @@ class XTTSEngine(TTSEngine):
 
     def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
         from ..process_utils import ensure_xtts_ready
-        ok, msg = ensure_xtts_ready(timeout=timeout or 60)
+        ok, msg = ensure_xtts_ready(timeout=timeout or 60, gpu_uuid=self.gpu_uuid)
         return ok, msg, "cuda" if ok else ""
 
     def generate_speech(

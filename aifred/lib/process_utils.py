@@ -186,6 +186,7 @@ def _docker_compose_action(
     compose_file: str,
     action: str,
     service_label: str,
+    gpu_uuid: str = "",
 ) -> tuple[bool, str]:
     """
     Run a docker compose action (up -d / down) on a compose file.
@@ -194,6 +195,9 @@ def _docker_compose_action(
         compose_file: Path to docker-compose.yml
         action: "up" or "down"
         service_label: Human-readable name for log messages (e.g. "XTTS")
+        gpu_uuid: Card for a TTS container ("" = the side-channel card,
+            :func:`get_tts_gpu_uuid`); the escalation list passes another
+            card when the engine only fits there.
 
     Returns:
         tuple[bool, str]: (success, message)
@@ -215,7 +219,7 @@ def _docker_compose_action(
         # Detection is cached per process — see get_tts_gpu_uuid().
         proc_env = os.environ.copy()
         if action == "up":
-            proc_env["TTS_GPU_UUID"] = get_tts_gpu_uuid()
+            proc_env["TTS_GPU_UUID"] = gpu_uuid or get_tts_gpu_uuid()
         result = subprocess.run(
             cmd,
             capture_output=True,
@@ -391,9 +395,9 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
     return actions
 
 
-def start_xtts_container() -> tuple[bool, str]:
+def start_xtts_container(gpu_uuid: str = "") -> tuple[bool, str]:
     """Start the XTTS Docker container."""
-    return _docker_compose_action(_tts_compose("xtts"), "up", "XTTS")
+    return _docker_compose_action(_tts_compose("xtts"), "up", "XTTS", gpu_uuid)
 
 
 def stop_xtts_container() -> tuple[bool, str]:
@@ -406,12 +410,12 @@ def stop_qwen3local_container() -> tuple[bool, str]:
     return _docker_compose_action(_tts_compose("qwen3local"), "down", "Qwen3-TTS")
 
 
-def start_qwen3local_container() -> tuple[bool, str]:
+def start_qwen3local_container(gpu_uuid: str = "") -> tuple[bool, str]:
     """Start the Qwen3-TTS Docker container."""
-    return _docker_compose_action(_tts_compose("qwen3local"), "up", "Qwen3-TTS")
+    return _docker_compose_action(_tts_compose("qwen3local"), "up", "Qwen3-TTS", gpu_uuid)
 
 
-def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
+def ensure_qwen3local_ready(timeout: int = 240, gpu_uuid: str = "") -> tuple[bool, str, str]:
     """
     Ensure Qwen3-TTS container is running and model is loaded AND warmed up.
 
@@ -452,7 +456,7 @@ def ensure_qwen3local_ready(timeout: int = 240) -> tuple[bool, str, str]:
         pass
 
     # Step 2: Start container
-    success, msg = start_qwen3local_container()
+    success, msg = start_qwen3local_container(gpu_uuid)
     if not success:
         return False, msg, ""
 
@@ -477,12 +481,12 @@ def stop_fishspeech_container() -> tuple[bool, str]:
     return _docker_compose_action(_tts_compose("fishspeech"), "down", "Fish-Speech")
 
 
-def start_fishspeech_container() -> tuple[bool, str]:
+def start_fishspeech_container(gpu_uuid: str = "") -> tuple[bool, str]:
     """Start the Fish-Speech Docker container."""
-    return _docker_compose_action(_tts_compose("fishspeech"), "up", "Fish-Speech")
+    return _docker_compose_action(_tts_compose("fishspeech"), "up", "Fish-Speech", gpu_uuid)
 
 
-def ensure_fishspeech_ready(timeout: int = 600) -> tuple[bool, str, str]:
+def ensure_fishspeech_ready(timeout: int = 600, gpu_uuid: str = "") -> tuple[bool, str, str]:
     """Ensure the Fish-Speech S2 Pro container is running and ready.
 
     First start downloads ~8 GB of weights from HuggingFace before the
@@ -518,7 +522,7 @@ def ensure_fishspeech_ready(timeout: int = 600) -> tuple[bool, str, str]:
         return True, f"Fish-Speech already ready ({device})", device
 
     # Step 2: Start container
-    success, msg = start_fishspeech_container()
+    success, msg = start_fishspeech_container(gpu_uuid)
     if not success:
         return False, msg, ""
 
@@ -538,7 +542,7 @@ def ensure_fishspeech_ready(timeout: int = 600) -> tuple[bool, str, str]:
     return False, f"Fish-Speech: Timeout after {timeout}s waiting for model", ""
 
 
-def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
+def ensure_xtts_ready(timeout: int = 60, gpu_uuid: str = "") -> tuple[bool, str]:
     """
     Ensure XTTS container is running and model is loaded.
 
@@ -564,7 +568,7 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
         pass  # Container not running or not responding
 
     # Step 2: Start container
-    success, msg = start_xtts_container()
+    success, msg = start_xtts_container(gpu_uuid)
     if not success:
         return False, msg
 
@@ -584,9 +588,9 @@ def ensure_xtts_ready(timeout: int = 60) -> tuple[bool, str]:
     return False, f"XTTS: Timeout after {timeout}s waiting for model"
 
 
-def start_moss_container() -> tuple[bool, str]:
+def start_moss_container(gpu_uuid: str = "") -> tuple[bool, str]:
     """Start the MOSS-TTS Docker container."""
-    return _docker_compose_action(_tts_compose("moss"), "up", "MOSS-TTS")
+    return _docker_compose_action(_tts_compose("moss"), "up", "MOSS-TTS", gpu_uuid)
 
 
 def stop_moss_container() -> tuple[bool, str]:
@@ -594,7 +598,7 @@ def stop_moss_container() -> tuple[bool, str]:
     return _docker_compose_action(_tts_compose("moss"), "down", "MOSS-TTS")
 
 
-def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
+def ensure_moss_ready(timeout: int = 120, gpu_uuid: str = "") -> tuple[bool, str, str]:
     """
     Ensure MOSS-TTS container is running and model is loaded.
 
@@ -623,7 +627,7 @@ def ensure_moss_ready(timeout: int = 120) -> tuple[bool, str, str]:
         pass
 
     # Step 2: Start container
-    success, msg = start_moss_container()
+    success, msg = start_moss_container(gpu_uuid)
     if not success:
         return False, msg, ""
 

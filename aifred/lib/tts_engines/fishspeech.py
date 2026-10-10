@@ -56,7 +56,7 @@ class FishSpeechEngine(TTSEngine):
 
     def _start_local(self) -> tuple[bool, str]:
         from ..process_utils import start_fishspeech_container
-        return start_fishspeech_container()
+        return start_fishspeech_container(self.gpu_uuid)
 
     def _stop_local(self) -> tuple[bool, str]:
         from ..process_utils import stop_fishspeech_container
@@ -66,7 +66,7 @@ class FishSpeechEngine(TTSEngine):
         from ..process_utils import ensure_fishspeech_ready
         # 600 s default — first start has to pull ~8 GB of weights from
         # HuggingFace before the model can load.
-        return ensure_fishspeech_ready(timeout=timeout or 600)
+        return ensure_fishspeech_ready(timeout=timeout or 600, gpu_uuid=self.gpu_uuid)
 
     def generate_speech(
         self,

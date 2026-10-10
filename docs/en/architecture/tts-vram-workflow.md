@@ -33,7 +33,7 @@ An entry **fits** when it is enabled and:
 | Kind | Condition |
 |------|-----------|
 | Remote (container on `host`) | Its health check answers. The Mini never starts or stops anything there. |
-| Local GPU (XTTS, Qwen3, MOSS, Fish) | The container runs — or its measured burn-in peak (`tts_vram_cache`) + `LLAMACPP_TTS_BURNIN_HEADROOM_MB` fits into the **free** memory of the side-channel card (`pick_tts_gpu`); then it is started. Without a measured peak it does not fit. |
+| Local GPU (XTTS, Qwen3, MOSS, Fish) | The container runs — or its measured burn-in peak (`tts_vram_cache`) + `LLAMACPP_TTS_BURNIN_HEADROOM_MB` fits into the **free** memory of a card: preferably the side-channel card (`pick_tts_gpu`), else the card with the most free memory; it is started there. Without a measured peak it does not fit. When a model that needs the card loads later, the backends' GPU guard stops the container (`_release_tts_for_load`), except the engine a `-tts-<engine>` profile reserves room for on the side-channel card. |
 | Local without GPU / cloud | The engine is available (`is_running`; DashScope: API key set). |
 
 **The main model is never reloaded for TTS.** If the local TTS does not fit (e.g.
