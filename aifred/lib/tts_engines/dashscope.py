@@ -119,20 +119,7 @@ class DashScopeEngine(TTSEngine):
         api_key credential. Speed/pitch are post-processed centrally
         via ffmpeg (the SDK has no native speed parameter)."""
         import base64
-        import io
-        import os
-        import wave
-        from ..audio_processing import (
-            _generate_tts_filename,
-            _validate_audio_output,
-            _apply_pcm_gain,
-            _write_pcm_to_wav,
-            TTS_AUDIO_DIR,
-        )
         from ..logging_utils import log_message
-
-        filename = _generate_tts_filename("wav")
-        output_file = str(TTS_AUDIO_DIR / filename)
 
         try:
             import dashscope
@@ -177,26 +164,49 @@ class DashScopeEngine(TTSEngine):
             if not wav_chunks:
                 raise TTSFailure("engine", "DashScope returned no audio chunks")
 
-            with wave.open(io.BytesIO(b"".join(wav_chunks))) as wav_stream:
-                sample_rate = wav_stream.getframerate()
-                pcm_data = wav_stream.readframes(wav_stream.getnframes())
+            return self._store_wav(b"".join(wav_chunks))
+        except Exception as e:  # noqa: BLE001 — _failure sorts it into a TTSFailure
+            raise self._failure(e) from e
 
-            pcm_data = _apply_pcm_gain(pcm_data, self.output_gain)
-            _write_pcm_to_wav(pcm_data, output_file, sample_rate)
+    def _store_wav(self, wav_bytes: bytes) -> str:
+        """One WAV stream from DashScope → gain-adjusted file in the TTS audio
+        folder; returns its URL path. Shared by both DashScope engines."""
+        import io
+        import os
+        import wave
+        from ..audio_processing import (
+            _generate_tts_filename,
+            _validate_audio_output,
+            _apply_pcm_gain,
+            _write_pcm_to_wav,
+            TTS_AUDIO_DIR,
+        )
+        from ..logging_utils import log_message
 
-            duration = len(pcm_data) / (sample_rate * 2)
-            if not _validate_audio_output(output_file):
-                raise TTSFailure("engine", f"DashScope file missing or too small at {output_file}")
-            size = os.path.getsize(output_file)
-            log_message(f"✅ DashScope TTS: Audio saved → {output_file} ({size:,} bytes, {duration:.1f}s)")
-            return f"/_upload/tts_audio/{filename}"
-        except TTSFailure:
-            raise
-        except ImportError as e:
-            raise TTSFailure("software", "dashscope SDK not installed (pip install dashscope>=1.24.6)") from e
-        except Exception as e:
-            # A network/internet outage is "unreachable"; DashScope answering
-            # with an error (auth, quota, bad voice) is an engine failure.
-            if isinstance(e, _network_error_types()):
-                raise TTSFailure("unreachable", f"DashScope: {type(e).__name__}: {e}") from e
-            raise TTSFailure("engine", f"DashScope: {type(e).__name__}: {e}") from e
+        filename = _generate_tts_filename("wav")
+        output_file = str(TTS_AUDIO_DIR / filename)
+        with wave.open(io.BytesIO(wav_bytes)) as wav_stream:
+            sample_rate = wav_stream.getframerate()
+            pcm_data = wav_stream.readframes(wav_stream.getnframes())
+
+        pcm_data = _apply_pcm_gain(pcm_data, self.output_gain)
+        _write_pcm_to_wav(pcm_data, output_file, sample_rate)
+
+        duration = len(pcm_data) / (sample_rate * 2)
+        if not _validate_audio_output(output_file):
+            raise TTSFailure("engine", f"{self.label_short} file missing or too small at {output_file}")
+        size = os.path.getsize(output_file)
+        log_message(f"✅ {self.label_short} TTS: Audio saved → {output_file} ({size:,} bytes, {duration:.1f}s)")
+        return f"/_upload/tts_audio/{filename}"
+
+    def _failure(self, error: Exception) -> TTSFailure:
+        """A TTSFailure from whatever went wrong: a network/internet outage is
+        "unreachable"; DashScope answering with an error (auth, quota, bad
+        voice) is an engine failure."""
+        if isinstance(error, TTSFailure):
+            return error
+        if isinstance(error, ImportError):
+            return TTSFailure("software", "dashscope SDK not installed (pip install dashscope>=1.24.6)")
+        if isinstance(error, _network_error_types()):
+            return TTSFailure("unreachable", f"{self.label_short}: {type(error).__name__}: {error}")
+        return TTSFailure("engine", f"{self.label_short}: {type(error).__name__}: {error}")
