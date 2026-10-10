@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import TTSEngine
+from .base import TTSEngine, shared_voice_names
 
 
 class XTTSEngine(TTSEngine):
@@ -25,15 +25,10 @@ class XTTSEngine(TTSEngine):
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        # Static fallback list when the /voices endpoint isn't reachable.
-        # Custom-cloned voices first (★ prefix), then a small subset of
-        # the bundled built-in speakers — enough to keep the UI usable
-        # while the container is down. Live discovery in get_voices()
-        # returns the full bundled list (58 speakers).
-        return {
-            "★ AIfred":         "AIfred",
-            "★ Salomo":         "Salomo",
-            "★ Sokrates":       "Sokrates",
+        # While the container is down: the cloned voices of the shared tree
+        # first (★ prefix), then a subset of the speakers bundled with the
+        # model — live discovery in get_voices() returns all 58 of them.
+        return {f"★ {name}": name for name in shared_voice_names()} | {
             "Claribel Dervla":  "Claribel Dervla",
             "Daisy Studious":   "Daisy Studious",
             "Gracie Wise":      "Gracie Wise",

@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from .base import TTSEngine
+from .base import TTSEngine, shared_voice_names
 
 
 class Qwen3LocalEngine(TTSEngine):
@@ -33,12 +33,7 @@ class Qwen3LocalEngine(TTSEngine):
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        return {
-            "AIfred":   "AIfred",
-            "HAL9000":  "HAL9000",
-            "Salomo":   "Salomo",
-            "Sokrates": "Sokrates",
-        }
+        return {name: name for name in shared_voice_names()}
 
     def get_voices(self) -> dict[str, str]:
         """One entry per <name>.wav in /app/voices/ inside the container —

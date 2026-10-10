@@ -28,6 +28,14 @@ class TTSFailure(Exception):
         self.detail = detail
 
 
+def shared_voice_names() -> list[str]:
+    """The cloned voices every container engine reads from the shared tree
+    (``TTS_VOICES_DIR``: ``<Name>/<Name>.wav``) — the catalog while no
+    container answers, so a new voice shows up without one running."""
+    from ..config import TTS_VOICES_DIR
+    return sorted(wav.stem for wav in TTS_VOICES_DIR.glob("*/*.wav") if wav.stem == wav.parent.name)
+
+
 class TTSEngine(ABC):
     """One TTS backend, all in one place.
 
