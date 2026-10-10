@@ -722,12 +722,18 @@ def channel_emoji(channel: str) -> str:
 def build_user_chat_content(message: InboundMessage) -> str:
     """Build the chat_history content string for a user message.
 
-    Single source of truth for the "[Channel] Sender" header format.
-    Used by both the normal save path and FreeEcho.2's early flush.
+    Single source of truth for the "[Channel] Sender → Agent" header format.
+    Used by both the normal save path and FreeEcho.2's early flush. The arrow
+    names the agent the channel addressed (wake word), if it is configured.
     """
+    from .agent_config import get_agent_config, get_agent_label
+
     channel_label = channel_display_label(message.channel)
     subject = message.metadata.get("subject", "")
     header = f"[{channel_emoji(message.channel)} {channel_label}] {message.sender}"
+    wake_agent = message.metadata.get("wake_agent")
+    if wake_agent and get_agent_config(wake_agent):
+        header += f" → {get_agent_label(wake_agent)}"
     if subject:
         header += f" — {subject}"
     return f"{header}\n\n{message.text}"
