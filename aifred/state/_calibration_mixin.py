@@ -154,7 +154,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
     # Revision counter — bumped after every llama.cpp calibration finishes
     # writing TTS variants to llama-swap.yaml. Pure-Python computed vars
-    # like ``tts_engine_options`` depend on this so they re-evaluate when
+    # like ``tts_escalation_rows`` depend on this so they re-evaluate when
     # the on-disk YAML changes (Reflex has no file-system watcher).
     llamaswap_revision: int = 0
 
@@ -3309,7 +3309,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 from ..lib.process_utils import start_llama_swap
                 start_llama_swap()
             # Bump the revision so dependent computed vars
-            # (tts_engine_options et al.) re-evaluate against the updated
+            # (tts_escalation_rows et al.) re-evaluate against the updated
             # llama-swap.yaml. Without this, Reflex still serves the
             # pre-calibration dropdown state — TTS engines stay greyed
             # out even though their variants are now in the YAML.

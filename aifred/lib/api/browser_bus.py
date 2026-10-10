@@ -20,6 +20,7 @@ Kinds:
                         is_stream, audio_type}``
   - "stop"/"pause"/"resume"/"seek"/"speed" : audio control events
   - "bubble_audio" : combined replay URL for a finished chat bubble
+  - "bubble_tts_note" : who spoke that bubble (escalation list)
   - "session_title": ``{kind, url, version}`` — url carries the title text
 
 To add a new kind see docs/de/architecture/browser-push-bus.md.
@@ -84,6 +85,9 @@ def browser_push(
                        replay URL so custom.js can attach it to the latest
                        bubble's speaker button (Reflex pushes no delta from
                        the background create_task). {url}
+      - ``"bubble_tts_note"`` : follows ``bubble_audio`` — ``url`` holds who
+                       spoke (escalation list); custom.js shows it next to
+                       that bubble's speaker button. {url}
       - ``"session_title"`` : a background task finished title generation —
                        ``url`` holds the title; custom.js updates the
                        session-list entry. {url}

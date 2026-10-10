@@ -1,5 +1,7 @@
 """Einheit der Sprachausgabe: die Wahl pro Engine (SSOT), die Aufteilung je Einheit, die Browser-Extraktion."""
 
+from types import MethodType, SimpleNamespace
+
 import pytest
 
 import aifred.lib.settings as settings_module
@@ -93,12 +95,12 @@ class TestExtractCompleteParagraphs:
 
 
 class _FakeState:
-    """Das Nötigste, was die Toggle-Methoden des Zustands anfassen."""
+    """Das Nötigste, was der Listen-Editor des Zustands anfasst."""
 
-    def __init__(self, autoplay: bool = True, unit: str = "sentence") -> None:
-        self.tts_autoplay = autoplay
-        self.tts_speech_unit = unit
+    def __init__(self) -> None:
         self.written: dict = {}
+        self.tts_list_revision = 0
+        self.agent_tuning = {"aifred": SimpleNamespace(model_id="model")}
 
     def add_debug(self, message: str) -> None:
         pass
@@ -107,29 +109,32 @@ class _FakeState:
         self.written = settings
 
 
-class TestBrowserToggles:
-    """Die Auswahl im Browser schreibt dieselbe Stelle, aus der speech_unit_for liest."""
+class TestBrowserMenu:
+    """Die Einheit im Menü schreibt dieselbe Stelle, aus der speech_unit_for liest."""
 
-    def test_the_selection_is_saved_per_engine_and_read_back_by_the_ssot(self, saved):
+    @pytest.fixture
+    def menu(self, saved, monkeypatch):
+        from aifred.lib.settings import get_default_settings
+
+        monkeypatch.setattr(settings_module, "persisted_settings", lambda: {**get_default_settings(), **saved})
+        monkeypatch.setattr("aifred.lib.tts_escalation.planned_tts_engine", lambda model_id, settings=None: "")
         from aifred.state._tts_config_mixin import TTSConfigMixin
 
-        state = _FakeState(autoplay=True, unit="paragraph")
-        TTSConfigMixin._save_tts_toggles_for_engine(state, "piper")  # type: ignore[arg-type]
-        assert state.written["tts_toggles_per_engine"]["piper"] == {"autoplay": True, "unit": "paragraph"}
-        saved.update(state.written)                       # was gespeichert wurde, liest die SSOT
+        state = _FakeState()
+        state._edit_tts_lists = MethodType(TTSConfigMixin._edit_tts_lists, state)  # type: ignore[attr-defined]
+        return state
+
+    def test_the_unit_is_saved_per_engine_and_read_back_by_the_ssot(self, saved, menu):
+        from aifred.state._tts_config_mixin import TTSConfigMixin
+
+        list(TTSConfigMixin.set_tts_entry_unit(menu, "piper", "paragraph"))  # type: ignore[arg-type]
+        assert menu.written["tts_toggles_per_engine"]["piper"]["unit"] == "paragraph"
+        assert menu.tts_list_revision == 1
+        saved.update(menu.written)                        # was gespeichert wurde, liest die SSOT
         assert speech_unit_for("piper") == "paragraph"
 
-    def test_restoring_an_engine_without_a_saved_choice_uses_the_engine_default(self, saved):
+    def test_an_unknown_unit_is_refused(self, menu):
         from aifred.state._tts_config_mixin import TTSConfigMixin
 
-        state = _FakeState(autoplay=False, unit="sentence")
-        TTSConfigMixin._restore_tts_toggles_for_engine(state, "moss")  # type: ignore[arg-type]
-        assert (state.tts_autoplay, state.tts_speech_unit) == (True, "whole")
-
-    def test_restoring_uses_the_saved_choice(self, saved):
-        from aifred.state._tts_config_mixin import TTSConfigMixin
-
-        saved["tts_toggles_per_engine"] = {"edge": {"autoplay": False, "unit": "whole"}}
-        state = _FakeState()
-        TTSConfigMixin._restore_tts_toggles_for_engine(state, "edge")  # type: ignore[arg-type]
-        assert (state.tts_autoplay, state.tts_speech_unit) == (False, "whole")
+        with pytest.raises(ValueError, match="speech unit"):
+            list(TTSConfigMixin.set_tts_entry_unit(menu, "piper", "chapter"))  # type: ignore[arg-type]

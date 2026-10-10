@@ -17,10 +17,10 @@ another machine (entry in `tts_hosts`).
 The engine the LLM profile (`<model>-tts-<engine>`) reserves room for is switched by
 the browser (`ensure_tts_state`). Channels never switch it.
 
-## Escalation List (FreeEcho.2, Narrator)
+## Escalation List (Browser, FreeEcho.2, Narrator)
 
-Channels with their own speaker (FreeEcho.2) and the narrator do not pick their
-engine themselves; they go through the **global escalation list**
+The browser, channels with their own speaker (FreeEcho.2) and the narrator do not
+pick their engine themselves; they go through the **global escalation list**
 (`lib/tts_escalation.py`). Two lists in `settings.json`:
 
 - `tts_hosts`: other machines running TTS containers with the same API
@@ -63,22 +63,33 @@ Debug console and `debug.log`:
 🔊 [FreeEcho.2 buero] TTS escalation: voice change announced, dashscope@local continues
 ```
 
-## Browser — TTS Switching
+## Browser — Menu
 
-### Engine Dropdown (Main Settings)
-- Switching happens **immediately** (not just changing the setting)
-- `set_tts_engine_or_off()` handles it: free VRAM, start the new container, reload the LLM with the profile
-- "Off" → `enable_tts=False`, stop the GPU container
+### Audio Section (Main Settings)
+- Switches **spoken output on/off** (`set_enable_tts`) and **Auto-Play** (global, default off, `tts_autoplay`)
+- **List:** arrows (order), on/off, label "engine · local/host/cloud/CPU", the engine's speech unit
+  (`tts_toggles_per_engine[engine].unit`), delete; "Add" offers only engines whose image is built.
+  **Hosts:** name and address (ports only in `settings.json`)
+- "VRAM reserved" marks `planned_tts_engine()`. When reordering or switching changes that engine,
+  `_apply_planned_tts()` re-plans the VRAM (`ensure_tts_state`, possibly an LLM profile switch) —
+  only here, never while speaking
+- Before every reply `_phase_tts_container_checks()` only starts the reserved engine if it is not
+  running; another local engine the list started into free VRAM is left alone
 
 ### Agent Editor (per Agent)
-- Backend dropdown per agent: selects which backend applies to this agent
-- "Off" → the agent gets no TTS (`enabled=False`)
-- Empty voice → fallback to the agent's engine default from `agents.json`, then the global `tts_voice` (see Voice Resolution)
-- Changes are saved only as **settings**, no immediate VRAM switch
+- The engine dropdown only edits the voice per engine (`tts_agent_voices_per_engine`) — who speaks
+  is the list's decision
+- "Off" mutes the agent for every engine (`tts_agents[agent].enabled`); the per-agent language
+  lives there too (`tts_agents[agent].language`)
 
 ### FreeEcho.2 Plugin
 - No engine setting of its own — it speaks through the escalation list
 - The speech unit (sentence/paragraph/whole) is the one of the speaking engine
+
+### Chat Note
+Next to the bubble's play button: who spoke (`SpeechRun.note()`, field `tts_note`), with the reason
+of a switch, e.g. "🔊 XTTS · Aragon → DashScope · cloud (server outage)". While streaming it
+arrives via the `bubble_tts_note` push (custom.js).
 
 ## Autoplay + Streaming
 
@@ -90,25 +101,21 @@ Debug console and `debug.log`:
 
 ## Voice Resolution
 
-### Browser
-SSOT: `_resolve_agent_tts()` in `_tts_streaming_mixin.py`. An agent never borrows
-another agent's voice.
-1. User's per-agent voice for the active engine (`tts_agent_voices[agent]["voice"]`)
-2. The agent's engine default from `data/agents.json` (`tts_voices.<engine>`)
-3. `self.tts_voice` (global state default) — only for agents without an engine default
-
-### Escalation List (FreeEcho.2)
-SSOT: `resolve_voice()` in `lib/tts_escalation.py`, per engine of the speaking entry.
+SSOT for every path (browser, FreeEcho.2, re-synthesis): `resolve_voice()` in
+`lib/tts_escalation.py`, per engine of the speaking entry. An agent never borrows another
+agent's voice.
 1. User setting for agent+engine (`tts_agent_voices_per_engine[engine][agent]` in `settings.json`)
 2. User setting for AIfred (only if the agent has none)
 3. The agent's engine default from `data/agents.json` (`tts_voices.<engine>`, via `get_tts_voice_default()`)
 4. AIfred's engine default from `data/agents.json`, if the agent's default has no voice
 5. No voice → the entry fails (`TTSFailure`), the list moves on
 
+The narrator uses `narrator_voices[engine]`, else the engine's first own voice.
+
 ## Debug Output
 
 On every LLM profile switch, the effective model + context is shown
-(`get_effective_model_info()`; FreeEcho.2 and the browser dropdown prefix the
+(`get_effective_model_info()`; the browser menu prefixes the
 status messages with 🔊):
 ```
 🔊 LLM profile ready: GPT-OSS-120B-A5B-UD-Q8_K_XL-tts-xtts (ctx: 131.072)
@@ -125,10 +132,9 @@ On intent detection (`format_intent_result()` in `intent_detector.py`):
 |----------|-------|-------------|
 | `ensure_tts_state()` | `tts_engine_manager.py` | SSOT: checks/establishes the VRAM state |
 | `_do_switch()` | `tts_engine_manager.py` | Full engine switch (unload → load) |
-| `set_tts_engine_or_off()` | `_tts_config_mixin.py` | Browser dropdown handler |
+| `_edit_tts_lists()` / `_apply_planned_tts()` | `_tts_config_mixin.py` | List editor in the menu, VRAM re-planning |
 | `SpeechRun` / `choose_speaker()` | `lib/tts_escalation.py` | Escalation list: selection, failure, announcement |
 | `resolve_voice()` | `lib/tts_escalation.py` | Voice/speed/pitch per engine (channels, narrator) |
 | `start_speech_stream()` | `lib/speech_synthesis.py` | Sentence-wise PCM stream for channels with a speaker |
 | `release_side_channels_for_describer()` | `lib/vision_routing.py` | Describer evicts TTS and STT |
-| `_queue_tts_for_agent()` | `_tts_streaming_mixin.py` | Browser TTS generation |
-| `_resolve_agent_tts()` | `_tts_streaming_mixin.py` | Browser voice/speed/pitch resolution |
+| `_queue_tts_for_agent()` / `_tts_generate_sentence_async()` | `_tts_streaming_mixin.py` | Browser: queue and sentence streaming via `SpeechRun` |

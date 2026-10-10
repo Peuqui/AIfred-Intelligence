@@ -1002,9 +1002,11 @@ class AgentEditorMixin(rx.State, mixin=True):
             allowed = set(config.tools)
             self.editor_tools = {name: name in allowed for name in all_tool_names}
 
-        # Load TTS settings for this agent — always start with the
-        # default engine (config.TTS_DEFAULT_ENGINE).
-        self.editor_tts_engine = TTS_DEFAULT_ENGINE  # type: ignore[attr-defined]
+        # Load TTS settings for this agent — start with the topmost enabled
+        # engine of the escalation list (the one most likely to speak).
+        from ..lib.tts_escalation import first_enabled_entry
+        first = first_enabled_entry()
+        self.editor_tts_engine = first.engine.key if first else TTS_DEFAULT_ENGINE  # type: ignore[attr-defined]
         self._load_editor_tts_settings()  # type: ignore[attr-defined]
 
         self._load_editor_prompt(self.editor_prompt_tab)
@@ -1244,7 +1246,6 @@ class AgentEditorMixin(rx.State, mixin=True):
                 description=self._editor_description,
                 role=self.editor_role,
             )
-            self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
             self.add_debug(  # type: ignore[attr-defined]
                 f"\u2705 Agent '{self.editor_display_name}' created"
             )
@@ -1270,7 +1271,6 @@ class AgentEditorMixin(rx.State, mixin=True):
 
         try:
             delete_agent(agent_id)
-            self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
             self.add_debug(f"\U0001f5d1\ufe0f Agent '{agent_id}' deleted")  # type: ignore[attr-defined]
         except ValueError as e:
             self.add_debug(f"\u26a0\ufe0f {e}")  # type: ignore[attr-defined]

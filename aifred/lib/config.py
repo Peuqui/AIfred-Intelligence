@@ -115,7 +115,6 @@ DEFAULT_SETTINGS = {
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
-    "tts_engine": "edge",
     # Rechner, die TTS-Container mit derselben API betreiben (Liste von
     # {"name", "address", "ports": {engine_key: port}}); dieser Rechner ist
     # implizit und steht hier nicht. Siehe aifred/lib/tts_escalation.py.
@@ -428,9 +427,9 @@ TTS_DEFAULT_VOICES = {
 # ``aifred.lib.agent_config.get_tts_voice_default(agent_id, engine)`` or
 # ``get_tts_voice_defaults_for_engine(engine)``.
 
-# Auto-Play ist bei jeder TTS-Engine standardmäßig an. Die Standard-Einheit der Sprachausgabe
+# Auto-Play (global, ein Schalter) ist standardmäßig aus. Die Standard-Einheit der Sprachausgabe
 # (satzweise / absatzweise / am Stück) trägt die Engine selbst: TTSEngine.default_speech_unit.
-TTS_AUTOPLAY_DEFAULT = True
+TTS_AUTOPLAY_DEFAULT = False
 # ============================================================
 # CONTEXT MANAGEMENT
 # ============================================================
@@ -1115,16 +1114,6 @@ LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S = 30.0
 # Subtracted from the TTS GPU's free VRAM before computing tensor-split ratios.
 LLAMACPP_TTS_VRAM_RESERVE = 512  # MB (peak spike + safety buffer)
 
-# XTTS VRAM reservation (MB)
-# Idle: ~2073 MiB, Peak during inference: ~2837 MiB (RTX 8000)
-# Use peak + buffer so LLM context doesn't compete with TTS during generation.
-XTTS_VRAM_MB = 2900  # MB (measured peak 2837 + 63 buffer)
-
-# MOSS-TTS VRAM reservation (MB)
-# Idle: ~13.299 MiB, Peak during inference: ~13.609 MiB (RTX 8000, 1.7B model)
-# Use peak + buffer so LLM context doesn't compete with TTS during generation.
-MOSS_TTS_VRAM_MB = 13700  # MB (measured peak 13609 + 91 buffer)
-
 def get_effective_model_from_settings(agent: str = "aifred") -> str:
     """Resolve effective model ID from settings.json (no Reflex state needed).
 
@@ -1158,6 +1147,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
 
     from .agent_settings import get_persisted_tuning
     from .calibration import parse_llamaswap_config, resolve_effective_suffix
+    from .tts_escalation import planned_tts_engine
 
     swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
     has_speed_variant = f"{base_id}-speed" in swap_cfg
@@ -1169,7 +1159,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         speed_on=get_persisted_tuning(settings, speed_agent, "speed_mode", False),
         has_speed_variant=has_speed_variant,
         tts_active=settings.get("enable_tts", False),
-        tts_engine=settings.get("tts_engine", ""),
+        tts_engine=planned_tts_engine(base_id),
     )
     return str(base_id + suffix)
 

@@ -1,340 +1,320 @@
 """TTS configuration mixin for AIfred state.
 
-Handles TTS engine selection, voice settings, per-agent voice configuration,
-and engine-specific preferences (XTTS GPU/CPU mode, voice caching, etc.).
+Handles the spoken output on/off switch, the escalation list editor (entries
+and hosts), autoplay, per-agent mute/language, the agent editor's voice
+settings per engine and the narrator voices. Which engine actually speaks is
+decided per reply by the escalation list (``lib.tts_escalation.SpeechRun``).
 
 Does NOT contain TTS streaming/generation logic (see _tts_streaming_mixin.py).
 """
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any, Callable, Dict, List
 
 import reflex as rx
 
-from ..lib.config import TTS_DEFAULT_ENGINE
+from ..lib.config import TTS_AUTOPLAY_DEFAULT, TTS_DEFAULT_ENGINE
+
+
+def _lang(state: Any) -> str:
+    return "de" if state.ui_language == "auto" else str(state.ui_language)
 
 
 class TTSConfigMixin(rx.State, mixin=True):
-    """Mixin for TTS configuration, voice settings, and engine management."""
+    """Mixin for TTS configuration, the escalation list and voice settings."""
 
     # ── TTS Settings ──────────────────────────────────────────────
     enable_tts: bool = False
-    tts_voice: str = "AIfred"  # Default voice - XTTS custom voice
-    tts_engine: str = TTS_DEFAULT_ENGINE  # TTS engine key
-    tts_autoplay: bool = True  # Auto-play TTS audio after generation (user setting)
+    tts_autoplay: bool = TTS_AUTOPLAY_DEFAULT  # Global, persisted ("tts_autoplay")
     tts_playback_rate: str = "1.0x"  # Browser playback rate (1.0 = neutral, speed via Agent Settings)
     tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
-    # Per-Agent TTS Voice Settings (for Multi-Agent mode with distinct voices)
-    # Format: agent_id -> {"voice": str, "speed": str, "pitch": str, "enabled": bool}
-    # Agents: aifred (default), sokrates, salomo
-    tts_agent_voices: Dict[str, Dict[str, Any]] = {
-        "aifred": {"voice": "\u2605 AIfred", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-        "sokrates": {"voice": "\u2605 Sokrates", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-        "salomo": {"voice": "Baldur Sanjin", "speed": "1.0x", "pitch": "1.0", "enabled": True},
-    }
-    # XTTS voices cache - refreshed when engine changes to XTTS
-    xtts_voices_cache: List[str] = []
-    # MOSS-TTS device ("cuda", "cpu", or "" if not running)
-    # Used by context_manager/context_utils for VRAM reservation
-    moss_tts_device: str = ""
-    # Unit of the spoken output per engine (config only — the streaming logic is elsewhere):
-    # "sentence" (streaming), "paragraph" or "whole" (wait for the full response). SSOT for
-    # browser and channels: lib.tts_engines.speech_unit_for(engine) reads the same setting.
-    tts_speech_unit: str = "sentence"
+    # Per agent, for every engine: {"enabled": bool, "language": "auto"|ISO code}
+    tts_agents: Dict[str, Dict[str, Any]] = {}
 
-    # ── Narrator plugin (narrate_file) engine selection ──────────
-    # "auto" = follow the spoken-output engine. When that is off, use
-    # narrator_fallback_engine (GPU-free, user-selectable) so the loaded
-    # LLM keeps its VRAM instead of the TTS container silently falling
-    # back to CPU.
-    narrator_engine: str = "auto"
-    narrator_fallback_engine: str = "piper"
-    # Voice PER ENGINE (voices are engine-bound: "AIfred" is a clone that
-    # only the cloning engines know; Piper/DashScope have their own sets).
-    # Missing key = engine's first own voice.
+    # The escalation list lives in settings.json (tts_escalation, tts_hosts);
+    # bumping this revision recomputes every var derived from it.
+    tts_list_revision: int = 0
+    tts_new_entry_engine: str = ""
+    tts_new_entry_host: str = ""
+    tts_new_host_name: str = ""
+    tts_new_host_address: str = ""
+
+    # Narrator (narrate_file) voice PER ENGINE — voices are engine-bound.
     narrator_voices: Dict[str, str] = {}
-
-    # ── Computed Vars ─────────────────────────────────────────────
-
-    @rx.var(deps=["ui_language"], auto_deps=False)
-    def tts_engines(self) -> List[str]:
-        """Available TTS engines for main dropdown (includes 'Off')."""
-        from ..lib.config import TTS_ENGINE_KEYS
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        return [t(f"tts_engine_{key}", lang=lang) for key in TTS_ENGINE_KEYS]
-
-    @rx.var(deps=["ui_language", "agent_tuning", "backend_type", "llamaswap_revision"], auto_deps=False)
-    def tts_engine_options(self) -> List[dict]:
-        """Dropdown options with a ``disabled`` flag.
-
-        Three states per engine:
-
-        1. **Not installed** (container engine, Docker image missing):
-           omitted from the list entirely. The user removed the image
-           intentionally; offering a non-functional option just adds
-           noise. ``docker compose build`` brings it back, then it
-           shows up again automatically.
-
-        2. **Installed but not calibrated for the current llama.cpp
-           model** (``<model>-tts-<engine>`` missing in llama-swap.yaml):
-           shown but disabled. Picking it would load the base profile,
-           which planned the TTS GPU as fully available, and OOM once
-           the TTS container takes its VRAM share. The tooltip explains
-           that the user has to run the calibration first.
-
-        3. **Ready**: shown, enabled.
-
-        Non-GPU engines (Edge / Piper / eSpeak / DashScope) and
-        non-llamacpp backends never gate on calibration — they don't
-        share the LLM's VRAM.
-        """
-        from ..lib.config import TTS_ENGINE_KEYS
-        from ..lib.i18n import t
-        from ..lib.tts_engines import get_engine, gpu_engines
-        from ..lib.model_vram_cache import is_tts_variant_calibrated
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        gpu_keys = {e.key for e in gpu_engines()}
-        model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
-        is_llamacpp = self.backend_type == "llamacpp"  # type: ignore[attr-defined]
-        out: List[dict] = []
-        for key in TTS_ENGINE_KEYS:
-            eng = get_engine(key)
-            # Hide container engines whose Docker image isn't on the host.
-            # "off" has no engine and is always kept.
-            if eng is not None and eng.runs_in_container and not eng.is_installed():
-                continue
-            # Disabled when the TTS variant isn't *really* calibrated.
-            # Source-of-truth: vram_cache + non-empty gpu_model — autoscan
-            # defaults (gpu_model="") don't count, only the full
-            # AIfred-calibration measurement does. Picking a non-calibrated
-            # variant would OOM once the TTS container takes its VRAM share.
-            disabled = (
-                is_llamacpp and key in gpu_keys and bool(model_id)
-                and not is_tts_variant_calibrated(model_id, key)
-            )
-            out.append({"label": t(f"tts_engine_{key}", lang=lang), "disabled": disabled})
-        return out
-
-    # ── Narrator plugin settings (computed + setters) ─────────────
-
-    @rx.var(deps=[], auto_deps=False)
-    def narrator_plugin_enabled(self) -> bool:
-        # Plugin enable/disable requires a restart anyway — static per process.
-        from ..lib.plugin_registry import is_plugin_enabled
-        return is_plugin_enabled("narrator")
-
-    @rx.var(deps=["ui_language", "narrator_engine"], auto_deps=False)
-    def narrator_engine_display(self) -> str:
-        from ..lib.i18n import t, tts_key_to_label
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        if self.narrator_engine == "auto":
-            return t("narrator_engine_auto", lang=lang)
-        return tts_key_to_label(self.narrator_engine, lang=lang)
-
-    def _gpu_free_engine_labels(self, lang: str) -> List[str]:
-        """Labels of installed GPU-free engines — they never touch the
-        LLM's VRAM. Shared by the narrator engine and fallback dropdowns."""
-        from ..lib.config import TTS_ENGINE_KEYS
-        from ..lib.i18n import tts_key_to_label
-        from ..lib.tts_engines import get_engine
-        out: List[str] = []
-        for key in TTS_ENGINE_KEYS:
-            if key == "off":
-                continue
-            eng = get_engine(key)
-            if eng is None or eng.needs_gpu:
-                continue
-            if eng.runs_in_container and not eng.is_installed():
-                continue
-            out.append(tts_key_to_label(key, lang=lang))
-        return out
-
-    @rx.var(deps=["ui_language"], auto_deps=False)
-    def narrator_engine_options(self) -> List[str]:
-        """'(same as spoken output)' + GPU-free engines only.
-
-        Explicit GPU engines are not offered: they would start a second
-        TTS container next to the LLM without any VRAM orchestration
-        (OOM or silent CPU-fallback risk). GPU narration runs
-        exclusively via 'auto' — the active spoken-output engine, whose
-        -tts- calibration profile reserves the container's VRAM."""
-        from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        return [t("narrator_engine_auto", lang=lang)] + self._gpu_free_engine_labels(lang)
-
-    @rx.var(deps=["ui_language", "narrator_fallback_engine"], auto_deps=False)
-    def narrator_fallback_display(self) -> str:
-        from ..lib.i18n import tts_key_to_label
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        return tts_key_to_label(self.narrator_fallback_engine, lang=lang)
-
-    @rx.var(deps=["ui_language"], auto_deps=False)
-    def narrator_fallback_options(self) -> List[str]:
-        """GPU-free engines only — they never touch the LLM's VRAM."""
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        return self._gpu_free_engine_labels(lang)
-
-    @rx.var(
-        deps=["narrator_engine", "narrator_fallback_engine", "enable_tts", "tts_engine"],
-        auto_deps=False,
-    )
-    def narrator_effective_engine(self) -> str:
-        """The engine narrate_file would actually use right now
-        (Entscheidungslogik = lib-SSOT, geteilt mit dem narrator-Plugin)."""
-        from ..lib.tts_engines import resolve_narrator_engine
-        return resolve_narrator_engine(
-            self.narrator_engine,
-            bool(self.enable_tts),
-            self.tts_engine,  # type: ignore[has-type]
-            self.narrator_fallback_engine,
-        )
-
-    @rx.var(
-        deps=["narrator_engine", "narrator_fallback_engine", "enable_tts",
-              "tts_engine"],
-        auto_deps=False,
-    )
-    def narrator_voice_options(self) -> List[str]:
-        """The effective engine's OWN voices (engine.get_voices() is the
-        SSOT — clones only appear on cloning engines, Piper lists its
-        built-in speakers, etc.)."""
-        from ..lib.tts_engines import get_engine, voice_names
-        eng = get_engine(self.narrator_effective_engine)
-        if eng is None:
-            return []
-        # lib-SSOT (geteilt mit dem narrator-Plugin): live get_voices(),
-        # bei Fehler/leer der statische Katalog.
-        return voice_names(eng)
-
-    @rx.var(
-        deps=["narrator_voices", "narrator_engine", "narrator_fallback_engine",
-              "enable_tts", "tts_engine"],
-        auto_deps=False,
-    )
-    def narrator_voice_display(self) -> str:
-        """Saved voice for the effective engine, else its first own voice."""
-        engine = self.narrator_effective_engine
-        saved = self.narrator_voices.get(engine, "")
-        options = self.narrator_voice_options
-        if saved and saved in options:
-            return saved
-        return options[0] if options else ""
-
-    def set_narrator_engine(self, selection: str) -> None:
-        from ..lib.i18n import t, tts_label_to_key
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        if selection == t("narrator_engine_auto", lang=lang):
-            self.narrator_engine = "auto"
-        else:
-            self.narrator_engine = tts_label_to_key(selection)
-        self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"🔊 Narrator engine: {self.narrator_engine}")  # type: ignore[attr-defined]
-
-    def set_narrator_fallback_engine(self, selection: str) -> None:
-        from ..lib.i18n import tts_label_to_key
-        self.narrator_fallback_engine = tts_label_to_key(selection)
-        self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"🔊 Narrator GPU-free fallback: {self.narrator_fallback_engine}")  # type: ignore[attr-defined]
-
-    def set_narrator_voice(self, voice: str) -> None:
-        engine = self.narrator_effective_engine
-        # Re-assign the dict so Reflex flags it dirty.
-        self.narrator_voices = {**self.narrator_voices, engine: voice}
-        self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"🔊 Narrator voice ({engine}): {voice}")  # type: ignore[attr-defined]
-
-    # Modal open/close (gear icon in the Agent-Editor plugin tab)
+    narrator_voice_engine: str = TTS_DEFAULT_ENGINE  # Engine whose narrator voice the modal edits
     narrator_settings_open: bool = False
 
-    def open_narrator_settings(self) -> None:
-        self.narrator_settings_open = True
+    # ── Escalation list (computed) ────────────────────────────────
 
-    def close_narrator_settings(self) -> None:
-        self.narrator_settings_open = False
+    @rx.var(
+        deps=["tts_list_revision", "ui_language", "agent_tuning", "backend_type", "llamaswap_revision"],
+        auto_deps=False,
+    )
+    def tts_escalation_rows(self) -> List[Dict[str, Any]]:
+        """One row per list entry, in order — what the menu shows."""
+        from ..lib.i18n import t
+        from ..lib.tts_engines import speech_unit_for
+        from ..lib.tts_escalation import escalation_entries, location_label, planned_tts_engine
+
+        lang = _lang(self)
+        reserved = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
+        rows: List[Dict[str, Any]] = []
+        for index, entry in enumerate(escalation_entries()):
+            engine = entry.engine
+            installed = engine.is_remote or engine.is_installed()
+            rows.append({
+                "index": index,
+                "engine": engine.key,
+                "label": f"{engine.label_short} · {location_label(entry, lang)}",
+                "enabled": entry.enabled,
+                "unit": speech_unit_for(engine.key),
+                "reserved": entry.host is None and engine.key == reserved,
+                "note": "" if installed else t("tts_entry_not_installed", lang=lang),
+            })
+        return rows
+
+    @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
+    def tts_add_engine_options(self) -> List[str]:
+        """Engines that can be added: every engine whose Docker image is built
+        (or that needs none)."""
+        from ..lib.i18n import tts_key_to_label
+        from ..lib.tts_engines import TTS_ENGINES
+        return [
+            tts_key_to_label(key, lang=_lang(self))
+            for key, engine in TTS_ENGINES.items()
+            if not engine.runs_in_container or engine.is_installed()
+        ]
+
+    @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
+    def tts_add_host_options(self) -> List[str]:
+        """Where a new entry runs: this machine or one of the hosts."""
+        from ..lib.i18n import t
+        from ..lib.settings import persisted_settings
+        return [t("tts_location_this_machine", lang=_lang(self))] + [
+            str(host["name"]) for host in persisted_settings()["tts_hosts"]
+        ]
+
+    @rx.var(deps=["tts_list_revision"], auto_deps=False)
+    def tts_host_rows(self) -> List[Dict[str, str]]:
+        from ..lib.settings import persisted_settings
+        return [
+            {"name": str(host["name"]), "address": str(host["address"])}
+            for host in persisted_settings()["tts_hosts"]
+        ]
+
+    @rx.var(deps=["tts_list_revision"], auto_deps=False)
+    def tts_speech_unit(self) -> str:
+        """Speech unit of the topmost enabled entry — decides whether the
+        browser streams sentence by sentence (the entry that really speaks is
+        only known at the first sentence)."""
+        from ..lib.tts_engines import speech_unit_for
+        from ..lib.tts_escalation import first_enabled_entry
+        entry = first_enabled_entry()
+        return speech_unit_for(entry.engine.key) if entry else "whole"
+
+    @rx.var(deps=["tts_list_revision"], auto_deps=False)
+    def tts_streaming_enabled(self) -> bool:
+        """Streaming = the spoken output starts before the response is complete
+        (every unit except "whole")."""
+        return self.tts_speech_unit != "whole"
 
     @rx.var(deps=["enable_tts"], auto_deps=False)
     def tts_player_visible(self) -> bool:
-        """Returns True if TTS audio player should be visible.
-
-        Player is visible when TTS is enabled (always shows player controls).
-        """
+        """The audio player shows while the spoken output is on."""
         return self.enable_tts
 
-    @rx.var(deps=["enable_tts", "tts_engine", "ui_language"], auto_deps=False)
-    def tts_engine_or_off(self) -> str:
-        """Dropdown value: translated engine label when TTS enabled, translated 'Off' when disabled."""
-        from ..lib.i18n import tts_key_to_label
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        return tts_key_to_label(self.tts_engine, lang=lang) if self.enable_tts else tts_key_to_label("off", lang=lang)
+    # ── Spoken output on/off, autoplay ────────────────────────────
+
+    def set_enable_tts(self, enabled: bool):
+        self.enable_tts = enabled
+        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"🔊 TTS: {'enabled' if enabled else 'disabled'}")  # type: ignore[attr-defined]
+        yield
+        yield from self._apply_planned_tts()
+
+    def toggle_tts_autoplay(self):
+        self.tts_autoplay = not self.tts_autoplay
+        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")  # type: ignore[attr-defined]
+
+    def _apply_planned_tts(self):
+        """Bring the VRAM state in line with the list: the LLM profile reserves
+        room for the planned engine (topmost enabled local GPU entry with a
+        calibrated profile), or for none when the spoken output is off.
+        Generator — each yield is one finished blocking step."""
+        from ..lib.tts_engine_manager import ensure_tts_state
+        from ..lib.tts_escalation import escalation_entries, planned_tts_engine
+
+        wanted = (
+            planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
+            if self.enable_tts else ""
+        )
+        generator = ensure_tts_state(wanted_tts=wanted, backend_type=self.backend_type)  # type: ignore[attr-defined]
+        try:
+            while True:
+                self.add_debug(f"🔊 {next(generator)}")  # type: ignore[attr-defined]
+                yield
+        except StopIteration:
+            pass
+
+        # DashScope: enroll new or changed SSOT reference voices (idempotent via
+        # WAV hash — instant when nothing changed) so cloned voices are ready.
+        if self.enable_tts and any(
+            entry.enabled and entry.engine.key == "dashscope" for entry in escalation_entries()
+        ):
+            from ..lib.credential_broker import broker
+            from ..lib.dashscope_enroll import enroll_progress
+            api_key = broker.get("cloud_qwen", "api_key")
+            if api_key:
+                for line in enroll_progress(api_key):
+                    self.add_debug(f"🔊 {line}")  # type: ignore[attr-defined]
+                    yield
+
+    # ── Escalation list editing ───────────────────────────────────
+
+    def _edit_tts_lists(self, change: Callable[[Dict[str, Any]], None]):
+        """Apply ``change`` to the persisted lists, validate, save, and — when
+        the planned engine moved — re-plan the VRAM. Generator."""
+        import copy
+
+        from ..lib.settings import persisted_settings
+        from ..lib.tts_escalation import escalation_entries, planned_tts_engine
+
+        model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
+        before = planned_tts_engine(model_id)
+        settings = copy.deepcopy(persisted_settings())
+        change(settings)
+        try:
+            escalation_entries(settings)
+        except (ValueError, KeyError) as exc:
+            self.add_debug(f"❌ TTS list: {exc}")  # type: ignore[attr-defined]
+            return
+        self._write_settings_file(settings)  # type: ignore[attr-defined]
+        self.tts_list_revision += 1
+        yield
+        if planned_tts_engine(model_id, settings) != before:
+            yield from self._apply_planned_tts()
+
+    def move_tts_entry(self, index: int, delta: int):
+        def change(settings: Dict[str, Any]) -> None:
+            entries = settings["tts_escalation"]
+            target = index + delta
+            if 0 <= target < len(entries):
+                entries[index], entries[target] = entries[target], entries[index]
+        yield from self._edit_tts_lists(change)
+
+    def set_tts_entry_enabled(self, index: int, enabled: bool):
+        def change(settings: Dict[str, Any]) -> None:
+            settings["tts_escalation"][index]["enabled"] = enabled
+        yield from self._edit_tts_lists(change)
+
+    def remove_tts_entry(self, index: int):
+        def change(settings: Dict[str, Any]) -> None:
+            del settings["tts_escalation"][index]
+        yield from self._edit_tts_lists(change)
+
+    def set_tts_new_entry_engine(self, label: str) -> None:
+        self.tts_new_entry_engine = label
+
+    def set_tts_new_entry_host(self, label: str) -> None:
+        self.tts_new_entry_host = label
+
+    def add_tts_entry(self):
+        from ..lib.i18n import t, tts_label_to_key
+
+        engine_key = tts_label_to_key(self.tts_new_entry_engine)
+        host_label = self.tts_new_entry_host
+        host = None if host_label in ("", t("tts_location_this_machine", lang=_lang(self))) else host_label
+
+        def change(settings: Dict[str, Any]) -> None:
+            entries = settings["tts_escalation"]
+            if any(e["engine"] == engine_key and e["host"] == host for e in entries):
+                raise ValueError(f"{engine_key}@{host or 'local'} is already in the list")
+            entries.append({"engine": engine_key, "host": host, "enabled": True})
+        yield from self._edit_tts_lists(change)
+
+    def set_tts_entry_unit(self, engine_key: str, unit: str):
+        """Speech unit of an engine (system-wide, every agent and channel)."""
+        from ..lib.tts_engines import SPEECH_UNITS
+        if unit not in SPEECH_UNITS:
+            raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
+
+        def change(settings: Dict[str, Any]) -> None:
+            settings.setdefault("tts_toggles_per_engine", {}).setdefault(engine_key, {})["unit"] = unit
+        yield from self._edit_tts_lists(change)
+
+    def set_tts_new_host_name(self, value: str) -> None:
+        self.tts_new_host_name = value.strip()
+
+    def set_tts_new_host_address(self, value: str) -> None:
+        self.tts_new_host_address = value.strip()
+
+    def add_tts_host(self):
+        name, address = self.tts_new_host_name, self.tts_new_host_address
+        if not name or not address:
+            self.add_debug("❌ TTS host: name and address are required")  # type: ignore[attr-defined]
+            return
+
+        def change(settings: Dict[str, Any]) -> None:
+            settings["tts_hosts"].append({"name": name, "address": address, "ports": {}})
+        yield from self._edit_tts_lists(change)
+        self.tts_new_host_name = ""
+        self.tts_new_host_address = ""
+
+    def remove_tts_host(self, name: str):
+        def change(settings: Dict[str, Any]) -> None:
+            if any(entry["host"] == name for entry in settings["tts_escalation"]):
+                raise ValueError(f"host {name!r} still has entries in the list — remove them first")
+            settings["tts_hosts"] = [h for h in settings["tts_hosts"] if h["name"] != name]
+        yield from self._edit_tts_lists(change)
+
+    # ── Per-agent mute and language ───────────────────────────────
+
+    def tts_agent_enabled(self, agent: str) -> bool:
+        return bool(self.tts_agents.get(agent, {}).get("enabled", True))
+
+    def _set_tts_agent(self, agent: str, key: str, value: Any) -> None:
+        self.tts_agents = {**self.tts_agents, agent: {**self.tts_agents.get(agent, {}), key: value}}
+        self._save_settings()  # type: ignore[attr-defined]
 
     # ── Agent Editor TTS State ───────────────────────────────────
-    # The editor lets you configure voices per backend per agent.
-    # editor_tts_engine selects which backend you're configuring.
-    # _editor_tts_settings holds the loaded settings for that agent+engine.
-    editor_tts_engine: str = TTS_DEFAULT_ENGINE  # Default, overridden by active engine on agent load
-    _editor_tts_settings: Dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ..., "enabled": ...}
+    # The editor configures each agent's voice per engine; whether that
+    # engine speaks is the escalation list's decision.
+    editor_tts_engine: str = TTS_DEFAULT_ENGINE
+    _editor_tts_settings: Dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ...}
 
-    @rx.var(deps=["ui_language", "editor_tts_engine", "_editor_tts_settings"], auto_deps=False)
-    def editor_tts_engine_label(self) -> str:
-        """Translated label: 'Off' when agent TTS disabled, engine label otherwise."""
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def tts_editor_engine_options(self) -> List[str]:
+        """'Off' (agent muted) plus every engine."""
+        from ..lib.config import TTS_ENGINE_KEYS
         from ..lib.i18n import tts_key_to_label
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        if not self._editor_tts_settings.get("enabled", True):
-            return tts_key_to_label("off", lang=lang)
-        return tts_key_to_label(self.editor_tts_engine, lang=lang)
+        return [tts_key_to_label(key, lang=_lang(self)) for key in TTS_ENGINE_KEYS]
 
-    @rx.var(deps=["editor_tts_engine", "xtts_voices_cache", "_editor_tts_settings"], auto_deps=False)
+    @rx.var(deps=["ui_language", "editor_tts_engine", "tts_agents", "editor_agent_id"], auto_deps=False)
+    def editor_tts_engine_label(self) -> str:
+        """'Off' when the agent is muted, the edited engine otherwise."""
+        from ..lib.i18n import tts_key_to_label
+        if not self.tts_agent_enabled(self.editor_agent_id):  # type: ignore[attr-defined]
+            return tts_key_to_label("off", lang=_lang(self))
+        return tts_key_to_label(self.editor_tts_engine, lang=_lang(self))
+
+    @rx.var(deps=["editor_tts_engine", "_editor_tts_settings"], auto_deps=False)
     def editor_tts_available_voices(self) -> List[str]:
-        """Available voices for the editor's selected TTS engine.
+        """Voices of the edited engine: live catalogue (or the static one while
+        the container is down) plus every voice already saved for it."""
+        from ..lib.settings import persisted_settings
+        from ..lib.tts_engines import get_engine, voice_names
 
-        Base: saved voices from settings.json (always shown).
-        If engine is running: merge live voices for more options.
-        Selected voice always comes from settings, never from live query.
-        """
-        from ..lib.settings import load_settings
-
-        engine = self.editor_tts_engine
-
-        # 1. Base: saved voices from settings.json
-        saved_voices: set[str] = set()
-        settings = load_settings() or {}
-        per_engine = settings.get("tts_agent_voices_per_engine", {}).get(engine, {})
-        for cfg in per_engine.values():
-            v = cfg.get("voice", "")
-            if v:
-                saved_voices.add(v)
-
-        # Also include the currently loaded voice
-        current_voice = self._editor_tts_settings.get("voice", "")
-        if current_voice:
-            saved_voices.add(current_voice)
-
-        # 2. If engine is running, merge live voices for more selection
-        live_voices: set[str] = set()
-        if engine == "xtts":
-            if self.xtts_voices_cache:
-                live_voices = set(self.xtts_voices_cache)
-        elif engine in ("moss", "qwen3local", "fishspeech"):
-            from ..lib.tts_engines import get_engine
-            eng = get_engine(engine)
-            if eng:
-                voices = eng.get_voices()
-                live_voices = set(voices.keys()) if voices else set(eng.voices_fallback.keys())
-        else:
-            # dashscope / piper / espeak / edge — static catalogue lives on the engine.
-            from ..lib.tts_engines import get_engine
-            eng = get_engine(engine)
-            if eng:
-                live_voices = set(eng.voices_fallback.keys())
-
-        # 3. Merge: saved (always) + live (if available)
-        # ★ voices (cloned) come first, then alphabetical
-        all_voices = saved_voices | live_voices
-        starred = sorted(v for v in all_voices if v.startswith("★"))
-        regular = sorted(v for v in all_voices if not v.startswith("★"))
-        return starred + regular
+        engine = get_engine(self.editor_tts_engine)
+        voices = set(voice_names(engine)) if engine else set()
+        saved = persisted_settings().get("tts_agent_voices_per_engine", {}).get(self.editor_tts_engine, {})
+        voices |= {str(cfg.get("voice")) for cfg in saved.values() if isinstance(cfg, dict) and cfg.get("voice")}
+        current = self._editor_tts_settings.get("voice", "")
+        if current:
+            voices.add(str(current))
+        starred = sorted(v for v in voices if v.startswith("★"))
+        return starred + sorted(v for v in voices if not v.startswith("★"))
 
     @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
     def editor_agent_tts_voice(self) -> str:
@@ -348,13 +328,13 @@ class TTSConfigMixin(rx.State, mixin=True):
     def editor_agent_tts_pitch(self) -> str:
         return str(self._editor_tts_settings.get("pitch", "1.0"))
 
-    @rx.var(deps=["_editor_tts_settings"], auto_deps=False)
+    @rx.var(deps=["tts_agents", "editor_agent_id"], auto_deps=False)
     def editor_agent_tts_language(self) -> str:
-        """Dropdown value: human-readable label for the stored ISO code.
-        Empty / unset / "auto" → "Auto" (= follow detected/UI language).
-        """
+        """Dropdown value: label of the agent's language override ("Auto" =
+        follow the detected/UI language)."""
         from ..lib.config import TTS_LANGUAGE_CODE_TO_LABEL
-        code = str(self._editor_tts_settings.get("language", "") or "auto")
+        agent = self.editor_agent_id  # type: ignore[attr-defined]
+        code = str(self.tts_agents.get(agent, {}).get("language", "") or "auto")
         return TTS_LANGUAGE_CODE_TO_LABEL.get(code, "Auto")
 
     @rx.var(auto_deps=False)
@@ -365,495 +345,122 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["editor_tts_engine"], auto_deps=False)
     def editor_tts_supports_language(self) -> bool:
-        """True if the editor's selected TTS engine honours the language
-        setting. Drives the disabled state of the language dropdown —
-        engines that auto-detect the language (Fish-Speech) or encode it
-        in the voice id (Edge / Piper / eSpeak) leave it greyed out so
-        the user can't set a value that has no effect."""
+        """True if the edited engine honours the language setting (greys out
+        the dropdown for engines that ignore it)."""
         from ..lib.tts_engines import get_engine
         eng = get_engine(self.editor_tts_engine)
         return bool(eng and eng.supports_language)
 
     def set_editor_agent_tts_language(self, label: str) -> None:
-        """Persist a per-agent TTS-language override (or clear back to 'auto')."""
         from ..lib.config import TTS_LANGUAGE_LABEL_TO_CODE
-        code = TTS_LANGUAGE_LABEL_TO_CODE.get(label, "auto")
-        self._editor_tts_settings["language"] = code
-        self._save_editor_tts_settings()
-
-    # ── TTS Toggle / Engine Selection ─────────────────────────────
-
-    def set_tts_engine_or_off(self, selection: str):
-        """Combined TTS on/off + engine selection from single dropdown.
-
-        Receives translated label from dropdown, maps to internal key.
-        "Off"/"Aus" disables TTS, any engine label enables TTS.
-
-        Uses switch_tts_engine() generator as SSOT — yields after each
-        status message for live Reflex UI updates.
-        """
-        from ..lib.i18n import tts_label_to_key
-        from ..lib.tts_engine_manager import ensure_tts_state, stop_engine, GPU_ENGINES
-
-        key = tts_label_to_key(selection)
-        if key == "off":
-            if not self.enable_tts:
-                yield  # Must yield even for no-op so Reflex updates UI
-                return
-
-            # Save per-engine settings before disabling
-            self._save_agent_voices_for_engine(self.tts_engine)
-            self._save_tts_toggles_for_engine(self.tts_engine)
-
-            self.enable_tts = False
-            self.add_debug("🔊 TTS: disabled")  # type: ignore[attr-defined]
-
-            # Stop running Docker container
-            if self.tts_engine in GPU_ENGINES:
-                success, msg = stop_engine(self.tts_engine)
-                self.add_debug(f"✅ {msg}" if success else f"❌ {msg}")  # type: ignore[attr-defined]
-                if self.tts_engine == "moss":
-                    self.moss_tts_device = ""
-
-            self._save_settings()  # type: ignore[attr-defined]
-            yield
-            return
-
-        # Engine selected — no-op if already active with same engine
-        if self.enable_tts and key == self.tts_engine:
-            yield
-            return
-
-        was_enabled = self.enable_tts
-        old_key = self.tts_engine
-
-        # Save current per-engine settings BEFORE switching
-        if was_enabled:
-            self._save_agent_voices_for_engine(old_key)
-            self._save_tts_toggles_for_engine(old_key)
-
-        # Enable TTS + set engine key (menu change → save immediately)
-        self.enable_tts = True
-        self.tts_engine = key
-        self._save_settings()  # type: ignore[attr-defined]
-
-        # Restore per-engine settings into state (reads from settings.json, no write)
-        self._restore_agent_voices_for_engine(key)
-        self._restore_tts_toggles_for_engine(key)
-        self._switch_tts_voice_for_language(self.ui_language)  # type: ignore[attr-defined]
-
-        self.add_debug(f"🔊 TTS Engine: {key}")  # type: ignore[attr-defined]
-        yield
-
-        # SSOT: ensure_tts_state generator — each yield = one blocking step done
-        gen = ensure_tts_state(
-            wanted_tts=key if key in GPU_ENGINES else "",
-            backend_type=self.backend_type,  # type: ignore[attr-defined]
-        )
-        result = None
-        try:
-            while True:
-                msg = next(gen)
-                self.add_debug(f"🔊 {msg}")  # type: ignore[attr-defined]
-                yield  # Reflex UI update after each step
-        except StopIteration as e:
-            result = e.value
-
-        # Update engine-specific Reflex state from result
-        if result and key == "moss":
-            self.moss_tts_device = result.moss_device if result.success else ""
-        if key == "xtts":
-            self._refresh_xtts_voices()
-
-        # DashScope: auto-enroll any NEW or CHANGED SSOT reference voice at full
-        # length now that the engine is live. Runs as visible generator steps —
-        # each line reaches the console immediately (incl. the final "done"
-        # summary), so the user always sees whether it's working and when it
-        # finished. Idempotent via WAV-hash → instant when nothing changed; only
-        # a freshly dropped/edited WAV actually contacts the cloud. This is the
-        # "drop a WAV in, it clones itself" path.
-        if key == "dashscope":
-            from ..lib.credential_broker import broker
-            from ..lib.dashscope_enroll import enroll_progress
-            api_key = broker.get("cloud_qwen", "api_key")
-            if not api_key:
-                self.add_debug("🔊 DashScope: no API key — auto-enrollment skipped")  # type: ignore[attr-defined]
-            else:
-                for line in enroll_progress(api_key):
-                    self.add_debug(f"🔊 {line}")  # type: ignore[attr-defined]
-                    yield
-
-    # ── Voice / Speed / Pitch / Autoplay ──────────────────────────
-
-
-    # Note: set_tts_speed removed - generation always at 1.0, tempo via browser playback rate
-
-    def toggle_tts_autoplay(self):
-        """Toggle TTS auto-play"""
-        self.tts_autoplay = not self.tts_autoplay
-        self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")  # type: ignore[attr-defined]
-        self._save_tts_toggles_for_engine(self.tts_engine)
-
-    @rx.var(deps=["tts_speech_unit"], auto_deps=False)
-    def tts_streaming_enabled(self) -> bool:
-        """Streaming = the spoken output starts before the response is complete (every unit
-        except "whole"); the frontend and the streaming mixin ask this."""
-        return self.tts_speech_unit != "whole"
-
-    def set_tts_speech_unit(self, unit: str):
-        """Choose the unit of the spoken output for the current engine (saved per engine,
-        applies system-wide to every agent and every channel)."""
-        from ..lib.tts_engines import SPEECH_UNITS
-
-        if unit not in SPEECH_UNITS:
-            raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
-        self.tts_speech_unit = unit
-        self.add_debug(f"🔊 TTS unit: {unit}")  # type: ignore[attr-defined]
-        self._save_tts_toggles_for_engine(self.tts_engine)
-
-
-    # ── Agent Editor TTS Handlers ────────────────────────────────
+        self._set_tts_agent(self.editor_agent_id, "language", TTS_LANGUAGE_LABEL_TO_CODE.get(label, "auto"))  # type: ignore[attr-defined]
 
     def _load_editor_tts_settings(self) -> None:
-        """Load TTS settings for the current editor agent + editor engine."""
-        from ..lib.settings import load_settings
+        """Load the edited agent's voice settings for the edited engine:
+        the user's saved values, else the agent's default from agents.json."""
         from ..lib.agent_config import get_tts_voice_default
+        from ..lib.settings import persisted_settings
 
         agent_id = self.editor_agent_id  # type: ignore[attr-defined]
-        engine = self.editor_tts_engine
         if not agent_id:
             self._editor_tts_settings = {}
             return
-
-        # If editor engine matches the active engine, read from live state
-        if engine == self.tts_engine:
-            self._editor_tts_settings = dict(
-                self.tts_agent_voices.get(agent_id, {"voice": "", "speed": "1.0x", "pitch": "1.0", "enabled": True})
-            )
-            return
-
-        # Otherwise read from saved per-engine settings
-        settings = load_settings() or {}
-        saved = settings.get("tts_agent_voices_per_engine", {}).get(engine, {}).get(agent_id)
-        if saved:
-            self._editor_tts_settings = dict(saved)
-        else:
-            # Fall back to engine defaults from agents.json
-            self._editor_tts_settings = get_tts_voice_default(agent_id, engine)
+        saved = persisted_settings().get("tts_agent_voices_per_engine", {}).get(self.editor_tts_engine, {}).get(agent_id)
+        self._editor_tts_settings = dict(saved) if saved else dict(get_tts_voice_default(agent_id, self.editor_tts_engine))
 
     def _save_editor_tts_settings(self) -> None:
-        """Save current editor TTS settings to the correct storage."""
+        """Persist the edited agent's voice settings for the edited engine."""
+        from ..lib.settings import load_settings
+
         agent_id = self.editor_agent_id  # type: ignore[attr-defined]
-        engine = self.editor_tts_engine
         if not agent_id:
             return
-
-        # If editor engine matches the active engine, update live state
-        if engine == self.tts_engine:
-            # Re-assign the entire dict so Reflex detects the state change
-            updated = dict(self.tts_agent_voices)
-            updated[agent_id] = dict(self._editor_tts_settings)
-            self.tts_agent_voices = updated
-            self._save_agent_voices_for_engine(engine)
-            return
-
-        # Otherwise save to per-engine settings in settings.json
-        from ..lib.settings import load_settings, save_settings
         settings = load_settings() or {}
-        if "tts_agent_voices_per_engine" not in settings:
-            settings["tts_agent_voices_per_engine"] = {}
-        if engine not in settings["tts_agent_voices_per_engine"]:
-            settings["tts_agent_voices_per_engine"][engine] = {}
-        settings["tts_agent_voices_per_engine"][engine][agent_id] = dict(self._editor_tts_settings)
-        save_settings(settings)
+        per_engine = settings.setdefault("tts_agent_voices_per_engine", {}).setdefault(self.editor_tts_engine, {})
+        per_engine[agent_id] = {
+            key: self._editor_tts_settings[key]
+            for key in ("voice", "speed", "pitch") if key in self._editor_tts_settings
+        }
+        self._write_settings_file(settings)  # type: ignore[attr-defined]
 
     def set_editor_tts_engine(self, label: str) -> None:
-        """Switch the TTS engine in the editor (for voice configuration).
-
-        'Off' sets enabled=False for this agent and saves immediately.
-        Any engine sets enabled=True and loads voice settings for that engine.
-        """
+        """'Off' mutes the agent (every engine); an engine unmutes it and
+        loads its voice settings for that engine."""
         from ..lib.i18n import tts_label_to_key
+        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
         key = tts_label_to_key(label)
         if key == "off":
-            self._editor_tts_settings["enabled"] = False
-            self._save_editor_tts_settings()
+            self._set_tts_agent(agent_id, "enabled", False)
             return
+        self._set_tts_agent(agent_id, "enabled", True)
         self.editor_tts_engine = key
         self._load_editor_tts_settings()
-        self._editor_tts_settings["enabled"] = True
-        self._save_editor_tts_settings()
 
     def set_editor_agent_tts_voice(self, voice: str):
-        """Set TTS voice for the agent currently open in the editor."""
         self._editor_tts_settings["voice"] = voice
         self._save_editor_tts_settings()
 
     def set_editor_agent_tts_speed(self, speed: str):
-        """Set TTS speed for the agent currently open in the editor."""
         self._editor_tts_settings["speed"] = speed
         self._save_editor_tts_settings()
 
     def set_editor_agent_tts_pitch(self, pitch: str):
-        """Set TTS pitch for the agent currently open in the editor."""
         self._editor_tts_settings["pitch"] = pitch
         self._save_editor_tts_settings()
 
-    # ── Engine Key Helper ─────────────────────────────────────────
+    # ── Narrator plugin settings (voice per engine) ──────────────
 
-    def _get_engine_key(self) -> str:
-        """Get engine key for config lookup (xtts, moss, dashscope, piper, espeak, edge).
+    @rx.var(deps=[], auto_deps=False)
+    def narrator_plugin_enabled(self) -> bool:
+        # Plugin enable/disable requires a restart anyway — static per process.
+        from ..lib.plugin_registry import is_plugin_enabled
+        return is_plugin_enabled("narrator")
 
-        Since tts_engine now stores keys directly, this just returns self.tts_engine.
-        """
-        return self.tts_engine
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def narrator_engine_options(self) -> List[str]:
+        """Engines whose narrator voice can be set (images built or none needed)."""
+        from ..lib.i18n import tts_key_to_label
+        from ..lib.tts_engines import TTS_ENGINES
+        return [
+            tts_key_to_label(key, lang=_lang(self))
+            for key, engine in TTS_ENGINES.items()
+            if not engine.runs_in_container or engine.is_installed()
+        ]
 
-    # ── XTTS Voice Refresh ────────────────────────────────────────
+    @rx.var(deps=["ui_language", "narrator_voice_engine"], auto_deps=False)
+    def narrator_engine_display(self) -> str:
+        from ..lib.i18n import tts_key_to_label
+        return tts_key_to_label(self.narrator_voice_engine, lang=_lang(self))
 
-    def ensure_all_agents_have_tts(self) -> None:
-        """Ensure every registered agent has a TTS voice entry.
+    @rx.var(deps=["narrator_voice_engine"], auto_deps=False)
+    def narrator_voice_options(self) -> List[str]:
+        """The edited engine's own voices (lib-SSOT ``voice_names``)."""
+        from ..lib.tts_engines import get_engine, voice_names
+        engine = get_engine(self.narrator_voice_engine)
+        return voice_names(engine) if engine else []
 
-        Adds missing agents with engine-specific defaults.
-        Removes entries for agents that no longer exist.
-        Called after settings load and after agent create/delete.
-        """
-        from ..lib.agent_config import (
-            get_agent_ids,
-            get_tts_voice_default,
-            load_agents_raw,
-        )
+    @rx.var(deps=["narrator_voices", "narrator_voice_engine"], auto_deps=False)
+    def narrator_voice_display(self) -> str:
+        """Saved voice for the edited engine, else its first own voice."""
+        saved = self.narrator_voices.get(self.narrator_voice_engine, "")
+        options = self.narrator_voice_options
+        if saved and saved in options:
+            return saved
+        return options[0] if options else ""
 
-        # System-Agents (role="system", e.g. calibration and vision) never
-        # appear in chat → keep them out of TTS settings so they don't show
-        # up in restore/save logs and the agent-editor voice list.
-        agents_raw = load_agents_raw()
-        excluded = {
-            agent_id for agent_id, cfg in agents_raw.items()
-            if cfg.get("role") == "system"
-        }
+    def set_narrator_voice_engine(self, label: str) -> None:
+        from ..lib.i18n import tts_label_to_key
+        self.narrator_voice_engine = tts_label_to_key(label)
 
-        registered = set(get_agent_ids()) - excluded
-        current = set(self.tts_agent_voices.keys())
+    def set_narrator_voice(self, voice: str) -> None:
+        engine = self.narrator_voice_engine
+        # Re-assign the dict so Reflex flags it dirty.
+        self.narrator_voices = {**self.narrator_voices, engine: voice}
+        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"🔊 Narrator voice ({engine}): {voice}")  # type: ignore[attr-defined]
 
-        # Add missing agents (defaults sourced from agents.json tts_voices)
-        for agent_id in registered - current:
-            self.tts_agent_voices[agent_id] = get_tts_voice_default(agent_id, self.tts_engine)
+    def open_narrator_settings(self) -> None:
+        self.narrator_settings_open = True
 
-        # Remove agents that no longer exist OR are now excluded
-        for agent_id in (current - registered):
-            del self.tts_agent_voices[agent_id]
-
-    def _refresh_xtts_voices(self):
-        """Refresh XTTS voices from Docker service.
-
-        Also validates that agent voices are in the available list.
-        If a saved voice is not found, it resets to the default.
-        """
-        from ..lib.tts_engines import get_engine
-        from ..lib.agent_config import get_tts_voice_default
-        xtts = get_engine("xtts")
-        voices = xtts.get_voices() if xtts else {}
-        if voices:
-            from ..lib.config import sort_voices_custom_first
-            self.xtts_voices_cache = sort_voices_custom_first(list(voices.keys()))
-            self.add_debug(f"🎤 XTTS: {len(voices)} voices loaded")  # type: ignore[attr-defined]
-
-            # Validate all agent voices — reset if not in available list
-            for agent in list(self.tts_agent_voices.keys()):
-                current_voice = self.tts_agent_voices[agent].get("voice", "")
-                if current_voice and current_voice not in self.xtts_voices_cache:
-                    default_voice = str(get_tts_voice_default(agent, "xtts").get("voice", ""))
-                    if default_voice:
-                        self.tts_agent_voices[agent]["voice"] = default_voice
-                        self.add_debug(f"⚠️ XTTS: Reset {agent} voice to {default_voice}")  # type: ignore[attr-defined]
-
-    # ── Per-Engine Settings Persistence ───────────────────────────
-
-    def _save_agent_voices_for_engine(self, engine_key: str):
-        """Save current agent voices to settings for the specified engine.
-
-        Called before switching to a different TTS engine to preserve
-        the user's agent voice preferences for that engine.
-        """
-        import copy
-        from ..lib.settings import load_settings
-
-        settings = load_settings() or {}
-        if "tts_agent_voices_per_engine" not in settings:
-            settings["tts_agent_voices_per_engine"] = {}
-
-        # Deep copy current agent voices
-        settings["tts_agent_voices_per_engine"][engine_key] = copy.deepcopy(self.tts_agent_voices)
-        self._write_settings_file(settings)  # type: ignore[attr-defined]
-
-    def _restore_agent_voices_for_engine(self, engine_key: str):
-        """Restore agent voices from settings for the specified engine.
-
-        Called after switching to a different TTS engine to restore
-        the user's previously saved agent voice preferences for that engine.
-        Falls back to engine-specific defaults if no saved preferences exist.
-        After restoring, runs _strip_stale_voices_for_engine to clear
-        any leftovers the engine doesn't know about (Variant B cleanup).
-        """
-        from ..lib.settings import load_settings
-        from ..lib.agent_config import get_tts_voice_defaults_for_engine
-
-        settings = load_settings() or {}
-        saved_agent_voices = (
-            settings.get("tts_agent_voices_per_engine", {}).get(engine_key) or {}
-        )
-        defaults = get_tts_voice_defaults_for_engine(engine_key)
-
-        # Layered restore: agents.json engine defaults as the BASE, the
-        # user's saved prefs ON TOP. An empty saved voice must NOT clobber
-        # the default — that left e.g. HAL voiceless after an engine switch
-        # (saved hal.voice == ""), so the dropdown showed nothing and the
-        # re-synth fell back to AIfred's voice. Speed/pitch/language from
-        # saved prefs still apply even when the voice falls back to default.
-        for agent in self.tts_agent_voices:
-            if agent in defaults:
-                self.tts_agent_voices[agent].update(defaults[agent])
-            saved = saved_agent_voices.get(agent)
-            if saved:
-                merged = dict(saved)
-                if not str(merged.get("voice", "") or "").strip():
-                    merged.pop("voice", None)  # keep the default voice
-                self.tts_agent_voices[agent].update(merged)
-        source = "Restored" if saved_agent_voices else "Default"
-
-        # Log actual agent voices
-        voice_list = ", ".join(
-            f"{a.capitalize()}={self.tts_agent_voices[a].get('voice', '?')}"
-            for a in self.tts_agent_voices
-        )
-        self.add_debug(f"🔊 {source} agent voices for {engine_key}: {voice_list}")  # type: ignore[attr-defined]
-
-        # Variant B cleanup: clear voices the engine doesn't know.
-        # Stale "★ AIfred" / "Baldur Sanjin" entries (left over from a
-        # previous XTTS configuration) get zeroed out here so the
-        # dropdown only ever shows real, working voices.
-        self._strip_stale_voices_for_engine(engine_key)
-
-    def _live_voices_for_engine(self, engine_key: str) -> set[str]:
-        """Set of voice names the given engine can actually produce.
-
-        Goes through the engine registry: prefer the engine's live
-        ``get_voices()`` (HTTP discovery for container engines, static
-        catalogue otherwise), fall back to its ``voices_fallback``.
-        For XTTS we honour the in-state cache to avoid a hot-path
-        HTTP call when the engine is up.
-        """
-        from ..lib.tts_engines import get_engine
-        eng = get_engine(engine_key)
-        if eng is None:
-            return set()
-        # XTTS: state-side cache wins (loaded once when the engine
-        # came up, refreshed by _refresh_xtts_voices).
-        if engine_key == "xtts" and self.xtts_voices_cache:
-            return set(self.xtts_voices_cache)
-        live = eng.get_voices()
-        if live:
-            return set(live.keys())
-        return set(eng.voices_fallback.keys())
-
-    def _strip_stale_voices_for_engine(self, engine_key: str) -> None:
-        """Variant B: clear any per-agent voice the engine doesn't know.
-
-        Triggered by the engine-switch restore path. Stale entries from
-        previous engine configs (a "★ AIfred" left over after switching
-        from XTTS to Qwen3, say) are reset to empty string so the agent
-        falls back to the default voice on the next request and the
-        dropdown stops showing fake options.
-
-        The cleanup is persisted via _save_agent_voices_for_engine so it
-        survives a reload — no need to re-clean on every restore.
-        """
-        live = self._live_voices_for_engine(engine_key)
-        if not live:
-            return
-        cleared: list[str] = []
-        for agent, cfg in self.tts_agent_voices.items():
-            current = str(cfg.get("voice", "") or "")
-            if current and current not in live:
-                cfg["voice"] = ""
-                cleared.append(f"{agent}={current!r}")
-        if cleared:
-            self.add_debug(  # type: ignore[attr-defined]
-                f"🧹 {engine_key}: Cleared {len(cleared)} stale voice(s): {', '.join(cleared)}"
-            )
-            self._save_agent_voices_for_engine(engine_key)
-
-    def _save_tts_toggles_for_engine(self, engine_key: str):
-        """Save current TTS toggles (autoplay, speech unit) for the specified engine."""
-        from ..lib.settings import load_settings
-
-        settings = load_settings() or {}
-        if "tts_toggles_per_engine" not in settings:
-            settings["tts_toggles_per_engine"] = {}
-
-        settings["tts_toggles_per_engine"][engine_key] = {
-            "autoplay": self.tts_autoplay,
-            "unit": self.tts_speech_unit,
-        }
-        self._write_settings_file(settings)  # type: ignore[attr-defined]
-
-    def _restore_tts_toggles_for_engine(self, engine_key: str):
-        """Restore TTS toggles from settings for the specified engine.
-
-        The unit comes from the engine plugin's SSOT (the saved choice, else the engine's
-        default); auto-play is on unless the user switched it off for this engine.
-        """
-        from ..lib.settings import load_settings
-        from ..lib.config import TTS_AUTOPLAY_DEFAULT
-        from ..lib.tts_engines import speech_unit_for
-
-        settings = load_settings() or {}
-        saved_toggles = settings.get("tts_toggles_per_engine", {}).get(engine_key) or {}
-        self.tts_autoplay = saved_toggles.get("autoplay", TTS_AUTOPLAY_DEFAULT)
-        self.tts_speech_unit = speech_unit_for(engine_key)
-        self.add_debug(f"🔊 TTS toggles for {engine_key}: autoplay={self.tts_autoplay}, unit={self.tts_speech_unit}")  # type: ignore[attr-defined]
-
-    # ── Language-based Voice Switching ─────────────────────────────
-
-    def _switch_tts_voice_for_language(self, lang: str):
-        """Switch TTS voice to appropriate language voice for current engine.
-
-        Priority:
-        1. User's saved preference for this engine/language (from assistant_settings.json)
-        2. Default voice from TTS_DEFAULT_VOICES config
-        """
-        from ..lib.config import TTS_DEFAULT_VOICES
-        from ..lib.tts_engines import get_engine
-        from ..lib.settings import load_settings
-
-        engine_key = self._get_engine_key()
-        eng = get_engine(engine_key)
-
-        # Get voice dictionary for the current engine. All engines now
-        # expose their catalogue via ``voices_fallback`` (display names
-        # mapped to themselves for piper/espeak; mapped to voice IDs for
-        # the rest — only the key set matters for "is this voice valid").
-        voice_dict: dict[str, Any] = {}
-        if engine_key == "xtts" and self.xtts_voices_cache:
-            voice_dict = {voice: voice for voice in self.xtts_voices_cache}
-        elif engine_key in ("moss", "fishspeech") and eng:
-            # Live discovery for the container engines, fall back to static.
-            live = eng.get_voices()
-            voice_dict = live if live else dict(eng.voices_fallback)
-        elif eng:
-            voice_dict = dict(eng.voices_fallback)
-
-        # Priority 1: Check for user's saved preference
-        saved_settings = load_settings() or {}
-        user_voices = saved_settings.get("tts_voices_per_language", {})
-        user_voice = user_voices.get(engine_key, {}).get(lang)
-
-        if user_voice and user_voice in voice_dict:
-            self.tts_voice = user_voice
-            return
-
-        # Priority 2: Use default voice from config
-        default_voice = TTS_DEFAULT_VOICES.get(engine_key, {}).get(lang)
-
-        if default_voice and default_voice in voice_dict:
-            self.tts_voice = default_voice
+    def close_narrator_settings(self) -> None:
+        self.narrator_settings_open = False

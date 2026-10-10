@@ -56,8 +56,6 @@ class SettingsResponse(BaseModel):
 
     # TTS/STT
     enable_tts: bool = False
-    tts_voice: str = "Deutsch (Katja)"
-    tts_engine: str = "edge"
 
     # UI
     ui_language: str = "de"
@@ -95,8 +93,6 @@ class SettingsUpdate(BaseModel):
 
     # TTS/STT
     enable_tts: Optional[bool] = None
-    tts_voice: Optional[str] = None
-    tts_engine: Optional[str] = None
 
     # UI
     ui_language: Optional[str] = None
@@ -178,9 +174,6 @@ async def get_settings():
         max_debate_rounds=settings.get("max_debate_rounds", 3),
         consensus_type=settings.get("consensus_type", "majority"),
         enable_tts=settings.get("enable_tts", False),
-        # Handle different field names in settings.json
-        tts_voice=settings.get("voice", settings.get("tts_voice", "Deutsch (Katja)")),
-        tts_engine=settings.get("tts_engine", "edge"),
         ui_language=settings.get("ui_language", "de"),
         user_name=settings.get("user_name", "")
     )

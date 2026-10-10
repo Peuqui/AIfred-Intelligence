@@ -14,7 +14,7 @@ from reflex.event import EventSpec
 
 from ..lib.i18n import TranslationManager
 from ..lib.plugin_base import plugin_display_name
-from ..lib.settings import SETTINGS_FILE, load_settings, save_settings
+from ..lib.settings import SETTINGS_FILE, load_settings, persisted_settings, save_settings
 
 if TYPE_CHECKING:
     from ..lib.plugin_base import CredentialField
@@ -145,23 +145,19 @@ class SettingsMixin(rx.State, mixin=True):
             # They are calculated dynamically on every vLLM startup based on VRAM
             # TTS/STT Settings
             "enable_tts": self.enable_tts,  # type: ignore[attr-defined, has-type]
-            "voice": self.tts_voice,  # type: ignore[attr-defined, has-type]
-            # Note: tts_speed removed - generation always at 1.0, tempo via tts_playback_rate
-            "tts_engine": self.tts_engine,  # type: ignore[attr-defined, has-type]
-            "narrator_engine": self.narrator_engine,  # type: ignore[attr-defined, has-type]
-            "narrator_fallback_engine": self.narrator_fallback_engine,  # type: ignore[attr-defined, has-type]
+            "tts_autoplay": self.tts_autoplay,  # type: ignore[attr-defined, has-type]
+            "tts_agents": self.tts_agents,  # type: ignore[attr-defined, has-type]
             "narrator_voices": self.narrator_voices,  # type: ignore[attr-defined, has-type]
-            # tts_autoplay/tts_streaming_enabled: per-engine only (tts_toggles_per_engine)
             "tts_playback_rate": self.tts_playback_rate,  # type: ignore[attr-defined, has-type]
             "tts_pitch": self.tts_pitch,  # type: ignore[attr-defined, has-type]
             "show_transcription": self.show_transcription,  # type: ignore[attr-defined, has-type]
             "enter_sends_message": self.enter_sends_message,  # type: ignore[attr-defined, has-type]
-            # Language-specific TTS voices (user preferences per engine/language)
-            "tts_voices_per_language": existing.get("tts_voices_per_language", {}),
-            # Per-engine agent voice settings
+            # Written only by their own editors (agent editor, escalation list
+            # menu) — taken from the file here so this save never drops them.
             "tts_agent_voices_per_engine": existing.get("tts_agent_voices_per_engine", {}),
-            # Per-engine TTS toggles (autoplay, streaming)
             "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
+            "tts_escalation": persisted_settings()["tts_escalation"],
+            "tts_hosts": persisted_settings()["tts_hosts"],
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,  # type: ignore[attr-defined, has-type]
             # Message Hub settings: written only by their own switches
@@ -184,19 +180,6 @@ class SettingsMixin(rx.State, mixin=True):
                 entry["num_ctx_manual_enabled"] = tuning.num_ctx_manual_enabled
             agent_tuning_out[agent] = entry
         settings["agent_tuning"] = agent_tuning_out
-        # Update tts_voices_per_language with current voice selection
-        engine_key = self._get_engine_key()  # type: ignore[attr-defined, has-type]
-        lang = self.ui_language
-        if "tts_voices_per_language" not in settings:
-            settings["tts_voices_per_language"] = {}
-        if engine_key not in settings["tts_voices_per_language"]:
-            settings["tts_voices_per_language"][engine_key] = {}
-        settings["tts_voices_per_language"][engine_key][lang] = self.tts_voice  # type: ignore[attr-defined, has-type]
-
-        # Per-engine data (tts_agent_voices_per_engine, tts_toggles_per_engine)
-        # is NOT written here — it's managed by dedicated save functions
-        # (_save_agent_voices_for_engine, _save_tts_toggles_for_engine)
-        # that are called when the user actually changes those settings.
         self._write_settings_file(settings)
 
     def _write_settings_file(self, settings: Dict[str, Any]) -> None:
@@ -276,17 +259,10 @@ class SettingsMixin(rx.State, mixin=True):
 
         # TTS settings
         self.enable_tts = settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
-        self.tts_voice = settings.get("voice", self.tts_voice)  # type: ignore[attr-defined, has-type]
-        self.tts_engine = settings.get("tts_engine", self.tts_engine)  # type: ignore[attr-defined, has-type]
-        self.narrator_engine = settings.get("narrator_engine", self.narrator_engine)  # type: ignore[attr-defined, has-type]
-        self.narrator_fallback_engine = settings.get("narrator_fallback_engine", self.narrator_fallback_engine)  # type: ignore[attr-defined, has-type]
+        self.tts_autoplay = settings.get("tts_autoplay", self.tts_autoplay)  # type: ignore[attr-defined, has-type]
+        self.tts_agents = settings.get("tts_agents", self.tts_agents)  # type: ignore[attr-defined, has-type]
         self.narrator_voices = settings.get("narrator_voices", self.narrator_voices)  # type: ignore[attr-defined, has-type]
-
-        # Ensure all registered agents have TTS voice entries
-        self.ensure_all_agents_have_tts()  # type: ignore[attr-defined]
-        # Restore per-engine agent voices + toggles (single source of truth)
-        self._restore_agent_voices_for_engine(self.tts_engine)  # type: ignore[attr-defined, has-type]
-        self._restore_tts_toggles_for_engine(self.tts_engine)  # type: ignore[attr-defined, has-type]
+        self.tts_list_revision += 1  # type: ignore[attr-defined, has-type]
 
         # UI language
         new_ui_lang = settings.get("ui_language", self.ui_language)
@@ -313,9 +289,6 @@ class SettingsMixin(rx.State, mixin=True):
             from ..lib.formatting import set_ui_locale
             set_ui_locale(lang)
             self.add_debug(f"\U0001f310 UI Language changed to: {lang}")  # type: ignore[attr-defined, has-type]
-
-            # Auto-switch TTS voice to matching language
-            self._switch_tts_voice_for_language(lang)  # type: ignore[attr-defined, has-type]
 
             # Save to settings
             self._save_settings()

@@ -224,9 +224,8 @@ class ExportMixin(rx.State, mixin=True):
         audio_html = ""
         audio_urls = metadata.get("audio_urls", [])
         if audio_urls:
-            playback_rate = (
-                self.tts_agent_voices[agent]["speed"].replace("x", "")  # type: ignore[attr-defined]
-            )
+            # Speed is baked into the audio; the bubble's rate is the replay rate.
+            playback_rate = str(metadata.get("playback_rate", "1.0x")).replace("x", "")
             audio_players = []
             for audio_url in audio_urls:
                 base64_uri = load_audio_url_as_base64(audio_url)

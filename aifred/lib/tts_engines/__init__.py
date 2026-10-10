@@ -35,7 +35,6 @@ from .registry import (
     installed_gpu_engines,
     parse_speed_factor,
     require_engine,
-    resolve_narrator_engine,
     speech_unit_for,
     voice_names,
 )
@@ -51,7 +50,6 @@ __all__ = [
     "installed_gpu_engines",
     "parse_speed_factor",
     "require_engine",
-    "resolve_narrator_engine",
     "speech_unit_for",
     "voice_names",
 ]

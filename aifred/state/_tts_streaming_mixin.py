@@ -12,11 +12,12 @@ import os
 import re
 import uuid
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import Any, Callable, List
 
 import reflex as rx
 
 from ..lib.logging_utils import log_message
+from ..lib.tts_escalation import NoSpeechAvailable, SpeechRun
 
 
 @dataclass
@@ -37,9 +38,17 @@ class TTSBackendState:
     order_buffer: dict[int, tuple | None] = field(default_factory=dict)  # {seq: (url, rate, req_id) | None}
     next_seq: int = 0   # Next sequence number to assign to a sentence
     push_seq: int = 0   # Next sequence number expected for queue push
+    run: SpeechRun | None = None  # Escalation-list run of the reply being spoken
 
 
 _tts_backend_states: dict[str, TTSBackendState] = {}
+
+
+def _agent_label(agent: str) -> str:
+    """Display name of an agent for debug lines ("AIfred", not the key "aifred")."""
+    from ..lib.agent_config import get_agent_config
+    config = get_agent_config(agent)
+    return config.display_name if config else agent
 
 
 def get_tts_backend_state(session_id: str) -> TTSBackendState:
@@ -134,7 +143,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """Pick the synthesis language for an agent.
 
         Order of precedence:
-          1. Per-agent override (tts_agent_voices[agent]["language"]),
+          1. Per-agent override (tts_agents[agent]["language"]),
              skipped when empty or "auto".
           2. Language the LLM detected from the user prompt.
           3. UI language.
@@ -142,63 +151,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Returns a two-letter ISO code ("de", "en", "zh", …) — the same
         shape the engine adapters in audio_processing expect.
         """
-        agent_settings = self.tts_agent_voices.get(agent, {})  # type: ignore[attr-defined]
-        override = str(agent_settings.get("language", "") or "").lower()
+        override = str(self.tts_agents.get(agent, {}).get("language", "") or "").lower()  # type: ignore[attr-defined]
         if override and override != "auto":
             return override
         return str(self._last_detected_language or self.ui_language)  # type: ignore[attr-defined]
-
-    def _resolve_agent_tts(self, agent: str) -> tuple[str, float, float]:
-        """SSOT for per-agent (voice, speed, pitch) at the active engine.
-
-        A bubble for a named agent must NEVER borrow another agent's
-        voice. The old inline logic fell back straight to the global
-        ``tts_voice`` when an agent had no voice for the current engine —
-        which produced HAL bubbles spoken in AIfred's voice after an
-        engine switch (HAL's xtts voice was saved empty, AIfred's wasn't).
-
-        Voice precedence:
-          1. User's per-agent voice for this engine
-             (``tts_agent_voices[agent]["voice"]``), if set.
-          2. The agent's engine default from agents.json — so e.g. HAL
-             resolves to ``★ HAL9000`` even when the saved prefs left its
-             voice empty.
-          3. The global ``tts_voice`` as last resort — only for agents
-             with no engine default at all (custom agents lacking a
-             ``tts_voices`` entry for this engine).
-
-        Speed/pitch: per-agent override (``"1.25x"`` → 1.25), else the
-        agent's engine default, else neutral 1.0.
-        """
-        from ..lib.agent_config import get_tts_voice_defaults_for_engine
-
-        settings = self.tts_agent_voices.get(agent, {})  # type: ignore[attr-defined]
-        eng_default = get_tts_voice_defaults_for_engine(
-            self.tts_engine  # type: ignore[attr-defined]
-        ).get(agent, {})
-
-        def _as_float(raw: Any, fallback: float) -> float:
-            # Parser = lib-SSOT; der Default-Fallback bei Müll ist bewusste
-            # Browser-Policy (FreeEcho2 bricht stattdessen fail-loud ab).
-            from ..lib.tts_engines import parse_speed_factor
-            parsed = parse_speed_factor(raw)
-            return fallback if parsed is None else parsed
-
-        # voice: per-agent → agent's engine default → global (last resort)
-        voice = (
-            str(settings.get("voice", "") or "")
-            or str(eng_default.get("voice", "") or "")
-            or self.tts_voice  # type: ignore[attr-defined]
-        )
-        # pitch: per-agent → engine default → global tts_pitch → neutral
-        global_pitch = _as_float(self.tts_pitch, 1.0)  # type: ignore[attr-defined]
-        pitch = _as_float(
-            settings.get("pitch"),
-            _as_float(eng_default.get("pitch"), global_pitch),
-        )
-        # speed: per-agent → engine default → neutral (no global speed)
-        speed = _as_float(settings.get("speed"), _as_float(eng_default.get("speed"), 1.0))
-        return voice, speed, pitch
 
     # ── TTS Callback ──────────────────────────────────────────────────
 
@@ -219,14 +175,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
             content: The text content to convert to speech (will be cleaned)
             agent: Agent name for per-agent voice settings (aifred, sokrates, salomo)
         """
-        from ..lib.audio_processing import (
-            clean_text_for_tts,
-            generate_tts,
-            reset_content_hint_flags,
-            set_tts_agent,
-        )
+        from ..lib.audio_processing import clean_text_for_tts, reset_content_hint_flags
         from ..lib.config import DATA_DIR
-        from ..lib.tts_engines import TTSFailure, require_engine
 
         try:
             # Reset content-hint flags so this response starts clean.
@@ -244,81 +194,73 @@ class TTSStreamingMixin(rx.State, mixin=True):
             _agent_name = _agent_cfg.display_name if _agent_cfg else agent.capitalize()
             self.add_debug(f"🔊 TTS Queue: Generating audio for {_agent_name} ({len(clean_text)} chars)...")  # type: ignore[attr-defined]
 
-            # Voice/speed/pitch via the SSOT resolver (per-agent → agent's
-            # engine default → global).
-            voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
-
-            # Set agent name for audio filename prefixing
-            set_tts_agent(agent)
-
-            # Generate TTS audio
-            tts_language = self._resolve_tts_language(agent)
-            audio_url = await generate_tts(
-                text=clean_text,
-                voice_choice=voice_choice,
-                speed_choice=speed_value,
-                engine=require_engine(self.tts_engine),  # type: ignore[attr-defined]
-                pitch=pitch_value,
-                language=tts_language
+            # The escalation list picks the engine; voices come per engine
+            # from the settings (SSOT resolve_voice).
+            # report=add_debug: who speaks, skips and switches show up in this
+            # session's debug console, not only in debug.log.
+            run = SpeechRun(
+                self._resolve_tts_language(agent), f"Browser {_agent_label(agent)}",
+                report=self.add_debug,  # type: ignore[attr-defined]
             )
+            audio_url = await run.synthesize(clean_text, agent)
+            tts_note = run.note(self._resolve_tts_language(agent))
 
-            if audio_url:
-                # Verify file exists
-                filename = audio_url.split("/")[-1]
-                file_path = DATA_DIR / "tts_audio" / filename
+            # Verify file exists
+            filename = audio_url.split("/")[-1]
+            file_path = DATA_DIR / "tts_audio" / filename
 
-                if os.path.exists(file_path):
-                    # Add to queue (use temporary URL for autoplay)
-                    self.tts_audio_queue = self.tts_audio_queue + [audio_url]
-                    self.tts_queue_version += 1
-                    # NOTE: Do NOT add to _pending_audio_urls here!
-                    # _pending_audio_urls is for Streaming-TTS only, where URLs are collected
-                    # during streaming and then passed to add_agent_panel().
-                    # For Queue-TTS, we save directly to the agent's message below.
-                    # Also set tts_audio_path so HTML5 player shows current audio
-                    self.tts_audio_path = audio_url
-                    # Set browser playback rate from agent speed setting
-                    self.tts_playback_rate = "1.0x"  # type: ignore[attr-defined]  # Speed is baked into audio via engine or ffmpeg
-                    file_size_kb = os.path.getsize(file_path) / 1024
-                    self.add_debug(f"✅ TTS Queue: Added {_agent_name} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}")  # type: ignore[attr-defined]
+            if os.path.exists(file_path):
+                # Add to queue (use temporary URL for autoplay)
+                self.tts_audio_queue = self.tts_audio_queue + [audio_url]
+                self.tts_queue_version += 1
+                # NOTE: Do NOT add to _pending_audio_urls here!
+                # _pending_audio_urls is for Streaming-TTS only, where URLs are collected
+                # during streaming and then passed to add_agent_panel().
+                # For Queue-TTS, we save directly to the agent's message below.
+                # Also set tts_audio_path so HTML5 player shows current audio
+                self.tts_audio_path = audio_url
+                # Set browser playback rate from agent speed setting
+                self.tts_playback_rate = "1.0x"  # type: ignore[attr-defined]  # Speed is baked into audio via engine or ffmpeg
+                file_size_kb = os.path.getsize(file_path) / 1024
+                self.add_debug(f"✅ TTS Queue: Added {_agent_name} audio ({file_size_kb:.1f} KB), queue size: {len(self.tts_audio_queue)}")  # type: ignore[attr-defined]
 
-                    # Save to session directory for permanent storage (replay button)
-                    from ..lib.audio_processing import save_audio_to_session
-                    session_audio_url = save_audio_to_session([audio_url], self.session_id)  # type: ignore[attr-defined]
-                    if session_audio_url:
-                        log_message(f"🔊 TTS Queue: Saved to session → {session_audio_url}")
+                # Save to session directory for permanent storage (replay button)
+                from ..lib.audio_processing import save_audio_to_session
+                session_audio_url = save_audio_to_session([audio_url], self.session_id)  # type: ignore[attr-defined]
+                if session_audio_url:
+                    log_message(f"🔊 TTS Queue: Saved to session → {session_audio_url}")
 
-                        # Update THIS agent's message with session audio URL (for replay button).
-                        # IMPORTANT: Find message by agent name, not "last assistant-message"!
-                        # Multi-Agent runs TTS async, so other agents may have added messages already.
-                        # Rebuild the matched entry deep so Reflex registers the change.
-                        _ch = self._chat_sub()
-                        if _ch.chat_history:
-                            new_history = list(_ch.chat_history)
-                            for i in range(len(new_history) - 1, -1, -1):
-                                msg = new_history[i]
-                                if msg.get("role") == "assistant" and msg.get("agent") == agent:
-                                    new_metadata = dict(msg.get("metadata") or {})
-                                    new_metadata["audio_urls"] = [session_audio_url]
-                                    new_metadata["playback_rate"] = f"{speed_value}x"
-                                    new_history[i] = {
-                                        **msg,
-                                        "metadata": new_metadata,
-                                        "has_audio": True,
-                                        "audio_urls_json": json.dumps([session_audio_url]),
-                                    }
-                                    log_message(f"🔊 TTS Queue: Added audio URL + playback_rate to {agent}'s message")
-                                    break
-                            _ch.chat_history = new_history
-                            self._save_current_session()  # type: ignore[attr-defined]
-                    else:
-                        log_message(f"⚠️ TTS Queue: Failed to save audio to session for {agent}")
+                    # Update THIS agent's message with session audio URL (for replay button).
+                    # IMPORTANT: Find message by agent name, not "last assistant-message"!
+                    # Multi-Agent runs TTS async, so other agents may have added messages already.
+                    # Rebuild the matched entry deep so Reflex registers the change.
+                    _ch = self._chat_sub()
+                    if _ch.chat_history:
+                        new_history = list(_ch.chat_history)
+                        for i in range(len(new_history) - 1, -1, -1):
+                            msg = new_history[i]
+                            if msg.get("role") == "assistant" and msg.get("agent") == agent:
+                                new_metadata = dict(msg.get("metadata") or {})
+                                new_metadata["audio_urls"] = [session_audio_url]
+                                new_metadata["playback_rate"] = "1.0x"  # speed is baked into the audio
+                                new_metadata["tts_note"] = tts_note
+                                new_history[i] = {
+                                    **msg,
+                                    "metadata": new_metadata,
+                                    "has_audio": True,
+                                    "audio_urls_json": json.dumps([session_audio_url]),
+                                    "tts_note": tts_note,
+                                }
+                                log_message(f"🔊 TTS Queue: Added audio URL + playback_rate to {agent}'s message")
+                                break
+                        _ch.chat_history = new_history
+                        self._save_current_session()  # type: ignore[attr-defined]
                 else:
-                    self.add_debug(f"⚠️ TTS Queue: Audio file not found at {file_path}")  # type: ignore[attr-defined]
+                    log_message(f"⚠️ TTS Queue: Failed to save audio to session for {agent}")
             else:
-                self.add_debug(f"⚠️ TTS Queue: Generation failed for {agent}")  # type: ignore[attr-defined]
+                self.add_debug(f"⚠️ TTS Queue: Audio file not found at {file_path}")  # type: ignore[attr-defined]
 
-        except (FileNotFoundError, ValueError, RuntimeError, TTSFailure) as e:
+        except (FileNotFoundError, ValueError, RuntimeError, NoSpeechAvailable) as e:
             self.add_debug(f"❌ TTS Queue Error ({agent}): {e}")  # type: ignore[attr-defined]
             log_message(f"❌ TTS queue generation error for {agent}: {e}")
 
@@ -397,7 +339,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         if not (self.enable_tts and self.tts_autoplay and self.tts_streaming_enabled):  # type: ignore[attr-defined]
             return False
-        return bool(self.tts_agent_voices.get(agent, {}).get("enabled", True))  # type: ignore[attr-defined]
+        return self.tts_agent_enabled(agent)  # type: ignore[attr-defined, no-any-return]
 
     def _init_streaming_tts(self, agent: str = "aifred"):
         """Initialize streaming TTS state for a new response.
@@ -410,7 +352,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             agent: Agent name for per-agent voice settings
         """
         log_message(f"🔊 TTS Init: Starting streaming TTS for agent={agent}")
-        log_message(f"🔊 TTS Init: enable_tts={self.enable_tts}, tts_speech_unit={self.tts_speech_unit}, engine={self.tts_engine}")  # type: ignore[attr-defined]
+        log_message(f"🔊 TTS Init: enable_tts={self.enable_tts}, tts_speech_unit={self.tts_speech_unit}")  # type: ignore[attr-defined]
         # Reset content-hint flags so a new response starts with a clean slate.
         # Otherwise stale streaming state from the previous response (e.g. a
         # list counter stuck above threshold) would suppress early sentences.
@@ -430,6 +372,12 @@ class TTSStreamingMixin(rx.State, mixin=True):
         tts_state.order_buffer = {}
         tts_state.next_seq = 0
         tts_state.push_seq = 0
+        # One escalation-list run per reply: the engine that speaks the first
+        # sentence keeps speaking until it fails (then the next one announces).
+        tts_state.run = SpeechRun(
+            self._resolve_tts_language(agent), f"Browser {_agent_label(agent)}",
+            report=self.add_debug,  # type: ignore[attr-defined]
+        )
 
         log_message("🔊 TTS Init: State initialized, ready for chunks")
 
@@ -526,6 +474,13 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         return [combined_url] if combined_url else []
 
+    def _streaming_tts_note(self) -> str:
+        """Chat note of the reply just spoken (who spoke, switches with reason)."""
+        run = get_tts_backend_state(self.session_id).run  # type: ignore[attr-defined]
+        if run is None:
+            return ""
+        return run.note(self._resolve_tts_language(self._tts_streaming_agent))
+
     def _spawn_tts_finalize(self) -> None:
         """Start the background TTS finalize exactly once per streaming init.
 
@@ -592,14 +547,17 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 return
 
             msg = history[target]
+            tts_note = self._streaming_tts_note()
             metadata = dict(msg.get("metadata", {}))
             metadata["audio_urls"] = audio_urls
+            metadata["tts_note"] = tts_note
             metadata.setdefault("playback_rate", "1.0x")
             history[target] = {
                 **msg,
                 "metadata": metadata,
                 "has_audio": True,
                 "audio_urls_json": json.dumps(audio_urls),
+                "tts_note": tts_note,
             }
             ch.chat_history = history
             log_message(f"🔊 TTS Background: ✅ Patched bubble #{target} with {len(audio_urls)} audio URL(s)")
@@ -616,6 +574,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
                         self.session_id,  # type: ignore[attr-defined]
                         kind="bubble_audio",
                         url=audio_urls[0],
+                    )
+                    browser_push(
+                        self.session_id,  # type: ignore[attr-defined]
+                        kind="bubble_tts_note",
+                        url=tts_note,
                     )
                 except Exception as e:
                     log_message(f"🔊 TTS Background: bubble_audio push failed: {e}")
@@ -744,9 +707,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
             session_id: Session ID for API-based queue push
             seq: Sequence number for ordered queue push
         """
-        from ..lib.audio_processing import clean_text_for_tts, generate_tts
+        from ..lib.audio_processing import clean_text_for_tts
         from ..lib.config import DATA_DIR
-        from ..lib.tts_engines import require_engine
 
         tts_state = get_tts_backend_state(session_id)
 
@@ -761,29 +723,19 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 self._drain_tts_order_buffer(session_id)
                 return
 
-            # Voice/speed/pitch via the SSOT resolver (per-agent → agent's
-            # engine default → global).
-            voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
-            tts_engine = self.tts_engine  # type: ignore[attr-defined]
-
-            # Generate TTS audio (this is the slow part - runs in parallel)
-            tts_language = self._resolve_tts_language(agent)
-            log_message(f"🔊 TTS Generate: Calling generate_tts() seq={seq} for agent={agent}: {repr(clean_text)}")
-            log_message(f"🔊 TTS Generate: voice={voice_choice}, speed={speed_value}, pitch={pitch_value}, engine={tts_engine}, lang={tts_language}")
+            run = tts_state.run
+            assert run is not None, "streaming TTS sentence without an initialized run"
+            log_message(f"🔊 TTS Generate: seq={seq} agent={agent}: {repr(clean_text)}")
 
             # Concurrency-Throttle: max TTS_CONCURRENT_REQUESTS parallel an TTS-Backend.
             # Verhindert GPU-Memory-Pile-Up wenn die LLM in Sekunden 80+ Sentences
             # produziert. Tasks warten in der Semaphore-FIFO statt am Container.
             async with _tts_concurrency_sema:
-                audio_url = await generate_tts(
-                    text=clean_text,
-                    voice_choice=voice_choice,
-                    speed_choice=speed_value,
-                    engine=require_engine(tts_engine),
-                    pitch=pitch_value,
-                    agent=agent,  # Pass agent for correct filename prefix
-                    language=tts_language
-                )
+                try:
+                    audio_url: str | None = await run.synthesize(clean_text, agent)
+                except NoSpeechAvailable as exc:
+                    log_message(f"🔊 TTS Generate: ⚠️ {exc}")
+                    audio_url = None
 
             if audio_url:
                 filename = audio_url.split("/")[-1]
@@ -807,7 +759,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     tts_state.order_buffer[seq] = None
                     self._drain_tts_order_buffer(session_id)
             else:
-                log_message("🔊 TTS Generate: ⚠️ No audio_url returned from generate_tts()")
+                log_message("🔊 TTS Generate: ⚠️ no TTS entry could speak this sentence")
                 tts_state.pending_requests = [r for r in tts_state.pending_requests if r != request_id]
                 tts_state.order_buffer[seq] = None
                 self._drain_tts_order_buffer(session_id)
@@ -923,24 +875,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} text too short after cleanup")
             return None
 
-        # Voice/speed/pitch via the SSOT resolver. This is the bug the
-        # whole resolver exists for: re-synthing a HAL bubble after an
-        # engine switch used to grab the global (AIfred) voice because
-        # HAL's saved xtts voice was empty. Now it resolves HAL's engine
-        # default (★ HAL9000) instead.
-        voice_choice, speed_value, pitch_value = self._resolve_agent_tts(agent)
-        # Hard evidence for the "wrong voice on re-synth" report: log the
-        # engine, the bubble's agent, the per-agent voice still in state,
-        # and the voice the resolver actually picked. Lets us see whether
-        # a stale / wrong-engine name (e.g. "★ HAL9000" while on
-        # qwen3local) or an empty state slot is the culprit.
-        _state_voice = self.tts_agent_voices.get(agent, {}).get("voice", "")  # type: ignore[attr-defined]
-        log_message(
-            f"🎭 TTS Re-Synth resolve: engine={self.tts_engine} "  # type: ignore[attr-defined]
-            f"agent={agent} state_voice={_state_voice!r} → voice={voice_choice!r} "
-            f"speed={speed_value} pitch={pitch_value}"
-        )
-
         return {
             "bubble_index": bubble_index,
             # Timestamp der Bubble: Während der lock-freien Synthese kann
@@ -949,34 +883,25 @@ class TTSStreamingMixin(rx.State, mixin=True):
             "timestamp": msg.get("timestamp", ""),
             "agent": agent,
             "clean_text": clean_text,
-            "voice": voice_choice,
-            "speed": speed_value,
-            "pitch": pitch_value,
-            "engine": str(self.tts_engine),  # type: ignore[attr-defined]
             "language": tts_language,
             "session_id": str(self.session_id),  # type: ignore[attr-defined]
         }
 
     @staticmethod
-    async def _synthesize_bubble_audio(request: dict[str, Any]) -> str | None:
-        """Phase 2 (LANGSAM — läuft OHNE State-Lock): Synthese + Ablage im
-        Session-Verzeichnis. Bewusst ohne jeden ``self``-State-Zugriff."""
-        from ..lib.audio_processing import generate_tts, save_audio_to_session, set_tts_agent
-        from ..lib.tts_engines import TTSFailure, require_engine
+    async def _synthesize_bubble_audio(
+        request: dict[str, Any], report: Callable[[str], None],
+    ) -> tuple[str, str] | None:
+        """Phase 2 (LANGSAM — läuft OHNE State-Lock): Synthese über die
+        Eskalationsliste + Ablage im Session-Verzeichnis. Liefert URL und
+        Chat-Vermerk. Bewusst ohne jeden ``self``-State-Zugriff."""
+        from ..lib.audio_processing import save_audio_to_session
 
         bubble_index = request["bubble_index"]
-        set_tts_agent(request["agent"])
+        run = SpeechRun(request["language"], f"Re-Synth {_agent_label(request['agent'])}", report=report)
         # Generate TTS (complete bubble at once for best quality)
         try:
-            audio_url = await generate_tts(
-                text=request["clean_text"],
-                voice_choice=request["voice"],
-                speed_choice=request["speed"],
-                engine=require_engine(request["engine"]),
-                pitch=request["pitch"],
-                language=request["language"],
-            )
-        except TTSFailure as exc:
+            audio_url = await run.synthesize(request["clean_text"], request["agent"])
+        except NoSpeechAvailable as exc:
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} audio generation failed: {exc}")
             return None
 
@@ -987,11 +912,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
             return None
 
         log_message(f"🔊 TTS: Bubble {bubble_index} saved → {session_audio_url}")
-        return session_audio_url
+        return session_audio_url, run.note(request["language"])
 
     def _apply_bubble_audio(
         self, bubble_index: int, timestamp: str, session_audio_url: str,
-        save_session: bool,
+        tts_note: str, save_session: bool,
     ) -> bool:
         """Phase 3 (State-WRITE — nur unter ``async with self``): URL an die
         Bubble patchen. Deep-rebuild, damit Reflex die Änderung auf
@@ -1021,11 +946,13 @@ class TTSStreamingMixin(rx.State, mixin=True):
         prev = new_history[bubble_index]
         new_metadata = dict(prev.get("metadata") or {})
         new_metadata["audio_urls"] = [session_audio_url]
+        new_metadata["tts_note"] = tts_note
         new_history[bubble_index] = {
             **prev,
             "metadata": new_metadata,
             "has_audio": True,
             "audio_urls_json": json.dumps([session_audio_url]),
+            "tts_note": tts_note,
         }
         _ch.chat_history = new_history
 
@@ -1050,9 +977,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Args:
             timestamp: Timestamp of the message to regenerate
         """
-        from ..lib.tts_engine_manager import GPU_ENGINES, ensure_engine_ready
-
-        engine = ""
         target_index = -1
         async with self:
             if self.tts_regenerating:
@@ -1076,24 +1000,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             self.tts_regenerating = True
             target_index = bubble_index
-            engine = str(self.tts_engine)  # type: ignore[attr-defined]
             yield rx.call_script("stopTts()")  # type: ignore[misc]
-            if engine in GPU_ENGINES:
-                self.add_debug(f"🔄 TTS Re-Synth: Starte {engine.upper()} Backend...")  # type: ignore[attr-defined]
-
-        # Auto-start TTS backend if not running — single dispatch via SSOT.
-        # to_thread: Container-Start + Model-Load dürfen weder Event-Loop
-        # noch State-Lock halten.
-        if engine in GPU_ENGINES:
-            ok, tts_msg, _device = await asyncio.to_thread(ensure_engine_ready, engine)
-        else:
-            ok, tts_msg = True, "OK"
-
-        if not ok:
-            async with self:
-                self.add_debug(f"❌ TTS Re-Synth: {tts_msg}")  # type: ignore[attr-defined]
-                self.tts_regenerating = False
-            return
 
         try:
             async with self:
@@ -1105,12 +1012,17 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             success = False
             if request is not None:
-                session_audio_url = await self._synthesize_bubble_audio(request)
-                if session_audio_url:
-                    async with self:
+                # The escalation's lines are collected lock-free and written to
+                # the console under the lock (background event).
+                escalation_lines: list[str] = []
+                synthesized = await self._synthesize_bubble_audio(request, escalation_lines.append)
+                async with self:
+                    for line in escalation_lines:
+                        self.add_debug(line)  # type: ignore[attr-defined]
+                    if synthesized:
                         success = self._apply_bubble_audio(
                             target_index, request["timestamp"],
-                            session_audio_url, save_session=True,
+                            *synthesized, save_session=True,
                         )
 
             async with self:
@@ -1132,9 +1044,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
         gleiche Struktur wie resynthesize_bubble_tts: Lock nur für kurze
         Lese-/Schreib-Phasen, Synthesen lock-frei, Fortschritt pro Bubble
         fließt live in die Debug-Messages)."""
-        from ..lib.tts_engine_manager import GPU_ENGINES, ensure_engine_ready
-
-        engine = ""
         assistant_indices: list[int] = []
         async with self:
             if self.tts_regenerating:
@@ -1154,23 +1063,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 return
 
             self.tts_regenerating = True
-            engine = str(self.tts_engine)  # type: ignore[attr-defined]
             yield rx.call_script("stopTts()")  # type: ignore[misc]
-            if engine in GPU_ENGINES:
-                self.add_debug(f"🔄 TTS Re-Synth (alle): Starte {engine.upper()} Backend...")  # type: ignore[attr-defined]
-
-        # Auto-start TTS backend if not running — single dispatch via SSOT.
-        # to_thread: siehe resynthesize_bubble_tts.
-        if engine in GPU_ENGINES:
-            ok, msg_txt, _device = await asyncio.to_thread(ensure_engine_ready, engine)
-        else:
-            ok, msg_txt = True, "OK"
-
-        if not ok:
-            async with self:
-                self.add_debug(f"❌ TTS Re-Synth: {msg_txt}")  # type: ignore[attr-defined]
-                self.tts_regenerating = False
-            return
 
         total = len(assistant_indices)
         async with self:
@@ -1184,18 +1077,21 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     self.add_debug(f"🔄 Processing bubble {i+1}/{total}...")  # type: ignore[attr-defined]
                     request = self._extract_bubble_tts_request(bubble_idx)
 
-                session_audio_url = (
-                    await self._synthesize_bubble_audio(request)
+                escalation_lines: list[str] = []
+                synthesized = (
+                    await self._synthesize_bubble_audio(request, escalation_lines.append)
                     if request is not None else None
                 )
 
                 applied = False
-                if session_audio_url and request is not None:
-                    async with self:
+                async with self:
+                    for line in escalation_lines:
+                        self.add_debug(line)  # type: ignore[attr-defined]
+                    if synthesized and request is not None:
                         # Session erst am Ende EINMAL speichern (wie zuvor).
                         applied = self._apply_bubble_audio(
                             bubble_idx, request["timestamp"],
-                            session_audio_url, save_session=False,
+                            *synthesized, save_session=False,
                         )
                 if applied:
                     success_count += 1
