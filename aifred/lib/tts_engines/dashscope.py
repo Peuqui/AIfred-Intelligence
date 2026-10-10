@@ -52,15 +52,15 @@ _BUILTIN_VOICES: dict[str, str] = {
 }
 
 
-def _cloned_voices() -> dict[str, str]:
-    """Enrolled cloned voices from the mapping: '★ Name' → qwen-tts-vc-* id.
+def _cloned_voices(profile_key: str = "dashscope") -> dict[str, str]:
+    """Enrolled cloned voices of an engine from its mapping: '★ Name' → voice id.
     Read live (cheap JSON read) so a freshly enrolled WAV shows up without a
     restart. Never raises — a broken/missing mapping just means no clones."""
     try:
-        from ..dashscope_enroll import load_mapping
+        from ..dashscope_enroll import ENROLL_PROFILES, load_mapping
         return {
             f"★ {name}": entry["voice_id"]
-            for name, entry in load_mapping().items()
+            for name, entry in load_mapping(ENROLL_PROFILES[profile_key]).items()
             if entry.get("voice_id")
         }
     except Exception:  # noqa: BLE001 — voice list must never break the engine

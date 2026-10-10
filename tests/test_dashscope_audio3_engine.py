@@ -108,3 +108,18 @@ def test_network_outage_is_unreachable(cloud: FakeCloud) -> None:
 def test_default_voice_is_in_the_catalog() -> None:
     engine = _engine()
     assert engine.default_voice in engine.get_voices()
+
+
+def test_cloned_voices_come_first_and_use_the_flash_model(cloud: FakeCloud, monkeypatch: pytest.MonkeyPatch) -> None:
+    from aifred.lib import dashscope_enroll
+    monkeypatch.setattr(
+        dashscope_enroll, "load_mapping",
+        lambda profile: {"Codine": {"voice_id": "qwen-audio-3.0-tts-flash-codine-1"}},
+    )
+    engine = _engine()
+    assert list(engine.get_voices())[0] == "★ Codine"
+    # With and without the ★ prefix (it may be stripped before the engine sees it).
+    for voice in ("★ Codine", "Codine"):
+        engine.generate_speech("Hallo", voice, "de")
+        body = cloud.posts[-1]["json"]
+        assert (body["model"], body["input"]["voice"]) == ("qwen-audio-3.0-tts-flash", "qwen-audio-3.0-tts-flash-codine-1")

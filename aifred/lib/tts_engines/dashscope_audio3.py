@@ -2,13 +2,13 @@
 
 Next to :mod:`.dashscope` (Qwen3-TTS), which keeps working for its built-in
 voices. This family has its own HTTP endpoint (the result is a URL to a WAV
-file, not a chunk stream) and its own voice catalog. Cloned voices are not
-offered yet: they would have to be enrolled again for these models.
+file, not a chunk stream), its own catalog of system voices and its own
+cloned voices (enrolled for the flash model, see ``dashscope_enroll``).
 """
 from __future__ import annotations
 
 from .base import TTSFailure
-from .dashscope import DashScopeEngine
+from .dashscope import DashScopeEngine, _cloned_voices
 
 # Display name → Alibaba voice id (docs: "Qwen-Audio TTS voice list", 10.10.2026).
 # All of them speak German understandably despite the docs listing only
@@ -39,6 +39,8 @@ class DashScopeAudio3Engine(DashScopeEngine):
     display_order = 51
     default_voice = "Mary"
 
+    # Cloned voices are bound to the model they were enrolled for (dashscope_enroll
+    # reads it from here).
     model_flash: str = "qwen-audio-3.0-tts-flash"
     model_plus: str = "qwen-audio-3.0-tts-plus"
     # The output is already as loud as the local engines (about -21 LUFS).
@@ -48,7 +50,8 @@ class DashScopeAudio3Engine(DashScopeEngine):
 
     @property
     def voices_fallback(self) -> dict[str, str]:
-        return dict(_VOICES)
+        # Cloned voices (★ …) on top of the system voices.
+        return {**_cloned_voices(self.key), **_VOICES}
 
     def get_voices(self) -> dict[str, str]:
         # Fixed catalog; no live discovery endpoint.
@@ -72,7 +75,9 @@ class DashScopeAudio3Engine(DashScopeEngine):
             api_key = broker.get("cloud_qwen", "api_key")
             if not api_key:
                 raise TTSFailure("engine", "DashScope API key not configured")
-            voice_id = _VOICES.get(voice)
+            # The ★ prefix of cloned voices may or may not be stripped before we get here.
+            voices = self.voices_fallback
+            voice_id = voices.get(voice) or voices.get(f"★ {voice}")
             if voice_id is None:
                 raise TTSFailure("engine", f"{self.label_short}: unknown voice {voice!r}")
             model = self.model_plus if voice_id in _PLUS_VOICE_IDS else self.model_flash
