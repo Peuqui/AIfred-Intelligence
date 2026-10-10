@@ -267,6 +267,137 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
     )
 
 
+def _doc_remote_row(item: rx.Var) -> rx.Component:
+    """Row of a further source (e.g. Google Drive): open folders, download
+    files — index, rename, delete and preview stay with the local folder."""
+    name = item["name"].to(str)
+    is_folder = item["type"].to(str) == "folder"
+    return rx.hstack(
+        rx.cond(
+            is_folder,
+            rx.icon("folder", size=16, color="#d29922"),
+            rx.icon("file", size=16, color="#888"),
+        ),
+        rx.text(
+            name,
+            font_size="12px",
+            color=rx.cond(is_folder, "#d29922", "white"),
+            cursor=rx.cond(is_folder, "pointer", "default"),
+            _hover=rx.cond(is_folder, {"text_decoration": "underline"}, {}),
+            word_break="break-all",
+            min_width="0",
+            on_click=rx.cond(
+                is_folder,
+                AIState.doc_open_remote_folder(item["id"].to(str), name),
+                rx.noop(),  # type: ignore[arg-type]
+            ),
+        ),
+        rx.spacer(),
+        rx.text(item["size"].to(str), font_size="10px", color="#666",
+                min_width="60px", display=["none", "none", "block"]),
+        rx.text(item["modified"].to(str), font_size="9px", color="#999",
+                min_width="95px", display=["none", "none", "block"]),
+        rx.cond(
+            ~is_folder,
+            # Raw anchor like the local download (see _doc_file_row): the API
+            # route streams the file, the login cookie travels along.
+            rx.tooltip(
+                _Anchor.create(
+                    rx.icon_button(
+                        rx.icon("download", size=14),
+                        size="1", variant="ghost", color_scheme="green",
+                        cursor="pointer",
+                    ),
+                    href=item["download_url"].to(str),
+                    download=name,
+                ),
+                content=t("doc_download"),
+            ),
+            rx.box(width="24px"),
+        ),
+        width="100%",
+        padding="5px 8px",
+        align="center",
+        border_bottom="1px solid #2a2a2a",
+        _hover={"background_color": "rgba(255, 255, 255, 0.05)"},
+    )
+
+
+def _doc_source_switch() -> rx.Component:
+    """Local folder | further sources — only when a plugin offers one."""
+    return rx.cond(
+        AIState.doc_source_options.length() > 1,
+        rx.segmented_control.root(
+            rx.foreach(
+                AIState.doc_source_options,
+                lambda option: rx.segmented_control.item(option["label"], value=option["key"]),
+            ),
+            value=AIState.doc_source,
+            on_change=AIState.set_doc_source,
+            size="1",
+        ),
+    )
+
+
+def _doc_remote_toolbar() -> rx.Component:
+    """Root, up, search and refresh for a further source; the path shows the
+    opened folders, during a search the query."""
+    return rx.hstack(
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                variant="ghost", color_scheme="yellow",
+                on_click=AIState.doc_remote_root, cursor="pointer",
+            ),
+            content=t("doc_to_root"),
+        ),
+        rx.cond(
+            AIState.doc_remote_trail.length() > 0,
+            rx.tooltip(
+                rx.icon_button(
+                    rx.icon("arrow-left", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                    variant="ghost", color_scheme="gray",
+                    on_click=AIState.doc_remote_up, cursor="pointer",
+                ),
+                content=t("doc_up_one_level"),
+            ),
+        ),
+        rx.input(
+            value=AIState.doc_remote_query_input,
+            on_change=AIState.set_doc_remote_query_input,
+            on_key_down=lambda key: rx.cond(key == "Enter", AIState.doc_remote_search(), rx.noop()),  # type: ignore[arg-type]
+            placeholder=t("doc_remote_search_placeholder"),
+            size="1", font_size="12px", width="220px",
+        ),
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("search", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                variant="ghost", color_scheme="gray",
+                on_click=AIState.doc_remote_search, cursor="pointer",
+            ),
+            content=t("doc_remote_search"),
+        ),
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("refresh-cw", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                variant="ghost", color_scheme="gray",
+                on_click=AIState.doc_remote_refresh, cursor="pointer",
+            ),
+            content=t("doc_refresh"),
+        ),
+        rx.text(
+            rx.cond(
+                AIState.doc_remote_query != "",
+                t("doc_remote_search_hits") + " „" + AIState.doc_remote_query + "“",
+                rx.cond(AIState.doc_remote_path_text != "", "/ " + AIState.doc_remote_path_text, ""),
+            ),
+            font_size="12px", color="#888",
+        ),
+        rx.spacer(),
+        spacing="2", align="center", width="100%",
+    )
+
+
 def _doc_delete_dialog() -> rx.Component:
     """Delete confirmation dialog with disk/index checkboxes."""
     return rx.cond(
@@ -363,6 +494,7 @@ def document_manager_page() -> rx.Component:
                 rx.icon("folder-open", size=24, color="#d29922"),
                 rx.text(t("doc_manager_title"), color="white",
                         font_weight="bold", font_size="18px"),
+                _doc_source_switch(),
                 rx.spacer(),
                 rx.tooltip(
                     rx.icon_button(
@@ -379,7 +511,7 @@ def document_manager_page() -> rx.Component:
             # Breadcrumb navigation + create folder + refresh
             # Action-Buttons direkt links neben dem Pfad — vorher
             # waren sie ganz rechts zu klein und wurden übersehen.
-            rx.hstack(
+            rx.cond(AIState.doc_is_remote, _doc_remote_toolbar(), rx.hstack(
                 rx.tooltip(
                     rx.icon_button(
                         rx.icon("home", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
@@ -469,7 +601,7 @@ def document_manager_page() -> rx.Component:
                 ),
                 rx.spacer(),
                 spacing="2", align="center", width="100%",
-            ),
+            )),
 
             # Two-column layout: file list | preview (flex=1 fills remaining modal height)
             rx.flex(
@@ -494,9 +626,9 @@ def document_manager_page() -> rx.Component:
                         border="none", padding="0", width="100%",
                     ),
 
-                    # Selection bar — only once the folder holds files
+                    # Selection bar — only once the folder holds files (local only)
                     rx.cond(
-                        AIState.doc_file_list.length() > 0,
+                        (AIState.doc_file_list.length() > 0) & ~AIState.doc_is_remote,
                         rx.hstack(
                             rx.checkbox(
                                 t("doc_select_all"),
@@ -540,7 +672,11 @@ def document_manager_page() -> rx.Component:
                         rx.cond(
                             AIState.doc_file_list.length() > 0,
                             rx.vstack(
-                                rx.foreach(AIState.doc_file_list, _doc_file_row),
+                                rx.cond(
+                                    AIState.doc_is_remote,
+                                    rx.foreach(AIState.doc_file_list, _doc_remote_row),
+                                    rx.foreach(AIState.doc_file_list, _doc_file_row),
+                                ),
                                 # File count
                                 rx.text(
                                     AIState.doc_file_list.length().to(str) + t("doc_files_suffix"),

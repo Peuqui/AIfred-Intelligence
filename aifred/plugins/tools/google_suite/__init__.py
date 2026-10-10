@@ -139,6 +139,15 @@ class GooglePlugin:
 
         return tools
 
+    @property
+    def document_source(self) -> Any:
+        """Drive as a second source of the document manager (lib.document_sources)
+        — only while the Drive service is switched on."""
+        if self._load_settings().get("GOOGLE_DRIVE_ENABLED", _SERVICE_ENABLED_DEFAULT) != "true":
+            return None
+        from .drive.source import DriveDocumentSource
+        return DriveDocumentSource()
+
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
         from ....lib.plugin_base import load_plugin_instructions

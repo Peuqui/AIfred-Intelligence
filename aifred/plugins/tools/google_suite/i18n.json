@@ -134,5 +134,9 @@
   "tool_google_drive_move_file": {
     "de": "📂 Datei verschieben…",
     "en": "📂 Moving file…"
+  },
+  "doc_source_google_drive": {
+    "de": "Google Drive",
+    "en": "Google Drive"
   }
 }
