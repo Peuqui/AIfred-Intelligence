@@ -112,6 +112,13 @@ class TTSEngine(ABC):
     #: locally and on a TTS host alike. 0 for engines without a container.
     startup_timeout_s: int = 0
 
+    #: Health endpoint of a container engine (relative to ``service_url``).
+    health_path: str = "/health"
+
+    #: Container engines that can land on the CPU although a GPU is free restart once
+    #: in that case (MOSS).
+    restart_when_on_cpu: bool = False
+
     #: True for engines that run in someone else's cloud (DashScope, Edge) —
     #: the text leaves the house. Shown as a label in the escalation list.
     cloud: bool = False
@@ -266,8 +273,37 @@ class TTSEngine(ABC):
     def is_running(self) -> bool:
         """True if the engine can accept requests *right now*. Default
         ``True`` for lightweight engines (always-on); container engines
-        override with a health check."""
-        return True
+        answer through their health endpoint."""
+        if not self.runs_in_container:
+            return True
+        health = self._health()
+        return health is not None and self._model_ready(health)
+
+    def _health(self, timeout: float | None = None) -> dict[str, Any] | None:
+        """JSON of the engine's health endpoint; ``{}`` when it answers 2xx
+        without JSON; ``None`` when it is not reachable or answers an error."""
+        import requests
+        from ..config import TTS_HEALTH_TIMEOUT_S
+        try:
+            response = requests.get(
+                f"{self.service_url}{self.health_path}", timeout=timeout or TTS_HEALTH_TIMEOUT_S,
+            )
+            if not response.ok:
+                return None
+            if not response.headers.get("content-type", "").startswith("application/json"):
+                return {}
+            data: dict[str, Any] = response.json()
+            return data
+        except (OSError, ValueError):
+            return None
+
+    def _model_ready(self, health: dict[str, Any]) -> bool:
+        """Whether a health answer means "model loaded, can synthesise"."""
+        return bool(health.get("model_loaded"))
+
+    def _device(self, health: dict[str, Any]) -> str:
+        """Compute target a health answer reports ("cuda:0", "cpu")."""
+        return str(health.get("device", "unknown"))
 
     def start(self) -> tuple[bool, str]:
         """Bring the engine up. Returns ``(success, message)``. Only for
@@ -297,15 +333,57 @@ class TTSEngine(ABC):
                 f"cannot {action} {self.key!r} on remote host {self.address} — the host runs it"
             )
 
-    # Lifecycle hooks for engines on this machine — container engines override.
+    # Lifecycle for engines on this machine. Container engines run their compose
+    # file; the other engines have nothing to start.
     def _start_local(self) -> tuple[bool, str]:
-        return True, "no-op"
+        if not self.runs_in_container:
+            return True, "no-op"
+        from ..process_utils import docker_compose_action
+        return docker_compose_action(str(self.docker_compose_path), "up", self.label_short, self.gpu_uuid)
 
     def _stop_local(self) -> tuple[bool, str]:
-        return True, "no-op"
+        if not self.runs_in_container:
+            return True, "no-op"
+        from ..process_utils import docker_compose_action
+        return docker_compose_action(str(self.docker_compose_path), "down", self.label_short)
 
     def _ensure_ready_local(self, timeout: int | None) -> tuple[bool, str, str]:
-        return True, "ready", ""
+        """Start the container if needed and wait until its model is loaded."""
+        if not self.runs_in_container:
+            return True, "ready", ""
+        import time
+        from ..logging_utils import log_message
+
+        health = self._health(timeout=2)
+        if health is not None and self._model_ready(health):
+            device = self._device(health)
+            if self.restart_when_on_cpu and device == "cpu" and self._gpu_available():
+                log_message(f"{self.label_short} is on CPU but a GPU is available — restarting on GPU")
+                self._stop_local()
+            else:
+                return True, f"{self.label_short} already ready ({device})", device
+
+        success, msg = self._start_local()
+        if not success:
+            return False, msg, ""
+
+        limit = timeout or self.startup_timeout_s
+        log_message(f"{self.label_short}: Waiting for model to load...")
+        for waited in range(limit):
+            health = self._health(timeout=2)
+            if health is not None and self._model_ready(health):
+                device = self._device(health)
+                log_message(f"{self.label_short}: Model loaded on {device}")
+                return True, f"{self.label_short} ready ({device})", device
+            if waited > 0 and waited % 30 == 0:
+                log_message(f"{self.label_short}: still waiting ({waited}s / {limit}s)...")
+            time.sleep(1)
+        return False, f"{self.label_short}: Timeout after {limit}s waiting for model", ""
+
+    @staticmethod
+    def _gpu_available() -> bool:
+        from ..process_utils import get_tts_gpu_uuid
+        return bool(get_tts_gpu_uuid())
 
     # ── Speech generation ──────────────────────────────────────────
     def generate_speech(
