@@ -171,18 +171,18 @@ class TTSConfigMixin(rx.State, mixin=True):
         except StopIteration:
             pass
 
-        # DashScope: enroll new or changed SSOT reference voices (idempotent via
-        # WAV hash — instant when nothing changed) so cloned voices are ready.
-        if self.enable_tts and any(
-            entry.enabled and entry.engine.key == "dashscope" for entry in escalation_entries()
-        ):
+        # DashScope engines: enroll new or changed SSOT reference voices (idempotent
+        # via WAV hash — instant when nothing changed) so cloned voices are ready.
+        if self.enable_tts:
             from ..lib.credential_broker import broker
-            from ..lib.dashscope_enroll import enroll_progress
+            from ..lib.dashscope_enroll import ENROLL_PROFILES, enroll_progress
             api_key = broker.get("cloud_qwen", "api_key")
-            if api_key:
-                for line in enroll_progress(api_key):
-                    self.add_debug(f"🔊 {line}")  # type: ignore[attr-defined]
-                    yield
+            enabled_keys = {entry.engine.key for entry in escalation_entries() if entry.enabled}
+            for engine_key, profile in ENROLL_PROFILES.items():
+                if api_key and engine_key in enabled_keys:
+                    for line in enroll_progress(api_key, profile):
+                        self.add_debug(f"🔊 {line}")  # type: ignore[attr-defined]
+                        yield
 
     # ── Escalation list editing ───────────────────────────────────
 
