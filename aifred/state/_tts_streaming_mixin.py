@@ -380,8 +380,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """Initialize streaming TTS state for a new response.
 
         Call this at the start of send_message() when streaming TTS is enabled.
-        For DashScope: Opens a WebSocket connection for realtime token-feeding.
-        For other engines: Initializes sentence buffer for parallel sentence TTS.
+        Initializes the sentence buffer for parallel sentence TTS (all engines).
 
         Args:
             agent: Agent name for per-agent voice settings
@@ -665,7 +664,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Called for each content chunk during LLM streaming. Extracts
         complete sentences from the rolling buffer and kicks off TTS
         synthesis in parallel via create_task() — all engines (XTTS /
-        MOSS / Qwen3 / Fish-Speech / Piper / eSpeak / Edge / DashScope)
+        MOSS / Qwen3 / Fish-Speech / Piper / eSpeak / Edge / DashScope Audio 3)
         use the same sentence-based path.
 
         Args:

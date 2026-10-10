@@ -451,7 +451,7 @@ class SpeechRun:
 
     def note(self, lang: str) -> str:
         """Vermerk für die Chat-Blase: wer gesprochen hat, bei einem Wechsel mit
-        Grund, z. B. ``XTTS · Aragon → DashScope · Cloud (Serverausfall)``.
+        Grund, z. B. ``XTTS · Aragon → DashScope Audio 3 · Cloud (Serverausfall)``.
         Leer, wenn noch niemand gesprochen hat."""
         from .i18n import t
 

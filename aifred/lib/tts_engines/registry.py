@@ -19,12 +19,6 @@ from typing import Iterator, Protocol
 from .base import SPEECH_UNITS, TTSEngine
 
 
-def _all_subclasses(base: type[TTSEngine]) -> Iterator[type[TTSEngine]]:
-    for subclass in base.__subclasses__():
-        yield subclass
-        yield from _all_subclasses(subclass)
-
-
 def _discover_engines() -> dict[str, TTSEngine]:
     """Import every sibling ``*.py`` module so its TTSEngine subclass
     registers itself, then build the ordered ``{key: instance}`` dict."""
@@ -37,10 +31,10 @@ def _discover_engines() -> dict[str, TTSEngine]:
             continue
         importlib.import_module(f"{pkg_name}.{py_file.stem}")
 
-    # Engines may extend another engine (DashScope Audio 3 builds on DashScope),
-    # so walk the whole subclass tree. Sort by display_order so the UI dropdown
-    # stays predictable; ties broken by key for stability.
-    instances = [cls() for cls in _all_subclasses(TTSEngine)]  # type: ignore[type-abstract]
+    # __subclasses__() returns direct subclasses only — fine because
+    # engines inherit straight from TTSEngine. Sort by display_order so
+    # the UI dropdown stays predictable; ties broken by key for stability.
+    instances = [cls() for cls in TTSEngine.__subclasses__()]  # type: ignore[abstract]
     instances.sort(key=lambda e: (e.display_order, e.key))
     return {e.key: e for e in instances}
 

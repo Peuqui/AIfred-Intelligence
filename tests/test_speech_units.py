@@ -25,7 +25,7 @@ class TestSpeechUnitPerEngine:
         assert {key: speech_unit_for(key) for key in ("piper", "moss", "espeak")} == {
             "piper": "whole", "moss": "whole", "espeak": "whole",
         }
-        assert speech_unit_for("edge") == "sentence" and speech_unit_for("dashscope") == "sentence"
+        assert speech_unit_for("edge") == "sentence" and speech_unit_for("dashscope_audio3") == "sentence"
 
     def test_the_users_choice_per_engine_wins(self, saved):
         saved["tts_toggles_per_engine"] = {"piper": {"autoplay": True, "unit": "paragraph"}}

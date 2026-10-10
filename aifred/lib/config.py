@@ -124,7 +124,7 @@ DEFAULT_SETTINGS = {
     "tts_escalation": [
         {"engine": "qwen3local", "host": None, "enabled": True},
         {"engine": "xtts", "host": None, "enabled": True},
-        {"engine": "dashscope", "host": None, "enabled": True},
+        {"engine": "dashscope_audio3", "host": None, "enabled": True},
         {"engine": "piper", "host": None, "enabled": True},
         {"engine": "edge", "host": None, "enabled": True},
         # Last: the device speaks (browser replies only); nothing could take over after it.
@@ -427,10 +427,6 @@ TTS_DEFAULT_VOICES = {
     "fishspeech": {
         "de": "AIfred",  # Custom cloned voice
         "en": "AIfred",  # Custom cloned voice (multilingual)
-    },
-    "dashscope": {
-        "de": "★ AIfred",
-        "en": "★ AIfred",
     },
 }
 

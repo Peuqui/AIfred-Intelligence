@@ -64,9 +64,9 @@ def _engine() -> dashscope_audio3.DashScopeAudio3Engine:
     return engine
 
 
-def test_registered_next_to_the_old_dashscope_engine() -> None:
-    keys = list(TTS_ENGINES)
-    assert keys.index("dashscope_audio3") == keys.index("dashscope") + 1
+def test_registered_as_the_dashscope_engine() -> None:
+    assert "dashscope_audio3" in TTS_ENGINES
+    assert "dashscope" not in TTS_ENGINES
 
 
 def test_flash_voice_uses_the_flash_model_and_https_download(cloud: FakeCloud) -> None:
@@ -114,7 +114,7 @@ def test_cloned_voices_come_first_and_use_the_flash_model(cloud: FakeCloud, monk
     from aifred.lib import dashscope_enroll
     monkeypatch.setattr(
         dashscope_enroll, "load_mapping",
-        lambda profile: {"Codine": {"voice_id": "qwen-audio-3.0-tts-flash-codine-1"}},
+        lambda: {"Codine": {"voice_id": "qwen-audio-3.0-tts-flash-codine-1"}},
     )
     engine = _engine()
     assert list(engine.get_voices())[0] == "★ Codine"

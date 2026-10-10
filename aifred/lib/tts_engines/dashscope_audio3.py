@@ -1,14 +1,13 @@
-"""DashScope Qwen-Audio 3.0 TTS — cloud TTS of Alibaba's newer model family.
+"""DashScope Qwen-Audio 3.0 TTS — cloud TTS of Alibaba, no local GPU.
 
-Next to :mod:`.dashscope` (Qwen3-TTS), which keeps working for its built-in
-voices. This family has its own HTTP endpoint (the result is a URL to a WAV
-file, not a chunk stream), its own catalog of system voices and its own
-cloned voices (enrolled for the flash model, see ``dashscope_enroll``).
+HTTP endpoint whose result is a URL to a WAV file, a catalog of system voices
+and cloned voices enrolled for the flash model (``dashscope_enroll``). Replaced
+the older Qwen3-TTS cloud engine (10.10.2026), whose cloned voices Alibaba
+switched off.
 """
 from __future__ import annotations
 
-from .base import TTSFailure
-from .dashscope import DashScopeEngine, _cloned_voices
+from .base import TTSEngine, TTSFailure
 
 # Display name → Alibaba voice id (docs: "Qwen-Audio TTS voice list", 10.10.2026).
 # All of them speak German understandably despite the docs listing only
@@ -33,12 +32,41 @@ _VOICES: dict[str, str] = {
 _PLUS_VOICE_IDS = {"longanlingxin", "longanlufeng"}
 
 
-class DashScopeAudio3Engine(DashScopeEngine):
+def _network_error_types() -> tuple:
+    """Exception types that signal a network/internet outage — as opposed to
+    an API error where DashScope actually responded (auth, quota, bad voice).
+    ConnectionError, TimeoutError and socket.gaierror are OSError subclasses;
+    requests wraps low-level socket failures in its own ConnectionError/Timeout."""
+    import socket
+
+    import requests.exceptions as requests_errors
+    return (ConnectionError, TimeoutError, socket.gaierror,
+            requests_errors.ConnectionError, requests_errors.Timeout)
+
+
+def _cloned_voices() -> dict[str, str]:
+    """Enrolled cloned voices from the mapping: '★ Name' → voice id. Read live
+    (cheap JSON read) so a freshly enrolled WAV shows up without a restart."""
+    from ..dashscope_enroll import load_mapping
+    return {
+        f"★ {name}": entry["voice_id"]
+        for name, entry in load_mapping().items()
+        if entry.get("voice_id")
+    }
+
+
+class DashScopeAudio3Engine(TTSEngine):
     key = "dashscope_audio3"
     label_short = "DashScope Audio 3"
-    display_order = 51
+    runs_in_container = False
+    needs_gpu = False
+    needs_speed_postprocess = True
+    supports_language = True
+    display_order = 50
+    cloud = True
     default_voice = "Mary"
 
+    base_url: str = "https://dashscope-intl.aliyuncs.com/api/v1"
     # Cloned voices are bound to the model they were enrolled for (dashscope_enroll
     # reads it from here).
     model_flash: str = "qwen-audio-3.0-tts-flash"
@@ -48,10 +76,22 @@ class DashScopeAudio3Engine(DashScopeEngine):
     #: Seconds to wait for the synthesis and for the download of its WAV file.
     request_timeout_s: int = 60
 
+    # ISO short code → DashScope language_type.
+    language_map_dashscope: dict[str, str] = {
+        "de": "German",   "en": "English", "fr": "French",   "es": "Spanish",
+        "it": "Italian",  "pt": "Portuguese", "ru": "Russian",
+        "ja": "Japanese", "ko": "Korean", "zh": "Chinese",
+    }
+
+    def is_running(self) -> bool:
+        """Cloud engine: usable as soon as the API key is configured."""
+        from ..credential_broker import broker
+        return bool(broker.get("cloud_qwen", "api_key"))
+
     @property
     def voices_fallback(self) -> dict[str, str]:
         # Cloned voices (★ …) on top of the system voices.
-        return {**_cloned_voices(self.key), **_VOICES}
+        return {**_cloned_voices(), **_VOICES}
 
     def get_voices(self) -> dict[str, str]:
         # Fixed catalog; no live discovery endpoint.
@@ -106,3 +146,44 @@ class DashScopeAudio3Engine(DashScopeEngine):
             return self._store_wav(audio.content)
         except Exception as e:  # noqa: BLE001 — _failure sorts it into a TTSFailure
             raise self._failure(e) from e
+
+    def _store_wav(self, wav_bytes: bytes) -> str:
+        """One WAV file from DashScope → gain-adjusted file in the TTS audio
+        folder; returns its URL path."""
+        import io
+        import os
+        import wave
+        from ..audio_processing import (
+            _generate_tts_filename,
+            _validate_audio_output,
+            _apply_pcm_gain,
+            _write_pcm_to_wav,
+            TTS_AUDIO_DIR,
+        )
+        from ..logging_utils import log_message
+
+        filename = _generate_tts_filename("wav")
+        output_file = str(TTS_AUDIO_DIR / filename)
+        with wave.open(io.BytesIO(wav_bytes)) as wav_stream:
+            sample_rate = wav_stream.getframerate()
+            pcm_data = wav_stream.readframes(wav_stream.getnframes())
+
+        pcm_data = _apply_pcm_gain(pcm_data, self.output_gain)
+        _write_pcm_to_wav(pcm_data, output_file, sample_rate)
+
+        duration = len(pcm_data) / (sample_rate * 2)
+        if not _validate_audio_output(output_file):
+            raise TTSFailure("engine", f"{self.label_short} file missing or too small at {output_file}")
+        size = os.path.getsize(output_file)
+        log_message(f"✅ {self.label_short} TTS: Audio saved → {output_file} ({size:,} bytes, {duration:.1f}s)")
+        return f"/_upload/tts_audio/{filename}"
+
+    def _failure(self, error: Exception) -> TTSFailure:
+        """A TTSFailure from whatever went wrong: a network/internet outage is
+        "unreachable"; DashScope answering with an error (auth, quota, bad
+        voice) is an engine failure."""
+        if isinstance(error, TTSFailure):
+            return error
+        if isinstance(error, _network_error_types()):
+            return TTSFailure("unreachable", f"{self.label_short}: {type(error).__name__}: {error}")
+        return TTSFailure("engine", f"{self.label_short}: {type(error).__name__}: {error}")
