@@ -18,7 +18,9 @@ Endpoints (all prefixed with /api):
 - GET  /chat/history        - Get chat history
 - GET  /audio/announce/rooms - Rooms an announcement can go to (Bearer token)
 - POST /audio/announce      - Spoken announcement to FreeEcho.2, no LLM (Bearer token)
-- POST /tts/start           - Start a local TTS container on the card AIfred picks, no LLM (Bearer token)
+- GET  /tts/entries         - The TTS escalation list in order, with live status (Bearer token)
+- POST /tts/start           - Start an entry's container: AIfred's card, or the host via SSH (Bearer token)
+- POST /tts/stop            - Stop an entry's container (Bearer token)
 - POST /system/restart-ollama   - Restart Ollama service
 - POST /system/restart-aifred   - Restart AIfred service
 - POST /system/reset-defaults   - Reset to default settings

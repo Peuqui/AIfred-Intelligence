@@ -1,18 +1,17 @@
-"""TTS container control: start a local GPU engine on the card AIfred picks, no LLM.
+"""TTS escalation list for callers outside AIfred, no LLM.
 
-For callers outside AIfred that bring a TTS container up by hand (the
-service control page). The card comes from the same rule the escalation
-list uses (``place_local_gpu_engine``): side-channel card first, else the
-fitting card with the most free memory; nothing fits → refused, nothing
-started. The call returns once ``docker compose up -d`` is through; the
-model loads afterwards (the caller polls the engine's /health).
-Token-guarded with ``Authorization: Bearer <TTS_CONTROL_API_TOKEN>``.
+For the service control page: it shows AIfred's list (order, place, status)
+and starts or stops an entry's container through AIfred, so the card choice
+(``place_local_gpu_engine``) and the remote hosts (SSH) follow the same
+rules as AIfred's own speech. A start returns once the container is up; the
+model loads afterwards (the caller polls ``/tts/entries``). Token-guarded
+with ``Authorization: Bearer <TTS_CONTROL_API_TOKEN>``.
 """
 
 import asyncio
-from typing import Dict
+from typing import Dict, List
 
-from fastapi import Header, HTTPException
+from fastapi import Header, HTTPException, Query
 from pydantic import BaseModel, Field
 
 from ..auth import require_service_token
@@ -21,49 +20,88 @@ from .app import api_app
 from .schemas import CallerName
 
 
-class TTSStartRequest(BaseModel):
-    """Start request for one local GPU engine"""
+class TTSEntry(BaseModel):
+    """One entry of the escalation list, as the list editor shows it"""
+    engine: str
+    host: str | None = Field(description="Host name, None = this machine")
+    label: str = Field(description="Engine · place, e.g. 'Qwen3-TTS · Aragon'")
+    enabled: bool
+    status: str = Field(description="Status key: running, sleeping, no_image, host_off, …")
+    status_text: str
+    controllable: bool = Field(description="AIfred can start/stop its container")
+
+
+class TTSEntryRequest(BaseModel):
+    """Which entry to start or stop"""
     engine: str = Field(..., min_length=1, description="Engine key, e.g. 'qwen3local', 'xtts'")
+    host: str | None = Field(None, description="Host name from /tts/entries, None = this machine")
     caller: CallerName
 
 
-class TTSStartResponse(BaseModel):
-    """Start response: where the engine went (``gpu`` is None when it was already running)"""
+class TTSActionResponse(BaseModel):
     success: bool
-    engine: str
-    gpu: int | None
     message: str
 
 
-@api_app.post("/tts/start", response_model=TTSStartResponse, tags=["TTS"])
-async def tts_start(request: TTSStartRequest, authorization: str | None = Header(None)) -> Dict[str, object]:
-    """Start the engine's container on the card AIfred picks (404 unknown engine,
-    422 not a local GPU engine, 409 no image built or no card fits, 502 start failed)."""
-    from ..tts_engines import TTS_ENGINES
-    from ..tts_escalation import PlacementRefused, place_local_gpu_engine
-
+def _require_tts_token(authorization: str | None) -> None:
     scheme, _, token = (authorization or "").partition(" ")
     require_service_token("tts_control", token if scheme.lower() == "bearer" else None)
 
-    engine = TTS_ENGINES.get(request.engine)
-    if engine is None:
-        raise HTTPException(status_code=404, detail=f"unknown TTS engine '{request.engine}'")
-    if not (engine.needs_gpu and engine.runs_in_container):
-        raise HTTPException(status_code=422, detail=f"'{request.engine}' is no local GPU engine")
-    if not await asyncio.to_thread(engine.is_installed):
-        raise HTTPException(status_code=409, detail=f"no image built for '{request.engine}'")
-    if await asyncio.to_thread(engine.is_running):
-        return {"success": True, "engine": engine.key, "gpu": None,
-                "message": f"{engine.label_short} already running"}
+
+@api_app.get("/tts/entries", response_model=List[TTSEntry], tags=["TTS"])
+async def tts_entries(
+    lang: str = Query(..., pattern="^(de|en)$"), authorization: str | None = Header(None),
+) -> List[Dict[str, object]]:
+    """AIfred's TTS escalation list in speaking order, with the live status of each entry."""
+    from ..i18n import t
+    from ..tts_escalation import entry_status, escalation_entries, is_controllable, location_label
+
+    _require_tts_token(authorization)
+    entries = escalation_entries()
+    statuses = await asyncio.gather(*(asyncio.to_thread(entry_status, entry) for entry in entries))
+    return [
+        {
+            "engine": entry.engine.key,
+            "host": entry.host.name if entry.host else None,
+            "label": f"{entry.engine.label_short} · {location_label(entry, lang)}",
+            "enabled": entry.enabled,
+            "status": status,
+            "status_text": t(f"tts_status_{status}", lang=lang),
+            "controllable": is_controllable(entry),
+        }
+        for entry, status in zip(entries, statuses)
+    ]
+
+
+async def _act(request: TTSEntryRequest, verb: str) -> Dict[str, object]:
+    from ..tts_escalation import PlacementRefused, find_entry, halt_entry, launch_entry
 
     try:
-        placement = await place_local_gpu_engine(engine)
+        entry = find_entry(request.engine, request.host)
+    except LookupError as missing:
+        raise HTTPException(status_code=404, detail=str(missing)) from missing
+    try:
+        message = await (launch_entry(entry) if verb == "start" else halt_entry(entry))
     except PlacementRefused as refused:
-        log_message(f"TTS start API ({request.caller}): {engine.key} refused — {refused}")
-        raise HTTPException(status_code=409, detail=f"{engine.label_short}: {refused}") from refused
-    ok, message = await asyncio.to_thread(placement.engine.start)
-    if not ok:
-        raise HTTPException(status_code=502, detail=message)
-    log_message(f"TTS start API ({request.caller}): {engine.key} started on {placement.describe()}")
-    return {"success": True, "engine": engine.key, "gpu": placement.gpu,
-            "message": f"{engine.label_short} started on GPU {placement.gpu}"}
+        log_message(f"TTS API ({request.caller}): {verb} {entry.label} refused — {refused}")
+        raise HTTPException(status_code=409, detail=f"{entry.engine.label_short}: {refused}") from refused
+    except RuntimeError as failed:
+        log_message(f"TTS API ({request.caller}): {verb} {entry.label} failed — {failed}")
+        raise HTTPException(status_code=409, detail=str(failed)) from failed
+    log_message(f"TTS API ({request.caller}): {entry.label} {message}")
+    return {"success": True, "message": f"{entry.engine.label_short} {message}"}
+
+
+@api_app.post("/tts/start", response_model=TTSActionResponse, tags=["TTS"])
+async def tts_start(request: TTSEntryRequest, authorization: str | None = Header(None)) -> Dict[str, object]:
+    """Start the entry's container: locally on the card AIfred picks, on a host
+    over SSH (404 no such entry, 409 no card fits / not controllable / failed)."""
+    _require_tts_token(authorization)
+    return await _act(request, "start")
+
+
+@api_app.post("/tts/stop", response_model=TTSActionResponse, tags=["TTS"])
+async def tts_stop(request: TTSEntryRequest, authorization: str | None = Header(None)) -> Dict[str, object]:
+    """Stop the entry's container, VRAM free (404 no such entry, 409 failed)."""
+    _require_tts_token(authorization)
+    return await _act(request, "stop")

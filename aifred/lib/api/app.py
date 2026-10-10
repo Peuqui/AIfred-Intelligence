@@ -36,12 +36,13 @@ api_app = FastAPI(
 # cookie the web login sets (see AuthenticatedStaticFiles for the static
 # twin) — browser calls are same-origin and carry it automatically.
 #
-# Exempt: inject + webhook + announce + tts/start (enforce their own service
-# token via require_service_token) and the OAuth callback (arrives as a
-# redirect from the provider, cookie not guaranteed).
+# Exempt: inject + webhook + announce + tts (enforce their own service token
+# via require_service_token) and the OAuth callback (arrives as a redirect
+# from the provider, cookie not guaranteed).
 
 _COOKIE_EXEMPT_PATHS = (
-    "/chat/inject", "/agent/trigger", "/audio/announce", "/audio/announce/rooms", "/tts/start",
+    "/chat/inject", "/agent/trigger", "/audio/announce", "/audio/announce/rooms",
+    "/tts/entries", "/tts/start", "/tts/stop",
 )
 
 

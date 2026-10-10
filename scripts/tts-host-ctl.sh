@@ -9,7 +9,7 @@
 # Der Befehl kommt dann in SSH_ORIGINAL_COMMAND an, direkt aufgerufen in "$@":
 #
 #   start <dienst>   Container von docker/tts/<dienst> starten (up -d)
-#   stop             alle TTS-Container dieses Repos stoppen (VRAM frei)
+#   stop [<dienst>]  diesen bzw. alle TTS-Container dieses Repos stoppen (VRAM frei)
 #   status           laufende TTS-Container auflisten
 #
 # <dienst> ist ein Verzeichnis unter docker/tts/ mit docker-compose.yml
@@ -32,18 +32,27 @@ compose_files() {
     find "$TTS_DIR" -mindepth 2 -maxdepth 2 -name docker-compose.yml | sort
 }
 
+require_service() {
+    if [[ ! "$service" =~ ^[a-z0-9-]+$ || ! -f "$TTS_DIR/$service/docker-compose.yml" ]]; then
+        echo "unknown TTS service: '$service'" >&2
+        exit 2
+    fi
+}
+
 case "$action" in
     start)
-        if [[ ! "$service" =~ ^[a-z0-9-]+$ || ! -f "$TTS_DIR/$service/docker-compose.yml" ]]; then
-            echo "unknown TTS service: '$service'" >&2
-            exit 2
-        fi
+        require_service
         docker compose -f "$TTS_DIR/$service/docker-compose.yml" up -d
         ;;
     stop)
-        while read -r compose; do
-            docker compose -f "$compose" stop
-        done < <(compose_files)
+        if [[ -n "$service" ]]; then
+            require_service
+            docker compose -f "$TTS_DIR/$service/docker-compose.yml" stop
+        else
+            while read -r compose; do
+                docker compose -f "$compose" stop
+            done < <(compose_files)
+        fi
         ;;
     status)
         while read -r compose; do
@@ -51,7 +60,7 @@ case "$action" in
         done < <(compose_files)
         ;;
     *)
-        echo "usage: tts-host-ctl.sh start <service> | stop | status" >&2
+        echo "usage: tts-host-ctl.sh start <service> | stop [<service>] | status" >&2
         exit 2
         ;;
 esac
