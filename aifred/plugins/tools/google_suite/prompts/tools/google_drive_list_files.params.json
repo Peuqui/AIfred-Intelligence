@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "folder_id": {
+      "type": "string",
+      "description": "Folder ID (optional, default: root)"
+    },
+    "page_size": {
+      "type": "integer",
+      "description": "Maximum number of results (default: 30)"
+    },
+    "order_by": {
+      "type": "string",
+      "description": "Sort order (default: modifiedTime desc)"
+    }
+  },
+  "required": []
+}

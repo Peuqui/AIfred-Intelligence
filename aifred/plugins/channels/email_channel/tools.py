@@ -21,7 +21,7 @@ from ....lib.security import (
     sanitize_outbound,
     wrap_untrusted_data,
 )
-from ....lib.plugin_base import load_tool_description
+from ....lib.plugin_base import load_tool_description, load_tool_parameters
 
 # Actions offered by the safe (COMMUNICATE) tool vs. the destructive one.
 # Each tool enforces its own set so the model cannot smuggle a delete through
@@ -217,68 +217,14 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
             name="email",
             tier=TIER_COMMUNICATE,
             description=load_tool_description(__file__, "email"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        # Aus dem Python-Enforcement-Set abgeleitet — eine Wahrheit
-                        "enum": sorted(safe_actions),
-                        "description": "Action to perform",
-                    },
-                    "msg_id": {"type": "string", "description": "Message ID (for read)"},
-                    "query": {"type": "string", "description": "Search term (for search)"},
-                    "n": {"type": "string", "description": "Number of emails to fetch (for check, default 10)"},
-                    "to": {"type": "string", "description": "Recipient email address (for send)"},
-                    "subject": {"type": "string", "description": "Email subject (for send)"},
-                    "body": {
-                        "type": "string",
-                        "description": (
-                            "Email body as Markdown (for send). ![alt](/_upload/… URL) embeds an "
-                            "image from THIS conversation in the text, [name](/_upload/… URL) "
-                            "attaches the file."
-                        ),
-                    },
-                    "attachment": {
-                        "type": "string",
-                        "description": (
-                            "Optional (for send): URL of a file from THIS conversation to "
-                            "attach (an uploaded image, or generated sandbox output like a "
-                            "PDF — its /_upload/... URL). To show an image inside the text "
-                            "instead, embed it in the body with ![alt](URL)."
-                        ),
-                    },
-                    "folder": {"type": "string", "description": "IMAP folder (default INBOX)"},
-                    "flag": {
-                        "type": "string",
-                        "enum": ["read", "unread", "flagged", "unflagged"],
-                        "description": "Flag for mark action",
-                    },
-                },
-                "required": ["action"],
-            },
+            parameters=load_tool_parameters(__file__, "email", enums={"action": sorted(safe_actions)}),
             executor=_email_safe,
         ),
         Tool(
             name="email_manage",
             tier=TIER_WRITE_SYSTEM,
             description=load_tool_description(__file__, "email_manage"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "action": {
-                        "type": "string",
-                        # Aus dem Python-Enforcement-Set abgeleitet — eine Wahrheit
-                        "enum": sorted(_MANAGE_ACTIONS),
-                        "description": "Destructive mailbox action",
-                    },
-                    "msg_id": {"type": "string", "description": "Message ID (for delete, move)"},
-                    "folder": {"type": "string", "description": "Source IMAP folder (default INBOX)"},
-                    "target_folder": {"type": "string", "description": "Target folder for move action"},
-                    "folder_name": {"type": "string", "description": "Folder name for create_folder action"},
-                },
-                "required": ["action"],
-            },
+            parameters=load_tool_parameters(__file__, "email_manage", enums={"action": sorted(_MANAGE_ACTIONS)}),
             executor=_email_manage,
         ),
     ]

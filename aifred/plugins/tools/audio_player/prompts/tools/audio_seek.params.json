@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "position_sec": {
+      "type": "number",
+      "description": "Target position in seconds from start."
+    },
+    "target": {
+      "type": "string",
+      "description": "Optional target id. Omit to seek the auto-resolved target."
+    }
+  },
+  "required": [
+    "position_sec"
+  ]
+}

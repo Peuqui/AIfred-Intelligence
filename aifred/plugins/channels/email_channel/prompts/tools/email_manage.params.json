@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [],
+      "description": "Destructive mailbox action"
+    },
+    "msg_id": {
+      "type": "string",
+      "description": "Message ID (for delete, move)"
+    },
+    "folder": {
+      "type": "string",
+      "description": "Source IMAP folder (default INBOX)"
+    },
+    "target_folder": {
+      "type": "string",
+      "description": "Target folder for move action"
+    },
+    "folder_name": {
+      "type": "string",
+      "description": "Folder name for create_folder action"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}

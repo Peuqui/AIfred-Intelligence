@@ -22,7 +22,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description
+from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY
 from .reference import (
     BIBLE_FOLDER,
@@ -105,19 +105,7 @@ class BiblePlugin:
                 description=(
                     load_tool_description(__file__, "search_bible")
                 ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "query": {
-                            "type": "string",
-                            "description": (
-                                "A scripture reference (e.g. 'Psalm 5', "
-                                "'Joh 3,16') or a topic (e.g. 'Verse über Trost')"
-                            ),
-                        },
-                    },
-                    "required": ["query"],
-                },
+                parameters=load_tool_parameters(__file__, "search_bible"),
                 executor=_execute,
             ),
         ]

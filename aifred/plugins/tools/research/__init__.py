@@ -14,7 +14,7 @@ from typing import Any, AsyncGenerator, Optional
 
 from ....lib.function_calling import Tool
 from ....lib.i18n import t
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY
 
 
@@ -115,35 +115,14 @@ def get_research_tools(state: Optional[Any] = None, lang: str = "de", llm_histor
             name="web_search",
             tier=TIER_READONLY,
             description=load_tool_description(__file__, "web_search"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "queries": {
-                        "type": "array",
-                        "items": {"type": "string"},
-                        "description": "1-3 search queries (each sent to a different search engine)",
-                        "minItems": 1,
-                        "maxItems": 3,
-                    },
-                },
-                "required": ["queries"],
-            },
+            parameters=load_tool_parameters(__file__, "web_search"),
             executor=_execute_web_search,
         ),
         Tool(
             name="web_fetch",
             tier=TIER_READONLY,
             description=load_tool_description(__file__, "web_fetch"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "url": {
-                        "type": "string",
-                        "description": "The full URL to fetch (must start with http:// or https://)",
-                    },
-                },
-                "required": ["url"],
-            },
+            parameters=load_tool_parameters(__file__, "web_fetch"),
             executor=_execute_web_fetch,
         ),
     ]

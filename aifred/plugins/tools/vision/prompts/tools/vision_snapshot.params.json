@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "source_id": {
+      "type": "string",
+      "description": "Source identifier (see vision_list_sources)."
+    },
+    "n_frames": {
+      "type": "integer",
+      "description": "1 = single photo; 2-10 = burst sequence for motion/film.",
+      "default": 1
+    },
+    "save": {
+      "type": "boolean",
+      "description": "Persist to session image dir.",
+      "default": true
+    }
+  },
+  "required": [
+    "source_id"
+  ]
+}

@@ -1,0 +1,38 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Event title"
+    },
+    "start": {
+      "type": "string",
+      "description": "Start time (RFC 3339)"
+    },
+    "end": {
+      "type": "string",
+      "description": "End time (RFC 3339)"
+    },
+    "calendar_id": {
+      "type": "string",
+      "description": "Calendar ID (default: primary)"
+    },
+    "description": {
+      "type": "string",
+      "description": "Description (optional)"
+    },
+    "location": {
+      "type": "string",
+      "description": "Location (optional)"
+    },
+    "attendees": {
+      "type": "string",
+      "description": "Comma-separated attendee e-mail addresses (optional)"
+    }
+  },
+  "required": [
+    "title",
+    "start",
+    "end"
+  ]
+}

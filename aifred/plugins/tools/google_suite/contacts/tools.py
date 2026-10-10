@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from .....lib.function_calling import Tool
-from .....lib.plugin_base import load_tool_description
+from .....lib.plugin_base import load_tool_description, load_tool_parameters
 from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from .._common import PLUGIN_DIR, _google_request
 
@@ -246,34 +246,21 @@ def get_contacts_tools() -> list[Tool]:
         Tool(
             name="google_contacts_list_all",
             description=load_tool_description(PLUGIN_DIR, "google_contacts_list_all"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "max_results": {"type": "integer", "description": "Maximum number of contacts (default: 500)"},
-                },
-                "required": [],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_contacts_list_all"),
             executor=list_all_contacts,
             tier=TIER_WRITE_DATA,  # reads private contact data → block external channels
         ),
         Tool(
             name="google_contacts_list_groups",
             description=load_tool_description(PLUGIN_DIR, "google_contacts_list_groups"),
-            parameters={"type": "object", "properties": {}, "required": []},
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_contacts_list_groups"),
             executor=list_groups,
             tier=TIER_WRITE_DATA,  # reads private contact data → block external channels
         ),
         Tool(
             name="google_contacts_list_by_group",
             description=load_tool_description(PLUGIN_DIR, "google_contacts_list_by_group"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "group_name":  {"type": "string", "description": "Group name (e.g. 'Familie', 'Arbeit')"},
-                    "max_members": {"type": "integer", "description": "Maximum members (default and API limit: 200)"},
-                },
-                "required": ["group_name"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_contacts_list_by_group"),
             executor=list_by_group,
             tier=TIER_WRITE_DATA,  # reads private contact data → block external channels
         ),
@@ -282,64 +269,28 @@ def get_contacts_tools() -> list[Tool]:
             description=(
                 load_tool_description(PLUGIN_DIR, "google_contacts_search")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query":       {"type": "string", "description": "Search term (name or e-mail)"},
-                    "max_results": {"type": "integer", "description": "Maximum hits (default: 10, API limit: 30)"},
-                },
-                "required": ["query"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_contacts_search"),
             executor=search_contacts,
             tier=TIER_WRITE_DATA,  # reads private contact data → block external channels
         ),
         Tool(
             name="google_contacts_create",
             description=load_tool_description(PLUGIN_DIR, "google_contacts_create"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "display_name": {"type": "string", "description": "Full name"},
-                    "email":        {"type": "string", "description": "E-mail address (optional)"},
-                    "phone":        {"type": "string", "description": "Phone number (optional)"},
-                    "organization": {"type": "string", "description": "Company / organization (optional)"},
-                    "notes":        {"type": "string", "description": "Notes (optional)"},
-                    "group":        {"type": "string", "description": "Group name (optional, e.g. 'Familie')"},
-                },
-                "required": ["display_name"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_contacts_create"),
             executor=create_contact,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_contacts_update",
             description=load_tool_description(PLUGIN_DIR, "google_contacts_update"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "resource_name": {"type": "string", "description": "Resource name (from google_contacts_search)"},
-                    "display_name":  {"type": "string", "description": "New name (optional)"},
-                    "email":         {"type": "string", "description": "New e-mail (optional)"},
-                    "phone":         {"type": "string", "description": "New phone number (optional)"},
-                    "organization":  {"type": "string", "description": "New organization (optional)"},
-                    "notes":         {"type": "string", "description": "New notes (optional)"},
-                    "group":         {"type": "string", "description": "Assign to group (optional)"},
-                },
-                "required": ["resource_name"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_contacts_update"),
             executor=update_contact,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_contacts_delete",
             description=load_tool_description(PLUGIN_DIR, "google_contacts_delete"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "resource_name": {"type": "string", "description": "Resource name of the contact"},
-                },
-                "required": ["resource_name"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_contacts_delete"),
             executor=delete_contact,
             # Repo-Konvention (lib/security.py): Deletes sind TIER_WRITE_SYSTEM
             tier=TIER_WRITE_SYSTEM,

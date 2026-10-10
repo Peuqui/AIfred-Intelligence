@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Search term (name or e-mail)"
+    },
+    "max_results": {
+      "type": "integer",
+      "description": "Maximum hits (default: 10, API limit: 30)"
+    }
+  },
+  "required": [
+    "query"
+  ]
+}

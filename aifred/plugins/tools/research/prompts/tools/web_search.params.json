@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "queries": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "1-3 search queries (each sent to a different search engine)",
+      "minItems": 1,
+      "maxItems": 3
+    }
+  },
+  "required": [
+    "queries"
+  ]
+}

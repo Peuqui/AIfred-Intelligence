@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from .....lib.function_calling import Tool
-from .....lib.plugin_base import load_tool_description
+from .....lib.plugin_base import load_tool_description, load_tool_parameters
 from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
 from .._common import PLUGIN_DIR, _google_request
 
@@ -127,68 +127,28 @@ def get_calendar_tools() -> list[Tool]:
             description=(
                 load_tool_description(PLUGIN_DIR, "google_calendar_list_events")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "start":       {"type": "string", "description": "Start of the time window (RFC 3339)"},
-                    "end":         {"type": "string", "description": "End of the time window (RFC 3339)"},
-                    "calendar_id": {"type": "string", "description": "Calendar ID (default: primary)"},
-                    "max_results": {"type": "integer", "description": "Maximum number of results (default: 20)"},
-                },
-                "required": ["start", "end"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_calendar_list_events"),
             executor=list_events,
             tier=TIER_WRITE_DATA,  # reads private calendar data → block external channels
         ),
         Tool(
             name="google_calendar_create_event",
             description=load_tool_description(PLUGIN_DIR, "google_calendar_create_event"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "title":       {"type": "string", "description": "Event title"},
-                    "start":       {"type": "string", "description": "Start time (RFC 3339)"},
-                    "end":         {"type": "string", "description": "End time (RFC 3339)"},
-                    "calendar_id": {"type": "string", "description": "Calendar ID (default: primary)"},
-                    "description": {"type": "string", "description": "Description (optional)"},
-                    "location":    {"type": "string", "description": "Location (optional)"},
-                    "attendees":   {"type": "string", "description": "Comma-separated attendee e-mail addresses (optional)"},
-                },
-                "required": ["title", "start", "end"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_calendar_create_event"),
             executor=create_event,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_calendar_update_event",
             description=load_tool_description(PLUGIN_DIR, "google_calendar_update_event"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "event_id":    {"type": "string", "description": "ID of the event"},
-                    "calendar_id": {"type": "string", "description": "Calendar ID (default: primary)"},
-                    "title":       {"type": "string", "description": "New title (optional)"},
-                    "start":       {"type": "string", "description": "New start time, RFC 3339 (optional)"},
-                    "end":         {"type": "string", "description": "New end time, RFC 3339 (optional)"},
-                    "description": {"type": "string", "description": "New description (optional)"},
-                    "location":    {"type": "string", "description": "New location (optional)"},
-                },
-                "required": ["event_id"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_calendar_update_event"),
             executor=update_event,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_calendar_delete_event",
             description=load_tool_description(PLUGIN_DIR, "google_calendar_delete_event"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "event_id":    {"type": "string", "description": "ID of the event to delete"},
-                    "calendar_id": {"type": "string", "description": "Calendar ID (default: primary)"},
-                },
-                "required": ["event_id"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_calendar_delete_event"),
             executor=delete_event,
             # Repo-Konvention (lib/security.py): Deletes sind TIER_WRITE_SYSTEM
             tier=TIER_WRITE_SYSTEM,
@@ -196,7 +156,7 @@ def get_calendar_tools() -> list[Tool]:
         Tool(
             name="google_calendar_list_calendars",
             description=load_tool_description(PLUGIN_DIR, "google_calendar_list_calendars"),
-            parameters={"type": "object", "properties": {}, "required": []},
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_calendar_list_calendars"),
             executor=list_calendars,
             tier=TIER_WRITE_DATA,  # reads private calendar data → block external channels
         ),

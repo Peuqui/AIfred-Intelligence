@@ -1,0 +1,13 @@
+{
+  "type": "object",
+  "properties": {
+    "item": {
+      "type": "string",
+      "description": "Optional state_key from audio_list_unfinished() to resume a specific audio. Omit to unpause the current player or resume the most recent unfinished item."
+    },
+    "target": {
+      "type": "string",
+      "description": "Output destination ('browser:<id>', 'local', 'freeecho2:<room>'). Omit to auto-route."
+    }
+  }
+}

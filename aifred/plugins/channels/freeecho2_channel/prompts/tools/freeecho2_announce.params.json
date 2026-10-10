@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": "string",
+      "description": "What to say out loud (it is spoken via TTS)."
+    },
+    "target": {
+      "type": "string",
+      "description": "Where to play. Leave as '*' (default) to reach all connected pucks — use this unless the user explicitly names a specific room. A bare room name targets one puck; '@group' a configured group. Do NOT invent room names and do NOT prefix with 'freeecho2:'. Unknown/disconnected rooms are rejected."
+    },
+    "audio_type": {
+      "type": "string",
+      "enum": [
+        "notification",
+        "alarm"
+      ],
+      "description": "'notification' = gentle chime (info, default); 'alarm' = urgent chime + LED (stranger, intrusion, time-critical)."
+    }
+  },
+  "required": [
+    "message"
+  ]
+}

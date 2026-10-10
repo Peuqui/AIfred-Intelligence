@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "start": {
+      "type": "string",
+      "description": "Start of the time window (RFC 3339)"
+    },
+    "end": {
+      "type": "string",
+      "description": "End of the time window (RFC 3339)"
+    },
+    "calendar_id": {
+      "type": "string",
+      "description": "Calendar ID (default: primary)"
+    },
+    "max_results": {
+      "type": "integer",
+      "description": "Maximum number of results (default: 20)"
+    }
+  },
+  "required": [
+    "start",
+    "end"
+  ]
+}

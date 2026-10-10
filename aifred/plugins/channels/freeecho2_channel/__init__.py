@@ -27,7 +27,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ....lib.plugin_base import CredentialField, load_tool_description
+from ....lib.plugin_base import CredentialField, load_tool_description, load_tool_parameters
 
 from ._shared import (
     _DEFAULT_PORT,
@@ -229,37 +229,7 @@ class FreeEchoChannel(ConnectionMixin):
                 description=(
                     load_tool_description(__file__, "freeecho2_announce")
                 ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "message": {
-                            "type": "string",
-                            "description": "What to say out loud (it is spoken via TTS).",
-                        },
-                        "target": {
-                            "type": "string",
-                            "description": (
-                                "Where to play. Leave as '*' (default) to "
-                                "reach all connected pucks — use this unless "
-                                "the user explicitly names a specific room. "
-                                "A bare room name targets one puck; '@group' a "
-                                "configured group. Do NOT invent room names and "
-                                "do NOT prefix with 'freeecho2:'. Unknown/"
-                                "disconnected rooms are rejected."
-                            ),
-                        },
-                        "audio_type": {
-                            "type": "string",
-                            "enum": ["notification", "alarm"],
-                            "description": (
-                                "'notification' = gentle chime (info, default); "
-                                "'alarm' = urgent chime + LED (stranger, "
-                                "intrusion, time-critical)."
-                            ),
-                        },
-                    },
-                    "required": ["message"],
-                },
+                parameters=load_tool_parameters(__file__, "freeecho2_announce"),
                 executor=_execute_announce,
             ),
         ]

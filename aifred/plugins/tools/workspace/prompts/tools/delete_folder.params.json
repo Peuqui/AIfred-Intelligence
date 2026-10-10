@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "folder_name": {
+      "type": "string",
+      "description": "Folder path relative to documents/ (e.g. 'old_project')"
+    },
+    "recursive": {
+      "type": "boolean",
+      "description": "If true, deletes folder and all contents (files + subfolders) recursively.",
+      "default": false
+    }
+  },
+  "required": [
+    "folder_name"
+  ]
+}

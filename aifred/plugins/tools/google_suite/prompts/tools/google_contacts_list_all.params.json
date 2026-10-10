@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "properties": {
+    "max_results": {
+      "type": "integer",
+      "description": "Maximum number of contacts (default: 500)"
+    }
+  },
+  "required": []
+}

@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "description": "Entity type: task, contact, note, todo, password"
+    },
+    "data": {
+      "type": "object",
+      "description": "Entity data. Task: {title, start, end, location, allday, text, priority, tags}. Contact: {name, fields: {Vorname, Nachname, Telefon, E-Mail, ...}, tags}. Note: {title, text, tab_name, tree_id, tags}. Todo: {title, start, end, priority, text, tags, list_id}. Password: {subject, fields: {key: value, ...}, tags, group_id}."
+    }
+  },
+  "required": [
+    "entity_type",
+    "data"
+  ]
+}

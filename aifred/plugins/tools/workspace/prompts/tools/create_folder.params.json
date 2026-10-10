@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "folder_name": {
+      "type": "string",
+      "description": "Folder path relative to documents/ (e.g. 'projects/2026')"
+    }
+  },
+  "required": [
+    "folder_name"
+  ]
+}

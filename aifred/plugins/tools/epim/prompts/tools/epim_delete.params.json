@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "description": "Entity type: task, contact, note, todo, password"
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "IDTASK/IDCONTACT etc. from epim_search results. IMPORTANT: Copy the FULL ID string exactly!"
+    }
+  },
+  "required": [
+    "entity_type",
+    "entity_id"
+  ]
+}

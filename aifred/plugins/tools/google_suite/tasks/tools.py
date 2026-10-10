@@ -6,7 +6,7 @@ import json
 from typing import Any
 
 from .....lib.function_calling import Tool
-from .....lib.plugin_base import load_tool_description
+from .....lib.plugin_base import load_tool_description, load_tool_parameters
 from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from .._common import PLUGIN_DIR, _google_request
 
@@ -117,84 +117,42 @@ def get_tasks_tools() -> list[Tool]:
         Tool(
             name="google_tasks_list_tasklists",
             description=load_tool_description(PLUGIN_DIR, "google_tasks_list_tasklists"),
-            parameters={"type": "object", "properties": {}, "required": []},
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_tasks_list_tasklists"),
             executor=list_tasklists,
             tier=TIER_WRITE_DATA,  # reads private task data → block external channels
         ),
         Tool(
             name="google_tasks_list",
             description=load_tool_description(PLUGIN_DIR, "google_tasks_list"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "tasklist_id":     {"type": "string", "description": "Task list ID (default: @default)"},
-                    "show_completed":  {"type": "boolean", "description": "Include completed tasks (default: false)"},
-                    "max_results":     {"type": "integer", "description": "Maximum number of results (default: 50)"},
-                },
-                "required": [],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_tasks_list"),
             executor=list_tasks,
             tier=TIER_WRITE_DATA,  # reads private task data → block external channels
         ),
         Tool(
             name="google_tasks_create",
             description=load_tool_description(PLUGIN_DIR, "google_tasks_create"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "title":        {"type": "string", "description": "Task title"},
-                    "notes":        {"type": "string", "description": "Notes/description (optional)"},
-                    "due":          {"type": "string", "description": "Due date, RFC 3339 (optional)"},
-                    "tasklist_id":  {"type": "string", "description": "Task list ID (default: @default)"},
-                },
-                "required": ["title"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_tasks_create"),
             executor=create_task,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_tasks_update",
             description=load_tool_description(PLUGIN_DIR, "google_tasks_update"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "task_id":      {"type": "string", "description": "ID of the task"},
-                    "tasklist_id":  {"type": "string", "description": "Task list ID (default: @default)"},
-                    "title":        {"type": "string", "description": "New title (optional)"},
-                    "notes":        {"type": "string", "description": "New notes (optional)"},
-                    "due":          {"type": "string", "description": "New due date, RFC 3339 (optional)"},
-                    "status":       {"type": "string", "description": "'needsAction' or 'completed' (optional)"},
-                },
-                "required": ["task_id"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_tasks_update"),
             executor=update_task,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_tasks_complete",
             description=load_tool_description(PLUGIN_DIR, "google_tasks_complete"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "task_id":     {"type": "string", "description": "ID of the task"},
-                    "tasklist_id": {"type": "string", "description": "Task list ID (default: @default)"},
-                },
-                "required": ["task_id"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_tasks_complete"),
             executor=complete_task,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_tasks_delete",
             description=load_tool_description(PLUGIN_DIR, "google_tasks_delete"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "task_id":     {"type": "string", "description": "ID of the task to delete"},
-                    "tasklist_id": {"type": "string", "description": "Task list ID (default: @default)"},
-                },
-                "required": ["task_id"],
-            },
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_tasks_delete"),
             executor=delete_task,
             # Repo-Konvention (lib/security.py): Deletes sind TIER_WRITE_SYSTEM
             tier=TIER_WRITE_SYSTEM,

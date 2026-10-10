@@ -1,0 +1,32 @@
+{
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "ID of the task"
+    },
+    "tasklist_id": {
+      "type": "string",
+      "description": "Task list ID (default: @default)"
+    },
+    "title": {
+      "type": "string",
+      "description": "New title (optional)"
+    },
+    "notes": {
+      "type": "string",
+      "description": "New notes (optional)"
+    },
+    "due": {
+      "type": "string",
+      "description": "New due date, RFC 3339 (optional)"
+    },
+    "status": {
+      "type": "string",
+      "description": "'needsAction' or 'completed' (optional)"
+    }
+  },
+  "required": [
+    "task_id"
+  ]
+}

@@ -25,7 +25,7 @@ from ....lib.audio_player_settings import (
 )
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 
 
@@ -225,25 +225,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_play")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "item": {
-                        "type": "string",
-                        "description": "Source label or label/relative-path (e.g. 'swr3', 'hoerbuecher/foo.mp3')",
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Output destination. Omit to route to the request's origin. Use audio_targets() to list options.",
-                    },
-                    "restart": {
-                        "type": "boolean",
-                        "description": "Default: true (start from beginning). Set false to resume from saved position — equivalent to calling audio_resume.",
-                        "default": True,
-                    },
-                },
-                "required": ["item"],
-            },
+            parameters=load_tool_parameters(__file__, "audio_play"),
             executor=_play,
         )
 
@@ -393,25 +375,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_play_folder")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "folder": {
-                        "type": "string",
-                        "description": "Source label or label/sub/path (e.g. 'hoerbuecher', 'hoerbuecher/Tolkien_HdR').",
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Output destination. Omit to auto-route to where the request came from (FreeEcho.2 wake → that FreeEcho.2; browser input → that tab).",
-                    },
-                    "shuffle": {
-                        "type": "boolean",
-                        "description": "Play tracks in random order. Default: false (natural alphabetical).",
-                        "default": False,
-                    },
-                },
-                "required": ["folder"],
-            },
+            parameters=load_tool_parameters(__file__, "audio_play_folder"),
             executor=_play_folder,
         )
 
@@ -495,20 +459,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_pause")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "target": {
-                        "type": "string",
-                        "description": (
-                            "Optional. Omit for auto-target (request origin). "
-                            "Use 'all' for every active stream, or a specific "
-                            "id like 'freeecho2:wohnzimmer' / 'browser:abc123' / "
-                            "'local'. Use audio_targets() to list available."
-                        ),
-                    },
-                },
-            },
+            parameters=load_tool_parameters(__file__, "audio_pause"),
             executor=_pause,
         )
 
@@ -623,19 +574,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_resume")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "item": {
-                        "type": "string",
-                        "description": "Optional state_key from audio_list_unfinished() to resume a specific audio. Omit to unpause the current player or resume the most recent unfinished item.",
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Output destination ('browser:<id>', 'local', 'freeecho2:<room>'). Omit to auto-route.",
-                    },
-                },
-            },
+            parameters=load_tool_parameters(__file__, "audio_resume"),
             executor=_resume,
         )
 
@@ -649,20 +588,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_stop")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "target": {
-                        "type": "string",
-                        "description": (
-                            "Optional. Omit for auto-target (request origin). "
-                            "Use 'all' for every active stream, or a specific "
-                            "id like 'freeecho2:wohnzimmer'. Use audio_targets() "
-                            "to list available."
-                        ),
-                    },
-                },
-            },
+            parameters=load_tool_parameters(__file__, "audio_stop"),
             executor=_stop,
         )
 
@@ -681,20 +607,7 @@ class AudioPlayerPlugin:
             name="audio_seek",
             tier=TIER_READONLY,
             description=load_tool_description(__file__, "audio_seek"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "position_sec": {
-                        "type": "number",
-                        "description": "Target position in seconds from start.",
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Optional target id. Omit to seek the auto-resolved target.",
-                    },
-                },
-                "required": ["position_sec"],
-            },
+            parameters=load_tool_parameters(__file__, "audio_seek"),
             executor=_seek,
         )
 
@@ -713,20 +626,7 @@ class AudioPlayerPlugin:
             name="audio_skip",
             tier=TIER_READONLY,
             description=load_tool_description(__file__, "audio_skip"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "delta_sec": {
-                        "type": "number",
-                        "description": "Seconds to skip. Positive = forward, negative = backward.",
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Optional target id. Omit to skip on the auto-resolved target.",
-                    },
-                },
-                "required": ["delta_sec"],
-            },
+            parameters=load_tool_parameters(__file__, "audio_skip"),
             executor=_skip,
         )
 
@@ -747,20 +647,7 @@ class AudioPlayerPlugin:
             name="audio_speed",
             tier=TIER_READONLY,
             description=load_tool_description(__file__, "audio_speed"),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "factor": {
-                        "type": "number",
-                        "description": "Speed multiplier (0.25 to 4.0).",
-                    },
-                    "target": {
-                        "type": "string",
-                        "description": "Optional target id. Omit to apply on the auto-resolved target.",
-                    },
-                },
-                "required": ["factor"],
-            },
+            parameters=load_tool_parameters(__file__, "audio_speed"),
             executor=_speed,
         )
 
@@ -790,15 +677,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_status")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "target": {
-                        "type": "string",
-                        "description": "Optional target id. Omit to get all targets.",
-                    },
-                },
-            },
+            parameters=load_tool_parameters(__file__, "audio_status"),
             executor=_status,
         )
 
@@ -913,23 +792,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_list")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                        "description": "Source label. Omit to list all sources with item counts.",
-                    },
-                    "subdir": {
-                        "type": "string",
-                        "description": "Optional sub-path inside the source (e.g. 'Klassik/Mozart') to narrow listing.",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Optional cap on returned items. Omit (default) to return ALL — the token-budget cap protects context if the result is huge.",
-                    },
-                },
-            },
+            parameters=load_tool_parameters(__file__, "audio_list"),
             executor=_list,
         )
 
@@ -967,24 +830,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_search")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "query": {
-                        "type": "string",
-                        "description": "Search terms. Will be AND-combined as prefix match.",
-                    },
-                    "source": {
-                        "type": "string",
-                        "description": "Optional source label to limit search scope.",
-                    },
-                    "limit": {
-                        "type": "integer",
-                        "description": "Optional cap on returned hits. Omit (default) to return ALL matches — the token-budget cap protects context if a query yields very many.",
-                    },
-                },
-                "required": ["query"],
-            },
+            parameters=load_tool_parameters(__file__, "audio_search"),
             executor=_search,
         )
 
@@ -1037,20 +883,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_index_rebuild")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "source": {
-                        "type": "string",
-                        "description": "Source label. Omit to rebuild all local_folder sources.",
-                    },
-                    "force": {
-                        "type": "boolean",
-                        "description": "If true, ignore mtime and re-read tags for every file.",
-                        "default": False,
-                    },
-                },
-            },
+            parameters=load_tool_parameters(__file__, "audio_index_rebuild"),
             executor=_rebuild,
         )
 
@@ -1065,7 +898,7 @@ class AudioPlayerPlugin:
             description=(
                 load_tool_description(__file__, "audio_list_unfinished")
             ),
-            parameters={"type": "object", "properties": {}},
+            parameters=load_tool_parameters(__file__, "audio_list_unfinished"),
             executor=_list_unfinished,
         )
 
@@ -1087,7 +920,7 @@ class AudioPlayerPlugin:
             name="audio_targets",
             tier=TIER_READONLY,
             description=load_tool_description(__file__, "audio_targets"),
-            parameters={"type": "object", "properties": {}},
+            parameters=load_tool_parameters(__file__, "audio_targets"),
             executor=_targets,
         )
 

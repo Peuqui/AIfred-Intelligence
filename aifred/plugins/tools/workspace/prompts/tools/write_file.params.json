@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Filename relative to documents/ (e.g. 'notes/summary.md')"
+    },
+    "content": {
+      "type": "string",
+      "description": "Full text content to write"
+    }
+  },
+  "required": [
+    "filename",
+    "content"
+  ]
+}

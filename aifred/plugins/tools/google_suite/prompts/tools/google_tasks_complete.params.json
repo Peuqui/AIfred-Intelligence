@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "description": "ID of the task"
+    },
+    "tasklist_id": {
+      "type": "string",
+      "description": "Task list ID (default: @default)"
+    }
+  },
+  "required": [
+    "task_id"
+  ]
+}

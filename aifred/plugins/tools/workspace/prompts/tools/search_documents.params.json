@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "Search query — what are you looking for?"
+    },
+    "n_results": {
+      "type": "integer",
+      "description": "Page size — number of similarity hits per page (default: 5, max: {max_results})",
+      "default": 5
+    },
+    "folder": {
+      "type": "string",
+      "description": "Folder to restrict the search to. Includes all nested sub-folders automatically — pass 'bibel' to search both Schlachter and GuteNachricht, 'judaica' to search everything Jewish, 'bibel/Schlachter' to narrow to one translation. Omit to search across all indexed content."
+    },
+    "page": {
+      "type": "integer",
+      "description": "1-based page number for pagination. page=1 (default) returns the top similarity hits, page=2 the next batch deeper into the ranking, etc. Use the SAME query when paginating. Watch has_more in the response to decide whether another page is worth fetching.",
+      "default": 1
+    }
+  },
+  "required": [
+    "query"
+  ]
+}

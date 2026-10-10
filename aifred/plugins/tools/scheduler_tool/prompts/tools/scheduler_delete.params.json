@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "job_id": {
+      "type": "integer",
+      "description": "ID of the job to delete"
+    }
+  },
+  "required": [
+    "job_id"
+  ]
+}

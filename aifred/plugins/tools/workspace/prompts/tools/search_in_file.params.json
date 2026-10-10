@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Filename relative to documents/ (e.g. 'notes/summary.md')"
+    },
+    "query": {
+      "type": "string",
+      "description": "Literal text to search for (case-sensitive, no regex)"
+    },
+    "context_lines": {
+      "type": "integer",
+      "description": "Lines of context to show around each match (0-10, default 0)"
+    }
+  },
+  "required": [
+    "filename",
+    "query"
+  ]
+}

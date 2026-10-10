@@ -1,0 +1,30 @@
+{
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "description": "The text to translate"
+    },
+    "target_lang": {
+      "type": "string",
+      "description": "Target language code (e.g. 'EN', 'DE', 'FR', 'ES', 'JA')"
+    },
+    "source_lang": {
+      "type": "string",
+      "description": "Source language code (optional, auto-detected if omitted)"
+    },
+    "context": {
+      "type": "string",
+      "description": "Optional surrounding context (not translated, not billed) — improves terminology and tone. Useful when translating a chunk of a larger document: pass the neighbouring text or a short topic description."
+    },
+    "formality": {
+      "type": "string",
+      "enum": [],
+      "description": "Form of address / tone, for languages that distinguish it (DE, FR, ES, IT, NL, PL, PT, JA, RU). 'prefer_less' = informal (German 'du') — the default, right for documentation, chat and private messages. 'prefer_more' = formal (German 'Sie') — use for business or official correspondence, legal and customer-facing texts. 'default' leaves the choice to DeepL. Pick it from the target audience of the text; if the user states a preference, follow that."
+    }
+  },
+  "required": [
+    "text",
+    "target_lang"
+  ]
+}

@@ -9,7 +9,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.logging_utils import log_message
 
 
@@ -153,16 +153,7 @@ class SystemMonitorPlugin:
             description=(
                 load_tool_description(__file__, "system_status")
             ),
-            parameters={
-                "type": "object",
-                "properties": {
-                    "components": {
-                        "type": "string",
-                        "description": "Comma-separated: cpu, ram, gpu, disk, temp, uptime, or 'all'",
-                        "default": "all",
-                    },
-                },
-            },
+            parameters=load_tool_parameters(__file__, "system_status"),
             executor=_system_status,
         ))
 

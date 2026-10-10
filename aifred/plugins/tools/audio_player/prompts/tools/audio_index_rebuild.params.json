@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string",
+      "description": "Source label. Omit to rebuild all local_folder sources."
+    },
+    "force": {
+      "type": "boolean",
+      "description": "If true, ignore mtime and re-read tags for every file.",
+      "default": false
+    }
+  }
+}

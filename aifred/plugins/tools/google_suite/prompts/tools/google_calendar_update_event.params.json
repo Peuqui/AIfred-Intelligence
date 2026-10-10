@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "description": "ID of the event"
+    },
+    "calendar_id": {
+      "type": "string",
+      "description": "Calendar ID (default: primary)"
+    },
+    "title": {
+      "type": "string",
+      "description": "New title (optional)"
+    },
+    "start": {
+      "type": "string",
+      "description": "New start time, RFC 3339 (optional)"
+    },
+    "end": {
+      "type": "string",
+      "description": "New end time, RFC 3339 (optional)"
+    },
+    "description": {
+      "type": "string",
+      "description": "New description (optional)"
+    },
+    "location": {
+      "type": "string",
+      "description": "New location (optional)"
+    }
+  },
+  "required": [
+    "event_id"
+  ]
+}

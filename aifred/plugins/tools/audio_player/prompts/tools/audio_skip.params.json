@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "delta_sec": {
+      "type": "number",
+      "description": "Seconds to skip. Positive = forward, negative = backward."
+    },
+    "target": {
+      "type": "string",
+      "description": "Optional target id. Omit to skip on the auto-resolved target."
+    }
+  },
+  "required": [
+    "delta_sec"
+  ]
+}

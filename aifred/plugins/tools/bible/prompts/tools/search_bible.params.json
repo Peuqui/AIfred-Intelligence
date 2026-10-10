@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "query": {
+      "type": "string",
+      "description": "A scripture reference (e.g. 'Psalm 5', 'Joh 3,16') or a topic (e.g. 'Verse über Trost')"
+    }
+  },
+  "required": [
+    "query"
+  ]
+}

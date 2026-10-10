@@ -13,7 +13,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_WRITE_DATA, TIER_READONLY
-from ....lib.plugin_base import PluginContext, load_tool_description
+from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 
 
 @dataclass
@@ -212,121 +212,28 @@ class SchedulerPlugin:
                 description=(
                     load_tool_description(__file__, "scheduler_create")
                 ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "name": {
-                            "type": "string",
-                            "description": "Short descriptive name for the job",
-                        },
-                        "schedule_type": {
-                            "type": "string",
-                            "enum": list(self._SCHEDULE_TYPES),
-                            "description": "Type of schedule",
-                        },
-                        "schedule_expr": {
-                            "type": "string",
-                            "description": "Cron expression, interval in seconds, or ISO timestamp",
-                        },
-                        "message": {
-                            "type": "string",
-                            "description": "The prompt/message AIfred will process at the scheduled time",
-                        },
-                        "agent": {
-                            "type": "string",
-                            "description": "Agent to use (default: aifred)",
-                            "default": "aifred",
-                        },
-                        "delivery": {
-                            "type": "string",
-                            "enum": list(self._DELIVERY_MODES),
-                            "description": "How to deliver the result (default: review)",
-                            "default": "review",
-                        },
-                        "channel": {
-                            "type": "string",
-                            "description": "Target channel for 'announce' delivery (e.g. telegram, discord, email)",
-                        },
-                        "recipient": {
-                            "type": "string",
-                            "description": "Recipient for 'announce' delivery (email address, etc.)",
-                        },
-                        "webhook_url": {
-                            "type": "string",
-                            "description": "URL for 'webhook' delivery",
-                        },
-                    },
-                    "required": ["name", "schedule_type", "schedule_expr", "message"],
-                },
+                parameters=load_tool_parameters(__file__, "scheduler_create", enums={"schedule_type": list(self._SCHEDULE_TYPES), "delivery": list(self._DELIVERY_MODES)}),
                 executor=_create,
             ),
             Tool(
                 name="scheduler_list",
                 tier=TIER_READONLY,
                 description=load_tool_description(__file__, "scheduler_list"),
-                parameters={
-                    "type": "object",
-                    "properties": {},
-                },
+                parameters=load_tool_parameters(__file__, "scheduler_list"),
                 executor=_list,
             ),
             Tool(
                 name="scheduler_update",
                 tier=TIER_WRITE_DATA,
                 description=load_tool_description(__file__, "scheduler_update"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "job_id": {
-                            "type": "integer",
-                            "description": "ID of the job to change",
-                        },
-                        "name": {"type": "string", "description": "New name"},
-                        "schedule_type": {
-                            "type": "string",
-                            "enum": list(self._SCHEDULE_TYPES),
-                            "description": "New schedule type (then also pass schedule_expr)",
-                        },
-                        "schedule_expr": {
-                            "type": "string",
-                            "description": "New cron expression, interval in seconds, or ISO timestamp",
-                        },
-                        "message": {
-                            "type": "string",
-                            "description": "New prompt/message (replaces the old text completely)",
-                        },
-                        "agent": {"type": "string", "description": "New agent"},
-                        "delivery": {
-                            "type": "string",
-                            "enum": list(self._DELIVERY_MODES),
-                            "description": "New delivery mode",
-                        },
-                        "channel": {"type": "string", "description": "New channel for 'announce' delivery"},
-                        "recipient": {"type": "string", "description": "New recipient for 'announce' delivery"},
-                        "webhook_url": {"type": "string", "description": "New URL for 'webhook' delivery"},
-                        "enabled": {
-                            "type": "boolean",
-                            "description": "true = switch the job on, false = switch it off",
-                        },
-                    },
-                    "required": ["job_id"],
-                },
+                parameters=load_tool_parameters(__file__, "scheduler_update", enums={"schedule_type": list(self._SCHEDULE_TYPES), "delivery": list(self._DELIVERY_MODES)}),
                 executor=_update,
             ),
             Tool(
                 name="scheduler_delete",
                 tier=TIER_WRITE_DATA,
                 description=load_tool_description(__file__, "scheduler_delete"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "job_id": {
-                            "type": "integer",
-                            "description": "ID of the job to delete",
-                        },
-                    },
-                    "required": ["job_id"],
-                },
+                parameters=load_tool_parameters(__file__, "scheduler_delete"),
                 executor=_delete,
             ),
         ]

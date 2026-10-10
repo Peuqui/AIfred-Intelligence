@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "filename": {
+      "type": "string",
+      "description": "Filename relative to documents/ (e.g. 'notes/summary.md')"
+    },
+    "old_string": {
+      "type": "string",
+      "description": "Exact text to replace — must occur exactly once in the file (include surrounding lines to make it unique)"
+    },
+    "new_string": {
+      "type": "string",
+      "description": "Replacement text"
+    },
+    "replace_all": {
+      "type": "boolean",
+      "description": "Replace EVERY occurrence instead of requiring a unique match (e.g. renaming a variable). Default false."
+    }
+  },
+  "required": [
+    "filename",
+    "old_string",
+    "new_string"
+  ]
+}

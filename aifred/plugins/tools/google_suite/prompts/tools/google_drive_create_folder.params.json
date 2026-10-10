@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Folder name"
+    },
+    "parent_id": {
+      "type": "string",
+      "description": "Parent folder ID (optional)"
+    }
+  },
+  "required": [
+    "name"
+  ]
+}

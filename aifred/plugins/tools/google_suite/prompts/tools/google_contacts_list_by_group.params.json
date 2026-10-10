@@ -1,0 +1,16 @@
+{
+  "type": "object",
+  "properties": {
+    "group_name": {
+      "type": "string",
+      "description": "Group name (e.g. 'Familie', 'Arbeit')"
+    },
+    "max_members": {
+      "type": "integer",
+      "description": "Maximum members (default and API limit: 200)"
+    }
+  },
+  "required": [
+    "group_name"
+  ]
+}

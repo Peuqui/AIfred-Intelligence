@@ -1,0 +1,24 @@
+{
+  "type": "object",
+  "properties": {
+    "title": {
+      "type": "string",
+      "description": "Task title"
+    },
+    "notes": {
+      "type": "string",
+      "description": "Notes/description (optional)"
+    },
+    "due": {
+      "type": "string",
+      "description": "Due date, RFC 3339 (optional)"
+    },
+    "tasklist_id": {
+      "type": "string",
+      "description": "Task list ID (default: @default)"
+    }
+  },
+  "required": [
+    "title"
+  ]
+}

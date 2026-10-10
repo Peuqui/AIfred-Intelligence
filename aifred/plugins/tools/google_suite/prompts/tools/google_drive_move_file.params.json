@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "file_id": {
+      "type": "string",
+      "description": "ID of the file to move"
+    },
+    "target_folder_id": {
+      "type": "string",
+      "description": "ID of the target folder"
+    }
+  },
+  "required": [
+    "file_id",
+    "target_folder_id"
+  ]
+}

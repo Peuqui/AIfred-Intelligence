@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "file_id": {
+      "type": "string",
+      "description": "ID of the file to update"
+    },
+    "content": {
+      "type": "string",
+      "description": "New file content"
+    },
+    "mime_type": {
+      "type": "string",
+      "description": "MIME type (default: text/plain)"
+    }
+  },
+  "required": [
+    "file_id",
+    "content"
+  ]
+}

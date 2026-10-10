@@ -10,7 +10,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
-from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description
+from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description, load_tool_parameters
 
 
 # DeepL supported languages (subset of most common ones for description)
@@ -152,38 +152,6 @@ def _protect_code_blocks(text: str) -> tuple[str, list[str]]:
         blocks.append("\n".join(current))
         out.append(_PLACEHOLDER.format(n=len(blocks) - 1))
     return "\n".join(out), blocks
-
-
-# Geteilte Parameter-Schemas beider Tools — eine Wahrheit statt verbatim
-# kopierter Descriptions.
-_TARGET_LANG_PARAM = {
-    "type": "string",
-    "description": "Target language code (e.g. 'EN', 'DE', 'FR', 'ES', 'JA')",
-}
-_SOURCE_LANG_PARAM = {
-    "type": "string",
-    "description": "Source language code (optional, auto-detected if omitted)",
-}
-
-
-def _formality_param() -> dict:
-    """Formality-Schema (enum aus DEEPL_FORMALITY_VALUES abgeleitet) —
-    identisch für translate und translate_file."""
-    return {
-        "type": "string",
-        "enum": sorted(DEEPL_FORMALITY_VALUES),
-        "description": (
-            "Form of address / tone, for languages that "
-            "distinguish it (DE, FR, ES, IT, NL, PL, PT, JA, RU). "
-            "'prefer_less' = informal (German 'du') — the default, "
-            "right for documentation, chat and private messages. "
-            "'prefer_more' = formal (German 'Sie') — use for "
-            "business or official correspondence, legal and "
-            "customer-facing texts. 'default' leaves the choice to "
-            "DeepL. Pick it from the target audience of the text; "
-            "if the user states a preference, follow that."
-        ),
-    }
 
 
 def _validate_request(target_lang: str, formality: str) -> tuple[str, str, str, "str | None"]:
@@ -448,28 +416,7 @@ class TranslatorPlugin:
                 description=load_tool_description(__file__, "translate").format(
                     languages=lang_list
                 ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "text": {
-                            "type": "string",
-                            "description": "The text to translate",
-                        },
-                        "target_lang": _TARGET_LANG_PARAM,
-                        "source_lang": _SOURCE_LANG_PARAM,
-                        "context": {
-                            "type": "string",
-                            "description": (
-                                "Optional surrounding context (not translated, not "
-                                "billed) — improves terminology and tone. Useful when "
-                                "translating a chunk of a larger document: pass the "
-                                "neighbouring text or a short topic description."
-                            ),
-                        },
-                        "formality": _formality_param(),
-                    },
-                    "required": ["text", "target_lang"],
-                },
+                parameters=load_tool_parameters(__file__, "translate", enums={"formality": sorted(DEEPL_FORMALITY_VALUES)}),
                 executor=_translate,
             ),
             Tool(
@@ -480,31 +427,7 @@ class TranslatorPlugin:
                 description=load_tool_description(__file__, "translate_file").format(
                     languages=lang_list
                 ),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "filename": {
-                            "type": "string",
-                            "description": (
-                                "Source file, relative to the documents root "
-                                "WITHOUT a 'documents/' prefix "
-                                "(e.g. 'deployment.md'). Use list_files "
-                                "first if you are unsure of the path."
-                            ),
-                        },
-                        "target_lang": _TARGET_LANG_PARAM,
-                        "output_filename": {
-                            "type": "string",
-                            "description": (
-                                "Optional output path. Default: same folder, "
-                                "'<name>-<LANG>.<ext>' (e.g. 'deployment-DE.md')."
-                            ),
-                        },
-                        "source_lang": _SOURCE_LANG_PARAM,
-                        "formality": _formality_param(),
-                    },
-                    "required": ["filename", "target_lang"],
-                },
+                parameters=load_tool_parameters(__file__, "translate_file", enums={"formality": sorted(DEEPL_FORMALITY_VALUES)}),
                 executor=_translate_file,
             ),
         ]

@@ -1,0 +1,25 @@
+{
+  "type": "object",
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "File name (with extension, e.g. 'notiz.txt')"
+    },
+    "content": {
+      "type": "string",
+      "description": "File content"
+    },
+    "folder_id": {
+      "type": "string",
+      "description": "Target folder ID (optional)"
+    },
+    "mime_type": {
+      "type": "string",
+      "description": "MIME type (default: text/plain)"
+    }
+  },
+  "required": [
+    "name",
+    "content"
+  ]
+}
