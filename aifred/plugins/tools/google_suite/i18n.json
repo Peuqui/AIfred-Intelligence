@@ -103,6 +103,10 @@
     "de": "Drive",
     "en": "Drive"
   },
+  "google_drive_agent_folder": {
+    "de": "Drive-Ordner der Agenten (nur dort dürfen sie lesen und schreiben)",
+    "en": "Agents' Drive folder (the only place they may read and write)"
+  },
   "tool_google_drive_list_files": {
     "de": "📂 Dateien auflisten…",
     "en": "📂 Listing files…"

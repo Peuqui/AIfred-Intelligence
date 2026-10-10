@@ -1,1 +1,1 @@
-Search files in Google Drive. Simple keyword search (e.g. 'Projektplan') or Drive query syntax (e.g. "name contains 'Bericht'").
+Search files in the agent folder of Google Drive, subfolders included. Simple keyword search (e.g. 'Projektplan') or Drive query syntax (e.g. "name contains 'Bericht'").

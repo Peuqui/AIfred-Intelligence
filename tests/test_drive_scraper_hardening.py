@@ -6,9 +6,9 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from aifred.plugins.tools.google_suite.drive._api import escape_drive_term
 from aifred.plugins.tools.google_suite.drive.tools import (
     _DRIVE_QUERY_OPERATOR,
-    _escape_drive_term,
     _read_capped,
 )
 from aifred.lib.tools.scraper_tool import WebScraperTool
@@ -18,11 +18,11 @@ from aifred.lib.tools.scraper_tool import WebScraperTool
 
 class TestDriveQueryEscape:
     def test_quote_and_backslash_escaped(self):
-        assert _escape_drive_term("L'atelier") == "L\\'atelier"
-        assert _escape_drive_term("a\\b") == "a\\\\b"
+        assert escape_drive_term("L'atelier") == "L\\'atelier"
+        assert escape_drive_term("a\\b") == "a\\\\b"
         # Injection: Term kann das '...'-Literal nicht mehr verlassen
         evil = "x' or name contains 'geheim"
-        assert "' " not in _escape_drive_term(evil).replace("\\'", "")
+        assert "' " not in escape_drive_term(evil).replace("\\'", "")
 
     def test_operator_detection_word_boundaries(self):
         # Frueher: `"in" in query` — jede Suche mit "in" im Wort wurde als

@@ -7,7 +7,7 @@
     },
     "target_folder_id": {
       "type": "string",
-      "description": "ID of the target folder"
+      "description": "Target folder ID inside the agent folder '{agent_folder}'"
     }
   },
   "required": [

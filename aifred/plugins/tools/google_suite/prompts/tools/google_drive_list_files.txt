@@ -1,1 +1,1 @@
-List files in Google Drive. Optionally filter by folder via folder_id.
+List the content of a folder in the agent folder of Google Drive. Without folder_id: the agent folder itself.

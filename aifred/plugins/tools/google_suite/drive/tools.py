@@ -1,4 +1,5 @@
-"""Google Drive tools — Dateiverwaltung via Drive API v3."""
+"""Google Drive tools — Dateiverwaltung via Drive API v3, nur im Agenten-Ordner
+(``agent_folder.AgentFolder``)."""
 
 from __future__ import annotations
 
@@ -14,9 +15,8 @@ from .....lib.function_calling import Tool
 from .....lib.plugin_base import load_tool_description, load_tool_parameters
 from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
 from .._common import PLUGIN_DIR, _get_token, _google_request
-
-DRIVE_API = "https://www.googleapis.com/drive/v3"
-UPLOAD_API = "https://www.googleapis.com/upload/drive/v3"
+from ._api import DRIVE_API, FOLDER_MIME, UPLOAD_API, escape_drive_term
+from .agent_folder import AgentFolder
 
 # Google-interne MIME-Typen → Export-Format
 _GOOGLE_EXPORT_MIME: dict[str, str] = {
@@ -38,16 +38,6 @@ DRIVE_MAX_DOWNLOAD_BYTES = int(os.environ.get("DRIVE_MAX_DOWNLOAD_BYTES", str(5 
 _DRIVE_QUERY_OPERATOR = re.compile(r"=|\bcontains\b|\bin\s+parents\b")
 
 
-def _escape_drive_term(term: str) -> str:
-    r"""Escape a user/LLM-supplied term for use inside '...' in a Drive query.
-
-    Drive query strings escape backslash and single quote with a backslash —
-    without this, a term like ``L'atelier`` breaks the query and a crafted
-    term can inject arbitrary query operators.
-    """
-    return term.replace("\\", "\\\\").replace("'", "\\'")
-
-
 async def _read_capped(response: httpx.Response) -> str:
     """Read a streamed download, aborting past DRIVE_MAX_DOWNLOAD_BYTES."""
     chunks: list[bytes] = []
@@ -64,17 +54,18 @@ async def _read_capped(response: httpx.Response) -> str:
     return b"".join(chunks).decode(encoding, errors="replace")
 
 
-def get_drive_tools() -> list[Tool]:
+def get_drive_tools(agent_folder_name: str) -> list[Tool]:
+    folder = AgentFolder(agent_folder_name)
+    placeholders = {"agent_folder": agent_folder_name}
 
     async def list_files(
         folder_id: str = "",
         page_size: int = 30,
         order_by: str = "modifiedTime desc",
     ) -> str:
-        """Dateien im Drive auflisten, optional gefiltert nach Ordner."""
-        query = "trashed=false"
-        if folder_id:
-            query += f" and '{_escape_drive_term(folder_id)}' in parents"
+        """Inhalt eines Ordners im Agenten-Ordner (ohne folder_id: der Agenten-Ordner)."""
+        folder_id = await folder.require_folder(folder_id)
+        query = f"trashed=false and '{escape_drive_term(folder_id)}' in parents"
         r = await _google_request(
             "GET",
             f"{DRIVE_API}/files",
@@ -104,9 +95,14 @@ def get_drive_tools() -> list[Tool]:
         # Nutze fullText-Suche falls query kein Drive-Operator enthält
         # (Wort-genaue Erkennung + Escaping: siehe _DRIVE_QUERY_OPERATOR)
         if not _DRIVE_QUERY_OPERATOR.search(query):
-            drive_query = f"fullText contains '{_escape_drive_term(query)}' and trashed=false"
+            condition = f"fullText contains '{escape_drive_term(query)}'"
         else:
-            drive_query = query + " and trashed=false"
+            condition = f"({query})"
+        # The parents clause makes Google search only the agent folder; the
+        # holds() filter below is the boundary itself — a raw query that
+        # escapes its parentheses still returns nothing from outside.
+        inside = " or ".join(f"'{folder_id}' in parents" for folder_id in await folder.folder_ids())
+        drive_query = f"{condition} and trashed=false and ({inside})"
         r = await _google_request(
             "GET",
             f"{DRIVE_API}/files",
@@ -126,11 +122,13 @@ def get_drive_tools() -> list[Tool]:
                 "link": f.get("webViewLink"),
             }
             for f in files
+            if folder.holds(f)
         ]
         return wrap_untrusted_data(json.dumps(result, ensure_ascii=False), "google_drive")
 
     async def get_file(file_id: str) -> str:
         """Dateiinhalt lesen. Google Docs/Sheets werden als Text exportiert."""
+        await folder.require_inside(file_id)
         # Metadaten abrufen um MIME-Typ zu kennen
         meta = await _google_request(
             "GET", f"{DRIVE_API}/files/{file_id}",
@@ -180,11 +178,11 @@ def get_drive_tools() -> list[Tool]:
         Bewusst NICHT über _google_request — der multipart/related-Body mit
         eigener Boundary braucht einen Custom-Content-Type-Header.
         """
+        metadata: dict[str, Any] = {
+            "name": name, "mimeType": mime_type, "parents": [await folder.require_folder(folder_id)],
+        }
         token = await _get_token()
         boundary = uuid.uuid4().hex
-        metadata: dict[str, Any] = {"name": name, "mimeType": mime_type}
-        if folder_id:
-            metadata["parents"] = [folder_id]
 
         body = (
             f"--{boundary}\r\n"
@@ -219,6 +217,7 @@ def get_drive_tools() -> list[Tool]:
         Bewusst NICHT über _google_request — Raw-Body-Upload mit
         Custom-Content-Type.
         """
+        await folder.require_inside(file_id)
         token = await _get_token()
         async with httpx.AsyncClient() as client:
             r = await client.patch(
@@ -236,26 +235,27 @@ def get_drive_tools() -> list[Tool]:
 
     async def delete_file(file_id: str) -> str:
         """Datei dauerhaft löschen (nicht in den Papierkorb verschieben)."""
+        await folder.require_inside(file_id)
         await _google_request("DELETE", f"{DRIVE_API}/files/{file_id}")
         return json.dumps({"id": file_id, "deleted": True}, ensure_ascii=False)
 
     async def create_folder(name: str, parent_id: str = "") -> str:
         """Neuen Ordner im Drive erstellen."""
         metadata: dict[str, Any] = {
-            "name": name,
-            "mimeType": "application/vnd.google-apps.folder",
+            "name": name, "mimeType": FOLDER_MIME, "parents": [await folder.require_folder(parent_id)],
         }
-        if parent_id:
-            metadata["parents"] = [parent_id]
         r = await _google_request(
             "POST", f"{DRIVE_API}/files",
             params={"fields": _FILE_FIELDS}, json=metadata,
         )
         f = r.json()
+        folder.adopt(f["id"])
         return json.dumps({"id": f.get("id"), "name": f.get("name")}, ensure_ascii=False)
 
     async def move_file(file_id: str, target_folder_id: str) -> str:
-        """Datei in einen anderen Ordner verschieben."""
+        """Datei in einen anderen Ordner verschieben — beide im Agenten-Ordner."""
+        await folder.require_inside(file_id)
+        target_folder_id = await folder.require_folder(target_folder_id)
         # Aktuelle Parents laden
         meta = await _google_request(
             "GET", f"{DRIVE_API}/files/{file_id}", params={"fields": "parents"},
@@ -279,7 +279,7 @@ def get_drive_tools() -> list[Tool]:
             description=(
                 load_tool_description(PLUGIN_DIR, "google_drive_list_files")
             ),
-            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_list_files"),
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_list_files", values=placeholders),
             executor=list_files,
             tier=TIER_WRITE_DATA,  # reads private Drive data/content → block external channels
         ),
@@ -304,7 +304,7 @@ def get_drive_tools() -> list[Tool]:
         Tool(
             name="google_drive_create_file",
             description=load_tool_description(PLUGIN_DIR, "google_drive_create_file"),
-            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_create_file"),
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_create_file", values=placeholders),
             executor=create_file,
             tier=TIER_WRITE_DATA,
         ),
@@ -327,14 +327,14 @@ def get_drive_tools() -> list[Tool]:
         Tool(
             name="google_drive_create_folder",
             description=load_tool_description(PLUGIN_DIR, "google_drive_create_folder"),
-            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_create_folder"),
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_create_folder", values=placeholders),
             executor=create_folder,
             tier=TIER_WRITE_DATA,
         ),
         Tool(
             name="google_drive_move_file",
             description=load_tool_description(PLUGIN_DIR, "google_drive_move_file"),
-            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_move_file"),
+            parameters=load_tool_parameters(PLUGIN_DIR, "google_drive_move_file", values=placeholders),
             executor=move_file,
             tier=TIER_WRITE_DATA,
         ),

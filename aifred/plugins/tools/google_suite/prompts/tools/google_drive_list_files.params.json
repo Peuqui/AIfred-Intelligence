@@ -3,7 +3,7 @@
   "properties": {
     "folder_id": {
       "type": "string",
-      "description": "Folder ID (optional, default: root)"
+      "description": "Folder ID (optional, default: the agent folder '{agent_folder}')"
     },
     "page_size": {
       "type": "integer",
