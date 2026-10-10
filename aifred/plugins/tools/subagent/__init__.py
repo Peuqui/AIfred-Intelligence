@@ -343,11 +343,23 @@ class SubAgentPlugin:
             Tool(
                 name=TOOL_NAME,
                 tier=TIER_READONLY,
-                description=load_tool_description(__file__, TOOL_NAME),
+                description=self._description(ctx, settings),
                 parameters=parameters,
                 executor=_delegate,
             ),
         ]
+
+    @staticmethod
+    def _description(ctx: PluginContext, settings: SubAgentSettings) -> str:
+        """The tool description; when the channel leaves sub-agents only the
+        read-only tier (e.g. the Echo: channel tier 1, sub-agents 0 and 2),
+        it says so — delegating a writing or printing task there cannot work
+        (10.10.2026: two futile delegations before AIfred found another way)."""
+        description = load_tool_description(__file__, TOOL_NAME)
+        reachable = {tier for tier in settings.allowed_tiers if tier <= ctx.max_tier}
+        if reachable <= {TIER_READONLY}:
+            description += "\n\n" + load_tool_description(__file__, "delegate_task_read_only")
+        return description
 
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         return load_plugin_instructions(self, lang, granted_tools)

@@ -1,0 +1,1 @@
+IN THIS CONVERSATION SUB-AGENTS CAN ONLY READ AND SEARCH (the channel's permission level): they cannot write or change files, run code, print or send messages. Do not delegate tasks that need any of that — do them yourself if your own tools allow it, otherwise tell the user what is not possible here.

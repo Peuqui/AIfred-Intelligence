@@ -90,6 +90,13 @@ class TestPluginShape:
         props = plugin.get_tools(ctx)[0].parameters["properties"]
         assert "agent" not in props
 
+    def test_a_read_only_channel_says_so_in_the_description(self, plugin, ctx):
+        """Echo: channel tier 1, sub-agents 0 and 2 → only reading reaches them."""
+        note = "SUB-AGENTS CAN ONLY READ"
+        assert note not in plugin.get_tools(ctx)[0].description          # tier 2: they may write
+        ctx.max_tier = TIER_COMMUNICATE
+        assert note in plugin.get_tools(ctx)[0].description
+
     def test_default_settings(self, plugin):
         s = plugin.settings()
         assert s.allowed_tiers == frozenset({TIER_READONLY, TIER_WRITE_DATA})
