@@ -1,0 +1,179 @@
+"""STTClient: HTTP-Abbildung des STT-Containers, ohne echtes Netz und ohne Docker."""
+
+import json
+
+import pytest
+import requests
+
+import aifred.lib.stt_client as stt_client
+from aifred.lib.stt_client import (
+    STTBusyError,
+    STTClient,
+    STTError,
+    STTGPUUnavailableError,
+    STTTimeoutError,
+    STTUnreachableError,
+)
+
+
+def _response(status: int, body: object) -> requests.Response:
+    resp = requests.Response()
+    resp.status_code = status
+    resp._content = body if isinstance(body, bytes) else json.dumps(body).encode()
+    return resp
+
+
+@pytest.fixture
+def client() -> STTClient:
+    return STTClient("http://stt.test", "/nonexistent/docker-compose.yml")
+
+
+@pytest.fixture
+def calls(monkeypatch):
+    """Ersetzt requests.request; ``calls.answer`` ist Antwort oder Ausnahme."""
+    class Recorder:
+        answer: object = None
+        sent: list[tuple[str, str, dict]] = []
+
+    recorder = Recorder()
+    recorder.sent = []
+
+    def fake_request(method, url, **kwargs):
+        recorder.sent.append((method, url, kwargs))
+        if isinstance(recorder.answer, Exception):
+            raise recorder.answer
+        return recorder.answer
+
+    monkeypatch.setattr(requests, "request", fake_request)
+    return recorder
+
+
+def test_health_and_is_ready(client, calls):
+    calls.answer = _response(200, {"model_loaded": True})
+    assert client.health() == {"model_loaded": True}
+    assert client.is_ready()
+    assert calls.sent[0][:2] == ("GET", "http://stt.test/health")
+
+
+def test_is_ready_false_while_model_loads_or_service_down(client, calls):
+    calls.answer = _response(200, {"model_loaded": False})
+    assert not client.is_ready()
+    calls.answer = requests.ConnectionError()
+    assert not client.is_ready()
+
+
+def test_status_returns_service_json(client, calls):
+    calls.answer = _response(200, {"engine": "whisper", "gpu_worker_pid": 42})
+    assert client.status()["gpu_worker_pid"] == 42
+
+
+def test_set_config_posts_payload(client, calls):
+    calls.answer = _response(200, {})
+    client.set_config({"beam_size": 5})
+    method, url, kwargs = calls.sent[0]
+    assert (method, url, kwargs["json"]) == ("POST", "http://stt.test/config", {"beam_size": 5})
+
+
+def test_transcribe_success_sends_all_parameters(client, calls, tmp_path):
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF")
+    calls.answer = _response(200, {"text": "hallo", "time": 1.5})
+    assert client.transcribe(str(audio), "de", "cuda", True)["text"] == "hallo"
+    kwargs = calls.sent[0][2]
+    assert kwargs["data"] == {"device": "cuda", "language": "de", "diarize": "1"}
+    assert kwargs["timeout"] == stt_client.WHISPER_TRANSCRIBE_TIMEOUT_S
+    assert kwargs["files"]["file"][0] == "clip.wav"
+
+
+def test_transcribe_503_means_gpu_unavailable_with_service_reason(client, calls, tmp_path):
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF")
+    calls.answer = _response(503, {"error": "no GPU with enough VRAM"})
+    with pytest.raises(STTGPUUnavailableError, match="no GPU with enough VRAM"):
+        client.transcribe(str(audio), "de", "cuda", False)
+
+
+def test_transcribe_other_service_error_names_the_device(client, calls, tmp_path):
+    audio = tmp_path / "clip.wav"
+    audio.write_bytes(b"RIFF")
+    calls.answer = _response(500, b"boom")
+    with pytest.raises(STTError, match=r"Whisper \(cpu\): boom") as excinfo:
+        client.transcribe(str(audio), "de", "cpu", False)
+    assert not isinstance(excinfo.value, STTGPUUnavailableError)
+
+
+def test_timeout_is_both_stt_error_and_timeout_error(client, calls):
+    calls.answer = requests.Timeout()
+    with pytest.raises(STTTimeoutError) as excinfo:
+        client.status()
+    assert isinstance(excinfo.value, TimeoutError)
+
+
+def test_connection_error_is_unreachable(client, calls):
+    calls.answer = requests.ConnectionError()
+    with pytest.raises(STTUnreachableError):
+        client.status()
+
+
+def test_invalid_json_is_an_stt_error(client, calls):
+    calls.answer = _response(200, b"<html>")
+    with pytest.raises(STTError, match="invalid JSON"):
+        client.status()
+
+
+def test_unload_returns_unloaded_devices_and_passes_force(client, calls):
+    calls.answer = _response(200, {"unloaded": ["gpu"]})
+    assert client.unload("cuda") == ["gpu"]
+    assert calls.sent[0][2]["params"] == {"device": "cuda"}
+    client.unload("cuda", force=True)
+    assert calls.sent[1][2]["params"] == {"device": "cuda", "force": "1"}
+
+
+def test_unload_409_is_busy(client, calls):
+    calls.answer = _response(409, {"error": "transcription running"})
+    with pytest.raises(STTBusyError):
+        client.unload("cuda")
+
+
+def test_ensure_ready_does_nothing_when_ready(client, calls, monkeypatch):
+    calls.answer = _response(200, {"model_loaded": True})
+    monkeypatch.setattr(client, "start_container", lambda: pytest.fail("must not start"))
+    client.ensure_ready(timeout_s=1)
+
+
+def test_ensure_ready_starts_container_and_waits_for_model(client, monkeypatch):
+    probes = iter([False, False, True])
+    started = []
+    monkeypatch.setattr(client, "is_ready", lambda: next(probes))
+
+    def fake_start() -> tuple[bool, str]:
+        started.append(1)
+        return True, "up"
+
+    monkeypatch.setattr(client, "start_container", fake_start)
+    monkeypatch.setattr(stt_client.time, "sleep", lambda _s: None)
+    client.ensure_ready(timeout_s=60)
+    assert started == [1]
+
+
+def test_ensure_ready_reports_failed_start(client, monkeypatch):
+    monkeypatch.setattr(client, "is_ready", lambda: False)
+    monkeypatch.setattr(client, "start_container", lambda: (False, "compose missing"))
+    with pytest.raises(STTError, match="compose missing"):
+        client.ensure_ready(timeout_s=1)
+
+
+def test_ensure_ready_times_out(client, monkeypatch):
+    now = iter(range(0, 100))
+    monkeypatch.setattr(client, "is_ready", lambda: False)
+    monkeypatch.setattr(client, "start_container", lambda: (True, "up"))
+    monkeypatch.setattr(stt_client.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(stt_client.time, "monotonic", lambda: next(now))
+    with pytest.raises(STTError, match="Timeout after 3s"):
+        client.ensure_ready(timeout_s=3)
+
+
+def test_start_container_without_compose_file_names_the_suite_dir(client):
+    started, message = client.start_container()
+    assert not started
+    assert stt_client.STT_SUITE_DIR in message

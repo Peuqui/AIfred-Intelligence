@@ -1315,10 +1315,6 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
     return deleted
 
 
-class WhisperGPUUnavailable(RuntimeError):
-    """No GPU with enough free VRAM — caller may retry on CPU."""
-
-
 def release_whisper_gpu() -> bool:
     """Kill the whisper-stt GPU worker so its VRAM can't collide with an
     LLM cold start (calibrated splits assume empty cards).
@@ -1331,30 +1327,26 @@ def release_whisper_gpu() -> bool:
     the service is down or no GPU worker is running.
     """
     import time
-    import requests
-    from .config import WHISPER_RELEASE_WAIT_MAX_S, WHISPER_SERVICE_URL
+    from .config import WHISPER_RELEASE_POLL_S, WHISPER_RELEASE_WAIT_MAX_S
+    from .stt_client import STTBusyError, STTError, get_default_client
 
+    client = get_default_client()
     deadline = time.monotonic() + WHISPER_RELEASE_WAIT_MAX_S
     try:
         while True:
-            resp = requests.post(
-                f"{WHISPER_SERVICE_URL}/unload", params={"device": "cuda"}, timeout=5,
-            )
-            if resp.status_code != 409:
-                return resp.ok and "gpu" in resp.json().get("unloaded", [])
-            if time.monotonic() >= deadline:
-                log_message(
-                    f"⚠️ Whisper transcription still running after "
-                    f"{WHISPER_RELEASE_WAIT_MAX_S}s — force-killing GPU worker "
-                    f"for model load", "warning",
-                )
-                resp = requests.post(
-                    f"{WHISPER_SERVICE_URL}/unload",
-                    params={"device": "cuda", "force": "1"}, timeout=5,
-                )
-                return resp.ok and "gpu" in resp.json().get("unloaded", [])
-            time.sleep(2)
-    except (requests.RequestException, ValueError):
+            try:
+                return "gpu" in client.unload("cuda")
+            except STTBusyError:
+                if time.monotonic() >= deadline:
+                    break
+                time.sleep(WHISPER_RELEASE_POLL_S)
+        log_message(
+            f"⚠️ Whisper transcription still running after "
+            f"{WHISPER_RELEASE_WAIT_MAX_S}s — force-killing GPU worker "
+            f"for model load", "warning",
+        )
+        return "gpu" in client.unload("cuda", force=True)
+    except STTError:
         return False
 
 
@@ -1369,13 +1361,12 @@ def whisper_gpu_footprint() -> dict[str, int]:
     in every namespace — its last entry is the container's view, which
     identifies the worker without counting other GPU containers (TTS).
     """
-    import requests
-    from .config import WHISPER_SERVICE_URL
     from .nvidia_smi import compute_apps
+    from .stt_client import STTError, get_default_client
 
     try:
-        status = requests.get(f"{WHISPER_SERVICE_URL}/status", timeout=3).json()
-    except (requests.RequestException, ValueError):
+        status = get_default_client().status()
+    except STTError:
         return {}
     worker = status.get("gpu_worker_pid")
     if not worker:
@@ -1418,13 +1409,14 @@ def transcribe_audio_auto(
     Tries the GPU engine first (the whisper-stt service checks free VRAM
     itself and answers 503 when nothing fits). Files up to
     WHISPER_GPU_MIN_FILE_MB then retry on the permanent CPU model; bigger
-    files re-raise WhisperGPUUnavailable so the caller decides what to do
+    files re-raise STTGPUUnavailableError so the caller decides what to do
     (unload the LLM, abort, ...) — CPU is no option at that size.
 
     Returns:
         tuple: (transcribed_text, time_in_seconds, device_used)
     """
     from .config import WHISPER_GPU_MIN_FILE_MB
+    from .stt_client import STTGPUUnavailableError
 
     try:
         text, stt_time = transcribe_audio(
@@ -1432,7 +1424,7 @@ def transcribe_audio_auto(
             diarize=diarize,
         )
         return text, stt_time, "cuda"
-    except WhisperGPUUnavailable:
+    except STTGPUUnavailableError:
         if os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB:
             raise
         log_message("⚠️ No GPU with free VRAM — falling back to CPU engine (slower)", "warning")
@@ -1462,56 +1454,17 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
     if not audio_path:
         return "", 0.0
 
-    import requests
-    from .config import WHISPER_SERVICE_URL, WHISPER_TRANSCRIBE_TIMEOUT_S
+    from .config import WHISPER_TRANSCRIBE_TIMEOUT_S
+    from .stt_client import (
+        STTError,
+        STTTimeoutError,
+        STTUnreachableError,
+        get_default_client,
+    )
 
     try:
-        with open(audio_path, "rb") as f:
-            resp = requests.post(
-                f"{WHISPER_SERVICE_URL}/transcribe",
-                files={"file": (Path(audio_path).name, f)},
-                data={"device": device, "language": language,
-                      "diarize": "1" if diarize else "0"},
-                timeout=WHISPER_TRANSCRIBE_TIMEOUT_S,
-            )
-
-        if resp.ok:
-            data = resp.json()
-            user_text = data.get("text", "").strip()
-            stt_time = data.get("time", 0.0)
-            # Speaker-labelled variant wins when diarization succeeded; a
-            # failure keeps the plain transcript (the service reports why).
-            if diarize:
-                speaker_text = (data.get("text_speakers") or "").strip()
-                if speaker_text:
-                    speakers = data.get("speakers") or []
-                    user_text = speaker_text
-                    log_message(
-                        f"🗣️ Diarization: {len(speakers)} speaker(s) "
-                        f"in {data.get('diarize_time', 0):.1f}s"
-                    )
-                elif data.get("diarize_error"):
-                    log_message(f"⚠️ Diarization failed: {data['diarize_error']}", "warning")
-            if log_result:
-                log_message(
-                    f"✅ STT Transcription: {user_text[:100]}"
-                    f"{'...' if len(user_text) > 100 else ''} "
-                    f"(Time: {stt_time:.1f}s)"
-                )
-            return user_text, stt_time
-
-        # Surface the real reason (e.g. "no GPU with enough VRAM") instead of
-        # returning empty text — the caller shows RuntimeError as a toast.
-        try:
-            service_error = resp.json().get("error", resp.text[:200])
-        except ValueError:
-            service_error = resp.text[:200]
-        log_message(f"❌ Whisper service error: {resp.status_code} {service_error}", "error")
-        if resp.status_code == 503:
-            raise WhisperGPUUnavailable(service_error)
-        raise RuntimeError(f"Whisper ({device}): {service_error}")
-
-    except requests.Timeout:
+        data = get_default_client().transcribe(audio_path, language, device, diarize)
+    except STTTimeoutError:
         minutes = WHISPER_TRANSCRIBE_TIMEOUT_S // 60
         log_message(
             f"❌ Whisper transcription timed out after {minutes} min "
@@ -1520,14 +1473,37 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
         raise TimeoutError(
             f"Transcription timed out after {minutes} min ({device} engine)"
         )
-    except requests.ConnectionError:
+    except STTUnreachableError:
         log_message("❌ Whisper service not reachable (container running?)", "error")
         return "", 0.0
-    except RuntimeError:
-        raise  # service error raised above — do not swallow into empty text
-    except Exception as e:
-        log_message(f"❌ Whisper transcription failed: {e}", "error")
-        return "", 0.0
+    except STTError as e:
+        # Surface the real reason (e.g. "no GPU with enough VRAM") instead of
+        # returning empty text — the caller shows the error as a toast.
+        log_message(f"❌ Whisper service error: {e}", "error")
+        raise
+
+    user_text = data.get("text", "").strip()
+    stt_time = data.get("time", 0.0)
+    # Speaker-labelled variant wins when diarization succeeded; a
+    # failure keeps the plain transcript (the service reports why).
+    if diarize:
+        speaker_text = (data.get("text_speakers") or "").strip()
+        if speaker_text:
+            speakers = data.get("speakers") or []
+            user_text = speaker_text
+            log_message(
+                f"🗣️ Diarization: {len(speakers)} speaker(s) "
+                f"in {data.get('diarize_time', 0):.1f}s"
+            )
+        elif data.get("diarize_error"):
+            log_message(f"⚠️ Diarization failed: {data['diarize_error']}", "warning")
+    if log_result:
+        log_message(
+            f"✅ STT Transcription: {user_text[:100]}"
+            f"{'...' if len(user_text) > 100 else ''} "
+            f"(Time: {stt_time:.1f}s)"
+        )
+    return user_text, stt_time
 
 
 async def generate_tts(
@@ -1624,14 +1600,3 @@ try:
     cleanup_old_tts_audio(max_age_hours=24)
 except (OSError, ValueError):
     pass
-
-
-def is_whisper_ready() -> bool:
-    """Check if the Whisper Docker service is running and ready."""
-    import requests
-    from .config import WHISPER_SERVICE_URL
-    try:
-        r = requests.get(f"{WHISPER_SERVICE_URL}/health", timeout=2)
-        return r.ok and r.json().get("model_loaded", False)
-    except Exception:
-        return False

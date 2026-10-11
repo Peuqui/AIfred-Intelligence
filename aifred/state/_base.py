@@ -91,11 +91,6 @@ def track_orphan_task(task: "asyncio.Task[Any]") -> None:
     _orphan_tasks.add(task)
     task.add_done_callback(_orphan_tasks.discard)
 
-# ============================================================
-# Whisper STT — Docker service (aifred/lib/audio_processing.py)
-# ============================================================
-from ..lib.audio_processing import is_whisper_ready  # noqa: E402
-
 # Mixins
 from ._auth_mixin import AuthMixin  # noqa: E402
 from ._image_mixin import ImageMixin  # noqa: E402
@@ -422,13 +417,15 @@ class AIState(  # type: ignore[misc]
     async def _handle_audio(self, files: List[rx.UploadFile], source: str):
         """Shared validation + device routing for both audio sources."""
         # Check Whisper Docker service is ready
-        if not is_whisper_ready():
+        from ..lib.stt_client import STTError, get_default_client
+        stt = get_default_client()
+        if not stt.is_ready():
             self.add_debug("🎤 Starting Whisper service...")
-            from ..lib.process_utils import ensure_whisper_ready
-            success, msg = ensure_whisper_ready(timeout=60)
-            if not success:
-                self.add_debug(f"❌ {msg}")
-                yield rx.toast.error(f"🎤 Whisper: {msg}", duration=8000, position="top-center")
+            try:
+                stt.ensure_ready()
+            except STTError as e:
+                self.add_debug(f"❌ {e}")
+                yield rx.toast.error(f"🎤 Whisper: {e}", duration=8000, position="top-center")
                 return
 
         # Validate file
@@ -669,14 +666,14 @@ class AIState(  # type: ignore[misc]
             # makes Whisper translate on the fly, which is worse than a proper
             # second-step translation (translate_file → DeepL). Mic dictations
             # keep the UI language (fast, and the assumption is correct).
-            from ..lib.audio_processing import WhisperGPUUnavailable
+            from ..lib.stt_client import STTGPUUnavailableError
             stt_language = "auto" if source == "file" else self.ui_language
             loop = asyncio.get_running_loop()
             try:
                 try:
                     # GPU-first + small-file CPU fallback live in the helper
                     # (SSOT with the FreeEcho.2 channel); only the big-file
-                    # case (WhisperGPUUnavailable) surfaces here.
+                    # case (STTGPUUnavailableError) surfaces here.
                     # Speaker labels only for uploaded files: those are
                     # recordings (interviews, meetings) where knowing who
                     # speaks carries the meaning. A mic dictation has one
@@ -690,7 +687,7 @@ class AIState(  # type: ignore[misc]
                     )
                     if stt_device == "cpu":
                         self.add_debug("⚠️ No GPU with free VRAM — transcribed on CPU engine (slower)")
-                except WhisperGPUUnavailable:
+                except STTGPUUnavailableError:
                     # Big file, all GPUs occupied (e.g. big LLM loaded) —
                     # CPU would take >30 min, offer to unload the LLM instead.
                     from ..lib.i18n import t as _t
