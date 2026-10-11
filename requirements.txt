@@ -68,7 +68,7 @@ sse-starlette==3.5.0
 # Audio Processing (TTS only — STT runs in its own Docker service, see below)
 edge-tts==7.2.8         # Text-to-Speech (7.2.3 had a NoAudioReceived bug)
 dashscope==1.27.7       # DashScope Qwen3-TTS Cloud API
-# Whisper STT: NOT needed here — own repo https://github.com/Peuqui/whisper-stt
+# Whisper STT: NOT needed here — own repo https://github.com/Peuqui/STT-Suite
 # (cloned and started by scripts/install-all.sh)
 
 # Configuration & Environment

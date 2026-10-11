@@ -110,7 +110,7 @@ Einrichtung: [Telegram](docs/de/guides/telegram-setup.md) · [Discord](docs/de/g
 
 ### 🎤 Sprache
 
-- **Speech-to-Text** — Whisper in Docker ([whisper-stt](https://github.com/Peuqui/whisper-stt), richtet der Installer ein), für Browser und FreeEcho.2 gleich: zuerst die GPU, solange eine Karte freien VRAM hat, sonst der permanente CPU-Worker; vor jedem LLM-Ladevorgang wird der GPU-Worker freigegeben, im Leerlauf entlädt er sich. Große Uploads (Meetings) bekommen eine Dauer-Schätzung und eine Rückfrage bei langen Dateien
+- **Speech-to-Text** — Whisper in Docker ([STT-Suite](https://github.com/Peuqui/STT-Suite), richtet der Installer ein), für Browser und FreeEcho.2 gleich: zuerst die GPU, solange eine Karte freien VRAM hat, sonst der permanente CPU-Worker; vor jedem LLM-Ladevorgang wird der GPU-Worker freigegeben, im Leerlauf entlädt er sich. Große Uploads (Meetings) bekommen eine Dauer-Schätzung und eine Rückfrage bei langen Dateien
 - **Meeting-Pipeline** — in der Originalsprache transkribieren → bei Bedarf übersetzen (DeepL) → zu einer handytauglichen MP3 vertonen; jeder Schritt hinterlässt eine Datei
 - **FreeEcho.2-Sprach-Terminal** — Echo-Dot-2-Hardware mit Custom-Firmware: Wake-Word, die Frage erscheint innerhalb von ~500 ms nach STT im Browser. Die Haushaltssprache (Deutsch oder Englisch: STT-Sprache, Prompt-Sprache, Tool-Antworten) ist eine Einstellung des Kanal-Plugins
 - **Gesprochene Ansagen ohne LLM** — `POST /api/audio/announce` liest einen fertigen Text (oder mehrere Absätze als eine Ansage) in einem Raum, einer Gruppe oder allen Räumen vor; ein laufender Strom wird vorher angehalten, Beginn- und Ende-Ton sind Plugin-Einstellungen. Siehe [REST-API](docs/de/guides/rest-api.md)
@@ -191,11 +191,11 @@ cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, Whisper STT ([whisper-stt](https://github.com/Peuqui/whisper-stt), wird neben AIfred geklont), Ollama (angeboten über den offiziellen `curl | sh`-Installer, Standard ja) mit dem bge-m3-Embedding-Modell, einen ersten Whitelist-Benutzer und die systemd-Dienste. Jeder Schritt prüft sich selbst, am Ende steht eine Zusammenfassung, was noch fehlt.
+Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, Whisper STT ([STT-Suite](https://github.com/Peuqui/STT-Suite), wird neben AIfred geklont), Ollama (angeboten über den offiziellen `curl | sh`-Installer, Standard ja) mit dem bge-m3-Embedding-Modell, einen ersten Whitelist-Benutzer und die systemd-Dienste. Jeder Schritt prüft sich selbst, am Ende steht eine Zusammenfassung, was noch fehlt.
 
 Vollständig getestet auf einem frischen Ubuntu 24.04 (Container mit durchgereichten GPUs, Oktober 2026). Jede Frage lässt sich vorab beantworten, für eine Installation ohne Rückfragen, z. B. `AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh` — alle Variablen: [Installation ohne Rückfragen](docs/de/guides/deployment.md#installation-ohne-rückfragen).
 
-**Update von einem Stand vor Oktober 2026:** Whisper STT ist aus `docker/whisper/` in ein eigenes Repo umgezogen. Nach `git pull` einmal `./scripts/install-all.sh` erneut ausführen — er klont whisper-stt und ersetzt den alten Container; bereits geladene Whisper-Modelle bleiben erhalten.
+**Update von einem Stand vor Oktober 2026:** Whisper STT ist aus `docker/whisper/` in ein eigenes Repo umgezogen. Nach `git pull` einmal `./scripts/install-all.sh` erneut ausführen — er klont STT-Suite und ersetzt den alten Container; bereits geladene Whisper-Modelle bleiben erhalten.
 
 Danach:
 1. **Registrieren** in der Web-UI mit dem Benutzernamen von der Whitelist (`./aifred-admin add <name>` für weitere Benutzer)

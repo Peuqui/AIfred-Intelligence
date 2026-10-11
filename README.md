@@ -110,7 +110,7 @@ Setup: [Telegram](docs/en/guides/telegram-setup.md) · [Discord](docs/en/guides/
 
 ### 🎤 Voice
 
-- **Speech-to-text** — Whisper in Docker ([whisper-stt](https://github.com/Peuqui/whisper-stt), set up by the installer) for browser and FreeEcho.2 alike: GPU first while a card has free VRAM, otherwise the permanent CPU worker; the GPU worker is released before any LLM load and unloads when idle. Large uploads (meetings) get a duration estimate and a confirmation for long files
+- **Speech-to-text** — Whisper in Docker ([STT-Suite](https://github.com/Peuqui/STT-Suite), set up by the installer) for browser and FreeEcho.2 alike: GPU first while a card has free VRAM, otherwise the permanent CPU worker; the GPU worker is released before any LLM load and unloads when idle. Large uploads (meetings) get a duration estimate and a confirmation for long files
 - **Meeting pipeline** — transcribe in the original language → translate on demand (DeepL) → narrate into a phone-friendly MP3; every step leaves a file
 - **FreeEcho.2 voice terminal** — Echo Dot 2 hardware with custom firmware: wake word, the question appears in the browser within ~500 ms after STT. The household language (German or English: STT language prior, prompt language, tool replies) is a setting of the channel plugin
 - **Spoken announcements without an LLM** — `POST /api/audio/announce` reads a finished text (or several paragraphs as one announcement) in one room, a group or all rooms; a running stream is paused first, start and end tone are plugin settings. See [REST API](docs/en/guides/rest-api.md)
@@ -191,11 +191,11 @@ cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-The interactive installer handles system packages (apt, dnf, pacman, brew), the Python venv and requirements, the Playwright browser, the Reflex patch, `.env`, ChromaDB + SearXNG, Whisper STT ([whisper-stt](https://github.com/Peuqui/whisper-stt), cloned next to AIfred), Ollama (offered via its official `curl | sh` installer, default yes) with the bge-m3 embedding model, a first whitelist user and the systemd services. Every step verifies itself and the run ends with a summary of what is missing.
+The interactive installer handles system packages (apt, dnf, pacman, brew), the Python venv and requirements, the Playwright browser, the Reflex patch, `.env`, ChromaDB + SearXNG, Whisper STT ([STT-Suite](https://github.com/Peuqui/STT-Suite), cloned next to AIfred), Ollama (offered via its official `curl | sh` installer, default yes) with the bge-m3 embedding model, a first whitelist user and the systemd services. Every step verifies itself and the run ends with a summary of what is missing.
 
 Tested end to end on a fresh Ubuntu 24.04 (container with GPU passthrough, October 2026). Every question can be answered in advance for an unattended install, e.g. `AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh` — all variables: [Unattended install](docs/en/guides/deployment.md#unattended-install).
 
-**Updating from before October 2026:** Whisper STT moved out of `docker/whisper/` into its own repo. After `git pull`, re-run `./scripts/install-all.sh` — it clones whisper-stt and replaces the old container; downloaded Whisper models are kept.
+**Updating from before October 2026:** Whisper STT moved out of `docker/whisper/` into its own repo. After `git pull`, re-run `./scripts/install-all.sh` — it clones STT-Suite and replaces the old container; downloaded Whisper models are kept.
 
 Then:
 1. **Register** in the web UI with the whitelisted username (`./aifred-admin add <name>` for more users)
