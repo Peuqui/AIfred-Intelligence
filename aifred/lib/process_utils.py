@@ -278,48 +278,18 @@ def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
     return procs
 
 
-def stop_all_installed_tts(keep: str = "") -> list[tuple[str, bool, str]]:
-    """Stop every installed GPU-TTS container.
+def unload_llm_models(backend_type: str = "llamacpp") -> list[str]:
+    """Unload the language models of the LLM backend to free VRAM.
 
-    SSOT for "free VRAM by stopping TTS" — used both by the LLM
-    calibration cleanup and by ``unload_all_gpu_models`` during TTS
-    backend switches. Stops only engines the TTS service reports as
-    running, so none gets a misleading "stopped" log line.
-
-    Args:
-        keep: Engine key to leave running (e.g. ``"qwen3local"`` when
-            switching TO that engine). Empty string = stop them all.
-
-    Returns:
-        ``(label_short, ok, msg)`` triples per attempted engine. Callers
-        decide how to surface the result (debug log line, status
-        message, etc.).
-    """
-    from .tts_service import engine_label_short, running_gpu_engine_keys, stop_engine
-    out: list[tuple[str, bool, str]] = []
-    for key in running_gpu_engine_keys():
-        if keep == key:
-            continue
-        ok, msg = stop_engine(key)
-        out.append((engine_label_short(key), ok, msg))
-    return out
-
-
-def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") -> list[str]:
-    """Unload all GPU-resident models (LLM + TTS) to free VRAM.
-
-    Central function — single source of truth for GPU cleanup.
-    Used by TTS backend switches, calibration, and any other VRAM-freeing needs.
+    TTS containers are not touched: the TTS service unloads its engines itself.
 
     Args:
         backend_type: Active LLM backend ("llamacpp", "ollama", "vllm")
-        keep_tts: Key of the TTS engine to keep running. Empty = stop all.
 
     Returns list of actions taken.
     """
     actions = []
 
-    # 1. Stop LLM backend
     if backend_type == "llamacpp":
         if stop_llama_swap():
             actions.append("llama-swap stopped")
@@ -339,13 +309,7 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
     # vLLM-Eintraege laufen unter llama-swap — deren Prozesse stoppt
     # llama-swap selbst (cmdStop: vllm-swap-stop), kein eigener Zweig.
 
-    # 2. Stop the running TTS containers except the one we want to keep
-    # (``stop_all_installed_tts`` reports only engines that ran).
-    for label, ok, _msg in stop_all_installed_tts(keep=keep_tts):
-        if ok:
-            actions.append(f"{label} stopped")
-
-    log_message(f"GPU cleanup: {', '.join(actions) if actions else 'nothing to unload'}")
+    log_message(f"LLM unload: {', '.join(actions) if actions else 'nothing to unload'}")
     return actions
 
 

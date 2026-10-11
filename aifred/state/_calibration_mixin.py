@@ -1441,13 +1441,12 @@ class CalibrationMixin(rx.State, mixin=True):
                 base_url=self.backend_url  # type: ignore[attr-defined]
             )
 
-            # Step 0: Kill orphaned calibration servers + stop ALL GPU TTS containers
-            # Containers/servers may be left over from a previous interrupted calibration.
-            # SSOT: iterate the TTS-engine registry instead of hardcoding container
-            # names — every engine with ``needs_gpu=True`` gets stopped, no matter
-            # which backend was running.
+            # Step 0: Kill orphaned calibration servers left over from a previous
+            # interrupted calibration. TTS containers are not touched: the TTS
+            # service unloads its engines itself (the calibration reserves the
+            # burn-in peak of the planned engine instead of loading it).
             from ..lib.config import LLAMACPP_CALIBRATION_PORT
-            self._cal_debug("🧹 Cleaning up VRAM (TTS containers, orphaned servers)...")  # type: ignore[attr-defined]
+            self._cal_debug("🧹 Cleaning up VRAM (orphaned servers)...")  # type: ignore[attr-defined]
             yield
             # Kill any llama-server still running on calibration port
             try:
@@ -1459,14 +1458,6 @@ class CalibrationMixin(rx.State, mixin=True):
                     self._cal_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")  # type: ignore[attr-defined]
             except (subprocess.SubprocessError, FileNotFoundError):
                 pass
-            # Stop every installed GPU-TTS container unconditionally.
-            # SSOT helper: same logic as the TTS-switch cleanup path,
-            # so both flows skip engines without an image and log a
-            # consistent message format.
-            from ..lib.process_utils import stop_all_installed_tts
-            for label, ok, msg in stop_all_installed_tts():
-                self._cal_debug(f"   {'✅' if ok else '⚠️'} {label}: {msg}")  # type: ignore[attr-defined]
-
             # Unload any models currently held in Ollama VRAM (embedding
             # models, VLMs that were warm from a previous Vigilantia
             # session, etc.) so the calibration's nvidia-smi probe sees
@@ -2049,47 +2040,29 @@ class CalibrationMixin(rx.State, mixin=True):
                         self._cal_debug("⚠️ Could not write speed variant to llama-swap config")  # type: ignore[attr-defined]
                 yield
 
-            # Step 5: TTS variant calibration (Qwen3 + XTTS + MOSS + Fish).
-            # Iterate the engine registry — each GPU engine's
-            # ``calibration_setup`` / ``calibration_teardown`` does the
-            # right thing for that engine (Qwen3 stays at idle, XTTS runs
-            # a short test inference). Order = registry order, which the
-            # SSOT keeps with Qwen3 first (recommended streaming engine).
+            # Step 5: TTS variant calibration. No TTS container is loaded: the
+            # calibration reserves the burn-in peak of each engine (cache or
+            # burn-in via ``resolve_tts_reserve``) while the engines stay cold.
             #
             # Two filters apply:
-            #  • ``installed_gpu_engine_keys`` — engines without a rolled-out
-            #    docker-compose.yml are skipped without the 600s timeout
-            #    that ``ensure_ready`` would otherwise eat.
+            #  • ``installed_gpu_engine_keys`` — the engines the TTS service
+            #    reports as installed.
             #  • ``calibration_matrix`` — the per-click matrix picker;
             #    only engines whose ``|<engine>`` cell is ticked enter the
             #    TTS-only variant loop here. Combos ``<vlm>|<engine>`` are
             #    handled in Step 5c.
             if True:
                 from ..lib.calibration import add_llamaswap_tts_variant
-                from ..lib.tts_engines import require_engine
-                from ..lib.tts_service import installed_gpu_engine_keys
+                from ..lib.tts_service import engine_label_short, installed_gpu_engine_keys
 
-                # The service decides which engines are installed; the container
-                # setup/teardown of the calibration still runs through the engine
-                # objects (moves to the service with the speech paths).
-                for tts_engine in map(require_engine, installed_gpu_engine_keys()):
-                    tts_backend = tts_engine.key
-                    tts_label = tts_engine.label_short
+                for tts_backend in installed_gpu_engine_keys():
+                    tts_label = engine_label_short(tts_backend)
                     if not self.calibration_matrix.get(f"|{tts_backend}", False):
                         self._cal_debug(  # type: ignore[attr-defined]
                             f"⏭️ Skipping {tts_label} (deselected in picker)"
                         )
                         yield
                         continue
-                    # Thin lambdas so the surrounding loop body keeps
-                    # using the same start_fn / stop_fn naming it always
-                    # did — minimises diff.
-                    def start_fn(_e=tts_engine) -> bool:
-                        return bool(_e.calibration_setup(self._cal_debug))  # type: ignore[attr-defined]
-
-                    def stop_fn(_e=tts_engine) -> None:
-                        _e.calibration_teardown(self._cal_debug)  # type: ignore[attr-defined]
-
                     self._cal_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
                     yield
 
@@ -2209,446 +2182,430 @@ class CalibrationMixin(rx.State, mixin=True):
                     if iso_done and all(iso_done.values()):
                         continue  # every candidate satisfied via isolated mode
 
-                    tts_ok = start_fn()
-                    if not tts_ok:
-                        self._cal_debug(f"⚠️ {tts_label} not available, skipping TTS variant")  # type: ignore[attr-defined]
-                        yield
-                        continue
-
-                    # try/finally: User-Cancel (GeneratorExit an einem der
-                    # yields) oder eine unerwartete Exception darf den
-                    # GPU-TTS-Container nicht laufen lassen — die
-                    # geschriebenen LLM-Profile sind ohne ihn geplant.
-                    _tts_stopped = False
+                    self._cal_debug(  # type: ignore[attr-defined]
+                        f"   🔊 {tts_label}: container not loaded — "
+                        f"calibration reserves the burn-in peak"
+                    )
+                    # ── Fast path: derive TTS variant from base config ──
+                    # Skip the full Phase-1 search by re-projecting only the
+                    # base GPU set under TTS-aware free VRAM. Saves several
+                    # minutes per backend; falls back to full re-calibration
+                    # if the projection or verify can't find a fit.
+                    approx_ok = False
+                    approx_ctx = 0
+                    approx_uuids = ""
+                    approx_kv = calibration_kv
+                    approx_split = ""
+                    approx_num_gpus = 0
                     try:
-                        # ── Fast path: derive TTS variant from base config ──
-                        # Skip the full Phase-1 search by re-projecting only the
-                        # base GPU set under TTS-aware free VRAM. Saves several
-                        # minutes per backend; falls back to full re-calibration
-                        # if the projection or verify can't find a fit.
-                        approx_ok = False
-                        approx_ctx = 0
-                        approx_uuids = ""
-                        approx_kv = calibration_kv
-                        approx_split = ""
-                        approx_num_gpus = 0
-                        try:
-                            from ..lib.calibration import (
-                                calibrate_tts_variant_from_base,
-                                parse_llamaswap_config,
-                            )
-                            from ..lib.process_utils import get_tts_gpu_uuid
-                            from ..lib.calibration.gpu import (
-                                cuda_visible_devices as _cvd,
-                                enumerate_gpus as _eg,
-                            )
-                            _cfg_full = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-                            _base_info = _cfg_full.get(calibration_model_id, {})
-                            _full_cmd = str(_base_info.get("full_cmd", ""))
-                            _gguf_path = Path(_base_info.get("gguf_path", ""))
-                            _all_gpus = _eg()
-                            # Construct base_split as a tuple aligned to visible GPUs.
-                            # Source of truth: the tensor-split parsed from the
-                            # current base full_cmd (already pinned via UUID order).
-                            from ..lib.calibration import parse_tensor_split
-                            _ts = parse_tensor_split(_full_cmd) or []
-                            _base_split = tuple(
-                                float(_ts[i]) if i < len(_ts) else 0.0
-                                for i in range(len(_all_gpus))
-                            )
-                            _tts_uuid = get_tts_gpu_uuid()
-                            _approx_env = (
-                                {"CUDA_VISIBLE_DEVICES": _cvd(_all_gpus)}
-                                if _all_gpus else None
-                            )
-                            if (
-                                _full_cmd and _gguf_path.exists()
-                                and _all_gpus and _tts_uuid
-                                and any(s > 0 for s in _base_split)
-                            ):
-                                self._cal_debug(  # type: ignore[attr-defined]
-                                    f"   ⚡ Trying fast path: derive {tts_label} variant "
-                                    f"from base (skip Phase-1 search)..."
-                                )
-                                yield
-                                # Stress-burn-in resolver: returns the cached
-                                # peak measurement plus 512 MB headroom. On
-                                # cache miss the burn-in runs first (starts
-                                # the container, fires a worst-case bilingual
-                                # synthesis loop, polls peak VRAM, writes the
-                                # value to data/tts_vram_cache.json), so the
-                                # next call is fast. Hardware-agnostic — no
-                                # hand-pinned per-engine reserves.
-                                from ..lib.tts_stress_burnin import (
-                                    resolve_tts_reserve,
-                                )
-                                _tts_extra_reserve_mb = await resolve_tts_reserve(
-                                    tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
-                                )
-                                async for _msg in calibrate_tts_variant_from_base(
-                                    model_id=calibration_model_id,
-                                    gguf_path=_gguf_path,
-                                    full_cmd=_full_cmd,
-                                    base_split=_base_split,
-                                    base_ctx=int(calibrated_ctx),
-                                    base_kv=calibration_kv,
-                                    tts_gpu_uuid=_tts_uuid,
-                                    port=LLAMACPP_CALIBRATION_PORT,
-                                    env=_approx_env,
-                                    known_thinking=(
-                                        supports_thinking if thinking_tested else None
-                                    ),
-                                    tts_gpu_extra_reserve_mb=_tts_extra_reserve_mb,
-                                    vlm_gpu_uuid=None,
-                                    vlm_gpu_extra_reserve_mb=0,
-                                ):
-                                    if _msg.startswith("__RESULT__:"):
-                                        _r = _parse_calibration_result(_msg)
-                                        if _r["ctx"] > 0:
-                                            approx_ok = True
-                                            approx_ctx = _r["ctx"]
-                                            approx_kv = _r["kv"]
-                                            approx_split = _r["tensor_split"]
-                                            approx_num_gpus = _r["num_gpus"]
-                                            approx_uuids = _r["uuids"]
-                                    else:
-                                        self._cal_debug(f"   {_calib_line(_msg)}")  # type: ignore[attr-defined]
-                                        yield
-                        except (OSError, ValueError, KeyError) as _e:
+                        from ..lib.calibration import (
+                            calibrate_tts_variant_from_base,
+                            parse_llamaswap_config,
+                        )
+                        from ..lib.process_utils import get_tts_gpu_uuid
+                        from ..lib.calibration.gpu import (
+                            cuda_visible_devices as _cvd,
+                            enumerate_gpus as _eg,
+                        )
+                        _cfg_full = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                        _base_info = _cfg_full.get(calibration_model_id, {})
+                        _full_cmd = str(_base_info.get("full_cmd", ""))
+                        _gguf_path = Path(_base_info.get("gguf_path", ""))
+                        _all_gpus = _eg()
+                        # Construct base_split as a tuple aligned to visible GPUs.
+                        # Source of truth: the tensor-split parsed from the
+                        # current base full_cmd (already pinned via UUID order).
+                        from ..lib.calibration import parse_tensor_split
+                        _ts = parse_tensor_split(_full_cmd) or []
+                        _base_split = tuple(
+                            float(_ts[i]) if i < len(_ts) else 0.0
+                            for i in range(len(_all_gpus))
+                        )
+                        _tts_uuid = get_tts_gpu_uuid()
+                        _approx_env = (
+                            {"CUDA_VISIBLE_DEVICES": _cvd(_all_gpus)}
+                            if _all_gpus else None
+                        )
+                        if (
+                            _full_cmd and _gguf_path.exists()
+                            and _all_gpus and _tts_uuid
+                            and any(s > 0 for s in _base_split)
+                        ):
                             self._cal_debug(  # type: ignore[attr-defined]
-                                f"   ⚠️ Fast-path approximation failed: {_e} — "
-                                f"falling back to full re-calibration"
+                                f"   ⚡ Trying fast path: derive {tts_label} variant "
+                                f"from base (skip Phase-1 search)..."
                             )
                             yield
-
-                        if approx_ok:
-                            # Use approximation result directly — no full re-calibration.
-                            # Keep CSV throughout — the YAML writer (`add_llamaswap_tts_variant`)
-                            # normalizes any separator anyway, but CSV is what llama.cpp needs.
-                            _split_colon = approx_split
-                            added = add_llamaswap_tts_variant(
-                                LLAMASWAP_CONFIG_PATH,
-                                calibration_model_id,
-                                approx_ctx,
-                                tts_backend,
-                                kv_quant=approx_kv,
-                                tensor_split=_split_colon,
-                                num_gpus=approx_num_gpus,
-                                cuda_visible_devices=approx_uuids,
+                            # Stress-burn-in resolver: returns the cached
+                            # peak measurement plus 512 MB headroom. On
+                            # cache miss the burn-in runs first (starts
+                            # the container, fires a worst-case bilingual
+                            # synthesis loop, polls peak VRAM, writes the
+                            # value to data/tts_vram_cache.json), so the
+                            # next call is fast. Hardware-agnostic — no
+                            # hand-pinned per-engine reserves.
+                            from ..lib.tts_stress_burnin import (
+                                resolve_tts_reserve,
                             )
-                            if added:
-                                self._cal_debug(  # type: ignore[attr-defined]
-                                    f"   ✅ {tts_label} variant (fast path): "
-                                    f"{calibration_model_id}-tts-{tts_backend} "
-                                    f"(ctx {format_number(approx_ctx)}, "
-                                    f"split {_split_colon})"
-                                )
-                                _write_variant_cache_entry(
-                                    calibration_model_id,
-                                    f"{calibration_model_id}-tts-{tts_backend}",
-                                    approx_ctx,
-                                )
-
-                                # ── Speed + TTS combo via fast path ──
-                                # The full-calibration path further down generates a
-                                # ``<base>-tts-<engine>-speed`` profile from the
-                                # __SPEED__ payload. The fast path used to skip it
-                                # entirely, so Speed-Mode silently degraded to full
-                                # context the moment TTS was on. Re-run the same
-                                # base-fit projection with speed split + speed ctx
-                                # as the new "base" so we get a parallel
-                                # ``-tts-<engine>-speed`` profile.
-                                if (
-                                    speed_split_cuda0 > 0 and speed_layer_split
-                                    and not iso_done.get("speed", False)
-                                ):
-                                    try:
-                                        _sp_parts = [
-                                            int(x) for x in speed_layer_split.split(":")
-                                        ]
-                                        _speed_split_tuple = tuple(
-                                            float(_sp_parts[i]) if i < len(_sp_parts) else 0.0
-                                            for i in range(len(_all_gpus))
-                                        )
-                                        _approx_sp_ok = False
-                                        _approx_sp_uuids = ""
-                                        _approx_sp_ctx = 0
-                                        _approx_sp_split = ""
-                                        _approx_sp_num_gpus = 0
-                                        async for _msg2 in calibrate_tts_variant_from_base(
-                                            model_id=calibration_model_id,
-                                            gguf_path=_gguf_path,
-                                            full_cmd=_full_cmd,
-                                            base_split=_speed_split_tuple,
-                                            base_ctx=int(speed_split_context),
-                                            base_kv=speed_kv_quant,
-                                            tts_gpu_uuid=_tts_uuid,
-                                            port=LLAMACPP_CALIBRATION_PORT,
-                                            env=_approx_env,
-                                            known_thinking=(
-                                                supports_thinking if thinking_tested else None
-                                            ),
-                                            tts_gpu_extra_reserve_mb=_tts_extra_reserve_mb,
-                                            vlm_gpu_uuid=None,
-                                            vlm_gpu_extra_reserve_mb=0,
-                                        ):
-                                            if _msg2.startswith("__RESULT__:"):
-                                                _r2 = _parse_calibration_result(_msg2)
-                                                if _r2["ctx"] > 0:
-                                                    _approx_sp_ok = True
-                                                    _approx_sp_ctx = _r2["ctx"]
-                                                    _approx_sp_split = _r2["tensor_split"]
-                                                    _approx_sp_num_gpus = _r2["num_gpus"]
-                                                    _approx_sp_uuids = _r2["uuids"]
-                                            else:
-                                                self._cal_debug(f"   {_calib_line(_msg2)}")  # type: ignore[attr-defined]
-                                                yield
-                                        if _approx_sp_ok:
-                                            speed_added = add_llamaswap_tts_variant(
-                                                LLAMASWAP_CONFIG_PATH,
-                                                calibration_model_id,
-                                                _approx_sp_ctx,
-                                                f"{tts_backend}-speed",
-                                                kv_quant=speed_kv_quant,
-                                                tensor_split=_approx_sp_split,
-                                                num_gpus=_approx_sp_num_gpus,
-                                                cuda_visible_devices=_approx_sp_uuids,
-                                            )
-                                            if speed_added:
-                                                self._cal_debug(  # type: ignore[attr-defined]
-                                                    f"   ⚡ {tts_label} speed variant (fast path): "
-                                                    f"{calibration_model_id}-tts-{tts_backend}-speed "
-                                                    f"(ctx {format_number(_approx_sp_ctx)}, "
-                                                    f"split {_approx_sp_split})"
-                                                )
-                                                _sp_cuda0 = 0
-                                                if _approx_sp_split:
-                                                    # Sentinel tensor_split is
-                                                    # comma-CSV (_result_sentinel)
-                                                    # — ":" split returned the
-                                                    # whole CSV as one token and
-                                                    # int() always failed → the
-                                                    # cache never saw the speed
-                                                    # split (reuse check 0).
-                                                    try:
-                                                        _sp_cuda0 = int(float(
-                                                            _approx_sp_split.split(",")[0]
-                                                        ))
-                                                    except (ValueError, IndexError):
-                                                        _sp_cuda0 = 0
-                                                _write_variant_cache_entry(
-                                                    calibration_model_id,
-                                                    f"{calibration_model_id}"
-                                                    f"-tts-{tts_backend}-speed",
-                                                    _approx_sp_ctx,
-                                                    speed_split=_sp_cuda0,
-                                                )
-                                            else:
-                                                self._cal_debug(  # type: ignore[attr-defined]
-                                                    f"   ⚠️ Could not write {tts_label} speed variant to config"
-                                                )
-                                    except (OSError, ValueError, KeyError) as _sp_e:
-                                        self._cal_debug(  # type: ignore[attr-defined]
-                                            f"   ⚠️ {tts_label} speed fast-path failed: {_sp_e}"
-                                        )
-                                        yield
-                            else:
-                                self._cal_debug(  # type: ignore[attr-defined]
-                                    f"   ⚠️ Could not write {tts_label} variant to config"
-                                )
-                            stop_fn()
-                            _tts_stopped = True
-                            yield
-                            continue  # skip full re-calibration
-
-                        self._cal_debug(f"   {tts_label}: fast path didn't fit — running full calibration...")  # type: ignore[attr-defined]
+                            _tts_extra_reserve_mb = await resolve_tts_reserve(
+                                tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
+                            )
+                            async for _msg in calibrate_tts_variant_from_base(
+                                model_id=calibration_model_id,
+                                gguf_path=_gguf_path,
+                                full_cmd=_full_cmd,
+                                base_split=_base_split,
+                                base_ctx=int(calibrated_ctx),
+                                base_kv=calibration_kv,
+                                tts_gpu_uuid=_tts_uuid,
+                                port=LLAMACPP_CALIBRATION_PORT,
+                                env=_approx_env,
+                                known_thinking=(
+                                    supports_thinking if thinking_tested else None
+                                ),
+                                tts_gpu_extra_reserve_mb=_tts_extra_reserve_mb,
+                                vlm_gpu_uuid=None,
+                                vlm_gpu_extra_reserve_mb=0,
+                            ):
+                                if _msg.startswith("__RESULT__:"):
+                                    _r = _parse_calibration_result(_msg)
+                                    if _r["ctx"] > 0:
+                                        approx_ok = True
+                                        approx_ctx = _r["ctx"]
+                                        approx_kv = _r["kv"]
+                                        approx_split = _r["tensor_split"]
+                                        approx_num_gpus = _r["num_gpus"]
+                                        approx_uuids = _r["uuids"]
+                                else:
+                                    self._cal_debug(f"   {_calib_line(_msg)}")  # type: ignore[attr-defined]
+                                    yield
+                    except (OSError, ValueError, KeyError) as _e:
+                        self._cal_debug(  # type: ignore[attr-defined]
+                            f"   ⚠️ Fast-path approximation failed: {_e} — "
+                            f"falling back to full re-calibration"
+                        )
                         yield
 
-                        tts_ctx = None
-                        tts_kv = calibration_kv
-                        tts_tensor_split = ""
-                        tts_num_gpus = 0
-                        tts_uuids = ""
-                        tts_speed_uuids = ""
-                        tts_speed_ctx: int | None = None
-                        tts_speed_kv = calibration_kv
-                        tts_speed_split = ""
-                        tts_speed_num_gpus = 0
-                        # Pass through the base-phase thinking result instead of
-                        # just "skip" — previously the sub-calibration hard-coded
-                        # thinking_result=True whenever skipped, causing Instruct
-                        # models to falsely report "Reasoning: yes" in TTS phases.
-                        known_thinking = supports_thinking if thinking_tested else None
-                        # Thread the engine's VRAM reserve into the full
-                        # calibration too — the fast path already accounts for
-                        # it, but without this the fallback would plan the TTS
-                        # GPU full and the resulting profile would OOM once the
-                        # real TTS container is up.
-                        from ..lib.process_utils import get_tts_gpu_uuid as _get_tts_uuid
-                        _fallback_tts_uuid = _get_tts_uuid()
-                        from ..lib.tts_stress_burnin import resolve_tts_reserve
-                        _fallback_reserve_mb = await resolve_tts_reserve(
-                            tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
+                    if approx_ok:
+                        # Use approximation result directly — no full re-calibration.
+                        # Keep CSV throughout — the YAML writer (`add_llamaswap_tts_variant`)
+                        # normalizes any separator anyway, but CSV is what llama.cpp needs.
+                        _split_colon = approx_split
+                        added = add_llamaswap_tts_variant(
+                            LLAMASWAP_CONFIG_PATH,
+                            calibration_model_id,
+                            approx_ctx,
+                            tts_backend,
+                            kv_quant=approx_kv,
+                            tensor_split=_split_colon,
+                            num_gpus=approx_num_gpus,
+                            cuda_visible_devices=approx_uuids,
                         )
-                        async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                            calibration_model_id, dry_run=True, min_kv=calibration_kv,
-                            known_thinking=known_thinking,
-                            tts_gpu_uuid=_fallback_tts_uuid,
-                            tts_gpu_extra_reserve_mb=_fallback_reserve_mb,
-                        ):
-                            if progress_msg.startswith("__RESULT__:"):
-                                r = _parse_calibration_result(progress_msg)
-                                tts_ctx = r["ctx"]
-                                tts_kv = r["kv"]
-                                tts_tensor_split = r["tensor_split"]
-                                tts_num_gpus = r["num_gpus"]
-                                tts_uuids = r["uuids"]
-                            elif progress_msg.startswith("__SPEED__:"):
-                                # Format: __SPEED__:{split},{ctx},{num_gpus},{kv},{uuids}
-                                # The uuids tail itself contains commas → maxsplit=4.
-                                payload = progress_msg.removeprefix("__SPEED__:")
-                                try:
-                                    split_part, ctx_part, ngpu_part, kv_part, uuid_part = payload.split(",", 4)
-                                    tts_speed_split = split_part
-                                    tts_speed_ctx = int(ctx_part)
-                                    tts_speed_num_gpus = int(ngpu_part)
-                                    tts_speed_kv = kv_part
-                                    tts_speed_uuids = uuid_part
-                                except (ValueError, IndexError):
-                                    self._cal_debug(f"   ⚠️ Could not parse {tts_label} speed payload: {payload[:80]}")  # type: ignore[attr-defined]
-                            else:
-                                self._cal_debug(f"   {_calib_line(progress_msg)}")  # type: ignore[attr-defined]
-                                yield
-
-                        stop_fn()
-                        _tts_stopped = True
-
-                        if tts_ctx and tts_ctx > 0:
-                            added = add_llamaswap_tts_variant(
-                                LLAMASWAP_CONFIG_PATH,
-                                calibration_model_id,
-                                tts_ctx,
-                                tts_backend,
-                                kv_quant=tts_kv,
-                                tensor_split=tts_tensor_split,
-                                num_gpus=tts_num_gpus,
-                                cuda_visible_devices=tts_uuids,
+                        if added:
+                            self._cal_debug(  # type: ignore[attr-defined]
+                                f"   ✅ {tts_label} variant (fast path): "
+                                f"{calibration_model_id}-tts-{tts_backend} "
+                                f"(ctx {format_number(approx_ctx)}, "
+                                f"split {_split_colon})"
                             )
-                            if added:
-                                self._cal_debug(  # type: ignore[attr-defined]
-                                    f"   ✅ {tts_label} variant: {calibration_model_id}-tts-{tts_backend} "
-                                    f"(ctx {format_number(tts_ctx)})"
-                                )
-                                # Write VRAM cache entry for the TTS variant so
-                                # the UI can find a speed_split for it (powers
-                                # the Speed toggle when TTS mode is active).
-                                from ..lib.model_vram_cache import (
-                                    update_llamacpp_speed_split,
-                                )
-                                tts_model_id = f"{calibration_model_id}-tts-{tts_backend}"
-                                tts_speed_cuda0 = 0
-                                if tts_speed_split:
-                                    try:
-                                        tts_speed_cuda0 = int(tts_speed_split.split(":")[0])
-                                    except (ValueError, IndexError):
-                                        tts_speed_cuda0 = 0
-                                _write_variant_cache_entry(
-                                    calibration_model_id, tts_model_id, tts_ctx,
-                                    speed_split=tts_speed_cuda0,
-                                )
-                                if tts_speed_ctx and tts_speed_ctx > 0 and tts_speed_cuda0 > 0:
-                                    update_llamacpp_speed_split(
-                                        tts_model_id,
-                                        tts_speed_cuda0,
-                                        int(sum(int(v) for v in tts_speed_split.split(":")[1:])) if tts_speed_split else 0,
-                                        tts_speed_ctx,
-                                    )
-                            else:
-                                self._cal_debug(f"   ⚠️ Could not write {tts_label} variant to config")  # type: ignore[attr-defined]
+                            _write_variant_cache_entry(
+                                calibration_model_id,
+                                f"{calibration_model_id}-tts-{tts_backend}",
+                                approx_ctx,
+                            )
 
-                            # Also persist the speed variant for this TTS backend if found.
-                            # Result key: <model>-tts-<backend>-speed (e.g. ...-tts-xtts-speed)
-                            # NOTE: an earlier "tts_speed_split != tts_tensor_split"
-                            # guard here was dead code — colon- vs. comma-format
-                            # strings can never compare equal. flow.py already
-                            # suppresses a redundant __SPEED__ payload itself.
+                            # ── Speed + TTS combo via fast path ──
+                            # The full-calibration path further down generates a
+                            # ``<base>-tts-<engine>-speed`` profile from the
+                            # __SPEED__ payload. The fast path used to skip it
+                            # entirely, so Speed-Mode silently degraded to full
+                            # context the moment TTS was on. Re-run the same
+                            # base-fit projection with speed split + speed ctx
+                            # as the new "base" so we get a parallel
+                            # ``-tts-<engine>-speed`` profile.
                             if (
-                                tts_speed_ctx and tts_speed_ctx > 0
+                                speed_split_cuda0 > 0 and speed_layer_split
                                 and not iso_done.get("speed", False)
                             ):
-                                # __SPEED__ carries the FULL split incl. zeros for
-                                # idle GPUs ("26:27:0:0:0"); the uuids field lists
-                                # only the ACTIVE GPUs. Write only the active
-                                # values so split and CUDA_VISIBLE_DEVICES stay
-                                # parallel (same contract as the __RESULT__ path).
-                                _sp_active_split = ":".join(
-                                    v for v in tts_speed_split.split(":")
-                                    if v.strip() and float(v) > 0
-                                )
-                                speed_added = add_llamaswap_tts_variant(
-                                    LLAMASWAP_CONFIG_PATH,
-                                    calibration_model_id,
-                                    tts_speed_ctx,
-                                    f"{tts_backend}-speed",
-                                    kv_quant=tts_speed_kv,
-                                    tensor_split=_sp_active_split,
-                                    num_gpus=tts_speed_num_gpus,
-                                    cuda_visible_devices=tts_speed_uuids,
-                                )
-                                if speed_added:
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ⚡ {tts_label} speed variant: "
-                                        f"{calibration_model_id}-tts-{tts_backend}-speed "
-                                        f"(split {tts_speed_split}, ctx {format_number(tts_speed_ctx)}, "
-                                        f"{tts_speed_num_gpus} GPUs)"
+                                try:
+                                    _sp_parts = [
+                                        int(x) for x in speed_layer_split.split(":")
+                                    ]
+                                    _speed_split_tuple = tuple(
+                                        float(_sp_parts[i]) if i < len(_sp_parts) else 0.0
+                                        for i in range(len(_all_gpus))
                                     )
-                                else:
+                                    _approx_sp_ok = False
+                                    _approx_sp_uuids = ""
+                                    _approx_sp_ctx = 0
+                                    _approx_sp_split = ""
+                                    _approx_sp_num_gpus = 0
+                                    async for _msg2 in calibrate_tts_variant_from_base(
+                                        model_id=calibration_model_id,
+                                        gguf_path=_gguf_path,
+                                        full_cmd=_full_cmd,
+                                        base_split=_speed_split_tuple,
+                                        base_ctx=int(speed_split_context),
+                                        base_kv=speed_kv_quant,
+                                        tts_gpu_uuid=_tts_uuid,
+                                        port=LLAMACPP_CALIBRATION_PORT,
+                                        env=_approx_env,
+                                        known_thinking=(
+                                            supports_thinking if thinking_tested else None
+                                        ),
+                                        tts_gpu_extra_reserve_mb=_tts_extra_reserve_mb,
+                                        vlm_gpu_uuid=None,
+                                        vlm_gpu_extra_reserve_mb=0,
+                                    ):
+                                        if _msg2.startswith("__RESULT__:"):
+                                            _r2 = _parse_calibration_result(_msg2)
+                                            if _r2["ctx"] > 0:
+                                                _approx_sp_ok = True
+                                                _approx_sp_ctx = _r2["ctx"]
+                                                _approx_sp_split = _r2["tensor_split"]
+                                                _approx_sp_num_gpus = _r2["num_gpus"]
+                                                _approx_sp_uuids = _r2["uuids"]
+                                        else:
+                                            self._cal_debug(f"   {_calib_line(_msg2)}")  # type: ignore[attr-defined]
+                                            yield
+                                    if _approx_sp_ok:
+                                        speed_added = add_llamaswap_tts_variant(
+                                            LLAMASWAP_CONFIG_PATH,
+                                            calibration_model_id,
+                                            _approx_sp_ctx,
+                                            f"{tts_backend}-speed",
+                                            kv_quant=speed_kv_quant,
+                                            tensor_split=_approx_sp_split,
+                                            num_gpus=_approx_sp_num_gpus,
+                                            cuda_visible_devices=_approx_sp_uuids,
+                                        )
+                                        if speed_added:
+                                            self._cal_debug(  # type: ignore[attr-defined]
+                                                f"   ⚡ {tts_label} speed variant (fast path): "
+                                                f"{calibration_model_id}-tts-{tts_backend}-speed "
+                                                f"(ctx {format_number(_approx_sp_ctx)}, "
+                                                f"split {_approx_sp_split})"
+                                            )
+                                            _sp_cuda0 = 0
+                                            if _approx_sp_split:
+                                                # Sentinel tensor_split is
+                                                # comma-CSV (_result_sentinel)
+                                                # — ":" split returned the
+                                                # whole CSV as one token and
+                                                # int() always failed → the
+                                                # cache never saw the speed
+                                                # split (reuse check 0).
+                                                try:
+                                                    _sp_cuda0 = int(float(
+                                                        _approx_sp_split.split(",")[0]
+                                                    ))
+                                                except (ValueError, IndexError):
+                                                    _sp_cuda0 = 0
+                                            _write_variant_cache_entry(
+                                                calibration_model_id,
+                                                f"{calibration_model_id}"
+                                                f"-tts-{tts_backend}-speed",
+                                                _approx_sp_ctx,
+                                                speed_split=_sp_cuda0,
+                                            )
+                                        else:
+                                            self._cal_debug(  # type: ignore[attr-defined]
+                                                f"   ⚠️ Could not write {tts_label} speed variant to config"
+                                            )
+                                except (OSError, ValueError, KeyError) as _sp_e:
                                     self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ⚠️ Could not write {tts_label} speed variant to config"
+                                        f"   ⚠️ {tts_label} speed fast-path failed: {_sp_e}"
                                     )
+                                    yield
                         else:
-                            self._cal_debug(f"   ❌ {tts_label} variant calibration failed")  # type: ignore[attr-defined]
-                            # A failed calibration must not leave a stale variant
-                            # behind: an earlier run may have written a
-                            # <model>-tts-<backend> profile that no longer fits the
-                            # current GPU layout. Leaving it lets llama-swap load
-                            # an oversized profile → V100 OOM, and the picker keeps
-                            # showing a misleading "already calibrated" dot.
-                            from ..lib.calibration import remove_llamaswap_tts_variant
-                            from ..lib.model_vram_cache import (
-                                record_calibration_failure,
-                                remove_model_from_cache,
-                            )
-                            _stale_suffixes = [tts_backend]
-                            if not iso_done.get("speed", False):
-                                # Keep an isolated-mode speed variant written
-                                # earlier in this run — only the shared-mode
-                                # profiles are stale after a failed calibration.
-                                _stale_suffixes.append(f"{tts_backend}-speed")
-                            for _suffix in _stale_suffixes:
-                                if remove_llamaswap_tts_variant(
-                                    LLAMASWAP_CONFIG_PATH, calibration_model_id, _suffix,
-                                ):
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   🧹 Removed stale profile "
-                                        f"{calibration_model_id}-tts-{_suffix}"
-                                    )
-                                remove_model_from_cache(
-                                    f"{calibration_model_id}-tts-{_suffix}"
-                                )
-                            # Persist failure so the picker shows a red dot for
-                            # this TTS column on the "Kein VLM" row.
-                            record_calibration_failure(
-                                f"{calibration_model_id}-tts-{tts_backend}",
-                                "projection_failed",
-                                f"{tts_label} reserve plus base LLM exceeds available "
-                                f"VRAM — no GPU-only configuration verified at "
-                                f"native context",
+                            self._cal_debug(  # type: ignore[attr-defined]
+                                f"   ⚠️ Could not write {tts_label} variant to config"
                             )
                         yield
-                    finally:
-                        if not _tts_stopped:
-                            stop_fn()
+                        continue  # skip full re-calibration
+
+                    self._cal_debug(f"   {tts_label}: fast path didn't fit — running full calibration...")  # type: ignore[attr-defined]
+                    yield
+
+                    tts_ctx = None
+                    tts_kv = calibration_kv
+                    tts_tensor_split = ""
+                    tts_num_gpus = 0
+                    tts_uuids = ""
+                    tts_speed_uuids = ""
+                    tts_speed_ctx: int | None = None
+                    tts_speed_kv = calibration_kv
+                    tts_speed_split = ""
+                    tts_speed_num_gpus = 0
+                    # Pass through the base-phase thinking result instead of
+                    # just "skip" — previously the sub-calibration hard-coded
+                    # thinking_result=True whenever skipped, causing Instruct
+                    # models to falsely report "Reasoning: yes" in TTS phases.
+                    known_thinking = supports_thinking if thinking_tested else None
+                    # Thread the engine's VRAM reserve into the full
+                    # calibration too — the fast path already accounts for
+                    # it, but without this the fallback would plan the TTS
+                    # GPU full and the resulting profile would OOM once the
+                    # real TTS container is up.
+                    from ..lib.process_utils import get_tts_gpu_uuid as _get_tts_uuid
+                    _fallback_tts_uuid = _get_tts_uuid()
+                    from ..lib.tts_stress_burnin import resolve_tts_reserve
+                    _fallback_reserve_mb = await resolve_tts_reserve(
+                        tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
+                    )
+                    async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
+                        calibration_model_id, dry_run=True, min_kv=calibration_kv,
+                        known_thinking=known_thinking,
+                        tts_gpu_uuid=_fallback_tts_uuid,
+                        tts_gpu_extra_reserve_mb=_fallback_reserve_mb,
+                    ):
+                        if progress_msg.startswith("__RESULT__:"):
+                            r = _parse_calibration_result(progress_msg)
+                            tts_ctx = r["ctx"]
+                            tts_kv = r["kv"]
+                            tts_tensor_split = r["tensor_split"]
+                            tts_num_gpus = r["num_gpus"]
+                            tts_uuids = r["uuids"]
+                        elif progress_msg.startswith("__SPEED__:"):
+                            # Format: __SPEED__:{split},{ctx},{num_gpus},{kv},{uuids}
+                            # The uuids tail itself contains commas → maxsplit=4.
+                            payload = progress_msg.removeprefix("__SPEED__:")
+                            try:
+                                split_part, ctx_part, ngpu_part, kv_part, uuid_part = payload.split(",", 4)
+                                tts_speed_split = split_part
+                                tts_speed_ctx = int(ctx_part)
+                                tts_speed_num_gpus = int(ngpu_part)
+                                tts_speed_kv = kv_part
+                                tts_speed_uuids = uuid_part
+                            except (ValueError, IndexError):
+                                self._cal_debug(f"   ⚠️ Could not parse {tts_label} speed payload: {payload[:80]}")  # type: ignore[attr-defined]
+                        else:
+                            self._cal_debug(f"   {_calib_line(progress_msg)}")  # type: ignore[attr-defined]
+                            yield
+
+                    if tts_ctx and tts_ctx > 0:
+                        added = add_llamaswap_tts_variant(
+                            LLAMASWAP_CONFIG_PATH,
+                            calibration_model_id,
+                            tts_ctx,
+                            tts_backend,
+                            kv_quant=tts_kv,
+                            tensor_split=tts_tensor_split,
+                            num_gpus=tts_num_gpus,
+                            cuda_visible_devices=tts_uuids,
+                        )
+                        if added:
+                            self._cal_debug(  # type: ignore[attr-defined]
+                                f"   ✅ {tts_label} variant: {calibration_model_id}-tts-{tts_backend} "
+                                f"(ctx {format_number(tts_ctx)})"
+                            )
+                            # Write VRAM cache entry for the TTS variant so
+                            # the UI can find a speed_split for it (powers
+                            # the Speed toggle when TTS mode is active).
+                            from ..lib.model_vram_cache import (
+                                update_llamacpp_speed_split,
+                            )
+                            tts_model_id = f"{calibration_model_id}-tts-{tts_backend}"
+                            tts_speed_cuda0 = 0
+                            if tts_speed_split:
+                                try:
+                                    tts_speed_cuda0 = int(tts_speed_split.split(":")[0])
+                                except (ValueError, IndexError):
+                                    tts_speed_cuda0 = 0
+                            _write_variant_cache_entry(
+                                calibration_model_id, tts_model_id, tts_ctx,
+                                speed_split=tts_speed_cuda0,
+                            )
+                            if tts_speed_ctx and tts_speed_ctx > 0 and tts_speed_cuda0 > 0:
+                                update_llamacpp_speed_split(
+                                    tts_model_id,
+                                    tts_speed_cuda0,
+                                    int(sum(int(v) for v in tts_speed_split.split(":")[1:])) if tts_speed_split else 0,
+                                    tts_speed_ctx,
+                                )
+                        else:
+                            self._cal_debug(f"   ⚠️ Could not write {tts_label} variant to config")  # type: ignore[attr-defined]
+
+                        # Also persist the speed variant for this TTS backend if found.
+                        # Result key: <model>-tts-<backend>-speed (e.g. ...-tts-xtts-speed)
+                        # NOTE: an earlier "tts_speed_split != tts_tensor_split"
+                        # guard here was dead code — colon- vs. comma-format
+                        # strings can never compare equal. flow.py already
+                        # suppresses a redundant __SPEED__ payload itself.
+                        if (
+                            tts_speed_ctx and tts_speed_ctx > 0
+                            and not iso_done.get("speed", False)
+                        ):
+                            # __SPEED__ carries the FULL split incl. zeros for
+                            # idle GPUs ("26:27:0:0:0"); the uuids field lists
+                            # only the ACTIVE GPUs. Write only the active
+                            # values so split and CUDA_VISIBLE_DEVICES stay
+                            # parallel (same contract as the __RESULT__ path).
+                            _sp_active_split = ":".join(
+                                v for v in tts_speed_split.split(":")
+                                if v.strip() and float(v) > 0
+                            )
+                            speed_added = add_llamaswap_tts_variant(
+                                LLAMASWAP_CONFIG_PATH,
+                                calibration_model_id,
+                                tts_speed_ctx,
+                                f"{tts_backend}-speed",
+                                kv_quant=tts_speed_kv,
+                                tensor_split=_sp_active_split,
+                                num_gpus=tts_speed_num_gpus,
+                                cuda_visible_devices=tts_speed_uuids,
+                            )
+                            if speed_added:
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   ⚡ {tts_label} speed variant: "
+                                    f"{calibration_model_id}-tts-{tts_backend}-speed "
+                                    f"(split {tts_speed_split}, ctx {format_number(tts_speed_ctx)}, "
+                                    f"{tts_speed_num_gpus} GPUs)"
+                                )
+                            else:
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   ⚠️ Could not write {tts_label} speed variant to config"
+                                )
+                    else:
+                        self._cal_debug(f"   ❌ {tts_label} variant calibration failed")  # type: ignore[attr-defined]
+                        # A failed calibration must not leave a stale variant
+                        # behind: an earlier run may have written a
+                        # <model>-tts-<backend> profile that no longer fits the
+                        # current GPU layout. Leaving it lets llama-swap load
+                        # an oversized profile → V100 OOM, and the picker keeps
+                        # showing a misleading "already calibrated" dot.
+                        from ..lib.calibration import remove_llamaswap_tts_variant
+                        from ..lib.model_vram_cache import (
+                            record_calibration_failure,
+                            remove_model_from_cache,
+                        )
+                        _stale_suffixes = [tts_backend]
+                        if not iso_done.get("speed", False):
+                            # Keep an isolated-mode speed variant written
+                            # earlier in this run — only the shared-mode
+                            # profiles are stale after a failed calibration.
+                            _stale_suffixes.append(f"{tts_backend}-speed")
+                        for _suffix in _stale_suffixes:
+                            if remove_llamaswap_tts_variant(
+                                LLAMASWAP_CONFIG_PATH, calibration_model_id, _suffix,
+                            ):
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   🧹 Removed stale profile "
+                                    f"{calibration_model_id}-tts-{_suffix}"
+                                )
+                            remove_model_from_cache(
+                                f"{calibration_model_id}-tts-{_suffix}"
+                            )
+                        # Persist failure so the picker shows a red dot for
+                        # this TTS column on the "Kein VLM" row.
+                        record_calibration_failure(
+                            f"{calibration_model_id}-tts-{tts_backend}",
+                            "projection_failed",
+                            f"{tts_label} reserve plus base LLM exceeds available "
+                            f"VRAM — no GPU-only configuration verified at "
+                            f"native context",
+                        )
+                    yield
 
             # Persist Step-5 (TTS-only) progress to the session file so a
             # mid-calibration browser-disconnect/reload keeps the audit
@@ -3347,11 +3304,6 @@ class CalibrationMixin(rx.State, mixin=True):
             # plus any branch that landed in the except above. Belongs in
             # finally so a failed calibration also keeps its audit.
             self._persist_calibration_progress()
-
-    # TTS calibration start/stop helpers — moved to TTSEngine subclasses
-    # (see aifred/lib/tts_engines/*/engine.py). The Step-5 loop in run_calibration
-    # iterates the registry and calls each engine's calibration_setup /
-    # calibration_teardown directly.
 
     # ------------------------------------------------------------------
     # Calibration info display

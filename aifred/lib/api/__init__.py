@@ -19,8 +19,6 @@ Endpoints (all prefixed with /api):
 - GET  /audio/announce/rooms - Rooms an announcement can go to (Bearer token)
 - POST /audio/announce      - Spoken announcement to FreeEcho.2, no LLM (Bearer token)
 - GET  /tts/entries         - The TTS escalation list in order, with live status (Bearer token)
-- POST /tts/start           - Start an entry's container: AIfred's card, or the host via SSH (Bearer token)
-- POST /tts/stop            - Stop an entry's container (Bearer token)
 - GET  /documents/source/{key}/file/{id} - Download from a further document source (login cookie)
 - POST /system/restart-ollama   - Restart Ollama service
 - POST /system/restart-aifred   - Restart AIfred service

@@ -1,8 +1,5 @@
-"""TTS API: token guard, AIfred's list with the status from the service's catalog, start/stop per
-catalog row (through a fake service behind httpx.MockTransport), plus the old placement rules
-that the speech paths still use."""
-
-import time
+"""TTS API: token guard, AIfred's list with the status from the service's catalog (read only, through a
+fake service behind httpx.MockTransport), plus the old placement rules that the speech paths still use."""
 
 import httpx
 import pytest
@@ -31,34 +28,22 @@ def _entry(engine: str, host: str | None, **fields) -> dict:
 
 @pytest.fixture
 def service(monkeypatch: pytest.MonkeyPatch):
-    """A fake TTS service with three catalog rows and AIfred's list naming them; records start/stop calls. A started
-    engine is running from then on; ``refuse`` makes the next start fail with a hint."""
+    """A fake TTS service with three catalog rows and AIfred's list naming them; records every request
+    (only reads are expected)."""
     monkeypatch.setenv("TTS_CONTROL_API_TOKEN", TOKEN)
     listed = [
         _entry("qwen3local", None),
         _entry("qwen3local", "Box"),
         _entry("edge", None, needs_gpu=False, label_short={"de": "Edge", "en": "Edge"}, cloud=True),
     ]
-    state = {"calls": [], "refuse": None}
+    calls: list[tuple[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        path = request.url.path
-        if path == "/engines":
-            return httpx.Response(200, json=listed)
-        engine = path.split("/")[2]
-        host = request.url.params.get("host")
-        row = next(r for r in listed if r["engine"] == engine and r["host"] == host)
-        state["calls"].append((path.rsplit("/", 1)[1], engine, host))
-        if path.endswith("/start"):
-            if state["refuse"]:
-                row["start_hint"] = state["refuse"]
-                return httpx.Response(502, json={"error": "engine_control_failed", "detail": state["refuse"]})
-            row["status"] = "running"
-        else:
-            row["status"] = "stopped"
-        return httpx.Response(204)
+        calls.append((request.method, request.url.path))
+        assert (request.method, request.url.path) == ("GET", "/engines"), "AIfred must only read the catalog"
+        return httpx.Response(200, json=listed)
 
-    client = TTSClient("http://tts.test", "token", transport=httpx.MockTransport(handler))
+    client = TTSClient("http://tts.test", transport=httpx.MockTransport(handler))
     monkeypatch.setattr(tts_service, "get_tts_client", lambda: client)
     monkeypatch.setattr(tts_service, "persisted_settings", lambda: {
         "tts_escalation": [
@@ -66,14 +51,11 @@ def service(monkeypatch: pytest.MonkeyPatch):
             {"engine": "qwen3local", "host": "Box", "enabled": True},
             {"engine": "edge", "host": None, "enabled": True},
         ],
+        "tts_hosts": [{"name": "Box", "enabled": True}],
         "tts_toggles_per_engine": {},
     })
     tts_service.reset_cache()
-    return state
-
-
-def _post(path: str, engine: str = "qwen3local", host: str | None = None, headers=AUTH):
-    return TestClient(api_app).post(path, headers=headers, json={"engine": engine, "host": host, "caller": "Steuerseite"})
+    return calls
 
 
 def test_the_service_dir_is_the_container_name() -> None:
@@ -87,88 +69,48 @@ def test_the_service_dir_is_the_container_name() -> None:
             assert re.search(rf"container_name:\s*{re.escape(engine.service_dir)}\s*$", compose.read_text(), re.M), engine.key
 
 
-def test_every_endpoint_needs_the_token(service) -> None:
+def test_the_endpoint_needs_the_token(service) -> None:
     client = TestClient(api_app)
     assert client.get("/tts/entries", params={"lang": "de"}).status_code == 403
-    assert _post("/tts/start", headers={}).status_code == 403
-    assert _post("/tts/stop", headers={"Authorization": "Bearer wrong"}).status_code == 403
-    assert service["calls"] == []
+    assert client.get("/tts/entries", params={"lang": "de"}, headers={"Authorization": "Bearer wrong"}).status_code == 403
+    assert service == []
 
 
 def test_missing_server_token_is_503(service, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("TTS_CONTROL_API_TOKEN")
-    assert _post("/tts/start").status_code == 503
+    assert TestClient(api_app).get("/tts/entries", params={"lang": "de"}, headers=AUTH).status_code == 503
 
 
-def test_the_list_comes_in_aifreds_order_with_status(service) -> None:
+def test_the_list_comes_in_aifreds_order_with_status_and_only_reads(service) -> None:
     rows = TestClient(api_app).get("/tts/entries", params={"lang": "de"}, headers=AUTH).json()
-    assert [(row["engine"], row["host"], row["controllable"]) for row in rows] == [
-        ("qwen3local", None, True), ("qwen3local", "Box", True), ("edge", None, False),
+    assert [(row["engine"], row["host"]) for row in rows] == [
+        ("qwen3local", None), ("qwen3local", "Box"), ("edge", None),
     ]
     assert rows[0]["label"] == "Qwen3-TTS · lokal"
     assert rows[1]["label"] == "Qwen3-TTS · Box"
     assert rows[0]["status"] == "sleeping" and rows[0]["status_text"] == "schläft — startet bei Bedarf"
     assert rows[2]["status"] == "no_access"
+    assert set(service) == {("GET", "/engines")}
+
+
+def test_a_switched_off_host_shows_as_host_off(service, monkeypatch: pytest.MonkeyPatch) -> None:
+    settings = tts_service.persisted_settings()
+    settings["tts_hosts"] = [{"name": "Box", "enabled": False}]
+    monkeypatch.setattr(tts_service, "persisted_settings", lambda: settings)
+    rows = TestClient(api_app).get("/tts/entries", params={"lang": "de"}, headers=AUTH).json()
+    assert rows[1]["status"] == "host_off" and rows[1]["status_text"] == "Rechner aus"
+
+
+def test_there_is_no_start_or_stop_endpoint() -> None:
+    paths = {getattr(route, "path", "") for route in api_app.routes}
+    assert "/tts/entries" in paths
+    assert not paths & {"/tts/start", "/tts/stop"}
 
 
 def test_an_unreachable_service_is_503_not_an_empty_list(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("TTS_CONTROL_API_TOKEN", TOKEN)
     response = TestClient(api_app).get("/tts/entries", params={"lang": "de"}, headers=AUTH)
     assert response.status_code == 503 and "not reachable" in response.json()["detail"]
-
-
-def _started(client: TestClient, host: str | None = None) -> dict:
-    """Ask for a start and follow /tts/entries until it has settled."""
-    response = client.post("/tts/start", headers=AUTH, json={"engine": "qwen3local", "host": host, "caller": "Steuerseite"})
-    assert response.json() == {"success": True, "message": "Qwen3-TTS: start requested"}
-    for _ in range(100):
-        rows = client.get("/tts/entries", params={"lang": "de"}, headers=AUTH).json()
-        row = next(r for r in rows if r["engine"] == "qwen3local" and r["host"] == host)
-        if row["status"] != "starting" and service_settled(row):
-            return row
-        time.sleep(0.02)
-    raise AssertionError("start did not settle")
-
-
-def service_settled(row: dict) -> bool:
-    return row["status"] != "sleeping"
-
-
-def test_a_local_entry_starts_in_the_background(service) -> None:
-    with TestClient(api_app) as client:
-        assert _started(client)["status"] == "running"
-    assert service["calls"] == [("start", "qwen3local", None)]
-
-
-def test_a_host_entry_starts_and_stops(service) -> None:
-    with TestClient(api_app) as client:
-        assert _started(client, host="Box")["status"] == "running"
-    assert _post("/tts/stop", host="Box").status_code == 200
-    assert service["calls"] == [("start", "qwen3local", "Box"), ("stop", "qwen3local", "Box")]
-
-
-def test_a_refused_start_shows_as_failed_start_with_the_hint(service) -> None:
-    service["refuse"] = "needs 6.536 MiB, most free 461 MiB on GPU 3"
-    with TestClient(api_app) as client:
-        row = _started(client)
-    assert row["status"] == "start_failed" and row["status_text"] == "Start fehlgeschlagen"
-    assert "most free 461 MiB" in row["detail"]
-
-
-def test_a_local_entry_stops(service) -> None:
-    response = _post("/tts/stop")
-    assert response.status_code == 200 and response.json()["message"] == "Qwen3-TTS: stopped"
-    assert service["calls"] == [("stop", "qwen3local", None)]
-
-
-@pytest.mark.parametrize(("engine", "host", "status"), [
-    ("xtts", None, 404),          # not in the catalog
-    ("qwen3local", "Nope", 404),  # unknown host
-    ("edge", None, 409),          # nothing the service could start
-])
-def test_only_controllable_catalog_rows(service, engine: str, host: str | None, status: int) -> None:
-    assert _post("/tts/start", engine=engine, host=host).status_code == status
-    assert service["calls"] == []
 
 
 def test_local_starts_run_one_at_a_time(monkeypatch: pytest.MonkeyPatch) -> None:

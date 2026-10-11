@@ -649,26 +649,17 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Main Send Message ────────────────────────────────────────────
 
-    async def _phase_tts_container_checks(self) -> AsyncGenerator[None, None]:
-        """Ensure the planned TTS engine (the one the LLM profile reserves
-        VRAM for) is up before the LLM loads.
-
-        Another local GPU engine that the escalation list started into free
-        VRAM is left alone — switching it here would reload the LLM, and the
-        LLM ranks above TTS. Only the menu (reordering the list) switches the
-        planned engine.
+    async def _phase_tts_llm_profile(self) -> AsyncGenerator[None, None]:
+        """Bring the LLM onto the profile that reserves VRAM for the planned TTS
+        engine, before the LLM loads. No TTS container is touched: the TTS
+        service starts and unloads its engines itself.
         """
         from ..lib.tts_llm_coordination import ensure_tts_state, planned_tts_engine
-        from ..lib.tts_service import running_gpu_engine
 
         if not self.enable_tts:  # type: ignore[attr-defined]
             return
         wanted = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
         if not wanted:
-            return
-        running = await asyncio.to_thread(running_gpu_engine)
-        if running and running != wanted:
-            self.add_debug(f"🔊 {running} runs (started by the escalation list) — planned {wanted} not forced")  # type: ignore[attr-defined]
             return
 
         gen = ensure_tts_state(
@@ -676,7 +667,7 @@ class ChatMixin(rx.State, mixin=True):
             backend_type=self.backend_type,  # type: ignore[attr-defined]
         )
         # Jeder next()-Schritt des Generators ist ein KOMPLETTER blockierender
-        # Brocken (Container-Start + Model-Load: bis zu Minuten). Ein nacktes
+        # Brocken (LLM-Neustart: bis zu Minuten). Ein nacktes
         # next(gen) fror hier den ganzen Event-Loop ein — granian hielt den
         # Worker für tot und killte ihn mitten in der Inferenz (Browser:
         # "Connection Timeout", Antwort verloren). to_thread hält den Loop
@@ -965,8 +956,8 @@ class ChatMixin(rx.State, mixin=True):
             # vLLM-Eintraege werden von llama-swap on demand geladen —
             # kein eigener Lade-Schritt mehr (ehem. PHASE 4, Direkt-Pfad).
 
-            # TTS: Ensure Docker container is running BEFORE Ollama loads models (reserves VRAM)
-            async for _ in self._phase_tts_container_checks():
+            # TTS: LLM onto the profile that reserves VRAM for the planned engine, BEFORE the LLM loads
+            async for _ in self._phase_tts_llm_profile():
                 yield
 
             # Register this coroutine in the pipeline registry so external stop

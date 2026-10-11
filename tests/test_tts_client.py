@@ -1,4 +1,4 @@
-"""TTSClient: Frames, Fehlerabbildung und Steuerbefehle gegen einen httpx.MockTransport (kein Netz)."""
+"""TTSClient: Frames, Fehlerabbildung und Lesebefehle gegen einen httpx.MockTransport (kein Netz)."""
 
 import asyncio
 import contextlib
@@ -17,9 +17,6 @@ import aifred.lib.tts_client as tts_client
 from aifred.lib.tts_client import (
     ERROR_CLASSES,
     BadRequest,
-    ConfigInvalid,
-    EngineControlFailed,
-    EngineInUse,
     EngineRef,
     EngineStarting,
     FrameDecoder,
@@ -39,7 +36,6 @@ from aifred.lib.tts_client import (
     UnsupportedLanguage,
 )
 
-TOKEN = "secret"
 # conftest replaces the module's function by a guard in every test; this test needs the real one.
 REAL_SYSTEMCTL_START = tts_client._systemctl_start
 
@@ -73,8 +69,8 @@ def frames_response(data: bytes, size: int = 7) -> httpx.Response:
     return httpx.Response(200, headers={"content-type": tts_client.FRAMES_MEDIA_TYPE}, content=chunks(data, size))
 
 
-def make_client(handler: Callable[[httpx.Request], httpx.Response], token: str | None = TOKEN) -> TTSClient:
-    return TTSClient("http://tts.test", token, transport=httpx.MockTransport(handler))
+def make_client(handler: Callable[[httpx.Request], httpx.Response]) -> TTSClient:
+    return TTSClient("http://tts.test", transport=httpx.MockTransport(handler))
 
 
 LIST = [EngineRef("xtts", "sentence", None)]
@@ -136,7 +132,7 @@ def test_speak_sends_head_as_json() -> None:
     assert seen["voices"] == {"edge": {"voice": "x"}}
     assert seen["run"] == "r1"
     assert seen["wait"] is False
-    assert seen["authorization"] is None  # speaking needs no token
+    assert seen["authorization"] is None  # AIfred sends no token
 
 
 def test_speak_sends_the_list_as_given_without_checking_it() -> None:
@@ -156,7 +152,7 @@ def test_the_list_of_a_reading_is_required() -> None:
 
 
 def test_error_frame_after_first_frame_raises_while_iterating() -> None:
-    data = audio(b"first") + error_frame("engine_in_use", "busy")
+    data = audio(b"first") + error_frame("overloaded", "busy")
 
     received: list[bytes] = []
 
@@ -165,7 +161,7 @@ def test_error_frame_after_first_frame_raises_while_iterating() -> None:
         async for segment in stream:
             received.append(segment.audio)
 
-    with pytest.raises(EngineInUse):
+    with pytest.raises(Overloaded):
         asyncio.run(run_collecting())
     assert received == [b"first"]
 
@@ -244,9 +240,6 @@ ERROR_CASES = [
     ("unknown_engine", 404, UnknownEngine),
     ("unknown_host", 404, UnknownHost),
     ("invalid_request", 422, InvalidRequest),
-    ("engine_in_use", 409, EngineInUse),
-    ("engine_control_failed", 502, EngineControlFailed),
-    ("config_invalid", 400, ConfigInvalid),
     ("unsupported_language", 422, UnsupportedLanguage),
     ("text_too_long", 413, TextTooLong),
     ("unauthorized", 401, Unauthorized),
@@ -310,90 +303,34 @@ def test_timeout_is_unreachable() -> None:
         raise httpx.ReadTimeout("slow")
 
     with pytest.raises(TTSSuiteUnreachable):
-        make_client(handler).config()
+        make_client(handler).engines()
 
 
-# ---- Control commands -----------------------------------------------------------
+# ---- Read calls -----------------------------------------------------------------
 
 
-def test_token_header_only_on_changing_commands() -> None:
+def test_client_has_no_writing_or_token_calls() -> None:
+    """AIfred writes nothing into the service and starts or stops no container there."""
+    for name in ("set_config", "start", "stop", "reload", "sync_voices", "config", "_auth_headers"):
+        assert not hasattr(TTSClient, name), name
+    assert not hasattr(tts_client, "_read_token")
+    assert not any(hasattr(tts_client, name) for name in ("EngineInUse", "EngineControlFailed", "ConfigInvalid"))
+
+
+def test_read_calls_are_get_requests_without_token() -> None:
     seen: list[tuple[str, str, str | None]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append((request.method, request.url.path, request.headers.get("authorization")))
-        if request.url.path == "/engines":
-            return httpx.Response(200, json=[])
-        if request.url.path == "/voices":
-            return httpx.Response(200, json=[])
-        if request.url.path == "/config" and request.method == "GET":
-            return httpx.Response(200, json={})
-        if request.url.path == "/config":
-            return httpx.Response(200, json={"stored": True})
-        if request.url.path == "/engines/reload":
-            return httpx.Response(200, json={"removed": [], "added": []})
-        if request.url.path == "/voices/sync":
-            return httpx.Response(200, json=[])
-        return httpx.Response(204)
+        return httpx.Response(200, json=[])
 
     client = make_client(handler)
     client.engines()
     client.voices()
-    client.config()
-    client.set_config({"entries": []})
-    client.start("xtts")
-    client.stop("xtts")
-    client.reload()
-    client.sync_voices("dashscope")
-    bearer = f"Bearer {TOKEN}"
-    assert seen == [
-        ("GET", "/engines", None),
-        ("GET", "/voices", None),
-        ("GET", "/config", None),
-        ("POST", "/config", bearer),
-        ("POST", "/engines/xtts/start", bearer),
-        ("POST", "/engines/xtts/stop", bearer),
-        ("POST", "/engines/reload", bearer),
-        ("POST", "/voices/sync", bearer),
-    ]
+    assert seen == [("GET", "/engines", None), ("GET", "/voices", None)]
 
 
-def test_changing_command_without_token_fails_before_the_request() -> None:
-    def handler(_: httpx.Request) -> httpx.Response:
-        raise AssertionError("no request expected")
-
-    with pytest.raises(Unauthorized):
-        make_client(handler, token=None).start("xtts")
-
-
-def test_start_and_stop_pass_host_and_map_errors() -> None:
-    seen: list[tuple[str, dict[str, str]]] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.append((request.url.path, dict(request.url.params)))
-        if request.url.path.endswith("/stop"):
-            return httpx.Response(409, json={"error": "engine_in_use", "detail": "reading runs"})
-        return httpx.Response(204)
-
-    client = make_client(handler)
-    client.start("xtts", host="aragon")
-    with pytest.raises(EngineInUse, match="reading runs"):
-        client.stop("xtts")
-    assert seen == [("/engines/xtts/start", {"host": "aragon"}), ("/engines/xtts/stop", {})]
-
-
-def test_set_config_sends_json_and_maps_invalid() -> None:
-    sent: list[Any] = []
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        sent.append(json.loads(request.content))
-        return httpx.Response(400, json={"error": "config_invalid", "detail": "no card fits"})
-
-    with pytest.raises(ConfigInvalid, match="no card fits"):
-        make_client(handler).set_config({"entries": [{"engine": "xtts"}]})
-    assert sent == [{"entries": [{"engine": "xtts"}]}]
-
-
-def test_engines_voices_config_are_decoded() -> None:
+def test_engines_and_voices_are_decoded() -> None:
     engine = {
         "engine": "xtts", "host": None, "label": {"de": "XTTS", "en": "XTTS"},
         "label_short": {"de": "XTTS", "en": "XTTS"},
@@ -401,7 +338,6 @@ def test_engines_voices_config_are_decoded() -> None:
         "cloud": False, "browser": False, "installed": False, "start_hint": "image missing",
         "vram_mib": {"GPU-1": 4096},
     }
-    config = {"voices_dir": "/v", "hosts": [{"name": "Aragon", "address": "10.0.0.2", "ssh_port": 22, "ssh_user": ""}]}
     seen_params: list[dict[str, str]] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -410,7 +346,7 @@ def test_engines_voices_config_are_decoded() -> None:
             return httpx.Response(200, json=[engine])
         if request.url.path == "/voices":
             return httpx.Response(200, json=[{"name": "Alice", "label": "Alice (de)"}])
-        return httpx.Response(200, json=config)
+        return httpx.Response(404)
 
     client = make_client(handler)
     engines = client.engines()
@@ -421,7 +357,6 @@ def test_engines_voices_config_are_decoded() -> None:
     assert engines[0].vram_mib == {"GPU-1": 4096}
     voices = client.voices("xtts")
     assert (voices[0].name, voices[0].label) == ("Alice", "Alice (de)")
-    assert client.config() == config
     assert seen_params[1] == {"engine": "xtts"}
 
 
@@ -503,10 +438,10 @@ SocketHandler = Callable[[ServerConnection], Any]
 
 
 @contextlib.asynccontextmanager
-async def fake_service(handler: SocketHandler, token: str | None = TOKEN) -> AsyncIterator[TTSClient]:
+async def fake_service(handler: SocketHandler) -> AsyncIterator[TTSClient]:
     async with serve(handler, "127.0.0.1", 0) as server:
         port = server.sockets[0].getsockname()[1]
-        yield TTSClient(f"http://127.0.0.1:{port}", token)
+        yield TTSClient(f"http://127.0.0.1:{port}")
 
 
 def test_stream_url_follows_the_scheme() -> None:
@@ -558,7 +493,7 @@ def test_stream_segments_arrive_before_finish() -> None:
     assert finish == {"type": "finish"}
 
 
-def test_stream_sends_token_as_bearer_header() -> None:
+def test_stream_sends_no_authorization_header() -> None:
     seen: list[str | None] = []
 
     async def handler(socket: ServerConnection) -> None:
@@ -573,7 +508,7 @@ def test_stream_sends_token_as_bearer_header() -> None:
             assert [s async for s in stream] == []
 
     asyncio.run(run())
-    assert seen == [f"Bearer {TOKEN}"]
+    assert seen == [None]
 
 
 def test_error_frame_before_first_segment() -> None:
@@ -614,7 +549,7 @@ def test_error_frame_after_first_segment() -> None:
     async def handler(socket: ServerConnection) -> None:
         await socket.recv()
         await socket.send(audio(b"first"))
-        await socket.send(error_frame("engine_in_use", "busy"))
+        await socket.send(error_frame("overloaded", "busy"))
         await socket.close()
 
     async def run() -> None:
@@ -623,7 +558,7 @@ def test_error_frame_after_first_segment() -> None:
             async for segment in stream:
                 received.append(segment.audio)
 
-    with pytest.raises(EngineInUse):
+    with pytest.raises(Overloaded):
         asyncio.run(run())
     assert received == [b"first"]
 

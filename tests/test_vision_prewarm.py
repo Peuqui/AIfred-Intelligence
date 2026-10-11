@@ -20,14 +20,6 @@ import aifred.lib.plugin_registry as pr
 import aifred.lib.vision_prewarm as vpw
 
 
-@pytest.fixture(autouse=True)
-def _no_tts_containers(monkeypatch):
-    """No TTS container runs: the footprint the service would report is empty."""
-    import aifred.lib.tts_service as tts_service
-
-    monkeypatch.setattr(tts_service, "local_gpu_footprint", lambda: {})
-
-
 def run(coro):
     return asyncio.run(coro)
 

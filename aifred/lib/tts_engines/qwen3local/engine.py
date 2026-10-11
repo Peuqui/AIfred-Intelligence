@@ -1,7 +1,6 @@
 """Qwen3-TTS local container — streaming voice cloning on a single HBM GPU."""
 from __future__ import annotations
 
-from typing import Any
 
 from ..base import TTSEngine, shared_voice_names
 
@@ -60,21 +59,3 @@ class Qwen3LocalEngine(TTSEngine):
         return self._synthesize_via_http(
             "/tts", {"text": text, "speaker": voice, "language": qwen3_lang}, "wav",
         )
-
-    def calibration_setup(self, debug: Any) -> bool:
-        # Do NOT load the container during calibration. The reserve is the
-        # burn-in peak (resolve_tts_reserve in tts_stress_burnin.py, idle +
-        # growth + headroom) — loading the container would count its idle
-        # footprint twice and crowd LLM layers off the card. With the
-        # container left cold we subtract exactly the measured reserve.
-        debug(
-            f"   🔊 {self.label_short}: container not loaded — "
-            f"calibration reserves the burn-in peak"
-        )
-        return True
-
-    def calibration_teardown(self, debug: Any) -> None:
-        # Container was not started in calibration_setup, so nothing
-        # to stop here. The pre-calibration cleanup (Step 0 in
-        # _calibrate_llamacpp) has already stopped any leftover.
-        pass

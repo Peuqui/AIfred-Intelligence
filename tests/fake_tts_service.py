@@ -91,11 +91,12 @@ def install_fake_service(
 ) -> dict[str, Any]:
     """Make ``get_tts_client()`` talk to ``fake``, AIfred's list = ``listed`` engines (default: the
     catalog's engines on this machine, all on), the TTS audio folder = ``tmp_path``."""
-    client = TTSClient("http://tts.test", None, transport=httpx.MockTransport(fake.handler))
+    client = TTSClient("http://tts.test", transport=httpx.MockTransport(fake.handler))
     monkeypatch.setattr(tts_client, "_default_client", client)
     keys = listed if listed is not None else [row["engine"] for row in fake.catalog if row["host"] is None]
     settings = {
         "tts_escalation": [{"engine": key, "host": None, "enabled": True} for key in keys],
+        "tts_hosts": [],
         "tts_toggles_per_engine": {},
         "tts_agent_voices_per_engine": agent_voices if agent_voices is not None else {
             key: {"aifred": {"voice": "Alice", "speed": "1.0", "pitch": "1.0"}} for key in keys
