@@ -1231,6 +1231,8 @@ TTS_SUITE_CONNECT_TIMEOUT_S = 5       # service not reachable -> fail fast
 # to 240 s before the first frame; afterwards keep-alive markers arrive every few seconds.
 TTS_SUITE_STREAM_READ_TIMEOUT_S = 240
 TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices (read calls)
+# A release request (POST /release) waits while the service takes the containers down.
+TTS_SUITE_RELEASE_TIMEOUT_S = 120
 # On-demand start of the service (user unit): name of the unit, how long to wait for /health
 # afterwards, how often to ask meanwhile, and the limit for the ``systemctl`` call itself.
 TTS_SUITE_SERVICE_UNIT = "tts-suite.service"
@@ -1249,6 +1251,8 @@ TTS_MEDIA_TYPE_EXTENSIONS = {"audio/wav": "wav", "audio/ogg": "ogg", "audio/mpeg
 # The narrator chunks its text itself (NARRATE_CHUNK_LIMIT_CHARS), so the service gets each
 # chunk whole: one audio per chunk, as the engine takes it.
 NARRATE_SPEECH_UNIT = "whole"
+# No pause markers for the narrator: it concatenates the audio of the chunks itself.
+NARRATE_PARAGRAPH_PAUSE_MS = 0
 
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)
 WHISPER_SERVICE_URL = "http://localhost:5080"

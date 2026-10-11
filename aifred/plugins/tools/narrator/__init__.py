@@ -83,7 +83,7 @@ class NarratorPlugin:
                 concatenate_wav_files,
                 store_tts_audio,
             )
-            from ....lib.config import NARRATE_CHUNK_LIMIT_CHARS
+            from ....lib.config import NARRATE_CHUNK_LIMIT_CHARS, NARRATE_PARAGRAPH_PAUSE_MS
             from ....lib.debug_bus import debug
             from ....lib.text_chunking import (
                 split_paragraph_chunks,
@@ -180,7 +180,7 @@ class NarratorPlugin:
                 # One engine for the whole file — no voice change mid-book.
                 try:
                     stream = await client.speak(
-                        chunk, language=language, engines=[engine_ref],
+                        chunk, language=language, engines=[engine_ref], paragraph_pause_ms=NARRATE_PARAGRAPH_PAUSE_MS,
                         voices={engine: {"voice": chunk_voice, "speed": 1.0, "pitch": 1.0}},
                     )
                     async for part in stream:

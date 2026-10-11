@@ -66,7 +66,7 @@ class TtsReplyMixin(BaseChannel):
         agent = original.target_agent if original else "aifred"
         buffer = await start_speech_stream(
             outbound.metadata.get("paragraphs") or [outbound.text],
-            int(outbound.metadata.get("pause_ms", 0)),
+            int(outbound.metadata.get("paragraph_pause_ms", 0)),
             agent, channel_language(), f"FreeEcho.2 {room}",
             session_id=outbound.metadata.get("session_id"),
         )

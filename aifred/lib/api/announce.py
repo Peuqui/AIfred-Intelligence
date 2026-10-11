@@ -107,7 +107,7 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
     # no flags from the caller.
     metadata = {
         "audio_type": ANNOUNCE_AUDIO_TYPE, "proactive": True,
-        "paragraphs": paragraphs, "pause_ms": pause_ms,
+        "paragraphs": paragraphs, "paragraph_pause_ms": pause_ms,
     }
     spoken = " ".join(paragraphs)
     reached = await announce_into_rooms("freeecho2", rooms, spoken, request.speaker, metadata)

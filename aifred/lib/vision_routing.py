@@ -138,15 +138,20 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
 
 
 def release_side_channels_for_describer(profile: str) -> bool:
-    """Den Whisper-GPU-Worker freigeben, wenn er auf der Karte des
-    Describer-Profils sitzt, das gleich lädt (die Platzprüfung hat seinen VRAM
-    schon als frei gezählt). TTS-Container fasst AIfred nicht an: der
-    TTS-Dienst entlädt seine Engines selbst. Blockiert bis zur Gnadenfrist
-    einer laufenden Transkription — aus async-Code per ``asyncio.to_thread``
-    rufen. True, wenn etwas freigegeben wurde."""
+    """TTS-Container und Whisper-GPU-Worker freigeben, wenn sie auf der Karte
+    des Describer-Profils sitzen, das gleich lädt (Rangfolge: Hauptmodell >
+    Describer > TTS > STT; die Platzprüfung hat ihren VRAM schon als frei
+    gezählt). Die TTS-Container stoppt der TTS-Dienst auf AIfreds Anfrage
+    (``release_gpu_engines``; läuft gerade eine Ansage, lehnt er ab und das
+    Log sagt es); eine laufende Ansage wechselt danach zum nächsten Eintrag
+    der Eskalationsliste. Blockiert bis zur Gnadenfrist einer laufenden
+    Transkription — aus async-Code per ``asyncio.to_thread`` rufen. True, wenn
+    etwas freigegeben wurde."""
     from .audio_processing import release_whisper_gpu, whisper_gpu_footprint
     from .calibration.llamaswap_io import parse_llamaswap_config
     from .config import LLAMASWAP_CONFIG_PATH
+    from .tts_client import TTSSuiteError
+    from .tts_service import TTSVramUnknown, release_gpu_engines
 
     if profile in loaded_llamaswap_profiles():
         return False
@@ -159,10 +164,17 @@ def release_side_channels_for_describer(profile: str) -> bool:
     def on_target_card(held: set[str]) -> bool:
         return bool(held) and (not pinned or bool(pinned & held))
 
+    released = False
+    try:
+        # No pin = the describer may land on any card: every running TTS container is in the way.
+        stopped = release_gpu_engines(pinned or None, reason=f"describer {profile}")
+        released = any(result.outcome == "stopped" for result in stopped)
+    except (TTSSuiteError, TTSVramUnknown) as error:
+        logger.warning("TTS release for describer %s failed: %s: %s", profile, type(error).__name__, error)
     if on_target_card(set(whisper_gpu_footprint())) and release_whisper_gpu():
         logger.info("Whisper GPU worker released for describer %s", profile)
-        return True
-    return False
+        released = True
+    return released
 
 
 class NoVisionModelError(RuntimeError):

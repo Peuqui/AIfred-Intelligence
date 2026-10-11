@@ -6,7 +6,7 @@ text is cut (the unit of the speaking entry), the cleaning of Markdown, code and
 announcement of a voice change and the keep-alive markers are the service's business
 (``tts_client``); the language is the caller's. What stays here: AIfred's own text filter
 (``tts_text_filter``), the voices of the agent (``tts_voices``), the conversion of the
-delivered audio to PCM for the device, the pauses between paragraphs and keeping what was
+delivered audio to PCM for the device, the silence of the pause markers and keeping what was
 spoken on the reply's bubble. Channels only hand the PCM to their device.
 """
 
@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from .audio_channels._audio_orchestrator import KEEPALIVE_SILENCE, TTSBuffer, silence_pcm
 from .logging_utils import log_message
 from .tts_client import EngineRef, SpeakSummary, TTSSuiteError, get_tts_client
-from .tts_service import ref_label, request_engines, spoken_note
+from .tts_service import request_engines, spoken_note
 from .tts_text_filter import strip_ui_only_content
 from .tts_voices import voices_for
 
@@ -64,32 +64,34 @@ def speakable_text(paragraphs: Sequence[str]) -> str:
 
 
 async def _speech_pcm(
-    text: str, *, language: str, engines: Sequence[EngineRef], agent: str, pause_ms: int, label: str,
+    text: str, *, language: str, engines: Sequence[EngineRef], agent: str, paragraph_pause_ms: int, label: str,
     reading: SpokenReading,
 ) -> AsyncIterator[bytes]:
     """The PCM of one reading in speaking order, piece by piece as the service delivers it.
 
-    A keep-alive marker becomes a few ms of silence (keeps the stream to the device open). The
-    service does not mark paragraph borders, so ``pause_ms`` of silence goes in front of each
-    segment of an entry whose unit is ``paragraph`` (not before the first).
+    A keep-alive marker becomes a few ms of silence (keeps the stream to the device open), a pause
+    marker the silence it asks for (``paragraph_pause_ms`` of the request, delivered by the service at
+    each paragraph border), both in the order the service delivers them.
     """
     from .audio_processing import TTS_AUDIO_DIR, store_tts_audio
 
-    units = {ref_label(ref): ref.unit for ref in engines}
     stream = await get_tts_client().speak(
-        text, language=language, engines=engines, voices=voices_for(engines, agent), run=uuid.uuid4().hex,
+        text, language=language, engines=engines, paragraph_pause_ms=paragraph_pause_ms,
+        voices=voices_for(engines, agent), run=uuid.uuid4().hex,
     )
     async for segment in stream:
         if segment.keepalive:
             yield KEEPALIVE_SILENCE
             continue
+        if segment.pause_ms:
+            yield silence_pcm(segment.pause_ms)
+            continue
         url = await asyncio.to_thread(store_tts_audio, segment.audio, segment.media_type, agent, segment.engine)
         pcm = await _convert_to_pcm(str(TTS_AUDIO_DIR / url.rsplit("/", 1)[-1]), label)
         if not pcm:
             raise RuntimeError(f"[{label}] conversion of the spoken audio failed")
-        pause = silence_pcm(pause_ms) if reading.audio_urls and units[segment.engine] == "paragraph" else b""
         reading.audio_urls.append(url)
-        yield pause + pcm
+        yield pcm
     reading.summary = stream.summary
 
 
@@ -114,7 +116,7 @@ async def keep_spoken_audio(reading: SpokenReading, language: str, label: str, s
 
 
 async def start_speech_stream(
-    paragraphs: Sequence[str], pause_ms: int, agent: str, language: str, label: str,
+    paragraphs: Sequence[str], paragraph_pause_ms: int, agent: str, language: str, label: str,
     session_id: str | None = None,
 ) -> TTSBuffer | None:
     """Start a reading and return the buffer once the first segment is converted; the rest is
@@ -130,7 +132,8 @@ async def start_speech_stream(
         await asyncio.to_thread(get_tts_client().ensure_ready)
         engines = await asyncio.to_thread(request_engines)
         pieces = _speech_pcm(
-            text, language=language, engines=engines, agent=agent, pause_ms=pause_ms, label=label, reading=reading,
+            text, language=language, engines=engines, agent=agent, paragraph_pause_ms=paragraph_pause_ms, label=label,
+            reading=reading,
         )
         first = await anext(pieces, None)
     except TTSSuiteError as error:

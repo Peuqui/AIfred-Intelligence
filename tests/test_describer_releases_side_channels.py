@@ -1,11 +1,12 @@
-"""Describer vor STT: der Whisper-VRAM zählt als frei und wird vor dem Laden freigegeben; TTS-Container
-fasst AIfred nicht an (der TTS-Dienst entlädt seine Engines selbst)."""
+"""Describer vor TTS und STT: der VRAM von Whisper-Worker und TTS-Containern zählt als frei; vor dem Laden
+gibt AIfred den Worker frei und bittet den TTS-Dienst um die Freigabe der Container (Anfrage, kein Stoppen)."""
 
 import pytest
 
 import aifred.lib.audio_processing as ap
-from aifred.lib import nvidia_smi, vision_routing, vision_vram_check, vlm_vram_cache
+from aifred.lib import nvidia_smi, tts_service, vision_routing, vision_vram_check, vlm_vram_cache
 from aifred.lib.calibration import llamaswap_io
+from aifred.lib.tts_client import ReleaseResult, TTSSuiteUnreachable
 
 PROFILE = "VL-4B-visiond-gpu0"
 CARD, OTHER = "GPU-a", "GPU-b"
@@ -45,6 +46,7 @@ def card(monkeypatch):
     ])
     monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: [])
     monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {})
+    monkeypatch.setattr(tts_service, "running_gpu_footprint", lambda: {})
 
 
 def test_whisper_vram_counts_as_free_for_the_describer(card, monkeypatch):
@@ -72,10 +74,40 @@ def test_whisper_on_another_card_stays(card, monkeypatch):
     assert vision_routing.release_side_channels_for_describer(PROFILE) is False
 
 
-def test_tts_containers_are_not_released_by_aifred():
-    """AIfred starts and stops no TTS container: no stop call anywhere in the load guards."""
-    from aifred.backends.base import OpenAICompatibleBackend
-    from aifred.lib import tts_service
+def test_tts_vram_counts_as_free_for_the_describer(card, monkeypatch):
+    assert not vision_vram_check.check_visiond_fits(PROFILE).fits
+    monkeypatch.setattr(tts_service, "running_gpu_footprint", lambda: {"xtts": {CARD: 3680}})
+    assert vision_vram_check.check_visiond_fits(PROFILE).fits
+    monkeypatch.setattr(tts_service, "running_gpu_footprint", lambda: {"xtts": {OTHER: 3680}})
+    assert not vision_vram_check.check_visiond_fits(PROFILE).fits
 
-    assert not hasattr(OpenAICompatibleBackend, "_release_tts_for_load")
-    assert not hasattr(tts_service, "stop_engine") and not hasattr(tts_service, "local_gpu_footprint")
+
+def test_tts_container_on_the_target_card_is_released_by_request(card, monkeypatch):
+    asked: list[tuple] = []
+
+    def release(cards, *, reason, keep=()):
+        asked.append((cards, reason))
+        return [ReleaseResult("xtts", None, "stopped", "")]
+
+    monkeypatch.setattr(tts_service, "release_gpu_engines", release)
+    assert vision_routing.release_side_channels_for_describer(PROFILE) is True
+    assert asked == [({CARD}, f"describer {PROFILE}")]
+
+
+def test_a_refused_tts_release_is_not_a_release(card, monkeypatch):
+    monkeypatch.setattr(
+        tts_service, "release_gpu_engines", lambda cards, *, reason, keep=(): [ReleaseResult("xtts", None, "in_use", "x")],
+    )
+    assert vision_routing.release_side_channels_for_describer(PROFILE) is False
+
+
+def test_an_unreachable_tts_service_does_not_stop_the_describer_load(card, monkeypatch, caplog):
+    def unreachable(cards, *, reason, keep=()):
+        raise TTSSuiteUnreachable("not reachable on /engines")
+
+    monkeypatch.setattr(tts_service, "release_gpu_engines", unreachable)
+    monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {CARD: 3652})
+    monkeypatch.setattr(ap, "release_whisper_gpu", lambda: True)
+    with caplog.at_level("WARNING"):
+        assert vision_routing.release_side_channels_for_describer(PROFILE) is True  # Whisper still released
+    assert "TTS release for describer" in caplog.text
