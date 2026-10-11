@@ -7,8 +7,8 @@ from typing import Any
 import pytest
 import requests
 
-from aifred.lib import dashscope_enroll
-from aifred.lib.dashscope_enroll import enroll_progress
+from aifred.lib.tts_engines.dashscope_audio3 import enroll as dashscope_enroll
+from aifred.lib.tts_engines.dashscope_audio3.enroll import enroll_progress
 
 
 @pytest.fixture

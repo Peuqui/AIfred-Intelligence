@@ -111,7 +111,7 @@ def test_default_voice_is_in_the_catalog() -> None:
 
 
 def test_cloned_voices_come_first_and_use_the_flash_model(cloud: FakeCloud, monkeypatch: pytest.MonkeyPatch) -> None:
-    from aifred.lib import dashscope_enroll
+    from aifred.lib.tts_engines.dashscope_audio3 import enroll as dashscope_enroll
     monkeypatch.setattr(
         dashscope_enroll, "load_mapping",
         lambda: {"Codine": {"voice_id": "qwen-audio-3.0-tts-flash-codine-1"}},

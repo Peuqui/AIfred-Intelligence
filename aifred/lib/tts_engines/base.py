@@ -125,6 +125,10 @@ class TTSEngine(ABC):
     #: with (``config.DEFAULT_SETTINGS["tts_escalation"]``), in ``display_order``.
     in_default_escalation: bool = False
 
+    #: True only for :class:`DeactivatedEngine`, the placeholder of a list entry whose
+    #: engine folder was moved to ``tts_engines/disabled/``.
+    deactivated: bool = False
+
     #: True for engines that run in someone else's cloud (DashScope, Edge) —
     #: the text leaves the house. Shown as a label in the escalation list.
     cloud: bool = False
@@ -517,3 +521,25 @@ class TTSEngine(ABC):
     # ── Misc ───────────────────────────────────────────────────────
     def __repr__(self) -> str:  # pragma: no cover — debugging convenience
         return f"<TTSEngine {self.key!r}>"
+
+
+class DeactivatedEngine(TTSEngine):
+    """Placeholder for an escalation-list entry whose engine folder lies in
+    ``tts_engines/disabled/``: the entry stays in the list, is shown as off and
+    is skipped like any other switched-off entry. Never registered."""
+
+    deactivated = True
+
+    def __init__(self, key: str) -> None:
+        super().__init__()
+        self.key = key
+        self.label_short = key
+
+    def get_voices(self) -> dict[str, str]:
+        return {}
+
+    def is_running(self) -> bool:
+        return False
+
+    def is_installed(self) -> bool:
+        return False

@@ -13,22 +13,12 @@ Central function: ensure_tts_state(wanted_tts, backend_type)
 from __future__ import annotations
 
 import threading
+from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Generator
 
 from .logging_utils import log_message
-
-
-# Engines that require a Docker container with GPU VRAM.
-# Derived from the SSOT registry (aifred.lib.tts_engines) so adding a new
-# GPU engine = one new TTSEngine subclass + one registry entry; this set
-# updates automatically.
-def _gpu_engine_keys() -> set[str]:
-    from .tts_engines import gpu_engines
-    return {e.key for e in gpu_engines()}
-
-
-GPU_ENGINES = _gpu_engine_keys()
+from .tts_engines import gpu_engine_keys
 
 
 def _label(engine_key: str) -> str:
@@ -57,7 +47,7 @@ TTS_HEALTH_CHECK_TIMEOUT = 5
 # Idle behaviour is unchanged: when nothing holds the engine, ensure_tts_state
 # may stop it, and the container's KEEP_ALIVE will eventually shut it down on
 # its own.
-_engine_refs: dict[str, int] = {engine: 0 for engine in GPU_ENGINES}
+_engine_refs: defaultdict[str, int] = defaultdict(int)
 _engine_refs_lock = threading.Lock()
 
 
@@ -69,7 +59,7 @@ def acquire_tts(engine: str) -> None:
     counter is allowed to grow above 1 when multiple concurrent pipelines
     use the same engine.
     """
-    if engine not in _engine_refs:
+    if engine not in gpu_engine_keys():
         return
     with _engine_refs_lock:
         _engine_refs[engine] += 1
@@ -82,7 +72,7 @@ def release_tts(engine: str) -> None:
     Pipelines must put this in a ``finally`` block to survive crashes
     and external cancellations (e.g. FreeEcho.2 Action-Button stop event).
     """
-    if engine not in _engine_refs:
+    if engine not in gpu_engine_keys():
         return
     with _engine_refs_lock:
         _engine_refs[engine] = max(0, _engine_refs[engine] - 1)
@@ -90,7 +80,7 @@ def release_tts(engine: str) -> None:
 
 def is_tts_in_use(engine: str) -> bool:
     """True if any pipeline currently holds an acquisition for this engine."""
-    if engine not in _engine_refs:
+    if engine not in gpu_engine_keys():
         return False
     with _engine_refs_lock:
         return _engine_refs[engine] > 0
@@ -98,7 +88,7 @@ def is_tts_in_use(engine: str) -> bool:
 
 def get_tts_refcount(engine: str) -> int:
     """Current acquisition count (debug/inspection helper)."""
-    if engine not in _engine_refs:
+    if engine not in gpu_engine_keys():
         return 0
     with _engine_refs_lock:
         return _engine_refs[engine]
@@ -353,7 +343,7 @@ def ensure_tts_state(
         TTSState with success and changed flags.
     """
     # Lightweight engines don't need VRAM management
-    if wanted_tts and wanted_tts not in GPU_ENGINES:
+    if wanted_tts and wanted_tts not in gpu_engine_keys():
         return TTSState(success=True)
 
     running = _detect_running_tts_engine()
@@ -427,12 +417,12 @@ def _do_switch(
     # VRAM-free (Step 2) and the llama-swap restart (Step 4) — avoiding a
     # needless LLM cold start. Only relevant when no *other* GPU TTS is running.
     llm_already_matching = (
-        not (old_engine and old_engine in GPU_ENGINES)
+        not (old_engine and old_engine in gpu_engine_keys())
         and _llm_already_on_tts_variant(new_engine, backend_type)
     )
 
     # Step 1: Stop old engine
-    if old_engine and old_engine in GPU_ENGINES:
+    if old_engine and old_engine in gpu_engine_keys():
         success, msg = stop_engine(old_engine)
         yield f"{_label(old_engine)} stopped" if success else f"{_label(old_engine)} stop failed: {msg}"
 
@@ -446,7 +436,7 @@ def _do_switch(
 
     # Step 3: Start new engine + wait for model load
     started_ok = True
-    if new_engine in GPU_ENGINES:
+    if new_engine in gpu_engine_keys():
         # Yield a per-engine "loading…" line so the UI shows progress
         # before the (possibly minute-long) container start blocks.
         yield f"{_label(new_engine)}: Loading model..."
@@ -459,7 +449,7 @@ def _do_switch(
     # Safety net: if we kept the LLM warm but the TTS container failed to come
     # up (e.g. the reserved slot didn't actually fit), fall back to the full
     # dance — free VRAM and retry once, then restart the LLM below.
-    if llm_already_matching and not started_ok and new_engine in GPU_ENGINES:
+    if llm_already_matching and not started_ok and new_engine in gpu_engine_keys():
         yield "TTS start failed next to warm LLM — freeing VRAM and retrying..."
         unload_all_gpu_models(backend_type, keep_tts=new_engine)
         started_ok, ready_msg, _device = ensure_engine_ready(

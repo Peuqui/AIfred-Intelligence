@@ -164,6 +164,18 @@ The same scaffolding applies to containers on another machine (`at_host()`): not
 from here, only the health check is used, the host starts its containers itself (see
 [tts-vram-workflow.md](tts-vram-workflow.md)).
 
+### Switching an engine on and off (`disabled/`)
+
+An engine is switched off like a plugin: its folder moves from `aifred/lib/tts_engines/<key>/` to
+`aifred/lib/tts_engines/disabled/<key>/`, and back to switch it on again. The registry loads only the
+folders directly under `tts_engines/`. Without a restart the move takes effect after **"Check status ·
+reload engines"** in the TTS menu (`reload_engines()` in `registry.py`): modules and registry are
+rebuilt, and the container of a vanished engine on this machine is stopped first. Engines switched
+on again sit at the end of the registry order until the next restart. If the switched-off engine is
+in the escalation list, its entry stays there, shows as off ("engine deactivated") and is skipped
+like any switched-off entry (`DeactivatedEngine` in `base.py`). A key that is neither an engine nor in
+`disabled/` stays a hard error.
+
 ### Completeness test
 
 [`tests/test_tts_engine_completeness.py`](../../../tests/test_tts_engine_completeness.py)

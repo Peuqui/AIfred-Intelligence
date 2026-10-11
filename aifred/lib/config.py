@@ -293,12 +293,6 @@ BACKEND_LABELS = {
 # single source of truth for "which TTS engines exist" lives in
 # ``aifred/lib/tts_engines/`` (one folder per engine, auto-discovered).
 # To add a new engine, drop a folder there; no edit needed here.
-def _build_tts_engine_keys() -> list[str]:
-    from .tts_engines import TTS_ENGINES
-    return ["off", *TTS_ENGINES.keys()]
-
-TTS_ENGINE_KEYS = _build_tts_engine_keys()
-
 # Default TTS engine — preselected in fresh state and in the agent
 # editor's backend dropdown until the user picks one. Single source of
 # truth: the state mixins read this instead of each hardcoding a key.

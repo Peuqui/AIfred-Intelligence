@@ -813,7 +813,7 @@ class ChatMixin(rx.State, mixin=True):
             try:
                 from ..lib.calibration import diagnose_uncalibrated_combo
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
-                from ..lib.tts_engine_manager import GPU_ENGINES
+                from ..lib.tts_engines import gpu_engine_keys
                 from ..lib.tts_escalation import planned_tts_engine
                 from ..lib.vision_prewarm import (
                     is_vision_active,
@@ -826,7 +826,7 @@ class ChatMixin(rx.State, mixin=True):
                     self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
                     tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
                     tts_engine=planned_tts_engine(self.agent_tuning["aifred"].model_id),  # type: ignore[attr-defined]
-                    gpu_tts_engines=GPU_ENGINES,
+                    gpu_tts_engines=gpu_engine_keys(),
                     vlm_active=_vlm_active_chat,
                     vlm_key=_vlm_key_chat,
                 )
@@ -851,7 +851,6 @@ class ChatMixin(rx.State, mixin=True):
         # below) resets is_generating and releases pipeline/TTS again.
         from ..lib.pipeline_registry import register_pipeline, unregister_pipeline
         from ..lib.tts_engine_manager import (
-            GPU_ENGINES,
             _detect_running_tts_engine,
             acquire_tts,
             release_tts,

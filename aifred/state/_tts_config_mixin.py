@@ -69,14 +69,17 @@ class TTSConfigMixin(rx.State, mixin=True):
         for index, entry in enumerate(escalation_entries()):
             engine = entry.engine
             installed = engine.is_remote or engine.is_installed()
+            note = t("tts_entry_engine_deactivated", lang=lang) if engine.deactivated else (
+                "" if installed else t("tts_entry_not_installed", lang=lang))
             rows.append({
                 "index": index,
                 "engine": engine.key,
                 "label": f"{engine.label_short} · {location_label(entry, lang)}",
                 "enabled": entry.enabled,
-                "unit": speech_unit_for(engine.key),
+                "unit": "" if engine.deactivated else speech_unit_for(engine.key),
+                "deactivated": engine.deactivated,
                 "reserved": entry.host is None and engine.key == reserved,
-                "note": "" if installed else t("tts_entry_not_installed", lang=lang),
+                "note": note,
                 "status": self.tts_entry_status.get(index, ""),
             })
         return rows
@@ -283,11 +286,14 @@ class TTSConfigMixin(rx.State, mixin=True):
         import asyncio
 
         from ..lib.i18n import t
+        from ..lib.tts_engines import reload_engines
         from ..lib.tts_escalation import entry_status, escalation_entries
 
         async with self:
             lang = _lang(self)
             self.tts_status_checking = True
+        # Engine folders moved into or out of tts_engines/disabled/ take effect here.
+        removed, added = await asyncio.to_thread(reload_engines)
         statuses = {
             index: t(f"tts_status_{key}", lang=lang)
             for index, key in enumerate(
@@ -297,6 +303,9 @@ class TTSConfigMixin(rx.State, mixin=True):
         async with self:
             self.tts_entry_status = statuses
             self.tts_status_checking = False
+            if removed or added:
+                self.tts_list_revision += 1
+                self.add_debug(f"🔊 TTS engines reloaded: removed {removed or '-'}, added {added or '-'}")  # type: ignore[attr-defined]
             self.add_debug(f"🔊 TTS status checked ({len(statuses)} entries)")  # type: ignore[attr-defined]
 
     @rx.event(background=True)  # type: ignore[operator]

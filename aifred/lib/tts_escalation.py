@@ -19,7 +19,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from typing import Any, AsyncIterator, Callable
 
-from .tts_engines import TTSEngine, get_engine
+from .tts_engines import DeactivatedEngine, TTSEngine, get_engine, is_deactivated
 
 
 @dataclass(frozen=True)
@@ -62,7 +62,7 @@ def _parse_hosts(raw_hosts: list[dict[str, Any]]) -> dict[str, TTSHost]:
             raise ValueError(f"tts_hosts: duplicate host name {name!r}")
         ports = {str(key): int(port) for key, port in (raw.get("ports") or {}).items()}
         for engine_key in ports:
-            if get_engine(engine_key) is None:
+            if get_engine(engine_key) is None and not is_deactivated(engine_key):
                 raise ValueError(f"tts_hosts[{name}]: port for unknown TTS engine {engine_key!r}")
         hosts[name] = TTSHost(
             name=name, address=str(raw["address"]), enabled=bool(raw["enabled"]),
@@ -74,16 +74,21 @@ def _parse_hosts(raw_hosts: list[dict[str, Any]]) -> dict[str, TTSHost]:
 def _bind_entry(raw: dict[str, Any], hosts: dict[str, TTSHost]) -> EscalationEntry:
     engine_key = str(raw["engine"])
     engine = get_engine(engine_key)
-    if engine is None:
+    if engine is None and not is_deactivated(engine_key):
         raise ValueError(f"tts_escalation: unknown TTS engine {engine_key!r}")
     host_name = raw.get("host")
-    if host_name is None:
-        return EscalationEntry(engine=engine, host=None, enabled=bool(raw["enabled"]))
-    host = hosts.get(str(host_name))
-    if host is None:
-        raise ValueError(f"tts_escalation: entry {engine_key!r} names unknown host {host_name!r}")
-    remote = engine.at_host(host.address, host.ports.get(engine_key))
-    return EscalationEntry(engine=remote, host=host, enabled=bool(raw["enabled"]))
+    host = None
+    if host_name is not None:
+        host = hosts.get(str(host_name))
+        if host is None:
+            raise ValueError(f"tts_escalation: entry {engine_key!r} names unknown host {host_name!r}")
+    if engine is None:
+        # The engine folder lies in tts_engines/disabled/: the entry stays in the
+        # list, shown as off, and is skipped like any switched-off entry.
+        return EscalationEntry(engine=DeactivatedEngine(engine_key), host=host, enabled=False)
+    if host is not None:
+        engine = engine.at_host(host.address, host.ports.get(engine_key))
+    return EscalationEntry(engine=engine, host=host, enabled=bool(raw["enabled"]))
 
 
 def escalation_entries(settings: dict[str, Any] | None = None) -> list[EscalationEntry]:
@@ -158,6 +163,8 @@ async def _skip_reason(
     import asyncio
 
     engine = entry.engine
+    if engine.deactivated:
+        return "engine deactivated"
     if not entry.enabled:
         return "disabled"
     if engine.renders_in_browser and not in_browser:
@@ -510,6 +517,8 @@ def location_label(entry: EscalationEntry, lang: str) -> str:
 
     if entry.host is not None:
         return entry.host.name
+    if entry.engine.deactivated:
+        return t("tts_location_deactivated", lang=lang)
     if entry.engine.renders_in_browser:
         return t("tts_location_device", lang=lang)
     if entry.engine.cloud:
@@ -604,6 +613,8 @@ def entry_status(entry: EscalationEntry) -> str:
     background start in flight or failed — and never starts anything. For
     the status column of the list editor."""
     engine = entry.engine
+    if engine.deactivated:
+        return "engine_deactivated"
     if not entry.enabled:
         return "disabled"
     if entry.host is not None and not entry.host.enabled:
