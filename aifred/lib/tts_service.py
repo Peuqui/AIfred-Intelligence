@@ -485,6 +485,16 @@ def release_gpu_engines(
         for info in _local_gpu_rows(fresh=True)
         if info.status == "running" and info.engine not in keep and _touches(info, cards_needed)
     ]
+    return release_targets(targets, reason=reason)
+
+
+def release_targets(targets: Sequence[EngineTarget], *, reason: str) -> list[ReleaseResult]:
+    """Ask the service to release exactly these catalog rows and log every answer that is not a
+    success (``release_gpu_engines`` and the TTS burn-in share this).
+
+    Raises:
+        TTSSuiteError: the service does not answer or refuses the request.
+    """
     if not targets:
         return []
     try:

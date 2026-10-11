@@ -1141,6 +1141,10 @@ LLAMACPP_TTS_BURNIN_HEADROOM_MB = 512
 # steady-state. Raise this if a new engine shows late-arriving peaks.
 LLAMACPP_TTS_BURNIN_ITERATIONS = 2
 
+# How often the burn-in asks the TTS service's catalog for the engine's VRAM
+# while the service is reading (the peak is the maximum of these samples).
+TTS_BURNIN_VRAM_POLL_S = 0.3
+
 # Pre-calibration GPU-cleanliness guard. After Step 0 (stop TTS/VLM
 # containers, unload Ollama models, stop llama-swap) the calibration must
 # run with NO compute process left on the GPUs — every probe measures real
