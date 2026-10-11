@@ -1032,7 +1032,7 @@ async def announce_to_channel(
         await plugin.send_reply(outbound, dummy)
         return True
     except Exception as e:  # noqa: BLE001
-        log_message(f"announce: send via '{channel}' failed: {e}", "warning")
+        log_message(f"announce: send via '{channel}' failed: {e}", "error")
         return False
 
 

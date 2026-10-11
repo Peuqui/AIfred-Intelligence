@@ -563,7 +563,21 @@ async def _deliver_announce(job: Job, response_text: str, session_id: str) -> No
         metadata={"subject": job.name, **job.payload.get("metadata", {})},
     )
     if not ok:
-        log_message(f"Scheduler: announce for job '{job.name}' did not deliver", "warning")
+        # Nicht nur ins Debug-Log (das beim Neustart geleert wird): der Auftrag
+        # hat seinen Bericht erzeugt, ihn aber nicht zugestellt — das muss
+        # sichtbar werden.
+        log_message(
+            f"Scheduler: announce for job '{job.name}' did not deliver "
+            f"(channel {channel_name!r})", "error",
+        )
+        from .message_processor import write_hub_notification
+        write_hub_notification(
+            session_id=session_id,
+            session_title=f"Job: {job.name} — Zustellung fehlgeschlagen",
+            channel=channel_name,
+            sender="system",
+            status="error",
+        )
 
 
 def _deliver_review(job: Job, response_text: str, session_id: str) -> None:

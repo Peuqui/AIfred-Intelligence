@@ -351,13 +351,23 @@ async def describe_sandbox_screenshots(
         yield {"type": "result", "text": f"{result_text}\n\n{error_note}"}
 
 
+_PLOT_HOOK_PREFIX = "__plot_"
+
+
 def _collect_images(work_dir: Path, session_id: str) -> list[str]:
-    """Collect generated plot images, save to sandbox_output/{session_id}/, return URLs."""
+    """Collect generated PNG images, save to sandbox_output/{session_id}/, return URLs.
+
+    Two sources, one result: figures still open at the end of the script
+    (``__plot_N.png`` from the matplotlib hook, named ``plot``) and every PNG
+    the script wrote itself (``plt.savefig("name.png")``, PIL, …). Without the
+    second one a script that saves and closes its figure produced an image
+    that never reached the result — and the model then invented a URL."""
     output_dir = _session_output_dir(session_id)
 
     urls: list[str] = []
-    for png in sorted(work_dir.glob("__plot_*.png")):
-        filename = output_filename("plot", png.read_bytes(), ".png")
+    for png in sorted(work_dir.glob("*.png")):
+        stem = "plot" if png.name.startswith(_PLOT_HOOK_PREFIX) else png.stem
+        filename = output_filename(stem, png.read_bytes(), ".png")
         shutil.copy2(png, output_dir / filename)
         url = _sandbox_url(session_id, filename)
         if url not in urls:
