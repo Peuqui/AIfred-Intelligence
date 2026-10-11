@@ -159,7 +159,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         room for the planned engine (topmost enabled local GPU entry with a
         calibrated profile), or for none when the spoken output is off.
         Generator — each yield is one finished blocking step."""
-        from ..lib.tts_engine_manager import ensure_tts_state
+        from ..lib.tts_llm_coordination import ensure_tts_state
         from ..lib.tts_escalation import escalation_entries, planned_tts_engine
 
         wanted = (

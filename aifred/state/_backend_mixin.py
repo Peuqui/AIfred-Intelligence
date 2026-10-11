@@ -979,7 +979,7 @@ class BackendMixin(rx.State, mixin=True):
 
                 from ..lib.agent_config import get_agent_label
                 # Show effective model (includes TTS variant if GPU TTS is active)
-                from ..lib.tts_engine_manager import get_effective_model_info
+                from ..lib.tts_llm_coordination import get_effective_model_info
                 effective_info = get_effective_model_info(self.backend_type)
                 base_info = format_model_with_ctx(self.agent_tuning["aifred"].model, self.agent_tuning["aifred"].model_id)
                 # If TTS changes the model, show effective info instead

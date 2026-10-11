@@ -658,7 +658,8 @@ class ChatMixin(rx.State, mixin=True):
         LLM ranks above TTS. Only the menu (reordering the list) switches the
         planned engine.
         """
-        from ..lib.tts_engine_manager import _detect_running_tts_engine, ensure_tts_state
+        from ..lib.tts_engine_manager import _detect_running_tts_engine
+        from ..lib.tts_llm_coordination import ensure_tts_state
         from ..lib.tts_escalation import planned_tts_engine
 
         if not self.enable_tts:  # type: ignore[attr-defined]
