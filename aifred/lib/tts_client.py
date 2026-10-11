@@ -11,6 +11,8 @@ holds no connection that is bound to one event loop.
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import struct
 from collections.abc import AsyncIterator, Mapping
@@ -19,6 +21,8 @@ from pathlib import Path
 from typing import Any
 
 import httpx
+from websockets.asyncio.client import ClientConnection, connect
+from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
 
 from .config import (
     TTS_SUITE_CONNECT_TIMEOUT_S,
@@ -265,16 +269,10 @@ class FrameDecoder:
 # ---- The stream of a reading -------------------------------------------------
 
 
-class SpeechStream:
-    """The answer of ``speak``: iterate the segments, read ``summary`` afterwards.
+class _FrameStream:
+    """What a ``speak`` answer and a text stream share: decoding frames into segments and the summary."""
 
-    Keep-alive markers are passed on (``segment.keepalive``); the caller drops them.
-    ``await aclose()`` aborts the reading and closes the HTTP answer.
-    """
-
-    def __init__(self, http: httpx.AsyncClient, response: httpx.Response) -> None:
-        self._http = http
-        self._response = response
+    def __init__(self) -> None:
         self._decoder = FrameDecoder()
         self._summary: SpeakSummary | None = None
 
@@ -285,20 +283,11 @@ class SpeechStream:
             raise RuntimeError("the summary is only available after the stream has ended")
         return self._summary
 
-    def __aiter__(self) -> AsyncIterator[Segment]:
-        return self._segments()
+    def _handle_chunk(self, chunk: bytes) -> list[Segment]:
+        segments = [self._handle_frame(header, body) for header, body in self._decoder.feed(chunk)]
+        return [segment for segment in segments if segment is not None]
 
-    async def _segments(self) -> AsyncIterator[Segment]:
-        try:
-            async for chunk in self._response.aiter_raw():
-                for header, body in self._decoder.feed(chunk):
-                    segment = self._handle_frame(header, body)
-                    if segment is not None:
-                        yield segment
-        except httpx.TransportError as error:
-            raise TTSSuiteUnreachable(f"TTS service connection lost during reading: {error!r}") from error
-        finally:
-            await self.aclose()
+    def _check_ended_cleanly(self) -> None:
         if self._decoder.pending or self._summary is None:
             raise StreamBroken("TTS stream ended without a summary frame")
 
@@ -314,9 +303,109 @@ class SpeechStream:
             raise _error_from_body(json.loads(body), None, body.decode("utf-8", "replace"))
         raise UnknownServiceError(f"unknown frame kind '{kind}'")
 
+
+class SpeechStream(_FrameStream):
+    """The answer of ``speak``: iterate the segments, read ``summary`` afterwards.
+
+    Keep-alive markers are passed on (``segment.keepalive``); the caller drops them.
+    ``await aclose()`` aborts the reading and closes the HTTP answer.
+    """
+
+    def __init__(self, http: httpx.AsyncClient, response: httpx.Response) -> None:
+        super().__init__()
+        self._http = http
+        self._response = response
+
+    def __aiter__(self) -> AsyncIterator[Segment]:
+        return self._segments()
+
+    async def _segments(self) -> AsyncIterator[Segment]:
+        try:
+            async for chunk in self._response.aiter_raw():
+                for segment in self._handle_chunk(chunk):
+                    yield segment
+        except httpx.TransportError as error:
+            raise TTSSuiteUnreachable(f"TTS service connection lost during reading: {error!r}") from error
+        finally:
+            await self.aclose()
+        self._check_ended_cleanly()
+
     async def aclose(self) -> None:
         await self._response.aclose()
         await self._http.aclose()
+
+
+class TextStream(_FrameStream):
+    """A reading over the WebSocket: text goes in pieces (``feed``, ``finish``), segments come back
+    while the text is still being written. Sending and receiving are independent: one task reads
+    the frames into a queue, the caller sends. A failure of the reading (error frame, lost
+    connection) is raised while iterating, or by the next ``feed`` / ``finish``.
+    ``await aclose()`` closes the connection, which aborts the reading.
+    """
+
+    def __init__(self, connection: ClientConnection) -> None:
+        super().__init__()
+        self._connection = connection
+        # Segment = audio, exception = the reading failed, None = the stream ended
+        self._queue: asyncio.Queue[Segment | TTSSuiteError | None] = asyncio.Queue()
+        self._failure: TTSSuiteError | None = None
+        self._receiver = asyncio.create_task(self._receive())
+
+    async def feed(self, text: str) -> None:
+        await self._send({"type": "text", "text": text})
+
+    async def finish(self) -> None:
+        """The text is complete; the segments go on until the summary."""
+        await self._send({"type": "finish"})
+
+    async def _send(self, message: dict[str, str]) -> None:
+        try:
+            await self._connection.send(json.dumps(message))
+        except ConnectionClosed as error:
+            # The service closes after an error frame: that frame is the real reason.
+            if self._failure is not None:
+                raise self._failure from error
+            raise TTSSuiteUnreachable(f"TTS service closed the connection while sending: {error!r}") from error
+
+    async def _receive(self) -> None:
+        try:
+            async for message in self._connection:
+                if isinstance(message, str):
+                    raise UnknownServiceError("TTS service sent a text message instead of a frame")
+                for segment in self._handle_chunk(message):
+                    self._queue.put_nowait(segment)
+            self._check_ended_cleanly()
+        except ConnectionClosed as error:
+            self._fail(TTSSuiteUnreachable(f"TTS service connection lost during reading: {error!r}"))
+        except TTSSuiteError as error:
+            self._fail(error)
+        else:
+            self._queue.put_nowait(None)
+
+    def _fail(self, error: TTSSuiteError) -> None:
+        self._failure = error
+        self._queue.put_nowait(error)
+
+    def __aiter__(self) -> AsyncIterator[Segment]:
+        return self._segments()
+
+    async def _segments(self) -> AsyncIterator[Segment]:
+        try:
+            while True:
+                item = await self._queue.get()
+                if item is None:
+                    return
+                if isinstance(item, TTSSuiteError):
+                    raise item
+                yield item
+        finally:
+            await self.aclose()
+
+    async def aclose(self) -> None:
+        self._receiver.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await self._receiver
+        await self._connection.close()
 
 
 # ---- The client --------------------------------------------------------------
@@ -423,17 +512,8 @@ class TTSClient:
         raises here (``NoEngineAvailable``, ``EngineStarting``, ...); a cold start of an
         engine is waited for. Failures after the first frame surface while iterating.
         """
-        head: dict[str, Any] = {
-            "text": text,
-            "language": language,
-            "voice": voice,
-            "speed": speed,
-            "pitch": pitch,
-            "engine": engine,
-            "voices": dict(voices) if voices else {},
-            "run": run,
-            "wait": wait,
-        }
+        head = _speak_head(language, voice, speed, pitch, engine, voices, run, wait)
+        head["text"] = text
         http = self._http(TTS_SUITE_STREAM_READ_TIMEOUT_S)
         try:
             request = http.build_request("POST", "/speak", json=head)
@@ -448,6 +528,76 @@ class TTSClient:
             await http.aclose()
             raise error_to_raise
         return SpeechStream(http, response)
+
+    async def open_stream(
+        self,
+        *,
+        language: str,
+        voice: str | None = None,
+        speed: float | None = None,
+        pitch: float | None = None,
+        engine: str | None = None,
+        voices: Mapping[str, Mapping[str, Any]] | None = None,
+        run: str | None = None,
+        wait: bool = True,
+    ) -> TextStream:
+        """Open a reading whose text arrives in pieces (WebSocket ``/speak/stream``).
+
+        Returns once the connection stands and the head is sent; the service reports a reading
+        that cannot start (``UnsupportedLanguage``, ``NoEngineAvailable``, ...) as an error frame,
+        which is raised while iterating or by the next ``feed``.
+        """
+        head = {"type": "start", **_speak_head(language, voice, speed, pitch, engine, voices, run, wait)}
+        # Speaking needs the token only when the service listens beyond loopback; send it if there is one.
+        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
+        try:
+            connection = await connect(
+                _stream_url(self.base_url),
+                additional_headers=headers,
+                open_timeout=TTS_SUITE_CONNECT_TIMEOUT_S,
+                max_size=None,  # a frame carries a whole audio segment, which can be large
+            )
+        except InvalidStatus as error:
+            if error.response.status_code == 403:
+                raise Unauthorized("TTS service refused the stream: a valid token is needed", 403) from error
+            raise TTSSuiteUnreachable(f"TTS service refused the stream: {error!r}") from error
+        except (OSError, TimeoutError, InvalidHandshake) as error:
+            raise TTSSuiteUnreachable(f"TTS service not reachable on /speak/stream: {error!r}") from error
+        stream = TextStream(connection)
+        try:
+            await connection.send(json.dumps(head))
+        except ConnectionClosed as error:
+            await stream.aclose()
+            raise TTSSuiteUnreachable(f"TTS service closed the stream at start: {error!r}") from error
+        return stream
+
+
+def _speak_head(
+    language: str,
+    voice: str | None,
+    speed: float | None,
+    pitch: float | None,
+    engine: str | None,
+    voices: Mapping[str, Mapping[str, Any]] | None,
+    run: str | None,
+    wait: bool,
+) -> dict[str, Any]:
+    """Head of a reading, shared by POST /speak and the start message of the WebSocket."""
+    return {
+        "language": language,
+        "voice": voice,
+        "speed": speed,
+        "pitch": pitch,
+        "engine": engine,
+        "voices": dict(voices) if voices else {},
+        "run": run,
+        "wait": wait,
+    }
+
+
+def _stream_url(base_url: str) -> str:
+    """http -> ws, https -> wss."""
+    return base_url.replace("http", "ws", 1) + "/speak/stream"
 
 
 def _host_params(host: str | None) -> dict[str, str] | None:

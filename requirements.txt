@@ -24,6 +24,7 @@ psutil==7.2.2           # System resource monitoring (RAM for hybrid mode)
 trafilatura==2.3.0     # Web content extraction (includes lxml)
 playwright==1.63.0      # JavaScript-heavy page scraping
 requests==2.34.2        # HTTP requests for search APIs (Brave, SearXNG)
+websockets==17.2       # WebSocket client of the TTS-Suite stream (text in pieces, audio frames back)
 pymupdf==1.28.2         # PDF text extraction (AWMF guidelines, PubMed PDFs)
 
 # Vector Database & Semantic Search
