@@ -21,6 +21,71 @@ from typing import Any, Optional, TypedDict
 logger = logging.getLogger(__name__)
 
 
+def _query_gpu_used_mb(gpu_index: int) -> int:
+    """One-shot read of memory.used for a single GPU."""
+    from .nvidia_smi import query
+    rows = query("memory.used", gpu_index=gpu_index)
+    try:
+        return int(rows[0]["memory.used"]) if rows else 0
+    except ValueError as e:
+        logger.warning("tts_stress_burnin: nvidia-smi read failed (%s)", e)
+        return 0
+
+
+def _resolve_tts_gpu_index() -> Optional[int]:
+    """Resolve the TTS GPU's PCI_BUS_ID index by mapping the cached UUID
+    through nvidia-smi. Returns ``None`` if the UUID can't be resolved
+    (no TTS GPU pinned, or NVML unavailable)."""
+    from .process_utils import get_tts_gpu_uuid
+    uuid = get_tts_gpu_uuid()
+    if not uuid:
+        return None
+    from .nvidia_smi import query
+    try:
+        for row in query("index,uuid") or []:
+            if row["uuid"] == uuid:
+                return int(row["index"])
+    except ValueError as e:
+        logger.warning("tts_stress_burnin: index lookup failed (%s)", e)
+    return None
+
+
+class _PeakMonitor:
+    """Background sampler — same shape as the VLM stress-prewarm peak
+    monitor. Polls memory.used every ``interval`` seconds, tracks the
+    maximum."""
+
+    def __init__(self, gpu_index: int, interval: float = 0.1) -> None:
+        self._gpu = gpu_index
+        self._interval = interval
+        self._peak = 0
+        self._task: Optional[asyncio.Task[None]] = None
+        self._stop = asyncio.Event()
+
+    async def _run(self) -> None:
+        while not self._stop.is_set():
+            used = _query_gpu_used_mb(self._gpu)
+            if used > self._peak:
+                self._peak = used
+            try:
+                await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
+            except asyncio.TimeoutError:
+                pass
+
+    async def __aenter__(self) -> "_PeakMonitor":
+        self._task = asyncio.create_task(self._run())
+        return self
+
+    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+        self._stop.set()
+        if self._task is not None:
+            await self._task
+
+    @property
+    def peak_mb(self) -> int:
+        return self._peak
+
+
 class SidechannelResult(TypedDict):
     """Ergebnis des gemeinsamen Laufs. ``fits`` ist die Aussage, auf die
     es ankommt; die Einzelwerte dienen der Nachvollziehbarkeit im Log."""
@@ -51,14 +116,7 @@ async def burnin_sidechannel(
             debug(msg)
         logger.info("sidechannel_burnin: %s", msg)
 
-    # Bewusst die privaten Helfer des TTS-Burn-ins: dieselbe Karte,
-    # dieselbe Messmethode — nachbauen wuerde zwei Wahrheiten schaffen.
-    from .tts_stress_burnin import (
-        _PeakMonitor,
-        _query_gpu_used_mb,
-        _resolve_tts_gpu_index,
-        stress_burnin_tts,
-    )
+    from .tts_stress_burnin import stress_burnin_tts
 
     gpu_index = _resolve_tts_gpu_index()
     if gpu_index is None:

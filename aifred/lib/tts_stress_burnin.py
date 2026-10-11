@@ -1,10 +1,15 @@
-"""TTS Stress Burn-In — Worst-Case VRAM Measurement.
+"""TTS Stress Burn-In — Worst-Case VRAM Measurement, through the TTS-Suite service.
 
-For each installed GPU TTS engine, this helper starts the container,
-fires a deliberately heavy synthesis workload (long bilingual text,
-multiple back-to-back requests so the decoder reaches its peak buffer
-allocation), polls GPU memory.used at 100 ms intervals, then writes
-the observed peak into :mod:`tts_vram_cache`.
+For each installed local GPU TTS engine, this helper has the TTS-Suite service read a
+deliberately heavy workload (long bilingual text, several back-to-back requests so the
+decoder reaches its peak buffer allocation), watches the engine's VRAM in the service's
+catalog while it reads, then writes the observed peak into :mod:`tts_vram_cache`.
+
+AIfred only asks: the service starts the engine container itself when the reading reaches
+it and picks the card; afterwards AIfred asks the service to release the container. AIfred
+writes nothing into the service. The VRAM *budget* of an engine in the service (what the
+service may place on a card) is kept by hand in the suite's own web interface; the burn-in
+measures what the engine really takes, for the calibration's reserve.
 
 The calibration consumes the cached value plus a fixed headroom (see
 :data:`LLAMACPP_TTS_BURNIN_HEADROOM_MB` in config.py). No more
@@ -26,6 +31,9 @@ import asyncio
 import logging
 import time
 from typing import Any, Optional
+
+from .tts_client import EngineRef, EngineTarget, TTSSuiteError, get_tts_client
+from .tts_service import TTSVramUnknown, catalog, release_targets
 
 logger = logging.getLogger(__name__)
 
@@ -123,69 +131,82 @@ _STRESS_TEXT_EN = (
 )
 
 
-def _query_gpu_used_mb(gpu_index: int) -> int:
-    """One-shot read of memory.used for a single GPU."""
-    from .nvidia_smi import query
-    rows = query("memory.used", gpu_index=gpu_index)
-    try:
-        return int(rows[0]["memory.used"]) if rows else 0
-    except ValueError as e:
-        logger.warning("tts_stress_burnin: nvidia-smi read failed (%s)", e)
-        return 0
+def _engine_vram_mib(engine_key: str) -> int:
+    """VRAM (MiB, all cards together) the service reports for the engine on this machine right now.
+
+    Raises:
+        TTSVramUnknown: the service could not measure it (no estimate is made up).
+        TTSSuiteError: the service does not answer.
+    """
+    row = next(info for info in catalog(fresh=True) if info.engine == engine_key and info.host is None)
+    if row.vram_mib is None:
+        raise TTSVramUnknown(f"the VRAM of {engine_key} could not be measured by the TTS service")
+    return sum(row.vram_mib.values())
 
 
-def _resolve_tts_gpu_index() -> Optional[int]:
-    """Resolve the TTS GPU's PCI_BUS_ID index by mapping the cached UUID
-    through nvidia-smi. Returns ``None`` if the UUID can't be resolved
-    (no TTS GPU pinned, or NVML unavailable)."""
-    from .process_utils import get_tts_gpu_uuid
-    uuid = get_tts_gpu_uuid()
-    if not uuid:
-        return None
-    from .nvidia_smi import query
-    try:
-        for row in query("index,uuid") or []:
-            if row["uuid"] == uuid:
-                return int(row["index"])
-    except ValueError as e:
-        logger.warning("tts_stress_burnin: index lookup failed (%s)", e)
-    return None
+class _VramPeakMonitor:
+    """Asks the service's catalog for the engine's VRAM every ``TTS_BURNIN_VRAM_POLL_S`` and keeps
+    the maximum. The catalog call is blocking (HTTP, ``nvidia-smi`` in the service), so it runs in a
+    thread. A failed sample is raised when the monitor ends."""
 
-
-class _PeakMonitor:
-    """Background sampler — same shape as the VLM stress-prewarm peak
-    monitor. Polls memory.used every ``interval`` seconds, tracks the
-    maximum."""
-
-    def __init__(self, gpu_index: int, interval: float = 0.1) -> None:
-        self._gpu = gpu_index
-        self._interval = interval
+    def __init__(self, engine_key: str) -> None:
+        self._engine_key = engine_key
         self._peak = 0
         self._task: Optional[asyncio.Task[None]] = None
         self._stop = asyncio.Event()
 
+    async def _sample(self) -> None:
+        self._peak = max(self._peak, await asyncio.to_thread(_engine_vram_mib, self._engine_key))
+
     async def _run(self) -> None:
+        from .config import TTS_BURNIN_VRAM_POLL_S
+
         while not self._stop.is_set():
-            used = _query_gpu_used_mb(self._gpu)
-            if used > self._peak:
-                self._peak = used
+            await self._sample()
             try:
-                await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
+                await asyncio.wait_for(self._stop.wait(), timeout=TTS_BURNIN_VRAM_POLL_S)
             except asyncio.TimeoutError:
                 pass
 
-    async def __aenter__(self) -> "_PeakMonitor":
+    async def __aenter__(self) -> "_VramPeakMonitor":
         self._task = asyncio.create_task(self._run())
         return self
 
     async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
         self._stop.set()
-        if self._task is not None:
-            await self._task
+        assert self._task is not None
+        await self._task
+        if exc_type is None:
+            await self._sample()  # the last synthesis may have ended between two samples
 
     @property
     def peak_mb(self) -> int:
         return self._peak
+
+
+async def _synthesize(text: str, language: str, engine_key: str) -> int:
+    """One reading of ``text`` through the service on the one engine, as a whole text (the heaviest
+    unit). Returns the number of audio segments delivered.
+
+    Raises:
+        TTSSuiteError: the reading failed.
+    """
+    stream = await get_tts_client().speak(
+        text,
+        language=language,
+        engines=[EngineRef(engine_key, "whole", None)],
+        paragraph_pause_ms=0,
+    )
+    segments = 0
+    async for segment in stream:
+        if segment.audio:
+            segments += 1
+    return segments
+
+
+async def _release(engine_key: str) -> None:
+    """Ask the service to take the burn-in's container off the card (it may refuse: ``in_use``)."""
+    await asyncio.to_thread(release_targets, [EngineTarget(engine_key, None)], reason="TTS burn-in finished")
 
 
 async def stress_burnin_tts(
@@ -194,39 +215,22 @@ async def stress_burnin_tts(
     iterations: Optional[int] = None,
     debug: Any = None,
 ) -> Optional[int]:
-    """Bring up the TTS engine, run a worst-case bilingual synthesis
-    loop, return observed peak VRAM in MiB on the engine's GPU. Returns
-    ``None`` on any failure (caller can fall back to the engine's
-    legacy static reserve in ``base.py``).
+    """Have the TTS-Suite service read a worst-case bilingual text loop on the engine and
+    return the peak VRAM in MiB the service reported for it. Returns ``None`` on any failure
+    (service error, engine unknown or not installed, VRAM not measurable, every synthesis
+    failed) and ``0`` for engines that take no local GPU.
 
     ``iterations`` defaults to :data:`config.LLAMACPP_TTS_BURNIN_ITERATIONS`
     when not specified — single tunable knob for the burn-in loop length.
 
-    The container is started fresh and stopped at the end so the
-    measurement reflects the **container's full footprint at peak
-    decode**, not just idle usage.
+    The service starts the container itself and chooses the card; AIfred releases the
+    container at the end, so the measurement reflects the container's full footprint at peak
+    decode, not just idle usage.
     """
     from .config import LLAMACPP_TTS_BURNIN_ITERATIONS
-    from .tts_engines.registry import get_engine
 
     if iterations is None:
         iterations = LLAMACPP_TTS_BURNIN_ITERATIONS
-
-    engine = get_engine(engine_key)
-    if engine is None:
-        logger.error("tts_stress_burnin: unknown engine %s", engine_key)
-        return None
-    if not engine.needs_gpu:
-        logger.info("tts_stress_burnin: %s is not GPU-based — skipping", engine_key)
-        return 0
-    if not engine.is_installed():
-        logger.warning("tts_stress_burnin: %s not installed (no docker image)", engine_key)
-        return None
-
-    gpu_index = _resolve_tts_gpu_index()
-    if gpu_index is None:
-        logger.warning("tts_stress_burnin: cannot resolve TTS GPU index")
-        return None
 
     def _log(msg: str) -> None:
         if debug is not None:
@@ -236,99 +240,29 @@ async def stress_burnin_tts(
                 pass
         logger.info(msg)
 
-    # Pick voice first so the starting line can summarise everything
-    # in one go. Fallback is fine — we just need any working voice id.
-    voices_fallback = engine.voices_fallback
-    text_chars = max(len(_STRESS_TEXT_DE), len(_STRESS_TEXT_EN))
-
-    # All sync engine calls must run in a thread — otherwise the
-    # subprocess + time.sleep(1) polling loops inside ensure_ready()
-    # would block the Reflex/uvicorn event loop for up to 10 minutes
-    # (Fish-Speech first-start downloads 8 GB), the worker times out
-    # and gets force-killed mid-calibration.
-    _t_start_container = time.monotonic()
-    started, start_msg = await asyncio.to_thread(engine.start)
-    if not started:
-        _log(f"❌ {engine_key} container start failed: {start_msg}")
-        return None
-    voices = await asyncio.to_thread(engine.get_voices) or voices_fallback
-    if not voices:
-        _log(f"❌ {engine_key}: no voices available — skipping burn-in")
-        await asyncio.to_thread(engine.stop)
-        return None
-    voice_display = next(iter(voices.keys()))
-    _log(
-        f"🔥 {engine_key} burn-in starting "
-        f"(GPU{gpu_index}, voice='{voice_display}', "
-        f"{iterations}× ~{text_chars} chars bilingual)"
-    )
-    ready, ready_msg, _device = await asyncio.to_thread(
-        engine.ensure_ready, 600,
-    )
-    if not ready:
-        _log(f"   ❌ {engine_key} not ready: {ready_msg}")
-        await asyncio.to_thread(engine.stop)
-        return None
-    _idle_after_load = _query_gpu_used_mb(gpu_index)
-    _log(
-        f"   ✓ container + model ready in "
-        f"{time.monotonic() - _t_start_container:.1f}s — "
-        f"idle {_idle_after_load} MiB"
-    )
-
-    # Route through the SSOT TTS call site (audio_processing.generate_tts):
-    # strips the ★ display prefix, hits the engine via the registry,
-    # runs the central ffmpeg post-process (a no-op here because we
-    # pass speed=1.0 and pitch=1.0). Identical to what aifred uses for
-    # chat-bubble synthesis — same code path, same edge-case handling.
-    from .audio_processing import generate_tts
-    from .tts_engines import TTSFailure
-
-    peak = 0
-    successes = 0
     try:
-        async with _PeakMonitor(gpu_index, interval=0.1) as monitor:
-            for i in range(iterations):
-                lang = "de" if i % 2 == 0 else "en"
-                text = _STRESS_TEXT_DE if lang == "de" else _STRESS_TEXT_EN
-                t_start = time.monotonic()
-                try:
-                    await generate_tts(
-                        text=text,
-                        voice_choice=voice_display,
-                        speed_choice=1.0,
-                        engine=engine,
-                        pitch=1.0,
-                        agent="aifred",
-                        language=lang,
-                    )
-                    failure = None
-                except TTSFailure as exc:
-                    failure = exc
-                t_elapsed = time.monotonic() - t_start
-                _running_peak = monitor.peak_mb
-                if failure is not None:
-                    _log(
-                        f"   ⚠️ synth {i+1}/{iterations} ({lang}): "
-                        f"{t_elapsed:.1f}s — failed: {failure}"
-                    )
-                else:
-                    successes += 1
-                    _log(
-                        f"   ✓ synth {i+1}/{iterations} ({lang}): "
-                        f"{t_elapsed:.1f}s, running peak {_running_peak} MiB"
-                    )
-        peak = monitor.peak_mb
-        _delta = peak - _idle_after_load
-        _log(
-            f"   📈 done: peak {peak} MiB "
-            f"(+{_delta} vs idle, {successes}/{iterations} successful)"
+        await asyncio.to_thread(get_tts_client().ensure_ready)
+        row = next(
+            (info for info in await asyncio.to_thread(catalog, fresh=True)
+             if info.engine == engine_key and info.host is None),
+            None,
         )
-    except Exception as e:  # noqa: BLE001
-        _log(f"   ❌ {engine_key} burn-in error: {e}")
-        peak = max(peak, _query_gpu_used_mb(gpu_index))
-    finally:
-        await asyncio.to_thread(engine.stop)
+        if row is None:
+            logger.error("tts_stress_burnin: %s is not in the service's catalog", engine_key)
+            return None
+        if not row.needs_gpu or row.cloud or row.browser:
+            logger.info("tts_stress_burnin: %s takes no local GPU — skipping", engine_key)
+            return 0
+        if not row.installed:
+            logger.warning("tts_stress_burnin: %s not installed (no docker image)", engine_key)
+            return None
+        try:
+            peak, successes = await _measure(engine_key, iterations, _log)
+        finally:
+            await _release(engine_key)
+    except (TTSSuiteError, TTSVramUnknown) as error:
+        _log(f"   ❌ {engine_key} burn-in error: {error}")
+        return None
 
     # Hard-fail when every synthesis call failed — the measured
     # "peak" would just be the container's idle footprint, not its real
@@ -347,6 +281,33 @@ async def stress_burnin_tts(
     return peak if peak > 0 else None
 
 
+async def _measure(engine_key: str, iterations: int, log: Any) -> tuple[int, int]:
+    """The stress loop with the VRAM monitor running; returns ``(peak MiB, successful syntheses)``."""
+    text_chars = max(len(_STRESS_TEXT_DE), len(_STRESS_TEXT_EN))
+    log(f"🔥 {engine_key} burn-in starting ({iterations}× ~{text_chars} chars bilingual, via TTS service)")
+    successes = 0
+    async with _VramPeakMonitor(engine_key) as monitor:
+        for i in range(iterations):
+            lang = "de" if i % 2 == 0 else "en"
+            text = _STRESS_TEXT_DE if lang == "de" else _STRESS_TEXT_EN
+            t_start = time.monotonic()
+            try:
+                segments = await _synthesize(text, lang, engine_key)
+            except TTSSuiteError as failure:
+                log(f"   ⚠️ synth {i+1}/{iterations} ({lang}): {time.monotonic() - t_start:.1f}s — failed: {failure}")
+                continue
+            if segments == 0:
+                log(f"   ⚠️ synth {i+1}/{iterations} ({lang}): the service delivered no audio")
+                continue
+            successes += 1
+            log(
+                f"   ✓ synth {i+1}/{iterations} ({lang}): "
+                f"{time.monotonic() - t_start:.1f}s, running peak {monitor.peak_mb} MiB"
+            )
+    log(f"   📈 done: peak {monitor.peak_mb} MiB ({successes}/{iterations} successful)")
+    return monitor.peak_mb, successes
+
+
 async def resolve_tts_reserve(
     engine_key: str,
     *,
@@ -362,7 +323,7 @@ async def resolve_tts_reserve(
        cache, return peak + headroom.
     3. On burn-in failure: 0 (caller should warn but not crash —
        subtracting 0 means the calibration plans the TTS GPU as fully
-       available, which is the safer fallback for "we don't know").
+       available).
 
     Engines that don't allocate persistent GPU memory (CPU/Cloud engines
     with ``needs_gpu=False``) always return 0.
