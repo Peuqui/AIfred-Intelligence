@@ -1,129 +1,166 @@
-"""Tests für die Narrator-Engine/Voice-Auswahl + list_narrator_voices."""
+"""Narrator über den TTS-Dienst (Fake-Dienst): Engine/Stimme wählen, Stimmen listen, Datei vertonen."""
 
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import wave
 from types import SimpleNamespace
 
 import pytest
+from fake_tts_service import (
+    FakeTTSService,
+    audio_frame,
+    catalog_row,
+    error_frame,
+    install_fake_service,
+    keepalive_frame,
+    summary_frame,
+)
 
-from aifred.lib.tts_engines import voice_names
-from aifred.lib.tts_escalation import NoSpeechAvailable
+import aifred.lib.file_manager as file_manager
+import aifred.lib.settings as settings_module
 from aifred.lib.plugin_base import PluginContext
+from aifred.lib.tts_client import EngineRef, TTSSuiteUnreachable
 from aifred.plugins.tools.narrator import _choose_engine_and_voice, plugin
 
 
-class _FakeEngine:
-    def __init__(self, key: str, voices: dict[str, str]):
-        self.key = key
-        self._voices = voices
-        self.voices_fallback = voices
-
-    def get_voices(self) -> dict[str, str]:
-        return self._voices
-
-
-ENGINES = {
-    "piper": _FakeEngine("piper", {"Deutsch (Thorsten)": "t", "Deutsch (Ramona)": "r"}),
-    "edge": _FakeEngine("edge", {"Deutsch (Katja)": "k", "Deutsch (Conrad)": "c"}),
-}
+def wav_bytes(seconds: float = 0.1) -> bytes:
+    buffer = io.BytesIO()
+    with wave.open(buffer, "wb") as out:
+        out.setnchannels(1)
+        out.setsampwidth(2)
+        out.setframerate(16000)
+        out.writeframes(bytes(int(16000 * seconds) * 2))
+    return buffer.getvalue()
 
 
 @pytest.fixture
-def fake_env(monkeypatch):
-    """Settings und Eskalationsliste mocken: die Liste liefert ``list_top``,
-    ein expliziter Schlüssel genau diese Engine (lazy imports → Modul-Patch greift)."""
-    settings: dict = {}
-    state = SimpleNamespace(list_top="piper", asked=[])
-
-    async def choose_speaker(engine_key: str, label: str):
-        state.asked.append(engine_key)
-        key = engine_key or state.list_top
-        if key not in ENGINES:
-            raise NoSpeechAvailable(f"[{label}] TTS engine {key!r} cannot speak now")
-        return SimpleNamespace(engine=ENGINES[key])
-
-    monkeypatch.setattr("aifred.lib.settings.load_settings", lambda: settings)
-    monkeypatch.setattr("aifred.lib.tts_escalation.choose_speaker", choose_speaker)
-    return SimpleNamespace(settings=settings, state=state)
+def env(monkeypatch, tmp_path):
+    """Service with piper and edge (and a browser entry), AIfred's list: piper first. Narrator settings in ``saved``."""
+    fake = FakeTTSService(
+        [catalog_row("piper", needs_gpu=False), catalog_row("edge", needs_gpu=False, cloud=True),
+         catalog_row("browser", needs_gpu=False, browser=True)],
+        voices=[{"name": "Thorsten", "label": "Thorsten"}, {"name": "Ramona", "label": "Ramona"}],
+    )
+    install_fake_service(monkeypatch, tmp_path, fake, listed=["browser", "piper", "edge"])
+    saved: dict = {}
+    monkeypatch.setattr(settings_module, "load_settings", lambda: saved)
+    return SimpleNamespace(fake=fake, saved=saved, tmp=tmp_path)
 
 
-def _choose(engine: str = "", voice: str = "") -> tuple[str, str]:
-    eng, chosen_voice = asyncio.run(_choose_engine_and_voice(engine, voice))
-    return eng.key, chosen_voice
+def choose(engine: str = "", voice: str = ""):
+    return asyncio.run(_choose_engine_and_voice(engine, voice))
 
 
 class TestChooseEngineAndVoice:
-    def test_without_engine_the_list_decides(self, fake_env):
-        assert _choose() == ("piper", "Deutsch (Thorsten)")
-        assert fake_env.state.asked == [""]
+    def test_without_engine_the_topmost_active_entry_of_the_list_decides_but_never_the_browser(self, env):
+        ref, voice, names = choose()
+        assert ref == EngineRef("piper", "whole", None) and voice == "Thorsten" and names == ["Thorsten", "Ramona"]
 
-    def test_explicit_engine_uses_saved_voice(self, fake_env):
-        fake_env.settings["narrator_voices"] = {"edge": "Deutsch (Katja)"}
-        assert _choose("edge") == ("edge", "Deutsch (Katja)")
+    def test_the_service_gets_exactly_one_named_engine_with_the_narrator_unit(self, env):
+        assert choose("edge")[0] == EngineRef("edge", "whole", None)
 
-    def test_saved_voice_is_engine_bound(self, fake_env):
-        # Die für Edge gespeicherte Stimme darf Piper nicht erreichen.
-        fake_env.settings["narrator_voices"] = {"edge": "Deutsch (Katja)"}
-        assert _choose("piper") == ("piper", "Deutsch (Thorsten)")
+    def test_explicit_engine_uses_the_saved_voice_of_that_engine(self, env):
+        env.saved["narrator_voices"] = {"edge": "Katja"}
+        assert choose("edge")[1] == "Katja"
 
-    def test_explicit_voice_wins(self, fake_env):
-        fake_env.settings["narrator_voices"] = {"edge": "Deutsch (Katja)"}
-        assert _choose("edge", "Deutsch (Conrad)") == ("edge", "Deutsch (Conrad)")
+    def test_a_saved_voice_is_engine_bound(self, env):
+        env.saved["narrator_voices"] = {"edge": "Katja"}
+        assert choose("piper")[1] == "Thorsten"
+
+    def test_explicit_voice_wins(self, env):
+        env.saved["narrator_voices"] = {"edge": "Katja"}
+        assert choose("edge", "Conrad")[1] == "Conrad"
+
+    def test_the_browser_cannot_narrate(self, env):
+        with pytest.raises(ValueError, match="browser"):
+            choose("browser")
+
+    def test_an_engine_the_service_does_not_offer_is_refused(self, env):
+        with pytest.raises(ValueError, match="nope"):
+            choose("nope")
+
+    def test_an_empty_list_is_refused(self, env, monkeypatch):
+        import aifred.lib.tts_service as tts_service
+
+        monkeypatch.setattr(tts_service, "persisted_settings", lambda: {"tts_escalation": [], "tts_toggles_per_engine": {}})
+        with pytest.raises(ValueError, match="no active TTS entry"):
+            choose()
 
 
-class TestVoiceNames:
-    def test_get_voices_failure_falls_back(self):
-        class _DownEngine:
-            voices_fallback = {"A": "a"}
-
-            def get_voices(self) -> dict[str, str]:
-                raise RuntimeError("down")
-
-        assert voice_names(_DownEngine()) == ["A"]
-
-    def test_empty_get_voices_falls_back(self):
-        # Container-Engines liefern {} (keine Exception), solange der
-        # Container down ist — z. B. qwen3local nach Idle-Stop.
-        class _StoppedContainerEngine:
-            voices_fallback = {"AIfred": "AIfred", "Salomo": "Salomo"}
-
-            def get_voices(self) -> dict[str, str]:
-                return {}
-
-        assert voice_names(_StoppedContainerEngine()) == ["AIfred", "Salomo"]
+def _tool(name: str):
+    ctx = PluginContext(agent_id="aifred", lang="de", session_id="test")
+    return {t.name: t for t in plugin.get_tools(ctx)}[name]
 
 
 class TestListNarratorVoicesTool:
-    def _tool(self):
-        ctx = PluginContext(agent_id="aifred", lang="de", session_id="test")
-        tools = {t.name: t for t in plugin.get_tools(ctx)}
-        return tools["list_narrator_voices"]
+    def test_lists_the_voices_of_the_service_for_the_engine_the_list_picks(self, env):
+        env.saved["narrator_voices"] = {"piper": "Ramona"}
+        res = json.loads(asyncio.run(_tool("list_narrator_voices").executor()))
+        assert res == {"engine": "piper", "default_voice": "Ramona", "voices": ["Thorsten", "Ramona"]}
 
-    def test_lists_voices_of_the_engine_the_list_picks(self, fake_env):
-        fake_env.state.list_top = "edge"
-        fake_env.settings["narrator_voices"] = {"edge": "Deutsch (Katja)"}
-        res = json.loads(asyncio.run(self._tool().executor()))
-        assert res == {
-            "engine": "edge",
-            "default_voice": "Deutsch (Katja)",
-            "voices": ["Deutsch (Katja)", "Deutsch (Conrad)"],
-        }
-
-    def test_explicit_engine_param(self, fake_env):
-        res = json.loads(asyncio.run(self._tool().executor(engine="piper")))
-        assert res["engine"] == "piper"
-        assert res["voices"] == ["Deutsch (Thorsten)", "Deutsch (Ramona)"]
-
-    def test_engine_that_cannot_speak_is_clear_error(self, fake_env):
-        res = json.loads(asyncio.run(self._tool().executor(engine="nope")))
+    def test_an_engine_that_cannot_be_used_is_a_clear_error(self, env):
+        res = json.loads(asyncio.run(_tool("list_narrator_voices").executor(engine="nope")))
         assert "error" in res and "nope" in res["error"]
 
+    def test_a_service_that_does_not_answer_is_a_clear_error(self, env, monkeypatch):
+        import aifred.lib.tts_client as tts_client
 
-def test_unknown_engine_key_is_clear_error():
-    """Ohne Mock: ``choose_speaker`` kennt den Schlüssel nicht → Fehlertext, kein Absturz."""
-    ctx = PluginContext(agent_id="aifred", lang="de", session_id="test")
-    tool = {t.name: t for t in plugin.get_tools(ctx)}["list_narrator_voices"]
-    res = json.loads(asyncio.run(tool.executor(engine="nope")))
-    assert "error" in res and "nope" in res["error"]
+        def down(self):
+            raise TTSSuiteUnreachable("TTS service not reachable")
+
+        monkeypatch.setattr(tts_client.TTSClient, "ensure_ready", down)
+        res = json.loads(asyncio.run(_tool("list_narrator_voices").executor()))
+        assert "not reachable" in res["error"]
+
+
+class TestNarrateFile:
+    @pytest.fixture
+    def files(self, env, monkeypatch):
+        """A workspace with one text file; the output lands in tmp."""
+        source = {"text": "Absatz eins.\n\nAbsatz zwei."}
+        monkeypatch.setattr(
+            file_manager, "read_file",
+            lambda name: SimpleNamespace(success=True, detail="", metadata={"content": source["text"]}),
+        )
+        monkeypatch.setattr(file_manager, "safe_resolve", lambda name: (env.tmp / "out" / name, None))
+        monkeypatch.setattr("aifred.lib.config.NARRATE_CHUNK_LIMIT_CHARS", 15)   # one chunk per paragraph
+        env.source = source
+        return env
+
+    def narrate(self, **args):
+        return json.loads(asyncio.run(_tool("narrate_file").executor(filename="buch.txt", output_filename="buch.wav", **args)))
+
+    def test_every_chunk_is_spoken_with_the_one_engine_and_the_pieces_become_one_file(self, files):
+        files.fake.script = [audio_frame(wav_bytes(), "piper") + keepalive_frame("piper") + summary_frame()]
+        result = self.narrate()
+        assert result["written"] == "buch.wav" and result["chunks"] == 2
+        assert result["engine"] == "piper" and result["voice"] == "Thorsten"
+        assert [s["text"] for s in files.fake.speaks] == ["Absatz eins.", "Absatz zwei."]
+        for sent in files.fake.speaks:
+            assert sent["engines"] == [{"engine": "piper", "unit": "whole", "host": None}]
+            assert sent["voices"] == {"piper": {"voice": "Thorsten", "speed": 1.0, "pitch": 1.0}}
+        assert (files.tmp / "out" / "buch.wav").stat().st_size > 44
+
+    def test_speaker_voices_pick_the_voice_per_chunk_and_unknown_voices_are_refused(self, files):
+        files.source["text"] = "[A]: Hallo du.\n[B]: Hallo ich."
+        files.fake.script = [audio_frame(wav_bytes(), "piper") + summary_frame()]
+        assert "Unknown voice" in self.narrate(speaker_voices={"A": "Thorsten", "B": "Gibtsnicht"})["error"]
+        self.narrate(speaker_voices={"A": "Thorsten", "B": "Ramona"})
+        assert [s["voices"]["piper"]["voice"] for s in files.fake.speaks] == ["Thorsten", "Ramona"]
+
+    def test_an_error_of_the_service_names_the_chunk_and_what_was_done(self, files):
+        files.fake.script = [audio_frame(wav_bytes(), "piper") + summary_frame(), 503]
+        result = self.narrate()
+        assert result["chunks_done"] == 1 and "chunk 2/2" in result["error"]
+
+    def test_an_error_frame_in_the_middle_of_a_chunk_is_reported_too(self, files):
+        files.fake.script = [audio_frame(wav_bytes(), "piper") + error_frame("engine_control_failed", "died")]
+        result = self.narrate()
+        assert "died" in result["error"] and result["chunks_done"] == 0
+
+    def test_a_reading_without_audio_is_an_error(self, files):
+        files.fake.script = [summary_frame()]
+        assert "no audio" in self.narrate()["error"]

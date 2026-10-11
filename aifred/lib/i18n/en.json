@@ -178,6 +178,8 @@
   "tts_reason_unreachable": "server outage",
   "tts_reason_engine": "engine failure",
   "tts_reason_software": "software error",
+  "tts_reason_timeout": "timeout",
+  "tts_reason_cloud_quota": "quota exhausted",
   "tts_speech_unit_label": "Unit:",
   "tts_unit_sentence": "Sentence by sentence",
   "tts_unit_paragraph": "Paragraph by paragraph",

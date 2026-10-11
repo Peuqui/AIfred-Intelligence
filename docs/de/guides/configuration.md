@@ -249,7 +249,6 @@ Zusätzliche `.env`-Schlüssel, die der Code liest (nur Namen und Bedeutung):
 | `ANNOUNCE_MAX_CHARS` | Längster einzelner Ansagetext, längere werden mit 413 abgelehnt |
 | `ANNOUNCE_MAX_TOTAL_CHARS` | Grenze für alle Absätze einer Ansage zusammen |
 | `ANNOUNCE_PAUSE_MS`, `ANNOUNCE_MAX_PAUSE_MS` | Standardpause zwischen Absätzen und deren Obergrenze |
-| `FREEECHO2_KEEPALIVE_SEC` | Braucht ein Sprachsegment länger, bekommt der Strom einen Stille-Chunk, damit das 30-s-Inaktivitäts-Timeout des Pucks nie auslöst |
 | `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | Wie lange nach dem Anhalten eines laufenden Stroms vor einer Ansage auf die Bestätigung des Pucks gewartet wird; sonst wird die Ansage verworfen |
 | `TTS_CONTROL_API_TOKEN` | Bearer-Token der TTS-Start/Stopp-API für die Dienste-Steuerseite |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Größte Datei, die ein Kanal-Sendetool anhängen darf |

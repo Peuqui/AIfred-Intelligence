@@ -123,31 +123,21 @@ class BrowserUtterance:
 
 
 def resolve_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
-    """Stimme, Tempo und Tonhöhe eines Agenten für eine Engine (SSOT).
+    """Stimme, Tempo und Tonhöhe eines Agenten für eine Engine (Auflösung: ``tts_voices``).
 
-    Reihenfolge: Einstellung des Users für diese Engine und diesen Agenten,
-    dann die des Agenten ``aifred``, dann der Standard des Agenten aus
-    ``agents.json``, dann der von ``aifred``, dann die Standardstimme der
-    Engine (``default_voice``). Ohne Stimme oder bei ungültigem
-    Tempo/Tonhöhe: :class:`TTSFailure` — der Eintrag fällt aus, die Liste
+    Ohne Einstellung gilt die Standardstimme der Engine (``default_voice``). Ohne Stimme oder
+    bei ungültigem Tempo/Tonhöhe: :class:`TTSFailure` — der Eintrag fällt aus, die Liste
     geht weiter."""
-    from .agent_config import get_tts_voice_default
-    from .settings import persisted_settings
-    from .tts_engines import TTSFailure, parse_speed_factor, require_engine
+    from .tts_engines import TTSFailure, require_engine
+    from .tts_voices import configured_voice
 
-    user_voices = persisted_settings().get("tts_agent_voices_per_engine", {}).get(engine_key, {})
-    user_cfg = user_voices.get(agent) or user_voices.get("aifred") or {}
-    default_cfg = get_tts_voice_default(agent, engine_key)
-    if not default_cfg.get("voice"):
-        default_cfg = get_tts_voice_default("aifred", engine_key)
-
-    voice = str(user_cfg.get("voice") or default_cfg.get("voice") or require_engine(engine_key).default_voice or "")
-    speed = parse_speed_factor(user_cfg.get("speed") or default_cfg.get("speed") or "1.0")
-    pitch = parse_speed_factor(user_cfg.get("pitch") or default_cfg.get("pitch") or "1.0")
+    try:
+        voice, speed, pitch = configured_voice(engine_key, agent)
+    except ValueError as invalid:
+        raise TTSFailure("software", str(invalid)) from invalid
+    voice = voice or require_engine(engine_key).default_voice or ""
     if not voice:
         raise TTSFailure("software", f"no voice configured for agent {agent!r} on {engine_key}")
-    if speed is None or pitch is None:
-        raise TTSFailure("software", f"invalid speed/pitch for agent {agent!r} on {engine_key}")
     return voice, speed, pitch
 
 
@@ -486,24 +476,6 @@ class SpeechRun:
         if entry.host is not None:
             target = t("tts_switch_target_remote", lang=self.language, engine=target, host=entry.host.name)
         return t(f"tts_switch_{self._switch_reason}", lang=self.language, target=target) + " "
-
-
-async def choose_speaker(engine_key: str, label: str) -> EscalationEntry:
-    """Eine Engine für eine Aufgabe, die durchgehend dieselbe Stimme braucht
-    (Hörbuch): ``engine_key`` gesetzt → genau diese Engine auf diesem Rechner,
-    sofern sie gerade kann; leer → der oberste passende Eintrag der Liste.
-    :class:`NoSpeechAvailable` mit Grund, wenn keine kann."""
-    from .tts_engines import require_engine
-
-    if not engine_key:
-        return await SpeechRun("", label).entry()
-    from .debug_bus import debug
-
-    entry = EscalationEntry(engine=require_engine(engine_key), host=None, enabled=True)
-    reason = await _skip_reason(entry, lambda message: debug(f"🔊 [{label}] {message}"))
-    if reason is not None:
-        raise NoSpeechAvailable(f"[{label}] TTS engine {engine_key!r} cannot speak now: {reason}")
-    return entry
 
 
 # ── Bausteine für Browser und Menü ─────────────────────────────────

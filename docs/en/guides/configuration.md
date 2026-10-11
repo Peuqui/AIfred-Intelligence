@@ -246,7 +246,6 @@ Additional `.env` keys read by the code (names and meaning only):
 | `ANNOUNCE_MAX_CHARS` | Longest single announcement text, longer is refused with 413 |
 | `ANNOUNCE_MAX_TOTAL_CHARS` | Limit for all paragraphs of one announcement together |
 | `ANNOUNCE_PAUSE_MS`, `ANNOUNCE_MAX_PAUSE_MS` | Default pause between paragraphs and its upper bound |
-| `FREEECHO2_KEEPALIVE_SEC` | A speech segment taking longer than this gets a silence chunk, so the puck's 30 s inactivity timeout never fires |
 | `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | How long to wait for the puck's confirmation after pausing a running stream before an announcement; otherwise the announcement is dropped |
 | `TTS_CONTROL_API_TOKEN` | Bearer token of the TTS start/stop API used by the service control page |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Largest file a channel send tool may attach |

@@ -12,13 +12,23 @@ import wave
 import subprocess
 import asyncio
 import atexit
+import time
 import httpx
 import edge_tts
 from pathlib import Path
 from typing import TYPE_CHECKING
-from .config import DATA_DIR
+from .config import DATA_DIR, TTS_MEDIA_TYPE_EXTENSIONS
 from .i18n import t
 from .logging_utils import log_message
+from .tts_text_filter import (
+    HTML_COMMENT,
+    NUMBER_PARENTHESES,
+    PERFORMANCE_FOOTER,
+    ROUND_LABEL,
+    TIMING_PARENTHESES,
+    collapsible_tags as _collapsible_tags,
+    strip_collapsible_blocks as _strip_collapsible_blocks,
+)
 
 if TYPE_CHECKING:
     from .tts_engines import TTSEngine
@@ -48,7 +58,6 @@ _code_hint_announced: bool = False
 # Generalised from the old <details>-only flag: the raw stream carries the
 # SOURCE tags (<think>, <vlm_output>, <data>, …), not the rendered <details>.
 _skip_block_tag: "str | None" = None
-_collapsible_tags_cache: "tuple[str, ...] | None" = None
 _list_streaming_count: int = 0       # consecutive list items seen (streaming mode)
 _list_hint_announced: bool = False   # the "and more items" hint is emitted once per overflow
 
@@ -125,7 +134,7 @@ def set_tts_engine(engine_name: str) -> None:
     _current_tts_engine = engine_name.lower()
 
 
-def _generate_tts_filename(extension: str = "wav") -> str:
+def _generate_tts_filename(extension: str = "wav", agent: str | None = None, engine: str | None = None) -> str:
     """
     Generate TTS audio filename with agent, engine, and human-readable timestamp.
 
@@ -134,18 +143,41 @@ def _generate_tts_filename(extension: str = "wav") -> str:
 
     Args:
         extension: File extension (wav, mp3, ogg)
+        agent: Agent name; default is the one set by ``set_tts_agent``
+        engine: Engine key; default is the one set by ``set_tts_engine``
 
     Returns:
         Filename string
     """
     from datetime import datetime
 
-    global _current_tts_agent, _current_tts_engine
-    agent = _current_tts_agent or "aifred"
-    engine = _current_tts_engine or "tts"
+    agent = agent or _current_tts_agent or "aifred"
+    engine = engine or _current_tts_engine or "tts"
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d-%H%M%S") + f"-{now.microsecond // 1000:03d}"
     return f"audio_{agent}_{engine}_{timestamp}.{extension}"
+
+
+def store_tts_audio(audio: bytes, media_type: str, agent: str, engine: str) -> str:
+    """Put audio delivered by the TTS service into the TTS audio folder (24 h cleanup like every
+    TTS file); returns its URL (``/_upload/tts_audio/<name>``).
+
+    ``engine`` is the service's entry name (``engine`` or ``engine@host``).
+
+    Raises:
+        ValueError: ``media_type`` is not one the service is known to deliver.
+    """
+    extension = TTS_MEDIA_TYPE_EXTENSIONS.get(media_type)
+    if extension is None:
+        raise ValueError(f"unknown media type of TTS audio: {media_type!r}")
+    engine_key = engine.partition("@")[0]
+    filename = _generate_tts_filename(extension, agent, engine_key)
+    # Two segments within the same millisecond would share a name: wait for the next one.
+    while (TTS_AUDIO_DIR / filename).exists():
+        time.sleep(0.001)
+        filename = _generate_tts_filename(extension, agent, engine_key)
+    (TTS_AUDIO_DIR / filename).write_bytes(audio)
+    return f"/_upload/tts_audio/{filename}"
 
 
 def _resolve_under(base: Path, relative: str) -> Path | None:
@@ -538,42 +570,8 @@ ABBREVIATIONS = ABBREVIATIONS_DE | ABBREVIATIONS_EN
 
 
 # Sätze mit weniger Wörtern werden mit dem nächsten zusammengelegt (die TTS-Engine
-# halluziniert bei sehr kurzen Sätzen). Gilt für das Streaming im Browser UND bei Ansagen.
+# halluziniert bei sehr kurzen Sätzen). Gilt für das Streaming im Browser.
 TTS_MIN_SENTENCE_WORDS = 3
-
-
-def split_text_for_streaming_tts(text: str) -> list[str]:
-    """Ein fertiger Text als Sätze für satzweises TTS-Streaming: dieselbe
-    Satzerkennung wie beim Browser-Streaming (``extract_complete_sentences``),
-    kurze Sätze (< ``TTS_MIN_SENTENCE_WORDS`` Wörter) wandern zum nächsten.
-
-    Der Aufrufer erzeugt Satz für Satz Sprache und streamt sie sofort, damit die erste
-    Sprache früh kommt, statt den ganzen Text abzuwarten.
-    """
-    # Absatzende erzwingt die Vollendung des letzten Satzes (wie im Streaming-Pfad)
-    sentences, remaining = extract_complete_sentences(text.rstrip() + "\n\n")
-    if remaining.strip():
-        sentences.append(remaining.strip())
-    result: list[str] = []
-    carry = ""
-    for sentence in sentences:
-        sentence = sentence.strip()
-        if not sentence:
-            continue
-        if carry:
-            sentence = f"{carry} {sentence}"
-            carry = ""
-        if len(sentence.split()) < TTS_MIN_SENTENCE_WORDS:
-            carry = sentence
-        else:
-            result.append(sentence)
-    if carry:
-        # Rest, der zu kurz zum Alleinstehen war, hängt am letzten Satz
-        if result:
-            result[-1] = f"{result[-1]} {carry}"
-        else:
-            result.append(carry)
-    return result
 
 
 def extract_complete_paragraphs(buffer: str) -> tuple[list[str], str]:
@@ -581,32 +579,6 @@ def extract_complete_paragraphs(buffer: str) -> tuple[list[str], str]:
     letzten Absatzende ist vollständig, der angefangene letzte Absatz bleibt im Puffer."""
     pieces = re.split(r"\n[ \t]*\n", buffer.replace("\r\n", "\n").replace("\r", "\n"))
     return [piece.strip() for piece in pieces[:-1] if piece.strip()], pieces[-1]
-
-
-def build_speech_segments(paragraphs: list[str], pause_ms: int, unit: str) -> list[str | int]:
-    """Was die TTS-Engine einer fertigen Ansage der Reihe nach bekommt: Texte (``str``) und
-    Stille zwischen den Absätzen (``int``, ms), je nach Einheit (``tts_engines.SPEECH_UNITS``):
-    ``sentence`` = Sätze, ``paragraph`` = Absätze (an Leerzeilen), ``whole`` = EIN Text, bei dem
-    die Engine die Pause an der Leerzeile selbst setzt. SSOT für jeden Kanal."""
-    from .tts_engines import SPEECH_UNITS
-
-    if unit not in SPEECH_UNITS:
-        raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
-    if unit == "whole":
-        whole = "\n\n".join(p.strip() for p in paragraphs if p.strip())
-        return [whole] if whole else []
-    segments: list[str | int] = []
-    for paragraph in paragraphs:
-        if unit == "sentence":
-            pieces = split_text_for_streaming_tts(paragraph)
-        else:
-            pieces = [block.strip() for block in re.split(r"\n[ \t]*\n", paragraph) if block.strip()]
-        for index, piece in enumerate(pieces):
-            # Stille zwischen Absätzen; bei absatzweiser Ausgabe ist jedes Stück ein Absatz
-            if segments and pause_ms and (index == 0 or unit == "paragraph"):
-                segments.append(pause_ms)
-            segments.append(piece)
-    return segments
 
 
 def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
@@ -851,23 +823,6 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     return sentences, remaining
 
 
-def _strip_collapsible_blocks(text: str) -> str:
-    """Remove every COMPLETE collapsible block WITH its content — think,
-    vlm_output, data, analysis, python, code, sql, json, plus the rendered
-    <details>. THE shared rule, used by both the streaming buffer pre-strip
-    and the per-sentence clean_text_for_tts. One config-derived tag set (SSoT),
-    so "what is hidden from TTS" lives in exactly one place.
-
-    Strips only COMPLETE blocks — an unclosed opening tag is left in place on
-    purpose, so the streaming buffer-wait (buffer_has_open_collapsible) can
-    detect a block that is still mid-stream and hold off until its close. Any
-    stray tag that survives is removed by the generic tag stripper later in
-    clean_text_for_tts."""
-    for tag in _collapsible_tags():
-        text = re.sub(rf'<{tag}[^>]*>.*?</{tag}>', '', text, flags=re.DOTALL | re.IGNORECASE)
-    return text
-
-
 def strip_collapsible_content_streaming(text: str) -> str:
     """Buffer-level strip for streaming TTS: removes complete collapsible
     blocks (think, vlm_output, data, …) from the accumulated buffer BEFORE it
@@ -913,18 +868,6 @@ def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> None:
         loop.run_until_complete(_do_tts())
     finally:
         loop.close()
-
-
-def _collapsible_tags() -> "tuple[str, ...]":
-    """Tag names that render as collapsibles — derived from get_xml_tag_config
-    (think, analysis, data, python, code, sql, json, vlm_output) plus the
-    rendered ``details`` form. SSoT: read from config, cached once. Their
-    content is hidden in the UI, so TTS must never read it aloud."""
-    global _collapsible_tags_cache
-    if _collapsible_tags_cache is None:
-        from .config import get_xml_tag_config
-        _collapsible_tags_cache = tuple(get_xml_tag_config().keys()) + ("details",)
-    return _collapsible_tags_cache
 
 
 def clean_text_for_tts(text, language):
@@ -991,7 +934,7 @@ def clean_text_for_tts(text, language):
 
     # Remove HTML comments (<!--USED_SOURCES:...-->, <!--FAILED_SOURCES:...-->, etc.)
     # These contain JSON metadata that should never be read aloud
-    clean_text = re.sub(r'<!--.*?-->', '', text, flags=re.DOTALL).strip()
+    clean_text = HTML_COMMENT.sub('', text).strip()
 
     # Fix "AIfred" pronunciation: capital I causes TTS to say "A-I-fred" instead of "Alfred"
     clean_text = clean_text.replace('AIfred', 'Alfred')
@@ -1157,7 +1100,7 @@ def clean_text_for_tts(text, language):
 
     # Remove Multi-Agent round labels - these are UI markers prepended to messages
     # e.g., "[Auto-Konsens: Synthese R1]", "[Tribunal: Kritische Prüfung R2]"
-    clean_text = re.sub(r'\[(Auto-Konsens|Tribunal|Devils? Advocate|Auto-Consensus):[^\]]+R\d+\]', '', clean_text, flags=re.IGNORECASE)
+    clean_text = ROUND_LABEL.sub('', clean_text)
 
     # Remove remaining square bracket content like [VERTEIDIGUNG], [Quelle], etc.
     # Structural markers not meant to be read aloud.
@@ -1212,7 +1155,7 @@ def clean_text_for_tts(text, language):
     # (formatting.format_metadata) as a whole, BEFORE the asterisks go: it contains
     # parentheses of its own ("PP: ... (5.685 tok)", "AIfred (Modell)"), so the
     # timing filter below would cut at the first ")" and leave the rest to be read.
-    clean_text = re.sub(r'\*\(\s[\s\S]*?\s\)\*', '', clean_text)
+    clean_text = PERFORMANCE_FOOTER.sub('', clean_text)
 
     # Remove markdown formatting and special characters
     clean_text = re.sub(r'\*\*', '', clean_text)  # Bold **text**
@@ -1241,11 +1184,11 @@ def clean_text_for_tts(text, language):
     # Examples: "(STT: 2.5s)", "(Inference: 1.3s)", "(Agent: 45.2s, Quick, 5 sources)",
     #           "(Cache-Hit: 2.5s = LLM 2.3s)", "(Decision: 2.5s, Inference: 1.3s)"
     #           "( TTFT: 0,32s  Inference: 6,6s  133,4 tok/s  Source: Training data )"
-    clean_text = re.sub(r'\s*\([^)]*\b(STT|TTFT|Inference|Inferenz|Agent|Cache-Hit|Decision|Entscheidung|TTS|tok/s|Source)[^)]*\)', '', clean_text)
+    clean_text = TIMING_PARENTHESES.sub('', clean_text)
 
     # Remove any remaining parentheses with numbers/timing patterns
     # Catches edge cases like "(2.5s)" or "(123 tok/s)" that might slip through
-    clean_text = re.sub(r'\s*\(\s*[\d,\.]+\s*(s|ms|tok/s)?\s*\)', '', clean_text)
+    clean_text = NUMBER_PARENTHESES.sub('', clean_text)
 
     # Remove problematic Unicode characters that Piper can't handle
     # Zero-width characters, non-breaking spaces, etc.

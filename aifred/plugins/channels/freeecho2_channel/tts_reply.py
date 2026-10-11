@@ -2,19 +2,16 @@
 
 ``send_reply`` schickt die TTS-Antwort über den AudioOrchestrator an den
 Puck (reaktiv) bzw. in die Alert-Queue (proaktiv). Die Sprach-Erzeugung
-(Engine-Bereitschaft, Synthese, satzweiser Strom) liegt im Kern
-(``lib.speech_synthesis``); das Plugin gibt nur Engine und Sprache vor.
+(TTS-Dienst, Umwandlung in PCM, wachsender Puffer) liegt im Kern
+(``lib.speech_synthesis``); das Plugin gibt nur Text, Pause und Sprache vor.
 """
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ....lib.audio_processing import build_speech_segments
 from ....lib.plugin_base import BaseChannel
 from ....lib.speech_synthesis import start_speech_stream
-from ....lib.tts_engines import speech_unit_for
-from ....lib.tts_escalation import NoSpeechAvailable, SpeechRun
 
 from ._shared import _devices, channel_language, notification_tone_enabled
 from .alert_queue import enqueue_alert
@@ -60,27 +57,21 @@ class TtsReplyMixin(BaseChannel):
             or bool(outbound.metadata.get("proactive"))
         )
 
-        # Wer spricht, entscheidet die Eskalationsliste: der erste passende
-        # Eintrag von oben; das Hauptmodell wird dafür nie neu geladen.
-        # channel_language() = Haushaltssprache — ohne sie synthetisieren
-        # sprachsensitive Engines (xtts, dashscope_audio3) mit dem "de"-Default der lib.
-        run = SpeechRun(channel_language(), f"FreeEcho.2 {room}")
-        try:
-            speaker = await run.entry()
-        except NoSpeechAvailable as exc:
-            self.channel_log(f"[FreeEcho.2 {room}] {exc} — reply stays silent", "error")
-            return
-
-        # Satzweises Streaming: der erste Satz wird erzeugt und läuft los, während die
-        # übrigen noch erzeugt werden (SSOT der Satzaufteilung: lib.audio_processing).
+        # Wer spricht und wie der Text zerlegt wird, entscheidet der TTS-Dienst nach AIfreds Liste;
+        # das Hauptmodell wird dafür nie neu geladen. channel_language() = Haushaltssprache —
+        # ohne sie synthetisieren sprachsensitive Engines (xtts, dashscope_audio3) mit dem Default.
+        # Der erste Abschnitt wird erzeugt und läuft los, während die übrigen noch erzeugt werden.
+        # session_id: Die Blase dieser Antwort bekommt, was der Puck gesprochen hat, damit es im
+        # Browser wie eine Browser-Antwort nachgehört werden kann.
         agent = original.target_agent if original else "aifred"
-        # session_id: the bubble of this reply gets what the puck spoke, so it
-        # can be replayed in the browser like a browser reply.
         buffer = await start_speech_stream(
-            self._speech_segments(outbound, speaker.engine.key), agent, run,
+            outbound.metadata.get("paragraphs") or [outbound.text],
+            int(outbound.metadata.get("pause_ms", 0)),
+            agent, channel_language(), f"FreeEcho.2 {room}",
             session_id=outbound.metadata.get("session_id"),
         )
         if buffer is None:
+            self.channel_log(f"[FreeEcho.2 {room}] nothing spoken — reply stays silent", "error")
             return
 
         try:
@@ -147,16 +138,3 @@ class TtsReplyMixin(BaseChannel):
         except BaseException:
             buffer.discard()
             raise
-
-    # ── Satzweises Sprach-Streaming ────────────────────────────
-
-    def _speech_segments(self, outbound: "OutboundMessage", engine_key: str) -> "list[str | int]":
-        """Was gesprochen wird, in Reihenfolge: Texte (str) und Stille zwischen Absätzen
-        (int, ms). Wie fein der Text für die TTS-Engine zerlegt wird (satzweise, absatzweise,
-        am Stück), ist die Einstellung der sprechenden Engine (SSOT: ``speech_unit_for``) —
-        das Plugin kennt sie nicht, es liest sie nur."""
-        paragraphs = outbound.metadata.get("paragraphs") or [outbound.text]
-        return build_speech_segments(
-            paragraphs, int(outbound.metadata.get("pause_ms", 0)),
-            speech_unit_for(engine_key),
-        )

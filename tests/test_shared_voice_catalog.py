@@ -47,3 +47,24 @@ def test_editor_catalog_shows_a_new_voice_without_a_running_container(
     assert engine is not None
     monkeypatch.setattr(type(engine), "get_voices", lambda self: {})
     assert "Codine" in voice_names(engine)
+
+
+class TestVoiceNamesFallback:
+    def test_get_voices_failure_falls_back(self):
+        class _DownEngine:
+            voices_fallback = {"A": "a"}
+
+            def get_voices(self) -> dict[str, str]:
+                raise RuntimeError("down")
+
+        assert voice_names(_DownEngine()) == ["A"]
+
+    def test_empty_get_voices_falls_back(self):
+        # Container engines answer {} (no exception) while their container is down.
+        class _StoppedContainerEngine:
+            voices_fallback = {"AIfred": "AIfred", "Salomo": "Salomo"}
+
+            def get_voices(self) -> dict[str, str]:
+                return {}
+
+        assert voice_names(_StoppedContainerEngine()) == ["AIfred", "Salomo"]

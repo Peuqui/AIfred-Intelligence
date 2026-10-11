@@ -3,7 +3,7 @@
 Counterpart to the translator's ``translate_file``: the document content
 never passes through the LLM context. The text is chunked at paragraph
 boundaries (``lib/text_chunking.py``, same SSOT as translate_file),
-each chunk is synthesized through the central ``generate_tts`` SSOT and
+each chunk is spoken by the TTS service (``tts_client``) with ONE engine and
 the pieces are ffmpeg-concatenated; das Ergebnis landet als MP3
 (Default; explizites ``.wav`` überspringt den Encode) im Documents-Baum. Typical pipeline: audio upload → Whisper transcript (workspace
 file) → translate_file → narrate_file.
@@ -16,39 +16,42 @@ import json
 import shutil
 from dataclasses import dataclass
 from pathlib import PurePosixPath
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
-
-if TYPE_CHECKING:
-    from ....lib.tts_engines import TTSEngine
+from ....lib.tts_client import EngineRef, TTSSuiteError
 
 
-async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple["TTSEngine", str]:
-    """Engine and default voice for a narration.
+async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple["EngineRef", str, list[str]]:
+    """Engine, default voice and the engine's voice names for a narration.
 
     Shared by narrate_file and list_narrator_voices so both always agree.
-    The engine comes from the TTS escalation list (``choose_speaker``: an
-    explicit key, or the topmost entry that can speak now) and stays the
-    same for the whole file. Voices are engine-bound — the saved narrator
+    The engine comes from AIfred's TTS list (``single_engine_ref``: an explicit
+    key, or the topmost active entry) and stays the same for the whole file.
+    Voices are engine-bound and come from the service — the saved narrator
     voice for that engine wins, else the engine's own first voice (never
-    hand e.g. the "AIfred" clone name to Piper). Raises
-    ``NoSpeechAvailable`` when no engine can speak.
-    """
-    from ....lib.config import NARRATE_DEFAULT_VOICE
-    from ....lib.settings import load_settings
-    from ....lib.tts_engines import voice_names
-    from ....lib.tts_escalation import choose_speaker
+    hand e.g. the "AIfred" clone name to Piper).
 
-    eng_obj = (await choose_speaker(engine, "narrator")).engine
+    Raises:
+        ValueError: no usable engine.
+        TTSSuiteError: the service is not reachable or refuses.
+    """
+    from ....lib.config import NARRATE_DEFAULT_VOICE, NARRATE_SPEECH_UNIT
+    from ....lib.settings import load_settings
+    from ....lib.tts_client import get_tts_client
+    from ....lib.tts_service import single_engine_ref
+
+    client = get_tts_client()
+    await asyncio.to_thread(client.ensure_ready)
+    ref = await asyncio.to_thread(single_engine_ref, engine, NARRATE_SPEECH_UNIT)
+    names = [info.name for info in await asyncio.to_thread(client.voices, ref.engine)]
     if not voice:
-        voice = ((load_settings() or {}).get("narrator_voices") or {}).get(eng_obj.key, "")
+        voice = ((load_settings() or {}).get("narrator_voices") or {}).get(ref.engine, "")
     if not voice:
-        names = voice_names(eng_obj)
         voice = names[0] if names else ""
-    return eng_obj, voice or NARRATE_DEFAULT_VOICE
+    return ref, voice or NARRATE_DEFAULT_VOICE, names
 
 
 @dataclass
@@ -59,8 +62,8 @@ class NarratorPlugin:
     settings_event_name: str = "open_narrator_settings"
 
     def is_available(self) -> bool:
-        # Local TTS engines are part of the deployment; availability of the
-        # concrete engine container is ensured per call (ensure_engine_ready).
+        # The TTS service is part of the deployment; it starts the concrete
+        # engine container per call.
         return True
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
@@ -78,7 +81,7 @@ class NarratorPlugin:
             from ....lib.audio_processing import (
                 TTS_AUDIO_DIR,
                 concatenate_wav_files,
-                generate_tts,
+                store_tts_audio,
             )
             from ....lib.config import NARRATE_CHUNK_LIMIT_CHARS
             from ....lib.debug_bus import debug
@@ -86,16 +89,15 @@ class NarratorPlugin:
                 split_paragraph_chunks,
                 split_speaker_segments,
             )
-            from ....lib.tts_engines import TTSFailure
-            from ....lib.tts_escalation import NoSpeechAvailable
+            from ....lib.tts_client import get_tts_client
 
-            # Engine from the escalation list (or the caller's explicit key),
-            # ready to speak; voice from the narrator settings unless passed.
+            # Engine from AIfred's list (or the caller's explicit key); voice from
+            # the narrator settings unless passed.
             try:
-                eng_obj, voice = await _choose_engine_and_voice(engine, voice)
-            except (NoSpeechAvailable, ValueError) as exc:
+                engine_ref, voice, known_names = await _choose_engine_and_voice(engine, voice)
+            except (TTSSuiteError, ValueError) as exc:
                 return json.dumps({"error": str(exc)})
-            engine = eng_obj.key
+            engine = engine_ref.engine
 
             read = fm.read_file(filename)
             if not read.success:
@@ -117,8 +119,7 @@ class NarratorPlugin:
                         "speaker_voices must be a JSON object mapping "
                         "speaker labels to voice names"
                     )})
-                from ....lib.tts_engines import voice_names
-                known_voices = set(voice_names(eng_obj))
+                known_voices = set(known_names)
                 unknown_voices = sorted(
                     v for v in speaker_voices.values() if v not in known_voices
                 )
@@ -173,23 +174,30 @@ class NarratorPlugin:
                 # endete das später als irreführendes "ffmpeg concat failed".
                 return json.dumps({"error": "No narratable text in file (only speaker markers?)"})
 
+            client = get_tts_client()
             wav_urls: list[str] = []
             for i, (chunk_voice, chunk) in enumerate(voiced_chunks, 1):
                 # One engine for the whole file — no voice change mid-book.
                 try:
-                    url = await generate_tts(
-                        chunk, chunk_voice, 1.0, eng_obj,
-                        pitch=1.0, agent="narrator", language=language,
+                    stream = await client.speak(
+                        chunk, language=language, engines=[engine_ref],
+                        voices={engine: {"voice": chunk_voice, "speed": 1.0, "pitch": 1.0}},
                     )
-                except TTSFailure as exc:
+                    async for part in stream:
+                        if not part.keepalive:
+                            wav_urls.append(await asyncio.to_thread(
+                                store_tts_audio, part.audio, part.media_type, "narrator", part.engine,
+                            ))
+                except (TTSSuiteError, ValueError) as exc:
                     return json.dumps({
                         "error": f"TTS failed at chunk {i}/{total}: {exc}",
                         "chunks_done": i - 1,
                     })
-                wav_urls.append(url)
                 if i % 5 == 0 or i == total:
                     debug(f"🔊 narrate_file: {i}/{total} chunks synthesized")
 
+            if not wav_urls:
+                return json.dumps({"error": "The TTS service delivered no audio"})
             combined_url: str | None
             if len(wav_urls) == 1:
                 combined_url = wav_urls[0]
@@ -246,17 +254,14 @@ class NarratorPlugin:
 
         async def _list_narrator_voices(engine: str = "") -> str:
             """Voice discovery for the effective narrator engine."""
-            from ....lib.tts_engines import voice_names
-            from ....lib.tts_escalation import NoSpeechAvailable
-
             try:
-                eng_obj, default_voice = await _choose_engine_and_voice(engine)
-            except (NoSpeechAvailable, ValueError) as exc:
+                ref, default_voice, names = await _choose_engine_and_voice(engine)
+            except (TTSSuiteError, ValueError) as exc:
                 return json.dumps({"error": str(exc)})
             return json.dumps({
-                "engine": eng_obj.key,
+                "engine": ref.engine,
                 "default_voice": default_voice,
-                "voices": voice_names(eng_obj),
+                "voices": names,
             })
 
         return [

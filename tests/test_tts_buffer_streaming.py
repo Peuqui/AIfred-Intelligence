@@ -1,4 +1,4 @@
-"""Wachsender TTSBuffer und Pumpe: satzweises Streaming mit Stille als Keepalive."""
+"""Wachsender TTSBuffer und Pumpe: Segmente kommen nach, Keep-alive-Stille steckt im Puffer."""
 
 import asyncio
 import threading
@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-import aifred.lib.audio_channels._audio_orchestrator as orch
 from aifred.lib.audio_channels._audio_orchestrator import (
     KEEPALIVE_SILENCE, AudioOrchestrator, TTSBuffer, silence_pcm,
 )
@@ -47,9 +46,14 @@ class TestGrowingBuffer:
         assert buffer.next_chunk() == b"\x02" * 5
         assert buffer.done
 
-    def test_wait_for_data_times_out_without_a_producer(self):
+    def test_wait_for_data_waits_as_long_as_the_producer_works(self):
         buffer = TTSBuffer(growing=True)
-        assert run(buffer.wait_for_data(0.05)) is False
+
+        async def go():
+            with pytest.raises(asyncio.TimeoutError):
+                await asyncio.wait_for(buffer.wait_for_data(), timeout=0.05)
+
+        run(go())
 
     def test_wait_for_data_wakes_when_another_thread_appends(self):
         buffer = TTSBuffer(growing=True)
@@ -57,7 +61,7 @@ class TestGrowingBuffer:
         async def go():
             threading.Timer(0.05, lambda: buffer.append(b"\x01")).start()
             started = time.monotonic()
-            assert await buffer.wait_for_data(2.0) is True
+            await asyncio.wait_for(buffer.wait_for_data(), timeout=2.0)
             return time.monotonic() - started
 
         assert run(go()) < 1.0
@@ -65,16 +69,16 @@ class TestGrowingBuffer:
     def test_wait_for_data_returns_at_once_when_data_is_there(self):
         buffer = TTSBuffer(growing=True)
         buffer.append(b"\x01")
-        assert run(buffer.wait_for_data(2.0)) is True
+        run(asyncio.wait_for(buffer.wait_for_data(), timeout=2.0))
 
     def test_close_wakes_the_waiter(self):
         buffer = TTSBuffer(growing=True)
 
         async def go():
             threading.Timer(0.05, buffer.close).start()
-            return await buffer.wait_for_data(2.0)
+            await asyncio.wait_for(buffer.wait_for_data(), timeout=2.0)
 
-        assert run(go()) is True
+        run(go())
 
     def test_discard_cancels_the_producer(self):
         async def go():
@@ -95,16 +99,17 @@ def _announce(orc, buffer, **kwargs):
 
 
 class TestStreamingPump:
-    def test_waiting_for_the_next_segment_sends_keepalive_silence(self, bridge, monkeypatch):
-        monkeypatch.setattr(orch, "FREEECHO2_KEEPALIVE_SEC", 0.05)
+    def test_the_pump_waits_for_the_next_segment_and_sends_what_the_producer_appends(self, bridge):
+        """No clock of its own: the keep-alive silence is the producer's business."""
         orc = AudioOrchestrator("room1", bridge)
 
         async def go():
             buffer = TTSBuffer(growing=True)
-            buffer.append(b"\x07" * 100)           # first sentence is ready
+            buffer.append(b"\x07" * 100)           # first segment is ready
 
             async def producer():
-                await asyncio.sleep(0.3)           # the second one takes long
+                await asyncio.sleep(0.2)           # the second one takes long
+                buffer.append(KEEPALIVE_SILENCE)   # the service's keep-alive marker
                 buffer.append(b"\x08" * 100)
                 buffer.close()
             buffer.producer = asyncio.create_task(producer())
@@ -112,9 +117,7 @@ class TestStreamingPump:
 
         assert run(go()) is True
         chunks = [c.args[1] for c in bridge.send_audio_chunk.await_args_list]
-        assert chunks[0] == b"\x07" * 100 and chunks[-1] == b"\x08" * 100
-        keepalives = [c for c in chunks if c == KEEPALIVE_SILENCE]
-        assert len(keepalives) >= 2                # the stream stayed open the whole time
+        assert chunks == [b"\x07" * 100, KEEPALIVE_SILENCE + b"\x08" * 100]
         assert bridge.send_audio_end.await_args.kwargs == {"end_tone": True}
         # growing: the total size is not known at audio_start
         assert bridge.send_audio_start.await_args.kwargs == {"total_size": None}

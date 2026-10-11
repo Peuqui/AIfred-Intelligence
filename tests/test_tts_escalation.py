@@ -12,7 +12,6 @@ from aifred.lib.tts_escalation import (
     NoSpeechAvailable,
     SpeechRun,
     TTSHost,
-    choose_speaker,
     escalation_entries,
 )
 
@@ -267,18 +266,6 @@ class TestFailover:
         assert spoken == [("piper", "Hallo.")]
 
 
-class TestChooseSpeaker:
-    def test_explicit_engine_that_cannot_speak_is_refused(self, monkeypatch):
-        monkeypatch.setattr("aifred.lib.tts_engines.require_engine",
-                            lambda key: FakeEngine(key, remote=False, running=False))
-        with pytest.raises(NoSpeechAvailable, match="not available"):
-            asyncio.run(choose_speaker("edge", "narrator"))
-
-    def test_unknown_engine_key_is_an_error(self):
-        with pytest.raises(ValueError, match="unknown TTS engine"):
-            asyncio.run(choose_speaker("nope", "narrator"))
-
-
 class TestResolveVoice:
     @pytest.fixture
     def voices(self, monkeypatch):
@@ -428,10 +415,6 @@ class TestBrowserEntry:
         monkeypatch.setattr(settings_module, "persisted_settings", lambda: {})
         monkeypatch.setattr("aifred.lib.agent_config.get_tts_voice_default", lambda agent, engine: {})
         assert tts_escalation.resolve_voice("browser", "aifred") == ("Auto", 1.0, 1.0)
-
-    def test_the_narrator_cannot_pick_it(self):
-        with pytest.raises(NoSpeechAvailable, match="browser session"):
-            asyncio.run(tts_escalation.choose_speaker("browser", "narrator"))
 
 
 def test_the_browser_entry_is_last_in_the_default_list() -> None:

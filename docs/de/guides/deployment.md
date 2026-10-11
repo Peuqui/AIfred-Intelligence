@@ -247,7 +247,7 @@ Manager), die sie nach `.env` zurückschreibt.
 | `WEBHOOK_API_TOKEN` | Token für `/api/agent/trigger` |
 | `ANNOUNCE_API_TOKEN` | Bearer-Token für `/api/audio/announce` |
 | `TTS_CONTROL_API_TOKEN` | Bearer-Token der TTS-Start/Stopp-API (Dienste-Steuerseite) |
-| `ANNOUNCE_MAX_CHARS`, `ANNOUNCE_MAX_TOTAL_CHARS`, `FREEECHO2_KEEPALIVE_SEC` und weitere Stellschrauben | Siehe [Konfiguration → Umgebungsvariablen und Plugin-Einstellungen](configuration.md#umgebungsvariablen-und-plugin-einstellungen) |
+| `ANNOUNCE_MAX_CHARS`, `ANNOUNCE_MAX_TOTAL_CHARS` und weitere Stellschrauben | Siehe [Konfiguration → Umgebungsvariablen und Plugin-Einstellungen](configuration.md#umgebungsvariablen-und-plugin-einstellungen) |
 | `AIFRED_SESSION_SECRET` | Signiert die Login-Cookies (optional — sonst wird ein Zufalls-Secret persistiert) |
 | `LLAMACPP_URL` | llama-swap-URL (Standard `http://localhost:11435/v1`) |
 | `LLAMACPP_CALIBRATION_PORT` | Port des temporären Kalibrier-Servers (Standard `9999`) |

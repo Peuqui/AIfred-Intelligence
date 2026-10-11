@@ -732,15 +732,16 @@ the puck stays dumb.
 only comes after everything is rendered). The Echo plugin only reads it. Start/end tone for announcements: `FREEECHO2_NOTIFICATION_START_TONE` / `_END_TONE` (on/off; the alarm
 sound is always the start tone); which sound plays is decided by the puck.
 
-**Sentence-wise streaming** (announcements and replies via `TtsReplyMixin`): with `sentence` the text is split into
-sentences by `split_text_for_streaming_tts` (the same sentence detection as browser streaming); the first
-sentence is synthesized and starts playing, a producer task appends the rest to a growing `TTSBuffer`
-(thread-safe, `total_size` in `audio_start` is unknown then). Announcements with several paragraphs
-(`texts`) are ONE stream: silence between the paragraphs = real zero samples. If the next segment is not
-ready in time, the pump sends a 20 ms silence chunk every `FREEECHO2_KEEPALIVE_SEC` (10 s): the puck ends a
-stream without chunks after 30 s (notification/alarm/TTS) or 60 s (music) — that timeout is the only
-detection of a silently dead connection inside the stream and therefore stays. If a later sentence fails,
-the server closes the stream with `audio_end(end_tone=false)`.
+**Streaming through the TTS service** (announcements and replies via `TtsReplyMixin`, core: `lib/speech_synthesis.py`): the
+service cuts the text by the unit of the speaking entry and delivers audio segments as soon as they exist; the first
+one is converted to 48 kHz PCM and starts playing, a producer task appends the rest to a growing `TTSBuffer`
+(thread-safe, `total_size` in `audio_start` is unknown then). Announcements with several paragraphs (`texts`) are ONE
+text and ONE stream: silence between the paragraphs = real zero samples, put by AIfred in front of each segment of an
+entry whose unit is `paragraph` (the service does not mark paragraph borders). If a segment takes long, the service
+sends keep-alive markers (`KEEPALIVE_SEC` of the suite); AIfred turns each into 20 ms of silence in the buffer: the
+puck ends a stream without chunks after 30 s (notification/alarm/TTS) or 60 s (music) — that timeout is the only
+detection of a silently dead connection inside the stream and therefore stays. The pump has no clock of its own. If
+the service fails later, the server closes the stream with `audio_end(end_tone=false)`.
 
 **Pause before announcement/alarm** (`AudioOrchestrator.pause_for_announcement`): the puck only accepts
 notification/alarm when idle or paused. While a pausable stream (music/tts) runs, the server sends

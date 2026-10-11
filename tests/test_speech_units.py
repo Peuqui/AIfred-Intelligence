@@ -1,9 +1,9 @@
-"""Einheit der Sprachausgabe: die Wahl pro Engine (SSOT), die Aufteilung je Einheit, die Browser-Extraktion."""
+"""Einheit der Sprachausgabe: die Wahl pro Engine (SSOT) und die Browser-Extraktion."""
 
 import pytest
 
 import aifred.lib.settings as settings_module
-from aifred.lib.audio_processing import build_speech_segments, extract_complete_paragraphs
+from aifred.lib.audio_processing import extract_complete_paragraphs
 from aifred.lib.tts_engines import SPEECH_UNITS, TTS_ENGINES, speech_unit_for
 
 
@@ -43,40 +43,6 @@ class TestSpeechUnitPerEngine:
     def test_an_unknown_engine_is_an_error(self, saved):
         with pytest.raises(ValueError, match="unknown TTS engine"):
             speech_unit_for("nope")
-
-
-class TestBuildSpeechSegments:
-    TEXT = "Erster Satz mit genug Wörtern. Zweiter Satz mit genug Wörtern.\n\nNeuer Absatz mit genug Wörtern."
-
-    def test_sentence_by_sentence(self):
-        assert build_speech_segments([self.TEXT], 0, "sentence") == [
-            "Erster Satz mit genug Wörtern.", "Zweiter Satz mit genug Wörtern.", "Neuer Absatz mit genug Wörtern.",
-        ]
-
-    def test_sentence_unit_puts_silence_only_between_the_given_paragraphs(self):
-        assert build_speech_segments(
-            ["Erster Absatz mit genug Wörtern. Zweiter Satz hier.", "Dritter Absatz mit genug Wörtern."], 800, "sentence",
-        ) == [
-            "Erster Absatz mit genug Wörtern.", "Zweiter Satz hier.", 800, "Dritter Absatz mit genug Wörtern.",
-        ]
-
-    def test_paragraph_by_paragraph_splits_at_blank_lines(self):
-        assert build_speech_segments([self.TEXT], 500, "paragraph") == [
-            "Erster Satz mit genug Wörtern. Zweiter Satz mit genug Wörtern.", 500, "Neuer Absatz mit genug Wörtern.",
-        ]
-
-    def test_whole_text_at_once_is_one_render(self):
-        assert build_speech_segments(["Absatz eins hier.", "Absatz zwei dort."], 500, "whole") == [
-            "Absatz eins hier.\n\nAbsatz zwei dort.",
-        ]
-
-    def test_empty_input_has_no_segments(self):
-        for unit in SPEECH_UNITS:
-            assert build_speech_segments(["  ", ""], 500, unit) == []
-
-    def test_an_invalid_unit_is_refused(self):
-        with pytest.raises(ValueError, match="speech unit"):
-            build_speech_segments(["Text hier."], 0, "word")
 
 
 class TestExtractCompleteParagraphs:
