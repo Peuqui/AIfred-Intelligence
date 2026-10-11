@@ -130,6 +130,21 @@ class ReolinkAIClient:
             result[logical] = int(entry.get("alarm_state", 0)) > 0
         return result
 
+    async def ptz_goto_guard(self, channel: int | None = None) -> None:
+        """Kamerakopf in die Wächterposition fahren (``SetPtzGuard`` mit
+        ``cmdStr=toPos``) — die gespeicherte Ausgangsposition der Kamera, in die
+        sie nach der eingestellten Ruhezeit auch von selbst zurückkehrt. ONVIF
+        ``GotoHomePosition`` kennt die Kamera nicht (``HomeSupported=false``).
+        Wirft :class:`ReolinkAIError` bei Fehler. NICHT ``setPos`` senden: das
+        würde die gespeicherte Position überschreiben."""
+        ch = self._channel if channel is None else channel
+        payload = [{
+            "cmd": "SetPtzGuard",
+            "action": 0,
+            "param": {"PtzGuard": {"channel": ch, "cmdStr": "toPos"}},
+        }]
+        await self._call_with_relogin("SetPtzGuard", payload)
+
     async def snap(self, channel: int | None = None) -> bytes:
         """Ein frisches Standbild eines Kanals als JPEG-Bytes (``cmd=Snap``).
 

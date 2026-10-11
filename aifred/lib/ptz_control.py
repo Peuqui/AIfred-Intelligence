@@ -3,7 +3,7 @@
 Minimaler ONVIF-Client über rohes SOAP (``requests``) — bewusst ohne
 externe ONVIF-Bibliothek, damit keine zusätzliche Abhängigkeit nötig ist.
 Deckt die für eine „AIfred steuert den Kamerakopf"-Logik nötigen
-Operationen ab: ContinuousMove, Stop, AbsoluteMove, GotoPreset, GotoHomePosition.
+Operationen ab: ContinuousMove, Stop, AbsoluteMove, GotoPreset.
 
 Konfiguriert wird PTZ über dieselben Kamera-Einträge wie die RTSP-Quellen
 (``rtsp_cameras`` in ``plugins/tools/vision/settings.json``); zusätzlich::
@@ -32,6 +32,7 @@ import xml.etree.ElementTree as ET
 
 import requests
 
+from . import vision_snap
 from .config import (
     VISION_PTZ_DEADMAN_SEC,
     VISION_PTZ_DEFAULT_SPEED,
@@ -40,6 +41,7 @@ from .config import (
 )
 from .frame_sources.rtsp_source import find_camera_config
 from .logging_utils import log_message
+from .reolink_ai import ReolinkAIError
 from .onvif_soap import (
     OnvifError,
     content_type,
@@ -161,15 +163,6 @@ class PTZController:
             f"</Position></AbsoluteMove>"
         )
         self._post(f"{_NS_PTZ}/AbsoluteMove", body)
-
-    def goto_home(self) -> None:
-        """Ausgangsposition der Kamera anfahren (ONVIF ``GotoHomePosition``)."""
-        token = self.profile_token()
-        body = (
-            f'<GotoHomePosition xmlns="{_NS_PTZ}">'
-            f"<ProfileToken>{token}</ProfileToken></GotoHomePosition>"
-        )
-        self._post(f"{_NS_PTZ}/GotoHomePosition", body)
 
     def goto_preset(self, preset_token: str) -> None:
         """Gespeicherte Preset-Position anfahren."""
@@ -330,16 +323,24 @@ class PtzDriver:
         await self.stop(source_id)
 
     async def home(self, source_id: str) -> None:
-        """Ausgangsposition anfahren (eine laufende Bewegung endet damit)."""
+        """Ausgangsposition anfahren: die Wächterposition der Kamera (eine laufende
+        Bewegung endet damit)."""
         self._pressed_at.pop(source_id, None)
         self._moving.pop(source_id, None)
         timer = self._deadman.pop(source_id, None)
         if timer is not None:
             timer.cancel()
-        controller = get_controller(source_id)
-        if controller is None:
+        cam = find_camera_config(source_id)
+        if not cam or not cam.get("ptz"):
             raise PTZError(f"{source_id} hat keine PTZ-Steuerung (rtsp_cameras: ptz)")
-        await asyncio.to_thread(controller.goto_home)
+        client = vision_snap.get_client(source_id)
+        if client is None:
+            raise PTZError(f"{source_id}: keine Kamera-Zugangsdaten (rtsp_cameras: cred)")
+        try:
+            await client.ptz_goto_guard(int(cam.get("channel", 0)))
+        except ReolinkAIError as e:
+            raise PTZError(str(e)) from e
+        log_message(f"PTZ home (Wächterposition) {source_id}")
 
     async def stop(self, source_id: str) -> None:
         """Sofort anhalten (auch ohne laufende Bewegung)."""
