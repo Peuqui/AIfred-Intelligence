@@ -1032,11 +1032,7 @@ console.log('✂️ Crop handler loaded');
                             "data-queue": AIState.tts_queue_json,
                             "data-version": AIState.tts_queue_version.to(str),
                             "data-autoplay": rx.cond(AIState.tts_autoplay, "true", "false"),
-                            "data-polling": rx.cond(
-                                AIState.enable_tts & AIState.tts_streaming_enabled,
-                                "true",
-                                "false"
-                            ),
+                            "data-polling": rx.cond(AIState.enable_tts, "true", "false"),
                             # "true" solange noch TTS-Sentences kommen koennen.
                             # custom.js audioOnEnded blockiert media-resume bis
                             # dieses Flag false ist — verhindert dass die

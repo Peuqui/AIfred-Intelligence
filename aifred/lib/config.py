@@ -1255,6 +1255,21 @@ NARRATE_SPEECH_UNIT = "whole"
 # No pause markers for the narrator: it concatenates the audio of the chunks itself.
 NARRATE_PARAGRAPH_PAUSE_MS = 0
 
+# The entry of AIfred's TTS list that stands for the browser's own voice (Web Speech API on the
+# user's device; the service cannot speak with it) and the unit it reads in when the user chose none.
+TTS_BROWSER_ENGINE_KEY = "browser"
+TTS_BROWSER_DEFAULT_UNIT = "sentence"
+# Spoken reply in a browser window: silence between two paragraphs in ms (the service
+# delivers a pause marker at each paragraph border; the page waits that long between two
+# audio files). 0 = no pause, as the browser path always behaved.
+BROWSER_PARAGRAPH_PAUSE_MS = int(os.environ.get("BROWSER_PARAGRAPH_PAUSE_MS", "0"))
+# A bubble's replay is ONE audio file (the segments joined): no pause markers are asked for.
+REPLAY_PARAGRAPH_PAUSE_MS = 0
+# AIfred's own text filter works on the stream: a bracket that is still open holds the text
+# behind it back (the closing part may turn it into a timing remark or footer). Only until
+# this many characters; a longer open bracket is prose, not an interface remark.
+TTS_FILTER_MAX_HOLD_CHARS = 400
+
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)
 WHISPER_SERVICE_URL = "http://localhost:5080"
 

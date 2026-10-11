@@ -18,8 +18,9 @@ from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 
 from .audio_channels._audio_orchestrator import KEEPALIVE_SILENCE, TTSBuffer, silence_pcm
+from .config import REPLAY_PARAGRAPH_PAUSE_MS
 from .logging_utils import log_message
-from .tts_client import EngineRef, SpeakSummary, TTSSuiteError, get_tts_client
+from .tts_client import SpeakSummary, SpeechStream, TTSSuiteError, get_tts_client
 from .tts_service import request_engines, spoken_note
 from .tts_text_filter import strip_ui_only_content
 from .tts_voices import voices_for
@@ -63,9 +64,19 @@ def speakable_text(paragraphs: Sequence[str]) -> str:
     return "\n\n".join(paragraph for paragraph in filtered if paragraph)
 
 
+async def open_reading(text: str, *, language: str, agent: str, paragraph_pause_ms: int) -> SpeechStream:
+    """Start the service if needed and start a reading of ``text`` in the voice of ``agent``, with AIfred's
+    list (the service skips the browser entry). Raises ``TTSSuiteError`` if the reading cannot start."""
+    await asyncio.to_thread(get_tts_client().ensure_ready)
+    engines = await asyncio.to_thread(request_engines)
+    return await get_tts_client().speak(
+        text, language=language, engines=engines, paragraph_pause_ms=paragraph_pause_ms,
+        voices=voices_for(engines, agent), run=uuid.uuid4().hex,
+    )
+
+
 async def _speech_pcm(
-    text: str, *, language: str, engines: Sequence[EngineRef], agent: str, paragraph_pause_ms: int, label: str,
-    reading: SpokenReading,
+    text: str, *, language: str, agent: str, paragraph_pause_ms: int, label: str, reading: SpokenReading,
 ) -> AsyncIterator[bytes]:
     """The PCM of one reading in speaking order, piece by piece as the service delivers it.
 
@@ -75,10 +86,7 @@ async def _speech_pcm(
     """
     from .audio_processing import TTS_AUDIO_DIR, store_tts_audio
 
-    stream = await get_tts_client().speak(
-        text, language=language, engines=engines, paragraph_pause_ms=paragraph_pause_ms,
-        voices=voices_for(engines, agent), run=uuid.uuid4().hex,
-    )
+    stream = await open_reading(text, language=language, agent=agent, paragraph_pause_ms=paragraph_pause_ms)
     async for segment in stream:
         if segment.keepalive:
             yield KEEPALIVE_SILENCE
@@ -93,6 +101,23 @@ async def _speech_pcm(
         reading.audio_urls.append(url)
         yield pcm
     reading.summary = stream.summary
+
+
+async def speak_to_files(text: str, *, language: str, agent: str) -> SpokenReading:
+    """A complete text read into audio files (replay of a bubble): the segments in order, no markers
+    (the replay is one audio, ``REPLAY_PARAGRAPH_PAUSE_MS``). Raises ``TTSSuiteError``."""
+    from .audio_processing import store_tts_audio
+
+    stream = await open_reading(text, language=language, agent=agent, paragraph_pause_ms=REPLAY_PARAGRAPH_PAUSE_MS)
+    reading = SpokenReading()
+    async for segment in stream:
+        if segment.keepalive or segment.pause_ms:
+            continue
+        reading.audio_urls.append(
+            await asyncio.to_thread(store_tts_audio, segment.audio, segment.media_type, agent, segment.engine),
+        )
+    reading.summary = stream.summary
+    return reading
 
 
 async def keep_spoken_audio(reading: SpokenReading, language: str, label: str, session_id: str | None) -> None:
@@ -129,11 +154,8 @@ async def start_speech_stream(
         return None
     reading = SpokenReading()
     try:
-        await asyncio.to_thread(get_tts_client().ensure_ready)
-        engines = await asyncio.to_thread(request_engines)
         pieces = _speech_pcm(
-            text, language=language, engines=engines, agent=agent, paragraph_pause_ms=paragraph_pause_ms, label=label,
-            reading=reading,
+            text, language=language, agent=agent, paragraph_pause_ms=paragraph_pause_ms, label=label, reading=reading,
         )
         first = await anext(pieces, None)
     except TTSSuiteError as error:

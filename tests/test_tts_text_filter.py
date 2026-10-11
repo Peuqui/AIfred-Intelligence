@@ -3,7 +3,7 @@
 import pytest
 
 from aifred.lib.formatting import format_performance_footer
-from aifred.lib.tts_text_filter import strip_ui_only_content
+from aifred.lib.tts_text_filter import UiOnlyContentStream, strip_ui_only_content
 
 
 def _footer() -> str:
@@ -77,3 +77,50 @@ class TestNotTheirBusiness:
 
     def test_empty_stays_empty(self):
         assert strip_ui_only_content("  <think>x</think>  ") == ""
+
+
+def _streamed(text: str, size: int) -> str:
+    stream = UiOnlyContentStream()
+    pieces = [stream.feed(text[start : start + size]) for start in range(0, len(text), size)]
+    return "".join(pieces) + stream.finish()
+
+
+STREAM_TEXT = (
+    "Erster Satz hier. <think>geheime Gedanken, (mit Klammer) und <b>Tag</b></think>Zweiter Satz "
+    "(STT: 2.5s) geht weiter.<!--USED_SOURCES:[\"a\"]-->\n\n[Auto-Konsens: Synthese R1] Dritter Satz.\n\n"
+    "<details><summary>Titel</summary>Innen</details>Vierter Satz (siehe oben) endet.\n\n" + _footer()
+)
+
+
+class TestStream:
+    @pytest.mark.parametrize("size", [1, 2, 3, 5, 7, 11, 40, 1000])
+    def test_any_piece_size_gives_the_same_words_as_the_whole_text(self, size):
+        assert _streamed(STREAM_TEXT, size).split() == strip_ui_only_content(STREAM_TEXT).split()
+
+    def test_nothing_hidden_ever_leaves_the_filter(self):
+        stream = UiOnlyContentStream()
+        out = ""
+        for start in range(0, len(STREAM_TEXT), 3):
+            out += stream.feed(STREAM_TEXT[start : start + 3])
+            for hidden in ("geheim", "Innen", "Titel", "TTFT", "STT", "USED_SOURCES", "Konsens"):
+                assert hidden not in out, (hidden, out)
+
+    def test_settled_text_comes_out_at_once_not_at_the_end(self):
+        stream = UiOnlyContentStream()
+        assert stream.feed("Ein Satz ist fertig. ") == "Ein Satz ist fertig. "
+
+    def test_a_block_still_open_holds_back_what_follows_it(self):
+        stream = UiOnlyContentStream()
+        assert stream.feed("Davor. <think>denkt noch") == "Davor. "
+        assert stream.feed(" lange nach") == ""
+        assert stream.feed("</think> Danach.") == " Danach."
+
+    def test_an_open_bracket_is_released_when_it_is_too_long_to_be_a_remark(self):
+        stream = UiOnlyContentStream()
+        long_aside = "(" + "lange Randbemerkung " * 40
+        assert "Randbemerkung" in stream.feed("Text " + long_aside)
+
+    def test_finish_flushes_an_unclosed_rest(self):
+        stream = UiOnlyContentStream()
+        assert stream.feed("Antwort (offen") == "Antwort "
+        assert stream.finish() == "(offen"

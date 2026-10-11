@@ -136,25 +136,6 @@ class TTSConfigMixin(rx.State, mixin=True):
         except TTSSuiteError:
             return stored_host_rows()
 
-    @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
-    def tts_speech_unit(self) -> str:
-        """Speech unit of the topmost active entry — decides whether the browser streams
-        sentence by sentence (the entry that really speaks is only known at the first
-        sentence). While the service does not answer, the failure message instead of a unit."""
-        from ..lib.tts_client import TTSSuiteError
-        from ..lib.tts_service import first_enabled_entry, unreachable_text
-        try:
-            entry = first_enabled_entry()
-        except TTSSuiteError as error:
-            return unreachable_text(error, _lang(self))
-        return entry.unit if entry else "whole"
-
-    @rx.var(deps=["tts_list_revision"], auto_deps=False)
-    def tts_streaming_enabled(self) -> bool:
-        """Streaming = the spoken output starts before the response is complete
-        (every unit except "whole")."""
-        return self.tts_speech_unit != "whole"
-
     @rx.var(deps=["enable_tts"], auto_deps=False)
     def tts_player_visible(self) -> bool:
         """The audio player shows while the spoken output is on."""
