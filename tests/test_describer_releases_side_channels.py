@@ -11,12 +11,8 @@ CARD, OTHER = "GPU-a", "GPU-b"
 
 
 def test_footprint_counts_only_the_whisper_worker(monkeypatch, tmp_path):
-    class Resp:
-        def json(self):
-            return {"gpu_worker_pid": 42}
-
-    import requests
-    monkeypatch.setattr(requests, "get", lambda *a, **k: Resp())
+    from aifred.lib.stt_client import get_default_client
+    monkeypatch.setattr(get_default_client(), "status", lambda: {"gpu_worker_pid": 42})
     monkeypatch.setattr(nvidia_smi, "compute_apps", lambda: [
         {"pid": "1001", "process_name": "python3.12", "used_memory": "3652", "gpu_uuid": CARD},
         {"pid": "1002", "process_name": "python3.12", "used_memory": "2100", "gpu_uuid": OTHER},

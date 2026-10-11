@@ -23,7 +23,7 @@ from ..lib.config import (
 from ..backends.cloud_api import is_cloud_api_configured
 from ..lib.model_manager import sort_models_grouped
 from ..lib.gpu_utils import total_actual_vram_gb
-from ..lib.audio_processing import is_whisper_ready
+from ..lib.stt_client import get_default_client as get_stt_client
 
 # Module-level globals are in _base.py and re-exported from __init__.py.
 # We import them at usage sites to avoid circular imports.
@@ -391,7 +391,7 @@ class BackendMixin(rx.State, mixin=True):
                     _asyncio.create_task(sync_audio_index_task())
 
                     # Whisper STT: Docker container (started on demand or always-on)
-                    if is_whisper_ready():
+                    if get_stt_client().is_ready():
                         log_message("✅ Whisper: Docker service ready")
                     else:
                         log_message("⚠️ Whisper: Docker service not running (will start on first STT request)")

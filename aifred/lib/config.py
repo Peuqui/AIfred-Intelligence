@@ -1255,6 +1255,20 @@ WHISPER_CONFIRM_THRESHOLD_S = 180
 # interactive chat must not stall behind a stuck transcription forever.
 WHISPER_RELEASE_WAIT_MAX_S = 600
 
+# Pause between two /unload attempts while the service still answers 409
+# (transcription running).
+WHISPER_RELEASE_POLL_S = 2
+
+# HTTP timeouts of the STT client (aifred/lib/stt_client.py) for the short
+# control calls; transcriptions use WHISPER_TRANSCRIBE_TIMEOUT_S.
+WHISPER_HEALTH_TIMEOUT_S = 2
+WHISPER_CONTROL_TIMEOUT_S = 5   # /status, /config, /unload
+
+# On-demand container start: how long to wait for the model to load, and how
+# often to ask /health meanwhile.
+WHISPER_START_TIMEOUT_S = 60
+WHISPER_START_POLL_S = 1
+
 # Transcripts longer than this are written to the workspace (data/documents/)
 # as a text file instead of flooding the input field or a chat bubble — the
 # agent can then process them with its file tools (translate_file, read_file,

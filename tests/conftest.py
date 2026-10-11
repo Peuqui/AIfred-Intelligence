@@ -29,9 +29,15 @@ def _no_real_whisper_service(monkeypatch):
     freigebbar und gibt ihn vor dem Laden frei. Ohne diese Sperre hätte ein
     Testlauf Peuquis laufenden GPU-Worker abgeschossen. Tests für die
     Zuordnung selbst überschreiben das gezielt."""
-    import aifred.lib.config as config
+    import aifred.lib.stt_client as stt_client
+
+    def _no_container_start() -> tuple[bool, str]:
+        raise AssertionError("Test darf den STT-Container nicht starten")
+
     # Port 9 (discard) — nichts antwortet, jede Anfrage scheitert sofort.
-    monkeypatch.setattr(config, "WHISPER_SERVICE_URL", "http://127.0.0.1:9")
+    blocked = stt_client.STTClient("http://127.0.0.1:9", "/nonexistent/docker-compose.yml")
+    monkeypatch.setattr(blocked, "start_container", _no_container_start)
+    monkeypatch.setattr(stt_client, "_default_client", blocked)
 
 
 @pytest.fixture(autouse=True)

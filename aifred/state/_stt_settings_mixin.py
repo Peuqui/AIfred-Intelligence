@@ -1,8 +1,8 @@
 """STT-Settings-Mixin — der „STT"-Tab im Agent-Editor.
 
 Reine Bedienoberfläche für die Konfiguration des Whisper-Services: Die
-Config lebt als SSOT im Service selbst (GET /status, POST /config auf
-WHISPER_SERVICE_URL); dieses Mixin liest und schreibt sie nur. Nichts
+Config lebt als SSOT im Service selbst (über den STTClient: status(),
+set_config()); dieses Mixin liest und schreibt sie nur. Nichts
 davon wird in AIfred dupliziert oder persistiert.
 """
 
@@ -39,15 +39,12 @@ class STTSettingsMixin(rx.State, mixin=True):
         """Config vom Whisper-Service lesen. Normale Methode (kein
         Event-Decorator), damit ``set_agent_editor_tab`` sie direkt beim
         Tab-Wechsel aufrufen kann."""
-        import requests
-        from ..lib.config import WHISPER_SERVICE_URL
+        from ..lib.stt_client import STTError, get_default_client
 
         self.stt_save_message = ""
         try:
-            resp = requests.get(f"{WHISPER_SERVICE_URL}/status", timeout=5)
-            resp.raise_for_status()
-            data = resp.json()
-        except (requests.RequestException, ValueError):
+            data = get_default_client().status()
+        except STTError:
             self.stt_available = False
             return
 
@@ -135,9 +132,8 @@ class STTSettingsMixin(rx.State, mixin=True):
     @rx.event
     def save_stt_settings(self) -> None:
         """Alle Felder an den Service POSTen und Status neu lesen."""
-        import requests
-        from ..lib.config import WHISPER_SERVICE_URL
         from ..lib.i18n import t
+        from ..lib.stt_client import STTError, get_default_client
 
         payload = {
             "engine": self.stt_engine,
@@ -153,11 +149,8 @@ class STTSettingsMixin(rx.State, mixin=True):
             "gpu_ttl_minutes": self.stt_gpu_ttl_minutes,
         }
         try:
-            resp = requests.post(
-                f"{WHISPER_SERVICE_URL}/config", json=payload, timeout=5,
-            )
-            resp.raise_for_status()
-        except requests.RequestException as e:
+            get_default_client().set_config(payload)
+        except STTError as e:
             self.stt_save_message = f"❌ {e}"
             return
         self.load_stt_settings()
