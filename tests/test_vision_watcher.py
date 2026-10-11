@@ -25,7 +25,8 @@ from aifred.lib.vision_filters.face_detect import FaceDetection, FaceDetector
 from aifred.lib.vision_filters.face_recognize import FaceRecognizer
 from aifred.lib.vision_filters.person_detect import PersonDetection, PersonDetector
 from aifred.lib.vision_store import VisionStore
-from aifred.lib.vision_watcher import VisionWatcher, WatchConfig
+from aifred.lib.vision_watch_types import WatchConfig
+from aifred.lib.vision_watcher import VisionWatcher
 
 
 def run(coro):

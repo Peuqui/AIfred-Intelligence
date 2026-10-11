@@ -7,11 +7,10 @@ und teilen sich hier Client-Verwaltung (Token-Cache: ein Login pro Quelle
 statt Login-Sturm), Kanal-Auflösung aus der ``rtsp_cameras``-Config und
 den Frame-Bau.
 
-NICHT hier: der Vigilantia-Watcher. Sein Client ist an die Watch-Session
-gebunden (lebt mit ihr, macht ZUSÄTZLICH das ``get_ai_state``-Polling und
-einen parallelen Dual-Lens-Snap mit gemeinsamem Zeitstempel). Das ist ein
-eigener Lebenszyklus, kein Duplikat — er teilt sich nur den ``Frame``-Bau
-über :func:`frame_from_snap`.
+Auch der Vigilantia-Watcher nutzt den geteilten Client (Zustandsabfrage
+und Dual-Lens-Snap via :func:`snap_pair`); sein Watch-Stop gibt ihn nicht
+frei, die Session lebt mit dem Prozess (Logout über :func:`close_clients`
+beim Shutdown).
 
 Andere Kamera-Marken später: Dies ist der EINE Dispatch-Punkt. Ein
 Config-Feld (z.B. ``driver``) plus eine zweite Client-Klasse mit
@@ -22,8 +21,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from contextlib import asynccontextmanager
+from dataclasses import replace
 from datetime import datetime
-from typing import Any, Optional
+from typing import Any, AsyncIterator, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -148,21 +149,34 @@ async def snap_frames(
     if entry is None:
         return None
     key, client = entry
-    _in_use[key] = _in_use.get(key, 0) + 1
     try:
-        frames: list[Any] = []
-        for i in range(max(1, n)):
-            if i > 0 and interval > 0:
-                await asyncio.sleep(interval)
-            jpeg = await client.snap(ch)
-            frames.append(frame_from_snap(source_id, jpeg))
-        return frames
+        async with _in_use_guard(key):
+            frames: list[Any] = []
+            for i in range(max(1, n)):
+                if i > 0 and interval > 0:
+                    await asyncio.sleep(interval)
+                jpeg = await client.snap(ch)
+                frames.append(frame_from_snap(source_id, jpeg))
+            return frames
     except Exception as e:  # noqa: BLE001
         logger.warning(
             "snap failed for %s: %s — caller falls back to RTSP/hub",
             source_id, e,
         )
         return None
+
+
+@asynccontextmanager
+async def _in_use_guard(key: Optional[str]) -> AsyncIterator[None]:
+    """Markiert einen laufenden Snap-Lauf auf dem Client ``key``; schließt
+    ein währenddessen angefordertes ``close_clients`` beim letzten Nutzer
+    nach. ``None`` (Client nicht im Cache, z. B. ein Test-Fake): kein Schutz."""
+    if key is None:
+        yield
+        return
+    _in_use[key] = _in_use.get(key, 0) + 1
+    try:
+        yield
     finally:
         _in_use[key] -= 1
         if _in_use[key] <= 0:
@@ -171,6 +185,56 @@ async def snap_frames(
                 # close_clients kam während des Snaps — jetzt nachholen.
                 _close_pending.discard(key)
                 await _close_key(key)
+
+
+async def snap_pair(
+    client: Any,
+    fallback: Any,
+    *,
+    wide_channel: int,
+    face_channel: Optional[int],
+) -> tuple[Any, Any]:
+    """Wide- und Zoom-Objektiv FRISCH und parallel snappen, mit EINEM
+    gemeinsamen Zeitstempel — so treffen beide Ansichten denselben Moment
+    (Dual-Lens). Returnt ``(wide_frame, zoom_frame)``.
+
+    Schlägt der Wide-Snap fehl, bleibt ``fallback`` (mit Warnung) als Wide
+    erhalten; ohne ``face_channel`` oder bei fehlgeschlagenem Zoom-Snap ist
+    der Zoom dasselbe Objekt wie der Wide. Der Aufrufer erkennt einen
+    Fehlschlag daran, dass ``wide_frame is fallback`` gilt."""
+    snaps: list[Any] = [client.snap(wide_channel)]
+    if face_channel is not None:
+        snaps.append(client.snap(face_channel))
+    key = next((k for k, c in _clients.items() if c is client), None)
+    async with _in_use_guard(key):
+        results = await asyncio.gather(*snaps, return_exceptions=True)
+    # Gemeinsamer Zeitstempel → beide Bilder gelten explizit als "derselbe
+    # Moment", auch in Dateinamen + Event.
+    ts = datetime.now()
+
+    def _jpeg(result: Any) -> Optional[bytes]:
+        if isinstance(result, BaseException):
+            logger.warning(
+                "edge-ai snap failed for %s: %s", fallback.source_id, result,
+            )
+            return None
+        return bytes(result)
+
+    wide_jpeg = _jpeg(results[0])
+    wide_frame = (
+        frame_from_snap(fallback.source_id, wide_jpeg, ts)
+        if wide_jpeg else fallback
+    )
+    zoom_frame = wide_frame
+    if face_channel is not None:
+        zoom_jpeg = _jpeg(results[1])
+        if zoom_jpeg:
+            zoom_frame = replace(
+                frame_from_snap(fallback.source_id, zoom_jpeg, ts),
+                metadata={"kind": "rgb", "via": "snap",
+                          "lens": "zoom", "face_channel": face_channel},
+            )
+    return wide_frame, zoom_frame
 
 
 async def _close_key(key: str) -> None:

@@ -23,6 +23,9 @@ import logging
 from pathlib import Path
 from typing import Any
 
+from .config import VISION_BACKGROUND_WATCH_FPS
+from .vision_watch_types import EdgeAiConfig, WatchConfig
+
 logger = logging.getLogger(__name__)
 
 
@@ -47,40 +50,31 @@ def _resolve_edge_ai(
     source_id: str,
     cam_cfg: dict[str, Any] | None,
     plugin_settings: dict[str, Any],
-) -> dict[str, Any] | None:
-    """Edge-AI-Poll-Block für den Watcher bauen — aus dem ``rtsp_cameras``-
-    Eintrag (host/cred/api_port) plus globalem Poll-Intervall. ``None`` wenn
-    kein Host bekannt ist (dann kann der Watcher nicht pollen)."""
+) -> EdgeAiConfig | None:
+    """Edge-AI-Konfiguration für den Watcher bauen — aus dem ``rtsp_cameras``-
+    Eintrag (Kanäle) plus globalem Poll-Intervall. ``None`` wenn kein Host
+    bekannt ist (dann kann der Watcher nicht pollen). Verbindungsdaten
+    (Host, Port, Zugang) holt sich der geteilte Kamera-Client selbst aus
+    ``rtsp_cameras``."""
     if not cam_cfg:
         logger.warning(
             "autostart: %s hat Profil ai_camera, aber keinen rtsp_cameras-"
             "Eintrag — Edge-AI-Trigger nicht möglich", source_id,
         )
         return None
-    host = str(cam_cfg.get("host", "")).strip()
-    if not host:
+    if not str(cam_cfg.get("host", "")).strip():
         return None
-    from .vision_watcher import EDGE_AI_POLL_INTERVAL_DEFAULT, EDGE_AI_SETTLE_DEFAULT
-
+    defaults = EdgeAiConfig()
     watch = plugin_settings.get("watch") or {}
     face_channel = cam_cfg.get("face_channel")
-    return {
-        "host": host,
-        "api_port": int(cam_cfg.get("api_port", 443)),
-        "cred": str(cam_cfg.get("cred", "")).strip(),
-        "channel": int(cam_cfg.get("channel", 0)),
-        "poll_interval_sec": float(
-            watch.get("edge_ai_poll_interval_sec", EDGE_AI_POLL_INTERVAL_DEFAULT)
+    return EdgeAiConfig(
+        channel=int(cam_cfg.get("channel", defaults.channel)),
+        face_channel=int(face_channel) if face_channel is not None else None,
+        poll_interval_sec=float(
+            watch.get("edge_ai_poll_interval_sec", defaults.poll_interval_sec)
         ),
-        # Wartezeit nach der Erkennung, bevor das Frame gezogen wird — gibt
-        # dem schwenkenden PTZ-Kopf Zeit, das Subjekt zu zentrieren/zoomen,
-        # damit Gesicht + VLM ein scharfes, mittiges Bild bekommen.
-        "settle_sec": float(watch.get("edge_ai_settle_sec", EDGE_AI_SETTLE_DEFAULT)),
-        # Dual-Lens: Kanal des Zoom-/Tele-Objektivs für die Gesichts-
-        # erkennung (mehr Pixel im Gesicht). None = Gesicht auf dem
-        # Weitwinkel-Frame (kein separater Zoom-Snap).
-        "face_channel": int(face_channel) if face_channel is not None else None,
-    }
+        settle_sec=float(watch.get("edge_ai_settle_sec", defaults.settle_sec)),
+    )
 
 
 def schedule_minutes(value: Any) -> int:
@@ -137,21 +131,20 @@ def _build_background_config(
     """
     import dataclasses
 
-    from .vision_profiles import DEFAULT_MIN_EVENT_INTERVAL_SEC
-    from .vision_watcher import WatchConfig
+    defaults = WatchConfig()
 
     source_id = str(source_record.get("source_id") or "")
     settings = source_record.get("settings") or {}
     mma = settings.get("motion_min_area_ratio")
     if not isinstance(mma, (int, float)) or not 0.001 <= mma <= 0.5:
-        mma = 0.02
+        mma = defaults.motion_min_area_ratio
 
     # Pro-Kamera-Drossel (UI: "Min. Event-Abstand"). Eine belebte
     # Außenkamera und ein selten überwachter Schreibtisch brauchen
     # unterschiedliche Werte — deshalb per-Kamera statt global.
     mies = settings.get("min_event_interval_sec")
     if not isinstance(mies, (int, float)) or not 0.1 <= mies <= 60.0:
-        mies = DEFAULT_MIN_EVENT_INTERVAL_SEC
+        mies = defaults.min_event_interval_sec
 
     fr = plugin_settings.get("face_recognition") or {}
     face_enabled = bool(fr.get("enabled", True))
@@ -160,7 +153,7 @@ def _build_background_config(
     watch = plugin_settings.get("watch") or {}
     _ego = watch.get("motion_ego_shift_px")
     if not isinstance(_ego, (int, float)) or not 0.5 <= _ego <= 50.0:
-        _ego = 3.0
+        _ego = defaults.motion_ego_shift_px
 
     # Face-Hunt-Burst-Parameter (Edge-AI): validiert, sonst Code-Defaults.
     def _num(key: str, default: float, lo: float, hi: float) -> float:
@@ -168,7 +161,7 @@ def _build_background_config(
         return float(v) if isinstance(v, (int, float)) and lo <= v <= hi else default
 
     base = WatchConfig(
-        fps=2.0,  # Hintergrund-Default — niedrig, GPU-schonend
+        fps=VISION_BACKGROUND_WATCH_FPS,
         motion_min_area_ratio=float(mma),
         motion_ego_shift_px=float(_ego),
         save_event_frames=True,
@@ -177,11 +170,11 @@ def _build_background_config(
         motion_gated=bool(settings.get("motion_gated", True)),
         face_recognition_continuous=face_continuous and face_enabled,
         # VLM bleibt im Hintergrund AUS — opt-in nur über Live-Popup.
-        run_vlm_on_motion=False,
         run_vlm_continuous=False,
         min_event_interval_sec=float(mies),
-        burst_interval_sec=_num("burst_interval_sec", 0.5, 0.0, 10.0),
-        burst_linger_sec=_num("burst_linger_sec", 6.0, 0.0, 60.0),
+        burst_interval_sec=_num("burst_interval_sec", defaults.burst_interval_sec, 0.0, 10.0),
+        burst_linger_sec=_num("burst_linger_sec", defaults.burst_linger_sec, 0.0, 60.0),
+        preroll_sec=_num("preroll_sec", defaults.preroll_sec, 0.0, 60.0),
     )
     overrides = profile_watch_overrides(source_id, settings, plugin_settings)
     return dataclasses.replace(base, **overrides) if overrides else base
@@ -219,7 +212,6 @@ def profile_watch_overrides(
     edge_ai = _resolve_edge_ai(source_id, cam_cfg, plugin_settings)
     if edge_ai:
         overrides["edge_ai"] = edge_ai
-        overrides["trigger_mode"] = profile.trigger_mode
     return overrides
 
 

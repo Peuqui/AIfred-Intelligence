@@ -21,38 +21,23 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# Trigger-Modi (auch der Wert von ``WatchConfig.trigger_mode``).
-TRIGGER_MOTION = "motion"
-TRIGGER_EDGE_AI = "edge_ai"
-
-# SSOT für den Default-Mindestabstand zwischen Detection-Events
-# (``WatchConfig.min_event_interval_sec``), wenn eine Quelle keinen eigenen
-# Wert in ``sources.settings`` gespeichert hat. Alle drei Konsumenten
-# (Hintergrund-Autostart, Live-Vorschau-Popup, LLM-Tool ``vision_start_watch``)
-# fallen auf denselben Wert zurück statt je einen eigenen Literal zu pflegen.
-DEFAULT_MIN_EVENT_INTERVAL_SEC = 1.0
-
 
 @dataclass(frozen=True)
 class VisionProfile:
     """Fähigkeitsprofil einer Kamera-Quelle.
 
-    * ``trigger_mode``         Was löst die Detektions-Pipeline aus —
-      ``motion`` (AIfreds MOG2) oder ``edge_ai`` (Erkennungen der Kamera).
     * ``allow_local_detection`` Ob AIfreds eigene Roh-Erkennung (MOG2-Motion
       + YOLO-Person) überhaupt laufen darf. Bei ``edge_ai`` immer ``False`` —
       die Kamera macht das schon.
     """
 
     name: str
-    trigger_mode: str
     allow_local_detection: bool
     description: str
 
 
 WEBCAM = VisionProfile(
     name="webcam",
-    trigger_mode=TRIGGER_MOTION,
     allow_local_detection=True,
     description=(
         "Dumme Webcam: AIfred macht Motion (MOG2), Person (YOLO), "
@@ -62,7 +47,6 @@ WEBCAM = VisionProfile(
 
 AI_CAMERA = VisionProfile(
     name="ai_camera",
-    trigger_mode=TRIGGER_EDGE_AI,
     allow_local_detection=False,
     description=(
         "Intelligente Kamera: Person/Fahrzeug/Tier + Tracking erkennt die "

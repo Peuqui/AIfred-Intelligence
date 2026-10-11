@@ -8,10 +8,10 @@ Embeddings dieser Person zählt.
 
 Konservative Defaults:
 
-* ``threshold_known = 0.5`` — sicheres Match
-* ``threshold_unsure = 0.4`` — ambiguous Band; Caller entscheidet
-  (Türsteher-Default: Unsicherheit → Pfad „unbekannt", siehe alte
-  Diskussions-Session vom 2026-05-24)
+* ``threshold_known`` (``VISION_FACE_THRESHOLD_KNOWN``) — sicheres Match
+* ``threshold_unsure`` (``VISION_FACE_THRESHOLD_UNSURE``) — ambiguous Band;
+  Caller entscheidet (Türsteher-Default: Unsicherheit → Pfad „unbekannt",
+  siehe alte Diskussions-Session vom 2026-05-24)
 
 Cache: Embeddings werden im Speicher gehalten, ``reload()`` muss nach
 Enrollment-Operationen aufgerufen werden (oder ``invalidate()`` setzt
@@ -27,6 +27,7 @@ from typing import Literal
 
 import numpy as np
 
+from ..config import VISION_FACE_THRESHOLD_KNOWN, VISION_FACE_THRESHOLD_UNSURE
 from ..vision_store import VisionStore
 
 logger = logging.getLogger(__name__)
@@ -81,8 +82,8 @@ class FaceRecognizer:
         self,
         store: VisionStore,
         *,
-        threshold_known: float = 0.6,
-        threshold_unsure: float = 0.5,
+        threshold_known: float = VISION_FACE_THRESHOLD_KNOWN,
+        threshold_unsure: float = VISION_FACE_THRESHOLD_UNSURE,
     ) -> None:
         if threshold_unsure > threshold_known:
             raise ValueError(

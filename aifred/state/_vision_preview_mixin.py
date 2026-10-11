@@ -445,7 +445,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
         Wenn beide aus → Watcher wird gestoppt.
         Wenn mindestens einer an → Watcher mit kombinierter Config.
         """
-        from ..lib.vision_watcher import WatchConfig, get_default_watcher
+        from ..lib.config import VISION_MOTION_MIN_AREA_RATIO
+        from ..lib.vision_watch_types import WatchConfig
+        from ..lib.vision_watcher import get_default_watcher
         watcher = get_default_watcher()
 
         vlm_on = source_id in self.vision_preview_watching
@@ -472,16 +474,18 @@ class VisionPreviewMixin(rx.State, mixin=True):
             getattr(self, "face_recognition_continuous", False)
         )
         # Per-Cam Motion-Schwelle aus der Source-Liste lesen (vom
-        # _refresh_sources eingefüttert). Default 0.02 wenn nichts
+        # _refresh_sources eingefüttert). Default (config.py) wenn nichts
         # gesetzt — Outdoor-Cams können das hochschrauben, um Wind
         # in den Blättern zu ignorieren.
-        mma = 0.02
+        mma = VISION_MOTION_MIN_AREA_RATIO
         for e in self.vision_preview_sources:
             if e.get("id") == source_id:
                 try:
-                    mma = float(e.get("motion_min_area_ratio", 0.02) or 0.02)
+                    mma = float(
+                        e.get("motion_min_area_ratio") or VISION_MOTION_MIN_AREA_RATIO
+                    )
                 except (TypeError, ValueError):
-                    mma = 0.02
+                    mma = VISION_MOTION_MIN_AREA_RATIO
                 break
         # Personenerkennung läuft parallel zur Gesichtserkennung — wie
         # beim Auge (Hintergrund). Gekoppelt an den Face-Button (die
@@ -493,7 +497,6 @@ class VisionPreviewMixin(rx.State, mixin=True):
         cfg = WatchConfig(
             fps=stream_fps,
             motion_min_area_ratio=mma,
-            run_vlm_on_motion=False,
             run_vlm_continuous=vlm_on,
             vlm_cooldown_sec=cd,
             run_face_detect_on_motion=face_on,

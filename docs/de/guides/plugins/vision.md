@@ -14,8 +14,26 @@ Das Plugin selbst ist nur die dünne, LLM-zugewandte Klammer. Die eigentliche
 Arbeit liegt in den geteilten Bibliotheken unter `aifred/lib/` —
 `frame_sources` (Capture), `vision_filters/motion` (Bewegungserkennung),
 `vision_filters/face_detect` + `face_recognize` (InsightFace), `vision_analyzer`
-(der VLM-Call), `vision_watcher` (die Watch-Hintergrundaufgabe) und
-`vision_store` (die SQLite-Datenbank).
+(der VLM-Call), `vision_watcher` (Supervisor der Watch-Hintergrundaufgabe)
+und `vision_store` (die SQLite-Datenbank).
+
+Der Watcher selbst ist nur Lebenszyklus und Verdrahtung. Seine Bausteine
+(jeweils ein Modul, alle in `aifred/lib/`):
+
+| Modul | Aufgabe |
+|---|---|
+| `vision_watch_types` | `WatchConfig`, `WatchStatus`, `EdgeAiConfig` (Standardwerte aus `config.py`) |
+| `vision_frames` | frischestes Frame, Vorlauf-Ringpuffer, Takt-Iterator für die Zyklen |
+| `vision_output` | Ausgabekette: Schwärzen (DSGVO) → Overlay-Stempel → Speichern |
+| `vision_detect` | Gesichts-, Personen-, Kategorie-Detektor + ein Recognizer pro Prozess |
+| `vision_recorder` | Ereignisse schreiben (Gesicht, Person, Edge-Klasse, Motion), Cluster-IDs, Live-Bus |
+| `vision_faces` | Gesichtserkennung eines Frames inkl. Bündelung der Meldungen je Band |
+| `vision_motion` | Motion-Pfad (MOG2 → Gesicht/Person) |
+| `vision_edge_source` | Ereignisquelle der Kamera-Erkennung (Protokoll + Reolink-Abfrage) |
+| `vision_edge_ai` | Edge-AI-Pfad: Trigger-Zyklus und Reaktion (Snap, Bestätigung, Alerts, Vorlauf) |
+| `vision_burst` | Face-Hunt-Burst nach einem Personen-Trigger |
+| `vision_continuous_vlm` | Dauer-VLM des Live-Teleprompters |
+| `vision_settings` | Zugriff auf die `settings.json` des Plugins |
 
 Ein zentraler Designpunkt: **VLM-Calls laufen über Ollama als Side-Channel**,
 vollständig unabhängig vom aktiven Chat-Backend auf llama-swap. Eine
@@ -188,7 +206,7 @@ Der Haken „Maske aktiv" ist ein Gesamt-Schalter für die schnelle Gegenprobe:
 aus = die Maske bleibt gespeichert, wirkt aber nicht.
 
 Implementierung: `aifred/lib/vision_filters/zone_mask.py` (Modell + Anwendung),
-angewandt im `MotionDetector` (Bewegung) und im `vision_watcher` (Schwärzung
+angewandt im `MotionDetector` (Bewegung) und in `vision_output` (Schwärzung
 vor Speichern/VLM).
 
 ## PTZ-Steuerung (ONVIF)
@@ -254,7 +272,7 @@ verschlucken); ein sauberer Lauf ohne Treffer verwirft den Phantom-Trigger.
 **Dual-Lens-Snap:** Auf einen Trigger werden Weitwinkel + Zoom (sofern
 `face_channel` gesetzt) FRISCH und parallel über die Snap-API geholt — mit
 gemeinsamem Zeitstempel, kein RTSP-Pufferlag. Davor liegt eine **Settle-Zeit**
-(`edge_ai_settle_sec`, Default 1,0 s, in `vision_watcher` SSoT), die dem
+(`edge_ai_settle_sec`, Default 1,0 s, SSOT `VISION_EDGE_AI_SETTLE_SEC` in `config.py`), die dem
 PTZ-Kopf Zeit gibt, das Subjekt zu zentrieren, bevor das Bild gezogen wird.
 
 **Aggregierte Meldungen:** Alle Gesichter eines Vorkommnisses werden pro Band
@@ -457,7 +475,7 @@ Neustart anpassen kann. Wichtige Gruppen:
 - **`watch`** — `default_fps`, die Motion-Schwellwerte (`motion_min_area_ratio`,
   `motion_history_frames`, `motion_var_threshold`, `motion_warmup_frames`),
   `min_event_interval_sec`, `save_event_frames`, `run_face_detect_on_motion`,
-  `run_vlm_on_motion`.
+  `burst_interval_sec`, `burst_linger_sec`, `preroll_sec`.
 - **`snapshot`** — `jpeg_quality`, `save_to_disk`, `retention_days`.
 - **`events`** — Retention pro Typ (`retention_days_motion` / `_face` / `_vlm`)
   und `default_query_limit`.

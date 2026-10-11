@@ -21,9 +21,6 @@ Konsumenten:
   ``source.stream(...)``.
 * ``api.py`` :func:`vision_snapshot_endpoint` → ``hub.snapshot(...)``
   als One-Shot-Subscribe.
-
-Das schon vorhandene :mod:`frame_bus` bleibt als Primitive intern
-genutzt, aber Konsumenten gehen jetzt durch den Hub.
 """
 
 from __future__ import annotations

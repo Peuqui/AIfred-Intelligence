@@ -1,9 +1,8 @@
 """In-process pub/sub for VLM events from the watcher to SSE consumers.
 
-The frame_bus.py already handles raw frames, but VLM-analysis events
-are structured JSON dicts (description + metadata) — different shape,
-different consumer (the live-preview popup's teleprompter), so we
-keep them on a separate bus.
+VLM-analysis events are structured JSON dicts (description + metadata)
+for one consumer (the live-preview popup's teleprompter); raw frames go
+through ``frame_hub``.
 
 API:
     publish_vlm_event(source_id, event)   — called by the watcher
