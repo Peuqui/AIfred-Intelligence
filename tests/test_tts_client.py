@@ -2,8 +2,8 @@
 
 import asyncio
 import contextlib
+import getpass
 import json
-import os
 import struct
 import subprocess
 from collections.abc import AsyncIterator, Callable
@@ -493,18 +493,16 @@ def test_ensure_ready_times_out_when_health_stays_silent(monkeypatch: pytest.Mon
         make_client(FakeHealth(*[False] * 20)).ensure_ready(timeout_s=3)
 
 
-def test_systemctl_start_runs_the_user_unit_with_runtime_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_systemctl_start_runs_the_system_unit_of_the_current_user(monkeypatch: pytest.MonkeyPatch) -> None:
     seen: dict[str, Any] = {}
 
     def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
         seen["command"] = command
-        seen["environment"] = kwargs["env"]
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.setattr(tts_client.subprocess, "run", fake_run)
     assert REAL_SYSTEMCTL_START() == (0, "")
-    assert seen["command"] == ["systemctl", "--user", "start", tts_client.TTS_SUITE_SERVICE_UNIT]
-    assert seen["environment"]["XDG_RUNTIME_DIR"] == f"/run/user/{os.getuid()}"
+    assert seen["command"] == ["systemctl", "start", f"tts-suite@{getpass.getuser()}.service"]
 
 
 # ---- WebSocket stream (open_stream) against a local fake server on loopback ----------

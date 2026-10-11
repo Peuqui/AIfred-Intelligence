@@ -1233,9 +1233,10 @@ TTS_SUITE_STREAM_READ_TIMEOUT_S = 240
 TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices (read calls)
 # A release request (POST /release) waits while the service takes the containers down.
 TTS_SUITE_RELEASE_TIMEOUT_S = 120
-# On-demand start of the service (user unit): name of the unit, how long to wait for /health
+# On-demand start of the service (system unit template, ``{user}`` = the user AIfred runs as; Polkit lets
+# that user start it): name of the unit, how long to wait for /health
 # afterwards, how often to ask meanwhile, and the limit for the ``systemctl`` call itself.
-TTS_SUITE_SERVICE_UNIT = "tts-suite.service"
+TTS_SUITE_SERVICE_UNIT = "tts-suite@{user}.service"
 TTS_SUITE_START_TIMEOUT_S = 60
 TTS_SUITE_START_POLL_S = 1
 TTS_SUITE_SYSTEMCTL_TIMEOUT_S = 30

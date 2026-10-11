@@ -25,8 +25,8 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import getpass
 import json
-import os
 import struct
 import subprocess
 from collections.abc import AsyncIterator, Mapping, Sequence
@@ -473,24 +473,22 @@ class TextStream(_FrameStream):
 
 
 def _systemctl_start() -> tuple[int, str]:
-    """Start the user unit of the service; returns ``(exit code, stderr)``.
+    """Start the system unit of the service (``tts-suite@<user>.service``); returns ``(exit code, stderr)``.
 
-    ``XDG_RUNTIME_DIR`` is set because a process outside a login session (the AIfred
-    service) does not have it, and ``systemctl --user`` cannot find the user bus without it.
+    A system unit like AIfred's own and Agent-Orc's: Polkit lets this user start it without sudo.
     Tests replace this function: a real ``systemctl`` must never run there.
     """
-    environment = {**os.environ, "XDG_RUNTIME_DIR": f"/run/user/{os.getuid()}"}
+    unit = TTS_SUITE_SERVICE_UNIT.format(user=getpass.getuser())
     try:
         result = subprocess.run(
-            ["systemctl", "--user", "start", TTS_SUITE_SERVICE_UNIT],
-            env=environment,
+            ["systemctl", "start", unit],
             capture_output=True,
             text=True,
             timeout=TTS_SUITE_SYSTEMCTL_TIMEOUT_S,
         )
     except subprocess.TimeoutExpired as error:
         raise TTSSuiteStartFailed(
-            f"'systemctl --user start {TTS_SUITE_SERVICE_UNIT}' did not return within {TTS_SUITE_SYSTEMCTL_TIMEOUT_S}s",
+            f"'systemctl start {unit}' did not return within {TTS_SUITE_SYSTEMCTL_TIMEOUT_S}s",
         ) from error
     return result.returncode, result.stderr.strip()
 
@@ -548,7 +546,7 @@ class TTSClient:
         exit_code, stderr = _systemctl_start()
         if exit_code != 0:
             raise TTSSuiteStartFailed(
-                f"'systemctl --user start {TTS_SUITE_SERVICE_UNIT}' failed (exit {exit_code}): {stderr}",
+                f"'systemctl start {TTS_SUITE_SERVICE_UNIT.format(user=getpass.getuser())}' failed (exit {exit_code}): {stderr}",
             )
         deadline = monotonic() + timeout_s
         while not self._is_up():
