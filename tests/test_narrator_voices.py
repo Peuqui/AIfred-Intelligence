@@ -85,7 +85,7 @@ class TestChooseEngineAndVoice:
     def test_an_empty_list_is_refused(self, env, monkeypatch):
         import aifred.lib.tts_service as tts_service
 
-        monkeypatch.setattr(tts_service, "persisted_settings", lambda: {"tts_escalation": [], "tts_hosts": [], "tts_toggles_per_engine": {}})
+        monkeypatch.setattr(tts_service, "persisted_settings", lambda: {"tts_escalation": [], "tts_toggles_per_engine": {}})
         with pytest.raises(ValueError, match="no active TTS entry"):
             choose()
 

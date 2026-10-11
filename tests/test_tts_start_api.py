@@ -51,7 +51,6 @@ def service(monkeypatch: pytest.MonkeyPatch):
             {"engine": "qwen3local", "host": "Box", "enabled": True},
             {"engine": "edge", "host": None, "enabled": True},
         ],
-        "tts_hosts": [{"name": "Box", "enabled": True}],
         "tts_toggles_per_engine": {},
     })
     tts_service.reset_cache()
@@ -91,14 +90,6 @@ def test_the_list_comes_in_aifreds_order_with_status_and_only_reads(service) -> 
     assert rows[0]["status"] == "sleeping" and rows[0]["status_text"] == "schläft — startet bei Bedarf"
     assert rows[2]["status"] == "no_access"
     assert set(service) == {("GET", "/engines")}
-
-
-def test_a_switched_off_host_shows_as_host_off(service, monkeypatch: pytest.MonkeyPatch) -> None:
-    settings = tts_service.persisted_settings()
-    settings["tts_hosts"] = [{"name": "Box", "enabled": False}]
-    monkeypatch.setattr(tts_service, "persisted_settings", lambda: settings)
-    rows = TestClient(api_app).get("/tts/entries", params={"lang": "de"}, headers=AUTH).json()
-    assert rows[1]["status"] == "host_off" and rows[1]["status_text"] == "Rechner aus"
 
 
 def test_there_is_no_start_or_stop_endpoint() -> None:
