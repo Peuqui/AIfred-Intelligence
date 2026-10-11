@@ -41,6 +41,27 @@ def _no_real_whisper_service(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_tts_service(monkeypatch):
+    """Tests dürfen den echten TTS-Suite-Dienst nie treffen (ein start-Aufruf
+    startete Container auf GPU 4). Der Default-Client zeigt auf eine tote
+    Adresse und hat kein Token: Schreibaufrufe scheitern schon an der
+    fehlenden Berechtigung, Lesen an TTSSuiteUnreachable; systemctl läuft nie.
+    Tests, die den Client brauchen, setzen einen eigenen mit MockTransport
+    (oder ersetzen get_tts_client)."""
+    import aifred.lib.tts_client as tts_client
+    import aifred.lib.tts_service as tts_service
+
+    def _no_systemctl() -> tuple[int, str]:
+        raise AssertionError("Test darf den TTS-Dienst nicht per systemctl starten")
+
+    monkeypatch.setattr(tts_client, "_default_client", tts_client.TTSClient("http://127.0.0.1:9", None))
+    monkeypatch.setattr(tts_client, "_systemctl_start", _no_systemctl)
+    tts_service.reset_cache()
+    yield
+    tts_service.reset_cache()
+
+
+@pytest.fixture(autouse=True)
 def _isolate_audit_db(tmp_path):
     """Tests dürfen nicht in die echte data/security/audit.db schreiben.
 

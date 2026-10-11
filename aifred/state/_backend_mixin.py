@@ -197,7 +197,7 @@ class BackendMixin(rx.State, mixin=True):
         # so the fallback rules stay identical to _effective_model_id.
         from ..lib.calibration import resolve_effective_suffix
         from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.tts_escalation import planned_tts_engine
+        from ..lib.tts_llm_coordination import planned_tts_engine
 
         # Automatik mirrors the AIfred agent's Speed toggle — it doesn't
         # have an independent UI control, so a separate
@@ -213,7 +213,7 @@ class BackendMixin(rx.State, mixin=True):
             # model's property here.
             has_speed_variant=True,
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
-            tts_engine=planned_tts_engine(self.automatik_model_id),  # type: ignore[attr-defined]
+            tts_engine=planned_tts_engine(self.automatik_model_id) if self.enable_tts else "",  # type: ignore[attr-defined]
         )
         return self.automatik_model_id + suffix  # type: ignore[attr-defined, no-any-return]
 

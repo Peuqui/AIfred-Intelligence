@@ -60,17 +60,27 @@ class TTSConfigMixin(rx.State, mixin=True):
     def tts_escalation_rows(self) -> List[Dict[str, Any]]:
         """One row per list entry, in order — what the menu shows."""
         from ..lib.i18n import t
+        from ..lib.tts_client import TTSSuiteUnreachable
         from ..lib.tts_engines import speech_unit_for
-        from ..lib.tts_escalation import escalation_entries, location_label, planned_tts_engine
+        from ..lib.tts_escalation import escalation_entries, location_label
+        from ..lib.tts_llm_coordination import planned_tts_engine
+        from ..lib.tts_service import unreachable_text
 
         lang = _lang(self)
-        reserved = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
+        # The row is still built from settings.json (list editor, step 3c); only the
+        # reserved engine comes from the service. Its absence is shown on every row.
+        service_note = ""
+        try:
+            reserved = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
+        except TTSSuiteUnreachable as unreachable:
+            reserved = ""
+            service_note = unreachable_text(unreachable, lang)
         rows: List[Dict[str, Any]] = []
         for index, entry in enumerate(escalation_entries()):
             engine = entry.engine
             installed = engine.is_remote or engine.is_installed()
-            note = t("tts_entry_engine_deactivated", lang=lang) if engine.deactivated else (
-                "" if installed else t("tts_entry_not_installed", lang=lang))
+            note = service_note or (t("tts_entry_engine_deactivated", lang=lang) if engine.deactivated else (
+                "" if installed else t("tts_entry_not_installed", lang=lang)))
             rows.append({
                 "index": index,
                 "engine": engine.key,
@@ -124,10 +134,9 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Speech unit of the topmost enabled entry — decides whether the
         browser streams sentence by sentence (the entry that really speaks is
         only known at the first sentence)."""
-        from ..lib.tts_engines import speech_unit_for
-        from ..lib.tts_escalation import first_enabled_entry
+        from ..lib.tts_service import first_enabled_entry
         entry = first_enabled_entry()
-        return speech_unit_for(entry.engine.key) if entry else "whole"
+        return entry.unit if entry else "whole"
 
     @rx.var(deps=["tts_list_revision"], auto_deps=False)
     def tts_streaming_enabled(self) -> bool:
@@ -159,8 +168,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         room for the planned engine (topmost enabled local GPU entry with a
         calibrated profile), or for none when the spoken output is off.
         Generator — each yield is one finished blocking step."""
-        from ..lib.tts_llm_coordination import ensure_tts_state
-        from ..lib.tts_escalation import escalation_entries, planned_tts_engine
+        from ..lib.tts_escalation import escalation_entries
+        from ..lib.tts_llm_coordination import ensure_tts_state, planned_tts_engine
 
         wanted = (
             planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
@@ -193,7 +202,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         import copy
 
         from ..lib.settings import persisted_settings
-        from ..lib.tts_escalation import escalation_entries, planned_tts_engine
+        from ..lib.tts_escalation import escalation_entries
+        from ..lib.tts_llm_coordination import planned_tts_engine
 
         model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
         before = planned_tts_engine(model_id)
@@ -208,7 +218,9 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.tts_list_revision += 1
         self.tts_entry_status = {}
         yield
-        if planned_tts_engine(model_id, settings) != before:
+        # The lists are still stored in settings.json until the editor writes to the
+        # service (step 3c), so the service's plan does not move with an edit here yet.
+        if planned_tts_engine(model_id) != before:
             yield from self._apply_planned_tts()
 
     def move_tts_entry(self, index: int, delta: int):
@@ -400,8 +412,12 @@ class TTSConfigMixin(rx.State, mixin=True):
     def tts_editor_engine_options(self) -> List[str]:
         """'Off' (agent muted) plus every usable engine."""
         from ..lib.i18n import tts_key_to_label
-        from ..lib.tts_escalation import usable_engine_keys
-        return [tts_key_to_label(key, lang=_lang(self)) for key in ["off", *usable_engine_keys()]]
+        from ..lib.tts_client import TTSSuiteUnreachable
+        from ..lib.tts_service import unreachable_text, usable_engine_keys
+        try:
+            return [tts_key_to_label(key, lang=_lang(self)) for key in ["off", *usable_engine_keys()]]
+        except TTSSuiteUnreachable as unreachable:
+            return [unreachable_text(unreachable, _lang(self))]
 
     @rx.var(deps=["ui_language", "editor_tts_engine", "tts_agents", "editor_agent_id"], auto_deps=False)
     def editor_tts_engine_label(self) -> str:
@@ -532,8 +548,12 @@ class TTSConfigMixin(rx.State, mixin=True):
     def narrator_engine_options(self) -> List[str]:
         """Engines whose narrator voice can be set (usable here or on a list host)."""
         from ..lib.i18n import tts_key_to_label
-        from ..lib.tts_escalation import usable_engine_keys
-        return [tts_key_to_label(key, lang=_lang(self)) for key in usable_engine_keys()]
+        from ..lib.tts_client import TTSSuiteUnreachable
+        from ..lib.tts_service import unreachable_text, usable_engine_keys
+        try:
+            return [tts_key_to_label(key, lang=_lang(self)) for key in usable_engine_keys()]
+        except TTSSuiteUnreachable as unreachable:
+            return [unreachable_text(unreachable, _lang(self))]
 
     @rx.var(deps=["ui_language", "narrator_voice_engine"], auto_deps=False)
     def narrator_engine_display(self) -> str:

@@ -154,6 +154,7 @@
   "tts_status_starting": "starting …",
   "tts_status_start_failed": "start failed",
   "tts_status_engine_deactivated": "engine deactivated",
+  "tts_service_unreachable": "TTS service unreachable: {reason}",
   "tts_host_test_ok": "✅ reachable · running: {running}",
   "tts_host_test_no_ssh": "no SSH · answering: {running}",
   "tts_host_test_button": "Test connection",

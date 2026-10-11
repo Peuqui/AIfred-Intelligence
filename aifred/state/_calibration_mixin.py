@@ -263,18 +263,18 @@ class CalibrationMixin(rx.State, mixin=True):
             return []
         from aifred.lib import sidechannel_vram_cache
         from aifred.lib.i18n import t as _t
-        from aifred.lib.tts_engines import installed_gpu_engines
+        from aifred.lib.tts_service import installed_gpu_engine_keys
         from aifred.lib.vision_routing import vlm_calibration_choices
 
         from aifred.lib.operating_points import is_vllm_calibrated
 
-        engines = list(installed_gpu_engines())
+        engines = installed_gpu_engine_keys()
         model_id = self.agent_tuning["aifred"].model_id or ""  # type: ignore[attr-defined]
         base_calibrated = bool(model_id) and is_vllm_calibrated(model_id)
 
         def _row(vlm_key: str, label: str) -> CalibrationRow:
             cells: list[CalibrationCell] = []
-            for tts_key in ["", *[e.key for e in engines]]:
+            for tts_key in ["", *engines]:
                 key = sidechannel_vram_cache.pair_key(vlm_key, tts_key)
                 # The "no VLM / no TTS" cell stands for the base operating
                 # point, not for a side-channel pair: it is green when the
@@ -312,7 +312,7 @@ class CalibrationMixin(rx.State, mixin=True):
         Kalibrierziele) zeigt der Popover deshalb nur, WAS sich diese eine
         Karte teilt und ob deren gemeinsamer Bedarf schon gemessen wurde.
 
-        Bewusst ohne ``_detect_running_tts_engine``: das ist ein
+        Bewusst ohne ``running_gpu_engine``: das ist ein
         HTTP-Health-Check mit Timeout und haette in einer rx.var die
         UI blockiert. Die installierten Engines und die Cache-Werte
         reichen fuer die Anzeige.
@@ -322,7 +322,12 @@ class CalibrationMixin(rx.State, mixin=True):
         from aifred.lib import tts_vram_cache, vlm_vram_cache
         from aifred.lib.formatting import format_number
         from aifred.lib.i18n import t as _t
-        from aifred.lib.tts_engines import installed_gpu_engines
+        from aifred.lib.tts_client import TTSSuiteUnreachable
+        from aifred.lib.tts_service import (
+            engine_label_short,
+            installed_gpu_engine_keys,
+            unreachable_text,
+        )
         from aifred.lib.vision_prewarm import get_active_vlm_model
 
         lines: list[str] = []
@@ -338,11 +343,17 @@ class CalibrationMixin(rx.State, mixin=True):
             lines.append(f"VLM: {vlm} — {measured}")
         else:
             lines.append(f"VLM: {_t('calibration_none_active')}")
-        for engine in installed_gpu_engines():
-            tts_peak = tts_vram_cache.get(engine.key)
+        try:
+            engine_keys = installed_gpu_engine_keys()
+            labels = {key: engine_label_short(key) for key in engine_keys}
+        except TTSSuiteUnreachable as unreachable:
+            lines.append(f"TTS: {unreachable_text(unreachable)}")
+            return lines
+        for engine_key in engine_keys:
+            tts_peak = tts_vram_cache.get(engine_key)
             measured = (f"{format_number(tts_peak)} MiB" if tts_peak
                         else _t("calibration_not_measured"))
-            lines.append(f"TTS: {engine.label_short} — {measured}")
+            lines.append(f"TTS: {labels[engine_key]} — {measured}")
         return lines
 
     @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "backend_id"])
@@ -374,10 +385,18 @@ class CalibrationMixin(rx.State, mixin=True):
         ("Kein TTS" / "No TTS" + each installed GPU TTS engine).
         Computed so the UI can render the header row with a single
         ``rx.foreach``."""
-        from aifred.lib.tts_engines import installed_gpu_engines
         from aifred.lib.i18n import t
-        return ["", t("calibration_matrix_no_tts"),
-                *[e.label_short for e in installed_gpu_engines()]]
+        from aifred.lib.tts_client import TTSSuiteUnreachable
+        from aifred.lib.tts_service import (
+            engine_label_short,
+            installed_gpu_engine_keys,
+            unreachable_text,
+        )
+        try:
+            engine_labels = [engine_label_short(key) for key in installed_gpu_engine_keys()]
+        except TTSSuiteUnreachable as unreachable:
+            engine_labels = [unreachable_text(unreachable)]
+        return ["", t("calibration_matrix_no_tts"), *engine_labels]
 
     @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "calibration_matrix", "ui_language"])
     def calibration_matrix_rows(self) -> list[CalibrationRow]:
@@ -409,7 +428,7 @@ class CalibrationMixin(rx.State, mixin=True):
         dict (changes on every cell click — also clears stale failure
         flags via :meth:`set_calibration_matrix_cell`, so cache state
         is re-read on each interaction)."""
-        from aifred.lib.tts_engines import installed_gpu_engines
+        from aifred.lib.tts_service import installed_gpu_engine_keys
         from aifred.lib.model_vram_cache import (
             is_calibration_failed,
             is_model_calibrated,
@@ -421,7 +440,7 @@ class CalibrationMixin(rx.State, mixin=True):
         vlm_choices = vlm_calibration_choices()
 
         model_id = self.agent_tuning["aifred"].model_id or ""
-        engines = list(installed_gpu_engines())
+        engines = installed_gpu_engine_keys()
         cache = load_cache() if model_id else {}
 
         def _combo_done(vlm_key: str, tts_key: str) -> bool:
@@ -445,13 +464,13 @@ class CalibrationMixin(rx.State, mixin=True):
             "calibration_failed": _failed(model_id) if model_id else False,
             "not_applicable": False,
         })
-        for e in engines:
-            done = bool(model_id) and is_tts_variant_calibrated(model_id, e.key)
+        for engine_key in engines:
+            done = bool(model_id) and is_tts_variant_calibrated(model_id, engine_key)
             no_vlm_cells.append({
-                "key": f"|{e.key}",
-                "checked": self.calibration_matrix.get(f"|{e.key}", False),
+                "key": f"|{engine_key}",
+                "checked": self.calibration_matrix.get(f"|{engine_key}", False),
                 "already_calibrated": done,
-                "calibration_failed": _failed(f"{model_id}-tts-{e.key}"),
+                "calibration_failed": _failed(f"{model_id}-tts-{engine_key}"),
                 "not_applicable": False,
             })
         from aifred.lib.i18n import t as _t
@@ -473,14 +492,14 @@ class CalibrationMixin(rx.State, mixin=True):
                 "calibration_failed": _failed(f"{model_id}-vlm-{vlm_key}"),
                 "not_applicable": False,
             })
-            for e in engines:
-                combo_key = f"{vlm_key}|{e.key}"
+            for engine_key in engines:
+                combo_key = f"{vlm_key}|{engine_key}"
                 cells.append({
                     "key": combo_key,
                     "checked": self.calibration_matrix.get(combo_key, False),
-                    "already_calibrated": _combo_done(vlm_key, e.key),
+                    "already_calibrated": _combo_done(vlm_key, engine_key),
                     "calibration_failed": _failed(
-                        f"{model_id}-tts-{e.key}-vlm-{vlm_key}"
+                        f"{model_id}-tts-{engine_key}-vlm-{vlm_key}"
                     ),
                     "not_applicable": False,
                 })
@@ -493,10 +512,10 @@ class CalibrationMixin(rx.State, mixin=True):
         open. The picker stays sticky within a session — close it,
         reopen it, the checkboxes are still where the user left them.
         Newly installed engines show up as fresh unchecked entries."""
-        from aifred.lib.tts_engines import installed_gpu_engines
+        from aifred.lib.tts_service import installed_gpu_engine_keys
         from aifred.lib.vision_routing import vlm_calibration_choices
         cur = dict(self.calibration_matrix)
-        engines = [e.key for e in installed_gpu_engines()]
+        engines = installed_gpu_engine_keys()
         vlm_keys = ["", *(c["key"] for c in vlm_calibration_choices())]
         tts_keys = ["", *engines]
         for v in vlm_keys:
@@ -848,7 +867,7 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib.calibration_gate import is_cancel_requested
         from ..lib.config import DATA_DIR
         from ..lib.formatting import format_number
-        from ..lib.tts_engine_manager import _detect_running_tts_engine
+        from ..lib.tts_service import running_gpu_engine
 
         assert _vllm_cal_target is not None
         checkpoint, entry_name = _vllm_cal_target
@@ -881,7 +900,7 @@ class CalibrationMixin(rx.State, mixin=True):
         # — wohl aber die Antwort, ob beide Dienste zusammen auf diese EINE
         # Karte passen. Der Lauf laeuft mit gestopptem llama-swap, also auf
         # sonst leerer Karte, und misst die gemeinsame Spitze unter Last.
-        _tts_engine = _detect_running_tts_engine()
+        _tts_engine = running_gpu_engine()
         if _tts_engine:
             from ..lib.sidechannel_burnin import burnin_sidechannel
             self._cal_debug(
@@ -1581,20 +1600,19 @@ class CalibrationMixin(rx.State, mixin=True):
             # ``resolve_tts_reserve`` and would otherwise leave caches
             # permanently empty.
             from ..lib import tts_vram_cache, vlm_vram_cache
-            from ..lib.tts_engines import installed_gpu_engines
+            from ..lib.tts_service import installed_gpu_engine_keys
 
             # Which engines / VLMs does the user's matrix selection reach?
-            _engine_list = list(installed_gpu_engines())
+            _engine_list = installed_gpu_engine_keys()
             _needed_tts: set[str] = set()
-            for _eng in _engine_list:
-                _ek = _eng.key
+            for _ek in _engine_list:
                 if self.calibration_matrix.get(f"|{_ek}", False):
                     _needed_tts.add(_ek)
                 for _vc in vlm_choices:
                     if self.calibration_matrix.get(f"{_vc['key']}|{_ek}", False):
                         _needed_tts.add(_ek)
             _needed_vlms: list[dict[str, str]] = []
-            _all_tts_slots = ["", *(_e.key for _e in _engine_list)]
+            _all_tts_slots = ["", *_engine_list]
             for _vc in vlm_choices:
                 if any(
                     self.calibration_matrix.get(f"{_vc['key']}|{_t}", False)
@@ -2039,7 +2057,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # SSOT keeps with Qwen3 first (recommended streaming engine).
             #
             # Two filters apply:
-            #  • ``installed_gpu_engines`` — engines without a rolled-out
+            #  • ``installed_gpu_engine_keys`` — engines without a rolled-out
             #    docker-compose.yml are skipped without the 600s timeout
             #    that ``ensure_ready`` would otherwise eat.
             #  • ``calibration_matrix`` — the per-click matrix picker;
@@ -2048,9 +2066,13 @@ class CalibrationMixin(rx.State, mixin=True):
             #    handled in Step 5c.
             if True:
                 from ..lib.calibration import add_llamaswap_tts_variant
-                from ..lib.tts_engines import installed_gpu_engines
+                from ..lib.tts_engines import require_engine
+                from ..lib.tts_service import installed_gpu_engine_keys
 
-                for tts_engine in installed_gpu_engines():
+                # The service decides which engines are installed; the container
+                # setup/teardown of the calibration still runs through the engine
+                # objects (moves to the service with the speech paths).
+                for tts_engine in map(require_engine, installed_gpu_engine_keys()):
                     tts_backend = tts_engine.key
                     tts_label = tts_engine.label_short
                     if not self.calibration_matrix.get(f"|{tts_backend}", False):
@@ -2640,15 +2662,18 @@ class CalibrationMixin(rx.State, mixin=True):
             # happen once outside the loops. Previously this lived inside
             # Step 5b, which crashed Step 5c with UnboundLocalError when
             # the user picked only combo cells (no VLM-only).
-            from ..lib.tts_engines import installed_gpu_engines
+            from ..lib.tts_service import (
+                engine_label_short,
+                installed_gpu_engine_keys,
+            )
             _any_vlm_only = any(
                 self.calibration_matrix.get(f"{c['key']}|", False)
                 for c in vlm_choices
             )
             _any_combo = any(
-                self.calibration_matrix.get(f"{c['key']}|{e.key}", False)
+                self.calibration_matrix.get(f"{c['key']}|{engine_key}", False)
                 for c in vlm_choices
-                for e in installed_gpu_engines()
+                for engine_key in installed_gpu_engine_keys()
             )
             _needs_vlm_setup = (
                 (_any_vlm_only or _any_combo)
@@ -2961,15 +2986,14 @@ class CalibrationMixin(rx.State, mixin=True):
             if _any_combo and calibrated_ctx and calibrated_ctx > 0:
                 from ..lib.process_utils import get_tts_gpu_uuid
 
-                for tts_engine_c in installed_gpu_engines():
-                    tts_backend_c = tts_engine_c.key
+                for tts_backend_c in installed_gpu_engine_keys():
                     # Skip engines that have no combo ticked at all
                     if not any(
                         self.calibration_matrix.get(f"{c['key']}|{tts_backend_c}", False)
                         for c in vlm_choices
                     ):
                         continue
-                    tts_label_c = tts_engine_c.label_short
+                    tts_label_c = engine_label_short(tts_backend_c)
                     from ..lib.tts_stress_burnin import resolve_tts_reserve
                     tts_reserve_c = await resolve_tts_reserve(
                         tts_backend_c, debug=self._cal_debug,  # type: ignore[attr-defined]

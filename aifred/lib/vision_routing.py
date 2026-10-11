@@ -148,7 +148,7 @@ def release_side_channels_for_describer(profile: str) -> bool:
     from .audio_processing import release_whisper_gpu, whisper_gpu_footprint
     from .calibration.llamaswap_io import parse_llamaswap_config
     from .config import LLAMASWAP_CONFIG_PATH
-    from .tts_engine_manager import local_tts_gpu_footprint, stop_engine
+    from .tts_service import local_gpu_footprint, stop_engine
 
     if profile in loaded_llamaswap_profiles():
         return False
@@ -162,9 +162,12 @@ def release_side_channels_for_describer(profile: str) -> bool:
         return bool(held) and (not pinned or bool(pinned & held))
 
     released = False
-    for engine_key, per_card in local_tts_gpu_footprint().items():
+    for engine_key, per_card in local_gpu_footprint().items():
         if on_target_card(set(per_card)):
-            stop_engine(engine_key)
+            stopped, reason = stop_engine(engine_key)
+            if not stopped:
+                logger.warning("TTS container %s not stopped for describer %s: %s", engine_key, profile, reason)
+                continue
             logger.info("TTS container %s stopped for describer %s", engine_key, profile)
             released = True
     if on_target_card(set(whisper_gpu_footprint())) and release_whisper_gpu():

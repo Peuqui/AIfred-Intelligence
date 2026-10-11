@@ -37,6 +37,8 @@ from aifred.lib.tts_client import (
 )
 
 TOKEN = "secret"
+# conftest replaces the module's function by a guard in every test; this test needs the real one.
+REAL_SYSTEMCTL_START = tts_client._systemctl_start
 
 
 # ---- Test helpers: encode frames like the service does ---------------------------
@@ -473,7 +475,7 @@ def test_systemctl_start_runs_the_user_unit_with_runtime_dir(monkeypatch: pytest
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
     monkeypatch.setattr(tts_client.subprocess, "run", fake_run)
-    assert tts_client._systemctl_start() == (0, "")
+    assert REAL_SYSTEMCTL_START() == (0, "")
     assert seen["command"] == ["systemctl", "--user", "start", tts_client.TTS_SUITE_SERVICE_UNIT]
     assert seen["environment"]["XDG_RUNTIME_DIR"] == f"/run/user/{os.getuid()}"
 

@@ -528,43 +528,6 @@ def location_label(entry: EscalationEntry, lang: str) -> str:
     return t("tts_location_cpu", lang=lang)
 
 
-def first_enabled_entry(settings: dict[str, Any] | None = None) -> EscalationEntry | None:
-    """Der oberste aktive Eintrag — seine Sprecheinheit bestimmt, ob der Browser
-    satzweise streamt (der tatsächlich sprechende Eintrag steht erst beim ersten
-    Satz fest)."""
-    return next((entry for entry in escalation_entries(settings) if entry.enabled), None)
-
-
-def usable_engine_keys(settings: dict[str, Any] | None = None) -> list[str]:
-    """Engines whose voices are worth configuring, in registry order: ready on
-    this machine (image built, or none needed) or in the list on another host.
-    Engine dropdowns offer only these — an engine nobody can run is noise."""
-    from .tts_engines import TTS_ENGINES
-
-    remote = {entry.engine.key for entry in escalation_entries(settings) if entry.host is not None}
-    return [key for key, engine in TTS_ENGINES.items() if key in remote or engine.is_installed()]
-
-
-def planned_tts_engine(model_id: str, settings: dict[str, Any] | None = None) -> str:
-    """Die lokale GPU-Engine, für die das LLM-Profil ``<model>-tts-<engine>``
-    Platz freihält: der oberste aktive lokale GPU-Eintrag, für den das Modell
-    ein kalibriertes TTS-Profil hat. ``""``, wenn keiner passt — dann lädt das
-    Basisprofil, und lokale GPU-Einträge sprechen nur, wenn Platz frei ist."""
-    from pathlib import Path
-
-    from .calibration import has_llamaswap_tts_variant
-    from .config import LLAMASWAP_CONFIG_PATH
-
-    for entry in escalation_entries(settings):
-        engine = entry.engine
-        if (
-            entry.enabled and entry.host is None and engine.needs_gpu
-            and has_llamaswap_tts_variant(Path(LLAMASWAP_CONFIG_PATH), model_id, engine.key)
-        ):
-            return engine.key
-    return ""
-
-
 # Starts asked for from outside (the service control page) run in the
 # background: model loads take up to a minute or more, longer than a web
 # request should wait. Keyed by entry label; read back by entry_status.
