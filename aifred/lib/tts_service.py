@@ -2,19 +2,29 @@
 
 SSOT for everything AIfred derives from the service's answers and from its own list:
 
-- The LIST (entries ``{engine, host, enabled}``, their order) and the unit the user chose per
-  engine live in AIfred's ``settings.json`` (``tts_escalation``, ``tts_toggles_per_engine``).
-  The service keeps no list; every request brings AIfred's active entries
-  (``request_engines``).
+- The LIST (entries ``{engine, host, enabled}``, their order), the unit the user chose per
+  engine and the switch per HOST (``tts_hosts``: ``{name, enabled}``) live in AIfred's
+  ``settings.json`` (``tts_escalation``, ``tts_toggles_per_engine``, ``tts_hosts``). The service
+  keeps no list; every request brings AIfred's active entries (``request_engines``). An entry
+  on a host AIfred switched off is not active.
 - The CATALOG (``GET /engines``) says what exists: label, status, ``installed``, ``vram_mib``,
-  ``start_hint``, the recommended unit (``unit_default``), per engine and machine.
-- The HOSTS belong to the service (``GET/POST /config``).
+  ``start_hint``, the recommended unit (``unit_default``), per engine and machine. It also
+  tells which hosts the service offers (rows with a ``host``).
+
+Nothing is added or removed in AIfred: list and hosts are always the MATCH of the stored
+order/switches with the catalog (``entries``, ``host_switches``). Rows the stored list does not
+know yet come at the end, switched off; stored rows the service no longer offers stay (shown
+as not offered, never active, never sent). The match is a pure view; every change by the user
+saves the complete matched list and host switches (``matched_list``, ``matched_hosts``).
+
+AIfred writes nothing into the service and starts or stops no container there: the service
+starts and unloads its engines itself when a request reaches it.
 
 An entry is the pair of both: ``ListEntry`` (what the user decided + the catalog row of
 ``(engine, host)``, ``None`` if the service does not offer it). The catalog is cached for
 ``TTS_SUITE_CACHE_TTL_S`` seconds, no longer (computed UI variables and planning calls ask
 often); the settings are never cached here. Callers that decide on the live state (running
-engine, footprint) bypass the cache; every writing call clears it.
+engine, footprint) bypass the cache.
 
 The service not being reachable is an error, not an empty catalog: ``TTSSuiteUnreachable``
 passes through. UI code that must keep rendering shows ``unreachable_text`` instead.
@@ -23,7 +33,7 @@ passes through. UI code that must keep rendering shows ``unreachable_text`` inst
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -33,19 +43,12 @@ from .i18n import TranslationManager, t
 from .settings import persisted_settings
 from .tts_client import (
     SPEECH_UNITS,
-    EngineControlFailed,
     EngineInfo,
-    EngineInUse,
     EngineRef,
     TraceStep,
     TTSSuiteError,
-    VoiceInfo,
     get_tts_client,
 )
-
-
-class TTSVramUnknown(RuntimeError):
-    """The service could not measure the VRAM of a running local GPU engine."""
 
 
 # ---- The catalog: GET /engines (cached) ---------------------------------------
@@ -55,7 +58,7 @@ _cached: tuple[float, tuple[EngineInfo, ...]] | None = None
 
 
 def reset_cache() -> None:
-    """Forget the cached catalog (called by every writing call; tests call it between cases)."""
+    """Forget the cached catalog (tests call it between cases)."""
     global _cached
     with _lock:
         _cached = None
@@ -186,18 +189,20 @@ def _local_gpu_rows(*, fresh: bool = False) -> list[EngineInfo]:
 class ListEntry:
     """One entry of AIfred's list. ``info`` is the catalog row of ``(engine, host)``; ``None``
     when the service does not offer that pair (engine removed, host removed) or when the
-    entry was built without the catalog (``stored_entries``)."""
+    entry was built without the catalog (``stored_entries``). ``host_enabled`` is AIfred's
+    switch of the entry's host (always true for this machine and cloud)."""
 
     engine: str
     host: str | None
     enabled: bool
     unit: str  # the user's choice, else the engine's ``unit_default``; "" without catalog and choice
     info: EngineInfo | None
+    host_enabled: bool
 
     @property
     def active(self) -> bool:
-        """Switched on and offered: the entries a request carries."""
-        return self.enabled and self.info is not None
+        """Switched on, host switched on and offered: the entries a request carries."""
+        return self.enabled and self.host_enabled and self.info is not None
 
 
 def stored_list() -> list[dict[str, Any]]:
@@ -205,15 +210,49 @@ def stored_list() -> list[dict[str, Any]]:
     return [dict(raw) for raw in persisted_settings()["tts_escalation"]]
 
 
-def check_stored_list(raw_list: list[dict[str, Any]]) -> None:
-    """Refuse a list the service would refuse anyway: an entry without its three fields, or the
-    same engine on the same machine twice. The catalog is not asked (the service validates each request).
+def stored_hosts() -> list[dict[str, Any]]:
+    """AIfred's host switches from settings.json: ``{"name", "enabled"}`` per host."""
+    return [dict(raw) for raw in persisted_settings()["tts_hosts"]]
+
+
+def matched_list(rows: Sequence[EngineInfo]) -> list[dict[str, Any]]:
+    """The stored list plus every catalog row it does not know yet, those at the end, switched off
+    (cost, cloud). Stored entries the catalog no longer has stay."""
+    stored = stored_list()
+    known = {(raw["engine"], raw["host"]) for raw in stored}
+    return stored + [
+        {"engine": info.engine, "host": info.host, "enabled": False}
+        for info in rows
+        if (info.engine, info.host) not in known
+    ]
+
+
+def matched_hosts(rows: Sequence[EngineInfo]) -> list[dict[str, Any]]:
+    """The stored host switches plus every host the catalog shows that is not stored yet, switched
+    off. Stored hosts the service no longer offers stay."""
+    stored = stored_hosts()
+    known = {host["name"] for host in stored}
+    offered = _unique([info.host for info in rows if info.host is not None])
+    return stored + [{"name": name, "enabled": False} for name in offered if name not in known]
+
+
+def check_stored_settings(settings: Mapping[str, Any]) -> None:
+    """Refuse a list or host switches that cannot be right: an entry or host without exactly its
+    fields, the same engine on the same machine or the same host twice. The catalog is not asked
+    (the service validates each request).
 
     Raises:
         ValueError: with the reason.
     """
+    host_names: set[str] = set()
+    for position, host in enumerate(settings["tts_hosts"]):
+        if set(host) != {"name", "enabled"}:
+            raise ValueError(f"tts_hosts[{position}] must have exactly name, enabled; got {sorted(host)}")
+        if host["name"] in host_names:
+            raise ValueError(f"host {host['name']!r} is already in the list of hosts")
+        host_names.add(host["name"])
     seen: set[tuple[str, str | None]] = set()
-    for position, raw in enumerate(raw_list):
+    for position, raw in enumerate(settings["tts_escalation"]):
         if set(raw) != {"engine", "host", "enabled"}:
             raise ValueError(f"tts_escalation[{position}] must have exactly engine, host, enabled; got {sorted(raw)}")
         pair = (raw["engine"], raw["host"])
@@ -230,17 +269,26 @@ def chosen_unit(engine_key: str) -> str | None:
     return str(chosen) if chosen is not None else None
 
 
+def _host_switched_on(host: str | None, hosts: Sequence[Mapping[str, Any]]) -> bool:
+    """This machine and cloud (no host) are always on; a host is on when its switch is."""
+    return host is None or any(h["name"] == host and h["enabled"] for h in hosts)
+
+
 def stored_entries() -> list[ListEntry]:
-    """AIfred's list without the catalog (``info`` None, unit only where the user chose one):
-    what the editor can still show while the service does not answer."""
+    """AIfred's stored list without the catalog (``info`` None, unit only where the user chose
+    one): what the editor can still show while the service does not answer."""
+    hosts = stored_hosts()
     return [
-        ListEntry(str(raw["engine"]), raw["host"], bool(raw["enabled"]), chosen_unit(str(raw["engine"])) or "", None)
+        ListEntry(
+            str(raw["engine"]), raw["host"], bool(raw["enabled"]), chosen_unit(str(raw["engine"])) or "", None,
+            _host_switched_on(raw["host"], hosts),
+        )
         for raw in stored_list()
     ]
 
 
 def entries(*, fresh: bool = False) -> tuple[ListEntry, ...]:
-    """AIfred's list in speaking order, each entry joined with its catalog row.
+    """AIfred's list in speaking order (matched with the catalog), each entry joined with its row.
 
     Raises:
         TTSSuiteUnreachable: the service does not answer.
@@ -248,11 +296,13 @@ def entries(*, fresh: bool = False) -> tuple[ListEntry, ...]:
     rows = catalog(fresh=fresh)
     by_pair = {(info.engine, info.host): info for info in rows}
     default_unit = {info.engine: info.unit_default for info in rows}
+    hosts = matched_hosts(rows)
     joined: list[ListEntry] = []
-    for stored in stored_entries():
-        info = by_pair.get((stored.engine, stored.host))
-        unit = stored.unit or (info.unit_default if info else default_unit.get(stored.engine, ""))
-        joined.append(ListEntry(stored.engine, stored.host, stored.enabled, unit, info))
+    for raw in matched_list(rows):
+        engine, host = str(raw["engine"]), raw["host"]
+        info = by_pair.get((engine, host))
+        unit = chosen_unit(engine) or (info.unit_default if info else default_unit.get(engine, ""))
+        joined.append(ListEntry(engine, host, bool(raw["enabled"]), unit, info, _host_switched_on(host, hosts)))
     return tuple(joined)
 
 
@@ -262,6 +312,8 @@ def status_key(entry: ListEntry) -> str:
         return "not_offered"
     if not entry.enabled:
         return "disabled"
+    if not entry.host_enabled:
+        return "host_off"
     return row_status_key(entry.info)
 
 
@@ -377,131 +429,24 @@ def running_gpu_engine() -> str:
     return next(iter(running_gpu_engine_keys()), "")
 
 
-def local_gpu_footprint() -> dict[str, dict[str, int]]:
-    """VRAM (MiB) of the running local GPU engines: ``{engine_key: {gpu_uuid: MiB}}``.
-
-    Raises:
-        TTSVramUnknown: the service could not measure an engine that runs.
-    """
-    footprint: dict[str, dict[str, int]] = {}
-    for info in _local_gpu_rows(fresh=True):
-        if info.status != "running":
-            continue
-        if info.vram_mib is None:
-            raise TTSVramUnknown(f"the VRAM of {info.engine} could not be measured by the TTS service")
-        if info.vram_mib:
-            footprint[info.engine] = dict(info.vram_mib)
-    return footprint
+# ---- Hosts: the catalog shows them, AIfred only switches them -------------------------
 
 
-# ---- Control calls (clear the cache) -----------------------------------------------
-
-
-def start_entry(engine: str, host: str | None = None) -> None:
-    """Start the container of an engine on a machine and wait until it serves (blocks; may take minutes)."""
-    try:
-        get_tts_client().start(engine, host)
-    finally:
-        reset_cache()
-
-
-def stop_entry(engine: str, host: str | None = None) -> None:
-    try:
-        get_tts_client().stop(engine, host)
-    finally:
-        reset_cache()
-
-
-def start_engine(engine_key: str) -> tuple[bool, str]:
-    """Start the local container of an engine and wait until it serves; ``(success, message)``.
-
-    The service reports a start that did not work (no card fits, container failed) as
-    ``EngineControlFailed``; the reason is the message.
-    """
-    try:
-        start_entry(engine_key)
-    except EngineControlFailed as failed:
-        return False, str(failed)
-    return True, ""
-
-
-def stop_engine(engine_key: str) -> tuple[bool, str]:
-    """Stop the local container of an engine; ``(success, message)``.
-
-    A reading that still runs on the engine refuses the stop (``EngineInUse``): reported as
-    not stopped, the VRAM stays occupied.
-    """
-    try:
-        stop_entry(engine_key)
-    except EngineInUse as busy:
-        return False, f"{engine_key} is in use and was not stopped: {busy}"
-    except EngineControlFailed as failed:
-        return False, str(failed)
-    return True, ""
-
-
-def reload_engines() -> dict[str, list[str]]:
-    """Make the service read its engine folders again; ``{"removed": [...], "added": [...]}``."""
-    try:
-        return get_tts_client().reload()
-    finally:
-        reset_cache()
-
-
-def sync_voices(engine_key: str) -> list[VoiceInfo]:
-    """Make the engine's voices ready (cloud engines enrol their cloned voices); returns its voices."""
-    return get_tts_client().sync_voices(engine_key)
-
-
-# ---- Hosts: owned by the service (GET/POST /config) ------------------------------
-
-
-def config() -> dict[str, Any]:
-    """The service's configuration as raw JSON (``hosts``, ``engines``, ``gpus``, ...), read live."""
-    return get_tts_client().config()
-
-
-def edit_config(change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
-    """Read the configuration, let ``change`` modify it in place, store it; returns the stored one.
-
-    The service validates (``ConfigInvalid``); nothing is stored then. Blocking: call in a thread.
-    """
-    raw = config()
-    change(raw)
-    return set_config(raw)
-
-
-def set_config(config_json: Mapping[str, Any]) -> dict[str, Any]:
-    """Store the service's configuration; returns the stored one."""
-    try:
-        return get_tts_client().set_config(config_json)
-    finally:
-        reset_cache()
-
-
-def host_rows() -> list[dict[str, str]]:
-    """The service's hosts as display strings: ``name``, ``address``, ``ssh_user``, ``ssh_port``, ``ssh`` (user and port)."""
-    rows: list[dict[str, str]] = []
-    for host in config()["hosts"]:
-        user = f"{host['ssh_user']} · " if host["ssh_user"] else ""
-        rows.append({
-            "name": host["name"], "address": host["address"], "ssh_user": host["ssh_user"],
-            "ssh_port": str(host["ssh_port"]), "ssh": f"{user}{host['ssh_port']}",
-        })
-    return rows
-
-
-def add_choices(lang: str | None = None) -> list[dict[str, str]]:
-    """Catalog rows not yet in AIfred's list, each as ``{"label": "Engine · place", "value": "engine|host"}``
-    (``host`` empty = this machine or cloud). Every engine of the catalog is offered, also one
-    that is in AIfred's list on no machine yet.
+def host_rows() -> list[dict[str, Any]]:
+    """Every host with its switch, as the editor shows them: ``name``, ``enabled``, ``offered``
+    (the service still shows it). Matched with the catalog.
 
     Raises:
         TTSSuiteUnreachable: the service does not answer.
     """
-    taken = {(raw["engine"], raw["host"]) for raw in stored_list()}
+    rows = catalog()
+    offered = {info.host for info in rows if info.host is not None}
     return [
-        {"label": row_label(info, lang), "value": f"{info.engine}|{info.host or ''}"}
-        for info in catalog()
-        if (info.engine, info.host) not in taken
+        {"name": host["name"], "enabled": bool(host["enabled"]), "offered": host["name"] in offered}
+        for host in matched_hosts(rows)
     ]
+
+
+def stored_host_rows() -> list[dict[str, Any]]:
+    """The stored host switches without the catalog (``offered`` unknown, taken as true)."""
+    return [{"name": host["name"], "enabled": bool(host["enabled"]), "offered": True} for host in stored_hosts()]

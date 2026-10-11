@@ -42,7 +42,7 @@ api_app = FastAPI(
 
 _COOKIE_EXEMPT_PATHS = (
     "/chat/inject", "/agent/trigger", "/audio/announce", "/audio/announce/rooms",
-    "/tts/entries", "/tts/start", "/tts/stop",
+    "/tts/entries",
 )
 
 

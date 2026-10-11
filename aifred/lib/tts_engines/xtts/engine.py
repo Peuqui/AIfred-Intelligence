@@ -68,18 +68,3 @@ class XTTSEngine(TTSEngine):
         return self._synthesize_via_http(
             "/tts", {"text": text, "speaker": voice, "language": language}, "ogg",
         )
-
-    def calibration_setup(self, debug: Any) -> bool:
-        # Do NOT load the container during calibration — same contract as
-        # qwen3local/fishspeech. The peak VRAM is the single source of
-        # truth from the stress burn-in cache (resolve_tts_reserve); the
-        # calibration plans the TTS GPU around that reserve while the
-        # container stays cold. Loading it here would double-count the
-        # idle footprint against the reserve and push LLM layers off the
-        # card. The burn-in itself starts/stops the container on a cache
-        # miss — calibration never needs the live service.
-        debug(
-            f"   🔊 {self.label_short}: reserving via stress burn-in cache "
-            f"(container not loaded)"
-        )
-        return True

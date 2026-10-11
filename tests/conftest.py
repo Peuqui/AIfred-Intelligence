@@ -44,8 +44,8 @@ def _no_real_whisper_service(monkeypatch):
 def _no_real_tts_service(monkeypatch):
     """Tests dürfen den echten TTS-Suite-Dienst nie treffen (ein start-Aufruf
     startete Container auf GPU 4). Der Default-Client zeigt auf eine tote
-    Adresse und hat kein Token: Schreibaufrufe scheitern schon an der
-    fehlenden Berechtigung, Lesen an TTSSuiteUnreachable; systemctl läuft nie.
+    Adresse: jeder Aufruf scheitert mit TTSSuiteUnreachable; systemctl läuft nie.
+    (Der Client hat keine Schreibaufrufe mehr: AIfred schreibt nichts in die Suite.)
     Tests, die den Client brauchen, setzen einen eigenen mit MockTransport
     (oder ersetzen get_tts_client)."""
     import aifred.lib.tts_client as tts_client
@@ -54,7 +54,7 @@ def _no_real_tts_service(monkeypatch):
     def _no_systemctl() -> tuple[int, str]:
         raise AssertionError("Test darf den TTS-Dienst nicht per systemctl starten")
 
-    monkeypatch.setattr(tts_client, "_default_client", tts_client.TTSClient("http://127.0.0.1:9", None))
+    monkeypatch.setattr(tts_client, "_default_client", tts_client.TTSClient("http://127.0.0.1:9"))
     monkeypatch.setattr(tts_client, "_systemctl_start", _no_systemctl)
     tts_service.reset_cache()
     yield

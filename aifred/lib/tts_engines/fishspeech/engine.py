@@ -67,20 +67,3 @@ class FishSpeechEngine(TTSEngine):
             {"text": text, "format": "wav", "reference_id": voice, "normalize": True, "streaming": False},
             "wav",
         )
-
-    def calibration_setup(self, debug: Any) -> bool:
-        # Same pattern as Qwen3: do NOT load the container during
-        # calibration. The reserve is the burn-in peak (resolve_tts_reserve
-        # in tts_stress_burnin.py), which already covers idle + growth;
-        # loading the container would count its idle footprint twice.
-        debug(
-            f"   🔊 {self.label_short}: container not loaded — "
-            f"calibration reserves the burn-in peak"
-        )
-        return True
-
-    def calibration_teardown(self, debug: Any) -> None:
-        # Container was not started in calibration_setup — nothing to
-        # stop. The pre-calibration cleanup (Step 0 in
-        # _calibrate_llamacpp) already cleared any leftovers.
-        pass

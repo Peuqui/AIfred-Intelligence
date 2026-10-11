@@ -1,38 +1,24 @@
-"""TTS/LLM coordination — keeps the language model and the local TTS engine
-within the VRAM budget.
+"""TTS/LLM coordination — keeps the language model's profile in line with the
+planned TTS engine, so the VRAM budget has room for it.
 
 Abstimmung zwischen Sprachmodell und Sprachausgabe: Wechselt der Browser die
 geplante TTS-Engine (die, für die das LLM-Profil VRAM reserviert), stellt
-``ensure_tts_state`` den VRAM-Stand her, startet die Engine und das
-llama-swap-Profil mit passender ``-tts-<engine>``-Variante neu. Kanäle
-wechseln sie nie — sie sprechen über die Liste von AIfred (``tts_service``).
+``ensure_tts_state`` das llama-swap-Profil mit passender ``-tts-<engine>``-Variante
+ein. Die TTS-Container fasst AIfred dabei nie an: der TTS-Dienst startet und entlädt
+seine Engines selbst (Leerlauf-Abschaltung, Kartenregeln). Kanäle wechseln das Profil
+nie — sie sprechen über die Liste von AIfred (``tts_service``).
 
 Central function: ensure_tts_state(wanted_tts, backend_type)
-- It checks what's running, and adjusts if needed.
-
-The engine lifecycle itself (start/stop/detect, refcount) stays in
-``tts_engine_manager``.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from typing import Generator
 
 from .logging_utils import log_message
-from .tts_engine_manager import (
-    TTS_HEALTH_CHECK_TIMEOUT,
-    get_tts_refcount,
-    is_tts_in_use,
-)
-from .tts_service import (
-    active_local_gpu_keys,
-    engine_label_short,
-    gpu_engine_keys,
-    running_gpu_engine,
-    start_engine,
-    stop_engine,
-)
+from .tts_engine_manager import TTS_HEALTH_CHECK_TIMEOUT
+from .tts_service import active_local_gpu_keys, engine_label_short, gpu_engine_keys
 
 
 def _label(engine_key: str) -> str:
@@ -68,9 +54,7 @@ class TTSState:
     """Result of ensure_tts_state check."""
 
     success: bool = True
-    changed: bool = False           # True if VRAM state was modified
-    messages: list[str] = field(default_factory=list)
-    moss_device: str = ""
+    changed: bool = False           # True if the LLM profile was switched
 
 
 def _is_llm_loaded(backend_type: str) -> bool:
@@ -124,139 +108,41 @@ def ensure_tts_state(
     wanted_tts: str,
     backend_type: str = "llamacpp",
 ) -> Generator[str, None, TTSState]:
-    """Ensure VRAM state matches TTS requirements. Yields status after each step.
+    """Bring the LLM profile in line with the planned TTS engine. Yields status after each step.
 
-    This is the SINGLE SOURCE OF TRUTH for TTS state management.
+    This is the SINGLE SOURCE OF TRUTH for the LLM side of the TTS plan. No TTS container is
+    started, stopped or loaded here.
 
     Args:
-        wanted_tts: Desired TTS engine key, or "" for none
+        wanted_tts: Planned TTS engine key (its ``-tts-<engine>`` profile reserves VRAM), or "" for none
         backend_type: Active LLM backend ("llamacpp", "ollama", etc.)
 
     Yields:
         Status messages after each blocking step.
-
-    Returns:
-        TTSState with success and changed flags.
     """
-    # Lightweight engines don't need VRAM management
-    if wanted_tts and wanted_tts not in gpu_engine_keys():
+    # Lightweight engines and "none" need no TTS profile: the base profile resolves by itself.
+    if not wanted_tts or wanted_tts not in gpu_engine_keys():
         return TTSState(success=True)
 
-    running = running_gpu_engine()
-
-    # Case 1: Already correct
-    if running == wanted_tts:
-        if running:
-            yield f"{_label(running)} already running"
+    # A model already on the matching variant has the slot reserved: no llama-swap restart,
+    # no needless LLM cold start.
+    if _llm_already_on_tts_variant(wanted_tts, backend_type):
+        yield f"LLM already on the {_label(wanted_tts)} profile"
         return TTSState(success=True)
 
-    # Case 3: Want TTS but wrong/none running → switch
-    if wanted_tts:
-        yield from _do_switch(wanted_tts, running, backend_type)
-        # Get final state
-        final_running = running_gpu_engine()
-        return TTSState(
-            success=final_running == wanted_tts,
-            changed=True,
-            messages=[],
-        )
-
-    # Case 4: Don't want TTS but one is running → stop it … unless an active
-    # pipeline still needs it (refcount > 0). Skipping the stop keeps FreeEcho.2
-    # responses safe from cross-channel teardown; the container's KEEP_ALIVE
-    # will eventually idle it out anyway.
-    if running:
-        if is_tts_in_use(running):
-            yield (
-                f"{_label(running)} in use by {get_tts_refcount(running)} active pipeline(s) "
-                f"— stop deferred"
-            )
-            return TTSState(success=True)
-        yield f"Stopping {_label(running)} (not needed)..."
-        success, msg = stop_engine(running)
-        yield msg
-        # Verify the container is actually gone — if the stop silently failed,
-        # the base LLM profile (full VRAM budget) would OOM when loaded. Poll
-        # the health endpoint until it stops answering, up to a short deadline.
-        import time
-        deadline = time.monotonic() + 10.0
-        while time.monotonic() < deadline:
-            if not running_gpu_engine():
-                break
-            time.sleep(0.5)
-        else:
-            yield f"⚠️ {_label(running)} still responds after stop — VRAM may not be free"
-            return TTSState(success=False, changed=True)
-        return TTSState(success=success, changed=True)
-
-    return TTSState(success=True)
+    yield from _switch_llm_profile(backend_type)
+    return TTSState(success=True, changed=True)
 
 
-def _do_switch(
-    new_engine: str,
-    old_engine: str,
-    backend_type: str,
-) -> Generator[str, None, None]:
-    """Execute the actual TTS engine switch. Yields status after each step.
+def _switch_llm_profile(backend_type: str) -> Generator[str, None, None]:
+    """Unload the LLM if one is loaded, restart the LLM backend so it picks up the TTS-calibrated profile."""
+    from .process_utils import unload_llm_models
 
-    Steps (all blocking, sequential):
-    1. Stop old TTS container (if different one running)
-    2. Free VRAM (stop LLM, stop other TTS containers)
-    3. Start new TTS container + wait for model load
-    4. Restart LLM backend with TTS-calibrated profile
-    """
-    from .process_utils import unload_all_gpu_models
-
-    # If the LLM is ALREADY loaded on the matching ``-tts-<new_engine>``
-    # variant, its VRAM budget already reserves the slot for this TTS engine.
-    # Then we can start the container next to the warm LLM and skip both the
-    # VRAM-free (Step 2) and the llama-swap restart (Step 4) — avoiding a
-    # needless LLM cold start. Only relevant when no *other* GPU TTS is running.
-    llm_already_matching = (
-        not (old_engine and old_engine in gpu_engine_keys())
-        and _llm_already_on_tts_variant(new_engine, backend_type)
-    )
-
-    # Step 1: Stop old engine
-    if old_engine and old_engine in gpu_engine_keys():
-        success, msg = stop_engine(old_engine)
-        yield f"{_label(old_engine)} stopped" if success else f"{_label(old_engine)} stop failed: {msg}"
-
-    # Step 2: Free VRAM — only if the LLM isn't already on the matching variant.
-    # LLM must be stopped to make room for the new TTS engine ONLY when the
-    # current profile doesn't already reserve the slot.
-    if not llm_already_matching and (old_engine or _is_llm_loaded(backend_type)):
-        actions = unload_all_gpu_models(backend_type, keep_tts=new_engine)
+    if _is_llm_loaded(backend_type):
+        actions = unload_llm_models(backend_type)
         if actions:
-            yield f"VRAM freed: {', '.join(actions)}"
-
-    # Step 3: Start new engine + wait for model load
-    started_ok = True
-    if new_engine in gpu_engine_keys():
-        # Yield a per-engine "loading…" line so the UI shows progress
-        # before the (possibly minute-long) container start blocks.
-        yield f"{_label(new_engine)}: Loading model..."
-        started_ok, ready_msg = start_engine(new_engine)
-        if ready_msg:
-            yield ready_msg
-
-    # Safety net: if we kept the LLM warm but the TTS container failed to come
-    # up (e.g. the reserved slot didn't actually fit), fall back to the full
-    # dance — free VRAM and retry once, then restart the LLM below.
-    if llm_already_matching and not started_ok and new_engine in gpu_engine_keys():
-        yield "TTS start failed next to warm LLM — freeing VRAM and retrying..."
-        unload_all_gpu_models(backend_type, keep_tts=new_engine)
-        started_ok, ready_msg = start_engine(new_engine)
-        if ready_msg:
-            yield ready_msg
-        llm_already_matching = False  # LLM was stopped → must restart below
-
-    # Step 4: Restart the LLM orchestrator (llama-swap) so it picks up the
-    # new VRAM/TTS profile — but ONLY if we actually changed the LLM's VRAM
-    # situation. If the LLM stayed warm on the matching variant, restarting
-    # would just cold-start it for nothing.
-    if not llm_already_matching:
-        restart_llm_backend(backend_type)
+            yield f"LLM unloaded: {', '.join(actions)}"
+    restart_llm_backend(backend_type)
     model_info = get_effective_model_info(backend_type)
     if model_info:
         yield f"LLM profile ready: {model_info}"

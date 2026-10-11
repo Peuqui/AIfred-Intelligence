@@ -15,14 +15,6 @@ UUIDS = ["GPU-aaaa-0", "GPU-bbbb-1", "GPU-cccc-2", "GPU-dddd-3", "GPU-eeee-4"]
 PCI = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
 
 
-@pytest.fixture(autouse=True)
-def _no_tts_containers(monkeypatch):
-    """No TTS container runs: the footprint the service would report is empty."""
-    import aifred.lib.tts_service as tts_service
-
-    monkeypatch.setattr(tts_service, "local_gpu_footprint", lambda: {})
-
-
 def test_entry_gpu_uuids_resolves_uuids_and_pci_indices() -> None:
     assert entry_gpu_uuids({"CUDA_VISIBLE_DEVICES": "GPU-eeee"}, UUIDS) == {"GPU-eeee-4"}
     assert entry_gpu_uuids({**PCI, "CUDA_VISIBLE_DEVICES": "0,2,1,3"}, UUIDS) == set(UUIDS[:4])

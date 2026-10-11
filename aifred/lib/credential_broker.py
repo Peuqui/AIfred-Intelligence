@@ -103,7 +103,7 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("webhook", "api_token"): "WEBHOOK_API_TOKEN",
     # Announce API (spoken announcements to FreeEcho.2 without an LLM)
     ("announce", "api_token"): "ANNOUNCE_API_TOKEN",
-    # TTS start API (service control page starts TTS containers on AIfred's card)
+    # TTS list API (service control page reads AIfred's TTS list)
     ("tts_control", "api_token"): "TTS_CONTROL_API_TOKEN",
     # Web session secret (signs username/auto-login cookies). Optional —
     # falls back to a persisted random secret if unset (see lib/auth.py).

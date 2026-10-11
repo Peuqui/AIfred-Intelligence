@@ -123,10 +123,14 @@ DEFAULT_SETTINGS = {
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
-    # Die Rechner gehören dem TTS-Dienst (GET/POST /config); "tts_hosts" liest nur noch der
-    # alte Sprechpfad (aifred/lib/tts_escalation.py) und entfällt mit ihm (Schritt 4/5).
+    # AIfreds Schalter je Rechner des TTS-Dienstes: [{"name", "enabled"}]. Leer = noch keiner
+    # bekannt; angebotene Rechner kommen beim Abgleich mit dem Katalog ausgeschaltet dazu.
+    # (Der alte Sprechpfad aifred/lib/tts_escalation.py liest das Feld im ALTEN Format und
+    # entfällt mit Schritt 4b/5.)
     "tts_hosts": [],
-    # Liste der Sprachausgabe (Reihenfolge, an/aus, Rechner je Eintrag), von AIfred geführt.
+    # Startliste der Sprachausgabe (Reihenfolge, an/aus, Rechner je Eintrag), von AIfred geführt:
+    # bestimmt nur Reihenfolge und Anfangs-"an" der genannten Zeilen; jede weitere Katalogzeile
+    # des Dienstes kommt beim Abgleich ausgeschaltet dahinter.
     "tts_escalation": DEFAULT_TTS_ESCALATION,
     "show_transcription": False,
     "enable_gpu": True,
@@ -1219,22 +1223,14 @@ STT_SUITE_DIR = os.environ.get(
 STT_SUITE_COMPOSE_PATH = os.path.join(STT_SUITE_DIR, "docker-compose.yml")
 
 # TTS-Suite service (own repo, runs as a system service on this machine).
-# Token for commands that change something (config, start/stop, reload, voice sync):
-# TTS_SUITE_TOKEN wins, otherwise the first line of TTS_SUITE_TOKEN_FILE. Speaking
-# and the read-only endpoints need no token while the service listens on localhost.
+# AIfred only reads and speaks, so it needs no token: speaking and the read-only endpoints
+# ask for none while the service listens on localhost.
 TTS_SUITE_URL = os.environ.get("TTS_SUITE_URL", "http://127.0.0.1:5090")
-TTS_SUITE_TOKEN = os.environ.get("TTS_SUITE_TOKEN", "")
-TTS_SUITE_TOKEN_FILE = os.path.expanduser(
-    os.environ.get("TTS_SUITE_TOKEN_FILE", "~/.config/tts-suite/token"),
-)
 TTS_SUITE_CONNECT_TIMEOUT_S = 5       # service not reachable -> fail fast
 # Longest silence tolerated on a reading: a cold start of an engine container takes up
 # to 240 s before the first frame; afterwards keep-alive markers arrive every few seconds.
 TTS_SUITE_STREAM_READ_TIMEOUT_S = 240
-TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices, stop, reload, voice sync
-# ``POST /engines/{engine}/start`` answers when the engine serves: the slowest cold start
-# (model load) takes 240 s, plus margin.
-TTS_SUITE_ENGINE_START_TIMEOUT_S = 300
+TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices (read calls)
 # On-demand start of the service (user unit): name of the unit, how long to wait for /health
 # afterwards, how often to ask meanwhile, and the limit for the ``systemctl`` call itself.
 TTS_SUITE_SERVICE_UNIT = "tts-suite.service"
@@ -1244,8 +1240,8 @@ TTS_SUITE_SYSTEMCTL_TIMEOUT_S = 30
 # How long the adapter (tts_service.py) reuses the service's answer for ``GET /engines``.
 # Computed UI variables and planning calls ask many times within one render or one model
 # resolution; 2 s collapses such bursts into one request, yet a change made by hand
-# (container stopped, entry switched) shows within the next refresh. Status-critical
-# callers (running engine, VRAM footprint) bypass the cache; writing calls clear it.
+# (container stopped by the service's idle shutdown) shows within the next refresh. Status-critical
+# callers (running engine, VRAM footprint) bypass the cache.
 TTS_SUITE_CACHE_TTL_S = 2.0
 # File ending of the audio the service delivers, by media type (the audio of a spoken
 # reply is kept as files: bubble replay, narrator). An unknown type is an error.

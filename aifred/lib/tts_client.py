@@ -1,12 +1,17 @@
 """Thin HTTP client for the TTS-Suite service (own repo, default port 5090).
 
-SSOT for every access to the speech service: URL, token, timeouts, the decoding of the
+SSOT for every access to the speech service: URL, timeouts, the decoding of the
 frame stream, the mapping of the service's error codes to exceptions and the start of the
 service on demand. The client knows only the HTTP interface of the service
 (``docs/INTERFACE.md`` in the TTS-Suite repo); what AIfred builds on top of it (voices of
 agents, LLM tuning) lives with the callers.
 
-Management calls (``engines``, ``config``, ``start``, ...) and ``ensure_ready`` are
+AIfred only reads and speaks: the client has no call that writes to the service (no
+configuration, no start or stop of an engine, no voice sync, no token). Hosts, defaults and
+the life of the engine containers are set in the service's own web interface; the service
+starts and stops the containers itself when a request reaches it.
+
+Read calls (``engines``, ``voices``) and ``ensure_ready`` are
 synchronous (short calls, usable from threads and plain code; async callers wrap them in
 ``asyncio.to_thread``). Only ``speak`` and ``open_stream`` are async. A fresh ``httpx``
 client is used per request (cheap on localhost), so the client holds no connection that is
@@ -23,7 +28,6 @@ import struct
 import subprocess
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
-from pathlib import Path
 from time import monotonic, sleep
 from typing import Any
 
@@ -34,14 +38,11 @@ from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidSta
 from .config import (
     TTS_SUITE_CONNECT_TIMEOUT_S,
     TTS_SUITE_CONTROL_TIMEOUT_S,
-    TTS_SUITE_ENGINE_START_TIMEOUT_S,
     TTS_SUITE_SERVICE_UNIT,
     TTS_SUITE_START_POLL_S,
     TTS_SUITE_START_TIMEOUT_S,
     TTS_SUITE_STREAM_READ_TIMEOUT_S,
     TTS_SUITE_SYSTEMCTL_TIMEOUT_S,
-    TTS_SUITE_TOKEN,
-    TTS_SUITE_TOKEN_FILE,
     TTS_SUITE_URL,
 )
 
@@ -112,21 +113,6 @@ class InvalidRequest(TTSSuiteError):
     status = 422
 
 
-class EngineInUse(TTSSuiteError):
-    code = "engine_in_use"
-    status = 409
-
-
-class EngineControlFailed(TTSSuiteError):
-    code = "engine_control_failed"
-    status = 502
-
-
-class ConfigInvalid(TTSSuiteError):
-    code = "config_invalid"
-    status = 400
-
-
 class UnsupportedLanguage(TTSSuiteError):
     code = "unsupported_language"
     status = 422
@@ -138,6 +124,8 @@ class TextTooLong(TTSSuiteError):
 
 
 class Unauthorized(TTSSuiteError):
+    """The service demands a token (it listens beyond localhost); AIfred sends none."""
+
     code = "unauthorized"
     status = 401
 
@@ -163,7 +151,9 @@ class TTSSuiteStartFailed(TTSSuiteError):
     """The service was not running and could not be started (``systemctl`` failed, or ``/health`` stayed silent)."""
 
 
-# The one table: error code of the service -> exception class.
+# The one table: error code of the service -> exception class. Only codes a reading or a
+# read call can bring; the service's codes for writing calls (``engine_in_use``,
+# ``engine_control_failed``, ``config_invalid``) never reach AIfred, which does not write.
 ERROR_CLASSES: dict[str, type[TTSSuiteError]] = {
     cls.code: cls
     for cls in (
@@ -173,9 +163,6 @@ ERROR_CLASSES: dict[str, type[TTSSuiteError]] = {
         UnknownEngine,
         UnknownHost,
         InvalidRequest,
-        EngineInUse,
-        EngineControlFailed,
-        ConfigInvalid,
         UnsupportedLanguage,
         TextTooLong,
         Unauthorized,
@@ -484,12 +471,10 @@ class TTSClient:
     def __init__(
         self,
         base_url: str,
-        token: str | None,
         # Test seam: httpx.MockTransport serves both the sync and the async client.
         transport: httpx.MockTransport | None = None,
     ) -> None:
         self.base_url = base_url.rstrip("/")
-        self._token = token or None
         self._transport = transport
 
     def _timeout(self, read_timeout: float) -> httpx.Timeout:
@@ -501,36 +486,16 @@ class TTSClient:
     def _async_http(self, read_timeout: float) -> httpx.AsyncClient:
         return httpx.AsyncClient(base_url=self.base_url, timeout=self._timeout(read_timeout), transport=self._transport)
 
-    def _auth_headers(self, needs_token: bool) -> dict[str, str]:
-        if not needs_token:
-            return {}
-        if self._token is None:
-            raise Unauthorized(
-                "no TTS_SUITE_TOKEN set and no token file found; "
-                "this command needs the token of the TTS service",
-            )
-        return {"Authorization": f"Bearer {self._token}"}
-
-    def _call(
-        self,
-        method: str,
-        path: str,
-        *,
-        needs_token: bool = False,
-        params: Mapping[str, str] | None = None,
-        json_body: Any = None,
-        read_timeout: float = TTS_SUITE_CONTROL_TIMEOUT_S,
-    ) -> Any:
-        """Control request: JSON answer (``None`` for 204); errors as TTSSuiteError."""
-        headers = self._auth_headers(needs_token)
+    def _get(self, path: str, params: Mapping[str, str] | None = None) -> Any:
+        """Read request: JSON answer; errors as TTSSuiteError."""
         try:
-            with self._sync_http(read_timeout) as http:
-                response = http.request(method, path, params=params, json=json_body, headers=headers)
+            with self._sync_http(TTS_SUITE_CONTROL_TIMEOUT_S) as http:
+                response = http.get(path, params=params)
         except httpx.TransportError as error:
             raise TTSSuiteUnreachable(f"TTS service not reachable on {path}: {error!r}") from error
         if response.is_error:
             raise _error_from_response(response)
-        return None if response.status_code == 204 else response.json()
+        return response.json()
 
     # ---- service on demand ----
 
@@ -568,41 +533,11 @@ class TTSClient:
     # ---- read ----
 
     def engines(self) -> list[EngineInfo]:
-        return [EngineInfo(**item) for item in self._call("GET", "/engines")]
+        return [EngineInfo(**item) for item in self._get("/engines")]
 
     def voices(self, engine: str | None = None) -> list[VoiceInfo]:
         params = {"engine": engine} if engine else None
-        return [VoiceInfo(**item) for item in self._call("GET", "/voices", params=params)]
-
-    def config(self) -> dict[str, Any]:
-        config: dict[str, Any] = self._call("GET", "/config")
-        return config
-
-    # ---- change (token) ----
-
-    def set_config(self, config_json: Mapping[str, Any]) -> dict[str, Any]:
-        """Validate and store the configuration; returns the stored one."""
-        stored: dict[str, Any] = self._call("POST", "/config", needs_token=True, json_body=config_json)
-        return stored
-
-    def start(self, engine: str, host: str | None = None) -> None:
-        """Start the entry's container; the service answers when it serves (a cold start takes minutes)."""
-        self._call(
-            "POST", f"/engines/{engine}/start", needs_token=True, params=_host_params(host),
-            read_timeout=TTS_SUITE_ENGINE_START_TIMEOUT_S,
-        )
-
-    def stop(self, engine: str, host: str | None = None) -> None:
-        self._call("POST", f"/engines/{engine}/stop", needs_token=True, params=_host_params(host))
-
-    def reload(self) -> dict[str, list[str]]:
-        """Read the engine folders again; returns ``{"removed": [...], "added": [...]}``."""
-        result: dict[str, list[str]] = self._call("POST", "/engines/reload", needs_token=True)
-        return result
-
-    def sync_voices(self, engine: str) -> list[VoiceInfo]:
-        items = self._call("POST", "/voices/sync", needs_token=True, params={"engine": engine})
-        return [VoiceInfo(**item) for item in items]
+        return [VoiceInfo(**item) for item in self._get("/voices", params)]
 
     # ---- speak ----
 
@@ -664,18 +599,15 @@ class TTSClient:
         which is raised while iterating or by the next ``feed``.
         """
         head = {"type": "start", **_speak_head(language, voice, speed, pitch, engines, voices, run, wait)}
-        # Speaking needs the token only when the service listens beyond loopback; send it if there is one.
-        headers = {"Authorization": f"Bearer {self._token}"} if self._token else {}
         try:
             connection = await connect(
                 _stream_url(self.base_url),
-                additional_headers=headers,
                 open_timeout=TTS_SUITE_CONNECT_TIMEOUT_S,
                 max_size=None,  # a frame carries a whole audio segment, which can be large
             )
         except InvalidStatus as error:
             if error.response.status_code == 403:
-                raise Unauthorized("TTS service refused the stream: a valid token is needed", 403) from error
+                raise Unauthorized("TTS service refused the stream: it demands a token", 403) from error
             raise TTSSuiteUnreachable(f"TTS service refused the stream: {error!r}") from error
         except (OSError, TimeoutError, InvalidHandshake) as error:
             raise TTSSuiteUnreachable(f"TTS service not reachable on /speak/stream: {error!r}") from error
@@ -716,30 +648,15 @@ def _stream_url(base_url: str) -> str:
     return base_url.replace("http", "ws", 1) + "/speak/stream"
 
 
-def _host_params(host: str | None) -> dict[str, str] | None:
-    return {"host": host} if host else None
-
-
 # ---- Factory -----------------------------------------------------------------
-
-
-def _read_token() -> str | None:
-    """TTS_SUITE_TOKEN, else the first line of TTS_SUITE_TOKEN_FILE; ``None`` if neither exists."""
-    if TTS_SUITE_TOKEN:
-        return TTS_SUITE_TOKEN
-    token_file = Path(TTS_SUITE_TOKEN_FILE)
-    if not token_file.is_file():
-        return None
-    lines = token_file.read_text(encoding="utf-8").splitlines()
-    return lines[0].strip() if lines and lines[0].strip() else None
 
 
 _default_client: TTSClient | None = None
 
 
 def get_tts_client() -> TTSClient:
-    """The one client of the process (URL and token from config.py / .env)."""
+    """The one client of the process (URL from config.py / .env)."""
     global _default_client
     if _default_client is None:
-        _default_client = TTSClient(TTS_SUITE_URL, _read_token())
+        _default_client = TTSClient(TTS_SUITE_URL)
     return _default_client

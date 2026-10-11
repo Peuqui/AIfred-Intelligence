@@ -1,11 +1,12 @@
-"""Listen-Editor der Sprachausgabe: Die Liste (Reihenfolge, an/aus, Rechner je Eintrag) und die Einheit je Engine
-schreiben in AIfreds Einstellungen; Zeilen, Status und Auswahl kommen aus dem Katalog des Dienstes, die Rechner
-gehören dem Dienst (Schreiben per set_config). Der Dienst ist ein httpx.MockTransport (conftest sperrt den echten)."""
+"""Listen-Editor der Sprachausgabe: Liste und Rechner-Schalter sind immer der Abgleich aus AIfreds gespeicherter
+Reihenfolge/Schaltern (settings.json) und dem Katalog des Dienstes. Nichts wird hinzugefügt oder entfernt, nur
+geschaltet und verschoben; jede Änderung speichert die vollständige abgeglichene Liste. In den Dienst wird
+nichts geschrieben (der Fake-Dienst beantwortet nur GET /engines). Der Dienst ist ein httpx.MockTransport
+(conftest sperrt den echten)."""
 
 from __future__ import annotations
 
 import asyncio
-import json
 from collections.abc import Callable
 from types import MethodType, SimpleNamespace
 from typing import Any
@@ -24,6 +25,10 @@ def stored(engine: str, host: str | None = None, enabled: bool = True) -> dict[s
     return {"engine": engine, "host": host, "enabled": enabled}
 
 
+def switch(name: str, enabled: bool = True) -> dict[str, Any]:
+    return {"name": name, "enabled": enabled}
+
+
 def catalog_row(engine: str, host: str | None = None, **fields: Any) -> dict[str, Any]:
     base = {
         "engine": engine, "host": host, "label": {"de": f"{engine} lang", "en": f"{engine} long"},
@@ -34,45 +39,30 @@ def catalog_row(engine: str, host: str | None = None, **fields: Any) -> dict[str
     return {**base, **fields}
 
 
-def host(name: str, address: str = "10.0.0.2", ssh_port: int = 22, ssh_user: str = "") -> dict[str, Any]:
-    return {"name": name, "address": address, "ssh_port": ssh_port, "ssh_user": ssh_user}
-
-
 class FakeTTSService:
-    """GET /engines and GET/POST /config of the service."""
+    """Only GET /engines: AIfred reads the catalog and writes nothing."""
 
-    def __init__(self, catalog: list[dict[str, Any]], hosts: list[dict[str, Any]]) -> None:
+    def __init__(self, catalog: list[dict[str, Any]]) -> None:
         self.catalog = catalog
-        self.config: dict[str, Any] = {"voices_dir": "/voices", "hosts": hosts, "engines": {}}
-        self.rejection: str | None = None  # the reason of a 400 config_invalid answer
-        self.stored: list[dict[str, Any]] = []  # every configuration that was posted
 
     def handler(self, request: httpx.Request) -> httpx.Response:
-        if request.url.path == "/engines":
+        if (request.method, request.url.path) == ("GET", "/engines"):
             return httpx.Response(200, json=self.catalog)
-        if request.url.path == "/config" and request.method == "GET":
-            return httpx.Response(200, json=self.config)
-        if request.url.path == "/config" and request.method == "POST":
-            if self.rejection is not None:
-                return httpx.Response(400, json={"error": "config_invalid", "detail": self.rejection})
-            self.config = json.loads(request.content)
-            self.stored.append(self.config)
-            return httpx.Response(200, json=self.config)
-        raise AssertionError(f"unexpected request {request.method} {request.url.path}")
+        raise AssertionError(f"AIfred must only read the catalog, got {request.method} {request.url.path}")
 
 
 class SettingsFile:
     """settings.json as the editor sees it: persisted_settings() reads it, _write_settings_file replaces it."""
 
-    def __init__(self, entries: list[dict[str, Any]]) -> None:
-        self.data: dict[str, Any] = {"tts_escalation": entries, "tts_toggles_per_engine": {}}
+    def __init__(self, entries: list[dict[str, Any]], hosts: list[dict[str, Any]]) -> None:
+        self.data: dict[str, Any] = {"tts_escalation": entries, "tts_hosts": hosts, "tts_toggles_per_engine": {}}
         self.writes = 0
 
 
 @pytest.fixture
 def settings_file(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SettingsFile]:
-    def make(entries: list[dict[str, Any]]) -> SettingsFile:
-        file = SettingsFile(entries)
+    def make(entries: list[dict[str, Any]], hosts: list[dict[str, Any]] | None = None) -> SettingsFile:
+        file = SettingsFile(entries, hosts or [])
         monkeypatch.setattr("aifred.lib.settings.persisted_settings", lambda: file.data)
         monkeypatch.setattr(tts_service, "persisted_settings", lambda: file.data)
         return file
@@ -82,17 +72,18 @@ def settings_file(monkeypatch: pytest.MonkeyPatch) -> Callable[..., SettingsFile
 
 @pytest.fixture
 def service(monkeypatch: pytest.MonkeyPatch, settings_file) -> Callable[..., tuple[FakeTTSService, SettingsFile]]:
-    """The fake service plus AIfreds list; the LLM plan names the topmost entry of the list as the reserved engine."""
+    """The fake service plus AIfreds list; the LLM plan names the topmost entry of the list as the reserved engine.
+    Default catalog: one row per listed entry; default host switches: none stored."""
     def make(
         entries: list[dict[str, Any]],
         catalog: list[dict[str, Any]] | None = None,
         hosts: list[dict[str, Any]] | None = None,
     ) -> tuple[FakeTTSService, SettingsFile]:
-        fake = FakeTTSService(catalog if catalog is not None else [catalog_row(e["engine"], e["host"]) for e in entries], hosts or [])
-        client = TTSClient("http://tts.test", "token", transport=httpx.MockTransport(fake.handler))
+        fake = FakeTTSService(catalog if catalog is not None else [catalog_row(e["engine"], e["host"]) for e in entries])
+        client = TTSClient("http://tts.test", transport=httpx.MockTransport(fake.handler))
         monkeypatch.setattr(tts_service, "get_tts_client", lambda: client)
         tts_service.reset_cache()
-        file = settings_file(entries)
+        file = settings_file(entries, hosts)
         monkeypatch.setattr(
             "aifred.lib.tts_llm_coordination.planned_tts_engine",
             lambda model_id: file.data["tts_escalation"][0]["engine"] if file.data["tts_escalation"] else "",
@@ -124,13 +115,7 @@ class FakeState:
         self.file = file
         self.tts_list_revision = 0
         self.agent_tuning = {"aifred": SimpleNamespace(model_id="model")}
-        self.tts_host_form_open = True
-        self.tts_new_host_name = ""
-        self.tts_new_host_address = ""
-        self.tts_new_host_ssh_user = ""
-        self.tts_new_host_ssh_port = ""
         self._edit_tts_lists = MethodType(TTSConfigMixin._edit_tts_lists, self)  # type: ignore[attr-defined]
-        self._edit_tts_hosts = MethodType(TTSConfigMixin._edit_tts_hosts, self)  # type: ignore[attr-defined]
 
     def _write_settings_file(self, settings: dict[str, Any]) -> None:
         assert self.file is not None
@@ -157,10 +142,10 @@ def run(handler: Callable[..., Any], state: FakeState, *args: Any) -> list[Any]:
 
 
 def test_rows_combine_the_list_of_the_settings_with_the_catalog(service) -> None:
-    service(
+    _, file = service(
         [stored("xtts"), stored("piper", enabled=False), stored("qwen3local", "Box")],
         catalog=[catalog_row("xtts"), catalog_row("piper"), catalog_row("qwen3local", "Box")],
-        hosts=[host("Box")],
+        hosts=[switch("Box")],
     )
     rows = computed("tts_escalation_rows", FakeState())
     assert [row["engine"] for row in rows] == ["xtts", "piper", "qwen3local"]
@@ -171,6 +156,16 @@ def test_rows_combine_the_list_of_the_settings_with_the_catalog(service) -> None
     assert rows[1]["enabled"] is False and rows[1]["status"] == "aus" and rows[1]["reserved"] is False
     assert rows[2]["label"] == "QWEN3LOCAL · Box" and rows[2]["reserved"] is False  # a host entry is never reserved
     assert computed("tts_service_error", FakeState()) == ""
+    assert len(file.data["tts_escalation"]) == 3                                      # reading writes nothing
+
+
+def test_catalog_rows_the_list_does_not_know_appear_at_the_end_switched_off(service, settings_file) -> None:
+    service([stored("xtts")], catalog=[catalog_row("xtts"), catalog_row("piper", needs_gpu=False), catalog_row("xtts", "Aragon")])
+    rows = computed("tts_escalation_rows", FakeState())
+    assert [(row["engine"], row["label"], row["enabled"]) for row in rows] == [
+        ("xtts", "XTTS · lokal", True), ("piper", "PIPER · CPU", False), ("xtts", "XTTS · Aragon", False),
+    ]
+    assert rows[2]["status"] == "aus"
 
 
 def test_row_notes_name_missing_row_missing_image_and_start_failure(service) -> None:
@@ -189,16 +184,15 @@ def test_the_unit_of_a_row_is_the_choice_else_the_default_of_the_catalog(service
     assert [row["unit"] for row in computed("tts_escalation_rows", FakeState())] == ["paragraph", "whole"]
 
 
-def test_unreachable_service_shows_the_list_and_a_message_but_raises_nothing(settings_file) -> None:
-    settings_file([stored("xtts"), stored("piper", enabled=False)])
+def test_unreachable_service_shows_the_stored_list_and_a_message_but_raises_nothing(settings_file) -> None:
+    settings_file([stored("xtts"), stored("piper", enabled=False)], [switch("Box", False)])
     state = FakeState()  # no `service` fixture: the conftest client points at a dead address
     rows = computed("tts_escalation_rows", state)
     assert [(row["engine"], row["enabled"], row["status"]) for row in rows] == [
         ("xtts", True, "nicht erreichbar"), ("piper", False, "nicht erreichbar"),
     ]
     assert rows[0]["label"] == "xtts · Dieser Rechner" and not rows[0]["unavailable"]
-    assert computed("tts_add_options", state) == []
-    assert computed("tts_host_rows", state) == []
+    assert computed("tts_host_rows", state) == [{"name": "Box", "enabled": False, "offered": True}]
     assert computed("tts_service_error", state).startswith(UNREACHABLE_PREFIX)
     unit = computed("tts_speech_unit", state)
     assert unit.startswith(UNREACHABLE_PREFIX) and unit != "whole"
@@ -219,79 +213,60 @@ def test_speech_unit_without_an_active_entry_is_whole(service) -> None:
     assert computed("tts_speech_unit", FakeState()) == "whole"
 
 
-def test_add_options_offer_catalog_engines_the_list_does_not_hold(service) -> None:
+def test_host_rows_show_every_offered_host_new_ones_off_and_gone_ones_marked(service) -> None:
     service(
-        [stored("xtts")],
-        catalog=[
-            catalog_row("xtts"), catalog_row("xtts", "Aragon"), catalog_row("piper", needs_gpu=False),
-            catalog_row("edge", needs_gpu=False, cloud=True),
-        ],
-        hosts=[host("Aragon")],
+        [], catalog=[catalog_row("xtts", "Aragon"), catalog_row("xtts", "Box")],
+        hosts=[switch("Aragon"), switch("Old")],
     )
-    assert computed("tts_add_options", FakeState()) == [
-        {"label": "XTTS · Aragon", "value": "xtts|Aragon"},
-        {"label": "PIPER · CPU", "value": "piper|"},
-        {"label": "EDGE · Cloud", "value": "edge|"},
+    assert computed("tts_host_rows", FakeState()) == [
+        {"name": "Aragon", "enabled": True, "offered": True},
+        {"name": "Old", "enabled": True, "offered": False},
+        {"name": "Box", "enabled": False, "offered": True},
     ]
 
 
-def test_host_rows_show_user_and_port(service) -> None:
-    service([], hosts=[host("Aragon", "10.0.0.2", 2222, "mp"), host("Box", "10.0.0.3")])
-    assert [(row["name"], row["address"], row["ssh"]) for row in computed("tts_host_rows", FakeState())] == [
-        ("Aragon", "10.0.0.2", "mp · 2222"), ("Box", "10.0.0.3", "22"),
+# ---- Writing (settings.json): switching and ordering only ----------------------------------
+
+
+def test_there_is_nothing_to_add_or_remove_or_to_write_into_the_service() -> None:
+    for name in ("add_tts_entry", "remove_tts_entry", "remove_tts_host", "save_tts_host", "edit_tts_host",
+                 "toggle_tts_host_form", "tts_add_options", "_edit_tts_hosts"):
+        assert name not in TTSConfigMixin.__dict__, name
+
+
+def test_move_entry_swaps_neighbours_and_saves_the_complete_matched_list(service, toasts) -> None:
+    _, file = service(
+        [stored("xtts"), stored("piper"), stored("edge")],
+        catalog=[catalog_row("xtts"), catalog_row("piper"), catalog_row("edge"), catalog_row("moss")],
+    )
+    state = FakeState(file)
+    events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)  # type: ignore[arg-type]
+    assert file.data["tts_escalation"] == [
+        stored("piper"), stored("xtts"), stored("edge"), stored("moss", enabled=False),   # the unknown row is saved, off
     ]
-
-
-# ---- Writing the list (settings.json) ------------------------------------------------------
-
-
-def test_add_entry_appends_to_the_list_in_the_settings(service, toasts) -> None:
-    _, file = service([stored("xtts")])
-    state = FakeState(file)
-    events = run(TTSConfigMixin.add_tts_entry, state, "piper|")  # type: ignore[arg-type]
-    assert file.data["tts_escalation"] == [stored("xtts"), stored("piper")]
-    assert events == [] and toasts == [] and state.tts_list_revision == 1
-
-
-def test_add_entry_on_a_host_keeps_the_host(service, toasts) -> None:
-    _, file = service([stored("xtts")])
-    run(TTSConfigMixin.add_tts_entry, FakeState(file), "xtts|Aragon")  # type: ignore[arg-type]
-    assert file.data["tts_escalation"] == [stored("xtts"), stored("xtts", "Aragon")]
-
-
-def test_add_entry_twice_is_a_toast_and_changes_nothing(service, toasts) -> None:
-    _, file = service([stored("xtts")])
-    state = FakeState(file)
-    events = run(TTSConfigMixin.add_tts_entry, state, "xtts|")  # type: ignore[arg-type]
-    assert len(events) == 1 and events[0][0] == "error" and "already in the list" in events[0][1]
-    assert file.writes == 0 and state.tts_list_revision == 0
-
-
-def test_remove_entry_replans_when_the_planned_engine_moves(service, toasts) -> None:
-    _, file = service([stored("xtts"), stored("piper")])
-    state = FakeState(file)
-    events = run(TTSConfigMixin.remove_tts_entry, state, 0)  # type: ignore[arg-type]
-    assert file.data["tts_escalation"] == [stored("piper")]
     assert events == [FakeState.replan_tts] and state.tts_list_revision == 1
 
 
-def test_move_entry_swaps_neighbours(service, toasts) -> None:
-    _, file = service([stored("xtts"), stored("piper"), stored("edge")])
-    events = run(TTSConfigMixin.move_tts_entry, FakeState(file), 1, -1)  # type: ignore[arg-type]
-    assert [item["engine"] for item in file.data["tts_escalation"]] == ["piper", "xtts", "edge"]
-    assert events == [FakeState.replan_tts]
-
-
 def test_enable_entry_changes_only_the_flag_of_that_entry(service, toasts) -> None:
-    _, file = service([stored("xtts"), stored("xtts", "Box"), stored("piper")])
+    _, file = service([stored("xtts"), stored("xtts", "Box"), stored("piper")], hosts=[switch("Box")])
     events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 1, False)  # type: ignore[arg-type]
     assert file.data["tts_escalation"] == [stored("xtts"), stored("xtts", "Box", enabled=False), stored("piper")]
     assert events == []
 
 
-def test_a_stale_index_is_a_toast_not_a_wrong_deletion(service, toasts) -> None:
+def test_switching_off_keeps_every_configuration(service, toasts) -> None:
+    _, file = service([stored("piper")])
+    file.data["tts_toggles_per_engine"] = {"piper": {"unit": "whole"}}
+    file.data["tts_agent_voices_per_engine"] = {"piper": {"aifred": {"voice": "Ramona"}}}
+    run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 0, False)  # type: ignore[arg-type]
+    assert file.data["tts_toggles_per_engine"] == {"piper": {"unit": "whole"}}
+    assert file.data["tts_agent_voices_per_engine"] == {"piper": {"aifred": {"voice": "Ramona"}}}
+    assert file.data["tts_escalation"] == [stored("piper", enabled=False)]
+
+
+def test_a_stale_index_is_a_toast_not_a_wrong_change(service, toasts) -> None:
     _, file = service([stored("xtts")])
-    events = run(TTSConfigMixin.remove_tts_entry, FakeState(file), 5)  # type: ignore[arg-type]
+    events = run(TTSConfigMixin.set_tts_entry_enabled, FakeState(file), 5, False)  # type: ignore[arg-type]
     assert len(events) == 1 and events[0][0] == "error" and "no entry at position 5" in events[0][1]
     assert file.writes == 0
 
@@ -320,91 +295,39 @@ def test_an_unknown_unit_is_a_toast_and_nothing_is_written(service, toasts) -> N
     assert file.writes == 0
 
 
-def test_editing_the_list_works_while_the_service_is_down_but_says_the_plan_is_unchecked(settings_file, toasts) -> None:
+def test_editing_needs_the_service_because_the_match_needs_the_catalog(settings_file, toasts) -> None:
     file = settings_file([stored("xtts"), stored("piper")])
     state = FakeState(file)   # the conftest client points at a dead address
     events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)  # type: ignore[arg-type]
-    assert [item["engine"] for item in file.data["tts_escalation"]] == ["piper", "xtts"]
-    assert [kind for kind, _ in events] == ["warning"] and "VRAM" in events[0][1]
+    assert len(events) == 1 and events[0][0] == "error" and events[0][1].startswith(f"TTS: {UNREACHABLE_PREFIX}")
+    assert file.writes == 0 and state.tts_list_revision == 0
 
 
-# ---- Hosts (stored by the service) --------------------------------------------------------
+# ---- Hosts: switch only --------------------------------------------------------------------
 
 
-def fill(state: FakeState, name: str = "", address: str = "", user: str = "", port: str = "") -> FakeState:
-    state.tts_new_host_name, state.tts_new_host_address = name, address
-    state.tts_new_host_ssh_user, state.tts_new_host_ssh_port = user, port
-    return state
-
-
-def test_saving_a_new_host_posts_user_and_port_and_clears_the_form(service, toasts) -> None:
-    fake, file = service([stored("xtts")])
-    state = fill(FakeState(file), "Aragon", "10.0.0.2", "mp", "2222")
-    run(TTSConfigMixin.save_tts_host, state)  # type: ignore[arg-type]
-    assert fake.stored[-1]["hosts"] == [{"name": "Aragon", "address": "10.0.0.2", "ssh_user": "mp", "ssh_port": 2222}]
-    assert fake.stored[-1]["voices_dir"] == "/voices"      # the rest of the configuration travels back unchanged
-    assert (state.tts_new_host_name, state.tts_new_host_ssh_port, state.tts_host_form_open) == ("", "", False)
-    assert state.tts_list_revision == 1 and file.writes == 0   # hosts are not AIfreds settings
-
-
-def test_an_empty_port_is_left_to_the_service(service, toasts) -> None:
-    fake, file = service([stored("xtts")])
-    run(TTSConfigMixin.save_tts_host, fill(FakeState(file), "Box", "10.0.0.3"))  # type: ignore[arg-type]
-    assert fake.stored[-1]["hosts"] == [{"name": "Box", "address": "10.0.0.3"}]
-
-
-def test_saving_a_host_of_an_existing_name_changes_that_host(service, toasts) -> None:
-    fake, file = service([stored("xtts")], hosts=[host("Aragon", "10.0.0.2"), host("Box", "10.0.0.3")])
-    run(TTSConfigMixin.save_tts_host, fill(FakeState(file), "Aragon", "10.0.0.9", "", "2200"))  # type: ignore[arg-type]
-    assert sorted((h["name"], h["address"]) for h in fake.stored[-1]["hosts"]) == [("Aragon", "10.0.0.9"), ("Box", "10.0.0.3")]
-    assert len(fake.stored[-1]["hosts"]) == 2
-
-
-def test_edit_host_fills_the_form(service) -> None:
-    _, file = service([], hosts=[host("Aragon", "10.0.0.2", 2222, "mp")])
-    state = FakeState(file)
-    state.tts_host_form_open = False
-    TTSConfigMixin.edit_tts_host(state, "Aragon")  # type: ignore[arg-type]
-    assert (state.tts_new_host_name, state.tts_new_host_address, state.tts_new_host_ssh_user, state.tts_new_host_ssh_port) == (
-        "Aragon", "10.0.0.2", "mp", "2222",
+def test_switching_a_host_saves_all_host_switches_and_leaves_the_service_alone(service, toasts) -> None:
+    fake, file = service(
+        [stored("xtts"), stored("xtts", "Box")],
+        catalog=[catalog_row("xtts"), catalog_row("xtts", "Box"), catalog_row("xtts", "Aragon")],
+        hosts=[switch("Box", False)],
     )
-    assert state.tts_host_form_open is True
+    state = FakeState(file)
+    run(TTSConfigMixin.set_tts_host_enabled, state, "Box", True)  # type: ignore[arg-type]
+    assert file.data["tts_hosts"] == [switch("Box", True), switch("Aragon", False)]   # the new host is saved, off
+    assert state.tts_list_revision == 1
+    assert [(e.host, e.active) for e in tts_service.entries()] == [(None, True), ("Box", True), ("Aragon", False)]
 
 
-def test_a_bad_port_or_missing_fields_store_nothing(service, toasts) -> None:
-    fake, file = service([stored("xtts")])
-    state = fill(FakeState(file), "Box", "10.0.0.3", "", "abc")
-    assert run(TTSConfigMixin.save_tts_host, state) == [("error", 'Rechner: Der SSH-Port muss eine Zahl sein, eingegeben wurde „abc“')]  # type: ignore[arg-type]
-    state.tts_new_host_name = ""
-    assert run(TTSConfigMixin.save_tts_host, state) == [("error", "Rechner: Name und Adresse sind Pflicht")]  # type: ignore[arg-type]
-    assert fake.stored == [] and state.tts_host_form_open is True
+def test_switching_a_host_off_keeps_its_entries_but_the_request_leaves_them_out(service, toasts) -> None:
+    _, file = service([stored("xtts"), stored("qwen3local", "Box")], hosts=[switch("Box")])
+    run(TTSConfigMixin.set_tts_host_enabled, FakeState(file), "Box", False)  # type: ignore[arg-type]
+    assert file.data["tts_escalation"] == [stored("xtts"), stored("qwen3local", "Box")]   # nothing cleaned or deleted
+    assert [ref.engine for ref in tts_service.request_engines()] == ["xtts"]
 
 
-def test_remove_host(service, toasts) -> None:
-    fake, file = service([stored("xtts")], hosts=[host("Aragon"), host("Box")])
-    run(TTSConfigMixin.remove_tts_host, FakeState(file), "Aragon")  # type: ignore[arg-type]
-    assert [item["name"] for item in fake.stored[-1]["hosts"]] == ["Box"]
-
-
-def test_a_host_the_list_still_names_is_not_removed(service, toasts) -> None:
-    fake, file = service([stored("xtts", "Aragon")], hosts=[host("Aragon")])
-    events = run(TTSConfigMixin.remove_tts_host, FakeState(file), "Aragon")  # type: ignore[arg-type]
-    assert len(events) == 1 and events[0][0] == "error" and "still has entries" in events[0][1]
-    assert fake.stored == []
-
-
-def test_config_invalid_from_the_service_is_shown_as_a_toast_and_the_form_stays_open(service, toasts) -> None:
-    fake, file = service([stored("xtts")])
-    fake.rejection = "hosts[Box]: address 'a b' is not a host name or address"
-    state = fill(FakeState(file), "Box", "a b")
-    events = run(TTSConfigMixin.save_tts_host, state)  # type: ignore[arg-type]
-    assert events == [("error", "hosts[Box]: address 'a b' is not a host name or address")]
-    assert toasts == events and state.tts_list_revision == 0
-    assert state.tts_new_host_name == "Box" and state.tts_host_form_open is True
-
-
-def test_unreachable_service_on_a_host_write_is_a_toast(settings_file, toasts) -> None:
-    state = fill(FakeState(settings_file([stored("xtts")])), "Box", "10.0.0.3")   # the conftest client points at a dead address
-    events = run(TTSConfigMixin.save_tts_host, state)  # type: ignore[arg-type]
-    assert len(events) == 1 and events[0][0] == "error" and events[0][1].startswith(UNREACHABLE_PREFIX)
-    assert state.tts_list_revision == 0
+def test_switching_an_unknown_host_is_a_toast(service, toasts) -> None:
+    _, file = service([stored("xtts")])
+    events = run(TTSConfigMixin.set_tts_host_enabled, FakeState(file), "Nope", True)  # type: ignore[arg-type]
+    assert len(events) == 1 and events[0][0] == "error" and "not in the list of hosts" in events[0][1]
+    assert file.writes == 0

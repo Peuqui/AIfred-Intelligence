@@ -11,14 +11,6 @@ PINNED = "GPU-aaaa"
 OTHER = "GPU-bbbb"
 
 
-@pytest.fixture(autouse=True)
-def _no_tts_containers(monkeypatch):
-    """No TTS container runs: the footprint the service would report is empty."""
-    import aifred.lib.tts_service as tts_service
-
-    monkeypatch.setattr(tts_service, "local_gpu_footprint", lambda: {})
-
-
 @pytest.fixture
 def setup(monkeypatch):
     def configure(*, env: dict, peak: int | None, free: dict[str, int], loaded: list[str] | None = None):

@@ -497,27 +497,6 @@ class TTSEngine(ABC):
         engine registers its cloned voices with the cloud here."""
         return iter(())
 
-    # ── Calibration support (only container/GPU engines) ───────────
-    def calibration_setup(self, debug: Any) -> bool:
-        """Called by the LLM-calibration before measuring free VRAM on
-        the TTS GPU. Default: bring the container up via
-        :meth:`ensure_ready`. Container engines that need a long
-        test-inference to materialise their KV-cache can override.
-
-        ``debug`` is the calibration's add_debug callback for
-        progress lines.
-        """
-        ok, msg, _device = self.ensure_ready()
-        if ok:
-            debug(f"   🔊 {msg}")
-        return ok
-
-    def calibration_teardown(self, debug: Any) -> None:
-        """Called after the TTS-variant calibration is done. Default:
-        stop the container."""
-        self.stop()
-        debug(f"   🔊 {self.label_short} container stopped")
-
     # ── Misc ───────────────────────────────────────────────────────
     def __repr__(self) -> str:  # pragma: no cover — debugging convenience
         return f"<TTSEngine {self.key!r}>"
