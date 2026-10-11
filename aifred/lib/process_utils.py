@@ -375,10 +375,10 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
 
 def start_whisper_container() -> tuple[bool, str]:
     """Start the Whisper STT Docker container."""
-    from .config import WHISPER_DOCKER_COMPOSE_PATH, WHISPER_STT_DIR
-    if not os.path.exists(WHISPER_DOCKER_COMPOSE_PATH):
-        return False, f"whisper-stt not found at {WHISPER_STT_DIR} — run scripts/install-all.sh"
-    return docker_compose_action(WHISPER_DOCKER_COMPOSE_PATH, "up", "Whisper")
+    from .config import STT_SUITE_COMPOSE_PATH, STT_SUITE_DIR
+    if not os.path.exists(STT_SUITE_COMPOSE_PATH):
+        return False, f"STT-Suite not found at {STT_SUITE_DIR} — run scripts/install-all.sh"
+    return docker_compose_action(STT_SUITE_COMPOSE_PATH, "up", "Whisper")
 
 
 def ensure_whisper_ready(timeout: int = 60) -> tuple[bool, str]:
