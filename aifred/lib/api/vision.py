@@ -11,6 +11,7 @@ from pydantic import BaseModel, Field
 from ..logging_utils import log_message
 # resolve_source_resolution lives in vision_utils.py — shared with the
 # plugin tools so popup-UI resolution and tool-call resolution match.
+from ..vision_settings import load_vision_settings, save_vision_settings
 from ..vision_utils import resolve_source_resolution as _resolve_resolution
 from .app import api_app
 from .schemas import SystemActionResponse
@@ -514,12 +515,6 @@ async def vision_frame(id: int, w: int = 0, zoom: int = 0) -> Response:
     )
 
 
-# Pfad der vision-settings.json (Heimat der zone_masks).
-_VISION_SETTINGS_PATH = (
-    Path(__file__).resolve().parents[2] / "plugins/tools/vision/settings.json"
-)
-
-
 class ZoneMaskPayload(BaseModel):
     """Speicher-Payload des Zonen-Editors."""
     source_id: str
@@ -532,12 +527,7 @@ class ZoneMaskPayload(BaseModel):
 @api_app.get("/vision/zone-mask", tags=["Vision"])
 async def get_zone_mask(source_id: str) -> Dict[str, Any]:
     """Gespeicherte Zonen-Maske einer Quelle (für den Editor zum Laden)."""
-    import json
-    try:
-        data = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
-    entry = (data.get("zone_masks") or {}).get(source_id)
+    entry = (load_vision_settings().get("zone_masks") or {}).get(source_id)
     if not isinstance(entry, dict):
         return {"exists": False, "source_id": source_id}
     return {
@@ -559,11 +549,7 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
 
     Hinweis: Der Watcher lädt die Maske beim (Neu-)Start einer Quelle —
     eine geänderte Maske greift erst nach Re-Arm/Neustart der Quelle."""
-    import json
-    try:
-        data = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        data = {}
+    data = load_vision_settings()
     masks = data.get("zone_masks")
     if not isinstance(masks, dict):
         masks = {}
@@ -588,9 +574,7 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
         }
         msg = "zone mask saved" if payload.enabled else "zone mask saved (disabled)"
     data["zone_masks"] = masks
-    _VISION_SETTINGS_PATH.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8"
-    )
+    save_vision_settings(data)
     # Live in den laufenden Watcher übernehmen — greift sofort, kein
     # Re-Arm/Neustart der Quelle nötig. No-op wenn die Quelle nicht läuft.
     try:

@@ -27,7 +27,7 @@ each, all in `aifred/lib/`):
 | `vision_recorder` | writes events (face, person, edge class, motion), cluster ids, live bus |
 | `vision_faces` | face recognition of one frame incl. bundling the alerts per band |
 | `vision_motion` | motion path (MOG2 → face/person) |
-| `vision_edge_source` | event source of the camera detections (protocol + Reolink poll) |
+| `vision_edge_source` + `vision_edge_onvif` | event source of the camera detections (protocol, Reolink poll, ONVIF subscription) |
 | `vision_edge_ai` | edge-AI path: trigger cycle and reaction (snap, confirmation, alerts, pre-roll) |
 | `vision_burst` | face-hunt burst after a person trigger |
 | `vision_continuous_vlm` | continuous VLM of the live teleprompter |
@@ -125,7 +125,7 @@ config entry, not a code change.
 
 | Field | Meaning | Effect in the core |
 |-------|---------|--------------------|
-| `profile` | `webcam` (default) or `ai_camera` | `ai_camera` → on-device detection triggers (edge-AI poll instead of MOG2); see [AI cameras](#ai-cameras-edge-ai) |
+| `profile` | `webcam` (default) or `ai_camera` | `ai_camera` → on-device detection triggers (edge-AI trigger instead of MOG2); see [AI cameras](#ai-cameras-edge-ai) |
 | `snap_channel` | channel index for the Snap API (fresh full frame, no RTSP buffer) | snapshot tool + multipose preview pull a lag-free still through it; absent → buffered RTSP hub |
 | `face_channel` | channel of the zoom/tele lens (dual-lens cameras) | face enrollment + recognition snap this channel (more face pixels) |
 | `api_port` | camera HTTP-API port (snap/edge-AI), e.g. `443` | connection for snap/AI calls |
@@ -209,8 +209,16 @@ For pan/tilt/zoom IP cameras there is a minimal ONVIF client
 `continuous_move` / `stop` / `absolute_move` / `goto_preset` plus `nudge` and
 `aim_at_offset` (coarse "follow the bounding box"). Auth goes through the
 CredentialBroker like RTSP; it is configured via the same `rtsp_cameras` entries
-(`ptz: true`, optional `onvif_port`, default 8000). Status: the engine exists
-but is not yet wired into a UI/tool flow.
+(`ptz: true`, optional `onvif_port`, default 8000). 
+
+**Operation in the live view:** For cameras with `ptz: true` a control pad sits
+at the top right of the live image (directions, zoom ±, stop). Holding a button
+moves the head; releasing it or leaving the button stops it; a tap (touch screen)
+moves at least `VISION_PTZ_MIN_MOVE_SEC` (0.3 s). As a dead-man safety the head
+never moves longer than `VISION_PTZ_DEADMAN_SEC` (1 s) in one go, even if the
+release never reaches the server (press again for more travel). Speed: `VISION_PTZ_SPEED` in `config.py`. The
+control goes through the `PtzDriver` (`ptz_driver`) in `ptz_control.py`; `nudge`
+and `aim_at_offset` are prepared for a later "follow the bounding box" logic.
 
 ## Watch mode (Vigilantia armed)
 
@@ -233,9 +241,25 @@ chronicle entries carry a thumbnail.
 ## AI cameras (edge-AI)
 
 Cameras with `profile: ai_camera` (see [capabilities](#camera-capabilities-optional-rtsp_cameras-fields))
-detect person/vehicle/animal **on-device**. AIfred polls that detection
-(`GetAiState`) instead of running MOG2/YOLO over the stream itself — the camera
-is the cheap pre-filter that only wakes us on a hit.
+detect person/vehicle/animal **on-device**. AIfred reacts to that detection
+instead of running MOG2/YOLO over the stream itself — the camera is the cheap
+pre-filter that only wakes us on a hit.
+
+**Event source** (`watch.edge_ai_event_source`, default `onvif`):
+
+* `onvif` — AIfred subscribes to the camera's ONVIF events (PullPoint,
+  `PeopleDetect` / `VehicleDetect` / `DogCatDetect`). The camera reports on its
+  own, there is no constant polling; the subscription is renewed every 2 minutes
+  and rebuilt with backoff after a drop (warning in the log). The camera's plain
+  pixel motion is deliberately ignored: in measurement it did not precede the
+  person and also fires on leaves and shadows.
+* `poll` — the Reolink API's `GetAiState` every `edge_ai_poll_interval_sec`
+  (default 0.5 s). For cameras without ONVIF detection events.
+
+Both implement the same protocol (`EdgeAiEventSource`): a rising edge per class
+and whether a class is active right now (the burst runs while the person is
+reported). The camera ends the person report after roughly 10 s of standing
+still, which is why the burst linger is 20 s (`burst_linger_sec`).
 
 **Trigger, not truth:** The on-device AI fires generously (it hallucinates
 people from a chair/laundry/shadows, especially in IR night mode). It is

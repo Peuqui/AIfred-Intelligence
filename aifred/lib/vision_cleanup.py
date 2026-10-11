@@ -30,10 +30,11 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from .logging_utils import log_message
+from .vision_settings import load_vision_settings
 
 logger = logging.getLogger(__name__)
 
-# Default-TTL wenn das Plugin-Setting fehlt oder ungültig ist.
+# Default-TTL wenn das Plugin-Setting nicht gesetzt ist.
 DEFAULT_RETENTION_DAYS = 14
 
 # Nur echte Tagesordner (ISO-Datum) unterliegen dem TTL. Alles andere —
@@ -45,25 +46,16 @@ _DAY_DIR_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 def _load_retention_days() -> int:
     """TTL aus dem Plugin-Setting ``face_recognition.retention_days``.
-    Fallback auf ``DEFAULT_RETENTION_DAYS`` bei Fehler / fehlender Konfig."""
-    try:
-        import json
-        from .config import PROJECT_ROOT  # type: ignore[attr-defined]
-        cfg_path = PROJECT_ROOT / "aifred" / "plugins" / "tools" / "vision" / "settings.json"
-    except Exception:  # noqa: BLE001
-        cfg_path = (
-            Path(__file__).parent.parent
-            / "plugins" / "tools" / "vision" / "settings.json"
+    Fehlt der Wert, gilt ``DEFAULT_RETENTION_DAYS``; ein Lesefehler oder ein
+    Wert außerhalb 1..3650 ist ein ``ValueError``."""
+    days = (load_vision_settings().get("face_recognition") or {}).get("retention_days")
+    if days is None:
+        return DEFAULT_RETENTION_DAYS
+    if isinstance(days, bool) or not isinstance(days, (int, float)) or not 1 <= days <= 3650:
+        raise ValueError(
+            f"face_recognition.retention_days muss eine Zahl 1..3650 sein, ist {days!r}"
         )
-    try:
-        with open(cfg_path, encoding="utf-8") as f:
-            cfg = json.load(f) or {}
-        days = (cfg.get("face_recognition") or {}).get("retention_days")
-        if isinstance(days, (int, float)) and 1 <= days <= 3650:
-            return int(days)
-    except Exception as e:  # noqa: BLE001
-        logger.debug("retention_days load failed: %s", e)
-    return DEFAULT_RETENTION_DAYS
+    return int(days)
 
 
 def _cleanup_dated_subdirs(base: Path, cutoff_date: datetime) -> int:

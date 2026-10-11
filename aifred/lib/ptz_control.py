@@ -18,32 +18,36 @@ Credentials kommen wie bei der RTSP-Quelle aus dem ``CredentialBroker``
 (``rtsp_<cred>`` → ``RTSP_<CRED>_USER`` / ``RTSP_<CRED>_PASSWORD``). ONVIF
 und RTSP teilen sich auf den üblichen Kameras dieselben Zugangsdaten.
 
-Status: erste Implementierung, real noch ungetestet (keine PTZ-Kamera zur
-Hand). Velocity-Konventionen: Pan/Tilt/Zoom je in [-1.0, 1.0].
+Bedient wird der Kopf aus der Live-Ansicht über den ``PtzDriver`` (gedrückt
+halten fährt, Loslassen hält an, Sicherheitsabschaltung gegen weiterfahren).
+Velocity-Konventionen: Pan/Tilt/Zoom je in [-1.0, 1.0].
 """
 
 from __future__ import annotations
 
-import base64
-import hashlib
-import json
+import asyncio
 import logging
-import secrets
 import time
 import xml.etree.ElementTree as ET
-from xml.sax.saxutils import escape as _xml_escape
-from datetime import datetime, timezone
-from pathlib import Path
 
 import requests
 
-from .credential_broker import broker
+from .config import (
+    VISION_PTZ_DEADMAN_SEC,
+    VISION_PTZ_MIN_MOVE_SEC,
+    VISION_PTZ_SPEED,
+)
+from .frame_sources.rtsp_source import find_camera_config
+from .onvif_soap import (
+    OnvifError,
+    content_type,
+    envelope,
+    local_name,
+    parse_response,
+    xml_escape,
+)
 
 logger = logging.getLogger(__name__)
-
-_VISION_SETTINGS = (
-    Path(__file__).resolve().parents[1] / "plugins/tools/vision/settings.json"
-)
 
 _DEFAULT_ONVIF_PORT = 8000
 _SERVICE_PATH = "/onvif/device_service"
@@ -53,35 +57,14 @@ _HTTP_TIMEOUT_S = 5.0
 _NS_MEDIA = "http://www.onvif.org/ver10/media/wsdl"
 _NS_PTZ = "http://www.onvif.org/ver20/ptz/wsdl"
 _NS_SCHEMA = "http://www.onvif.org/ver10/schema"
-_WSSE = (
-    "http://docs.oasis-open.org/wss/2004/01/"
-    "oasis-200401-wss-wssecurity-secext-1.0.xsd"
-)
-_WSU = (
-    "http://docs.oasis-open.org/wss/2004/01/"
-    "oasis-200401-wss-wssecurity-utility-1.0.xsd"
-)
-_PW_DIGEST = (
-    "http://docs.oasis-open.org/wss/2004/01/"
-    "oasis-200401-wss-username-token-profile-1.0#PasswordDigest"
-)
-_B64_ENC = (
-    "http://docs.oasis-open.org/wss/2004/01/"
-    "oasis-200401-wss-soap-message-security-1.0#Base64Binary"
-)
 
 
-class PTZError(RuntimeError):
+class PTZError(OnvifError):
     """ONVIF-Anfrage fehlgeschlagen (HTTP-Fehler oder SOAP-Fault)."""
 
 
 def _clamp(v: float) -> float:
     return max(-1.0, min(1.0, v))
-
-
-def _local(tag: str) -> str:
-    """Local name eines (ggf. namespaced) ElementTree-Tags."""
-    return tag.rsplit("}", 1)[-1]
 
 
 class PTZController:
@@ -101,68 +84,24 @@ class PTZController:
 
     # ── SOAP-Infrastruktur ──────────────────────────────────────────
 
-    def _security_header(self) -> str:
-        """WS-Security UsernameToken mit PasswordDigest (SHA1).
-
-        Liefert leeren String, wenn kein Credential hinterlegt ist — dann
-        wird unauthentifiziert verbunden (offene Kamera)."""
-        if not self._cred:
-            return ""
-        user = broker.get(f"rtsp_{self._cred}", "user")
-        password = broker.get(f"rtsp_{self._cred}", "password")
-        if not user and not password:
-            return ""
-        nonce = secrets.token_bytes(16)
-        created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        digest = base64.b64encode(
-            hashlib.sha1(nonce + created.encode() + password.encode()).digest()
-        ).decode()
-        nonce_b64 = base64.b64encode(nonce).decode()
-        return (
-            f'<wsse:Security xmlns:wsse="{_WSSE}" xmlns:wsu="{_WSU}" '
-            f's:mustUnderstand="1"><wsse:UsernameToken>'
-            f"<wsse:Username>{_xml_escape(user)}</wsse:Username>"
-            f'<wsse:Password Type="{_PW_DIGEST}">{digest}</wsse:Password>'
-            f'<wsse:Nonce EncodingType="{_B64_ENC}">{nonce_b64}</wsse:Nonce>'
-            f"<wsu:Created>{created}</wsu:Created>"
-            f"</wsse:UsernameToken></wsse:Security>"
-        )
-
     def _post(self, action: str, body: str) -> ET.Element:
         """Sende einen SOAP-1.2-Request und parse die Antwort.
 
         Wirft ``PTZError`` bei HTTP-Fehler oder SOAP-Fault. Credentials
         tauchen in keiner Fehlermeldung auf."""
-        envelope = (
-            '<?xml version="1.0" encoding="UTF-8"?>'
-            '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">'
-            f"<s:Header>{self._security_header()}</s:Header>"
-            f"<s:Body>{body}</s:Body></s:Envelope>"
-        )
-        headers = {
-            "Content-Type": f'application/soap+xml; charset=utf-8; action="{action}"'
-        }
         try:
             resp = requests.post(
                 self._endpoint,
-                data=envelope.encode("utf-8"),
-                headers=headers,
+                data=envelope(body, cred=self._cred),
+                headers={"Content-Type": content_type(action)},
                 timeout=_HTTP_TIMEOUT_S,
             )
         except requests.RequestException as e:
             raise PTZError(f"ONVIF request to {self.host} failed: {e}") from e
         try:
-            root = ET.fromstring(resp.content)
-        except ET.ParseError as e:
-            raise PTZError(f"ONVIF response from {self.host} not parseable: {e}") from e
-        fault = next(
-            (el for el in root.iter() if _local(el.tag) == "Reason"), None
-        )
-        if fault is not None:
-            raise PTZError(f"ONVIF fault from {self.host}: {''.join(fault.itertext()).strip()}")
-        if resp.status_code >= 400:
-            raise PTZError(f"ONVIF HTTP {resp.status_code} from {self.host}")
-        return root
+            return parse_response(resp.content, resp.status_code, self.host)
+        except OnvifError as e:
+            raise PTZError(str(e)) from e
 
     def profile_token(self) -> str:
         """Erstes Media-Profile-Token holen (gecacht)."""
@@ -174,7 +113,7 @@ class PTZController:
             (
                 el.get("token")
                 for el in root.iter()
-                if _local(el.tag) == "Profiles" and el.get("token")
+                if local_name(el.tag) == "Profiles" and el.get("token")
             ),
             None,
         )
@@ -226,7 +165,7 @@ class PTZController:
         token = self.profile_token()
         body = (
             f'<GotoPreset xmlns="{_NS_PTZ}"><ProfileToken>{token}</ProfileToken>'
-            f"<PresetToken>{_xml_escape(preset_token)}</PresetToken></GotoPreset>"
+            f"<PresetToken>{xml_escape(preset_token)}</PresetToken></GotoPreset>"
         )
         self._post(f"{_NS_PTZ}/GotoPreset", body)
 
@@ -265,42 +204,101 @@ class PTZController:
         self.nudge(pan, tilt, duration=duration)
 
 
-def _slug(name: str) -> str:
-    keep = "".join(c if c.isalnum() else "_" for c in name.strip().lower())
-    return keep.strip("_") or "cam"
+# Richtung → (Pan, Tilt, Zoom) als Vorzeichen; ONVIF: Pan + = rechts,
+# Tilt + = hoch, Zoom + = hinein.
+DIRECTIONS: dict[str, tuple[float, float, float]] = {
+    "left": (-1.0, 0.0, 0.0),
+    "right": (1.0, 0.0, 0.0),
+    "up": (0.0, 1.0, 0.0),
+    "down": (0.0, -1.0, 0.0),
+    "zoom_in": (0.0, 0.0, 1.0),
+    "zoom_out": (0.0, 0.0, -1.0),
+}
+
+_controllers: dict[str, tuple[tuple[str, int, str], PTZController]] = {}
 
 
-def controllers_from_settings() -> dict[str, PTZController]:
-    """Baue PTZ-Controller für alle Kameras mit ``ptz: true``.
+def get_controller(source_id: str) -> PTZController | None:
+    """PTZ-Controller der Quelle (``rtsp_cameras``-Eintrag mit ``ptz: true``),
+    sonst ``None``. Der Controller wird pro Quelle gehalten (das Profil-Token
+    wird nur einmal geholt) und neu gebaut, wenn sich Host/Port/Zugang ändern.
+    Eine unlesbare Einstellungsdatei wirft ``ValueError``."""
+    cam = find_camera_config(source_id)
+    if not cam or not cam.get("ptz"):
+        _controllers.pop(source_id, None)
+        return None
+    key = (
+        str(cam.get("host", "")).strip(),
+        int(cam.get("onvif_port", _DEFAULT_ONVIF_PORT)),
+        str(cam.get("cred", "")).strip(),
+    )
+    cached = _controllers.get(source_id)
+    if cached is None or cached[0] != key:
+        cached = (key, PTZController(host=key[0], onvif_port=key[1], cred=key[2]))
+        _controllers[source_id] = cached
+        logger.info("Registered PTZ controller: %s", source_id)
+    return cached[1]
 
-    Schlüssel ist die ``source_id`` (``cam/rtsp_<slug>``), gleich wie bei
-    der RTSP-Quelle — so findet ein Aufrufer zur Video-Quelle den
-    passenden Controller. Leeres Dict, wenn Datei/Key fehlt oder keine
-    Kamera PTZ aktiviert hat.
-    """
-    try:
-        data = json.loads(_VISION_SETTINGS.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        logger.debug("ptz: vision settings not readable (%s)", e)
-        return {}
-    cams = data.get("rtsp_cameras")
-    if not isinstance(cams, list):
-        return {}
-    result: dict[str, PTZController] = {}
-    for c in cams:
-        if not isinstance(c, dict) or not c.get("ptz"):
-            continue
-        name = str(c.get("name", "")).strip()
-        host = str(c.get("host", "")).strip()
-        if not name or not host:
-            continue
-        try:
-            port = int(c.get("onvif_port", _DEFAULT_ONVIF_PORT))
-        except (TypeError, ValueError):
-            port = _DEFAULT_ONVIF_PORT
-        source_id = f"cam/rtsp_{_slug(name)}"
-        result[source_id] = PTZController(
-            host=host, onvif_port=port, cred=str(c.get("cred", "")).strip()
+
+class PtzDriver:
+    """Asynchrone Bedienung des Kamerakopfs für die Live-Ansicht: gedrückt
+    halten fährt, Loslassen hält an.
+
+    Zwei Absicherungen gegen einen weiterfahrenden Kopf: eine Bewegung dauert
+    mindestens ``VISION_PTZ_MIN_MOVE_SEC`` (ein Tipp fährt ein Stück statt
+    nichts) und endet spätestens nach ``VISION_PTZ_DEADMAN_SEC``, auch wenn das
+    Loslassen nie ankommt."""
+
+    def __init__(self) -> None:
+        self._pressed_at: dict[str, float] = {}
+        self._deadman: dict[str, asyncio.TimerHandle] = {}
+
+    async def press(self, source_id: str, direction: str) -> None:
+        vector = DIRECTIONS[direction]
+        controller = get_controller(source_id)
+        if controller is None:
+            raise PTZError(f"{source_id} hat keine PTZ-Steuerung (rtsp_cameras: ptz)")
+        await asyncio.to_thread(
+            controller.continuous_move,
+            *(v * VISION_PTZ_SPEED for v in vector),
         )
-        logger.info("Registered PTZ controller: %s (%s)", source_id, name)
-    return result
+        self._pressed_at[source_id] = time.monotonic()
+        previous = self._deadman.pop(source_id, None)
+        if previous is not None:
+            previous.cancel()
+        loop = asyncio.get_running_loop()
+        self._deadman[source_id] = loop.call_later(
+            VISION_PTZ_DEADMAN_SEC,
+            lambda: asyncio.ensure_future(self._deadman_stop(source_id)),
+        )
+
+    async def release(self, source_id: str) -> None:
+        """Loslassen: anhalten, aber nur, wenn gerade eine Bewegung läuft (das
+        Verlassen einer Taste ohne Drücken ist kein Stopp-Befehl)."""
+        pressed_at = self._pressed_at.get(source_id)
+        if pressed_at is None:
+            return
+        remaining = VISION_PTZ_MIN_MOVE_SEC - (time.monotonic() - pressed_at)
+        if remaining > 0:
+            await asyncio.sleep(remaining)
+        await self.stop(source_id)
+
+    async def stop(self, source_id: str) -> None:
+        """Sofort anhalten (auch ohne laufende Bewegung)."""
+        self._pressed_at.pop(source_id, None)
+        timer = self._deadman.pop(source_id, None)
+        if timer is not None:
+            timer.cancel()
+        controller = get_controller(source_id)
+        if controller is not None:
+            await asyncio.to_thread(controller.stop)
+
+    async def _deadman_stop(self, source_id: str) -> None:
+        self._deadman.pop(source_id, None)
+        try:
+            await self.stop(source_id)
+        except PTZError:
+            logger.exception("PTZ-Sicherheitsstopp für %s fehlgeschlagen", source_id)
+
+
+ptz_driver = PtzDriver()

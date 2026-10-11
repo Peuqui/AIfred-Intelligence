@@ -168,6 +168,7 @@ def _edge_config(**overrides: Any) -> WatchConfig:
     kein Burst, kein Vorlauf, solange der Test es nicht einschaltet."""
     edge = EdgeAiConfig(
         channel=0, face_channel=None, poll_interval_sec=POLL_SEC, settle_sec=0.0,
+        event_source="poll",
     )
     values: dict[str, Any] = {
         "fps": 20.0,

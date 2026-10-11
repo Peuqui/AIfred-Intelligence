@@ -36,14 +36,12 @@ Implementierung, real noch ungetestet (keine RTSP-Kamera zur Hand).
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import socket
 import threading
 import uuid
 from datetime import datetime
-from pathlib import Path
 from typing import Any, AsyncIterator
 from urllib.parse import quote
 
@@ -71,16 +69,11 @@ os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
 import cv2  # noqa: E402  — nach dem env-Set, damit FFMPEG die Optionen sieht
 
 from ..credential_broker import broker
+from ..vision_settings import load_vision_settings
 from . import register, unregister_kind
 from .base import Frame, SourceInfo
 
 logger = logging.getLogger(__name__)
-
-# vision-Plugin-settings.json relativ zum Paket:
-# aifred/lib/frame_sources/ -> parents[2] == aifred/ -> plugins/tools/vision/
-_VISION_SETTINGS = (
-    Path(__file__).resolve().parents[2] / "plugins/tools/vision/settings.json"
-)
 
 _JPEG_QUALITY = 90
 # Erste Frames nach Stream-Open verwerfen — RTSP braucht einen Moment bis
@@ -113,17 +106,12 @@ def _slugify(name: str) -> str:
 def _load_rtsp_configs() -> list[dict[str, str | int]]:
     """Liest die ``rtsp_cameras``-Liste aus der vision-settings.json.
 
-    Leere Liste, wenn Datei/Key fehlt oder unbrauchbar — dann gibt es
-    schlicht keine RTSP-Quellen (Default). Einträge ohne ``name`` oder
+    Leere Liste, wenn Datei/Key fehlt — dann gibt es schlicht keine
+    RTSP-Quellen. Eine unlesbare Datei wirft ``ValueError``. Einträge ohne ``name`` oder
     ``host`` werden übersprungen. Credentials stehen hier bewusst NICHT —
     die kommen über den Broker.
     """
-    try:
-        data = json.loads(_VISION_SETTINGS.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        logger.debug("rtsp: vision settings not readable (%s)", e)
-        return []
-    cams = data.get("rtsp_cameras")
+    cams = load_vision_settings().get("rtsp_cameras")
     if not isinstance(cams, list):
         return []
     result: list[dict[str, str | int]] = []
@@ -157,11 +145,7 @@ def find_camera_config(source_id: str) -> dict[str, Any] | None:
     ``api_port`` oder ``onvif_port``. ``None`` wenn nichts passt (z.B. bei
     V4L2-Quellen). Credentials sind hier NICHT enthalten — nur die
     ``cred``-ID."""
-    try:
-        data = json.loads(_VISION_SETTINGS.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        return None
-    cams = data.get("rtsp_cameras")
+    cams = load_vision_settings().get("rtsp_cameras")
     if not isinstance(cams, list):
         return None
     for c in cams:
@@ -509,4 +493,9 @@ def discover() -> None:
 
 
 # Initial discovery beim Modul-Import. No-op wenn keine rtsp_cameras konfiguriert.
-discover()
+# Eine unlesbare Einstellungsdatei darf den Import (und damit den Start von
+# AIfred) nicht verhindern, wird aber als Fehler gemeldet; ``rescan()`` wirft.
+try:
+    discover()
+except ValueError:
+    logger.exception("RTSP-Quellen nicht geladen: Einstellungsdatei unlesbar")

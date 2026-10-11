@@ -842,6 +842,28 @@ VISION_EDGE_AI_SETTLE_SEC = 1.0
 # höchstens aber ``VISION_EDGE_AI_BACKOFF_MAX_SEC`` — die Kamera wird nicht zugehämmert.
 VISION_EDGE_AI_BACKOFF_MAX_DOUBLINGS = 5
 VISION_EDGE_AI_BACKOFF_MAX_SEC = 60.0
+# PTZ-Steuerung der Live-Ansicht (ONVIF ContinuousMove): Geschwindigkeit in
+# [0, 1], Mindestdauer einer Bewegung (ein Tipp auf dem Touchscreen ist nur ein
+# Sekundenbruchteil lang) und Sicherheitsabschaltung, falls das Loslassen den
+# Server nie erreicht (Verbindungsabbruch, Fenster zu): spätestens nach
+# ``VISION_PTZ_DEADMAN_SEC`` fährt der Kopf von selbst nicht mehr weiter. Eine
+# Sekunde, weil der Kopf in drei Sekunden eine Komplettdrehung schaffen kann;
+# für mehr Weg die Taste erneut drücken.
+VISION_PTZ_SPEED = 0.5
+VISION_PTZ_MIN_MOVE_SEC = 0.3
+VISION_PTZ_DEADMAN_SEC = 1.0
+
+# Ereignisquelle des Edge-AI-Triggers: ``onvif`` (Abonnement, keine Dauerlast auf
+# der Kamera) oder ``poll`` (``GetAiState``-Abfrage im Takt). Pro Installation in
+# ``plugins/tools/vision/settings.json`` (``watch.edge_ai_event_source``).
+VISION_EDGE_AI_EVENT_SOURCE = "onvif"
+VISION_EDGE_AI_EVENT_SOURCES = ("onvif", "poll")
+VISION_ONVIF_DEFAULT_PORT = 8000
+# ONVIF-PullPoint-Abonnement der Kamera-Erkennungen: Laufzeit des Abonnements,
+# Erneuerung nach der Hälfte, Wartezeit eines einzelnen Pull-Aufrufs.
+VISION_ONVIF_LEASE_SEC = 300
+VISION_ONVIF_RENEW_SEC = 120
+VISION_ONVIF_PULL_TIMEOUT_SEC = 5
 
 # Edge-AI-Burst und Vorlauf (Vigilantia): Standardwerte, pro Installation in
 # ``plugins/tools/vision/settings.json`` unter ``watch`` überschreibbar.

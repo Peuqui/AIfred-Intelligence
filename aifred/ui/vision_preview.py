@@ -347,6 +347,68 @@ def _alias_overlay(entry: rx.Var) -> rx.Component:
     )
 
 
+def _ptz_button(sid: rx.Var, direction: str, icon: str) -> rx.Component:
+    """Richtungstaste der Kopfsteuerung: gedrückt halten fährt, Loslassen oder
+    Verlassen hält an (auf dem Touchscreen genügt ein Tipp — der Server fährt
+    mindestens ``VISION_PTZ_MIN_MOVE_SEC``)."""
+    return rx.icon_button(
+        rx.icon(icon, size=16),
+        on_mouse_down=AIState.ptz_press(sid, direction),
+        on_mouse_up=AIState.ptz_release(sid),
+        on_mouse_leave=AIState.ptz_release(sid),
+        title=t(f"vision_preview_ptz_{direction}"),
+        size="1",
+        variant="soft",
+        color_scheme="gray",
+        style={"user_select": "none", "touch_action": "none", "cursor": "pointer"},
+    )
+
+
+def _ptz_pad(sid: rx.Var) -> rx.Component:
+    """Kopfsteuerung über dem Live-Bild (oben rechts): Richtungskreuz, Zoom,
+    Stopp. Nur bei Kameras mit ``ptz: true``."""
+    return rx.box(
+        rx.vstack(
+            rx.hstack(
+                _ptz_button(sid, "zoom_in", "zoom-in"),
+                _ptz_button(sid, "up", "arrow-up"),
+                _ptz_button(sid, "zoom_out", "zoom-out"),
+                spacing="1",
+            ),
+            rx.hstack(
+                _ptz_button(sid, "left", "arrow-left"),
+                rx.icon_button(
+                    rx.icon("square", size=14),
+                    on_click=AIState.ptz_stop(sid),
+                    title=t("vision_preview_ptz_stop"),
+                    size="1",
+                    variant="soft",
+                    color_scheme="red",
+                ),
+                _ptz_button(sid, "right", "arrow-right"),
+                spacing="1",
+            ),
+            rx.hstack(
+                rx.box(width="24px"),
+                _ptz_button(sid, "down", "arrow-down"),
+                rx.box(width="24px"),
+                spacing="1",
+            ),
+            spacing="1",
+            align="center",
+        ),
+        style={
+            "position": "absolute",
+            "top": "0.5em",
+            "right": "0.5em",
+            "padding": "4px",
+            "background_color": "rgba(0, 0, 0, 0.55)",
+            "border_radius": "6px",
+            "z_index": "3",
+        },
+    )
+
+
 def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
     """Subtitle-style overlay at the bottom of the image. The inner
     .vlm-event-target div both carries the SSE-Hook and is the
@@ -499,6 +561,7 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     },
                 ),
                 _alias_overlay(entry),
+                rx.cond(entry["ptz"].to(bool), _ptz_pad(sid), rx.fragment()),
                 rx.cond(overlay_mode, _teleprompter_overlay(entry), rx.fragment()),
                 # ``data-vlm-image-slot`` markiert diesen Container als
                 # Ziel für das „Light-Table"-Overlay vom SSE-Manager:

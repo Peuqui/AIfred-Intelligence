@@ -14,8 +14,14 @@ import asyncio
 import logging
 from typing import Any, Protocol
 
-from .config import VISION_EDGE_AI_BACKOFF_MAX_DOUBLINGS, VISION_EDGE_AI_BACKOFF_MAX_SEC
+from .config import (
+    VISION_EDGE_AI_BACKOFF_MAX_DOUBLINGS,
+    VISION_EDGE_AI_BACKOFF_MAX_SEC,
+    VISION_EDGE_AI_EVENT_SOURCES,
+)
 from .reolink_ai import ReolinkAIError
+from .vision_edge_onvif import OnvifPullPointSource
+from .vision_watch_types import EdgeAiConfig
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +37,10 @@ class EdgeAiEventSource(Protocol):
 
     async def is_active(self, cls: str) -> bool:
         """Ob die Klasse JETZT aktiv ist."""
+        ...
+
+    async def aclose(self) -> None:
+        """Verbindung/Abonnement freigeben."""
         ...
 
 
@@ -86,3 +96,22 @@ class ReolinkPollSource:
     async def is_active(self, cls: str) -> bool:
         state = await self._client.get_ai_state(self._channel)
         return bool(state.get(cls))
+
+    async def aclose(self) -> None:
+        # Der Client ist pro Kamera geteilt und gehört vision_snap.
+        return None
+
+
+def create_event_source(
+    source_id: str, edge: EdgeAiConfig, client: Any,
+) -> EdgeAiEventSource:
+    """Ereignisquelle gemäß ``EdgeAiConfig.event_source``. Eine unbekannte
+    Angabe ist ein Konfigurationsfehler."""
+    if edge.event_source == "onvif":
+        return OnvifPullPointSource(source_id, edge.host, edge.onvif_port, edge.cred)
+    if edge.event_source == "poll":
+        return ReolinkPollSource(source_id, client, edge.channel, edge.poll_interval_sec)
+    raise ValueError(
+        f"edge_ai_event_source {edge.event_source!r} unbekannt "
+        f"(erlaubt: {', '.join(VISION_EDGE_AI_EVENT_SOURCES)})"
+    )

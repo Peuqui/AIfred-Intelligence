@@ -20,28 +20,12 @@ besteht.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from pathlib import Path
 from typing import Any
 
+from .vision_settings import load_vision_settings
+
 logger = logging.getLogger(__name__)
-
-
-def _load_vision_settings() -> dict[str, Any]:
-    """Best-effort read of the vision plugin's settings.json."""
-    path = (
-        Path(__file__).parent.parent / "plugins" / "tools" / "vision" / "settings.json"
-    )
-    if not path.exists():
-        return {}
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError) as e:
-        logger.warning("vision settings.json unreadable: %s", e)
-        return {}
 
 
 def is_vision_active() -> bool:
@@ -68,7 +52,7 @@ def is_vision_active() -> bool:
 
 def get_vision_mode() -> str:
     """Current vision_mode value, lower-cased. One of off/on-demand/live."""
-    cfg = _load_vision_settings()
+    cfg = load_vision_settings()
     return str(cfg.get("vision_mode", "on-demand")).lower().strip()
 
 
@@ -77,7 +61,7 @@ def get_active_vlm_model() -> str | None:
     ``None`` if vision is off."""
     if not is_vision_active():
         return None
-    cfg = _load_vision_settings()
+    cfg = load_vision_settings()
     vlm_cfg = cfg.get("vlm", {})
     model = vlm_cfg.get("model")
     return str(model) if model else None
@@ -131,7 +115,7 @@ async def prewarm_vlm(
         logger.info("prewarm_vlm: vision plugin disabled, skipping")
         return True
 
-    cfg = _load_vision_settings()
+    cfg = load_vision_settings()
     mode = str(cfg.get("vision_mode", "on-demand")).lower().strip()
     if mode != "live" and keep_alive_override is None:
         logger.info("prewarm_vlm: on-demand → reserved slot stays empty, VLM loads on demand")
@@ -254,7 +238,7 @@ async def is_vlm_loaded(model: str | None = None, host: str | None = None) -> bo
     except ImportError as e:
         logger.warning("is_vlm_loaded: ollama python client missing: %s", e)
         return False
-    cfg = _load_vision_settings()
+    cfg = load_vision_settings()
     vlm_cfg = cfg.get("vlm", {})
     from .config import resolve_vlm_host
     effective_host = host or vlm_cfg.get("host") or resolve_vlm_host()

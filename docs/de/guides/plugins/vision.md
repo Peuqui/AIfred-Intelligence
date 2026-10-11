@@ -29,7 +29,7 @@ Der Watcher selbst ist nur Lebenszyklus und Verdrahtung. Seine Bausteine
 | `vision_recorder` | Ereignisse schreiben (Gesicht, Person, Edge-Klasse, Motion), Cluster-IDs, Live-Bus |
 | `vision_faces` | Gesichtserkennung eines Frames inkl. Bündelung der Meldungen je Band |
 | `vision_motion` | Motion-Pfad (MOG2 → Gesicht/Person) |
-| `vision_edge_source` | Ereignisquelle der Kamera-Erkennung (Protokoll + Reolink-Abfrage) |
+| `vision_edge_source` + `vision_edge_onvif` | Ereignisquelle der Kamera-Erkennung (Protokoll, Reolink-Abfrage, ONVIF-Abonnement) |
 | `vision_edge_ai` | Edge-AI-Pfad: Trigger-Zyklus und Reaktion (Snap, Bestätigung, Alerts, Vorlauf) |
 | `vision_burst` | Face-Hunt-Burst nach einem Personen-Trigger |
 | `vision_continuous_vlm` | Dauer-VLM des Live-Teleprompters |
@@ -130,7 +130,7 @@ zur Code-Änderung.
 
 | Feld | Bedeutung | Wirkung im Kern |
 |------|-----------|-----------------|
-| `profile` | `webcam` (Default) oder `ai_camera` | `ai_camera` → On-Device-Erkennung triggert (Edge-AI-Poll statt MOG2); siehe [KI-Kameras](#ki-kameras-edge-ai) |
+| `profile` | `webcam` (Default) oder `ai_camera` | `ai_camera` → On-Device-Erkennung triggert (Edge-AI-Trigger statt MOG2); siehe [KI-Kameras](#ki-kameras-edge-ai) |
 | `snap_channel` | Kanal-Index für die Snap-API (frisches Vollbild ohne RTSP-Puffer) | Snapshot-Tool + Multipose-Preview holen darüber ein lag-freies Standbild; fehlt das Feld → gepufferter RTSP-Hub |
 | `face_channel` | Kanal des Zoom-/Tele-Objektivs (Dual-Lens-Kameras) | Gesichts-Enrollment + Gesichtserkennung snappen diesen Kanal (mehr Gesichts-Pixel) |
 | `api_port` | Port der Kamera-HTTP-API (Snap/Edge-AI), z.B. `443` | Verbindungsaufbau der Snap-/AI-Calls |
@@ -217,8 +217,16 @@ Abhängigkeit): `continuous_move` / `stop` / `absolute_move` / `goto_preset`
 plus `nudge` und `aim_at_offset` (grobes „folge der Bounding-Box"). Auth läuft
 wie bei RTSP über den CredentialBroker; konfiguriert wird über dieselben
 `rtsp_cameras`-Einträge (`ptz: true`, optional `onvif_port`, Standard 8000).
-Stand: die Engine ist vorhanden, aber noch nicht an einen UI-/Tool-Bedienfluss
-angebunden.
+
+**Bedienung in der Live-Ansicht:** Bei Kameras mit `ptz: true` liegt oben rechts
+im Live-Bild ein Steuerkreuz (Richtungen, Zoom ±, Stopp). Gedrückt halten fährt
+den Kopf, Loslassen oder Verlassen der Taste hält an; ein Tipp (Touchscreen)
+fährt mindestens `VISION_PTZ_MIN_MOVE_SEC` (0,3 s). Als Sicherheitsabschaltung
+fährt der Kopf nie länger als `VISION_PTZ_DEADMAN_SEC` (1 s) am Stück, auch wenn
+das Loslassen den Server nicht erreicht (für mehr Weg die Taste erneut drücken). Geschwindigkeit: `VISION_PTZ_SPEED` in
+`config.py`. Die Steuerung läuft über den `PtzDriver` (`ptz_driver`) in
+`ptz_control.py`; `nudge` und `aim_at_offset` sind für eine spätere
+„folge der Bounding-Box"-Logik vorbereitet.
 
 ## Watch-Modus (Vigilantia scharf)
 
@@ -243,9 +251,25 @@ Platte gespeichert, sodass die Chronik-Einträge ein Thumbnail tragen.
 ## KI-Kameras (Edge-AI)
 
 Kameras mit `profile: ai_camera` (siehe [Capabilities](#kamera-capabilities-optionale-rtsp_cameras-felder))
-erkennen Person/Fahrzeug/Tier **on-device**. AIfred pollt diese Erkennung
-(`GetAiState`) statt selbst MOG2/YOLO über den Stream laufen zu lassen — die
+erkennen Person/Fahrzeug/Tier **on-device**. AIfred reagiert auf diese
+Erkennung statt selbst MOG2/YOLO über den Stream laufen zu lassen — die
 Kamera ist der billige Vorfilter, der nur bei einem Treffer aufweckt.
+
+**Ereignisquelle** (`watch.edge_ai_event_source`, Standard `onvif`):
+
+* `onvif` — AIfred abonniert die ONVIF-Ereignisse der Kamera (PullPoint,
+  `PeopleDetect` / `VehicleDetect` / `DogCatDetect`). Die Kamera meldet selbst,
+  es gibt keine Dauerabfrage; das Abonnement wird alle 2 Minuten erneuert und
+  bei einem Abbruch mit Backoff neu aufgebaut (Warnung im Log). Die reine
+  Pixel-Bewegung der Kamera wird bewusst ignoriert: sie kam in der Messung
+  nicht vor der Person und löst auch bei Laub und Schatten aus.
+* `poll` — `GetAiState` der Reolink-API im Takt `edge_ai_poll_interval_sec`
+  (Standard 0,5 s). Für Kameras ohne ONVIF-Erkennungsereignisse.
+
+Beide liefern dasselbe Protokoll (`EdgeAiEventSource`): steigende Flanke je
+Klasse und die Auskunft, ob eine Klasse gerade aktiv ist (der Burst läuft, solange
+die Person gemeldet wird). Die Kamera beendet die Personenmeldung nach etwa
+10 s Stillstand, deshalb ist der Burst-Nachlauf 20 s (`burst_linger_sec`).
 
 **Trigger statt Wahrheit:** Die On-Device-KI feuert großzügig (besonders im
 IR-Nachtbild halluziniert sie Personen aus Stuhl/Wäsche/Schatten). Sie wird
