@@ -1,9 +1,8 @@
 """Agent-Editor: TTS-Tab — die Eskalationsliste der Sprachausgabe bearbeiten.
 
-Oben die Rechner, die der Dienst anbietet (nur ein-/ausschalten), darunter die Liste in
-Sprechreihenfolge mit Status je Eintrag (ein-/ausschalten, verschieben, Einheit). Es wird
-nichts hinzugefügt oder entfernt: Liste und Rechner sind immer der Abgleich aus AIfreds
-gespeicherter Reihenfolge/Schaltern (``tts_escalation``, ``tts_hosts``) und dem Katalog des
+Die Liste in Sprechreihenfolge mit Status je Eintrag (ein-/ausschalten, verschieben,
+Einheit). Es wird nichts hinzugefügt oder entfernt: die Liste ist immer der Abgleich aus
+AIfreds gespeicherter Reihenfolge/Schaltern (``tts_escalation``) und dem Katalog des
 TTS-Dienstes; neue Zeilen kommen ausgeschaltet ans Ende. Anlegen von Rechnern, Start und
 Stopp gibt es nur in der Weboberfläche der Suite; der State dazu ist
 ``state/_tts_config_mixin.py``. Antwortet der Dienst nicht, steht die Meldung über
@@ -48,47 +47,6 @@ def _section_heading(key: str, *extra: rx.Component) -> rx.Component:
     )
 
 
-# ── Rechner ───────────────────────────────────────────────────────
-
-def _host_card(host: rx.Var) -> rx.Component:
-    """Ein Rechner des Dienstes: nur ein-/ausschalten (angelegt wird er in der Suite)."""
-    name = host["name"].to(str)
-    return rx.hstack(
-        rx.switch(
-            checked=host["enabled"].to(bool),
-            on_change=lambda enabled: AIState.set_tts_host_enabled(name, enabled),
-            size="1",
-        ),
-        rx.icon("server", size=14, color="#888"),
-        rx.text(
-            name,
-            font_size="13px",
-            font_weight="bold",
-            color=rx.cond(host["enabled"].to(bool), "#ddd", "#666"),
-        ),
-        rx.cond(
-            host["offered"].to(bool),
-            rx.fragment(),
-            rx.badge(t("tts_entry_not_offered"), color_scheme="red", size="1"),
-        ),
-        spacing="2",
-        align="center",
-        width="100%",
-        padding="8px 10px",
-        border="1px solid #333",
-        border_radius="8px",
-    )
-
-
-def _hosts_section() -> rx.Component:
-    return rx.vstack(
-        _section_heading("tts_hosts_heading"),
-        rx.foreach(AIState.tts_host_rows, _host_card),
-        spacing="2",
-        width="100%",
-    )
-
-
 # ── Liste ─────────────────────────────────────────────────────────
 
 def _entry_row(row: rx.Var) -> rx.Component:
@@ -118,6 +76,14 @@ def _entry_row(row: rx.Var) -> rx.Component:
             rx.tooltip(
                 rx.badge(t("tts_entry_reserved"), color_scheme="amber", size="1"),
                 content=t("tts_entry_reserved_tooltip"),
+            ),
+            rx.fragment(),
+        ),
+        rx.cond(
+            row["warn"].to(bool),
+            rx.tooltip(
+                rx.icon("triangle-alert", size=14, color="#f5a524"),
+                content=t("tts_entry_unreachable_warning"),
             ),
             rx.fragment(),
         ),
@@ -177,13 +143,11 @@ def _list_section() -> rx.Component:
 
 
 def _tts_view() -> rx.Component:
-    """TTS-Tab: Rechner, Eskalationsliste."""
+    """TTS-Tab: Eskalationsliste."""
     return rx.vstack(
         _editor_header(),
         rx.box(
             rx.vstack(
-                _hosts_section(),
-                rx.divider(),
                 _list_section(),
                 spacing="3",
                 width="100%",

@@ -2,20 +2,16 @@
 
 SSOT for everything AIfred derives from the service's answers and from its own list:
 
-- The LIST (entries ``{engine, host, enabled}``, their order), the unit the user chose per
-  engine and the switch per HOST (``tts_hosts``: ``{name, enabled}``) live in AIfred's
-  ``settings.json`` (``tts_escalation``, ``tts_toggles_per_engine``, ``tts_hosts``). The service
-  keeps no list; every request brings AIfred's active entries (``request_engines``). An entry
-  on a host AIfred switched off is not active.
+- The LIST (entries ``{engine, host, enabled}``, their order) and the unit the user chose per
+  engine live in AIfred's ``settings.json`` (``tts_escalation``, ``tts_toggles_per_engine``).
+  The service keeps no list; every request brings AIfred's active entries (``request_engines``).
 - The CATALOG (``GET /engines``) says what exists: label, status, ``installed``, ``vram_mib``,
-  ``start_hint``, the recommended unit (``unit_default``), per engine and machine. It also
-  tells which hosts the service offers (rows with a ``host``).
-
-Nothing is added or removed in AIfred: list and hosts are always the MATCH of the stored
-order/switches with the catalog (``entries``, ``host_switches``). Rows the stored list does not
+  ``start_hint``, the recommended unit (``unit_default``), per engine and machine. 
+Nothing is added or removed in AIfred: the list is always the MATCH of the stored
+order/switches with the catalog (``entries``). Rows the stored list does not
 know yet come at the end, switched off; stored rows the service no longer offers stay (shown
 as not offered, never active, never sent). The match is a pure view; every change by the user
-saves the complete matched list and host switches (``matched_list``, ``matched_hosts``).
+saves the complete matched list (``matched_list``).
 
 AIfred writes nothing into the service and starts or stops no container there: the service
 starts and unloads its engines itself when a request reaches it. AIfred only ASKS: before a
@@ -199,30 +195,23 @@ def _local_gpu_rows(*, fresh: bool = False) -> list[EngineInfo]:
 class ListEntry:
     """One entry of AIfred's list. ``info`` is the catalog row of ``(engine, host)``; ``None``
     when the service does not offer that pair (engine removed, host removed) or when the
-    entry was built without the catalog (``stored_entries``). ``host_enabled`` is AIfred's
-    switch of the entry's host (always true for this machine and cloud)."""
+    entry was built without the catalog (``stored_entries``)."""
 
     engine: str
     host: str | None
     enabled: bool
     unit: str  # the user's choice, else the engine's ``unit_default``; "" without catalog and choice
     info: EngineInfo | None
-    host_enabled: bool
 
     @property
     def active(self) -> bool:
-        """Switched on, host switched on and offered: the entries a request carries."""
-        return self.enabled and self.host_enabled and self.info is not None
+        """Switched on and offered: the entries a request carries."""
+        return self.enabled and self.info is not None
 
 
 def stored_list() -> list[dict[str, Any]]:
     """The raw list from settings.json: ``{"engine", "host", "enabled"}`` per entry, in order."""
     return [dict(raw) for raw in persisted_settings()["tts_escalation"]]
-
-
-def stored_hosts() -> list[dict[str, Any]]:
-    """AIfred's host switches from settings.json: ``{"name", "enabled"}`` per host."""
-    return [dict(raw) for raw in persisted_settings()["tts_hosts"]]
 
 
 def matched_list(rows: Sequence[EngineInfo]) -> list[dict[str, Any]]:
@@ -237,30 +226,14 @@ def matched_list(rows: Sequence[EngineInfo]) -> list[dict[str, Any]]:
     ]
 
 
-def matched_hosts(rows: Sequence[EngineInfo]) -> list[dict[str, Any]]:
-    """The stored host switches plus every host the catalog shows that is not stored yet, switched
-    off. Stored hosts the service no longer offers stay."""
-    stored = stored_hosts()
-    known = {host["name"] for host in stored}
-    offered = _unique([info.host for info in rows if info.host is not None])
-    return stored + [{"name": name, "enabled": False} for name in offered if name not in known]
-
-
 def check_stored_settings(settings: Mapping[str, Any]) -> None:
-    """Refuse a list or host switches that cannot be right: an entry or host without exactly its
-    fields, the same engine on the same machine or the same host twice. The catalog is not asked
+    """Refuse a list that cannot be right: an entry without exactly its fields or the same
+    engine on the same machine twice. The catalog is not asked
     (the service validates each request).
 
     Raises:
         ValueError: with the reason.
     """
-    host_names: set[str] = set()
-    for position, host in enumerate(settings["tts_hosts"]):
-        if set(host) != {"name", "enabled"}:
-            raise ValueError(f"tts_hosts[{position}] must have exactly name, enabled; got {sorted(host)}")
-        if host["name"] in host_names:
-            raise ValueError(f"host {host['name']!r} is already in the list of hosts")
-        host_names.add(host["name"])
     seen: set[tuple[str, str | None]] = set()
     for position, raw in enumerate(settings["tts_escalation"]):
         if set(raw) != {"engine", "host", "enabled"}:
@@ -279,20 +252,11 @@ def chosen_unit(engine_key: str) -> str | None:
     return str(chosen) if chosen is not None else None
 
 
-def _host_switched_on(host: str | None, hosts: Sequence[Mapping[str, Any]]) -> bool:
-    """This machine and cloud (no host) are always on; a host is on when its switch is."""
-    return host is None or any(h["name"] == host and h["enabled"] for h in hosts)
-
-
 def stored_entries() -> list[ListEntry]:
     """AIfred's stored list without the catalog (``info`` None, unit only where the user chose
     one): what the editor can still show while the service does not answer."""
-    hosts = stored_hosts()
     return [
-        ListEntry(
-            str(raw["engine"]), raw["host"], bool(raw["enabled"]), chosen_unit(str(raw["engine"])) or "", None,
-            _host_switched_on(raw["host"], hosts),
-        )
+        ListEntry(str(raw["engine"]), raw["host"], bool(raw["enabled"]), chosen_unit(str(raw["engine"])) or "", None)
         for raw in stored_list()
     ]
 
@@ -306,13 +270,12 @@ def entries(*, fresh: bool = False) -> tuple[ListEntry, ...]:
     rows = catalog(fresh=fresh)
     by_pair = {(info.engine, info.host): info for info in rows}
     default_unit = {info.engine: info.unit_default for info in rows}
-    hosts = matched_hosts(rows)
     joined: list[ListEntry] = []
     for raw in matched_list(rows):
         engine, host = str(raw["engine"]), raw["host"]
         info = by_pair.get((engine, host))
         unit = chosen_unit(engine) or (info.unit_default if info else default_unit.get(engine, ""))
-        joined.append(ListEntry(engine, host, bool(raw["enabled"]), unit, info, _host_switched_on(host, hosts)))
+        joined.append(ListEntry(engine, host, bool(raw["enabled"]), unit, info))
     return tuple(joined)
 
 
@@ -322,8 +285,6 @@ def status_key(entry: ListEntry) -> str:
         return "not_offered"
     if not entry.enabled:
         return "disabled"
-    if not entry.host_enabled:
-        return "host_off"
     return row_status_key(entry.info)
 
 
@@ -377,12 +338,9 @@ def request_engines_before_browser() -> list[EngineRef]:
 
 
 def _active_stored_engines() -> list[str]:
-    """Engine keys of the stored entries that are switched on (host switched on, too), in order. Settings
+    """Engine keys of the stored entries that are switched on, in order. Settings
     only: the answer does not depend on the service."""
-    hosts = stored_hosts()
-    return [
-        str(raw["engine"]) for raw in stored_list() if raw["enabled"] and _host_switched_on(raw["host"], hosts)
-    ]
+    return [str(raw["engine"]) for raw in stored_list() if raw["enabled"]]
 
 
 def browser_entry_unit() -> str | None:
@@ -554,25 +512,3 @@ def _touches(info: EngineInfo, cards: Collection[str] | None) -> bool:
         raise TTSVramUnknown(f"the VRAM of {info.engine} could not be measured by the TTS service")
     return bool(set(cards) & set(info.vram_mib))
 
-
-# ---- Hosts: the catalog shows them, AIfred only switches them -------------------------
-
-
-def host_rows() -> list[dict[str, Any]]:
-    """Every host with its switch, as the editor shows them: ``name``, ``enabled``, ``offered``
-    (the service still shows it). Matched with the catalog.
-
-    Raises:
-        TTSSuiteUnreachable: the service does not answer.
-    """
-    rows = catalog()
-    offered = {info.host for info in rows if info.host is not None}
-    return [
-        {"name": host["name"], "enabled": bool(host["enabled"]), "offered": host["name"] in offered}
-        for host in matched_hosts(rows)
-    ]
-
-
-def stored_host_rows() -> list[dict[str, Any]]:
-    """The stored host switches without the catalog (``offered`` unknown, taken as true)."""
-    return [{"name": host["name"], "enabled": bool(host["enabled"]), "offered": True} for host in stored_hosts()]

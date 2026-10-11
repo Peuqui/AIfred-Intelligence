@@ -1,8 +1,8 @@
 """TTS configuration mixin for AIfred state.
 
-Handles the spoken output on/off switch, the list editor (entries and hosts), autoplay,
+Handles the spoken output on/off switch, the list editor, autoplay,
 per-agent mute/language, the agent editor's voice settings per engine and the narrator
-voices. The list (order, on/off, host per entry), the unit per engine and the switch per host
+voices. The list (order, on/off, host per entry) and the unit per engine
 are AIfred's own and live in settings.json; the catalog (labels, status, which engines and
 hosts exist) comes from the TTS service (``lib.tts_service``). Nothing is added or removed:
 the editor shows everything the service offers and only switches and orders it.
@@ -59,7 +59,7 @@ class TTSConfigMixin(rx.State, mixin=True):
     # Per agent, for every engine: {"enabled": bool, "language": "auto"|ISO code}
     tts_agents: Dict[str, Dict[str, Any]] = {}
 
-    # The list, the unit per engine and the host switches live in settings.json; bumping this revision recomputes every var derived from them.
+    # The list and the unit per engine live in settings.json; bumping this revision recomputes every var derived from them.
     tts_list_revision: int = 0
     tts_status_checking: bool = False
 
@@ -121,20 +121,10 @@ class TTSConfigMixin(rx.State, mixin=True):
                 "unavailable": unavailable,
                 "reserved": entry.host is None and entry.engine == reserved,
                 "note": note,
+                "warn": entry.enabled and entry.info is not None and entry.info.status == "unreachable",
                 "status": t("tts_status_unreachable", lang=lang) if service_down else t(f"tts_status_{status_key(entry)}", lang=lang),
             })
         return rows
-
-    @rx.var(deps=["tts_list_revision"], auto_deps=False)
-    def tts_host_rows(self) -> List[Dict[str, Any]]:
-        """Every host with its switch (see ``tts_service.host_rows``); while the service does not
-        answer, the stored switches."""
-        from ..lib.tts_client import TTSSuiteError
-        from ..lib.tts_service import host_rows, stored_host_rows
-        try:
-            return host_rows()
-        except TTSSuiteError:
-            return stored_host_rows()
 
     @rx.var(deps=["enable_tts"], auto_deps=False)
     def tts_player_visible(self) -> bool:
@@ -182,7 +172,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         yield from self._apply_planned_tts()
 
     async def _edit_tts_lists(self, change: Callable[[Dict[str, Any]], None]) -> List[Any]:
-        """Match list and host switches with the catalog, apply ``change`` to a copy of the persisted
+        """Match the list with the catalog, apply ``change`` to a copy of the persisted
         settings, check, save the complete result. Returns the events the handler yields: an error
         toast when nothing was saved (also while the service does not answer: the match needs the
         catalog), a warning when the service could not be asked for the VRAM plan, the re-plan when
@@ -193,14 +183,13 @@ class TTSConfigMixin(rx.State, mixin=True):
         from ..lib.i18n import t
         from ..lib.toast import toast
         from ..lib.tts_client import TTSSuiteError
-        from ..lib.tts_service import catalog, check_stored_settings, matched_hosts, matched_list
+        from ..lib.tts_service import catalog, check_stored_settings, matched_list
 
         model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
         before = await asyncio.to_thread(_planned_engine, model_id)
         settings = copy.deepcopy(persisted_settings())
         try:
             rows = await asyncio.to_thread(catalog)
-            settings["tts_hosts"] = matched_hosts(rows)
             settings["tts_escalation"] = matched_list(rows)
             change(settings)
             check_stored_settings(settings)
@@ -237,17 +226,6 @@ class TTSConfigMixin(rx.State, mixin=True):
             if unit not in SPEECH_UNITS:
                 raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
             settings.setdefault("tts_toggles_per_engine", {}).setdefault(engine_key, {})["unit"] = unit
-        for event in await self._edit_tts_lists(change):
-            yield event
-
-    async def set_tts_host_enabled(self, name: str, enabled: bool):
-        """Switch a host on or off: its entries speak only while it is on. The service is not touched."""
-        def change(settings: Dict[str, Any]) -> None:
-            for host in settings["tts_hosts"]:
-                if host["name"] == name:
-                    host["enabled"] = enabled
-                    return
-            raise ValueError(f"host {name!r} is not in the list of hosts (reload the page)")
         for event in await self._edit_tts_lists(change):
             yield event
 

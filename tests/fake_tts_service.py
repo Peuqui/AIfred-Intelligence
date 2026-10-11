@@ -116,7 +116,6 @@ def install_fake_service(
     keys = listed if listed is not None else [row["engine"] for row in fake.catalog if row["host"] is None]
     settings = {
         "tts_escalation": [{"engine": key, "host": None, "enabled": True} for key in keys],
-        "tts_hosts": [],
         "tts_toggles_per_engine": {},
         "tts_agent_voices_per_engine": agent_voices if agent_voices is not None else {
             key: {"aifred": {"voice": "Alice", "speed": "1.0", "pitch": "1.0"}} for key in keys
