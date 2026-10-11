@@ -142,6 +142,7 @@ def _entry_row(row: rx.Var) -> rx.Component:
         rx.switch(
             checked=row["enabled"].to(bool),
             on_change=lambda enabled: AIState.set_tts_entry_enabled(index, enabled),
+            disabled=row["deactivated"].to(bool),
             size="1",
         ),
         rx.text(
@@ -174,6 +175,7 @@ def _entry_row(row: rx.Var) -> rx.Component:
             rx.el.option(t("tts_unit_whole"), value="whole"),
             value=row["unit"].to(str),
             on_change=lambda unit: AIState.set_tts_entry_unit(row["engine"].to(str), unit),
+            disabled=row["deactivated"].to(bool),
             style={**_NATIVE_SELECT_STYLE_COMPACT, "flex_shrink": "0"},
         ),
         _icon_action("trash-2", AIState.remove_tts_entry(index), "tts_entry_remove"),

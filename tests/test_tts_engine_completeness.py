@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aifred.lib.config import TTS_ENGINE_KEYS, default_tts_escalation
+from aifred.lib.config import default_tts_escalation
 from aifred.lib.i18n import tts_key_to_label, tts_label_to_key
 from aifred.lib.tts_engines import TTS_ENGINES
 from aifred.lib.tts_engines.base import TTSEngine
@@ -29,7 +29,6 @@ def test_engine_has_own_folder_and_labels(engine: TTSEngine) -> None:
         assert engine.label(lang).strip(), f"{engine.key}: label {lang} missing"
     assert tts_label_to_key(tts_key_to_label(engine.key, "de")) == engine.key
     assert tts_label_to_key(tts_key_to_label(engine.key, "en")) == engine.key
-    assert engine.key in TTS_ENGINE_KEYS
 
 
 @pytest.mark.parametrize("engine", CONTAINER_ENGINES, ids=lambda e: e.key)

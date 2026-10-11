@@ -1,7 +1,7 @@
 """DashScope Qwen-Audio 3.0 TTS — cloud TTS of Alibaba, no local GPU.
 
 HTTP endpoint whose result is a URL to a WAV file, a catalog of system voices
-and cloned voices enrolled for the flash model (``dashscope_enroll``). Replaced
+and cloned voices enrolled for the flash model (``enroll.py``). Replaced
 the older Qwen3-TTS cloud engine (10.10.2026), whose cloned voices Alibaba
 switched off.
 """
@@ -49,7 +49,7 @@ def _network_error_types() -> tuple:
 def _cloned_voices() -> dict[str, str]:
     """Enrolled cloned voices from the mapping: '★ Name' → voice id. Read live
     (cheap JSON read) so a freshly enrolled WAV shows up without a restart."""
-    from ...dashscope_enroll import load_mapping
+    from .enroll import load_mapping
     return {
         f"★ {name}": entry["voice_id"]
         for name, entry in load_mapping().items()
@@ -70,7 +70,7 @@ class DashScopeAudio3Engine(TTSEngine):
     default_voice = "Mary"
 
     base_url: str = "https://dashscope-intl.aliyuncs.com/api/v1"
-    # Cloned voices are bound to the model they were enrolled for (dashscope_enroll
+    # Cloned voices are bound to the model they were enrolled for (enroll.py
     # reads it from here).
     model_flash: str = "qwen-audio-3.0-tts-flash"
     model_plus: str = "qwen-audio-3.0-tts-plus"
@@ -104,7 +104,7 @@ class DashScopeAudio3Engine(TTSEngine):
         """Enroll new or changed reference voices (idempotent via WAV hash —
         instant when nothing changed) so the cloned voices are ready."""
         from ...credential_broker import broker
-        from ...dashscope_enroll import enroll_progress
+        from .enroll import enroll_progress
         api_key = broker.get("cloud_qwen", "api_key")
         if api_key:
             yield from enroll_progress(api_key)

@@ -20,9 +20,9 @@ import wave
 from pathlib import Path
 from typing import Callable, Iterator, Optional
 
-from .config import PROJECT_ROOT, TTS_VOICES_DIR
-from .logging_utils import log_message
-from .tts_engines.dashscope_audio3.engine import DashScopeAudio3Engine
+from ...config import PROJECT_ROOT, TTS_VOICES_DIR
+from ...logging_utils import log_message
+from .engine import DashScopeAudio3Engine
 
 MAPPING_PATH = PROJECT_ROOT / "data" / "tts" / "dashscope_audio3_voices.json"
 

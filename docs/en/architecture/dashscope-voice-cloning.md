@@ -4,7 +4,7 @@
 
 > As of: 2026-10-10 | Region: international/Singapore (`dashscope-intl.aliyuncs.com`)
 > Code: [`aifred/lib/tts_engines/dashscope_audio3/engine.py`](../../../aifred/lib/tts_engines/dashscope_audio3/engine.py),
-> [`aifred/lib/dashscope_enroll.py`](../../../aifred/lib/dashscope_enroll.py),
+> [`aifred/lib/tts_engines/dashscope_audio3/enroll.py`](../../../aifred/lib/tts_engines/dashscope_audio3/enroll.py),
 > [`aifred/state/_tts_config_mixin.py`](../../../aifred/state/_tts_config_mixin.py)
 
 DashScope Qwen-Audio 3 (engine key `dashscope_audio3`) is the **cloud TTS engine**: no local
@@ -75,7 +75,7 @@ cloned voices always run on flash.
 
 ### Enrolling voices
 
-API (`dashscope_enroll.py`): `POST /api/v1/services/audio/tts/customization` with
+API (`enroll.py`): `POST /api/v1/services/audio/tts/customization` with
 `model: "voice-enrollment"`, `input.action: "create_voice"`, `input.target_model`,
 `input.prefix` (start of the name: lowercase letters and digits only, at most 9 characters) and
 the reference WAV in **full length** as a base64 data URI in `input.url`. The `voice_id` is in

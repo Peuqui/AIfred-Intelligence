@@ -27,14 +27,17 @@ NOT yet replace the if/elif cascades elsewhere. Each cascade gets
 migrated one at a time, with a small commit per migration, so a bug
 in the refactor stays bounded.
 """
-from .base import SPEECH_UNITS, FailureReason, TTSEngine, TTSFailure
+from .base import SPEECH_UNITS, DeactivatedEngine, FailureReason, TTSEngine, TTSFailure
 from .registry import (
     TTS_ENGINES,
     default_escalation,
     get_engine,
+    gpu_engine_keys,
     gpu_engines,
     installed_gpu_engines,
+    is_deactivated,
     parse_speed_factor,
+    reload_engines,
     require_engine,
     speech_unit_for,
     voice_names,
@@ -42,15 +45,19 @@ from .registry import (
 
 __all__ = [
     "SPEECH_UNITS",
+    "DeactivatedEngine",
     "FailureReason",
     "TTSEngine",
     "TTSFailure",
     "TTS_ENGINES",
     "default_escalation",
     "get_engine",
+    "gpu_engine_keys",
     "gpu_engines",
     "installed_gpu_engines",
+    "is_deactivated",
     "parse_speed_factor",
+    "reload_engines",
     "require_engine",
     "speech_unit_for",
     "voice_names",

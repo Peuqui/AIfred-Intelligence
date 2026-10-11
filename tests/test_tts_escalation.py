@@ -132,6 +132,7 @@ class FakeEngine:
         self.service_dir = key
 
     cloud = False
+    deactivated = False
     runs_in_container = True
     renders_in_browser = False
     startup_timeout_s = 30

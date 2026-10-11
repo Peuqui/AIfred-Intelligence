@@ -164,6 +164,19 @@ Dasselbe Gerüst gilt für Container auf einem anderen Rechner (`at_host()`): do
 von hier gestartet, nur die Health-Abfrage genutzt, der Host startet seine Container selbst
 (siehe [tts-vram-workflow.md](tts-vram-workflow.md)).
 
+### Engine ein- und ausschalten (`disabled/`)
+
+Eine Engine wird wie ein Plugin abgeschaltet: ihr Ordner wandert von `aifred/lib/tts_engines/<key>/`
+nach `aifred/lib/tts_engines/disabled/<key>/`, zurück schaltet man sie wieder ein. Die Registry lädt
+nur die Ordner direkt unter `tts_engines/`. Ohne Neustart wirkt der Umzug nach **„Status prüfen · Engines
+neu einlesen“** im TTS-Menü (`reload_engines()` in `registry.py`): Module und Registry werden neu
+aufgebaut, ein verschwundener Engine-Container auf diesem Rechner wird vorher gestoppt. Neu
+eingeschaltete Engines stehen bis zum nächsten Neustart am Ende der Registry-Reihenfolge.
+Steht die abgeschaltete Engine in der Eskalationsliste, bleibt der Eintrag dort, erscheint als aus
+(„Engine deaktiviert“) und wird übersprungen wie jeder ausgeschaltete Eintrag
+(`DeactivatedEngine` in `base.py`). Ein Schlüssel, den es weder als Engine noch in `disabled/` gibt,
+bleibt ein harter Fehler.
+
 ### Vollständigkeitstest
 
 [`tests/test_tts_engine_completeness.py`](../../../tests/test_tts_engine_completeness.py)

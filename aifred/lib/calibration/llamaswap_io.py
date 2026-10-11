@@ -812,13 +812,13 @@ def resolve_effective_suffix(
     (llama-swap tauschte bei jeder Kanal-Anfrage).
 
     Holt den prozessweiten VLM-Zustand (``is_vision_active`` /
-    ``get_active_vlm_key``) und die ``GPU_ENGINES``-Menge intern — die
+    ``get_active_vlm_key``) und die GPU-Engine-Menge intern — die
     Callsites geben nur noch ihre eigenen Flags herein. SSOT für den
     vorher an vier Stellen kopierten Prolog; verhindert, dass eine
     Callsite bei der VLM-Ermittlung driftet.
     """
     from ..config import LLAMASWAP_BACKENDS
-    from ..tts_engine_manager import GPU_ENGINES
+    from ..tts_engines import gpu_engine_keys
     from ..vision_prewarm import is_vision_active, get_active_vlm_key
     if backend_type not in LLAMASWAP_BACKENDS:
         return ""
@@ -831,7 +831,7 @@ def resolve_effective_suffix(
         has_speed_variant=has_speed_variant,
         tts_active=tts_active,
         tts_engine=tts_engine,
-        gpu_tts_engines=GPU_ENGINES,
+        gpu_tts_engines=gpu_engine_keys(),
         vlm_active=vlm_active,
         vlm_key=vlm_key,
     )

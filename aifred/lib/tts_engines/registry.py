@@ -7,36 +7,76 @@ registration code, no central dict to keep in sync.
 
 The discovery order is determined by the engine's ``display_order``
 class attribute (lower number = earlier in the UI). This is the
-single source of truth for "which TTS engines exist" — ``config.py``
-derives ``TTS_ENGINE_KEYS`` from this dict, no parallel hardcoded list.
+single source of truth for "which TTS engines exist"; there is no parallel
+hardcoded list. A folder moved to ``disabled/`` is not loaded; ``reload_engines()``
+applies such a move without a restart.
 """
 from __future__ import annotations
 
 import importlib
+import sys
 from pathlib import Path
 from typing import Iterator, Protocol
 
 from .base import SPEECH_UNITS, TTSEngine
 
 
+ENGINES_DIR = Path(__file__).parent
+#: Engine folders moved here are not loaded (like ``plugins/disabled/``).
+DISABLED_DIR = ENGINES_DIR / "disabled"
+_PACKAGE = __name__.rsplit(".", 1)[0]   # "aifred.lib.tts_engines"
+_SHARED_MODULES = {"base", "registry"}
+
+
 def _discover_engines() -> dict[str, TTSEngine]:
-    """Import ``<engine>/engine.py`` of every engine folder so its TTSEngine
-    subclass registers itself, then build the ordered ``{key: instance}`` dict."""
-    pkg_dir = Path(__file__).parent
-    pkg_name = __name__.rsplit(".", 1)[0]   # "aifred.lib.tts_engines"
-
-    for engine_file in sorted(pkg_dir.glob("*/engine.py")):
-        importlib.import_module(f"{pkg_name}.{engine_file.parent.name}.engine")
-
-    # __subclasses__() returns direct subclasses only — fine because
-    # engines inherit straight from TTSEngine. Sort by display_order so
-    # the UI dropdown stays predictable; ties broken by key for stability.
-    instances = [cls() for cls in TTSEngine.__subclasses__()]  # type: ignore[abstract]
+    """Import ``<engine>/engine.py`` of every engine folder and instantiate the
+    ``TTSEngine`` subclass(es) it defines, ordered by ``display_order``
+    (ties broken by key for stability)."""
+    instances: list[TTSEngine] = []
+    for engine_file in sorted(ENGINES_DIR.glob("*/engine.py")):
+        module = importlib.import_module(f"{_PACKAGE}.{engine_file.parent.name}.engine")
+        instances.extend(
+            cls()  # type: ignore[abstract]
+            for cls in vars(module).values()
+            if isinstance(cls, type) and issubclass(cls, TTSEngine)
+            and cls.__module__ == module.__name__
+        )
     instances.sort(key=lambda e: (e.display_order, e.key))
     return {e.key: e for e in instances}
 
 
 TTS_ENGINES: dict[str, TTSEngine] = _discover_engines()
+
+
+def reload_engines() -> tuple[list[str], list[str]]:
+    """Re-read the engine folders after one was moved into or out of
+    ``disabled/`` — no restart needed. Engines that vanish are stopped first if
+    their container runs here. Returns ``(removed_keys, added_keys)``; nothing is
+    touched when the engine folders are the registered ones (folder name = key)."""
+    if {path.parent.name for path in ENGINES_DIR.glob("*/engine.py")} == set(TTS_ENGINES):
+        return [], []
+    for name in [n for n in sys.modules if n.startswith(f"{_PACKAGE}.")]:
+        if name.split(".")[3] not in _SHARED_MODULES:
+            del sys.modules[name]
+    importlib.invalidate_caches()
+    found = _discover_engines()
+    removed = [key for key in TTS_ENGINES if key not in found]
+    for key in removed:
+        engine = TTS_ENGINES[key]
+        if engine.runs_in_container and engine.is_running():
+            engine.stop()
+    added = [key for key in found if key not in TTS_ENGINES]
+    # Update first, then drop the vanished keys: a reader never sees an empty
+    # registry. Re-enabled engines come last until the next restart sorts them.
+    TTS_ENGINES.update(found)
+    for key in removed:
+        del TTS_ENGINES[key]
+    return removed, added
+
+
+def is_deactivated(key: str) -> bool:
+    """True if ``key`` names an engine whose folder lies in ``disabled/``."""
+    return (DISABLED_DIR / key / "engine.py").is_file()
 
 
 def get_engine(key: str) -> TTSEngine | None:
@@ -63,6 +103,11 @@ def default_escalation() -> list[dict[str, object]]:
         {"engine": e.key, "host": None, "enabled": True}
         for e in TTS_ENGINES.values() if e.in_default_escalation
     ]
+
+
+def gpu_engine_keys() -> set[str]:
+    """Keys of the engines that occupy GPU VRAM (container engines on a card)."""
+    return {e.key for e in gpu_engines()}
 
 
 def gpu_engines() -> Iterator[TTSEngine]:
