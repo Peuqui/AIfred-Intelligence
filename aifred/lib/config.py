@@ -842,6 +842,10 @@ VISION_EDGE_AI_SETTLE_SEC = 1.0
 # höchstens aber ``VISION_EDGE_AI_BACKOFF_MAX_SEC`` — die Kamera wird nicht zugehämmert.
 VISION_EDGE_AI_BACKOFF_MAX_DOUBLINGS = 5
 VISION_EDGE_AI_BACKOFF_MAX_SEC = 60.0
+# Toast-Meldungen der Oberfläche (aifred/lib/toast.py): Anzeigedauer und Ort.
+UI_TOAST_DURATION_MS = 5000
+UI_TOAST_POSITION = "top-center"
+
 # PTZ-Steuerung der Live-Ansicht (ONVIF ContinuousMove): Mindestdauer einer Bewegung (ein Tipp auf dem Touchscreen ist nur ein
 # Sekundenbruchteil lang) und Sicherheitsabschaltung, falls das Loslassen den
 # Server nie erreicht (Verbindungsabbruch, Fenster zu): spätestens nach

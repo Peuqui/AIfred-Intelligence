@@ -9,6 +9,7 @@ import pytest
 
 from aifred.lib import ptz_control
 from aifred.lib.ptz_control import DIRECTIONS, PTZError, PtzDriver, get_controller
+from aifred.lib.reolink_ai import ReolinkAIError
 
 SOURCE = "cam/rtsp_test"
 
@@ -25,8 +26,18 @@ class FakeController:
     def stop(self) -> None:
         self.calls.append(("stop",))
 
-    def goto_home(self) -> None:
-        self.calls.append(("home",))
+
+class FakeGuardClient:
+    """Kamera-Client-Attrappe: merkt sich die Aufrufe der Wächterposition."""
+
+    def __init__(self, error: Exception | None = None) -> None:
+        self.guard_calls: list[int] = []
+        self.error = error
+
+    async def ptz_goto_guard(self, channel: int) -> None:
+        if self.error is not None:
+            raise self.error
+        self.guard_calls.append(channel)
 
 
 @pytest.fixture(autouse=True)
@@ -204,7 +215,11 @@ class TestDriver:
         asyncio.run(scenario())
         assert [c[0] for c in fake.calls] == ["move", "stop", "stop"]
 
-    def test_home_goes_to_home_position_and_ends_a_running_move(self, fake):
+    def test_home_goes_to_the_guard_position_and_ends_a_running_move(self, fake, monkeypatch):
+        client = FakeGuardClient()
+        monkeypatch.setattr(ptz_control, "find_camera_config", lambda source_id: {"ptz": True, "channel": 0})
+        monkeypatch.setattr(ptz_control.vision_snap, "get_client", lambda source_id: client)
+
         async def scenario():
             driver = PtzDriver()
             await driver.press(SOURCE, "left")
@@ -212,11 +227,25 @@ class TestDriver:
             assert SOURCE not in driver._deadman
             assert SOURCE not in driver._pressed_at
         asyncio.run(scenario())
-        assert [c[0] for c in fake.calls] == ["move", "home"]
+        assert [c[0] for c in fake.calls] == ["move"]
+        assert client.guard_calls == [0]
 
     def test_home_on_camera_without_ptz_raises(self, monkeypatch):
-        monkeypatch.setattr(ptz_control, "get_controller", lambda source_id: None)
+        monkeypatch.setattr(ptz_control, "find_camera_config", lambda source_id: None)
         with pytest.raises(PTZError):
+            asyncio.run(PtzDriver().home(SOURCE))
+
+    def test_home_without_camera_client_raises(self, monkeypatch):
+        monkeypatch.setattr(ptz_control, "find_camera_config", lambda source_id: {"ptz": True})
+        monkeypatch.setattr(ptz_control.vision_snap, "get_client", lambda source_id: None)
+        with pytest.raises(PTZError):
+            asyncio.run(PtzDriver().home(SOURCE))
+
+    def test_home_reports_a_camera_error_as_ptz_error(self, monkeypatch):
+        client = FakeGuardClient(error=ReolinkAIError("SetPtzGuard returned code=-1"))
+        monkeypatch.setattr(ptz_control, "find_camera_config", lambda source_id: {"ptz": True})
+        monkeypatch.setattr(ptz_control.vision_snap, "get_client", lambda source_id: client)
+        with pytest.raises(PTZError, match="SetPtzGuard"):
             asyncio.run(PtzDriver().home(SOURCE))
 
     def test_heartbeat_repeats_the_zoom_command_but_not_pan(self, fake, monkeypatch):

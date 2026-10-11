@@ -32,6 +32,7 @@ import reflex as rx
 
 from ..lib.config import VISION_PTZ_DEFAULT_SPEED, VISION_PTZ_SPEEDS
 from ..lib.ptz_control import PTZError, get_controller, ptz_driver
+from ..lib.toast import toast
 from ..lib.vision_photo import PhotoError, take_photo
 
 logger = logging.getLogger(__name__)
@@ -709,8 +710,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             url = await take_photo(source_id)
         except (PhotoError, ValueError) as e:
             logger.warning("photo failed for %s: %s", source_id, e)
-            self.vision_preview_status = f"⚠️ Foto: {e}"
-            return
+            return toast("warning", f"Foto: {e}")
         self.vision_preview_photos = {
             **self.vision_preview_photos,
             source_id: [*self.vision_preview_photos.get(source_id, []), url],
@@ -722,7 +722,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             "if(l.length)l[l.length-1].click();},400)"
         )
     @rx.event
-    async def ptz_press(self, source_id: str, direction: str) -> None:
+    async def ptz_press(self, source_id: str, direction: str) -> Any:
         """Kamerakopf fährt in ``direction``, solange die Taste gedrückt ist
         (Loslassen: ``ptz_release``)."""
         try:
@@ -730,17 +730,17 @@ class VisionPreviewMixin(rx.State, mixin=True):
             self.ptz_held = source_id
         except (PTZError, ValueError) as e:
             logger.warning("PTZ press failed for %s: %s", source_id, e)
-            self.vision_preview_status = f"⚠️ PTZ: {e}"
+            return toast("warning", f"PTZ: {e}")
 
     @rx.event
-    async def ptz_release(self, source_id: str) -> None:
+    async def ptz_release(self, source_id: str) -> Any:
         """Taste losgelassen oder verlassen: Kopf anhalten (falls er fährt)."""
         self.ptz_held = ""
         try:
             await ptz_driver.release(source_id)
         except (PTZError, ValueError) as e:
             logger.warning("PTZ release failed for %s: %s", source_id, e)
-            self.vision_preview_status = f"⚠️ PTZ: {e}"
+            return toast("warning", f"PTZ: {e}")
 
     @rx.event
     def set_ptz_speed(self, value: str | list[str]) -> None:
@@ -751,7 +751,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         self.ptz_speed = value
 
     @rx.event
-    async def ptz_heartbeat(self, _value: str = "") -> None:
+    async def ptz_heartbeat(self, _value: str = "") -> Any:
         """Herzschlag der Seite, solange eine Taste gehalten wird: verlängert die
         Totmann-Frist des Kopfs und lässt den Zoom weiterfahren."""
         if not self.ptz_held:
@@ -760,17 +760,18 @@ class VisionPreviewMixin(rx.State, mixin=True):
             await ptz_driver.keep_alive(self.ptz_held)
         except (PTZError, ValueError) as e:
             logger.warning("PTZ heartbeat failed for %s: %s", self.ptz_held, e)
-            self.vision_preview_status = f"⚠️ PTZ: {e}"
+            self.ptz_held = ""
+            return toast("warning", f"PTZ: {e}")
 
     @rx.event
-    async def ptz_home(self, source_id: str) -> None:
+    async def ptz_home(self, source_id: str) -> Any:
         """Kopf fährt in die Ausgangsposition (mittlere Taste)."""
         self.ptz_held = ""
         try:
             await ptz_driver.home(source_id)
         except (PTZError, ValueError) as e:
             logger.warning("PTZ home failed for %s: %s", source_id, e)
-            self.vision_preview_status = f"⚠️ PTZ: {e}"
+            return toast("warning", f"PTZ: {e}")
 
     @rx.event
     def refresh_vision_preview(self) -> None:
