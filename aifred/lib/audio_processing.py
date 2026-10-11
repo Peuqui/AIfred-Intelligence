@@ -770,9 +770,10 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
                 # Period needs more careful checking
                 is_abbreviation = False
 
-                # Check against known abbreviations
+                # Check against known abbreviations. The abbreviation must start a word:
+                # "Haus." ends in "s.", "noch." in "ch." without being abbreviations.
                 for abbr in ABBREVIATIONS:
-                    if before.endswith(abbr):
+                    if before.endswith(abbr) and (len(before) == len(abbr) or not before[-len(abbr) - 1].isalnum()):
                         is_abbreviation = True
                         break
 
