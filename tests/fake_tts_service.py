@@ -25,11 +25,17 @@ def frame(header: dict[str, Any], body: bytes = b"") -> bytes:
 
 
 def audio_frame(data: bytes, engine: str = "xtts", media_type: str = "audio/wav") -> bytes:
-    return frame({"kind": "audio", "media_type": media_type, "engine": engine, "keepalive": False}, data)
+    header = {"kind": "audio", "media_type": media_type, "engine": engine, "keepalive": False, "pause_ms": 0}
+    return frame(header, data)
 
 
 def keepalive_frame(engine: str = "xtts") -> bytes:
-    return frame({"kind": "audio", "media_type": "", "engine": engine, "keepalive": True})
+    return frame({"kind": "audio", "media_type": "", "engine": engine, "keepalive": True, "pause_ms": 0})
+
+
+def pause_frame(pause_ms: int) -> bytes:
+    """The pause marker the service delivers at a paragraph border."""
+    return frame({"kind": "audio", "media_type": "", "engine": "", "keepalive": False, "pause_ms": pause_ms})
 
 
 def summary_frame(trace: list[dict[str, Any]] | None = None, switch: str | None = None) -> bytes:
@@ -66,6 +72,8 @@ class FakeTTSService:
         self.voices = voices if voices is not None else [{"name": "Alice", "label": "Alice"}]
         self.script: list[bytes | int] = []
         self.speaks: list[dict[str, Any]] = []
+        self.releases: list[Any] = []  # the "targets" of each POST /release
+        self.release_outcome = "stopped"  # what every released target answers
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -82,6 +90,14 @@ class FakeTTSService:
                 body = {"error": "no_engine", "detail": "no TTS entry can speak", "trace": []}
                 return httpx.Response(step, json=body)
             return httpx.Response(200, headers={"content-type": tts_client.FRAMES_MEDIA_TYPE}, content=_in_pieces(step))
+        if path == "/release":
+            targets = json.loads(request.content)["targets"]
+            self.releases.append(targets)
+            if targets == "all":
+                targets = [
+                    {"engine": row["engine"], "host": row["host"]} for row in self.catalog if row["status"] == "running"
+                ]
+            return httpx.Response(200, json=[{**t, "outcome": self.release_outcome, "detail": ""} for t in targets])
         return httpx.Response(404)
 
 

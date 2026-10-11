@@ -65,7 +65,7 @@ def test_announce_leaves_the_tones_to_the_plugin_setting(client: TestClient) -> 
     # no tone flags from the caller: the Echo plugin's setting decides
     assert metadata == {
         "audio_type": "notification", "proactive": True,
-        "paragraphs": ["Hallo"], "pause_ms": announce.ANNOUNCE_PAUSE_MS,
+        "paragraphs": ["Hallo"], "paragraph_pause_ms": announce.ANNOUNCE_PAUSE_MS,
     }
 
 
@@ -77,7 +77,7 @@ def test_several_paragraphs_are_one_announcement(client: TestClient) -> None:
     assert text == "Erster Absatz. Zweiter Absatz."
     # one stream: the paragraphs travel together, tones are not the caller's business
     assert metadata["paragraphs"] == ["Erster Absatz.", "Zweiter Absatz."]
-    assert metadata["pause_ms"] == 700
+    assert metadata["paragraph_pause_ms"] == 700  # reaches the speech request as paragraph_pause_ms
     assert "start_tone" not in metadata and "end_tone" not in metadata
 
 

@@ -6,7 +6,14 @@ from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-from fake_tts_service import FakeTTSService, audio_frame, catalog_row, install_fake_service, summary_frame
+from fake_tts_service import (
+    FakeTTSService,
+    audio_frame,
+    catalog_row,
+    install_fake_service,
+    pause_frame,
+    summary_frame,
+)
 
 from aifred.lib import speech_synthesis
 from aifred.lib.audio_channels._audio_orchestrator import silence_pcm
@@ -73,16 +80,22 @@ class TestEchoReply:
         orc.play_tts.assert_awaited_once()
         assert bytes(orc.played) == b"\x01" * 4 + b"\x02" * 4
 
-    def test_paragraphs_of_an_announcement_are_one_text_with_the_pause_between_paragraph_segments(self, echo):
-        fake, settings, orc = echo
-        settings["tts_toggles_per_engine"] = {"xtts": {"unit": "paragraph"}}
-        fake.script = [audio_frame(b"\x01" * 4) + audio_frame(b"\x02" * 4) + summary_frame()]
+    def test_paragraphs_of_an_announcement_are_one_text_and_the_pause_marker_becomes_silence(self, echo):
+        fake, _, orc = echo
+        fake.script = [audio_frame(b"\x01" * 4) + pause_frame(800) + audio_frame(b"\x02" * 4) + summary_frame()]
         run(FreeEchoChannel().send_reply(
-            reply("", paragraphs=["Absatz eins.", "Absatz zwei."], pause_ms=800), user_turn(),
+            reply("", paragraphs=["Absatz eins.", "Absatz zwei."], paragraph_pause_ms=800), user_turn(),
         ))
         assert len(fake.speaks) == 1                         # ONE reading, not one per paragraph
         assert fake.speaks[0]["text"] == "Absatz eins.\n\nAbsatz zwei."
+        assert fake.speaks[0]["paragraph_pause_ms"] == 800   # the wish goes to the service, which marks the border
         assert bytes(orc.played) == b"\x01" * 4 + silence_pcm(800) + b"\x02" * 4
+
+    def test_a_plain_reply_asks_for_no_pause(self, echo):
+        fake, _, _ = echo
+        fake.script = [audio_frame(b"\x01") + summary_frame()]
+        run(FreeEchoChannel().send_reply(reply("Text hier."), user_turn()))
+        assert fake.speaks[0]["paragraph_pause_ms"] == 0
 
     def test_the_agent_of_the_inbound_message_speaks(self, echo):
         fake, settings, _ = echo

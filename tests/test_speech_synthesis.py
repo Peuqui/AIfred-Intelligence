@@ -13,6 +13,7 @@ from fake_tts_service import (
     error_frame,
     install_fake_service,
     keepalive_frame,
+    pause_frame,
     summary_frame,
 )
 
@@ -97,13 +98,23 @@ class TestSegmentsToBuffer:
 
 
 class TestParagraphPauses:
-    def test_paragraph_unit_puts_silence_before_each_segment_but_the_first(self, service):
-        service.settings["tts_toggles_per_engine"] = {"xtts": {"unit": "paragraph"}}
-        service.script = [audio_frame(b"\x01" * 4) + audio_frame(b"\x02" * 4) + audio_frame(b"\x03" * 4) + summary_frame()]
+    def test_a_pause_marker_becomes_silence_in_the_order_the_service_delivers_it(self, service):
+        service.script = [
+            audio_frame(b"\x01" * 4) + pause_frame(500) + audio_frame(b"\x02" * 4) + keepalive_frame()
+            + pause_frame(300) + audio_frame(b"\x03" * 4) + summary_frame(),
+        ]
         buffer = start(["Absatz eins.", "Absatz zwei.", "Absatz drei."], pause_ms=500)
-        assert drain(buffer) == b"\x01" * 4 + silence_pcm(500) + b"\x02" * 4 + silence_pcm(500) + b"\x03" * 4
+        assert drain(buffer) == (
+            b"\x01" * 4 + silence_pcm(500) + b"\x02" * 4 + KEEPALIVE_SILENCE + silence_pcm(300) + b"\x03" * 4
+        )
 
-    def test_other_units_get_no_silence_from_aifred(self, service):
+    def test_the_pause_the_caller_wants_goes_into_the_request_whatever_the_unit(self, service):
+        service.settings["tts_toggles_per_engine"] = {"xtts": {"unit": "whole"}}
+        service.script = [audio_frame(b"\x01" * 4) + summary_frame()]
+        start(["Absatz eins.", "Absatz zwei."], pause_ms=500)
+        assert service.speaks[0]["paragraph_pause_ms"] == 500
+
+    def test_without_a_marker_aifred_adds_no_silence(self, service):
         service.script = [audio_frame(b"\x01" * 4) + audio_frame(b"\x02" * 4) + summary_frame()]
         assert drain(start(["Absatz eins.", "Absatz zwei."], pause_ms=500)) == b"\x01" * 4 + b"\x02" * 4
 

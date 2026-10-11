@@ -17,8 +17,15 @@ from dataclasses import dataclass
 from typing import Generator
 
 from .logging_utils import log_message
+from .tts_client import TTSSuiteError
 from .tts_engine_manager import TTS_HEALTH_CHECK_TIMEOUT
-from .tts_service import active_local_gpu_keys, engine_label_short, gpu_engine_keys
+from .tts_service import (
+    TTSVramUnknown,
+    active_local_gpu_keys,
+    engine_label_short,
+    gpu_engine_keys,
+    release_gpu_engines,
+)
 
 
 def _label(engine_key: str) -> str:
@@ -63,6 +70,7 @@ def _is_llm_loaded(backend_type: str) -> bool:
         return False
     try:
         import requests
+
         from .config import DEFAULT_LLAMACPP_URL
         base_url = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
         r = requests.get(f"{base_url}/running", timeout=TTS_HEALTH_CHECK_TIMEOUT)
@@ -87,6 +95,7 @@ def _llm_already_on_tts_variant(new_engine: str, backend_type: str) -> bool:
         return False
     try:
         import requests
+
         from .config import DEFAULT_LLAMACPP_URL
         base_url = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
         r = requests.get(f"{base_url}/running", timeout=TTS_HEALTH_CHECK_TIMEOUT)
@@ -130,18 +139,29 @@ def ensure_tts_state(
         yield f"LLM already on the {_label(wanted_tts)} profile"
         return TTSState(success=True)
 
-    yield from _switch_llm_profile(backend_type)
+    yield from _switch_llm_profile(backend_type, wanted_tts)
     return TTSState(success=True, changed=True)
 
 
-def _switch_llm_profile(backend_type: str) -> Generator[str, None, None]:
-    """Unload the LLM if one is loaded, restart the LLM backend so it picks up the TTS-calibrated profile."""
+def _switch_llm_profile(backend_type: str, wanted_tts: str) -> Generator[str, None, None]:
+    """Unload the LLM if one is loaded, ask the TTS service to release the OTHER local GPU engines
+    (the new profile reserves room for ``wanted_tts`` only), restart the LLM backend so it picks up
+    the TTS-calibrated profile. A release the service refuses or cannot do is logged by
+    ``release_gpu_engines`` and reported here; the switch goes on."""
     from .process_utils import unload_llm_models
 
     if _is_llm_loaded(backend_type):
         actions = unload_llm_models(backend_type)
         if actions:
             yield f"LLM unloaded: {', '.join(actions)}"
+    try:
+        released = release_gpu_engines(None, reason=f"the {_label(wanted_tts)} profile", keep=[wanted_tts])
+    except (TTSSuiteError, TTSVramUnknown) as error:
+        yield f"⚠️ TTS release failed: {error}"
+    else:
+        for result in released:
+            if result.outcome == "in_use":
+                yield f"⚠️ {_label(result.engine)}: TTS in use, release refused"
     restart_llm_backend(backend_type)
     model_info = get_effective_model_info(backend_type)
     if model_info:

@@ -490,6 +490,36 @@ class OpenAICompatibleBackend(LLMBackend):
         log_message(f"✅ '{model}' loaded in {load_s:.1f}s")
         return load_s
 
+    @staticmethod
+    def _release_tts_for_load(model: str) -> None:
+        """Ask the TTS service to release local TTS containers that sit on a card ``model`` will use.
+
+        The calibrated split counts those cards as free; only a ``-tts-<engine>`` profile
+        reserves room — for that engine, which stays. AIfred stops no container itself: the
+        service decides (a container a reading holds is refused, and logged as such by
+        ``release_gpu_engines``). The load goes on either way, as with too little room;
+        an unreachable service is logged, not repeated."""
+        from ..lib.calibration import parse_llamaswap_config
+        from ..lib.calibration.gpu import gpu_uuids_by_index
+        from ..lib.calibration.llamaswap_io import entry_gpu_uuids
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.logging_utils import log_message
+        from ..lib.tts_client import TTSSuiteError
+        from ..lib.tts_service import TTSVramUnknown, gpu_engine_keys, release_gpu_engines
+
+        try:
+            target = entry_gpu_uuids(
+                parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)[model]["env"], gpu_uuids_by_index(),
+            )
+        except (KeyError, ValueError):
+            target = None  # unknown cards: every TTS container is in the way
+        try:
+            release_gpu_engines(
+                target, reason=f"loading '{model}'", keep=[key for key in gpu_engine_keys() if f"-tts-{key}" in model],
+            )
+        except (TTSSuiteError, TTSVramUnknown) as error:
+            log_message(f"⚠️ TTS release before loading '{model}' failed: {type(error).__name__}: {error}", "warning")
+
     async def _free_gpus_for_load(self, model: str, running: List[str]) -> None:
         """Clear the cards before llama-swap loads ``model``.
 
@@ -502,9 +532,11 @@ class OpenAICompatibleBackend(LLMBackend):
           (otherwise transcription falls back to the CPU), so it can sit on
           a card an unloaded model will need again. Released first; a
           running transcription gets WHISPER_RELEASE_WAIT_MAX_S.
-        * TTS containers are NOT touched: AIfred stops no container. The TTS
-          service unloads its engines itself (idle shutdown, card rules); a
-          model that wants a card a TTS container still holds can fail to start.
+        * TTS containers the escalation list started into free VRAM: AIfred asks
+          the TTS service to release those on a card the target entry uses (main
+          model ranks above TTS) — except the engine a ``-tts-<engine>`` profile
+          reserves room for. The service decides; a refusal (reading in progress)
+          is logged and the load goes on.
         * Sidecars: the llama-swap ``vision`` and ``embed`` groups are
           ``persistent`` — llama-swap never unloads their ``-visiond``
           describers and ``-embed`` servers for a main model (only their
@@ -532,6 +564,7 @@ class OpenAICompatibleBackend(LLMBackend):
             async with httpx.AsyncClient(timeout=5.0) as client:
                 if await asyncio.to_thread(release_whisper_gpu):
                     log_message(f"🎤 Whisper GPU worker released before loading '{model}'")
+                await asyncio.to_thread(self._release_tts_for_load, model)
                 if "-vlm-" in model or is_visiond_profile(model) or model.endswith("-embed"):
                     return
                 sidecars = [m for m in running if is_visiond_profile(m) or m.endswith("-embed")]

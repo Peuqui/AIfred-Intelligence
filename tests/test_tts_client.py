@@ -49,7 +49,12 @@ def frame(header: dict[str, Any], body: bytes = b"") -> bytes:
 
 
 def audio(data: bytes, engine: str = "xtts@mini", keepalive: bool = False) -> bytes:
-    return frame({"kind": "audio", "media_type": "audio/wav", "engine": engine, "keepalive": keepalive}, data)
+    header = {"kind": "audio", "media_type": "audio/wav", "engine": engine, "keepalive": keepalive, "pause_ms": 0}
+    return frame(header, data)
+
+
+def pause(pause_ms: int) -> bytes:
+    return frame({"kind": "audio", "media_type": "", "engine": "", "keepalive": False, "pause_ms": pause_ms})
 
 
 def summary(trace: list[dict[str, Any]] | None = None, switch: str | None = None) -> bytes:
@@ -78,6 +83,7 @@ LIST = [EngineRef("xtts", "sentence", None)]
 
 async def collect(client: TTSClient, **kwargs: Any) -> tuple[list[tts_client.Segment], tts_client.SpeakSummary]:
     kwargs.setdefault("engines", LIST)
+    kwargs.setdefault("paragraph_pause_ms", 0)
     stream = await client.speak("Hallo", language="de", **kwargs)
     segments = [segment async for segment in stream]
     return segments, stream.summary
@@ -133,6 +139,7 @@ def test_speak_sends_head_as_json() -> None:
     assert seen["run"] == "r1"
     assert seen["wait"] is False
     assert seen["authorization"] is None  # AIfred sends no token
+    assert seen["paragraph_pause_ms"] == 0
 
 
 def test_speak_sends_the_list_as_given_without_checking_it() -> None:
@@ -146,6 +153,28 @@ def test_speak_sends_the_list_as_given_without_checking_it() -> None:
     assert seen["engines"] == []  # the service refuses an empty list (422), the client does not second-guess
 
 
+def test_the_paragraph_pause_of_a_reading_is_required_and_sent() -> None:
+    with pytest.raises(TypeError):
+        asyncio.run(make_client(lambda _: frames_response(summary())).speak("Hallo", language="de", engines=LIST))  # type: ignore[call-arg]
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return frames_response(summary())
+
+    asyncio.run(collect(make_client(handler), paragraph_pause_ms=750))
+    assert seen["paragraph_pause_ms"] == 750
+
+
+def test_a_pause_marker_is_a_segment_with_pause_ms_in_speaking_order() -> None:
+    data = audio(b"one") + pause(500) + audio(b"", keepalive=True) + audio(b"two") + summary()
+    segments, _ = asyncio.run(collect(make_client(lambda _: frames_response(data))))
+    assert [(s.audio, s.keepalive, s.pause_ms) for s in segments] == [
+        (b"one", False, 0), (b"", False, 500), (b"", True, 0), (b"two", False, 0),
+    ]
+    assert segments[1].media_type == "" and segments[1].engine == ""
+
+
 def test_the_list_of_a_reading_is_required() -> None:
     with pytest.raises(TypeError):
         asyncio.run(make_client(lambda _: frames_response(summary())).speak("Hallo", language="de"))  # type: ignore[call-arg]
@@ -157,7 +186,7 @@ def test_error_frame_after_first_frame_raises_while_iterating() -> None:
     received: list[bytes] = []
 
     async def run_collecting() -> None:
-        stream = await make_client(lambda _: frames_response(data)).speak("Hallo", language="de", engines=LIST)
+        stream = await make_client(lambda _: frames_response(data)).speak("Hallo", language="de", engines=LIST, paragraph_pause_ms=0)
         async for segment in stream:
             received.append(segment.audio)
 
@@ -179,7 +208,7 @@ def test_stream_cut_in_the_middle_of_a_frame_is_an_error() -> None:
 
 def test_summary_before_end_is_not_available() -> None:
     async def run() -> None:
-        stream = await make_client(lambda _: frames_response(audio(b"x") + summary())).speak("Hallo", language="de", engines=LIST)
+        stream = await make_client(lambda _: frames_response(audio(b"x") + summary())).speak("Hallo", language="de", engines=LIST, paragraph_pause_ms=0)
         _ = stream.summary
         await stream.aclose()
 
@@ -202,7 +231,7 @@ def test_aclose_aborts_the_reading() -> None:
         return httpx.Response(200, content=endless())
 
     async def run() -> int:
-        stream = await make_client(handler).speak("Hallo", language="de", engines=LIST)
+        stream = await make_client(handler).speak("Hallo", language="de", engines=LIST, paragraph_pause_ms=0)
         count = 0
         async for _segment in stream:
             count += 1
@@ -328,6 +357,52 @@ def test_read_calls_are_get_requests_without_token() -> None:
     client.engines()
     client.voices()
     assert seen == [("GET", "/engines", None), ("GET", "/voices", None)]
+
+
+def test_release_all_sends_the_word_all_and_decodes_the_results() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"], seen["body"] = request.url.path, json.loads(request.content)
+        seen["authorization"] = request.headers.get("authorization")
+        return httpx.Response(200, json=[
+            {"engine": "xtts", "host": None, "outcome": "stopped", "detail": ""},
+            {"engine": "fish", "host": "Aragon", "outcome": "in_use", "detail": "a reading holds it"},
+        ])
+
+    results = make_client(handler).release("all")
+    assert seen == {"path": "/release", "body": {"targets": "all"}, "authorization": None}
+    assert results == [
+        tts_client.ReleaseResult("xtts", None, "stopped", ""),
+        tts_client.ReleaseResult("fish", "Aragon", "in_use", "a reading holds it"),
+    ]
+
+
+def test_release_sends_the_given_targets() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return httpx.Response(200, json=[])
+
+    make_client(handler).release([tts_client.EngineTarget("xtts", None), tts_client.EngineTarget("fish", "Aragon")])
+    assert seen == {"targets": [{"engine": "xtts", "host": None}, {"engine": "fish", "host": "Aragon"}]}
+
+
+def test_release_maps_a_refused_request_to_the_error_table() -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "unknown_engine", "detail": "no engine 'nope'"})
+
+    with pytest.raises(UnknownEngine, match="nope"):
+        make_client(handler).release([tts_client.EngineTarget("nope", None)])
+
+
+def test_release_without_a_service_is_unreachable() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("refused", request=request)
+
+    with pytest.raises(TTSSuiteUnreachable, match="/release"):
+        make_client(handler).release("all")
 
 
 def test_engines_and_voices_are_decoded() -> None:
@@ -466,7 +541,7 @@ def test_stream_segments_arrive_before_finish() -> None:
 
     async def run() -> tuple[list[tts_client.Segment], tts_client.SpeakSummary]:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="de", voice="Alice", engines=[EngineRef("edge", "sentence", None)], voices={"edge": {"voice": "x"}}, run="r1", wait=False)
+            stream = await client.open_stream(language="de", voice="Alice", engines=[EngineRef("edge", "sentence", None)], paragraph_pause_ms=300, voices={"edge": {"voice": "x"}}, run="r1", wait=False)
             assert isinstance(stream, TextStream)
             await stream.feed("Hallo ")
             segments: list[tts_client.Segment] = []
@@ -504,7 +579,7 @@ def test_stream_sends_no_authorization_header() -> None:
 
     async def run() -> None:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="de", engines=LIST)
+            stream = await client.open_stream(language="de", engines=LIST, paragraph_pause_ms=0)
             assert [s async for s in stream] == []
 
     asyncio.run(run())
@@ -519,7 +594,7 @@ def test_error_frame_before_first_segment() -> None:
 
     async def run() -> None:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="fr", engines=LIST)
+            stream = await client.open_stream(language="fr", engines=LIST, paragraph_pause_ms=0)
             async for _ in stream:
                 pass
 
@@ -535,7 +610,7 @@ def test_feed_after_refusal_raises_the_refusal() -> None:
 
     async def run() -> None:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="fr", engines=LIST)
+            stream = await client.open_stream(language="fr", engines=LIST, paragraph_pause_ms=0)
             await asyncio.sleep(0.2)
             await stream.feed("Bonjour")
 
@@ -554,7 +629,7 @@ def test_error_frame_after_first_segment() -> None:
 
     async def run() -> None:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="de", engines=LIST)
+            stream = await client.open_stream(language="de", engines=LIST, paragraph_pause_ms=0)
             async for segment in stream:
                 received.append(segment.audio)
 
@@ -571,7 +646,7 @@ def test_stream_without_summary_is_broken() -> None:
 
     async def run() -> None:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="de", engines=LIST)
+            stream = await client.open_stream(language="de", engines=LIST, paragraph_pause_ms=0)
             async for _ in stream:
                 pass
 
@@ -586,7 +661,7 @@ def test_summary_before_end_is_not_available_on_text_stream() -> None:
 
     async def run() -> None:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="de", engines=LIST)
+            stream = await client.open_stream(language="de", engines=LIST, paragraph_pause_ms=0)
             try:
                 _ = stream.summary
             finally:
@@ -607,7 +682,7 @@ def test_aclose_aborts_the_stream() -> None:
 
     async def run() -> None:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="de", engines=LIST)
+            stream = await client.open_stream(language="de", engines=LIST, paragraph_pause_ms=0)
             iterator = stream.__aiter__()
             assert (await anext(iterator)).audio == b"x"
             await stream.aclose()
@@ -620,7 +695,7 @@ def test_refused_connection_is_unreachable() -> None:
     async def run() -> None:
         async with fake_service(lambda socket: socket.close()) as client:
             pass
-        await client.open_stream(language="de", engines=LIST)  # the server is gone: nobody listens on the port
+        await client.open_stream(language="de", engines=LIST, paragraph_pause_ms=0)  # the server is gone: nobody listens on the port
 
     with pytest.raises(TTSSuiteUnreachable):
         asyncio.run(run())

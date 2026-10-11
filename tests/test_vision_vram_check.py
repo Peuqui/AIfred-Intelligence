@@ -4,7 +4,7 @@ import pytest
 
 from aifred.lib import vision_vram_check, vlm_vram_cache
 from aifred.lib.calibration import llamaswap_io
-from aifred.lib import nvidia_smi, vision_routing
+from aifred.lib import nvidia_smi, tts_service, vision_routing
 
 PROFILE = "Qwen3VL-4B-Instruct-Q8_0-visiond"
 PINNED = "GPU-aaaa"
@@ -27,6 +27,7 @@ def setup(monkeypatch):
             ],
         )
         monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: loaded or [])
+        monkeypatch.setattr(tts_service, "running_gpu_footprint", lambda: {})
     return configure
 
 

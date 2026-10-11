@@ -6,12 +6,15 @@ service on demand. The client knows only the HTTP interface of the service
 (``docs/INTERFACE.md`` in the TTS-Suite repo); what AIfred builds on top of it (voices of
 agents, LLM tuning) lives with the callers.
 
-AIfred only reads and speaks: the client has no call that writes to the service (no
+AIfred only reads, speaks and asks: the client has no call that writes to the service (no
 configuration, no start or stop of an engine, no voice sync, no token). Hosts, defaults and
 the life of the engine containers are set in the service's own web interface; the service
-starts and stops the containers itself when a request reaches it.
+starts and stops the containers itself when a request reaches it. The one request that is
+not a reading is ``release``: AIfred ASKS the service to take containers off the cards (to
+make room for a language model); the service decides per target and never stops a container
+a reading holds.
 
-Read calls (``engines``, ``voices``) and ``ensure_ready`` are
+Read calls (``engines``, ``voices``), ``release`` and ``ensure_ready`` are
 synchronous (short calls, usable from threads and plain code; async callers wrap them in
 ``asyncio.to_thread``). Only ``speak`` and ``open_stream`` are async. A fresh ``httpx``
 client is used per request (cheap on localhost), so the client holds no connection that is
@@ -29,7 +32,7 @@ import subprocess
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from time import monotonic, sleep
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from websockets.asyncio.client import ClientConnection, connect
@@ -38,6 +41,7 @@ from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidSta
 from .config import (
     TTS_SUITE_CONNECT_TIMEOUT_S,
     TTS_SUITE_CONTROL_TIMEOUT_S,
+    TTS_SUITE_RELEASE_TIMEOUT_S,
     TTS_SUITE_SERVICE_UNIT,
     TTS_SUITE_START_POLL_S,
     TTS_SUITE_START_TIMEOUT_S,
@@ -244,13 +248,36 @@ class VoiceInfo:
 
 
 @dataclass(frozen=True)
+class EngineTarget:
+    """One catalog row AIfred asks the service to release. ``host=None`` is the explicit value
+    "this machine"."""
+
+    engine: str
+    host: str | None
+
+
+@dataclass(frozen=True)
+class ReleaseResult:
+    """What the service did for one target of a release request. ``outcome``: ``stopped`` (container
+    taken down, VRAM free), ``not_running`` (nothing to release), ``in_use`` (a reading holds it, left
+    alone), ``unreachable`` (the host does not answer), ``failed`` (``detail`` says why)."""
+
+    engine: str
+    host: str | None
+    outcome: str
+    detail: str
+
+
+@dataclass(frozen=True)
 class Segment:
-    """One piece of audio; a keep-alive marker has empty ``audio``."""
+    """One piece of audio, or a marker with empty ``audio``: a keep-alive marker
+    (``keepalive``) or a pause marker (``pause_ms`` > 0: the caller makes that much silence)."""
 
     audio: bytes
     media_type: str
     engine: str
     keepalive: bool
+    pause_ms: int
 
 
 @dataclass(frozen=True)
@@ -327,7 +354,7 @@ class _FrameStream:
     def _handle_frame(self, header: dict[str, Any], body: bytes) -> Segment | None:
         kind = header["kind"]
         if kind == "audio":
-            return Segment(body, header["media_type"], header["engine"], header["keepalive"])
+            return Segment(body, header["media_type"], header["engine"], header["keepalive"], header["pause_ms"])
         if kind == "summary":
             data = json.loads(body)
             self._summary = SpeakSummary(_trace_from_json(data["trace"]), data["switch"])
@@ -340,7 +367,8 @@ class _FrameStream:
 class SpeechStream(_FrameStream):
     """The answer of ``speak``: iterate the segments, read ``summary`` afterwards.
 
-    Keep-alive markers are passed on (``segment.keepalive``); the caller drops them.
+    Keep-alive markers (``segment.keepalive``) and pause markers (``segment.pause_ms`` > 0) are
+    passed on; the caller decides what they mean for its output.
     ``await aclose()`` aborts the reading and closes the HTTP answer.
     """
 
@@ -539,6 +567,30 @@ class TTSClient:
         params = {"engine": engine} if engine else None
         return [VoiceInfo(**item) for item in self._get("/voices", params)]
 
+    # ---- release ----
+
+    def release(self, targets: Sequence[EngineTarget] | Literal["all"]) -> list[ReleaseResult]:
+        """Ask the service to take containers off the cards: ``"all"`` or the given catalog rows.
+
+        The service decides per target (see ``ReleaseResult``); a refusal of one target
+        (``in_use``, ``failed``, ...) is a result, not an error. Results come in the order of the
+        targets. Blocking (the service stops containers): call in a thread from async code.
+
+        Raises:
+            InvalidRequest, UnknownEngine, UnknownHost: the whole request was refused (checked
+                before the first stop).
+            TTSSuiteUnreachable: the service does not answer.
+        """
+        wanted = targets if isinstance(targets, str) else [asdict(target) for target in targets]
+        try:
+            with self._sync_http(TTS_SUITE_RELEASE_TIMEOUT_S) as http:
+                response = http.post("/release", json={"targets": wanted})
+        except httpx.TransportError as error:
+            raise TTSSuiteUnreachable(f"TTS service not reachable on /release: {error!r}") from error
+        if response.is_error:
+            raise _error_from_response(response)
+        return [ReleaseResult(**item) for item in response.json()]
+
     # ---- speak ----
 
     async def speak(
@@ -550,6 +602,7 @@ class TTSClient:
         speed: float | None = None,
         pitch: float | None = None,
         engines: Sequence[EngineRef],
+        paragraph_pause_ms: int,
         voices: Mapping[str, Mapping[str, Any]] | None = None,
         run: str | None = None,
         wait: bool = True,
@@ -562,8 +615,12 @@ class TTSClient:
         reading that cannot start raises here (``NoEngineAvailable``, ``EngineStarting``, ...);
         a cold start of an engine is waited for. Failures after the first frame surface
         while iterating.
+
+        ``paragraph_pause_ms`` (required; 0 = no pause) is the silence the caller wants between
+        two paragraphs: the service does not make it, it delivers a pause marker
+        (``Segment.pause_ms``) at each paragraph border.
         """
-        head = _speak_head(language, voice, speed, pitch, engines, voices, run, wait)
+        head = _speak_head(language, voice, speed, pitch, engines, paragraph_pause_ms, voices, run, wait)
         head["text"] = text
         http = self._async_http(TTS_SUITE_STREAM_READ_TIMEOUT_S)
         try:
@@ -588,6 +645,7 @@ class TTSClient:
         speed: float | None = None,
         pitch: float | None = None,
         engines: Sequence[EngineRef],
+        paragraph_pause_ms: int,
         voices: Mapping[str, Mapping[str, Any]] | None = None,
         run: str | None = None,
         wait: bool = True,
@@ -598,7 +656,7 @@ class TTSClient:
         that cannot start (``UnsupportedLanguage``, ``NoEngineAvailable``, ...) as an error frame,
         which is raised while iterating or by the next ``feed``.
         """
-        head = {"type": "start", **_speak_head(language, voice, speed, pitch, engines, voices, run, wait)}
+        head = {"type": "start", **_speak_head(language, voice, speed, pitch, engines, paragraph_pause_ms, voices, run, wait)}
         try:
             connection = await connect(
                 _stream_url(self.base_url),
@@ -626,6 +684,7 @@ def _speak_head(
     speed: float | None,
     pitch: float | None,
     engines: Sequence[EngineRef],
+    paragraph_pause_ms: int,
     voices: Mapping[str, Mapping[str, Any]] | None,
     run: str | None,
     wait: bool,
@@ -637,6 +696,7 @@ def _speak_head(
         "speed": speed,
         "pitch": pitch,
         "engines": [asdict(ref) for ref in engines],
+        "paragraph_pause_ms": paragraph_pause_ms,
         "voices": dict(voices) if voices else {},
         "run": run,
         "wait": wait,
