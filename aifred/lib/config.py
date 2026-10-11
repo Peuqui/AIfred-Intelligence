@@ -1190,7 +1190,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
 
     from .agent_settings import get_persisted_tuning
     from .calibration import parse_llamaswap_config, resolve_effective_suffix
-    from .tts_escalation import planned_tts_engine
+    from .tts_llm_coordination import planned_tts_engine
 
     swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
     has_speed_variant = f"{base_id}-speed" in swap_cfg
@@ -1202,7 +1202,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
         speed_on=get_persisted_tuning(settings, speed_agent, "speed_mode", False),
         has_speed_variant=has_speed_variant,
         tts_active=settings.get("enable_tts", False),
-        tts_engine=planned_tts_engine(base_id),
+        tts_engine=planned_tts_engine(base_id) if settings.get("enable_tts", False) else "",
     )
     return str(base_id + suffix)
 
@@ -1231,13 +1231,22 @@ TTS_SUITE_CONNECT_TIMEOUT_S = 5       # service not reachable -> fail fast
 # Longest silence tolerated on a reading: a cold start of an engine container takes up
 # to 240 s before the first frame; afterwards keep-alive markers arrive every few seconds.
 TTS_SUITE_STREAM_READ_TIMEOUT_S = 240
-TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices, start/stop, reload, voice sync
+TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices, stop, reload, voice sync
+# ``POST /engines/{engine}/start`` answers when the engine serves: the slowest cold start
+# (model load) takes 240 s, plus margin.
+TTS_SUITE_ENGINE_START_TIMEOUT_S = 300
 # On-demand start of the service (user unit): name of the unit, how long to wait for /health
 # afterwards, how often to ask meanwhile, and the limit for the ``systemctl`` call itself.
 TTS_SUITE_SERVICE_UNIT = "tts-suite.service"
 TTS_SUITE_START_TIMEOUT_S = 60
 TTS_SUITE_START_POLL_S = 1
 TTS_SUITE_SYSTEMCTL_TIMEOUT_S = 30
+# How long the adapter (tts_service.py) reuses the service's answer for ``GET /engines``.
+# Computed UI variables and planning calls ask many times within one render or one model
+# resolution; 2 s collapses such bursts into one request, yet a change made by hand
+# (container stopped, entry switched) shows within the next refresh. Status-critical
+# callers (running engine, VRAM footprint) bypass the cache; writing calls clear it.
+TTS_SUITE_CACHE_TTL_S = 2.0
 
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)
 WHISPER_SERVICE_URL = "http://localhost:5080"

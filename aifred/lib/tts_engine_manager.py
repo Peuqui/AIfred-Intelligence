@@ -151,47 +151,6 @@ async def tts_keepalive_loop(
                     on_warn(f"TTS keep-alive ping for {engine} failed: {exc}")
 
 
-def _container_host_pids(compose_file: str) -> set[str]:
-    """Host PIDs of the processes inside a compose project's container(s)."""
-    import subprocess
-
-    ids = subprocess.run(
-        ["docker", "compose", "-f", compose_file, "ps", "-q"],
-        capture_output=True, text=True, timeout=10, check=False,
-    ).stdout.split()
-    pids: set[str] = set()
-    for container_id in ids:
-        top = subprocess.run(
-            ["docker", "top", container_id, "-eo", "pid"],
-            capture_output=True, text=True, timeout=10, check=False,
-        ).stdout.split()
-        pids.update(pid for pid in top[1:] if pid.isdigit())
-    return pids
-
-
-def local_tts_gpu_footprint() -> dict[str, dict[str, int]]:
-    """VRAM (MiB) of the running local GPU TTS containers:
-    ``{engine_key: {gpu_uuid: MiB}}``. nvidia-smi reports host PIDs, docker
-    top lists the container's host PIDs — their intersection is exactly the
-    TTS container, not the LLM or the Whisper worker next to it."""
-    from .nvidia_smi import compute_apps
-    from .tts_engines import gpu_engines
-
-    apps = compute_apps()
-    if not apps:
-        return {}
-    footprint: dict[str, dict[str, int]] = {}
-    for engine in gpu_engines():
-        if engine.docker_compose_path is None or not engine.is_running():
-            continue
-        pids = _container_host_pids(str(engine.docker_compose_path))
-        for app in apps:
-            if app["pid"] in pids:
-                per_card = footprint.setdefault(engine.key, {})
-                per_card[app["gpu_uuid"]] = per_card.get(app["gpu_uuid"], 0) + int(app["used_memory"])
-    return footprint
-
-
 def _detect_running_tts_engine(timeout: float = TTS_HEALTH_CHECK_TIMEOUT) -> str:
     """Detect which GPU TTS engine is currently running via health check.
 
@@ -213,43 +172,3 @@ def _detect_running_tts_engine(timeout: float = TTS_HEALTH_CHECK_TIMEOUT) -> str
             # the loop — try the next.
             continue
     return ""
-
-
-def stop_engine(engine: str) -> tuple[bool, str]:
-    """Stop a running TTS engine container.
-
-    Dispatches through the registry; lightweight engines are a no-op.
-    """
-    from .tts_engines import get_engine
-    eng = get_engine(engine)
-    if eng is None:
-        return True, ""  # unknown engine key — historical no-op behaviour
-    return eng.stop()
-
-
-# Engine-specific timeouts live on each TTSEngine subclass now (see
-# ensure_ready overrides in aifred/lib/tts_engines/*/engine.py). XTTS=60s,
-# MOSS=180s, Qwen3=240s as defaults.
-
-
-def ensure_engine_ready(
-    engine: str,
-    timeout: int | None = None,
-) -> tuple[bool, str, str]:
-    """Single SSOT for "start container + wait until model is loaded".
-
-    Routes through the engine registry — adding a future GPU engine
-    means adding a TTSEngine subclass with its own ``ensure_ready``,
-    no edits here.
-
-    Returns ``(success, status_message, device)``. ``device`` is the
-    string the engine container reports for its compute target ("cuda:0",
-    "cpu", …) — engines that don't expose one return "".
-    """
-    from .tts_engines import get_engine
-    eng = get_engine(engine)
-    if eng is None:
-        # Unknown / lightweight engine — nothing to start, treat as ready.
-        return True, "", ""
-
-    return eng.ensure_ready(timeout=timeout)

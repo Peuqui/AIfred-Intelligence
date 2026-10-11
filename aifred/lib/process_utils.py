@@ -283,10 +283,8 @@ def stop_all_installed_tts(keep: str = "") -> list[tuple[str, bool, str]]:
 
     SSOT for "free VRAM by stopping TTS" — used both by the LLM
     calibration cleanup and by ``unload_all_gpu_models`` during TTS
-    backend switches. Iterates ``installed_gpu_engines()`` so engines
-    whose image isn't on this host are silently skipped (no
-    misleading "stopped" log line for an engine that can't have been
-    running).
+    backend switches. Stops only engines the TTS service reports as
+    running, so none gets a misleading "stopped" log line.
 
     Args:
         keep: Engine key to leave running (e.g. ``"qwen3local"`` when
@@ -297,25 +295,13 @@ def stop_all_installed_tts(keep: str = "") -> list[tuple[str, bool, str]]:
         decide how to surface the result (debug log line, status
         message, etc.).
     """
-    from .tts_engines import installed_gpu_engines
+    from .tts_service import engine_label_short, running_gpu_engine_keys, stop_engine
     out: list[tuple[str, bool, str]] = []
-    for eng in installed_gpu_engines():
-        if keep == eng.key:
+    for key in running_gpu_engine_keys():
+        if keep == key:
             continue
-        # Only stop engines that are ACTUALLY running. `docker compose down`
-        # on a non-running project returns success (no-op) — without this
-        # guard it gets logged as "<engine> container stopped" even though
-        # nothing ran, which is a misleading false positive (and pointless
-        # work). Skip silently when the container isn't up.
-        try:
-            if not eng.is_running():
-                continue
-        except Exception:  # noqa: BLE001
-            # Health-probe failure → fall through and attempt the stop, so a
-            # genuinely-running-but-unreachable container still gets cleaned.
-            pass
-        ok, msg = eng.stop()
-        out.append((eng.label_short, ok, msg))
+        ok, msg = stop_engine(key)
+        out.append((engine_label_short(key), ok, msg))
     return out
 
 
@@ -353,21 +339,11 @@ def unload_all_gpu_models(backend_type: str = "llamacpp", keep_tts: str = "") ->
     # vLLM-Eintraege laufen unter llama-swap — deren Prozesse stoppt
     # llama-swap selbst (cmdStop: vllm-swap-stop), kein eigener Zweig.
 
-    # 2. Stop TTS containers (skip the one we want to keep + engines
-    # whose image isn't installed locally — handled centrally by
-    # ``stop_all_installed_tts``). We still need to know which engine
-    # was *running* before the stop so the action list reflects an
-    # actual change rather than a no-op.
-    from .tts_engine_manager import _detect_running_tts_engine
-    from .tts_engines import get_engine
-    running_tts = _detect_running_tts_engine()
-    for label, _ok, _msg in stop_all_installed_tts(keep=keep_tts):
-        # ``label`` is the engine's label_short; map back to key for the
-        # running-check via the registry rather than parsing the label.
-        if running_tts:
-            eng = get_engine(running_tts)
-            if eng and eng.label_short == label:
-                actions.append(f"{label} stopped")
+    # 2. Stop the running TTS containers except the one we want to keep
+    # (``stop_all_installed_tts`` reports only engines that ran).
+    for label, ok, _msg in stop_all_installed_tts(keep=keep_tts):
+        if ok:
+            actions.append(f"{label} stopped")
 
     log_message(f"GPU cleanup: {', '.join(actions) if actions else 'nothing to unload'}")
     return actions

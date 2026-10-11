@@ -159,7 +159,7 @@ def get_agent_num_ctx(
         # as _effective_model_id.
         from ..calibration import parse_llamaswap_config, resolve_effective_suffix
         from ..config import LLAMASWAP_CONFIG_PATH
-        from ..tts_escalation import planned_tts_engine
+        from ..tts_llm_coordination import planned_tts_engine
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
 
         # Resolve the variant via the SSOT — same rules as the model-id
@@ -171,7 +171,7 @@ def get_agent_num_ctx(
             speed_on=get_agent_setting(state, owner, "speed_mode", False),
             has_speed_variant=get_agent_setting(state, owner, "has_speed_variant", False),
             tts_active=bool(getattr(state, "enable_tts", False)),
-            tts_engine=planned_tts_engine(model_id),
+            tts_engine=planned_tts_engine(model_id) if getattr(state, "enable_tts", False) else "",
         )
         effective_id = model_id + suffix
 
@@ -209,18 +209,17 @@ def get_agent_num_ctx(
         # The first enabled local GPU entry of the escalation list is the TTS
         # engine expected to share the card — reserve its measured burn-in peak.
         from .. import tts_vram_cache
-        from ..tts_escalation import escalation_entries
-        engine = next(
-            (e.engine for e in escalation_entries() if e.enabled and e.host is None and e.engine.needs_gpu),
-            None,
-        )
-        peak = tts_vram_cache.get(engine.key) if engine is not None else None
-        if engine is not None and peak is not None:
+        from ..tts_service import active_local_gpu_keys, engine_label_short
+        engine_keys = active_local_gpu_keys()
+        engine_key = engine_keys[0] if engine_keys else None
+        peak = tts_vram_cache.get(engine_key) if engine_key is not None else None
+        if engine_key is not None and peak is not None:
+            engine_label = engine_label_short(engine_key)
             vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
             token_reserve = int(peak / vram_ratio)
             original_ctx = num_ctx
             num_ctx = max(2048, num_ctx - token_reserve)
-            source = f"{source} ({engine.label_short}: -{format_number(token_reserve)} tok)"
-            log_message(f"🔊 TTS: {engine.label_short} reserve | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(token_reserve)})")
+            source = f"{source} ({engine_label}: -{format_number(token_reserve)} tok)"
+            log_message(f"🔊 TTS: {engine_label} reserve | VRAM: {format_number(original_ctx)} → {format_number(num_ctx)} tok (-{format_number(token_reserve)})")
 
     return (num_ctx, source)

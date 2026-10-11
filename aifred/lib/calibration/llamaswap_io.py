@@ -818,7 +818,7 @@ def resolve_effective_suffix(
     Callsite bei der VLM-Ermittlung driftet.
     """
     from ..config import LLAMASWAP_BACKENDS
-    from ..tts_engines import gpu_engine_keys
+    from ..tts_service import gpu_engine_keys
     from ..vision_prewarm import is_vision_active, get_active_vlm_key
     if backend_type not in LLAMASWAP_BACKENDS:
         return ""
@@ -831,7 +831,8 @@ def resolve_effective_suffix(
         has_speed_variant=has_speed_variant,
         tts_active=tts_active,
         tts_engine=tts_engine,
-        gpu_tts_engines=gpu_engine_keys(),
+        # Only a TTS variant needs the set; with the spoken output off the service is not asked.
+        gpu_tts_engines=gpu_engine_keys() if tts_active else set(),
         vlm_active=vlm_active,
         vlm_key=vlm_key,
     )

@@ -658,16 +658,15 @@ class ChatMixin(rx.State, mixin=True):
         LLM ranks above TTS. Only the menu (reordering the list) switches the
         planned engine.
         """
-        from ..lib.tts_engine_manager import _detect_running_tts_engine
-        from ..lib.tts_llm_coordination import ensure_tts_state
-        from ..lib.tts_escalation import planned_tts_engine
+        from ..lib.tts_llm_coordination import ensure_tts_state, planned_tts_engine
+        from ..lib.tts_service import running_gpu_engine
 
         if not self.enable_tts:  # type: ignore[attr-defined]
             return
         wanted = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
         if not wanted:
             return
-        running = await asyncio.to_thread(_detect_running_tts_engine)
+        running = await asyncio.to_thread(running_gpu_engine)
         if running and running != wanted:
             self.add_debug(f"🔊 {running} runs (started by the escalation list) — planned {wanted} not forced")  # type: ignore[attr-defined]
             return
@@ -814,8 +813,8 @@ class ChatMixin(rx.State, mixin=True):
             try:
                 from ..lib.calibration import diagnose_uncalibrated_combo
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
-                from ..lib.tts_engines import gpu_engine_keys
-                from ..lib.tts_escalation import planned_tts_engine
+                from ..lib.tts_llm_coordination import planned_tts_engine
+                from ..lib.tts_service import gpu_engine_keys
                 from ..lib.vision_prewarm import (
                     is_vision_active,
                     get_active_vlm_key,
@@ -826,8 +825,8 @@ class ChatMixin(rx.State, mixin=True):
                     LLAMASWAP_CONFIG_PATH,
                     self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
                     tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
-                    tts_engine=planned_tts_engine(self.agent_tuning["aifred"].model_id),  # type: ignore[attr-defined]
-                    gpu_tts_engines=gpu_engine_keys(),
+                    tts_engine=planned_tts_engine(self.agent_tuning["aifred"].model_id) if self.enable_tts else "",  # type: ignore[attr-defined]
+                    gpu_tts_engines=gpu_engine_keys() if self.enable_tts else set(),  # type: ignore[attr-defined]
                     vlm_active=_vlm_active_chat,
                     vlm_key=_vlm_key_chat,
                 )
@@ -852,11 +851,11 @@ class ChatMixin(rx.State, mixin=True):
         # below) resets is_generating and releases pipeline/TTS again.
         from ..lib.pipeline_registry import register_pipeline, unregister_pipeline
         from ..lib.tts_engine_manager import (
-            _detect_running_tts_engine,
             acquire_tts,
             release_tts,
             tts_keepalive_loop,
         )
+        from ..lib.tts_service import running_gpu_engine
         from ..lib.llm_client import LLMClient
         ai_text = ""  # Used in finally block
         _pipeline_task: asyncio.Task | None = None
@@ -980,7 +979,7 @@ class ChatMixin(rx.State, mixin=True):
             # duration of the pipeline. Prevents the container from idle-out
             # during long inference or web research (analogous to FreeEcho.2 channel).
             if self.enable_tts:  # type: ignore[attr-defined]
-                _active_engine = _detect_running_tts_engine()
+                _active_engine = running_gpu_engine()
                 if _active_engine:
                     acquire_tts(_active_engine)
                     acquired_tts_engines.append(_active_engine)

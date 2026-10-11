@@ -117,7 +117,7 @@ class TestBrowserMenu:
         from aifred.lib.settings import get_default_settings
 
         monkeypatch.setattr(settings_module, "persisted_settings", lambda: {**get_default_settings(), **saved})
-        monkeypatch.setattr("aifred.lib.tts_escalation.planned_tts_engine", lambda model_id, settings=None: "")
+        monkeypatch.setattr("aifred.lib.tts_llm_coordination.planned_tts_engine", lambda model_id: "")
         from aifred.state._tts_config_mixin import TTSConfigMixin
 
         state = _FakeState()

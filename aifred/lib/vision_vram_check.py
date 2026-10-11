@@ -126,9 +126,9 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     # (Rangfolge Hauptmodell > Describer > TTS > STT): ihr VRAM zählt als frei,
     # denn das Laden gibt sie vorher frei (release_side_channels_for_describer).
     from .audio_processing import whisper_gpu_footprint
-    from .tts_engine_manager import local_tts_gpu_footprint
+    from .tts_service import local_gpu_footprint
     releasable = whisper_gpu_footprint()
-    for per_card in local_tts_gpu_footprint().values():
+    for per_card in local_gpu_footprint().values():
         for uuid, mib in per_card.items():
             releasable[uuid] = releasable.get(uuid, 0) + mib
     rows = query("index,uuid,memory.free") or []

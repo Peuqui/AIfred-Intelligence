@@ -34,6 +34,7 @@ from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidSta
 from .config import (
     TTS_SUITE_CONNECT_TIMEOUT_S,
     TTS_SUITE_CONTROL_TIMEOUT_S,
+    TTS_SUITE_ENGINE_START_TIMEOUT_S,
     TTS_SUITE_SERVICE_UNIT,
     TTS_SUITE_START_POLL_S,
     TTS_SUITE_START_TIMEOUT_S,
@@ -490,11 +491,12 @@ class TTSClient:
         needs_token: bool = False,
         params: Mapping[str, str] | None = None,
         json_body: Any = None,
+        read_timeout: float = TTS_SUITE_CONTROL_TIMEOUT_S,
     ) -> Any:
         """Control request: JSON answer (``None`` for 204); errors as TTSSuiteError."""
         headers = self._auth_headers(needs_token)
         try:
-            with self._sync_http(TTS_SUITE_CONTROL_TIMEOUT_S) as http:
+            with self._sync_http(read_timeout) as http:
                 response = http.request(method, path, params=params, json=json_body, headers=headers)
         except httpx.TransportError as error:
             raise TTSSuiteUnreachable(f"TTS service not reachable on {path}: {error!r}") from error
@@ -556,7 +558,11 @@ class TTSClient:
         return stored
 
     def start(self, engine: str, host: str | None = None) -> None:
-        self._call("POST", f"/engines/{engine}/start", needs_token=True, params=_host_params(host))
+        """Start the entry's container; the service answers when it serves (a cold start takes minutes)."""
+        self._call(
+            "POST", f"/engines/{engine}/start", needs_token=True, params=_host_params(host),
+            read_timeout=TTS_SUITE_ENGINE_START_TIMEOUT_S,
+        )
 
     def stop(self, engine: str, host: str | None = None) -> None:
         self._call("POST", f"/engines/{engine}/stop", needs_token=True, params=_host_params(host))

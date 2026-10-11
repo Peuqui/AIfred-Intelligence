@@ -502,9 +502,9 @@ class OpenAICompatibleBackend(LLMBackend):
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.logging_utils import log_message
         from ..lib.process_utils import get_tts_gpu_uuid
-        from ..lib.tts_engine_manager import local_tts_gpu_footprint, stop_engine
+        from ..lib.tts_service import local_gpu_footprint, stop_engine
 
-        footprint = local_tts_gpu_footprint()
+        footprint = local_gpu_footprint()
         if not footprint:
             return
         try:
@@ -519,8 +519,11 @@ class OpenAICompatibleBackend(LLMBackend):
             if f"-tts-{engine_key}" in model and cards == {home}:
                 continue
             if target is None or cards & target:
-                stop_engine(engine_key)
-                log_message(f"🔊 TTS container {engine_key} stopped before loading '{model}' (needs its GPU)")
+                stopped, reason = stop_engine(engine_key)
+                if stopped:
+                    log_message(f"🔊 TTS container {engine_key} stopped before loading '{model}' (needs its GPU)")
+                else:
+                    log_message(f"⚠️ TTS container {engine_key} NOT stopped before loading '{model}': {reason}")
 
     async def _free_gpus_for_load(self, model: str, running: List[str]) -> None:
         """Clear the cards before llama-swap loads ``model``.

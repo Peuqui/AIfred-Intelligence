@@ -5,7 +5,7 @@ Abstimmung zwischen Sprachmodell und Sprachausgabe: Wechselt der Browser die
 geplante TTS-Engine (die, für die das LLM-Profil VRAM reserviert), stellt
 ``ensure_tts_state`` den VRAM-Stand her, startet die Engine und das
 llama-swap-Profil mit passender ``-tts-<engine>``-Variante neu. Kanäle
-wechseln sie nie — sie sprechen über die Eskalationsliste (``tts_escalation``).
+wechseln sie nie — sie sprechen über die Liste des TTS-Dienstes (``tts_service``).
 
 Central function: ensure_tts_state(wanted_tts, backend_type)
 - It checks what's running, and adjusts if needed.
@@ -22,19 +22,45 @@ from typing import Generator
 from .logging_utils import log_message
 from .tts_engine_manager import (
     TTS_HEALTH_CHECK_TIMEOUT,
-    _detect_running_tts_engine,
-    ensure_engine_ready,
     get_tts_refcount,
     is_tts_in_use,
+)
+from .tts_service import (
+    engine_label_short,
+    gpu_engine_keys,
+    running_gpu_engine,
+    start_engine,
     stop_engine,
 )
-from .tts_engines import gpu_engine_keys
+from .tts_service import entries as tts_entries
 
 
 def _label(engine_key: str) -> str:
     """Name of a TTS engine in status lines."""
-    from .tts_engines import require_engine
-    return require_engine(engine_key).label_short
+    return engine_label_short(engine_key, "en")
+
+
+def planned_tts_engine(model_id: str) -> str:
+    """Die lokale GPU-Engine, für die das LLM-Profil ``<model>-tts-<engine>``
+    Platz freihält: der oberste aktive lokale GPU-Eintrag der Liste des TTS-Dienstes,
+    für den das Modell ein kalibriertes TTS-Profil hat. ``""``, wenn keiner passt —
+    dann lädt das Basisprofil, und lokale GPU-Einträge sprechen nur, wenn Platz frei ist.
+
+    Raises:
+        TTSSuiteUnreachable: der Dienst antwortet nicht (keine Ersatzliste).
+    """
+    from pathlib import Path
+
+    from .calibration import has_llamaswap_tts_variant
+    from .config import LLAMASWAP_CONFIG_PATH
+
+    for info in tts_entries():
+        if (
+            info.enabled and not info.deactivated and info.host is None and info.needs_gpu
+            and has_llamaswap_tts_variant(Path(LLAMASWAP_CONFIG_PATH), model_id, info.engine)
+        ):
+            return info.engine
+    return ""
 
 
 @dataclass
@@ -116,7 +142,7 @@ def ensure_tts_state(
     if wanted_tts and wanted_tts not in gpu_engine_keys():
         return TTSState(success=True)
 
-    running = _detect_running_tts_engine()
+    running = running_gpu_engine()
 
     # Case 1: Already correct
     if running == wanted_tts:
@@ -128,7 +154,7 @@ def ensure_tts_state(
     if wanted_tts:
         yield from _do_switch(wanted_tts, running, backend_type)
         # Get final state
-        final_running = _detect_running_tts_engine()
+        final_running = running_gpu_engine()
         return TTSState(
             success=final_running == wanted_tts,
             changed=True,
@@ -155,7 +181,7 @@ def ensure_tts_state(
         import time
         deadline = time.monotonic() + 10.0
         while time.monotonic() < deadline:
-            if not _detect_running_tts_engine():
+            if not running_gpu_engine():
                 break
             time.sleep(0.5)
         else:
@@ -210,9 +236,7 @@ def _do_switch(
         # Yield a per-engine "loading…" line so the UI shows progress
         # before the (possibly minute-long) container start blocks.
         yield f"{_label(new_engine)}: Loading model..."
-        started_ok, ready_msg, _device = ensure_engine_ready(
-            new_engine,
-        )
+        started_ok, ready_msg = start_engine(new_engine)
         if ready_msg:
             yield ready_msg
 
@@ -222,9 +246,7 @@ def _do_switch(
     if llm_already_matching and not started_ok and new_engine in gpu_engine_keys():
         yield "TTS start failed next to warm LLM — freeing VRAM and retrying..."
         unload_all_gpu_models(backend_type, keep_tts=new_engine)
-        started_ok, ready_msg, _device = ensure_engine_ready(
-            new_engine,
-        )
+        started_ok, ready_msg = start_engine(new_engine)
         if ready_msg:
             yield ready_msg
         llm_already_matching = False  # LLM was stopped → must restart below

@@ -47,22 +47,6 @@ def test_host_port_overrides_engine_default() -> None:
     assert entry.enabled is False
 
 
-def test_usable_engines_are_built_here_or_listed_on_another_host(monkeypatch: pytest.MonkeyPatch) -> None:
-    from aifred.lib.tts_engines import TTS_ENGINES
-
-    built_here = {"qwen3local", "xtts", "edge"}
-    for key, engine in TTS_ENGINES.items():
-        monkeypatch.setattr(engine, "is_installed", lambda key=key: key in built_here)
-    hosts = [{"name": "Box", "address": "box.lan", "enabled": True, "ssh": ""}]
-    entries = [
-        {"engine": "fishspeech", "host": "Box", "enabled": False},  # disabled still counts
-        {"engine": "moss", "host": None, "enabled": True},          # listed locally, image missing
-    ]
-    usable = tts_escalation.usable_engine_keys(_settings(hosts, entries))
-    assert set(usable) == built_here | {"fishspeech"}
-    assert usable == [key for key in TTS_ENGINES if key in usable]  # registry order
-
-
 def test_order_is_preserved() -> None:
     entries = [
         {"engine": "piper", "host": None, "enabled": True},
@@ -330,24 +314,6 @@ class TestNoteAndPlanning:
         assert run.note("de") == ""
         _speak(run, "Eins.", "Zwei.")
         assert run.note("de") == "XTTS · Aragon → PIPER · lokal (Serverausfall)"
-
-    def test_planned_engine_is_the_topmost_enabled_local_gpu_entry_with_a_profile(self, monkeypatch):
-        monkeypatch.setattr(
-            "aifred.lib.calibration.has_llamaswap_tts_variant",
-            lambda path, model_id, key: key == "xtts",
-        )
-        settings = _settings(
-            [{"name": "Aragon", "address": "10.0.0.2", "enabled": True, "ssh": ""}],
-            [
-                {"engine": "qwen3local", "host": "Aragon", "enabled": True},   # remote — never reserved
-                {"engine": "qwen3local", "host": None, "enabled": True},       # no calibrated profile
-                {"engine": "xtts", "host": None, "enabled": True},
-                {"engine": "piper", "host": None, "enabled": True},
-            ],
-        )
-        assert tts_escalation.planned_tts_engine("model", settings) == "xtts"
-        settings["tts_escalation"][2]["enabled"] = False
-        assert tts_escalation.planned_tts_engine("model", settings) == ""
 
 
 class TestRemoteHost:

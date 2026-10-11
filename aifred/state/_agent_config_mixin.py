@@ -443,7 +443,7 @@ class AgentConfigMixin(rx.State, mixin=True):
 
         from ..lib.calibration import resolve_effective_suffix
         from ..lib.config import LLAMASWAP_CONFIG_PATH
-        from ..lib.tts_escalation import planned_tts_engine
+        from ..lib.tts_llm_coordination import planned_tts_engine
 
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
@@ -452,7 +452,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             speed_on=get_agent_setting(self, agent, "speed_mode"),
             has_speed_variant=get_agent_setting(self, agent, "has_speed_variant"),
             tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
-            tts_engine=planned_tts_engine(base_id),
+            tts_engine=planned_tts_engine(base_id) if self.enable_tts else "",  # type: ignore[attr-defined]
         )
         return base_id + suffix
 
