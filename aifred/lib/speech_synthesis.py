@@ -1,26 +1,34 @@
-"""Sprach-Erzeugung für Kanäle mit eigenem Lautsprecher (SSOT).
+"""Speech output for channels with their own speaker (SSOT).
 
-Text → 48-kHz-PCM in einem wachsenden ``TTSBuffer``: Der erste Satz wird erzeugt
-und läuft los, während die übrigen noch synthetisiert werden. Welche Engine auf
-welchem Rechner spricht, entscheidet die Eskalationsliste
-(``tts_escalation.SpeechRun``); in welcher Sprache, bestimmt der Aufrufer; wie fein
-der Text zerlegt wird, ist die Einstellung der sprechenden Engine
-(``tts_engines.speech_unit_for``). Kanäle liefern nur noch das PCM an ihr Gerät.
+Text -> 48 kHz PCM in a growing ``TTSBuffer``: the first segment of the TTS service plays
+while the others are still being generated. Which engine on which machine speaks, how the
+text is cut (the unit of the speaking entry), the cleaning of Markdown, code and links, the
+announcement of a voice change and the keep-alive markers are the service's business
+(``tts_client``); the language is the caller's. What stays here: AIfred's own text filter
+(``tts_text_filter``), the voices of the agent (``tts_voices``), the conversion of the
+delivered audio to PCM for the device, the pauses between paragraphs and keeping what was
+spoken on the reply's bubble. Channels only hand the PCM to their device.
 """
 
 from __future__ import annotations
 
 import asyncio
+import uuid
+from collections.abc import AsyncIterator, Sequence
+from dataclasses import dataclass, field
 
-from .audio_channels._audio_orchestrator import TTSBuffer, silence_pcm
+from .audio_channels._audio_orchestrator import KEEPALIVE_SILENCE, TTSBuffer, silence_pcm
 from .logging_utils import log_message
-from .tts_escalation import NoSpeechAvailable, SpeechRun
+from .tts_client import EngineRef, SpeakSummary, TTSSuiteError, get_tts_client
+from .tts_service import ref_label, request_engines, spoken_note
+from .tts_text_filter import strip_ui_only_content
+from .tts_voices import voices_for
 
 PCM_SAMPLE_RATE = 48000
 
 
 async def _convert_to_pcm(audio_path: str, label: str) -> bytes | None:
-    """Audiodatei → rohes PCM (mono, int16, ``PCM_SAMPLE_RATE``)."""
+    """Audio file -> raw PCM (mono, int16, ``PCM_SAMPLE_RATE``)."""
     cmd = [
         "ffmpeg", "-y", "-i", audio_path,
         "-ar", str(PCM_SAMPLE_RATE), "-ac", "1",
@@ -39,123 +47,125 @@ async def _convert_to_pcm(audio_path: str, label: str) -> bytes | None:
     return None
 
 
-async def synthesize_pcm(text: str, agent: str, run: SpeechRun) -> bytes | None:
-    """Ein Satz → PCM; ``None`` (laut geloggt), wenn kein Eintrag der Liste
-    sprechen kann oder die Konvertierung scheitert."""
-    from .config import PROJECT_ROOT
+@dataclass
+class SpokenReading:
+    """What one reading left behind for the bubble: the audio of every segment (in order, as URLs
+    in the TTS audio folder) and, once the service has finished, its summary."""
 
-    try:
-        url = await run.synthesize(text, agent)
-    except NoSpeechAvailable as exc:
-        log_message(f"[{run.label}] {exc} — device stays silent", "error")
-        return None
-    # The sentence file stays (run.audio_urls): keep_spoken_audio puts it on the
-    # bubble; old files go with the TTS audio cleanup like the browser's.
-    tts_path = PROJECT_ROOT / "data" / url.removeprefix("/_upload/")
-    pcm = await _convert_to_pcm(str(tts_path), run.label)
-    if not pcm:
-        log_message(f"[{run.label}] TTS conversion failed", "error")
-        return None
-    return pcm
+    audio_urls: list[str] = field(default_factory=list)
+    summary: SpeakSummary | None = None
 
 
-def _speakable_segments(segments: "list[str | int]", language: str) -> "list[str | int]":
-    """Texte von Markdown, Emojis, Code, Links usw. befreien (SSOT: ``clean_text_for_tts``,
-    dieselbe wie im Browser-Chat) — einmal hier statt in jedem TTS-Server. Was danach leer
-    ist, entfällt; Stille ohne Sprache davor ergibt keinen Sinn und entfällt ebenfalls."""
-    from .audio_processing import clean_text_for_tts, reset_content_hint_flags
+def speakable_text(paragraphs: Sequence[str]) -> str:
+    """The paragraphs without AIfred's own interface content, joined by blank lines into ONE text
+    (the service cuts it); empty paragraphs are dropped."""
+    filtered = (strip_ui_only_content(paragraph) for paragraph in paragraphs)
+    return "\n\n".join(paragraph for paragraph in filtered if paragraph)
 
-    # Der Reiniger ist für den Strom EINER Antwort gebaut (Hinweise wie "Hier steht Code."
-    # kommen je Antwort einmal): frisch beginnen. Läuft in einem Zug, ohne await.
-    reset_content_hint_flags()
-    speakable: list[str | int] = []
-    for segment in segments:
-        if isinstance(segment, int):
-            if speakable:
-                speakable.append(segment)
+
+async def _speech_pcm(
+    text: str, *, language: str, engines: Sequence[EngineRef], agent: str, pause_ms: int, label: str,
+    reading: SpokenReading,
+) -> AsyncIterator[bytes]:
+    """The PCM of one reading in speaking order, piece by piece as the service delivers it.
+
+    A keep-alive marker becomes a few ms of silence (keeps the stream to the device open). The
+    service does not mark paragraph borders, so ``pause_ms`` of silence goes in front of each
+    segment of an entry whose unit is ``paragraph`` (not before the first).
+    """
+    from .audio_processing import TTS_AUDIO_DIR, store_tts_audio
+
+    units = {ref_label(ref): ref.unit for ref in engines}
+    stream = await get_tts_client().speak(
+        text, language=language, engines=engines, voices=voices_for(engines, agent), run=uuid.uuid4().hex,
+    )
+    async for segment in stream:
+        if segment.keepalive:
+            yield KEEPALIVE_SILENCE
             continue
-        cleaned = clean_text_for_tts(segment, language)
-        if cleaned:
-            speakable.append(cleaned)
-    while speakable and isinstance(speakable[-1], int):
-        speakable.pop()
-    return speakable
+        url = await asyncio.to_thread(store_tts_audio, segment.audio, segment.media_type, agent, segment.engine)
+        pcm = await _convert_to_pcm(str(TTS_AUDIO_DIR / url.rsplit("/", 1)[-1]), label)
+        if not pcm:
+            raise RuntimeError(f"[{label}] conversion of the spoken audio failed")
+        pause = silence_pcm(pause_ms) if reading.audio_urls and units[segment.engine] == "paragraph" else b""
+        reading.audio_urls.append(url)
+        yield pause + pcm
+    reading.summary = stream.summary
 
 
-async def keep_spoken_audio(run: SpeechRun, session_id: str | None) -> None:
-    """What the device spoke goes onto the reply's bubble like a browser reply:
-    the sentences joined into the session's audio, with who spoke. Without a
-    session (a tool's announcement has no bubble of its own) nothing to keep."""
-    if not session_id or not run.audio_urls:
+async def keep_spoken_audio(reading: SpokenReading, language: str, label: str, session_id: str | None) -> None:
+    """What the device spoke goes onto the reply's bubble like a browser reply: the segments joined
+    into the session's audio, with who spoke. Without a session (a tool's announcement has no
+    bubble of its own) nothing to keep."""
+    if not session_id or not reading.audio_urls:
         return
     from .audio_processing import save_audio_to_session
     from .session_storage import attach_reply_audio
 
-    session_audio = await asyncio.to_thread(save_audio_to_session, list(run.audio_urls), session_id)
+    session_audio = await asyncio.to_thread(save_audio_to_session, list(reading.audio_urls), session_id)
     if session_audio is None:
-        log_message(f"[{run.label}] spoken audio not saved to session {session_id[:8]}", "warning")
+        log_message(f"[{label}] spoken audio not saved to session {session_id[:8]}", "warning")
         return
-    note = run.note(run.language)
+    note = await asyncio.to_thread(spoken_note, reading.summary.trace, language) if reading.summary else ""
     if await asyncio.to_thread(attach_reply_audio, session_id, session_audio, note):
-        log_message(f"[{run.label}] spoken audio kept on the bubble ({len(run.audio_urls)} sentence(s))")
+        log_message(f"[{label}] spoken audio kept on the bubble ({len(reading.audio_urls)} segment(s))")
     else:
-        log_message(f"[{run.label}] no reply bubble without audio in session {session_id[:8]}", "warning")
+        log_message(f"[{label}] no reply bubble without audio in session {session_id[:8]}", "warning")
 
 
 async def start_speech_stream(
-    segments: "list[str | int]", agent: str, run: SpeechRun, session_id: str | None = None,
+    paragraphs: Sequence[str], pause_ms: int, agent: str, language: str, label: str,
+    session_id: str | None = None,
 ) -> TTSBuffer | None:
-    """Den ersten Satz erzeugen und den Puffer zurückgeben; die übrigen Segmente
-    (Texte als ``str``, Stille als ``int`` ms) erzeugt ein Hintergrund-Task und hängt
-    sie an, während der Abnehmer schon sendet. ``None``, wenn nichts zu sprechen ist
-    oder der erste Satz scheitert. Die Texte werden vor der Synthese bereinigt.
-    Ist alles erzeugt, kommt das Gesprochene an die Blase der Antwort in
-    ``session_id`` (:func:`keep_spoken_audio`)."""
-    segments = _speakable_segments(segments, run.language)
-    if not segments:
-        log_message(f"[{run.label}] nothing to speak", "warning")
+    """Start a reading and return the buffer once the first segment is converted; the rest is
+    appended by a task while the receiver already sends. ``None`` (loudly logged) if there is
+    nothing to speak or the service cannot speak: the device stays silent. When the reading is
+    over, what was spoken goes onto the bubble of the reply in ``session_id``."""
+    text = speakable_text(paragraphs)
+    if not text:
+        log_message(f"[{label}] nothing to speak", "warning")
         return None
-    first = segments[0]
-    assert isinstance(first, str)  # _speakable_segments: Stille steht nie am Anfang
-    pcm = await synthesize_pcm(first, agent, run)
-    if pcm is None:
+    reading = SpokenReading()
+    try:
+        await asyncio.to_thread(get_tts_client().ensure_ready)
+        engines = await asyncio.to_thread(request_engines)
+        pieces = _speech_pcm(
+            text, language=language, engines=engines, agent=agent, pause_ms=pause_ms, label=label, reading=reading,
+        )
+        first = await anext(pieces, None)
+    except TTSSuiteError as error:
+        log_message(f"[{label}] {type(error).__name__}: {error} — device stays silent", "error")
+        return None
+    except RuntimeError as error:
+        log_message(f"{error} — device stays silent", "error")
+        return None
+    if first is None:
+        log_message(f"[{label}] the TTS service delivered no audio — device stays silent", "error")
         return None
     buffer = TTSBuffer(growing=True)
-    buffer.append(pcm)
-    rest = segments[1:]
-    if rest:
-        buffer.producer = asyncio.create_task(
-            _produce_speech(buffer, rest, agent, run, session_id),
-            name=f"speech-producer-{run.label}",
-        )
-    else:
-        buffer.close()
-        await keep_spoken_audio(run, session_id)
+    buffer.append(first)
+    buffer.producer = asyncio.create_task(
+        _produce_speech(buffer, pieces, reading, language, label, session_id), name=f"speech-producer-{label}",
+    )
     return buffer
 
 
 async def _produce_speech(
-    buffer: TTSBuffer, segments: "list[str | int]", agent: str, run: SpeechRun, session_id: str | None,
+    buffer: TTSBuffer, pieces: AsyncIterator[bytes], reading: SpokenReading, language: str, label: str,
+    session_id: str | None,
 ) -> None:
-    """Erzeuger des satzweisen Streamings: hängt Sprache und Stille an den Puffer.
-    Fällt eine Engine aus, übernimmt der nächste Eintrag der Liste (``SpeechRun``);
-    erst wenn keiner mehr kann, endet der Strom ohne Ende-Ton (laut geloggt)."""
+    """Producer of the growing buffer: appends the rest of the reading. A failure (service error,
+    conversion, anything else) ends the stream without end tone, loudly logged."""
+    failed = False
     try:
-        failed = False
-        for segment in segments:
-            if isinstance(segment, int):
-                buffer.append(silence_pcm(segment))
-                continue
-            pcm = await synthesize_pcm(segment, agent, run)
-            if pcm is None:
-                failed = True
-                break
-            buffer.append(pcm)
-        buffer.close(failed=failed)
+        async for piece in pieces:
+            buffer.append(piece)
     except asyncio.CancelledError:
-        raise
-    except Exception as exc:  # noqa: BLE001 — der Strom muss in jedem Fall sauber enden
-        log_message(f"[{run.label}] speech producer error: {exc!r}", "error")
         buffer.close(failed=True)
+        raise
+    except Exception as error:  # noqa: BLE001 — the stream must end cleanly in every case
+        log_message(f"[{label}] speech stream broke off: {type(error).__name__}: {error}", "error")
+        failed = True
+    buffer.close(failed=failed)
     # Also a stream that broke off: what was spoken until then stays listenable.
-    await keep_spoken_audio(run, session_id)
+    await keep_spoken_audio(reading, language, label, session_id)

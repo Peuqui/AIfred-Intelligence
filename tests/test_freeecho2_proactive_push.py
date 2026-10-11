@@ -17,31 +17,17 @@ from __future__ import annotations
 
 import asyncio
 from datetime import datetime
-from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from aifred.lib.audio_channels._audio_orchestrator import TTSBuffer
 from aifred.lib.envelope import InboundMessage, OutboundMessage
 from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel, _devices
 
 
 def run(coro):
     return asyncio.run(coro)
-
-
-class FakeSpeechRun:
-    """Steht für ``tts_escalation.SpeechRun``: Piper spricht, jede Synthese gelingt."""
-
-    def __init__(self, language, label):
-        self.language = language
-        self.label = label
-
-    async def entry(self):
-        return SimpleNamespace(engine=SimpleNamespace(key="piper"))
-
-    async def synthesize(self, text, agent):
-        return "/_upload/tts_audio/dummy.wav"
 
 
 # ── Recipient-Resolution ────────────────────────────────────────────
@@ -140,19 +126,14 @@ class TestSendReplyProactive:
     und Audio-Channel-Auflosungen. Vermeidet GPU/Whisper-Calls."""
 
     def _patched_call(self, audio_ch_mock, outbound, original):
-        """send_reply mit den teuren Teilen gemockt: die Eskalationsliste
-        (FakeSpeechRun) liefert eine Stub-URL, _convert_to_pcm gibt nicht-leere Bytes, der
-        FreeEcho2Channel-Resolver liefert unseren Mock-Orchestrator.
-        Path.unlink ist no-op."""
+        """send_reply mit den teuren Teilen gemockt: die Sprach-Erzeugung (TTS-Dienst) liefert
+        einen fertigen Puffer, der FreeEcho2Channel-Resolver liefert unseren Mock-Orchestrator."""
         ch = FreeEchoChannel()
         with patch(
-            "aifred.plugins.channels.freeecho2_channel.tts_reply.SpeechRun", FakeSpeechRun
-        ), patch(
-            "aifred.lib.speech_synthesis._convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
+            "aifred.plugins.channels.freeecho2_channel.tts_reply.start_speech_stream",
+            AsyncMock(return_value=TTSBuffer(b"\x00\x01" * 48000)),
         ), patch(
             "aifred.lib.audio_channels.resolve", return_value=audio_ch_mock
-        ), patch(
-            "pathlib.Path.unlink"
         ):
             run(ch.send_reply(outbound, original))
 
@@ -256,13 +237,10 @@ class TestSendReplyAudioType:
     def _patched_call(self, audio_ch_mock, outbound, original):
         ch = FreeEchoChannel()
         with patch(
-            "aifred.plugins.channels.freeecho2_channel.tts_reply.SpeechRun", FakeSpeechRun
-        ), patch(
-            "aifred.lib.speech_synthesis._convert_to_pcm", AsyncMock(return_value=b"\x00\x01" * 48000)
+            "aifred.plugins.channels.freeecho2_channel.tts_reply.start_speech_stream",
+            AsyncMock(return_value=TTSBuffer(b"\x00\x01" * 48000)),
         ), patch(
             "aifred.lib.audio_channels.resolve", return_value=audio_ch_mock
-        ), patch(
-            "pathlib.Path.unlink"
         ):
             run(ch.send_reply(outbound, original))
 

@@ -178,6 +178,8 @@
   "tts_reason_unreachable": "Serverausfall",
   "tts_reason_engine": "Engine-Ausfall",
   "tts_reason_software": "Softwarefehler",
+  "tts_reason_timeout": "Zeitüberschreitung",
+  "tts_reason_cloud_quota": "Kontingent erschöpft",
   "tts_speech_unit_label": "Einheit:",
   "tts_unit_sentence": "Satzweise",
   "tts_unit_paragraph": "Absatzweise",

@@ -1,10 +1,9 @@
 """Reaktive Audio-Pipeline des FreeEcho.2-Channels (STT → LLM → TTS).
 
 ``_handle_audio`` nimmt das rohe PCM vom Puck entgegen, transkribiert es
-(Whisper), sichert den TTS-Engine-State und schickt die Frage durch
-``process_inbound``. Heartbeat + TTS-Keep-Alive laufen als Begleit-Tasks,
-damit weder der Puck noch der TTS-Container während langer Inferenz
-aussteigen.
+(Whisper) und schickt die Frage durch ``process_inbound``. Der Heartbeat
+läuft als Begleit-Task, damit der Puck während langer Inferenz nicht
+aussteigt. Den TTS-Container hält der TTS-Dienst, solange er liest.
 """
 
 from __future__ import annotations
@@ -109,14 +108,6 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                     break
                 await asyncio.sleep(5)
 
-        # Track GPU TTS engines this pipeline acquires so the finally block
-        # always releases them — even if the browser (or another channel)
-        # tries to stop the engine mid-pipeline. Refcount > 0 makes
-        # ensure_tts_state() defer the stop until our pipeline finishes.
-        # The keep-alive task pings /keep_alive every 5 min so the container
-        # idle-timer doesn't trigger during long inference / web research.
-        acquired_tts_engines: list[str] = []
-        tts_keepalive_task: Optional[asyncio.Task] = None
         heartbeat_task: Optional[asyncio.Task] = None
         wav_path: Optional[str] = None
 
@@ -181,26 +172,6 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 )
 
                 hub.update("processing")
-
-                # Acquire the active GPU TTS engine for the duration of this
-                # pipeline so concurrent channels can't stop it mid-flight.
-                from ....lib.tts_engine_manager import (
-                    _detect_running_tts_engine, acquire_tts,
-                )
-                _active_engine = _detect_running_tts_engine()
-                if _active_engine:
-                    acquire_tts(_active_engine)
-                    acquired_tts_engines.append(_active_engine)
-                    # Start TTS keep-alive ping while pipeline runs.
-                    from ....lib.tts_engine_manager import tts_keepalive_loop
-                    tts_keepalive_task = asyncio.create_task(
-                        tts_keepalive_loop(
-                            acquired_tts_engines,
-                            on_warn=lambda m: self.channel_log(
-                                f"[FreeEcho.2 {room}] {m}", "warning"
-                            ),
-                        )
-                    )
 
                 self.channel_log(f"[FreeEcho.2 {room}] → process_inbound ({_fe2_time.monotonic()-_fe2_t0:.1f}s)")
                 # Hand off the notification lifecycle to process_inbound's own
@@ -276,15 +247,6 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
             heartbeat_running = False
             if heartbeat_task is not None and not heartbeat_task.done():
                 heartbeat_task.cancel()
-            # Stop the TTS keep-alive task before releasing engine refcount.
-            if tts_keepalive_task is not None and not tts_keepalive_task.done():
-                tts_keepalive_task.cancel()
-            # Always release any TTS engine acquisitions — survives crashes
-            # and external cancellations (e.g. Action-Button stop event).
-            if acquired_tts_engines:
-                from ....lib.tts_engine_manager import release_tts
-                for _engine in acquired_tts_engines:
-                    release_tts(_engine)
             if wav_path:
                 Path(wav_path).unlink(missing_ok=True)
 

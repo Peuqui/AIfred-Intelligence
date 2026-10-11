@@ -186,12 +186,12 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
   (Browser: Sprachausgabe-Panel; Speicher `tts_toggles_per_engine[engine]["unit"]`; Standard je Engine in
   `TTSEngine.default_speech_unit`; Lesen über `lib.tts_engines.speech_unit_for`): `sentence`,
   `paragraph` oder `whole` (alles am Stück, beste Qualität, die erste Sprache kommt erst nach der
-  kompletten Erzeugung). Das Echo-Plugin liest sie nur, es kennt keine eigene Einstellung dafür. Satzweises Streaming (SSOT der Satzaufteilung:
-  `audio_processing.split_text_for_streaming_tts`): der erste Satz wird erzeugt und läuft los, die
-  übrigen entstehen währenddessen; braucht ein Segment
-  länger als `FREEECHO2_KEEPALIVE_SEC` (10 s), hält ein 20-ms-Stille-Chunk den Strom offen
+  kompletten Erzeugung). Das Echo-Plugin liest sie nur, es kennt keine eigene Einstellung dafür. Der TTS-Dienst zerlegt den Text nach der Einheit des sprechenden Eintrags (`texts` = EIN Text, Absätze durch Leerzeilen;
+  `pause_ms` setzt AIfred als Stille vor jedes Segment eines Eintrags mit Einheit `paragraph`, der Dienst markiert keine Absatzgrenzen);
+  der erste Abschnitt läuft los, die übrigen entstehen währenddessen (`lib/speech_synthesis.py`). Braucht ein Segment
+  länger als `KEEPALIVE_SEC` des Dienstes, schickt er einen Keep-alive-Marker, aus dem AIfred 20 ms Stille macht
   (das 30-s-Inaktivitäts-Timeout des Pucks löst nie aus, er ist die einzige Erkennung einer toten
-  Verbindung). Jede Ansage wird in der Sitzung des Raums dokumentiert (`record_autonomous_turn`).
+  Verbindung; die Pumpe im Orchestrator hat keine zweite Uhr). Jede Ansage wird in der Sitzung des Raums dokumentiert (`record_autonomous_turn`).
 - 404 bei unbekanntem/nicht verbundenem Raum, 413 bei Text über `ANNOUNCE_MAX_CHARS` je Eintrag
   (Standard 1200) oder `ANNOUNCE_MAX_TOTAL_CHARS` insgesamt (Standard 4000), kein stilles Kürzen. Chime fest `notification`, nie `alarm`; Beginn- und Ende-Ton
   spielt der Puck selbst (Protokoll v2: `audio_flag(…, start_tone)` und `audio_end(end_tone)`, Slots

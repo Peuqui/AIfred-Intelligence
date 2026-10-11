@@ -23,7 +23,7 @@ passes through. UI code that must keep rendering shows ``unreachable_text`` inst
 from __future__ import annotations
 
 import threading
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
@@ -37,6 +37,7 @@ from .tts_client import (
     EngineInfo,
     EngineInUse,
     EngineRef,
+    TraceStep,
     TTSSuiteError,
     VoiceInfo,
     get_tts_client,
@@ -292,6 +293,62 @@ def request_engines() -> list[EngineRef]:
     The service refuses an empty list; with nothing switched on the request fails there.
     """
     return [EngineRef(entry.engine, entry.unit, entry.host) for entry in entries() if entry.active]
+
+
+def ref_label(ref: EngineRef) -> str:
+    """``engine`` on this machine, else ``engine@host``: how the service names an entry in segments and trace."""
+    return ref.engine if ref.host is None else f"{ref.engine}@{ref.host}"
+
+
+def single_engine_ref(engine_key: str, unit: str) -> EngineRef:
+    """The one entry a task speaks with from start to end (audiobook: no voice change mid-book).
+
+    ``engine_key`` set: that engine, where AIfred's list has it (active entry, its host), else on
+    this machine. Empty: the topmost active entry of the list. The browser entry cannot be
+    chosen (the service never speaks with it).
+
+    Raises:
+        ValueError: with the reason (nothing active, engine not offered, or the browser).
+        TTSSuiteUnreachable: the service does not answer.
+    """
+    active = [entry for entry in entries() if entry.active and entry.info is not None and not entry.info.browser]
+    if not engine_key:
+        if not active:
+            raise ValueError("no active TTS entry in the list")
+        return EngineRef(active[0].engine, unit, active[0].host)
+    for entry in active:
+        if entry.engine == engine_key:
+            return EngineRef(engine_key, unit, entry.host)
+    row = next((info for info in catalog() if info.engine == engine_key and info.host is None), None)
+    if row is None:
+        raise ValueError(f"TTS engine {engine_key!r} is not offered by the TTS service")
+    if row.browser:
+        raise ValueError(f"TTS engine {engine_key!r} speaks in the browser only")
+    return EngineRef(engine_key, unit, None)
+
+
+def spoken_note(trace: Sequence[TraceStep], lang: str | None = None) -> str:
+    """Note for the chat bubble: who spoke, on a change with the reason, e.g.
+    ``XTTS · Aragon -> DashScope Audio 3 · cloud (server outage)``. Empty if nobody has spoken.
+
+    Built from the service's trace: an entry that fails after it has spoken is the reason of the
+    change to the entry that speaks next.
+    """
+    by_entry = {ref_label(EngineRef(info.engine, "", info.host)): info for info in catalog()}
+    spoken: set[str] = set()
+    change_reason: str | None = None
+    parts: list[str] = []
+    for step in trace:
+        if step.outcome == "failed" and step.entry in spoken:
+            change_reason = change_reason or step.reason
+        elif step.outcome == "spoke":
+            spoken.add(step.entry)
+            part = row_label(by_entry[step.entry], lang)
+            if change_reason is not None:
+                part += f" ({t(f'tts_reason_{change_reason}', lang=lang)})"
+                change_reason = None
+            parts.append(part)
+    return " \u2192 ".join(parts)
 
 
 def has_active_local_gpu_entry(engine_key: str) -> bool:

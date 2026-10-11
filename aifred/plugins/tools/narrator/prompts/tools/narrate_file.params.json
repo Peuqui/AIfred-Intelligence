@@ -19,7 +19,7 @@
     },
     "engine": {
       "type": "string",
-      "description": "Optional TTS engine key. Default: the first engine of the TTS escalation list that can speak now. A GPU engine is only used when it fits into free VRAM."
+      "description": "Optional TTS engine key. Default: the topmost active entry of the TTS list. The TTS service starts the engine and speaks the whole file with it; if it cannot, the tool reports the reason."
     },
     "speaker_voices": {
       "type": "object",

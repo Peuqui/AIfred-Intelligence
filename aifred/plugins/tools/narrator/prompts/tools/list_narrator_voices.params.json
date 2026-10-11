@@ -3,7 +3,7 @@
   "properties": {
     "engine": {
       "type": "string",
-      "description": "Optional TTS engine key. Default: the first engine of the TTS escalation list that can speak now."
+      "description": "Optional TTS engine key. Default: the topmost active entry of the TTS list."
     }
   },
   "required": []

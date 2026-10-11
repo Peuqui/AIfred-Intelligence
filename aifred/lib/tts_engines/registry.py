@@ -18,6 +18,7 @@ import sys
 from pathlib import Path
 from typing import Iterator, Protocol
 
+from ..tts_voices import parse_speed_factor  # noqa: F401 — re-exported by the package
 from .base import SPEECH_UNITS, TTSEngine
 
 
@@ -164,18 +165,3 @@ def voice_names(engine: VoiceCatalog) -> list[str]:
     except Exception:  # noqa: BLE001 — down/unreachable == leerer Katalog
         voices = {}
     return list((voices or engine.voices_fallback).keys())
-
-
-def parse_speed_factor(raw: object) -> "float | None":
-    """``"1.25x"``/``"1.25"``/``1.25`` → 1.25; ``None``/``""``/Müll → None.
-
-    Nur der PARSER ist SSOT — ob der Aufrufer bei None auf einen Default
-    zurückfällt (Browser-UI) oder fail-loud abbricht (FreeEcho2-Reply),
-    ist bewusste Policy pro Konsument.
-    """
-    if raw in (None, ""):
-        return None
-    try:
-        return float(str(raw).replace("x", ""))
-    except (ValueError, TypeError):
-        return None

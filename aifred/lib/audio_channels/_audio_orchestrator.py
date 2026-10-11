@@ -40,7 +40,6 @@ import asyncio
 import threading
 from typing import TYPE_CHECKING, Any, Optional
 
-from ..config import FREEECHO2_KEEPALIVE_SEC
 from ..formatting import format_number
 from ..logging_utils import log_message
 from ._freeecho2_stream import PCM_CHUNK_BYTES
@@ -48,14 +47,18 @@ from ._freeecho2_stream import PCM_CHUNK_BYTES
 # 48 kHz, mono, int16: das Format aller Ströme zum Puck (SSOT für Dauer-Rechnungen)
 PCM_BYTES_PER_SEC = 96000
 PCM_BYTES_PER_MS = PCM_BYTES_PER_SEC // 1000
-# Länge des Stille-Chunks, der den Strom offen hält, solange das nächste Segment fehlt
+# Länge der Stille, die ein Keep-alive-Marker des TTS-Dienstes im Puffer ergibt: Er hält
+# den Strom zum Puck offen, solange das nächste Segment fehlt (der Dienst setzt die Marker,
+# das Inaktivitäts-Timeout des Pucks löst so nie aus)
 KEEPALIVE_SILENCE_MS = 20
-KEEPALIVE_SILENCE = bytes(PCM_BYTES_PER_MS * KEEPALIVE_SILENCE_MS)
 
 
 def silence_pcm(duration_ms: int) -> bytes:
     """Echte Null-Samples (nie einfach pausieren: der Puck beendet einen Strom ohne Chunks)."""
     return bytes(PCM_BYTES_PER_MS * duration_ms)
+
+
+KEEPALIVE_SILENCE = silence_pcm(KEEPALIVE_SILENCE_MS)
 
 
 def _fmt_mib(num_bytes: int) -> str:
@@ -84,7 +87,7 @@ class TTSBuffer:
     pro Chunk an die WS-Bridge gepumpt. Bei Pause: Cursor merken.
     Bei Resume: ab Cursor weiter pumpen — KEIN Re-Render.
 
-    ``growing=True``: satzweises Streaming — ein Erzeuger (``append``, am Ende
+    ``growing=True``: wachsender Puffer — ein Erzeuger (``append``, am Ende
     ``close``) füllt den Puffer, während der Pump schon sendet. Erzeuger und Pump
     laufen evtl. in verschiedenen Event-Loops/Threads: alles hier ist thread-sicher.
     """
@@ -140,19 +143,14 @@ class TTSBuffer:
             self.failed = self.failed or failed
         self._notify()
 
-    async def wait_for_data(self, timeout_sec: float) -> bool:
-        """``True``, sobald Daten da sind oder der Puffer geschlossen ist; ``False``
-        nach ``timeout_sec`` (der Erzeuger arbeitet noch)."""
+    async def wait_for_data(self) -> None:
+        """Wartet, bis Daten da sind oder der Puffer geschlossen ist."""
         with self._lock:
             self._waiter_loop = asyncio.get_running_loop()
             if self._cursor < len(self._pcm) or self._closed:
-                return True
+                return
             self._event.clear()
-        try:
-            await asyncio.wait_for(self._event.wait(), timeout=timeout_sec)
-        except asyncio.TimeoutError:
-            return False
-        return True
+        await self._event.wait()
 
     def discard(self) -> None:
         """Puffer verwerfen: einen noch laufenden Erzeuger abbrechen (thread-sicher)."""
@@ -496,16 +494,15 @@ class AudioOrchestrator:
         abgebrochenem Erzeuger: audio_end ohne Ende-Ton, ``False``. Bei cancel: KEIN
         audio_end — der Buffer kann noch resumed werden.
 
-        Wächst der Puffer noch (satzweises Streaming) und das nächste Segment ist nicht
-        rechtzeitig fertig, hält ein Stille-Chunk alle ``FREEECHO2_KEEPALIVE_SEC`` den
-        Strom offen (das Inaktivitäts-Timeout des Pucks löst nie aus; es gibt hörbare
-        Stille bis zum nächsten Segment).
+        Wächst der Puffer noch und ist das nächste Segment nicht rechtzeitig fertig, wartet
+        die Pumpe. Den Strom offen hält der Erzeuger (SSOT): Der TTS-Dienst schickt bei langen
+        Segmenten Keep-alive-Marker, die als ``KEEPALIVE_SILENCE`` im Puffer landen — das
+        Inaktivitäts-Timeout des Pucks löst so nie aus. Die Pumpe hat keine zweite Uhr.
         """
         buffer = self._tts_buffer
         total = buffer.total_bytes if buffer is not None else 0
         sent_chunks = 0
         sent_bytes = 0
-        keepalives = 0
         log_message(
             f"AudioOrchestrator[{self.room}]: TTS pump start "
             f"({_fmt_mib(total)}, {total} bytes)"
@@ -514,11 +511,9 @@ class AudioOrchestrator:
             while buffer is not None and not buffer.done:
                 chunk = buffer.next_chunk()
                 if not chunk:
-                    # Der Erzeuger hat noch nichts Neues: kurz warten, sonst Keepalive
-                    if await buffer.wait_for_data(FREEECHO2_KEEPALIVE_SEC):
-                        continue
-                    chunk = KEEPALIVE_SILENCE
-                    keepalives += 1
+                    # Der Erzeuger hat noch nichts Neues
+                    await buffer.wait_for_data()
+                    continue
                 ok = await self.bridge.send_audio_chunk(self.room, chunk)
                 if not ok:
                     log_message(
@@ -544,7 +539,7 @@ class AudioOrchestrator:
             await self.bridge.send_audio_end(self.room, end_tone=self._end_tone)
             log_message(
                 f"AudioOrchestrator[{self.room}]: TTS pump complete "
-                f"({sent_chunks} chunks / {sent_bytes} bytes, {keepalives} keepalives) — audio_end sent"
+                f"({sent_chunks} chunks / {sent_bytes} bytes) — audio_end sent"
             )
             async with self._lock:
                 if self._active_type in BUFFER_TYPES:

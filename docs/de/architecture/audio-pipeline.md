@@ -734,15 +734,16 @@ Kanäle; `lib.tts_engines.speech_unit_for`, Standard je Engine in `TTSEngine.def
 Sprache kommt erst nach der kompletten Erzeugung). Das Echo-Plugin liest sie nur. Beginn-/Ende-Ton bei Ansagen: `FREEECHO2_NOTIFICATION_START_TONE` /
 `_END_TONE` (an/aus; der Alarm-Ton ist immer der Beginn-Ton); welcher Ton spielt, legt der Puck fest.
 
-**Satzweises Streaming** (Ansagen und Antworten über `TtsReplyMixin`): Bei `sentence` wird der Text mit
-`split_text_for_streaming_tts` (dieselbe Satzerkennung wie beim Browser-Streaming) in Sätze zerlegt;
-der erste Satz wird erzeugt und läuft los, ein Erzeuger-Task hängt die übrigen an einen wachsenden
-`TTSBuffer` (thread-sicher, `total_size` im `audio_start` ist dann unbekannt). Ansagen mit mehreren
-Absätzen (`texts`) sind EIN Strom: Stille zwischen den Absätzen = echte Null-Samples. Ist das nächste
-Segment nicht rechtzeitig fertig, sendet die Pumpe alle `FREEECHO2_KEEPALIVE_SEC` (10 s) einen
-20-ms-Stille-Chunk: Der Puck beendet einen Strom ohne Chunk nach 30 s (Notification/Alarm/TTS) bzw. 60 s
-(Musik) — das Timeout ist im Strom die einzige Erkennung einer still gestorbenen Verbindung und
-bleibt deshalb bestehen. Scheitert ein späterer Satz, schließt der Server den Strom mit `audio_end(end_tone=false)`.
+**Streaming über den TTS-Dienst** (Ansagen und Antworten über `TtsReplyMixin`, Kern: `lib/speech_synthesis.py`): Der
+Dienst zerlegt den Text nach der Einheit des sprechenden Eintrags und liefert Audio-Segmente, sobald sie existieren;
+das erste wird nach 48-kHz-PCM gewandelt und läuft los, ein Erzeuger-Task hängt die übrigen an einen wachsenden
+`TTSBuffer` (thread-sicher, `total_size` im `audio_start` ist dann unbekannt). Ansagen mit mehreren Absätzen
+(`texts`) sind EIN Text und EIN Strom: Stille zwischen den Absätzen = echte Null-Samples, von AIfred vor jedes Segment
+eines Eintrags mit der Einheit `paragraph` gesetzt (der Dienst markiert keine Absatzgrenzen). Braucht ein Segment
+länger, schickt der Dienst Keep-alive-Marker (`KEEPALIVE_SEC` der Suite); AIfred macht daraus je 20 ms Stille im
+Puffer: Der Puck beendet einen Strom ohne Chunk nach 30 s (Notification/Alarm/TTS) bzw. 60 s (Musik) — das Timeout
+ist im Strom die einzige Erkennung einer still gestorbenen Verbindung und bleibt deshalb bestehen. Die Pumpe hat
+keine eigene Uhr. Scheitert der Dienst später, schließt der Server den Strom mit `audio_end(end_tone=false)`.
 
 **Pause vor Ansage/Alarm** (`AudioOrchestrator.pause_for_announcement`): Der Puck nimmt notification/alarm nur im Leerlauf
 oder in der Pause an. Läuft ein pausierbarer Strom (music/tts), schickt der Server
