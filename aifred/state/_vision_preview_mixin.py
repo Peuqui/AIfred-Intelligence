@@ -30,7 +30,9 @@ from typing import Any
 
 import reflex as rx
 
+from ..lib.config import VISION_PTZ_DEFAULT_SPEED, VISION_PTZ_SPEEDS
 from ..lib.ptz_control import PTZError, get_controller, ptz_driver
+from ..lib.vision_photo import PhotoError, take_photo
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +103,21 @@ class VisionPreviewMixin(rx.State, mixin=True):
 
     # The complete list of detected sources (filled on page-load + rescan)
     vision_preview_sources: list[dict[str, Any]] = []  # [{id, label, available}]
+
+    # Quelle, deren Pfeiltaste gerade gehalten wird (leer = keine). Steuert den
+    # Herzschlag der Seite, der den Totmann-Stopp des Kamerakopfs verlängert.
+    ptz_held: str = ""
+
+    # Quelle im Vollbild-Fokus der Live-Ansicht (leer = Raster mit allen).
+    vision_preview_focus: str = ""
+
+    # Fotos dieser Sitzung je Quelle (URLs der hochaufgelösten Schnappschüsse,
+    # das neueste zuletzt). Beim Öffnen der Live-Ansicht leer; die Dateien auf
+    # der Platte bleiben liegen.
+    vision_preview_photos: dict[str, list[str]] = {}
+
+    # Geschwindigkeitsstufe der Kopfsteuerung (Schlüssel aus VISION_PTZ_SPEEDS).
+    ptz_speed: str = VISION_PTZ_DEFAULT_SPEED
 
     # Subset of source IDs that should be rendered (each gets an <img>)
     vision_preview_visible_sources: list[str] = []
@@ -233,7 +250,15 @@ class VisionPreviewMixin(rx.State, mixin=True):
         fps = self.vision_preview_fps
         cb = self.vision_preview_cache_buster
         all_sources = {s["id"]: s for s in self.vision_preview_sources}
+        # Fokus: nur die gewählte Quelle (sofern sichtbar), sonst alle.
+        focus = (
+            self.vision_preview_focus
+            if self.vision_preview_focus in self.vision_preview_visible_sources
+            else ""
+        )
         for sid in self.vision_preview_visible_sources:
+            if focus and sid != focus:
+                continue
             meta = all_sources.get(sid) or {"label": sid}
             res = self.vision_preview_resolutions.get(sid, "default")
             res_q = ""
@@ -252,6 +277,8 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 "label": str(meta.get("label", sid)),
                 "image_url": url,
                 "ptz": bool(meta.get("ptz", False)),
+                "photos": self.vision_preview_photos.get(sid, []),
+                "focused": sid == focus,
             })
         return entries
 
@@ -310,6 +337,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
 
         from ..lib.logging_utils import log_message
         log_message("🎬 on_load_vision_preview firing")
+        # Neue Sitzung der Live-Ansicht: Vorschauen der letzten Fotos und Fokus
+        # zurücksetzen (die Fotodateien bleiben auf der Platte).
+        self.vision_preview_photos = {}
+        self.vision_preview_focus = ""
         self._load_preview_fps()
         # Plugin-Settings (Modell + verfügbare Modelle) auch im Popup-
         # Kontext laden — sonst ist das Header-Dropdown leer, wenn das
@@ -665,11 +696,38 @@ class VisionPreviewMixin(rx.State, mixin=True):
         self.vision_preview_cache_buster += 1
 
     @rx.event
+    def toggle_vision_preview_focus(self, source_id: str) -> None:
+        """Klick auf das Live-Bild: Quelle füllt die Ansicht; erneuter Klick
+        stellt das Raster wieder her."""
+        self.vision_preview_focus = "" if self.vision_preview_focus == source_id else source_id
+
+    @rx.event
+    async def take_vision_photo(self, source_id: str) -> Any:
+        """Hochauflösenden Schnappschuss der Quelle aufnehmen und ablegen; die
+        Vorschau erscheint am Bild, ein Klick darauf öffnet das Foto."""
+        try:
+            url = await take_photo(source_id)
+        except (PhotoError, ValueError) as e:
+            logger.warning("photo failed for %s: %s", source_id, e)
+            self.vision_preview_status = f"⚠️ Foto: {e}"
+            return
+        self.vision_preview_photos = {
+            **self.vision_preview_photos,
+            source_id: [*self.vision_preview_photos.get(source_id, []), url],
+        }
+        # Nach dem Rendern der Vorschau die Lightbox öffnen (volle Auflösung).
+        return rx.call_script(
+            "setTimeout(function(){var l=document.querySelectorAll("
+            f"'img[data-photo-slot=\"{source_id}\"]');"
+            "if(l.length)l[l.length-1].click();},400)"
+        )
+    @rx.event
     async def ptz_press(self, source_id: str, direction: str) -> None:
         """Kamerakopf fährt in ``direction``, solange die Taste gedrückt ist
         (Loslassen: ``ptz_release``)."""
         try:
-            await ptz_driver.press(source_id, direction)
+            await ptz_driver.press(source_id, direction, self.ptz_speed)
+            self.ptz_held = source_id
         except (PTZError, ValueError) as e:
             logger.warning("PTZ press failed for %s: %s", source_id, e)
             self.vision_preview_status = f"⚠️ PTZ: {e}"
@@ -677,6 +735,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
     @rx.event
     async def ptz_release(self, source_id: str) -> None:
         """Taste losgelassen oder verlassen: Kopf anhalten (falls er fährt)."""
+        self.ptz_held = ""
         try:
             await ptz_driver.release(source_id)
         except (PTZError, ValueError) as e:
@@ -684,12 +743,33 @@ class VisionPreviewMixin(rx.State, mixin=True):
             self.vision_preview_status = f"⚠️ PTZ: {e}"
 
     @rx.event
-    async def ptz_stop(self, source_id: str) -> None:
-        """Kopf sofort anhalten (Stopp-Taste)."""
+    def set_ptz_speed(self, value: str | list[str]) -> None:
+        """Geschwindigkeitsstufe der Kopfsteuerung wählen (der Schalter liefert
+        bei Einfachauswahl einen String)."""
+        if not isinstance(value, str) or value not in VISION_PTZ_SPEEDS:
+            raise ValueError(f"unbekannte PTZ-Stufe: {value!r}")
+        self.ptz_speed = value
+
+    @rx.event
+    async def ptz_heartbeat(self, _value: str = "") -> None:
+        """Herzschlag der Seite, solange eine Taste gehalten wird: verlängert die
+        Totmann-Frist des Kopfs und lässt den Zoom weiterfahren."""
+        if not self.ptz_held:
+            return
         try:
-            await ptz_driver.stop(source_id)
+            await ptz_driver.keep_alive(self.ptz_held)
         except (PTZError, ValueError) as e:
-            logger.warning("PTZ stop failed for %s: %s", source_id, e)
+            logger.warning("PTZ heartbeat failed for %s: %s", self.ptz_held, e)
+            self.vision_preview_status = f"⚠️ PTZ: {e}"
+
+    @rx.event
+    async def ptz_home(self, source_id: str) -> None:
+        """Kopf fährt in die Ausgangsposition (mittlere Taste)."""
+        self.ptz_held = ""
+        try:
+            await ptz_driver.home(source_id)
+        except (PTZError, ValueError) as e:
+            logger.warning("PTZ home failed for %s: %s", source_id, e)
             self.vision_preview_status = f"⚠️ PTZ: {e}"
 
     @rx.event
