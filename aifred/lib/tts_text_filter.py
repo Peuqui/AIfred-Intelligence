@@ -52,13 +52,102 @@ def strip_collapsible_blocks(text: str) -> str:
     return text
 
 
-def strip_ui_only_content(text: str) -> str:
-    """The text without what AIfred's interface adds and the chat hides; stripped. Everything else
-    (Markdown, code, links, emojis, ...) is the service's business."""
+def _strip_ui_only_markup(text: str) -> str:
+    """The text without what AIfred's interface adds and the chat hides; whitespace untouched
+    (pieces of a stream must not lose the blank between two words)."""
     cleaned = HTML_COMMENT.sub("", text)
     cleaned = strip_collapsible_blocks(cleaned)
     cleaned = PERFORMANCE_FOOTER.sub("", cleaned)
     cleaned = ROUND_LABEL.sub("", cleaned)
     cleaned = TIMING_PARENTHESES.sub("", cleaned)
-    cleaned = NUMBER_PARENTHESES.sub("", cleaned)
-    return cleaned.strip()
+    return NUMBER_PARENTHESES.sub("", cleaned)
+
+
+def strip_ui_only_content(text: str) -> str:
+    """The text without what AIfred's interface adds and the chat hides; stripped. Everything else
+    (Markdown, code, links, emojis, ...) is the service's business."""
+    return _strip_ui_only_markup(text).strip()
+
+
+# ---- The same filter on a stream ----------------------------------------------
+
+
+def _collapsible_open_start(text: str) -> int | None:
+    """Start of the first collapsible block whose closing tag has not arrived yet."""
+    earliest: int | None = None
+    for tag in collapsible_tags():
+        openers = [match.start() for match in re.finditer(rf"<{tag}[^>]*>", text, re.IGNORECASE)]
+        closers = len(re.findall(rf"</{tag}>", text, re.IGNORECASE))
+        if len(openers) > closers:
+            start = openers[closers]
+            earliest = start if earliest is None else min(earliest, start)
+    return earliest
+
+
+def _bracket_open_start(text: str, opening: str, closing: str) -> int | None:
+    """Start of the first ``opening`` bracket that has no ``closing`` yet (nesting counted)."""
+    stack: list[int] = []
+    for position, char in enumerate(text):
+        if char == opening:
+            stack.append(position)
+        elif char == closing and stack:
+            stack.pop()
+    return stack[0] if stack else None
+
+
+def _footer_open_start(text: str) -> int | None:
+    """Start of a performance footer ``*( ... )*`` that is not complete yet."""
+    start = text.rfind("*(")
+    return start if start >= 0 and ")*" not in text[start:] else None
+
+
+def _unclosed_tag_start(text: str) -> int | None:
+    """Start of a ``<`` whose ``>`` has not arrived (a tag or a comment that is still being written)."""
+    start = text.rfind("<")
+    return start if start >= 0 and ">" not in text[start:] else None
+
+
+def _open_start(text: str) -> int | None:
+    """Index from which ``text`` holds a construct that is still open, so the filter cannot yet
+    say what it will remove; ``None`` if everything before the end is settled. A collapsible
+    block may stay open for any length (a long thought), a bracket or tag only for
+    ``TTS_FILTER_MAX_HOLD_CHARS`` characters."""
+    from .config import TTS_FILTER_MAX_HOLD_CHARS
+
+    starts: list[int] = []
+    comment = text.rfind("<!--")
+    if comment >= 0 and "-->" not in text[comment:]:
+        starts.append(comment)
+    block = _collapsible_open_start(text)
+    if block is not None:
+        starts.append(block)
+    for bracket in (_unclosed_tag_start(text), _footer_open_start(text), _bracket_open_start(text, "(", ")"), _bracket_open_start(text, "[", "]")):
+        if bracket is not None and len(text) - bracket <= TTS_FILTER_MAX_HOLD_CHARS:
+            # the footer starts with "*(": the star belongs to it
+            starts.append(bracket - 1 if bracket > 0 and text[bracket - 1] == "*" else bracket)
+    if text.endswith("*") and not text.endswith(")*"):  # may turn out to be the star of the footer's "*("
+        starts.append(len(text) - 1)
+    return min(starts) if starts else None
+
+
+class UiOnlyContentStream:
+    """``strip_ui_only_content`` for text that arrives in pieces: ``feed`` returns what is settled
+    so far (without AIfred's interface content), ``finish`` the rest. Blocks, comments, brackets
+    and tags cut by a piece border are held back until they are complete (or, for brackets, long
+    enough to be prose). The pieces joined are the text ``strip_ui_only_content`` would return,
+    apart from the whitespace around removed parts."""
+
+    def __init__(self) -> None:
+        self._unsettled = ""
+
+    def feed(self, piece: str) -> str:
+        self._unsettled += piece
+        start = _open_start(self._unsettled)
+        settled, self._unsettled = (
+            (self._unsettled, "") if start is None else (self._unsettled[:start], self._unsettled[start:])
+        )
+        return _strip_ui_only_markup(settled)
+
+    def finish(self) -> str:
+        rest, self._unsettled = self._unsettled, ""
+        return _strip_ui_only_markup(rest)

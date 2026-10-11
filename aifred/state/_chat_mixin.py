@@ -264,7 +264,6 @@ class ChatMixin(rx.State, mixin=True):
         round_num: int | None = None,
         metadata: dict | None = None,
         sync_llm_history: bool = True,
-        generate_tts: bool | None = None,
     ) -> None:
         """Add an agent response as a new message to chat_history.
 
@@ -276,7 +275,6 @@ class ChatMixin(rx.State, mixin=True):
         - Metadata formatting (TTFT, Inference time, tok/s, Source)
         - LLM history synchronization
         - Session persistence
-        - TTS generation (queued for sequential playback)
 
         With the new dict-based chat_history, each message is standalone.
         No more replace_last logic - just append new messages.
@@ -288,11 +286,7 @@ class ChatMixin(rx.State, mixin=True):
             round_num: Round number for multi-round debates (None/0 = no round, 1+ = round number)
             metadata: Optional dict with TTFT, inference_time, tokens_per_sec, source
             sync_llm_history: If True, syncs to llm_history (set False if caller already did)
-            generate_tts: If True, generate TTS and add to queue. If None, uses self.enable_tts.
-                         If False, skip TTS. For multi-agent modes, this enables per-response TTS.
         """
-        import asyncio
-
         from ..lib.i18n import t
         from ..lib.prompt_loader import get_language
 
@@ -366,39 +360,6 @@ class ChatMixin(rx.State, mixin=True):
         # 7. Save session (async, non-blocking)
         self._save_current_session()  # type: ignore[attr-defined]
 
-        # 8. Generate TTS and add to queue (if enabled)
-        # Implicit path (generate_tts=None): respect tts_autoplay too —
-        # without autoplay there's no consumer for the audio, no point
-        # spinning up XTTS/Moss for nothing. Explicit generate_tts=True
-        # is a caller-side override (e.g. future "replay audio" button).
-        # SKIP if streaming TTS is ACTIVE — text was already sent
-        # sentence-by-sentence during inference.
-        if generate_tts is None:
-            should_generate_tts = self.enable_tts and self.tts_autoplay  # type: ignore[attr-defined]
-        else:
-            should_generate_tts = generate_tts
-        streaming_active = self._tts_streaming_wanted(agent)  # type: ignore[attr-defined]
-        if should_generate_tts and not streaming_active:
-            # Check per-agent TTS enabled setting
-            if self.tts_agent_enabled(agent):  # type: ignore[attr-defined]
-                # Schedule TTS generation as background task
-                # This runs async without blocking add_agent_panel().
-                # Track the task in _orphan_tasks so the asyncio runtime
-                # keeps a strong reference until completion — otherwise
-                # the loop may GC the task object mid-run.
-                try:
-                    loop = asyncio.get_running_loop()
-                    from ._base import track_orphan_task
-                    task = loop.create_task(
-                        self._queue_tts_for_agent(content, agent),  # type: ignore[attr-defined]
-                        name=f"tts-{agent}",
-                    )
-                    track_orphan_task(task)
-                except RuntimeError:
-                    # No running loop - this shouldn't happen in normal operation
-                    # but we handle it gracefully
-                    self.add_debug(f"⚠️ TTS: No event loop for {agent}")
-
     # ── Multi-Agent Dispatch ─────────────────────────────────────────
 
     async def _dispatch_multi_agent(
@@ -429,17 +390,6 @@ class ChatMixin(rx.State, mixin=True):
         # model, because Sokrates resolves to the base variant).
         if self.multi_agent_mode in ("standard", "symposion") or not ai_text or skip_analysis:  # type: ignore[attr-defined]
             return
-
-        # Generate TTS for AIfred's initial response BEFORE Multi-Agent starts
-        # This ensures AIfred's voice is heard first, then Sokrates/Salomo follow
-        # (Sokrates/Salomo TTS is generated via add_agent_panel() in multi_agent.py)
-        # Same rules as add_agent_panel: autoplay required (no consumer
-        # otherwise), skip if streaming TTS already spoke the sentences.
-        if self.enable_tts and self.tts_autoplay and not self._tts_streaming_wanted("aifred"):  # type: ignore[attr-defined]
-            if self.tts_agent_enabled("aifred"):  # type: ignore[attr-defined]
-                # Wait for TTS to complete so we can update message metadata with audio URL
-                await self._queue_tts_for_agent(ai_text, agent="aifred")  # type: ignore[attr-defined]
-                yield  # Update UI with audio button (chat_history was reassigned in _queue_tts_for_agent)
 
         if self.multi_agent_mode == "tribunal":  # type: ignore[attr-defined]
             self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
@@ -841,19 +791,12 @@ class ChatMixin(rx.State, mixin=True):
         # BEFORE the try so every abort point (including the early yields
         # below) resets is_generating and releases pipeline/TTS again.
         from ..lib.pipeline_registry import register_pipeline, unregister_pipeline
-        from ..lib.tts_engine_manager import (
-            acquire_tts,
-            release_tts,
-            tts_keepalive_loop,
-        )
-        from ..lib.tts_service import running_gpu_engine
         from ..lib.llm_client import LLMClient
         ai_text = ""  # Used in finally block
         _pipeline_task: asyncio.Task | None = None
-        acquired_tts_engines: list[str] = []
-        tts_keepalive_task = None
         llm_client: LLMClient | None = None
         _client_gone = False  # set on GeneratorExit — finally must not yield then
+        _cancelled = False  # set on CancelledError (stop, supersession) — the spoken reply ends with it
         try:
             yield  # Spinner visible immediately
 
@@ -965,21 +908,6 @@ class ChatMixin(rx.State, mixin=True):
             _pipeline_task = asyncio.current_task()
             if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
                 register_pipeline(self.session_id, _pipeline_task)  # type: ignore[attr-defined]
-
-            # Acquire active GPU TTS engine + start keep-alive ping for the
-            # duration of the pipeline. Prevents the container from idle-out
-            # during long inference or web research (analogous to FreeEcho.2 channel).
-            if self.enable_tts:  # type: ignore[attr-defined]
-                _active_engine = running_gpu_engine()
-                if _active_engine:
-                    acquire_tts(_active_engine)
-                    acquired_tts_engines.append(_active_engine)
-                    tts_keepalive_task = asyncio.create_task(
-                        tts_keepalive_loop(
-                            acquired_tts_engines,
-                            on_warn=lambda m: self.add_debug(f"⚠️ {m}"),  # type: ignore[attr-defined]
-                        )
-                    )
 
             # ============================================================
             # IMAGES: who looks at them (SSOT _image_describer)
@@ -1414,6 +1342,9 @@ class ChatMixin(rx.State, mixin=True):
             self._save_current_session()  # type: ignore[attr-defined]
             yield
 
+        except asyncio.CancelledError:
+            _cancelled = True
+            raise
         except GeneratorExit:
             # WebSocket disconnect cancelled this generator. A generator
             # that yields again while unwinding GeneratorExit raises
@@ -1453,14 +1384,6 @@ class ChatMixin(rx.State, mixin=True):
             if llm_client is not None:
                 await llm_client.close()
 
-            # Stop TTS keep-alive task and release engine refcounts before
-            # any other cleanup runs (so a stuck downstream save doesn't
-            # leak our acquisition).
-            if tts_keepalive_task is not None and not tts_keepalive_task.done():
-                tts_keepalive_task.cancel()
-            for _engine in acquired_tts_engines:
-                release_tts(_engine)
-
             # Unregister from pipeline registry — only if this is still the
             # registered task (a newer pipeline may have superseded us).
             if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
@@ -1471,7 +1394,12 @@ class ChatMixin(rx.State, mixin=True):
             # exception before/inside the agent stream) — otherwise
             # tts_streaming_in_flight stays True and blocks media resume.
             # No-op when the multi-agent path already spawned it.
-            self._spawn_tts_finalize()  # type: ignore[attr-defined]
+            # A cancelled reply (stop, supersession, client gone) is not
+            # read to the end: its reading is aborted, so the service stops.
+            if _cancelled or _client_gone:
+                self._abort_streaming_tts()  # type: ignore[attr-defined]
+            else:
+                self._spawn_tts_finalize()  # type: ignore[attr-defined]
 
             # Partial-response rescue: when the handler is aborted
             # mid-stream (CancelledError from the stop button or pipeline
@@ -1550,6 +1478,8 @@ class ChatMixin(rx.State, mixin=True):
         if not self.logged_in_user:  # type: ignore[attr-defined]
             self.add_debug("⚠️ Bitte zuerst anmelden")
             return
+        from ._tts_streaming_mixin import abort_tts_reading
+        abort_tts_reading(self.session_id)  # type: ignore[attr-defined]
         self._clear_chat_internal(silent=False)  # type: ignore[attr-defined]
 
     # ── Save Session Memory ──────────────────────────────────────────

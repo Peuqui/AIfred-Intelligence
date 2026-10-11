@@ -16,6 +16,8 @@ the Send-button click chain, so audio.play() is allowed for tts/media.
 
 Kinds:
   - "tts"          : ``{kind, url, version, playback_rate}``
+  - "tts_speak"    : a reply part the browser's own voice speaks (``url`` = JSON of the utterance)
+  - "tts_pause"    : silence in the playlist between two parts (``url`` = milliseconds)
   - "media"        : ``{kind, url, version, state_key, start_pos_sec,
                         is_stream, audio_type}``
   - "stop"/"pause"/"resume"/"seek"/"speed" : audio control events
@@ -74,6 +76,10 @@ def browser_push(
 
     Kinds and their metadata:
       - ``"tts"``    : chunk-stream, gapless. {url, playback_rate}
+      - ``"tts_speak"`` : a part the browser's own voice (Web Speech API) speaks, same
+                       queue; ``url`` holds the JSON of the utterance.
+      - ``"tts_pause"`` : silence between two parts of the TTS queue; ``url`` holds the
+                       pause in milliseconds.
       - ``"media"``  : single-track, position-saved. {url, state_key,
                        start_pos_sec, is_stream, audio_type, playback_rate}
       - ``"stop"``   : halt + clear src + final-position-save. (no metadata)

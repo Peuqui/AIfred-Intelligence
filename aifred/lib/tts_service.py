@@ -41,7 +41,7 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
-from .config import TTS_SUITE_CACHE_TTL_S
+from .config import TTS_BROWSER_DEFAULT_UNIT, TTS_BROWSER_ENGINE_KEY, TTS_SUITE_CACHE_TTL_S
 from .i18n import TranslationManager, t
 from .logging_utils import log_message
 from .settings import persisted_settings
@@ -355,6 +355,50 @@ def request_engines() -> list[EngineRef]:
     The service refuses an empty list; with nothing switched on the request fails there.
     """
     return [EngineRef(entry.engine, entry.unit, entry.host) for entry in entries() if entry.active]
+
+
+def request_engines_before_browser() -> list[EngineRef]:
+    """The list of a reading into a browser window: AIfred's active entries ABOVE the browser entry
+    (all of them if the browser entry is not switched on). The browser's own voice runs on the
+    user's device, the service cannot speak with it, and an entry below it is never reached: the
+    browser always works. Empty = the browser is the topmost active entry.
+
+    Raises:
+        TTSSuiteUnreachable: the service does not answer.
+    """
+    refs: list[EngineRef] = []
+    for entry in entries():
+        if not entry.active:
+            continue
+        if entry.engine == TTS_BROWSER_ENGINE_KEY:
+            break
+        refs.append(EngineRef(entry.engine, entry.unit, entry.host))
+    return refs
+
+
+def _active_stored_engines() -> list[str]:
+    """Engine keys of the stored entries that are switched on (host switched on, too), in order. Settings
+    only: the answer does not depend on the service."""
+    hosts = stored_hosts()
+    return [
+        str(raw["engine"]) for raw in stored_list() if raw["enabled"] and _host_switched_on(raw["host"], hosts)
+    ]
+
+
+def browser_entry_unit() -> str | None:
+    """Unit the browser entry reads in (the user's choice, else the default of the browser engine);
+    ``None`` if the browser entry is not switched on in AIfred's list. Settings only, because it
+    must be known when the service is down: then the browser speaks."""
+    if TTS_BROWSER_ENGINE_KEY not in _active_stored_engines():
+        return None
+    return chosen_unit(TTS_BROWSER_ENGINE_KEY) or TTS_BROWSER_DEFAULT_UNIT
+
+
+def service_entries_before_browser() -> bool:
+    """Is any entry switched on above the browser entry (or, without a browser entry, at all)? Settings
+    only: with none, a reading into a browser window needs no service."""
+    active = _active_stored_engines()
+    return bool(active) and active[0] != TTS_BROWSER_ENGINE_KEY
 
 
 def ref_label(ref: EngineRef) -> str:

@@ -674,7 +674,7 @@ window.initBubbleRegenerateButtons = initBubbleRegenerateButtons;
 // ============================================================
 
 // Queue state
-var ttsQueue = [];  // Audio URLs to play; {speak: utterance} items are spoken by the browser itself
+var ttsQueue = [];  // Audio URLs to play; {speak: utterance} items are spoken by the browser itself, {pause: ms} items are silence
 var ttsQueuePlaying = false;  // Is queue currently playing?
 var ttsQueueCurrentIndex = 0;  // Current playback position
 var ttsQueueVersion = 0;  // Track version to detect updates from backend
@@ -799,6 +799,18 @@ function playNextChunk() {
     }
 
     const item = ttsQueue[ttsQueueCurrentIndex];
+    if (typeof item === 'object' && item.pause !== undefined) {
+        // Pause between two paragraphs (the TTS service's pause marker): stay silent for item.pause ms.
+        const generation = browserSpeechGeneration;
+        ttsQueuePlaying = true;
+        setTimeout(() => {
+            if (generation !== browserSpeechGeneration) return;  // stopped or skipped meanwhile
+            ttsQueueCurrentIndex++;
+            playNextChunk();
+        }, item.pause);
+        prefetchChunks();
+        return;
+    }
     if (typeof item === 'object') {
         // Spoken by the browser itself (escalation list's browser entry).
         const chunkIndex = ttsQueueCurrentIndex;
@@ -1244,6 +1256,10 @@ function startBrowserStream(sessionIdParam) {
                     player.playbackRate = factor;
                     console.log(`🔊 Audio Bus: speed → ${factor}×`);
                 }
+            } else if (kind === 'tts_pause') {
+                // Silence between two paragraphs, in the same queue; url carries the milliseconds.
+                const newQueue = [...ttsQueue, {pause: Number(url)}];
+                updateTtsQueue(newQueue, data.version);
             } else if (kind === 'tts_speak') {
                 // Browser TTS — a sentence the device speaks, in the same queue.
                 const newQueue = [...ttsQueue, {speak: JSON.parse(url)}];

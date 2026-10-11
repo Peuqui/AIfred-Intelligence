@@ -366,6 +366,12 @@ class AIState(  # type: ignore[misc]
             except (OSError, ValueError):
                 pass
 
+        # What a task outside any event wants to tell the user (the spoken reply: the TTS service
+        # failed, the browser took over, the speech broke off) turns into toasts here.
+        from ._tts_streaming_mixin import take_tts_notices
+        from ..lib.toast import toast
+        toast_events.extend(toast(kind, message) for kind, message in take_tts_notices(self.session_id))
+
         # Toast without session change (notification for a different session)
         if toast_events:
             for _ev in toast_events:
@@ -655,7 +661,6 @@ class AIState(  # type: ignore[misc]
                                filename=filename, size=size_display, engine="GPU"),
                     mode="standard",
                     sync_llm_history=False,
-                    generate_tts=False,
                 )
             yield  # flush debug line before the long-running transcription
 
@@ -769,7 +774,6 @@ class AIState(  # type: ignore[misc]
                                        chars=format_number(len(user_text) / 1000, 1)),
                             mode="standard",
                             sync_llm_history=True,
-                            generate_tts=False,
                         )
                         yield rx.toast.success(
                             f"📄 Transkript gespeichert: {rel_name} — im Chat z. B. "
@@ -798,7 +802,6 @@ class AIState(  # type: ignore[misc]
                                    text=user_text),
                         mode="standard",
                         sync_llm_history=True,
-                        generate_tts=False,
                     )
                     self.add_debug("💬 Transcript added to chat bubble")
                     self.add_debug(CONSOLE_SEPARATOR)

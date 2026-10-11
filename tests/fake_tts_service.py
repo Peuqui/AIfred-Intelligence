@@ -4,6 +4,8 @@ service would. The real one is never touched (see conftest ``_no_real_tts_servic
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import json
 import struct
 from collections.abc import AsyncIterator
@@ -11,6 +13,7 @@ from typing import Any
 
 import httpx
 import pytest
+from websockets.asyncio.server import ServerConnection, serve
 
 import aifred.lib.audio_processing as audio_processing
 import aifred.lib.settings as settings_module
@@ -103,11 +106,12 @@ class FakeTTSService:
 
 def install_fake_service(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Any, fake: FakeTTSService, listed: list[str] | None = None,
-    agent_voices: dict[str, Any] | None = None,
+    agent_voices: dict[str, Any] | None = None, base_url: str = "http://tts.test",
 ) -> dict[str, Any]:
     """Make ``get_tts_client()`` talk to ``fake``, AIfred's list = ``listed`` engines (default: the
-    catalog's engines on this machine, all on), the TTS audio folder = ``tmp_path``."""
-    client = TTSClient("http://tts.test", transport=httpx.MockTransport(fake.handler))
+    catalog's engines on this machine, all on), the TTS audio folder = ``tmp_path``. ``base_url``:
+    where the WebSocket of a text stream connects (HTTP always goes to ``fake``)."""
+    client = TTSClient(base_url, transport=httpx.MockTransport(fake.handler))
     monkeypatch.setattr(tts_client, "_default_client", client)
     keys = listed if listed is not None else [row["engine"] for row in fake.catalog if row["host"] is None]
     settings = {
@@ -123,3 +127,60 @@ def install_fake_service(
     monkeypatch.setattr(audio_processing, "TTS_AUDIO_DIR", tmp_path)
     tts_service.reset_cache()
     return settings
+
+
+class FakeStreamingService:
+    """The WebSocket ``/speak/stream`` of the service. ``after_text[n]``: frames sent after the n-th
+    text message arrived (the audio comes while the text is still being written); ``after_finish``:
+    frames sent after ``finish`` (the last of them normally a summary). ``on_start``: frames sent right
+    after the start message (an error frame for a reading that cannot start; the connection then closes).
+    ``started`` / ``texts`` record what the client sent, ``closed`` is set when the connection is over."""
+
+    def __init__(
+        self, after_text: list[list[bytes]] | None = None, after_finish: list[bytes] | None = None,
+        on_start: list[bytes] | None = None,
+    ) -> None:
+        self.after_text = after_text or []
+        self.after_finish = after_finish if after_finish is not None else [summary_frame()]
+        self.on_start = on_start
+        self.started: dict[str, Any] = {}
+        self.texts: list[str] = []
+        self.finished = False
+        self.closed = asyncio.Event()
+
+    async def handler(self, socket: ServerConnection) -> None:
+        try:
+            self.started = json.loads(await socket.recv())
+            if self.on_start is not None:
+                for data in self.on_start:
+                    await socket.send(data)
+                await socket.close()
+                return
+            async for raw in socket:
+                message = json.loads(raw)
+                if message["type"] == "text":
+                    self.texts.append(message["text"])
+                    if len(self.texts) <= len(self.after_text):
+                        for data in self.after_text[len(self.texts) - 1]:
+                            await socket.send(data)
+                else:
+                    self.finished = True
+                    for data in self.after_finish:
+                        await socket.send(data)
+                    await socket.close()
+                    return
+        finally:
+            self.closed.set()
+
+
+@contextlib.asynccontextmanager
+async def serve_stream(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Any, fake: FakeTTSService, stream: FakeStreamingService,
+    listed: list[str] | None = None, agent_voices: dict[str, Any] | None = None,
+) -> AsyncIterator[dict[str, Any]]:
+    """Like ``install_fake_service``, with the text stream served by ``stream`` on a loopback port."""
+    async with serve(stream.handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        yield install_fake_service(
+            monkeypatch, tmp_path, fake, listed=listed, agent_voices=agent_voices, base_url=f"http://127.0.0.1:{port}",
+        )

@@ -194,23 +194,6 @@ def test_unreachable_service_shows_the_stored_list_and_a_message_but_raises_noth
     assert rows[0]["label"] == "xtts · Dieser Rechner" and not rows[0]["unavailable"]
     assert computed("tts_host_rows", state) == [{"name": "Box", "enabled": False, "offered": True}]
     assert computed("tts_service_error", state).startswith(UNREACHABLE_PREFIX)
-    unit = computed("tts_speech_unit", state)
-    assert unit.startswith(UNREACHABLE_PREFIX) and unit != "whole"
-
-
-def test_speech_unit_is_the_one_of_the_topmost_active_entry(service) -> None:
-    _, file = service(
-        [stored("xtts", enabled=False), stored("piper")],
-        catalog=[catalog_row("xtts"), catalog_row("piper", unit_default="whole")],
-    )
-    assert computed("tts_speech_unit", FakeState()) == "whole"
-    file.data["tts_toggles_per_engine"] = {"piper": {"unit": "paragraph"}}
-    assert computed("tts_speech_unit", FakeState()) == "paragraph"
-
-
-def test_speech_unit_without_an_active_entry_is_whole(service) -> None:
-    service([stored("xtts", enabled=False)])
-    assert computed("tts_speech_unit", FakeState()) == "whole"
 
 
 def test_host_rows_show_every_offered_host_new_ones_off_and_gone_ones_marked(service) -> None:

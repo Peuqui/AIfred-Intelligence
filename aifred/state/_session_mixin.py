@@ -56,6 +56,10 @@ class SessionMixin(rx.State, mixin=True):
         new_id = generate_session_id()
         create_empty_session(new_id, owner=self.logged_in_user)  # type: ignore[attr-defined]
 
+        # The reading of the session we leave stops with it
+        from ._tts_streaming_mixin import abort_tts_reading
+        abort_tts_reading(self.session_id)
+
         # Switch to new device ID BEFORE clearing
         # (so clear_chat() cleans up the NEW session's directories)
         self.session_id = new_id
@@ -123,6 +127,10 @@ class SessionMixin(rx.State, mixin=True):
                 f"Switching to ownerless (legacy) session {session_id[:8]}...",
                 "warning",
             )
+
+        # The reading of the session we leave stops with it
+        from ._tts_streaming_mixin import abort_tts_reading
+        abort_tts_reading(self.session_id)
 
         # Update session_id, then restore full session state through the
         # central path so active_agent, multi_agent_mode, symposion_agents
