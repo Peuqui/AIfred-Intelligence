@@ -71,7 +71,7 @@ def _shared_recognizer() -> Any:
     """Recognizer über den Watcher beziehen (SSOT: Schwellen aus den
     Plugin-Settings + geteilter Embedding-Cache mit Epoch-Reload)."""
     from .vision_watcher import get_default_watcher
-    return get_default_watcher()._get_face_recognizer()  # noqa: SLF001
+    return get_default_watcher().detection.face_recognizer
 
 
 async def _match_and_assign(

@@ -13,7 +13,25 @@ The plugin itself is the thin LLM-facing glue. The heavy lifting lives in the
 shared libraries under `aifred/lib/` — `frame_sources` (capture),
 `vision_filters/motion` (motion detection), `vision_filters/face_detect` +
 `face_recognize` (InsightFace), `vision_analyzer` (the VLM call), `vision_watcher`
-(the background watch task), and `vision_store` (the SQLite database).
+(supervisor of the background watch task), and `vision_store` (the SQLite database).
+
+The watcher itself is only lifecycle and wiring. Its building blocks (one module
+each, all in `aifred/lib/`):
+
+| Module | Job |
+|---|---|
+| `vision_watch_types` | `WatchConfig`, `WatchStatus`, `EdgeAiConfig` (defaults from `config.py`) |
+| `vision_frames` | freshest frame, pre-roll ring buffer, paced iterator for the cycles |
+| `vision_output` | output chain: blackout (GDPR) → overlay stamp → save |
+| `vision_detect` | face, person and category detectors + one recognizer per process |
+| `vision_recorder` | writes events (face, person, edge class, motion), cluster ids, live bus |
+| `vision_faces` | face recognition of one frame incl. bundling the alerts per band |
+| `vision_motion` | motion path (MOG2 → face/person) |
+| `vision_edge_source` | event source of the camera detections (protocol + Reolink poll) |
+| `vision_edge_ai` | edge-AI path: trigger cycle and reaction (snap, confirmation, alerts, pre-roll) |
+| `vision_burst` | face-hunt burst after a person trigger |
+| `vision_continuous_vlm` | continuous VLM of the live teleprompter |
+| `vision_settings` | access to the plugin's `settings.json` |
 
 A key design point: **VLM calls go through Ollama as a side-channel**, fully
 independent of the active chat backend on llama-swap. A snapshot analysis never
@@ -181,7 +199,7 @@ checkbox is a master switch for a quick counter-check: off = the mask stays
 saved but has no effect.
 
 Implementation: `aifred/lib/vision_filters/zone_mask.py` (model + application),
-applied in the `MotionDetector` (motion) and the `vision_watcher` (blackout
+applied in the `MotionDetector` (motion) and in `vision_output` (blackout
 before save/VLM).
 
 ## PTZ control (ONVIF)
@@ -243,7 +261,7 @@ a real event); a clean run with no hit discards the phantom trigger.
 **Dual-lens snap:** On a trigger, wide + zoom (if `face_channel` is set) are
 pulled FRESH and in parallel via the Snap API with a shared timestamp, no RTSP
 buffer lag. A **settle time** precedes it (`edge_ai_settle_sec`, default 1.0 s,
-SSoT in `vision_watcher`) so the PTZ head can centre the subject before the
+SSoT `VISION_EDGE_AI_SETTLE_SEC` in `config.py`) so the PTZ head can centre the subject before the
 frame is taken.
 
 **Aggregated alerts:** All faces of one happening are collapsed into ONE alert
@@ -432,7 +450,7 @@ restarting. Key groups:
 - **`watch`** — `default_fps`, the motion thresholds (`motion_min_area_ratio`,
   `motion_history_frames`, `motion_var_threshold`, `motion_warmup_frames`),
   `min_event_interval_sec`, `save_event_frames`, `run_face_detect_on_motion`,
-  `run_vlm_on_motion`.
+  `burst_interval_sec`, `burst_linger_sec`, `preroll_sec`.
 - **`snapshot`** — `jpeg_quality`, `save_to_disk`, `retention_days`.
 - **`events`** — per-type retention (`retention_days_motion` / `_face` / `_vlm`)
   and `default_query_limit`.

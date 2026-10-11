@@ -1,0 +1,281 @@
+"""Edge-AI-Pfad des Vigilantia-Watchers (Kameras mit On-Device-Erkennung).
+
+Die Kamera erkennt Person/Fahrzeug/Tier selbst und ist nur der AUSLÖSER —
+entschieden wird nach UNSEREN Detektoren. Dieses Modul enthält die Reaktion
+auf einen Trigger (``EdgeAiHandler``) und den Zyklus, der auf die Flanken der
+Ereignisquelle wartet (``run_edge_ai_cycle``).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+from datetime import datetime
+from typing import TYPE_CHECKING, Any, Callable
+
+from . import vision_alerts
+from .config import EDGE_AI_CONFIRM, VISION_OVERLAY_SUFFIX_PREROLL
+from .vision_burst import BurstRunner
+from .vision_detect import DetectionService
+from .vision_edge_source import EdgeAiEventSource
+from .vision_faces import FacePipeline
+from .vision_frames import LiveFrames
+from .vision_output import OutputChain
+from .vision_recorder import EventRecorder
+from .vision_snap import snap_pair
+from .vision_store import VisionStore
+from .vision_watch_types import WatchConfig
+
+if TYPE_CHECKING:
+    from .frame_sources import Frame
+
+logger = logging.getLogger(__name__)
+
+TRIGGER = "edge_ai"
+
+
+class EdgeAiHandler:
+    """Verarbeitet einen Edge-AI-Trigger: Dual-Snap, Bestätigung durch unser
+    YOLO, Ereignisse, Alerts, Vorlauf und der Start des Face-Hunt-Bursts."""
+
+    def __init__(
+        self,
+        store: VisionStore,
+        output: OutputChain,
+        detect: DetectionService,
+        recorder: EventRecorder,
+        faces: FacePipeline,
+        bursts: BurstRunner,
+    ) -> None:
+        self._store = store
+        self._output = output
+        self._detect = detect
+        self._recorder = recorder
+        self._faces = faces
+        self._bursts = bursts
+        # Zeitstempel des zuletzt abgelegten Vorlauf-Frames je Quelle — zwei
+        # Trigger kurz nacheinander überlappen im Ringpuffer, doppelt
+        # gespeichert wird nichts.
+        self._preroll_saved_until: dict[str, datetime] = {}
+
+    async def handle(
+        self,
+        frame: "Frame",
+        classes: list[str],
+        config: WatchConfig,
+        client: Any,
+        events: EdgeAiEventSource,
+        preroll_frames: list["Frame"],
+        is_current: Callable[[], bool],
+    ) -> None:
+        """``frame`` ist das RTSP-Frame zum Trigger (Rückfall-Bild, falls der
+        Snap fehlschlägt). Schreibt pro bestätigter Klasse ein Ereignis, feuert
+        die passenden Alerts und ergänzt — nur bei ``person`` — die
+        Gesichts-Identität, die die Kamera nicht liefern kann."""
+        edge = config.edge_ai
+        if edge is None:
+            raise ValueError("Edge-AI-Trigger ohne WatchConfig.edge_ai")
+        source_id = frame.source_id
+        # Synchronisierter Dual-Lens-Snap: Wide + Zoom FRISCH und parallel mit
+        # EINEM gemeinsamen Zeitstempel. Das stale RTSP-Frame verpasst das
+        # Subjekt oft (zeitversetzt), während der Zoom frisch war.
+        wide_frame, face_frame = await snap_pair(
+            client, frame,
+            wide_channel=edge.channel, face_channel=edge.face_channel,
+        )
+        # Ausgabekette für beide Linsen. Die Detektionen (YOLO-Bestätigung)
+        # laufen auf dem ungestempelten Bild.
+        pair = await self._output.finalize_pair(
+            wide_frame, face_frame, save=config.save_event_frames,
+        )
+        frame_path, zoom_frame_path = pair.wide.path, pair.zoom_path
+        cluster_id = self._recorder.cluster_id_for(pair.wide.output)
+        await self._persist_preroll(preroll_frames, config, cluster_id)
+        timestamp = pair.wide.output.timestamp
+        self._recorder.note_trigger(source_id, timestamp)
+
+        # Pro Klasse sagt EDGE_AI_CONFIRM, ob unser YOLO den Trigger bestätigen
+        # muss (True, gegen IR-Halluzinationen) oder ob wir der Kamera glauben
+        # (False, z.B. animal — Nano-YOLO ist da schwach). Alle zu bestätigenden
+        # Klassen prüfen wir in EINER YOLO-Inferenz.
+        confirm_needed = {c for c in classes if EDGE_AI_CONFIRM.get(c, True)}
+        counts = await self._detect.count_categories(pair.wide.detect, confirm_needed)
+
+        def confirmed(cls: str) -> bool:
+            # bestätigt = der Kamera vertraut (policy False) ODER eigenes YOLO
+            # hat die Klasse gezählt (count > 0).
+            return cls not in confirm_needed or counts.get(cls, 0) > 0
+
+        def count_of(cls: str) -> int:
+            # YOLO-Stückzahl bei bestätigten Klassen; bei vertrauten Klassen
+            # (z.B. animal) liefert die Kamera keine Zahl → 0 (= "ohne Zahl").
+            return counts.get(cls, 0) if cls in confirm_needed else 0
+
+        def detector_of(cls: str) -> str:
+            return "yolo" if cls in confirm_needed else "edge_ai"
+
+        # ── person ── Gesicht ZUERST (informativere Meldung als „person").
+        # Bei Burst-Quellen laufen die Personen-/Gesichts-Meldungen als BILANZ
+        # über den BurstReport (bestes Bild statt Trigger-Moment, alle Namen in
+        # einer Meldung) — Sofort-Alerts nur noch dort, wo kein Burst läuft.
+        # Läuft schon ein Burst, füttert der neue Trigger dessen Report weiter
+        # (gleiches Vorkommnis).
+        burst_capable = (
+            "person" in classes
+            and config.run_face_detect_on_motion
+            and config.burst_interval_sec > 0
+        )
+        report = None
+        if burst_capable:
+            report = self._bursts.running_report(source_id) or vision_alerts.BurstReport(
+                source_id, cluster_id, self._store,
+            )
+        face_found = False
+        if "person" in classes and config.run_face_detect_on_motion:
+            face_found = await self._faces.run(
+                face_frame, trigger=TRIGGER, frame_path=frame_path,
+                zoom_frame_path=zoom_frame_path, collect=report,
+            )
+        if "person" in classes:
+            if confirmed("person"):
+                # Event aus UNSERER Erkennung — Chronik zeigt nur bestätigte
+                # Personen, keine Kamera-Phantome. Alert entfällt, wenn schon
+                # ein Gesicht erkannt wurde (sonst Doppel-Meldung).
+                person_count = max(1, count_of("person"))
+                self._recorder.record_edge_class(
+                    "person", source_id=source_id, timestamp=timestamp,
+                    frame_path=frame_path, zoom_frame_path=zoom_frame_path,
+                    count=person_count, detector=detector_of("person"),
+                    cluster_id=cluster_id,
+                )
+                if report is not None:
+                    report.observe_person(person_count, 0.0, frame_path, zoom_frame_path)
+                elif not face_found:
+                    await vision_alerts.emit_person_alert(
+                        source_id=source_id, frame_path=frame_path,
+                        zoom_frame_path=zoom_frame_path, cluster_id=cluster_id,
+                        count=person_count, timestamp=timestamp, store=self._store,
+                    )
+            elif not face_found:
+                logger.info(
+                    "edge-ai person NOT confirmed for %s — no event, no "
+                    "alert (camera false-positive)", source_id,
+                )
+
+        # ── vehicle / animal ── Event + Alert nur bei Bestätigung (oder wenn
+        # die Klasse der Kamera anvertraut ist, siehe EDGE_AI_CONFIRM).
+        for cls in ("vehicle", "animal"):
+            if cls not in classes:
+                continue
+            if not confirmed(cls):
+                logger.info(
+                    "edge-ai %s NOT confirmed for %s — no event, no alert",
+                    cls, source_id,
+                )
+                continue
+            self._recorder.record_edge_class(
+                cls, source_id=source_id, timestamp=timestamp,
+                frame_path=frame_path, zoom_frame_path=zoom_frame_path,
+                count=count_of(cls), detector=detector_of(cls),
+                cluster_id=cluster_id,
+            )
+            await vision_alerts.emit_object_alert(
+                source_id=source_id, object_type=cls, frame_path=frame_path,
+                zoom_frame_path=zoom_frame_path, cluster_id=cluster_id,
+                count=count_of(cls), timestamp=timestamp, store=self._store,
+            )
+
+        # ── Face-Hunt-Burst ──────────────────────────────────────────
+        # Der Initial-Snap ist systematisch der schlechteste Moment (PTZ
+        # schwenkt/zoomt noch) — der Burst jagt in schneller Folge nach dem
+        # besten Gesicht, solange die Kamera die Person weiter meldet. Fire-
+        # and-forget, max. ein Burst pro Quelle. NUR bei YOLO-bestätigter
+        # Person (oder schon erkanntem Gesicht) — nächtliche IR-Phantome der
+        # Kamera sollen keine minutenlangen Geister-Bursts anwerfen.
+        if report is not None and (face_found or confirmed("person")):
+            self._bursts.start(
+                source_id, config, client, events, cluster_id, report, is_current,
+            )
+
+    async def _persist_preroll(
+        self, frames: list["Frame"], config: WatchConfig, cluster_id: str,
+    ) -> None:
+        """Vorlauf-Frames eines Triggers als Ereignisse im Cluster des Triggers
+        ablegen (Ausgabekette, ohne Auswertung — die Auflösung des RTSP-
+        Substreams reicht nicht für Gesichter, zeigt aber, was vor dem
+        Auslösen im Bild war). Art ``motion`` mit
+        ``metadata.trigger = edge_ai_preroll``."""
+        for frame in frames:
+            saved_until = self._preroll_saved_until.get(frame.source_id)
+            if saved_until is not None and frame.timestamp <= saved_until:
+                continue
+            self._preroll_saved_until[frame.source_id] = frame.timestamp
+            finalized = await self._output.finalize(
+                frame, label_suffix=VISION_OVERLAY_SUFFIX_PREROLL,
+                save=config.save_event_frames,
+            )
+            self._store.add_event(
+                source_id=frame.source_id,
+                event_type="motion",
+                timestamp=finalized.output.timestamp,
+                frame_path=finalized.path,
+                confidence=0.0,
+                classification={},
+                metadata={"trigger": "edge_ai_preroll"},
+                cluster_id=cluster_id,
+            )
+
+
+async def run_edge_ai_cycle(
+    *,
+    source_id: str,
+    config: WatchConfig,
+    events: EdgeAiEventSource,
+    client: Any,
+    live: LiveFrames,
+    recorder: EventRecorder,
+    handler: EdgeAiHandler,
+    is_current: Callable[[], bool],
+) -> None:
+    """Wartet auf steigende Flanken der Ereignisquelle und löst die Edge-AI-
+    Auswertung aus. Ersetzt MOG2/YOLO für intelligente Kameras — die Roh-
+    Detektion macht die Kamera selbst."""
+    edge = config.edge_ai
+    if edge is None:
+        raise ValueError("Edge-AI-Zyklus ohne WatchConfig.edge_ai")
+    # Zeitstempel des zuletzt befeuerten Frames — gegen eingefrorene RTSP-
+    # Streams: friert der Stream ein, bleibt ``live.latest`` stehen (gleicher
+    # Timestamp), während die Kamera-Edge-AI nachts im IR-Bild weiter Person/
+    # Tier flackert. Ohne Guard würde AIfred dasselbe Standbild dutzendfach
+    # speichern + Fehlalarme feuern.
+    last_fired_ts: datetime | None = None
+    while True:
+        rising = await events.wait_rising()
+        if recorder.is_throttled(source_id, config.min_event_interval_sec):
+            continue
+        # Vorlauf VOR dem Settle einfrieren — danach ist er schon um die
+        # Wartezeit gewandert.
+        preroll_frames = live.preroll_snapshot()
+        # Settle: dem PTZ-Kopf Zeit geben, das Subjekt zu zentrieren — dann das
+        # frischeste Frame ziehen.
+        if edge.settle_sec > 0:
+            await asyncio.sleep(edge.settle_sec)
+        frame = live.latest
+        if frame is None:
+            continue
+        if frame.timestamp == last_fired_ts:
+            # Eingefrorener Stream: derselbe Frame wie beim letzten Feuern →
+            # kein echtes Ereignis, skip.
+            logger.warning(
+                "edge-ai: eingefrorenes Frame für %s (Stream steht?) — "
+                "Trigger verworfen", source_id,
+            )
+            continue
+        last_fired_ts = frame.timestamp
+        try:
+            await handler.handle(
+                frame, rising, config, client, events, preroll_frames, is_current,
+            )
+        except Exception:  # noqa: BLE001
+            logger.exception("edge-ai event handling failed for %s", source_id)
+

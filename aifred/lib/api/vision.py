@@ -88,7 +88,7 @@ class _MotionOverlay:
         import numpy as np
 
         from ..vision_filters import MotionDetector
-        from ..vision_watcher import WatchConfig
+        from ..vision_watch_types import WatchConfig
 
         cfg = WatchConfig()
         self._det = MotionDetector(

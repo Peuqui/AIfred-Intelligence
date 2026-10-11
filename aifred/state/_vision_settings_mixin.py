@@ -386,7 +386,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         Modal."""
         try:
             from ..lib.frame_sources import list_all
-            from ..lib.vision_profiles import DEFAULT_MIN_EVENT_INTERVAL_SEC
+            from ..lib.config import VISION_MIN_EVENT_INTERVAL_SEC
             from ..lib.vision_store import VisionStore
             store = VisionStore()
             cams: list[dict[str, Any]] = []
@@ -421,7 +421,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                     "schedule_end": _hhmm(s.get("schedule_end", "08:00")),
                     "resolution": str(s.get("resolution") or "default"),
                     "event_interval": _fmt_interval(
-                        s.get("min_event_interval_sec", DEFAULT_MIN_EVENT_INTERVAL_SEC)
+                        s.get("min_event_interval_sec", VISION_MIN_EVENT_INTERVAL_SEC)
                     ),
                 })
             # Assign only on real change: the 500ms feed tick calls this

@@ -802,16 +802,6 @@ DEBUG_LOG_RAW_OUTPUT = False
 # AIfreds nachfolgender Verarbeitung.
 DEBUG_LOG_VLM_RAW = False
 
-# Continuous-watch VLM history depth — how many of the last
-# descriptions get prepended to the prompt as "previous observations"
-# so the VLM can write a delta ("unverändert" / "die Person hat sich
-# umgedreht") instead of a full fresh report every tick.
-# 0 = no history (fully stateless), 10 ≈ 50 s of watch coverage at the
-# default 5 s cooldown (~500 tokens of context, fits comfortably in
-# the 4K window). Higher = longer memory but risk of the VLM echoing
-# its own history instead of describing the image.
-VISION_VLM_CONTINUOUS_HISTORY = 10
-
 # ============================================================
 # VIGILANTIA BULK-DESCRIBE CLUSTERING
 # ============================================================
@@ -831,6 +821,59 @@ VISION_VLM_CONTINUOUS_HISTORY = 10
 #   aufgemacht, sonst entstünde ein ewiger Cluster. 300 = 5 Min.
 VISION_CLUSTER_GAP_SECONDS = 10
 VISION_CLUSTER_MAX_SECONDS = 300
+
+# Watch-Standardwerte (Vigilantia) — SSOT für ``WatchConfig`` und alle Stellen,
+# die eine Watch-Konfiguration bauen (Autostart, Live-Vorschau, Tool-Pfad).
+# Pro Installation in ``plugins/tools/vision/settings.json`` (``watch``) bzw.
+# pro Kamera überschreibbar.
+# * MOTION_* — MOG2-Bewegungsdetektor (nur Kameras ohne Edge-AI).
+# * MIN_EVENT_INTERVAL_SEC — Mindestabstand zwischen Detektions-Events.
+# * WATCH_FPS — Abtastrate eines ad-hoc gestarteten Watchers (Tool-Pfad);
+#   BACKGROUND_WATCH_FPS — Hintergrund-Watcher (niedrig, GPU-schonend).
+# * EDGE_AI_POLL_INTERVAL_SEC — Abstand der ``GetAiState``-Abfragen (HTTP-GET
+#   auf persistenter Session; der frühere Session-Storm kam vom Re-Login).
+# * EDGE_AI_SETTLE_SEC — Wartezeit nach der steigenden Flanke, bevor das Frame
+#   gezogen wird: gibt dem schwenkenden PTZ-Kopf Zeit, das Subjekt zu zentrieren.
+VISION_MOTION_MIN_AREA_RATIO = 0.02
+VISION_MOTION_HISTORY_FRAMES = 500
+VISION_MOTION_VAR_THRESHOLD = 16.0
+VISION_MOTION_WARMUP_FRAMES = 10
+VISION_MOTION_EGO_SHIFT_PX = 3.0
+VISION_MIN_EVENT_INTERVAL_SEC = 1.0
+VISION_WATCH_FPS = 1.0
+VISION_BACKGROUND_WATCH_FPS = 2.0
+VISION_EDGE_AI_POLL_INTERVAL_SEC = 0.5
+VISION_EDGE_AI_SETTLE_SEC = 1.0
+# Wiederholte Abfrage-Fehler: Wartezeit = Intervall · 2^Fehler (Exponent gedeckelt),
+# höchstens aber ``VISION_EDGE_AI_BACKOFF_MAX_SEC`` — die Kamera wird nicht zugehämmert.
+VISION_EDGE_AI_BACKOFF_MAX_DOUBLINGS = 5
+VISION_EDGE_AI_BACKOFF_MAX_SEC = 60.0
+
+# Edge-AI-Burst und Vorlauf (Vigilantia): Standardwerte, pro Installation in
+# ``plugins/tools/vision/settings.json`` unter ``watch`` überschreibbar.
+# * BURST_INTERVAL_SEC — Abstand der Dual-Snaps im Burst.
+# * BURST_LINGER_SEC — Nachlauf nach der letzten Personenmeldung. Die Kamera
+#   beendet die Meldung, wenn jemand ~10 s stillsteht, und meldet bei der
+#   nächsten Bewegung neu; 20 s halten so einen Vorbeigang in EINEM Burst.
+# * PREROLL_SEC — Länge des Vorlauf-Ringpuffers (RTSP-Substream-Frames).
+VISION_BURST_INTERVAL_SEC = 0.5
+VISION_BURST_LINGER_SEC = 20.0
+VISION_PREROLL_SEC = 8.0
+VISION_BURST_REPORT_DEADLINE_SEC = 15.0
+# Untergrenzen: Burst-Takt (schneller belastet die Kamera-API) und Bilanz-Intervall.
+VISION_BURST_MIN_INTERVAL_SEC = 0.2
+VISION_BURST_MIN_DEADLINE_SEC = 1.0
+
+# Schwellen der Gesichtserkennung (Cosine-Similarity): ab ``known`` ein
+# sicheres Match, zwischen ``unsure`` und ``known`` das unsichere Band.
+# In ``plugins/tools/vision/settings.json`` (``face_recognition``) überschreibbar.
+VISION_FACE_THRESHOLD_KNOWN = 0.6
+VISION_FACE_THRESHOLD_UNSURE = 0.5
+
+# Overlay-Zusätze hinter dem Quell-Label im gestempelten Bild: unterscheiden die
+# beiden Linsen einer Dual-Lens-Kamera und den Vorlauf vor dem Trigger.
+VISION_OVERLAY_SUFFIX_ZOOM = " · Zoom"
+VISION_OVERLAY_SUFFIX_PREROLL = " · Vorlauf"
 
 # Beschreibung (VLM) pro Cluster: maximale Anzahl Keyframes, die als
 # zeitliche Bildfolge ans VLM gehen. Statt gleichmäßigem Sampling wird die

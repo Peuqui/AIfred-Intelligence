@@ -54,11 +54,8 @@ from ....lib.vision_utils import (
     slugify_for_filename,
     source_overlay_label,
 )
-from ....lib.vision_watcher import (
-    VisionWatcher,
-    WatchConfig,
-    get_default_watcher,
-)
+from ....lib.vision_watch_types import WatchConfig
+from ....lib.vision_watcher import VisionWatcher, get_default_watcher
 
 logger = logging.getLogger(__name__)
 
@@ -110,37 +107,45 @@ def _apply_face_detector_settings() -> None:
 
 
 def _watch_config_from_settings(overrides: dict[str, Any] | None = None) -> WatchConfig:
-    cfg = _load_settings().get("watch", {})
-    merged: dict[str, Any] = dict(cfg)
+    """``WatchConfig`` aus der Sektion ``watch`` der settings.json; was dort
+    fehlt, kommt aus den ``WatchConfig``-Defaults (SSOT in config.py)."""
+    merged: dict[str, Any] = dict(_load_settings().get("watch", {}))
     if overrides:
         merged.update(overrides)
+    defaults = WatchConfig()
 
-    def _f(key: str, default: float) -> float:
-        v = merged.get(key, default)
-        return float(v) if v is not None else default
+    def _get(key: str, default: Any) -> Any:
+        value = merged.get(key)
+        return default if value is None else value
 
-    def _i(key: str, default: int) -> int:
-        v = merged.get(key, default)
-        return int(v) if v is not None else default
-
-    def _b(key: str, default: bool) -> bool:
-        v = merged.get(key, default)
-        return bool(v) if v is not None else default
-
-    fps = merged.get("fps", merged.get("default_fps", 1.0))
-    from ....lib.vision_profiles import DEFAULT_MIN_EVENT_INTERVAL_SEC
     return WatchConfig(
-        fps=float(fps) if fps is not None else 1.0,
-        motion_min_area_ratio=_f("motion_min_area_ratio", 0.02),
-        motion_history_frames=_i("motion_history_frames", 500),
-        motion_var_threshold=_f("motion_var_threshold", 16.0),
-        motion_warmup_frames=_i("motion_warmup_frames", 10),
-        motion_ego_shift_px=_f("motion_ego_shift_px", 3.0),
-        min_event_interval_sec=_f("min_event_interval_sec", DEFAULT_MIN_EVENT_INTERVAL_SEC),
-        save_event_frames=_b("save_event_frames", True),
-        run_face_detect_on_motion=_b("run_face_detect_on_motion", True),
-        run_person_detect_on_motion=_b("run_person_detect_on_motion", False),
-        motion_gated=_b("motion_gated", True),
+        fps=float(_get("fps", _get("default_fps", defaults.fps))),
+        motion_min_area_ratio=float(
+            _get("motion_min_area_ratio", defaults.motion_min_area_ratio)
+        ),
+        motion_history_frames=int(
+            _get("motion_history_frames", defaults.motion_history_frames)
+        ),
+        motion_var_threshold=float(
+            _get("motion_var_threshold", defaults.motion_var_threshold)
+        ),
+        motion_warmup_frames=int(
+            _get("motion_warmup_frames", defaults.motion_warmup_frames)
+        ),
+        motion_ego_shift_px=float(
+            _get("motion_ego_shift_px", defaults.motion_ego_shift_px)
+        ),
+        min_event_interval_sec=float(
+            _get("min_event_interval_sec", defaults.min_event_interval_sec)
+        ),
+        save_event_frames=bool(_get("save_event_frames", defaults.save_event_frames)),
+        run_face_detect_on_motion=bool(
+            _get("run_face_detect_on_motion", defaults.run_face_detect_on_motion)
+        ),
+        run_person_detect_on_motion=bool(
+            _get("run_person_detect_on_motion", defaults.run_person_detect_on_motion)
+        ),
+        motion_gated=bool(_get("motion_gated", defaults.motion_gated)),
     )
 
 

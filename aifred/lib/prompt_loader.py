@@ -649,24 +649,12 @@ def get_vision_headcount_context_prompt(
         return f.read().strip().replace("{count}", str(count))
 
 
-def get_vision_continuous_first_prompt(lang: Optional[str] = None) -> str:
-    """Prompt für den ersten Continuous-VLM-Call nach Watch-Start (Live-
-    Teleprompter, noch keine History). In
-    ``prompts/{lang}/vision/vision_continuous_first.txt``."""
+def get_vision_continuous_prompt(lang: Optional[str] = None) -> str:
+    """Prompt für die Dauer-Beschreibung des Live-Teleprompters. In
+    ``prompts/{lang}/vision/vision_continuous.txt``."""
     if lang is None:
         lang = get_language()
-    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_continuous_first.txt"
-    with open(prompt_file, 'r', encoding='utf-8') as f:
-        return f.read().strip()
-
-
-def get_vision_continuous_delta_prompt(lang: Optional[str] = None) -> str:
-    """Prompt für Continuous-VLM-Folge-Calls (Delta-Narration, 'unverändert'
-    erlaubt). Aktuell nur vom deaktivierten History-Pfad referenziert. In
-    ``prompts/{lang}/vision/vision_continuous_delta.txt``."""
-    if lang is None:
-        lang = get_language()
-    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_continuous_delta.txt"
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_continuous.txt"
     with open(prompt_file, 'r', encoding='utf-8') as f:
         return f.read().strip()
 
