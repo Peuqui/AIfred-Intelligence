@@ -1,7 +1,5 @@
 """Einheit der Sprachausgabe: die Wahl pro Engine (SSOT), die Aufteilung je Einheit, die Browser-Extraktion."""
 
-from types import MethodType, SimpleNamespace
-
 import pytest
 
 import aifred.lib.settings as settings_module
@@ -92,49 +90,3 @@ class TestExtractCompleteParagraphs:
 
     def test_windows_line_endings_are_handled(self):
         assert extract_complete_paragraphs("Eins\r\n\r\nZwei") == (["Eins"], "Zwei")
-
-
-class _FakeState:
-    """Das Nötigste, was der Listen-Editor des Zustands anfasst."""
-
-    def __init__(self) -> None:
-        self.written: dict = {}
-        self.tts_list_revision = 0
-        self.agent_tuning = {"aifred": SimpleNamespace(model_id="model")}
-
-    def add_debug(self, message: str) -> None:
-        pass
-
-    def _write_settings_file(self, settings: dict) -> None:
-        self.written = settings
-
-
-class TestBrowserMenu:
-    """Die Einheit im Menü schreibt dieselbe Stelle, aus der speech_unit_for liest."""
-
-    @pytest.fixture
-    def menu(self, saved, monkeypatch):
-        from aifred.lib.settings import get_default_settings
-
-        monkeypatch.setattr(settings_module, "persisted_settings", lambda: {**get_default_settings(), **saved})
-        monkeypatch.setattr("aifred.lib.tts_llm_coordination.planned_tts_engine", lambda model_id: "")
-        from aifred.state._tts_config_mixin import TTSConfigMixin
-
-        state = _FakeState()
-        state._edit_tts_lists = MethodType(TTSConfigMixin._edit_tts_lists, state)  # type: ignore[attr-defined]
-        return state
-
-    def test_the_unit_is_saved_per_engine_and_read_back_by_the_ssot(self, saved, menu):
-        from aifred.state._tts_config_mixin import TTSConfigMixin
-
-        list(TTSConfigMixin.set_tts_entry_unit(menu, "piper", "paragraph"))  # type: ignore[arg-type]
-        assert menu.written["tts_toggles_per_engine"]["piper"]["unit"] == "paragraph"
-        assert menu.tts_list_revision == 1
-        saved.update(menu.written)                        # was gespeichert wurde, liest die SSOT
-        assert speech_unit_for("piper") == "paragraph"
-
-    def test_an_unknown_unit_is_refused(self, menu):
-        from aifred.state._tts_config_mixin import TTSConfigMixin
-
-        with pytest.raises(ValueError, match="speech unit"):
-            list(TTSConfigMixin.set_tts_entry_unit(menu, "piper", "chapter"))  # type: ignore[arg-type]

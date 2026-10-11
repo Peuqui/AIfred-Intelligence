@@ -1,6 +1,6 @@
-"""TTS API: token guard, the list of the TTS service with status, start/stop per entry
-(through a fake service behind httpx.MockTransport), plus the old placement rules that
-the speech paths still use."""
+"""TTS API: token guard, AIfred's list with the status from the service's catalog, start/stop per
+catalog row (through a fake service behind httpx.MockTransport), plus the old placement rules
+that the speech paths still use."""
 
 import time
 
@@ -22,8 +22,8 @@ AUTH = {"Authorization": f"Bearer {TOKEN}"}
 def _entry(engine: str, host: str | None, **fields) -> dict:
     base = {
         "engine": engine, "host": host, "label": {"de": engine, "en": engine},
-        "label_short": {"de": "Qwen3-TTS", "en": "Qwen3-TTS"}, "enabled": True, "deactivated": False,
-        "status": "stopped", "unit": "sentence", "unit_default": "sentence", "needs_gpu": True,
+        "label_short": {"de": "Qwen3-TTS", "en": "Qwen3-TTS"},
+        "status": "stopped", "unit_default": "sentence", "needs_gpu": True,
         "cloud": False, "browser": False, "installed": True, "start_hint": None, "vram_mib": {},
     }
     return {**base, **fields}
@@ -31,7 +31,7 @@ def _entry(engine: str, host: str | None, **fields) -> dict:
 
 @pytest.fixture
 def service(monkeypatch: pytest.MonkeyPatch):
-    """A fake TTS service with three entries; records start/stop calls. A started
+    """A fake TTS service with three catalog rows and AIfred's list naming them; records start/stop calls. A started
     engine is running from then on; ``refuse`` makes the next start fail with a hint."""
     monkeypatch.setenv("TTS_CONTROL_API_TOKEN", TOKEN)
     listed = [
@@ -60,6 +60,14 @@ def service(monkeypatch: pytest.MonkeyPatch):
 
     client = TTSClient("http://tts.test", "token", transport=httpx.MockTransport(handler))
     monkeypatch.setattr(tts_service, "get_tts_client", lambda: client)
+    monkeypatch.setattr(tts_service, "persisted_settings", lambda: {
+        "tts_escalation": [
+            {"engine": "qwen3local", "host": None, "enabled": True},
+            {"engine": "qwen3local", "host": "Box", "enabled": True},
+            {"engine": "edge", "host": None, "enabled": True},
+        ],
+        "tts_toggles_per_engine": {},
+    })
     tts_service.reset_cache()
     return state
 
@@ -92,7 +100,7 @@ def test_missing_server_token_is_503(service, monkeypatch: pytest.MonkeyPatch) -
     assert _post("/tts/start").status_code == 503
 
 
-def test_the_list_comes_in_the_services_order_with_status(service) -> None:
+def test_the_list_comes_in_aifreds_order_with_status(service) -> None:
     rows = TestClient(api_app).get("/tts/entries", params={"lang": "de"}, headers=AUTH).json()
     assert [(row["engine"], row["host"], row["controllable"]) for row in rows] == [
         ("qwen3local", None, True), ("qwen3local", "Box", True), ("edge", None, False),
@@ -154,11 +162,11 @@ def test_a_local_entry_stops(service) -> None:
 
 
 @pytest.mark.parametrize(("engine", "host", "status"), [
-    ("xtts", None, 404),          # not in the list
+    ("xtts", None, 404),          # not in the catalog
     ("qwen3local", "Nope", 404),  # unknown host
     ("edge", None, 409),          # nothing the service could start
 ])
-def test_only_controllable_list_entries(service, engine: str, host: str | None, status: int) -> None:
+def test_only_controllable_catalog_rows(service, engine: str, host: str | None, status: int) -> None:
     assert _post("/tts/start", engine=engine, host=host).status_code == status
     assert service["calls"] == []
 

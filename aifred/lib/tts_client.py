@@ -22,7 +22,7 @@ import os
 import struct
 import subprocess
 from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from time import monotonic, sleep
 from typing import Any
@@ -100,6 +100,18 @@ class UnknownEngine(TTSSuiteError):
     status = 404
 
 
+class UnknownHost(TTSSuiteError):
+    code = "unknown_host"
+    status = 404
+
+
+class InvalidRequest(TTSSuiteError):
+    """The request's list is wrong: empty, a double entry, an engine without REST API on that host, an invalid unit."""
+
+    code = "invalid_request"
+    status = 422
+
+
 class EngineInUse(TTSSuiteError):
     code = "engine_in_use"
     status = 409
@@ -159,6 +171,8 @@ ERROR_CLASSES: dict[str, type[TTSSuiteError]] = {
         EngineStarting,
         Overloaded,
         UnknownEngine,
+        UnknownHost,
+        InvalidRequest,
         EngineInUse,
         EngineControlFailed,
         ConfigInvalid,
@@ -203,23 +217,37 @@ def _error_from_response(response: httpx.Response) -> TTSSuiteError:
 # ---- Types of the interface --------------------------------------------------
 
 
+SPEECH_UNITS = ("sentence", "paragraph", "whole")
+
+
 @dataclass(frozen=True)
 class EngineInfo:
+    """One row of the service's catalog (``GET /engines``): an engine on this machine
+    (``host`` None) or, for an engine with a REST API, on one of the configured hosts. The
+    catalog is no list the service speaks by: each request brings its own (``EngineRef``)."""
+
     engine: str
     host: str | None
     label: Mapping[str, str]
     label_short: Mapping[str, str]
-    enabled: bool
-    deactivated: bool
     status: str  # running | stopped | starting | unreachable
-    unit: str
-    unit_default: str
+    unit_default: str  # what the engine recommends as the unit of an entry
     needs_gpu: bool
     cloud: bool
     browser: bool
     installed: bool  # can be started: no container needed, or the Docker image is built
     start_hint: str | None  # why the last start of this entry failed; else None
     vram_mib: Mapping[str, int] | None  # {gpu_uuid: MiB}; {} = none; None = measurement failed
+
+
+@dataclass(frozen=True)
+class EngineRef:
+    """One entry of the list a request brings. Nothing is optional: ``host=None`` is the
+    explicit value "this machine"."""
+
+    engine: str
+    unit: str  # one of SPEECH_UNITS: how much text the entry takes at once
+    host: str | None  # name of a host of the service's config; None = this machine
 
 
 @dataclass(frozen=True)
@@ -586,15 +614,16 @@ class TTSClient:
         voice: str | None = None,
         speed: float | None = None,
         pitch: float | None = None,
-        engines: Sequence[str] = (),
+        engines: Sequence[EngineRef],
         voices: Mapping[str, Mapping[str, Any]] | None = None,
         run: str | None = None,
         wait: bool = True,
     ) -> SpeechStream:
         """Start a reading of the whole text.
 
-        ``engines`` selects and orders the entries of the service's list that may speak
-        (empty = the whole list). Returns when the service has sent its first frame, so a
+        ``engines`` is the list of this reading in escalation order (required; the service
+        refuses an empty or wrong one with ``InvalidRequest``, ``UnknownEngine`` or
+        ``UnknownHost``). Returns when the service has sent its first frame, so a
         reading that cannot start raises here (``NoEngineAvailable``, ``EngineStarting``, ...);
         a cold start of an engine is waited for. Failures after the first frame surface
         while iterating.
@@ -623,7 +652,7 @@ class TTSClient:
         voice: str | None = None,
         speed: float | None = None,
         pitch: float | None = None,
-        engines: Sequence[str] = (),
+        engines: Sequence[EngineRef],
         voices: Mapping[str, Mapping[str, Any]] | None = None,
         run: str | None = None,
         wait: bool = True,
@@ -664,7 +693,7 @@ def _speak_head(
     voice: str | None,
     speed: float | None,
     pitch: float | None,
-    engines: Sequence[str],
+    engines: Sequence[EngineRef],
     voices: Mapping[str, Mapping[str, Any]] | None,
     run: str | None,
     wait: bool,
@@ -675,7 +704,7 @@ def _speak_head(
         "voice": voice,
         "speed": speed,
         "pitch": pitch,
-        "engines": list(engines),
+        "engines": [asdict(ref) for ref in engines],
         "voices": dict(voices) if voices else {},
         "run": run,
         "wait": wait,

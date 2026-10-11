@@ -10,9 +10,8 @@ from ..helpers import t
 
 
 def _tts_section() -> rx.Component:
-    """Spoken output on the main page: on/off, autoplay, one switch per other
-    machine (off stops its TTS containers). The escalation list itself is
-    edited in the agent editor's TTS tab (gear icon)."""
+    """Spoken output on the main page: on/off, autoplay. The list and the hosts
+    are edited in the agent editor's TTS tab (gear icon)."""
     return rx.vstack(
         rx.hstack(
             rx.text(t("tts_heading"), font_weight="bold", font_size="12px"),
@@ -46,22 +45,6 @@ def _tts_section() -> rx.Component:
             spacing="2",
             align="center",
             width="100%",
-        ),
-        rx.foreach(
-            AIState.tts_host_rows,
-            lambda host: rx.hstack(
-                rx.icon("server", size=12, color="#888"),
-                rx.text(host["name"], font_size="11px", color="#ccc"),
-                rx.box(flex="1"),
-                rx.switch(
-                    checked=host["enabled"].to(bool),
-                    on_change=lambda enabled: AIState.set_tts_host_enabled(host["name"].to(str), enabled),
-                    size="1",
-                ),
-                spacing="2",
-                align="center",
-                width="100%",
-            ),
         ),
         spacing="2",
         width="100%",
