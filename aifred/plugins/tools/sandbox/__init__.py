@@ -136,8 +136,11 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
                 parts.append(f"{SANDBOX_IMAGE_URL_MARKER}{img_url}")
             parts.append(
                 "The plot image is automatically displayed in the chat — the user "
-                "already sees it. Do NOT emit it again in your answer: no markdown "
-                "images ![...](...), no img tags, no base64, no URLs. Just describe "
+                "already sees it. Do NOT emit it again in your chat answer: no markdown "
+                "images ![...](...), no img tags, no base64, no URLs. Only when a "
+                "message to another medium (mail, report) must contain the image, "
+                "reference it with exactly the SANDBOX_IMAGE_URL above as "
+                "![alt](url) — never invent, shorten or change a URL. Just describe "
                 "the result."
             )
 
