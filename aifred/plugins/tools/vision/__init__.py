@@ -42,6 +42,7 @@ from ....lib.vision_filters.face_detect import (
     set_default_detector_kwargs,
 )
 from ....lib.vision_gpu_select import resolve_gpu_id
+from ....lib.vision_settings import VISION_SETTINGS_PATH, load_vision_settings
 from ....lib.vision_store import VisionStore
 from ....lib.vision_utils import (
     TOOLCALL_IMAGES_DIR,
@@ -59,22 +60,6 @@ from ....lib.vision_watcher import VisionWatcher, get_default_watcher
 
 logger = logging.getLogger(__name__)
 
-_PLUGIN_DIR = Path(__file__).parent
-_SETTINGS_PATH = _PLUGIN_DIR / "settings.json"
-
-def _load_settings() -> dict[str, Any]:
-    """Load plugin settings fresh on every access — file is small, not a hot path."""
-    if not _SETTINGS_PATH.exists():
-        return {}
-    try:
-        with open(_SETTINGS_PATH, encoding="utf-8") as f:
-            data = json.load(f)
-        return data if isinstance(data, dict) else {}
-    except (OSError, json.JSONDecodeError) as e:
-        logger.warning("vision settings.json unreadable: %s", e)
-        return {}
-
-
 def _apply_face_detector_settings() -> None:
     """Wire face-recognition settings (provider, gpu_id, det_size) into the
     module-level default detector. Has effect only before first use.
@@ -84,7 +69,7 @@ def _apply_face_detector_settings() -> None:
     compute class so the chat-LLM keeps the fastest one), or ``null``
     for CPU-only.
     """
-    cfg = _load_settings().get("face_recognition", {})
+    cfg = load_vision_settings().get("face_recognition", {})
     kwargs: dict[str, Any] = {}
     if "providers" in cfg:
         kwargs["providers"] = list(cfg["providers"])
@@ -109,7 +94,7 @@ def _apply_face_detector_settings() -> None:
 def _watch_config_from_settings(overrides: dict[str, Any] | None = None) -> WatchConfig:
     """``WatchConfig`` aus der Sektion ``watch`` der settings.json; was dort
     fehlt, kommt aus den ``WatchConfig``-Defaults (SSOT in config.py)."""
-    merged: dict[str, Any] = dict(_load_settings().get("watch", {}))
+    merged: dict[str, Any] = dict(load_vision_settings().get("watch", {}))
     if overrides:
         merged.update(overrides)
     defaults = WatchConfig()
@@ -178,7 +163,7 @@ def _vision_mode() -> str:
                       (caller patches ``keep_alive=-1`` for analyze calls).
                       Use for Türsteher / always-on surveillance.
     """
-    raw = _load_settings().get("vision_mode", "on-demand")
+    raw = load_vision_settings().get("vision_mode", "on-demand")
     if not isinstance(raw, str):
         return "on-demand"
     mode = raw.lower().strip()
@@ -198,7 +183,7 @@ class VisionPlugin:
     def is_available(self) -> bool:
         # Plugin is always loadable — individual tools fail gracefully
         # when no source is registered. Settings file presence is sufficient.
-        return _SETTINGS_PATH.exists()
+        return VISION_SETTINGS_PATH.exists()
 
     def get_prompt_instructions(
         self, lang: str, granted_tools: "set[str] | None" = None
@@ -342,7 +327,7 @@ class VisionPlugin:
             # Burst spread: a tight loop would grab N near-identical frames.
             # Spacing them by burst_interval_s turns the burst into a real
             # short sequence ("film") that vision_analyze can judge over time.
-            interval = float(_load_settings().get("snapshot", {}).get("burst_interval_s", 0.5))
+            interval = float(load_vision_settings().get("snapshot", {}).get("burst_interval_s", 0.5))
             # Bevorzugt die Kamera-Snap-API (volle Linsen-Auflösung statt
             # RTSP-Substream) — None heißt: nicht konfiguriert/fehlgeschlagen.
             from ....lib.vision_snap import snap_frames as _snap_frames
@@ -493,7 +478,7 @@ class VisionPlugin:
                 ))
                 resolved_paths.append(p)
 
-            vlm_cfg = _load_settings().get("vlm", {})
+            vlm_cfg = load_vision_settings().get("vlm", {})
             actual_prompt = prompt or vlm_cfg.get(
                 "default_prompt", "Beschreibe knapp, was zu sehen ist."
             )
@@ -706,7 +691,7 @@ class VisionPlugin:
             # Without this the tool path silently bypassed the profile logic.
             from ....lib.vision_autostart import profile_watch_overrides
             profile_overrides = profile_watch_overrides(
-                source_id, cam_settings, _load_settings()
+                source_id, cam_settings, load_vision_settings()
             )
             if profile_overrides:
                 import dataclasses
@@ -799,7 +784,7 @@ class VisionPlugin:
             since_hours: float | None = None,
             limit: int = 50,
         ) -> str:
-            cfg = _load_settings().get("events", {})
+            cfg = load_vision_settings().get("events", {})
             actual_limit = max(1, min(int(limit), 500))
             since = None
             if since_hours is not None and since_hours > 0:

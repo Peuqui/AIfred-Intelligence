@@ -28,11 +28,11 @@ def run(coro):
 def patched_settings(monkeypatch, tmp_path: Path):
     """Fake vision settings + plugin-enabled status.
 
-    ``state["settings"]`` feeds _load_vision_settings (vision_mode/vlm),
+    ``state["settings"]`` feeds load_vision_settings (vision_mode/vlm),
     ``state["plugin_enabled"]`` feeds is_plugin_enabled (the override trigger)."""
     state: dict = {"settings": {}, "plugin_enabled": True, "visiond": None, "visiond_fits": True}
 
-    monkeypatch.setattr(vpw, "_load_vision_settings", lambda: state["settings"])
+    monkeypatch.setattr(vpw, "load_vision_settings", lambda: state["settings"])
     monkeypatch.setattr(pr, "is_plugin_enabled", lambda *a, **k: state["plugin_enabled"])
     # Describer-Auflösung isolieren (sonst liest sie die ECHTE llama-swap-
     # config): Default None = Ollama-Fallback-Pfad; Tests für den

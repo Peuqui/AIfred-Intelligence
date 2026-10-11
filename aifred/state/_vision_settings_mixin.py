@@ -10,7 +10,7 @@ at runtime via the gear-icon modal in the Plugin tab:
 The settings.json file under ``aifred/plugins/tools/vision/`` is the
 single source of truth — this mixin reads on modal-open and writes on
 each change. The plugin re-reads the file fresh per call (see
-``_load_settings`` in ``aifred/plugins/tools/vision/__init__.py``), so
+``load_vision_settings`` in ``aifred/lib/vision_settings.py``), so
 edits propagate without a restart.
 """
 
@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import Any
 
 import reflex as rx
+
+from ..lib.vision_settings import load_vision_settings, save_vision_settings
 
 logger = logging.getLogger(__name__)
 
@@ -42,29 +44,6 @@ def _fmt_interval(value: Any) -> str:
     except (TypeError, ValueError):
         return "1"
     return str(int(v)) if v == int(v) else f"{v:g}"
-
-
-_VISION_SETTINGS_PATH = (
-    Path(__file__).parent.parent / "plugins" / "tools" / "vision" / "settings.json"
-)
-
-
-def _load_settings() -> dict[str, Any]:
-    if not _VISION_SETTINGS_PATH.exists():
-        return {}
-    try:
-        parsed = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
-        return parsed if isinstance(parsed, dict) else {}
-    except (OSError, json.JSONDecodeError) as e:
-        logger.warning("vision settings.json unreadable: %s", e)
-        return {}
-
-
-def _save_settings(data: dict[str, Any]) -> None:
-    _VISION_SETTINGS_PATH.write_text(
-        json.dumps(data, indent=2, ensure_ascii=False) + "\n",
-        encoding="utf-8",
-    )
 
 
 # Alarmierbare Event-Typen pro Kamera (Default: alle aktiv). SSoT auch für die
@@ -192,7 +171,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         Wird sowohl vom Settings-Modal als auch vom Live-Preview-Popup
         gerufen, damit das Modell-Dropdown im Popup-Header auch ohne
         vorheriges Öffnen des Settings-Modals befüllt ist."""
-        settings = _load_settings()
+        settings = load_vision_settings()
         # vision_mode is now only on-demand/live — the on/off master is the
         # Watcher (vigilantia_armed). Migrate any legacy "off" to on-demand.
         _vm = str(settings.get("vision_mode", "on-demand")).lower().strip()
@@ -283,9 +262,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
         if value not in ("on-demand", "live"):
             return
         self.vision_mode_value = value
-        settings = _load_settings()
+        settings = load_vision_settings()
         settings["vision_mode"] = value
-        _save_settings(settings)
+        save_vision_settings(settings)
         # When the user flips to "live", honour the contract immediately:
         # load the VLM into VRAM with keep_alive=-1 so it stays there.
         # Without this, the model wouldn't appear in nvidia-smi until the
@@ -306,9 +285,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
             return
         old_model = self.vision_model_value
         self.vision_model_value = value
-        settings = _load_settings()
+        settings = load_vision_settings()
         settings.setdefault("vlm", {})["model"] = value
-        _save_settings(settings)
+        save_vision_settings(settings)
         if old_model and old_model != value:
             # Ollama-Unload nur für Ollama-Modelle: Läuft das alte Modell
             # als llama-swap-Describer, verdrängt die vision-Gruppe
@@ -328,9 +307,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
         ``face_recognition.enabled``. Wirkt beim nächsten
         Watcher-Start (config.run_face_detect_on_motion)."""
         self.face_recognition_enabled = bool(value)
-        settings = _load_settings()
+        settings = load_vision_settings()
         settings.setdefault("face_recognition", {})["enabled"] = bool(value)
-        _save_settings(settings)
+        save_vision_settings(settings)
 
     @rx.event
     def set_face_recognition_continuous(self, value: bool) -> None:
@@ -340,9 +319,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
         ``face_recognition.continuous``. Wirkt beim nächsten Watcher-
         Start (config.face_recognition_continuous)."""
         self.face_recognition_continuous = bool(value)
-        settings = _load_settings()
+        settings = load_vision_settings()
         settings.setdefault("face_recognition", {})["continuous"] = bool(value)
-        _save_settings(settings)
+        save_vision_settings(settings)
 
     @rx.event
     def set_face_retention_days(self, value: str) -> None:
@@ -356,9 +335,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
         if days < 1 or days > 3650:
             return
         self.face_retention_days = days
-        settings = _load_settings()
+        settings = load_vision_settings()
         settings.setdefault("face_recognition", {})["retention_days"] = days
-        _save_settings(settings)
+        save_vision_settings(settings)
 
     def _update_has_armed_source(self) -> None:
         """True wenn mindestens eine Source ``auto_start=True`` hat —
@@ -915,7 +894,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             if fc:
                 entry["face_channel"] = _int(fc, 1)
 
-        settings = _load_settings()
+        settings = load_vision_settings()
         cams = settings.get("rtsp_cameras")
         cams = cams if isinstance(cams, list) else []
         target = self.rtsp_form_editing or name
@@ -930,7 +909,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         if not replaced:
             new_list.append(entry)
         settings["rtsp_cameras"] = new_list
-        _save_settings(settings)
+        save_vision_settings(settings)
 
         if cred:
             try:
@@ -952,13 +931,13 @@ class VisionSettingsMixin(rx.State, mixin=True):
 
     @rx.event
     def delete_rtsp_camera(self, name: str) -> None:
-        settings = _load_settings()
+        settings = load_vision_settings()
         cams = settings.get("rtsp_cameras") or []
         settings["rtsp_cameras"] = [
             c for c in cams
             if not (isinstance(c, dict) and str(c.get("name")) == name)
         ]
-        _save_settings(settings)
+        save_vision_settings(settings)
         try:
             from ..lib.frame_sources import rescan
             rescan()
@@ -985,9 +964,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
             return
         new_value = not self.vigilantia_armed
         self.vigilantia_armed = new_value
-        settings = _load_settings()
+        settings = load_vision_settings()
         settings["vigilantia_armed"] = new_value
-        _save_settings(settings)
+        save_vision_settings(settings)
         try:
             if new_value:
                 from ..lib.vision_autostart import start_all_background_watchers
@@ -1006,9 +985,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
         if not self.vigilantia_armed:
             return
         self.vigilantia_armed = False
-        settings = _load_settings()
+        settings = load_vision_settings()
         settings["vigilantia_armed"] = False
-        _save_settings(settings)
+        save_vision_settings(settings)
         try:
             from ..lib.vision_autostart import stop_all_background_watchers
             await stop_all_background_watchers()
@@ -1052,7 +1031,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 # No-op ist und irreführend True zurückgibt (stiller Fallback).
                 # keep_alive_override umgeht diesen Kurzschluss; danach fragen
                 # wir den ECHTEN Ollama-Zustand ab, statt dem Return zu trauen.
-                keep_alive = str(_load_settings().get("vlm", {}).get("keep_alive", "30m"))
+                keep_alive = str(load_vision_settings().get("vlm", {}).get("keep_alive", "30m"))
                 await prewarm_vlm(keep_alive_override=keep_alive)
                 self.vlm_model_loaded = await is_vlm_loaded(model)
         except Exception as e:  # noqa: BLE001

@@ -38,7 +38,7 @@ from .vision_burst import BurstRunner
 from .vision_continuous_vlm import ContinuousVlm
 from .vision_detect import DetectionService
 from .vision_edge_ai import EdgeAiHandler, run_edge_ai_cycle
-from .vision_edge_source import ReolinkPollSource
+from .vision_edge_source import create_event_source
 from .vision_faces import FacePipeline
 from .vision_filters import MotionDetector, MotionResult
 from .vision_filters.face_detect import FaceDetector
@@ -346,17 +346,20 @@ class VisionWatcher:
                 f"edge-ai: kein Kamera-Client für {source_id} "
                 "(Zugangsdaten in rtsp_cameras fehlen?)"
             )
-        events = ReolinkPollSource(source_id, client, edge.channel, edge.poll_interval_sec)
-        await run_edge_ai_cycle(
-            source_id=source_id,
-            config=config,
-            events=events,
-            client=client,
-            live=live,
-            recorder=self._recorder,
-            handler=self._edge_handler,
-            is_current=is_current,
-        )
+        events = create_event_source(source_id, edge, client)
+        try:
+            await run_edge_ai_cycle(
+                source_id=source_id,
+                config=config,
+                events=events,
+                client=client,
+                live=live,
+                recorder=self._recorder,
+                handler=self._edge_handler,
+                is_current=is_current,
+            )
+        finally:
+            await events.aclose()
 
 
 # ── Module-level default watcher ──────────────────────────────────────

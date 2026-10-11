@@ -18,32 +18,14 @@ globalen Plugin-Settings zusammengebaut:
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-from pathlib import Path
 from typing import Any
 
 from .config import VISION_BACKGROUND_WATCH_FPS
+from .vision_settings import load_vision_settings
 from .vision_watch_types import EdgeAiConfig, WatchConfig
 
 logger = logging.getLogger(__name__)
-
-
-_VISION_SETTINGS_PATH = (
-    Path(__file__).parent.parent
-    / "plugins" / "tools" / "vision" / "settings.json"
-)
-
-
-def _load_plugin_settings() -> dict[str, Any]:
-    if not _VISION_SETTINGS_PATH.exists():
-        return {}
-    try:
-        parsed = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
-        return parsed if isinstance(parsed, dict) else {}
-    except (OSError, json.JSONDecodeError) as e:
-        logger.warning("vision settings.json unreadable: %s", e)
-        return {}
 
 
 def _resolve_edge_ai(
@@ -67,7 +49,12 @@ def _resolve_edge_ai(
     defaults = EdgeAiConfig()
     watch = plugin_settings.get("watch") or {}
     face_channel = cam_cfg.get("face_channel")
+    source = str(watch.get("edge_ai_event_source", defaults.event_source))
     return EdgeAiConfig(
+        event_source=source,
+        host=str(cam_cfg["host"]).strip(),
+        onvif_port=int(cam_cfg.get("onvif_port", defaults.onvif_port)),
+        cred=str(cam_cfg.get("cred", "")).strip(),
         channel=int(cam_cfg.get("channel", defaults.channel)),
         face_channel=int(face_channel) if face_channel is not None else None,
         poll_interval_sec=float(
@@ -227,7 +214,7 @@ async def start_background_watcher(source_id: str) -> bool:
     if not record:
         logger.warning("autostart: source %s not in store", source_id)
         return False
-    plugin = _load_plugin_settings()
+    plugin = load_vision_settings()
     watcher = get_default_watcher()
     # Pro-Kamera-Zeitplan: außerhalb des Aktiv-Fensters nicht starten
     # (der schedule_supervisor zieht sie hoch, sobald das Fenster beginnt).
@@ -268,7 +255,7 @@ async def restore_or_stop_after_preview(source_id: str) -> None:
     from .vision_store import VisionStore
     from .vision_watcher import get_default_watcher
 
-    plugin = _load_plugin_settings()
+    plugin = load_vision_settings()
     armed = bool(plugin.get("vigilantia_armed", False))
     record = VisionStore().get_source(source_id)
     auto_start = bool(record.get("auto_start")) if record else False
@@ -297,7 +284,7 @@ async def start_all_background_watchers() -> int:
     except Exception as e:  # noqa: BLE001
         logger.warning("autostart: source listing failed: %s", e)
         return 0
-    plugin = _load_plugin_settings()
+    plugin = load_vision_settings()
     if plugin.get("vision_mode") == "off":
         logger.info("autostart: vision_mode='off' — skipping all sources")
         return 0
@@ -338,7 +325,7 @@ async def schedule_supervisor() -> None:
     while True:
         try:
             await asyncio.sleep(60)
-            plugin = _load_plugin_settings()
+            plugin = load_vision_settings()
             if plugin.get("vision_mode") == "off" or not plugin.get("vigilantia_armed", False):
                 continue
             store = VisionStore()

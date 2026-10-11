@@ -10,17 +10,13 @@ Kept out of the watcher core: the watcher just calls emit_face_alert().
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import datetime
-from pathlib import Path
 from typing import Any
 
-logger = logging.getLogger(__name__)
+from .vision_settings import load_vision_settings
 
-_VISION_SETTINGS_PATH = (
-    Path(__file__).parent.parent / "plugins" / "tools" / "vision" / "settings.json"
-)
+logger = logging.getLogger(__name__)
 
 # Only these carry a "someone is here" meaning worth alerting on.
 _ALERT_EVENT_TYPES = {"face_known", "face_unsure", "face_unknown"}
@@ -28,11 +24,7 @@ _ALERT_EVENT_TYPES = {"face_known", "face_unsure", "face_unknown"}
 
 def _vigilantia_armed() -> bool:
     """Read the master arm flag (SSoT in the vision plugin settings)."""
-    try:
-        cfg = json.loads(_VISION_SETTINGS_PATH.read_text(encoding="utf-8"))
-        return bool(cfg.get("vigilantia_armed", False))
-    except (OSError, json.JSONDecodeError):
-        return False
+    return bool(load_vision_settings().get("vigilantia_armed", False))
 
 
 def _alerts_enabled(source_id: str, store: Any) -> bool:

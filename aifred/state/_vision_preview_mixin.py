@@ -30,6 +30,8 @@ from typing import Any
 
 import reflex as rx
 
+from ..lib.ptz_control import PTZError, get_controller, ptz_driver
+
 logger = logging.getLogger(__name__)
 
 
@@ -212,8 +214,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
     # --- Computed entries for rx.foreach in the UI ------------------------
 
     @rx.var
-    def vision_preview_visible_entries(self) -> list[dict[str, str]]:
-        """List of {id, label, image_url} for each visible source.
+    def vision_preview_visible_entries(self) -> list[dict[str, Any]]:
+        """List of {id, label, image_url, ptz} for each visible source
+        (``ptz``: Kopfsteuerung verfügbar).
 
         ``image_url`` includes fps, cache-buster, and per-source resolution
         as query parameters so the browser issues the right request.
@@ -226,7 +229,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         (port 3002), and Vite has no API proxy, so a prefixed URL would
         get the SPA fallback HTML instead of the JPEG.
         """
-        entries: list[dict[str, str]] = []
+        entries: list[dict[str, Any]] = []
         fps = self.vision_preview_fps
         cb = self.vision_preview_cache_buster
         all_sources = {s["id"]: s for s in self.vision_preview_sources}
@@ -244,7 +247,12 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 url = f"/api/vision/snapshot/{sid}?cb={cb}{res_q}"
             else:
                 url = f"/api/vision/stream/{sid}?fps={fps}&cb={cb}{res_q}"
-            entries.append({"id": sid, "label": str(meta.get("label", sid)), "image_url": url})
+            entries.append({
+                "id": sid,
+                "label": str(meta.get("label", sid)),
+                "image_url": url,
+                "ptz": bool(meta.get("ptz", False)),
+            })
         return entries
 
     @rx.var
@@ -510,10 +518,8 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # ai_camera erkennt on-device — MOG2-Gating/YOLO aus, Edge-AI-Poll
         # triggert. Ohne das lief dieselbe Kamera im Popup mit Pixel-Motion,
         # im Hintergrund aber mit Edge-AI-Trigger.
-        from ..lib.vision_autostart import (
-            _load_plugin_settings,
-            profile_watch_overrides,
-        )
+        from ..lib.vision_autostart import profile_watch_overrides
+        from ..lib.vision_settings import load_vision_settings
         record = None
         try:
             from ..lib.vision_store import VisionStore
@@ -521,7 +527,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         except Exception as e:  # noqa: BLE001
             logger.warning("preview: source lookup failed for %s: %s", source_id, e)
         overrides = profile_watch_overrides(
-            source_id, (record or {}).get("settings") or {}, _load_plugin_settings()
+            source_id, (record or {}).get("settings") or {}, load_vision_settings()
         )
         if overrides:
             import dataclasses
@@ -659,6 +665,34 @@ class VisionPreviewMixin(rx.State, mixin=True):
         self.vision_preview_cache_buster += 1
 
     @rx.event
+    async def ptz_press(self, source_id: str, direction: str) -> None:
+        """Kamerakopf fährt in ``direction``, solange die Taste gedrückt ist
+        (Loslassen: ``ptz_release``)."""
+        try:
+            await ptz_driver.press(source_id, direction)
+        except (PTZError, ValueError) as e:
+            logger.warning("PTZ press failed for %s: %s", source_id, e)
+            self.vision_preview_status = f"⚠️ PTZ: {e}"
+
+    @rx.event
+    async def ptz_release(self, source_id: str) -> None:
+        """Taste losgelassen oder verlassen: Kopf anhalten (falls er fährt)."""
+        try:
+            await ptz_driver.release(source_id)
+        except (PTZError, ValueError) as e:
+            logger.warning("PTZ release failed for %s: %s", source_id, e)
+            self.vision_preview_status = f"⚠️ PTZ: {e}"
+
+    @rx.event
+    async def ptz_stop(self, source_id: str) -> None:
+        """Kopf sofort anhalten (Stopp-Taste)."""
+        try:
+            await ptz_driver.stop(source_id)
+        except (PTZError, ValueError) as e:
+            logger.warning("PTZ stop failed for %s: %s", source_id, e)
+            self.vision_preview_status = f"⚠️ PTZ: {e}"
+
+    @rx.event
     def refresh_vision_preview(self) -> None:
         """Manual-mode: bump cache-buster so each visible <img> re-fetches."""
         self.vision_preview_cache_buster += 1
@@ -769,6 +803,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 "available": bool(src_info.available),
                 "resolution": new_resolutions.get(src_info.source_id, "default"),
                 "resolution_options": options,
+                "ptz": get_controller(src_info.source_id) is not None,
                 "prompt_context": stored_prompts.get(src_info.source_id, ""),
                 "auto_start": stored_auto_start.get(src_info.source_id, False),
                 "motion_min_area_ratio": stored_motion_min.get(

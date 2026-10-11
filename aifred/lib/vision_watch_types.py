@@ -11,6 +11,8 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from .config import (
+    VISION_EDGE_AI_EVENT_SOURCE,
+    VISION_ONVIF_DEFAULT_PORT,
     VISION_BURST_INTERVAL_SEC,
     VISION_BURST_LINGER_SEC,
     VISION_BURST_REPORT_DEADLINE_SEC,
@@ -39,12 +41,19 @@ class EdgeAiConfig:
     * ``poll_interval_sec``  Abstand der Zustandsabfragen.
     * ``settle_sec``    Wartezeit nach der steigenden Flanke, bevor das Frame
       gezogen wird.
+    * ``event_source``  ``onvif`` (Abonnement) oder ``poll`` (Abfrage im Takt).
+    * ``host`` / ``onvif_port`` / ``cred``  ONVIF-Zugang (nur für ``onvif``);
+      die Zugangsdaten selbst liegen im Credential-Broker.
     """
 
     channel: int = 0
     face_channel: int | None = None
     poll_interval_sec: float = VISION_EDGE_AI_POLL_INTERVAL_SEC
     settle_sec: float = VISION_EDGE_AI_SETTLE_SEC
+    event_source: str = VISION_EDGE_AI_EVENT_SOURCE
+    host: str = ""
+    onvif_port: int = VISION_ONVIF_DEFAULT_PORT
+    cred: str = ""
 
 
 @dataclass

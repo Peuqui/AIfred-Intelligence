@@ -29,3 +29,10 @@ def load_vision_settings() -> dict[str, Any]:
     if not isinstance(parsed, dict):
         raise ValueError(f"{VISION_SETTINGS_PATH}: JSON-Objekt erwartet")
     return parsed
+
+
+def save_vision_settings(data: dict[str, Any]) -> None:
+    """Einstellungen vollständig schreiben (Aufrufer: lesen, ändern, speichern)."""
+    VISION_SETTINGS_PATH.write_text(
+        json.dumps(data, indent=2, ensure_ascii=False) + "\n", encoding="utf-8"
+    )

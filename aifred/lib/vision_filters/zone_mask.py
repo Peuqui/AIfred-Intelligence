@@ -34,20 +34,15 @@ Auflösung skaliert (auflösungsunabhängig).
 
 from __future__ import annotations
 
-import json
 import logging
 from dataclasses import dataclass, field
-from pathlib import Path
 
 import cv2
 import numpy as np
 
-logger = logging.getLogger(__name__)
+from ..vision_settings import load_vision_settings
 
-# aifred/lib/vision_filters/ -> parents[2] == aifred/ -> plugins/tools/vision/
-_VISION_SETTINGS = (
-    Path(__file__).resolve().parents[2] / "plugins/tools/vision/settings.json"
-)
+logger = logging.getLogger(__name__)
 
 # Zell-Typen
 _BLACKOUT = 2
@@ -117,12 +112,7 @@ def load_zone_mask(source_id: str) -> ZoneMask | None:
     ``None`` wenn keine (aktive, nicht-leere) Maske konfiguriert ist —
     dann läuft die Motion-Detection unverändert.
     """
-    try:
-        data = json.loads(_VISION_SETTINGS.read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        logger.debug("zone_mask: vision settings not readable (%s)", e)
-        return None
-    masks = data.get("zone_masks")
+    masks = load_vision_settings().get("zone_masks")
     if not isinstance(masks, dict):
         return None
     entry = masks.get(source_id)
