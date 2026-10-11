@@ -96,11 +96,13 @@ DEFAULT_LANGUAGE = "de"
 # ============================================================
 # DEFAULT SETTINGS
 # ============================================================
-def default_tts_escalation() -> list[dict[str, object]]:
-    """Escalation list of a fresh install, taken from the engines themselves."""
-    from .tts_engines import default_escalation
-    return default_escalation()
-
+# List of the spoken output on a fresh install, top to bottom: the first entry that can
+# speak speaks (the browser, the client's own voice, last). "host": None = this machine or
+# cloud. AIfred keeps its list itself (settings.json); the TTS service only offers the catalog.
+DEFAULT_TTS_ESCALATION: list[dict[str, object]] = [
+    {"engine": engine, "host": None, "enabled": True}
+    for engine in ("qwen3local", "xtts", "dashscope_audio3", "piper", "edge", "browser")
+]
 
 DEFAULT_SETTINGS = {
     # NOTE: Model names are defined in BACKEND_DEFAULT_MODELS below (backend-specific)
@@ -121,13 +123,11 @@ DEFAULT_SETTINGS = {
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
-    # Rechner, die TTS-Container mit derselben API betreiben (Liste von
-    # {"name", "address", "ports": {engine_key: port}}); dieser Rechner ist
-    # implizit und steht hier nicht. Siehe aifred/lib/tts_escalation.py.
+    # Die Rechner gehören dem TTS-Dienst (GET/POST /config); "tts_hosts" liest nur noch der
+    # alte Sprechpfad (aifred/lib/tts_escalation.py) und entfällt mit ihm (Schritt 4/5).
     "tts_hosts": [],
-    # Eskalationsliste der Sprachausgabe, von oben nach unten: der erste
-    # passende Eintrag spricht. "host": None = dieser Rechner bzw. Cloud.
-    "tts_escalation": default_tts_escalation(),
+    # Liste der Sprachausgabe (Reihenfolge, an/aus, Rechner je Eintrag), von AIfred geführt.
+    "tts_escalation": DEFAULT_TTS_ESCALATION,
     "show_transcription": False,
     "enable_gpu": True,
     # NOTE: temperature is per-agent (agent_tuning bucket), no flat key
@@ -296,7 +296,7 @@ BACKEND_LABELS = {
 # Default TTS engine — preselected in fresh state and in the agent
 # editor's backend dropdown until the user picks one. Single source of
 # truth: the state mixins read this instead of each hardcoding a key.
-TTS_DEFAULT_ENGINE = str(default_tts_escalation()[0]["engine"])
+TTS_DEFAULT_ENGINE = str(DEFAULT_TTS_ESCALATION[0]["engine"])
 
 # narrate_file (narrator plugin): characters per TTS synthesis call.
 # Qwen3-TTS is LLM-based — page-length inputs risk omissions, prosody

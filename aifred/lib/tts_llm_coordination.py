@@ -5,7 +5,7 @@ Abstimmung zwischen Sprachmodell und Sprachausgabe: Wechselt der Browser die
 geplante TTS-Engine (die, für die das LLM-Profil VRAM reserviert), stellt
 ``ensure_tts_state`` den VRAM-Stand her, startet die Engine und das
 llama-swap-Profil mit passender ``-tts-<engine>``-Variante neu. Kanäle
-wechseln sie nie — sie sprechen über die Liste des TTS-Dienstes (``tts_service``).
+wechseln sie nie — sie sprechen über die Liste von AIfred (``tts_service``).
 
 Central function: ensure_tts_state(wanted_tts, backend_type)
 - It checks what's running, and adjusts if needed.
@@ -26,13 +26,13 @@ from .tts_engine_manager import (
     is_tts_in_use,
 )
 from .tts_service import (
+    active_local_gpu_keys,
     engine_label_short,
     gpu_engine_keys,
     running_gpu_engine,
     start_engine,
     stop_engine,
 )
-from .tts_service import entries as tts_entries
 
 
 def _label(engine_key: str) -> str:
@@ -42,7 +42,7 @@ def _label(engine_key: str) -> str:
 
 def planned_tts_engine(model_id: str) -> str:
     """Die lokale GPU-Engine, für die das LLM-Profil ``<model>-tts-<engine>``
-    Platz freihält: der oberste aktive lokale GPU-Eintrag der Liste des TTS-Dienstes,
+    Platz freihält: der oberste aktive lokale GPU-Eintrag der Liste von AIfred,
     für den das Modell ein kalibriertes TTS-Profil hat. ``""``, wenn keiner passt —
     dann lädt das Basisprofil, und lokale GPU-Einträge sprechen nur, wenn Platz frei ist.
 
@@ -54,13 +54,13 @@ def planned_tts_engine(model_id: str) -> str:
     from .calibration import has_llamaswap_tts_variant
     from .config import LLAMASWAP_CONFIG_PATH
 
-    for info in tts_entries():
-        if (
-            info.enabled and not info.deactivated and info.host is None and info.needs_gpu
-            and has_llamaswap_tts_variant(Path(LLAMASWAP_CONFIG_PATH), model_id, info.engine)
-        ):
-            return info.engine
-    return ""
+    return next(
+        (
+            engine_key for engine_key in active_local_gpu_keys()
+            if has_llamaswap_tts_variant(Path(LLAMASWAP_CONFIG_PATH), model_id, engine_key)
+        ),
+        "",
+    )
 
 
 @dataclass

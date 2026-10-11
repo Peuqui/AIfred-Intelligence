@@ -1,34 +1,44 @@
 """Adapter between the TTS-Suite client and what AIfred's code asks about speech output.
 
-SSOT for everything AIfred derives from the service's answers: engine keys with GPU need,
-installed GPU engines, the unit per engine, labels per language, the status key shown in
-the list (texts ``tts_status_<key>``), the place of an entry (``tts_location_*``), the
-VRAM footprint per engine and the control calls (start, stop, reload, set_config).
+SSOT for everything AIfred derives from the service's answers and from its own list:
 
-The list is read from ``GET /engines`` (one ``EngineInfo`` per entry of the service's
-escalation list, in speaking order, with host, status, unit and footprint). The answer is
-cached for ``TTS_SUITE_CACHE_TTL_S`` seconds, no longer: computed UI variables and planning
-calls ask often. Callers that decide on the live state (running engine, footprint) bypass
-the cache; every writing call clears it.
+- The LIST (entries ``{engine, host, enabled}``, their order) and the unit the user chose per
+  engine live in AIfred's ``settings.json`` (``tts_escalation``, ``tts_toggles_per_engine``).
+  The service keeps no list; every request brings AIfred's active entries
+  (``request_engines``).
+- The CATALOG (``GET /engines``) says what exists: label, status, ``installed``, ``vram_mib``,
+  ``start_hint``, the recommended unit (``unit_default``), per engine and machine.
+- The HOSTS belong to the service (``GET/POST /config``).
 
-The service not being reachable is an error, not an empty list: ``TTSSuiteUnreachable``
+An entry is the pair of both: ``ListEntry`` (what the user decided + the catalog row of
+``(engine, host)``, ``None`` if the service does not offer it). The catalog is cached for
+``TTS_SUITE_CACHE_TTL_S`` seconds, no longer (computed UI variables and planning calls ask
+often); the settings are never cached here. Callers that decide on the live state (running
+engine, footprint) bypass the cache; every writing call clears it.
+
+The service not being reachable is an error, not an empty catalog: ``TTSSuiteUnreachable``
 passes through. UI code that must keep rendering shows ``unreachable_text`` instead.
 """
 
 from __future__ import annotations
 
 import threading
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
 from .config import TTS_SUITE_CACHE_TTL_S
 from .i18n import TranslationManager, t
+from .settings import persisted_settings
 from .tts_client import (
+    SPEECH_UNITS,
     EngineControlFailed,
     EngineInfo,
     EngineInUse,
+    EngineRef,
     TTSSuiteError,
+    VoiceInfo,
     get_tts_client,
 )
 
@@ -37,34 +47,34 @@ class TTSVramUnknown(RuntimeError):
     """The service could not measure the VRAM of a running local GPU engine."""
 
 
-# ---- Cache of GET /engines ---------------------------------------------------
+# ---- The catalog: GET /engines (cached) ---------------------------------------
 
 _lock = threading.Lock()
 _cached: tuple[float, tuple[EngineInfo, ...]] | None = None
 
 
 def reset_cache() -> None:
-    """Forget the cached list (called by every writing call; tests call it between cases)."""
+    """Forget the cached catalog (called by every writing call; tests call it between cases)."""
     global _cached
     with _lock:
         _cached = None
 
 
-def entries(*, fresh: bool = False) -> tuple[EngineInfo, ...]:
-    """The service's escalation list in speaking order, one ``EngineInfo`` per entry.
+def catalog(*, fresh: bool = False) -> tuple[EngineInfo, ...]:
+    """Every engine the service offers, per machine (``host`` None = this one).
 
     ``fresh=True`` ignores the cache (and refreshes it).
 
     Raises:
-        TTSSuiteUnreachable: the service does not answer; there is no stand-in list.
+        TTSSuiteUnreachable: the service does not answer; there is no stand-in catalog.
     """
     global _cached
     with _lock:
         if not fresh and _cached is not None and monotonic() - _cached[0] < TTS_SUITE_CACHE_TTL_S:
             return _cached[1]
-        listed = tuple(get_tts_client().engines())
-        _cached = (monotonic(), listed)
-        return listed
+        offered = tuple(get_tts_client().engines())
+        _cached = (monotonic(), offered)
+        return offered
 
 
 def unreachable_text(error: TTSSuiteError, lang: str | None = None) -> str:
@@ -72,27 +82,62 @@ def unreachable_text(error: TTSSuiteError, lang: str | None = None) -> str:
     return t("tts_service_unreachable", lang=lang, reason=str(error))
 
 
-# ---- Facts about entries -------------------------------------------------------
-
-
-def _is_active(info: EngineInfo) -> bool:
-    return info.enabled and not info.deactivated
-
-
-def _is_local_gpu(info: EngineInfo) -> bool:
-    return info.needs_gpu and info.host is None and not info.deactivated
-
-
 def _pick(names: Mapping[str, str], lang: str | None) -> str:
     return names[TranslationManager._resolve_lang(lang)]
 
 
-def status_key(info: EngineInfo) -> str:
-    """What an entry would do right now, as key of ``tts_status_<key>``."""
-    if info.deactivated:
-        return "engine_deactivated"
-    if not info.enabled:
-        return "disabled"
+def _catalog_row_of_engine(engine_key: str) -> EngineInfo:
+    for info in catalog():
+        if info.engine == engine_key:
+            return info
+    raise ValueError(f"TTS engine {engine_key!r} is not in the service's catalog")
+
+
+def engine_label(engine_key: str, lang: str | None = None) -> str:
+    return _pick(_catalog_row_of_engine(engine_key).label, lang)
+
+
+def engine_label_short(engine_key: str, lang: str | None = None) -> str:
+    return _pick(_catalog_row_of_engine(engine_key).label_short, lang)
+
+
+def engine_key_for_label(label: str) -> str:
+    """Reverse of ``engine_label`` over every language; a label that names no engine is returned as is."""
+    for info in catalog():
+        if label in info.label.values():
+            return info.engine
+    return label
+
+
+def _is_local_gpu(info: EngineInfo) -> bool:
+    return info.needs_gpu and info.host is None
+
+
+def _unique(keys: list[str]) -> list[str]:
+    return list(dict.fromkeys(keys))
+
+
+def usable_engine_keys() -> list[str]:
+    """Engines worth configuring, in catalog order: the service can start them (image built
+    or none needed) or they run on another host."""
+    return _unique([info.engine for info in catalog() if info.installed])
+
+
+def gpu_engine_keys() -> set[str]:
+    """Engines that occupy VRAM on this machine."""
+    return {info.engine for info in catalog() if _is_local_gpu(info)}
+
+
+def installed_gpu_engine_keys() -> list[str]:
+    """Local GPU engines whose image is built: the ones one can calibrate against."""
+    return _unique([info.engine for info in catalog() if _is_local_gpu(info) and info.installed])
+
+
+# ---- Status and labels of a catalog row ----------------------------------------
+
+
+def row_status_key(info: EngineInfo) -> str:
+    """What the engine would do right now, as key of ``tts_status_<key>``."""
     if info.browser:
         return "ready"  # the client's own voice; the service neither starts nor probes it
     if not info.installed:
@@ -111,12 +156,10 @@ def status_key(info: EngineInfo) -> str:
 
 
 def location_label(info: EngineInfo, lang: str | None = None) -> str:
-    """Where an entry speaks: host name, device (the user's browser), cloud, local (GPU
+    """Where an engine speaks: host name, device (the user's browser), cloud, local (GPU
     container on this machine) or CPU."""
     if info.host is not None:
         return info.host
-    if info.deactivated:
-        return t("tts_location_deactivated", lang=lang)
     if info.browser:
         return t("tts_location_device", lang=lang)
     if info.cloud:
@@ -126,82 +169,150 @@ def location_label(info: EngineInfo, lang: str | None = None) -> str:
     return t("tts_location_cpu", lang=lang)
 
 
-def entry_label(info: EngineInfo, lang: str | None = None) -> str:
-    """``Engine · place`` as the list shows an entry."""
+def row_label(info: EngineInfo, lang: str | None = None) -> str:
+    """``Engine · place`` as the list and the add choices show a catalog row."""
     return f"{_pick(info.label_short, lang)} · {location_label(info, lang)}"
 
 
-def _first_entry_of(engine_key: str) -> EngineInfo:
-    for info in entries():
-        if info.engine == engine_key:
-            return info
-    raise ValueError(f"TTS engine {engine_key!r} is not in the service's list")
+def _local_gpu_rows(*, fresh: bool = False) -> list[EngineInfo]:
+    return [info for info in catalog(fresh=fresh) if _is_local_gpu(info)]
 
 
-def engine_label(engine_key: str, lang: str | None = None) -> str:
-    return _pick(_first_entry_of(engine_key).label, lang)
+# ---- AIfred's list: settings + catalog -----------------------------------------
 
 
-def engine_label_short(engine_key: str, lang: str | None = None) -> str:
-    return _pick(_first_entry_of(engine_key).label_short, lang)
+@dataclass(frozen=True)
+class ListEntry:
+    """One entry of AIfred's list. ``info`` is the catalog row of ``(engine, host)``; ``None``
+    when the service does not offer that pair (engine removed, host removed) or when the
+    entry was built without the catalog (``stored_entries``)."""
+
+    engine: str
+    host: str | None
+    enabled: bool
+    unit: str  # the user's choice, else the engine's ``unit_default``; "" without catalog and choice
+    info: EngineInfo | None
+
+    @property
+    def active(self) -> bool:
+        """Switched on and offered: the entries a request carries."""
+        return self.enabled and self.info is not None
 
 
-def engine_key_for_label(label: str) -> str:
-    """Reverse of ``engine_label`` over every language; a label that names no engine is returned as is."""
-    for info in entries():
-        if label in info.label.values():
-            return info.engine
-    return label
+def stored_list() -> list[dict[str, Any]]:
+    """The raw list from settings.json: ``{"engine", "host", "enabled"}`` per entry, in order."""
+    return [dict(raw) for raw in persisted_settings()["tts_escalation"]]
+
+
+def check_stored_list(raw_list: list[dict[str, Any]]) -> None:
+    """Refuse a list the service would refuse anyway: an entry without its three fields, or the
+    same engine on the same machine twice. The catalog is not asked (the service validates each request).
+
+    Raises:
+        ValueError: with the reason.
+    """
+    seen: set[tuple[str, str | None]] = set()
+    for position, raw in enumerate(raw_list):
+        if set(raw) != {"engine", "host", "enabled"}:
+            raise ValueError(f"tts_escalation[{position}] must have exactly engine, host, enabled; got {sorted(raw)}")
+        pair = (raw["engine"], raw["host"])
+        if pair in seen:
+            raise ValueError(f"{raw['engine']}@{raw['host'] or 'local'} is already in the list")
+        seen.add(pair)
+
+
+def chosen_unit(engine_key: str) -> str | None:
+    """The unit the user chose for the engine (settings.json), ``None`` = no choice."""
+    chosen = persisted_settings().get("tts_toggles_per_engine", {}).get(engine_key, {}).get("unit")
+    if chosen is not None and chosen not in SPEECH_UNITS:
+        raise ValueError(f"speech unit of {engine_key!r} must be one of {SPEECH_UNITS}, got {chosen!r}")
+    return str(chosen) if chosen is not None else None
+
+
+def stored_entries() -> list[ListEntry]:
+    """AIfred's list without the catalog (``info`` None, unit only where the user chose one):
+    what the editor can still show while the service does not answer."""
+    return [
+        ListEntry(str(raw["engine"]), raw["host"], bool(raw["enabled"]), chosen_unit(str(raw["engine"])) or "", None)
+        for raw in stored_list()
+    ]
+
+
+def entries(*, fresh: bool = False) -> tuple[ListEntry, ...]:
+    """AIfred's list in speaking order, each entry joined with its catalog row.
+
+    Raises:
+        TTSSuiteUnreachable: the service does not answer.
+    """
+    rows = catalog(fresh=fresh)
+    by_pair = {(info.engine, info.host): info for info in rows}
+    default_unit = {info.engine: info.unit_default for info in rows}
+    joined: list[ListEntry] = []
+    for stored in stored_entries():
+        info = by_pair.get((stored.engine, stored.host))
+        unit = stored.unit or (info.unit_default if info else default_unit.get(stored.engine, ""))
+        joined.append(ListEntry(stored.engine, stored.host, stored.enabled, unit, info))
+    return tuple(joined)
+
+
+def status_key(entry: ListEntry) -> str:
+    """What the entry would do right now, as key of ``tts_status_<key>``."""
+    if entry.info is None:
+        return "not_offered"
+    if not entry.enabled:
+        return "disabled"
+    return row_status_key(entry.info)
+
+
+def entry_label(entry: ListEntry, lang: str | None = None) -> str:
+    """``Engine · place``; for an entry the service does not offer, its key and host."""
+    if entry.info is None:
+        return f"{entry.engine} · {entry.host or t('tts_location_this_machine', lang=lang)}"
+    return row_label(entry.info, lang)
 
 
 def speech_unit_for(engine_key: str) -> str:
-    """Unit of the speech output of an engine (``sentence``, ``paragraph``, ``whole``):
-    the user's choice kept by the service."""
-    return _first_entry_of(engine_key).unit
+    """Unit of the speech output of an engine (``sentence``, ``paragraph``, ``whole``): the
+    user's choice, else the engine's recommendation from the catalog (system-wide, not per agent).
+
+    Raises:
+        TTSSuiteUnreachable: no choice made and the service does not answer.
+    """
+    return chosen_unit(engine_key) or _catalog_row_of_engine(engine_key).unit_default
 
 
-def first_enabled_entry() -> EngineInfo | None:
+def first_enabled_entry() -> ListEntry | None:
     """The topmost active entry; its unit decides whether the browser streams."""
-    return next((info for info in entries() if _is_active(info)), None)
+    return next((entry for entry in entries() if entry.active), None)
 
 
-def _unique(keys: list[str]) -> list[str]:
-    return list(dict.fromkeys(keys))
+def request_engines() -> list[EngineRef]:
+    """The list one request carries: AIfred's active entries in its order, each with its unit and host.
 
-
-def usable_engine_keys() -> list[str]:
-    """Engines worth configuring, in list order: the service can start them (image built
-    or none needed) or they run on another host."""
-    return _unique([info.engine for info in entries() if not info.deactivated and info.installed])
-
-
-def gpu_engine_keys() -> set[str]:
-    """Engines that occupy VRAM on this machine."""
-    return {info.engine for info in entries() if _is_local_gpu(info)}
-
-
-def installed_gpu_engine_keys() -> list[str]:
-    """Local GPU engines whose image is built: the ones one can calibrate against."""
-    return _unique(
-        [info.engine for info in entries() if _is_local_gpu(info) and info.installed],
-    )
+    The service refuses an empty list; with nothing switched on the request fails there.
+    """
+    return [EngineRef(entry.engine, entry.unit, entry.host) for entry in entries() if entry.active]
 
 
 def has_active_local_gpu_entry(engine_key: str) -> bool:
-    return any(_is_active(info) and _is_local_gpu(info) and info.engine == engine_key for info in entries())
+    return any(entry.engine == engine_key for entry in _active_local_gpu_entries())
 
 
 def active_local_gpu_keys() -> list[str]:
     """Local GPU engines of active entries, in speaking order."""
-    return _unique([info.engine for info in entries() if _is_active(info) and _is_local_gpu(info)])
+    return _unique([entry.engine for entry in _active_local_gpu_entries()])
+
+
+def _active_local_gpu_entries() -> list[ListEntry]:
+    return [entry for entry in entries() if entry.active and entry.info is not None and _is_local_gpu(entry.info)]
 
 
 # ---- Live state (never cached) --------------------------------------------------
 
 
 def running_gpu_engine_keys() -> list[str]:
-    """Local GPU engines that run right now, in list order."""
-    return _unique([info.engine for info in entries(fresh=True) if _is_local_gpu(info) and info.status == "running"])
+    """Local GPU engines that run right now, in catalog order."""
+    return _unique([info.engine for info in _local_gpu_rows(fresh=True) if info.status == "running"])
 
 
 def running_gpu_engine() -> str:
@@ -216,8 +327,8 @@ def local_gpu_footprint() -> dict[str, dict[str, int]]:
         TTSVramUnknown: the service could not measure an engine that runs.
     """
     footprint: dict[str, dict[str, int]] = {}
-    for info in entries(fresh=True):
-        if not _is_local_gpu(info) or info.status != "running":
+    for info in _local_gpu_rows(fresh=True):
+        if info.status != "running":
             continue
         if info.vram_mib is None:
             raise TTSVramUnknown(f"the VRAM of {info.engine} could not be measured by the TTS service")
@@ -230,7 +341,7 @@ def local_gpu_footprint() -> dict[str, dict[str, int]]:
 
 
 def start_entry(engine: str, host: str | None = None) -> None:
-    """Start the entry's container and wait until it serves (blocks; may take minutes)."""
+    """Start the container of an engine on a machine and wait until it serves (blocks; may take minutes)."""
     try:
         get_tts_client().start(engine, host)
     finally:
@@ -280,9 +391,60 @@ def reload_engines() -> dict[str, list[str]]:
         reset_cache()
 
 
+def sync_voices(engine_key: str) -> list[VoiceInfo]:
+    """Make the engine's voices ready (cloud engines enrol their cloned voices); returns its voices."""
+    return get_tts_client().sync_voices(engine_key)
+
+
+# ---- Hosts: owned by the service (GET/POST /config) ------------------------------
+
+
+def config() -> dict[str, Any]:
+    """The service's configuration as raw JSON (``hosts``, ``engines``, ``gpus``, ...), read live."""
+    return get_tts_client().config()
+
+
+def edit_config(change: Callable[[dict[str, Any]], None]) -> dict[str, Any]:
+    """Read the configuration, let ``change`` modify it in place, store it; returns the stored one.
+
+    The service validates (``ConfigInvalid``); nothing is stored then. Blocking: call in a thread.
+    """
+    raw = config()
+    change(raw)
+    return set_config(raw)
+
+
 def set_config(config_json: Mapping[str, Any]) -> dict[str, Any]:
     """Store the service's configuration; returns the stored one."""
     try:
         return get_tts_client().set_config(config_json)
     finally:
         reset_cache()
+
+
+def host_rows() -> list[dict[str, str]]:
+    """The service's hosts as display strings: ``name``, ``address``, ``ssh_user``, ``ssh_port``, ``ssh`` (user and port)."""
+    rows: list[dict[str, str]] = []
+    for host in config()["hosts"]:
+        user = f"{host['ssh_user']} · " if host["ssh_user"] else ""
+        rows.append({
+            "name": host["name"], "address": host["address"], "ssh_user": host["ssh_user"],
+            "ssh_port": str(host["ssh_port"]), "ssh": f"{user}{host['ssh_port']}",
+        })
+    return rows
+
+
+def add_choices(lang: str | None = None) -> list[dict[str, str]]:
+    """Catalog rows not yet in AIfred's list, each as ``{"label": "Engine · place", "value": "engine|host"}``
+    (``host`` empty = this machine or cloud). Every engine of the catalog is offered, also one
+    that is in AIfred's list on no machine yet.
+
+    Raises:
+        TTSSuiteUnreachable: the service does not answer.
+    """
+    taken = {(raw["engine"], raw["host"]) for raw in stored_list()}
+    return [
+        {"label": row_label(info, lang), "value": f"{info.engine}|{info.host or ''}"}
+        for info in catalog()
+        if (info.engine, info.host) not in taken
+    ]

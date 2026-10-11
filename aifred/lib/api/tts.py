@@ -1,8 +1,8 @@
 """TTS escalation list for callers outside AIfred, no LLM.
 
-For the service control page: it shows the list of the TTS service (order, place,
-status) and starts or stops an entry's container through the service, which chooses
-the card and controls the remote hosts. A start runs in the background (model loads
+For the service control page: it shows AIfred's list (order, place, status from the
+service's catalog) and starts or stops an engine's container through the service, which
+chooses the card and controls the remote hosts. A start runs in the background (model loads
 take up to a minute or more); the list shows it as "starting", then running
 or "start failed" with the reason. Token-guarded
 with ``Authorization: Bearer <TTS_CONTROL_API_TOKEN>``.
@@ -17,7 +17,7 @@ from pydantic import BaseModel, Field
 from ..auth import require_service_token
 from ..logging_utils import log_message
 from ..tts_client import EngineInfo, TTSSuiteError, TTSSuiteUnreachable
-from ..tts_service import entries, start_entry, status_key, stop_entry
+from ..tts_service import catalog, row_status_key, start_entry, stop_entry
 from .app import api_app
 from .schemas import CallerName
 
@@ -56,28 +56,28 @@ def _require_tts_token(authorization: str | None) -> None:
 async def tts_entries(
     lang: str = Query(..., pattern="^(de|en)$"), authorization: str | None = Header(None),
 ) -> List[Dict[str, object]]:
-    """The TTS service's escalation list in speaking order, with the live status of each entry."""
+    """AIfred's list in speaking order, with the live status of each entry."""
     from ..i18n import t
     from ..tts_service import entries, entry_label, status_key
 
     _require_tts_token(authorization)
     try:
-        infos = await asyncio.to_thread(entries, fresh=True)
+        listed = await asyncio.to_thread(entries, fresh=True)
     except TTSSuiteUnreachable as unreachable:
         raise HTTPException(status_code=503, detail=str(unreachable)) from unreachable
     rows: List[Dict[str, object]] = []
-    for info in infos:
-        status = status_key(info)
+    for entry in listed:
+        status = status_key(entry)
         rows.append({
-            "engine": info.engine,
-            "host": info.host,
-            "label": entry_label(info, lang),
-            "enabled": info.enabled,
+            "engine": entry.engine,
+            "host": entry.host,
+            "label": entry_label(entry, lang),
+            "enabled": entry.enabled,
             "status": status,
             "status_text": t(f"tts_status_{status}", lang=lang),
-            "controllable": info.needs_gpu,
+            "controllable": entry.info is not None and entry.info.needs_gpu,
             "container": None,  # the service does not report container names
-            "detail": info.start_hint if status == "start_failed" else None,
+            "detail": entry.info.start_hint if entry.info is not None and status == "start_failed" else None,
         })
     return rows
 
@@ -98,10 +98,10 @@ async def _background_start(info: EngineInfo, caller: str) -> None:
 
 
 def _find_entry(engine: str, host: str | None) -> EngineInfo:
-    for info in entries():
+    for info in catalog():
         if info.engine == engine and info.host == host:
             return info
-    raise HTTPException(status_code=404, detail=f"no TTS list entry {engine}@{host or 'local'}")
+    raise HTTPException(status_code=404, detail=f"the TTS service offers no {engine}@{host or 'local'}")
 
 
 async def _act(request: TTSEntryRequest, verb: str) -> Dict[str, object]:
@@ -114,7 +114,7 @@ async def _act(request: TTSEntryRequest, verb: str) -> Dict[str, object]:
         raise HTTPException(status_code=409, detail=f"{name}: has no container the TTS service controls")
     try:
         if verb == "start":
-            if status_key(info) == "starting":
+            if row_status_key(info) == "starting":
                 message = "already starting"
             else:
                 task = asyncio.get_running_loop().create_task(_background_start(info, request.caller))
@@ -134,14 +134,14 @@ async def _act(request: TTSEntryRequest, verb: str) -> Dict[str, object]:
 @api_app.post("/tts/start", response_model=TTSActionResponse, tags=["TTS"])
 async def tts_start(request: TTSEntryRequest, authorization: str | None = Header(None)) -> Dict[str, object]:
     """Start the entry's container in the background: locally on the card AIfred
-    picks, on a host over SSH; /tts/entries shows the progress (404 no such
-    entry, 409 not controllable)."""
+    picks, on a host over SSH; /tts/entries shows the progress (404 not offered by
+    the service, 409 not controllable)."""
     _require_tts_token(authorization)
     return await _act(request, "start")
 
 
 @api_app.post("/tts/stop", response_model=TTSActionResponse, tags=["TTS"])
 async def tts_stop(request: TTSEntryRequest, authorization: str | None = Header(None)) -> Dict[str, object]:
-    """Stop the entry's container, VRAM free (404 no such entry, 409 failed)."""
+    """Stop the entry's container, VRAM free (404 not offered by the service, 409 failed)."""
     _require_tts_token(authorization)
     return await _act(request, "stop")

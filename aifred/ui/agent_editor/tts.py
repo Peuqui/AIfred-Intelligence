@@ -1,11 +1,13 @@
 """Agent-Editor: TTS-Tab — die Eskalationsliste der Sprachausgabe bearbeiten.
 
-Oben die anderen Rechner mit TTS-Containern (Verbindungstest), darunter die
-Liste in Sprechreihenfolge mit Status je Eintrag, darunter das Hinzufügen
-(eine Auswahl „Engine · Ort“). Die Liste lebt in ``settings.json``
-(``tts_escalation``, ``tts_hosts``); der State dazu ist
-``state/_tts_config_mixin.py``. An/Aus der Sprachausgabe, Autoplay und die
-Rechner-Schalter stehen auf der Hauptseite (Audio-Bereich).
+Oben die anderen Rechner mit TTS-Containern, darunter die Liste in
+Sprechreihenfolge mit Status je Eintrag, darunter das Hinzufügen (eine Auswahl
+„Engine · Ort“). Die Liste lebt in AIfreds ``settings.json``
+(``tts_escalation``), Status, Beschriftungen und Auswahl kommen aus dem Katalog des
+TTS-Dienstes, die Rechner gehören dem Dienst; der State dazu ist
+``state/_tts_config_mixin.py``. Antwortet der Dienst nicht, steht die Meldung über
+der Liste. An/Aus der Sprachausgabe und Autoplay stehen auf der Hauptseite
+(Audio-Bereich).
 """
 # mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
 # Reflex UI code: Var indexing, rx.icon module callable, event handler binding
@@ -56,22 +58,11 @@ def _host_card(host: rx.Var) -> rx.Component:
             rx.text(host["address"].to(str), font_size="11px", color="#888"),
             rx.text(host["ssh"].to(str), font_size="11px", color="#666"),
             rx.box(flex="1"),
-            rx.button(
-                t("tts_host_test_button"),
-                on_click=AIState.test_tts_host(name),
-                size="1",
-                variant="soft",
-                color_scheme="gray",
-            ),
+            _icon_action("pencil", AIState.edit_tts_host(name), "tts_host_edit"),
             _icon_action("trash-2", AIState.remove_tts_host(name), "tts_host_remove"),
             spacing="2",
             align="center",
             width="100%",
-        ),
-        rx.cond(
-            AIState.tts_host_test.contains(name),
-            rx.text(AIState.tts_host_test[name], font_size="11px", color="#aaa"),
-            rx.fragment(),
         ),
         spacing="1",
         width="100%",
@@ -98,13 +89,20 @@ def _host_form() -> rx.Component:
             flex="1",
         ),
         rx.input(
-            value=AIState.tts_new_host_ssh,
-            on_change=AIState.set_tts_new_host_ssh,
-            placeholder=t("tts_host_ssh_placeholder"),
+            value=AIState.tts_new_host_ssh_user,
+            on_change=AIState.set_tts_new_host_ssh_user,
+            placeholder=t("tts_host_ssh_user_placeholder"),
             size="1",
             flex="1",
         ),
-        rx.button(t("tts_host_save"), on_click=AIState.add_tts_host, size="1"),
+        rx.input(
+            value=AIState.tts_new_host_ssh_port,
+            on_change=AIState.set_tts_new_host_ssh_port,
+            placeholder=t("tts_host_ssh_port_placeholder"),
+            size="1",
+            flex="1",
+        ),
+        rx.button(t("tts_host_save"), on_click=AIState.save_tts_host, size="1"),
         spacing="1",
         align="center",
         width="100%",
@@ -142,7 +140,7 @@ def _entry_row(row: rx.Var) -> rx.Component:
         rx.switch(
             checked=row["enabled"].to(bool),
             on_change=lambda enabled: AIState.set_tts_entry_enabled(index, enabled),
-            disabled=row["deactivated"].to(bool),
+            disabled=row["unavailable"].to(bool),
             size="1",
         ),
         rx.text(
@@ -175,7 +173,7 @@ def _entry_row(row: rx.Var) -> rx.Component:
             rx.el.option(t("tts_unit_whole"), value="whole"),
             value=row["unit"].to(str),
             on_change=lambda unit: AIState.set_tts_entry_unit(row["engine"].to(str), unit),
-            disabled=row["deactivated"].to(bool),
+            disabled=row["unavailable"].to(bool),
             style={**_NATIVE_SELECT_STYLE_COMPACT, "flex_shrink": "0"},
         ),
         _icon_action("trash-2", AIState.remove_tts_entry(index), "tts_entry_remove"),
@@ -207,6 +205,11 @@ def _list_section() -> rx.Component:
                 variant="soft",
                 color_scheme="gray",
             ),
+        ),
+        rx.cond(
+            AIState.tts_service_error != "",
+            rx.text(AIState.tts_service_error, font_size="12px", color="#e5484d"),
+            rx.fragment(),
         ),
         rx.foreach(AIState.tts_escalation_rows, _entry_row),
         # One choice adds the entry at the end of the list; arrows place it.

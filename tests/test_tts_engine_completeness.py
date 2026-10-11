@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from aifred.lib.config import default_tts_escalation
+from aifred.lib.config import DEFAULT_TTS_ESCALATION
 from aifred.lib.tts_engines import TTS_ENGINES
 from aifred.lib.tts_engines.base import TTSEngine
 
@@ -42,8 +42,8 @@ def test_lightweight_engine_declares_no_container_data(engine: TTSEngine) -> Non
     assert engine.docker_compose_path is None
 
 
-def test_default_escalation_comes_from_the_engines_and_the_browser_speaks_last() -> None:
-    entries = default_tts_escalation()
+def test_default_escalation_matches_the_engines_and_the_browser_speaks_last() -> None:
+    entries = DEFAULT_TTS_ESCALATION
     assert [e["engine"] for e in entries] == [e.key for e in TTS_ENGINES.values() if e.in_default_escalation]
     assert entries[-1]["engine"] == "browser"
     assert all(e["host"] is None and e["enabled"] for e in entries)

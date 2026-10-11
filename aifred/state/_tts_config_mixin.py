@@ -1,16 +1,18 @@
 """TTS configuration mixin for AIfred state.
 
-Handles the spoken output on/off switch, the escalation list editor (entries
-and hosts), autoplay, per-agent mute/language, the agent editor's voice
-settings per engine and the narrator voices. Which engine actually speaks is
-decided per reply by the escalation list (``lib.tts_escalation.SpeechRun``).
+Handles the spoken output on/off switch, the list editor (entries and hosts), autoplay,
+per-agent mute/language, the agent editor's voice settings per engine and the narrator
+voices. The list (order, on/off, host per entry) and the unit per engine are AIfred's own
+and live in settings.json; the catalog (labels, status, which engines exist) and the hosts
+come from the TTS service (``lib.tts_service``), which also stores the hosts.
 
 Does NOT contain TTS streaming/generation logic (see _tts_streaming_mixin.py).
 """
 
 from __future__ import annotations
 
-from typing import Any, Callable, Dict, List
+import asyncio
+from typing import Any, Callable, Dict, List, Tuple
 
 import reflex as rx
 
@@ -21,8 +23,32 @@ def _lang(state: Any) -> str:
     return "de" if state.ui_language == "auto" else str(state.ui_language)
 
 
+def _error_text(error: Exception, lang: str) -> str:
+    """What a failed call shows the user: the unreachable message, or the reason as it is."""
+    from ..lib.tts_client import TTSSuiteUnreachable
+    from ..lib.tts_service import unreachable_text
+    return unreachable_text(error, lang) if isinstance(error, TTSSuiteUnreachable) else str(error)
+
+
+def _planned_engine(model_id: str) -> str | None:
+    """The engine the LLM profile reserves VRAM for; ``None`` while the service does not answer
+    (blocking: call in a thread)."""
+    from ..lib.tts_client import TTSSuiteError
+    from ..lib.tts_llm_coordination import planned_tts_engine
+    try:
+        return planned_tts_engine(model_id)
+    except TTSSuiteError:
+        return None
+
+
+def _entry_at(entries: List[Dict[str, Any]], index: int) -> Dict[str, Any]:
+    if not 0 <= index < len(entries):
+        raise ValueError(f"the list has no entry at position {index} (it changed, reload the page)")
+    return entries[index]
+
+
 class TTSConfigMixin(rx.State, mixin=True):
-    """Mixin for TTS configuration, the escalation list and voice settings."""
+    """Mixin for TTS configuration, the list editor and voice settings."""
 
     # ── TTS Settings ──────────────────────────────────────────────
     enable_tts: bool = False
@@ -32,110 +58,110 @@ class TTSConfigMixin(rx.State, mixin=True):
     # Per agent, for every engine: {"enabled": bool, "language": "auto"|ISO code}
     tts_agents: Dict[str, Dict[str, Any]] = {}
 
-    # The escalation list lives in settings.json (tts_escalation, tts_hosts);
-    # bumping this revision recomputes every var derived from it.
+    # The list and the unit per engine live in settings.json, the hosts in the TTS service;
+    # bumping this revision recomputes every var derived from them.
     tts_list_revision: int = 0
-    # Status per list index (checked on demand, never starts anything) and the
-    # result of each host's connection test — both cleared when the list changes.
-    tts_entry_status: Dict[int, str] = {}
     tts_status_checking: bool = False
-    tts_host_test: Dict[str, str] = {}
     tts_host_form_open: bool = False
     tts_new_host_name: str = ""
     tts_new_host_address: str = ""
-    tts_new_host_ssh: str = ""
+    tts_new_host_ssh_user: str = ""
+    tts_new_host_ssh_port: str = ""  # empty = the service's default
 
     # Narrator (narrate_file) voice PER ENGINE — voices are engine-bound.
     narrator_voices: Dict[str, str] = {}
     narrator_voice_engine: str = TTS_DEFAULT_ENGINE  # Engine whose narrator voice the modal edits
     narrator_settings_open: bool = False
 
-    # ── Escalation list (computed) ────────────────────────────────
+    # ── List (computed) ───────────────────────────────────────────
+
+    @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
+    def tts_service_error(self) -> str:
+        """Why the service's data (status, labels, choices) is not shown (empty = it answers)."""
+        from ..lib.tts_client import TTSSuiteError
+        from ..lib.tts_service import catalog, unreachable_text
+        try:
+            catalog()
+        except TTSSuiteError as error:
+            return unreachable_text(error, _lang(self))
+        return ""
 
     @rx.var(
-        deps=["tts_list_revision", "tts_entry_status", "ui_language", "agent_tuning", "backend_type",
-              "llamaswap_revision"],
+        deps=["tts_list_revision", "ui_language", "agent_tuning", "backend_type", "llamaswap_revision"],
         auto_deps=False,
     )
     def tts_escalation_rows(self) -> List[Dict[str, Any]]:
-        """One row per list entry, in order — what the menu shows."""
+        """One row per list entry, in order — what the menu shows. The list comes from the
+        settings and is shown even while the service does not answer; then label, status
+        and note are bare (``tts_service_error`` says why)."""
         from ..lib.i18n import t
-        from ..lib.tts_client import TTSSuiteUnreachable
-        from ..lib.tts_engines import speech_unit_for
-        from ..lib.tts_escalation import escalation_entries, location_label
+        from ..lib.tts_client import TTSSuiteError
         from ..lib.tts_llm_coordination import planned_tts_engine
-        from ..lib.tts_service import unreachable_text
+        from ..lib.tts_service import entries, entry_label, status_key, stored_entries
 
         lang = _lang(self)
-        # The row is still built from settings.json (list editor, step 3c); only the
-        # reserved engine comes from the service. Its absence is shown on every row.
-        service_note = ""
+        service_down = False
+        reserved = ""
         try:
+            listed = entries()
             reserved = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
-        except TTSSuiteUnreachable as unreachable:
-            reserved = ""
-            service_note = unreachable_text(unreachable, lang)
+        except TTSSuiteError:
+            service_down = True
+            listed = tuple(stored_entries())
         rows: List[Dict[str, Any]] = []
-        for index, entry in enumerate(escalation_entries()):
-            engine = entry.engine
-            installed = engine.is_remote or engine.is_installed()
-            note = service_note or (t("tts_entry_engine_deactivated", lang=lang) if engine.deactivated else (
-                "" if installed else t("tts_entry_not_installed", lang=lang)))
+        for index, entry in enumerate(listed):
+            unavailable = entry.info is None and not service_down
+            if unavailable:
+                note = t("tts_entry_not_offered", lang=lang)
+            elif entry.info is not None and not entry.info.installed:
+                note = t("tts_entry_not_installed", lang=lang)
+            else:
+                note = (entry.info.start_hint or "") if entry.info is not None else ""
             rows.append({
                 "index": index,
-                "engine": engine.key,
-                "label": f"{engine.label_short} · {location_label(entry, lang)}",
+                "engine": entry.engine,
+                "label": entry_label(entry, lang),
                 "enabled": entry.enabled,
-                "unit": "" if engine.deactivated else speech_unit_for(engine.key),
-                "deactivated": engine.deactivated,
-                "reserved": entry.host is None and engine.key == reserved,
+                "unit": entry.unit,
+                "unavailable": unavailable,
+                "reserved": entry.host is None and entry.engine == reserved,
                 "note": note,
-                "status": self.tts_entry_status.get(index, ""),
+                "status": t("tts_status_unreachable", lang=lang) if service_down else t(f"tts_status_{status_key(entry)}", lang=lang),
             })
         return rows
 
     @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
     def tts_add_options(self) -> List[Dict[str, str]]:
-        """Every entry that can still be added, as one choice "engine · place":
-        engines with a built image (or none needed) on this machine, container
-        engines on each host. Entries already in the list are left out."""
-        from ..lib.settings import persisted_settings
-        from ..lib.tts_engines import TTS_ENGINES
-        from ..lib.tts_escalation import EscalationEntry, location_label
-
-        lang = _lang(self)
-        settings = persisted_settings()
-        taken = {(e["engine"], e["host"]) for e in settings["tts_escalation"]}
-        options: List[Dict[str, str]] = []
-        for key, engine in TTS_ENGINES.items():
-            if (key, None) not in taken and engine.is_installed():
-                place = location_label(EscalationEntry(engine=engine, host=None, enabled=True), lang)
-                options.append({"label": f"{engine.label_short} · {place}", "value": f"{key}|"})
-            if engine.default_port is None:
-                continue
-            for host in settings["tts_hosts"]:
-                if (key, host["name"]) not in taken:
-                    options.append({"label": f"{engine.label_short} · {host['name']}", "value": f"{key}|{host['name']}"})
-        return options
+        """Every catalog row not yet in the list, as one choice "engine · place" (see
+        ``tts_service.add_choices``). Empty while the service does not answer."""
+        from ..lib.tts_client import TTSSuiteError
+        from ..lib.tts_service import add_choices
+        try:
+            return add_choices(_lang(self))
+        except TTSSuiteError:
+            return []
 
     @rx.var(deps=["tts_list_revision"], auto_deps=False)
-    def tts_host_rows(self) -> List[Dict[str, Any]]:
-        from ..lib.settings import persisted_settings
-        return [
-            {
-                "name": str(host["name"]), "address": str(host["address"]),
-                "ssh": str(host["ssh"]), "enabled": bool(host["enabled"]),
-            }
-            for host in persisted_settings()["tts_hosts"]
-        ]
+    def tts_host_rows(self) -> List[Dict[str, str]]:
+        """The service's hosts. Empty while the service does not answer."""
+        from ..lib.tts_client import TTSSuiteError
+        from ..lib.tts_service import host_rows
+        try:
+            return host_rows()
+        except TTSSuiteError:
+            return []
 
-    @rx.var(deps=["tts_list_revision"], auto_deps=False)
+    @rx.var(deps=["tts_list_revision", "ui_language"], auto_deps=False)
     def tts_speech_unit(self) -> str:
-        """Speech unit of the topmost enabled entry — decides whether the
-        browser streams sentence by sentence (the entry that really speaks is
-        only known at the first sentence)."""
-        from ..lib.tts_service import first_enabled_entry
-        entry = first_enabled_entry()
+        """Speech unit of the topmost active entry — decides whether the browser streams
+        sentence by sentence (the entry that really speaks is only known at the first
+        sentence). While the service does not answer, the failure message instead of a unit."""
+        from ..lib.tts_client import TTSSuiteError
+        from ..lib.tts_service import first_enabled_entry, unreachable_text
+        try:
+            entry = first_enabled_entry()
+        except TTSSuiteError as error:
+            return unreachable_text(error, _lang(self))
         return entry.unit if entry else "whole"
 
     @rx.var(deps=["tts_list_revision"], auto_deps=False)
@@ -168,8 +194,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         room for the planned engine (topmost enabled local GPU entry with a
         calibrated profile), or for none when the spoken output is off.
         Generator — each yield is one finished blocking step."""
-        from ..lib.tts_escalation import escalation_entries
         from ..lib.tts_llm_coordination import ensure_tts_state, planned_tts_engine
+        from ..lib.tts_service import entries, sync_voices
 
         wanted = (
             planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
@@ -187,81 +213,90 @@ class TTSConfigMixin(rx.State, mixin=True):
         # enabled entries once per key.
         if self.enable_tts:
             prepared: set[str] = set()
-            for entry in escalation_entries():
-                if entry.enabled and entry.engine.key not in prepared:
-                    prepared.add(entry.engine.key)
-                    for line in entry.engine.prepare_voices():
-                        self.add_debug(f"🔊 {line}")  # type: ignore[attr-defined]
-                        yield
+            for entry in entries():
+                if entry.active and entry.info is not None and not entry.info.browser and entry.engine not in prepared:
+                    prepared.add(entry.engine)
+                    voices = sync_voices(entry.engine)
+                    self.add_debug(f"🔊 {entry.engine}: {len(voices)} voices ready")  # type: ignore[attr-defined]
+                    yield
 
-    # ── Escalation list editing ───────────────────────────────────
+    # ── List editing (settings.json) ──────────────────────────────
 
-    def _edit_tts_lists(self, change: Callable[[Dict[str, Any]], None]):
-        """Apply ``change`` to the persisted lists, validate, save, and — when
-        the planned engine moved — re-plan the VRAM. Generator."""
+    def replan_tts(self):
+        """Bring the VRAM state in line with the list (event chain after an edit that moved
+        the planned engine; sync generator: each step blocks)."""
+        yield from self._apply_planned_tts()
+
+    async def _edit_tts_lists(self, change: Callable[[Dict[str, Any]], None]) -> List[Any]:
+        """Apply ``change`` to a copy of the persisted settings, check the list, save. Returns
+        the events the handler yields: an error toast when nothing was saved, a warning when the
+        service could not be asked for the VRAM plan, the re-plan when the planned engine moved."""
         import copy
 
         from ..lib.settings import persisted_settings
-        from ..lib.tts_escalation import escalation_entries
-        from ..lib.tts_llm_coordination import planned_tts_engine
+        from ..lib.i18n import t
+        from ..lib.toast import toast
+        from ..lib.tts_service import check_stored_list
 
         model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
-        before = planned_tts_engine(model_id)
+        before = await asyncio.to_thread(_planned_engine, model_id)
         settings = copy.deepcopy(persisted_settings())
         try:
             change(settings)
-            escalation_entries(settings)
-        except (ValueError, KeyError) as exc:
-            self.add_debug(f"❌ TTS list: {exc}")  # type: ignore[attr-defined]
-            return
+            check_stored_list(settings["tts_escalation"])
+        except (ValueError, KeyError) as error:
+            return [toast("error", f"TTS: {error}")]
         self._write_settings_file(settings)  # type: ignore[attr-defined]
         self.tts_list_revision += 1
-        self.tts_entry_status = {}
-        yield
-        # The lists are still stored in settings.json until the editor writes to the
-        # service (step 3c), so the service's plan does not move with an edit here yet.
-        if planned_tts_engine(model_id) != before:
-            yield from self._apply_planned_tts()
+        after = await asyncio.to_thread(_planned_engine, model_id)
+        if before is None or after is None:
+            return [toast("warning", t("tts_plan_unchecked", lang=_lang(self)))]
+        return [type(self).replan_tts] if after != before else []
 
-    def move_tts_entry(self, index: int, delta: int):
+    async def move_tts_entry(self, index: int, delta: int):
         def change(settings: Dict[str, Any]) -> None:
             entries = settings["tts_escalation"]
+            _entry_at(entries, index)
             target = index + delta
             if 0 <= target < len(entries):
                 entries[index], entries[target] = entries[target], entries[index]
-        yield from self._edit_tts_lists(change)
+        for event in await self._edit_tts_lists(change):
+            yield event
 
-    def set_tts_entry_enabled(self, index: int, enabled: bool):
+    async def set_tts_entry_enabled(self, index: int, enabled: bool):
         def change(settings: Dict[str, Any]) -> None:
-            settings["tts_escalation"][index]["enabled"] = enabled
-        yield from self._edit_tts_lists(change)
+            _entry_at(settings["tts_escalation"], index)["enabled"] = enabled
+        for event in await self._edit_tts_lists(change):
+            yield event
 
-    def remove_tts_entry(self, index: int):
+    async def remove_tts_entry(self, index: int):
         def change(settings: Dict[str, Any]) -> None:
+            _entry_at(settings["tts_escalation"], index)
             del settings["tts_escalation"][index]
-        yield from self._edit_tts_lists(change)
+        for event in await self._edit_tts_lists(change):
+            yield event
 
-    def add_tts_entry(self, choice: str):
+    async def add_tts_entry(self, choice: str):
         """Append the chosen "engine|host" (host empty = this machine/cloud)."""
         engine_key, _, host_name = choice.partition("|")
-        host = host_name or None
 
         def change(settings: Dict[str, Any]) -> None:
-            entries = settings["tts_escalation"]
-            if any(e["engine"] == engine_key and e["host"] == host for e in entries):
-                raise ValueError(f"{engine_key}@{host or 'local'} is already in the list")
-            entries.append({"engine": engine_key, "host": host, "enabled": True})
-        yield from self._edit_tts_lists(change)
+            settings["tts_escalation"].append({"engine": engine_key, "host": host_name or None, "enabled": True})
+        for event in await self._edit_tts_lists(change):
+            yield event
 
-    def set_tts_entry_unit(self, engine_key: str, unit: str):
+    async def set_tts_entry_unit(self, engine_key: str, unit: str):
         """Speech unit of an engine (system-wide, every agent and channel)."""
-        from ..lib.tts_engines import SPEECH_UNITS
-        if unit not in SPEECH_UNITS:
-            raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
+        from ..lib.tts_client import SPEECH_UNITS
 
         def change(settings: Dict[str, Any]) -> None:
+            if unit not in SPEECH_UNITS:
+                raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
             settings.setdefault("tts_toggles_per_engine", {}).setdefault(engine_key, {})["unit"] = unit
-        yield from self._edit_tts_lists(change)
+        for event in await self._edit_tts_lists(change):
+            yield event
+
+    # ── Hosts (stored by the TTS service) ─────────────────────────
 
     def set_tts_new_host_name(self, value: str) -> None:
         self.tts_new_host_name = value.strip()
@@ -269,129 +304,109 @@ class TTSConfigMixin(rx.State, mixin=True):
     def set_tts_new_host_address(self, value: str) -> None:
         self.tts_new_host_address = value.strip()
 
-    def set_tts_new_host_ssh(self, value: str) -> None:
-        self.tts_new_host_ssh = value.strip()
+    def set_tts_new_host_ssh_user(self, value: str) -> None:
+        self.tts_new_host_ssh_user = value.strip()
 
-    def add_tts_host(self):
-        name, address, ssh = self.tts_new_host_name, self.tts_new_host_address, self.tts_new_host_ssh
+    def set_tts_new_host_ssh_port(self, value: str) -> None:
+        self.tts_new_host_ssh_port = value.strip()
+
+    async def _edit_tts_hosts(self, change: Callable[[Dict[str, Any]], None]) -> Tuple[List[Any], bool]:
+        """Apply ``change`` to the service's configuration (read, change, store; the service
+        validates). Returns ``(events, stored)``: an error toast when nothing was stored."""
+        from ..lib.toast import toast
+        from ..lib.tts_client import TTSSuiteError
+        from ..lib.tts_service import edit_config
+
+        try:
+            await asyncio.to_thread(edit_config, change)
+        except (TTSSuiteError, ValueError) as error:
+            return [toast("error", _error_text(error, _lang(self)))], False
+        self.tts_list_revision += 1
+        return [], True
+
+    async def save_tts_host(self):
+        """Create the host from the form, or change it when a host of that name exists."""
+        from ..lib.i18n import t
+        from ..lib.toast import toast
+        lang = _lang(self)
+        name, address = self.tts_new_host_name, self.tts_new_host_address
         if not name or not address:
-            self.add_debug("❌ TTS host: name and address are required")  # type: ignore[attr-defined]
+            yield toast("error", t("tts_host_fields_required", lang=lang))
             return
+        host: Dict[str, Any] = {"name": name, "address": address}
+        if self.tts_new_host_ssh_user:
+            host["ssh_user"] = self.tts_new_host_ssh_user
+        if self.tts_new_host_ssh_port:
+            if not self.tts_new_host_ssh_port.isdigit():
+                yield toast("error", t("tts_host_port_invalid", lang=lang, port=self.tts_new_host_ssh_port))
+                return
+            host["ssh_port"] = int(self.tts_new_host_ssh_port)
 
-        def change(settings: Dict[str, Any]) -> None:
-            if any(h["name"] == name for h in settings["tts_hosts"]):
-                raise ValueError(f"host {name!r} already exists")
-            settings["tts_hosts"].append({"name": name, "address": address, "enabled": True, "ssh": ssh, "ports": {}})
-        yield from self._edit_tts_lists(change)
-        self.tts_new_host_name = ""
-        self.tts_new_host_address = ""
-        self.tts_new_host_ssh = ""
-        self.tts_host_form_open = False
+        def change(config: Dict[str, Any]) -> None:
+            config["hosts"] = [h for h in config["hosts"] if h["name"] != name] + [host]
+        events, stored = await self._edit_tts_hosts(change)
+        for event in events:
+            yield event
+        if stored:
+            self.tts_new_host_name = ""
+            self.tts_new_host_address = ""
+            self.tts_new_host_ssh_user = ""
+            self.tts_new_host_ssh_port = ""
+            self.tts_host_form_open = False
+
+    def edit_tts_host(self, name: str) -> None:
+        """Fill the form with the host; saving it changes that host."""
+        from ..lib.tts_service import host_rows
+        host = next(row for row in host_rows() if row["name"] == name)
+        self.tts_new_host_name = host["name"]
+        self.tts_new_host_address = host["address"]
+        self.tts_new_host_ssh_user = host["ssh_user"]
+        self.tts_new_host_ssh_port = host["ssh_port"]
+        self.tts_host_form_open = True
 
     def toggle_tts_host_form(self) -> None:
         self.tts_host_form_open = not self.tts_host_form_open
 
+    async def remove_tts_host(self, name: str):
+        """Remove a host from the service; refused while an entry of the list still names it."""
+        from ..lib.tts_service import stored_list
+
+        def change(config: Dict[str, Any]) -> None:
+            if any(raw["host"] == name for raw in stored_list()):
+                raise ValueError(f"host {name!r} still has entries in the list — remove them first")
+            config["hosts"] = [host for host in config["hosts"] if host["name"] != name]
+        events, _ = await self._edit_tts_hosts(change)
+        for event in events:
+            yield event
+
     @rx.event(background=True)  # type: ignore[operator]
     async def check_tts_status(self):
-        """Fill the status column: what each entry would do right now —
-        checks only (health, image, host switch), never starts anything."""
-        import asyncio
-
-        from ..lib.i18n import t
-        from ..lib.tts_engines import reload_engines
-        from ..lib.tts_escalation import entry_status, escalation_entries
+        """Make the service read its engine folders again (an engine moved into or out of
+        ``disabled/`` takes effect, remembered start failures are forgotten) and show the
+        list as the catalog reports it now. Never starts an engine."""
+        from ..lib.toast import toast
+        from ..lib.tts_client import TTSSuiteError
+        from ..lib.tts_service import catalog, reload_engines
 
         async with self:
-            lang = _lang(self)
             self.tts_status_checking = True
-        # Engine folders moved into or out of tts_engines/disabled/ take effect here.
-        removed, added = await asyncio.to_thread(reload_engines)
-        statuses = {
-            index: t(f"tts_status_{key}", lang=lang)
-            for index, key in enumerate(
-                await asyncio.gather(*(asyncio.to_thread(entry_status, e) for e in escalation_entries()))
-            )
-        }
-        async with self:
-            self.tts_entry_status = statuses
-            self.tts_status_checking = False
-            if removed or added:
-                self.tts_list_revision += 1
-                self.add_debug(f"🔊 TTS engines reloaded: removed {removed or '-'}, added {added or '-'}")  # type: ignore[attr-defined]
-            self.add_debug(f"🔊 TTS status checked ({len(statuses)} entries)")  # type: ignore[attr-defined]
-
-    @rx.event(background=True)  # type: ignore[operator]
-    async def test_tts_host(self, name: str):
-        """Connection test of a host: SSH control (which containers run) or,
-        without SSH, whether its TTS ports answer."""
-        import asyncio
-
-        from ..lib.i18n import t
-        from ..lib.tts_escalation import escalation_entries, host_control
-
-        async with self:
-            lang = _lang(self)
-            self.tts_host_test = {**self.tts_host_test, name: "…"}
-        from ..lib.settings import persisted_settings
-        raw = next(h for h in persisted_settings()["tts_hosts"] if h["name"] == name)
-        if raw["ssh"]:
-            from ..lib.tts_escalation import TTSHost
-            host = TTSHost(name=name, address=raw["address"], enabled=raw["enabled"], ssh=raw["ssh"])
-            try:
-                running = (await asyncio.to_thread(host_control, host, "status")).split()
-                result = t("tts_host_test_ok", lang=lang, running=", ".join(running) or "—")
-            except RuntimeError as exc:
-                result = f"❌ {exc}"
-        else:
-            serving = [
-                e.engine.key for e in escalation_entries()
-                if e.host is not None and e.host.name == name and await asyncio.to_thread(e.engine.is_running)
-            ]
-            result = t("tts_host_test_no_ssh", lang=lang, running=", ".join(serving) or "—")
-        async with self:
-            self.tts_host_test = {**self.tts_host_test, name: result}
-
-    @rx.event(background=True)  # type: ignore[operator]
-    async def set_tts_host_enabled(self, name: str, enabled: bool):
-        """Switch a TTS host on or off. Off stops its containers (VRAM free) and
-        the list skips its entries; on starts the containers of its enabled
-        entries ahead of the next reply. Background event: SSH may take seconds."""
-        import asyncio
-
-        from ..lib.tts_escalation import escalation_entries, host_control
-
-        def change(settings: Dict[str, Any]) -> None:
-            for host in settings["tts_hosts"]:
-                if host["name"] == name:
-                    host["enabled"] = enabled
-
-        async with self:
-            for _ in self._edit_tts_lists(change):
-                pass
-            entries = [e for e in escalation_entries() if e.host is not None and e.host.name == name]
-            self.add_debug(f"🔊 TTS host {name}: {'on' if enabled else 'off'}")  # type: ignore[attr-defined]
-        if not entries or not entries[0].host or not entries[0].host.ssh:
-            return
-        host = entries[0].host
         try:
-            if enabled:
-                for service in dict.fromkeys(e.engine.service_dir for e in entries if e.enabled):
-                    await asyncio.to_thread(host_control, host, "start", service)
-                message = f"🔊 TTS host {name}: containers started"
-            else:
-                await asyncio.to_thread(host_control, host, "stop")
-                message = f"🔊 TTS host {name}: containers stopped, VRAM free"
-        except RuntimeError as exc:
-            message = f"❌ TTS host {name}: {exc}"
+            changed = await asyncio.to_thread(reload_engines)
+            offered = await asyncio.to_thread(catalog, fresh=True)
+        except TTSSuiteError as error:
+            async with self:
+                lang = _lang(self)
+                self.tts_status_checking = False
+                self.tts_list_revision += 1
+            yield toast("error", _error_text(error, lang))
+            return
         async with self:
-            self.add_debug(message)  # type: ignore[attr-defined]
-
-    def remove_tts_host(self, name: str):
-        def change(settings: Dict[str, Any]) -> None:
-            if any(entry["host"] == name for entry in settings["tts_escalation"]):
-                raise ValueError(f"host {name!r} still has entries in the list — remove them first")
-            settings["tts_hosts"] = [h for h in settings["tts_hosts"] if h["name"] != name]
-        yield from self._edit_tts_lists(change)
+            self.tts_status_checking = False
+            self.tts_list_revision += 1
+            removed, added = changed["removed"], changed["added"]
+            if removed or added:
+                self.add_debug(f"🔊 TTS engines reloaded: removed {removed or '-'}, added {added or '-'}")  # type: ignore[attr-defined]
+            self.add_debug(f"🔊 TTS status read ({len(offered)} catalog rows)")  # type: ignore[attr-defined]
 
     # ── Per-agent mute and language ───────────────────────────────
 

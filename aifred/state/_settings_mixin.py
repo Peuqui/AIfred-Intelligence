@@ -157,6 +157,8 @@ class SettingsMixin(rx.State, mixin=True):
             "tts_agent_voices_per_engine": existing.get("tts_agent_voices_per_engine", {}),
             "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
             "tts_escalation": persisted_settings()["tts_escalation"],
+            # Only the old speech path (tts_escalation.py) reads the hosts here; it dies with
+            # step 4/5, the hosts themselves belong to the TTS service now.
             "tts_hosts": persisted_settings()["tts_hosts"],
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,  # type: ignore[attr-defined, has-type]
