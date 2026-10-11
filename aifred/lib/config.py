@@ -1218,6 +1218,21 @@ STT_SUITE_DIR = os.environ.get(
 )
 STT_SUITE_COMPOSE_PATH = os.path.join(STT_SUITE_DIR, "docker-compose.yml")
 
+# TTS-Suite service (own repo, runs as a system service on this machine).
+# Token for commands that change something (config, start/stop, reload, voice sync):
+# TTS_SUITE_TOKEN wins, otherwise the first line of TTS_SUITE_TOKEN_FILE. Speaking
+# and the read-only endpoints need no token while the service listens on localhost.
+TTS_SUITE_URL = os.environ.get("TTS_SUITE_URL", "http://127.0.0.1:5090")
+TTS_SUITE_TOKEN = os.environ.get("TTS_SUITE_TOKEN", "")
+TTS_SUITE_TOKEN_FILE = os.path.expanduser(
+    os.environ.get("TTS_SUITE_TOKEN_FILE", "~/.config/tts-suite/token"),
+)
+TTS_SUITE_CONNECT_TIMEOUT_S = 5       # service not reachable -> fail fast
+# Longest silence tolerated on a reading: a cold start of an engine container takes up
+# to 240 s before the first frame; afterwards keep-alive markers arrive every few seconds.
+TTS_SUITE_STREAM_READ_TIMEOUT_S = 240
+TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices, start/stop, reload, voice sync
+
 # Whisper STT Docker Service (faster-whisper, dual-device: CPU permanent + GPU with TTL)
 WHISPER_SERVICE_URL = "http://localhost:5080"
 
