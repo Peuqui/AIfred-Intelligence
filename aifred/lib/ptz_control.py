@@ -3,7 +3,7 @@
 Minimaler ONVIF-Client über rohes SOAP (``requests``) — bewusst ohne
 externe ONVIF-Bibliothek, damit keine zusätzliche Abhängigkeit nötig ist.
 Deckt die für eine „AIfred steuert den Kamerakopf"-Logik nötigen
-Operationen ab: ContinuousMove, Stop, AbsoluteMove, GotoPreset.
+Operationen ab: ContinuousMove, Stop, AbsoluteMove, GotoPreset, GotoHomePosition.
 
 Konfiguriert wird PTZ über dieselben Kamera-Einträge wie die RTSP-Quellen
 (``rtsp_cameras`` in ``plugins/tools/vision/settings.json``); zusätzlich::
@@ -34,10 +34,12 @@ import requests
 
 from .config import (
     VISION_PTZ_DEADMAN_SEC,
+    VISION_PTZ_DEFAULT_SPEED,
     VISION_PTZ_MIN_MOVE_SEC,
-    VISION_PTZ_SPEED,
+    VISION_PTZ_SPEEDS,
 )
 from .frame_sources.rtsp_source import find_camera_config
+from .logging_utils import log_message
 from .onvif_soap import (
     OnvifError,
     content_type,
@@ -160,6 +162,15 @@ class PTZController:
         )
         self._post(f"{_NS_PTZ}/AbsoluteMove", body)
 
+    def goto_home(self) -> None:
+        """Ausgangsposition der Kamera anfahren (ONVIF ``GotoHomePosition``)."""
+        token = self.profile_token()
+        body = (
+            f'<GotoHomePosition xmlns="{_NS_PTZ}">'
+            f"<ProfileToken>{token}</ProfileToken></GotoHomePosition>"
+        )
+        self._post(f"{_NS_PTZ}/GotoHomePosition", body)
+
     def goto_preset(self, preset_token: str) -> None:
         """Gespeicherte Preset-Position anfahren."""
         token = self.profile_token()
@@ -215,6 +226,12 @@ DIRECTIONS: dict[str, tuple[float, float, float]] = {
     "zoom_out": (0.0, 0.0, -1.0),
 }
 
+# Der Zoommotor der Kamera fährt pro ONVIF-Befehl bei kleiner Geschwindigkeit nur
+# EINEN Schritt (gemessen: 100 Einheiten) und bleibt dann stehen, egal wie lange
+# der Befehl dauert. Für „gehalten = zoomt weiter" wird der Befehl im Herzschlag
+# der gehaltenen Taste wiederholt.
+REPEATING_DIRECTIONS = frozenset({"zoom_in", "zoom_out"})
+
 _controllers: dict[str, tuple[tuple[str, int, str], PTZController]] = {}
 
 
@@ -246,23 +263,52 @@ class PtzDriver:
 
     Zwei Absicherungen gegen einen weiterfahrenden Kopf: eine Bewegung dauert
     mindestens ``VISION_PTZ_MIN_MOVE_SEC`` (ein Tipp fährt ein Stück statt
-    nichts) und endet spätestens nach ``VISION_PTZ_DEADMAN_SEC``, auch wenn das
-    Loslassen nie ankommt."""
+    nichts) und endet spätestens ``VISION_PTZ_DEADMAN_SEC`` nach dem letzten
+    Lebenszeichen (Tastendruck bzw. Herzschlag der gehaltenen Taste), auch wenn
+    das Loslassen nie ankommt."""
 
     def __init__(self) -> None:
         self._pressed_at: dict[str, float] = {}
         self._deadman: dict[str, asyncio.TimerHandle] = {}
+        self._moving: dict[str, tuple[str, str]] = {}  # Quelle → (Richtung, Stufe)
 
-    async def press(self, source_id: str, direction: str) -> None:
+    async def press(
+        self, source_id: str, direction: str, speed: str = VISION_PTZ_DEFAULT_SPEED,
+    ) -> None:
+        """Fahren in ``direction`` mit der Geschwindigkeitsstufe ``speed``
+        (``VISION_PTZ_SPEEDS``)."""
         vector = DIRECTIONS[direction]
+        factor = VISION_PTZ_SPEEDS[speed]
         controller = get_controller(source_id)
         if controller is None:
             raise PTZError(f"{source_id} hat keine PTZ-Steuerung (rtsp_cameras: ptz)")
         await asyncio.to_thread(
             controller.continuous_move,
-            *(v * VISION_PTZ_SPEED for v in vector),
+            *(v * factor for v in vector),
         )
         self._pressed_at[source_id] = time.monotonic()
+        self._moving[source_id] = (direction, speed)
+        log_message(f"PTZ press {source_id} {direction} speed={speed}")
+        self._arm_deadman(source_id)
+
+    async def keep_alive(self, source_id: str) -> None:
+        """Herzschlag der gehaltenen Taste: verlängert die Frist der
+        Totmann-Abschaltung und wiederholt bei Zoom den Fahrbefehl (siehe
+        ``REPEATING_DIRECTIONS``). Ohne laufende Bewegung ohne Wirkung."""
+        if source_id not in self._pressed_at:
+            return
+        self._arm_deadman(source_id)
+        direction, speed = self._moving[source_id]
+        if direction in REPEATING_DIRECTIONS:
+            controller = get_controller(source_id)
+            if controller is not None:
+                factor = VISION_PTZ_SPEEDS[speed]
+                await asyncio.to_thread(
+                    controller.continuous_move,
+                    *(v * factor for v in DIRECTIONS[direction]),
+                )
+
+    def _arm_deadman(self, source_id: str) -> None:
         previous = self._deadman.pop(source_id, None)
         if previous is not None:
             previous.cancel()
@@ -283,15 +329,29 @@ class PtzDriver:
             await asyncio.sleep(remaining)
         await self.stop(source_id)
 
+    async def home(self, source_id: str) -> None:
+        """Ausgangsposition anfahren (eine laufende Bewegung endet damit)."""
+        self._pressed_at.pop(source_id, None)
+        self._moving.pop(source_id, None)
+        timer = self._deadman.pop(source_id, None)
+        if timer is not None:
+            timer.cancel()
+        controller = get_controller(source_id)
+        if controller is None:
+            raise PTZError(f"{source_id} hat keine PTZ-Steuerung (rtsp_cameras: ptz)")
+        await asyncio.to_thread(controller.goto_home)
+
     async def stop(self, source_id: str) -> None:
         """Sofort anhalten (auch ohne laufende Bewegung)."""
         self._pressed_at.pop(source_id, None)
+        self._moving.pop(source_id, None)
         timer = self._deadman.pop(source_id, None)
         if timer is not None:
             timer.cancel()
         controller = get_controller(source_id)
         if controller is not None:
             await asyncio.to_thread(controller.stop)
+            log_message(f"PTZ stop {source_id}")
 
     async def _deadman_stop(self, source_id: str) -> None:
         self._deadman.pop(source_id, None)

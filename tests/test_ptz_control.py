@@ -25,6 +25,9 @@ class FakeController:
     def stop(self) -> None:
         self.calls.append(("stop",))
 
+    def goto_home(self) -> None:
+        self.calls.append(("home",))
+
 
 @pytest.fixture(autouse=True)
 def _clean_registry():
@@ -94,7 +97,38 @@ class TestDriver:
             await driver.press(SOURCE, "right")
             driver._deadman[SOURCE].cancel()
         asyncio.run(scenario())
-        assert fake.calls == [("move", ptz_control.VISION_PTZ_SPEED, 0.0, 0.0)]
+        assert fake.calls == [
+            ("move", ptz_control.VISION_PTZ_SPEEDS[ptz_control.VISION_PTZ_DEFAULT_SPEED], 0.0, 0.0)
+        ]
+
+    def test_speed_levels_scale_the_velocity(self, fake):
+        async def scenario():
+            driver = PtzDriver()
+            await driver.press(SOURCE, "up", "fast")
+            driver._deadman[SOURCE].cancel()
+        asyncio.run(scenario())
+        assert fake.calls == [("move", 0.0, ptz_control.VISION_PTZ_SPEEDS["fast"], 0.0)]
+
+    def test_unknown_speed_level_is_an_error(self, fake):
+        with pytest.raises(KeyError):
+            asyncio.run(PtzDriver().press(SOURCE, "up", "warp"))
+
+    def test_keep_alive_extends_the_deadman_only_while_moving(self, fake, monkeypatch):
+        monkeypatch.setattr(ptz_control, "VISION_PTZ_DEADMAN_SEC", 0.3)
+
+        async def scenario():
+            driver = PtzDriver()
+            await driver.keep_alive(SOURCE)  # ohne Bewegung ohne Wirkung
+            assert SOURCE not in driver._deadman
+            await driver.press(SOURCE, "left")
+            for _ in range(4):
+                await asyncio.sleep(0.15)
+                await driver.keep_alive(SOURCE)
+            # 0,6 s nach dem Druck, aber der Herzschlag hielt die Frist offen:
+            assert [c[0] for c in fake.calls] == ["move"]
+            await asyncio.sleep(0.5)
+        asyncio.run(scenario())
+        assert [c[0] for c in fake.calls] == ["move", "stop"]
 
     def test_unknown_direction_is_an_error(self, fake):
         with pytest.raises(KeyError):
@@ -169,3 +203,39 @@ class TestDriver:
             await driver.stop(SOURCE)  # ohne laufende Bewegung ebenfalls ok
         asyncio.run(scenario())
         assert [c[0] for c in fake.calls] == ["move", "stop", "stop"]
+
+    def test_home_goes_to_home_position_and_ends_a_running_move(self, fake):
+        async def scenario():
+            driver = PtzDriver()
+            await driver.press(SOURCE, "left")
+            await driver.home(SOURCE)
+            assert SOURCE not in driver._deadman
+            assert SOURCE not in driver._pressed_at
+        asyncio.run(scenario())
+        assert [c[0] for c in fake.calls] == ["move", "home"]
+
+    def test_home_on_camera_without_ptz_raises(self, monkeypatch):
+        monkeypatch.setattr(ptz_control, "get_controller", lambda source_id: None)
+        with pytest.raises(PTZError):
+            asyncio.run(PtzDriver().home(SOURCE))
+
+    def test_heartbeat_repeats_the_zoom_command_but_not_pan(self, fake, monkeypatch):
+        # Der Zoommotor fährt pro Befehl nur einen Schritt; gehaltener Zoom
+        # braucht darum die Wiederholung im Herzschlag, Pan/Tilt nicht.
+        monkeypatch.setattr(ptz_control, "VISION_PTZ_DEADMAN_SEC", 5.0)
+
+        async def scenario():
+            driver = PtzDriver()
+            await driver.press(SOURCE, "zoom_in")
+            await driver.keep_alive(SOURCE)
+            await driver.keep_alive(SOURCE)
+            await driver.stop(SOURCE)
+            await driver.press(SOURCE, "left")
+            await driver.keep_alive(SOURCE)
+            await driver.keep_alive(SOURCE)
+            await driver.stop(SOURCE)
+        asyncio.run(scenario())
+        names = [c[0] for c in fake.calls]
+        assert names == ["move", "move", "move", "stop", "move", "stop"]
+        zoom = ptz_control.VISION_PTZ_SPEEDS[ptz_control.VISION_PTZ_DEFAULT_SPEED]
+        assert fake.calls[1] == ("move", 0.0, 0.0, zoom)

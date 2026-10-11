@@ -39,6 +39,7 @@ from .ui.personarium import personarium_modal  # noqa: F401
 from .ui.casus import casus_modal, casus_help_modal  # noqa: F401
 from .ui.multipose import multipose_modal  # noqa: F401
 from .ui.vigilantia_feed import vigilantia_feed_popover, vigilantia_help_modal  # noqa: F401
+from .ui.lightbox import LIGHTBOX_JS
 from .ui.vision_preview import vision_preview_page  # noqa: F401
 
 
@@ -744,63 +745,6 @@ console.log('✂️ Crop handler loaded');
 }})();
 """
 
-    # Lightbox für Content-Bilder: in der Bubble verkleinert (CSS), Klick
-    # öffnet die VOLLE Auflösung als Overlay (Klick/Escape schließt).
-    # Greift nur auf /_upload/-Bilder (Kamera-Fotos, Uploads, Crops) —
-    # Emojis/Icons bleiben unberührt. window-Flag macht den Listener
-    # idempotent gegen React-Remounts (gleiche Falle wie beim custom_js).
-    lightbox_js = """
-(function() {
-    if (window.__aifredLightbox) return;
-    window.__aifredLightbox = true;
-    var st = document.createElement('style');
-    st.textContent = 'img[src*="/_upload/"]{max-height:320px;max-width:100%;width:auto;object-fit:contain;cursor:zoom-in;border-radius:8px;}'
-        + '.aifred-thumbrow{display:flex;flex-wrap:wrap;gap:6px;align-items:flex-start;}'
-        + '.aifred-thumbrow img{width:50px;height:50px;object-fit:cover;border-radius:4px;margin:0;}';
-    document.head.appendChild(st);
-    document.addEventListener('click', function(e) {
-        var img = e.target.closest && e.target.closest('img[src*="/_upload/"]');
-        if (!img || img.closest('#aifred-lightbox')) return;
-        var ov = document.createElement('div');
-        ov.id = 'aifred-lightbox';
-        var big = document.createElement('img');
-        big.src = img.src;
-        var fitted = true;
-        // Zwei Modi: eingepasst (96vw/96vh, zentriert) und 1:1-Pixelansicht
-        // (Bild in nativer Größe, Overlay scrollt → Schwenken). Flex-Zentrierung
-        // muss im 1:1-Modus weg, sonst sind die linken/oberen Ränder nicht
-        // erreichbar (Flexbox-Overflow-Falle).
-        function applyMode() {
-            ov.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.88);z-index:10000;overflow:auto;cursor:zoom-out;'
-                + (fitted ? 'display:flex;align-items:center;justify-content:center;' : 'display:block;');
-            big.style.cssText = fitted
-                ? 'max-width:96vw;max-height:96vh;object-fit:contain;cursor:zoom-in;box-shadow:0 0 40px rgba(0,0,0,0.8);'
-                : 'width:' + big.naturalWidth + 'px;max-width:none;max-height:none;display:block;cursor:zoom-out;';
-        }
-        big.addEventListener('click', function(ev) {
-            var zoomable = big.naturalWidth > ov.clientWidth + 8 || big.naturalHeight > ov.clientHeight + 8;
-            if (fitted && !zoomable) { close(); return; }
-            ev.stopPropagation();
-            var rx = ev.offsetX / big.clientWidth, ry = ev.offsetY / big.clientHeight;
-            fitted = !fitted;
-            applyMode();
-            if (!fitted) {
-                // Klickstelle in die Bildschirmmitte scrollen
-                ov.scrollLeft = rx * big.naturalWidth - ov.clientWidth / 2;
-                ov.scrollTop = ry * big.naturalHeight - ov.clientHeight / 2;
-            }
-        });
-        function esc(ev) { if (ev.key === 'Escape') close(); }
-        function close() { ov.remove(); document.removeEventListener('keydown', esc); }
-        ov.addEventListener('click', close);
-        document.addEventListener('keydown', esc);
-        ov.appendChild(big);
-        document.body.appendChild(ov);
-        applyMode();
-    });
-})();
-"""
-
     return rx.box(
         # Sperrt die UI, solange der Reflex-State-Socket (/_event/) getrennt
         # ist — z.B. direkt nach einem systemctl-Restart, wenn granian noch
@@ -813,7 +757,7 @@ console.log('✂️ Crop handler loaded');
         rx.script(autoscroll_js),
         rx.script(paste_handler_js),
         rx.script(crop_js),
-        rx.script(lightbox_js),
+        rx.script(LIGHTBOX_JS),
 
         # custom.js wird über den idempotenten Loader genau einmal geladen
         # (nicht via rx.script(src=…), das React bei jedem Remount neu

@@ -211,14 +211,17 @@ For pan/tilt/zoom IP cameras there is a minimal ONVIF client
 CredentialBroker like RTSP; it is configured via the same `rtsp_cameras` entries
 (`ptz: true`, optional `onvif_port`, default 8000). 
 
-**Operation in the live view:** For cameras with `ptz: true` a control pad sits
-at the top right of the live image (directions, zoom ±, stop). Holding a button
-moves the head; releasing it or leaving the button stops it; a tap (touch screen)
-moves at least `VISION_PTZ_MIN_MOVE_SEC` (0.3 s). As a dead-man safety the head
-never moves longer than `VISION_PTZ_DEADMAN_SEC` (1 s) in one go, even if the
-release never reaches the server (press again for more travel). Speed: `VISION_PTZ_SPEED` in `config.py`. The
-control goes through the `PtzDriver` (`ptz_driver`) in `ptz_control.py`; `nudge`
-and `aim_at_offset` are prepared for a later "follow the bounding box" logic.
+**Operation in the live view:** For cameras with `ptz: true` a control pad sits at
+the top right of the live image (directions, zoom ±, the home position in the
+middle) with three speed levels Fine / Medium / Fast (default Fine,
+`VISION_PTZ_SPEEDS` in `config.py`). Holding a button moves the head; releasing it
+or leaving the button stops it; a tap moves at least `VISION_PTZ_MIN_MOVE_SEC`
+(0.15 s), i.e. only a small step on the Fine level. While the button is held the
+page sends a heartbeat every 0.4 s ("still pressed") that keeps the head moving.
+As a dead-man safety it stops `VISION_PTZ_DEADMAN_SEC` (1 s) after the last sign of
+life, even if the release never reaches the server. The control goes through the
+`PtzDriver` (`ptz_driver`) in `ptz_control.py`; `nudge` and `aim_at_offset` are
+prepared for a later "follow the bounding box" logic.
 
 ## Watch mode (Vigilantia armed)
 

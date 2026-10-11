@@ -842,16 +842,22 @@ VISION_EDGE_AI_SETTLE_SEC = 1.0
 # höchstens aber ``VISION_EDGE_AI_BACKOFF_MAX_SEC`` — die Kamera wird nicht zugehämmert.
 VISION_EDGE_AI_BACKOFF_MAX_DOUBLINGS = 5
 VISION_EDGE_AI_BACKOFF_MAX_SEC = 60.0
-# PTZ-Steuerung der Live-Ansicht (ONVIF ContinuousMove): Geschwindigkeit in
-# [0, 1], Mindestdauer einer Bewegung (ein Tipp auf dem Touchscreen ist nur ein
+# PTZ-Steuerung der Live-Ansicht (ONVIF ContinuousMove): Mindestdauer einer Bewegung (ein Tipp auf dem Touchscreen ist nur ein
 # Sekundenbruchteil lang) und Sicherheitsabschaltung, falls das Loslassen den
 # Server nie erreicht (Verbindungsabbruch, Fenster zu): spätestens nach
 # ``VISION_PTZ_DEADMAN_SEC`` fährt der Kopf von selbst nicht mehr weiter. Eine
 # Sekunde, weil der Kopf in drei Sekunden eine Komplettdrehung schaffen kann;
-# für mehr Weg die Taste erneut drücken.
-VISION_PTZ_SPEED = 0.5
-VISION_PTZ_MIN_MOVE_SEC = 0.3
+# für mehr Weg die Taste erneut drücken. Solange die Taste gehalten wird,
+# meldet die Seite im Abstand ``VISION_PTZ_HEARTBEAT_MS`` „noch gedrückt" und
+# verlängert die Frist; bricht die Verbindung ab, bleibt der Herzschlag aus und
+# die Abschaltung greift nach ``VISION_PTZ_DEADMAN_SEC``.
+# Geschwindigkeitsstufen (Anteil der Höchstgeschwindigkeit) und Mindestdauer: ein
+# Tipp muss ein kleines Stück fahren, nicht drei grobe Sprünge.
+VISION_PTZ_SPEEDS = {"fine": 0.05, "medium": 0.3, "fast": 0.6}
+VISION_PTZ_DEFAULT_SPEED = "fast"
+VISION_PTZ_MIN_MOVE_SEC = 0.15
 VISION_PTZ_DEADMAN_SEC = 1.0
+VISION_PTZ_HEARTBEAT_MS = 400
 
 # Ereignisquelle des Edge-AI-Triggers: ``onvif`` (Abonnement, keine Dauerlast auf
 # der Kamera) oder ``poll`` (``GetAiState``-Abfrage im Takt). Pro Installation in

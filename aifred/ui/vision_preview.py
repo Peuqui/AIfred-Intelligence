@@ -19,7 +19,9 @@ from __future__ import annotations
 
 import reflex as rx
 
+from ..lib.config import VISION_PTZ_HEARTBEAT_MS, VISION_PTZ_SPEEDS
 from ..state import AIState
+from .lightbox import LIGHTBOX_JS
 from .helpers import t
 
 
@@ -315,10 +317,22 @@ def _source_row(source: rx.Var) -> rx.Component:
 
 
 def _source_list() -> rx.Component:
-    return rx.vstack(
-        rx.foreach(AIState.vision_preview_sources, _source_row),
-        align="stretch",
-        spacing="2",
+    """Kameraliste links, daneben (rechts) je PTZ-Kamera ein kleiner Rahmen mit
+    der Kopfsteuerung."""
+    return rx.hstack(
+        rx.vstack(
+            rx.foreach(AIState.vision_preview_sources, _source_row),
+            align="stretch",
+            spacing="2",
+            style={"flex": "1 1 0", "min_width": "0"},
+        ),
+        rx.vstack(
+            rx.foreach(AIState.vision_preview_sources, _ptz_panel),
+            spacing="2",
+            style={"flex_shrink": "0"},
+        ),
+        align="start",
+        spacing="3",
         width="100%",
     )
 
@@ -364,47 +378,132 @@ def _ptz_button(sid: rx.Var, direction: str, icon: str) -> rx.Component:
     )
 
 
-def _ptz_pad(sid: rx.Var) -> rx.Component:
-    """Kopfsteuerung über dem Live-Bild (oben rechts): Richtungskreuz, Zoom,
-    Stopp. Nur bei Kameras mit ``ptz: true``."""
-    return rx.box(
-        rx.vstack(
-            rx.hstack(
-                _ptz_button(sid, "zoom_in", "zoom-in"),
-                _ptz_button(sid, "up", "arrow-up"),
-                _ptz_button(sid, "zoom_out", "zoom-out"),
-                spacing="1",
-            ),
-            rx.hstack(
-                _ptz_button(sid, "left", "arrow-left"),
-                rx.icon_button(
-                    rx.icon("square", size=14),
-                    on_click=AIState.ptz_stop(sid),
-                    title=t("vision_preview_ptz_stop"),
-                    size="1",
-                    variant="soft",
-                    color_scheme="red",
+def _ptz_speed_button(level: str) -> rx.Component:
+    """Eine Geschwindigkeitsstufe der Kopfsteuerung (die gewählte ist gefüllt)."""
+    return rx.button(
+        t(f"vision_preview_ptz_speed_{level}"),
+        on_click=AIState.set_ptz_speed(level),
+        size="1",
+        variant=rx.cond(AIState.ptz_speed == level, "solid", "soft"),
+        color_scheme=rx.cond(AIState.ptz_speed == level, "orange", "gray"),
+        style={"width": "100%"},
+    )
+
+
+def _ptz_panel(source: rx.Var) -> rx.Component:
+    """Kopfsteuerung als eigener kleiner Rahmen neben der Kameraliste: Kreuz
+    (oben/unten/links/rechts um die Ausgangsposition, Zoom in den oberen
+    Ecken) und die drei Geschwindigkeitsstufen daneben. Bleibt bedienbar, auch
+    wenn das Live-Bild vergrößert ist. Nur bei Kameras mit ``ptz: true``."""
+    sid = source["id"]
+    gap = rx.box(width="24px", height="24px")
+    return rx.cond(
+        source["ptz"].to(bool),
+        rx.hstack(
+            # Herzschlag nur, solange eine Taste dieser Kamera gehalten wird.
+            rx.cond(
+                AIState.ptz_held == sid,
+                rx.moment(
+                    interval=VISION_PTZ_HEARTBEAT_MS,
+                    on_change=AIState.ptz_heartbeat,
+                    style={"display": "none"},
                 ),
-                _ptz_button(sid, "right", "arrow-right"),
-                spacing="1",
+                rx.fragment(),
             ),
-            rx.hstack(
-                rx.box(width="24px"),
-                _ptz_button(sid, "down", "arrow-down"),
-                rx.box(width="24px"),
+            rx.vstack(
+                rx.hstack(
+                    _ptz_button(sid, "zoom_in", "zoom-in"),
+                    _ptz_button(sid, "up", "arrow-up"),
+                    _ptz_button(sid, "zoom_out", "zoom-out"),
+                    spacing="1",
+                ),
+                rx.hstack(
+                    _ptz_button(sid, "left", "arrow-left"),
+                    rx.icon_button(
+                        rx.icon("house", size=14),
+                        on_click=AIState.ptz_home(sid),
+                        title=t("vision_preview_ptz_home"),
+                        size="1",
+                        variant="soft",
+                        color_scheme="orange",
+                    ),
+                    _ptz_button(sid, "right", "arrow-right"),
+                    spacing="1",
+                ),
+                rx.hstack(
+                    gap,
+                    _ptz_button(sid, "down", "arrow-down"),
+                    gap,
+                    spacing="1",
+                ),
                 spacing="1",
+                align="center",
             ),
-            spacing="1",
+            rx.vstack(
+                *[_ptz_speed_button(level) for level in VISION_PTZ_SPEEDS],
+                spacing="1",
+                align="stretch",
+                justify="between",
+                style={"min_width": "4.5em"},
+            ),
+            spacing="2",
             align="center",
+            style={
+                "padding": "4px 6px",
+                "border": "1px solid var(--gray-6)",
+                "border_radius": "6px",
+                "background": "var(--gray-2)",
+                "flex_shrink": "0",
+            },
         ),
+        rx.fragment(),
+    )
+
+
+def _photo_button(entry: rx.Var) -> rx.Component:
+    """Foto-Knopf (hochaufgelöster Schnappschuss) unter dem Namensschild. Jede
+    Aufnahme legt rechts neben dem Knopf eine kleine Vorschau ab; die Vorschauen
+    füllen die Zeile und brechen um, bei vielen Fotos scrollt der Bereich. Ein
+    Klick auf eine Vorschau öffnet das Foto in voller Größe (Lightbox)."""
+    sid = entry["id"]
+    return rx.hstack(
+        rx.icon_button(
+            rx.icon("camera", size=16),
+            on_click=AIState.take_vision_photo(sid),
+            title=t("vision_preview_photo"),
+            size="1",
+            variant="soft",
+            color_scheme="gray",
+            style={"flex_shrink": "0"},
+        ),
+        # ``data-photo-slot`` markiert die Vorschauen für das automatische
+        # Öffnen des neuesten Fotos nach der Aufnahme.
+        rx.foreach(
+            entry["photos"].to(list[str]),
+            lambda url: rx.image(
+                src=url,
+                height="40px",
+                border_radius="4px",
+                title=t("vision_preview_photo_open"),
+                custom_attrs={"data-photo-slot": sid},
+                style={"object_fit": "cover", "max_height": "40px", "flex_shrink": "0"},
+            ),
+        ),
+        spacing="1",
+        align="start",
+        wrap="wrap",
         style={
             "position": "absolute",
-            "top": "0.5em",
-            "right": "0.5em",
-            "padding": "4px",
+            "top": "2.4em",
+            "left": "0.5em",
+            "max_height": "calc(100% - 3.4em)",
+            "overflow_y": "auto",
+            "padding": "3px",
             "background_color": "rgba(0, 0, 0, 0.55)",
             "border_radius": "6px",
             "z_index": "3",
+            "width": "fit-content",
+            "max_width": "calc(100% - 1em)",
         },
     )
 
@@ -548,6 +647,12 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                 rx.image(
                     src=entry["image_url"],
                     alt=entry["label"],
+                    on_click=AIState.toggle_vision_preview_focus(sid),
+                    title=rx.cond(
+                        entry["focused"].to(bool),
+                        t("vision_preview_focus_shrink"),
+                        t("vision_preview_focus_enlarge"),
+                    ),
                     border_radius="8px",
                     background_color="#111",
                     # Immer auf Container-Größe skalieren — sowohl 320×240
@@ -558,10 +663,11 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                         "width": "100%",
                         "height": "100%",
                         "object_fit": "contain",
+                        "cursor": rx.cond(entry["focused"].to(bool), "zoom-out", "zoom-in"),
                     },
                 ),
                 _alias_overlay(entry),
-                rx.cond(entry["ptz"].to(bool), _ptz_pad(sid), rx.fragment()),
+                _photo_button(entry),
                 rx.cond(overlay_mode, _teleprompter_overlay(entry), rx.fragment()),
                 # ``data-vlm-image-slot`` markiert diesen Container als
                 # Ziel für das „Light-Table"-Overlay vom SSE-Manager:
@@ -578,7 +684,7 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     "justify_content": "center",
                 },
             ),
-            rx.box(
+            rx.cond(entry["focused"].to(bool), rx.fragment(), rx.box(
                 # Briefing-Header (Watch-Toggle ist jetzt in der Source-Row).
                 rx.text(
                     t("vision_preview_briefing_label"),
@@ -660,7 +766,7 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     "display": "flex",
                     "flex_direction": "column",
                 },
-            ),
+            )),
             style={
                 "display": "flex",
                 "flex_direction": "row",
@@ -792,8 +898,10 @@ def vision_preview_page() -> rx.Component:
         # window.close() instead.
         rx.script(
             "document.addEventListener('keydown', function(e){"
-            "if(e.key==='Escape'){e.preventDefault();window.close();}});"
+            "if(e.key==='Escape' && !document.getElementById('aifred-lightbox'))"
+            "{e.preventDefault();window.close();}});"
         ),
+        rx.script(LIGHTBOX_JS),
         style={
             "display": "flex",
             "flex_direction": "column",

@@ -219,14 +219,17 @@ wie bei RTSP über den CredentialBroker; konfiguriert wird über dieselben
 `rtsp_cameras`-Einträge (`ptz: true`, optional `onvif_port`, Standard 8000).
 
 **Bedienung in der Live-Ansicht:** Bei Kameras mit `ptz: true` liegt oben rechts
-im Live-Bild ein Steuerkreuz (Richtungen, Zoom ±, Stopp). Gedrückt halten fährt
-den Kopf, Loslassen oder Verlassen der Taste hält an; ein Tipp (Touchscreen)
-fährt mindestens `VISION_PTZ_MIN_MOVE_SEC` (0,3 s). Als Sicherheitsabschaltung
-fährt der Kopf nie länger als `VISION_PTZ_DEADMAN_SEC` (1 s) am Stück, auch wenn
-das Loslassen den Server nicht erreicht (für mehr Weg die Taste erneut drücken). Geschwindigkeit: `VISION_PTZ_SPEED` in
-`config.py`. Die Steuerung läuft über den `PtzDriver` (`ptz_driver`) in
-`ptz_control.py`; `nudge` und `aim_at_offset` sind für eine spätere
-„folge der Bounding-Box"-Logik vorbereitet.
+im Live-Bild ein Steuerkreuz (Richtungen, Zoom ±, in der Mitte die
+Ausgangsposition) mit drei Geschwindigkeitsstufen Fein / Mittel / Schnell
+(Standard Fein, `VISION_PTZ_SPEEDS` in `config.py`). Gedrückt halten fährt den
+Kopf, Loslassen oder Verlassen der Taste hält an; ein Tipp fährt mindestens
+`VISION_PTZ_MIN_MOVE_SEC` (0,15 s), auf der Stufe Fein also nur ein kleines Stück.
+Solange die Taste gehalten wird, meldet die Seite alle 0,4 s „noch gedrückt"
+(Herzschlag) und hält den Kopf in Bewegung. Als Sicherheitsabschaltung stoppt er
+`VISION_PTZ_DEADMAN_SEC` (1 s) nach dem letzten Lebenszeichen, auch wenn das
+Loslassen den Server nie erreicht. Die Steuerung läuft über den `PtzDriver`
+(`ptz_driver`) in `ptz_control.py`; `nudge` und `aim_at_offset` sind für eine
+spätere „folge der Bounding-Box"-Logik vorbereitet.
 
 ## Watch-Modus (Vigilantia scharf)
 
