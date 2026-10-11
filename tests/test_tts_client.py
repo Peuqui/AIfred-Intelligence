@@ -3,7 +3,9 @@
 import asyncio
 import contextlib
 import json
+import os
 import struct
+import subprocess
 from collections.abc import AsyncIterator, Callable
 from typing import Any
 
@@ -26,6 +28,7 @@ from aifred.lib.tts_client import (
     TextTooLong,
     TextStream,
     TTSClient,
+    TTSSuiteStartFailed,
     TTSSuiteUnreachable,
     Unauthorized,
     UnknownEngine,
@@ -112,15 +115,27 @@ def test_speak_sends_head_as_json() -> None:
         seen["authorization"] = request.headers.get("authorization")
         return frames_response(summary())
 
-    asyncio.run(collect(make_client(handler), voice="Alice", engine="edge", voices={"edge": {"voice": "x"}}, run="r1", wait=False))
+    asyncio.run(collect(make_client(handler), voice="Alice", engines=["edge", "xtts"], voices={"edge": {"voice": "x"}}, run="r1", wait=False))
     assert seen["text"] == "Hallo"
     assert seen["language"] == "de"
     assert seen["voice"] == "Alice"
-    assert seen["engine"] == "edge"
+    assert seen["engines"] == ["edge", "xtts"]
+    assert "engine" not in seen
     assert seen["voices"] == {"edge": {"voice": "x"}}
     assert seen["run"] == "r1"
     assert seen["wait"] is False
     assert seen["authorization"] is None  # speaking needs no token
+
+
+def test_speak_without_engines_sends_an_empty_list() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(json.loads(request.content))
+        return frames_response(summary())
+
+    asyncio.run(collect(make_client(handler)))
+    assert seen["engines"] == []  # empty = the service uses its whole list
 
 
 def test_error_frame_after_first_frame_raises_while_iterating() -> None:
@@ -268,7 +283,7 @@ def test_connection_error_is_unreachable() -> None:
     with pytest.raises(TTSSuiteUnreachable):
         asyncio.run(collect(client))
     with pytest.raises(TTSSuiteUnreachable):
-        asyncio.run(client.engines())
+        client.engines()
 
 
 def test_timeout_is_unreachable() -> None:
@@ -276,7 +291,7 @@ def test_timeout_is_unreachable() -> None:
         raise httpx.ReadTimeout("slow")
 
     with pytest.raises(TTSSuiteUnreachable):
-        asyncio.run(make_client(handler).config())
+        make_client(handler).config()
 
 
 # ---- Control commands -----------------------------------------------------------
@@ -301,18 +316,15 @@ def test_token_header_only_on_changing_commands() -> None:
             return httpx.Response(200, json=[])
         return httpx.Response(204)
 
-    async def run() -> None:
-        client = make_client(handler)
-        await client.engines()
-        await client.voices()
-        await client.config()
-        await client.set_config({"entries": []})
-        await client.start("xtts")
-        await client.stop("xtts")
-        await client.reload()
-        await client.sync_voices("dashscope")
-
-    asyncio.run(run())
+    client = make_client(handler)
+    client.engines()
+    client.voices()
+    client.config()
+    client.set_config({"entries": []})
+    client.start("xtts")
+    client.stop("xtts")
+    client.reload()
+    client.sync_voices("dashscope")
     bearer = f"Bearer {TOKEN}"
     assert seen == [
         ("GET", "/engines", None),
@@ -331,7 +343,7 @@ def test_changing_command_without_token_fails_before_the_request() -> None:
         raise AssertionError("no request expected")
 
     with pytest.raises(Unauthorized):
-        asyncio.run(make_client(handler, token=None).start("xtts"))
+        make_client(handler, token=None).start("xtts")
 
 
 def test_start_and_stop_pass_host_and_map_errors() -> None:
@@ -343,13 +355,10 @@ def test_start_and_stop_pass_host_and_map_errors() -> None:
             return httpx.Response(409, json={"error": "engine_in_use", "detail": "reading runs"})
         return httpx.Response(204)
 
-    async def run() -> None:
-        client = make_client(handler)
-        await client.start("xtts", host="aragon")
-        await client.stop("xtts")
-
+    client = make_client(handler)
+    client.start("xtts", host="aragon")
     with pytest.raises(EngineInUse, match="reading runs"):
-        asyncio.run(run())
+        client.stop("xtts")
     assert seen == [("/engines/xtts/start", {"host": "aragon"}), ("/engines/xtts/stop", {})]
 
 
@@ -361,7 +370,7 @@ def test_set_config_sends_json_and_maps_invalid() -> None:
         return httpx.Response(400, json={"error": "config_invalid", "detail": "no card fits"})
 
     with pytest.raises(ConfigInvalid, match="no card fits"):
-        asyncio.run(make_client(handler).set_config({"entries": [{"engine": "xtts"}]}))
+        make_client(handler).set_config({"entries": [{"engine": "xtts"}]})
     assert sent == [{"entries": [{"engine": "xtts"}]}]
 
 
@@ -370,7 +379,8 @@ def test_engines_voices_config_are_decoded() -> None:
         "engine": "xtts", "host": None, "label": {"de": "XTTS", "en": "XTTS"},
         "label_short": {"de": "XTTS", "en": "XTTS"}, "enabled": True, "deactivated": False,
         "status": "running", "unit": "sentence", "unit_default": "paragraph", "needs_gpu": True,
-        "cloud": False, "browser": False, "vram_mib": {"GPU-1": 4096},
+        "cloud": False, "browser": False, "installed": False, "start_hint": "image missing",
+        "vram_mib": {"GPU-1": 4096},
     }
     config = {"voices_dir": "/v", "entries": [{"engine": "xtts", "host": None, "enabled": True}]}
     seen_params: list[dict[str, str]] = []
@@ -383,18 +393,89 @@ def test_engines_voices_config_are_decoded() -> None:
             return httpx.Response(200, json=[{"name": "Alice", "label": "Alice (de)"}])
         return httpx.Response(200, json=config)
 
-    async def run() -> None:
-        client = make_client(handler)
-        engines = await client.engines()
-        assert engines[0].engine == "xtts"
-        assert engines[0].status == "running"
-        assert engines[0].vram_mib == {"GPU-1": 4096}
-        voices = await client.voices("xtts")
-        assert (voices[0].name, voices[0].label) == ("Alice", "Alice (de)")
-        assert await client.config() == config
-
-    asyncio.run(run())
+    client = make_client(handler)
+    engines = client.engines()
+    assert engines[0].engine == "xtts"
+    assert engines[0].status == "running"
+    assert engines[0].installed is False
+    assert engines[0].start_hint == "image missing"
+    assert engines[0].vram_mib == {"GPU-1": 4096}
+    voices = client.voices("xtts")
+    assert (voices[0].name, voices[0].label) == ("Alice", "Alice (de)")
+    assert client.config() == config
     assert seen_params[1] == {"engine": "xtts"}
+
+
+# ---- Service on demand (ensure_ready) ---------------------------------------------
+
+
+class FakeHealth:
+    """Answers /health from a script: True = ok, False = connection refused."""
+
+    def __init__(self, *answers: bool) -> None:
+        self._answers = iter(answers)
+        self.asked = 0
+
+    def __call__(self, request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/health"
+        self.asked += 1
+        if not next(self._answers):
+            raise httpx.ConnectError("refused")
+        return httpx.Response(200, json={"status": "ok"})
+
+
+def test_ensure_ready_does_not_start_a_running_service(monkeypatch: pytest.MonkeyPatch) -> None:
+    def forbidden() -> tuple[int, str]:
+        raise AssertionError("systemctl must not run")
+
+    monkeypatch.setattr(tts_client, "_systemctl_start", forbidden)
+    health = FakeHealth(True)
+    make_client(health).ensure_ready(timeout_s=1)
+    assert health.asked == 1
+
+
+def test_ensure_ready_starts_the_service_once_and_waits(monkeypatch: pytest.MonkeyPatch) -> None:
+    started: list[int] = []
+
+    def fake_systemctl() -> tuple[int, str]:
+        started.append(1)
+        return 0, ""
+
+    monkeypatch.setattr(tts_client, "_systemctl_start", fake_systemctl)
+    monkeypatch.setattr(tts_client, "sleep", lambda _seconds: None)
+    health = FakeHealth(False, False, False, True)  # down, still starting, up
+    make_client(health).ensure_ready(timeout_s=60)
+    assert started == [1]
+    assert health.asked == 4
+
+
+def test_ensure_ready_reports_failed_systemctl(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tts_client, "_systemctl_start", lambda: (5, "Unit tts-suite.service not found"))
+    with pytest.raises(TTSSuiteStartFailed, match="not found"):
+        make_client(FakeHealth(False)).ensure_ready(timeout_s=1)
+
+
+def test_ensure_ready_times_out_when_health_stays_silent(monkeypatch: pytest.MonkeyPatch) -> None:
+    clock = iter(range(100))
+    monkeypatch.setattr(tts_client, "_systemctl_start", lambda: (0, ""))
+    monkeypatch.setattr(tts_client, "sleep", lambda _seconds: None)
+    monkeypatch.setattr(tts_client, "monotonic", lambda: next(clock))
+    with pytest.raises(TTSSuiteStartFailed, match="within 3s"):
+        make_client(FakeHealth(*[False] * 20)).ensure_ready(timeout_s=3)
+
+
+def test_systemctl_start_runs_the_user_unit_with_runtime_dir(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: dict[str, Any] = {}
+
+    def fake_run(command: list[str], **kwargs: Any) -> subprocess.CompletedProcess[str]:
+        seen["command"] = command
+        seen["environment"] = kwargs["env"]
+        return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
+
+    monkeypatch.setattr(tts_client.subprocess, "run", fake_run)
+    assert tts_client._systemctl_start() == (0, "")
+    assert seen["command"] == ["systemctl", "--user", "start", tts_client.TTS_SUITE_SERVICE_UNIT]
+    assert seen["environment"]["XDG_RUNTIME_DIR"] == f"/run/user/{os.getuid()}"
 
 
 # ---- WebSocket stream (open_stream) against a local fake server on loopback ----------
@@ -431,7 +512,7 @@ def test_stream_segments_arrive_before_finish() -> None:
 
     async def run() -> tuple[list[tts_client.Segment], tts_client.SpeakSummary]:
         async with fake_service(handler) as client:
-            stream = await client.open_stream(language="de", voice="Alice", engine="edge", voices={"edge": {"voice": "x"}}, run="r1", wait=False)
+            stream = await client.open_stream(language="de", voice="Alice", engines=["edge"], voices={"edge": {"voice": "x"}}, run="r1", wait=False)
             assert isinstance(stream, TextStream)
             await stream.feed("Hallo ")
             segments: list[tts_client.Segment] = []
@@ -449,7 +530,7 @@ def test_stream_segments_arrive_before_finish() -> None:
     assert result.switch == "timeout"
     start, first, second, finish = received
     assert start["type"] == "start"
-    assert (start["language"], start["voice"], start["engine"], start["run"], start["wait"]) == ("de", "Alice", "edge", "r1", False)
+    assert (start["language"], start["voice"], start["engines"], start["run"], start["wait"]) == ("de", "Alice", ["edge"], "r1", False)
     assert start["voices"] == {"edge": {"voice": "x"}}
     assert first == {"type": "text", "text": "Hallo "}
     assert second == {"type": "text", "text": "Welt."}
