@@ -1,6 +1,7 @@
 """TTSClient: Frames, Fehlerabbildung und Steuerbefehle gegen einen httpx.MockTransport (kein Netz)."""
 
 import asyncio
+import contextlib
 import json
 import struct
 from collections.abc import AsyncIterator, Callable
@@ -8,6 +9,7 @@ from typing import Any
 
 import httpx
 import pytest
+from websockets.asyncio.server import ServerConnection, serve
 
 import aifred.lib.tts_client as tts_client
 from aifred.lib.tts_client import (
@@ -22,6 +24,7 @@ from aifred.lib.tts_client import (
     Overloaded,
     StreamBroken,
     TextTooLong,
+    TextStream,
     TTSClient,
     TTSSuiteUnreachable,
     Unauthorized,
@@ -392,3 +395,195 @@ def test_engines_voices_config_are_decoded() -> None:
 
     asyncio.run(run())
     assert seen_params[1] == {"engine": "xtts"}
+
+
+# ---- WebSocket stream (open_stream) against a local fake server on loopback ----------
+
+SocketHandler = Callable[[ServerConnection], Any]
+
+
+@contextlib.asynccontextmanager
+async def fake_service(handler: SocketHandler, token: str | None = TOKEN) -> AsyncIterator[TTSClient]:
+    async with serve(handler, "127.0.0.1", 0) as server:
+        port = server.sockets[0].getsockname()[1]
+        yield TTSClient(f"http://127.0.0.1:{port}", token)
+
+
+def test_stream_url_follows_the_scheme() -> None:
+    assert tts_client._stream_url("http://h:5090") == "ws://h:5090/speak/stream"
+    assert tts_client._stream_url("https://h") == "wss://h/speak/stream"
+
+
+def test_stream_segments_arrive_before_finish() -> None:
+    received: list[dict[str, Any]] = []
+
+    async def handler(socket: ServerConnection) -> None:
+        received.append(json.loads(await socket.recv()))
+        received.append(json.loads(await socket.recv()))  # first piece
+        await socket.send(audio(b"one"))
+        await socket.send(audio(b"", keepalive=True))
+        # the audio is out before the client has sent "finish"
+        received.append(json.loads(await socket.recv()))
+        received.append(json.loads(await socket.recv()))
+        await socket.send(audio(b"two"))
+        await socket.send(summary([], "timeout"))
+        await socket.close()
+
+    async def run() -> tuple[list[tts_client.Segment], tts_client.SpeakSummary]:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="de", voice="Alice", engine="edge", voices={"edge": {"voice": "x"}}, run="r1", wait=False)
+            assert isinstance(stream, TextStream)
+            await stream.feed("Hallo ")
+            segments: list[tts_client.Segment] = []
+            iterator = stream.__aiter__()
+            segments.append(await anext(iterator))  # arrives while finish is not sent
+            segments.append(await anext(iterator))
+            await stream.feed("Welt.")
+            await stream.finish()
+            segments.extend([segment async for segment in iterator])
+            return segments, stream.summary
+
+    segments, result = asyncio.run(run())
+    assert [s.audio for s in segments] == [b"one", b"", b"two"]
+    assert [s.keepalive for s in segments] == [False, True, False]
+    assert result.switch == "timeout"
+    start, first, second, finish = received
+    assert start["type"] == "start"
+    assert (start["language"], start["voice"], start["engine"], start["run"], start["wait"]) == ("de", "Alice", "edge", "r1", False)
+    assert start["voices"] == {"edge": {"voice": "x"}}
+    assert first == {"type": "text", "text": "Hallo "}
+    assert second == {"type": "text", "text": "Welt."}
+    assert finish == {"type": "finish"}
+
+
+def test_stream_sends_token_as_bearer_header() -> None:
+    seen: list[str | None] = []
+
+    async def handler(socket: ServerConnection) -> None:
+        seen.append(socket.request.headers.get("Authorization"))
+        await socket.recv()
+        await socket.send(summary())
+        await socket.close()
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="de")
+            assert [s async for s in stream] == []
+
+    asyncio.run(run())
+    assert seen == [f"Bearer {TOKEN}"]
+
+
+def test_error_frame_before_first_segment() -> None:
+    async def handler(socket: ServerConnection) -> None:
+        await socket.recv()
+        await socket.send(error_frame("unsupported_language", "no voice for fr"))
+        await socket.close()
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="fr")
+            async for _ in stream:
+                pass
+
+    with pytest.raises(UnsupportedLanguage, match="no voice for fr"):
+        asyncio.run(run())
+
+
+def test_feed_after_refusal_raises_the_refusal() -> None:
+    async def handler(socket: ServerConnection) -> None:
+        await socket.recv()
+        await socket.send(error_frame("unsupported_language", "no voice for fr"))
+        await socket.close()
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="fr")
+            await asyncio.sleep(0.2)
+            await stream.feed("Bonjour")
+
+    with pytest.raises(UnsupportedLanguage):
+        asyncio.run(run())
+
+
+def test_error_frame_after_first_segment() -> None:
+    received: list[bytes] = []
+
+    async def handler(socket: ServerConnection) -> None:
+        await socket.recv()
+        await socket.send(audio(b"first"))
+        await socket.send(error_frame("engine_in_use", "busy"))
+        await socket.close()
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="de")
+            async for segment in stream:
+                received.append(segment.audio)
+
+    with pytest.raises(EngineInUse):
+        asyncio.run(run())
+    assert received == [b"first"]
+
+
+def test_stream_without_summary_is_broken() -> None:
+    async def handler(socket: ServerConnection) -> None:
+        await socket.recv()
+        await socket.send(audio(b"x"))
+        await socket.close()
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="de")
+            async for _ in stream:
+                pass
+
+    with pytest.raises(StreamBroken):
+        asyncio.run(run())
+
+
+def test_summary_before_end_is_not_available_on_text_stream() -> None:
+    async def handler(socket: ServerConnection) -> None:
+        await socket.recv()
+        await socket.wait_closed()
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="de")
+            try:
+                _ = stream.summary
+            finally:
+                await stream.aclose()
+
+    with pytest.raises(RuntimeError):
+        asyncio.run(run())
+
+
+def test_aclose_aborts_the_stream() -> None:
+    closed = asyncio.Event()
+
+    async def handler(socket: ServerConnection) -> None:
+        await socket.recv()
+        await socket.send(audio(b"x"))
+        await socket.wait_closed()
+        closed.set()
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="de")
+            iterator = stream.__aiter__()
+            assert (await anext(iterator)).audio == b"x"
+            await stream.aclose()
+            await asyncio.wait_for(closed.wait(), 5)
+
+    asyncio.run(run())
+
+
+def test_refused_connection_is_unreachable() -> None:
+    async def run() -> None:
+        async with fake_service(lambda socket: socket.close()) as client:
+            pass
+        await client.open_stream(language="de")  # the server is gone: nobody listens on the port
+
+    with pytest.raises(TTSSuiteUnreachable):
+        asyncio.run(run())
