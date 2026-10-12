@@ -196,3 +196,14 @@ def test_an_unreachable_service_is_an_error_not_an_empty_transcript(monkeypatch)
     monkeypatch.setattr(stt_client, "get_default_client", lambda: Dead())
     with pytest.raises(STTUnreachableError):
         audio_processing.transcribe_audio("/tmp/not-read.wav")
+
+
+@pytest.mark.parametrize("gpus, overrides", [({"gpu_count": 1}, ()), (None, (stt_client.STT_SUITE_CPU_COMPOSE_PATH,))])
+def test_the_container_starts_with_the_cpu_compose_file_only_without_an_nvidia_gpu(monkeypatch, tmp_path, gpus, overrides):
+    compose = tmp_path / "docker-compose.yml"
+    compose.write_text("services: {}")
+    calls = []
+    monkeypatch.setattr(stt_client, "docker_compose_action", lambda *args: calls.append(args) or (True, "up"))
+    monkeypatch.setattr("aifred.lib.gpu_utils.get_all_gpus_memory_info", lambda: gpus)
+    assert stt_client.STTClient("http://stt.test", str(compose)).start_container() == (True, "up")
+    assert calls == [(str(compose), "up", "Whisper", overrides)]

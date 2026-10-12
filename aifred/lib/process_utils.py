@@ -10,6 +10,7 @@ This module reduces code duplication across the state mixins.
 """
 
 import subprocess
+from collections.abc import Sequence
 import asyncio
 from .logging_utils import log_message
 
@@ -160,6 +161,7 @@ def docker_compose_action(
     compose_file: str,
     action: str,
     service_label: str,
+    override_files: Sequence[str] = (),
 ) -> tuple[bool, str]:
     """
     Run a docker compose action (up -d / down) on a compose file.
@@ -168,6 +170,7 @@ def docker_compose_action(
         compose_file: Path to docker-compose.yml
         action: "up" or "down"
         service_label: Human-readable name for log messages (e.g. "Whisper")
+        override_files: further compose files merged over ``compose_file`` (in order)
 
     Returns:
         tuple[bool, str]: (success, message)
@@ -179,6 +182,8 @@ def docker_compose_action(
         return False, f"docker-compose.yml not found: {compose_file}"
 
     cmd = ["docker", "compose", "-f", str(compose_file)]
+    for override in override_files:
+        cmd.extend(["-f", str(override)])
     if action == "up":
         cmd.extend(["up", "-d"])
     else:
