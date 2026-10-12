@@ -229,6 +229,9 @@ class EngineInfo:
     installed: bool  # can be started: no container needed, or the Docker image is built
     start_hint: str | None  # why the last start of this entry failed; else None
     vram_mib: Mapping[str, int] | None  # {gpu_uuid: MiB}; {} = none; None = measurement failed
+    default_vram_mib: int | None  # what the engine takes when the config sets no budget; None = no budget
+    default_max_parallel: int
+    default_max_queue: int
 
 
 @dataclass(frozen=True)
