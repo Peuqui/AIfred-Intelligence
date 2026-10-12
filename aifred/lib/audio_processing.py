@@ -1055,7 +1055,7 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
 
 
 def release_whisper_gpu() -> bool:
-    """Kill the whisper-stt GPU worker so its VRAM can't collide with an
+    """Kill the STT-Suite GPU worker so its VRAM can't collide with an
     LLM cold start (calibrated splits assume empty cards).
 
     A transcription in flight is granted WHISPER_RELEASE_WAIT_MAX_S to
@@ -1091,7 +1091,7 @@ def release_whisper_gpu() -> bool:
 
 
 def whisper_gpu_footprint() -> dict[str, int]:
-    """VRAM (MiB) the whisper-stt GPU worker holds, per GPU UUID — space a
+    """VRAM (MiB) the STT-Suite GPU worker holds, per GPU UUID — space a
     model load gets back, because the load releases the worker first
     (release_whisper_gpu in the backends' GPU guard). Empty when no worker
     runs or the service is unreachable.
