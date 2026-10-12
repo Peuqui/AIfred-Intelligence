@@ -354,7 +354,7 @@ def sort_voices_custom_first(voices: list[str]) -> list[str]:
 # ``get_tts_voice_defaults_for_engine(engine)``.
 
 # Auto-Play (global, ein Schalter) ist standardmäßig aus. Die Standard-Einheit der Sprachausgabe
-# (satzweise / absatzweise / am Stück) trägt die Engine selbst: TTSEngine.default_speech_unit.
+# (satzweise / absatzweise / am Stück) trägt die Engine selbst (Katalog der TTS-Suite: ``unit_default``).
 TTS_AUTOPLAY_DEFAULT = False
 # ============================================================
 # CONTEXT MANAGEMENT
@@ -1172,9 +1172,7 @@ def get_effective_model_from_settings(agent: str = "aifred") -> str:
     return str(base_id + suffix)
 
 
-# Docker-Compose paths for non-TTS services. TTS engines derive their
-# compose paths inside their respective TTSEngine class (convention:
-# ``docker/tts/<compose_subdir or key>/docker-compose.yml``).
+# Docker-Compose paths for services AIfred starts itself (STT). The TTS containers belong to the TTS-Suite.
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 # STT-Suite (Whisper STT) is its own repo (github.com/Peuqui/STT-Suite), cloned next to
 # AIfred by scripts/install-all.sh — keep that default in sync with the script.

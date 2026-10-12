@@ -895,63 +895,6 @@ echo ""
 sleep 1
 
 # ============================================================
-# STEP 2d: Piper TTS (optional, local/offline)
-# ============================================================
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Step 2d: Piper TTS (optional)${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "Piper is a local, fast offline TTS engine. The default engine is"
-echo "Edge-TTS (cloud) — Piper is only needed if you want an offline voice."
-echo "Size: pip package ~10 MB + models 20-110 MB each per voice."
-echo ""
-ask AIFRED_INSTALL_PIPER "Set up Piper TTS? (y/N): "
-PIPER_REPLY="$REPLY"
-PIPER_CHOSEN=0
-if [[ $PIPER_REPLY =~ ^[JjYy]$ ]]; then
-    PIPER_CHOSEN=1
-    # Install piper-tts pip package (not in requirements.txt since optional).
-    echo "📥 Installing piper-tts into venv..."
-    if "$PROJECT_DIR/venv/bin/pip" install piper-tts==1.3.0; then
-        echo -e "${GREEN}✅ piper-tts installed${NC}"
-        # Model selection via helper script (reads PIPER_VOICES from config.py).
-        if [ -f "$SCRIPT_DIR/install-piper-models.py" ]; then
-            "$PROJECT_DIR/venv/bin/python" "$SCRIPT_DIR/install-piper-models.py" || true
-        else
-            echo -e "${YELLOW}⚠️  $SCRIPT_DIR/install-piper-models.py missing — model download skipped.${NC}"
-            echo "   Pull models manually: https://huggingface.co/rhasspy/piper-voices"
-            echo "   Target directory: $PROJECT_DIR/piper_models/"
-        fi
-    else
-        echo -e "${RED}❌ piper-tts pip install failed — skipping model download.${NC}"
-        echo "   Catch up: source venv/bin/activate && pip install piper-tts==1.3.0"
-        echo "             python scripts/install-piper-models.py"
-    fi
-else
-    echo -e "${YELLOW}⏭️  Piper TTS skipped.${NC}"
-    echo "   Catch up: source venv/bin/activate && pip install piper-tts==1.3.0"
-    echo "             python scripts/install-piper-models.py"
-fi
-
-# ─── Verification of step 2d: only when user chose Piper ───
-# On skip Piper is intentionally absent → no error, just info.
-if [ "$PIPER_CHOSEN" = "1" ]; then
-    echo ""
-    echo -e "${BLUE}🔎 Verifying Piper TTS...${NC}"
-    verify_step "piper binary in venv callable" \
-        "[ -x '$PROJECT_DIR/venv/bin/piper' ] && '$PROJECT_DIR/venv/bin/piper' --help" \
-        "source venv/bin/activate && pip install piper-tts==1.3.0"
-    # At least one .onnx model in piper_models/ must exist, otherwise
-    # TTS has no voice to use. Glob via shopt+nullglob in a subshell.
-    warn_step "At least one Piper voice model in piper_models/" \
-        "ls '$PROJECT_DIR/piper_models/'*.onnx 2>/dev/null | head -1 | grep -q ." \
-        "venv/bin/python scripts/install-piper-models.py"
-    step_summary "2d — Piper TTS"
-fi
-echo ""
-sleep 1
-
-# ============================================================
 # STEP 2e: Whisper STT (required — voice input in the UI)
 # ============================================================
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
@@ -1118,146 +1061,17 @@ echo ""
 sleep 1
 
 # ============================================================
-# STEP 2g: Local TTS containers (optional, on-demand)
+# TTS-Suite (speech output): separate repository, not part of this installer yet
 # ============================================================
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  Step 2g: Local TTS containers (optional)${NC}"
+echo -e "${BLUE}  TTS-Suite (speech output)${NC}"
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo ""
-echo "AIfred supports multiple local TTS engines that run as Docker containers"
-echo "on GPU and are started on-demand by AIfred itself — when the engine in"
-echo "the UI dropdown changes, NOT at boot. We only build the image here; the"
-echo "container lifecycle is handled by AIfred later."
+echo "Speech output comes from the TTS-Suite service (https://github.com/Peuqui/TTS-Suite):"
+echo "engines, containers and cards are its business, AIfred only sends text and its list."
+echo "Install it separately for now: clone the repository and run deploy/install.sh"
+echo "(see its README). Without it AIfred runs, speech output fails loudly."
 echo ""
-# Engine metadata. Display label + one-line description + an optional
-# "recommended" flag, keyed by the compose-subdir name. Adding a new
-# engine = drop a directory under docker/tts/<name>/ AND optionally
-# add an entry here for a nicer prompt. Missing entries fall back to
-# the directory name and a "see docker/tts/<name>/" hint — the engine
-# still works, the user just sees a less polished label.
-declare -A TTS_ENGINE_LABEL=(
-    [qwen3-tts]="Qwen3-TTS"
-    [xtts]="XTTS v2 (Coqui)"
-)
-declare -A TTS_ENGINE_DESC=(
-    [qwen3-tts]="Streaming, 10 languages, voice cloning. Image ~11.8 GB · model cache ~3.4 GB · needs GPU (V100 ideal). Fastest streaming TTS."
-    [xtts]="Best voice cloning, many built-in speakers. Image ~7.7 GB · model cache ~2 GB · GPU or CPU. More tonally accurate than Qwen3, higher latency."
-)
-declare -A TTS_ENGINE_RECOMMENDED=(
-    [qwen3-tts]=1
-)
-
-# Discover engines from the repo: anything under docker/tts/<subdir>/
-# with a docker-compose.yml is offerable. New engine = new directory.
-TTS_ENGINES_AVAILABLE=()
-for _compose in "$PROJECT_DIR"/docker/tts/*/docker-compose.yml; do
-    [ -f "$_compose" ] || continue
-    TTS_ENGINES_AVAILABLE+=("$(basename "$(dirname "$_compose")")")
-done
-
-if [ ${#TTS_ENGINES_AVAILABLE[@]} -eq 0 ]; then
-    echo "No TTS engines found under docker/tts/ — skipping step."
-    echo ""
-else
-    echo "Available:"
-    echo ""
-    for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
-        _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
-        _desc="${TTS_ENGINE_DESC[$_engine]:-See docker/tts/$_engine/}"
-        if [ -n "${TTS_ENGINE_RECOMMENDED[$_engine]:-}" ]; then
-            echo -e "  ${GREEN}• ${_label}${NC} (recommended) — ${_desc}"
-        else
-            echo -e "  ${GREEN}• ${_label}${NC} — ${_desc}"
-        fi
-    done
-    echo ""
-fi
-echo "Without a local TTS container AIfred uses Edge-TTS (cloud) or Piper"
-echo "(offline, see step 2d). Each additional engine: more disk + one-time"
-echo "build effort (5-15 min per container)."
-echo ""
-
-# Read the image name from the first `image:` of the compose file.
-# Compose files under docker/tts/<engine>/ use a fixed image: line
-# (e.g. "image: qwen3-tts-1.7b-base"), which we use as source of
-# truth — no more guessing via heuristic.
-tts_compose_image() {
-    local compose_file="$1"
-    awk '/^[[:space:]]*image:[[:space:]]*/ {gsub(/^[[:space:]]*image:[[:space:]]*/, ""); gsub(/[[:space:]]+$/, ""); print; exit}' "$compose_file"
-}
-
-tts_build() {
-    local engine="$1"
-    local label="$2"
-    local dir="$PROJECT_DIR/docker/tts/$engine"
-    local compose="$dir/docker-compose.yml"
-    if [ ! -f "$compose" ]; then
-        echo -e "${YELLOW}⚠️  $compose missing — skipping $label.${NC}"
-        STEP_WARNINGS+=("$label skipped — docker/tts/$engine missing")
-        return 1
-    fi
-    # Idempotent: read the image tag from compose, exact existence
-    # check via `docker image inspect` (returns exit 0 if present,
-    # otherwise 1).
-    local image_tag
-    image_tag="$(tts_compose_image "$compose")"
-    if [ -n "$image_tag" ] && docker_run "docker image inspect '$image_tag'" &>/dev/null; then
-        echo -e "${GREEN}✅ $label image '$image_tag' already present — skip build${NC}"
-        return 0
-    fi
-    echo "   Building $label image (can take 5-15 min on first run)..."
-    if docker_run "cd '$dir' && docker compose build"; then
-        echo -e "${GREEN}✅ $label image built${NC}"
-        return 0
-    fi
-    echo -e "${YELLOW}⚠️  $label build failed.${NC}"
-    echo "   Catch up manually: cd docker/tts/$engine && docker compose build"
-    STEP_WARNINGS+=("$label build failed — see docker logs / docker compose build output")
-    return 1
-}
-
-# Interactive selection. Default: NO — every container is several
-# GB, the user should pick consciously. Recommended engines get a
-# hint in the prompt, but no pre-selected "yes".
-TTS_CHOSEN_ENGINES=()
-for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
-    _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
-    if [ -n "${TTS_ENGINE_RECOMMENDED[$_engine]:-}" ]; then
-        _prompt="Build $_label (recommended)? (y/N): "
-    else
-        _prompt="Build $_label? (y/N): "
-    fi
-    # qwen3-tts -> AIFRED_INSTALL_TTS_QWEN3_TTS (no '-' in variable names)
-    _engine_var="${_engine//-/_}"
-    ask "AIFRED_INSTALL_TTS_${_engine_var^^}" "$_prompt"
-    if [[ $REPLY =~ ^[JjYy]$ ]]; then
-        TTS_CHOSEN_ENGINES+=("$_engine")
-        tts_build "$_engine" "$_label" || true
-    fi
-done
-
-if [ ${#TTS_CHOSEN_ENGINES[@]} -eq 0 ]; then
-    echo -e "${YELLOW}⏭️  No local TTS containers chosen — AIfred uses Edge-TTS / Piper / eSpeak.${NC}"
-fi
-
-# ─── Verification of step 2g: chosen images really exist ───
-# Image existence check via the exact tag from each compose file so
-# foreign images with similar names (e.g. xtts-fork) don't sneak
-# through as false positives.
-if [ ${#TTS_CHOSEN_ENGINES[@]} -gt 0 ]; then
-    echo ""
-    echo -e "${BLUE}🔎 Verifying TTS container images...${NC}"
-    for _engine in "${TTS_CHOSEN_ENGINES[@]}"; do
-        _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
-        _img="$(tts_compose_image "$PROJECT_DIR/docker/tts/$_engine/docker-compose.yml" 2>/dev/null)"
-        verify_step "$_label image '$_img' present" \
-            "$(docker_check "docker image inspect '$_img'")" \
-            "cd docker/tts/$_engine && docker compose build"
-    done
-    step_summary "2g — Local TTS containers"
-fi
-echo ""
-sleep 1
 
 fi  # end of "if [ "$DRY_RUN" = "1" ] / else" — steps 1-2g
 
@@ -1544,11 +1358,8 @@ echo "       https://github.com/mostlygeek/llama-swap"
 echo "       Binary into ~/bin, config in ~/.config/llama-swap/config.yaml,"
 echo "       systemd unit into /etc/systemd/system/llama-swap.service (own research)."
 echo ""
-echo "   • Local TTS containers (started on-demand by AIfred — image build catch-up here):"
-for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
-    _label="${TTS_ENGINE_LABEL[$_engine]:-$_engine}"
-    printf "       cd %s/docker/tts/%s && docker compose build   # %s\n" "$PROJECT_DIR" "$_engine" "$_label"
-done
+echo "   • TTS-Suite (speech output, own repository): clone https://github.com/Peuqui/TTS-Suite"
+echo "     and run deploy/install.sh (see its README)."
 echo ""
 echo "   • Reverse proxy setup (own domain via nginx/caddy):"
 echo "       # set AIFRED_ALLOWED_HOST=your-domain.tld in .env, then restart:"

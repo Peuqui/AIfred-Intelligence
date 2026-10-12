@@ -16,9 +16,9 @@ bei reduziertem Kontext.
 ## Hardware-Annahmen
 
 - Mehrere GPUs verschiedener Speed-Klassen (Compute Capability + VRAM-Größe)
-- Die GPU-TTS-Container (XTTS, MOSS, Fish-Speech, Qwen3-TTS — jede
+- Die GPU-TTS-Container (XTTS, Qwen3-TTS — jede
   Engine mit `needs_gpu = True` in
-  [`aifred/lib/tts_engines/`](../../../aifred/lib/tts_engines/)) und das
+  dem Katalog der TTS-Suite) und das
   Vigilantia-VLM (Ollama) belegen jeweils einen Teil einer GPU, NICHT eine
   ganze GPU. Sie teilen sich **eine Karte** des **Side-Channel-Tiers** — der
   Compute-Klasse unterhalb der schnellsten, die fürs Haupt-LLM reserviert
@@ -84,7 +84,7 @@ Karten bei der vLLM-Kalibration).
   den `face_recognition`-Settings des Vision-Plugins wird über
   `resolve_gpu_id()` → `pick_vlm_gpu()` aufgelöst.
 
-Der Preis der Sammelkarte: sehr große TTS-Engines (Fish, MOSS) passen nicht
+Der Preis der Sammelkarte: sehr große TTS-Engines passen nicht
 mehr gleichzeitig mit dem VLM auf eine Karte. Das fängt der
 Combo-Capacity-Check der Kalibration ab: übersteigen TTS-Reserve +
 VLM-Reserve den Gesamt-VRAM der Sammelkarte, wird genau dieses
@@ -409,8 +409,8 @@ ctx). Beide werden in llama-swap als separate Konfig geschrieben
 Orchestriert im Calibration-Mixin
 ([`_calibration_mixin.py`](../../../aifred/state/_calibration_mixin.py)).
 Pro installierter GPU-TTS-Engine (`installed_gpu_engines()` aus
-[`tts_engines/registry.py`](../../../aifred/lib/tts_engines/registry.py) —
-XTTS, MOSS, Fish-Speech, Qwen3-TTS, soweit ihr Docker-Image auf diesem Host
+`tts_service.installed_gpu_engine_keys()` (TTS-Suite) —
+XTTS, Qwen3-TTS, soweit ihr Docker-Image auf diesem Host
 existiert), deren `|<engine>`-Zelle im Calibration-Picker angehakt ist
 (`calibration_matrix`):
 
@@ -439,7 +439,7 @@ existiert), deren `|<engine>`-Zelle im Calibration-Picker angehakt ist
    `<model>-tts-<engine>-speed` (Speed-Variante) in llama-swap config
    schreiben. Die Speed-Variante entfällt, wenn:
    - `n_base <= find_min_gpus_for_weights` (kein Speed-Spielraum) — typisch
-     bei großen Modellen mit MOSS, weil 2 GPUs für Modell+MOSS-Container
+     bei großen Modellen mit einer großen TTS-Engine, weil 2 GPUs für Modell+TTS-Container
      nicht reichen
    - Speed-Split == Base-Split (kein Speed-Gain möglich)
 

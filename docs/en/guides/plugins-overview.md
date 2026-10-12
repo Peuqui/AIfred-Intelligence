@@ -243,7 +243,7 @@ Text translation via DeepL API with automatic source language detection. 30+ lan
 
 **File:** `plugins/tools/narrator/`
 
-Narrates whole text documents from the workspace into one MP3 file — chunked and synthesized server-side, the text never passes through the LLM context. The engine comes from the TTS escalation list; the voice (per engine) is configurable via the gear icon in the plugin tab.
+Narrates whole text documents from the workspace into one MP3 file — chunked and synthesized server-side, the text never passes through the LLM context. The engine comes from AIfred's list in the TTS-Suite; the voice (per engine) is configurable via the gear icon in the plugin tab.
 
 | Tool | Description | Tier |
 |------|-------------|------|

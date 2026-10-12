@@ -17,8 +17,8 @@ Kurzfassung:
 - **BASE**: greedy fill auf die schnellste Compute-Klasse, Spillover auf
   die nächstlangsamere wenn nötig. Min. GPUs, max. ctx.
 - **SPEED**: weniger GPUs als BASE durch ctx-Reduktion.
-- **TTS-Varianten** (die installierten GPU-Engines: XTTS, MOSS,
-  Fish-Speech, Qwen3-TTS): BASE/SPEED erneut, mit TTS-Reserve auf der
+- **TTS-Varianten** (die installierten GPU-Engines: XTTS,
+  Qwen3-TTS): BASE/SPEED erneut, mit TTS-Reserve auf der
   gemeinsamen Side-Channel-Karte der zweithöchsten Compute-Klasse
   (`pick_tts_gpu`/`pick_vlm_gpu` → `pick_side_channel_gpu`). Fast Path:
   Re-Projection des BASE-GPU-Sets über `calibrate_tts_variant_from_base`;

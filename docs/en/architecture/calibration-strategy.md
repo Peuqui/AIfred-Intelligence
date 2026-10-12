@@ -16,9 +16,9 @@ at reduced context.
 ## Hardware assumptions
 
 - Multiple GPUs of different speed classes (compute capability + VRAM size)
-- The GPU TTS containers (XTTS, MOSS, Fish-Speech, Qwen3-TTS — every
+- The GPU TTS containers (XTTS, Qwen3-TTS — every
   engine with `needs_gpu = True` in
-  [`aifred/lib/tts_engines/`](../../../aifred/lib/tts_engines/)) and the
+  the catalog of the TTS-Suite) and the
   Vigilantia VLM (Ollama) each occupy part of a GPU, NOT a whole GPU. They
   share **one card** of the **side-channel tier** — the compute class below
   the fastest one, which stays reserved for the main LLM. For details see
@@ -83,7 +83,7 @@ calibration).
   the vision plugin's `face_recognition` settings resolves via
   `resolve_gpu_id()` → `pick_vlm_gpu()`.
 
-The price of the shared card: very large TTS engines (Fish, MOSS) no longer
+The price of the shared card: very large TTS engines no longer
 fit onto one card together with the VLM. The combo capacity check of the
 calibration catches this: if TTS reserve + VLM reserve exceed the shared
 card's total VRAM, exactly this combo profile is not written (the rest runs).
@@ -404,10 +404,9 @@ ctx). Both are written to llama-swap as separate configs
 
 Orchestrated in the calibration mixin
 ([`_calibration_mixin.py`](../../../aifred/state/_calibration_mixin.py)).
-Per installed GPU TTS engine (`installed_gpu_engines()` from
-[`tts_engines/registry.py`](../../../aifred/lib/tts_engines/registry.py) —
-XTTS, MOSS, Fish-Speech, Qwen3-TTS, as far as their Docker image exists
-on this host) whose `|<engine>` cell is ticked in the calibration picker
+Per installed GPU TTS engine (`installed_gpu_engine_keys()` from
+`tts_service.py` (catalog of the TTS-Suite) —
+XTTS, Qwen3-TTS, as far as the TTS-Suite lists them as installed) whose `|<engine>` cell is ticked in the calibration picker
 (`calibration_matrix`):
 
 1. **Isolated mode:** if the GPU set of the base (or speed) profile is
@@ -435,7 +434,7 @@ on this host) whose `|<engine>` cell is ticked in the calibration picker
    `<model>-tts-<engine>-speed` (speed variant) to the llama-swap config.
    The speed variant is dropped if:
    - `n_base <= find_min_gpus_for_weights` (no room for speed) — typical for
-     large models with MOSS, because 2 GPUs are not enough for model + MOSS
+     large models with a big TTS engine, because 2 GPUs are not enough for model + TTS
      container
    - speed split == base split (no speed gain possible)
 

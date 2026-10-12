@@ -12,10 +12,12 @@
 - **Streaming-capable** (sentence-by-sentence TTS while the LLM streams)
 - **VRAM budget**: RTX 3090 Ti (24 GB), LLM runs in parallel
 
+> **Note (2026-10-12):** MOSS-TTS and Fish-Speech were evaluated and then removed from the system (too large and slow); their numbers stay here as the record of the comparison. The engines now live in the TTS-Suite repository.
+
 ## Status in the Project (2026-10-10)
 
-AIfred no longer picks one fixed engine but walks an **escalation list** (see
-[tts-escalation.md](../architecture/tts-escalation.md)): the first entry that can speak, speaks.
+AIfred no longer picks one fixed engine but sends a list to the **TTS-Suite** (see
+[tts-suite.md](../architecture/tts-suite.md)): the first entry that can speak, speaks.
 The default list of a fresh install is Qwen3-TTS → XTTS → DashScope Qwen-Audio 3 → Piper → Edge →
 Browser. The table summarizes what the engines declare about themselves in code
 (`aifred/lib/tts_engines/<key>/engine.py`); "—" means the engine does not use the language
@@ -298,7 +300,7 @@ is no problem.
 ## Recommended Evaluation Order
 
 1. ~~Test **MOSS-TTS Local**~~ ✅ Integrated! (Docker container, VRAM reservation, good quality)
-2. ~~Test **MOSS-TTS Delay 8B**~~ ✅ Integrated! (RTX 8000 float32, own generate() API, web UI with parameter sliders. See [moss-tts-8b-notes.md](../../de/models/moss-tts-8b-notes.md) (German))
+2. ~~Test **MOSS-TTS Delay 8B**~~ ✅ Integrated! (RTX 8000 float32, own generate() API, web UI with parameter sliders. See the archive tag `archive-tts-vor-tts-suite-2026-10-11` for the notes (German))
 3. Test **MOSS-TTS-Realtime** (streaming via `push_text`, same VRAM class as Local)
 4. Test **F5-TTS** with a German fine-tune (smallest model, fastest)
 5. Test **Qwen3-TTS** (native DE support, streaming via fork)

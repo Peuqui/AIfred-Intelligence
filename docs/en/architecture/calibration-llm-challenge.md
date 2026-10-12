@@ -17,7 +17,7 @@ Summary:
 - **BASE**: greedy fill onto the fastest compute class, spillover onto
   the next slower one if needed. Min. GPUs, max. ctx.
 - **SPEED**: fewer GPUs than BASE via ctx reduction.
-- **TTS variants** (the installed GPU engines: XTTS, MOSS, Fish-Speech,
+- **TTS variants** (the installed GPU engines: XTTS,
   Qwen3-TTS): BASE/SPEED again, with a TTS reserve on the shared
   side-channel card of the second-highest compute class (`pick_tts_gpu`/
   `pick_vlm_gpu` → `pick_side_channel_gpu`). Fast path: re-projection of

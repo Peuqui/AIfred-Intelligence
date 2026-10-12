@@ -729,7 +729,7 @@ Puck bleibt dumm.
 | Ansage über laufender Musik/TTS | `wake(_pause)` → Bestätigung des Pucks abwarten → Ansage wie oben; danach KEIN `_resume` vom Server |
 
 **Einheit der Sprachausgabe:** eine Einstellung pro TTS-Engine (Browser-Panel, systemweit für alle Agenten und
-Kanäle; `lib.tts_engines.speech_unit_for`, Standard je Engine in `TTSEngine.default_speech_unit`) — `sentence`,
+Kanäle; `tts_service.speech_unit_for`, Standard je Engine = `unit_default` des Katalogs der TTS-Suite; der Dienst zerlegt den Text) — `sentence`,
 `paragraph` (an Leerzeilen) oder `whole` (alles am Stück, kein Streaming: bessere Betonung, aber die erste
 Sprache kommt erst nach der kompletten Erzeugung). Das Echo-Plugin liest sie nur. Beginn-/Ende-Ton bei Ansagen: `FREEECHO2_NOTIFICATION_START_TONE` /
 `_END_TONE` (an/aus; der Alarm-Ton ist immer der Beginn-Ton); welcher Ton spielt, legt der Puck fest.

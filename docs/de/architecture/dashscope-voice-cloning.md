@@ -7,6 +7,8 @@
 > [`aifred/lib/tts_engines/dashscope_audio3/enroll.py`](../../../aifred/lib/tts_engines/dashscope_audio3/enroll.py),
 > [`aifred/state/_tts_config_mixin.py`](../../../aifred/state/_tts_config_mixin.py)
 
+> **Hinweis (12.10.2026):** Der Engine-Code liegt jetzt im Repository der TTS-Suite (`src/tts_suite/engines/dashscope_audio3/`). Die unten genannten Pfade und AIfred-Interna (`engine.py`, `enroll.py`, `_apply_planned_tts`, `TTS_VOICES_DIR`, `TTSFailure`) beschreiben den Stand vor dem Umzug und werden in die Dokumentation der TTS-Suite übernommen; AIfred führt die Engine jetzt nur noch in seiner Liste und schickt Texte.
+
 DashScope Qwen-Audio 3 (Engine-Key `dashscope_audio3`) ist die **Cloud-TTS-Engine**:
 keine lokale GPU, kein Container. Sie löst am 10.10.2026 die ältere Qwen3-TTS-Cloud-Engine
 ab, deren geklonte Stimmen Alibaba abgeschaltet hat; diese Engine ist entfernt. Das Dokument
@@ -31,7 +33,7 @@ Die Antwort enthält eine URL; die Engine lädt die WAV-Datei (die URL kommt als
 Datei wird über `https://` geholt), legt sie im TTS-Audio-Ordner ab und gibt deren Pfad zurück.
 Zeitlimit für Synthese und Download: je 60 s (`request_timeout_s`).
 
-**Fehlerarten** (`TTSFailure`, siehe [tts-escalation.md](tts-escalation.md)):
+**Fehlerarten** (`TTSFailure`, siehe [tts-suite.md](tts-suite.md)):
 Netzwerk-/Internetausfall = `unreachable`; alles andere, auch eine Fehlerantwort der API
 (Authentifizierung, Kontingent, unbekannte Stimme) = `engine`.
 
@@ -57,7 +59,7 @@ Stimme selbst. Alle anderen Stimmen, auch die geklonten, nutzen **Flash**.
 ## Geklonte Stimmen
 
 Quelle ist der gemeinsame Stimmenbaum `TTS_VOICES_DIR` (`docker/tts/voices/<Name>/<Name>.wav`,
-derselbe wie bei den Container-Engines, siehe [tts-container-conventions.md](tts-container-conventions.md)).
+derselbe wie bei den Container-Engines).
 Jede Referenz-WAV wird **einmal** bei DashScope angelegt (enrolled). Die zurückgegebene
 `voice_id` steht in der Zuordnungsdatei
 [`data/tts/dashscope_audio3_voices.json`](../../../data/tts/); diese Datei ist die Wahrheit

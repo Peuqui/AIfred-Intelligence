@@ -17,13 +17,13 @@ Der Narrator vertont **1:1**: kein Übersetzen, kein Zusammenfassen, keine Korre
 
 ## Engine-Wahl und Einstellungen
 
-**Engine:** Der Narrator hat keine eigene Engine-Einstellung. Er nimmt die Engine aus der **TTS-Eskalationsliste** (`aifred/lib/tts_escalation.py`, `choose_speaker`):
+**Engine:** Der Narrator hat keine eigene Engine-Einstellung. Er liest über die **TTS-Suite** vor (`aifred/lib/tts_service.py`, `single_engine_ref`):
 
-- Ohne Parameter `engine`: der oberste Eintrag der Liste, der jetzt sprechen kann. Ein lokaler GPU-Eintrag, dessen Container nicht läuft, wird gestartet, wenn sein gemessener Spitzenbedarf in den freien VRAM einer Karte passt — das Hauptmodell wird dafür nie neu geladen. Passt er nicht, geht die Liste weiter.
-- Mit Parameter `engine` (Engine-Schlüssel, z. B. `piper`): genau diese Engine auf diesem Rechner, sofern sie jetzt kann; sonst Fehler mit Grund (`NoSpeechAvailable`), kein Ausweichen auf eine andere Engine.
-- Die gewählte Engine bleibt für die **ganze Datei**: kein Stimmwechsel mitten im Hörbuch, auch nicht bei einem Ausfall.
+- Ohne Parameter `engine`: der oberste aktive Eintrag von AIfreds Liste. Der Dienst startet die Engine bei Bedarf auf einer Karte mit Platz; das Hauptmodell wird dafür nie neu geladen.
+- Mit Parameter `engine` (Engine-Schlüssel, z. B. `piper`): genau diese Engine (dort, wo AIfreds Liste sie hat, sonst auf diesem Rechner); bietet der Dienst sie nicht an, kommt ein Fehler mit Grund, kein Ausweichen auf eine andere Engine.
+- Die gewählte Engine bleibt für die **ganze Datei**: kein Stimmwechsel mitten im Hörbuch, auch nicht bei einem Ausfall; eine Lauf-Kennung je Datei.
 
-Die Engines liegen als Plugins in `aifred/lib/tts_engines/<key>/engine.py` (je mit eigener `i18n.json`); Reihenfolge, Hosts und Aktivierung der Liste: [TTS + VRAM-Workflow](../../architecture/tts-vram-workflow.md).
+Welche Engines es gibt und die Reihenfolge der Liste: [TTS-Suite](../../architecture/tts-suite.md).
 
 **Stimme** (Zahnrad im Plugin-Tab des Agent-Editors, `narrator_voices` in den Einstellungen): wird **pro Engine** gespeichert. Der Dialog hat zwei Auswahlfelder — die Engine, deren Stimme bearbeitet wird (nur Engines, die hier bereit sind oder in der Liste auf einem anderen Host stehen), und deren eigene Stimmen (`voice_names`). Es wählt damit nicht die Engine der Vertonung. Reihenfolge der Stimmenwahl: Parameter `voice`, sonst die gespeicherte Stimme der gewählten Engine, sonst deren erste eigene Stimme (nie der Klonname „AIfred“ für z. B. Piper), zuletzt `NARRATE_DEFAULT_VOICE` (`AIfred`).
 
@@ -42,7 +42,7 @@ Die Engines liegen als Plugins in `aifred/lib/tts_engines/<key>/engine.py` (je m
 | `output_filename` | Nein | Standard: `<name>.mp3` im selben Ordner; Endung `.wav` überspringt den MP3-Encode |
 | `voice` | Nein | Standard: gespeicherte Stimme der gewählten Engine, sonst deren erste eigene Stimme |
 | `language` | Nein | Sprachcode des Texts (Standard `de`) |
-| `engine` | Nein | Engine-Schlüssel. Standard: oberster Eintrag der TTS-Eskalationsliste, der jetzt sprechen kann (siehe oben) |
+| `engine` | Nein | Engine-Schlüssel. Standard: oberster aktiver Eintrag von AIfreds Liste (siehe oben) |
 | `speaker_voices` | Nein | Multi-Voice-Mapping Sprecher-Label → Stimmenname (siehe unten) |
 
 Rückgabe (JSON): `written`, `url`, `chunks`, `chars`, `engine`, `voice`, `size_mb` — im Multi-Voice-Modus zusätzlich `speaker_voices`, `segments`.
