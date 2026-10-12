@@ -520,6 +520,9 @@ class ChatMixin(rx.State, mixin=True):
             self.add_debug(f"🔧 Toolkit: {[t.name for t in vl_toolkit.tools]} for {_acting_name}")  # type: ignore[attr-defined]
             yield
 
+        if self._tts_streaming_wanted("aifred"):  # type: ignore[attr-defined]
+            self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
+
         result_data = None
         async for item in call_llm(
             user_text=user_msg,
@@ -885,10 +888,10 @@ class ChatMixin(rx.State, mixin=True):
             # ``document.addEventListener('click', ...)``-Hook in custom.js,
             # der beim ALLERERSTEN User-Click im Tab feuert (im echten
             # Click-Stack) und dann sich selbst entfernt.
-            tts_streaming = self._tts_streaming_wanted("aifred")  # type: ignore[attr-defined]
-            if tts_streaming:
+            # The reading of the reply is opened where its text starts to flow (one place per path:
+            # ``_stream_agent_to_history`` for every agent, ``_process_vision_request`` for VL Direct).
+            if self._tts_streaming_wanted("aifred"):  # type: ignore[attr-defined]
                 await self._wait_for_tts_finalize()  # type: ignore[attr-defined]
-                self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
                 from ..lib.api import browser_queue_clear
                 browser_queue_clear(self.session_id)  # type: ignore[attr-defined]
             # SSE stream (re)start — idempotent if already connected.
