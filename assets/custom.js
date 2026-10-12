@@ -1241,9 +1241,15 @@ function audioUnlock() {
 
     const promise = player.play();
     if (promise && typeof promise.then === 'function') {
+        // The unlock runs in the same gesture as a click that starts real playback (the speaker
+        // of a bubble sets its own src right after). Whatever happens to the player after the
+        // silent file was taken away from it belongs to that playback: pausing it or putting the
+        // old src back would cut it off (the bubble turned green and stayed silent, the player
+        // held the last streamed sentence instead of the replay).
+        const stillOurs = () => player.src === _AUDIO_UNLOCK_SILENT_WAV;
         promise
             .then(() => {
-                player.pause();
+                if (stillOurs()) player.pause();
                 _audioUnlockDone = true;
                 console.log('🔊 Audio: unlocked for autoplay');
             })
@@ -1251,12 +1257,14 @@ function audioUnlock() {
                 console.warn('🔊 Audio: unlock failed:', err.message);
             })
             .finally(() => {
-                // Restore previous src (or empty if none was set).
-                if (savedSrc) {
-                    player.src = savedSrc;
-                } else {
-                    player.removeAttribute('src');
-                    player.load();
+                if (stillOurs()) {
+                    // Restore previous src (or empty if none was set).
+                    if (savedSrc) {
+                        player.src = savedSrc;
+                    } else {
+                        player.removeAttribute('src');
+                        player.load();
+                    }
                 }
                 player.volume = savedVolume;
                 _audioUnlockPending = false;
