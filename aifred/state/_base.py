@@ -693,7 +693,7 @@ class AIState(  # type: ignore[misc]
                         ),
                     )
                     if stt_device == "cpu":
-                        self.add_debug("⚠️ No GPU with free VRAM — transcribed on CPU engine (slower)")
+                        self.add_debug("⚠️ Transcribed on the CPU engine (slower)")
                 except STTGPUUnavailableError:
                     # Big file, all GPUs occupied (e.g. big LLM loaded) —
                     # CPU would take >30 min, offer to unload the LLM instead.
