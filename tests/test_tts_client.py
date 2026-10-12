@@ -412,6 +412,7 @@ def test_engines_and_voices_are_decoded() -> None:
         "status": "running", "unit_default": "paragraph", "needs_gpu": True,
         "cloud": False, "browser": False, "installed": False, "start_hint": "image missing",
         "vram_mib": {"GPU-1": 4096},
+        "default_vram_mib": 6024, "default_max_parallel": 1, "default_max_queue": 4,
     }
     seen_params: list[dict[str, str]] = []
 
@@ -430,6 +431,7 @@ def test_engines_and_voices_are_decoded() -> None:
     assert engines[0].installed is False
     assert engines[0].start_hint == "image missing"
     assert engines[0].vram_mib == {"GPU-1": 4096}
+    assert (engines[0].default_vram_mib, engines[0].default_max_parallel, engines[0].default_max_queue) == (6024, 1, 4)
     voices = client.voices("xtts")
     assert (voices[0].name, voices[0].label) == ("Alice", "Alice (de)")
     assert seen_params[1] == {"engine": "xtts"}
