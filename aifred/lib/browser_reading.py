@@ -29,6 +29,7 @@ import json
 from collections.abc import Callable
 from typing import Any
 
+from .agent_config import load_agents
 from .audio_processing import (
     clean_text_for_tts,
     extract_complete_paragraphs,
@@ -89,6 +90,7 @@ class BrowserReading:
     ) -> None:
         self.session_id = session_id
         self.agent = agent
+        self.agent_label = load_agents()[agent].display_name
         self.language = language
         self._ui_language = ui_language
         self._push = push
@@ -150,11 +152,11 @@ class BrowserReading:
         try:
             await self._read()
         except asyncio.CancelledError:
-            self._report(f"🔊 [Browser {self.agent}] reading aborted")
+            self._report(f"🔊 [Browser {self.agent_label}] reading aborted")
             raise
         except Exception as error:  # noqa: BLE001 — a background task must not die silently
-            log_message(f"❌ [Browser {self.agent}] reading failed: {type(error).__name__}: {error}", "error")
-            self._report(f"❌ [Browser {self.agent}] reading failed: {type(error).__name__}: {error}")
+            log_message(f"❌ [Browser {self.agent_label}] reading failed: {type(error).__name__}: {error}", "error")
+            self._report(f"❌ [Browser {self.agent_label}] reading failed: {type(error).__name__}: {error}")
             self._notify("error", t("tts_reading_service_failed_silent", lang=self._ui_language, reason=str(error)))
 
     async def _read(self) -> None:
@@ -167,7 +169,7 @@ class BrowserReading:
                 if not self._handle_service_failure(error, browser_unit):
                     return
         elif browser_unit is None:
-            self._report(f"⚠️ [Browser {self.agent}] no TTS entry is switched on")
+            self._report(f"⚠️ [Browser {self.agent_label}] no TTS entry is switched on")
             self._notify("error", t("tts_reading_no_entry", lang=self._ui_language))
             return
         assert browser_unit is not None
@@ -177,17 +179,17 @@ class BrowserReading:
         """Say what happened; ``True`` = the browser takes over."""
         reason = f"{type(error).__name__}: {error}"
         if self._first_tone:
-            log_message(f"❌ [Browser {self.agent}] TTS service broke off after the first sound: {reason}", "error")
-            self._report(f"❌ [Browser {self.agent}] TTS service broke off after the first sound: {reason}")
+            log_message(f"❌ [Browser {self.agent_label}] TTS service broke off after the first sound: {reason}", "error")
+            self._report(f"❌ [Browser {self.agent_label}] TTS service broke off after the first sound: {reason}")
             self._notify("error", t("tts_reading_broke_off", lang=self._ui_language, reason=str(error)))
             return False
         if browser_unit is None:
-            log_message(f"❌ [Browser {self.agent}] TTS service cannot speak: {reason}", "error")
-            self._report(f"❌ [Browser {self.agent}] TTS service cannot speak, no browser entry: {reason}")
+            log_message(f"❌ [Browser {self.agent_label}] TTS service cannot speak: {reason}", "error")
+            self._report(f"❌ [Browser {self.agent_label}] TTS service cannot speak, no browser entry: {reason}")
             self._notify("error", t("tts_reading_service_failed_silent", lang=self._ui_language, reason=str(error)))
             return False
-        log_message(f"⚠️ [Browser {self.agent}] TTS service gave no sound ({reason}) — the browser speaks", "warning")
-        self._report(f"⚠️ [Browser {self.agent}] TTS service gave no sound ({reason}) — the browser speaks")
+        log_message(f"⚠️ [Browser {self.agent_label}] TTS service gave no sound ({reason}) — the browser speaks", "warning")
+        self._report(f"⚠️ [Browser {self.agent_label}] TTS service gave no sound ({reason}) — the browser speaks")
         self._notify("warning", t("tts_reading_service_failed", lang=self._ui_language, reason=str(error)))
         return True
 
@@ -232,7 +234,7 @@ class BrowserReading:
             self.audio_urls.append(url)
             self._playlist("tts", url, playback_rate="1.0x")
         self.note = await asyncio.to_thread(spoken_note, stream.summary.trace, self._ui_language)
-        for line in await asyncio.to_thread(escalation_report, stream.summary, f"Browser {self.agent}"):
+        for line in await asyncio.to_thread(escalation_report, stream.summary, f"Browser {self.agent_label}"):
             self._report(line)
 
     # ---- through the browser's own voice ----
