@@ -99,6 +99,7 @@ gewohnt gefragt — ohne Terminal gilt die Standardantwort:
 | `AIFRED_INSTALL_OLLAMA` | Ollama installieren (`curl \| sh`) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_SYSTEMD` | systemd-Dienste installieren | `y` / `n` (Standard `n`) |
 | `AIFRED_INSTALL_USER` | erster Whitelist-Benutzer | ein Benutzername oder `skip` (Standard: `$USER`) |
+| `AIFRED_INSTALL_TTS_SYSTEMD` | TTS-Suite als Systemdienst `tts-suite@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `n`: Benutzerdienst) |
 
 ```bash
 AIFRED_INSTALL_OLLAMA=n AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh
@@ -678,6 +679,27 @@ Liste (Semantik in [Konfiguration → Sprachausgabe](configuration.md#sprachausg
   Adresse, SSH), nicht in AIfred.
 - **Stimmen:** Die Referenzstimmen liegen im Stimmenordner des Dienstes (`voices_dir` seiner
   Konfiguration); eine später hinzugefügte Stimme wird nach einem Neustart des Containers gesehen.
+
+
+## 9b. Spracherkennung (STT-Suite)
+
+Die Spracherkennung kommt aus der **STT-Suite** ([Peuqui/STT-Suite](https://github.com/Peuqui/STT-Suite)),
+einem Container mit Whisper und Parakeet auf Port 5080. `install-all.sh` (Schritt 2e) klont das
+Repository neben AIfred (oder `STT_SUITE_DIR` aus der `.env`) und startet es mit `docker compose`.
+**Ohne NVIDIA-Karte** (`nvidia-smi` liefert keine) nimmt der Installer zusätzlich
+`docker-compose.cpu.yml`: Die Basisdatei reserviert eine GPU, was Docker dort ablehnt. AIfred macht
+dasselbe, wenn es den Container selbst startet (`STTClient.start_container`).
+
+- **Was AIfred einstellt:** nur das bevorzugte Gerät (STT-Tab im Agent-Editor): *Automatik*
+  (die STT-Suite entscheidet nach freiem Grafikspeicher), *Nur CPU* oder *Nur GPU* (ohne Platz ein
+  Fehler, kein Ausweichen). Das Gerät liegt als `stt_device` in `settings.json`. Lange Aufnahmen
+  (über `WHISPER_GPU_MIN_FILE_MB`, 10 MB) gehen bei Automatik immer auf die CPU.
+- **Was die STT-Suite einstellt** (ihre Oberfläche unter `/ui/`, am Proxy `/whisper/ui/`): Engine,
+  Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik, der Speicherpuffer und die
+  Messung des Speicherbedarfs.
+- **GPU freigeben:** Vor jedem Kaltstart eines großen Modells entlädt AIfred den GPU-Worker
+  (`/unload?device=cuda`, die CPU-Modelle bleiben), die lokalen TTS-Engines (über die TTS-Suite)
+  und das vorherige Modell.
 
 ---
 

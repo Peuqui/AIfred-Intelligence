@@ -116,6 +116,15 @@ Details: [TTS-Suite, Liste, Einheit, Ansagen](../architecture/tts-suite.md),
 
 ---
 
+## Spracheingabe (STT)
+
+Die Spracherkennung macht die **STT-Suite** (eigener Container, Port 5080, Einzelheiten:
+[Installation](deployment.md#9b-spracherkennung-stt-suite)). AIfred stellt nur das **bevorzugte
+Gerät** ein, im **STT-Tab des Agent-Editors**: *Automatik* (Vorgabe), *Nur CPU* oder *Nur GPU*. Es
+geht als `device=auto|cpu|cuda` an den Dienst und ist für Browser, Echo Dot und Dateien gleich.
+Engine, Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik und der Speicherpuffer stehen
+auf der Oberfläche der STT-Suite (`/whisper/ui/` am Proxy, der Tab verlinkt sie).
+
 ## Reasoning und Thinking
 
 Zwei voneinander unabhängige Schalter pro Agent in den LLM-Einstellungen:

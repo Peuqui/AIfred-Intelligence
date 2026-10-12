@@ -110,7 +110,7 @@ Einrichtung: [Telegram](docs/de/guides/telegram-setup.md) · [Discord](docs/de/g
 
 ### 🎤 Sprache
 
-- **Speech-to-Text** — Whisper in Docker ([STT-Suite](https://github.com/Peuqui/STT-Suite), richtet der Installer ein), für Browser und FreeEcho.2 gleich: zuerst die GPU, solange eine Karte freien VRAM hat, sonst der permanente CPU-Worker; vor jedem LLM-Ladevorgang wird der GPU-Worker freigegeben, im Leerlauf entlädt er sich. Große Uploads (Meetings) bekommen eine Dauer-Schätzung und eine Rückfrage bei langen Dateien
+- **Speech-to-Text** — die **STT-Suite** ([Peuqui/STT-Suite](https://github.com/Peuqui/STT-Suite), Whisper und Parakeet in Docker, richtet der Installer ein), für Browser und FreeEcho.2 gleich. AIfred wählt nur das **Gerät** (Automatik, nur CPU, nur GPU); Engine, Modell, Genauigkeit je Gerät und die Reihenfolge der Automatik stellt man auf der Oberfläche der STT-Suite ein. Der GPU-Worker wird vor jedem LLM-Ladevorgang freigegeben und entlädt sich im Leerlauf. Große Uploads (Meetings) gehen auf die CPU, bekommen eine Dauer-Schätzung und eine Rückfrage bei langen Dateien
 - **Meeting-Pipeline** — in der Originalsprache transkribieren → bei Bedarf übersetzen (DeepL) → zu einer handytauglichen MP3 vertonen; jeder Schritt hinterlässt eine Datei
 - **FreeEcho.2-Sprach-Terminal** — Echo-Dot-2-Hardware mit Custom-Firmware: Wake-Word, die Frage erscheint innerhalb von ~500 ms nach STT im Browser. Die Haushaltssprache (Deutsch oder Englisch: STT-Sprache, Prompt-Sprache, Tool-Antworten) ist eine Einstellung des Kanal-Plugins
 - **Gesprochene Ansagen ohne LLM** — `POST /api/audio/announce` liest einen fertigen Text (oder mehrere Absätze als eine Ansage) in einem Raum, einer Gruppe oder allen Räumen vor; ein laufender Strom wird vorher angehalten, Beginn- und Ende-Ton sind Plugin-Einstellungen. Siehe [REST-API](docs/de/guides/rest-api.md)
@@ -181,7 +181,7 @@ Details: [Security-Architektur](docs/de/architecture/security.md).
 
 ## 🚀 Schnellstart
 
-**Voraussetzungen:** Linux mit systemd, Python 3.10+, Docker, eine NVIDIA-GPU (CUDA) mit genug VRAM für die gewünschten Modelle samt [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (GPU-Container für Spracherkennung und TTS) und ein LLM-Backend — llama.cpp über llama-swap (empfohlen, [Einrichtung](docs/de/guides/llamacpp-setup.md)) oder Ollama (einfachster Einstieg).
+**Voraussetzungen:** Linux mit systemd, Python 3.10+, Docker, eine NVIDIA-GPU (CUDA) mit genug VRAM für die gewünschten Modelle samt [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (GPU-Container für Spracherkennung und TTS; ohne GPU läuft die STT-Suite auf der CPU, die TTS-Suite bietet ihre Cloud-Engines und die Browser-Stimme) und ein LLM-Backend — llama.cpp über llama-swap (empfohlen, [Einrichtung](docs/de/guides/llamacpp-setup.md)) oder Ollama (einfachster Einstieg).
 
 ```bash
 git clone https://github.com/Peuqui/AIfred-Intelligence.git
@@ -189,7 +189,7 @@ cd AIfred-Intelligence
 ./scripts/install-all.sh
 ```
 
-Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, Whisper STT ([STT-Suite](https://github.com/Peuqui/STT-Suite), wird neben AIfred geklont), Ollama (angeboten über den offiziellen `curl | sh`-Installer, Standard ja) mit dem bge-m3-Embedding-Modell, einen ersten Whitelist-Benutzer und die systemd-Dienste. Jeder Schritt prüft sich selbst, am Ende steht eine Zusammenfassung, was noch fehlt.
+Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew), die Python-venv und die Requirements, den Playwright-Browser, den Reflex-Patch, `.env`, ChromaDB + SearXNG, die beiden Sprachdienste, jeweils neben AIfred geklont und über eigene Skripte eingerichtet — die [TTS-Suite](https://github.com/Peuqui/TTS-Suite) (Sprachausgabe: Dienst auf Port 5090, auf Wunsch als Systemeinheit mit Polkit-Regel, damit AIfred sie starten kann) und die [STT-Suite](https://github.com/Peuqui/STT-Suite) (Spracherkennung: Container auf Port 5080, auf einem Rechner ohne NVIDIA-GPU mit der CPU-Compose-Datei), Ollama (angeboten über den offiziellen `curl | sh`-Installer, Standard ja) mit dem bge-m3-Embedding-Modell, einen ersten Whitelist-Benutzer und die systemd-Dienste. Jeder Schritt prüft sich selbst, am Ende steht eine Zusammenfassung, was noch fehlt.
 
 Vollständig getestet auf einem frischen Ubuntu 24.04 (Container mit durchgereichten GPUs, Oktober 2026). Jede Frage lässt sich vorab beantworten, für eine Installation ohne Rückfragen, z. B. `AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh` — alle Variablen: [Installation ohne Rückfragen](docs/de/guides/deployment.md#installation-ohne-rückfragen).
 

@@ -116,6 +116,15 @@ Details: [TTS-Suite, list, unit, announcements](../architecture/tts-suite.md),
 
 ---
 
+## Speech input (STT)
+
+Speech recognition is done by the **STT-Suite** (its own container, port 5080, details:
+[installation](deployment.md#9b-speech-input-stt-suite)). AIfred sets only the **preferred device**,
+in the **STT tab of the Agent Editor**: *Automatic* (default), *CPU only* or *GPU only*. It goes to
+the service as `device=auto|cpu|cuda` and is the same for browser, Echo Dot and files. Engine, model
+and quality per device, the order of the automatic mode and the memory margin are on the STT-Suite's
+own page (`/whisper/ui/` behind the proxy, the tab links to it).
+
 ## Reasoning and thinking
 
 Two independent toggles per agent in the LLM settings:
