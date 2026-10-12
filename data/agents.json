@@ -77,6 +77,8 @@
         "calculate",
         "list_narrator_voices",
         "narrate_file",
+        "print_file",
+        "printer_status",
         "web_search",
         "web_fetch",
         "scheduler_create",
@@ -95,6 +97,7 @@
         "vision_start_watch",
         "vision_stop_watch",
         "vision_list_active_watches",
+        "list_files",
         "read_memory",
         "store_memory",
         "update_memory",
@@ -106,10 +109,7 @@
         "email",
         "email_manage",
         "freeecho2_announce",
-        "telegram_send",
-        "print_file",
-        "printer_status",
-        "list_files"
+        "telegram_send"
       ]
     },
     "sokrates": {
