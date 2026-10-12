@@ -117,19 +117,25 @@ async def _speech_pcm(
     await _report_escalation(stream.summary, label)
 
 
-async def speak_to_files(text: str, *, language: str, agent: str) -> SpokenReading:
-    """A complete text read into audio files (replay of a bubble): the segments in order, no markers
-    (the replay is one audio, ``REPLAY_PARAGRAPH_PAUSE_MS``). Raises ``TTSSuiteError``."""
+async def store_reading_audio(stream: SpeechStream, agent: str) -> list[str]:
+    """The audio of a reading as files, in speaking order. Markers (keep-alive, pause) carry no audio and
+    are skipped: whoever wants the pause makes it (the replay and the narrator join the files)."""
     from .audio_processing import store_tts_audio
 
-    stream = await open_reading(text, language=language, agent=agent, paragraph_pause_ms=REPLAY_PARAGRAPH_PAUSE_MS)
-    reading = SpokenReading()
+    urls: list[str] = []
     async for segment in stream:
         if segment.keepalive or segment.pause_ms:
             continue
-        reading.audio_urls.append(
-            await asyncio.to_thread(store_tts_audio, segment.audio, segment.media_type, agent, segment.engine),
-        )
+        urls.append(await asyncio.to_thread(store_tts_audio, segment.audio, segment.media_type, agent, segment.engine))
+    return urls
+
+
+async def speak_to_files(text: str, *, language: str, agent: str) -> SpokenReading:
+    """A complete text read into audio files (replay of a bubble): the segments in order, no markers
+    (the replay is one audio, ``REPLAY_PARAGRAPH_PAUSE_MS``). Raises ``TTSSuiteError``."""
+    stream = await open_reading(text, language=language, agent=agent, paragraph_pause_ms=REPLAY_PARAGRAPH_PAUSE_MS)
+    reading = SpokenReading()
+    reading.audio_urls.extend(await store_reading_audio(stream, agent))
     reading.summary = stream.summary
     await _report_escalation(stream.summary, f"Replay {agent}")
     return reading

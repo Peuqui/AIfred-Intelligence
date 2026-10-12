@@ -60,6 +60,31 @@ def drain(buffer) -> bytes:
         data += chunk
 
 
+class TestStoreReadingAudio:
+    def test_markers_carry_no_audio_and_make_no_file(self, service, monkeypatch, tmp_path):
+        """A narrator with a paragraph pause set gets pause markers: they must not end in an empty audio file."""
+        stored: list[bytes] = []
+        import aifred.lib.audio_processing as audio_processing
+
+        def fake_store(audio: bytes, media_type: str, agent: str, engine: str) -> str:
+            stored.append(audio)
+            return f"/_upload/tts_audio/{len(stored)}.wav"
+
+        monkeypatch.setattr(audio_processing, "store_tts_audio", fake_store)
+        service.script = [
+            audio_frame(b"one") + pause_frame(500) + keepalive_frame() + audio_frame(b"two") + summary_frame(),
+        ]
+
+        async def go() -> list[str]:
+            stream = await speech_synthesis.open_reading(
+                "Absatz eins.\n\nAbsatz zwei.", language="de", agent="narrator", paragraph_pause_ms=500,
+            )
+            return await speech_synthesis.store_reading_audio(stream, "narrator")
+
+        assert run(go()) == ["/_upload/tts_audio/1.wav", "/_upload/tts_audio/2.wav"]
+        assert stored == [b"one", b"two"]
+
+
 class TestEscalationReport:
     def test_the_service_account_of_a_reading_goes_to_the_debug_bus(self, service, monkeypatch):
         lines: list[str] = []
