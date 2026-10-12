@@ -1,8 +1,4 @@
-"""Agent-Editor: STT-Tab — Whisper-Service konfigurieren.
-
-Reines Frontend auf die Service-Config (SSOT im Whisper-Container,
-siehe ``state/_stt_settings_mixin.py``).
-"""
+"""Agent-Editor: STT-Tab — das bevorzugte Gerät (siehe ``state/_stt_settings_mixin.py``)."""
 # mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
 # Reflex UI code: Var indexing, rx.icon module callable, event handler binding
 # are all runtime-correct but not statically typeable.
@@ -53,7 +49,7 @@ def _stt_row(label, control: rx.Component, hint=None) -> rx.Component:
 
 
 def _stt_view() -> rx.Component:
-    """STT-Tab: Whisper-Service-Einstellungen."""
+    """STT-Tab: das bevorzugte Gerät; alles Weitere stellt die STT-Suite selbst ein."""
     return rx.vstack(
         _editor_header(),
         rx.cond(
@@ -64,198 +60,22 @@ def _stt_view() -> rx.Component:
                 color_scheme="red",
                 width="100%",
             ),
-            # Genau EIN Scroll-Container (wie im Speicher-Tab): zwei
-            # verschachtelte erzeugten je einen eigenen Scrollbalken.
-            rx.box(
-                rx.vstack(
-                    # Status: was gerade im Speicher liegt
-                    rx.hstack(
-                        rx.badge(
-                            rx.cond(
-                                AIState.stt_gpu_loaded_label != "",
-                                "GPU: " + AIState.stt_gpu_loaded_label,
-                                "GPU: \u2014",
-                            ),
-                            color_scheme=rx.cond(
-                                AIState.stt_gpu_loaded_label != "", "green", "gray",
-                            ),
-                            variant="soft",
-                        ),
-                        rx.badge(
-                            rx.cond(
-                                AIState.stt_cpu_loaded_label != "",
-                                "CPU: " + AIState.stt_cpu_loaded_label,
-                                "CPU: \u2014",
-                            ),
-                            color_scheme=rx.cond(AIState.stt_cpu_loaded_label != "", "green", "gray"),
-                            variant="soft",
-                        ),
-                        rx.spacer(),
-                        rx.icon_button(
-                            rx.icon("refresh-cw", size=14),
-                            on_click=AIState.refresh_stt_settings,
-                            size="1", variant="ghost", color_scheme="gray",
-                            cursor="pointer",
-                        ),
-                        width="100%",
-                        align="center",
+            rx.vstack(
+                _stt_row(
+                    t("stt_device"),
+                    rx.select(
+                        AIState.stt_device_labels,
+                        value=AIState.stt_device_label,
+                        on_change=AIState.stt_set_device,
+                        size="1",
                     ),
-                    _stt_row(
-                        t("stt_device"),
-                        rx.select(
-                            AIState.stt_devices,
-                            value=AIState.stt_device,
-                            on_change=AIState.stt_set_device,
-                            size="1",
-                        ),
-                        t("stt_device_hint"),
-                    ),
-                    _stt_row(
-                        t("stt_gpu_engine"),
-                        rx.select(
-                            AIState.stt_engines,
-                            value=AIState.stt_gpu_engine,
-                            on_change=AIState.stt_set_gpu_engine,
-                            size="1",
-                        ),
-                    ),
-                    # Je Engine nur, was sie wirklich kennt: Parakeet hat Qualitäten, Whisper Modelle.
-                    rx.cond(
-                        AIState.stt_gpu_engine == "parakeet",
-                        _stt_row(
-                            t("stt_gpu_quality"),
-                            rx.select(
-                                AIState.stt_qualities,
-                                value=AIState.stt_gpu_quality,
-                                on_change=AIState.stt_set_gpu_quality,
-                                size="1",
-                            ),
-                        ),
-                        _stt_row(
-                            t("stt_gpu_model"),
-                            rx.select(
-                                AIState.stt_available_models,
-                                value=AIState.stt_gpu_model,
-                                on_change=AIState.stt_set_gpu_model,
-                                size="1",
-                            ),
-                        ),
-                    ),
-                    _stt_row(
-                        t("stt_cpu_engine"),
-                        rx.select(
-                            AIState.stt_engines,
-                            value=AIState.stt_cpu_engine,
-                            on_change=AIState.stt_set_cpu_engine,
-                            size="1",
-                        ),
-                    ),
-                    # Je Engine nur, was sie wirklich kennt: Parakeet hat Qualitäten, Whisper Modelle.
-                    rx.cond(
-                        AIState.stt_cpu_engine == "parakeet",
-                        _stt_row(
-                            t("stt_cpu_quality"),
-                            rx.select(
-                                AIState.stt_qualities,
-                                value=AIState.stt_cpu_quality,
-                                on_change=AIState.stt_set_cpu_quality,
-                                size="1",
-                            ),
-                        ),
-                        _stt_row(
-                            t("stt_cpu_model"),
-                            rx.select(
-                                AIState.stt_available_models,
-                                value=AIState.stt_cpu_model,
-                                on_change=AIState.stt_set_cpu_model,
-                                size="1",
-                            ),
-                        ),
-                    ),
-                    _stt_row(
-                        t("stt_num_speakers"),
-                        rx.input(
-                            value=AIState.stt_num_speakers.to_string(),
-                            on_change=AIState.stt_set_num_speakers,
-                            type="number", size="1", width="70px",
-                            min="0", max="10",
-                        ),
-                        t("stt_num_speakers_hint"),
-                    ),
-                    _stt_row(
-                        t("stt_initial_prompt"),
-                        rx.input(
-                            value=AIState.stt_initial_prompt,
-                            on_change=AIState.stt_set_initial_prompt,
-                            size="1", width="200px",
-                        ),
-                        t("stt_initial_prompt_hint"),
-                    ),
-                    _stt_row(
-                        t("stt_beam_size"),
-                        rx.input(
-                            value=AIState.stt_beam_size.to_string(),
-                            on_change=AIState.stt_set_beam_size,
-                            type="number", size="1", width="70px",
-                            min="1", max="20",
-                        ),
-                    ),
-                    _stt_row(
-                        t("stt_vad_filter"),
-                        rx.switch(
-                            checked=AIState.stt_vad_filter,
-                            on_change=AIState.stt_set_vad_filter,
-                            size="1", color_scheme="orange",
-                        ),
-                    ),
-                    _stt_row(
-                        t("stt_condition_on_previous"),
-                        rx.switch(
-                            checked=AIState.stt_condition_on_previous,
-                            on_change=AIState.stt_set_condition_on_previous,
-                            size="1", color_scheme="orange",
-                        ),
-                        t("stt_condition_on_previous_hint"),
-                    ),
-                    _stt_row(
-                        t("stt_gpu_ttl"),
-                        rx.input(
-                            value=AIState.stt_gpu_ttl_minutes.to_string(),
-                            on_change=AIState.stt_set_gpu_ttl,
-                            type="number", size="1", width="70px",
-                            min="0",
-                        ),
-                        t("stt_gpu_ttl_hint"),
-                    ),
-                    rx.hstack(
-                        rx.button(
-                            rx.icon("save", size=14),
-                            t("stt_save"),
-                            on_click=AIState.save_stt_settings,
-                            size="2", color_scheme="orange",
-                            cursor="pointer",
-                            flex_shrink="0",
-                        ),
-                        rx.text(
-                            AIState.stt_save_message,
-                            font_size="12px", color="#8c8",
-                            flex_grow="1", min_width="0",
-                        ),
-                        spacing="3",
-                        align="center",
-                        width="100%",
-                        padding_top="10px",
-                    ),
-                    spacing="2",
-                    width="100%",
-                    min_width="0",
+                    t("stt_device_hint"),
                 ),
-                overflow_y="auto",
-                overflow_x="hidden",
-                flex_grow="1",
+                rx.text(t("stt_suite_hint"), font_size="12px", color="#aaa", width="100%"),
+                rx.link(t("stt_suite_open"), href="/whisper/ui/", is_external=True, size="2"),
+                spacing="3",
                 width="100%",
                 min_width="0",
-                padding_right="6px",
             ),
         ),
         spacing="3",

@@ -1145,16 +1145,14 @@ def transcribe_audio_auto(
     audio_path: str, language: str = "de", log_result: bool = True,
     diarize: bool = False,
 ) -> tuple[str, float, str]:
-    """Transcription on the device the user prefers — SSOT for the device routing policy.
+    """Transcription on the device the user prefers — SSOT for what the service is asked.
 
-    The preference (``stt_device`` in settings.json) is ``auto``, ``cpu`` or ``cuda``:
-
-    * ``cpu`` — straight to the CPU model, the GPU is never asked.
-    * ``cuda`` — only the GPU engine; no room on any card re-raises STTGPUUnavailableError.
-    * ``auto`` — the service decides (``device=auto``: the configured GPU combination, smaller GPU
-      models, then the configured CPU one), from the free VRAM of the cards. Files bigger than
-      WHISPER_GPU_MIN_FILE_MB ask for the GPU alone: the CPU would take far too long at that size,
-      so STTGPUUnavailableError reaches the caller, who decides (unload the LLM, abort, ...).
+    The preference (``stt_device`` in settings.json) goes to the service as it is: ``auto`` (the
+    service walks its own list and takes the first entry that fits), ``cpu`` or ``cuda`` (GPU only;
+    no room is an error, STTGPUUnavailableError, not a silent change to the CPU). Engine, model and
+    quality are never sent: they are the service's business. One exception: a long recording
+    (bigger than WHISPER_GPU_MIN_FILE_MB) always goes to the CPU, also with ``auto`` — the service's
+    memory table is measured for dictations of about a minute, a long file needs far more on a card.
 
     Returns:
         tuple: (transcribed_text, time_in_seconds, device_used) — device_used is ``cpu`` or
@@ -1163,10 +1161,9 @@ def transcribe_audio_auto(
     from .config import WHISPER_GPU_MIN_FILE_MB
     from .settings import persisted_settings
 
-    preference = persisted_settings().get("stt_device", "auto")
-    device = preference
-    if preference == "auto" and os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB:
-        device = "cuda"
+    device = persisted_settings().get("stt_device", "auto")
+    if device == "auto" and os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB:
+        device = "cpu"
     return transcribe_audio(audio_path, language=language, device=device, log_result=log_result, diarize=diarize)
 
 

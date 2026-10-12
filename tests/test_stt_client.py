@@ -220,9 +220,9 @@ class _Recorder:
 
 
 @pytest.mark.parametrize("preference, small_file, asked", [
-    ("auto", True, "auto"), ("auto", False, "cuda"), ("cpu", False, "cpu"), ("cuda", True, "cuda"),
+    ("auto", True, "auto"), ("auto", False, "cpu"), ("cpu", False, "cpu"), ("cuda", True, "cuda"), ("cuda", False, "cuda"),
 ])
-def test_the_device_preference_decides_what_the_service_is_asked(monkeypatch, tmp_path, preference, small_file, asked):
+def test_the_service_gets_the_preferred_device_as_it_is_only_a_long_file_goes_to_the_cpu_with_auto(monkeypatch, tmp_path, preference, small_file, asked):
     from aifred.lib import audio_processing, settings
 
     wav = tmp_path / "a.wav"
