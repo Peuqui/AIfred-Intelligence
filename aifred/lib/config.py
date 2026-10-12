@@ -1173,6 +1173,9 @@ STT_SUITE_DIR = os.environ.get(
     "STT_SUITE_DIR", os.path.join(os.path.dirname(_PROJECT_ROOT), "STT-Suite"),
 )
 STT_SUITE_COMPOSE_PATH = os.path.join(STT_SUITE_DIR, "docker-compose.yml")
+# Merged over the base file on a machine without an NVIDIA GPU: the base file reserves a GPU, which
+# Docker refuses there (the container would not start, not even for the CPU model).
+STT_SUITE_CPU_COMPOSE_PATH = os.path.join(STT_SUITE_DIR, "docker-compose.cpu.yml")
 
 # TTS-Suite service (own repo, runs as a system service on this machine).
 # AIfred only reads and speaks, so it needs no token: speaking and the read-only endpoints

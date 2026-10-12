@@ -18,6 +18,7 @@ import requests
 
 from .config import (
     STT_SUITE_COMPOSE_PATH,
+    STT_SUITE_CPU_COMPOSE_PATH,
     STT_SUITE_DIR,
     WHISPER_CONTROL_TIMEOUT_S,
     WHISPER_HEALTH_TIMEOUT_S,
@@ -149,7 +150,12 @@ class STTClient:
     def start_container(self) -> tuple[bool, str]:
         if not os.path.exists(self.compose_path):
             return False, f"STT-Suite not found at {STT_SUITE_DIR} — run scripts/install-all.sh"
-        return docker_compose_action(self.compose_path, "up", "Whisper")
+        # No NVIDIA GPU on this machine: the CPU variant of the compose file (the service then answers
+        # device=cuda with 503 and AIfred transcribes on the CPU model).
+        from .gpu_utils import get_all_gpus_memory_info
+
+        overrides = () if get_all_gpus_memory_info() else (STT_SUITE_CPU_COMPOSE_PATH,)
+        return docker_compose_action(self.compose_path, "up", "Whisper", overrides)
 
     def ensure_ready(self, timeout_s: float = WHISPER_START_TIMEOUT_S) -> None:
         """Container bei Bedarf starten und auf das geladene Modell warten.

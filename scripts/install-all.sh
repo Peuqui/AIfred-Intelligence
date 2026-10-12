@@ -1053,14 +1053,21 @@ if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; the
             docker_run "docker rm -f whisper-stt" >/dev/null
         fi
 
+        # Without an NVIDIA GPU the base compose file cannot start (it reserves one): add the CPU variant.
+        WHISPER_COMPOSE_FILES="-f docker-compose.yml"
+        if ! command -v nvidia-smi &>/dev/null || ! nvidia-smi -L &>/dev/null; then
+            WHISPER_COMPOSE_FILES="-f docker-compose.yml -f docker-compose.cpu.yml"
+            echo -e "${YELLOW}ℹ️  No NVIDIA GPU found — Whisper STT runs on the CPU only.${NC}"
+        fi
+
         echo "   Building + starting Whisper container (can take a while on first run)..."
-        if docker_run "cd '$STT_SUITE_DIR' && docker compose up -d --build"; then
+        if docker_run "cd '$STT_SUITE_DIR' && docker compose $WHISPER_COMPOSE_FILES up -d --build"; then
             echo -e "${GREEN}✅ Whisper container running${NC}"
             WHISPER_STARTED=1
         else
             echo -e "${YELLOW}⚠️  Whisper build/start failed.${NC}"
             echo "   Catch up manually:"
-            echo "       cd $STT_SUITE_DIR && docker compose up -d --build"
+            echo "       cd $STT_SUITE_DIR && docker compose $WHISPER_COMPOSE_FILES up -d --build"
         fi
     fi
 else
