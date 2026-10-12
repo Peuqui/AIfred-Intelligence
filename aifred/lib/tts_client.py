@@ -37,7 +37,7 @@ from typing import Any, Literal
 
 import httpx
 from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import ConnectionClosed, InvalidHandshake, InvalidStatus
+from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, InvalidHandshake, InvalidStatus
 
 from .config import (
     TTS_SUITE_CONNECT_TIMEOUT_S,
@@ -460,7 +460,16 @@ class TextStream(_FrameStream):
 
     async def _receive(self) -> None:
         try:
-            async for message in self._connection:
+            while True:
+                try:
+                    message = await asyncio.wait_for(self._connection.recv(), TTS_SUITE_STREAM_READ_TIMEOUT_S)
+                except ConnectionClosedOK:
+                    break
+                except TimeoutError as error:
+                    # The service sends a keep-alive marker while a piece takes long: silence means it is gone.
+                    raise StreamBroken(
+                        f"TTS service sent nothing for {TTS_SUITE_STREAM_READ_TIMEOUT_S} s on the open reading",
+                    ) from error
                 if isinstance(message, str):
                     raise UnknownServiceError("TTS service sent a text message instead of a frame")
                 for segment in self._handle_chunk(message):

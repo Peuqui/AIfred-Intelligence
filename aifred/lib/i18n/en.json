@@ -165,6 +165,7 @@
   "tts_location_cloud": "cloud",
   "tts_location_cpu": "CPU",
   "tts_location_device": "device",
+  "tts_browser_name": "Browser",
   "tts_location_deactivated": "deactivated",
   "tts_reason_unreachable": "server outage",
   "tts_reason_engine": "engine failure",

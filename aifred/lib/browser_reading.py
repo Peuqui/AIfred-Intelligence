@@ -39,11 +39,12 @@ from .audio_processing import (
 from .config import BROWSER_PARAGRAPH_PAUSE_MS, TTS_BROWSER_ENGINE_KEY
 from .i18n import t
 from .logging_utils import log_message
-from .tts_client import TextStream, TraceStep, TTSSuiteError, get_tts_client, new_run_id
+from .tts_client import TextStream, TTSSuiteError, get_tts_client, new_run_id
 from .tts_service import (
     browser_entry_unit,
     request_engines_before_browser,
     service_entries_before_browser,
+    browser_note,
     escalation_report,
     spoken_note,
 )
@@ -256,8 +257,7 @@ class BrowserReading:
             sentences.feed(piece)
         sentences.finish()
         if self.browser_speech:
-            browser_step = TraceStep(TTS_BROWSER_ENGINE_KEY, "spoke")
-            self.note = await asyncio.to_thread(spoken_note, [browser_step], self._ui_language)
+            self.note = browser_note(self._ui_language)
 
     # ---- the playlist ----
 

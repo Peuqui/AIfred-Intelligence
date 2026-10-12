@@ -30,7 +30,14 @@ PCM_SAMPLE_RATE = 48000
 
 async def _report_escalation(summary: SpeakSummary, label: str) -> None:
     """The service's account of a reading (who spoke, who failed or was skipped, change of voice) to the debug bus: log file and, in a session, the console."""
-    for line in await asyncio.to_thread(escalation_report, summary, label):
+    try:
+        lines = await asyncio.to_thread(escalation_report, summary, label)
+    except TTSSuiteError as error:
+        # The reading is over and its audio delivered: a service that cannot name the entries now must not
+        # cost the end of the output (the device waits for it), but it is said.
+        debug(f"⚠️ [{label}] TTS escalation report failed: {type(error).__name__}: {error}")
+        return
+    for line in lines:
         debug(line)
 
 
