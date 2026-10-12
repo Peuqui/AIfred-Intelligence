@@ -163,12 +163,13 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
             },
         ),
         # Who spoke (escalation list), with switches and their reason.
-        # Live updates arrive via the bubble_tts_note push (custom.js).
+        # Live updates arrive via the bubble_tts_note push (custom.js). The text lives in an
+        # attribute (custom.css draws it): custom.js and React both write it, and a text node
+        # written by both showed up twice.
         rx.el.span(
-            rx.cond(msg["tts_note"].to(str) != "", "🔊 ", ""),
-            msg["tts_note"],
             class_name="bubble-tts-note",
             style={"font_size": "10px", "color": "#888"},
+            **{"data-note": msg["tts_note"].to(str)},
         ),
         spacing="1",
         align="center",

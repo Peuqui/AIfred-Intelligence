@@ -1026,7 +1026,7 @@ function startBrowserStream(sessionIdParam) {
                     ? lastAudioBubbleBtn.parentElement.querySelector('.bubble-tts-note')
                     : null;
                 if (note) {
-                    note.textContent = url ? '🔊 ' + url : '';
+                    note.setAttribute('data-note', url || '');
                 }
                 return;
             }

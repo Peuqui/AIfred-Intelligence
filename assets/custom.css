@@ -1002,3 +1002,11 @@ tr:hover {
     border: 1px solid var(--gray-7);
     object-fit: cover;
 }
+
+/* Who spoke a bubble (escalation list): text comes from the data-note attribute */
+.bubble-tts-note::before {
+    content: "🔊 " attr(data-note);
+}
+.bubble-tts-note[data-note=""]::before {
+    content: none;
+}
