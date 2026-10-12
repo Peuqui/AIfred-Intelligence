@@ -377,14 +377,22 @@ if ! docker compose version &>/dev/null 2>&1; then
     case "$PKG" in
         apt)
             # Ubuntu ships the plugin as docker-compose-v2 (next to its
-            # docker.io); docker-compose-plugin only exists in Docker's own
-            # apt repo. Take the one this machine's sources offer.
+            # docker.io); Debian 13 as docker-compose (2.x, with the plugin
+            # for "docker compose"); docker-compose-plugin only exists in
+            # Docker's own apt repo. Take the first one this machine offers.
             apt_ensure_update
-            if apt-cache show docker-compose-v2 &>/dev/null; then
-                sudo apt install -y docker-compose-v2
-            else
-                sudo apt install -y docker-compose-plugin
-            fi ;;
+            COMPOSE_PACKAGE=""
+            for candidate in docker-compose-v2 docker-compose-plugin docker-compose; do
+                if apt-cache show "$candidate" &>/dev/null; then
+                    COMPOSE_PACKAGE="$candidate"
+                    break
+                fi
+            done
+            if [ -z "$COMPOSE_PACKAGE" ]; then
+                echo -e "${RED}❌ No docker compose package in the apt sources — install it manually.${NC}"
+                exit 1
+            fi
+            sudo apt install -y "$COMPOSE_PACKAGE" ;;
         dnf)    sudo dnf install -y docker-compose-plugin ;;
         pacman) sudo pacman -S --noconfirm docker-compose ;;
         brew)   brew install docker-compose ;;
@@ -421,7 +429,7 @@ verify_step "docker client callable" \
     "sudo apt install docker.io"
 verify_step "docker compose plugin callable" \
     "docker compose version" \
-    "sudo apt install docker-compose-v2  (Ubuntu) or docker-compose-plugin (Docker's repo)"
+    "sudo apt install docker-compose-v2 (Ubuntu), docker-compose (Debian) or docker-compose-plugin (Docker's repo)"
 verify_step "docker daemon reachable (server responds)" \
     "$(docker_check "docker info")" \
     "sudo systemctl start docker  (or log out/in if group is fresh)"
