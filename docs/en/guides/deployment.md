@@ -691,7 +691,7 @@ reserves a GPU, which Docker refuses there. AIfred does the same when it starts 
   STT-Suite decides by free graphics memory), *CPU only* or *GPU only* (an error without room, no
   fallback). The device is kept as `stt_device` in `settings.json`. Long recordings (over
   `WHISPER_GPU_MIN_FILE_MB`, 10 MB) always go to the CPU with Automatic.
-- **What the STT-Suite sets** (its page at `/ui/`, `/whisper/ui/` behind the proxy): engine, model and
+- **What the STT-Suite sets** (its page at `/ui/`, `/stt-suite/ui/` behind the proxy): engine, model and
   quality per device, the order of the automatic mode, the memory margin and the measurement of the
   memory need.
 - **Freeing the GPU:** before the cold start of a big model AIfred unloads the GPU worker

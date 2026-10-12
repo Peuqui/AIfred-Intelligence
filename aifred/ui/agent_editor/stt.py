@@ -72,7 +72,7 @@ def _stt_view() -> rx.Component:
                     t("stt_device_hint"),
                 ),
                 rx.text(t("stt_suite_hint"), font_size="12px", color="#aaa", width="100%"),
-                rx.link(t("stt_suite_open"), href="/whisper/ui/", is_external=True, size="2"),
+                rx.link(t("stt_suite_open"), href="/stt-suite/ui/", is_external=True, size="2"),
                 spacing="3",
                 width="100%",
                 min_width="0",
