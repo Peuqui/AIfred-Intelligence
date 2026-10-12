@@ -1041,15 +1041,15 @@ if command -v docker &>/dev/null && docker compose version &>/dev/null 2>&1; the
     fi
 
     if [ "$WHISPER_CHECKOUT_OK" = "1" ]; then
-        # Until 10/2026 Whisper lived in AIfred's docker/whisper/. The container
-        # name is fixed, so the old one has to go before the new one can start.
-        # The models survive: the volume 'whisper_models' is named explicitly.
-        WHISPER_OLD_DIR=$(docker_run "docker ps -a --filter name=^whisper-stt\$ --format '{{.Label \"com.docker.compose.project.working_dir\"}}'")
-        if [ -n "$WHISPER_OLD_DIR" ] \
-           && [ "$(readlink -f "$WHISPER_OLD_DIR")" != "$(readlink -f "$STT_SUITE_DIR")" ]; then
-            echo -e "${YELLOW}ℹ️  Whisper STT moved into its own repo (STT-Suite).${NC}"
-            echo "   Replacing the old container from $WHISPER_OLD_DIR —"
-            echo "   downloaded models are kept (volume 'whisper_models')."
+        # Until 10/2026 Whisper lived in AIfred's docker/whisper/ and the container was called
+        # 'whisper-stt' (volumes 'whisper_models' / 'whisper_state'). The STT-Suite names container,
+        # image, project and volumes 'stt-suite' / 'stt_suite_*' and uses the same port 5080, so the
+        # old container has to go before the new one can start. The old models stay in their volume;
+        # the STT-Suite README says how to copy them (otherwise they download again).
+        if [ -n "$(docker_run "docker ps -a --filter name=^whisper-stt\$ --format '{{.Names}}'")" ]; then
+            echo -e "${YELLOW}ℹ️  Whisper STT is now the STT-Suite (container 'stt-suite').${NC}"
+            echo "   Removing the old container 'whisper-stt'; its models stay in the volume"
+            echo "   'whisper_models' (copy: see the STT-Suite README, 'Updating')."
             docker_run "docker rm -f whisper-stt" >/dev/null
         fi
 
@@ -1078,8 +1078,8 @@ fi
 echo ""
 echo -e "${BLUE}🔎 Verifying Whisper STT...${NC}"
 if [ "$WHISPER_STARTED" = "1" ]; then
-    verify_step "whisper-stt container running" \
-        "$(docker_check "docker ps --format '{{.Names}}' | grep -qx whisper-stt")" \
+    verify_step "stt-suite container running" \
+        "$(docker_check "docker ps --format '{{.Names}}' | grep -qx stt-suite")" \
         "cd '$STT_SUITE_DIR' && docker compose up -d --build"
     # Healthcheck inside the container: 30s interval + start_period 60s.
     # Poll generously because the model pull on a fresh start takes
@@ -1097,8 +1097,8 @@ if [ "$WHISPER_STARTED" = "1" ]; then
         echo -e "   ${GREEN}✅ verified:${NC} Whisper /health responds (port 5080)"
     else
         echo -e "   ${YELLOW}⚠️  Whisper /health not ready after 180s${NC}"
-        echo -e "      ${YELLOW}→ docker logs whisper-stt -f${NC}"
-        STEP_WARNINGS+=("Whisper STT taking longer to come up — check docker logs whisper-stt")
+        echo -e "      ${YELLOW}→ docker logs stt-suite -f${NC}"
+        STEP_WARNINGS+=("Whisper STT taking longer to come up — check docker logs stt-suite")
     fi
 else
     STEP_WARNINGS+=("Whisper STT not started — voice input in the UI won't work (see $STT_SUITE_REPO_URL)")

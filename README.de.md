@@ -193,7 +193,7 @@ Der interaktive Installer kümmert sich um Systempakete (apt, dnf, pacman, brew)
 
 Vollständig getestet auf einem frischen Ubuntu 24.04 (Container mit durchgereichten GPUs, Oktober 2026). Jede Frage lässt sich vorab beantworten, für eine Installation ohne Rückfragen, z. B. `AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh` — alle Variablen: [Installation ohne Rückfragen](docs/de/guides/deployment.md#installation-ohne-rückfragen).
 
-**Update von einem Stand vor Oktober 2026:** Whisper STT ist aus `docker/whisper/` in ein eigenes Repo umgezogen. Nach `git pull` einmal `./scripts/install-all.sh` erneut ausführen — er klont STT-Suite und ersetzt den alten Container; bereits geladene Whisper-Modelle bleiben erhalten.
+**Update von einem Stand vor Oktober 2026:** Whisper STT ist aus `docker/whisper/` in ein eigenes Repo umgezogen. Nach `git pull` einmal `./scripts/install-all.sh` erneut ausführen — er klont STT-Suite und ersetzt den alten Container `whisper-stt` (jetzt `stt-suite`); bereits geladene Modelle bleiben im alten Volume `whisper_models` (Kopieren: siehe die README der STT-Suite, „Aktualisieren“, sonst werden sie neu geladen).
 
 Danach:
 1. **Registrieren** in der Web-UI mit dem Benutzernamen von der Whitelist (`./aifred-admin add <name>` für weitere Benutzer)

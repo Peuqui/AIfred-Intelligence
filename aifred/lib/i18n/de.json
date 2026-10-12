@@ -677,7 +677,7 @@
   "stt_device_cuda": "Nur GPU",
   "stt_suite_hint": "Engine, Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik, der Speicherpuffer und die Messung stellst du auf der Oberfläche der STT-Suite ein.",
   "stt_suite_open": "STT-Suite öffnen",
-  "stt_unavailable": "Whisper-Dienst nicht erreichbar — läuft der Container?",
+  "stt_unavailable": "STT-Dienst nicht erreichbar — läuft der Container (stt-suite)?",
   "stt_device": "Bevorzugtes Gerät",
   "stt_device_hint": "Automatik: Die STT-Suite wählt selbst (Reihenfolge und Puffer stellst du dort ein). Nur CPU: die Grafikkarten werden nie gefragt. Nur GPU: ohne Platz gibt es einen Fehler, kein Ausweichen auf die CPU. Lange Aufnahmen gehen immer auf die CPU. Gilt für Browser, Echo Dot und Dateien.",
   "stt_initial_prompt_hint": "„auto\" = eingebauter Stilsatz je Sprache (erzwingt Interpunktion), leer = aus, sonst eigener Text.",

@@ -193,7 +193,7 @@ The interactive installer handles system packages (apt, dnf, pacman, brew), the 
 
 Tested end to end on a fresh Ubuntu 24.04 (container with GPU passthrough, October 2026). Every question can be answered in advance for an unattended install, e.g. `AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh` — all variables: [Unattended install](docs/en/guides/deployment.md#unattended-install).
 
-**Updating from before October 2026:** Whisper STT moved out of `docker/whisper/` into its own repo. After `git pull`, re-run `./scripts/install-all.sh` — it clones STT-Suite and replaces the old container; downloaded Whisper models are kept.
+**Updating from before October 2026:** Whisper STT moved out of `docker/whisper/` into its own repo. After `git pull`, re-run `./scripts/install-all.sh` — it clones STT-Suite and replaces the old container `whisper-stt` (now `stt-suite`); the downloaded models stay in the old volume `whisper_models` (copy them as described in the STT-Suite README, "Updating", otherwise they download again).
 
 Then:
 1. **Register** in the web UI with the whitelisted username (`./aifred-admin add <name>` for more users)

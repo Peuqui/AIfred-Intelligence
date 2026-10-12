@@ -1239,7 +1239,7 @@ AUDIO_UPLOAD_MAX_MB = 2048
 # 10-20x realtime → 2 h audio ≈ 6-12 min.
 WHISPER_TRANSCRIBE_TIMEOUT_S = 1800
 
-# All transcriptions go GPU-first (the whisper-stt service checks free VRAM
+# All transcriptions go GPU-first (the STT-Suite service checks free VRAM
 # itself and answers 503 when nothing fits). This threshold only decides what
 # happens THEN: files up to this size silently retry on the permanent CPU
 # model (fast enough there); bigger files (meetings) would take >30 min on
