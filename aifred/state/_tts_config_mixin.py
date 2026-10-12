@@ -133,43 +133,58 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     # ── Spoken output on/off, autoplay ────────────────────────────
 
-    def set_enable_tts(self, enabled: bool):
+    async def set_enable_tts(self, enabled: bool):
         self.enable_tts = enabled
         self._save_settings()  # type: ignore[attr-defined]
         self.add_debug(f"🔊 TTS: {'enabled' if enabled else 'disabled'}")  # type: ignore[attr-defined]
         yield
-        yield from self._apply_planned_tts()
+        async for _ in self._apply_planned_tts():
+            yield
 
     def toggle_tts_autoplay(self):
         self.tts_autoplay = not self.tts_autoplay
         self._save_settings()  # type: ignore[attr-defined]
         self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")  # type: ignore[attr-defined]
 
-    def _apply_planned_tts(self):
+    async def _apply_planned_tts(self):
         """Bring the LLM profile in line with the list: it reserves room for the
-        planned engine (topmost enabled local GPU entry with a calibrated
-        profile), or for none when the spoken output is off. No container is touched.
-        Generator — each yield is one finished blocking step."""
-        from ..lib.tts_llm_coordination import ensure_tts_state, planned_tts_engine
+        planned engine (topmost enabled local entry with a calibrated profile), or for none when
+        the spoken output is off. No container is touched here.
+        Async generator — each yield is one finished blocking step (``_run_tts_plan``)."""
+        from ..lib.tts_llm_coordination import planned_tts_engine
 
         wanted = (
             planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
             if self.enable_tts else ""
         )
+        async for _ in self._run_tts_plan(wanted):
+            yield
+
+    async def _run_tts_plan(self, wanted: str):
+        """Run ``ensure_tts_state`` for the planned engine ``wanted`` (``""`` = none), step by step.
+
+        Every step of the generator is a whole blocking chunk (LLM restart: up to minutes, a release
+        of the TTS service: up to 120 s). Run bare in an event handler it froze the whole event loop,
+        and granian took the worker for dead. ``to_thread`` keeps the loop free; ``next(gen, sentinel)``
+        because a ``StopIteration`` propagating out of ``to_thread`` becomes a RuntimeError."""
+        from ..lib.tts_llm_coordination import ensure_tts_state
+
         generator = ensure_tts_state(wanted_tts=wanted, backend_type=self.backend_type)  # type: ignore[attr-defined]
-        try:
-            while True:
-                self.add_debug(f"🔊 {next(generator)}")  # type: ignore[attr-defined]
-                yield
-        except StopIteration:
-            pass
+        done = object()
+        while True:
+            message = await asyncio.to_thread(next, generator, done)
+            if message is done:
+                break
+            self.add_debug(f"🔊 {message}")  # type: ignore[attr-defined]
+            yield
 
     # ── List editing (settings.json) ──────────────────────────────
 
-    def replan_tts(self):
+    async def replan_tts(self):
         """Bring the VRAM state in line with the list (event chain after an edit that moved
-        the planned engine; sync generator: each step blocks)."""
-        yield from self._apply_planned_tts()
+        the planned engine)."""
+        async for _ in self._apply_planned_tts():
+            yield
 
     async def _edit_tts_lists(self, change: Callable[[Dict[str, Any]], None]) -> List[Any]:
         """Match the list with the catalog, apply ``change`` to a copy of the persisted

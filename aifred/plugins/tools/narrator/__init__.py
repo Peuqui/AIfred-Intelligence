@@ -81,10 +81,10 @@ class NarratorPlugin:
             from ....lib.audio_processing import (
                 TTS_AUDIO_DIR,
                 concatenate_wav_files,
-                store_tts_audio,
             )
             from ....lib.config import NARRATE_CHUNK_LIMIT_CHARS, NARRATE_PARAGRAPH_PAUSE_MS
             from ....lib.debug_bus import debug
+            from ....lib.speech_synthesis import store_reading_audio
             from ....lib.text_chunking import (
                 split_paragraph_chunks,
                 split_speaker_segments,
@@ -184,11 +184,7 @@ class NarratorPlugin:
                         chunk, language=language, engines=[engine_ref], paragraph_pause_ms=NARRATE_PARAGRAPH_PAUSE_MS,
                         voices={engine: {"voice": chunk_voice, "speed": 1.0, "pitch": 1.0}}, run=run,
                     )
-                    async for part in stream:
-                        if not part.keepalive:
-                            wav_urls.append(await asyncio.to_thread(
-                                store_tts_audio, part.audio, part.media_type, "narrator", part.engine,
-                            ))
+                    wav_urls.extend(await store_reading_audio(stream, "narrator"))
                 except (TTSSuiteError, ValueError) as exc:
                     return json.dumps({
                         "error": f"TTS failed at chunk {i}/{total}: {exc}",
