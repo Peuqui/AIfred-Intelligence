@@ -123,7 +123,7 @@ Speech recognition is done by the **STT-Suite** (its own container, port 5080, d
 in the **STT tab of the Agent Editor**: *Automatic* (default), *CPU only* or *GPU only*. It goes to
 the service as `device=auto|cpu|cuda` and is the same for browser, Echo Dot and files. Engine, model
 and quality per device, the order of the automatic mode and the memory margin are on the STT-Suite's
-own page (`/stt-suite/ui/` behind the proxy, the tab links to it).
+own page (`/stt-suite/ui/` behind the proxy).
 
 ## Reasoning and thinking
 
