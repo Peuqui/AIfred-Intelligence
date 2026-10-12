@@ -615,7 +615,7 @@ def update_llamaswap_cuda_visible(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Variant creation (speed, tts-xtts, tts-moss)
+# Variant creation (speed, tts-xtts, tts-qwen3local)
 # ═══════════════════════════════════════════════════════════════════
 
 def _copy_entry(config: dict, source_id: str, target_id: str) -> dict | None:

@@ -8,7 +8,7 @@ für den Haupt-Chat-LLM (typisch via llama-swap). Die Side-Channels
 beide Side-Channels landen auf derselben Tier-Karte, damit alle übrigen
 Karten für Backend-Topologien frei bleiben (z.B. TP2×PP2 über vier
 Karten bei der vLLM-Kalibration). Der Preis: sehr große TTS-Engines
-(Fish, MOSS) passen nicht mehr gleichzeitig mit dem VLM auf eine Karte —
+passen nicht mehr gleichzeitig mit dem VLM auf eine Karte —
 das fängt der Kombi-Kapazitäts-Guard der Kalibration ab (Profil wird
 abgelehnt statt kaputt geschrieben).
 

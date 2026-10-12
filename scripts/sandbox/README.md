@@ -59,7 +59,7 @@ sudo ./scripts/sandbox/run-test.sh --shell
 - LLM inference
 - Calibration (no nvidia-smi in container)
 - Vision / Vigilantia with a real camera (V4L2 + CUDA)
-- Local TTS engines (XTTS, Fish-Speech need CUDA)
+- Local TTS engines (XTTS, Qwen3-TTS need CUDA)
 
 Verify those on the actual hardware.
 

@@ -1053,8 +1053,8 @@ def record_calibration_failure(
     automatically via ``add_llamacpp_calibration``.
 
     Args:
-        model_id: Variant key (e.g. ``"<base>-tts-fishspeech"``,
-            ``"<base>-tts-fishspeech-vlm-qwen3vl8b"``).
+        model_id: Variant key (e.g. ``"<base>-tts-xtts"``,
+            ``"<base>-tts-xtts-vlm-qwen3vl8b"``).
         reason: One of ``_VALID_FAILURE_REASONS``.
         detail: Human-readable explanation, shown in the UI tooltip.
 

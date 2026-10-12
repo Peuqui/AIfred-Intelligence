@@ -319,7 +319,7 @@ NARRATE_DEFAULT_VOICE = "AIfred"
 # with a German accent" works as a stylistic choice). "auto" preserves
 # the previous behaviour: detected LLM language → UI language fallback.
 # The 10 listed languages are exactly the ones Qwen3-TTS supports;
-# XTTS / MOSS / Edge accept their own language tags and ignore unknown
+# XTTS / Edge accept their own language tags and ignore unknown
 # values, so the option set is safe to expose for every engine.
 TTS_LANGUAGE_OPTIONS: list[tuple[str, str]] = [
     ("auto", "Auto"),
@@ -1089,7 +1089,7 @@ LLAMACPP_VLM_HEADROOM_MB = 500
 LLAMACPP_TTS_BURNIN_HEADROOM_MB = 512
 
 # Number of stress syntheses per TTS-engine burn-in. Real-world data
-# (Fish-Speech, Qwen3-TTS, XTTS) shows the VRAM peak is reached by
+# (Qwen3-TTS, XTTS) shows the VRAM peak is reached by
 # synthesis 1 with at most +10 MiB drift on synthesis 2 — fully covered
 # by the headroom above. Default 2 = DE + EN; one warm-up, one
 # steady-state. Raise this if a new engine shows late-arriving peaks.
@@ -1115,7 +1115,7 @@ TTS_BURNIN_VRAM_POLL_S = 0.3
 LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S = 30.0
 
 # TTS VRAM reserve for tensor-split calculation (MB).
-# TTS models can spike during inference (e.g. MOSS-TTS: ~350 MB peak above idle).
+# TTS models can spike during inference (e.g. ~350 MB peak above idle).
 # Subtracted from the TTS GPU's free VRAM before computing tensor-split ratios.
 LLAMACPP_TTS_VRAM_RESERVE = 512  # MB (peak spike + safety buffer)
 

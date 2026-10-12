@@ -152,14 +152,14 @@ def test_a_catalog_row_the_list_does_not_know_comes_last_and_switched_off(servic
 
 def test_a_fresh_installs_start_list_orders_and_switches_the_rows_it_names(service, settings) -> None:
     service(
-        row("piper", needs_gpu=False), row("fishspeech"), row("qwen3local"), row("xtts"),
+        row("piper", needs_gpu=False), row("extra_engine"), row("qwen3local"), row("xtts"),
         listed=[dict(entry) for entry in DEFAULT_TTS_ESCALATION],
     )
     listed = tts_service.entries()
     assert [(e.engine, e.enabled, e.info is not None) for e in listed] == [
         ("qwen3local", True, True), ("xtts", True, True), ("dashscope_audio3", True, False),
         ("piper", True, True), ("edge", True, False), ("browser", True, False),
-        ("fishspeech", False, True),   # offered, not named by the start list: behind it, switched off
+        ("extra_engine", False, True),   # offered, not named by the start list: behind it, switched off
     ]
     assert [r.engine for r in tts_service.request_engines()] == ["qwen3local", "xtts", "piper"]
 
@@ -279,11 +279,11 @@ def test_request_engines_with_nothing_switched_on_is_empty(service) -> None:
 
 def test_keys_and_labels_come_from_the_catalog_not_from_the_list(service) -> None:
     service(
-        row("xtts"), row("qwen3local", "Box"), row("moss", installed=False),
+        row("xtts"), row("qwen3local", "Box"), row("extra_engine", installed=False),
         row("piper", needs_gpu=False), row("edge", needs_gpu=False, cloud=True),
         listed=[stored("piper")],
     )
-    assert tts_service.gpu_engine_keys() == {"xtts", "moss"}
+    assert tts_service.gpu_engine_keys() == {"xtts", "extra_engine"}
     assert tts_service.installed_gpu_engine_keys() == ["xtts"]
     assert tts_service.usable_engine_keys() == ["xtts", "qwen3local", "piper", "edge"]
     assert tts_service.engine_label("xtts", "de") == "xtts lang"
