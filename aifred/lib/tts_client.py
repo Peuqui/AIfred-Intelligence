@@ -30,8 +30,8 @@ import json
 import struct
 import subprocess
 import uuid
-from collections.abc import AsyncIterator, Mapping, Sequence
-from dataclasses import asdict, dataclass
+from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
+from dataclasses import asdict, dataclass, fields
 from time import monotonic, sleep
 from typing import Any, Literal
 
@@ -145,7 +145,13 @@ class UnknownServiceError(TTSSuiteError):
 
 
 class StreamBroken(TTSSuiteError):
-    """The frame stream ended without a ``summary`` frame or in the middle of a frame."""
+    """The frame stream ended without a ``summary`` frame, in the middle of a frame, or carried a
+    frame this client cannot read."""
+
+
+class IncompatibleService(TTSSuiteError):
+    """The service answered in a form this client does not know (fields missing or new): service
+    and client were not updated together. The client stays strict on purpose; the message names the fields."""
 
 
 class TTSSuiteUnreachable(TTSSuiteError):
@@ -290,6 +296,17 @@ class SpeakSummary:
     switch: str | None
 
 
+def _decode(cls: type[Any], item: Mapping[str, Any], where: str) -> Any:
+    """``cls(**item)`` for an answer of the service whose fields must be exactly those of ``cls``."""
+    expected = {field.name for field in fields(cls)}
+    if set(item) != expected:
+        raise IncompatibleService(
+            f"TTS service {where} differs from this client: missing {sorted(expected - set(item))}, "
+            f"unknown {sorted(set(item) - expected)}"
+        )
+    return cls(**item)
+
+
 # ---- Frame decoding ----------------------------------------------------------
 
 
@@ -301,13 +318,14 @@ class FrameDecoder:
         self._buffer = bytearray()
 
     def feed(self, chunk: bytes) -> list[tuple[dict[str, Any], bytes]]:
+        return list(self.iter_frames(chunk))
+
+    def iter_frames(self, chunk: bytes) -> Iterator[tuple[dict[str, Any], bytes]]:
+        """The frames the chunk completes, one by one: a malformed later frame does not take away
+        the ones before it."""
         self._buffer += chunk
-        frames: list[tuple[dict[str, Any], bytes]] = []
-        while True:
-            frame = self._take_frame()
-            if frame is None:
-                return frames
-            frames.append(frame)
+        while (frame := self._take_frame()) is not None:
+            yield frame
 
     @property
     def pending(self) -> int:
@@ -347,9 +365,17 @@ class _FrameStream:
             raise RuntimeError("the summary is only available after the stream has ended")
         return self._summary
 
-    def _handle_chunk(self, chunk: bytes) -> list[Segment]:
-        segments = [self._handle_frame(header, body) for header, body in self._decoder.feed(chunk)]
-        return [segment for segment in segments if segment is not None]
+    def _handle_chunk(self, chunk: bytes) -> Iterator[Segment]:
+        """The segments of the frames the chunk completes, in order. An error frame (or a frame this
+        client cannot read) raises only after the segments before it were handed out: audio that
+        arrived in the same read is not lost."""
+        try:
+            for header, body in self._decoder.iter_frames(chunk):
+                segment = self._handle_frame(header, body)
+                if segment is not None:
+                    yield segment
+        except (KeyError, ValueError, TypeError) as error:
+            raise StreamBroken(f"TTS service sent a frame this client cannot read: {error!r}") from error
 
     def _check_ended_cleanly(self) -> None:
         if self._decoder.pending or self._summary is None:
@@ -444,6 +470,8 @@ class TextStream(_FrameStream):
             self._fail(TTSSuiteUnreachable(f"TTS service connection lost during reading: {error!r}"))
         except TTSSuiteError as error:
             self._fail(error)
+        except Exception as error:  # noqa: BLE001 — a task nobody awaits must not die silently: the reader would wait for ever
+            self._fail(StreamBroken(f"TTS stream receiver failed: {type(error).__name__}: {error}"))
         else:
             self._queue.put_nowait(None)
 
@@ -569,11 +597,11 @@ class TTSClient:
     # ---- read ----
 
     def engines(self) -> list[EngineInfo]:
-        return [EngineInfo(**item) for item in self._get("/engines")]
+        return [_decode(EngineInfo, item, "/engines") for item in self._get("/engines")]
 
     def voices(self, engine: str | None = None) -> list[VoiceInfo]:
         params = {"engine": engine} if engine else None
-        return [VoiceInfo(**item) for item in self._get("/voices", params)]
+        return [_decode(VoiceInfo, item, "/voices") for item in self._get("/voices", params)]
 
     # ---- release ----
 
@@ -597,7 +625,7 @@ class TTSClient:
             raise TTSSuiteUnreachable(f"TTS service not reachable on /release: {error!r}") from error
         if response.is_error:
             raise _error_from_response(response)
-        return [ReleaseResult(**item) for item in response.json()]
+        return [_decode(ReleaseResult, item, "/release") for item in response.json()]
 
     # ---- speak ----
 
