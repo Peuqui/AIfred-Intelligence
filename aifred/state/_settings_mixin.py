@@ -157,8 +157,6 @@ class SettingsMixin(rx.State, mixin=True):
             "tts_agent_voices_per_engine": existing.get("tts_agent_voices_per_engine", {}),
             "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
             "tts_escalation": persisted_settings()["tts_escalation"],
-            # Host list of the old escalation path (lib/tts_escalation.py); no editor writes it any more.
-            "tts_hosts": persisted_settings()["tts_hosts"],
             # UI Settings
             "auto_scroll": self.auto_refresh_enabled,  # type: ignore[attr-defined, has-type]
             # Message Hub settings: written only by their own switches

@@ -119,6 +119,15 @@ def engine_key_for_label(label: str) -> str:
     return label
 
 
+def voice_names(engine_key: str) -> list[str]:
+    """Voice names the service offers for an engine, in the service's order.
+
+    Raises:
+        TTSSuiteUnreachable: the service does not answer; there is no stand-in catalog.
+    """
+    return [voice.name for voice in get_tts_client().voices(engine_key)]
+
+
 def _is_local_gpu(info: EngineInfo) -> bool:
     return info.needs_gpu and info.host is None
 

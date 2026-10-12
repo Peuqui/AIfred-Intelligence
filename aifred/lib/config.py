@@ -123,11 +123,6 @@ DEFAULT_SETTINGS = {
     "voice": "Deutsch (Katja)",
     "tts_playback_rate": "1.25x",  # Browser playback speed (1.25 = default, speed via Agent Settings)
     "enable_tts": False,
-    # AIfreds Schalter je Rechner des TTS-Dienstes: [{"name", "enabled"}]. Leer = noch keiner
-    # bekannt; angebotene Rechner kommen beim Abgleich mit dem Katalog ausgeschaltet dazu.
-    # (Der alte Sprechpfad aifred/lib/tts_escalation.py liest das Feld im ALTEN Format und
-    # entfällt mit Schritt 4b/5.)
-    "tts_hosts": [],
     # Startliste der Sprachausgabe (Reihenfolge, an/aus, Rechner je Eintrag), von AIfred geführt:
     # bestimmt nur Reihenfolge und Anfangs-"an" der genannten Zeilen; jede weitere Katalogzeile
     # des Dienstes kommt beim Abgleich ausgeschaltet dahinter.
@@ -264,6 +259,9 @@ LLAMACPP_HYBRID_HEALTH_TIMEOUT = 900   # Hybrid mode: CPU offload + mlock — ex
 # 6 s/GB = ~2.4× der gemessenen Basis-Ladezeit, komfortabler Puffer.
 LLAMACPP_HEALTH_TIMEOUT_PER_GB = 6     # Seconds per GB model size (added to floor logic)
 LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "9999"))
+# HTTP timeout (seconds) for llama-swap's /running query; normal answer < 100 ms,
+# the value only guards against hung connections.
+LLAMASWAP_RUNNING_TIMEOUT_S = 5
 
 # llama-swap-Familie (SSOT): Backends, deren Modelle als llama-swap-
 # Eintraege laufen — gemeinsamer Dienst, gemeinsamer Katalog, gemeinsame
@@ -287,16 +285,12 @@ BACKEND_LABELS = {
     "cloud_api": "Cloud APIs",
 }
 
-# Engine-specific voice catalogues now live in aifred/lib/tts_engines/<engine>/.
-# config.py stays engine-agnostic — adding a new engine is a one-file drop.
-
 # ============================================================
 # TTS ENGINES
 # ============================================================
-# Engine list is derived from the TTSEngine plugin registry — the
-# single source of truth for "which TTS engines exist" lives in
-# ``aifred/lib/tts_engines/`` (one folder per engine, auto-discovered).
-# To add a new engine, drop a folder there; no edit needed here.
+# Which TTS engines exist, where they run and how they are started is the
+# TTS-Suite service's business (``aifred/lib/tts_service.py``); AIfred only
+# keeps its own list of engines to use and the per-engine toggles.
 # Default TTS engine — preselected in fresh state and in the agent
 # editor's backend dropdown until the user picks one. Single source of
 # truth: the state mixins read this instead of each hardcoding a key.
@@ -316,46 +310,6 @@ TTS_VOICES_DIR = PROJECT_ROOT / "docker" / "tts" / "voices"
 # narrate_file: fallback voice when the caller does not pass one.
 # Must match a reference voice shipped in docker/tts/voices/.
 NARRATE_DEFAULT_VOICE = "AIfred"
-
-# ============================================================
-# TTS engine specifics live in aifred/lib/tts_engines/<engine>/.
-# Each engine class owns its service URL, voice fallback list, compose
-# directory, VRAM reserve, and Docker image name. config.py stays
-# engine-agnostic on purpose — adding a new engine is a one-file drop.
-# ============================================================
-
-# ============================================================
-# TTS Container Keep-Alive (heartbeat ping interval)
-# ============================================================
-# While a long-running pipeline (FreeEcho.2 inference, browser web research)
-# holds a GPU TTS engine, AIfred pings ``/keep_alive`` on the container
-# every TTS_KEEPALIVE_INTERVAL_SECONDS to reset its idle timer.
-# Container-side timeout is set via XTTS_KEEP_ALIVE / MOSS_KEEP_ALIVE
-# env vars in the docker-compose files (default: 30 minutes).
-# Choose this interval comfortably below the container timeout so a
-# single missed ping (network hiccup) is harmless. Default 5 min.
-TTS_KEEPALIVE_INTERVAL_SECONDS = 300
-
-# Per-request HTTP timeout when pinging /keep_alive — should be tiny,
-# the endpoint just resets a timer and returns immediately.
-TTS_KEEPALIVE_HTTP_TIMEOUT = 5
-
-# Synthese-Aufrufe an TTS-Container (lokal oder auf einem anderen Rechner):
-# Verbindungsaufbau kurz, damit ein toter Server sofort als Ausfall gilt und
-# die Eskalationsliste weitergeht; Lesen großzügig, weil ganze Absätze am
-# Stück auf langsamen Karten Minuten brauchen.
-TTS_CONNECT_TIMEOUT_S = 3
-TTS_READ_TIMEOUT_S = 600
-# Health-Abfrage eines TTS-Containers: Die Eskalationsliste fragt damit jeden
-# Eintrag, bevor er spricht; antwortet ein anderer Rechner nicht so schnell,
-# übernimmt der nächste Eintrag (Direktstrecke: ~1 ms Ping).
-TTS_HEALTH_TIMEOUT_S = 0.5
-# Steuerung der TTS-Container auf einem anderen Rechner per SSH: eigener
-# Schlüssel, auf dem TTS-Host in authorized_keys auf scripts/tts-host-ctl.sh
-# festgelegt (siehe docs/*/architecture/tts-vram-workflow.md).
-TTS_HOST_SSH_KEY = Path.home() / ".ssh" / "aifred_tts_host"
-TTS_HOST_SSH_CONNECT_TIMEOUT_S = 3
-TTS_HOST_SSH_COMMAND_TIMEOUT_S = 60
 
 # Long text used for the calibration-time test inference that drives the
 # Qwen3-TTS KV-cache up to its real-world high-water mark. About ~800

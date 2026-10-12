@@ -16,7 +16,6 @@ import time
 import httpx
 import edge_tts
 from pathlib import Path
-from typing import TYPE_CHECKING
 from .config import DATA_DIR, TTS_MEDIA_TYPE_EXTENSIONS
 from .i18n import t
 from .logging_utils import log_message
@@ -29,10 +28,6 @@ from .tts_text_filter import (
     collapsible_tags as _collapsible_tags,
     strip_collapsible_blocks as _strip_collapsible_blocks,
 )
-
-if TYPE_CHECKING:
-    from .tts_engines import TTSEngine
-
 
 # TTS Audio output directory (temporary chunks, 24h cleanup)
 # Located in data/ directory which is excluded from hot-reload
@@ -1448,83 +1443,6 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
             f"(Time: {stt_time:.1f}s)"
         )
     return user_text, stt_time
-
-
-async def generate_tts(
-    text: str,
-    voice_choice: str,
-    speed_choice: float,
-    engine: "TTSEngine",
-    pitch: float = 1.0,
-    agent: str = "aifred",
-    language: str = "de",
-) -> str:
-    """Generate TTS audio from text with one engine instance.
-
-    Dispatches to ``engine.generate_speech_async(...)`` — that's the
-    one place that knows about each engine. After the engine returns,
-    the central ffmpeg post-processor applies pitch / speed for engines
-    that don't handle them natively (flagged via
-    ``needs_speed_postprocess`` on the engine class).
-
-    Which engine (and on which host) speaks is the escalation list's
-    decision (``aifred.lib.tts_escalation``); this function just runs it.
-
-    Args:
-        text: Text for TTS (already cleaned).
-        voice_choice: Voice display name. The ★ prefix used by the UI
-            to mark custom-cloned voices is stripped here so engines
-            see the clean name.
-        speed_choice: Speed multiplier (e.g. 1.25).
-        engine: Engine instance — from the registry (this machine) or
-            bound to a remote host.
-        pitch: Pitch factor (0.8 = 20 % lower, 1.0 = unchanged).
-        agent: Agent name for filename prefix.
-        language: Language ISO short code (e.g. ``"de"``).
-
-    Returns:
-        Audio URL (``/_upload/tts_audio/<name>``). Raises
-        :class:`~aifred.lib.tts_engines.TTSFailure` when the engine
-        delivers no audio.
-    """
-    # Set agent/engine for the filename helper BEFORE any TTS call —
-    # parallel create_task calls would otherwise race on these globals.
-    set_tts_agent(agent)
-    set_tts_engine(engine.key)
-
-    # Strip the UI ★ prefix centrally — engines see the clean voice name.
-    if voice_choice.startswith("★ "):
-        voice_choice = voice_choice[2:]
-
-    # SSOT: name the engine that actually synthesises — on EVERY call, for
-    # every caller (browser, FreeEcho.2, proactive pushes). Goes to debug.log
-    # + the UI console and (in a session_scope) the live session console, so
-    # one can verify which engine really ran, not just trust the dropdown.
-    from .debug_bus import debug
-    debug(
-        f"🔊 TTS: engine={engine.key}@{engine.address}, voice={voice_choice}, agent={agent}, "
-        f"lang={language}, speed={speed_choice}, pitch={pitch}"
-    )
-
-    audio_url = await engine.generate_speech_async(
-        text, voice_choice, language, speed_choice, pitch,
-    )
-
-    # ffmpeg post-process: only for engines that don't handle speed
-    # natively. Pitch is universally a post-step (no engine has it).
-    needs_speed = engine.needs_speed_postprocess and abs(speed_choice - 1.0) >= 0.01
-    needs_pitch = abs(pitch - 1.0) >= 0.01
-    if needs_pitch or needs_speed:
-        filename = audio_url.split("/")[-1]
-        local_path = str(TTS_AUDIO_DIR / filename)
-        ffmpeg_speed = speed_choice if needs_speed else 1.0
-        ffmpeg_pitch = pitch if needs_pitch else 1.0
-        loop = asyncio.get_running_loop()
-        await loop.run_in_executor(
-            None, apply_audio_adjustments, local_path, ffmpeg_pitch, ffmpeg_speed,
-        )
-
-    return audio_url
 
 
 # ============================================================

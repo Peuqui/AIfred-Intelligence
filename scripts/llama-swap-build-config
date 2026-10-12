@@ -46,7 +46,7 @@ ENV:
   AIFRED_REPO        Pfad zum AIfred-Repo (default: das Repo, in dem dieses
                      Script liegt)
                      — wird zum sys.path hinzugefügt, damit der TTS-Cleanup
-                     ``aifred.lib.tts_engines`` importieren kann
+                     ``aifred.lib.tts_service`` importieren kann
 """
 from __future__ import annotations
 
@@ -521,15 +521,13 @@ def cleanup_uninstalled_tts_profiles(data: dict) -> list[str]:
     config, wenn das Docker-Image der Engine lokal nicht (mehr) gebaut
     ist. Bereinigt auch Group-``members``-Listen.
 
-    Source-of-Truth ist die AIfred-Engine-Registry — eine Engine gilt
-    als "installed", wenn ``TTSEngine.is_installed()`` ``True`` liefert
-    (Docker-Image vorhanden).
+    Source-of-Truth ist der Katalog des TTS-Suite-Dienstes — eine Engine
+    gilt als "installed", wenn der Dienst sie starten kann. Antwortet der
+    Dienst nicht, bricht das Script ab (kein Ersatzkatalog).
     """
-    from aifred.lib.tts_engines import TTS_ENGINES, installed_gpu_engines
+    from aifred.lib.tts_service import gpu_engine_keys, installed_gpu_engine_keys
 
-    all_gpu_keys = {e.key for e in TTS_ENGINES.values() if e.needs_gpu}
-    installed_keys = {e.key for e in installed_gpu_engines()}
-    uninstalled = all_gpu_keys - installed_keys
+    uninstalled = gpu_engine_keys() - set(installed_gpu_engine_keys())
     if not uninstalled:
         return []
 
