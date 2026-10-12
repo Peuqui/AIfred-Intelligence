@@ -32,7 +32,7 @@ import logging
 import time
 from typing import Any, Optional
 
-from .tts_client import EngineRef, EngineTarget, TTSSuiteError, get_tts_client
+from .tts_client import EngineRef, EngineTarget, TTSSuiteError, get_tts_client, new_run_id
 from .tts_service import TTSVramUnknown, catalog, release_targets
 
 logger = logging.getLogger(__name__)
@@ -196,6 +196,7 @@ async def _synthesize(text: str, language: str, engine_key: str) -> int:
         language=language,
         engines=[EngineRef(engine_key, "whole", None)],
         paragraph_pause_ms=0,
+        run=new_run_id(),
     )
     segments = 0
     async for segment in stream:

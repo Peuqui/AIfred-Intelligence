@@ -29,6 +29,7 @@ import getpass
 import json
 import struct
 import subprocess
+import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import asdict, dataclass
 from time import monotonic, sleep
@@ -496,6 +497,12 @@ def _systemctl_start() -> tuple[int, str]:
     return result.returncode, result.stderr.strip()
 
 
+def new_run_id() -> str:
+    """The id of one reading: the service remembers per id which engines failed, whether a code block is open
+    and whether a change of voice was announced. One id per answer (all its pieces and its one list)."""
+    return uuid.uuid4().hex
+
+
 class TTSClient:
     def __init__(
         self,
@@ -605,7 +612,7 @@ class TTSClient:
         engines: Sequence[EngineRef],
         paragraph_pause_ms: int,
         voices: Mapping[str, Mapping[str, Any]] | None = None,
-        run: str | None = None,
+        run: str,
         wait: bool = True,
     ) -> SpeechStream:
         """Start a reading of the whole text.
@@ -648,7 +655,7 @@ class TTSClient:
         engines: Sequence[EngineRef],
         paragraph_pause_ms: int,
         voices: Mapping[str, Mapping[str, Any]] | None = None,
-        run: str | None = None,
+        run: str,
         wait: bool = True,
     ) -> TextStream:
         """Open a reading whose text arrives in pieces (WebSocket ``/speak/stream``).
@@ -687,7 +694,7 @@ def _speak_head(
     engines: Sequence[EngineRef],
     paragraph_pause_ms: int,
     voices: Mapping[str, Mapping[str, Any]] | None,
-    run: str | None,
+    run: str,
     wait: bool,
 ) -> dict[str, Any]:
     """Head of a reading, shared by POST /speak and the start message of the WebSocket."""

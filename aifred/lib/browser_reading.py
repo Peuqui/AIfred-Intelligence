@@ -26,7 +26,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import uuid
 from collections.abc import Callable
 from typing import Any
 
@@ -40,7 +39,7 @@ from .audio_processing import (
 from .config import BROWSER_PARAGRAPH_PAUSE_MS, TTS_BROWSER_ENGINE_KEY
 from .i18n import t
 from .logging_utils import log_message
-from .tts_client import TextStream, TraceStep, TTSSuiteError, get_tts_client
+from .tts_client import TextStream, TraceStep, TTSSuiteError, get_tts_client, new_run_id
 from .tts_service import (
     browser_entry_unit,
     request_engines_before_browser,
@@ -198,7 +197,7 @@ class BrowserReading:
         engines = await asyncio.to_thread(request_engines_before_browser)
         stream = await client.open_stream(
             language=self.language, engines=engines, paragraph_pause_ms=BROWSER_PARAGRAPH_PAUSE_MS,
-            voices=voices_for(engines, self.agent), run=uuid.uuid4().hex,
+            voices=voices_for(engines, self.agent), run=new_run_id(),
         )
         workers = [asyncio.ensure_future(self._consume(stream)), asyncio.ensure_future(self._send(stream))]
         try:

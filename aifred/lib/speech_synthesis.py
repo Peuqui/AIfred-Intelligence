@@ -13,14 +13,13 @@ spoken on the reply's bubble. Channels only hand the PCM to their device.
 from __future__ import annotations
 
 import asyncio
-import uuid
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 
 from .audio_channels._audio_orchestrator import KEEPALIVE_SILENCE, TTSBuffer, silence_pcm
 from .config import REPLAY_PARAGRAPH_PAUSE_MS
 from .logging_utils import log_message
-from .tts_client import SpeakSummary, SpeechStream, TTSSuiteError, get_tts_client
+from .tts_client import SpeakSummary, SpeechStream, TTSSuiteError, get_tts_client, new_run_id
 from .tts_service import request_engines, spoken_note
 from .tts_text_filter import strip_ui_only_content
 from .tts_voices import voices_for
@@ -71,7 +70,7 @@ async def open_reading(text: str, *, language: str, agent: str, paragraph_pause_
     engines = await asyncio.to_thread(request_engines)
     return await get_tts_client().speak(
         text, language=language, engines=engines, paragraph_pause_ms=paragraph_pause_ms,
-        voices=voices_for(engines, agent), run=uuid.uuid4().hex,
+        voices=voices_for(engines, agent), run=new_run_id(),
     )
 
 

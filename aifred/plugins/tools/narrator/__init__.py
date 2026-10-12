@@ -21,7 +21,7 @@ from typing import Any
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
-from ....lib.tts_client import EngineRef, TTSSuiteError
+from ....lib.tts_client import EngineRef, TTSSuiteError, new_run_id
 
 
 async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple["EngineRef", str, list[str]]:
@@ -176,12 +176,13 @@ class NarratorPlugin:
 
             client = get_tts_client()
             wav_urls: list[str] = []
+            run = new_run_id()  # one reading for the whole file: a code block may span chunks
             for i, (chunk_voice, chunk) in enumerate(voiced_chunks, 1):
                 # One engine for the whole file — no voice change mid-book.
                 try:
                     stream = await client.speak(
                         chunk, language=language, engines=[engine_ref], paragraph_pause_ms=NARRATE_PARAGRAPH_PAUSE_MS,
-                        voices={engine: {"voice": chunk_voice, "speed": 1.0, "pitch": 1.0}},
+                        voices={engine: {"voice": chunk_voice, "speed": 1.0, "pitch": 1.0}}, run=run,
                     )
                     async for part in stream:
                         if not part.keepalive:
