@@ -31,15 +31,15 @@ class TestResolveVoice:
     def test_the_users_setting_for_agent_and_engine_wins(self, voices):
         voices["user"] = {"piper": {"sokrates": {"voice": "Florian", "speed": "1.25x"}}}
         voices["defaults"] = {("sokrates", "piper"): {"voice": "Standard"}}
-        assert resolve_voice("piper", "sokrates") == ("Florian", 1.25, 1.0)
+        assert resolve_voice("piper", "sokrates") == ("Florian", 1.25, None)
 
     def test_the_agents_default_when_the_user_set_nothing(self, voices):
         voices["defaults"] = {("codine", "edge"): {"voice": "Conrad", "pitch": "0.9"}}
-        assert resolve_voice("edge", "codine") == ("Conrad", 1.0, 0.9)
+        assert resolve_voice("edge", "codine") == ("Conrad", None, 0.9)
 
     def test_the_user_setting_of_aifred_stands_in_for_an_agent_without_one(self, voices):
         voices["user"] = {"edge": {"aifred": {"voice": "Katja"}}}
-        assert resolve_voice("edge", "salomo") == ("Katja", 1.0, 1.0)
+        assert resolve_voice("edge", "salomo") == ("Katja", None, None)
 
     def test_the_default_of_aifred_stands_in_for_an_agent_without_one(self, voices):
         voices["defaults"] = {("aifred", "edge"): {"voice": "Conrad"}}
@@ -52,7 +52,7 @@ class TestResolveVoice:
 
     def test_an_invalid_speed_is_a_configuration_error(self, voices):
         voices["user"] = {"edge": {"aifred": {"voice": "Katja", "speed": "schnell"}}}
-        with pytest.raises(ValueError, match="invalid speed/pitch"):
+        with pytest.raises(ValueError, match="invalid speed"):
             resolve_voice("edge", "aifred")
 
 
@@ -62,8 +62,8 @@ class TestVoicesFor:
     def test_voice_speed_and_pitch_per_engine_of_the_list(self, voices):
         voices["user"] = {"xtts": {"aifred": {"voice": "AIfred", "speed": "1.1"}}, "edge": {"aifred": {"voice": "Katja"}}}
         assert voices_for(self.LIST, "aifred") == {
-            "xtts": {"voice": "AIfred", "speed": 1.1, "pitch": 1.0},
-            "edge": {"voice": "Katja", "speed": 1.0, "pitch": 1.0},
+            "xtts": {"voice": "AIfred", "speed": 1.1},  # only what is set is sent
+            "edge": {"voice": "Katja"},
         }
 
     def test_an_engine_without_a_voice_stays_out(self, voices):

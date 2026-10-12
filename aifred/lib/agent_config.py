@@ -241,12 +241,10 @@ def get_agent_config(agent_id: str) -> Optional[AgentConfig]:
 
 
 # Generic fallback used when an agent has no per-engine voice default.
-# Empty voice means "let the TTS engine pick its own default" — same
-# behavior the old TTS_AGENT_VOICE_DEFAULTS dict had for unknown agents.
+# Empty voice means "let the TTS engine pick its own default"; no speed/pitch
+# means "not set" (nothing is sent, the service's tuning of the voice applies).
 _GENERIC_TTS_VOICE_DEFAULT: dict[str, str | bool] = {
     "voice": "",
-    "speed": "1.0x",
-    "pitch": "1.0",
     "enabled": True,
 }
 
