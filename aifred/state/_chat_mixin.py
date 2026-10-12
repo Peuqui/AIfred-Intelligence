@@ -794,7 +794,6 @@ class ChatMixin(rx.State, mixin=True):
             self.used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
             self.failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
             self.all_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
-            self.clear_tts_queue()  # type: ignore[attr-defined]
 
             display_user_msg = user_msg
             if has_pending_images:

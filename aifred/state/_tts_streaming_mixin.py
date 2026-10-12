@@ -84,13 +84,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
     # ── State Variables ──────────────────────────────────────────────
 
     # TTS Audio Output
-    tts_audio_path: str = ""  # Path to generated TTS audio file
-    tts_trigger_counter: int = 0  # Incremented to trigger TTS playback in frontend
-
-    # TTS Audio Queue - for sequential playback of multiple agent responses
-    # Frontend plays queue items sequentially (first in, first out)
-    tts_audio_queue: List[str] = []  # Queue of audio URLs to play
-    tts_queue_version: int = 0  # Incremented when queue changes (triggers frontend update)
 
     _tts_streaming_active: bool = False  # True from the start of a reply's reading until its finalize is done
     _tts_finalize_spawned: bool = False  # background finalize already started for this init
@@ -106,22 +99,13 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
     # ── Computed Properties ───────────────────────────────────────────
 
-    @rx.var(deps=["tts_audio_queue"], auto_deps=False)
-    def tts_queue_json(self) -> str:
-        """Returns TTS audio queue as JSON string for frontend.
-
-        The frontend JavaScript reads this to update its local queue
-        for sequential playback of multi-agent responses.
-        """
-        return json.dumps(self.tts_audio_queue)
-
     @rx.var(deps=["_tts_streaming_active"], auto_deps=False)
     def tts_streaming_in_flight(self) -> bool:
         """Public proxy for the internal streaming-lifetime flag.
 
         True from _init_streaming_tts() until the reading is over and its audio is kept
         on the bubble. The frontend uses this as the authoritative "more TTS may still
-        arrive" signal — empty tts_audio_queue alone is not enough (it's transiently empty
+        arrive" signal — the playlist alone is not enough (it's transiently empty
         between chunks during streaming, which made audioOnEnded resume media too early
         and chop off the last sentence).
         """
@@ -145,13 +129,6 @@ class TTSStreamingMixin(rx.State, mixin=True):
         if override and override != "auto":
             return override
         return str(self._last_detected_language or self.ui_language)  # type: ignore[attr-defined]
-
-    def clear_tts_queue(self) -> None:
-        """Clear the TTS audio queue (called when starting new message)."""
-        if self.tts_audio_queue:
-            self.tts_audio_queue = []
-            self.tts_queue_version += 1
-            self.add_debug("🔊 TTS Queue: Cleared")  # type: ignore[attr-defined]
 
     # ============================================================
     # THE READING OF A REPLY

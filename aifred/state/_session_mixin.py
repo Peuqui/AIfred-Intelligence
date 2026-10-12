@@ -549,7 +549,6 @@ class SessionMixin(rx.State, mixin=True):
         ch.llm_history = []
         self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
         self.current_user_message = ""  # type: ignore[attr-defined]
-        self.tts_audio_path = ""  # type: ignore[attr-defined]
         self.debug_messages = []
         self.pending_images = []  # type: ignore[attr-defined, var-annotated]
         self.image_upload_warning = ""  # type: ignore[attr-defined]

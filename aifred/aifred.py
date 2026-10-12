@@ -46,29 +46,13 @@ from .ui.vision_preview import vision_preview_page  # noqa: F401
 def _audio_player_element() -> rx.Component:
     """HTML5 audio element used by TTS + audio_player tool.
 
-    Returns one of two variants depending on whether a source is available:
-    - With `src=...` when tts_audio_path or media_audio_url is set.
-    - Without `src` attribute when both are empty (avoids React warning
-      `An empty string ("") was passed to the src attribute` and the
-      bandwidth-wasting page-URL fetch the browser triggers in that case).
-
-    Both variants share the same DOM type (`<audio>`), so React reconciles
-    props in place — no remount when transitioning between them.
+    The element is rendered without a ``src`` attribute: the audio is delivered through the
+    Browser Push Bus and JS sets the source (a React-bound ``src`` would race with it and
+    double-load).
     """
     common_kwargs: dict = dict(
         id="tts-audio-player",
         controls=True,
-        # autoPlay only for non-streaming TTS (single-shot tts_audio_path).
-        # Media is delivered via the Browser Push Bus and started by JS — the
-        # SSE-event-handler runs in the user-gesture chain from
-        # startBrowserStream, so player.play() is allowed without React
-        # autoPlay. Letting React control autoPlay for media would
-        # double-trigger (React load + JS load).
-        autoPlay=AIState.tts_autoplay & (AIState.tts_audio_path != ""),
-        # Force remount only on TTS counter changes — never on
-        # media_state_key. If audio_play fires while TTS is still
-        # streaming we MUST NOT remount (would kill the current chunk).
-        key="audio-" + AIState.tts_trigger_counter.to(str),
         style={
             "width": "100%",
             "height": "40px",
@@ -97,22 +81,9 @@ def _audio_player_element() -> rx.Component:
         # media-ended. Empty for single-track playback.
         "data-media-queue": AIState.media_queue_json,
     }
-    # ``src`` is bound to React ONLY for non-streaming TTS (single-shot
-    # tts_audio_path). For media-URLs, JS owns the src — React-binding
-    # would race with the Audio-Bus-triggered player.src=… and cause
-    # double-load (audible doubled playback) plus stop/pause control loss
-    # because React would re-set src on every re-render.
-    return rx.cond(
-        AIState.tts_audio_path != "",
-        rx.el.audio(
-            src=AIState.tts_audio_path,
-            **common_kwargs,
-            **data_attrs,  # type: ignore[arg-type]
-        ),
-        rx.el.audio(
-            **common_kwargs,
-            **data_attrs,  # type: ignore[arg-type]
-        ),
+    return rx.el.audio(
+        **common_kwargs,
+        **data_attrs,  # type: ignore[arg-type]
     )
 
 
@@ -1010,15 +981,9 @@ console.log('✂️ Crop handler loaded');
                         spacing="2",
                         align="center",
                     ),
-                    # HTML5 Audio Element — SSOT for TTS and audio_player tool.
-                    # `src` priority: TTS speech wins over media (LLM voice has priority).
-                    # When TTS clears (tts_audio_path=""), src falls back to media_audio_url.
-                    # When BOTH are empty, the element is rendered without a `src`
-                    # attribute — passing src="" makes the browser fetch the page URL
-                    # itself (React warns about it, wastes bandwidth).
+                    # HTML5 Audio Element — SSOT for TTS and audio_player tool; JS owns the src.
                     _audio_player_element(),
-                    # Hidden element for TTS queue data - JavaScript reads this to update local queue
-                    # The MutationObserver in custom.js watches for changes to data-queue attribute
+                    # Hidden flags element for the spoken reply (read by custom.js).
                     # data-polling triggers start/stop of SSE for streaming TTS.
                     # Wir koppeln NICHT an is_generating: TTS-Tasks laufen bis zu
                     # 10s laenger als die LLM-Antwort (XTTS-Synthese). Frueher
@@ -1028,9 +993,7 @@ console.log('✂️ Crop handler loaded');
                     # Streaming aktiviert sind.
                     rx.el.div(
                         id="tts-queue-data",
-                        **{
-                            "data-queue": AIState.tts_queue_json,
-                            "data-version": AIState.tts_queue_version.to(str),
+                        **{  # type: ignore[arg-type]  # dict-Invarianz vs. Var-Werte
                             "data-autoplay": rx.cond(AIState.tts_autoplay, "true", "false"),
                             "data-polling": rx.cond(AIState.enable_tts, "true", "false"),
                             # "true" solange noch TTS-Sentences kommen koennen.
