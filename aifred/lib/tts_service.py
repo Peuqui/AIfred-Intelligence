@@ -47,6 +47,7 @@ from .tts_client import (
     EngineRef,
     EngineTarget,
     ReleaseResult,
+    SpeakSummary,
     TraceStep,
     TTSSuiteError,
     get_tts_client,
@@ -531,3 +532,18 @@ def _touches(info: EngineInfo, cards: Collection[str] | None) -> bool:
         raise TTSVramUnknown(f"the VRAM of {info.engine} could not be measured by the TTS service")
     return bool(set(cards) & set(info.vram_mib))
 
+
+def escalation_report(summary: SpeakSummary, label: str) -> list[str]:
+    """Debug lines of a reading, from the service's own account: which entry spoke, which was skipped
+    or failed (with the reason), and a change of voice (``summary.switch``). ``label`` names the caller."""
+    by_entry = {ref_label(EngineRef(info.engine, "", info.host)): info for info in catalog()}
+    lines = []
+    for step in summary.trace:
+        name = row_label(by_entry[step.entry], "en") if step.entry in by_entry else step.entry
+        if step.outcome == "spoke":
+            lines.append(f"🔊 [{label}] TTS escalation: {name} speaks")
+        else:
+            lines.append(f"🔊 [{label}] TTS escalation: {step.outcome} {name} ({step.reason})")
+    if summary.switch:
+        lines.append(f"🔊 [{label}] TTS escalation: voice change announced ({summary.switch})")
+    return lines

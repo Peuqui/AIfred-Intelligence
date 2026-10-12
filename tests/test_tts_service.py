@@ -10,7 +10,7 @@ import pytest
 import aifred.lib.tts_service as tts_service
 from aifred.lib.config import TTS_SUITE_CACHE_TTL_S
 from aifred.lib.config import DEFAULT_TTS_ESCALATION
-from aifred.lib.tts_client import EngineInfo, EngineRef, TTSClient, TTSSuiteUnreachable
+from aifred.lib.tts_client import EngineInfo, EngineRef, SpeakSummary, TraceStep, TTSClient, TTSSuiteUnreachable
 
 
 def row(engine: str = "xtts", host: str | None = None, **fields: Any) -> dict[str, Any]:
@@ -362,3 +362,21 @@ def test_planning_with_an_unreachable_service_is_an_error_not_an_empty_plan(sett
     settings.data["tts_escalation"] = [stored("xtts")]
     with pytest.raises(TTSSuiteUnreachable):
         planned_tts_engine("model")
+
+
+def test_the_escalation_report_names_who_spoke_who_failed_and_the_change_of_voice(service) -> None:
+    service(row("xtts"), row("qwen3local", "Box"))
+    summary = SpeakSummary(
+        trace=(
+            TraceStep("xtts", "failed", "unreachable"),
+            TraceStep("qwen3local@Box", "spoke"),
+            TraceStep("piper", "skipped", "deactivated"),   # not in the catalog: named by its key
+        ),
+        switch="unreachable",
+    )
+    assert tts_service.escalation_report(summary, "Browser aifred") == [
+        "🔊 [Browser aifred] TTS escalation: failed XTTS · local (unreachable)",
+        "🔊 [Browser aifred] TTS escalation: QWEN3LOCAL · Box speaks",
+        "🔊 [Browser aifred] TTS escalation: skipped piper (deactivated)",
+        "🔊 [Browser aifred] TTS escalation: voice change announced (unreachable)",
+    ]

@@ -315,6 +315,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
         if combined is None:
             self.add_debug(f"⚠️ TTS: Combining {len(reading.audio_urls)} chunks failed")  # type: ignore[attr-defined]
             return []
+        if len(reading.audio_urls) > 1:
+            self.add_debug(f"🔗 TTS: Combined {len(reading.audio_urls)} chunks → replay ready")  # type: ignore[attr-defined]
         log_message(f"🔊 TTS Finalize: Saved to session → {combined}")
         return [combined]
 
