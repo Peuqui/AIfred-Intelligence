@@ -21,7 +21,7 @@ from .logging_utils import log_message
 from .tts_client import TTSSuiteError
 from .tts_service import (
     TTSVramUnknown,
-    active_local_gpu_keys,
+    active_local_keys,
     engine_label_short,
     gpu_engine_keys,
     release_gpu_engines,
@@ -35,13 +35,11 @@ def _label(engine_key: str) -> str:
 
 def planned_tts_engine(model_id: str) -> str:
     """Die lokale GPU-Engine, für die das LLM-Profil ``<model>-tts-<engine>``
-    Platz freihält: der oberste aktive lokale GPU-Eintrag der Liste von AIfred,
-    für den das Modell ein kalibriertes TTS-Profil hat. ``""``, wenn keiner passt —
-    dann lädt das Basisprofil, und lokale GPU-Einträge sprechen nur, wenn Platz frei ist.
-
-    Raises:
-        TTSSuiteUnreachable: der Dienst antwortet nicht (keine Ersatzliste).
-    """
+    Platz freihält: der oberste aktive lokale Eintrag der Liste von AIfred,
+    für den das Modell ein kalibriertes TTS-Profil hat (das gibt es nur für lokale
+    GPU-Engines). ``""``, wenn keiner passt — dann lädt das Basisprofil, und lokale
+    GPU-Einträge sprechen nur, wenn Platz frei ist. Der Dienst wird nicht gefragt: Die
+    Planung liest nur settings.json und die llama-swap-Konfiguration."""
     from pathlib import Path
 
     from .calibration import has_llamaswap_tts_variant
@@ -49,7 +47,7 @@ def planned_tts_engine(model_id: str) -> str:
 
     return next(
         (
-            engine_key for engine_key in active_local_gpu_keys()
+            engine_key for engine_key in active_local_keys()
             if has_llamaswap_tts_variant(Path(LLAMASWAP_CONFIG_PATH), model_id, engine_key)
         ),
         "",

@@ -293,14 +293,12 @@ def test_keys_and_labels_come_from_the_catalog_not_from_the_list(service) -> Non
     assert tts_service.engine_key_for_label("unknown") == "unknown"
 
 
-def test_active_local_gpu_keys_follow_the_list(service) -> None:
-    service(
-        row("xtts"), row("qwen3local"), row("qwen3local", "Box"), row("piper", needs_gpu=False),
-        listed=[stored("qwen3local", "Box"), stored("piper"), stored("xtts", enabled=False), stored("qwen3local")],
-    )
-    assert tts_service.active_local_gpu_keys() == ["qwen3local"]
-    assert tts_service.has_active_local_gpu_entry("qwen3local")
-    assert not tts_service.has_active_local_gpu_entry("xtts")
+def test_active_local_keys_follow_the_stored_list_without_the_service(settings) -> None:
+    settings.data["tts_escalation"] = [
+        stored("qwen3local", "Box"), stored("piper"), stored("xtts", enabled=False), stored("qwen3local"),
+    ]
+    # no service behind the client (conftest): nothing is asked
+    assert tts_service.active_local_keys() == ["piper", "qwen3local"]
 
 
 # ---- Live state (never cached) -----------------------------------------------------------------
@@ -341,27 +339,24 @@ def test_an_unreachable_service_raises_and_the_ui_text_names_it() -> None:
     assert "nicht erreichbar" in tts_service.unreachable_text(raised.value, "de")
 
 
-def test_planned_engine_is_the_topmost_active_local_gpu_entry_with_a_profile(service, monkeypatch) -> None:
+def test_planned_engine_is_the_topmost_active_local_entry_with_a_profile(settings, monkeypatch) -> None:
     from aifred.lib.tts_llm_coordination import planned_tts_engine
 
     monkeypatch.setattr("aifred.lib.calibration.has_llamaswap_tts_variant", lambda path, model_id, key: key == "xtts")
-    fake = service(
-        row("qwen3local", "Aragon"), row("qwen3local"), row("xtts"), row("piper", needs_gpu=False),
-        listed=[stored("qwen3local", "Aragon"), stored("qwen3local"), stored("xtts"), stored("piper")],
-    )
+    settings.data["tts_escalation"] = [stored("qwen3local", "Aragon"), stored("qwen3local"), stored("xtts"), stored("piper")]
     assert planned_tts_engine("model") == "xtts"   # remote: never reserved; no calibrated profile for qwen3local
-    tts_service_settings = tts_service.persisted_settings()
-    tts_service_settings["tts_escalation"][2]["enabled"] = False
+    settings.data["tts_escalation"][2]["enabled"] = False
     assert planned_tts_engine("model") == ""
-    assert fake.reads() == 1                       # the list is read from the settings each time, the catalog once
 
 
-def test_planning_with_an_unreachable_service_is_an_error_not_an_empty_plan(settings) -> None:
+def test_planning_does_not_need_the_service(settings, monkeypatch) -> None:
+    """The service may be down (a restart, not installed): the plan reads settings.json and the llama-swap
+    configuration only, and answers as ever. conftest points the client at a dead address."""
     from aifred.lib.tts_llm_coordination import planned_tts_engine
 
+    monkeypatch.setattr("aifred.lib.calibration.has_llamaswap_tts_variant", lambda path, model_id, key: True)
     settings.data["tts_escalation"] = [stored("xtts")]
-    with pytest.raises(TTSSuiteUnreachable):
-        planned_tts_engine("model")
+    assert planned_tts_engine("model") == "xtts"
 
 
 def test_the_escalation_report_names_who_spoke_who_failed_and_the_change_of_voice(service) -> None:

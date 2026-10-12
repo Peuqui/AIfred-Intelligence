@@ -126,9 +126,20 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     # Describer > TTS > STT): ihr VRAM zählt als frei, denn das Laden gibt sie vorher frei
     # (release_side_channels_for_describer; die TTS-Container auf Anfrage beim TTS-Dienst).
     from .audio_processing import whisper_gpu_footprint
-    from .tts_service import running_gpu_footprint
+    from .tts_client import TTSSuiteError
+    from .tts_service import TTSVramUnknown, running_gpu_footprint, unreachable_text
     releasable = whisper_gpu_footprint()
-    for per_card in running_gpu_footprint().values():
+    try:
+        tts_footprint = running_gpu_footprint()
+    except (TTSSuiteError, TTSVramUnknown) as error:
+        # What the TTS containers hold is unknown, so is the room: no placement is claimed (like an
+        # unmeasured VLM above), and the reason is shown instead of an error in the page.
+        return VRAMCheckResult(
+            fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
+            message=f"VLM-Profil '{profile}': Platzbedarf der TTS-Container unbekannt — "
+                    f"{unreachable_text(error, 'de') if isinstance(error, TTSSuiteError) else error}",
+        )
+    for per_card in tts_footprint.values():
         for uuid, mib in per_card.items():
             releasable[uuid] = releasable.get(uuid, 0) + mib
     rows = query("index,uuid,memory.free") or []
