@@ -44,13 +44,6 @@ class TTSBackendState:
 _tts_backend_states: dict[str, TTSBackendState] = {}
 
 
-def _agent_label(agent: str) -> str:
-    """Display name of an agent for debug lines ("AIfred", not the key "aifred")."""
-    from ..lib.agent_config import get_agent_config
-    config = get_agent_config(agent)
-    return config.display_name if config else agent
-
-
 def get_tts_backend_state(session_id: str) -> TTSBackendState:
     """Get (creating on first access) the per-session TTS backend state."""
     state = _tts_backend_states.get(session_id)

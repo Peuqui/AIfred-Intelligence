@@ -9,7 +9,6 @@ Provides common functions for:
 This module reduces code duplication across the state mixins.
 """
 
-import os
 import subprocess
 import asyncio
 from .logging_utils import log_message
@@ -161,7 +160,6 @@ def docker_compose_action(
     compose_file: str,
     action: str,
     service_label: str,
-    gpu_uuid: str = "",
 ) -> tuple[bool, str]:
     """
     Run a docker compose action (up -d / down) on a compose file.
@@ -169,10 +167,7 @@ def docker_compose_action(
     Args:
         compose_file: Path to docker-compose.yml
         action: "up" or "down"
-        service_label: Human-readable name for log messages (e.g. "XTTS")
-        gpu_uuid: Card for a TTS container ("" = the side-channel card,
-            :func:`get_tts_gpu_uuid`); the escalation list passes another
-            card when the engine only fits there.
+        service_label: Human-readable name for log messages (e.g. "Whisper")
 
     Returns:
         tuple[bool, str]: (success, message)
@@ -190,20 +185,11 @@ def docker_compose_action(
         cmd.append("down")
 
     try:
-        # Pass TTS_GPU_UUID as env variable (no file writes to avoid Reflex hot-reload).
-        # Detection is cached per process — see get_tts_gpu_uuid().
-        proc_env = os.environ.copy()
-        # Ohne erkannte Karte bleibt der Wert aus der .env neben der compose-Datei
-        # gültig (eine leere Variable würde ihn überschreiben).
-        card = (gpu_uuid or get_tts_gpu_uuid()) if action == "up" else ""
-        if card:
-            proc_env["TTS_GPU_UUID"] = card
         result = subprocess.run(
             cmd,
             capture_output=True,
             text=True,
             cwd=str(compose_path.parent),
-            env=proc_env,
         )
         if result.returncode != 0:
             return False, f"docker compose {action} failed: {result.stderr}"
