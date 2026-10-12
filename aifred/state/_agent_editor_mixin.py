@@ -1033,9 +1033,8 @@ class AgentEditorMixin(rx.State, mixin=True):
 
         # Load TTS settings for this agent — start with the topmost enabled
         # engine of the escalation list (the one most likely to speak).
-        from ..lib.tts_service import first_enabled_entry
-        first = first_enabled_entry()
-        self.editor_tts_engine = first.engine if first else TTS_DEFAULT_ENGINE  # type: ignore[attr-defined]
+        from ..lib.tts_service import first_enabled_key
+        self.editor_tts_engine = first_enabled_key() or TTS_DEFAULT_ENGINE  # type: ignore[attr-defined]
         self._load_editor_tts_settings()  # type: ignore[attr-defined]
 
         self._load_editor_prompt(self.editor_prompt_tab)

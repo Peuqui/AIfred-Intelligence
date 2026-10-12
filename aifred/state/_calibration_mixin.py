@@ -102,6 +102,34 @@ class CalibrationRow(TypedDict):
 _VERIFY_LINE_RE = re.compile(r"^\[\[?.+\.\d+\]")
 
 
+def _calibration_engine_keys() -> list[str]:
+    """Columns of the calibration matrix: the installed local GPU engines. A service that does not
+    answer gives no TTS column (the picker's header names the reason): a computed var must not throw."""
+    from aifred.lib.tts_client import TTSSuiteUnreachable
+    from aifred.lib.tts_service import installed_gpu_engine_keys
+
+    try:
+        return installed_gpu_engine_keys()
+    except TTSSuiteUnreachable:
+        return []
+
+
+def _release_tts_for_calibration(report: Any) -> None:
+    """Ask the TTS service to release every local GPU engine: the calibration measures cards that must
+    be free (a running container would count as the model's own consumption). A refused release
+    (a reading holds the container) or a service that does not answer is reported, the run goes on."""
+    from aifred.lib.tts_client import TTSSuiteError
+    from aifred.lib.tts_service import TTSVramUnknown, release_gpu_engines
+
+    try:
+        released = release_gpu_engines(reason="calibration")
+    except (TTSSuiteError, TTSVramUnknown) as error:
+        report(f"   ⚠️ TTS release for the calibration failed: {type(error).__name__}: {error}")
+        return
+    for result in released:
+        report(f"   🔊 TTS {result.engine}: {result.outcome}")
+
+
 def _calib_line(progress_msg: str) -> str:
     """Prefix a calibration-console line with a phase icon:
     🧪 for verify probes (a real model load is being tested),
@@ -263,12 +291,11 @@ class CalibrationMixin(rx.State, mixin=True):
             return []
         from aifred.lib import sidechannel_vram_cache
         from aifred.lib.i18n import t as _t
-        from aifred.lib.tts_service import installed_gpu_engine_keys
         from aifred.lib.vision_routing import vlm_calibration_choices
 
         from aifred.lib.operating_points import is_vllm_calibrated
 
-        engines = installed_gpu_engine_keys()
+        engines = _calibration_engine_keys()
         model_id = self.agent_tuning["aifred"].model_id or ""  # type: ignore[attr-defined]
         base_calibrated = bool(model_id) and is_vllm_calibrated(model_id)
 
@@ -428,7 +455,6 @@ class CalibrationMixin(rx.State, mixin=True):
         dict (changes on every cell click — also clears stale failure
         flags via :meth:`set_calibration_matrix_cell`, so cache state
         is re-read on each interaction)."""
-        from aifred.lib.tts_service import installed_gpu_engine_keys
         from aifred.lib.model_vram_cache import (
             is_calibration_failed,
             is_model_calibrated,
@@ -440,7 +466,7 @@ class CalibrationMixin(rx.State, mixin=True):
         vlm_choices = vlm_calibration_choices()
 
         model_id = self.agent_tuning["aifred"].model_id or ""
-        engines = installed_gpu_engine_keys()
+        engines = _calibration_engine_keys()
         cache = load_cache() if model_id else {}
 
         def _combo_done(vlm_key: str, tts_key: str) -> bool:
@@ -512,10 +538,9 @@ class CalibrationMixin(rx.State, mixin=True):
         open. The picker stays sticky within a session — close it,
         reopen it, the checkboxes are still where the user left them.
         Newly installed engines show up as fresh unchecked entries."""
-        from aifred.lib.tts_service import installed_gpu_engine_keys
         from aifred.lib.vision_routing import vlm_calibration_choices
         cur = dict(self.calibration_matrix)
-        engines = installed_gpu_engine_keys()
+        engines = _calibration_engine_keys()
         vlm_keys = ["", *(c["key"] for c in vlm_calibration_choices())]
         tts_keys = ["", *engines]
         for v in vlm_keys:
@@ -893,6 +918,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 self._cal_debug("🧹 llama-swap stopped (freeing VRAM for calibration)")
         except Exception as stop_err:  # noqa: BLE001 — weiter mit Warnung
             self._cal_debug(f"⚠️ Could not stop llama-swap: {stop_err}")
+        await asyncio.to_thread(_release_tts_for_calibration, self._cal_debug)
 
         # Gemeinsamer Side-Channel-Burn-in VOR der Topologie-Leiter:
         # vLLM laesst die TTS-/VLM-Karte ohnehin aus (side_channel_uuids),
@@ -1442,12 +1468,12 @@ class CalibrationMixin(rx.State, mixin=True):
             )
 
             # Step 0: Kill orphaned calibration servers left over from a previous
-            # interrupted calibration. TTS containers are not touched: the TTS
-            # service unloads its engines itself (the calibration reserves the
-            # burn-in peak of the planned engine instead of loading it).
+            # interrupted calibration, and ask the TTS service to release its engines (the
+            # calibration reserves the burn-in peak of the planned engine instead of loading it).
             from ..lib.config import LLAMACPP_CALIBRATION_PORT
-            self._cal_debug("🧹 Cleaning up VRAM (orphaned servers)...")  # type: ignore[attr-defined]
+            self._cal_debug("🧹 Cleaning up VRAM (orphaned servers, TTS engines)...")  # type: ignore[attr-defined]
             yield
+            await asyncio.to_thread(_release_tts_for_calibration, self._cal_debug)  # type: ignore[attr-defined]
             # Kill any llama-server still running on calibration port
             try:
                 result = subprocess.run(

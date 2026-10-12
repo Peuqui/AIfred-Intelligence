@@ -181,3 +181,23 @@ def test_an_unreachable_service_in_the_plan_is_reported_and_the_switch_goes_on(l
     messages = run_plan("xtts")
     assert any(m.startswith("⚠️ TTS release failed") for m in messages)
     assert llm_steps == ["restart"]
+
+
+# ---- Calibration: the cards must be free ----------------------------------------------------------
+
+
+def test_the_calibration_asks_for_every_running_local_gpu_engine_and_says_what_came_of_it(fake) -> None:
+    from aifred.state._calibration_mixin import _release_tts_for_calibration
+
+    said: list[str] = []
+    _release_tts_for_calibration(said.append)
+    assert fake.releases == [[{"engine": "xtts", "host": None}, {"engine": "fish", "host": None}]]
+    assert said == ["   🔊 TTS xtts: stopped", "   🔊 TTS fish: stopped"]
+
+
+def test_a_service_that_does_not_answer_is_said_and_the_calibration_goes_on() -> None:
+    from aifred.state._calibration_mixin import _release_tts_for_calibration
+
+    said: list[str] = []
+    _release_tts_for_calibration(said.append)   # conftest points the client at a dead address
+    assert len(said) == 1 and "TTSSuiteUnreachable" in said[0] and "calibration" in said[0]
