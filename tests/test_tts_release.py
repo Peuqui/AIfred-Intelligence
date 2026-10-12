@@ -61,11 +61,6 @@ def test_with_cards_only_the_engines_on_those_cards_are_asked(fake) -> None:
     assert fake.releases == [[{"engine": "fish", "host": None}]]
 
 
-def test_kept_engines_stay(fake) -> None:
-    tts_service.release_gpu_engines(None, reason="test", keep=["xtts"])
-    assert fake.releases == [[{"engine": "fish", "host": None}]]
-
-
 def test_nothing_in_the_way_sends_no_request(fake) -> None:
     assert tts_service.release_gpu_engines({CARD_C}, reason="test") == []
     assert fake.releases == []
@@ -126,23 +121,11 @@ def config(monkeypatch):
     monkeypatch.setattr(gpu, "gpu_uuids_by_index", lambda: UUIDS)
 
 
-def test_the_guard_asks_for_the_engines_on_the_cards_of_the_model(fake, config) -> None:
-    OpenAICompatibleBackend._release_tts_for_load("on-b")
-    assert fake.releases == [[{"engine": "fish", "host": None}]]
-
-
-def test_the_guard_asks_for_nothing_when_no_engine_sits_on_the_cards(fake, config) -> None:
-    OpenAICompatibleBackend._release_tts_for_load("on-c")
-    assert fake.releases == []
-
-
-def test_the_guard_keeps_the_engine_the_tts_profile_reserves_room_for(fake, config) -> None:
-    OpenAICompatibleBackend._release_tts_for_load("on-a-tts-xtts")
-    assert fake.releases == []
-
-
-def test_the_guard_with_unknown_cards_asks_for_every_running_gpu_engine(fake, config) -> None:
-    OpenAICompatibleBackend._release_tts_for_load("not-in-the-config")
+@pytest.mark.parametrize("model", ["on-b", "on-c", "on-a-tts-xtts", "not-in-the-config"])
+def test_the_guard_asks_for_every_running_gpu_engine_whatever_the_model_or_its_cards(fake, config, model: str) -> None:
+    """Where an engine sits does not matter: before a load every local GPU engine is released (also the one
+    the model's ``-tts-<engine>`` profile reserves room for; the service places it again after the load)."""
+    OpenAICompatibleBackend._release_tts_for_load(model)
     assert fake.releases == [[{"engine": "xtts", "host": None}, {"engine": "fish", "host": None}]]
 
 
@@ -180,9 +163,9 @@ def run_plan(wanted: str) -> list[str]:
     return list(coordination.ensure_tts_state(wanted_tts=wanted, backend_type="llamacpp"))
 
 
-def test_the_plan_asks_for_the_other_gpu_engines_and_keeps_the_planned_one(fake, llm_steps) -> None:
+def test_the_plan_asks_for_every_running_gpu_engine(fake, llm_steps) -> None:
     run_plan("xtts")
-    assert fake.releases == [[{"engine": "fish", "host": None}]]
+    assert fake.releases == [[{"engine": "xtts", "host": None}, {"engine": "fish", "host": None}]]
     assert llm_steps == ["restart"]
 
 

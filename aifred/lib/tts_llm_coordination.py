@@ -144,9 +144,9 @@ def ensure_tts_state(
 
 
 def _switch_llm_profile(backend_type: str, wanted_tts: str) -> Generator[str, None, None]:
-    """Unload the LLM if one is loaded, ask the TTS service to release the OTHER local GPU engines
-    (the new profile reserves room for ``wanted_tts`` only), restart the LLM backend so it picks up
-    the TTS-calibrated profile. A release the service refuses or cannot do is logged by
+    """Unload the LLM if one is loaded, ask the TTS service to release every local GPU engine
+    (the new profile leaves room for ``wanted_tts``; the service places an engine again after the load),
+    restart the LLM backend so it picks up the TTS-calibrated profile. A release the service refuses or cannot do is logged by
     ``release_gpu_engines`` and reported here; the switch goes on."""
     from .process_utils import unload_llm_models
 
@@ -155,7 +155,7 @@ def _switch_llm_profile(backend_type: str, wanted_tts: str) -> Generator[str, No
         if actions:
             yield f"LLM unloaded: {', '.join(actions)}"
     try:
-        released = release_gpu_engines(None, reason=f"the {_label(wanted_tts)} profile", keep=[wanted_tts])
+        released = release_gpu_engines(reason=f"the {_label(wanted_tts)} profile")
     except (TTSSuiteError, TTSVramUnknown) as error:
         yield f"⚠️ TTS release failed: {error}"
     else:
