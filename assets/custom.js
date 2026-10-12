@@ -1221,12 +1221,17 @@ function stopAudioStream() {
  * (44 Hz, 8-bit mono).
  */
 var _audioUnlockDone = false;
+// One touch fires touchstart, pointerdown and click within a few ms. A second unlock while the first
+// still holds the player at volume 0 would "restore" 0 as the user's volume: the player stayed
+// muted (phones and tablets only, where the events come at once).
+var _audioUnlockPending = false;
 var _AUDIO_UNLOCK_SILENT_WAV = 'data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQAAAAA=';
 
 function audioUnlock() {
-    if (_audioUnlockDone) return;  // once per tab is enough
+    if (_audioUnlockDone || _audioUnlockPending) return;  // once per tab is enough
     const player = audioPlayerEl();
     if (!player) return;
+    _audioUnlockPending = true;
 
     const savedSrc = player.src;
     const savedVolume = player.volume;
@@ -1254,12 +1259,14 @@ function audioUnlock() {
                     player.load();
                 }
                 player.volume = savedVolume;
+                _audioUnlockPending = false;
             });
     } else {
         // Older browsers without play()-Promise — best-effort restore.
         if (savedSrc) player.src = savedSrc;
         else player.removeAttribute('src');
         player.volume = savedVolume;
+        _audioUnlockPending = false;
     }
 }
 
