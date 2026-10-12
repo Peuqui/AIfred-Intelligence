@@ -55,6 +55,9 @@ class BrowserEventQueueResponse(BaseModel):
     playback_rate: str = Field(default="1.0x", description="Playback speed")
 
 
+TTS_CHUNK_KINDS = frozenset({"tts", "tts_speak", "tts_pause"})
+
+
 def browser_push(
     session_id: str,
     kind: str,
@@ -130,6 +133,11 @@ def browser_push(
         item["relative"] = bool(relative)
     elif kind == "speed":
         item["factor"] = float(factor)
+
+    if kind == "bubble_audio":
+        # The combined replay file replaces the reply's chunks (their files are deleted at
+        # finalize): a page opened later must not get them replayed into its queue.
+        storage["queue"] = [it for it in storage["queue"] if it["kind"] not in TTS_CHUNK_KINDS]
 
     storage["queue"].append(item)
     storage["playback_rate"] = playback_rate
