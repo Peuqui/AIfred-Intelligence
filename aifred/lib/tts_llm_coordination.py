@@ -16,9 +16,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generator
 
+from .config import LLAMASWAP_RUNNING_TIMEOUT_S
 from .logging_utils import log_message
 from .tts_client import TTSSuiteError
-from .tts_engine_manager import TTS_HEALTH_CHECK_TIMEOUT
 from .tts_service import (
     TTSVramUnknown,
     active_local_gpu_keys,
@@ -73,7 +73,7 @@ def _is_llm_loaded(backend_type: str) -> bool:
 
         from .config import DEFAULT_LLAMACPP_URL
         base_url = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
-        r = requests.get(f"{base_url}/running", timeout=TTS_HEALTH_CHECK_TIMEOUT)
+        r = requests.get(f"{base_url}/running", timeout=LLAMASWAP_RUNNING_TIMEOUT_S)
         if r.ok:
             data = r.json()
             # Response is {"running": [...]} — check the list, not the dict
@@ -98,7 +98,7 @@ def _llm_already_on_tts_variant(new_engine: str, backend_type: str) -> bool:
 
         from .config import DEFAULT_LLAMACPP_URL
         base_url = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
-        r = requests.get(f"{base_url}/running", timeout=TTS_HEALTH_CHECK_TIMEOUT)
+        r = requests.get(f"{base_url}/running", timeout=LLAMASWAP_RUNNING_TIMEOUT_S)
         if not r.ok:
             return False
         data = r.json()

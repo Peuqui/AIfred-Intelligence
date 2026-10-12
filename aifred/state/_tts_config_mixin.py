@@ -288,13 +288,16 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["editor_tts_engine", "_editor_tts_settings"], auto_deps=False)
     def editor_tts_available_voices(self) -> List[str]:
-        """Voices of the edited engine: live catalogue (or the static one while
-        the container is down) plus every voice already saved for it."""
+        """Voices of the edited engine from the TTS service plus every voice already
+        saved for it (the saved ones alone while the service does not answer)."""
         from ..lib.settings import persisted_settings
-        from ..lib.tts_engines import get_engine, voice_names
+        from ..lib.tts_client import TTSSuiteUnreachable
+        from ..lib.tts_service import voice_names
 
-        engine = get_engine(self.editor_tts_engine)
-        voices = set(voice_names(engine)) if engine else set()
+        try:
+            voices = set(voice_names(self.editor_tts_engine))
+        except TTSSuiteUnreachable:
+            voices = set()
         saved = persisted_settings().get("tts_agent_voices_per_engine", {}).get(self.editor_tts_engine, {})
         voices |= {str(cfg.get("voice")) for cfg in saved.values() if isinstance(cfg, dict) and cfg.get("voice")}
         current = self._editor_tts_settings.get("voice", "")
@@ -329,14 +332,6 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Static list of labels for the agent-editor language dropdown."""
         from ..lib.config import TTS_LANGUAGE_LABELS
         return TTS_LANGUAGE_LABELS
-
-    @rx.var(deps=["editor_tts_engine"], auto_deps=False)
-    def editor_tts_supports_language(self) -> bool:
-        """True if the edited engine honours the language setting (greys out
-        the dropdown for engines that ignore it)."""
-        from ..lib.tts_engines import get_engine
-        eng = get_engine(self.editor_tts_engine)
-        return bool(eng and eng.supports_language)
 
     def set_editor_agent_tts_language(self, label: str) -> None:
         from ..lib.config import TTS_LANGUAGE_LABEL_TO_CODE
@@ -421,10 +416,13 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["narrator_voice_engine"], auto_deps=False)
     def narrator_voice_options(self) -> List[str]:
-        """The edited engine's own voices (lib-SSOT ``voice_names``)."""
-        from ..lib.tts_engines import get_engine, voice_names
-        engine = get_engine(self.narrator_voice_engine)
-        return voice_names(engine) if engine else []
+        """The edited engine's voices from the TTS service (none while it does not answer)."""
+        from ..lib.tts_client import TTSSuiteUnreachable
+        from ..lib.tts_service import voice_names
+        try:
+            return voice_names(self.narrator_voice_engine)
+        except TTSSuiteUnreachable:
+            return []
 
     @rx.var(deps=["narrator_voices", "narrator_voice_engine"], auto_deps=False)
     def narrator_voice_display(self) -> str:
