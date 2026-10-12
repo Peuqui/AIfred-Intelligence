@@ -1085,7 +1085,8 @@ def release_whisper_gpu() -> bool:
             f"for model load", "warning",
         )
         return "gpu" in client.unload("cuda", force=True)
-    except STTError:
+    except STTError as error:
+        log_message(f"⚠️ Whisper GPU release failed: {type(error).__name__}: {error}", "warning")
         return False
 
 
@@ -1105,7 +1106,8 @@ def whisper_gpu_footprint() -> dict[str, int]:
 
     try:
         status = get_default_client().status()
-    except STTError:
+    except STTError as error:
+        log_message(f"⚠️ Whisper footprint unknown: {type(error).__name__}: {error}", "warning")
         return {}
     worker = status.get("gpu_worker_pid")
     if not worker:
@@ -1197,7 +1199,6 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
     from .stt_client import (
         STTError,
         STTTimeoutError,
-        STTUnreachableError,
         get_default_client,
     )
 
@@ -1212,9 +1213,6 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
         raise TimeoutError(
             f"Transcription timed out after {minutes} min ({device} engine)"
         )
-    except STTUnreachableError:
-        log_message("❌ Whisper service not reachable (container running?)", "error")
-        return "", 0.0
     except STTError as e:
         # Surface the real reason (e.g. "no GPU with enough VRAM") instead of
         # returning empty text — the caller shows the error as a toast.
