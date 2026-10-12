@@ -727,7 +727,7 @@ the puck stays dumb.
 | announcement over running music/TTS | `wake(_pause)` → wait for the puck's acknowledgement → announcement as above; the server sends NO `_resume` afterwards |
 
 **Speech unit:** one setting per TTS engine (browser panel, system-wide for all agents and channels;
-`lib.tts_engines.speech_unit_for`, default per engine in `TTSEngine.default_speech_unit`) — `sentence`,
+`tts_service.speech_unit_for`, default per engine = `unit_default` of the TTS-Suite catalog; the service does the splitting) — `sentence`,
 `paragraph` (at blank lines) or `whole` (everything at once, no streaming: better prosody, but the first speech
 only comes after everything is rendered). The Echo plugin only reads it. Start/end tone for announcements: `FREEECHO2_NOTIFICATION_START_TONE` / `_END_TONE` (on/off; the alarm
 sound is always the start tone); which sound plays is decided by the puck.

@@ -42,9 +42,7 @@ one, update the other.
 | Browser push bus | [EN](en/architecture/browser-push-bus.md) · [DE](de/architecture/browser-push-bus.md) | Server→browser events without Reflex yields |
 | Proactive alerts | [EN](en/architecture/proactive-alerts.md) · [DE](de/architecture/proactive-alerts.md) | From vision events to user notification |
 | Vision routing | [EN](en/architecture/vision-routing.md) · [DE](de/architecture/vision-routing.md) | Swap vs. no-swap decision for vision workloads |
-| TTS container conventions | [EN](en/architecture/tts-container-conventions.md) · [DE](de/architecture/tts-container-conventions.md) | Rules for integrating new TTS engines |
-| TTS + VRAM workflow | [EN](en/architecture/tts-vram-workflow.md) · [DE](de/architecture/tts-vram-workflow.md) | TTS container lifecycle for browser and FreeEcho.2 |
-| TTS escalation list | [EN](en/architecture/tts-escalation.md) · [DE](de/architecture/tts-escalation.md) | Who speaks (order, hosts, placement), speech unit, browser engine, TTS start API, announce API |
+| TTS-Suite | [EN](en/architecture/tts-suite.md) · [DE](de/architecture/tts-suite.md) | AIfred as client of the TTS-Suite service: list, speech unit, VRAM reserve and release, browser voice, announce API |
 | DashScope Qwen-Audio 3 | [EN](en/architecture/dashscope-voice-cloning.md) · [DE](de/architecture/dashscope-voice-cloning.md) | Cloud TTS, system voices, voice cloning via enrollment |
 
 ## Benchmarks
@@ -68,7 +66,6 @@ for Pascal cards.
 | Doc | EN · DE | Content |
 |---|---|---|
 | TTS model comparison | [EN](en/models/tts-comparison.md) · [DE](de/models/tts-comparison.md) | All integrated TTS engines compared |
-| MOSS-TTS 8B notes | [EN](en/models/moss-tts-8b-notes.md) · [DE](de/models/moss-tts-8b-notes.md) | Running MOSS-TTS Delay 8B on Turing GPUs |
 
 ## Examples & showcases
 

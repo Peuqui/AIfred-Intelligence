@@ -2,7 +2,7 @@
 
 > **English version:** [configuration.md](../../en/guides/configuration.md)
 
-Backends, Einstellungen, Sprachausgabe (TTS-Eskalationsliste), Reasoning, History-Kompression,
+Backends, Einstellungen, Sprachausgabe (TTS-Suite), Reasoning, History-Kompression,
 der Vector Store, Umgebungsvariablen und Plugin-Einstellungen, die wichtigsten
 Stellschrauben in `config.py`, Performance-Tuning und was Mehrbenutzerbetrieb bedeutet.
 Installation und Dienste: [Einrichtungsanleitung](deployment.md).
@@ -71,7 +71,7 @@ Globale Einstellungen liegen in `data/settings.json` und werden von der UI, der 
 - Einstellungen pro Session (Agent, Diskussionsmodus) liegen **nicht** hier,
   sondern in der Session-Datei — siehe [REST API → Global vs. pro Session](rest-api.md#global-vs-pro-session).
 
-- **`tts_hosts`** und **`tts_escalation`** enthalten die Sprachausgabe, siehe unten.
+- **`tts_escalation`** (und `tts_toggles_per_engine`, `tts_agent_voices_per_engine`) enthalten die Sprachausgabe, siehe unten.
 
 **Persistenz der Sampling-Parameter**
 
@@ -88,52 +88,31 @@ Maßgeblich für die Sampling-Standardwerte sind die Flags `--temp`, `--top-k`,
 
 ## Sprachausgabe (TTS)
 
-Es gibt keine einzelne feste TTS-Engine. `tts_escalation` in `data/settings.json`
-ist eine geordnete Liste; für jede Antwort (und jede Ansage) spricht der **erste
-Eintrag, der kann**. Bearbeitet wird sie im **TTS-Tab des Agent-Editors**
-(Reihenfolge, An/Aus, Status je Eintrag, Sprecheinheit); die Sprachausgabe
-ein- und ausschalten sowie Autoplay stehen auf der Hauptseite.
+Sprache erzeugt die **TTS-Suite**, ein eigener Dienst ([Peuqui/TTS-Suite](https://github.com/Peuqui/TTS-Suite),
+Standard `127.0.0.1:5090`, Systemeinheit `tts-suite@<Benutzer>`). AIfred hält nur seine eigene
+**Liste** und schickt sie mit jeder Lesung mit; der Dienst entscheidet, welcher Eintrag spricht,
+startet die Container bei Bedarf und sagt einen Stimmwechsel an. Die Liste bearbeitest du im
+**TTS-Tab des Agent-Editors** (Reihenfolge, An/Aus, Status je Eintrag, Sprecheinheit); Sprachausgabe
+ein/aus und Autoplay stehen auf der Hauptseite.
 
-- **Eintrag** = Engine plus Ort: `{"engine": "<key>", "host": null | "<Hostname>", "enabled": true}`.
-  `host: null` heißt dieser Rechner (bei Cloud-Engines die Cloud).
-- **Engines** (je ein Ordner in `aifred/lib/tts_engines/`): `qwen3local`,
-  `xtts`, `fishspeech`, `moss` (lokal, Docker, GPU), `dashscope_audio3`
-  (Alibaba Qwen-Audio 3, Cloud, braucht `DASHSCOPE_API_KEY`), `piper`, `espeak`
-  (lokal, CPU), `edge` (Cloud) und `browser` (Web Speech API; spricht nur in eine
-  offene Browser-Sitzung). Die Qwen3-TTS-Cloud-Engine früherer Versionen wurde durch
-  Qwen-Audio 3 ersetzt; ein Listeneintrag mit einem nicht mehr vorhandenen
-  Engine-Schlüssel macht die Liste ungültig.
-- **Frische Installation:** Qwen3-TTS lokal → XTTS lokal → Qwen-Audio 3 → Piper →
-  Edge → Browser.
-- **Lokaler GPU-Eintrag:** Läuft sein Container nicht, wird er gestartet, wenn
-  sein gemessener VRAM-Spitzenbedarf (Burn-in) plus Reserve auf eine Karte passt —
-  zuerst die Side-Channel-Karte. Das Hauptmodell wird dafür nie neu geladen;
-  braucht das Hauptmodell die Karte später, wird der TTS-Container gestoppt
-  (Hauptmodell vor TTS).
-- **`tts_hosts`**: andere Rechner, auf denen die TTS-Container mit derselben API
-  laufen, `{"name", "address", "enabled", "ssh", "ports": {Engine: Port}}`. An
-  einen Host gebundene Einträge werden übersprungen, solange der Host
-  ausgeschaltet ist. Mit `ssh` (`user@host:port`) startet und stoppt AIfred die
-  Container dort über `scripts/tts-host-ctl.sh` mit dem Schlüssel
-  `~/.ssh/aifred_tts_host` (`TTS_HOST_SSH_KEY` in `config.py`); ohne `ssh` müssen
-  die Container von selbst laufen. Einrichtung:
-  [Einrichtung → TTS-Hosts](deployment.md#tts-hosts-andere-rechner-mit-tts-containern).
-- **Ausfälle:** Ein Eintrag, der vor dem ersten Ton ausfällt, wird still
-  übersprungen (nur Debug-Zeile); fällt einer nach dem Sprechen aus, wird er
-  ersetzt, der Nachfolger sagt den Stimmwechsel an und wiederholt den
-  unfertigen Satz. Ein ausgefallener Eintrag bleibt für den Rest dieser Antwort
-  draußen. Die Chat-Bubble vermerkt, wer gesprochen hat.
-- **Stimme, Tempo, Tonhöhe** gelten pro Agent und Engine
-  (`tts_agent_voices_per_engine`; Standards aus `agents.json`). Hat ein Agent auf
-  einer Engine keine Stimme, fällt dieser Eintrag aus, die Liste geht weiter.
-- **Sprecheinheit** — `sentence`, `paragraph` oder `whole` — ist eine Einstellung
-  pro Engine, gültig für alle Agenten und Kanäle (`tts_toggles_per_engine`).
-- Eine kaputte Liste (unbekannte Engine, unbekannter Host, doppelter Hostname) ist
-  ein Fehler und wird nicht still übergangen.
+- **Eintrag** = Engine plus Ort: `{"engine": "<key>", "host": null | "<Host-Name>", "enabled": true}`
+  in `tts_escalation` (`data/settings.json`). `host: null` heißt dieser Rechner (bei Cloud-Engines
+  die Cloud). Welche Engines und Hosts es gibt, steht im Katalog des Dienstes; AIfred liest und
+  schaltet die Liste, er fügt nichts hinzu und entfernt nichts. Hosts (weitere Rechner mit Engines)
+  gehören zur Konfiguration des Dienstes (`~/.config/tts-suite/config.json`); `tts_hosts` in der
+  `settings.json` ist hinfällig.
+- **Frische Installation:** Qwen3-TTS lokal → XTTS lokal → Qwen-Audio 3 → Piper → Edge → Browser.
+- **Stimme, Tempo, Tonhöhe** gelten je Agent und Engine (`tts_agent_voices_per_engine`; Vorgaben aus
+  `agents.json`).
+- **Sprecheinheit** — `sentence`, `paragraph` oder `whole` — ist eine Einstellung je Engine, gültig
+  für alle Agenten und Kanäle (`tts_toggles_per_engine`).
+- **VRAM:** Das kalibrierte Profil `<Modell>-tts-<Engine>` lässt Platz für die Engine; vor dem
+  Kaltstart des Hauptmodells bittet AIfred den Dienst, alle lokalen GPU-Engines freizugeben.
+- **Dienst nicht erreichbar:** TTS-Wege scheitern laut (die Browser-Stimme übernimmt, wenn
+  eingeschaltet); der Rest von AIfred läuft weiter.
 
-Details: [Audio-Pipeline](../architecture/audio-pipeline.md),
-[TTS- und VRAM-Ablauf](../architecture/tts-vram-workflow.md),
-[TTS-Container-Konventionen](../architecture/tts-container-conventions.md).
+Details: [TTS-Suite, Liste, Einheit, Ansagen](../architecture/tts-suite.md),
+[Audio-Pipeline](../architecture/audio-pipeline.md).
 
 ---
 

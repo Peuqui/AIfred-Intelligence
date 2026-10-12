@@ -27,10 +27,10 @@ Cloud API keys come from the environment variable named in the provider's
 provider's API, not hardcoded. Without an explicit provider the factory uses
 `qwen`.
 
-Before llama-swap loads a model, `OpenAICompatibleBackend` clears the cards: local
-TTS containers that sit on a card the model will use are stopped (a
-`-tts-<engine>` profile keeps its engine on the side-channel card). TTS gets its
-card back later through the TTS escalation list
+Before llama-swap loads a model, `OpenAICompatibleBackend` clears the cards: every
+local GPU TTS engine is released (AIfred asks the TTS-Suite service; the calibrated
+`<model>-tts-<engine>` profile leaves room). The service places an engine again on a
+card with room at the next reading
 ([docs/en/guides/configuration.md](../../docs/en/guides/configuration.md#speech-output-tts)).
 
 ## Creating a backend

@@ -2,7 +2,7 @@
 
 > **Deutsche Version:** [configuration.md](../../de/guides/configuration.md)
 
-Backends, settings, speech output (TTS escalation list), reasoning, history
+Backends, settings, speech output (TTS-Suite), reasoning, history
 compression, the vector store, environment variables and plugin settings, the
 main `config.py` knobs, performance tuning and what multi-user operation means.
 Installation and services: [Deployment Guide](deployment.md).
@@ -71,7 +71,7 @@ Global settings live in `data/settings.json`, written by the UI, the REST API
 - Per-session settings (agent, discussion mode) are **not** here
   but in the session file — see [REST API → Global vs. per-session](rest-api.md#global-vs-per-session).
 
-- **`tts_hosts`** and **`tts_escalation`** hold the speech output, see below.
+- **`tts_escalation`** (and `tts_toggles_per_engine`, `tts_agent_voices_per_engine`) hold the speech output, see below.
 
 **Sampling persistence**
 
@@ -88,50 +88,31 @@ Source of truth for the sampling defaults are the `--temp`, `--top-k`,
 
 ## Speech output (TTS)
 
-There is no single fixed TTS engine. `tts_escalation` in `data/settings.json` is
-an ordered list; for every reply (and every announcement) the **first entry
-that can speak** does. Edit it in the **TTS tab of the Agent Editor** (order,
-on/off, status per entry, speech unit); switching speech output on or off and
-autoplay are on the main page.
+Speech is made by the **TTS-Suite**, a separate service ([Peuqui/TTS-Suite](https://github.com/Peuqui/TTS-Suite),
+default `127.0.0.1:5090`, system unit `tts-suite@<user>`). AIfred keeps only its own **list** and
+sends it with every reading; the service decides which entry speaks, starts the containers on
+demand and announces a voice change. Edit the list in the **TTS tab of the Agent Editor** (order,
+on/off, status per entry, speech unit); switching speech output on or off and autoplay are on the
+main page.
 
-- **Entry** = engine plus place: `{"engine": "<key>", "host": null | "<host name>", "enabled": true}`.
-  `host: null` means this machine (or the cloud for cloud engines).
-- **Engines** (one folder each in `aifred/lib/tts_engines/`): `qwen3local`,
-  `xtts`, `fishspeech`, `moss` (local Docker, GPU), `dashscope_audio3`
-  (Alibaba Qwen-Audio 3, cloud, needs `DASHSCOPE_API_KEY`), `piper`, `espeak`
-  (local, CPU), `edge` (cloud) and `browser` (Web Speech API; speaks only into an
-  open browser session). The Qwen3-TTS cloud engine of earlier versions was
-  replaced by Qwen-Audio 3; a list entry with an engine key that no longer exists
-  makes the list invalid.
-- **Fresh install:** Qwen3-TTS local → XTTS local → Qwen-Audio 3 → Piper → Edge →
-  browser.
-- **Local GPU entry:** if its container is not running, it is started when its
-  measured VRAM peak (burn-in) plus headroom fits on a card — the side-channel
-  card first. The main model is never reloaded for it; if the main model needs
-  the card later, the TTS container is stopped (main model before TTS).
-- **`tts_hosts`**: other machines running the TTS containers with the same API,
-  `{"name", "address", "enabled", "ssh", "ports": {engine: port}}`. Entries
-  bound to a host are skipped while the host is switched off. With `ssh`
-  (`user@host:port`) AIfred starts and stops the containers there through
-  `scripts/tts-host-ctl.sh` using the key `~/.ssh/aifred_tts_host`
-  (`TTS_HOST_SSH_KEY` in `config.py`); without it the containers must run on
-  their own. Setup: [Deployment → TTS hosts](deployment.md#tts-hosts-other-machines-with-tts-containers).
-- **Failure handling:** an entry that fails before the first sound is skipped
-  silently (debug line only); one that fails after speaking is replaced, the
-  successor announces the voice change and repeats the unfinished sentence. A
-  failed entry stays out for the rest of that reply. The chat bubble notes who
-  spoke.
-- **Voice, speed, pitch** are per agent and engine
-  (`tts_agent_voices_per_engine`; defaults from `agents.json`). An agent without
-  a voice on an engine makes that entry fail, the list continues.
-- **Speech unit** — `sentence`, `paragraph` or `whole` — is one setting per
-  engine, valid for all agents and channels (`tts_toggles_per_engine`).
-- A broken list (unknown engine, unknown host, duplicate host name) is an error,
-  not silently ignored.
+- **Entry** = engine plus place: `{"engine": "<key>", "host": null | "<host name>", "enabled": true}`
+  in `tts_escalation` (`data/settings.json`). `host: null` means this machine (or the cloud for
+  cloud engines). Which engines and hosts exist is the service's catalog; AIfred reads and
+  switches the list, it adds and removes nothing. Hosts (other machines with engines) are part of
+  the service's configuration (`~/.config/tts-suite/config.json`); `tts_hosts` in `settings.json`
+  is obsolete.
+- **Fresh install:** Qwen3-TTS local → XTTS local → Qwen-Audio 3 → Piper → Edge → browser.
+- **Voice, speed, pitch** are per agent and engine (`tts_agent_voices_per_engine`; defaults from
+  `agents.json`).
+- **Speech unit** — `sentence`, `paragraph` or `whole` — is one setting per engine, valid for all
+  agents and channels (`tts_toggles_per_engine`).
+- **VRAM:** the calibrated profile `<model>-tts-<engine>` leaves room for the engine; before the main
+  model cold-starts AIfred asks the service to release every local GPU engine.
+- **Service not reachable:** TTS paths fail loudly (the browser voice takes over if enabled); the
+  rest of AIfred keeps working.
 
-Details: [Audio pipeline](../architecture/audio-pipeline.md),
-[TTS + VRAM workflow](../architecture/tts-vram-workflow.md),
-[TTS container conventions](../architecture/tts-container-conventions.md).
+Details: [TTS-Suite, list, unit, announcements](../architecture/tts-suite.md),
+[Audio pipeline](../architecture/audio-pipeline.md).
 
 ---
 

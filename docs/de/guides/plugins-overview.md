@@ -243,7 +243,7 @@ Textübersetzung via DeepL API mit automatischer Quellsprach-Erkennung. 30+ Spra
 
 **Datei:** `plugins/tools/narrator/`
 
-Vertont ganze Textdokumente aus dem Workspace zu einer MP3-Datei — serverseitig gechunkt und synthetisiert, der Text passiert nie den LLM-Kontext. Die Engine kommt aus der TTS-Eskalationsliste, die Stimme (pro Engine) ist über das Zahnrad im Plugin-Tab einstellbar.
+Vertont ganze Textdokumente aus dem Workspace zu einer MP3-Datei — serverseitig gechunkt und synthetisiert, der Text passiert nie den LLM-Kontext. Die Engine kommt aus AIfreds Liste in der TTS-Suite, die Stimme (pro Engine) ist über das Zahnrad im Plugin-Tab einstellbar.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|

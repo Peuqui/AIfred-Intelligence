@@ -97,8 +97,6 @@ is asked as usual, or takes its default when there is no terminal:
 | Variable | Question | Values |
 |---|---|---|
 | `AIFRED_INSTALL_OLLAMA` | install Ollama (`curl \| sh`) | `y` / `n` (default `y`) |
-| `AIFRED_INSTALL_PIPER` | set up Piper TTS | `y` / `n` (default `n`) |
-| `AIFRED_INSTALL_TTS_<ENGINE>` | build a TTS container, one per folder in `docker/tts/` (`fish-speech` → `AIFRED_INSTALL_TTS_FISH_SPEECH`) | `y` / `n` (default `n`) |
 | `AIFRED_INSTALL_SYSTEMD` | install the systemd services | `y` / `n` (default `n`) |
 | `AIFRED_INSTALL_USER` | first whitelist user | a username, or `skip` (default: `$USER`) |
 
@@ -618,7 +616,7 @@ To calibrate in the AIfred UI:
 2. Click **"Calibrate"** next to the model selector
 3. Pick the variants you want via the **2D matrix picker**:
    - Rows = VLM choices (No VLM / Vigilantia 4B / Vigilantia 8B)
-   - Columns = No TTS plus every local GPU TTS engine whose image is built on this machine (Qwen3-TTS, XTTS, MOSS-TTS, Fish-Speech)
+   - Columns = No TTS plus every local GPU TTS engine the TTS-Suite offers as installed (Qwen3-TTS, XTTS)
    - Each ticked cell becomes a separate `<base>-vlm-<key>-tts-<engine>`
      llama-swap profile that the chat-path resolver picks up automatically
 4. Click **"Kalibrierung starten"**. The matrix shows three states per cell:
@@ -656,51 +654,24 @@ calibration (or lower `-c` by hand, see [Troubleshooting](#oom-crash--context-to
 
 ---
 
-## 9a. Speech output on several machines (TTS hosts)
+## 9a. Speech output (TTS-Suite)
 
-Speech output follows the **TTS escalation list** (`tts_escalation` in
-`data/settings.json`, edited in the TTS tab of the Agent Editor; semantics in
-[Configuration → Speech output](configuration.md#speech-output-tts)). Local
-engines run as Docker containers from `docker/tts/<service>/`; AIfred starts
-them on demand and they stop themselves after their idle time
-(`*_KEEP_ALIVE`, in minutes, in the `.env` beside the compose file).
+Speech output comes from the **TTS-Suite**, a separate service
+([Peuqui/TTS-Suite](https://github.com/Peuqui/TTS-Suite)). Engines, their Docker containers, the
+choice of the card and other machines with engines (hosts) belong to it; AIfred only sends text and
+its list (semantics in [Configuration → Speech output](configuration.md#speech-output-tts) and
+[TTS-Suite](../architecture/tts-suite.md)).
 
-**Local containers**
-- `install-all.sh` builds the images you choose (step "Local TTS containers").
-  It skips an image that already exists, so after a `git pull` that changed a
-  `Dockerfile` rebuild by hand: `cd docker/tts/<service> && docker compose build`.
-- The `server.py` of each service is mounted from the checkout: a code change
-  needs a container restart, no rebuild.
-- Containers are not started at boot (`restart: "no"`); AIfred starts them
-  when a list entry needs them and a card has room.
-- **Voices are read when the container starts.** The reference voices live in
-  `docker/tts/voices/<Name>/<Name>.wav` (plus optional `<Name>.txt`
-  transcript) and are mounted read-only; a voice added or changed later is only
-  seen after the container has been restarted (stop it, the next use starts it
-  again).
-
-### TTS hosts: other machines with TTS containers
-
-A second machine with a GPU can take over TTS (and free the VRAM of the main
-machine). The host runs the same containers with the same API.
-
-1. On the TTS host: clone the repository, build the images you need (as above),
-   and create a `.env` beside each `docker/tts/<service>/docker-compose.yml` with
-   `TTS_GPU_UUID` (card UUID from `nvidia-smi -L`) and optionally the idle time.
-2. Optional, so that AIfred can start and stop the containers: create an SSH key
-   on the AIfred machine at `~/.ssh/aifred_tts_host` and authorise it on the host
-   with a forced command, so it can run nothing but the control script:
-   `command="<path to checkout>/scripts/tts-host-ctl.sh",no-pty,no-port-forwarding,no-agent-forwarding,no-X11-forwarding ssh-ed25519 <public key>`.
-   The script accepts `start <service>`, `stop [<service>]` and `status`
-   (`<service>` = a folder in `docker/tts/` with a compose file).
-3. In the Agent Editor (TTS tab) add the machine under "Other machines with TTS
-   containers": name, address, and `user@host:port` for SSH (empty = the
-   containers run on their own). Then add list entries "engine · machine".
-
-**After a `git pull` on a TTS host**, restart its containers so they pick up
-new code and voices: `scripts/tts-host-ctl.sh stop` on that host (or the
-`stop` command over SSH); the next use starts them again. If a `Dockerfile`
-changed, rebuild first.
+- **Install the service separately** for now: clone the repository next to AIfred and run its
+  `deploy/install.sh` (virtual environment, system unit `tts-suite@<user>`, polkit rule); the
+  README of the repository has the details. `install-all.sh` only points to this step; a common
+  installation of both is planned.
+- AIfred starts the unit when it is not running (`ensure_ready`, needs the polkit rule). Without the
+  service AIfred runs, but speech output fails loudly (the browser voice speaks if its entry is on).
+- **Hosts** (a second machine with a GPU that takes over TTS): they are configured in the
+  service's own web interface / `~/.config/tts-suite/config.json` (name, address, SSH), not in AIfred.
+- **Voices:** the reference voices live in the service's voice folder (`voices_dir` of its
+  configuration); a voice added later is seen after the container has been restarted.
 
 ---
 

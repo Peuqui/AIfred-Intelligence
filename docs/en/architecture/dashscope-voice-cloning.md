@@ -7,6 +7,8 @@
 > [`aifred/lib/tts_engines/dashscope_audio3/enroll.py`](../../../aifred/lib/tts_engines/dashscope_audio3/enroll.py),
 > [`aifred/state/_tts_config_mixin.py`](../../../aifred/state/_tts_config_mixin.py)
 
+> **Note (2026-10-12):** the engine code moved to the TTS-Suite repository (`src/tts_suite/engines/dashscope_audio3/`). The paths and AIfred internals named below (`engine.py`, `enroll.py`, `_apply_planned_tts`, `TTS_VOICES_DIR`, `TTSFailure`) describe the state before the move and are being carried over into the documentation of the TTS-Suite; AIfred now only lists the engine and sends texts.
+
 DashScope Qwen-Audio 3 (engine key `dashscope_audio3`) is the **cloud TTS engine**: no local
 GPU, no container. On 2026-10-10 it replaced the older Qwen3-TTS cloud engine, whose cloned
 voices Alibaba switched off; that engine has been removed. This document records how synthesis
@@ -31,7 +33,7 @@ reply holds a URL; the engine downloads the WAV file (the URL arrives as `http:/
 fetched over `https://`), stores it in the TTS audio folder and returns its path. Timeout for
 synthesis and download: 60 s each (`request_timeout_s`).
 
-**Failure kinds** (`TTSFailure`, see [tts-escalation.md](tts-escalation.md)): a network or
+**Failure kinds** (`TTSFailure`, see [tts-suite.md](tts-suite.md)): a network or
 internet outage is `unreachable`; everything else, including an error answer from the API
 (authentication, quota, unknown voice), is `engine`.
 
@@ -57,7 +59,7 @@ itself. All other voices, cloned ones included, use **flash**.
 ## Cloned voices
 
 The source is the shared voice tree `TTS_VOICES_DIR` (`docker/tts/voices/<Name>/<Name>.wav`, the
-same one the container engines use, see [tts-container-conventions.md](tts-container-conventions.md)).
+same one the container engines use).
 Each reference WAV is enrolled with DashScope **once**. The returned `voice_id` is kept in the
 mapping file [`data/tts/dashscope_audio3_voices.json`](../../../data/tts/); this file is the
 truth on whether a voice is enrolled (the cloud's own listing is no use for that check).

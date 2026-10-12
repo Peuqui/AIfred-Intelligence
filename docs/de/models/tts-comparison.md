@@ -14,8 +14,8 @@
 
 ## Stand im Projekt (2026-10-10)
 
-AIfred wählt keine feste Engine mehr, sondern geht eine **Eskalationsliste** durch (siehe
-[tts-escalation.md](../architecture/tts-escalation.md)): der erste Eintrag, der sprechen kann, spricht.
+AIfred wählt keine feste Engine mehr, sondern geht eine **Liste an die TTS-Suite** durch (siehe
+[tts-suite.md](../architecture/tts-suite.md)): der erste Eintrag, der sprechen kann, spricht.
 Die Standardliste einer frischen Installation ist Qwen3-TTS → XTTS → DashScope Qwen-Audio 3 → Piper
 → Edge → Browser. Die Tabelle fasst zusammen, was die Engines im Code über sich selbst angeben
 (`aifred/lib/tts_engines/<key>/engine.py`); „—“ heißt: Die Engine nutzt den Sprachparameter nicht,
@@ -298,7 +298,7 @@ ist ein Wechsel problemlos.
 ## Empfohlene Evaluierungsreihenfolge
 
 1. ~~**MOSS-TTS Local** testen~~ ✅ Integriert! (Docker-Container, VRAM-Reservation, gute Qualität)
-2. ~~**MOSS-TTS Delay 8B** testen~~ ✅ Integriert! (RTX 8000 float32, eigene generate()-API, Web-UI mit Param-Slidern. Siehe [moss-tts-8b-notes.md](moss-tts-8b-notes.md))
+2. ~~**MOSS-TTS Delay 8B** testen~~ ✅ Integriert! (RTX 8000 float32, eigene generate()-API, Web-UI mit Param-Slidern. Die Notizen stehen im Archiv-Tag `archive-tts-vor-tts-suite-2026-10-11`)
 3. **MOSS-TTS-Realtime** testen (Streaming via `push_text`, gleiche VRAM-Klasse wie Local)
 4. **F5-TTS** mit deutschem Fine-Tune testen (kleinstes Modell, schnellstes)
 5. **Qwen3-TTS** testen (nativer DE-Support, Streaming via Fork)

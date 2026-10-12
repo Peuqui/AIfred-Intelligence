@@ -520,11 +520,11 @@ class OpenAICompatibleBackend(LLMBackend):
           (otherwise transcription falls back to the CPU), so it can sit on
           a card an unloaded model will need again. Released first; a
           running transcription gets WHISPER_RELEASE_WAIT_MAX_S.
-        * TTS containers the escalation list started into free VRAM: AIfred asks
-          the TTS service to release those on a card the target entry uses (main
-          model ranks above TTS) — except the engine a ``-tts-<engine>`` profile
-          reserves room for. The service decides; a refusal (reading in progress)
-          is logged and the load goes on.
+        * TTS containers the TTS service started into free VRAM: AIfred asks the
+          service to release every local GPU engine before the load (main model
+          ranks above TTS; the calibrated profile leaves room, the service places
+          an engine again after the load). The service decides; a refusal
+          (reading in progress) is logged and the load goes on.
         * Sidecars: the llama-swap ``vision`` and ``embed`` groups are
           ``persistent`` — llama-swap never unloads their ``-visiond``
           describers and ``-embed`` servers for a main model (only their

@@ -18,7 +18,7 @@ AIfred runs on your own machine and works for you across every channel you use: 
 - 🔗 **Autonomous tool chains** across plugins — one prompt, many steps, from any channel
 - 🎩 **Multi-agent system** — AIfred, Sokrates, Salomo and your own agents debate, criticise, judge — or take delegated tasks as sub-agents
 - 📡 **Reachable everywhere** — web UI, Telegram, Discord, e-mail, Echo Dot voice terminal; runs headless
-- 🎤 **Voice** — speech-to-text plus a TTS escalation list over nine engines (local, other hosts, cloud, browser), voice cloning, spoken announcements on the Echo Dot
+- 🎤 **Voice** — speech-to-text plus the TTS-Suite service over seven engines (local, other hosts, cloud, browser), voice cloning, spoken announcements on the Echo Dot
 - 👁️ **Vision & Vigilantia** — image analysis in chat and continuous camera surveillance with face recognition
 - ⚙️ **Local inference, tuned automatically** — llama.cpp, vLLM and Ollama with VRAM-aware context calibration across multiple GPUs
 - 🔒 **Security built into the framework** — permission tiers per channel, prompt-injection defences, credential broker, audit log
@@ -114,22 +114,20 @@ Setup: [Telegram](docs/en/guides/telegram-setup.md) · [Discord](docs/en/guides/
 - **Meeting pipeline** — transcribe in the original language → translate on demand (DeepL) → narrate into a phone-friendly MP3; every step leaves a file
 - **FreeEcho.2 voice terminal** — Echo Dot 2 hardware with custom firmware: wake word, the question appears in the browser within ~500 ms after STT. The household language (German or English: STT language prior, prompt language, tool replies) is a setting of the channel plugin
 - **Spoken announcements without an LLM** — `POST /api/audio/announce` reads a finished text (or several paragraphs as one announcement) in one room, a group or all rooms; a running stream is paused first, start and end tone are plugin settings. See [REST API](docs/en/guides/rest-api.md)
-- **TTS escalation list** ([details](docs/en/architecture/tts-escalation.md)) — instead of one fixed engine, the TTS tab of the Agent Editor holds an ordered list of entries (engine plus place); the first entry that can speak does, per reply. A local GPU container is started when its measured VRAM peak fits on a card (the main model is never reloaded for it); other machines with TTS containers (`tts_hosts`) are started and stopped over SSH (when an SSH target is set) via `scripts/tts-host-ctl.sh`. If an entry fails, the next one takes over; after a failure mid-text the successor announces the voice change and repeats the unfinished sentence, and the bubble notes who spoke. The list of a fresh install: Qwen3-TTS local → XTTS local → Qwen-Audio 3 (cloud) → Piper → Edge → browser (speaks only into an open browser session). Speech unit (sentence, paragraph, whole) is one setting per engine
-- **Nine TTS engines**, per-agent voice, speed and pitch, gapless streaming playback, regenerate button per bubble:
+- **TTS-Suite** ([details](docs/en/architecture/tts-suite.md)) — speech comes from its own service, not from AIfred: AIfred sends text and an ordered list of entries (engine plus place, edited in the TTS tab of the Agent Editor); the service lets the first entry that can speak do so, starts the containers on demand on a card with room, and after a failure mid-text announces the voice change once and speaks on. The bubble notes who spoke. The list of a fresh install: Qwen3-TTS local → XTTS local → Qwen-Audio 3 (cloud) → Piper → Edge → browser (speaks only into an open browser session). Speech unit (sentence, paragraph, whole) is one setting per engine. The calibrated profile leaves room for the engine; before a cold start of the main model AIfred asks the service to release every local GPU engine
+- **Seven TTS engines**, per-agent voice, speed and pitch, gapless streaming playback, regenerate button per bubble:
 
 | Engine | Type | Default speech unit | Quality | Latency* | Resources |
 |--------|------|-----------|---------|----------|-----------|
 | **Qwen3-TTS 1.7B** | Local Docker | sentence | High (voice cloning, 10 languages incl. native DE) | ~8.5 s | ~5–7 GB VRAM |
 | **XTTS v2** | Local Docker | sentence | High (voice cloning) | ~2.8 s | ~2 GB VRAM |
-| **Fish-Speech S2 Pro** | Local Docker | sentence | High (voice cloning, 80+ languages) | ~11 s | ~20–24 GB VRAM |
-| **MOSS-TTS 1.7B** | Local Docker | whole | Excellent (best open source) | ~14.8 s | ~11.5 GB VRAM |
 | **DashScope Qwen-Audio 3** | Cloud API | sentence | High (system voices, cloned voices for the flash model) | — | `DASHSCOPE_API_KEY` |
 | **Piper** | Local | whole | Medium | < 100 ms | CPU |
 | **eSpeak** | Local | whole | Low (robotic) | < 50 ms | CPU |
 | **Edge TTS** | Cloud | sentence | Good | ~200 ms | Internet |
 | **Browser** | Web Speech API of the device | — | depends on the device | — | none on the server |
 
-\* Local cloning engines measured head to head on the same bilingual paragraph (V100, fp16) — full comparison and the story behind each engine: [TTS Model Comparison](docs/en/models/tts-comparison.md). Fish-Speech, eSpeak and MOSS are not in the default list (Fish-Speech: non-commercial licence). TTS VRAM is measured under a worst-case burn-in and cached, not hand-tuned.
+\* Local cloning engines measured head to head on the same bilingual paragraph (V100, fp16) — full comparison and the story behind each engine: [TTS Model Comparison](docs/en/models/tts-comparison.md). eSpeak is not in the default list. Fish-Speech and MOSS-TTS were evaluated and removed (too large and slow); the comparison keeps their numbers. TTS VRAM is measured under a worst-case burn-in and cached, not hand-tuned.
 
 ### 👁️ Vision & Vigilantia
 
@@ -216,7 +214,7 @@ Full index: [docs/README.md](docs/README.md)
 |---|---|
 | Setup | [Deployment](docs/en/guides/deployment.md) · [llama.cpp + llama-swap](docs/en/guides/llamacpp-setup.md) · [Configuration](docs/en/guides/configuration.md) · [Telegram](docs/en/guides/telegram-setup.md) · [Discord](docs/en/guides/discord-setup.md) |
 | Using & extending | [Plugins](docs/en/guides/plugins-overview.md) · [Printer](docs/en/guides/plugins/printer.md) · [Google Suite](docs/en/guides/plugins/google-suite.md) · [Plugin Development](docs/en/guides/plugin-development.md) · [REST API](docs/en/guides/rest-api.md) |
-| Architecture | [Multi-Agent](docs/en/architecture/multi-agent.md) · [Research Pipeline](docs/en/architecture/research-pipeline.md) · [LLM Call](docs/en/architecture/llm-call.md) · [Message Hub](docs/en/architecture/message-hub.md) · [Security](docs/en/architecture/security.md) · [Scheduler](docs/en/architecture/scheduler.md) · [Spoken Output / TTS Escalation](docs/en/architecture/tts-escalation.md) · [Codebase](docs/en/architecture/codebase.md) |
+| Architecture | [Multi-Agent](docs/en/architecture/multi-agent.md) · [Research Pipeline](docs/en/architecture/research-pipeline.md) · [LLM Call](docs/en/architecture/llm-call.md) · [Message Hub](docs/en/architecture/message-hub.md) · [Security](docs/en/architecture/security.md) · [Scheduler](docs/en/architecture/scheduler.md) · [Spoken Output / TTS-Suite](docs/en/architecture/tts-suite.md) · [Codebase](docs/en/architecture/codebase.md) |
 | Calibration | [Strategy](docs/de/architecture/calibration-strategy.md) (German) · [vLLM](docs/en/architecture/calibration-vllm.md) |
 | Benchmarks | [vLLM Auto-Calibration](docs/en/benchmarks/vllm-autocalibration.md) · [Quantization Quality](docs/en/benchmarks/quantization-quality.md) · [Tensor Split](docs/en/benchmarks/tensor-split.md) |
 

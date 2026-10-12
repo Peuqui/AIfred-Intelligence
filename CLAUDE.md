@@ -183,11 +183,11 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
   Sache des Aufrufers; welcher Ton das ist, legt der Puck fest (`notification_wav` / `_end_wav`).
   `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.
 - Einheit der Sprachausgabe: EINE Einstellung pro TTS-Engine, systemweit für alle Agenten und Kanäle
-  (Browser: Sprachausgabe-Panel; Speicher `tts_toggles_per_engine[engine]["unit"]`; Standard je Engine in
-  `TTSEngine.default_speech_unit`; Lesen über `lib.tts_engines.speech_unit_for`): `sentence`,
+  (Browser: Sprachausgabe-Panel; Speicher `tts_toggles_per_engine[engine]["unit"]`; Standard je Engine = `unit_default`
+  der Katalogzeile der TTS-Suite; Lesen über `lib.tts_service.speech_unit_for`): `sentence`,
   `paragraph` oder `whole` (alles am Stück, beste Qualität, die erste Sprache kommt erst nach der
   kompletten Erzeugung). Das Echo-Plugin liest sie nur, es kennt keine eigene Einstellung dafür. Der TTS-Dienst zerlegt den Text nach der Einheit des sprechenden Eintrags (`texts` = EIN Text, Absätze durch Leerzeilen;
-  `pause_ms` setzt AIfred als Stille vor jedes Segment eines Eintrags mit Einheit `paragraph`, der Dienst markiert keine Absatzgrenzen);
+  an jeder Absatzgrenze liefert der Dienst einen Pause-Marker `pause_ms`, aus dem AIfred Stille macht);
   der erste Abschnitt läuft los, die übrigen entstehen währenddessen (`lib/speech_synthesis.py`). Braucht ein Segment
   länger als `KEEPALIVE_SEC` des Dienstes, schickt er einen Keep-alive-Marker, aus dem AIfred 20 ms Stille macht
   (das 30-s-Inaktivitäts-Timeout des Pucks löst nie aus, er ist die einzige Erkennung einer toten

@@ -27,10 +27,8 @@ AIfred-Intelligence/
 │   │   ├── security.py · credential_broker.py · auth.py · oauth/   # Tiers, Secrets, Login, OAuth-Broker
 │   │   ├── calibration/           # Kontext-Kalibrierung (llama.cpp-Ablauf, vLLM-Ablauf)
 │   │   ├── vision_*.py · frame_sources/ · frame_hub.py   # Vision + Vigilantia
-│   │   ├── tts_engines/           # Ein Ordner pro TTS-Engine: <key>/engine.py (TTSEngine-Unterklasse) + i18n.json;
-│   │   │                          #   registry.py findet die Ordner — ein neuer Ordner taucht überall auf
-│   │   ├── tts_escalation.py      # TTS-Eskalationsliste: welche Engine auf welchem Rechner spricht (SpeechRun, Host-Steuerung per SSH)
-│   │   ├── tts_engine_manager.py · tts_vram_cache.py   # Container-Lebenslauf, gemessene VRAM-Spitzen
+│   │   ├── tts_client.py · tts_service.py · tts_voices.py   # Client der TTS-Suite: HTTP/WebSocket, Katalog ↔ AIfreds Liste, Stimmen
+│   │   ├── tts_llm_coordination.py · tts_stress_burnin.py · tts_vram_cache.py   # Plan des LLM-Profils, Freigabe vor dem Laden, gemessene VRAM-Spitzen
 │   │   ├── speech_synthesis.py · audio_*.py · audio_channels/   # Synthese, STT, Ausgabewege (Browser, FreeEcho.2, lokal)
 │   │   ├── api/                   # REST API (FastAPI, unter /api gemountet): chat, agents, audio, announce, tts, documents, vision, …
 │   │   ├── i18n/                  # UI-Übersetzungen (de.json, en.json)
