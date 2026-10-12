@@ -473,14 +473,13 @@ def running_gpu_footprint() -> dict[str, dict[str, int]]:
 
 
 def release_gpu_engines(
-    cards_needed: Collection[str] | None = None, *, reason: str, keep: Collection[str] = (),
+    cards_needed: Collection[str] | None = None, *, reason: str,
 ) -> list[ReleaseResult]:
     """Ask the service to release the local GPU engines that run right now (SSOT of every place that
     needs room on the cards: the GPU guard before a model load, the describer, the TTS plan).
 
     ``cards_needed`` None = all running local GPU engines; a set of GPU UUIDs = only engines whose
-    footprint touches one of them. ``keep`` = engine keys that stay (the engine a ``-tts-<engine>``
-    profile reserves room for). The service decides per target; every answer that is not a
+    footprint touches one of them. The service decides per target; every answer that is not a
     success is logged here, visibly: ``in_use`` = a reading holds the container, so the release
     was refused (callers neither repeat nor wait: the load behaves as with too little room).
     ``reason`` says what the room is for ("loading 'model'").
@@ -493,7 +492,7 @@ def release_gpu_engines(
     targets = [
         EngineTarget(info.engine, info.host)
         for info in _local_gpu_rows(fresh=True)
-        if info.status == "running" and info.engine not in keep and _touches(info, cards_needed)
+        if info.status == "running" and _touches(info, cards_needed)
     ]
     return release_targets(targets, reason=reason)
 

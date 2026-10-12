@@ -85,7 +85,7 @@ def test_tts_vram_counts_as_free_for_the_describer(card, monkeypatch):
 def test_tts_container_on_the_target_card_is_released_by_request(card, monkeypatch):
     asked: list[tuple] = []
 
-    def release(cards, *, reason, keep=()):
+    def release(cards, *, reason):
         asked.append((cards, reason))
         return [ReleaseResult("xtts", None, "stopped", "")]
 
@@ -96,13 +96,13 @@ def test_tts_container_on_the_target_card_is_released_by_request(card, monkeypat
 
 def test_a_refused_tts_release_is_not_a_release(card, monkeypatch):
     monkeypatch.setattr(
-        tts_service, "release_gpu_engines", lambda cards, *, reason, keep=(): [ReleaseResult("xtts", None, "in_use", "x")],
+        tts_service, "release_gpu_engines", lambda cards, *, reason: [ReleaseResult("xtts", None, "in_use", "x")],
     )
     assert vision_routing.release_side_channels_for_describer(PROFILE) is False
 
 
 def test_an_unreachable_tts_service_does_not_stop_the_describer_load(card, monkeypatch, caplog):
-    def unreachable(cards, *, reason, keep=()):
+    def unreachable(cards, *, reason):
         raise TTSSuiteUnreachable("not reachable on /engines")
 
     monkeypatch.setattr(tts_service, "release_gpu_engines", unreachable)
