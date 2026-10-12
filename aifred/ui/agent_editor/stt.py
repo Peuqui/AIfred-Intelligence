@@ -68,16 +68,16 @@ def _stt_view() -> rx.Component:
             # verschachtelte erzeugten je einen eigenen Scrollbalken.
             rx.box(
                 rx.vstack(
-                    # Status: was läuft gerade wirklich (Degradierungskette!)
+                    # Status: was gerade im Speicher liegt
                     rx.hstack(
                         rx.badge(
                             rx.cond(
-                                AIState.stt_gpu_model_loaded != "",
-                                "GPU: " + AIState.stt_gpu_model_loaded,
+                                AIState.stt_gpu_loaded_label != "",
+                                "GPU: " + AIState.stt_gpu_loaded_label,
                                 "GPU: \u2014",
                             ),
                             color_scheme=rx.cond(
-                                AIState.stt_gpu_model_loaded != "", "green", "gray",
+                                AIState.stt_gpu_loaded_label != "", "green", "gray",
                             ),
                             variant="soft",
                         ),
@@ -101,59 +101,74 @@ def _stt_view() -> rx.Component:
                         align="center",
                     ),
                     _stt_row(
-                        t("stt_engine"),
+                        t("stt_device"),
                         rx.select(
-                            AIState.stt_engines,
-                            value=AIState.stt_engine,
-                            on_change=AIState.stt_set_engine,
+                            AIState.stt_devices,
+                            value=AIState.stt_device,
+                            on_change=AIState.stt_set_device,
                             size="1",
                         ),
-                        t("stt_engine_hint"),
+                        t("stt_device_hint"),
                     ),
-                    # Je Engine nur, was sie wirklich kennt: Parakeet hat EIN Modell mit zwei
-                    # Qualitäten, Whisper getrennte Modelle für GPU und CPU.
+                    _stt_row(
+                        t("stt_gpu_engine"),
+                        rx.select(
+                            AIState.stt_engines,
+                            value=AIState.stt_gpu_engine,
+                            on_change=AIState.stt_set_gpu_engine,
+                            size="1",
+                        ),
+                    ),
+                    # Je Engine nur, was sie wirklich kennt: Parakeet hat Qualitäten, Whisper Modelle.
                     rx.cond(
-                        AIState.stt_engine == "parakeet",
-                        rx.fragment(
-                            _stt_row(
-                                t("stt_gpu_quality"),
-                                rx.select(
-                                    AIState.stt_qualities,
-                                    value=AIState.stt_gpu_quality,
-                                    on_change=AIState.stt_set_gpu_quality,
-                                    size="1",
-                                ),
-                                t("stt_quality_hint"),
-                            ),
-                            _stt_row(
-                                t("stt_cpu_quality"),
-                                rx.select(
-                                    AIState.stt_qualities,
-                                    value=AIState.stt_cpu_quality,
-                                    on_change=AIState.stt_set_cpu_quality,
-                                    size="1",
-                                ),
+                        AIState.stt_gpu_engine == "parakeet",
+                        _stt_row(
+                            t("stt_gpu_quality"),
+                            rx.select(
+                                AIState.stt_qualities,
+                                value=AIState.stt_gpu_quality,
+                                on_change=AIState.stt_set_gpu_quality,
+                                size="1",
                             ),
                         ),
-                        rx.fragment(
-                            _stt_row(
-                                t("stt_gpu_model"),
-                                rx.select(
-                                    AIState.stt_available_models,
-                                    value=AIState.stt_gpu_model,
-                                    on_change=AIState.stt_set_gpu_model,
-                                    size="1",
-                                ),
-                                t("stt_gpu_model_hint"),
+                        _stt_row(
+                            t("stt_gpu_model"),
+                            rx.select(
+                                AIState.stt_available_models,
+                                value=AIState.stt_gpu_model,
+                                on_change=AIState.stt_set_gpu_model,
+                                size="1",
                             ),
-                            _stt_row(
-                                t("stt_cpu_model"),
-                                rx.select(
-                                    AIState.stt_available_models,
-                                    value=AIState.stt_cpu_model,
-                                    on_change=AIState.stt_set_cpu_model,
-                                    size="1",
-                                ),
+                        ),
+                    ),
+                    _stt_row(
+                        t("stt_cpu_engine"),
+                        rx.select(
+                            AIState.stt_engines,
+                            value=AIState.stt_cpu_engine,
+                            on_change=AIState.stt_set_cpu_engine,
+                            size="1",
+                        ),
+                    ),
+                    # Je Engine nur, was sie wirklich kennt: Parakeet hat Qualitäten, Whisper Modelle.
+                    rx.cond(
+                        AIState.stt_cpu_engine == "parakeet",
+                        _stt_row(
+                            t("stt_cpu_quality"),
+                            rx.select(
+                                AIState.stt_qualities,
+                                value=AIState.stt_cpu_quality,
+                                on_change=AIState.stt_set_cpu_quality,
+                                size="1",
+                            ),
+                        ),
+                        _stt_row(
+                            t("stt_cpu_model"),
+                            rx.select(
+                                AIState.stt_available_models,
+                                value=AIState.stt_cpu_model,
+                                on_change=AIState.stt_set_cpu_model,
+                                size="1",
                             ),
                         ),
                     ),

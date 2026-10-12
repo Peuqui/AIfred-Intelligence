@@ -1,14 +1,22 @@
 """STT-Settings-Mixin — der „STT"-Tab im Agent-Editor.
 
-Reine Bedienoberfläche für die Konfiguration des Whisper-Services: Die
-Config lebt als SSOT im Service selbst (über den STTClient: status(),
-set_config()); dieses Mixin liest und schreibt sie nur. Nichts
-davon wird in AIfred dupliziert oder persistiert.
+Bedienoberfläche für die Konfiguration des STT-Dienstes: Engine, Modell und Genauigkeit je Gerät
+(CPU, GPU) leben als SSOT im Dienst selbst (über den STTClient: status(), set_config()); dieses
+Mixin liest und schreibt sie nur. Persistiert wird in AIfred nur das bevorzugte Gerät
+(``stt_device`` in settings.json: auto, cpu, cuda), weil es eine Regel des Clients ist.
 """
 
 from __future__ import annotations
 
 import reflex as rx
+
+
+def _loaded_label(engine: str | None, model: str | None) -> str:
+    """„large-v3“ / „parakeet-fp32“ für das, was geladen ist (der Dienst nennt bei Parakeet schon die
+    Engine im Modellnamen); ``""`` wenn nichts."""
+    if not engine:
+        return ""
+    return model if model and model.startswith(engine) else f"{engine} {model}".strip()
 
 
 class STTSettingsMixin(rx.State, mixin=True):
@@ -17,7 +25,10 @@ class STTSettingsMixin(rx.State, mixin=True):
     stt_available: bool = False          # Service erreichbar?
     stt_available_models: list[str] = []
     stt_engines: list[str] = []
-    stt_engine: str = ""
+    stt_cpu_engine: str = ""
+    stt_gpu_engine: str = ""
+    stt_devices: list[str] = []          # was der Dienst als Gerät anbietet: cpu, cuda, auto
+    stt_device: str = "auto"             # bevorzugtes Gerät dieses Clients (settings.json)
     stt_qualities: list[str] = []
     stt_cpu_quality: str = ""
     stt_gpu_quality: str = ""
@@ -29,9 +40,8 @@ class STTSettingsMixin(rx.State, mixin=True):
     stt_vad_filter: bool = True
     stt_condition_on_previous: bool = True
     stt_gpu_ttl_minutes: int = 30
-    # Status-Anzeige: tatsächlich geladenes GPU-Modell (Degradierungskette!)
-    stt_gpu_model_loaded: str = ""
-    # Welches CPU-Modell wirklich im Speicher liegt ("" = keins) — je nach Engine Whisper-Modell oder Parakeet-Qualität
+    # Status-Anzeige: was wirklich im Speicher liegt ("" = nichts), „Engine Modell“
+    stt_gpu_loaded_label: str = ""
     stt_cpu_loaded_label: str = ""
     stt_save_message: str = ""
 
@@ -51,7 +61,9 @@ class STTSettingsMixin(rx.State, mixin=True):
         self.stt_available = True
         self.stt_available_models = data.get("available_models", [])
         self.stt_engines = data.get("engines", [])
-        self.stt_engine = data.get("engine", "")
+        self.stt_devices = data.get("devices", [])
+        self.stt_cpu_engine = data.get("cpu_engine", "")
+        self.stt_gpu_engine = data.get("gpu_engine", "")
         self.stt_qualities = data.get("parakeet_qualities", [])
         self.stt_cpu_quality = data.get("cpu_quality", "")
         self.stt_gpu_quality = data.get("gpu_quality", "")
@@ -63,13 +75,10 @@ class STTSettingsMixin(rx.State, mixin=True):
         self.stt_vad_filter = bool(data.get("vad_filter", True))
         self.stt_condition_on_previous = bool(data.get("condition_on_previous_text", True))
         self.stt_gpu_ttl_minutes = int(data.get("gpu_ttl_minutes", 30))
-        self.stt_gpu_model_loaded = data.get("gpu_model_loaded") or ""
-        if data.get("parakeet_cpu_loaded"):
-            self.stt_cpu_loaded_label = f"parakeet-{data['parakeet_cpu_loaded']}"
-        elif data.get("cpu_loaded"):
-            self.stt_cpu_loaded_label = str(self.stt_cpu_model)
-        else:
-            self.stt_cpu_loaded_label = ""
+        self.stt_gpu_loaded_label = _loaded_label(data.get("gpu_loaded_engine"), data.get("gpu_loaded_model"))
+        self.stt_cpu_loaded_label = _loaded_label(data.get("cpu_loaded_engine"), data.get("cpu_loaded_model"))
+        from ..lib.settings import persisted_settings
+        self.stt_device = persisted_settings().get("stt_device", "auto")
 
     @rx.event
     def refresh_stt_settings(self) -> None:
@@ -77,8 +86,16 @@ class STTSettingsMixin(rx.State, mixin=True):
         self.load_stt_settings()
 
     @rx.event
-    def stt_set_engine(self, value: str) -> None:
-        self.stt_engine = value
+    def stt_set_cpu_engine(self, value: str) -> None:
+        self.stt_cpu_engine = value
+
+    @rx.event
+    def stt_set_gpu_engine(self, value: str) -> None:
+        self.stt_gpu_engine = value
+
+    @rx.event
+    def stt_set_device(self, value: str) -> None:
+        self.stt_device = value
 
     @rx.event
     def stt_set_cpu_quality(self, value: str) -> None:
@@ -133,10 +150,12 @@ class STTSettingsMixin(rx.State, mixin=True):
     def save_stt_settings(self) -> None:
         """Alle Felder an den Service POSTen und Status neu lesen."""
         from ..lib.i18n import t
+        from ..lib.settings import load_settings
         from ..lib.stt_client import STTError, get_default_client
 
         payload = {
-            "engine": self.stt_engine,
+            "cpu_engine": self.stt_cpu_engine,
+            "gpu_engine": self.stt_gpu_engine,
             "cpu_quality": self.stt_cpu_quality,
             "gpu_quality": self.stt_gpu_quality,
             "gpu_model": self.stt_gpu_model,
@@ -153,5 +172,8 @@ class STTSettingsMixin(rx.State, mixin=True):
         except STTError as e:
             self.stt_save_message = f"❌ {e}"
             return
+        settings = load_settings() or {}
+        settings["stt_device"] = self.stt_device
+        self._write_settings_file(settings)  # type: ignore[attr-defined]
         self.load_stt_settings()
         self.stt_save_message = t("stt_saved", lang=self.ui_language)  # type: ignore[attr-defined]

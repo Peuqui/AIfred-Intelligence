@@ -1145,55 +1145,49 @@ def transcribe_audio_auto(
     audio_path: str, language: str = "de", log_result: bool = True,
     diarize: bool = False,
 ) -> tuple[str, float, str]:
-    """GPU-first transcription — SSOT for the device routing policy.
+    """Transcription on the device the user prefers — SSOT for the device routing policy.
 
-    Tries the GPU engine first (the whisper-stt service checks free VRAM
-    itself and answers 503 when nothing fits). Files up to
-    WHISPER_GPU_MIN_FILE_MB then retry on the permanent CPU model; bigger
-    files re-raise STTGPUUnavailableError so the caller decides what to do
-    (unload the LLM, abort, ...) — CPU is no option at that size.
+    The preference (``stt_device`` in settings.json) is ``auto``, ``cpu`` or ``cuda``:
+
+    * ``cpu`` — straight to the CPU model, the GPU is never asked.
+    * ``cuda`` — only the GPU engine; no room on any card re-raises STTGPUUnavailableError.
+    * ``auto`` — the service decides (``device=auto``: the configured GPU combination, smaller GPU
+      models, then the configured CPU one), from the free VRAM of the cards. Files bigger than
+      WHISPER_GPU_MIN_FILE_MB ask for the GPU alone: the CPU would take far too long at that size,
+      so STTGPUUnavailableError reaches the caller, who decides (unload the LLM, abort, ...).
 
     Returns:
-        tuple: (transcribed_text, time_in_seconds, device_used)
+        tuple: (transcribed_text, time_in_seconds, device_used) — device_used is ``cpu`` or
+        ``cuda`` as the service reports it.
     """
     from .config import WHISPER_GPU_MIN_FILE_MB
-    from .stt_client import STTGPUUnavailableError
+    from .settings import persisted_settings
 
-    try:
-        text, stt_time = transcribe_audio(
-            audio_path, language=language, device="cuda", log_result=log_result,
-            diarize=diarize,
-        )
-        return text, stt_time, "cuda"
-    except STTGPUUnavailableError:
-        if os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB:
-            raise
-        log_message("⚠️ No GPU with free VRAM — falling back to CPU engine (slower)", "warning")
-        text, stt_time = transcribe_audio(
-            audio_path, language=language, device="cpu", log_result=log_result,
-            diarize=diarize,
-        )
-        return text, stt_time, "cpu"
+    preference = persisted_settings().get("stt_device", "auto")
+    device = preference
+    if preference == "auto" and os.path.getsize(audio_path) / (1024 * 1024) > WHISPER_GPU_MIN_FILE_MB:
+        device = "cuda"
+    return transcribe_audio(audio_path, language=language, device=device, log_result=log_result, diarize=diarize)
 
 
 def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
-                     log_result: bool = True, diarize: bool = False) -> tuple[str, float]:
+                     log_result: bool = True, diarize: bool = False) -> tuple[str, float, str]:
     """Transcribe audio to text via Whisper Docker service.
 
     Args:
         audio_path: Path to audio file (WAV, MP3, M4A, OGG, FLAC, WebM)
         language: Language code ("de" or "en")
-        device: "cpu" or "cuda" (default: "cpu")
+        device: "cpu", "cuda" or "auto" (the service picks, see ``transcribe_audio_auto``)
         diarize: Label speakers ([SPEAKER_00] …). Only worth it for
                  recordings with several voices — a dictation has one
                  speaker and would just pay the extra model load.
 
     Returns:
-        tuple: (transcribed_text, time_in_seconds) — with diarize the text
+        tuple: (transcribed_text, time_in_seconds, device_used) — with diarize the text
         carries speaker markers, so callers need no separate handling.
     """
     if not audio_path:
-        return "", 0.0
+        return "", 0.0, device
 
     from .config import WHISPER_TRANSCRIBE_TIMEOUT_S
     from .stt_client import (
@@ -1221,6 +1215,11 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
 
     user_text = data.get("text", "").strip()
     stt_time = data.get("time", 0.0)
+    device_used = str(data["device"])
+    for fallback in data.get("fallback", []):
+        log_message(f"⚠️ STT {fallback['tried']} not used: {fallback['reason']}", "warning")
+    if device_used == "cpu" and device != "cpu":
+        log_message("⚠️ Transcribed on the CPU engine (slower)", "warning")
     # Speaker-labelled variant wins when diarization succeeded; a
     # failure keeps the plain transcript (the service reports why).
     if diarize:
@@ -1240,7 +1239,7 @@ def transcribe_audio(audio_path: str, language: str = "de", device: str = "cpu",
             f"{'...' if len(user_text) > 100 else ''} "
             f"(Time: {stt_time:.1f}s)"
         )
-    return user_text, stt_time
+    return user_text, stt_time, device_used
 
 
 # ============================================================

@@ -207,3 +207,28 @@ def test_the_container_starts_with_the_cpu_compose_file_only_without_an_nvidia_g
     monkeypatch.setattr("aifred.lib.gpu_utils.get_all_gpus_memory_info", lambda: gpus)
     assert stt_client.STTClient("http://stt.test", str(compose)).start_container() == (True, "up")
     assert calls == [(str(compose), "up", "Whisper", overrides)]
+
+
+class _Recorder:
+    def __init__(self, device_used: str = "cpu"):
+        self.calls: list[str] = []
+        self.device_used = device_used
+
+    def transcribe(self, audio_path, language, device, diarize):
+        self.calls.append(device)
+        return {"text": "hallo", "time": 0.1, "device": self.device_used}
+
+
+@pytest.mark.parametrize("preference, small_file, asked", [
+    ("auto", True, "auto"), ("auto", False, "cuda"), ("cpu", False, "cpu"), ("cuda", True, "cuda"),
+])
+def test_the_device_preference_decides_what_the_service_is_asked(monkeypatch, tmp_path, preference, small_file, asked):
+    from aifred.lib import audio_processing, settings
+
+    wav = tmp_path / "a.wav"
+    wav.write_bytes(b"0" * (1024 if small_file else 11 * 1024 * 1024))
+    recorder = _Recorder()
+    monkeypatch.setattr(stt_client, "get_default_client", lambda: recorder)
+    monkeypatch.setattr(settings, "persisted_settings", lambda: {"stt_device": preference})
+    text, _seconds, device_used = audio_processing.transcribe_audio_auto(str(wav))
+    assert (text, recorder.calls, device_used) == ("hallo", [asked], "cpu")
