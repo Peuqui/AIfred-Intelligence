@@ -1166,19 +1166,6 @@ step_summary "2f — SearXNG"
 echo ""
 sleep 1
 
-# ============================================================
-# TTS-Suite (speech output): separate repository, not part of this installer yet
-# ============================================================
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo -e "${BLUE}  TTS-Suite (speech output)${NC}"
-echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
-echo ""
-echo "Speech output comes from the TTS-Suite service (https://github.com/Peuqui/TTS-Suite):"
-echo "engines, containers and cards are its business, AIfred only sends text and its list."
-echo "Install it separately for now: clone the repository and run deploy/install.sh"
-echo "(see its README). Without it AIfred runs, speech output fails loudly."
-echo ""
-
 fi  # end of "if [ "$DRY_RUN" = "1" ] / else" — steps 1-2g
 
 # The first user comes before the services: creating it writes
@@ -1463,9 +1450,6 @@ echo "   • llama-swap (LLM backend proxy for llama.cpp, lives outside this rep
 echo "       https://github.com/mostlygeek/llama-swap"
 echo "       Binary into ~/bin, config in ~/.config/llama-swap/config.yaml,"
 echo "       systemd unit into /etc/systemd/system/llama-swap.service (own research)."
-echo ""
-echo "   • TTS-Suite (speech output, own repository): clone https://github.com/Peuqui/TTS-Suite"
-echo "     and run deploy/install.sh (see its README)."
 echo ""
 echo "   • Reverse proxy setup (own domain via nginx/caddy):"
 echo "       # set AIFRED_ALLOWED_HOST=your-domain.tld in .env, then restart:"

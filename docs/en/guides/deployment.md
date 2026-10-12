@@ -662,10 +662,13 @@ choice of the card and other machines with engines (hosts) belong to it; AIfred 
 its list (semantics in [Configuration → Speech output](configuration.md#speech-output-tts) and
 [TTS-Suite](../architecture/tts-suite.md)).
 
-- **Install the service separately** for now: clone the repository next to AIfred and run its
-  `deploy/install.sh` (virtual environment, system unit `tts-suite@<user>`, polkit rule); the
-  README of the repository has the details. `install-all.sh` only points to this step; a common
-  installation of both is planned.
+- **Installation:** `install-all.sh` (step 2d) clones the repository next to AIfred, runs its
+  `deploy/install.sh` (virtual environment, command, token, first configuration with the voices of the
+  clone and the pronunciation "AIfred → Alfred") and asks whether to install the system unit
+  `tts-suite@<user>` with the polkit rule (one sudo step, `deploy/switch-to-system-unit.sh`; only with
+  it can AIfred start the service itself when needed). Then it checks `/health` on port 5090. Without
+  Docker with Compose the local engines do not start; cloud engines and the browser voice still work.
+  By hand: `deploy/install.sh` and `sudo deploy/switch-to-system-unit.sh`.
 - AIfred starts the unit when it is not running (`ensure_ready`, needs the polkit rule). Without the
   service AIfred runs, but speech output fails loudly (the browser voice speaks if its entry is on).
 - **Hosts** (a second machine with a GPU that takes over TTS): they are configured in the
