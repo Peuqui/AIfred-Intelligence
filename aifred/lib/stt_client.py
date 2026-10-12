@@ -99,11 +99,12 @@ class STTClient:
         return self._call("GET", "/health", WHISPER_HEALTH_TIMEOUT_S)
 
     def is_ready(self) -> bool:
-        """Läuft der Dienst und ist ein Modell geladen? Dies ist eine Abfrage, die
-        auch einen toten Container mit ``False`` beantwortet — daher fängt sie
-        STTError."""
+        """Antwortet der Dienst und hat er nichts mehr zu laden? Status ``ok`` (Modell geladen) und
+        ``idle`` (Modelle laden erst bei der ersten Anfrage, z. B. nach ``/unload?device=all``) zählen
+        als bereit, ``loading`` (Start lädt noch) nicht. Dies ist eine Abfrage, die auch einen toten
+        Container mit ``False`` beantwortet — daher fängt sie STTError."""
         try:
-            return bool(self.health().get("model_loaded", False))
+            return self.health().get("status") in ("ok", "idle")
         except STTError:
             return False
 

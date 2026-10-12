@@ -425,10 +425,12 @@ class AIState(  # type: ignore[misc]
         # Check Whisper Docker service is ready
         from ..lib.stt_client import STTError, get_default_client
         stt = get_default_client()
-        if not stt.is_ready():
+        # Both calls block (a health request; ensure_ready polls up to a minute and may start the
+        # container): off the event loop.
+        if not await asyncio.to_thread(stt.is_ready):
             self.add_debug("🎤 Starting Whisper service...")
             try:
-                stt.ensure_ready()
+                await asyncio.to_thread(stt.ensure_ready)
             except STTError as e:
                 self.add_debug(f"❌ {e}")
                 yield rx.toast.error(f"🎤 Whisper: {e}", duration=8000, position="top-center")
@@ -671,7 +673,7 @@ class AIState(  # type: ignore[misc]
             # makes Whisper translate on the fly, which is worse than a proper
             # second-step translation (translate_file → DeepL). Mic dictations
             # keep the UI language (fast, and the assumption is correct).
-            from ..lib.stt_client import STTGPUUnavailableError
+            from ..lib.stt_client import STTError, STTGPUUnavailableError
             stt_language = "auto" if source == "file" else self.ui_language
             loop = asyncio.get_running_loop()
             try:
@@ -727,6 +729,10 @@ class AIState(  # type: ignore[misc]
             except TimeoutError as e:
                 self.add_debug(f"⚠️ {e}")
                 yield rx.toast.error(f"⚠️ {e}", duration=10000, position="top-center")
+                return
+            except STTError as e:
+                self.add_debug(f"❌ Whisper: {e}")
+                yield rx.toast.error(f"🎤 Whisper: {e}", duration=8000, position="top-center")
                 return
 
             if user_text:

@@ -49,14 +49,20 @@ def calls(monkeypatch):
 
 
 def test_health_and_is_ready(client, calls):
-    calls.answer = _response(200, {"model_loaded": True})
-    assert client.health() == {"model_loaded": True}
+    calls.answer = _response(200, {"status": "ok", "model_loaded": True})
+    assert client.health() == {"status": "ok", "model_loaded": True}
     assert client.is_ready()
     assert calls.sent[0][:2] == ("GET", "http://stt.test/health")
 
 
-def test_is_ready_false_while_model_loads_or_service_down(client, calls):
-    calls.answer = _response(200, {"model_loaded": False})
+def test_an_idle_service_is_ready_it_loads_on_the_first_request(client, calls):
+    """After /unload?device=all the service has no model but answers: waiting for one froze the microphone."""
+    calls.answer = _response(200, {"status": "idle", "model_loaded": False})
+    assert client.is_ready()
+
+
+def test_is_ready_false_while_the_start_still_loads_or_the_service_is_down(client, calls):
+    calls.answer = _response(200, {"status": "loading", "model_loaded": False})
     assert not client.is_ready()
     calls.answer = requests.ConnectionError()
     assert not client.is_ready()
@@ -136,7 +142,7 @@ def test_unload_409_is_busy(client, calls):
 
 
 def test_ensure_ready_does_nothing_when_ready(client, calls, monkeypatch):
-    calls.answer = _response(200, {"model_loaded": True})
+    calls.answer = _response(200, {"status": "ok", "model_loaded": True})
     monkeypatch.setattr(client, "start_container", lambda: pytest.fail("must not start"))
     client.ensure_ready(timeout_s=1)
 
@@ -177,3 +183,16 @@ def test_start_container_without_compose_file_names_the_suite_dir(client):
     started, message = client.start_container()
     assert not started
     assert stt_client.STT_SUITE_DIR in message
+
+
+def test_an_unreachable_service_is_an_error_not_an_empty_transcript(monkeypatch):
+    """"No text recognized" for a service that is not there made the Echo and the dictation silently useless."""
+    from aifred.lib import audio_processing, stt_client
+
+    class Dead:
+        def transcribe(self, *args):
+            raise STTUnreachableError("STT service not reachable")
+
+    monkeypatch.setattr(stt_client, "get_default_client", lambda: Dead())
+    with pytest.raises(STTUnreachableError):
+        audio_processing.transcribe_audio("/tmp/not-read.wav")
