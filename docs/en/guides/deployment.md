@@ -99,6 +99,7 @@ is asked as usual, or takes its default when there is no terminal:
 | `AIFRED_INSTALL_OLLAMA` | install Ollama (`curl \| sh`) | `y` / `n` (default `y`) |
 | `AIFRED_INSTALL_SYSTEMD` | install the systemd services | `y` / `n` (default `n`) |
 | `AIFRED_INSTALL_USER` | first whitelist user | a username, or `skip` (default: `$USER`) |
+| `AIFRED_INSTALL_TTS_SYSTEMD` | install the TTS-Suite as system service `tts-suite@<user>` (sudo, with the polkit rule) | `y` / `n` (default `n`: user service) |
 
 ```bash
 AIFRED_INSTALL_OLLAMA=n AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh
@@ -675,6 +676,27 @@ its list (semantics in [Configuration → Speech output](configuration.md#speech
   service's own web interface / `~/.config/tts-suite/config.json` (name, address, SSH), not in AIfred.
 - **Voices:** the reference voices live in the service's voice folder (`voices_dir` of its
   configuration); a voice added later is seen after the container has been restarted.
+
+
+## 9b. Speech input (STT-Suite)
+
+Speech recognition comes from the **STT-Suite** ([Peuqui/STT-Suite](https://github.com/Peuqui/STT-Suite)),
+a container with Whisper and Parakeet on port 5080. `install-all.sh` (step 2e) clones the repository
+next to AIfred (or `STT_SUITE_DIR` from `.env`) and starts it with `docker compose`. **Without an
+NVIDIA GPU** (`nvidia-smi` shows none) the installer adds `docker-compose.cpu.yml`: the base file
+reserves a GPU, which Docker refuses there. AIfred does the same when it starts the container itself
+(`STTClient.start_container`).
+
+- **What AIfred sets:** only the preferred device (STT tab of the Agent Editor): *Automatic* (the
+  STT-Suite decides by free graphics memory), *CPU only* or *GPU only* (an error without room, no
+  fallback). The device is kept as `stt_device` in `settings.json`. Long recordings (over
+  `WHISPER_GPU_MIN_FILE_MB`, 10 MB) always go to the CPU with Automatic.
+- **What the STT-Suite sets** (its page at `/ui/`, `/whisper/ui/` behind the proxy): engine, model and
+  quality per device, the order of the automatic mode, the memory margin and the measurement of the
+  memory need.
+- **Freeing the GPU:** before the cold start of a big model AIfred unloads the GPU worker
+  (`/unload?device=cuda`, the CPU models stay), the local TTS engines (through the TTS-Suite) and the
+  previous model.
 
 ---
 
