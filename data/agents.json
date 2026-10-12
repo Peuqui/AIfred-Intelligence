@@ -34,19 +34,7 @@
           "pitch": "1.0",
           "enabled": true
         },
-        "moss": {
-          "voice": "AIfred",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
-        },
         "qwen3local": {
-          "voice": "AIfred",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
-        },
-        "fishspeech": {
           "voice": "AIfred",
           "speed": "1.25x",
           "pitch": "1.0",
@@ -154,19 +142,7 @@
           "pitch": "1.0",
           "enabled": true
         },
-        "moss": {
-          "voice": "Sokrates",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
-        },
         "qwen3local": {
-          "voice": "Sokrates",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
-        },
-        "fishspeech": {
           "voice": "Sokrates",
           "speed": "1.25x",
           "pitch": "1.0",
@@ -238,19 +214,7 @@
           "pitch": "1.0",
           "enabled": true
         },
-        "moss": {
-          "voice": "Salomo",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
-        },
         "qwen3local": {
-          "voice": "Salomo",
-          "speed": "1.25x",
-          "pitch": "1.0",
-          "enabled": true
-        },
-        "fishspeech": {
           "voice": "Salomo",
           "speed": "1.25x",
           "pitch": "1.0",
@@ -441,19 +405,7 @@
           "pitch": "1.0",
           "enabled": true
         },
-        "moss": {
-          "voice": "HAL9000",
-          "speed": "1.0x",
-          "pitch": "1.0",
-          "enabled": true
-        },
         "qwen3local": {
-          "voice": "HAL9000",
-          "speed": "1.0x",
-          "pitch": "1.0",
-          "enabled": true
-        },
-        "fishspeech": {
           "voice": "HAL9000",
           "speed": "1.0x",
           "pitch": "1.0",
