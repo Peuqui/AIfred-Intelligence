@@ -123,7 +123,7 @@ Die Spracherkennung macht die **STT-Suite** (eigener Container, Port 5080, Einze
 Gerät** ein, im **STT-Tab des Agent-Editors**: *Automatik* (Vorgabe), *Nur CPU* oder *Nur GPU*. Es
 geht als `device=auto|cpu|cuda` an den Dienst und ist für Browser, Echo Dot und Dateien gleich.
 Engine, Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik und der Speicherpuffer stehen
-auf der Oberfläche der STT-Suite (`/whisper/ui/` am Proxy, der Tab verlinkt sie).
+auf der Oberfläche der STT-Suite (`/stt-suite/ui/` am Proxy, der Tab verlinkt sie).
 
 ## Reasoning und Thinking
 
