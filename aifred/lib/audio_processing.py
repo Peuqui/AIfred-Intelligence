@@ -7,14 +7,10 @@ This module handles Text-to-Speech (Edge TTS, Piper TTS) and Speech-to-Text
 
 import os
 import re
-import struct
-import wave
 import subprocess
-import asyncio
 import atexit
 import time
 import httpx
-import edge_tts
 from pathlib import Path
 from .config import DATA_DIR, TTS_MEDIA_TYPE_EXTENSIONS
 from .i18n import t
@@ -41,8 +37,6 @@ SESSION_AUDIO_DIR = DATA_DIR / "audio"
 SESSION_AUDIO_DIR.mkdir(parents=True, exist_ok=True)
 
 # Current agent and engine for filename prefixing (set by state before TTS calls)
-_current_tts_agent: str = "aifred"
-_current_tts_engine: str = ""
 
 # Streaming content hint tracking - ensures hints are only spoken once per block
 # Reset when regular text is detected, so next occurrence gets announced again
@@ -60,30 +54,6 @@ _list_hint_announced: bool = False   # the "and more items" hint is emitted once
 # ---------------------------------------------------------------------------
 # Shared audio utilities (deduplicated from multiple TTS functions)
 # ---------------------------------------------------------------------------
-
-def _write_pcm_to_wav(pcm_data: bytes, output_path: str, sample_rate: int = 24000) -> None:
-    """Write raw 16-bit mono PCM data to a WAV file."""
-    with wave.open(output_path, "wb") as wf:
-        wf.setnchannels(1)
-        wf.setsampwidth(2)
-        wf.setframerate(sample_rate)
-        wf.writeframes(pcm_data)
-
-
-def _apply_pcm_gain(pcm_data: bytes, gain: float) -> bytes:
-    """Apply volume gain to 16-bit PCM data. Returns unchanged data if gain == 1.0."""
-    if gain == 1.0:
-        return pcm_data
-    samples = struct.unpack(f"<{len(pcm_data) // 2}h", pcm_data)
-    gained = [max(-32768, min(32767, int(s * gain))) for s in samples]
-    return struct.pack(f"<{len(gained)}h", *gained)
-
-
-def _validate_audio_output(output_path: str, min_size: int = 100) -> bool:
-    """Check that an audio file exists and is not suspiciously small."""
-    if not os.path.exists(output_path):
-        return False
-    return os.path.getsize(output_path) >= min_size
 
 
 def reset_content_hint_flags() -> None:
@@ -117,19 +87,7 @@ def _get_tts_list_max_items() -> int:
 _LIST_ITEM_RE = re.compile(r'^[ \t]*(?:[-*+]|\d+[.)])\s+')
 
 
-def set_tts_agent(agent_name: str) -> None:
-    """Set current agent name for TTS filename prefixing."""
-    global _current_tts_agent
-    _current_tts_agent = agent_name.lower()
-
-
-def set_tts_engine(engine_name: str) -> None:
-    """Set current TTS engine name for filename prefixing."""
-    global _current_tts_engine
-    _current_tts_engine = engine_name.lower()
-
-
-def _generate_tts_filename(extension: str = "wav", agent: str | None = None, engine: str | None = None) -> str:
+def _generate_tts_filename(extension: str = "wav", agent: str = "aifred", engine: str = "tts") -> str:
     """
     Generate TTS audio filename with agent, engine, and human-readable timestamp.
 
@@ -138,16 +96,14 @@ def _generate_tts_filename(extension: str = "wav", agent: str | None = None, eng
 
     Args:
         extension: File extension (wav, mp3, ogg)
-        agent: Agent name; default is the one set by ``set_tts_agent``
-        engine: Engine key; default is the one set by ``set_tts_engine``
+        agent: Agent name (the joined audio of a reply carries the defaults)
+        engine: Engine key
 
     Returns:
         Filename string
     """
     from datetime import datetime
 
-    agent = agent or _current_tts_agent or "aifred"
-    engine = engine or _current_tts_engine or "tts"
     now = datetime.now()
     timestamp = now.strftime("%Y%m%d-%H%M%S") + f"-{now.microsecond // 1000:03d}"
     return f"audio_{agent}_{engine}_{timestamp}.{extension}"
@@ -429,114 +385,6 @@ def load_audio_url_as_base64(audio_url: str) -> str | None:
         return None
 
 
-def apply_audio_adjustments(input_file: str, pitch: float = 1.0, speed: float = 1.0) -> str | None:
-    """
-    Apply pitch and/or speed adjustment to audio file using ffmpeg.
-
-    Pitch adjustment: asetrate + aresample (changes pitch without tempo)
-    Speed adjustment: atempo filter (changes tempo without pitch)
-
-    Args:
-        input_file: Path to input audio file (wav or mp3)
-        pitch: Pitch factor (0.8 = 20% lower, 1.0 = unchanged, 1.2 = 20% higher)
-        speed: Speed factor (0.8 = 20% slower, 1.0 = unchanged, 1.2 = 20% faster)
-
-    Returns:
-        Path to adjusted file, or original file if no adjustment needed or on error
-    """
-    # Skip if both are 1.0 (no change needed)
-    needs_pitch = abs(pitch - 1.0) >= 0.01
-    needs_speed = abs(speed - 1.0) >= 0.01
-
-    if not needs_pitch and not needs_speed:
-        return input_file
-
-    try:
-        # Check if ffmpeg is available
-        result = subprocess.run(["ffmpeg", "-version"], capture_output=True, timeout=5)
-        if result.returncode != 0:
-            log_message("⚠️ Audio: ffmpeg not available, skipping adjustments")
-            return input_file
-    except (subprocess.CalledProcessError, FileNotFoundError, OSError):
-        log_message("⚠️ Audio: ffmpeg not installed, skipping adjustments")
-        return input_file
-
-    try:
-        # Determine output format based on input
-        input_ext = os.path.splitext(input_file)[1].lower()
-        output_file = input_file.replace(input_ext, f"_adjusted{input_ext}")
-
-        # Get original sample rate (default 22050 for Piper, 24000 for XTTS)
-        sample_rate = 24000  # Default for XTTS
-        try:
-            probe_result = subprocess.run(
-                ["ffprobe", "-v", "error", "-show_entries", "stream=sample_rate",
-                 "-of", "default=noprint_wrappers=1:nokey=1", input_file],
-                capture_output=True,
-                text=True,
-                timeout=5
-            )
-            if probe_result.returncode == 0 and probe_result.stdout.strip():
-                sample_rate = int(probe_result.stdout.strip())
-        except (subprocess.CalledProcessError, ValueError, OSError):
-            pass  # Use default
-
-        # Build filter chain
-        filters = []
-
-        # Pitch adjustment: asetrate + aresample
-        if needs_pitch:
-            new_rate = int(sample_rate * pitch)
-            filters.append(f"asetrate={new_rate}")
-            filters.append(f"aresample={sample_rate}")
-
-        # Speed adjustment: atempo (limited to 0.5-2.0 range per filter)
-        if needs_speed:
-            # atempo only supports 0.5 to 2.0, chain multiple for extreme values
-            remaining_speed = speed
-            while remaining_speed > 2.0:
-                filters.append("atempo=2.0")
-                remaining_speed /= 2.0
-            while remaining_speed < 0.5:
-                filters.append("atempo=0.5")
-                remaining_speed /= 0.5
-            if abs(remaining_speed - 1.0) >= 0.01:
-                filters.append(f"atempo={remaining_speed}")
-
-        filter_chain = ",".join(filters)
-
-        adjustments = []
-        if needs_pitch:
-            adjustments.append(f"pitch={pitch}x")
-        if needs_speed:
-            adjustments.append(f"speed={speed}x")
-        log_message(f"🎵 Audio: Applying {', '.join(adjustments)}")
-
-        ffmpeg_result = subprocess.run(
-            [
-                "ffmpeg", "-y", "-i", input_file,
-                "-af", filter_chain,
-                output_file
-            ],
-            capture_output=True,
-            timeout=None
-        )
-
-        if ffmpeg_result.returncode == 0 and os.path.exists(output_file):
-            # Replace original file with adjusted version
-            os.replace(output_file, input_file)
-            log_message("✅ Audio: Applied adjustments successfully")
-            return input_file
-        else:
-            error_msg = ffmpeg_result.stderr.decode() if ffmpeg_result.stderr else "Unknown error"
-            log_message(f"⚠️ Audio: ffmpeg failed: {error_msg[:200]}")
-            return input_file
-
-    except (subprocess.TimeoutExpired, OSError) as e:
-        log_message(f"⚠️ Audio: Error during adjustment: {e}")
-        return input_file
-
-
 # ============================================================
 # STREAMING TTS - Sentence Detection
 # ============================================================
@@ -566,7 +414,6 @@ ABBREVIATIONS = ABBREVIATIONS_DE | ABBREVIATIONS_EN
 
 # Sätze mit weniger Wörtern werden mit dem nächsten zusammengelegt (die TTS-Engine
 # halluziniert bei sehr kurzen Sätzen). Gilt für das Streaming im Browser.
-TTS_MIN_SENTENCE_WORDS = 3
 
 
 def extract_complete_paragraphs(buffer: str) -> tuple[list[str], str]:
@@ -816,53 +663,6 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     remaining = remaining[sentence_start:].lstrip()
 
     return sentences, remaining
-
-
-def strip_collapsible_content_streaming(text: str) -> str:
-    """Buffer-level strip for streaming TTS: removes complete collapsible
-    blocks (think, vlm_output, data, …) from the accumulated buffer BEFORE it
-    is split into sentences, so content behind a collapsible is never spoken
-    and text after a closing tag in the same chunk isn't lost.
-
-    Generic successor of the old think-only stripper — same config-derived tag
-    set as clean_text_for_tts (SSoT). Does NOT .strip(): it runs on every chunk,
-    and trimming the buffer would merge words across chunk boundaries."""
-    return _strip_collapsible_blocks(text)
-
-
-def buffer_has_open_collapsible(text: str) -> bool:
-    """True if the streaming buffer holds a collapsible-tag opening whose close
-    hasn't streamed in yet — the caller waits before emitting sentences, so a
-    half-open block is never spoken. Matches the raw-stream form ``<tag>`` (no
-    attributes; the rendered <details> never appears in the raw stream)."""
-    low = text.lower()
-    for tag in _collapsible_tags():
-        if low.count(f'<{tag}>') > low.count(f'</{tag}>'):
-            return True
-    return False
-
-
-def _edge_tts_sync(text: str, voice: str, rate: str, output_file: str) -> None:
-    """
-    Synchronous Edge TTS wrapper - runs in separate event loop.
-
-    This is needed because edge_tts uses aiohttp which can conflict with
-    Reflex's event loop, causing crashes. Running in a fresh event loop
-    in a thread avoids this issue. Errors propagate to the caller, which
-    classifies them for the escalation list.
-    """
-
-    async def _do_tts():
-        tts = edge_tts.Communicate(text, voice, rate=rate)
-        await tts.save(output_file)
-
-    # Create fresh event loop for this thread
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    try:
-        loop.run_until_complete(_do_tts())
-    finally:
-        loop.close()
 
 
 def clean_text_for_tts(text, language):
