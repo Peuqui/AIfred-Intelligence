@@ -1344,7 +1344,7 @@ async def calibrate_tts_variant_from_base(
             # die randvolle Spitze jeder Compute-Klasse vor dem Load-Peak).
             # Vorher wurde NUR die VLM-GPU entlastet — die TTS-GPU behielt
             # ihren base-Anteil und sprengte bei großen TTS-Reserven
-            # (Fish-Speech 26 GB) den weights_fit, obwohl die idle
+            # (große Engines) den weights_fit, obwohl die idle
             # Kaskaden-Karte leer danebenstand.
             _reserve_idxs = [_vlm_idx]
             if (

@@ -191,10 +191,10 @@ def test_unreachable_service_shows_the_stored_list_and_a_message_but_raises_noth
 
 def test_warn_only_for_a_switched_on_entry_whose_machine_or_service_is_unreachable(service) -> None:
     service(
-        [stored("xtts", "Box"), stored("piper", "Box", enabled=False), stored("edge", "Aragon"), stored("moss")],
+        [stored("xtts", "Box"), stored("piper", "Box", enabled=False), stored("edge", "Aragon"), stored("extra_engine")],
         catalog=[
             catalog_row("xtts", "Box", status="unreachable"), catalog_row("piper", "Box", status="unreachable"),
-            catalog_row("edge", "Aragon", status="running"), catalog_row("moss", status="stopped"),
+            catalog_row("edge", "Aragon", status="running"), catalog_row("extra_engine", status="stopped"),
         ],
     )
     assert [row["warn"] for row in computed("tts_escalation_rows", FakeState())] == [True, False, False, False]
@@ -218,12 +218,12 @@ def test_there_is_nothing_to_add_or_remove_or_to_write_into_the_service() -> Non
 def test_move_entry_swaps_neighbours_and_saves_the_complete_matched_list(service, toasts) -> None:
     _, file = service(
         [stored("xtts"), stored("piper"), stored("edge")],
-        catalog=[catalog_row("xtts"), catalog_row("piper"), catalog_row("edge"), catalog_row("moss")],
+        catalog=[catalog_row("xtts"), catalog_row("piper"), catalog_row("edge"), catalog_row("extra_engine")],
     )
     state = FakeState(file)
     events = run(TTSConfigMixin.move_tts_entry, state, 1, -1)  # type: ignore[arg-type]
     assert file.data["tts_escalation"] == [
-        stored("piper"), stored("xtts"), stored("edge"), stored("moss", enabled=False),   # the unknown row is saved, off
+        stored("piper"), stored("xtts"), stored("edge"), stored("extra_engine", enabled=False),   # the unknown row is saved, off
     ]
     assert events == [FakeState.replan_tts] and state.tts_list_revision == 1
 

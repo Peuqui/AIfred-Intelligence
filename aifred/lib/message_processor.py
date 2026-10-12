@@ -214,7 +214,7 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, f
     Uses detect_query_intent_and_addressee() — single source of truth, same
     pipeline as the browser. Model is resolved via
     get_effective_model_from_settings() so that TTS-calibrated profiles
-    (e.g. "-tts-moss") are used when a GPU TTS engine is running. Otherwise
+    (e.g. "-tts-xtts") are used when a GPU TTS engine is running. Otherwise
     llama-swap would try to load the base profile which segfaults due to
     insufficient VRAM.
 

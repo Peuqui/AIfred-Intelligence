@@ -135,7 +135,7 @@ def test_an_engine_the_service_does_not_offer_is_no_burnin(monkeypatch, tmp_path
     fake = VramFake([catalog_row("xtts")], [{}])
     install(monkeypatch, tmp_path, fake)
 
-    assert run("fishspeech") is None
+    assert run("extra_engine") is None
 
 
 def test_an_unreachable_service_fails_the_burnin(monkeypatch) -> None:

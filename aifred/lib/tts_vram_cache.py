@@ -1,8 +1,7 @@
 """TTS VRAM-Footprint Cache.
 
 Persistent cache for peak VRAM measurements from the TTS stress burn-in.
-Key: ``engine_key`` (e.g. ``qwen3local``, ``xtts``, ``fishspeech``,
-``mossttsv2``). Value: peak MiB observed during stress synthesis plus
+Key: ``engine_key`` (e.g. ``qwen3local``, ``xtts``). Value: peak MiB observed during stress synthesis plus
 a ``headroom_mb`` field that the calibration adds on top.
 
 Resolution order in :func:`resolve_tts_reserve`:

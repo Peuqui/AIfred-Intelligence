@@ -134,7 +134,7 @@ def _generate_tts_filename(extension: str = "wav", agent: str | None = None, eng
     Generate TTS audio filename with agent, engine, and human-readable timestamp.
 
     Format: audio_{agent}_{engine}_{YYYYMMDD-HHmmss-ms}.{ext}
-    Example: audio_aifred_moss_20260220-114047-553.ogg
+    Example: audio_aifred_xtts_20260220-114047-553.ogg
 
     Args:
         extension: File extension (wav, mp3, ogg)

@@ -97,7 +97,7 @@ tick "Stop + llama-server-Kill"
 
 # Warte bis llama-server VRAM tatsaechlich freigegeben ist (max 10s).
 # Nach pkill ist der Prozess weg, aber der GPU-Treiber kann 1-2s brauchen,
-# das VRAM zurueck in den Pool zu geben. Andere VRAM-User (XTTS, MOSS-TTS,
+# das VRAM zurueck in den Pool zu geben. Andere VRAM-User (XTTS, Qwen3-TTS,
 # AIfred-Subprozesse) sind legitim und werden hier ignoriert — die kuemmern
 # llama-swap nichts. Beim Modell-Laden rechnet llama-swap selbst sein VRAM.
 for i in $(seq 1 10); do

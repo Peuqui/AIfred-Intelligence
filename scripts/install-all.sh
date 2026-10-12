@@ -1138,14 +1138,10 @@ echo ""
 declare -A TTS_ENGINE_LABEL=(
     [qwen3-tts]="Qwen3-TTS"
     [xtts]="XTTS v2 (Coqui)"
-    [moss-tts]="MOSS-TTS"
-    [fish-speech]="Fish-Speech S2 Pro"
 )
 declare -A TTS_ENGINE_DESC=(
     [qwen3-tts]="Streaming, 10 languages, voice cloning. Image ~11.8 GB · model cache ~3.4 GB · needs GPU (V100 ideal). Fastest streaming TTS."
     [xtts]="Best voice cloning, many built-in speakers. Image ~7.7 GB · model cache ~2 GB · GPU or CPU. More tonally accurate than Qwen3, higher latency."
-    [moss-tts]="Zero-shot voice cloning, 20 languages. Image ~6.9 GB · model cache ~3 GB · needs GPU. Batch render after the bubble ends."
-    [fish-speech]="5B dual-AR, voice cloning, 80+ languages. Image ~14 GB · needs GPU (≥24 GB VRAM). Streaming, research license."
 )
 declare -A TTS_ENGINE_RECOMMENDED=(
     [qwen3-tts]=1
@@ -1231,7 +1227,7 @@ for _engine in "${TTS_ENGINES_AVAILABLE[@]}"; do
     else
         _prompt="Build $_label? (y/N): "
     fi
-    # fish-speech -> AIFRED_INSTALL_TTS_FISH_SPEECH (no '-' in variable names)
+    # qwen3-tts -> AIFRED_INSTALL_TTS_QWEN3_TTS (no '-' in variable names)
     _engine_var="${_engine//-/_}"
     ask "AIFRED_INSTALL_TTS_${_engine_var^^}" "$_prompt"
     if [[ $REPLY =~ ^[JjYy]$ ]]; then

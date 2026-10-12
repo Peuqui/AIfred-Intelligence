@@ -510,7 +510,7 @@
   "model_lifecycle_help_vlm_size": "Size: 5-30 GB per model | Backend: Ollama | Manually unloadable",
   "model_lifecycle_help_vlm_body": "Lazy: loads on prewarm_vlm() call or first inference request. Unloaded via Ollama keep_alive=0.",
   "model_lifecycle_help_vlm_triggers": "Triggers: (1) Power button in Casus / Live preview popup → toggle_vlm_model_loaded. (2) Selecting a different model in the Vision-LLM dropdown auto-loads it. (3) Vision-mode switch on backend change. (4) Stress prewarm during calibration.",
-  "model_lifecycle_help_tts_title": "3. TTS (XTTS, Moss, Fishspeech, Qwen3Local, Piper) — speech synthesis",
+  "model_lifecycle_help_tts_title": "3. TTS (XTTS, Qwen3Local, Piper) — speech synthesis",
   "model_lifecycle_help_tts_size": "Size: 0.5-7 GB per engine | Backend: Docker containers (except Piper which runs CPU-local)",
   "model_lifecycle_help_tts_body": "Container-based with refcount: ensure_engine_ready() starts container + waits for model load. acquire_tts/release_tts count users; at refcount=0 the container stops after keepalive timeout.",
   "model_lifecycle_help_tts_triggers": "Triggers: (1) First TTS synthesis call (chat reply with ★ prefix or direct generate_tts()). (2) Voice switch in TTS dropdown swaps engine. (3) Stress burn-in during calibration. — Piper is the exception: no container, loads instantly, no refcount.",

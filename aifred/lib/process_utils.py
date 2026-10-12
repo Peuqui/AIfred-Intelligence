@@ -70,7 +70,7 @@ def cleanup_gpu_memory():
     """
     Force garbage collection to release Python objects holding resources.
 
-    GPU VRAM is managed by Docker containers (XTTS, MOSS, Whisper) and
+    GPU VRAM is managed by Docker containers (XTTS, Qwen3-TTS, Whisper) and
     llama-swap — no torch needed in the AIfred process.
     """
     import gc
