@@ -147,7 +147,9 @@ build_config="$script_dir/llama-swap-build-config"
 build_python="$repo_dir/venv/bin/python"
 if [ -x "$build_config" ] && [ -x "$build_python" ]; then
     echo "🔍 Pruefe Spec-Decoding-Flags pro Modell..."
-    if ! AIFRED_CLI_MODE=1 "$build_python" "$build_config" 2>&1 | sed 's/^/   /'; then
+    # pipefail im Subshell: ohne es zaehlt nur der Exit-Code von sed, ein Abbruch von build-config
+    # (z. B. TTS-Dienst nicht erreichbar) wuerde den Start nicht stoppen.
+    if ! ( set -o pipefail; AIFRED_CLI_MODE=1 "$build_python" "$build_config" 2>&1 | sed 's/^/   /' ); then
         echo "❌ Spec-Config-Build fehlgeschlagen — Start abgebrochen."
         exit 1
     fi
