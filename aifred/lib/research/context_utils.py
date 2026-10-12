@@ -209,8 +209,8 @@ def get_agent_num_ctx(
         # The first enabled local GPU entry of the escalation list is the TTS
         # engine expected to share the card — reserve its measured burn-in peak.
         from .. import tts_vram_cache
-        from ..tts_service import active_local_gpu_keys, engine_label_short
-        engine_keys = active_local_gpu_keys()
+        from ..tts_service import active_local_keys, engine_label_short
+        engine_keys = active_local_keys()
         engine_key = engine_keys[0] if engine_keys else None
         peak = tts_vram_cache.get(engine_key) if engine_key is not None else None
         if engine_key is not None and peak is not None:

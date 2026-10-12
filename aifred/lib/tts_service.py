@@ -425,17 +425,13 @@ def spoken_note(trace: Sequence[TraceStep], lang: str | None = None) -> str:
     return " \u2192 ".join(parts)
 
 
-def has_active_local_gpu_entry(engine_key: str) -> bool:
-    return any(entry.engine == engine_key for entry in _active_local_gpu_entries())
+def active_local_keys() -> list[str]:
+    """Engines of the switched-on local entries of AIfred's list, in speaking order.
 
-
-def active_local_gpu_keys() -> list[str]:
-    """Local GPU engines of active entries, in speaking order."""
-    return _unique([entry.engine for entry in _active_local_gpu_entries()])
-
-
-def _active_local_gpu_entries() -> list[ListEntry]:
-    return [entry for entry in entries() if entry.active and entry.info is not None and _is_local_gpu(entry.info)]
+    Read from settings.json alone: the plan of the LLM profile (which ``-tts-<engine>`` profile
+    reserves room) must not depend on the service. A calibrated profile exists only for a local
+    GPU engine the service can start, so the caller needs nothing else from the catalog."""
+    return _unique([str(raw["engine"]) for raw in stored_list() if raw["enabled"] and raw["host"] is None])
 
 
 # ---- Live state (never cached) --------------------------------------------------
