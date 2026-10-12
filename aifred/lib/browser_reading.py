@@ -44,6 +44,7 @@ from .tts_service import (
     browser_entry_unit,
     request_engines_before_browser,
     service_entries_before_browser,
+    escalation_report,
     spoken_note,
 )
 from .tts_text_filter import UiOnlyContentStream
@@ -230,6 +231,8 @@ class BrowserReading:
             self.audio_urls.append(url)
             self._playlist("tts", url, playback_rate="1.0x")
         self.note = await asyncio.to_thread(spoken_note, stream.summary.trace, self._ui_language)
+        for line in await asyncio.to_thread(escalation_report, stream.summary, f"Browser {self.agent}"):
+            self._report(line)
 
     # ---- through the browser's own voice ----
 
