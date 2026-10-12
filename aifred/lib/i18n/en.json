@@ -676,7 +676,6 @@
   "stt_device_cpu": "CPU only",
   "stt_device_cuda": "GPU only",
   "stt_suite_hint": "Engine, model and quality per device, the order of the automatic mode, the memory margin and the measurement are set on the STT-Suite's own page.",
-  "stt_suite_open": "Open STT-Suite",
   "stt_unavailable": "STT service unreachable — is the container (stt-suite) running?",
   "stt_device": "Preferred device",
   "stt_device_hint": "Automatic: the STT-Suite chooses itself (you set its order and margin there). CPU only: the graphics cards are never asked. GPU only: without room there is an error, no fallback to the CPU. Long recordings always go to the CPU. Applies to browser, Echo Dot and files.",
