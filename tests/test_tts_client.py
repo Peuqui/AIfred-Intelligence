@@ -7,6 +7,7 @@ import json
 import struct
 import subprocess
 from collections.abc import AsyncIterator, Callable
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -792,3 +793,12 @@ def test_refused_connection_is_unreachable() -> None:
 
     with pytest.raises(TTSSuiteUnreachable):
         asyncio.run(run())
+
+
+def test_voices_dir_is_the_one_the_service_reports(monkeypatch: pytest.MonkeyPatch, tmp_path: Any) -> None:
+    from fake_tts_service import FakeTTSService, install_fake_service
+
+    fake = FakeTTSService([])
+    fake.voices_dir = "/data/voices"
+    install_fake_service(monkeypatch, tmp_path, fake)
+    assert tts_client.get_tts_client().voices_dir() == Path("/data/voices")
