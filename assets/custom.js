@@ -197,97 +197,8 @@ function updateRecordingButton(recording) {
     }
 }
 
-// ============================================================
-// TTS AUTO-PLAY (Direct call from backend via rx.call_script)
-// ============================================================
-
-// Track currently playing audio to allow stopping
-var currentTtsAudio = null;
-var lastPlayedTtsUrl = '';
-
 /**
- * Play TTS audio from URL - uses the VISIBLE HTML5 player for full user control
- *
- * The visible player (`#tts-audio-player`) is the single source of truth.
- * This allows the user to control playback with native HTML5 controls (pause, seek, volume).
- *
- * @param {string} audioUrl - URL path like '/tts_audio/audio_123.mp3'
- */
-function playTtsFromUrl(audioUrl) {
-    console.log('🔊 TTS: playTtsFromUrl called with', audioUrl);
-
-    // Stop any old hidden audio (cleanup from previous implementation)
-    if (currentTtsAudio) {
-        console.log('⏹️ TTS: Stopping old hidden audio');
-        currentTtsAudio.pause();
-        currentTtsAudio.src = '';
-        currentTtsAudio = null;
-    }
-
-    // Skip if same URL already playing on visible player
-    const player = document.getElementById('tts-audio-player');
-    if (player) {
-        // Check if same audio already playing
-        if (player.src === audioUrl || player.src.endsWith(audioUrl.split('/').pop())) {
-            if (!player.paused && !player.ended) {
-                console.log('⚠️ TTS: Same audio already playing on visible player, skipping');
-                return;
-            }
-        }
-
-        // Apply playback rate from data attribute (set by agent settings) or global default
-        const dataRate = player.dataset.playbackRate;
-        if (dataRate) {
-            const rate = parseFloat(dataRate.replace('x', ''));
-            if (!isNaN(rate) && rate > 0) {
-                ttsPlaybackRate = rate;
-            }
-        }
-        player.playbackRate = ttsPlaybackRate;
-        console.log('🔊 TTS: Applied playback rate', ttsPlaybackRate);
-
-        // Set source if different
-        if (!player.src.endsWith(audioUrl.split('/').pop())) {
-            player.src = audioUrl;
-            player.load();
-        }
-
-        // Play the visible player
-        player.play()
-            .then(() => {
-                console.log('✅ TTS: Playback started on visible player');
-            })
-            .catch(err => {
-                console.warn('⚠️ TTS: Autoplay blocked:', err.message);
-                console.log('ℹ️ TTS: User can click play on the visible player');
-            });
-    } else {
-        console.warn('⚠️ TTS: Visible player not found, creating fallback audio');
-        // Fallback: Create hidden audio only if visible player doesn't exist
-        const audio = new Audio();
-        currentTtsAudio = audio;
-        audio.playbackRate = ttsPlaybackRate;
-        audio.src = audioUrl;
-        audio.play().catch(err => console.warn('⚠️ TTS fallback autoplay blocked:', err.message));
-    }
-
-    lastPlayedTtsUrl = audioUrl;
-}
-
-/**
- * Update the visible HTML5 audio player (fallback for manual playback)
- */
-function updateVisiblePlayer(audioUrl) {
-    const player = document.getElementById('tts-audio-player');
-    if (player && player.src !== audioUrl) {
-        player.src = audioUrl;
-        player.load();
-        console.log('🔊 TTS: Updated visible player for manual playback');
-    }
-}
-
-/**
- * Stop TTS playback - stops both visible player and any hidden fallback audio
+ * Stop TTS playback: the queue and the visible player
  */
 function stopTts() {
     // Stop double-buffered queue playback (the actual audio path for streaming)
@@ -300,22 +211,7 @@ function stopTts() {
         player.currentTime = 0;
     }
 
-    // Stop hidden fallback audio (if any)
-    if (currentTtsAudio) {
-        currentTtsAudio.pause();
-        currentTtsAudio.src = '';
-        currentTtsAudio = null;
-    }
-
     console.log('⏹️ TTS: Stopped all playback');
-}
-
-// Legacy function for compatibility (DOM observer based)
-function playTtsAudio() {
-    const player = document.getElementById('tts-audio-player');
-    if (player && player.src && player.src.includes('/tts_audio/')) {
-        playTtsFromUrl(player.src);
-    }
 }
 
 // ============================================================
@@ -334,12 +230,6 @@ function setTtsPlaybackRate(rate) {
     ttsPlaybackRate = parseFloat(rate);
     console.log('🔊 TTS: Playback rate set to', ttsPlaybackRate);
 
-    // Apply to currently playing audio
-    if (currentTtsAudio) {
-        currentTtsAudio.playbackRate = ttsPlaybackRate;
-        console.log('🔊 TTS: Applied rate to current audio');
-    }
-
     // Apply to visible HTML5 player
     const player = document.getElementById('tts-audio-player');
     if (player) {
@@ -357,8 +247,6 @@ function getTtsPlaybackRate() {
 }
 
 // Make available globally
-window.playTtsFromUrl = playTtsFromUrl;
-window.playTtsAudio = playTtsAudio;
 window.stopTts = stopTts;
 window.setTtsPlaybackRate = setTtsPlaybackRate;
 window.getTtsPlaybackRate = getTtsPlaybackRate;
@@ -1415,7 +1303,6 @@ _AUDIO_UNLOCK_GESTURES.forEach(t =>
 // TTS AUDIO OBSERVER - Watch for NEW audio elements (React re-mounts)
 // ============================================================
 
-var lastObservedTtsSrc = '';
 var ttsDocumentObserver = null;
 
 /**
@@ -1431,127 +1318,12 @@ function setupTtsAudioObserver() {
         ttsDocumentObserver.disconnect();
     }
 
-    // Function to handle a found audio player
-    // When a NEW audio element is detected (React re-mounts with new key), we:
-    // 1. Apply the playback rate from data attribute (agent-specific speed)
-    // 2. Trigger play() on the VISIBLE player after a short delay
-    // The HTML5 player has autoPlay=True, but browsers may block it. This is a backup.
-    // NOTE: If queue is playing, the queue controls playback - observer should not interfere
-    const handleAudioPlayer = (player) => {
-        if (!player || !player.src) return;
-
-        const src = player.src;
-        console.log('🔊 TTS Observer: Detected audio player, src =', src);
-
-        // Only process TTS audio URLs
-        if (!src.includes('/tts_audio/')) return;
-
-        // If queue is actively playing, don't interfere - queue controls playback
-        if (ttsQueuePlaying) {
-            console.log('🔊 TTS Observer: Queue is playing, skipping observer play trigger');
-            return;
-        }
-
-        // Read playback rate from data attribute (set by backend per agent)
-        const dataRate = player.dataset.playbackRate;
-        if (dataRate) {
-            const rate = parseFloat(dataRate.replace('x', ''));
-            if (!isNaN(rate) && rate > 0) {
-                ttsPlaybackRate = rate;
-                console.log('🔊 TTS Observer: Agent speed from data-playback-rate =', rate);
-            }
-        }
-
-        // Apply playback rate immediately
-        player.playbackRate = ttsPlaybackRate;
-        console.log('🔊 TTS Observer: Applied playback rate', ttsPlaybackRate);
-
-        // Check if this is a NEW audio (different from last observed)
-        if (src === lastObservedTtsSrc) {
-            console.log('🔊 TTS Observer: Same audio URL, skipping play trigger');
-            return;
-        }
-
-        // NEW audio detected - this is a fresh player (React re-mounted it)
-        lastObservedTtsSrc = src;
-        console.log('🔊 TTS Observer: NEW audio detected');
-
-        // Small delay to ensure audio is fully loaded, then ensure it plays
-        // The autoPlay attribute should work, but this is a backup in case browser blocks it
-        setTimeout(() => {
-            // Double-check queue isn't playing (might have started during delay)
-            if (ttsQueuePlaying) {
-                console.log('🔊 TTS Observer: Queue started playing during delay, skipping');
-                return;
-            }
-            if (player.paused && player.readyState >= 2) {
-                console.log('🔊 TTS Observer: AutoPlay may have been blocked, triggering play()');
-                player.play()
-                    .then(() => console.log('✅ TTS Observer: Playback started via backup'))
-                    .catch(err => console.warn('⚠️ TTS Observer: Play blocked:', err.message));
-            } else if (!player.paused) {
-                console.log('🔊 TTS Observer: Already playing (autoPlay worked)');
-            }
-        }, 200);
-    };
-
-    // Function to handle TTS queue data updates
-    const handleQueueDataUpdate = (element) => {
-        if (!element) return;
-
-        const queueJson = element.dataset.queue;
-        const version = parseInt(element.dataset.version || '0', 10);
-
-        if (!queueJson) return;
-
-        try {
-            const queue = JSON.parse(queueJson);
-            if (Array.isArray(queue)) {
-                updateTtsQueue(queue, version);
-            }
-        } catch (e) {
-            console.warn('⚠️ TTS Queue: Failed to parse queue JSON', e);
-        }
-    };
-
     // Create document-level observer to watch for added nodes
     ttsDocumentObserver = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-            // Check added nodes for audio elements
-            if (mutation.type === 'childList') {
-                mutation.addedNodes.forEach(node => {
-                    // Check if the added node IS an audio element
-                    if (node.nodeName === 'AUDIO' && node.id === 'tts-audio-player') {
-                        console.log('🔊 TTS Observer: Audio element ADDED to DOM');
-                        handleAudioPlayer(node);
-                    }
-                    // Check if the added node CONTAINS an audio element
-                    if (node.querySelector) {
-                        const audio = node.querySelector('#tts-audio-player');
-                        if (audio) {
-                            console.log('🔊 TTS Observer: Audio element found in added subtree');
-                            handleAudioPlayer(audio);
-                        }
-                        // Check for queue data element
-                        const queueData = node.querySelector('#tts-queue-data');
-                        if (queueData) {
-                            handleQueueDataUpdate(queueData);
-                        }
-                    }
-                    // Check if the added node IS the queue data element
-                    if (node.id === 'tts-queue-data') {
-                        handleQueueDataUpdate(node);
-                    }
-                });
-            }
             // Watch for attribute changes
             if (mutation.type === 'attributes') {
                 const target = mutation.target;
-                // Audio src changes
-                if (mutation.attributeName === 'src' && target.nodeName === 'AUDIO' && target.id === 'tts-audio-player') {
-                    console.log('🔊 TTS Observer: Audio src attribute changed');
-                    handleAudioPlayer(target);
-                }
                 // Playback rate changes (from dropdown) - apply IMMEDIATELY to playing audio
                 if (mutation.attributeName === 'data-playback-rate' && target.nodeName === 'AUDIO' && target.id === 'tts-audio-player') {
                     const newRate = target.dataset.playbackRate;
@@ -1564,11 +1336,6 @@ function setupTtsAudioObserver() {
                         }
                     }
                 }
-                // Queue data changes (data-queue or data-version)
-                if ((mutation.attributeName === 'data-queue' || mutation.attributeName === 'data-version') && target.id === 'tts-queue-data') {
-                    console.log('🔊 TTS Observer: Queue data attribute changed');
-                    handleQueueDataUpdate(target);
-                }
                 // NOTE: Audio Bus SSE stream is started once on login via
                 // rx.call_script("startBrowserStream('...')") and stays open
                 // for the entire session. The stream handles idle periods
@@ -1579,24 +1346,15 @@ function setupTtsAudioObserver() {
 
     // Observe the entire document for changes
     ttsDocumentObserver.observe(document.body, {
-        childList: true,
+        childList: false,
         subtree: true,
         attributes: true,
-        attributeFilter: ['src', 'data-queue', 'data-version', 'data-playback-rate', 'data-polling']
+        attributeFilter: ['data-playback-rate', 'data-polling']
     });
-
-    // Also check if audio element already exists
-    const existingPlayer = document.getElementById('tts-audio-player');
-    if (existingPlayer) {
-        console.log('🔊 TTS Observer: Found existing audio player');
-        handleAudioPlayer(existingPlayer);
-    }
 
     // Check if queue data element already exists
     const existingQueueData = document.getElementById('tts-queue-data');
     if (existingQueueData) {
-        console.log('🔊 TTS Observer: Found existing queue data element');
-        handleQueueDataUpdate(existingQueueData);
 
         // Also check if SSE should be started (data-polling might already be true)
         const shouldStream = existingQueueData.dataset.polling === 'true';
