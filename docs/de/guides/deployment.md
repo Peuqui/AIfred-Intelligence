@@ -663,10 +663,13 @@ Kartenwahl und weitere Rechner mit Engines (Hosts) gehören ihr; AIfred schickt 
 Liste (Semantik in [Konfiguration → Sprachausgabe](configuration.md#sprachausgabe-tts) und
 [TTS-Suite](../architecture/tts-suite.md)).
 
-- **Den Dienst vorerst getrennt installieren:** das Repository neben AIfred klonen und dessen
-  `deploy/install.sh` ausführen (virtuelle Umgebung, Systemeinheit `tts-suite@<Benutzer>`,
-  Polkit-Regel); Einzelheiten stehen in der README des Repositorys. `install-all.sh` weist nur auf
-  diesen Schritt hin; eine gemeinsame Installation beider ist geplant.
+- **Installation:** `install-all.sh` (Schritt 2d) klont das Repository neben AIfred, führt dessen
+  `deploy/install.sh` aus (virtuelle Umgebung, Befehl, Token, erste Konfiguration mit den Stimmen des
+  Klons und der Aussprache „AIfred → Alfred“) und fragt, ob die Systemeinheit `tts-suite@<Benutzer>`
+  mit der Polkit-Regel installiert werden soll (ein sudo-Schritt, `deploy/switch-to-system-unit.sh`;
+  nur damit kann AIfred den Dienst bei Bedarf selbst starten). Danach prüft es `/health` auf Port
+  5090. Ohne Docker mit Compose starten die lokalen Engines nicht; Cloud-Engines und die
+  Browser-Stimme gehen trotzdem. Von Hand: `deploy/install.sh` und `sudo deploy/switch-to-system-unit.sh`.
 - AIfred startet die Einheit, wenn sie nicht läuft (`ensure_ready`, braucht die Polkit-Regel). Ohne
   den Dienst läuft AIfred, die Sprachausgabe scheitert aber laut (die Browser-Stimme spricht, wenn
   ihr Eintrag eingeschaltet ist).
