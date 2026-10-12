@@ -4,7 +4,9 @@ The TTS service knows engines, not agents: AIfred resolves voice, speed and pitc
 speaking agent for each engine of a request's list and sends them in ``SpeakRequest.voices``.
 Where AIfred has no voice for an engine, the engine stays out of ``voices``; the service then
 falls back to its own defaults (``/config`` -> ``engines[...].voice``) and reports an engine
-that has none in the trace of the reading. AIfred keeps no default voice of its own.
+that has none in the trace of the reading. AIfred keeps no default voice of its own, and sends
+speed and pitch only where the user (or ``agents.json``) has set them: what is not set is left to
+the service's own tuning of that voice.
 """
 
 from __future__ import annotations
@@ -34,8 +36,9 @@ def parse_speed_factor(raw: object) -> float | None:
         return None
 
 
-def configured_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
-    """Voice, speed and pitch of an agent for an engine; the voice is ``""`` if none is configured.
+def configured_voice(engine_key: str, agent: str) -> tuple[str, float | None, float | None]:
+    """Voice, speed and pitch of an agent for an engine; the voice is ``""`` if none is configured,
+    speed and pitch are ``None`` if nobody has set them.
 
     Order: the user's setting for this engine and this agent, then the one of agent ``aifred``,
     then the agent's default from ``agents.json``, then the one of ``aifred``.
@@ -53,14 +56,17 @@ def configured_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
         default_cfg = get_tts_voice_default("aifred", engine_key)
 
     voice = str(user_cfg.get("voice") or default_cfg.get("voice") or "")
-    speed = parse_speed_factor(user_cfg.get("speed") or default_cfg.get("speed") or "1.0")
-    pitch = parse_speed_factor(user_cfg.get("pitch") or default_cfg.get("pitch") or "1.0")
-    if speed is None or pitch is None:
-        raise ValueError(f"invalid speed/pitch for agent {agent!r} on {engine_key}")
-    return voice, speed, pitch
+    values: list[float | None] = []
+    for key in ("speed", "pitch"):
+        raw = user_cfg.get(key) or default_cfg.get(key)
+        value = parse_speed_factor(raw)
+        if raw and value is None:
+            raise ValueError(f"invalid {key} {raw!r} for agent {agent!r} on {engine_key}")
+        values.append(value)
+    return voice, values[0], values[1]
 
 
-def resolve_voice(engine_key: str, agent: str) -> tuple[str, float, float]:
+def resolve_voice(engine_key: str, agent: str) -> tuple[str, float | None, float | None]:
     """Like :func:`configured_voice`, but a missing voice is an error.
 
     Raises:
@@ -84,5 +90,7 @@ def voices_for(engines: Sequence[EngineRef], agent: str) -> dict[str, dict[str, 
             voice, speed, pitch = resolve_voice(ref.engine, agent)
         except NoVoiceConfigured:
             continue
-        voices[ref.engine] = {"voice": voice, "speed": speed, "pitch": pitch}
+        voices[ref.engine] = {
+            key: value for key, value in (("voice", voice), ("speed", speed), ("pitch", pitch)) if value is not None
+        }
     return voices

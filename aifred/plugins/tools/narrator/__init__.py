@@ -3,8 +3,8 @@
 Counterpart to the translator's ``translate_file``: the document content
 never passes through the LLM context. The text is chunked at paragraph
 boundaries (``lib/text_chunking.py``, same SSOT as translate_file),
-each chunk is spoken by the TTS service (``tts_client``) with ONE engine and
-the pieces are ffmpeg-concatenated; das Ergebnis landet als MP3
+each chunk is spoken by the TTS service (``tts_client``) with AIfred's list (or one
+pinned engine) and the pieces are ffmpeg-concatenated; das Ergebnis landet als MP3
 (Default; explizites ``.wav`` überspringt den Encode) im Documents-Baum. Typical pipeline: audio upload → Whisper transcript (workspace
 file) → translate_file → narrate_file.
 """
@@ -28,8 +28,9 @@ async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple["
     """Engine, default voice and the engine's voice names for a narration.
 
     Shared by narrate_file and list_narrator_voices so both always agree.
-    The engine comes from AIfred's TTS list (``single_engine_ref``: an explicit
-    key, or the topmost active entry) and stays the same for the whole file.
+    The engine is the topmost active entry of AIfred's TTS list (or the explicit key); the
+    reading itself sends the whole list (``narration_refs``), so the service steps on when an
+    engine fails.
     Voices are engine-bound and come from the service — the saved narrator
     voice for that engine wins, else the engine's own first voice (never
     hand e.g. the "AIfred" clone name to Piper).
@@ -52,6 +53,20 @@ async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple["
     if not voice:
         voice = names[0] if names else ""
     return ref, voice or NARRATE_DEFAULT_VOICE, names
+
+
+async def _narrator_voice(engine_key: str) -> str:
+    """Saved narrator voice of an engine, else the engine's own first voice."""
+    from ....lib.settings import load_settings
+    from ....lib.tts_client import get_tts_client
+
+    saved = ((load_settings() or {}).get("narrator_voices") or {}).get(engine_key, "")
+    if saved:
+        return str(saved)
+    names = [info.name for info in await asyncio.to_thread(get_tts_client().voices, engine_key)]
+    if not names:
+        raise ValueError(f"engine {engine_key!r} offers no voice for the narrator")
+    return names[0]
 
 
 @dataclass
@@ -82,7 +97,7 @@ class NarratorPlugin:
                 TTS_AUDIO_DIR,
                 concatenate_wav_files,
             )
-            from ....lib.config import NARRATE_CHUNK_LIMIT_CHARS, NARRATE_PARAGRAPH_PAUSE_MS
+            from ....lib.config import NARRATE_CHUNK_LIMIT_CHARS, NARRATE_PARAGRAPH_PAUSE_MS, NARRATE_SPEECH_UNIT
             from ....lib.debug_bus import debug
             from ....lib.speech_synthesis import store_reading_audio
             from ....lib.text_chunking import (
@@ -90,14 +105,23 @@ class NarratorPlugin:
                 split_speaker_segments,
             )
             from ....lib.tts_client import get_tts_client
+            from ....lib.tts_service import narration_refs
 
-            # Engine from AIfred's list (or the caller's explicit key); voice from
-            # the narrator settings unless passed.
+            # Engines from AIfred's list (or the caller's explicit key); voice from
+            # the narrator settings unless passed. The passed voice and the speaker voices
+            # belong to the first engine; another engine the service steps to speaks with
+            # its own narrator voice.
+            explicit_engine = bool(engine)
             try:
                 engine_ref, voice, known_names = await _choose_engine_and_voice(engine, voice)
             except (TTSSuiteError, ValueError) as exc:
                 return json.dumps({"error": str(exc)})
             engine = engine_ref.engine
+            try:
+                refs = await asyncio.to_thread(narration_refs, engine if explicit_engine else "", NARRATE_SPEECH_UNIT)
+                other_voices = {ref.engine: await _narrator_voice(ref.engine) for ref in refs[1:]}
+            except (TTSSuiteError, ValueError) as exc:
+                return json.dumps({"error": str(exc)})
 
             read = fm.read_file(filename)
             if not read.success:
@@ -178,11 +202,12 @@ class NarratorPlugin:
             wav_urls: list[str] = []
             run = new_run_id()  # one reading for the whole file: a code block may span chunks
             for i, (chunk_voice, chunk) in enumerate(voiced_chunks, 1):
-                # One engine for the whole file — no voice change mid-book.
                 try:
                     stream = await client.speak(
-                        chunk, language=language, engines=[engine_ref], paragraph_pause_ms=NARRATE_PARAGRAPH_PAUSE_MS,
-                        voices={engine: {"voice": chunk_voice, "speed": 1.0, "pitch": 1.0}}, run=run,
+                        chunk, language=language, engines=refs, paragraph_pause_ms=NARRATE_PARAGRAPH_PAUSE_MS,
+                        voices={**{key: {"voice": name} for key, name in other_voices.items()},
+                                engine: {"voice": chunk_voice}},
+                        run=run,
                     )
                     wav_urls.extend(await store_reading_audio(stream, "narrator"))
                 except (TTSSuiteError, ValueError) as exc:

@@ -311,30 +311,16 @@ TTS_VOICES_DIR = PROJECT_ROOT / "docker" / "tts" / "voices"
 # Must match a reference voice shipped in docker/tts/voices/.
 NARRATE_DEFAULT_VOICE = "AIfred"
 
-# Long text used for the calibration-time test inference that drives the
-# Qwen3-TTS KV-cache up to its real-world high-water mark. About ~800
-# chars — same body the container's removed warmup pass used to use.
 # Per-agent TTS language override — the user can pin an agent to a
 # specific synthesis language (so e.g. "Sokrates always speaks English
-# with a German accent" works as a stylistic choice). "auto" preserves
-# the previous behaviour: detected LLM language → UI language fallback.
-# The 10 listed languages are exactly the ones Qwen3-TTS supports;
-# XTTS / Edge accept their own language tags and ignore unknown
-# values, so the option set is safe to expose for every engine.
+# with a German accent" works as a stylistic choice). "auto" = detected
+# LLM language → UI language. Only the languages the TTS service has
+# texts for (de, en) are offered; a reading in another language is
+# refused by the service and the browser voice takes over.
 TTS_LANGUAGE_OPTIONS: list[tuple[str, str]] = [
     ("auto", "Auto"),
-    # Europäische Sprachen zuerst (Auswahl-Komfort)
     ("de", "Deutsch"),
     ("en", "English"),
-    ("fr", "Français"),
-    ("it", "Italiano"),
-    ("es", "Español"),
-    ("pt", "Português"),
-    ("ru", "Русский"),
-    # Asiatische Sprachen am Schluss
-    ("zh", "Chinese"),
-    ("ja", "Japanese"),
-    ("ko", "Korean"),
 ]
 TTS_LANGUAGE_LABELS = [label for _, label in TTS_LANGUAGE_OPTIONS]
 TTS_LANGUAGE_LABEL_TO_CODE = {label: code for code, label in TTS_LANGUAGE_OPTIONS}

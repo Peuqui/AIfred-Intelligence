@@ -133,16 +133,23 @@ class TestNarrateFile:
     def narrate(self, **args):
         return json.loads(asyncio.run(_tool("narrate_file").executor(filename="buch.txt", output_filename="buch.wav", **args)))
 
-    def test_every_chunk_is_spoken_with_the_one_engine_and_the_pieces_become_one_file(self, files):
+    def test_every_chunk_is_spoken_with_the_whole_list_and_the_pieces_become_one_file(self, files):
         files.fake.script = [audio_frame(wav_bytes(), "piper") + keepalive_frame("piper") + summary_frame()]
         result = self.narrate()
         assert result["written"] == "buch.wav" and result["chunks"] == 2
         assert result["engine"] == "piper" and result["voice"] == "Thorsten"
         assert [s["text"] for s in files.fake.speaks] == ["Absatz eins.", "Absatz zwei."]
         for sent in files.fake.speaks:
-            assert sent["engines"] == [{"engine": "piper", "unit": "whole", "host": None}]
-            assert sent["voices"] == {"piper": {"voice": "Thorsten", "speed": 1.0, "pitch": 1.0}}
+            assert sent["engines"] == [{"engine": "piper", "unit": "whole", "host": None},
+                                       {"engine": "edge", "unit": "whole", "host": None}]
+            assert sent["voices"] == {"piper": {"voice": "Thorsten"}, "edge": {"voice": "Thorsten"}}
         assert (files.tmp / "out" / "buch.wav").stat().st_size > 44
+
+    def test_an_explicit_engine_is_pinned_without_the_rest_of_the_list(self, files):
+        files.fake.script = [audio_frame(wav_bytes(), "edge") + summary_frame()]
+        assert self.narrate(engine="edge")["engine"] == "edge"
+        for sent in files.fake.speaks:
+            assert sent["engines"] == [{"engine": "edge", "unit": "whole", "host": None}]
 
     def test_speaker_voices_pick_the_voice_per_chunk_and_unknown_voices_are_refused(self, files):
         files.source["text"] = "[A]: Hallo du.\n[B]: Hallo ich."

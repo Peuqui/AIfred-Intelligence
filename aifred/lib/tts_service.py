@@ -374,7 +374,7 @@ def ref_label(ref: EngineRef) -> str:
 
 
 def single_engine_ref(engine_key: str, unit: str) -> EngineRef:
-    """The one entry a task speaks with from start to end (audiobook: no voice change mid-book).
+    """The entry a task speaks with first (audiobook: see :func:`narration_refs` for the whole list).
 
     ``engine_key`` set: that engine, where AIfred's list has it (active entry, its host), else on
     this machine. Empty: the topmost active entry of the list. The browser entry cannot be
@@ -398,6 +398,21 @@ def single_engine_ref(engine_key: str, unit: str) -> EngineRef:
     if row.browser:
         raise ValueError(f"TTS engine {engine_key!r} speaks in the browser only")
     return EngineRef(engine_key, unit, None)
+
+
+def narration_refs(engine_key: str, unit: str) -> list[EngineRef]:
+    """The list a long task (audiobook) sends: with ``engine_key`` just that engine (pinned by the
+    caller), else every active entry of AIfred's list in order, so the service steps to the next one
+    like in any reading. All entries read in ``unit``.
+
+    Raises:
+        ValueError, TTSSuiteUnreachable: as :func:`single_engine_ref`.
+    """
+    first = single_engine_ref(engine_key, unit)
+    if engine_key:
+        return [first]
+    return [EngineRef(entry.engine, unit, entry.host)
+            for entry in entries() if entry.active and entry.info is not None and not entry.info.browser]
 
 
 def _catalog_by_entry() -> dict[str, EngineInfo]:
