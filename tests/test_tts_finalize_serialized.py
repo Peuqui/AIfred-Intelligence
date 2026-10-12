@@ -111,6 +111,24 @@ def served(monkeypatch, tmp_path, fake, stream, listed=("xtts", "browser")):
     return serve_stream(monkeypatch, tmp_path, fake, stream, listed=list(listed))
 
 
+def test_a_new_reading_ends_a_reading_that_is_still_open(monkeypatch, tmp_path, fake, pushed) -> None:
+    """Two inits for one reply must not leave a task and a connection to the service waiting for text."""
+    stream = FakeStreamingService(after_text=[], after_finish=[summary_frame(TRACE)])
+
+    async def scenario() -> tuple[Any, Any, bool]:
+        async with served(monkeypatch, tmp_path, fake, stream):
+            reply = _Reply()
+            reply._init_streaming_tts("aifred")
+            first = get_tts_backend_state(reply.session_id).reading
+            await asyncio.sleep(0.1)
+            reply._init_streaming_tts("aifred")
+            await asyncio.sleep(0.1)
+            return first, get_tts_backend_state(reply.session_id).reading, first._task.done()  # type: ignore[union-attr]
+
+    first, second, first_task_done = asyncio.run(scenario())
+    assert first is not second and first.aborted and first_task_done
+
+
 def test_a_reply_is_spoken_while_written_and_its_audio_and_note_land_on_the_bubble(
     monkeypatch, tmp_path, fake, pushed,
 ) -> None:

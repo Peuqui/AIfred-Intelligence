@@ -252,6 +252,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         log_message(f"🔊 TTS Init: Starting reading for agent={agent}")
         tts_state = get_tts_backend_state(self.session_id)  # type: ignore[attr-defined]
+        if tts_state.reading is not None:
+            tts_state.reading.abort()  # a reading that is still open would wait for text for ever
         reading = BrowserReading(
             session_id=self.session_id,  # type: ignore[attr-defined]
             agent=agent,
