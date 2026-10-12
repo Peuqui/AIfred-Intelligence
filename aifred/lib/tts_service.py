@@ -113,11 +113,15 @@ def engine_label_short(engine_key: str, lang: str | None = None) -> str:
 
 
 def engine_key_for_label(label: str) -> str:
-    """Reverse of ``engine_label`` over every language; a label that names no engine is returned as is."""
+    """Reverse of ``engine_label`` over every language.
+
+    Raises:
+        ValueError: the label names no engine (e.g. the "service unreachable" line a dropdown shows).
+    """
     for info in catalog():
         if label in info.label.values():
             return info.engine
-    return label
+    raise ValueError(f"{label!r} names no TTS engine")
 
 
 def voice_names(engine_key: str) -> list[str]:
@@ -315,11 +319,6 @@ def speech_unit_for(engine_key: str) -> str:
     return chosen_unit(engine_key) or _catalog_row_of_engine(engine_key).unit_default
 
 
-def first_enabled_entry() -> ListEntry | None:
-    """The topmost active entry; its unit decides whether the browser streams."""
-    return next((entry for entry in entries() if entry.active), None)
-
-
 def request_engines() -> list[EngineRef]:
     """The list one request carries: AIfred's active entries in its order, each with its unit and host.
 
@@ -439,6 +438,12 @@ def spoken_note(trace: Sequence[TraceStep], lang: str | None = None) -> str:
                 change_reason = None
             parts.append(part)
     return " \u2192 ".join(parts)
+
+
+def first_enabled_key() -> str | None:
+    """Engine of the topmost switched-on entry of AIfred's list (any host), from settings.json alone:
+    what an editor starts with, which must open while the service does not answer."""
+    return next((str(raw["engine"]) for raw in stored_list() if raw["enabled"]), None)
 
 
 def active_local_keys() -> list[str]:

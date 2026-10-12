@@ -380,12 +380,16 @@ class TTSConfigMixin(rx.State, mixin=True):
         }
         self._write_settings_file(settings)  # type: ignore[attr-defined]
 
-    def set_editor_tts_engine(self, label: str) -> None:
+    def set_editor_tts_engine(self, label: str):
         """'Off' mutes the agent (every engine); an engine unmutes it and
         loads its voice settings for that engine."""
         from ..lib.i18n import tts_label_to_key
+        from ..lib.toast import toast
         agent_id = self.editor_agent_id  # type: ignore[attr-defined]
-        key = tts_label_to_key(label)
+        try:
+            key = tts_label_to_key(label)
+        except ValueError as error:   # the dropdown's one line while the service does not answer
+            return toast("error", str(error))
         if key == "off":
             self._set_tts_agent(agent_id, "enabled", False)
             return
@@ -448,9 +452,13 @@ class TTSConfigMixin(rx.State, mixin=True):
             return saved
         return options[0] if options else ""
 
-    def set_narrator_voice_engine(self, label: str) -> None:
+    def set_narrator_voice_engine(self, label: str):
         from ..lib.i18n import tts_label_to_key
-        self.narrator_voice_engine = tts_label_to_key(label)
+        from ..lib.toast import toast
+        try:
+            self.narrator_voice_engine = tts_label_to_key(label)
+        except ValueError as error:   # the dropdown's one line while the service does not answer
+            return toast("error", str(error))
 
     def set_narrator_voice(self, voice: str) -> None:
         engine = self.narrator_voice_engine

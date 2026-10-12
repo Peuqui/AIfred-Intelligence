@@ -195,10 +195,11 @@ def test_an_entry_without_catalog_row_is_listed_but_never_active(service) -> Non
     assert tts_service.request_engines() == [EngineRef("xtts", "sentence", None)]
 
 
-def test_first_enabled_entry_skips_disabled_and_not_offered(service) -> None:
-    service(row("a"), row("c"), listed=[stored("a", enabled=False), stored("b"), stored("c")])
-    first = tts_service.first_enabled_entry()
-    assert first is not None and first.engine == "c"
+def test_first_enabled_key_is_read_from_the_settings_alone(settings) -> None:
+    settings.data["tts_escalation"] = [stored("piper", enabled=False), stored("xtts", "Box"), stored("edge")]
+    assert tts_service.first_enabled_key() == "xtts"
+    settings.data["tts_escalation"] = [stored("piper", enabled=False)]
+    assert tts_service.first_enabled_key() is None
 
 
 def test_stored_entries_need_no_service(settings) -> None:
@@ -290,7 +291,8 @@ def test_keys_and_labels_come_from_the_catalog_not_from_the_list(service) -> Non
     assert tts_service.engine_label("xtts", "de") == "xtts lang"
     assert tts_service.engine_label_short("xtts", "en") == "XTTS"
     assert tts_service.engine_key_for_label("xtts long") == "xtts"
-    assert tts_service.engine_key_for_label("unknown") == "unknown"
+    with pytest.raises(ValueError, match="names no TTS engine"):
+        tts_service.engine_key_for_label("unknown")
 
 
 def test_active_local_keys_follow_the_stored_list_without_the_service(settings) -> None:
