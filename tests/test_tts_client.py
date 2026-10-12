@@ -12,6 +12,7 @@ from typing import Any
 import httpx
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
+from websockets.exceptions import ConnectionClosed
 
 import aifred.lib.tts_client as tts_client
 from aifred.lib.tts_client import (
@@ -20,6 +21,7 @@ from aifred.lib.tts_client import (
     EngineRef,
     EngineStarting,
     FrameDecoder,
+    IncompatibleService,
     InvalidRequest,
     NoEngineAvailable,
     Overloaded,
@@ -187,6 +189,38 @@ def test_the_run_id_of_a_reading_is_required_and_sent() -> None:
             "Hallo", language="de", engines=LIST, paragraph_pause_ms=0,
         ))
     assert new_run_id() != new_run_id()
+
+
+def test_audio_before_an_error_frame_in_the_same_read_is_not_lost() -> None:
+    data = audio(b"first") + audio(b"second") + error_frame("overloaded", "busy")
+    received: list[bytes] = []
+
+    async def run_collecting() -> None:
+        stream = await make_client(lambda _: frames_response(data, 1000)).speak(
+            "Hallo", language="de", engines=LIST, paragraph_pause_ms=0, run="r",
+        )
+        async for segment in stream:
+            received.append(segment.audio)
+
+    with pytest.raises(Overloaded):
+        asyncio.run(run_collecting())
+    assert received == [b"first", b"second"]
+
+
+def test_a_frame_the_client_cannot_read_is_a_broken_stream_not_a_key_error() -> None:
+    data = audio(b"first") + frame({"nothing": "useful"}, b"")
+    received: list[bytes] = []
+
+    async def run_collecting() -> None:
+        stream = await make_client(lambda _: frames_response(data, 1000)).speak(
+            "Hallo", language="de", engines=LIST, paragraph_pause_ms=0, run="r",
+        )
+        async for segment in stream:
+            received.append(segment.audio)
+
+    with pytest.raises(StreamBroken, match="cannot read"):
+        asyncio.run(run_collecting())
+    assert received == [b"first"]
 
 
 def test_error_frame_after_first_frame_raises_while_iterating() -> None:
@@ -412,6 +446,17 @@ def test_release_without_a_service_is_unreachable() -> None:
 
     with pytest.raises(TTSSuiteUnreachable, match="/release"):
         make_client(handler).release("all")
+
+
+def test_a_catalog_with_other_fields_is_an_incompatible_service_naming_them() -> None:
+    row = {"engine": "xtts", "host": None, "extra_field": 1}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json=[row])
+
+    with pytest.raises(IncompatibleService) as raised:
+        make_client(handler).engines()
+    assert "extra_field" in str(raised.value) and "missing" in str(raised.value) and "/engines" in str(raised.value)
 
 
 def test_engines_and_voices_are_decoded() -> None:
@@ -644,6 +689,27 @@ def test_error_frame_after_first_segment() -> None:
 
     with pytest.raises(Overloaded):
         asyncio.run(run())
+    assert received == [b"first"]
+
+
+def test_a_frame_the_client_cannot_read_ends_the_websocket_reading_instead_of_waiting_for_ever() -> None:
+    async def handler(socket: ServerConnection) -> None:
+        await socket.recv()
+        await socket.send(audio(b"first"))
+        await socket.send(frame({"nothing": "useful"}, b""))
+        with contextlib.suppress(ConnectionClosed):
+            await socket.recv()   # stays open until the client has given up on the reading
+
+    received: list[bytes] = []
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="de", engines=LIST, paragraph_pause_ms=0, run="r")
+            async for segment in stream:
+                received.append(segment.audio)
+
+    with pytest.raises(StreamBroken, match="cannot read"):
+        asyncio.run(asyncio.wait_for(run(), timeout=3))
     assert received == [b"first"]
 
 
