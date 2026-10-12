@@ -1197,6 +1197,7 @@ function stopAudioStream() {
         browserEventSource = null;
     }
     browserStreamActive = false;
+    browserStreamSessionId = null;  // a stopped stream is not one the page should bring back
     console.log('🔊 Audio SSE: Stopped');
 }
 
@@ -1279,6 +1280,22 @@ function audioUnlock() {
 }
 
 // Make SSE functions available globally
+// The stream can end without the page noticing it in time (a proxy or the browser closing it after a
+// while, a sleeping tab, a network change): then a reply is spoken to nobody ("No SSE connections at
+// all" in the server log) and only the bubble's speaker plays it afterwards. So the page checks it
+// whenever it becomes visible or focused and every 30 s, and opens the stream again if it is gone;
+// this also ends a "gave up" state, which would otherwise last until the page is reloaded.
+function ensureBrowserStream() {
+    if (!browserStreamSessionId || document.hidden) return;
+    if (browserEventSource && browserEventSource.readyState !== EventSource.CLOSED) return;
+    browserStreamGaveUp = false;
+    browserStreamRetryCount = 0;
+    console.log('🔊 Audio SSE: stream is gone, reconnecting');
+    startBrowserStream(browserStreamSessionId);
+}
+document.addEventListener('visibilitychange', ensureBrowserStream);
+window.addEventListener('focus', ensureBrowserStream);
+setInterval(ensureBrowserStream, 30000);
 window.startBrowserStream = startBrowserStream;
 window.stopAudioStream = stopAudioStream;
 window.audioUnlock = audioUnlock;
