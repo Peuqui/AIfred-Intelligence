@@ -379,7 +379,7 @@ function playNextBubbleChunk() {
         .then(() => console.log(`✅ Bubble Audio: Chunk ${bubbleAudioIndex + 1} started`))
         .catch(err => {
             console.warn('⚠️ Bubble Audio: Autoplay blocked:', err.message);
-            bubbleAudioPlaying = false;
+            stopBubbleAudio();  // also takes the green "playing" mark off the button
         });
 }
 
