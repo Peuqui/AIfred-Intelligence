@@ -303,12 +303,8 @@ TTS_DEFAULT_ENGINE = str(DEFAULT_TTS_ESCALATION[0]["engine"])
 # Raise cautiously after empirical testing with long inputs.
 NARRATE_CHUNK_LIMIT_CHARS = 800
 
-# Shared voice tree of all cloning TTS engines (SSOT): one folder per voice,
-# <Name>/<Name>.wav (+ <Name>.txt transcript). Every container mounts it.
-TTS_VOICES_DIR = PROJECT_ROOT / "docker" / "tts" / "voices"
-
 # narrate_file: fallback voice when the caller does not pass one.
-# Must match a reference voice shipped in docker/tts/voices/.
+# Must match a reference voice of the TTS service (its shared voices folder).
 NARRATE_DEFAULT_VOICE = "AIfred"
 
 # Per-agent TTS language override — the user can pin an agent to a

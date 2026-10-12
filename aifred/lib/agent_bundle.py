@@ -14,7 +14,7 @@ Bundle layout (ZIP):
   agents/<id>/prompts/de/*.txt
   agents/<id>/prompts/en/*.txt
   voices/<name>/<name>.wav      optional, deduplicated across agents; the whole
-  voices/<name>/<name>.txt|.lab folder of the shared voice tree (TTS_VOICES_DIR)
+  voices/<name>/<name>.txt|.lab folder of the shared voice tree (the voices folder of the TTS service, its /config)
 
 Voice samples live at the top level (not per-agent) so a WAV that's
 referenced by multiple agents is included only once. Plugins/tools listed
@@ -33,8 +33,9 @@ from pathlib import Path
 from typing import Iterable, Literal
 
 from .agent_config import load_agents_raw, save_agents_raw
-from .config import PROJECT_ROOT, TTS_VOICES_DIR
+from .config import PROJECT_ROOT
 from .settings import SETTINGS_FILE, save_settings
+from .tts_client import get_tts_client
 
 BUNDLE_FORMAT_VERSION = 1
 
@@ -95,6 +96,7 @@ def export_bundle(agent_ids: Iterable[str]) -> bytes:
     if missing:
         raise KeyError(f"Agents not found: {', '.join(missing)}")
 
+    voices_dir = get_tts_client().voices_dir()
     manifest = {
         "format_version": BUNDLE_FORMAT_VERSION,
         "agent_ids": requested,
@@ -138,7 +140,7 @@ def export_bundle(agent_ids: Iterable[str]) -> bytes:
 
             for entry in tts_per_engine.values():
                 voice_stem = _voice_file_name(entry.get("voice", ""))
-                voice_dir = TTS_VOICES_DIR / voice_stem
+                voice_dir = voices_dir / voice_stem
                 # Built-in speakers and cloud voices have no folder in the tree.
                 if not voice_stem or voice_stem in added_voices or not voice_dir.is_dir():
                     continue
@@ -221,6 +223,7 @@ def import_bundle(
     effective_ids: list[str] = []
 
     with zipfile.ZipFile(io.BytesIO(zip_bytes), "r") as zf:
+        voices_dir: Path | None = None  # asked of the TTS service when the first voice file comes
         for member in zf.namelist():
             if not _is_safe_member(member):
                 raise ValueError(f"Unsafe path in bundle: {member!r}")
@@ -326,7 +329,9 @@ def import_bundle(
             if not all(_BUNDLE_FILE_RE.match(part) and not part.startswith(".") for part in (voice_name, filename)):
                 warnings.append(f"Skipped unsafe voice path: {member}")
                 continue
-            target = TTS_VOICES_DIR / voice_name / filename
+            if voices_dir is None:
+                voices_dir = get_tts_client().voices_dir()
+            target = voices_dir / voice_name / filename
             if target.exists():
                 warnings.append(f"Voice '{voice_name}/{filename}' existierte schon — übersprungen.")
                 continue

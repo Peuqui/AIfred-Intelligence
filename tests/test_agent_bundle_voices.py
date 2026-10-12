@@ -10,6 +10,8 @@ import pytest
 
 from aifred.lib import agent_bundle
 
+from fake_tts_service import FakeTTSService, install_fake_service
+
 
 @pytest.fixture
 def bundle_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
@@ -17,7 +19,9 @@ def bundle_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
     (voices / "Codine").mkdir(parents=True)
     (voices / "Codine" / "Codine.wav").write_bytes(b"wav")
     (voices / "Codine" / "Codine.txt").write_text("Transkript", encoding="utf-8")
-    monkeypatch.setattr(agent_bundle, "TTS_VOICES_DIR", voices)
+    fake = FakeTTSService([])
+    fake.voices_dir = str(voices)
+    install_fake_service(monkeypatch, tmp_path, fake)
     monkeypatch.setattr(agent_bundle, "PROMPTS_DIR", tmp_path / "prompts")
     monkeypatch.setattr(agent_bundle, "load_agents_raw", lambda: {"codine": {"name": "Codine"}})
     monkeypatch.setattr(agent_bundle, "_load_settings", lambda: {

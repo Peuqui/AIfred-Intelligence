@@ -74,6 +74,7 @@ class FakeTTSService:
     def __init__(self, catalog: list[dict[str, Any]], voices: list[dict[str, str]] | None = None) -> None:
         self.catalog = catalog
         self.voices = voices if voices is not None else [{"name": "Alice", "label": "Alice"}]
+        self.voices_dir = "/srv/tts/voices"
         self.script: list[bytes | int] = []
         self.speaks: list[dict[str, Any]] = []
         self.releases: list[Any] = []  # the "targets" of each POST /release
@@ -87,6 +88,8 @@ class FakeTTSService:
             return httpx.Response(200, json=self.catalog)
         if path == "/voices":
             return httpx.Response(200, json=self.voices)
+        if path == "/config":
+            return httpx.Response(200, json={"voices_dir": self.voices_dir, "hosts": []})
         if path == "/speak":
             self.speaks.append(json.loads(request.content))
             step = self.script[min(len(self.speaks), len(self.script)) - 1]

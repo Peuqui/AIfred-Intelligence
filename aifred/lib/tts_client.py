@@ -32,6 +32,7 @@ import subprocess
 import uuid
 from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
+from pathlib import Path
 from time import monotonic, sleep
 from typing import Any, Literal
 
@@ -611,6 +612,17 @@ class TTSClient:
     def voices(self, engine: str | None = None) -> list[VoiceInfo]:
         params = {"engine": engine} if engine else None
         return [_decode(VoiceInfo, item, "/voices") for item in self._get("/voices", params)]
+
+    def voices_dir(self) -> Path:
+        """The shared voices folder the service reads (its ``/config``): the one place of the voice files.
+
+        Raises:
+            IncompatibleService: ``/config`` carries no ``voices_dir``.
+        """
+        config = self._get("/config")
+        if not isinstance(config, dict) or not isinstance(config.get("voices_dir"), str):
+            raise IncompatibleService("the service's /config has no voices_dir")
+        return Path(config["voices_dir"])
 
     # ---- release ----
 
