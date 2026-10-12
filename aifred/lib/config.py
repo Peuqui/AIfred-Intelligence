@@ -314,13 +314,24 @@ NARRATE_DEFAULT_VOICE = "AIfred"
 # Per-agent TTS language override — the user can pin an agent to a
 # specific synthesis language (so e.g. "Sokrates always speaks English
 # with a German accent" works as a stylistic choice). "auto" = detected
-# LLM language → UI language. Only the languages the TTS service has
-# texts for (de, en) are offered; a reading in another language is
-# refused by the service and the browser voice takes over.
+# LLM language → UI language. The listed languages are the ones the TTS
+# service has its own texts in (``supported_languages`` of the suite) and
+# Qwen3-TTS speaks; a language the service lacks is refused and the
+# browser voice takes over.
 TTS_LANGUAGE_OPTIONS: list[tuple[str, str]] = [
     ("auto", "Auto"),
+    # Europäische Sprachen zuerst (Auswahl-Komfort)
     ("de", "Deutsch"),
     ("en", "English"),
+    ("fr", "Français"),
+    ("it", "Italiano"),
+    ("es", "Español"),
+    ("pt", "Português"),
+    ("ru", "Русский"),
+    # Asiatische Sprachen am Schluss
+    ("zh", "Chinese"),
+    ("ja", "Japanese"),
+    ("ko", "Korean"),
 ]
 TTS_LANGUAGE_LABELS = [label for _, label in TTS_LANGUAGE_OPTIONS]
 TTS_LANGUAGE_LABEL_TO_CODE = {label: code for code, label in TTS_LANGUAGE_OPTIONS}
