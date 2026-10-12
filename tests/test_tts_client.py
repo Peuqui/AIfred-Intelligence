@@ -713,6 +713,24 @@ def test_a_frame_the_client_cannot_read_ends_the_websocket_reading_instead_of_wa
     assert received == [b"first"]
 
 
+def test_a_service_that_goes_silent_on_an_open_reading_is_a_broken_stream(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(tts_client, "TTS_SUITE_STREAM_READ_TIMEOUT_S", 0.3)
+
+    async def handler(socket: ServerConnection) -> None:
+        await socket.recv()
+        with contextlib.suppress(ConnectionClosed):
+            await socket.recv()   # never answers
+
+    async def run() -> None:
+        async with fake_service(handler) as client:
+            stream = await client.open_stream(language="de", engines=LIST, paragraph_pause_ms=0, run="r")
+            async for _ in stream:
+                pass
+
+    with pytest.raises(StreamBroken, match="sent nothing"):
+        asyncio.run(asyncio.wait_for(run(), timeout=5))
+
+
 def test_stream_without_summary_is_broken() -> None:
     async def handler(socket: ServerConnection) -> None:
         await socket.recv()

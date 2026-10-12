@@ -174,7 +174,7 @@ def test_what_the_browser_spoke_itself_lands_on_the_bubble_too(monkeypatch, tmp_
     bubble = reply.chat.chat_history[1]
     assert bubble["has_audio"] and bubble["metadata"]["audio_urls"] == []
     assert bubble["metadata"]["browser_speech"][0]["text"] == "Das spricht der Browser selbst."
-    assert bubble["tts_note"] == "BROWSER · Gerät"
+    assert bubble["tts_note"] == "Browser · Gerät"   # named by the client itself: no service involved
     assert any(kind == "bubble_browser_speech" for kind, _ in pushed.events)
 
 

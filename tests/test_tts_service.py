@@ -375,3 +375,15 @@ def test_the_escalation_report_names_who_spoke_who_failed_and_the_change_of_voic
         "🔊 [Browser aifred] TTS escalation: skipped piper (deactivated)",
         "🔊 [Browser aifred] TTS escalation: voice change announced (unreachable)",
     ]
+
+
+def test_the_note_of_a_step_the_catalog_does_not_have_names_its_key(service) -> None:
+    service(row("xtts"))
+    note = tts_service.spoken_note((TraceStep("xtts", "spoke"), TraceStep("deactivated_engine", "spoke")), "en")
+    assert note == "XTTS · local \u2192 deactivated_engine"
+
+
+def test_the_note_of_the_browser_voice_needs_no_service() -> None:
+    # conftest points the client at a dead address
+    assert tts_service.browser_note("de") == "Browser · Gerät"
+    assert tts_service.browser_note("en") == "Browser · device"

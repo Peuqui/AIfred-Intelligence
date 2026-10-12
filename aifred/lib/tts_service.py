@@ -401,6 +401,22 @@ def single_engine_ref(engine_key: str, unit: str) -> EngineRef:
     return EngineRef(engine_key, unit, None)
 
 
+def _catalog_by_entry() -> dict[str, EngineInfo]:
+    """The catalog rows by the name the service uses for an entry in a trace (``engine`` / ``engine@host``)."""
+    return {ref_label(EngineRef(info.engine, "", info.host)): info for info in catalog()}
+
+
+def _step_name(by_entry: Mapping[str, EngineInfo], step: TraceStep, lang: str | None) -> str:
+    """Display name of a trace step: the catalog's label; an entry the catalog does not have (switched off in
+    the service, removed since) is named by its key."""
+    return row_label(by_entry[step.entry], lang) if step.entry in by_entry else step.entry
+
+
+def browser_note(lang: str | None = None) -> str:
+    """Note for a reply the browser's own voice spoke: no service involved, so no catalog either."""
+    return f"{t('tts_browser_name', lang=lang)} · {t('tts_location_device', lang=lang)}"
+
+
 def spoken_note(trace: Sequence[TraceStep], lang: str | None = None) -> str:
     """Note for the chat bubble: who spoke, on a change with the reason, e.g.
     ``XTTS · Aragon -> DashScope Audio 3 · cloud (server outage)``. Empty if nobody has spoken.
@@ -408,7 +424,7 @@ def spoken_note(trace: Sequence[TraceStep], lang: str | None = None) -> str:
     Built from the service's trace: an entry that fails after it has spoken is the reason of the
     change to the entry that speaks next.
     """
-    by_entry = {ref_label(EngineRef(info.engine, "", info.host)): info for info in catalog()}
+    by_entry = _catalog_by_entry()
     spoken: set[str] = set()
     change_reason: str | None = None
     parts: list[str] = []
@@ -417,7 +433,7 @@ def spoken_note(trace: Sequence[TraceStep], lang: str | None = None) -> str:
             change_reason = change_reason or step.reason
         elif step.outcome == "spoke":
             spoken.add(step.entry)
-            part = row_label(by_entry[step.entry], lang)
+            part = _step_name(by_entry, step, lang)
             if change_reason is not None:
                 part += f" ({t(f'tts_reason_{change_reason}', lang=lang)})"
                 change_reason = None
@@ -531,10 +547,10 @@ def _touches(info: EngineInfo, cards: Collection[str] | None) -> bool:
 def escalation_report(summary: SpeakSummary, label: str) -> list[str]:
     """Debug lines of a reading, from the service's own account: which entry spoke, which was skipped
     or failed (with the reason), and a change of voice (``summary.switch``). ``label`` names the caller."""
-    by_entry = {ref_label(EngineRef(info.engine, "", info.host)): info for info in catalog()}
+    by_entry = _catalog_by_entry()
     lines = []
     for step in summary.trace:
-        name = row_label(by_entry[step.entry], "en") if step.entry in by_entry else step.entry
+        name = _step_name(by_entry, step, "en")
         if step.outcome == "spoke":
             lines.append(f"🔊 [{label}] TTS escalation: {name} speaks")
         else:
