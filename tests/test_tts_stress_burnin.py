@@ -70,6 +70,22 @@ def test_the_syntheses_go_through_the_service_on_this_machine_as_a_whole_text(mo
         assert head["paragraph_pause_ms"] == 0
 
 
+def test_the_syntheses_carry_the_voice_of_the_burnin_agent(monkeypatch, tmp_path) -> None:
+    """The service has no default voice for xtts/qwen3local: without a voice every synthesis would fail."""
+    fake = VramFake([catalog_row("xtts")], [{"GPU-a": 100}])
+    fake.script = [GOOD_READING]
+    install(monkeypatch, tmp_path, fake)
+    monkeypatch.setattr(config, "TTS_BURNIN_AGENT", "aifred")
+    monkeypatch.setattr(
+        tts_stress_burnin, "voices_for",
+        lambda engines, agent: {engines[0].engine: {"voice": f"voice of {agent}", "speed": 1.0, "pitch": 1.0}},
+    )
+
+    run(iterations=1)
+
+    assert fake.speaks[0]["voices"] == {"xtts": {"voice": "voice of aifred", "speed": 1.0, "pitch": 1.0}}
+
+
 def test_the_container_is_released_at_the_end(monkeypatch, tmp_path) -> None:
     fake = VramFake([catalog_row("xtts")], [{"GPU-a": 100}])
     fake.script = [GOOD_READING]

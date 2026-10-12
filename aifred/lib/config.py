@@ -1095,6 +1095,9 @@ LLAMACPP_TTS_BURNIN_HEADROOM_MB = 512
 # steady-state. Raise this if a new engine shows late-arriving peaks.
 LLAMACPP_TTS_BURNIN_ITERATIONS = 2
 
+# The agent whose voice the burn-in reads with (the service has no default voice for xtts/qwen3local).
+TTS_BURNIN_AGENT = "aifred"
+
 # How often the burn-in asks the TTS service's catalog for the engine's VRAM
 # while the service is reading (the peak is the maximum of these samples).
 TTS_BURNIN_VRAM_POLL_S = 0.3

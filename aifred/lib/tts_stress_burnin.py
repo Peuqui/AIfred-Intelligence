@@ -32,8 +32,10 @@ import logging
 import time
 from typing import Any, Optional
 
+from .config import TTS_BURNIN_AGENT
 from .tts_client import EngineRef, EngineTarget, TTSSuiteError, get_tts_client, new_run_id
 from .tts_service import TTSVramUnknown, catalog, release_targets
+from .tts_voices import voices_for
 
 logger = logging.getLogger(__name__)
 
@@ -191,11 +193,13 @@ async def _synthesize(text: str, language: str, engine_key: str) -> int:
     Raises:
         TTSSuiteError: the reading failed.
     """
+    engines = [EngineRef(engine_key, "whole", None)]
     stream = await get_tts_client().speak(
         text,
         language=language,
-        engines=[EngineRef(engine_key, "whole", None)],
+        engines=engines,
         paragraph_pause_ms=0,
+        voices=voices_for(engines, TTS_BURNIN_AGENT),
         run=new_run_id(),
     )
     segments = 0
