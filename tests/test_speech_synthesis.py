@@ -60,6 +60,17 @@ def drain(buffer) -> bytes:
         data += chunk
 
 
+class TestEscalationReport:
+    def test_the_service_account_of_a_reading_goes_to_the_debug_bus(self, service, monkeypatch):
+        lines: list[str] = []
+        monkeypatch.setattr(speech_synthesis, "debug", lines.append)
+        service.script = [audio_frame(b"\x01" * 10) + summary_frame([{"entry": "xtts", "outcome": "spoke"}])]
+        drain(start(["Satz eins hier."]))
+        assert [line for line in lines if "TTS escalation" in line] == [
+            "🔊 [test] TTS escalation: XTTS · local speaks",
+        ]
+
+
 class TestSegmentsToBuffer:
     def test_segments_arrive_in_order_in_the_growing_buffer(self, service):
         service.script = [audio_frame(b"\x01" * 10) + audio_frame(b"\x02" * 10) + summary_frame()]

@@ -18,13 +18,20 @@ from dataclasses import dataclass, field
 
 from .audio_channels._audio_orchestrator import KEEPALIVE_SILENCE, TTSBuffer, silence_pcm
 from .config import REPLAY_PARAGRAPH_PAUSE_MS
+from .debug_bus import debug
 from .logging_utils import log_message
 from .tts_client import SpeakSummary, SpeechStream, TTSSuiteError, get_tts_client, new_run_id
-from .tts_service import request_engines, spoken_note
+from .tts_service import escalation_report, request_engines, spoken_note
 from .tts_text_filter import strip_ui_only_content
 from .tts_voices import voices_for
 
 PCM_SAMPLE_RATE = 48000
+
+
+async def _report_escalation(summary: SpeakSummary, label: str) -> None:
+    """The service's account of a reading (who spoke, who failed or was skipped, change of voice) to the debug bus: log file and, in a session, the console."""
+    for line in await asyncio.to_thread(escalation_report, summary, label):
+        debug(line)
 
 
 async def _convert_to_pcm(audio_path: str, label: str) -> bytes | None:
@@ -100,6 +107,7 @@ async def _speech_pcm(
         reading.audio_urls.append(url)
         yield pcm
     reading.summary = stream.summary
+    await _report_escalation(stream.summary, label)
 
 
 async def speak_to_files(text: str, *, language: str, agent: str) -> SpokenReading:
@@ -116,6 +124,7 @@ async def speak_to_files(text: str, *, language: str, agent: str) -> SpokenReadi
             await asyncio.to_thread(store_tts_audio, segment.audio, segment.media_type, agent, segment.engine),
         )
     reading.summary = stream.summary
+    await _report_escalation(stream.summary, f"Replay {agent}")
     return reading
 
 
