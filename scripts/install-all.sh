@@ -175,7 +175,7 @@ fi
 # ============================================================
 if [ "$DRY_RUN" = "1" ]; then
     echo -e "${YELLOW}📝 DRY-RUN: skipping Steps 1-2g (system deps, Python env,${NC}"
-    echo -e "${YELLOW}              ChromaDB, Whisper, SearXNG, TTS containers).${NC}"
+    echo -e "${YELLOW}              ChromaDB, TTS-Suite, Whisper, SearXNG).${NC}"
     echo "   These steps are idempotent on a real run. To see actual"
     echo "   install effects, re-run without --dry-run."
     echo ""
@@ -191,7 +191,7 @@ echo ""
 echo "Required:"
 echo "  • python3 (>=3.10), python3-venv, python3-pip — Python runtime + venv"
 echo "  • poppler-utils — pdftotext for clean PDF indexing"
-echo "  • ffmpeg        — audio concat for TTS (XTTS, Edge-TTS multi-chunk)"
+echo "  • ffmpeg        — audio concat (TTS replay, narrator)"
 echo "  • bubblewrap    — sandbox for the 'execute_python' tool"
 echo "  • docker + docker compose plugin — ChromaDB vector cache + Whisper STT"
 echo ""
@@ -891,6 +891,104 @@ else
 fi
 
 step_summary "2c — ChromaDB + SearXNG containers"
+echo ""
+sleep 1
+
+# ============================================================
+# STEP 2d: TTS-Suite (spoken output — its own service, its own repo)
+# ============================================================
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Step 2d: TTS-Suite (spoken output)${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo "All spoken output (browser, Echo, announcements, narrator) comes from the TTS-Suite,"
+echo "a separate service on 127.0.0.1:5090 with its own repo:"
+echo "https://github.com/Peuqui/TTS-Suite"
+echo "It runs the engines (XTTS, Qwen3-TTS, ...) as Docker containers on demand and carries"
+echo "the voices; cloud keys and further machines are set on its own web page afterwards."
+echo ""
+
+TTS_SUITE_REPO_URL="https://github.com/Peuqui/TTS-Suite.git"
+# Next to AIfred, like the STT-Suite.
+TTS_SUITE_DIR="$(dirname "$PROJECT_DIR")/TTS-Suite"
+TTS_SUITE_DIR_FROM_ENV=$(grep -E "^TTS_SUITE_DIR=" "$PROJECT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-)
+if [ -n "$TTS_SUITE_DIR_FROM_ENV" ]; then
+    TTS_SUITE_DIR="$TTS_SUITE_DIR_FROM_ENV"
+fi
+
+TTS_SUITE_INSTALLED=0
+TTS_SUITE_CHECKOUT_OK=0
+if [ -d "$TTS_SUITE_DIR/.git" ]; then
+    echo "   Updating TTS-Suite in $TTS_SUITE_DIR ..."
+    if ! git -C "$TTS_SUITE_DIR" pull --ff-only; then
+        echo -e "${YELLOW}⚠️  git pull failed — installing from the current checkout.${NC}"
+        STEP_WARNINGS+=("TTS-Suite not updated (git pull failed in $TTS_SUITE_DIR)")
+    fi
+    TTS_SUITE_CHECKOUT_OK=1
+else
+    echo "   Cloning TTS-Suite into $TTS_SUITE_DIR ..."
+    if git clone "$TTS_SUITE_REPO_URL" "$TTS_SUITE_DIR"; then
+        TTS_SUITE_CHECKOUT_OK=1
+    else
+        echo -e "${YELLOW}⚠️  git clone of $TTS_SUITE_REPO_URL failed.${NC}"
+    fi
+fi
+
+if [ "$TTS_SUITE_CHECKOUT_OK" = "1" ]; then
+    # venv, command, token and first configuration (voices of the clone, pronunciation of AIfred)
+    if bash "$TTS_SUITE_DIR/deploy/install.sh"; then
+        TTS_SUITE_INSTALLED=1
+    else
+        echo -e "${YELLOW}⚠️  deploy/install.sh of the TTS-Suite failed.${NC}"
+    fi
+fi
+
+TTS_SUITE_UNIT=0
+if [ "$TTS_SUITE_INSTALLED" = "1" ]; then
+    echo ""
+    echo "AIfred starts the service when it is needed. That works through the system unit"
+    echo "tts-suite@$USER with a polkit rule (one sudo step); without it the service runs as"
+    echo "a user service and has to be started by hand after a reboot."
+    ask AIFRED_INSTALL_TTS_SYSTEMD "Install the TTS-Suite as system service tts-suite@$USER? Needs sudo. (y/N): "
+    if [[ $REPLY =~ ^[JjYy]$ ]]; then
+        if sudo bash "$TTS_SUITE_DIR/deploy/switch-to-system-unit.sh" "$USER"; then
+            TTS_SUITE_UNIT=1
+        else
+            echo -e "${YELLOW}⚠️  switch-to-system-unit.sh failed.${NC}"
+            STEP_WARNINGS+=("TTS-Suite system unit not installed — sudo bash $TTS_SUITE_DIR/deploy/switch-to-system-unit.sh $USER")
+        fi
+    elif command -v systemctl &>/dev/null && systemctl --user enable --now tts-suite; then
+        echo -e "${GREEN}✅ TTS-Suite runs as user service${NC}"
+    else
+        STEP_WARNINGS+=("TTS-Suite not started — systemctl --user enable --now tts-suite")
+    fi
+fi
+
+# Verification — the service answers on port 5090.
+echo ""
+echo -e "${BLUE}🔎 Verifying TTS-Suite...${NC}"
+if [ "$TTS_SUITE_INSTALLED" = "1" ]; then
+    tts_ok=0
+    for _ in $(seq 1 30); do
+        if curl -sf --max-time 3 http://127.0.0.1:5090/health -o /dev/null 2>/dev/null; then
+            tts_ok=1
+            break
+        fi
+        sleep 2
+    done
+    if [ "$tts_ok" = "1" ]; then
+        echo -e "   ${GREEN}✅ verified:${NC} TTS-Suite /health responds (port 5090)"
+    else
+        echo -e "   ${YELLOW}⚠️  TTS-Suite /health not ready after 60s${NC}"
+        STEP_WARNINGS+=("TTS-Suite not answering on port 5090 — systemctl status tts-suite@$USER (or --user tts-suite)")
+    fi
+    if ! docker compose version &>/dev/null 2>&1; then
+        STEP_WARNINGS+=("TTS-Suite: docker compose missing — the local engines (XTTS, Qwen3-TTS) cannot start; cloud engines and the browser voice still work")
+    fi
+else
+    STEP_WARNINGS+=("TTS-Suite not installed — spoken output falls back to the browser voice (see $TTS_SUITE_REPO_URL)")
+fi
+step_summary "2d — TTS-Suite"
 echo ""
 sleep 1
 
