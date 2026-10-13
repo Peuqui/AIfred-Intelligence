@@ -586,6 +586,7 @@ def chat_history_display() -> rx.Component:
                 },
                 border_radius="6px",
                 padding_x="3",
+                width="100%",  # fills the trigger, so the text-size buttons sit at its right edge
                 cursor="pointer",
                 transition="background-color 0.2s ease",
             ),
