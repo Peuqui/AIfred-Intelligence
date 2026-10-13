@@ -100,6 +100,10 @@ class EdgeAiHandler:
         # Klassen prüfen wir in EINER YOLO-Inferenz.
         confirm_needed = {c for c in classes if EDGE_AI_CONFIRM.get(c, True)}
         counts = await self._detect.count_categories(pair.wide.detect, confirm_needed)
+        if pair.zoom_detect is not None:
+            # Die Zoom-Linse sieht ein nahes, verwackeltes Subjekt oft schärfer als das Weitwinkelbild.
+            zoom_counts = await self._detect.count_categories(pair.zoom_detect, confirm_needed)
+            counts = {cls: max(count, zoom_counts.get(cls, 0)) for cls, count in counts.items()}
 
         def confirmed(cls: str) -> bool:
             # bestätigt = der Kamera vertraut (policy False) ODER eigenes YOLO
@@ -112,7 +116,17 @@ class EdgeAiHandler:
             return counts.get(cls, 0) if cls in confirm_needed else 0
 
         def detector_of(cls: str) -> str:
-            return "yolo" if cls in confirm_needed else "edge_ai"
+            # Wer die Klasse bestätigt hat: unser YOLO, die vertraute Kamera, oder niemand
+            # (Kamera meldet, YOLO findet nichts — die Meldung gilt trotzdem).
+            if cls not in confirm_needed:
+                return "edge_ai"
+            return "yolo" if confirmed(cls) else "edge_ai_unconfirmed"
+
+        def warn_unconfirmed(cls: str) -> None:
+            logger.warning(
+                "edge-ai %s for %s not confirmed by YOLO (wide + zoom) — reported as real",
+                cls, source_id,
+            )
 
         # ── person ── Gesicht ZUERST (informativere Meldung als „person").
         # Bei Burst-Quellen laufen die Personen-/Gesichts-Meldungen als BILANZ
@@ -137,42 +151,41 @@ class EdgeAiHandler:
                 zoom_frame_path=zoom_frame_path, collect=report,
             )
         if "person" in classes:
-            if confirmed("person"):
-                # Event aus UNSERER Erkennung — Chronik zeigt nur bestätigte
-                # Personen, keine Kamera-Phantome. Alert entfällt, wenn schon
-                # ein Gesicht erkannt wurde (sonst Doppel-Meldung).
-                person_count = max(1, count_of("person"))
-                self._recorder.record_edge_class(
-                    "person", source_id=source_id, timestamp=timestamp,
-                    frame_path=frame_path, zoom_frame_path=zoom_frame_path,
-                    count=person_count, detector=detector_of("person"),
-                    cluster_id=cluster_id,
+            # Auch ohne YOLO-Bestätigung eine echte Meldung: die Kamera hat sie ausgelöst, und
+            # dass YOLO nichts findet (Nacht, Bewegungsunschärfe, weit weg), heißt nicht, dass
+            # niemand da war. Der Befund geht an die Meldung mit.
+            person_unconfirmed = not confirmed("person")
+            if person_unconfirmed:
+                warn_unconfirmed("person")
+            person_count = max(1, count_of("person"))
+            self._recorder.record_edge_class(
+                "person", source_id=source_id, timestamp=timestamp,
+                frame_path=frame_path, zoom_frame_path=zoom_frame_path,
+                count=person_count, detector=detector_of("person"),
+                cluster_id=cluster_id,
+            )
+            if report is not None:
+                report.observe_person(
+                    person_count, 0.0, frame_path, zoom_frame_path, yolo_unconfirmed=person_unconfirmed,
                 )
-                if report is not None:
-                    report.observe_person(person_count, 0.0, frame_path, zoom_frame_path)
-                elif not face_found:
-                    await vision_alerts.emit_person_alert(
-                        source_id=source_id, frame_path=frame_path,
-                        zoom_frame_path=zoom_frame_path, cluster_id=cluster_id,
-                        count=person_count, timestamp=timestamp, store=self._store,
-                    )
             elif not face_found:
-                logger.info(
-                    "edge-ai person NOT confirmed for %s — no event, no "
-                    "alert (camera false-positive)", source_id,
+                # Alert entfällt, wenn schon ein Gesicht erkannt wurde (sonst Doppel-Meldung).
+                await vision_alerts.emit_person_alert(
+                    source_id=source_id, frame_path=frame_path,
+                    zoom_frame_path=zoom_frame_path, cluster_id=cluster_id,
+                    count=person_count, timestamp=timestamp, store=self._store,
+                    yolo_unconfirmed=person_unconfirmed,
                 )
 
-        # ── vehicle / animal ── Event + Alert nur bei Bestätigung (oder wenn
-        # die Klasse der Kamera anvertraut ist, siehe EDGE_AI_CONFIRM).
+        # ── vehicle / animal ── Event + Alert; die Kamera-Meldung gilt auch dann, wenn
+        # YOLO die Klasse nicht bestätigt (siehe person). Vertraute Klassen (animal) tragen
+        # keinen Zusatz.
         for cls in ("vehicle", "animal"):
             if cls not in classes:
                 continue
-            if not confirmed(cls):
-                logger.info(
-                    "edge-ai %s NOT confirmed for %s — no event, no alert",
-                    cls, source_id,
-                )
-                continue
+            unconfirmed = cls in confirm_needed and not confirmed(cls)
+            if unconfirmed:
+                warn_unconfirmed(cls)
             self._recorder.record_edge_class(
                 cls, source_id=source_id, timestamp=timestamp,
                 frame_path=frame_path, zoom_frame_path=zoom_frame_path,
@@ -183,16 +196,16 @@ class EdgeAiHandler:
                 source_id=source_id, object_type=cls, frame_path=frame_path,
                 zoom_frame_path=zoom_frame_path, cluster_id=cluster_id,
                 count=count_of(cls), timestamp=timestamp, store=self._store,
+                yolo_unconfirmed=unconfirmed,
             )
 
         # ── Face-Hunt-Burst ──────────────────────────────────────────
         # Der Initial-Snap ist systematisch der schlechteste Moment (PTZ
         # schwenkt/zoomt noch) — der Burst jagt in schneller Folge nach dem
         # besten Gesicht, solange die Kamera die Person weiter meldet. Fire-
-        # and-forget, max. ein Burst pro Quelle. NUR bei YOLO-bestätigter
-        # Person (oder schon erkanntem Gesicht) — nächtliche IR-Phantome der
-        # Kamera sollen keine minutenlangen Geister-Bursts anwerfen.
-        if report is not None and (face_found or confirmed("person")):
+        # and-forget, max. ein Burst pro Quelle. Läuft bei jeder gemeldeten
+        # Person (die Kamera-Meldung gilt auch ohne YOLO-Bestätigung).
+        if report is not None:
             self._bursts.start(
                 source_id, config, client, events, cluster_id, report, is_current,
             )

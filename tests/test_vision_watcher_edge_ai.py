@@ -12,6 +12,7 @@ Gesichts-Crop-Store liegt in tmp_path.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
 import time
 from pathlib import Path
@@ -578,23 +579,24 @@ class TestBurst:
         assert _events(store, src, trigger="edge_ai_burst") == []
         assert ai_client.snap_calls == 1  # nur der Trigger-Snap
 
-    def test_unconfirmed_person_starts_no_burst(self, store, frames_dir, ai_client):
-        """Kamera-Phantom: YOLO zählt keine Person und es gibt kein Gesicht →
-        weder Person-Event noch Burst."""
+    def test_unconfirmed_person_is_reported_as_real_and_starts_a_burst(self, store, frames_dir, ai_client):
+        """Die Kamera meldet eine Person, YOLO zählt keine und es gibt kein Gesicht: die Meldung
+        gilt trotzdem (Nacht, Bewegungsunschärfe) — Person-Event mit dem Befund und Burst."""
         src = "cam/edge-phantom"
         person_detector = ScriptedPersonDetector({"person": 0})
 
         async def scenario(w: VisionWatcher) -> None:
             ai_client.state["person"] = True
-            await _wait_for(lambda: person_detector.category_calls, what="YOLO-Prüfung")
+            await _wait_for(lambda: _events(store, src, "person"), what="Person-Event")
             await _wait_polls(ai_client, 15)
 
         _run_edge(
             store, frames_dir, src, _burst_config(), scenario,
             person_detector=person_detector,
         )
-        assert _events(store, src) == []
-        assert ai_client.snap_calls == 1
+        (event,) = _events(store, src, "person")
+        assert event["classification"]["detector"] == "edge_ai_unconfirmed"
+        assert ai_client.snap_calls > 1  # Trigger-Snap + Burst
 
 
 # ── 6. Eingefrorener Stream ───────────────────────────────────────────
@@ -661,7 +663,7 @@ class TestObjectClasses:
         assert _stub_alerts["object"][0]["object_type"] == "vehicle"
         assert _stub_alerts["object"][0]["count"] == 2
 
-    def test_vehicle_not_confirmed_by_yolo_is_dropped(
+    def test_vehicle_not_confirmed_by_yolo_is_still_reported_with_the_finding(
         self, store, frames_dir, ai_client, _stub_alerts,
     ):
         src = "cam/edge-vehicle-no"
@@ -669,13 +671,33 @@ class TestObjectClasses:
 
         async def scenario(w: VisionWatcher) -> None:
             ai_client.state["vehicle"] = True
-            await _wait_for(lambda: detector.category_calls, what="YOLO-Prüfung")
+            await _wait_for(lambda: _events(store, src, "vehicle"), what="vehicle-Event")
             await _wait_polls(ai_client, 6)
 
         _run_edge(store, frames_dir, src, _edge_config(), scenario, person_detector=detector)
 
-        assert _events(store, src, "vehicle") == []
-        assert _stub_alerts["object"] == []
+        (event,) = _events(store, src, "vehicle")
+        assert event["classification"]["detector"] == "edge_ai_unconfirmed"
+        assert [call["yolo_unconfirmed"] for call in _stub_alerts["object"]] == [True]
+
+    def test_the_zoom_lens_can_confirm_what_the_wide_image_misses(
+        self, store, frames_dir, ai_client, _stub_alerts,
+    ):
+        src = "cam/edge-zoom"
+        # Weitwinkel (dunkel, verwackelt): keine Person; Zoom: eine.
+        detector = ScriptedPersonDetector(counts_per_call=[{"person": 0}, {"person": 1}])
+        config = _edge_config()
+        config = dataclasses.replace(config, edge_ai=dataclasses.replace(config.edge_ai, face_channel=1))
+
+        async def scenario(w: VisionWatcher) -> None:
+            ai_client.state["person"] = True
+            await _wait_for(lambda: _events(store, src, "person"), what="Person-Event")
+            await _wait_polls(ai_client, 3)
+
+        _run_edge(store, frames_dir, src, config, scenario, person_detector=detector)
+
+        assert _events(store, src, "person")[0]["classification"]["detector"] == "yolo"
+        assert [call["yolo_unconfirmed"] for call in _stub_alerts["person"]] == [False]
 
     def test_animal_is_trusted_without_yolo(
         self, store, frames_dir, ai_client, _stub_alerts,
@@ -698,7 +720,7 @@ class TestObjectClasses:
         assert [c["object_type"] for c in _stub_alerts["object"]] == ["animal"]
         assert _stub_alerts["object"][0]["count"] == 0
 
-    def test_person_and_animal_together_only_animal_survives_unconfirmed_person(
+    def test_person_and_animal_together_both_are_reported_unconfirmed_person_with_the_finding(
         self, store, frames_dir, ai_client,
     ):
         src = "cam/edge-mixed"
@@ -712,7 +734,7 @@ class TestObjectClasses:
 
         _run_edge(store, frames_dir, src, _edge_config(), scenario, person_detector=detector)
 
-        assert _events(store, src, "person") == []
+        assert [e["classification"]["detector"] for e in _events(store, src, "person")] == ["edge_ai_unconfirmed"]
         assert len(_events(store, src, "animal")) == 1
         # Nur die zu bestätigende Klasse geht in die YOLO-Inferenz.
         assert detector.category_calls == [{"person"}]

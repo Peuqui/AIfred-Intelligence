@@ -274,27 +274,32 @@ Klasse und die Auskunft, ob eine Klasse gerade aktiv ist (der Burst läuft, sola
 die Person gemeldet wird). Die Kamera beendet die Personenmeldung nach etwa
 10 s Stillstand, deshalb ist der Burst-Nachlauf 20 s (`burst_linger_sec`).
 
-**Trigger statt Wahrheit:** Die On-Device-KI feuert großzügig (besonders im
-IR-Nachtbild halluziniert sie Personen aus Stuhl/Wäsche/Schatten). Sie wird
-deshalb nur als *Auslöser* behandelt; entschieden wird nach AIfreds **eigenen**
-Detektoren — derselbe Grundsatz wie beim Webcam-Motion-Pfad.
+**Trigger, Befund und Meldung:** Die On-Device-KI feuert großzügig (besonders im
+IR-Nachtbild halluziniert sie Personen aus Stuhl/Wäsche/Schatten), YOLO wiederum
+übersieht dunkle, verwackelte oder ferne Personen. Beides ist unsicher, deshalb
+**verwirft AIfred keine Kamera-Meldung mehr**: Ein Kamera-Trigger ist immer ein
+Ereignis mit Alarm. AIfreds eigener Detektor liefert den **Befund** dazu, der mit
+der Meldung zur Auswertung geht (Bildbeschreiber und Alfred prüfen das Bild).
+Nicht bestätigte Trigger stehen mit `detector: edge_ai_unconfirmed` in der
+Chronik, im Alarmtext („Von der Kamera gemeldet, vom Bilderkenner (YOLO) nicht
+bestätigt.", `metadata.yolo_unconfirmed`) und als Warnung im Journal.
 
-**Confirmation-Policy** (`EDGE_AI_CONFIRM` in `config.py`, pro Klasse):
+**Confirmation-Policy** (`EDGE_AI_CONFIRM` in `config.py`, pro Klasse) sagt, ob
+unser YOLO die Klasse prüft:
 
 | Klasse | Default | Bedeutung |
 |--------|---------|-----------|
-| `person` | `True` (bestätigen) | eigenes YOLO muss die Klasse sehen, sonst verworfen |
-| `vehicle` | `True` (bestätigen) | dito (YOLO ist bei großen Objekten stark) |
-| `animal` | `False` (vertrauen) | der Kamera glauben — Nano-YOLO ist bei kleinen/fernen Tieren schwach; ein verpasstes Tier wiegt schwerer als ein seltener Fehlalarm |
+| `person` | `True` (prüfen) | YOLO zählt die Klasse; ohne Treffer läuft die Meldung als „unbestätigt" weiter |
+| `vehicle` | `True` (prüfen) | dito (YOLO ist bei großen Objekten stark) |
+| `animal` | `False` (vertrauen) | der Kamera glauben — Nano-YOLO ist bei kleinen/fernen Tieren schwach; keine Prüfung, kein Zusatz im Text |
 
-Bei `True` läuft EINE multi-class YOLO-Inferenz (`detect_category_counts`,
-NMS pro Klasse), die zugleich als Gate (count > 0) UND als **Stückzahl** dient.
-`person`/`vehicle` werden so exakt gezählt; das Event wird aus der eigenen
-Erkennung geschrieben (`detector: yolo`), nicht aus der Kamera-Behauptung — die
-Chronik zeigt nur bestätigte Objekte, keine Phantome. `animal` bleibt
-kamera-vertraut und damit ohne Stückzahl. Schlägt der Detektor
-*infrastrukturell* fehl, wird der Alarm durchgelassen (kein echtes Ereignis
-verschlucken); ein sauberer Lauf ohne Treffer verwirft den Phantom-Trigger.
+Bei `True` läuft pro Bild EINE multi-class YOLO-Inferenz (`detect_category_counts`,
+NMS pro Klasse): auf dem Weitwinkelbild UND, sofern vorhanden, auf dem Zoom-Bild
+(die Zoom-Linse sieht ein nahes, verwackeltes Subjekt oft schärfer); je Klasse
+zählt das bessere Ergebnis. Es liefert die **Stückzahl** für die Meldung
+(`person`/`vehicle` exakt gezählt; ohne Treffer mindestens 1 Person). `animal`
+bleibt kamera-vertraut und ohne Stückzahl. Der Face-Hunt-Burst läuft bei jeder
+gemeldeten Person.
 
 **Dual-Lens-Snap:** Auf einen Trigger werden Weitwinkel + Zoom (sofern
 `face_channel` gesetzt) FRISCH und parallel über die Snap-API geholt — mit

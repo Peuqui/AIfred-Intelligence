@@ -45,10 +45,12 @@ class FinalizedFrame:
 @dataclass(frozen=True)
 class PairOutput:
     """Wide- und Zoom-Bild eines Dual-Lens-Ticks nach der Ausgabekette.
-    ``zoom_path`` ist leer, wenn es kein eigenes Zoom-Bild gibt."""
+    ``zoom_path`` ist leer und ``zoom_detect`` None, wenn es kein eigenes Zoom-Bild
+    gibt; ``zoom_detect`` ist das geschwärzte, ungestempelte Zoom-Bild für die Detektion."""
 
     wide: FinalizedFrame
     zoom_path: str
+    zoom_detect: "Frame | None"
 
 
 class OutputChain:
@@ -85,12 +87,12 @@ class OutputChain:
         """Wide- und Zoom-Bild durch die Kette. Ist ``zoom`` dasselbe Objekt
         wie ``wide`` (kein Tele-Objektiv), entsteht kein zweites Bild."""
         wide_out = await self.finalize(wide, save=save)
-        zoom_path = ""
-        if zoom is not wide:
-            zoom_path = (await self.finalize(
-                zoom, label_suffix=VISION_OVERLAY_SUFFIX_ZOOM, save=save,
-            )).path
-        return PairOutput(wide_out, zoom_path)
+        if zoom is wide:
+            return PairOutput(wide_out, "", None)
+        zoom_out = await self.finalize(
+            zoom, label_suffix=VISION_OVERLAY_SUFFIX_ZOOM, save=save,
+        )
+        return PairOutput(wide_out, zoom_out.path, zoom_out.detect)
 
     # ── Stufen ────────────────────────────────────────────────────
 

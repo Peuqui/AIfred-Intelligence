@@ -130,6 +130,12 @@ def _others_suffix(names: list[str], person_count: int) -> str:
             else f" + {others} weitere Personen")
 
 
+# Zusatz in Meldungen, die die Kamera ausgelöst hat, ohne dass unser YOLO die Klasse im Bild
+# fand (Nacht, Bewegungsunschärfe, weit weg): gilt trotzdem als echte Meldung, die Auswertung
+# bekommt den Befund mit.
+YOLO_UNCONFIRMED_NOTE = "⚠️ Von der Kamera gemeldet, vom Bilderkenner (YOLO) nicht bestätigt."
+
+
 def _source_line(alias: str, ts: datetime) -> str:
     """Kopfzeile jeder Meldung: „Hauseingang · 25.09.2026 - 18:49". Mit
     Datum, weil eine Vigilantia-Session über Tage wächst und die Bubbles
@@ -366,6 +372,7 @@ async def emit_person_alert(
     segment_event_ids: list[int] | None = None,
     extra_crop_urls: list[str] | None = None,
     shown_media: set[str] | None = None,
+    yolo_unconfirmed: bool = False,
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
@@ -389,12 +396,16 @@ async def emit_person_alert(
         meta["person_count"] = count
     if segment_event_ids:
         meta["segment_event_ids"] = list(segment_event_ids)
+    body = _source_line(alias, ts)
+    if yolo_unconfirmed:
+        meta["yolo_unconfirmed"] = True
+        body = f"{body}\n{YOLO_UNCONFIRMED_NOTE}"
     await _emit(
         source_id=source_id,
         category="person",
         severity="warning",
         title=title,
-        body=_source_line(alias, ts),
+        body=body,
         # One alert per happening; fall back to source if unclustered.
         dedup_key=dedup_key or cluster_id or f"{source_id}:person",
         frame_path=frame_path,
@@ -426,6 +437,7 @@ async def emit_object_alert(
     count: int = 0,
     timestamp: datetime | None = None,
     store: Any = None,
+    yolo_unconfirmed: bool = False,
 ) -> None:
     """Emit an edge-AI object detection (vehicle/animal) as a proactive
     AlertEvent — but only while armed. ``count`` > 0 = YOLO-bestätigte
@@ -446,17 +458,22 @@ async def emit_object_alert(
         title = f"{emoji} {singular} erkannt"
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
+    meta: dict[str, Any] = {"cluster_id": cluster_id} if cluster_id else {}
+    body = _source_line(alias, ts)
+    if yolo_unconfirmed:
+        meta["yolo_unconfirmed"] = True
+        body = f"{body}\n{YOLO_UNCONFIRMED_NOTE}"
     await _emit(
         source_id=source_id,
         category=object_type,
         severity="info",
         title=title,
-        body=_source_line(alias, ts),
+        body=body,
         dedup_key=cluster_id or f"{source_id}:{object_type}",
         frame_path=frame_path,
         zoom_frame_path=zoom_frame_path,
         timestamp=ts,
-        metadata={"cluster_id": cluster_id} if cluster_id else None,
+        metadata=meta or None,
         store=store,
     )
 
@@ -497,6 +514,7 @@ class BurstReport:
         self._best_person: float = -1.0
         self._best_person_paths: tuple[str, str] = ("", "")
         self._person_count_max = 0
+        self._person_confirmed = False  # YOLO saw a person in at least one observation
         # Referenz-Tick für die Personen-Ausschnitte: die Bild-Bytes des
         # Ticks, der die MEISTEN Personen gleichzeitig zeigt, plus deren
         # Boxen. Nur dieser eine Frame wird beim Versand zugeschnitten —
@@ -590,7 +608,9 @@ class BurstReport:
 
     def observe_person(
         self, count: int, score: float, frame_path: str, zoom_frame_path: str,
+        *, yolo_unconfirmed: bool = False,
     ) -> None:
+        self._person_confirmed = self._person_confirmed or not yolo_unconfirmed
         self.observe_headcount(count)
         if float(score) > self._best_person:
             self._best_person = float(score)
@@ -730,6 +750,7 @@ class BurstReport:
                 store=self._store,
                 dedup_key=key,
                 shown_media=self._shown_media,
+                yolo_unconfirmed=not self._person_confirmed,
             )
         self._sent_band_rank = sent_band_rank
         self._sent_names = sent_names
