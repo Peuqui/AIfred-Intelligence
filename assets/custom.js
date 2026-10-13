@@ -2422,12 +2422,12 @@ function serviceStatusRows(st, t) {
     }
     for (const device of st.stt) {
         rows.stt.push({
-            color: 'green', text: `${device.engine} · ${device.device === 'cuda' ? 'GPU' : 'CPU'}`,
+            color: 'green', text: `${device.engine[0].toUpperCase()}${device.engine.slice(1)} · ${device.device === 'cuda' ? 'GPU' : 'CPU'}`,
             remaining: device.remaining_s, upperBound: false,
         });
     }
     for (const engine of st.tts) {
-        const name = engine.label[t.lang];
+        const name = engine.label_short[t.lang];
         rows.tts.push({
             color: 'green', text: engine.host ? `${name} · ${engine.host}` : name,
             remaining: engine.remaining_s, upperBound: false,
@@ -2484,7 +2484,7 @@ function serviceStatusRender() {
         const line = serviceStatusElement('div', 'ss-row');
         const value = serviceStatusElement('span', 'ss-value', row.text);
         value.title = row.text;
-        line.append(serviceStatusBadge(t, key, row.color, longName), serviceStatusElement('span', 'ss-label', longName), value);
+        line.append(serviceStatusBadge(t, key, row.color, longName), serviceStatusElement('span', 'ss-label', `${longName}:`), value);
         if (row.remaining !== null) {
             line.append(serviceStatusElement(
                 'span', 'ss-time', `${t.tUnloadsIn} ${row.upperBound ? '≤ ' : ''}${serviceStatusFormat(row.remaining - elapsed)}`,
