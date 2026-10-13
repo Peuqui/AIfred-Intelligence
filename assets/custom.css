@@ -1048,9 +1048,14 @@ tr:hover {
 .ss-row .ss-label { grid-area: label; opacity: 0.7; padding-right: 1em; }  /* air between the colon and the value */
 .ss-row .ss-value { grid-area: value; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ss-row .ss-time { grid-area: time; font-variant-numeric: tabular-nums; opacity: 0.7; white-space: nowrap; }
+/* Narrow screens: one flowing line per service (icon, name, value, time); the value wraps to its own
+   line only when it no longer fits beside the name, the time stays at the right end. */
 @media (max-width: 640px) {
-    .service-status-list { grid-template-columns: auto 1fr auto; }
-    .ss-row { grid-template-areas: "badge label time" ". value value"; row-gap: 2px; }
+    .service-status-list { display: flex; flex-direction: column; align-items: stretch; gap: 10px; }
+    .ss-row { display: flex; flex-wrap: wrap; align-items: center; gap: 2px 8px; }
+    .ss-row .ss-label { flex: none; width: 8.8em; padding-right: 0; }
+    .ss-row .ss-value { flex: 0 1 auto; max-width: 100%; }
+    .ss-row .ss-time { flex: none; margin-left: auto; }
 }
 
 /* Chat text size (A− / A+ in the chat history header, custom.js): the messages scale with the
