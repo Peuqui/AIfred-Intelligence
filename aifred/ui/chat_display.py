@@ -528,6 +528,7 @@ def chat_history_display() -> rx.Component:
             streaming_box,
             spacing="3",
             width="100%",
+            class_name="chat-history-content",  # scaled by the text-size buttons (custom.js)
         ),
         id="chat-history-box",
         width="100%",
@@ -565,8 +566,18 @@ def chat_history_display() -> rx.Component:
                         color_scheme="orange",
                         size="1",
                     ),
+                    rx.spacer(),
+                    # Text size of the chat (per device, custom.js): a click must not fold the history
+                    rx.hstack(
+                        rx.box("A−", id="chat-font-smaller", class_name="chat-font-btn", title=t("chat_font_smaller")),
+                        rx.box(class_name="chat-font-percent"),
+                        rx.box("A+", id="chat-font-larger", class_name="chat-font-btn", title=t("chat_font_larger")),
+                        spacing="2",
+                        align="center",
+                    ),
                     spacing="3",
                     align="center",
+                    width="100%",
                 ),
                 padding_y="2",  # Kompakter Header
                 background_color=COLORS["card_bg"],  # Dunkles Grau

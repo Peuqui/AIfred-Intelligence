@@ -978,5 +978,7 @@
   "service_status_unloads_in": "entlädt in",
   "service_status_llm": "Sprachmodell",
   "service_status_describer": "Bildbeschreiber",
-  "service_status_days_short": "T"
+  "service_status_days_short": "T",
+  "chat_font_smaller": "Schrift kleiner",
+  "chat_font_larger": "Schrift größer"
 }

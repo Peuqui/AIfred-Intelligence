@@ -1052,3 +1052,14 @@ tr:hover {
     .service-status-list { grid-template-columns: auto 1fr auto; }
     .ss-row { grid-template-areas: "badge label time" ". value value"; row-gap: 2px; }
 }
+
+/* Chat text size (A− / A+ in the chat history header, custom.js): the messages scale with the
+   page's zoom factor; the percentage next to the buttons comes from a custom property so no
+   text node has to be written into the React tree. */
+.chat-history-content { zoom: var(--chat-zoom, 1); }
+.chat-font-btn {
+    cursor: pointer; user-select: none; padding: 0 8px; font-size: 12px; line-height: 22px;
+    border: 1px solid #30363d; border-radius: 6px; color: #e2e8f0;
+}
+.chat-font-btn:hover { background: rgba(255, 255, 255, 0.08); }
+.chat-font-percent::after { content: var(--chat-zoom-label, "100 %"); font-size: 11px; opacity: 0.7; font-variant-numeric: tabular-nums; }

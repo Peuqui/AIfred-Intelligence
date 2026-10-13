@@ -2512,3 +2512,44 @@ document.addEventListener('click', (event) => {
 // The bus only brings changes: the page asks for a fresh state whenever its stream opens
 // (startBrowserStream, onopen) and counts down every second.
 setInterval(serviceStatusRender, 1000);
+
+
+// ── Chat text size ────────────────────────────────────────────────────────────
+// A− / A+ in the chat history header scale the messages (CSS zoom on .chat-history-content).
+// Kept per device in the browser, like the text size of Agent-Orc: one screen needs more than another.
+var CHAT_ZOOM_KEY = 'aifred-chat-zoom';
+var CHAT_ZOOM_MIN = 80, CHAT_ZOOM_MAX = 200, CHAT_ZOOM_STEP = 10;
+
+function chatZoomStored() {
+    try {
+        const stored = parseInt(localStorage.getItem(CHAT_ZOOM_KEY), 10);
+        return Number.isFinite(stored) ? Math.min(CHAT_ZOOM_MAX, Math.max(CHAT_ZOOM_MIN, stored)) : 100;
+    } catch (e) {
+        return 100;
+    }
+}
+
+function chatZoomApply(percent) {
+    document.documentElement.style.setProperty('--chat-zoom', String(percent / 100));
+    document.documentElement.style.setProperty('--chat-zoom-label', `"${percent} %"`);
+}
+
+function chatZoomStep(delta) {
+    const percent = Math.min(CHAT_ZOOM_MAX, Math.max(CHAT_ZOOM_MIN, chatZoomStored() + delta));
+    try {
+        localStorage.setItem(CHAT_ZOOM_KEY, String(percent));
+    } catch (e) {
+        console.warn('Chat text size: could not be stored:', e);
+    }
+    chatZoomApply(percent);
+}
+
+// Capture phase on the document: the buttons sit inside the accordion trigger, which must not fold.
+document.addEventListener('click', (event) => {
+    const button = event.target.closest('#chat-font-smaller, #chat-font-larger');
+    if (!button) return;
+    event.stopPropagation();
+    event.preventDefault();
+    chatZoomStep(button.id === 'chat-font-larger' ? CHAT_ZOOM_STEP : -CHAT_ZOOM_STEP);
+}, true);
+chatZoomApply(chatZoomStored());
