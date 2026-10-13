@@ -37,6 +37,7 @@ def service_status_bar() -> rx.Component:
         "data-t-busy": t("service_status_busy"),
         "data-t-unreachable": t("service_status_unreachable"),
         "data-t-unloads-in": t("service_status_unloads_in"),
+        "data-t-days-short": t("service_status_days_short"),
     }
     content = rx.hstack(
         rx.box(id=LIST_ID, class_name="service-status-list", flex="1"),

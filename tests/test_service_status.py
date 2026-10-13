@@ -254,6 +254,40 @@ def test_next_look_is_shortly_before_the_expiry_and_polls_slowly_once_overdue(re
     assert ss.next_look_delay_s(remaining_s) == max(delay_s, SERVICE_STATUS_MIN_DELAY_S)
 
 
+def test_a_running_engine_without_countdown_is_looked_at_now_and_then(
+    monkeypatch: pytest.MonkeyPatch, clock: list[float],
+) -> None:
+    from aifred.lib.config import SERVICE_STATUS_NO_COUNTDOWN_POLL_S
+
+    monkeypatch.setattr(
+        "aifred.lib.tts_service.catalog", lambda fresh=False: (engine_info("qwen3local", host="Aragon", idle_remaining_s=None),),
+    )
+    monitor = ss.ServiceStatusMonitor()
+
+    async def scenario() -> float:
+        loop = asyncio.get_running_loop()
+        monitor._loop = loop
+        await monitor.refresh("tts")
+        handle = monitor._recheck_handles["tts"]
+        delay = handle.when() - loop.time()
+        handle.cancel()
+        return delay
+
+    assert asyncio.run(scenario()) == pytest.approx(SERVICE_STATUS_NO_COUNTDOWN_POLL_S, abs=1)
+
+
+def test_nothing_running_schedules_no_look(monkeypatch: pytest.MonkeyPatch, clock: list[float]) -> None:
+    monkeypatch.setattr("aifred.lib.tts_service.catalog", lambda fresh=False: (engine_info("xtts", status="stopped"),))
+    monitor = ss.ServiceStatusMonitor()
+
+    async def scenario() -> None:
+        monitor._loop = asyncio.get_running_loop()
+        await monitor.refresh("tts")
+
+    asyncio.run(scenario())
+    assert "tts" not in monitor._recheck_handles
+
+
 def test_refresh_from_another_thread_does_nothing_before_the_monitor_runs() -> None:
     ss.ServiceStatusMonitor().refresh_threadsafe("tts")
 

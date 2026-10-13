@@ -1045,7 +1045,7 @@ tr:hover {
     grid-template-areas: "badge label value time";
 }
 .ss-row .ss-badge { grid-area: badge; }
-.ss-row .ss-label { grid-area: label; opacity: 0.7; }
+.ss-row .ss-label { grid-area: label; opacity: 0.7; padding-right: 1em; }  /* air between the colon and the value */
 .ss-row .ss-value { grid-area: value; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ss-row .ss-time { grid-area: time; font-variant-numeric: tabular-nums; opacity: 0.7; white-space: nowrap; }
 @media (max-width: 640px) {
