@@ -1,13 +1,3 @@
-/* Breathing: in and out equally slow (alternate), darker and smaller when breathing out.
-   Loaded breathes a full cycle in 6 s, loading in 3.5 s. */
-.ss-green .ss-dot { animation: ss-breathe 3s ease-in-out infinite alternate; }
-.ss-yellow .ss-dot { animation: ss-breathe 1.75s ease-in-out infinite alternate; }
-@keyframes ss-breathe {
-    from { transform: scale(1); filter: brightness(1); }
-    to { transform: scale(0.8); filter: brightness(0.55); }
-}
-/* Slim closed bar: the icons fill its height */
-.service-status-accordion .AccordionTrigger { padding: 3px var(--space-4); }
 /* Force Dark Theme - Override Browser Light/Dark Mode */
 html, body, #root, .radix-themes {
     background-color: #0b0f19 !important;
@@ -1033,12 +1023,32 @@ tr:hover {
     position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%;
     background: var(--ss-color); border: 2px solid var(--ss-ring, #161b22);
 }
-/* Breathing: loaded breathes slowly, loading a little faster (still calm) */
-.ss-green .ss-dot { animation: ss-breathe 6s ease-in-out infinite; }
-.ss-yellow .ss-dot { animation: ss-breathe 3.5s ease-in-out infinite; }
-@keyframes ss-breathe { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
-.service-status-list { display: flex; flex-direction: column; gap: 8px; font-size: 13px; min-width: 0; }
-.ss-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
-.ss-label { opacity: 0.7; min-width: 7.5em; }
-.ss-value { min-width: 0; max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ss-time { font-variant-numeric: tabular-nums; opacity: 0.7; }
+/* Breathing: in and out equally slow (alternate), darker and smaller when breathing out.
+   Loaded breathes a full cycle in 6 s, loading in 3.5 s. */
+.ss-green .ss-dot { animation: ss-breathe 3s ease-in-out infinite alternate; }
+.ss-yellow .ss-dot { animation: ss-breathe 1.75s ease-in-out infinite alternate; }
+@keyframes ss-breathe {
+    from { transform: scale(1); filter: brightness(1); }
+    to { transform: scale(0.8); filter: brightness(0.55); }
+}
+/* Slim closed bar: the icons fill its height */
+.service-status-accordion .AccordionTrigger { padding: 3px var(--space-4); }
+/* Open bar as a table: icon | name: | what is loaded | time left. The rows share the columns
+   (subgrid), so everything starts at the same place; on a narrow screen the value moves to a
+   second line under the name. */
+.service-status-list {
+    display: grid; grid-template-columns: auto auto minmax(0, max-content) 1fr; column-gap: 10px; row-gap: 8px;
+    align-items: center; font-size: 13px; min-width: 0;
+}
+.ss-row {
+    display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center;
+    grid-template-areas: "badge label value time";
+}
+.ss-row .ss-badge { grid-area: badge; }
+.ss-row .ss-label { grid-area: label; opacity: 0.7; }
+.ss-row .ss-value { grid-area: value; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ss-row .ss-time { grid-area: time; font-variant-numeric: tabular-nums; opacity: 0.7; white-space: nowrap; }
+@media (max-width: 640px) {
+    .service-status-list { grid-template-columns: auto 1fr auto; }
+    .ss-row { grid-template-areas: "badge label time" ". value value"; row-gap: 2px; }
+}

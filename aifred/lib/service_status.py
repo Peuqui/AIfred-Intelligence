@@ -119,7 +119,7 @@ class SttDeviceStatus:
 class TtsEngineStatus:
     engine: str
     host: str | None
-    label: dict[str, str]
+    label_short: dict[str, str]  # language -> name
     remaining_s: float | None  # None = no idle shutdown
 
 
@@ -359,7 +359,7 @@ class ServiceStatusMonitor:
         self._tts_reachable = True
         self._tts = [
             (
-                TtsEngineStatus(info.engine, info.host, dict(info.label), None),
+                TtsEngineStatus(info.engine, info.host, dict(info.label_short), None),
                 None if info.idle_remaining_s is None else _Anchored(now, info.idle_remaining_s),
             )
             for info in engines
