@@ -1023,9 +1023,10 @@ tr:hover {
     position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%;
     background: var(--ss-color); border: 2px solid var(--ss-ring, #161b22);
 }
-.ss-green .ss-dot { animation: ss-pulse 2.8s ease-in-out infinite; }
-.ss-yellow .ss-dot { animation: ss-pulse 0.9s ease-in-out infinite; }
-@keyframes ss-pulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.35; } }
+/* Breathing: loaded breathes slowly, loading a little faster (still calm) */
+.ss-green .ss-dot { animation: ss-breathe 6s ease-in-out infinite; }
+.ss-yellow .ss-dot { animation: ss-breathe 3.5s ease-in-out infinite; }
+@keyframes ss-breathe { 0%, 100% { opacity: 1; transform: scale(1); } 50% { opacity: 0.4; transform: scale(0.8); } }
 .service-status-list { display: flex; flex-direction: column; gap: 8px; font-size: 13px; min-width: 0; }
 .ss-row { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 10px; }
 .ss-label { opacity: 0.7; min-width: 7.5em; }
