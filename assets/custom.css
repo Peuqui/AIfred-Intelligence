@@ -1,3 +1,13 @@
+/* Breathing: in and out equally slow (alternate), darker and smaller when breathing out.
+   Loaded breathes a full cycle in 6 s, loading in 3.5 s. */
+.ss-green .ss-dot { animation: ss-breathe 3s ease-in-out infinite alternate; }
+.ss-yellow .ss-dot { animation: ss-breathe 1.75s ease-in-out infinite alternate; }
+@keyframes ss-breathe {
+    from { transform: scale(1); filter: brightness(1); }
+    to { transform: scale(0.8); filter: brightness(0.55); }
+}
+/* Slim closed bar: the icons fill its height */
+.service-status-accordion .AccordionTrigger { padding: 3px var(--space-4); }
 /* Force Dark Theme - Override Browser Light/Dark Mode */
 html, body, #root, .radix-themes {
     background-color: #0b0f19 !important;
@@ -1018,7 +1028,7 @@ tr:hover {
 .ss-yellow { --ss-color: #d29922; }
 .ss-red { --ss-color: #f85149; }
 .ss-badge { position: relative; display: inline-flex; flex: none; }
-.ss-icon { width: 24px; height: 24px; border-radius: 6px; object-fit: contain; }
+.ss-icon { width: 24px; height: 24px; border-radius: 6px; object-fit: contain; display: block; }
 .ss-dot {
     position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%;
     background: var(--ss-color); border: 2px solid var(--ss-ring, #161b22);
