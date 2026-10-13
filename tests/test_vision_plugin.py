@@ -16,6 +16,7 @@ from typing import AsyncIterator
 import cv2
 import numpy as np
 import pytest
+from fake_tts_service import FakeTTSService, catalog_row, install_fake_service
 
 from aifred.lib.frame_sources import (
     Frame,
@@ -109,6 +110,13 @@ class FakeUnavailableSource(FakeSource):
 
 
 # ── Fixtures ───────────────────────────────────────────────────────
+
+
+@pytest.fixture(autouse=True)
+def _tts_catalog(monkeypatch, tmp_path: Path):
+    """The describer routing asks the TTS catalog which engines hold GPU memory; without a service
+    answering, it only worked when an earlier test had left the catalog in the 2 s cache."""
+    install_fake_service(monkeypatch, tmp_path, FakeTTSService([catalog_row("xtts", status="stopped")]))
 
 
 @pytest.fixture(autouse=True)
