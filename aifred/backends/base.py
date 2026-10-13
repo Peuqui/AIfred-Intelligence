@@ -542,7 +542,7 @@ class OpenAICompatibleBackend(LLMBackend):
         from ..lib.calibration.llamaswap_io import entry_gpu_uuids
         from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.logging_utils import log_message
-        from ..lib.vlm_naming import is_visiond_profile
+        from ..lib.vlm_naming import is_embed_profile, is_visiond_profile
 
         root = self._llamaswap_root()
         try:
@@ -550,9 +550,9 @@ class OpenAICompatibleBackend(LLMBackend):
                 if await asyncio.to_thread(release_whisper_gpu):
                     log_message(f"🎤 Whisper GPU worker released before loading '{model}'")
                 await asyncio.to_thread(self._release_tts_for_load, model)
-                if "-vlm-" in model or is_visiond_profile(model) or model.endswith("-embed"):
+                if "-vlm-" in model or is_visiond_profile(model) or is_embed_profile(model):
                     return
-                sidecars = [m for m in running if is_visiond_profile(m) or m.endswith("-embed")]
+                sidecars = [m for m in running if is_visiond_profile(m) or is_embed_profile(m)]
                 if not sidecars:
                     return
                 config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)

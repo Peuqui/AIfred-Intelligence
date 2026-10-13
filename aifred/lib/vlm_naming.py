@@ -11,6 +11,7 @@ from __future__ import annotations
 import re
 
 VISIOND_SUFFIX = "-visiond"
+EMBED_SUFFIX = "-embed"  # llama-swap profile of an embedding server (CPU, ChromaDB)
 
 # Platzierungs-Varianten eines Describer-Profils: ``<base>-visiond`` ist die
 # Heimat (gepinnt auf die Side-Channel-Karte), ``<base>-visiond-gpu<N>``
@@ -29,6 +30,11 @@ def visiond_home(name: str) -> str:
 def is_visiond_profile(name: str) -> bool:
     """Describer-Profil: Heimat ``<base>-visiond`` oder Platzierungs-Variante."""
     return visiond_home(name).endswith(VISIOND_SUFFIX)
+
+
+def is_embed_profile(name: str) -> bool:
+    """Embedding-Server-Profil (``<base>-embed``)."""
+    return name.endswith(EMBED_SUFFIX)
 
 
 def visiond_placement(home: str, gpu_index: int) -> str:

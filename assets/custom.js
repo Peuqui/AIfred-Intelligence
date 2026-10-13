@@ -2386,9 +2386,10 @@ if (!window.__aifredSummaryLinkBound) {
 }
 
 
-// ── Status line: model / speech recognition / speech output ──────────────────
+// ── Status bar: model, describer, speech recognition, speech output ─────────
 // The server (lib/service_status.py) sends the state with the seconds left as of the moment
-// it was taken; this page counts down itself and asks again on a click on the line.
+// it was taken; this page counts down itself. The closed bar shows one dot per service, the
+// open one a line each with the time left (ui/service_status_bar.py holds the empty frames).
 var serviceStatus = null;       // last snapshot from the server
 var serviceStatusAt = 0;        // performance.now() when it arrived
 
@@ -2405,69 +2406,92 @@ function serviceStatusFormat(seconds) {
     return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`;
 }
 
-function serviceStatusItem(bar, color, label, text, remaining, upperBound) {
-    const item = document.createElement('span');
-    item.className = `ss-item ss-${color}`;
-    const dot = document.createElement('span');
-    dot.className = 'ss-dot';
-    const name = document.createElement('span');
-    name.className = 'ss-label';
-    name.textContent = `${label}:`;
-    const value = document.createElement('span');
-    value.textContent = text;
-    item.append(dot, name, value);
-    if (remaining !== null && remaining !== undefined) {
-        const elapsed = (performance.now() - serviceStatusAt) / 1000;
-        const time = document.createElement('span');
-        time.className = 'ss-time';
-        time.textContent = `${bar.dataset.tUnloadsIn} ${upperBound ? '≤ ' : ''}${serviceStatusFormat(remaining - elapsed)}`;
-        item.append(time);
+// One service as the page shows it: color (green loaded, yellow loading, grey nothing loaded,
+// red not reachable), what is loaded and the seconds left (null = stays loaded).
+function serviceStatusRows(st, t) {
+    const rows = {llm: [], describer: [], stt: [], tts: []};
+    const placeholder = {llm: t.tNoModel, describer: t.tNoneLoaded, stt: t.tNoneLoaded, tts: t.tNoneLoaded};
+    for (const model of st.models) {
+        const ready = model.state === 'ready';
+        rows[model.role].push({
+            color: ready ? 'green' : 'yellow',
+            text: ready ? (model.busy ? `${model.name} · ${t.tBusy}` : model.name) : `${model.name} · ${t.tLoading}`,
+            remaining: ready && !model.busy ? model.remaining_s : null,
+            upperBound: !model.exact,
+        });
     }
-    return item;
+    for (const device of st.stt) {
+        rows.stt.push({
+            color: 'green', text: `${device.engine} · ${device.device === 'cuda' ? 'GPU' : 'CPU'}`,
+            remaining: device.remaining_s, upperBound: false,
+        });
+    }
+    for (const engine of st.tts) {
+        const name = engine.label[t.lang];
+        rows.tts.push({
+            color: 'green', text: engine.host ? `${name} · ${engine.host}` : name,
+            remaining: engine.remaining_s, upperBound: false,
+        });
+    }
+    const reachable = {llm: st.llm_reachable, describer: st.llm_reachable, stt: st.stt_reachable, tts: st.tts_reachable};
+    for (const key of Object.keys(rows)) {
+        if (!reachable[key]) rows[key] = [{color: 'red', text: t.tUnreachable, remaining: null, upperBound: false}];
+        else if (rows[key].length === 0) rows[key] = [{color: 'grey', text: placeholder[key], remaining: null, upperBound: false}];
+    }
+    return rows;
+}
+
+function serviceStatusSummaryColor(rows) {
+    for (const color of ['red', 'yellow', 'green']) {
+        if (rows.some((row) => row.color === color)) return color;
+    }
+    return 'grey';
+}
+
+function serviceStatusElement(tag, className, text) {
+    const element = document.createElement(tag);
+    element.className = className;
+    if (text !== undefined) element.textContent = text;
+    return element;
+}
+
+// The icon of a service with its status dot in the corner.
+function serviceStatusBadge(t, key, color, title) {
+    const badge = serviceStatusElement('span', `ss-badge ss-${color}`);
+    const icon = serviceStatusElement('img', 'ss-icon');
+    icon.src = t[`icon${key[0].toUpperCase()}${key.slice(1)}`];
+    icon.alt = '';
+    badge.title = title;
+    badge.append(icon, serviceStatusElement('span', 'ss-dot'));
+    return badge;
 }
 
 function serviceStatusRender() {
-    const bar = document.getElementById('service-status-bar');
-    if (!bar || !serviceStatus) return;
-    const t = bar.dataset;
-    const st = serviceStatus;
-    const items = [];
+    const dots = document.getElementById('service-status-dots');
+    const list = document.getElementById('service-status-list');
+    if (!dots || !serviceStatus) return;
+    const t = dots.dataset;
+    const rows = serviceStatusRows(serviceStatus, t);
+    const services = [['llm', t.tLlm], ['describer', t.tDescriber], ['stt', t.tStt], ['tts', t.tTts]];
 
-    if (!st.llm_reachable) {
-        items.push(serviceStatusItem(bar, 'red', t.tModel, t.tUnreachable));
-    } else if (st.models.length === 0) {
-        items.push(serviceStatusItem(bar, 'grey', t.tModel, t.tNoModel));
-    }
-    for (const model of st.models) {
-        const ready = model.state === 'ready';
-        const text = ready ? (model.busy ? `${model.name} · ${t.tBusy}` : model.name) : `${model.name} · ${t.tLoading}`;
-        const remaining = ready && !model.busy ? model.remaining_s : null;
-        items.push(serviceStatusItem(bar, ready ? 'green' : 'yellow', t.tModel, text, remaining, !model.exact));
-    }
+    dots.replaceChildren(...services.map(([key, longName]) => (
+        serviceStatusBadge(t, key, serviceStatusSummaryColor(rows[key]), longName)
+    )));
 
-    if (!st.stt_reachable) {
-        items.push(serviceStatusItem(bar, 'red', t.tStt, t.tUnreachable));
-    } else if (st.stt.length === 0) {
-        items.push(serviceStatusItem(bar, 'grey', t.tStt, t.tNoneLoaded));
-    }
-    for (const device of st.stt) {
-        items.push(serviceStatusItem(
-            bar, 'green', t.tStt, `${device.engine} · ${device.device === 'cuda' ? 'GPU' : 'CPU'}`, device.remaining_s,
-        ));
-    }
-
-    if (!st.tts_reachable) {
-        items.push(serviceStatusItem(bar, 'red', t.tTts, t.tUnreachable));
-    } else if (st.tts.length === 0) {
-        items.push(serviceStatusItem(bar, 'grey', t.tTts, t.tNoneLoaded));
-    }
-    for (const engine of st.tts) {
-        const name = engine.label[bar.dataset.lang];
-        items.push(serviceStatusItem(
-            bar, 'green', t.tTts, engine.host ? `${name} · ${engine.host}` : name, engine.remaining_s,
-        ));
-    }
-    bar.replaceChildren(...items);
+    if (!list) return;
+    const elapsed = (performance.now() - serviceStatusAt) / 1000;
+    list.replaceChildren(...services.flatMap(([key, longName]) => rows[key].map((row) => {
+        const line = serviceStatusElement('div', 'ss-row');
+        const value = serviceStatusElement('span', 'ss-value', row.text);
+        value.title = row.text;
+        line.append(serviceStatusBadge(t, key, row.color, longName), serviceStatusElement('span', 'ss-label', longName), value);
+        if (row.remaining !== null) {
+            line.append(serviceStatusElement(
+                'span', 'ss-time', `${t.tUnloadsIn} ${row.upperBound ? '≤ ' : ''}${serviceStatusFormat(row.remaining - elapsed)}`,
+            ));
+        }
+        return line;
+    })));
 }
 
 async function serviceStatusFetch(refresh) {
@@ -2475,12 +2499,12 @@ async function serviceStatusFetch(refresh) {
         const response = await fetch(`/api/service-status${refresh ? '?refresh=true' : ''}`);
         if (response.ok) serviceStatusReceive(await response.json());
     } catch (e) {
-        console.warn('Status line: could not read the service status:', e);
+        console.warn('Status bar: could not read the service status:', e);
     }
 }
 
 document.addEventListener('click', (event) => {
-    if (event.target.closest('#service-status-bar')) serviceStatusFetch(true);
+    if (event.target.closest('#service-status-refresh')) serviceStatusFetch(true);
 });
 // The bus only brings changes: the page asks for the state whenever its stream opens
 // (startBrowserStream, onopen) and counts down every second.

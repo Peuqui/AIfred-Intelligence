@@ -21,7 +21,7 @@ from .calibration.llamaswap_io import display_model_name
 from .formatting import format_number
 from .logging_utils import log_message
 from .model_manager import sort_models_grouped
-from .vlm_naming import is_visiond_profile
+from .vlm_naming import is_embed_profile, is_visiond_profile
 
 # Namenskonvention der vLLM-Einträge in der llama-swap-Config — der
 # Autoscan seedet sie als "<checkpoint-dirname>-vllm" (SSOT der Erzeugung:
@@ -105,7 +105,7 @@ def discover_llamaswap_models(
         for mid in model_ids:
             if (
                 mid.endswith("-speed") or is_visiond_profile(mid)
-                or mid.endswith("-embed") or "-tts-" in mid or "-vlm-" in mid
+                or is_embed_profile(mid) or "-tts-" in mid or "-vlm-" in mid
             ):
                 continue  # Speed/TTS/VLM/Describer/Embed variants are internal; selected automatically
             if is_vllm_entry(mid) != vllm_entries:

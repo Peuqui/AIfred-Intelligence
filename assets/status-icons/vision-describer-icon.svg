@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+  <defs>
+    <linearGradient id="visionStroke" gradientUnits="userSpaceOnUse" x1="96" y1="116" x2="416" y2="396">
+      <stop offset="0" stop-color="#34d399"/>
+      <stop offset="1" stop-color="#047857"/>
+    </linearGradient>
+  </defs>
+  <rect width="512" height="512" rx="112" fill="#0f172a"/>
+  <g fill="none" stroke="url(#visionStroke)" stroke-width="30" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M136 176 h56 l24 -40 h80 l24 40 h56 a30 30 0 0 1 30 30 v138 a30 30 0 0 1 -30 30 H136 a30 30 0 0 1 -30 -30 V206 a30 30 0 0 1 30 -30 z"/>
+    <circle cx="256" cy="272" r="62"/>
+  </g>
+  <circle cx="256" cy="272" r="22" fill="#e2e8f0"/>
+</svg>
