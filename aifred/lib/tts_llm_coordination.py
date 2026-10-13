@@ -16,8 +16,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generator
 
-from .config import LLAMASWAP_RUNNING_TIMEOUT_S
 from .logging_utils import log_message
+from .service_status import LlamaSwapError, running_models
 from .tts_client import TTSSuiteError
 from .tts_service import (
     TTSVramUnknown,
@@ -67,19 +67,9 @@ def _is_llm_loaded(backend_type: str) -> bool:
     if backend_type != "llamacpp":
         return False
     try:
-        import requests
-
-        from .config import DEFAULT_LLAMACPP_URL
-        base_url = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
-        r = requests.get(f"{base_url}/running", timeout=LLAMASWAP_RUNNING_TIMEOUT_S)
-        if r.ok:
-            data = r.json()
-            # Response is {"running": [...]} — check the list, not the dict
-            models = data.get("running", []) if isinstance(data, dict) else data
-            return len(models) > 0
-    except Exception:
-        pass
-    return False
+        return len(running_models()) > 0
+    except LlamaSwapError:
+        return False
 
 
 def _llm_already_on_tts_variant(new_engine: str, backend_type: str) -> bool:
@@ -92,23 +82,9 @@ def _llm_already_on_tts_variant(new_engine: str, backend_type: str) -> bool:
     if backend_type != "llamacpp" or not new_engine:
         return False
     try:
-        import requests
-
-        from .config import DEFAULT_LLAMACPP_URL
-        base_url = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
-        r = requests.get(f"{base_url}/running", timeout=LLAMASWAP_RUNNING_TIMEOUT_S)
-        if not r.ok:
-            return False
-        data = r.json()
-        running = data.get("running", []) if isinstance(data, dict) else data
-        token = f"-tts-{new_engine}"
-        for m in running:
-            name = (m.get("model") if isinstance(m, dict) else str(m)) or ""
-            if token in name:
-                return True
-    except Exception:  # noqa: BLE001
-        pass
-    return False
+        return any(f"-tts-{new_engine}" in model.name for model in running_models())
+    except LlamaSwapError:
+        return False
 
 
 def ensure_tts_state(

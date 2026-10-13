@@ -1010,3 +1010,23 @@ tr:hover {
 .bubble-tts-note[data-note=""]::before {
     content: none;
 }
+
+/* Status line: model / speech recognition / speech output (custom.js, kind "service_status") */
+.service-status-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 4px 16px;
+    width: 100%;
+    margin-bottom: 8px;
+    font-size: 12px;
+    cursor: pointer;
+    user-select: none;
+}
+.service-status-bar:empty { display: none; }
+.service-status-bar .ss-item { display: inline-flex; align-items: center; gap: 6px; }
+.service-status-bar .ss-dot { width: 9px; height: 9px; border-radius: 50%; background: #6e7681; }
+.service-status-bar .ss-green .ss-dot { background: #3fb950; }
+.service-status-bar .ss-yellow .ss-dot { background: #d29922; }
+.service-status-bar .ss-red .ss-dot { background: #f85149; }
+.service-status-bar .ss-label { opacity: 0.7; }
+.service-status-bar .ss-time { font-variant-numeric: tabular-nums; opacity: 0.7; }

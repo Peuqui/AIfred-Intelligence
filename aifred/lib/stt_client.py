@@ -29,6 +29,7 @@ from .config import (
 )
 from .logging_utils import log_message
 from .process_utils import docker_compose_action
+from .service_status import notify_used
 
 
 class STTError(RuntimeError):
@@ -137,13 +138,15 @@ class STTClient:
             STTError: jeder andere Fehler des Dienstes.
         """
         with open(audio_path, "rb") as f:
-            return self._call(
+            result = self._call(
                 "POST", "/transcribe", WHISPER_TRANSCRIBE_TIMEOUT_S,
                 error_label=f"Whisper ({device})",
                 files={"file": (Path(audio_path).name, f)},
                 data={"device": device, "language": language,
                       "diarize": "1" if diarize else "0"},
             )
+        notify_used("stt")  # the transcription reset the idle clock of the GPU worker
+        return result
 
     # ---- Container auf Abruf ---------------------------------------------
 

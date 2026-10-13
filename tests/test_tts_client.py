@@ -467,6 +467,7 @@ def test_engines_and_voices_are_decoded() -> None:
         "status": "running", "unit_default": "paragraph", "needs_gpu": True,
         "cloud": False, "browser": False, "installed": False, "start_hint": "image missing",
         "vram_mib": {"GPU-1": 4096},
+        "idle_remaining_s": 1500.0,
         "default_vram_mib": 6024, "default_max_parallel": 1, "default_max_queue": 4,
     }
     seen_params: list[dict[str, str]] = []

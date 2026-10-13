@@ -937,6 +937,7 @@ function startBrowserStream(sessionIdParam) {
     browserEventSource = new EventSource(sseUrl);
 
     browserEventSource.onopen = () => {
+        serviceStatusFetch(false);
         console.log('🔊 Audio SSE: Connection opened');
         browserStreamRetryCount = 0;
         browserStreamGaveUp = false;
@@ -1028,6 +1029,13 @@ function startBrowserStream(sessionIdParam) {
                 if (note) {
                     note.setAttribute('data-note', url || '');
                 }
+                return;
+            }
+
+            if (kind === 'service_status') {
+                // Model / STT / TTS state for the status line (state, not event: the newest wins).
+                ttsQueueVersion = data.version;
+                serviceStatusReceive(JSON.parse(url));
                 return;
             }
 
@@ -2376,3 +2384,104 @@ if (!window.__aifredSummaryLinkBound) {
         window.open(link.href, link.target || '_blank', 'noopener,noreferrer');
     });
 }
+
+
+// ── Status line: model / speech recognition / speech output ──────────────────
+// The server (lib/service_status.py) sends the state with the seconds left as of the moment
+// it was taken; this page counts down itself and asks again on a click on the line.
+var serviceStatus = null;       // last snapshot from the server
+var serviceStatusAt = 0;        // performance.now() when it arrived
+
+function serviceStatusReceive(snapshot) {
+    serviceStatus = snapshot;
+    serviceStatusAt = performance.now();
+    serviceStatusRender();
+}
+
+function serviceStatusFormat(seconds) {
+    const total = Math.max(0, Math.floor(seconds));
+    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    const two = (n) => String(n).padStart(2, '0');
+    return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`;
+}
+
+function serviceStatusItem(bar, color, label, text, remaining, upperBound) {
+    const item = document.createElement('span');
+    item.className = `ss-item ss-${color}`;
+    const dot = document.createElement('span');
+    dot.className = 'ss-dot';
+    const name = document.createElement('span');
+    name.className = 'ss-label';
+    name.textContent = `${label}:`;
+    const value = document.createElement('span');
+    value.textContent = text;
+    item.append(dot, name, value);
+    if (remaining !== null && remaining !== undefined) {
+        const elapsed = (performance.now() - serviceStatusAt) / 1000;
+        const time = document.createElement('span');
+        time.className = 'ss-time';
+        time.textContent = `${bar.dataset.tUnloadsIn} ${upperBound ? '≤ ' : ''}${serviceStatusFormat(remaining - elapsed)}`;
+        item.append(time);
+    }
+    return item;
+}
+
+function serviceStatusRender() {
+    const bar = document.getElementById('service-status-bar');
+    if (!bar || !serviceStatus) return;
+    const t = bar.dataset;
+    const st = serviceStatus;
+    const items = [];
+
+    if (!st.llm_reachable) {
+        items.push(serviceStatusItem(bar, 'red', t.tModel, t.tUnreachable));
+    } else if (st.models.length === 0) {
+        items.push(serviceStatusItem(bar, 'grey', t.tModel, t.tNoModel));
+    }
+    for (const model of st.models) {
+        const ready = model.state === 'ready';
+        const text = ready ? (model.busy ? `${model.name} · ${t.tBusy}` : model.name) : `${model.name} · ${t.tLoading}`;
+        const remaining = ready && !model.busy ? model.remaining_s : null;
+        items.push(serviceStatusItem(bar, ready ? 'green' : 'yellow', t.tModel, text, remaining, !model.exact));
+    }
+
+    if (!st.stt_reachable) {
+        items.push(serviceStatusItem(bar, 'red', t.tStt, t.tUnreachable));
+    } else if (st.stt.length === 0) {
+        items.push(serviceStatusItem(bar, 'grey', t.tStt, t.tNoneLoaded));
+    }
+    for (const device of st.stt) {
+        items.push(serviceStatusItem(
+            bar, 'green', t.tStt, `${device.engine} · ${device.device === 'cuda' ? 'GPU' : 'CPU'}`, device.remaining_s,
+        ));
+    }
+
+    if (!st.tts_reachable) {
+        items.push(serviceStatusItem(bar, 'red', t.tTts, t.tUnreachable));
+    } else if (st.tts.length === 0) {
+        items.push(serviceStatusItem(bar, 'grey', t.tTts, t.tNoneLoaded));
+    }
+    for (const engine of st.tts) {
+        const name = engine.label[bar.dataset.lang];
+        items.push(serviceStatusItem(
+            bar, 'green', t.tTts, engine.host ? `${name} · ${engine.host}` : name, engine.remaining_s,
+        ));
+    }
+    bar.replaceChildren(...items);
+}
+
+async function serviceStatusFetch(refresh) {
+    try {
+        const response = await fetch(`/api/service-status${refresh ? '?refresh=true' : ''}`);
+        if (response.ok) serviceStatusReceive(await response.json());
+    } catch (e) {
+        console.warn('Status line: could not read the service status:', e);
+    }
+}
+
+document.addEventListener('click', (event) => {
+    if (event.target.closest('#service-status-bar')) serviceStatusFetch(true);
+});
+// The bus only brings changes: the page asks for the state whenever its stream opens
+// (startBrowserStream, onopen) and counts down every second.
+setInterval(serviceStatusRender, 1000);

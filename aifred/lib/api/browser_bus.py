@@ -57,6 +57,10 @@ class BrowserEventQueueResponse(BaseModel):
 
 TTS_CHUNK_KINDS = frozenset({"tts", "tts_speak", "tts_pause"})
 
+# Kinds that carry a state, not an event: the newest replaces its predecessors in the
+# queue (a page that reconnects needs the latest, not the history).
+LATEST_WINS_KINDS = frozenset({"service_status"})
+
 
 def browser_push(
     session_id: str,
@@ -97,6 +101,8 @@ def browser_push(
       - ``"bubble_tts_note"`` : follows ``bubble_audio`` — ``url`` holds who
                        spoke (escalation list); custom.js shows it next to
                        that bubble's speaker button. {url}
+      - ``"service_status"`` : model / STT / TTS state for the status line; ``url``
+                       holds the snapshot as JSON, the newest replaces the older ones.
       - ``"session_title"`` : a background task finished title generation —
                        ``url`` holds the title; custom.js updates the
                        session-list entry. {url}
@@ -138,6 +144,9 @@ def browser_push(
         # The combined replay file replaces the reply's chunks (their files are deleted at
         # finalize): a page opened later must not get them replayed into its queue.
         storage["queue"] = [it for it in storage["queue"] if it["kind"] not in TTS_CHUNK_KINDS]
+
+    if kind in LATEST_WINS_KINDS:
+        storage["queue"] = [it for it in storage["queue"] if it["kind"] != kind]
 
     storage["queue"].append(item)
     storage["playback_rate"] = playback_rate

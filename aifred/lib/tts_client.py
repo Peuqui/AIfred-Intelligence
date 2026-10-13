@@ -51,6 +51,7 @@ from .config import (
     TTS_SUITE_SYSTEMCTL_TIMEOUT_S,
     TTS_SUITE_URL,
 )
+from .service_status import notify_used
 
 FRAMES_MEDIA_TYPE = "application/x-tts-frames"
 _HEADER_LENGTH = struct.Struct(">I")
@@ -237,6 +238,7 @@ class EngineInfo:
     installed: bool  # can be started: no container needed, or the Docker image is built
     start_hint: str | None  # why the last start of this entry failed; else None
     vram_mib: Mapping[str, int] | None  # {gpu_uuid: MiB}; {} = none; None = measurement failed
+    idle_remaining_s: float | None  # seconds until a running container ends itself for being idle; None = not running, no container, or auto-shutdown off
     default_vram_mib: int | None  # what the engine takes when the config sets no budget; None = no budget
     default_max_parallel: int
     default_max_queue: int
@@ -389,6 +391,7 @@ class _FrameStream:
         if kind == "summary":
             data = json.loads(body)
             self._summary = SpeakSummary(_trace_from_json(data["trace"]), data["switch"])
+            notify_used("tts")  # the reading reset the engine's idle clock
             return None
         if kind == "error":
             raise _error_from_body(json.loads(body), None, body.decode("utf-8", "replace"))

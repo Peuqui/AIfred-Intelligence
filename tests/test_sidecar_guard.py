@@ -9,7 +9,9 @@ import pytest
 
 from aifred.backends.base import BackendModelStartError
 from aifred.backends.vllm import vLLMBackend
+from aifred.lib import service_status
 from aifred.lib.calibration.llamaswap_io import entry_gpu_uuids
+from aifred.lib.service_status import LoadedModel
 
 UUIDS = ["GPU-aaaa-0", "GPU-bbbb-1", "GPU-cccc-2", "GPU-dddd-3", "GPU-eeee-4"]
 PCI = {"CUDA_DEVICE_ORDER": "PCI_BUS_ID"}
@@ -53,8 +55,8 @@ class _Response:
 
 
 class _Client:
-    """Stands in for httpx.AsyncClient: serves /running, records unloads
-    and the loads through /upstream/<model>/health."""
+    """Stands in for httpx.AsyncClient: records unloads and the loads through
+    /upstream/<model>/health. What /running lists is ``running`` (see ``_run``)."""
 
     running: list[str] = []
     unloaded: list[str] = []
@@ -71,10 +73,8 @@ class _Client:
         return None
 
     async def get(self, url: str) -> _Response:
-        if "/upstream/" in url:
-            self.loaded.append(url.split("/upstream/", 1)[1].removesuffix("/health"))
-            return self.load_answer
-        return _Response({"running": [{"model": m} for m in self.running]})
+        self.loaded.append(url.split("/upstream/", 1)[1].removesuffix("/health"))
+        return self.load_answer
 
     async def post(self, url: str) -> _Response:
         self.unloaded.append(url.rsplit("/", 1)[1])
@@ -99,6 +99,9 @@ def _run(monkeypatch: pytest.MonkeyPatch, models: list[str], running: list[str])
     _Client.load_answer = _Response({})
     _whisper_releases.clear()
     monkeypatch.setattr(httpx, "AsyncClient", _Client)
+    monkeypatch.setattr(
+        service_status, "running_models", lambda base_url: [LoadedModel(name, "ready", 900) for name in _Client.running],
+    )
     monkeypatch.setattr(calibration, "parse_llamaswap_config", lambda _: CONFIG)
     monkeypatch.setattr(gpu, "gpu_uuids_by_index", lambda: UUIDS)
     monkeypatch.setattr(audio_processing, "release_whisper_gpu", _fake_release_whisper_gpu)

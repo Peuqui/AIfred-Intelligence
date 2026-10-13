@@ -263,6 +263,14 @@ LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "999
 # the value only guards against hung connections.
 LLAMASWAP_RUNNING_TIMEOUT_S = 5
 
+# Service status (lib/service_status.py): STT-Suite and TTS-Suite report the time until they
+# end themselves for being idle, but push nothing — so AIfred looks again shortly before.
+SERVICE_STATUS_RECHECK_MARGIN_S = 120    # look again this long before the reported expiry
+SERVICE_STATUS_MIN_DELAY_S = 5           # never look more often than this
+SERVICE_STATUS_OVERDUE_POLL_S = 30       # expiry passed but the service still runs: containers check their idle time only every 30-120 s
+SERVICE_STATUS_SSE_CONNECT_TIMEOUT_S = 5
+SERVICE_STATUS_SSE_RECONNECT_S = 5       # pause before reconnecting to llama-swap's event stream
+
 # llama-swap-Familie (SSOT): Backends, deren Modelle als llama-swap-
 # Eintraege laufen — gemeinsamer Dienst, gemeinsamer Katalog, gemeinsame
 # Kontext-/Cold-Start-/Unload-Semantik. Familien-Gates pruefen NUR gegen

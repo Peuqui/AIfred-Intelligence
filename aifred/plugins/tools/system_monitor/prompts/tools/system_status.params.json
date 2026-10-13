@@ -3,7 +3,7 @@
   "properties": {
     "components": {
       "type": "string",
-      "description": "Comma-separated: cpu, ram, gpu, disk, temp, uptime, or 'all'",
+      "description": "Comma-separated: cpu, ram, gpu, disk, temp, uptime, model, stt, tts, or 'all'",
       "default": "all"
     }
   }

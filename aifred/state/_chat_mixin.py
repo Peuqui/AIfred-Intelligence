@@ -129,11 +129,9 @@ class ChatMixin(rx.State, mixin=True):
         return str(self.backend_url).rstrip("/").removesuffix("/v1")
 
     async def _llamaswap_running_models(self) -> list[str]:
-        """Query llama-swap /running endpoint. Returns list of loaded model IDs, empty on error."""
-        import httpx
-        async with httpx.AsyncClient(timeout=5.0) as http:
-            resp = await http.get(f"{self._llamaswap_base_url()}/running")
-            return [m.get("model") for m in resp.json().get("running", [])]
+        """Loaded model IDs according to llama-swap. Raises LlamaSwapError when it does not answer."""
+        from ..lib.service_status import running_models
+        return [m.name for m in await asyncio.to_thread(running_models, self._llamaswap_base_url())]
 
     # ── Agent Panel Helpers ──────────────────────────────────────────
 
