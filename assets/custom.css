@@ -1057,6 +1057,7 @@ tr:hover {
    page's zoom factor; the percentage next to the buttons comes from a custom property so no
    text node has to be written into the React tree. */
 .chat-history-content { zoom: var(--chat-zoom, 1); }
+.chat-font-controls { margin-right: 18px; }  /* air between the buttons and the chevron */
 .chat-font-btn {
     cursor: pointer; user-select: none; padding: 0 8px; font-size: 12px; line-height: 22px;
     border: 1px solid #30363d; border-radius: 6px; color: #e2e8f0;

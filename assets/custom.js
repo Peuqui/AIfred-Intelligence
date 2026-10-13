@@ -2510,8 +2510,17 @@ document.addEventListener('click', (event) => {
     if (event.target.closest('#service-status-refresh')) serviceStatusFetch(true);
 });
 // The bus only brings changes: the page asks for a fresh state whenever its stream opens
-// (startBrowserStream, onopen) and counts down every second.
-setInterval(serviceStatusRender, 1000);
+// (startBrowserStream, onopen), asks on its own while it has none yet (the stream may open late or
+// not at all in a fresh tab) and counts down every second.
+var serviceStatusAskedAt = -Infinity;
+setInterval(() => {
+    const now = performance.now();
+    if (!serviceStatus && document.getElementById('service-status-dots') && now - serviceStatusAskedAt > 5000) {
+        serviceStatusAskedAt = now;
+        serviceStatusFetch(false);
+    }
+    serviceStatusRender();
+}, 1000);
 
 
 // ── Chat text size ────────────────────────────────────────────────────────────
