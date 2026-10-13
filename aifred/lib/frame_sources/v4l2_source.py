@@ -23,7 +23,7 @@ from typing import AsyncIterator
 
 import cv2
 
-from . import register, unregister_kind
+from . import get, register, unregister_kind
 from .base import Frame, SourceInfo
 
 logger = logging.getLogger(__name__)
@@ -641,6 +641,36 @@ def _read_frame(
     return bytes(buf), w, h
 
 
+def _register_device(index: int, name: str, stable_key: str) -> bool:
+    """Probe one V4L2 node and register it as a source; False when it cannot capture."""
+    try:
+        if not _can_capture(index):
+            logger.debug(
+                "V4L2 /dev/video%d (%s) not capturable, skipping", index, name
+            )
+            return False
+    except Exception as e:  # noqa: BLE001
+        logger.warning("V4L2 probe failed for /dev/video%d: %s", index, e)
+        return False
+    source = V4L2Source(index=index, display_name=name, source_id=stable_key)
+    # Auflösungen JETZT erkennen, solange das Gerät frei ist (vor dem
+    # ersten Stream) und auf der Instanz cachen — sonst läuft der lazy
+    # Probe der Live-Vorschau WÄHREND des Streamens, scheitert (V4L2
+    # erlaubt nur einen Reader) und das Dropdown zeigt nur "Treiber-Default".
+    try:
+        source.detect_resolutions()
+    except Exception as e:  # noqa: BLE001
+        logger.debug(
+            "resolution probe at discover failed for %s: %s", stable_key, e
+        )
+    register(source)
+    logger.info(
+        "Registered V4L2 source: %s (%s, /dev/video%d)",
+        source.source_id, name, index,
+    )
+    return True
+
+
 def discover() -> None:
     """Scan and (re-)register V4L2 capture devices.
 
@@ -651,15 +681,6 @@ def discover() -> None:
     unregister_kind("webcam")
     seen_keys: set[str] = set()
     for index, name, stable_key in _enumerate_devices():
-        try:
-            if not _can_capture(index):
-                logger.debug(
-                    "V4L2 /dev/video%d (%s) not capturable, skipping", index, name
-                )
-                continue
-        except Exception as e:  # noqa: BLE001
-            logger.warning("V4L2 probe failed for /dev/video%d: %s", index, e)
-            continue
         # Doppelknoten-Merge: ein physisches Gerät meldet oft mehrere
         # /dev/videoN-Knoten (Capture + Metadata) unter DEMSELBEN stable_key.
         # Nur den ersten capture-fähigen Knoten pro Gerät registrieren.
@@ -669,23 +690,22 @@ def discover() -> None:
                 index, stable_key,
             )
             continue
-        seen_keys.add(stable_key)
-        source = V4L2Source(index=index, display_name=name, source_id=stable_key)
-        # Auflösungen JETZT erkennen, solange das Gerät frei ist (vor dem
-        # ersten Stream) und auf der Instanz cachen — sonst läuft der lazy
-        # Probe der Live-Vorschau WÄHREND des Streamens, scheitert (V4L2
-        # erlaubt nur einen Reader) und das Dropdown zeigt nur "Treiber-Default".
-        try:
-            source.detect_resolutions()
-        except Exception as e:  # noqa: BLE001
-            logger.debug(
-                "resolution probe at discover failed for %s: %s", stable_key, e
-            )
-        register(source)
-        logger.info(
-            "Registered V4L2 source: %s (%s, /dev/video%d)",
-            source.source_id, name, index,
-        )
+        if _register_device(index, name, stable_key):
+            seen_keys.add(stable_key)
+
+
+def connect_device(source_id: str) -> bool:
+    """Register the camera with this stable id if it is plugged in and not registered yet.
+
+    Touches only this device (``discover`` probes all of them, which would collide with a camera
+    a watcher is reading), so it is safe to call while other cameras run. True = newly registered."""
+    if get(source_id) is not None:
+        return False
+    return any(
+        _register_device(index, name, stable_key)
+        for index, name, stable_key in _enumerate_devices()
+        if stable_key == source_id
+    )
 
 
 # Initial discovery beim Modul-Import. No-op wenn keine Cams da sind.
