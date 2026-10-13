@@ -966,5 +966,15 @@
   "narrator_engine_tooltip": "Für welche Engine du die Vorleser-Stimme einstellst. Wer vorliest, entscheidet die Eskalationsliste (oberster Eintrag, der gerade kann).",
   "narrator_voice_label": "Stimme:",
   "narrator_settings_subtitle": "Vorlese-Engine und Stimme für narrate_file (Dokument → Audio-Datei)",
-  "calibration_no_cell_selected": "⚠️ Bitte mindestens eine Kombination anhaken — sonst wird nichts gemessen, sondern nur Vorhandenes übernommen"
+  "calibration_no_cell_selected": "⚠️ Bitte mindestens eine Kombination anhaken — sonst wird nichts gemessen, sondern nur Vorhandenes übernommen",
+  "service_status_model": "Modell",
+  "service_status_stt": "Spracherkennung",
+  "service_status_tts": "Sprachausgabe",
+  "service_status_no_model": "kein Modell geladen",
+  "service_status_none_loaded": "nichts geladen",
+  "service_status_loading": "lädt",
+  "service_status_busy": "arbeitet",
+  "service_status_unreachable": "nicht erreichbar",
+  "service_status_refresh": "Status neu abfragen",
+  "service_status_unloads_in": "entlädt in"
 }

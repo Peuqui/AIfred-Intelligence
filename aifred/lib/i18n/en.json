@@ -966,5 +966,15 @@
   "narrator_engine_tooltip": "Which engine's narrator voice you are setting. Who narrates is the escalation list's decision (topmost entry that can speak).",
   "narrator_voice_label": "Voice:",
   "narrator_settings_subtitle": "Narration engine and voice for narrate_file (document → audio file)",
-  "calibration_no_cell_selected": "⚠️ Please tick at least one combination — otherwise nothing is measured, only existing values are reused"
+  "calibration_no_cell_selected": "⚠️ Please tick at least one combination — otherwise nothing is measured, only existing values are reused",
+  "service_status_model": "Model",
+  "service_status_stt": "Speech recognition",
+  "service_status_tts": "Text-to-speech",
+  "service_status_no_model": "no model loaded",
+  "service_status_none_loaded": "nothing loaded",
+  "service_status_loading": "loading",
+  "service_status_busy": "working",
+  "service_status_unreachable": "not reachable",
+  "service_status_refresh": "Refresh status",
+  "service_status_unloads_in": "unloads in"
 }

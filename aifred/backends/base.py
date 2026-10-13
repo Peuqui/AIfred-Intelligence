@@ -460,16 +460,13 @@ class OpenAICompatibleBackend(LLMBackend):
         import httpx
 
         from ..lib.logging_utils import log_message
+        from ..lib.service_status import LlamaSwapError, running_models
         from ..lib.timer import Timer
 
         root = self._llamaswap_root()
         try:
-            async with httpx.AsyncClient(timeout=5.0) as client:
-                resp = await client.get(f"{root}/running")
-                running = [
-                    m.get("model", "") for m in (resp.json().get("running") or [])
-                ]
-        except (httpx.HTTPError, ValueError) as e:
+            running = [m.name for m in await asyncio.to_thread(running_models, root)]
+        except LlamaSwapError as e:
             raise BackendConnectionError(
                 f"{self.BACKEND_NAME}: llama-swap not reachable at {root}: {e}"
             )

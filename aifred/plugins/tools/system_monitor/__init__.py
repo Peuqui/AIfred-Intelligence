@@ -1,4 +1,4 @@
-"""System Monitor Plugin — CPU, RAM, GPU, Disk, Uptime."""
+"""System Monitor Plugin — CPU, RAM, GPU, Disk, Uptime, loaded model, STT and TTS state."""
 
 import json
 import os
@@ -11,6 +11,7 @@ from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.logging_utils import log_message
+from ....lib.service_status import get_monitor
 
 
 @dataclass
@@ -24,7 +25,7 @@ class SystemMonitorPlugin:
         tools: list[Tool] = []
 
         async def _system_status(components: str = "all") -> str:
-            """Get system status: CPU, RAM, GPU, Disk, Uptime."""
+            """Get system status: CPU, RAM, GPU, Disk, Uptime, model, STT, TTS."""
             result: dict[str, Any] = {}
             parts = [c.strip().lower() for c in components.split(",")]
             check_all = "all" in parts
@@ -143,6 +144,18 @@ class SystemMonitorPlugin:
                     # Kaputtes sensors-Output o.ä. NICHT still verschlucken —
                     # sichtbar machen wie bei CPU/RAM/Disk
                     result["temps"] = {"error": str(e)}
+
+            # Loaded model, speech recognition, speech output (SSOT: lib/service_status)
+            if check_all or {"model", "stt", "tts"} & set(parts):
+                snapshot = (await get_monitor().refreshed_snapshot()).as_json()
+                if check_all or "model" in parts:
+                    result["model"] = (
+                        {"models": snapshot["models"]} if snapshot["llm_reachable"] else {"error": "llama-swap not reachable"}
+                    )
+                if check_all or "stt" in parts:
+                    result["stt"] = {"loaded": snapshot["stt"]} if snapshot["stt_reachable"] else {"error": "STT service not reachable"}
+                if check_all or "tts" in parts:
+                    result["tts"] = {"running": snapshot["tts"]} if snapshot["tts_reachable"] else {"error": "TTS service not reachable"}
 
             log_message(f"📊 system_status: {list(result.keys())}")
             return json.dumps(result, ensure_ascii=False)

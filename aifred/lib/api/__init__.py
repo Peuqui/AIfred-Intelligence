@@ -20,6 +20,7 @@ Endpoints (all prefixed with /api):
 - POST /audio/announce      - Spoken announcement to FreeEcho.2, no LLM (Bearer token)
 - GET  /tts/entries         - The TTS escalation list in order, with live status (Bearer token)
 - GET  /documents/source/{key}/file/{id} - Download from a further document source (login cookie)
+- GET  /service-status     - Model, STT and TTS state with time left (login cookie)
 - POST /system/restart-ollama   - Restart Ollama service
 - POST /system/restart-aifred   - Restart AIfred service
 - POST /system/reset-defaults   - Reset to default settings
@@ -43,6 +44,7 @@ from . import announce  # noqa: E402
 from . import vision  # noqa: E402
 from . import tts  # noqa: E402
 from . import documents  # noqa: E402
+from . import service_status  # noqa: E402
 
 from .browser_bus import browser_push, browser_queue_clear  # noqa: E402
 
@@ -63,4 +65,5 @@ __all__ = [
     "vision",
     "tts",
     "documents",
+    "service_status",
 ]

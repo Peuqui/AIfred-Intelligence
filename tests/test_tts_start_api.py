@@ -18,7 +18,7 @@ def _entry(engine: str, host: str | None, **fields) -> dict:
         "engine": engine, "host": host, "label": {"de": engine, "en": engine},
         "label_short": {"de": "Qwen3-TTS", "en": "Qwen3-TTS"},
         "status": "stopped", "unit_default": "sentence", "needs_gpu": True,
-        "cloud": False, "browser": False, "installed": True, "start_hint": None, "vram_mib": {},
+        "cloud": False, "browser": False, "installed": True, "start_hint": None, "vram_mib": {}, "idle_remaining_s": None,
         "default_vram_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
     }
     return {**base, **fields}
