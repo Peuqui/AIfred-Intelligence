@@ -139,6 +139,18 @@ def test_listeners_hear_every_change_and_a_broken_one_does_not_silence_the_rest(
     assert len(heard) == 2 and heard[0].models[0].name == MODEL
 
 
+def test_the_embedding_server_is_not_listed_and_a_describer_is_told_apart(
+    monkeypatch: pytest.MonkeyPatch, clock: list[float],
+) -> None:
+    ttls = {MODEL: TTL_S, "vl4b-visiond": TTL_S, "vl4b-visiond-gpu1": TTL_S, "bge-m3-567M-Q8_0-embed": 0}
+    monitor = monitor_with_ttls(monkeypatch, ttls)
+    states = model_status(*((name, "ready") for name in ttls))
+    asyncio.run(monitor._on_model_status(states))
+    assert {m.name: m.role for m in monitor.snapshot().models} == {
+        MODEL: "llm", "vl4b-visiond": "describer", "vl4b-visiond-gpu1": "describer",
+    }
+
+
 # ---- STT and TTS ---------------------------------------------------------------
 
 

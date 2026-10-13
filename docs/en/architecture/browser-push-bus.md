@@ -157,6 +157,7 @@ console).
 | `speed` | `{factor}` | Set `audio.playbackRate` |
 | `bubble_audio` | `{url}` | Combined replay URL on the finished chat bubble |
 | `session_title` | `{url}` (= title text) | Generated title into the session list |
+| `service_status` | `{url}` (= snapshot as JSON) | Status bar (model, describer, STT, TTS); only the newest state stays in the queue |
 
 ---
 

@@ -6,6 +6,7 @@ Full Gradio-Style UI with Single Column Layout
 
 import reflex as rx
 from .state import AIState, ChatHistoryState
+from .ui.service_status_bar import service_status_bar
 from .theme import COLORS
 from .lib.config import (
     UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP,
@@ -939,25 +940,8 @@ console.log('✂️ Crop handler loaded');
                 margin_bottom="4",
             ),
 
-            # Status line: model, speech recognition, speech output with time left.
-            # custom.js fills it (browser push bus, kind "service_status"); a click asks again.
-            rx.box(
-                id="service-status-bar",
-                class_name="service-status-bar",
-                custom_attrs={
-                    "data-lang": AIState.ui_language,
-                    "data-t-model": t("service_status_model"),
-                    "data-t-stt": t("service_status_stt"),
-                    "data-t-tts": t("service_status_tts"),
-                    "data-t-no-model": t("service_status_no_model"),
-                    "data-t-none-loaded": t("service_status_none_loaded"),
-                    "data-t-loading": t("service_status_loading"),
-                    "data-t-busy": t("service_status_busy"),
-                    "data-t-unreachable": t("service_status_unreachable"),
-                    "data-t-unloads-in": t("service_status_unloads_in"),
-                    "title": t("service_status_refresh"),
-                },
-            ),
+            # Status bar: model, describer, STT, TTS (custom.js fills it, kind "service_status")
+            service_status_bar(),
 
             # Session Picker (saved chats) - collapsible, above chat history
             session_list_display(),

@@ -44,11 +44,15 @@ from .config import (
     SERVICE_STATUS_SSE_RECONNECT_S,
 )
 from .logging_utils import log_message
+from .vlm_naming import is_embed_profile, is_visiond_profile
 
 LLAMASWAP_BASE_URL = DEFAULT_LLAMACPP_URL.removesuffix("/v1")
 
 STATE_READY = "ready"
 STATE_STOPPED = "stopped"
+
+ROLE_LLM = "llm"
+ROLE_DESCRIBER = "describer"
 
 
 # ---- llama-swap: THE /running access ------------------------------------------
@@ -85,9 +89,18 @@ def running_models(base_url: str = LLAMASWAP_BASE_URL) -> list[LoadedModel]:
 # ---- Snapshot (what listeners and the page get) --------------------------------
 
 
+def model_role(name: str) -> str | None:
+    """What a llama-swap profile is for the status line: the language model, the describer
+    (vision sidecar), or ``None`` for an embedding server (runs on the CPU, not of interest)."""
+    if is_embed_profile(name):
+        return None
+    return ROLE_DESCRIBER if is_visiond_profile(name) else ROLE_LLM
+
+
 @dataclass
 class ModelStatus:
     name: str
+    role: str  # ROLE_LLM | ROLE_DESCRIBER
     state: str
     busy: bool  # a request is running: the idle clock stands still
     remaining_s: float | None  # None = never unloads (ttl 0) or unknown
@@ -182,13 +195,14 @@ class ServiceStatusMonitor:
         models = [
             ModelStatus(
                 name=name,
+                role=role,
                 state=model.state,
                 busy=model.inflight > 0,
                 remaining_s=self._model_remaining(model, now),
                 exact=model.exact,
             )
             for name, model in sorted(self._llm.items())
-            if model.state != STATE_STOPPED
+            if model.state != STATE_STOPPED and (role := model_role(name)) is not None
         ]
         return ServiceSnapshot(
             llm_reachable=self._llm_reachable,

@@ -157,6 +157,7 @@ Konsole).
 | `speed` | `{factor}` | `audio.playbackRate` setzen |
 | `bubble_audio` | `{url}` | Kombinierte Replay-URL auf die fertige Chat-Bubble |
 | `session_title` | `{url}` (= Titeltext) | Generierten Titel in die Session-Liste |
+| `service_status` | `{url}` (= Snapshot als JSON) | Statusleiste (Modell, Bildbeschreiber, STT, TTS); nur der letzte Stand bleibt in der Warteschlange |
 
 ---
 
