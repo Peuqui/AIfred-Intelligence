@@ -1369,6 +1369,7 @@ async def _message_hub_lifespan():
             pass
 
 
+@contextlib.asynccontextmanager
 async def _service_status_lifespan():
     """Hold llama-swap's event stream and read STT/TTS state, for the page's status line."""
     import asyncio  # noqa: E402
