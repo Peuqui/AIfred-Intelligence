@@ -264,26 +264,31 @@ and whether a class is active right now (the burst runs while the person is
 reported). The camera ends the person report after roughly 10 s of standing
 still, which is why the burst linger is 20 s (`burst_linger_sec`).
 
-**Trigger, not truth:** The on-device AI fires generously (it hallucinates
-people from a chair/laundry/shadows, especially in IR night mode). It is
-therefore treated only as a *trigger*; the decision is made by AIfred's **own**
-detectors — the same principle as the webcam motion path.
+**Trigger, finding and report:** The on-device AI fires generously (it hallucinates
+people from a chair/laundry/shadows, especially in IR night mode), and YOLO in turn
+misses dark, blurred or distant people. Both are uncertain, so AIfred **no longer
+discards a camera report**: a camera trigger is always an event with an alert.
+AIfred's own detector supplies the **finding** that goes along with the report to
+the evaluation (the image describer and Alfred check the picture). Unconfirmed
+triggers appear with `detector: edge_ai_unconfirmed` in the chronicle, in the alert
+text ("Reported by the camera, not confirmed by the image detector (YOLO)." — in
+German in the alert, `metadata.yolo_unconfirmed`) and as a warning in the journal.
 
-**Confirmation policy** (`EDGE_AI_CONFIRM` in `config.py`, per class):
+**Confirmation policy** (`EDGE_AI_CONFIRM` in `config.py`, per class) says whether
+our YOLO checks the class:
 
 | Class | Default | Meaning |
 |-------|---------|---------|
-| `person` | `True` (confirm) | own YOLO must see the class, else discarded |
-| `vehicle` | `True` (confirm) | ditto (YOLO is strong on large objects) |
-| `animal` | `False` (trust) | believe the camera — nano-YOLO is weak on small/distant animals; a missed animal outweighs a rare false alert |
+| `person` | `True` (check) | YOLO counts the class; without a hit the report goes on as "unconfirmed" |
+| `vehicle` | `True` (check) | ditto (YOLO is strong on large objects) |
+| `animal` | `False` (trust) | believe the camera — nano-YOLO is weak on small/distant animals; no check, no note in the text |
 
-When `True`, ONE multi-class YOLO inference (`detect_category_counts`, NMS per
-class) serves both as the gate (count > 0) AND as the **count**. `person`/
-`vehicle` are counted exactly and the event is written from our own detection
-(`detector: yolo`), not the camera's claim — the chronicle shows only confirmed
-objects, no phantoms. `animal` stays camera-trusted, hence without a count. If
-the detector fails *infrastructurally*, the alert is let through (never swallow
-a real event); a clean run with no hit discards the phantom trigger.
+When `True`, ONE multi-class YOLO inference runs per image (`detect_category_counts`,
+NMS per class): on the wide image AND, if there is one, on the zoom image (the zoom
+lens often sees a near, blurred subject more sharply); per class the better result
+counts. It supplies the **count** for the report (`person`/`vehicle` counted
+exactly; at least 1 person without a hit). `animal` stays camera-trusted and
+without a count. The face-hunt burst runs for every reported person.
 
 **Dual-lens snap:** On a trigger, wide + zoom (if `face_channel` is set) are
 pulled FRESH and in parallel via the Snap API with a shared timestamp, no RTSP

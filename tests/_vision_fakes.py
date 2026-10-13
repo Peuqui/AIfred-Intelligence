@@ -142,8 +142,12 @@ class ScriptedPersonDetector(PersonDetector):
         self,
         counts: dict[str, int] | None = None,
         persons: list[PersonDetection] | None = None,
+        counts_per_call: list[dict[str, int]] | None = None,
     ):
         self.counts = dict(counts or {})
+        # Die n-te Kategorie-Abfrage (Weitwinkel, dann Zoom) liefert die n-te Zählung;
+        # danach gilt ``counts``.
+        self._counts_per_call = list(counts_per_call or [])
         self._persons = list(persons or [])
         self.calls = 0
         self.category_calls: list[set[str]] = []
@@ -154,7 +158,8 @@ class ScriptedPersonDetector(PersonDetector):
 
     def detect_category_counts(self, frame, coco_map, wanted):
         self.category_calls.append(set(wanted))
-        return {cat: self.counts.get(cat, 0) for cat in wanted}
+        counts = self._counts_per_call.pop(0) if self._counts_per_call else self.counts
+        return {cat: counts.get(cat, 0) for cat in wanted}
 
 
 class FakeAiClient:

@@ -640,14 +640,14 @@ PERSON_DETECT_NMS_IOU = 0.45
 PERSON_DETECT_USE_GPU = False
 
 # ── Edge-AI-Confirmation-Policy ───────────────────────────────────────
-# Pro Edge-AI-Klasse: muss UNSER YOLO den Kamera-Trigger bestätigen,
-# bevor Event + Alert entstehen? Die On-Device-KI der Reolink feuert
-# besonders im IR-Nachtbild massenhaft falsch-positive Personen.
-#   True  = bestätigen — YOLO muss die Klasse selbst sehen, sonst verworfen.
-#   False = vertrauen   — Kamera-Behauptung gilt direkt (kein eigener Check).
-# animal=False, weil das Nano-Modell kleine/ferne Tiere oft übersieht — ein
-# hartes Veto würde echte Tier-Events schlucken; lieber der Kamera glauben
-# (ein verpasstes Tier wiegt schwerer als ein seltener Tier-Fehlalarm).
+# Pro Edge-AI-Klasse: prüft UNSER YOLO den Kamera-Trigger? Eine Kamera-Meldung wird nie
+# verworfen: Die On-Device-KI der Reolink feuert im IR-Nachtbild falsch-positive Personen,
+# YOLO übersieht dunkle/verwackelte/ferne. Der Befund geht mit der Meldung zur Auswertung
+# (Event ``detector: edge_ai_unconfirmed``, Hinweis im Alarmtext).
+#   True  = prüfen    — YOLO zählt die Klasse (Weitwinkel + Zoom, das bessere Ergebnis);
+#                       ohne Treffer läuft die Meldung als "unbestätigt" weiter.
+#   False = vertrauen — keine Prüfung, kein Zusatz.
+# animal=False, weil das Nano-Modell kleine/ferne Tiere oft übersieht.
 # Umschaltbar: bei größerem YOLO-Modell kann animal auf True gesetzt werden.
 EDGE_AI_CONFIRM = {
     "person": True,

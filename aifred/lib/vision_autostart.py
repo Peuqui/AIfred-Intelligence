@@ -202,6 +202,14 @@ def profile_watch_overrides(
     return overrides
 
 
+def _device_not_connected(record: dict[str, Any]) -> bool:
+    """A USB camera that is not plugged in is not a registered source: nothing to start, no error
+    (it registers when the device is found, see ``frame_sources.rescan``)."""
+    from . import frame_sources
+
+    return record.get("kind") == "webcam" and frame_sources.get(record["source_id"]) is None
+
+
 async def start_background_watcher(source_id: str) -> bool:
     """Startet einen einzelnen Hintergrund-Watcher (z.B. wenn der User
     den auto_start-Toggle live umschaltet). Returnt False, falls die
@@ -213,6 +221,9 @@ async def start_background_watcher(source_id: str) -> bool:
     record = store.get_source(source_id)
     if not record:
         logger.warning("autostart: source %s not in store", source_id)
+        return False
+    if _device_not_connected(record):
+        logger.info("autostart: %s ist nicht angesteckt — nicht gestartet", source_id)
         return False
     plugin = load_vision_settings()
     watcher = get_default_watcher()
@@ -300,6 +311,9 @@ async def start_all_background_watchers() -> int:
     for record in targets:
         source_id = record.get("source_id") or ""
         if not source_id:
+            continue
+        if _device_not_connected(record):
+            logger.info("autostart: %s ist nicht angesteckt — übersprungen", source_id)
             continue
         # Pro-Kamera-Zeitplan: außerhalb des Aktiv-Fensters überspringen.
         if not _schedule_active_now(record.get("settings") or {}):
