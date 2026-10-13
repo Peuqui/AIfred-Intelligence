@@ -268,6 +268,7 @@ LLAMASWAP_RUNNING_TIMEOUT_S = 5
 SERVICE_STATUS_RECHECK_MARGIN_S = 120    # look again this long before the reported expiry
 SERVICE_STATUS_MIN_DELAY_S = 5           # never look more often than this
 SERVICE_STATUS_OVERDUE_POLL_S = 30       # expiry passed but the service still runs: containers check their idle time only every 30-120 s
+SERVICE_STATUS_NO_COUNTDOWN_POLL_S = 300  # a service runs but reports no time left (old version, no idle shutdown): look now and then
 SERVICE_STATUS_SSE_CONNECT_TIMEOUT_S = 5
 SERVICE_STATUS_SSE_RECONNECT_S = 5       # pause before reconnecting to llama-swap's event stream
 

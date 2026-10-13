@@ -977,5 +977,6 @@
   "service_status_refresh": "Status neu abfragen",
   "service_status_unloads_in": "entlädt in",
   "service_status_llm": "Sprachmodell",
-  "service_status_describer": "Bildbeschreiber"
+  "service_status_describer": "Bildbeschreiber",
+  "service_status_days_short": "T"
 }

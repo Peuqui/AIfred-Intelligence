@@ -977,5 +977,6 @@
   "service_status_refresh": "Refresh status",
   "service_status_unloads_in": "unloads in",
   "service_status_llm": "Language model",
-  "service_status_describer": "Image describer"
+  "service_status_describer": "Image describer",
+  "service_status_days_short": "d"
 }

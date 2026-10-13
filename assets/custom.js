@@ -937,7 +937,7 @@ function startBrowserStream(sessionIdParam) {
     browserEventSource = new EventSource(sseUrl);
 
     browserEventSource.onopen = () => {
-        serviceStatusFetch(false);
+        serviceStatusFetch(true);
         console.log('🔊 Audio SSE: Connection opened');
         browserStreamRetryCount = 0;
         browserStreamGaveUp = false;
@@ -2399,10 +2399,13 @@ function serviceStatusReceive(snapshot) {
     serviceStatusRender();
 }
 
-function serviceStatusFormat(seconds) {
+// Days only when there are days, hours only when there are hours: 2 T 03:15:20, 3:15:20, 15:20.
+function serviceStatusFormat(seconds, daysShort) {
     const total = Math.max(0, Math.floor(seconds));
-    const h = Math.floor(total / 3600), m = Math.floor((total % 3600) / 60), s = total % 60;
+    const d = Math.floor(total / 86400), h = Math.floor((total % 86400) / 3600);
+    const m = Math.floor((total % 3600) / 60), s = total % 60;
     const two = (n) => String(n).padStart(2, '0');
+    if (d > 0) return `${d} ${daysShort} ${two(h)}:${two(m)}:${two(s)}`;
     return h > 0 ? `${h}:${two(m)}:${two(s)}` : `${m}:${two(s)}`;
 }
 
@@ -2487,7 +2490,7 @@ function serviceStatusRender() {
         line.append(serviceStatusBadge(t, key, row.color, longName), serviceStatusElement('span', 'ss-label', `${longName}:`), value);
         if (row.remaining !== null) {
             line.append(serviceStatusElement(
-                'span', 'ss-time', `${t.tUnloadsIn} ${row.upperBound ? '≤ ' : ''}${serviceStatusFormat(row.remaining - elapsed)}`,
+                'span', 'ss-time', `${t.tUnloadsIn} ${row.upperBound ? '≤ ' : ''}${serviceStatusFormat(row.remaining - elapsed, t.tDaysShort)}`,
             ));
         }
         return line;
@@ -2506,6 +2509,6 @@ async function serviceStatusFetch(refresh) {
 document.addEventListener('click', (event) => {
     if (event.target.closest('#service-status-refresh')) serviceStatusFetch(true);
 });
-// The bus only brings changes: the page asks for the state whenever its stream opens
+// The bus only brings changes: the page asks for a fresh state whenever its stream opens
 // (startBrowserStream, onopen) and counts down every second.
 setInterval(serviceStatusRender, 1000);

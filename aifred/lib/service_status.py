@@ -38,6 +38,7 @@ from .config import (
     DEFAULT_LLAMACPP_URL,
     LLAMASWAP_RUNNING_TIMEOUT_S,
     SERVICE_STATUS_MIN_DELAY_S,
+    SERVICE_STATUS_NO_COUNTDOWN_POLL_S,
     SERVICE_STATUS_OVERDUE_POLL_S,
     SERVICE_STATUS_RECHECK_MARGIN_S,
     SERVICE_STATUS_SSE_CONNECT_TIMEOUT_S,
@@ -374,13 +375,29 @@ class ServiceStatusMonitor:
         if previous is not None:
             previous.cancel()
         now = time.monotonic()
-        anchors = [anchor for _, anchor in (self._stt.values() if service == "stt" else self._tts) if anchor]
-        if not anchors:
+        anchors = [anchor for anchor in self._anchors(service) if anchor]
+        if anchors:
+            delay = next_look_delay_s(min(anchor.remaining(now) for anchor in anchors))
+        elif self._runs_without_countdown(service):
+            # Something runs that reports no time left: only a look now and then shows when that changes.
+            delay = SERVICE_STATUS_NO_COUNTDOWN_POLL_S
+        else:
             return
-        delay = next_look_delay_s(min(anchor.remaining(now) for anchor in anchors))
         self._recheck_handles[service] = self._loop.call_later(
             delay, lambda: asyncio.ensure_future(self.refresh(service)),
         )
+
+    def _anchors(self, service: str) -> list[_Anchored | None]:
+        if service == "stt":
+            return [anchor for _, anchor in self._stt.values()]
+        return [anchor for _, anchor in self._tts]
+
+    def _runs_without_countdown(self, service: str) -> bool:
+        """Does the service hold something that can unload but reports no time for it? (The STT CPU
+        model never unloads.)"""
+        if service == "stt":
+            return any(device == "cuda" and anchor is None for device, (_, anchor) in self._stt.items())
+        return any(anchor is None for _, anchor in self._tts)
 
     # -- From other loops and threads --
 
