@@ -329,10 +329,25 @@ async def start_all_background_watchers() -> int:
     return started
 
 
+async def _start_newly_plugged_cameras(records: list[dict[str, Any]]) -> None:
+    """Eine USB-Kamera mit ``auto_start``, die beim Boot fehlte und jetzt angesteckt ist: anmelden
+    (nur dieses Gerät, siehe ``connect_device``) und ihren Watcher starten."""
+    from .frame_sources.v4l2_source import connect_device
+
+    for record in records:
+        source_id = record.get("source_id") or ""
+        if not record.get("auto_start") or not source_id or not _device_not_connected(record):
+            continue
+        if await asyncio.to_thread(connect_device, source_id):
+            logger.info("autostart: %s wurde angesteckt — Watcher wird gestartet", source_id)
+            await start_background_watcher(source_id)
+
+
 async def schedule_supervisor() -> None:
     """Dauer-Supervisor: prüft minütlich die Pro-Kamera-Zeitpläne und startet/
     stoppt die Watcher entsprechend — aber nur wenn global scharf. Kameras ohne
-    Zeitplan bleiben unangetastet (die regelt der armed-Master). Läuft ab
+    Zeitplan bleiben unangetastet (die regelt der armed-Master). Meldet zudem
+    nachträglich angesteckte USB-Kameras an und startet sie. Läuft ab
     Service-Boot, failure-tolerant."""
     from .vision_store import VisionStore
     from .vision_watcher import get_default_watcher
@@ -344,7 +359,9 @@ async def schedule_supervisor() -> None:
                 continue
             store = VisionStore()
             watcher = get_default_watcher()
-            for record in store.list_sources():
+            records = store.list_sources()
+            await _start_newly_plugged_cameras(records)
+            for record in records:
                 if not record.get("auto_start"):
                     continue
                 settings = record.get("settings") or {}
