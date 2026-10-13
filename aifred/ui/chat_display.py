@@ -574,6 +574,7 @@ def chat_history_display() -> rx.Component:
                         rx.box("A+", id="chat-font-larger", class_name="chat-font-btn", title=t("chat_font_larger")),
                         spacing="2",
                         align="center",
+                        class_name="chat-font-controls",
                     ),
                     spacing="3",
                     align="center",
