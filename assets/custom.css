@@ -1063,3 +1063,4 @@ tr:hover {
 }
 .chat-font-btn:hover { background: rgba(255, 255, 255, 0.08); }
 .chat-font-percent::after { content: var(--chat-zoom-label, "100 %"); font-size: 11px; opacity: 0.7; font-variant-numeric: tabular-nums; }
+@media (max-width: 640px) { .chat-font-percent { display: none; } }  /* narrow: just A- and A+ beside the chevron */
