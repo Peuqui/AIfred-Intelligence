@@ -847,6 +847,10 @@ VISION_BURST_LINGER_SEC = 20.0
 VISION_PREROLL_SEC = 8.0
 VISION_BURST_REPORT_DEADLINE_SEC = 15.0
 # Untergrenzen: Burst-Takt (schneller belastet die Kamera-API) und Bilanz-Intervall.
+# Tele-Bild gilt als Duplikat des Weitwinkels (kein eigenes Bild), wenn der pHash-
+# Abstand höchstens so groß ist. Gemessen an 1386 Paaren: gleiche Sicht 0–8, echtes
+# Tele 22–42, dazwischen fast nichts (Tele nicht herangezoomt → dieselbe Szene).
+VISION_PAIR_DUPLICATE_MAX_HAMMING = 8
 VISION_BURST_MIN_INTERVAL_SEC = 0.2
 VISION_BURST_MIN_DEADLINE_SEC = 1.0
 
