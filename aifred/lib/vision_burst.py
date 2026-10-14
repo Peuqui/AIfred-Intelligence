@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Callable
 
@@ -49,6 +50,12 @@ TRIGGER = "edge_ai_burst"
 
 # Rang des Bands für die Wahl des besten Gesichts eines Ticks.
 _BAND_RANK = {"known": 2, "unsure": 1, "unknown": 0}
+
+
+def _mean_max(values: list[float]) -> str:
+    if not values:
+        return "-"
+    return f"{sum(values) / len(values):.2f}/{max(values):.2f}"
 
 
 class BurstRunner:
@@ -132,6 +139,11 @@ class BurstRunner:
         started = datetime.now()
         last_active = started
         ticks = n_face = n_person = 0
+        # Messung je Tick (Sekunden): Snap, Auswertung, Abstand zum vorigen Tick.
+        snap_times: list[float] = []
+        eval_times: list[float] = []
+        periods: list[float] = []
+        previous_tick_start: float | None = None
         # Laufende Bilanz-Versände: harte Referenz halten, sonst kann der
         # GC einen Task mitten in der VLM-Beschreibung einsammeln.
         pending_sends: set[asyncio.Task[None]] = set()
@@ -146,10 +158,16 @@ class BurstRunner:
                 base = Frame(
                     source_id=source_id, timestamp=datetime.now(), image_bytes=b"",
                 )
+                tick_start = time.monotonic()
+                if previous_tick_start is not None:
+                    periods.append(tick_start - previous_tick_start)
+                previous_tick_start = tick_start
                 wide_frame, face_frame = await snap_pair(
                     client, base,
                     wide_channel=edge.channel, face_channel=edge.face_channel,
                 )
+                snap_done = time.monotonic()
+                snap_times.append(snap_done - tick_start)
                 if wide_frame is not base:
                     ticks += 1
                     try:
@@ -161,6 +179,7 @@ class BurstRunner:
                         n_person += kind == "person"
                     except Exception:  # noqa: BLE001
                         logger.exception("burst tick failed for %s", source_id)
+                    eval_times.append(time.monotonic() - snap_done)
                 # Bilanz fällig (Deadline erreicht) oder Neuigkeiten seit der
                 # letzten Meldung → melden, Burst läuft weiter.
                 #
@@ -184,7 +203,9 @@ class BurstRunner:
                 else:
                     if person_active:
                         last_active = datetime.now()
-                await asyncio.sleep(interval)
+                # Fester Takt: der Abstand zählt von Tick-Start zu Tick-Start,
+                # nicht von Tick-Ende (sonst käme Snap + Auswertung obendrauf).
+                await asyncio.sleep(max(0.0, tick_start + interval - time.monotonic()))
         except asyncio.CancelledError:
             for task in pending_sends:
                 task.cancel()
@@ -211,6 +232,11 @@ class BurstRunner:
             f"🎬 burst {source_id}: {ticks} ticks → {n_face} face, "
             f"{n_person} person, {ticks - n_face - n_person} empty "
             f"({duration:.0f}s)"
+        )
+        log_message(
+            f"⏱️ burst {source_id}: interval {interval:.2f}s, "
+            f"snap {_mean_max(snap_times)}, eval {_mean_max(eval_times)}, "
+            f"period {_mean_max(periods)} (mean/max s)"
         )
 
     # ── Ein Tick ──────────────────────────────────────────────────
