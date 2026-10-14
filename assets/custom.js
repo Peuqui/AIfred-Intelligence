@@ -2469,6 +2469,16 @@ function serviceStatusBadge(t, key, color, title) {
     return badge;
 }
 
+// The tick runs every second, but replacing the badges would restart their breathing animation
+// (it would jump back to the start each second). So the elements are rebuilt only when what they show
+// changes; otherwise just the countdown text is rewritten in place.
+var serviceStatusDotsSignature = '';
+var serviceStatusListSignature = '';
+
+function serviceStatusTimeText(row, t, elapsed) {
+    return `${t.tUnloadsIn} ${row.upperBound ? '≤ ' : ''}${serviceStatusFormat(row.remaining - elapsed, t.tDaysShort)}`;
+}
+
 function serviceStatusRender() {
     const dots = document.getElementById('service-status-dots');
     const list = document.getElementById('service-status-list');
@@ -2477,24 +2487,35 @@ function serviceStatusRender() {
     const rows = serviceStatusRows(serviceStatus, t);
     const services = [['llm', t.tLlm], ['describer', t.tDescriber], ['stt', t.tStt], ['tts', t.tTts]];
 
-    dots.replaceChildren(...services.map(([key, longName]) => (
-        serviceStatusBadge(t, key, serviceStatusSummaryColor(rows[key]), longName)
-    )));
+    const summaryColors = services.map(([key]) => serviceStatusSummaryColor(rows[key]));
+    const dotsSignature = JSON.stringify(summaryColors);
+    if (dotsSignature !== serviceStatusDotsSignature || !dots.hasChildNodes()) {
+        serviceStatusDotsSignature = dotsSignature;
+        dots.replaceChildren(...services.map(([key, longName], index) => (
+            serviceStatusBadge(t, key, summaryColors[index], longName)
+        )));
+    }
 
     if (!list) return;
     const elapsed = (performance.now() - serviceStatusAt) / 1000;
-    list.replaceChildren(...services.flatMap(([key, longName]) => rows[key].map((row) => {
-        const line = serviceStatusElement('div', 'ss-row');
-        const value = serviceStatusElement('span', 'ss-value', row.text);
-        value.title = row.text;
-        line.append(serviceStatusBadge(t, key, row.color, longName), serviceStatusElement('span', 'ss-label', `${longName}:`), value);
-        if (row.remaining !== null) {
-            line.append(serviceStatusElement(
-                'span', 'ss-time', `${t.tUnloadsIn} ${row.upperBound ? '≤ ' : ''}${serviceStatusFormat(row.remaining - elapsed, t.tDaysShort)}`,
-            ));
-        }
-        return line;
-    })));
+    const listSignature = JSON.stringify(services.map(([key]) => rows[key].map(
+        (row) => [row.color, row.text, row.remaining !== null, row.upperBound],
+    )));
+    if (listSignature !== serviceStatusListSignature || !list.hasChildNodes()) {
+        serviceStatusListSignature = listSignature;
+        list.replaceChildren(...services.flatMap(([key, longName]) => rows[key].map((row) => {
+            const line = serviceStatusElement('div', 'ss-row');
+            const value = serviceStatusElement('span', 'ss-value', row.text);
+            value.title = row.text;
+            line.append(serviceStatusBadge(t, key, row.color, longName), serviceStatusElement('span', 'ss-label', `${longName}:`), value);
+            if (row.remaining !== null) line.append(serviceStatusElement('span', 'ss-time'));
+            return line;
+        })));
+    }
+    const timeCells = list.querySelectorAll('.ss-time');
+    services.flatMap(([key]) => rows[key]).filter((row) => row.remaining !== null).forEach((row, index) => {
+        timeCells[index].textContent = serviceStatusTimeText(row, t, elapsed);
+    });
 }
 
 async function serviceStatusFetch(refresh) {
