@@ -909,6 +909,11 @@ VISION_DESCRIBE_REPEAT_LAST_N = 128
 # Live-Gesicht gegen ein sauberes Enrollment-Portrait geprüft, hier zwei
 # gleich unsaubere Live-Ansichten gegeneinander.
 VISION_UNKNOWN_CLUSTER_SIM = 0.35
+# Beim Lernen aus dem Personarium: ist ein Embedding der Person dem neuen so ähnlich
+# (Cosinus), gilt die Aufnahme als „schon gelernt" — kein weiteres Embedding. Gemessen:
+# aufeinanderfolgende Aufnahmen einer Sichtung 0,5–0,8 (Spitze 0,87), bereits gelernte
+# Embeddings untereinander höchstens 0,6.
+VISION_EMBEDDING_DUPLICATE_SIM = 0.8
 
 # Kopf-/Schulterausschnitt aus einer YOLO-Personenbox: Anteil der Boxhöhe
 # ab Oberkante. Personen ohne erkanntes Gesicht (abgewandt, Rollstuhl, zu

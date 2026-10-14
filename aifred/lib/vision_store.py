@@ -513,6 +513,18 @@ class VisionStore:
             )
             return int(cur.lastrowid or 0)
 
+    def max_embedding_similarity(self, face_id: int, embedding: np.ndarray) -> float:
+        """Größte Cosinus-Ähnlichkeit von ``embedding`` zu den Embeddings der
+        Person (0.0, wenn sie noch keine hat)."""
+        stored = [np.asarray(e["embedding"], dtype=np.float64) for e in self.list_embeddings(face_id)]
+        if not stored:
+            return 0.0
+        query = np.asarray(embedding, dtype=np.float64)
+        query = query / np.linalg.norm(query)
+        matrix = np.array(stored)
+        matrix = matrix / np.linalg.norm(matrix, axis=1, keepdims=True)
+        return float(np.max(matrix @ query))
+
     @staticmethod
     def _persist_crop(face_id: int, crop_url: str) -> str:
         """Crop eines neuen Embeddings in den dauerhaften Bereich kopieren.
