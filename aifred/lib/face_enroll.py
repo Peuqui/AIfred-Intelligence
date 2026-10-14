@@ -15,6 +15,7 @@ import asyncio
 import logging
 from typing import Any
 
+from .config import VISION_EMBEDDING_DUPLICATE_SIM
 from .vision_filters.face_detect import box_iou
 
 logger = logging.getLogger(__name__)
@@ -186,7 +187,12 @@ async def enroll_face_from_event(
     Box-Übereinstimmung zur Event-Bbox → ``add_embedding`` +
     ``set_event_face_id`` + Recognizer-Invalidierung.
 
-    Returnt ``{face_id, name, is_new, quality}``. Wirft ``ValueError``,
+    Ist der Person schon ein Embedding mit Ähnlichkeit ≥
+    ``VISION_EMBEDDING_DUPLICATE_SIM`` bekannt, wird die Aufnahme nur
+    zugeordnet, nicht neu gelernt (``embedding_skipped``).
+
+    Returnt ``{face_id, name, is_new, quality, siblings_resolved,
+    embedding_skipped, similarity}``. Wirft ``ValueError``,
     wenn Event/Frame/Gesicht nicht (mehr) auffindbar sind.
     """
     from .vision_filters.face_detect import get_default_detector
@@ -220,11 +226,16 @@ async def enroll_face_from_event(
             raise ValueError(f"face {face_id} not found")
         resolved_name = str(rec.get("name") or "")
 
-    store.add_embedding(
-        int(face_id), best.embedding,
-        quality_score=float(best.detection_score),
-        crop_url=str(cls.get("crop_url") or ""),
-    )
+    # Ein fast gleiches Embedding bringt nichts Neues und gewichtet nur diese
+    # Pose stärker — die Aufnahme wird trotzdem zugeordnet und abgehakt.
+    similarity = store.max_embedding_similarity(int(face_id), best.embedding)
+    embedding_skipped = similarity >= VISION_EMBEDDING_DUPLICATE_SIM
+    if not embedding_skipped:
+        store.add_embedding(
+            int(face_id), best.embedding,
+            quality_score=float(best.detection_score),
+            crop_url=str(cls.get("crop_url") or ""),
+        )
     store.set_event_face_id(int(event_id), int(face_id))
     # Menschliche Bestätigung festhalten: bei face_unsure-Aufnahmen ist die
     # face_id schon vorher gesetzt (Kandidat der Erkennung), „erledigt"
@@ -257,4 +268,6 @@ async def enroll_face_from_event(
         "is_new": is_new,
         "quality": float(best.detection_score),
         "siblings_resolved": siblings_resolved,
+        "embedding_skipped": embedding_skipped,
+        "similarity": similarity,
     }
