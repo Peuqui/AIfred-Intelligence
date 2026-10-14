@@ -39,8 +39,8 @@ class PersonariumMixin(rx.State, mixin=True):
     personarium_manage_face_id: int = 0
     personarium_embeddings: list[dict[str, Any]] = []
     # „Unzugeordnete Gesichter" — face_unknown/face_unsure-Events ohne
-    # Identity, dedupliziert pro Vorkommnis (cluster_id). Zum Nachtaggen
-    # + Embedding-Lernen (lib.face_enroll).
+    # Identity, eine Karte je Crop-Datei (``member_ids`` = alle Events
+    # dahinter). Zum Nachtaggen + Embedding-Lernen (lib.face_enroll).
     personarium_untagged: list[dict[str, Any]] = []
     # Mehrfachauswahl im Nachtag-Grid: event_ids der angehakten Karten,
     # plus die zweistufige Bestätigung für „alle verwerfen". Gleiche
@@ -261,26 +261,47 @@ class PersonariumMixin(rx.State, mixin=True):
             logger.warning("personarium untagged load failed: %s", e)
             self.personarium_untagged = []
             return
-        self.personarium_untagged = [
-            {
-                "id": int(r["id"]),
-                "crop_url": str(r["crop_url"]),
-                "event_type": str(r["event_type"]),
-                "matched_name": str(r.get("matched_name") or ""),
-                "source_name": str(r.get("source_name") or ""),
-                "date_display": str(r.get("date_display") or ""),
-                "time_display": str(r.get("time_display") or ""),
-            }
-            for r in rows
+        open_rows = [
+            r for r in rows
             if r.get("crop_url")
             and not r.get("untagged_dismissed")
             and not r.get("identity_confirmed")
+        ]
+        # Pro Sichtung wird EINE Crop-Datei überschrieben, jedes Event der
+        # Sichtung zeigt auf dieselbe Datei. Eine Karte je Datei (die neueste
+        # Aufnahme führt), die übrigen Events hängen als ``member_ids`` daran —
+        # Verwerfen und Zuordnen gelten für die ganze Gruppe.
+        groups: dict[str, list[dict[str, Any]]] = {}
+        for r in open_rows:
+            groups.setdefault(str(r["crop_url"]), []).append(r)
+        self.personarium_untagged = [
+            {
+                "id": int(members[0]["id"]),
+                "member_ids": [int(m["id"]) for m in members],
+                "count": len(members),
+                "crop_url": str(members[0]["crop_url"]),
+                "event_type": str(members[0]["event_type"]),
+                "matched_name": str(members[0].get("matched_name") or ""),
+                "source_name": str(members[0].get("source_name") or ""),
+                "date_display": str(members[0].get("date_display") or ""),
+                "time_display": str(members[0].get("time_display") or ""),
+            }
+            for members in groups.values()
         ]
         # Häkchen auf Karten, die inzwischen zugeordnet oder verworfen
         # wurden, würden eine Auswahl zeigen, die es nicht mehr gibt.
         alive = {e["id"] for e in self.personarium_untagged}
         self.personarium_untagged_selected = [
             eid for eid in self.personarium_untagged_selected if eid in alive
+        ]
+
+    def _untagged_group_ids(self, card_ids: list[int]) -> list[int]:
+        """Alle Event-IDs hinter den Karten ``card_ids`` (Gruppen je Crop-Datei)."""
+        wanted = {int(i) for i in card_ids}
+        return [
+            int(member)
+            for card in self.personarium_untagged if int(card["id"]) in wanted
+            for member in card["member_ids"]
         ]
 
     @rx.event
@@ -317,7 +338,7 @@ class PersonariumMixin(rx.State, mixin=True):
         Crop) — das Event bleibt in Casus/Chronik erhalten."""
         try:
             from ..lib.vision_store import VisionStore
-            VisionStore().dismiss_untagged_event(int(event_id))
+            VisionStore().dismiss_untagged_events(self._untagged_group_ids([int(event_id)]))
             self.personarium_status = "✓ Aufnahme verworfen"
         except Exception as e:  # noqa: BLE001
             logger.warning("personarium dismiss failed: %s", e)
@@ -358,7 +379,7 @@ class PersonariumMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_store import VisionStore
             n = VisionStore().dismiss_untagged_events(
-                list(self.personarium_untagged_selected)
+                self._untagged_group_ids(self.personarium_untagged_selected)
             )
             self.personarium_status = f"✓ {n} Aufnahmen verworfen"
         except Exception as e:  # noqa: BLE001
@@ -382,7 +403,7 @@ class PersonariumMixin(rx.State, mixin=True):
     def personarium_dismiss_all_untagged(self) -> None:
         """Alle gerade gelisteten Aufnahmen verwerfen."""
         self.personarium_confirm_dismiss_all = False
-        ids = [int(e["id"]) for e in self.personarium_untagged]
+        ids = self._untagged_group_ids([int(e["id"]) for e in self.personarium_untagged])
         if not ids:
             return
         try:
@@ -438,6 +459,11 @@ class PersonariumMixin(rx.State, mixin=True):
                 result = await enroll_face_from_event(
                     event_id, face_id=int(choice),
                 )
+            from ..lib.face_enroll import confirm_group_events
+            confirm_group_events(
+                [i for i in self._untagged_group_ids([event_id]) if i != event_id],
+                int(result["face_id"]),
+            )
             from ..lib.formatting import format_number
             self.personarium_status = (
                 f"✓ Gesicht als '{result['name']}' gelernt "
