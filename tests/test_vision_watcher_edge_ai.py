@@ -680,6 +680,45 @@ class TestObjectClasses:
         assert event["classification"]["detector"] == "edge_ai_unconfirmed"
         assert [call["yolo_unconfirmed"] for call in _stub_alerts["object"]] == [True]
 
+    def test_repeated_unconfirmed_alert_with_unchanged_scene_is_suppressed(
+        self, store, frames_dir, ai_client, _stub_alerts,
+    ):
+        src = "cam/edge-vehicle-repeat"
+        detector = ScriptedPersonDetector({"vehicle": 0})
+
+        async def scenario(w: VisionWatcher) -> None:
+            ai_client.state["vehicle"] = True
+            await _wait_for(lambda: _events(store, src, "vehicle"), what="erster Alarm")
+            ai_client.state["vehicle"] = False
+            await _wait_polls(ai_client, 3)
+            ai_client.state["vehicle"] = True
+            await _wait_polls(ai_client, 6)
+
+        _run_edge(store, frames_dir, src, _edge_config(), scenario, person_detector=detector)
+
+        assert len(_events(store, src, "vehicle")) == 1
+        assert len(_stub_alerts["object"]) == 1
+
+    def test_repeated_confirmed_alert_is_never_suppressed(
+        self, store, frames_dir, ai_client, _stub_alerts,
+    ):
+        src = "cam/edge-vehicle-confirmed-repeat"
+        detector = ScriptedPersonDetector({"vehicle": 1})
+
+        async def scenario(w: VisionWatcher) -> None:
+            ai_client.state["vehicle"] = True
+            await _wait_for(lambda: _events(store, src, "vehicle"), what="erster Alarm")
+            ai_client.state["vehicle"] = False
+            await _wait_polls(ai_client, 3)
+            ai_client.state["vehicle"] = True
+            await _wait_for(
+                lambda: len(_events(store, src, "vehicle")) == 2, what="zweiter Alarm",
+            )
+
+        _run_edge(store, frames_dir, src, _edge_config(), scenario, person_detector=detector)
+
+        assert len(_stub_alerts["object"]) == 2
+
     def test_the_zoom_lens_can_confirm_what_the_wide_image_misses(
         self, store, frames_dir, ai_client, _stub_alerts,
     ):

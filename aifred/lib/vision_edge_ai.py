@@ -11,16 +11,18 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import datetime
+from pathlib import Path
 from typing import TYPE_CHECKING, Any, Callable
 
 from . import vision_alerts
-from .config import EDGE_AI_CONFIRM, VISION_OVERLAY_SUFFIX_PREROLL
+from .config import EDGE_AI_CONFIRM, VISION_OVERLAY_SUFFIX_PREROLL, VISION_SAME_SCENE_MAX_HAMMING
 from .vision_burst import BurstRunner
 from .vision_detect import DetectionService
 from .vision_edge_source import EdgeAiEventSource
 from .vision_faces import FacePipeline
 from .vision_frames import LiveFrames
 from .vision_output import OutputChain
+from .vision_phash import hamming_distance, phash_bytes
 from .vision_recorder import EventRecorder
 from .vision_snap import snap_pair
 from .vision_store import VisionStore
@@ -57,6 +59,10 @@ class EdgeAiHandler:
         # Trigger kurz nacheinander überlappen im Ringpuffer, doppelt
         # gespeichert wird nichts.
         self._preroll_saved_until: dict[str, datetime] = {}
+        # pHash des Bildes, mit dem je Quelle zuletzt ein UNBESTÄTIGTER Alarm
+        # gemeldet wurde. Gleicht ein neuer unbestätigter Alarm dem Bild, ist
+        # es derselbe Fehlalarm in derselben leeren Szene.
+        self._last_unconfirmed_phash: dict[str, int] = {}
 
     async def handle(
         self,
@@ -90,7 +96,6 @@ class EdgeAiHandler:
         )
         frame_path, zoom_frame_path = pair.wide.path, pair.zoom_path
         cluster_id = self._recorder.cluster_id_for(pair.wide.output)
-        await self._persist_preroll(preroll_frames, config, cluster_id)
         timestamp = pair.wide.output.timestamp
         self._recorder.note_trigger(source_id, timestamp)
 
@@ -127,6 +132,22 @@ class EdgeAiHandler:
                 "edge-ai %s for %s not confirmed by YOLO (wide + zoom) — reported as real",
                 cls, source_id,
             )
+
+        # Nur unbestätigte Alarme mit unverändertem Bild werden unterdrückt; ein
+        # bestätigter oder vertrauter (animal) Alarm läuft immer durch.
+        if await self._is_repeated_unconfirmed_alert(
+            source_id, pair.wide.detect.image_bytes,
+            unconfirmed=not any(confirmed(c) for c in classes),
+        ):
+            logger.info(
+                "edge-ai %s for %s suppressed: unconfirmed and the scene is unchanged",
+                classes, source_id,
+            )
+            for path in (pair.wide.path, pair.zoom_path):
+                if path:
+                    Path(path).unlink(missing_ok=True)
+            return
+        await self._persist_preroll(preroll_frames, config, cluster_id)
 
         # ── person ── Gesicht ZUERST (informativere Meldung als „person").
         # Bei Burst-Quellen laufen die Personen-/Gesichts-Meldungen als BILANZ
@@ -209,6 +230,22 @@ class EdgeAiHandler:
             self._bursts.start(
                 source_id, config, client, events, cluster_id, report, is_current,
             )
+
+    async def _is_repeated_unconfirmed_alert(
+        self, source_id: str, wide_jpeg: bytes, *, unconfirmed: bool,
+    ) -> bool:
+        """Ist dies ein unbestätigter Alarm, dessen Bild dem des letzten
+        unbestätigten Alarms dieser Quelle gleicht? Ein bestätigter Alarm
+        verwirft die Referenz (die Szene hat sich verändert)."""
+        if not unconfirmed:
+            self._last_unconfirmed_phash.pop(source_id, None)
+            return False
+        current = await asyncio.to_thread(phash_bytes, wide_jpeg)
+        reference = self._last_unconfirmed_phash.get(source_id)
+        if reference is not None and hamming_distance(current, reference) <= VISION_SAME_SCENE_MAX_HAMMING:
+            return True
+        self._last_unconfirmed_phash[source_id] = current
+        return False
 
     async def _persist_preroll(
         self, frames: list["Frame"], config: WatchConfig, cluster_id: str,

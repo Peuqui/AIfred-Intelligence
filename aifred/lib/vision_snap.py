@@ -26,7 +26,7 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any, AsyncIterator, Optional
 
-from .config import VISION_PAIR_DUPLICATE_MAX_HAMMING
+from .config import VISION_SAME_SCENE_MAX_HAMMING
 from .vision_phash import hamming_distance, phash_bytes
 
 logger = logging.getLogger(__name__)
@@ -250,7 +250,7 @@ async def snap_pair(
                 phash_bytes(wide_frame.image_bytes), phash_bytes(zoom_frame.image_bytes),
             ),
         )
-        if distance <= VISION_PAIR_DUPLICATE_MAX_HAMMING:
+        if distance <= VISION_SAME_SCENE_MAX_HAMMING:
             # Tele nicht herangezoomt: dieselbe Szene noch einmal. Wie "kein
             # Tele" behandeln — die Pipeline kennt ``zoom is wide`` schon.
             zoom_frame = wide_frame
