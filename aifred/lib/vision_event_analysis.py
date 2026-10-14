@@ -233,9 +233,9 @@ def _update_event_classification(
 
 
 def _select_keyframes(
-    items: list[tuple[datetime, int, bytes, str]], max_frames: int
-) -> list[tuple[datetime, int, bytes, str]]:
-    """Wählt bis zu ``max_frames`` Keyframes: die Zeitspanne wird in
+    items: list[tuple[datetime, int, Any, str]], max_frames: int
+) -> list[tuple[datetime, int, Any, str]]:
+    """Wählt bis zu ``max_frames`` Keyframes (Zeitpunkte): die Zeitspanne wird in
     ``max_frames`` gleich große Fächer geteilt, aus jedem (nicht-leeren) Fach
     das Frame mit der größten pHash-Distanz zum zuletzt gewählten genommen.
     Regelmäßig über die Zeit verteilt UND an den Änderungspunkten. Items
@@ -246,7 +246,7 @@ def _select_keyframes(
         return items
     t0, t1 = items[0][0], items[-1][0]
     span = (t1 - t0).total_seconds() or 1.0
-    selected: list[tuple[datetime, int, bytes, str]] = []
+    selected: list[tuple[datetime, int, Any, str]] = []
     last_phash: int | None = None
     for b in range(max_frames):
         lo = t0 + timedelta(seconds=span * b / max_frames)
@@ -298,7 +298,11 @@ async def analyze_cluster_with_vlm(
     store = store or VisionStore()
     cap = max_frames or VISION_DESCRIBE_MAX_FRAMES
 
-    loaded: list[tuple[datetime, int, bytes, str]] = []
+    # Ein Zeitpunkt = ein Event mit seinem Tele-Bild (falls vorhanden) und dem
+    # Weitwinkel. Die Keyframe-Auswahl läuft über die Zeitpunkte (pHash des
+    # Weitwinkels), nicht über die Einzelbilder — sonst springt sie zwischen den
+    # Linsen, und die „Zeitfolge" besteht aus Linsenwechseln statt aus Ablauf.
+    moments: list[tuple[datetime, int, list[tuple[bytes, str]], str]] = []
     identity_names: list[str] = []
     for eid in event_ids:
         ev = store.get_event(int(eid))
@@ -317,12 +321,13 @@ async def analyze_cluster_with_vlm(
             ts = datetime.now()
         # Zoom (Subjekt-Ansicht) VOR dem Weitwinkel — wie im Einzelbild-
         # und Alert-Pfad: das Tele zeigt die Person groß genug für Details,
-        # das Weitwinkel liefert den Ablauf. Beide gehen in den Keyframe-
-        # Pool; die Auswahl deckelt VISION_DESCRIBE_MAX_FRAMES.
+        # das Weitwinkel liefert den Ablauf.
         cls = dict(ev.get("classification") or {})
-        for fp in (
-            str(cls.get("zoom_frame_path") or ""),
-            str(ev.get("frame_path") or ""),
+        images: list[tuple[bytes, str]] = []
+        moment_phash: int | None = None
+        for is_wide, fp in (
+            (False, str(cls.get("zoom_frame_path") or "")),
+            (True, str(ev.get("frame_path") or "")),
         ):
             if not fp or not Path(fp).exists():
                 continue
@@ -331,16 +336,23 @@ async def analyze_cluster_with_vlm(
                 ph = phash_bytes(data)
             except Exception:  # noqa: BLE001
                 continue
-            loaded.append((ts, ph, data, str(ev["source_id"])))
+            images.append((data, str(ev["source_id"])))
+            if is_wide or moment_phash is None:
+                moment_phash = ph
+        if moment_phash is not None:
+            moments.append((ts, moment_phash, images, str(ev["source_id"])))
 
-    if not loaded:
+    if not moments:
         raise ValueError("cluster has no readable frames on disk")
-    loaded.sort(key=lambda x: x[0])
-    keyframes = _select_keyframes(loaded, cap)
+    moments.sort(key=lambda x: x[0])
+    # Tele + Weitwinkel eines Zeitpunkts zählen beide gegen das Bildlimit.
+    images_per_moment = max(len(m[2]) for m in moments)
+    keyframes = _select_keyframes(moments, max(1, cap // images_per_moment))
 
     frames = [
         Frame(source_id=src, timestamp=ts, image_bytes=data)
-        for (ts, _ph, data, src) in keyframes
+        for (ts, _ph, images, _src) in keyframes
+        for (data, src) in images
     ]
 
     target_model = model or get_active_vlm_model()
