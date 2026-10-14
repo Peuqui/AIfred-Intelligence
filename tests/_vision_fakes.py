@@ -191,6 +191,10 @@ class FakeAiClient:
 
     async def snap(self, channel: int | None = None) -> bytes:
         self.snap_channels.append(-1 if channel is None else channel)
+        # Jede Linse zeigt eine andere Szene (Tele ≠ Weitwinkel), sonst gilt das
+        # Tele als Duplikat des Weitwinkels und bekommt kein eigenes Bild.
+        if channel:
+            return noise_jpeg(seed=1 + channel)
         return self._jpeg
 
     @property
