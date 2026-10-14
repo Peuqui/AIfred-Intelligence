@@ -194,43 +194,48 @@ async def snap_pair(
     wide_channel: int,
     face_channel: Optional[int],
 ) -> tuple[Any, Any]:
-    """Wide- und Zoom-Objektiv FRISCH und parallel snappen, mit EINEM
-    gemeinsamen Zeitstempel — so treffen beide Ansichten denselben Moment
-    (Dual-Lens). Returnt ``(wide_frame, zoom_frame)``.
+    """Wide- und Zoom-Objektiv FRISCH und parallel snappen. Jedes Bild
+    bekommt den Zeitstempel seines Eingangs bei AIfred (die Kamera liefert
+    weder EXIF noch Millisekunden, nur ein sekundengenaues HTTP-Date).
+    Returnt ``(wide_frame, zoom_frame)``.
 
     Schlägt der Wide-Snap fehl, bleibt ``fallback`` (mit Warnung) als Wide
     erhalten; ohne ``face_channel`` oder bei fehlgeschlagenem Zoom-Snap ist
     der Zoom dasselbe Objekt wie der Wide. Der Aufrufer erkennt einen
     Fehlschlag daran, dass ``wide_frame is fallback`` gilt."""
-    snaps: list[Any] = [client.snap(wide_channel)]
+
+    async def _snap_stamped(channel: int) -> tuple[bytes, datetime]:
+        jpeg = bytes(await client.snap(channel))
+        return jpeg, datetime.now()
+
+    snaps = [_snap_stamped(wide_channel)]
     if face_channel is not None:
-        snaps.append(client.snap(face_channel))
+        snaps.append(_snap_stamped(face_channel))
     key = next((k for k, c in _clients.items() if c is client), None)
     async with _in_use_guard(key):
         results = await asyncio.gather(*snaps, return_exceptions=True)
-    # Gemeinsamer Zeitstempel → beide Bilder gelten explizit als "derselbe
-    # Moment", auch in Dateinamen + Event.
-    ts = datetime.now()
 
-    def _jpeg(result: Any) -> Optional[bytes]:
+    def _stamped(
+        result: tuple[bytes, datetime] | BaseException,
+    ) -> Optional[tuple[bytes, datetime]]:
         if isinstance(result, BaseException):
             logger.warning(
                 "edge-ai snap failed for %s: %s", fallback.source_id, result,
             )
             return None
-        return bytes(result)
+        return result
 
-    wide_jpeg = _jpeg(results[0])
+    wide = _stamped(results[0])
     wide_frame = (
-        frame_from_snap(fallback.source_id, wide_jpeg, ts)
-        if wide_jpeg else fallback
+        frame_from_snap(fallback.source_id, wide[0], wide[1])
+        if wide else fallback
     )
     zoom_frame = wide_frame
     if face_channel is not None:
-        zoom_jpeg = _jpeg(results[1])
-        if zoom_jpeg:
+        zoom = _stamped(results[1])
+        if zoom:
             zoom_frame = replace(
-                frame_from_snap(fallback.source_id, zoom_jpeg, ts),
+                frame_from_snap(fallback.source_id, zoom[0], zoom[1]),
                 metadata={"kind": "rgb", "via": "snap",
                           "lens": "zoom", "face_channel": face_channel},
             )
