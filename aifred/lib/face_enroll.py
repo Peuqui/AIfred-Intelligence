@@ -157,6 +157,18 @@ async def rematch_untagged_faces() -> dict[str, Any]:
     return {"checked": len(events), "resolved": resolved, "by_name": by_name}
 
 
+def confirm_group_events(event_ids: list[int], face_id: int) -> None:
+    """Events, die hinter derselben Personarium-Karte stehen (gleiche Crop-
+    Datei), der Person zuordnen und als geklärt markieren. Es entsteht kein
+    weiteres Embedding — die Karte zeigt dasselbe Bild."""
+    from .vision_store import VisionStore
+
+    store = VisionStore()
+    for event_id in event_ids:
+        store.set_event_face_id(int(event_id), int(face_id))
+        store.confirm_event_identity(int(event_id))
+
+
 async def enroll_face_from_event(
     event_id: int,
     *,
