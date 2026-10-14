@@ -197,3 +197,22 @@ class TestEvents:
         events = store.query_events()
         assert len(events) == 1
         assert events[0]["face_id"] is None  # ON DELETE SET NULL
+
+
+class TestEmbeddingSimilarity:
+    def test_person_without_embeddings_has_zero_similarity(self, store: VisionStore):
+        face_id = store.get_or_create_face("Anna")
+        assert store.max_embedding_similarity(face_id, np.ones(8)) == 0.0
+
+    def test_returns_the_closest_stored_embedding(self, store: VisionStore):
+        face_id = store.get_or_create_face("Anna")
+        store.add_embedding(face_id, np.array([1.0, 0, 0, 0]))
+        store.add_embedding(face_id, np.array([0, 1.0, 0, 0]))
+        similarity = store.max_embedding_similarity(face_id, np.array([0.1, 1.0, 0, 0]))
+        assert similarity == pytest.approx(1.0 / np.sqrt(1.01), abs=1e-4)
+
+    def test_other_persons_embeddings_do_not_count(self, store: VisionStore):
+        anna = store.get_or_create_face("Anna")
+        bert = store.get_or_create_face("Bert")
+        store.add_embedding(bert, np.array([1.0, 0, 0, 0]))
+        assert store.max_embedding_similarity(anna, np.array([1.0, 0, 0, 0])) == 0.0

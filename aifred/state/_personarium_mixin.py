@@ -465,10 +465,17 @@ class PersonariumMixin(rx.State, mixin=True):
                 int(result["face_id"]),
             )
             from ..lib.formatting import format_number
-            self.personarium_status = (
-                f"✓ Gesicht als '{result['name']}' gelernt "
-                f"(Qualität {format_number(result['quality'], 2)})"
-            )
+            if result["embedding_skipped"]:
+                self.personarium_status = (
+                    f"ℹ️ '{result['name']}' hat schon ein fast gleiches Embedding "
+                    f"(Ähnlichkeit {format_number(result['similarity'] * 100, 0)} %) — "
+                    f"Aufnahme zugeordnet, nicht erneut gelernt"
+                )
+            else:
+                self.personarium_status = (
+                    f"✓ Gesicht als '{result['name']}' gelernt "
+                    f"(Qualität {format_number(result['quality'], 2)})"
+                )
             siblings = int(result.get("siblings_resolved") or 0)
             if siblings:
                 self.personarium_status += (
