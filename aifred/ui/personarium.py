@@ -267,6 +267,12 @@ def _untagged_card(ev: rx.Var) -> rx.Component:
             style={"font_family": "monospace"},
         ),
         rx.text(ev["source_name"], size="1", color="gray"),
+        # Mehrere Aufnahmen derselben Sichtung teilen sich diese Karte.
+        rx.cond(
+            ev["count"].to(int) > 1,
+            rx.text("×" + ev["count"].to(str), size="1", color="gray"),
+            rx.fragment(),
+        ),
         # face_unsure trägt schon einen Kandidaten-Namen — anzeigen,
         # das ist meist die richtige Antwort.
         rx.cond(
