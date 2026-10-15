@@ -141,7 +141,6 @@ def count_tokens_with_tokenizer(text: str) -> int:
         FileNotFoundError: If tokenizer.json not found in cache
         Exception: If tokenization fails
     """
-    global _tokenizer_cache
 
     cache_key = "qwen3"  # Single tokenizer for all Qwen models
 

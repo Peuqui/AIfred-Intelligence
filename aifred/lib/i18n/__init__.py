@@ -8,7 +8,6 @@ en.json, ...) — one file per language, filename = language code.
 
 import json
 from pathlib import Path
-from typing import Dict, Optional
 
 from ..prompt_loader import get_language
 

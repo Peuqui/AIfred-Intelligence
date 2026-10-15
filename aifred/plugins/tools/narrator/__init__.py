@@ -249,7 +249,7 @@ class NarratorPlugin:
                 enc = await loop.run_in_executor(None, lambda: subprocess.run(
                     ["ffmpeg", "-y", "-i", str(src),
                      "-codec:a", "libmp3lame", "-q:a", "4", str(out_path)],
-                    capture_output=True, timeout=1800,
+                    capture_output=True, timeout=1800, check=False,
                 ))
                 if enc.returncode != 0:
                     # Keep the combined WAV (result of potentially hours of

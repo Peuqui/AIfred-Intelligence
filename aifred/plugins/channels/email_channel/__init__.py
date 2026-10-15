@@ -12,7 +12,7 @@ import email.utils
 import imaplib
 import pathlib
 import re
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from ....lib.logging_utils import log_message

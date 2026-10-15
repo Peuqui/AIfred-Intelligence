@@ -99,7 +99,6 @@ def log_message(message: str, category: str = "info") -> None:
         - Auto-initializes debug log on first call
         - Thread-safe queue for UI communication
     """
-    global _console_messages, _debug_log_initialized
 
     # Auto-initialize on first call
     if not _debug_log_initialized:
@@ -235,7 +234,6 @@ CONSOLE_SEPARATOR = "─" * 20
 
 def console_separator() -> None:
     """Adds a horizontal separator line to the console"""
-    global _console_messages, _message_queue
     _console_messages.append(CONSOLE_SEPARATOR)
 
     # Write to queue (pipe for UI thread!)

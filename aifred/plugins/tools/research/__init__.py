@@ -11,7 +11,7 @@ den ``prompts/<de|en>/``-Fragmenten (granted_tools-gated). Die Pipeline
 import json
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.i18n import t

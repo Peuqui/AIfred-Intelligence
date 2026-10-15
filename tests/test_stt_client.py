@@ -1,6 +1,7 @@
 """STTClient: HTTP-Abbildung des STT-Containers, ohne echtes Netz und ohne Docker."""
 
 import json
+from typing import ClassVar
 
 import pytest
 import requests
@@ -33,7 +34,7 @@ def calls(monkeypatch):
     """Ersetzt requests.request; ``calls.answer`` ist Antwort oder Ausnahme."""
     class Recorder:
         answer: object = None
-        sent: list[tuple[str, str, dict]] = []
+        sent: ClassVar[list[tuple[str, str, dict]]] = []
 
     recorder = Recorder()
     recorder.sent = []

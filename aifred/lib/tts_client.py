@@ -534,7 +534,7 @@ def _systemctl_start() -> tuple[int, str]:
             ["systemctl", "start", unit],
             capture_output=True,
             text=True,
-            timeout=TTS_SUITE_SYSTEMCTL_TIMEOUT_S,
+            timeout=TTS_SUITE_SYSTEMCTL_TIMEOUT_S, check=False,
         )
     except subprocess.TimeoutExpired as error:
         raise TTSSuiteStartFailed(

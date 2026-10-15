@@ -360,7 +360,7 @@ def _kill_tree(pid: int, grace_s: int = 25) -> None:
     def descendants(p: int) -> list[int]:
         try:
             out = subprocess.run(["ps", "-o", "pid=", "--ppid", str(p)],
-                                 capture_output=True, text=True, timeout=10).stdout
+                                 capture_output=True, text=True, timeout=10, check=False).stdout
         except (subprocess.SubprocessError, OSError):
             return []
         pids = []

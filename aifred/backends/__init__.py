@@ -4,7 +4,7 @@ LLM Backend Factory
 Easy switching between different LLM backends (Ollama, vLLM, llama.cpp, etc.)
 """
 
-from typing import Optional
+from typing import ClassVar
 
 from ..lib.config import BACKEND_URLS, CLOUD_API_PROVIDERS
 from .base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
@@ -24,7 +24,7 @@ class BackendFactory:
         backend = BackendFactory.create("llamacpp")
     """
 
-    _backends = {
+    _backends: ClassVar[dict[str, type[LLMBackend]]] = {
         "ollama": OllamaBackend,
         "vllm": vLLMBackend,
         "llamacpp": LlamaCppBackend,   # llama.cpp via llama-swap (GGUF, direct)

@@ -25,7 +25,7 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
+from typing import Any, ClassVar
 
 from ....lib.plugin_base import BaseChannel
 from ._shared import _devices, _fmt_mib, _pause_acks
@@ -44,7 +44,7 @@ class WsBridgeMixin(BaseChannel):
     # unbekannte Felder, falsche Typen, fehlende Pflicht-Felder → raise.
     # Protokoll v2: jeder Typ trägt start_tone (Beginn-Ton am Puck); danach folgt
     # IMMER audio_start, 0..n Chunks und audio_end(end_tone).
-    _AUDIO_TYPE_SCHEMA: dict[str, set[str]] = {
+    _AUDIO_TYPE_SCHEMA: ClassVar[dict[str, set[str]]] = {
         "music":        {"start_tone"},   # Stereo-VU am Puck
         "speech":       {"start_tone"},   # Voice-VU (Hoerbuch / Podcast / Lesung)
         "tts":          {"start_tone"},   # Voice-VU (XTTS-Generator-Output)

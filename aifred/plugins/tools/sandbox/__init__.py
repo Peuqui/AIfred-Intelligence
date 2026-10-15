@@ -10,7 +10,7 @@ Maschinerie (Container-Ausführung, Headless-Chrome) bleibt lib:
 
 import json
 from dataclasses import dataclass
-from typing import Any, Optional
+from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.i18n import t

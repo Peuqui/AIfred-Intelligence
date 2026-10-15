@@ -1477,7 +1477,7 @@ class CalibrationMixin(rx.State, mixin=True):
             try:
                 result = subprocess.run(
                     ["fuser", "-k", f"{LLAMACPP_CALIBRATION_PORT}/tcp"],
-                    capture_output=True, timeout=5,
+                    capture_output=True, timeout=5, check=False,
                 )
                 if result.returncode == 0:
                     self._cal_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")  # type: ignore[attr-defined]

@@ -4,7 +4,7 @@ Blase, Abbruch, Fehler als Meldung, und die nächste Antwort wartet auf die Lesu
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any
+from typing import Any, ClassVar
 
 import pytest
 from fake_tts_service import (
@@ -38,7 +38,7 @@ class _Reply:
     tts_autoplay = True
     ui_language = "de"
     _last_detected_language = "de"
-    tts_agents: dict[str, Any] = {}
+    tts_agents: ClassVar[dict[str, Any]] = {}
     media_audio_url = ""
     media_paused_for_tts = False
     _UI_YIELD_INTERVAL = 0.05

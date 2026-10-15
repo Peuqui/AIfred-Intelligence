@@ -602,7 +602,7 @@ def _fit_params_per_gpu(
     """
     cmd = _build_fit_params_cmd(gguf_path, context, ngl, gpu_flags, fit_params_bin, kv_quant, mmproj_path)
     try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=30, check=False)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return {}
 

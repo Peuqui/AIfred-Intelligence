@@ -21,7 +21,7 @@ import json
 import re
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, replace
-from typing import Any, Optional
+from typing import Any
 
 from ....backends.base import LLMOptions
 from ....lib.agent_memory import prepare_agent_toolkit

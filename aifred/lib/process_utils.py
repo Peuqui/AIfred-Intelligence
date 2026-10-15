@@ -44,12 +44,12 @@ async def stop_process(
         result = subprocess.run(
             ["pgrep", "-f", pattern],
             capture_output=True,
-            text=True
+            text=True, check=False
         )
 
         if result.returncode == 0:
             # Process is running - kill it
-            subprocess.run(["pkill", "-f", pattern])
+            subprocess.run(["pkill", "-f", pattern], check=False)
             log_message(f"Stopped process: {pattern}")
 
             if wait_for_vram:
@@ -135,7 +135,7 @@ def _detect_tts_gpu_uuid() -> str:
             ],
             capture_output=True,
             text=True,
-            timeout=5,
+            timeout=5, check=False,
         )
         if result.returncode != 0:
             return ""
@@ -194,7 +194,7 @@ def docker_compose_action(
             cmd,
             capture_output=True,
             text=True,
-            cwd=str(compose_path.parent),
+            cwd=str(compose_path.parent), check=False,
         )
         if result.returncode != 0:
             return False, f"docker compose {action} failed: {result.stderr}"

@@ -183,7 +183,7 @@ def reload_all() -> None:
     gets registered on the next call to register_channel_workers, leading
     to duplicate IMAP polls / Discord reconnects.
     """
-    global _tools, _channels, _channels_discovered
+    global _tools, _channels_discovered
 
     # 1. Stop channel listeners. Iterate over the channels we currently
     #    know about (not every hub worker — the scheduler must keep going).

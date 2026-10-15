@@ -1,5 +1,7 @@
 """Stimmen der Agenten je Engine: Auflösung (Einstellung, Agent, aifred) und das Dict für SpeakRequest.voices."""
 
+from typing import ClassVar
+
 import pytest
 
 import aifred.lib.settings as settings_module
@@ -57,7 +59,7 @@ class TestResolveVoice:
 
 
 class TestVoicesFor:
-    LIST = [EngineRef("xtts", "sentence", "Aragon"), EngineRef("edge", "sentence", None), EngineRef("piper", "whole", None)]
+    LIST: ClassVar[list[EngineRef]] = [EngineRef("xtts", "sentence", "Aragon"), EngineRef("edge", "sentence", None), EngineRef("piper", "whole", None)]
 
     def test_voice_speed_and_pitch_per_engine_of_the_list(self, voices):
         voices["user"] = {"xtts": {"aifred": {"voice": "AIfred", "speed": "1.1"}}, "edge": {"aifred": {"voice": "Katja"}}}

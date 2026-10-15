@@ -2,7 +2,7 @@
 embedder only when the next model needs its card."""
 
 import asyncio
-from typing import Any
+from typing import Any, ClassVar
 
 import httpx
 import pytest
@@ -58,9 +58,9 @@ class _Client:
     """Stands in for httpx.AsyncClient: records unloads and the loads through
     /upstream/<model>/health. What /running lists is ``running`` (see ``_run``)."""
 
-    running: list[str] = []
-    unloaded: list[str] = []
-    loaded: list[str] = []
+    running: ClassVar[list[str]] = []
+    unloaded: ClassVar[list[str]] = []
+    loaded: ClassVar[list[str]] = []
     load_answer = _Response({})
 
     def __init__(self, **_: Any) -> None:

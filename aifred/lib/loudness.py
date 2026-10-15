@@ -182,7 +182,7 @@ def _measure_file_sync(file_path: Path) -> LoudnessInfo | None:
             text=True,
             encoding="utf-8",
             errors="replace",
-            timeout=ANALYSIS_TIMEOUT_SEC,
+            timeout=ANALYSIS_TIMEOUT_SEC, check=False,
         )
     except subprocess.TimeoutExpired:
         log_message(

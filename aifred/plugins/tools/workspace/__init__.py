@@ -10,7 +10,7 @@ import json
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from ....lib import file_manager as fm
 from ....lib.bubble import KIND_DOCUMENT_PAGES, BubbleArtifact

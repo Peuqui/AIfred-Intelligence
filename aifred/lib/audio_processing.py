@@ -180,7 +180,7 @@ def _ffmpeg_concat(file_paths: list[str], output_path: str) -> bool:
     filter_str = f"{filter_inputs}concat=n={len(file_paths)}:v=0:a=1"
 
     cmd = ["ffmpeg", "-y", *input_args, "-filter_complex", filter_str, output_path]
-    result = subprocess.run(cmd, capture_output=True, timeout=None)
+    result = subprocess.run(cmd, capture_output=True, timeout=None, check=False)
     return result.returncode == 0 and os.path.exists(output_path)
 
 
@@ -1137,7 +1137,7 @@ def get_audio_duration(audio_path: str) -> float:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())

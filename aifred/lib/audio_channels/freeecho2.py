@@ -17,7 +17,7 @@ import asyncio
 import functools
 import logging
 from collections.abc import Callable, Coroutine
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 from ..logging_utils import log_message
 from ..loudness import build_music_filter_chain
@@ -66,10 +66,7 @@ def _bridge() -> Any:
         return None
 
 
-_F = TypeVar("_F", bound=Callable[..., Coroutine[Any, Any, Any]])
-
-
-def _on_ws_loop[_F: Callable[..., Coroutine[Any, Any, Any]]](method: _F) -> _F:
+def _on_ws_loop[F: Callable[..., Coroutine[Any, Any, Any]]](method: F) -> F:
     """Public-Methode auf dem WebSocket-Server-Loop ausführen.
 
     Browser-/Scheduler-initiierte Audio-Befehle (play, pause, …) laufen im

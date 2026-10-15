@@ -11,7 +11,7 @@ import asyncio
 import json
 import pathlib
 import threading
-from datetime import UTC, datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING
 
 from ....lib.credential_broker import broker

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import time
 from datetime import datetime, timedelta
 
@@ -10,7 +11,6 @@ import pytest
 
 from aifred.lib.frame_sources import Frame
 from aifred.lib.vision_frames import LiveFrames
-import itertools
 
 T0 = datetime(2026, 1, 1, 12, 0, 0)
 
