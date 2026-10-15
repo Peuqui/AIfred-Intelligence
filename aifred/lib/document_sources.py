@@ -9,8 +9,9 @@ a disabled plugin simply offers no source. Folders are addressed by id (""
 """
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from typing import AsyncIterator, Protocol, runtime_checkable
+from typing import Protocol, runtime_checkable
 
 
 class DocumentSourceError(RuntimeError):

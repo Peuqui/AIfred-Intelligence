@@ -14,7 +14,7 @@ import asyncio
 import json
 import re
 from dataclasses import dataclass, field
-from typing import Any, List
+from typing import Any
 
 import reflex as rx
 
@@ -88,7 +88,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
     _tts_streaming_active: bool = False  # True from the start of a reply's reading until its finalize is done
     _tts_finalize_spawned: bool = False  # background finalize already started for this init
     _tts_streaming_agent: str = "aifred"  # Current agent for voice selection (aifred/sokrates/salomo)
-    _pending_audio_urls: List[str] = []  # Audio URLs collected during streaming, for message assignment
+    _pending_audio_urls: list[str] = []  # Audio URLs collected during streaming, for message assignment
 
     # TTS Regeneration
     tts_regenerating: bool = False  # True while TTS regeneration is in progress (for spinner)

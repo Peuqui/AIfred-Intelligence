@@ -384,7 +384,7 @@ async def schedule_supervisor() -> None:
             logger.warning("schedule supervisor error: %s", e)
 
 
-_supervisor_task: "asyncio.Task[None] | None" = None
+_supervisor_task: asyncio.Task[None] | None = None
 
 
 def ensure_schedule_supervisor() -> None:

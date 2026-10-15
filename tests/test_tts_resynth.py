@@ -15,7 +15,7 @@ from fake_tts_service import (
     summary_frame,
 )
 
-import aifred.lib.audio_processing as audio_processing
+from aifred.lib import audio_processing
 from aifred.lib.tts_client import NoEngineAvailable
 from aifred.state._tts_streaming_mixin import TTSStreamingMixin
 

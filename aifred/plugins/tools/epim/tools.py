@@ -10,7 +10,7 @@ Provides 5 tools for full CRUD on EPIM entities:
 
 import json
 import logging
-from typing import Any, Optional
+from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
@@ -117,10 +117,10 @@ def get_epim_tools(source: str = "browser") -> list[Tool]:
     # ----------------------------------------------------------
     async def _epim_search(
         entity_type: str,
-        query: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        completed: Optional[bool] = None,
+        query: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
+        completed: bool | None = None,
         limit: int = 20,
     ) -> str:
         """Search EPIM database."""
@@ -194,7 +194,7 @@ def get_epim_tools(source: str = "browser") -> list[Tool]:
                 "Use: task, contact, note (todos already include their text in epim_search)"
             })
 
-        result: Optional[dict]
+        result: dict | None
         if entity == "task":
             result = db.get_task(entity_id)
             if result is not None:

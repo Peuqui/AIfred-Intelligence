@@ -5,12 +5,13 @@ Easy switching between different LLM backends (Ollama, vLLM, llama.cpp, etc.)
 """
 
 from typing import Optional
+
+from ..lib.config import BACKEND_URLS, CLOUD_API_PROVIDERS
 from .base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
+from .cloud_api import CloudAPIBackend, get_cloud_api_key, is_cloud_api_configured
+from .llamacpp import LlamaCppBackend
 from .ollama import OllamaBackend
 from .vllm import vLLMBackend
-from .llamacpp import LlamaCppBackend
-from .cloud_api import CloudAPIBackend, get_cloud_api_key, is_cloud_api_configured
-from ..lib.config import BACKEND_URLS, CLOUD_API_PROVIDERS
 
 
 class BackendFactory:
@@ -34,9 +35,9 @@ class BackendFactory:
     def create(
         cls,
         backend_type: str,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
-        provider: Optional[str] = None
+        base_url: str | None = None,
+        api_key: str | None = None,
+        provider: str | None = None
     ) -> LLMBackend:
         """
         Create a backend instance
@@ -109,14 +110,14 @@ class BackendFactory:
 
 __all__ = [
     "BackendFactory",
+    "CloudAPIBackend",
     "LLMBackend",
     "LLMMessage",
     "LLMOptions",
     "LLMResponse",
-    "OllamaBackend",
-    "vLLMBackend",
     "LlamaCppBackend",
-    "CloudAPIBackend",
+    "OllamaBackend",
     "get_cloud_api_key",
     "is_cloud_api_configured",
+    "vLLMBackend",
 ]

@@ -6,7 +6,11 @@ scheduler announcement landed in the chat's session instead)."""
 
 from types import SimpleNamespace
 
-from aifred.lib.routing_table import REPLY_TO_MESSAGE_KEY, RoutingTable, message_route_key
+from aifred.lib.routing_table import (
+    REPLY_TO_MESSAGE_KEY,
+    RoutingTable,
+    message_route_key,
+)
 
 
 def test_sent_messages_route_to_their_session(tmp_path) -> None:

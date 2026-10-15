@@ -9,9 +9,13 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from ....lib.function_calling import Tool
+from ....lib.plugin_base import (
+    CredentialField,
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
-from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description, load_tool_parameters
-
 
 # DeepL supported languages (subset of most common ones for description)
 DEEPL_LANGUAGES: dict[str, str] = {
@@ -154,7 +158,7 @@ def _protect_code_blocks(text: str) -> tuple[str, list[str]]:
     return "\n".join(out), blocks
 
 
-def _validate_request(target_lang: str, formality: str) -> tuple[str, str, str, "str | None"]:
+def _validate_request(target_lang: str, formality: str) -> tuple[str, str, str, str | None]:
     """Gemeinsame Request-Validierung für translate UND translate_file (SSOT):
     API-Key, Zielsprache, Formality.
 
@@ -204,7 +208,7 @@ def _restore_code_blocks(text: str, blocks: list[str]) -> tuple[str, int]:
 
 # Chunking lebt in lib/text_chunking.py (SSOT) — der narrator chunkt
 # mit derselben Funktion, nur mit eigenem Limit.
-from ....lib.text_chunking import split_paragraph_chunks as _split_chunks  # noqa: E402
+from ....lib.text_chunking import split_paragraph_chunks as _split_chunks
 
 
 async def _deepl_request(
@@ -283,6 +287,7 @@ class TranslatorPlugin:
         ) -> str:
             """Translate text using the DeepL API."""
             import aiohttp
+
             from ....lib.logging_utils import log_message
 
             api_key, target_lang, formality, err = _validate_request(target_lang, formality)
@@ -323,6 +328,7 @@ class TranslatorPlugin:
         ) -> str:
             """Translate a document in place — content never enters the LLM."""
             import aiohttp
+
             from ....lib import file_manager as fm
             from ....lib.logging_utils import log_message
 
@@ -432,7 +438,7 @@ class TranslatorPlugin:
             ),
         ]
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)

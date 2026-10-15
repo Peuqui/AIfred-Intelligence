@@ -76,10 +76,8 @@ class UIConfigMixin(rx.State, mixin=True):
                 return  # Empty input, ignore
             num_value = int(clean_value)
             min_value = 1024 if agent == "vision" else 1  # Vision minimum 1K
-            if num_value < min_value:
-                num_value = min_value
-            if num_value > NUM_CTX_MANUAL_MAX:
-                num_value = NUM_CTX_MANUAL_MAX
+            num_value = max(num_value, min_value)
+            num_value = min(num_value, NUM_CTX_MANUAL_MAX)
             set_agent_setting(self, agent, "num_ctx_manual", num_value)
             from ..lib.agent_config import get_agent_config
             cfg = get_agent_config(agent)

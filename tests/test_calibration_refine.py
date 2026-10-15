@@ -16,9 +16,7 @@ import asyncio
 
 import pytest
 
-import aifred.lib.calibration.ctx_search as ctx_search
-import aifred.lib.calibration.fit_math as fit_math
-import aifred.lib.calibration.split_refine as split_refine
+from aifred.lib.calibration import ctx_search, fit_math, split_refine
 from aifred.lib.calibration.ctx_search import (
     _binary_search_fitting_ctx,
     _CtxSearchResult,

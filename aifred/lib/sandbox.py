@@ -12,24 +12,23 @@ session-scoped cleanup (like images in data/upload/images/{session_id}/).
 
 import asyncio
 import os
-import shutil
 import re
+import shutil
 import uuid
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import AsyncIterator, Optional
 
 from .config import (
     DOCUMENTS_DIR,
+    SANDBOX_MATH_THREADS,
     SANDBOX_MAX_FILE_SIZE_MB,
     SANDBOX_MAX_OUTPUT_BYTES,
     SANDBOX_MAX_PROCESSES,
-    SANDBOX_MATH_THREADS,
     SANDBOX_MAX_RAM_MB,
     SANDBOX_TIMEOUT_SECONDS,
     SANDBOX_WORK_DIR,
 )
-
 from .logging_utils import log_message
 from .session_storage import SESSION_ID_RE
 
@@ -74,7 +73,7 @@ def _build_wrapper_script(code: str, work_dir: Path) -> str:
     return "\n".join(parts)
 
 
-def _safe_session_subdir(session_id: str) -> Optional[Path]:
+def _safe_session_subdir(session_id: str) -> Path | None:
     """Return the per-session SANDBOX_OUTPUT_DIR subpath if the id is safe.
 
     Returns None when ``session_id`` is not a 32-hex string or, after
@@ -129,14 +128,14 @@ def output_filename(stem: str, data: bytes, suffix: str) -> str:
     return f"{clean}-{content_hash(data)}{suffix}"
 
 
-def sandbox_output_hash(url: str) -> Optional[str]:
+def sandbox_output_hash(url: str) -> str | None:
     """The content hash in a sandbox output URL's file name, or None when the
     URL is no sandbox output file."""
     match = SANDBOX_OUTPUT_NAME_RE.match(url.rsplit("/", 1)[-1])
     return match.group(1) if match and "/_upload/sandbox_output/" in url else None
 
 
-def sandbox_output_path(url: str) -> Optional[Path]:
+def sandbox_output_path(url: str) -> Path | None:
     """The file behind a sandbox output URL
     (``[BACKEND_URL]/_upload/sandbox_output/<session>/<name>``), or None when
     the URL is not one, the session id is unsafe or the file is gone."""
@@ -151,7 +150,7 @@ def sandbox_output_path(url: str) -> Optional[Path]:
     return candidate if candidate.is_file() else None
 
 
-def documents_html_path(url: str) -> Optional[Path]:
+def documents_html_path(url: str) -> Path | None:
     """The HTML file behind a documents URL (``/_upload/documents/<path>.html``
     or bare ``documents/<path>.html``, with or without scheme and host), or
     None when the URL is none, escapes the documents root or the file is gone.

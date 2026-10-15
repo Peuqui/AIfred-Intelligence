@@ -8,9 +8,9 @@ from __future__ import annotations
 
 import asyncio
 
-import aifred.backends.cloud_api as cloud_api
-import aifred.lib.agent_config as agent_config
-import aifred.lib.calibration.ai_agent as ai_agent
+from aifred.backends import cloud_api
+from aifred.lib import agent_config
+from aifred.lib.calibration import ai_agent
 
 
 def _drain(gen) -> list[str]:

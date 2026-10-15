@@ -5,7 +5,8 @@ Provides async chat completions (streaming and non-streaming)
 with proper integration into the existing Backend system.
 """
 
-from typing import TYPE_CHECKING, Dict, List, Optional, AsyncIterator, Union, Any, cast
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any, Union, cast
 
 from ..backends import BackendFactory
 from ..backends.base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
     from ..state import AIState
 
 # Type alias for messages: can be Dict[str, str] or LLMMessage
-MessageType = Union[Dict[str, Any], LLMMessage]
+MessageType = Union[dict[str, Any], LLMMessage]
 
 
 def build_llm_options(state: "AIState | None", agent: str, temperature: float, num_ctx: int) -> LLMOptions:
@@ -82,8 +83,8 @@ class LLMClient:
     def __init__(
         self,
         backend_type: str = "ollama",
-        base_url: Optional[str] = None,
-        provider: Optional[str] = None
+        base_url: str | None = None,
+        provider: str | None = None
     ):
         """
         Initialize LLM client
@@ -110,15 +111,15 @@ class LLMClient:
         return self._backend
 
     @staticmethod
-    def _prepare_messages(messages: List[MessageType]) -> List[LLMMessage]:
+    def _prepare_messages(messages: list[MessageType]) -> list[LLMMessage]:
         """Convert list of dicts to LLMMessage objects if needed."""
         if messages and isinstance(messages[0], dict):
-            dict_messages = cast(List[Dict[str, Any]], messages)
+            dict_messages = cast(list[dict[str, Any]], messages)
             return [LLMMessage(role=m["role"], content=m["content"]) for m in dict_messages]
-        return cast(List[LLMMessage], messages)
+        return cast(list[LLMMessage], messages)
 
     @staticmethod
-    def _prepare_options(options: Optional[Union[Dict[str, Any], LLMOptions]]) -> LLMOptions:
+    def _prepare_options(options: dict[str, Any] | LLMOptions | None) -> LLMOptions:
         """Convert dict to LLMOptions if needed."""
         if options is None:
             return LLMOptions()
@@ -152,8 +153,8 @@ class LLMClient:
     async def chat(
         self,
         model: str,
-        messages: List[MessageType],
-        options: Optional[Union[Dict[str, Any], LLMOptions]] = None
+        messages: list[MessageType],
+        options: dict[str, Any] | LLMOptions | None = None
     ) -> LLMResponse:
         """
         Async non-streaming chat completion
@@ -177,10 +178,10 @@ class LLMClient:
     async def chat_stream(
         self,
         model: str,
-        messages: List[MessageType],
-        options: Optional[Union[Dict[str, Any], LLMOptions]] = None,
+        messages: list[MessageType],
+        options: dict[str, Any] | LLMOptions | None = None,
         toolkit: Any = None,
-    ) -> AsyncIterator[Dict[str, Any]]:
+    ) -> AsyncIterator[dict[str, Any]]:
         """
         Async streaming chat completion
 

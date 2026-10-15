@@ -6,19 +6,16 @@ including backend restart and vLLM restart.
 
 from __future__ import annotations
 
-from ..lib.config import LLAMASWAP_BACKENDS
-
 import asyncio
 import re
 from collections.abc import AsyncGenerator
+from datetime import datetime
 from pathlib import Path
 from typing import Any, TypedDict
 
 import reflex as rx
 
-from datetime import datetime
-
-from ..lib.config import DEBUG_MESSAGES_MAX
+from ..lib.config import DEBUG_MESSAGES_MAX, LLAMASWAP_BACKENDS
 from ..lib.logging_utils import CONSOLE_SEPARATOR, log_message
 
 # Meldungs-Puffer des Kalibrier-Background-Tasks. Der Wrapper
@@ -264,8 +261,9 @@ class CalibrationMixin(rx.State, mixin=True):
         # Absoluter Import statt ``..lib.credential_broker`` — Reflex'
         # deps-Introspection scheitert sonst mit
         # ``No module named 'lib.credential_broker'``.
-        from aifred.lib.credential_broker import broker
         import os
+
+        from aifred.lib.credential_broker import broker
         return bool(broker.get("cloud_qwen", "api_key")) or bool(os.environ.get("DASHSCOPE_API_KEY"))
 
     # ------------------------------------------------------------------
@@ -291,9 +289,8 @@ class CalibrationMixin(rx.State, mixin=True):
             return []
         from aifred.lib import sidechannel_vram_cache
         from aifred.lib.i18n import t as _t
-        from aifred.lib.vision_routing import vlm_calibration_choices
-
         from aifred.lib.operating_points import is_vllm_calibrated
+        from aifred.lib.vision_routing import vlm_calibration_choices
 
         engines = _calibration_engine_keys()
         model_id = self.agent_tuning["aifred"].model_id or ""  # type: ignore[attr-defined]
@@ -763,6 +760,7 @@ class CalibrationMixin(rx.State, mixin=True):
             _vllm_cal_target = None
             if self.backend_type == "vllm":  # type: ignore[attr-defined]
                 from pathlib import Path as _Path
+
                 from ..lib.calibration.llamaswap_io import parse_llamaswap_config
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
                 _op_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
@@ -1081,8 +1079,8 @@ class CalibrationMixin(rx.State, mixin=True):
         try:
             from ..backends import BackendFactory
             from ..lib.formatting import format_number
-            from ..lib.model_vram_cache import add_ollama_calibration
             from ..lib.gpu_utils import get_gpu_model_name
+            from ..lib.model_vram_cache import add_ollama_calibration
 
             backend = BackendFactory.create(
                 self.backend_type,  # type: ignore[attr-defined]
@@ -1269,16 +1267,16 @@ class CalibrationMixin(rx.State, mixin=True):
         vlm_label: str,
         vlm_u: str,
         vlm_mb: int,
-        tts_uuid: "str | None",
+        tts_uuid: str | None,
         tts_reserve_mb: int,
-        tts_backend: "str | None",
-        gguf_path: "Path",
+        tts_backend: str | None,
+        gguf_path: Path,
         full_cmd: str,
-        speed_split: "tuple[float, ...]",
+        speed_split: tuple[float, ...],
         speed_ctx: int,
         speed_kv: str,
-        env: "dict[str, str] | None",
-        known_thinking: "bool | None",
+        env: dict[str, str] | None,
+        known_thinking: bool | None,
     ):
         """Re-project a VLM (or VLM×TTS) variant onto the fewer-GPU base-speed
         subset — the Speed flavour of the VLM variant.
@@ -1292,10 +1290,10 @@ class CalibrationMixin(rx.State, mixin=True):
         ``<base>-vlm-<key>-speed``; set → ``<base>-tts-<engine>-vlm-<key>-speed``.
         """
         from ..lib.calibration import (
-            calibrate_tts_variant_from_base,
             add_llamaswap_vlm_variant,
+            calibrate_tts_variant_from_base,
         )
-        from ..lib.config import LLAMASWAP_CONFIG_PATH, LLAMACPP_CALIBRATION_PORT
+        from ..lib.config import LLAMACPP_CALIBRATION_PORT, LLAMASWAP_CONFIG_PATH
         from ..lib.formatting import format_number
 
         combo = f" × {tts_backend}" if tts_backend else ""
@@ -1449,13 +1447,14 @@ class CalibrationMixin(rx.State, mixin=True):
         6. Test thinking capability
         """
         import subprocess
-        from ..lib.formatting import format_number
+
         from ..lib.calibration import (
+            add_llamaswap_speed_variant,
             update_llamaswap_context,
             update_llamaswap_ngl,
-            add_llamaswap_speed_variant,
         )
         from ..lib.config import LLAMASWAP_CONFIG_PATH, MIN_USEFUL_CONTEXT_TOKENS
+        from ..lib.formatting import format_number
 
         llama_swap_stopped = False
 
@@ -1492,6 +1491,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # reload the chosen VLM on demand.
             try:
                 import httpx
+
                 from ..lib.config import resolve_vlm_host
                 _ollama_host = resolve_vlm_host()
                 with httpx.Client(timeout=10.0) as _c:
@@ -1603,9 +1603,9 @@ class CalibrationMixin(rx.State, mixin=True):
             # reserve from ``vision_mode``/``vlm.model`` — what's not
             # ticked doesn't get calibrated. Imports stay here so the
             # downstream loops can still resolve per-VLM reserves.
-            from ..lib.vlm_stress_prewarm import resolve_vlm_reserve
             from ..lib.config import VLM_NUM_CTX
             from ..lib.vision_routing import vlm_calibration_choices
+            from ..lib.vlm_stress_prewarm import resolve_vlm_reserve
             vlm_choices = vlm_calibration_choices()
 
             # Step 1c: Pre-burn-in for any TTS engine or VLM model that
@@ -1718,8 +1718,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
             # VLM burn-ins for missing cache entries
             if _needed_vlms:
-                from ..lib.vlm_stress_prewarm import stress_prewarm_vlm
                 from ..lib.vision_gpu_select import pick_vlm_gpu
+                from ..lib.vlm_stress_prewarm import stress_prewarm_vlm
                 missing_vlms = [c for c in _needed_vlms
                                 if vlm_vram_cache.get(c["model_id"], VLM_NUM_CTX) is None]
                 if missing_vlms:
@@ -2079,7 +2079,10 @@ class CalibrationMixin(rx.State, mixin=True):
             #    handled in Step 5c.
             if True:
                 from ..lib.calibration import add_llamaswap_tts_variant
-                from ..lib.tts_service import engine_label_short, installed_gpu_engine_keys
+                from ..lib.tts_service import (
+                    engine_label_short,
+                    installed_gpu_engine_keys,
+                )
 
                 for tts_backend in installed_gpu_engine_keys():
                     tts_label = engine_label_short(tts_backend)
@@ -2106,8 +2109,8 @@ class CalibrationMixin(rx.State, mixin=True):
                     # whose GPU set is disjoint from the TTS GPU — that way
                     # the resolver can mirror the toggle state at runtime
                     # without re-calibrating.
-                    from ..lib.calibration.gpu import enumerate_gpus
                     from ..lib.calibration import llamaswap_io as _io
+                    from ..lib.calibration.gpu import enumerate_gpus
                     from ..lib.process_utils import get_tts_gpu_uuid
 
                     gpus = enumerate_gpus()
@@ -2228,11 +2231,13 @@ class CalibrationMixin(rx.State, mixin=True):
                             calibrate_tts_variant_from_base,
                             parse_llamaswap_config,
                         )
-                        from ..lib.process_utils import get_tts_gpu_uuid
                         from ..lib.calibration.gpu import (
                             cuda_visible_devices as _cvd,
+                        )
+                        from ..lib.calibration.gpu import (
                             enumerate_gpus as _eg,
                         )
+                        from ..lib.process_utils import get_tts_gpu_uuid
                         _cfg_full = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
                         _base_info = _cfg_full.get(calibration_model_id, {})
                         _full_cmd = str(_base_info.get("full_cmd", ""))
@@ -2664,16 +2669,18 @@ class CalibrationMixin(rx.State, mixin=True):
             )
             if _needs_vlm_setup:
                 from ..lib.calibration import (
+                    add_llamaswap_vlm_variant,
                     calibrate_tts_variant_from_base,
                     parse_llamaswap_config,
-                    add_llamaswap_vlm_variant,
+                    parse_tensor_split,
                     remove_llamaswap_vlm_variant,
                 )
                 from ..lib.calibration.gpu import (
                     cuda_visible_devices as _vlm_cvd,
+                )
+                from ..lib.calibration.gpu import (
                     enumerate_gpus as _vlm_eg,
                 )
-                from ..lib.calibration import parse_tensor_split
                 from ..lib.model_vram_cache import (
                     get_llamacpp_remaining_free_by_uuid as _get_remaining,
                 )
@@ -3348,9 +3355,9 @@ class CalibrationMixin(rx.State, mixin=True):
 
         # model_id is always base ID (SSOT — no suffix stripping needed)
         if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
-            from ..lib.model_vram_cache import get_llamacpp_calibration
             from ..lib.calibration import parse_llamaswap_config
             from ..lib.config import LLAMASWAP_CONFIG_PATH
+            from ..lib.model_vram_cache import get_llamacpp_calibration
             # YAML is the source of truth — that's the ctx the server
             # actually starts with. Cache may be stale if YAML was edited
             # manually or by a partial calibration run.
@@ -3409,11 +3416,11 @@ class CalibrationMixin(rx.State, mixin=True):
 
         Returns total GPU count from tensor-split (0 if not found).
         """
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.calibration import (
             parse_llamaswap_config,
             parse_tensor_split,
         )
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
 
         models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         model_info = models.get(model_id)
@@ -3446,11 +3453,11 @@ class CalibrationMixin(rx.State, mixin=True):
         so the count reads as e.g. "4/5 GPUs" — the speed entry lists only its
         active GPUs, which would otherwise show a misleading "4/4".
         """
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.calibration import (
             parse_llamaswap_config,
             parse_tensor_split,
         )
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
 
         models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         speed_info = models.get(f"{model_id}-speed")
@@ -3476,8 +3483,9 @@ class CalibrationMixin(rx.State, mixin=True):
 
     async def restart_backend(self):
         """Restart current LLM backend service and reload model list"""
-        import httpx
         import asyncio
+
+        import httpx
 
         from ..lib.formatting import format_number
         from ..lib.model_manager import sort_models_grouped

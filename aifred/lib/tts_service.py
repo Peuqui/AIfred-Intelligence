@@ -37,7 +37,11 @@ from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
-from .config import TTS_BROWSER_DEFAULT_UNIT, TTS_BROWSER_ENGINE_KEY, TTS_SUITE_CACHE_TTL_S
+from .config import (
+    TTS_BROWSER_DEFAULT_UNIT,
+    TTS_BROWSER_ENGINE_KEY,
+    TTS_SUITE_CACHE_TTL_S,
+)
 from .i18n import TranslationManager, t
 from .logging_utils import log_message
 from .settings import persisted_settings

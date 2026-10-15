@@ -7,17 +7,19 @@ chat() and chat_stream() are inherited from OpenAICompatibleBackend.
 """
 
 import logging
-from typing import List, Optional, Dict, Any
+from typing import Any
+
 import openai
-from .base import (
-    OpenAICompatibleBackend,
-    LLMOptions,
-    BackendError,
-    BackendConnectionError,
-    BackendModelNotFoundError,
-    BackendInferenceError,
-)
+
 from ..lib.config import CLOUD_API_PROVIDERS
+from .base import (
+    BackendConnectionError,
+    BackendError,
+    BackendInferenceError,
+    BackendModelNotFoundError,
+    LLMOptions,
+    OpenAICompatibleBackend,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +55,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
 
         logger.info(f"☁️ CloudAPIBackend initialized: {self.provider_config['name']}")
 
-    def _build_extra_body(self, options: LLMOptions, model: str) -> Dict[str, Any]:
+    def _build_extra_body(self, options: LLMOptions, model: str) -> dict[str, Any]:
         """Provider-specific reasoning params for cloud APIs.
 
         Unlike local inference servers (llama.cpp/vLLM), cloud endpoints do
@@ -62,7 +64,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
         verified are wired here; the rest fall through to the provider's
         default (no extra params, thinking as the model defaults to).
         """
-        extra_body: Dict[str, Any] = {}
+        extra_body: dict[str, Any] = {}
         thinking = options.enable_thinking
         if thinking is None:
             return extra_body  # no explicit preference → provider default
@@ -100,7 +102,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
             return BackendConnectionError(f"Invalid API key for {self.provider_config['name']}: {error}")
         return BackendInferenceError(f"{self.provider_config['name']} inference failed: {error}")
 
-    async def list_models(self) -> List[str]:
+    async def list_models(self) -> list[str]:
         """
         Get list of available models from Cloud API.
 
@@ -142,7 +144,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
         """
         return True
 
-    def get_capabilities(self) -> Dict[str, bool]:
+    def get_capabilities(self) -> dict[str, bool]:
         """
         Return Cloud API backend capabilities.
 
@@ -164,7 +166,7 @@ class CloudAPIBackend(OpenAICompatibleBackend):
         await self.client.close()
 
 
-def get_cloud_api_key(provider: str) -> Optional[str]:
+def get_cloud_api_key(provider: str) -> str | None:
     """
     Get API key for a cloud provider via credential broker.
 
@@ -200,7 +202,7 @@ def is_cloud_api_configured(provider: str) -> bool:
 # main backend dropdown and the calibration agent editor so both show the
 # identical "Qwen (DashScope)" style labels instead of raw ids.
 
-def cloud_provider_labels() -> List[str]:
+def cloud_provider_labels() -> list[str]:
     """All provider display labels in registry order."""
     return [cfg["name"] for cfg in CLOUD_API_PROVIDERS.values()]
 

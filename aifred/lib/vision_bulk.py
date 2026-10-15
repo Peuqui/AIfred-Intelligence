@@ -24,8 +24,9 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections import defaultdict
+from collections.abc import Awaitable, Callable, Coroutine
 from dataclasses import dataclass
-from typing import Any, Awaitable, Callable, Coroutine
+from typing import Any
 
 from .logging_utils import log_message
 
@@ -106,8 +107,8 @@ async def run_bulk_describe(
     store: object | None = None,
     source_id: str | None = None,
     event_types: list[str] | None = None,
-    since: "object | None" = None,
-    until: "object | None" = None,
+    since: object | None = None,
+    until: object | None = None,
     limit: int | None = None,
     check_vram: bool = True,
     progress_cb: ProgressCb | None = None,
@@ -145,8 +146,8 @@ async def _bulk_describe_impl(
     store: object | None = None,
     source_id: str | None = None,
     event_types: list[str] | None = None,
-    since: "object | None" = None,
-    until: "object | None" = None,
+    since: object | None = None,
+    until: object | None = None,
     limit: int | None = None,
     check_vram: bool = True,
     progress_cb: ProgressCb | None = None,

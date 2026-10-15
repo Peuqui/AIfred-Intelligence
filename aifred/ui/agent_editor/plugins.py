@@ -36,9 +36,9 @@ def _plugin_description_popover(plugin: object | None) -> rx.Component:
 
 def _plugins_view() -> rx.Component:
     """Plugins tab: channel and tool plugin management."""
+    from ...lib.i18n import TranslationManager as _TM
     from ...lib.plugin_registry import all_channels
     from ...lib.security import TIER_I18N_KEYS
-    from ...lib.i18n import TranslationManager as _TM
     # Build tier dropdown options per language (select needs static lists)
     _tier_opts = {
         lang: [f"T{tier} — {_TM.get_text(lk, lang)}" for tier, lk, _dk in TIER_I18N_KEYS]
@@ -50,7 +50,7 @@ def _plugins_view() -> rx.Component:
     # list_all_plugins() (not discover_tools) so DISABLED plugins still show up and
     # can be re-enabled. get_tool_plugin() is None for a disabled plugin — then
     # we render a minimal row (name + toggle), without description/settings.
-    from ...lib.plugin_registry import list_all_plugins, get_tool_plugin
+    from ...lib.plugin_registry import get_tool_plugin, list_all_plugins
     tool_rows: list[rx.Component] = []
     for _pmeta in list_all_plugins():
         if _pmeta["type"] != "tool":

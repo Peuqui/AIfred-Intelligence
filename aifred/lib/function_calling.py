@@ -18,8 +18,9 @@ import json
 import logging
 import re
 import time
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -170,11 +171,11 @@ class ToolKit:
             args = arguments
 
         # Chain depth limit
-        from .security import check_rate_limit, RateLimitReached, CircuitBreakerTripped
         from .config import (
-            SECURITY_MAX_TOOL_CHAIN_DEPTH,
             SECURITY_MAX_IDENTICAL_TOOL_CALLS,
+            SECURITY_MAX_TOOL_CHAIN_DEPTH,
         )
+        from .security import CircuitBreakerTripped, RateLimitReached, check_rate_limit
 
         self._call_count += 1
         if SECURITY_MAX_TOOL_CHAIN_DEPTH > 0 and self._call_count > SECURITY_MAX_TOOL_CHAIN_DEPTH:

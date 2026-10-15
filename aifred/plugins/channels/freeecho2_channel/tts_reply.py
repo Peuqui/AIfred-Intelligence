@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING
 
 from ....lib.plugin_base import BaseChannel
 from ....lib.speech_synthesis import start_speech_stream
-
 from ._shared import _devices, channel_language, notification_tone_enabled
 from .alert_queue import enqueue_alert
 
@@ -25,7 +24,7 @@ class TtsReplyMixin(BaseChannel):
 
     # ── Reply ─────────────────────────────────────────────────
 
-    async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
+    async def send_reply(self, outbound: OutboundMessage, original: InboundMessage) -> None:
         """Send TTS audio back to the FreeEcho.2 device.
 
         Geht ueber den AudioOrchestrator des FreeEcho2Channels

@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t, agent_emoji, overlay_scaffold
+from ..helpers import agent_emoji, overlay_scaffold, t
 
 
 def multi_agent_help_modal() -> rx.Component:

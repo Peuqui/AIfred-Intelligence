@@ -10,7 +10,7 @@ import re
 
 from ..formatting import format_number
 from .gpu import gpu_label, gpu_uuid_labels
-from .types import Candidate, GPU, Result
+from .types import GPU, Candidate, Result
 from .verifier import VerifyResult
 
 

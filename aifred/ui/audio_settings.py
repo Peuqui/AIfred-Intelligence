@@ -16,7 +16,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t, overlay_scaffold
+from .helpers import overlay_scaffold, t
 
 
 def _help_bullet(label: str, text: str) -> rx.Component:

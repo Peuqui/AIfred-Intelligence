@@ -20,7 +20,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 # Audio extensions mpv reliably plays
 ALLOWED_EXTENSIONS = {
@@ -73,7 +73,7 @@ _FOLDER_AUDIO_TYPE: dict[str, str] = {
 }
 
 
-def _audio_type_from_genre(genre: Optional[str]) -> Optional[str]:
+def _audio_type_from_genre(genre: str | None) -> str | None:
     if not genre:
         return None
     g = genre.lower()
@@ -86,7 +86,7 @@ def _audio_type_from_genre(genre: Optional[str]) -> Optional[str]:
     return None  # bekannter Tag aber keine Audio-Type-Mapping → music via Default
 
 
-def _audio_type_from_filename(filename: str) -> Optional[str]:
+def _audio_type_from_filename(filename: str) -> str | None:
     if not filename:
         return None
     f = filename.lower()
@@ -108,7 +108,7 @@ def resolve_audio_type(
     label: str,
     sub_path: str,
     *,
-    source_default: Optional[str] = None,
+    source_default: str | None = None,
 ) -> str:
     """Bestimme audio_type via Hierarchie (Tag > Filename > Source > Default).
 
@@ -147,7 +147,7 @@ def resolve_audio_type(
     return "music"
 
 
-def safe_subpath(root: Path, rel: str) -> "Path | None":
+def safe_subpath(root: Path, rel: str) -> Path | None:
     """Resolve ``rel`` unter ``root`` mit Traversal-Schutz (SSOT).
 
     Gleiches Muster wie in ``SourceResolver.resolve``: ``..``-Teile,

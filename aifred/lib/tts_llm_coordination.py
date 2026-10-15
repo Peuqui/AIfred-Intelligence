@@ -13,8 +13,8 @@ Central function: ensure_tts_state(wanted_tts, backend_type)
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Generator
 
 from .logging_utils import log_message
 from .service_status import LlamaSwapError, running_models

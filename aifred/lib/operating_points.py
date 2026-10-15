@@ -30,8 +30,8 @@ from pathlib import Path
 
 import yaml
 
-from .config import LLAMASWAP_CONFIG_PATH, OPERATING_POINTS_DIR
 from .calibration.llamaswap_io import _ensure_in_group, _read_yaml, _write_yaml
+from .config import LLAMASWAP_CONFIG_PATH, OPERATING_POINTS_DIR
 
 logger = logging.getLogger(__name__)
 

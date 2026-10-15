@@ -37,7 +37,7 @@ def _norm_model(name: str) -> str:
     """Normalise a model name for comparison — Ollama sometimes appends
     ``:latest`` and casing can vary, so trim that before matching."""
     n = name.strip().lower()
-    return n[:-7] if n.endswith(":latest") else n
+    return n.removesuffix(":latest")
 
 
 def _query_free_vram_per_gpu() -> list[int]:
@@ -191,9 +191,9 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
     Wenn ``fits=False``: Caller sollte den User informieren mit
     ``message`` + ``blockers`` und nicht starten.
     """
+    from . import vlm_vram_cache
     from .config import VLM_NUM_CTX, resolve_vlm_host
     from .vision_prewarm import get_active_vlm_model
-    from . import vlm_vram_cache
 
     target = model or get_active_vlm_model()
     if not target:

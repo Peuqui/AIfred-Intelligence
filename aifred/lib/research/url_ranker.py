@@ -5,23 +5,22 @@ Uses Automatik-LLM to rank URLs by relevance before scraping.
 This improves scraping efficiency by prioritizing the most relevant sources.
 """
 
-import re
 import logging
-from typing import Dict, List, Tuple, Optional
+import re
 
-from ..prompt_loader import load_prompt
-from ..logging_utils import log_message
-from ..formatting import format_number
-from ..context_manager import strip_thinking_blocks
 from ..config import DEBUG_LOG_RAW_MESSAGES
+from ..context_manager import strip_thinking_blocks
+from ..formatting import format_number
+from ..logging_utils import log_message
+from ..prompt_loader import load_prompt
 
 logger = logging.getLogger(__name__)
 
 
 def format_url_list_for_ranking(
-    urls: List[str],
-    titles: List[str],
-    snippets: List[str]
+    urls: list[str],
+    titles: list[str],
+    snippets: list[str]
 ) -> str:
     """
     Format URL list for LLM ranking prompt.
@@ -45,7 +44,7 @@ def format_url_list_for_ranking(
     return "\n".join(lines)
 
 
-def parse_ranking_response(response: str, total_urls: int, top_n: int) -> List[int]:
+def parse_ranking_response(response: str, total_urls: int, top_n: int) -> list[int]:
     """
     Parse LLM ranking response into list of indices.
 
@@ -82,16 +81,16 @@ def parse_ranking_response(response: str, total_urls: int, top_n: int) -> List[i
 
 async def rank_urls_by_relevance(
     user_question: str,
-    urls: List[str],
-    titles: List[str],
-    snippets: List[str],
+    urls: list[str],
+    titles: list[str],
+    snippets: list[str],
     automatik_llm_client,
     automatik_model: str,
-    llm_history: List[Dict],
+    llm_history: list[dict],
     top_n: int = 7,
-    llm_options: Optional[Dict] = None,
-    automatik_num_ctx: Optional[int] = None
-) -> Tuple[List[str], List[int], str]:
+    llm_options: dict | None = None,
+    automatik_num_ctx: int | None = None
+) -> tuple[list[str], list[int], str]:
     """
     Rank URLs by relevance using Automatik-LLM.
 
@@ -154,7 +153,7 @@ async def rank_urls_by_relevance(
     try:
         messages = [{"role": "user", "content": prompt}]
 
-        ranking_options: Dict = {
+        ranking_options: dict = {
             "temperature": 0.0,  # Deterministic ranking
             "enable_thinking": False,  # Automatik-Task: Always disable thinking
         }

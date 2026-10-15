@@ -21,7 +21,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from .config import DATA_DIR
 from .vram_peak_cache import JsonPeakCache
@@ -33,7 +32,7 @@ CACHE_FILE = DATA_DIR / "tts_vram_cache.json"
 _store = JsonPeakCache(CACHE_FILE, "tts_vram_cache")
 
 
-def get(engine_key: str) -> Optional[int]:
+def get(engine_key: str) -> int | None:
     """Return cached peak MiB for ``engine_key`` — or ``None`` on miss."""
     entry = _store.get_entry(engine_key)
     if entry is None:

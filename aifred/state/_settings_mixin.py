@@ -7,14 +7,19 @@ and reset-to-defaults.
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Any, Dict
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 from reflex.event import EventSpec
 
 from ..lib.i18n import TranslationManager
 from ..lib.plugin_base import plugin_display_name
-from ..lib.settings import SETTINGS_FILE, load_settings, persisted_settings, save_settings
+from ..lib.settings import (
+    SETTINGS_FILE,
+    load_settings,
+    persisted_settings,
+    save_settings,
+)
 
 if TYPE_CHECKING:
     from ..lib.plugin_base import CredentialField
@@ -117,7 +122,7 @@ class SettingsMixin(rx.State, mixin=True):
         else:
             saved_backend_type = existing.get("backend_type", self.backend_type)  # type: ignore[attr-defined, has-type]
 
-        settings: Dict[str, Any] = {
+        settings: dict[str, Any] = {
             "backend_type": saved_backend_type,
             "cloud_api_provider": self.cloud_api_provider,  # type: ignore[attr-defined, has-type]
             # Calibration mode (legacy/ai) — MUST be re-emitted here, else any
@@ -171,7 +176,7 @@ class SettingsMixin(rx.State, mixin=True):
         # num_ctx_manual(+_enabled) persists only for vision (chat agents
         # reset on restart — deliberate, see llm_params UI hint).
         from ..lib.agent_settings import PERSISTED_TUNING_FIELDS
-        agent_tuning_out: Dict[str, Dict[str, Any]] = {}
+        agent_tuning_out: dict[str, dict[str, Any]] = {}
         for agent, tuning in self.agent_tuning.items():  # type: ignore[attr-defined]
             entry = {field: getattr(tuning, field) for field in PERSISTED_TUNING_FIELDS}
             if agent == "vision":
@@ -181,7 +186,7 @@ class SettingsMixin(rx.State, mixin=True):
         settings["agent_tuning"] = agent_tuning_out
         self._write_settings_file(settings)
 
-    def _write_settings_file(self, settings: Dict[str, Any]) -> None:
+    def _write_settings_file(self, settings: dict[str, Any]) -> None:
         """Write settings.json and remember its mtime, so this session's own
         write does not trigger a reload on the next poll."""
         save_settings(settings)
@@ -190,7 +195,7 @@ class SettingsMixin(rx.State, mixin=True):
         except OSError:
             pass
 
-    def _load_channel_settings(self, settings: Dict[str, Any]) -> None:
+    def _load_channel_settings(self, settings: dict[str, Any]) -> None:
         """Message Hub channel switches and security tiers from settings.json
         into this session (at session start and on every reload)."""
         self.channel_toggles = settings.get("channel_toggles", {})
@@ -664,6 +669,7 @@ class SettingsMixin(rx.State, mixin=True):
         nicht prüfen" ist nicht „getrennt".
         """
         import httpx
+
         from ..lib.oauth import oauth_broker
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
@@ -695,6 +701,7 @@ class SettingsMixin(rx.State, mixin=True):
         to the pop-up blocker. This handler only manages the polling state.
         """
         import asyncio as _aio
+
         from ..lib.oauth import oauth_broker
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
@@ -752,6 +759,7 @@ class SettingsMixin(rx.State, mixin=True):
         Config  (is_secret=False) → plugin's settings.json
         """
         from dotenv import set_key
+
         from ..lib.config import PROJECT_ROOT
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
@@ -880,10 +888,13 @@ class SettingsMixin(rx.State, mixin=True):
         the user opens the credentials modal (gear icon) and uses the explicit
         "Connect" button there. We just leave a hint in the debug log.
         """
-        from ..lib.plugin_registry import (
-            disable_plugin, enable_plugin, get_tool_plugin, is_plugin_enabled,
-        )
         from ..lib.oauth import oauth_broker
+        from ..lib.plugin_registry import (
+            disable_plugin,
+            enable_plugin,
+            get_tool_plugin,
+            is_plugin_enabled,
+        )
 
         toggles = dict(self.tool_plugin_toggles)
         current = bool(toggles.get(plugin_name, ""))

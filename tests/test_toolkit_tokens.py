@@ -2,7 +2,11 @@
 from types import SimpleNamespace
 
 from aifred.lib.context_manager import estimate_toolkit_tokens
-from aifred.lib.tool_output_cap import TOOL_OUTPUT_MIN_TOKENS, TOOL_OUTPUT_TOTAL_INPUT_RATIO, compute_budget
+from aifred.lib.tool_output_cap import (
+    TOOL_OUTPUT_MIN_TOKENS,
+    TOOL_OUTPUT_TOTAL_INPUT_RATIO,
+    compute_budget,
+)
 
 _DEFS = [{"type": "function", "function": {"name": f"tool_{i}", "description": "Does something useful " * 20,
           "parameters": {"type": "object", "properties": {"query": {"type": "string"}}}}} for i in range(5)]

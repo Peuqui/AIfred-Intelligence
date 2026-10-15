@@ -8,11 +8,9 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS, DELEGATION_ICON
-from .helpers import t, clickable_tip, blue_action_button_style
-
-from .helpers import native_select_generic
-from .settings_accordion import llm_parameters_accordion
 from .chat_display import processing_progress_banner
+from .helpers import blue_action_button_style, clickable_tip, native_select_generic, t
+from .settings_accordion import llm_parameters_accordion
 from .vigilantia_feed import vigilantia_feed_popover
 
 

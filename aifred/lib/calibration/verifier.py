@@ -20,11 +20,9 @@ import signal
 import subprocess
 import tempfile
 from dataclasses import dataclass
-from typing import Optional
+from pathlib import Path
 
 import httpx
-
-from pathlib import Path
 
 from ..config import (
     LLAMACPP_HEALTH_TIMEOUT,
@@ -64,13 +62,13 @@ def _model_size_gb(full_cmd: str) -> float:
 class VerifyResult:
     fits: bool
     measured_free_mb: tuple[int, ...]  # per GPU, in CUDA-order; () when fits=False
-    thinks: Optional[bool]             # None if no thinking probe run
+    thinks: bool | None             # None if no thinking probe run
     detail: str                        # one-line log-friendly summary
     # CUDA index of the GPU that hit OOM during model load (parsed from
     # llama-server stderr). ``None`` means we have no information — fits
     # might be True, or the server died for a non-OOM reason, or the
     # log tail didn't contain a parseable CUDA-OOM line.
-    oom_cuda_id: Optional[int] = None
+    oom_cuda_id: int | None = None
     # Tiefster Frei-Stand pro GPU während der Load-Phase (CUDA-Order; ()
     # wenn nicht gesammelt). Bei einem Load-OOM (server died, exit -11) ist
     # ``measured_free_mb`` leer — DAS hier ist dann die einzige per-Karte-
@@ -99,7 +97,7 @@ _OOM_DEVICE_PATTERNS = (
 )
 
 
-def _parse_oom_cuda_id(log_text: str) -> Optional[int]:
+def _parse_oom_cuda_id(log_text: str) -> int | None:
     """Find the CUDA device index that hit OOM in llama-server output.
 
     Scans the log tail for one of the known OOM patterns. Returns the
@@ -116,7 +114,7 @@ def _parse_oom_cuda_id(log_text: str) -> Optional[int]:
 
 
 def _adjust_cmd(
-    full_cmd: str, context: int, port: int, ngl: Optional[int],
+    full_cmd: str, context: int, port: int, ngl: int | None,
 ) -> str:
     cmd = full_cmd.replace("${PORT}", str(port))
     cmd = set_context(cmd, context)
@@ -135,9 +133,9 @@ async def _start_server(
     full_cmd: str,
     context: int,
     port: int,
-    ngl: Optional[int],
-    env: Optional[dict[str, str]],
-) -> Optional[subprocess.Popen]:
+    ngl: int | None,
+    env: dict[str, str] | None,
+) -> subprocess.Popen | None:
     cmd_str = _adjust_cmd(full_cmd, context, port, ngl)
     args = shlex.split(cmd_str)
     log_message(f"llama-server start: ctx={context} ngl={ngl}", category="stats")
@@ -178,7 +176,7 @@ async def _start_server(
 
 async def _wait_ready(
     port: int, timeout: float, process: subprocess.Popen,
-    gpus: Optional[list[GPU]] = None,
+    gpus: list[GPU] | None = None,
 ) -> tuple[bool, str, tuple[int, ...]]:
     """Block until ``/health`` returns 200 or the process dies.
 
@@ -460,10 +458,10 @@ async def verify(
     port: int,
     gpus: list[GPU],
     safety_margin_mb: int,
-    ngl: Optional[int] = None,
-    env: Optional[dict[str, str]] = None,
+    ngl: int | None = None,
+    env: dict[str, str] | None = None,
     probe_thinking: bool = False,
-    health_timeout: Optional[float] = None,
+    health_timeout: float | None = None,
     reserve_mb: tuple[int, ...] = (),
 ) -> VerifyResult:
     """Run one physical test: start → inference → measure → kill.
@@ -500,7 +498,7 @@ async def verify(
     if not process:
         return VerifyResult(False, (), None, "spawn failed")
 
-    thinks: Optional[bool] = None
+    thinks: bool | None = None
     try:
         if health_timeout is not None:
             effective_timeout = health_timeout
@@ -521,7 +519,7 @@ async def verify(
             _kill(process)
             _cleanup_log(process)
             await wait_for_vram_stable(max_wait_seconds=10.0)
-            oom_cuda_id: Optional[int] = None
+            oom_cuda_id: int | None = None
             if output and not reason.startswith("cancelled"):
                 logger.error(f"llama-server not ready. Log tail:\n{output[-2000:]}")
                 # Distinguish OOM vs other crashes by scanning the FULL log.
@@ -584,6 +582,8 @@ async def verify(
         if "--mmproj" in full_cmd:
             from ..mmproj_encode_vram_cache import (
                 get as _encode_cached,
+            )
+            from ..mmproj_encode_vram_cache import (
                 put as _encode_put,
             )
             from .projection import _mmproj_path

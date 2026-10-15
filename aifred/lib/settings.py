@@ -7,7 +7,7 @@ Falls back to config.py defaults if no settings file exists.
 
 import json
 import os
-from typing import Dict, Any, Optional
+from typing import Any
 
 from .config import DATA_DIR
 
@@ -16,7 +16,7 @@ SETTINGS_DIR = DATA_DIR
 SETTINGS_FILE = SETTINGS_DIR / "settings.json"
 
 
-def load_settings() -> Optional[Dict[str, Any]]:
+def load_settings() -> dict[str, Any] | None:
     """
     Load settings from file
 
@@ -28,17 +28,17 @@ def load_settings() -> Optional[Dict[str, Any]]:
 
     try:
         with open(SETTINGS_FILE, 'r', encoding='utf-8') as f:
-            data: Dict[str, Any] = json.load(f)
+            data: dict[str, Any] = json.load(f)
             return data
     except (OSError, json.JSONDecodeError) as e:
         print(f"⚠️ Failed to load settings: {e}")
         return None
 
 
-_persisted_cache: tuple[int, Dict[str, Any]] | None = None
+_persisted_cache: tuple[int, dict[str, Any]] | None = None
 
 
-def persisted_settings() -> Dict[str, Any]:
+def persisted_settings() -> dict[str, Any]:
     """Settings as persisted: settings.json over the config defaults.
 
     SSOT for every reader outside the browser state (prompt layers for
@@ -58,7 +58,7 @@ def persisted_settings() -> Dict[str, Any]:
     return _persisted_cache[1]
 
 
-def save_settings(settings: Dict[str, Any]) -> bool:
+def save_settings(settings: dict[str, Any]) -> bool:
     """
     Save settings to file
 
@@ -86,14 +86,14 @@ def save_settings(settings: Dict[str, Any]) -> bool:
         return False
 
 
-def get_default_settings() -> Dict[str, Any]:
+def get_default_settings() -> dict[str, Any]:
     """
     Get default settings from config.py DEFAULT_SETTINGS
 
     Returns:
         Dict with default settings from config.py
     """
-    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS
+    from .config import BACKEND_DEFAULT_MODELS, DEFAULT_SETTINGS
 
     # Start with DEFAULT_SETTINGS (includes backend_type from config.py)
     defaults = DEFAULT_SETTINGS.copy()

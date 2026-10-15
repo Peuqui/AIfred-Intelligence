@@ -19,7 +19,6 @@ import asyncio
 from typing import TYPE_CHECKING
 
 from ....lib.plugin_base import BaseChannel, CredentialField
-from ....lib.logging_utils import log_message
 
 if TYPE_CHECKING:
     from ....lib.envelope import InboundMessage, OutboundMessage
@@ -91,14 +90,14 @@ class MyChannel(BaseChannel):
 
     # ── Reply ─────────────────────────────────────────────────
 
-    async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
+    async def send_reply(self, outbound: OutboundMessage, original: InboundMessage) -> None:
         """Send a reply via your service's API."""
         # TODO: Implement sending
         self.channel_log(f"{self.name}: reply to {outbound.recipient}: {outbound.text[:50]}...")
 
     # ── Context ───────────────────────────────────────────────
 
-    def build_context(self, message: "InboundMessage") -> str:
+    def build_context(self, message: InboundMessage) -> str:
         """Build LLM context from incoming message.
 
         Use prompt files from prompts/de/ and prompts/en/ instead of hardcoded text.
@@ -112,7 +111,7 @@ class MyChannel(BaseChannel):
 
     # ── Optional: Tools ───────────────────────────────────────
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Optional: Provide tools for active sending via this channel."""
         return []  # Override to add send tools
 

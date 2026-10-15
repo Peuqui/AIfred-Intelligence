@@ -4,18 +4,21 @@ per-agent num_ctx (VRAM-aware, TTS reserve).
 """
 
 
-from ..config import LLAMASWAP_BACKENDS
-from typing import Tuple, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from ..config import (
+    LLAMASWAP_BACKENDS,
     MAIN_LLM_FALLBACK_CONTEXT,
     VRAM_CONTEXT_RATIO_DENSE,
-    VRAM_CONTEXT_RATIO_MOE
+    VRAM_CONTEXT_RATIO_MOE,
 )
 from ..formatting import format_number
-from ..logging_utils import log_message
-from ..model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
 from ..gpu_utils import is_moe_model
+from ..logging_utils import log_message
+from ..model_vram_cache import (
+    get_ollama_calibrated_max_context,
+    get_rope_factor_for_model,
+)
 
 if TYPE_CHECKING:
     from ...state import AIState
@@ -68,7 +71,7 @@ def get_model_native_context(model_id: str, backend_type: str) -> int:
         return cached or 0
 
 
-def get_stateless_num_ctx(model_id: str, backend_type: str) -> Tuple[int, str]:
+def get_stateless_num_ctx(model_id: str, backend_type: str) -> tuple[int, str]:
     """num_ctx for paths without Reflex State (Message Hub, hub web search).
 
     ``model_id`` is the effective, variant-resolved id (base + suffix from
@@ -90,7 +93,7 @@ def get_agent_num_ctx(
     state: "AIState",
     model_id: str,
     fallback: int = MAIN_LLM_FALLBACK_CONTEXT  # Use config constant (32K) as default
-) -> Tuple[int, str]:
+) -> tuple[int, str]:
     """
     Determine num_ctx for a specific agent.
 

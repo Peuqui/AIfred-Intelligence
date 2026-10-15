@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from .config import DATA_DIR
 from .vram_peak_cache import JsonPeakCache
@@ -32,7 +31,7 @@ def pair_key(vlm_key: str, tts_key: str) -> str:
     return f"{vlm_key}|{tts_key}"
 
 
-def get(vlm_key: str, tts_key: str) -> Optional[int]:
+def get(vlm_key: str, tts_key: str) -> int | None:
     """Gemeinsame Spitze in MiB, oder ``None`` wenn ungemessen."""
     entry = _store.get_entry(pair_key(vlm_key, tts_key))
     if entry is None:
@@ -56,7 +55,7 @@ def put(vlm_key: str, tts_key: str, peak_mb: int, gpu_index: int,
     })
 
 
-def fits(vlm_key: str, tts_key: str) -> Optional[bool]:
+def fits(vlm_key: str, tts_key: str) -> bool | None:
     """Urteil der letzten Messung, ``None`` wenn ungemessen."""
     entry = _store.get_entry(pair_key(vlm_key, tts_key))
     return None if entry is None else bool(entry.get("fits", False))

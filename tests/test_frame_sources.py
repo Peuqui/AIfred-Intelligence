@@ -8,8 +8,8 @@ liefert und damit grün läuft, auch wenn keine Cam im System ist.
 from __future__ import annotations
 
 import asyncio
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import AsyncIterator
 
 import pytest
 

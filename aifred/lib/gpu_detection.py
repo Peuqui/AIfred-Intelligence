@@ -5,8 +5,9 @@ Detects GPU compute capability and provides backend compatibility info.
 Prevents users from trying to use incompatible backends with their GPU.
 """
 
-from typing import Optional, List, Dict, Any, TypedDict
 from dataclasses import dataclass, field
+from typing import Any, TypedDict
+
 from . import nvidia_smi
 
 
@@ -33,17 +34,17 @@ class GPUInfo:
     vram_mb: int
     has_tensor_cores: bool
     supports_fast_fp16: bool
-    recommended_backends: List[str]
-    unsupported_backends: List[str]
-    warnings: List[str]
+    recommended_backends: list[str]
+    unsupported_backends: list[str]
+    warnings: list[str]
     # Multi-GPU info
     gpu_count: int = 1
     total_vram_mb: int = 0
-    all_gpu_names: List[str] = field(default_factory=list)
-    all_gpu_vram_mb: List[int] = field(default_factory=list)
-    all_gpu_compute_caps: List[float] = field(default_factory=list)
+    all_gpu_names: list[str] = field(default_factory=list)
+    all_gpu_vram_mb: list[int] = field(default_factory=list)
+    all_gpu_compute_caps: list[float] = field(default_factory=list)
     # Per-backend compatible GPU indices, e.g. {"vllm": [0], "llamacpp": [0, 1]}
-    backend_gpu_indices: Dict[str, List[int]] = field(default_factory=dict)
+    backend_gpu_indices: dict[str, list[int]] = field(default_factory=dict)
 
 
 class GPUDetector:
@@ -62,7 +63,7 @@ class GPUDetector:
     # Compute Capability → Architecture mapping
 
     # Backend requirements
-    BACKEND_REQUIREMENTS: Dict[str, BackendRequirement] = {
+    BACKEND_REQUIREMENTS: dict[str, BackendRequirement] = {
         "ollama": {
             "min_compute_capability": 3.5,
             "requires_tensor_cores": False,
@@ -84,7 +85,7 @@ class GPUDetector:
     }
 
     # Known problematic GPUs
-    KNOWN_ISSUES: Dict[str, Dict[str, Any]] = {
+    KNOWN_ISSUES: dict[str, dict[str, Any]] = {
         "Tesla P40": {
             "fp16_ratio": "1:64",
             "issue": "Extremely slow FP16 performance",
@@ -103,9 +104,9 @@ class GPUDetector:
     }
 
     def __init__(self):
-        self.gpu_info: Optional[GPUInfo] = None
+        self.gpu_info: GPUInfo | None = None
 
-    def detect(self) -> Optional[GPUInfo]:
+    def detect(self) -> GPUInfo | None:
         """
         Detect GPU and return GPUInfo
 
@@ -120,7 +121,7 @@ class GPUDetector:
             if not rows:
                 return None
 
-            gpu_list: List[GPUDict] = []
+            gpu_list: list[GPUDict] = []
             for row in rows:
                 try:
                     gpu_list.append({
@@ -206,8 +207,8 @@ class GPUDetector:
 
     def _analyze_compatibility(
         self,
-        gpu_list: List[GPUDict]
-    ) -> tuple[List[str], List[str], List[str], Dict[str, List[int]]]:
+        gpu_list: list[GPUDict]
+    ) -> tuple[list[str], list[str], list[str], dict[str, list[int]]]:
         """
         Analyze backend compatibility per GPU.
 
@@ -219,7 +220,7 @@ class GPUDetector:
         recommended = []
         unsupported = []
         warnings = []
-        backend_gpu_indices: Dict[str, List[int]] = {}
+        backend_gpu_indices: dict[str, list[int]] = {}
 
         for backend, reqs in self.BACKEND_REQUIREMENTS.items():
             min_cap = reqs["min_compute_capability"]
@@ -264,7 +265,7 @@ class GPUDetector:
         for gpu in gpu_list:
             for known_gpu, issue_info in self.KNOWN_ISSUES.items():
                 if known_gpu in gpu["name"]:
-                    warnings.append(f"{gpu['name']}: {str(issue_info['issue'])}")
+                    warnings.append(f"{gpu['name']}: {issue_info['issue']!s}")
 
         return recommended, unsupported, warnings, backend_gpu_indices
 
@@ -287,7 +288,7 @@ class GPUDetector:
 
         return backend.lower() in self.gpu_info.recommended_backends
 
-    def get_compatibility_message(self, backend: str) -> Optional[str]:
+    def get_compatibility_message(self, backend: str) -> str | None:
         """
         Get user-friendly compatibility message for a backend
 
@@ -327,7 +328,7 @@ class GPUDetector:
 _detector = GPUDetector()
 
 
-def detect_gpu() -> Optional[GPUInfo]:
+def detect_gpu() -> GPUInfo | None:
     """Convenience function to detect GPU"""
     return _detector.detect()
 
@@ -337,6 +338,6 @@ def is_backend_compatible(backend: str) -> bool:
     return _detector.is_backend_compatible(backend)
 
 
-def get_compatibility_message(backend: str) -> Optional[str]:
+def get_compatibility_message(backend: str) -> str | None:
     """Convenience function to get compatibility message"""
     return _detector.get_compatibility_message(backend)

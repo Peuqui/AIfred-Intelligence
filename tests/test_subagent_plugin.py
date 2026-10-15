@@ -32,7 +32,7 @@ def plugin(monkeypatch):
     """Plugin with defaults only: the settings.json on disk must not leak
     into the tests, whatever the gear icon last saved."""
     instance = sub.SubAgentPlugin()
-    monkeypatch.setattr(instance, "_load_settings", lambda: {})
+    monkeypatch.setattr(instance, "_load_settings", dict)
     return instance
 
 
@@ -110,9 +110,8 @@ class TestPluginShape:
 
 class TestDelegationLegend:
     def test_groups_follow_whitelist_tiers_and_plugin_texts(self, ctx, monkeypatch):
-        import aifred.lib.agent_config as agent_config
-        import aifred.lib.plugin_base as plugin_base
         import aifred.lib.plugin_registry as registry
+        from aifred.lib import agent_config, plugin_base
 
         workspace, channel, sandbox = (SimpleNamespace(key=k) for k in ("ws", "tg", "sb"))
         seen_depth = []
@@ -146,7 +145,7 @@ class TestDelegationLegend:
         assert not any("tg" in line for line in lines)
 
     def test_candidates_are_all_main_agents_but_caller_and_system(self, ctx, monkeypatch):
-        import aifred.lib.agent_config as agent_config
+        from aifred.lib import agent_config
 
         # "twin" shares the caller's model and whitelist: its persona alone
         # makes it a candidate.
@@ -302,7 +301,7 @@ class TestRun:
         assert [t.name for t in self.captured["toolkit"].tools] == ["read_file"]
 
     def test_other_main_agent_brings_identity_and_personality(self, plugin, ctx, monkeypatch):
-        import aifred.lib.prompt_loader as prompt_loader
+        from aifred.lib import prompt_loader
         monkeypatch.setattr(plugin, "_load_settings", lambda: {sub.DELEGATE_OTHERS_KEY: "1"})
         monkeypatch.setattr(sub, "delegation_candidates", lambda c: ["codine"])
         monkeypatch.setattr(sub, "delegation_legend", lambda c, s, d, cands: "LEGEND")

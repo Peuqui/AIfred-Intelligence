@@ -26,13 +26,13 @@ __all__ = [
     "Frame",
     "FrameSource",
     "SourceInfo",
-    "register",
-    "unregister",
-    "unregister_kind",
     "get",
     "list_all",
     "list_available",
+    "register",
     "rescan",
+    "unregister",
+    "unregister_kind",
 ]
 
 _REGISTRY: dict[str, FrameSource] = {}
@@ -82,8 +82,8 @@ def list_available() -> list[FrameSource]:
 # Eingebaute Source-Module importieren — der Modul-Import triggert deren
 # eigene ``discover()``-Funktion am Ende des Moduls. Damit ist beim
 # Erstzugriff auf das Registry alles eingerichtet.
-from . import v4l2_source as _v4l2_source  # noqa: E402
-from . import rtsp_source as _rtsp_source  # noqa: E402
+from . import rtsp_source as _rtsp_source
+from . import v4l2_source as _v4l2_source
 
 
 def rescan() -> None:

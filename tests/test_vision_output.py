@@ -17,7 +17,7 @@ import numpy as np
 import pytest
 from _vision_fakes import blank_jpeg, noise_jpeg
 
-import aifred.lib.vision_utils as vision_utils
+from aifred.lib import vision_utils
 from aifred.lib.config import VISION_OVERLAY_SUFFIX_ZOOM
 from aifred.lib.frame_sources import Frame
 from aifred.lib.vision_output import OutputChain

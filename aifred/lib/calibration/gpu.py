@@ -165,7 +165,7 @@ def gpu_label(
 
 
 def format_gpu_positions(
-    positions: "Any", gpus: "list[GPU]", labels: dict[str, str] | None = None
+    positions: Any, gpus: list[GPU], labels: dict[str, str] | None = None
 ) -> str:
     """Format a list of compute-sorted GPU positions as nvidia-smi labels
     for a log line, e.g. ``[0, 2]`` → ``"GPU0 (RTX 8000), GPU2 (RTX 8000)"``.

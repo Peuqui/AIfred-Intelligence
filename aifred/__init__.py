@@ -13,8 +13,9 @@ import sys
 sys.dont_write_bytecode = True
 
 # Load environment variables BEFORE importing any modules
-from dotenv import load_dotenv  # noqa: E402
-import os  # noqa: E402
+import os
+
+from dotenv import load_dotenv
 
 load_dotenv()
 
@@ -36,7 +37,7 @@ if not brave_key and not tavily_key:
 # needs `app`; reflex loads aifred.aifred directly via app_name, so guarding
 # this export breaks nothing.
 if not os.environ.get("AIFRED_CLI_MODE"):
-    from .aifred import app  # noqa: E402
+    from .aifred import app
     __all__ = ["app"]
 else:
     __all__ = []

@@ -5,8 +5,8 @@ import json
 
 import pytest
 
-from aifred.plugins.tools.scheduler_tool import SchedulerPlugin
 from aifred.lib.plugin_base import PluginContext, plugin_display_name
+from aifred.plugins.tools.scheduler_tool import SchedulerPlugin
 
 
 @pytest.fixture
@@ -59,7 +59,7 @@ class TestSchedulerPlugin:
 
     def test_tool_tiers(self, plugin, ctx):
         tools = {t.name: t for t in plugin.get_tools(ctx)}
-        from aifred.lib.security import TIER_WRITE_DATA, TIER_READONLY
+        from aifred.lib.security import TIER_READONLY, TIER_WRITE_DATA
         assert tools["scheduler_create"].tier == TIER_WRITE_DATA
         assert tools["scheduler_list"].tier == TIER_READONLY
         assert tools["scheduler_update"].tier == TIER_WRITE_DATA

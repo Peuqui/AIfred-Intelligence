@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import asyncio
 
-import aifred.lib.calibration.ai_agent as ai_agent
+from aifred.lib.calibration import ai_agent
 from aifred.lib.calibration.types import GPU
 
 
@@ -36,8 +36,8 @@ def _drain(gen) -> list[str]:
 def _common_mocks(monkeypatch, enum_marker: dict):
     # Provider + model + key present so we get past the early guards to the
     # GPU step. These resolve through the cloud_api SSOT now, not broker.
-    import aifred.lib.agent_config as agent_config
-    import aifred.backends.cloud_api as cloud_api
+    from aifred.backends import cloud_api
+    from aifred.lib import agent_config
     monkeypatch.setattr(
         agent_config, "load_agents_raw",
         lambda: {"calibration": {"cloud_provider": "qwen", "model": "qwen-plus"}},

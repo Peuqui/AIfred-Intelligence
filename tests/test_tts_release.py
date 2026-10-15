@@ -6,11 +6,9 @@ from __future__ import annotations
 import pytest
 from fake_tts_service import FakeTTSService, catalog_row, install_fake_service
 
-import aifred.lib.calibration as calibration
-import aifred.lib.logging_utils as logging_utils
 import aifred.lib.tts_llm_coordination as coordination
-import aifred.lib.tts_service as tts_service
 from aifred.backends.base import OpenAICompatibleBackend
+from aifred.lib import calibration, logging_utils, tts_service
 from aifred.lib.calibration import gpu
 from aifred.lib.tts_client import TTSSuiteUnreachable
 

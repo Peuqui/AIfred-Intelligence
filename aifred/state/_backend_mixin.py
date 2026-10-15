@@ -6,23 +6,21 @@ vLLM, Cloud APIs), model loading, vision detection, and on_load.
 
 from __future__ import annotations
 
-from ..lib.config import LLAMASWAP_BACKENDS
-
 import os
 import subprocess
 import uuid
-from typing import Dict, List
 
 import reflex as rx
 
-from ..lib.logging_utils import initialize_debug_log, log_message
+from ..backends.cloud_api import is_cloud_api_configured
 from ..lib import config
 from ..lib.config import (
     CLOUD_API_PROVIDERS,
+    LLAMASWAP_BACKENDS,
 )
-from ..backends.cloud_api import is_cloud_api_configured
-from ..lib.model_manager import sort_models_grouped
 from ..lib.gpu_utils import total_actual_vram_gb
+from ..lib.logging_utils import initialize_debug_log, log_message
+from ..lib.model_manager import sort_models_grouped
 from ..lib.stt_client import get_default_client as get_stt_client
 
 # Module-level globals are in _base.py and re-exported from __init__.py.
@@ -50,7 +48,7 @@ class BackendMixin(rx.State, mixin=True):
     cloud_api_key_configured: bool = False
 
     # Backend ID/Label Mapping (static - all possible backends)
-    available_backends_dict: Dict[str, str] = {
+    available_backends_dict: dict[str, str] = {
         "ollama": "Ollama",
         "llamacpp": "llama.cpp",
         "vllm": "vLLM",
@@ -59,17 +57,17 @@ class BackendMixin(rx.State, mixin=True):
 
     # ── Model Settings ────────────────────────────────────────────
     # Per-agent model/model_id live in agent_tuning (AgentConfigMixin).
-    available_models: List[str] = []
-    available_models_dict: Dict[str, str] = {}
-    vision_models_cache: List[str] = []
-    available_vision_models_list: List[str] = []
+    available_models: list[str] = []
+    available_models_dict: dict[str, str] = {}
+    vision_models_cache: list[str] = []
+    available_vision_models_list: list[str] = []
     # Fertig gerenderte Vision-Modell-Zeilen fürs Dropdown: je ein Dict mit
     # ``name`` (Display-Name = Select-value), ``badge`` (⚡ No Swap / 🔄 Swap
     # / "") und ``color``. "No Swap" heißt: Bildanfrage läuft über den
     # Ollama-Side-Channel parallel, das Chat-Modell bleibt geladen; "Swap":
     # llama-swap verdrängt es. Einmal beim Discovery bestimmt (Ollama-VLM-
     # Liste wird dort ohnehin geholt) — kein API-Call im Render.
-    available_vision_models_rich: List[Dict[str, str]] = []
+    available_vision_models_rich: list[dict[str, str]] = []
 
     automatik_model: str = ""
     automatik_model_id: str = ""
@@ -90,14 +88,14 @@ class BackendMixin(rx.State, mixin=True):
     gpu_detected: bool = False
     gpu_name: str = ""
     gpu_compute_cap: float = 0.0
-    gpu_warnings: List[str] = []
+    gpu_warnings: list[str] = []
     gpu_count: int = 1
     gpu_vram_gb: float = 0
-    gpu_all_names: List[str] = []
-    available_backends: List[str] = [
+    gpu_all_names: list[str] = []
+    available_backends: list[str] = [
         "ollama", "llamacpp", "vllm", "cloud_api",
     ]
-    available_backends_list: List[str] = [
+    available_backends_list: list[str] = [
         "Ollama", "llama.cpp", "vLLM", "Cloud APIs",
     ]
 
@@ -242,11 +240,11 @@ class BackendMixin(rx.State, mixin=True):
             set_agent_setting(self, agent, "is_hybrid", params["is_hybrid"])
             set_agent_setting(self, agent, "supports_thinking", params["supports_thinking"])
         elif backend in LLAMASWAP_BACKENDS:
+            from ..lib.model_discovery import is_vllm_entry
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
                 get_thinking_support_for_model,
             )
-            from ..lib.model_discovery import is_vllm_entry
             if is_vllm_entry(model_id):
                 # vLLM-Eintrag: Kontext aus dem llama-swap-Entry (SSOT),
                 # keine Speed-Varianten, kein RoPE.
@@ -309,16 +307,16 @@ class BackendMixin(rx.State, mixin=True):
     # ON_LOAD
     # ================================================================
 
-    async def on_load(self):  # noqa: C901
+    async def on_load(self):
         """Called when page loads - initialize backend and load models.
 
         Backend is initialized once globally at server startup.
         Page reloads simply restore state from global variables.
         """
-        from . import _global_backend_initialized, _global_backend_state
-
         # Use a mutable reference for the module-level flag
         import aifred.state._base as _base_module
+
+        from . import _global_backend_initialized, _global_backend_state
 
         log_message(f"🔥 on_load() CALLED - Global init: {_global_backend_initialized}, Session init: {self._backend_initialized}")
 
@@ -351,6 +349,7 @@ class BackendMixin(rx.State, mixin=True):
 
                     # Audio state cleanup task
                     import asyncio as _asyncio
+
                     from ..lib.audio_state import cleanup_audio_state_task
                     _asyncio.create_task(cleanup_audio_state_task())
 
@@ -383,7 +382,9 @@ class BackendMixin(rx.State, mixin=True):
                     # vLLM-Compile-Cache cleanup task — Artefakte geloeschter
                     # Modelle und verworfener Betriebspunkte (Alter oder
                     # Obergrenze, siehe VLLM_PRODUCTION_CACHE_*) am selben Slot.
-                    from ..lib.calibration.vllm_probe import cleanup_vllm_compile_cache_task
+                    from ..lib.calibration.vllm_probe import (
+                        cleanup_vllm_compile_cache_task,
+                    )
                     _asyncio.create_task(cleanup_vllm_compile_cache_task())
 
                     # Audio index incremental sync (only for sources already populated)
@@ -729,7 +730,7 @@ class BackendMixin(rx.State, mixin=True):
     # INITIALIZE BACKEND
     # ================================================================
 
-    async def initialize_backend(self) -> bool:  # noqa: C901
+    async def initialize_backend(self) -> bool:
         """Initialize LLM backend.
 
         Uses global state to prevent re-initialization on page reload.
@@ -856,6 +857,7 @@ class BackendMixin(rx.State, mixin=True):
                         self.add_debug("⚠️ llama-swap not reachable, starting service...")  # type: ignore[attr-defined, has-type]
                         try:
                             import asyncio
+
                             from ..lib.process_utils import start_llama_swap
                             start_llama_swap()
                             await asyncio.sleep(2.0)
@@ -885,7 +887,10 @@ class BackendMixin(rx.State, mixin=True):
                         if self.cloud_api_key_configured:
                             self.add_debug(f"✅ API key configured ({provider_config['env_key']})")  # type: ignore[attr-defined, has-type]
                             try:
-                                from ..backends.cloud_api import CloudAPIBackend, get_cloud_api_key
+                                from ..backends.cloud_api import (
+                                    CloudAPIBackend,
+                                    get_cloud_api_key,
+                                )
                                 api_key = get_cloud_api_key(self.cloud_api_provider)
                                 temp_backend = CloudAPIBackend(
                                     base_url=provider_config["base_url"],
@@ -969,6 +974,8 @@ class BackendMixin(rx.State, mixin=True):
                 # lib/model_vram_cache — thin wrapper binds backend_type)
                 from ..lib.model_vram_cache import (
                     format_model_with_ctx as _format_model_with_ctx,
+                )
+                from ..lib.model_vram_cache import (
                     get_llamacpp_calibration,
                     get_ollama_calibrated_max_context,
                     get_rope_factor_for_model,
@@ -978,6 +985,7 @@ class BackendMixin(rx.State, mixin=True):
                     return _format_model_with_ctx(model_display, model_id, self.backend_type)
 
                 from ..lib.agent_config import get_agent_label
+
                 # Show effective model (includes TTS variant if GPU TTS is active)
                 from ..lib.tts_llm_coordination import get_effective_model_info
                 effective_info = get_effective_model_info(self.backend_type)
@@ -1062,7 +1070,7 @@ class BackendMixin(rx.State, mixin=True):
 
         except Exception as e:
             self.backend_healthy = False
-            self.backend_info = f"Error: {str(e)}"
+            self.backend_info = f"Error: {e!s}"
             self.add_debug(f"❌ Backend initialization failed: {e}")  # type: ignore[attr-defined, has-type]
             self.backend_initializing = False
             return False
@@ -1155,8 +1163,8 @@ class BackendMixin(rx.State, mixin=True):
         return self.available_models_dict
 
     def _build_vision_rich(
-        self, vision_model_ids: List[str]
-    ) -> List[Dict[str, str]]:
+        self, vision_model_ids: list[str]
+    ) -> list[dict[str, str]]:
         """Dropdown-Zeilen (Name + Swap-Badge + Farbe) für die Vision-Modelle.
 
         Gleiche Logik wie die Laufzeitwahl (``vision_routing``):
@@ -1168,7 +1176,9 @@ class BackendMixin(rx.State, mixin=True):
         """
         from ..lib.ollama_models import list_ollama_vlm_models
         from ..lib.vision_routing import (
-            fitting_visiond, same_model, vision_swap_status,
+            fitting_visiond,
+            same_model,
+            vision_swap_status,
         )
         from ..lib.vision_utils import has_native_vision
         try:
@@ -1178,7 +1188,7 @@ class BackendMixin(rx.State, mixin=True):
         aifred_base = self.agent_tuning["aifred"].model_id or ""
 
         catalog = self._vision_candidate_catalog()
-        rows: List[Dict[str, str]] = []
+        rows: list[dict[str, str]] = []
         for mid in vision_model_ids:
             if mid not in catalog:
                 continue
@@ -1204,14 +1214,14 @@ class BackendMixin(rx.State, mixin=True):
         aus der GGUF-Sicht des llama-swap-Katalogs (sonst waere dort
         nichts auswaehlbar; Peuqui 2026-08-29).
         """
-        from . import _global_backend_state
         from ..lib.vision_utils import is_vision_model, is_vision_model_sync
+        from . import _global_backend_state
 
         vision_model_ids: list[str] = []
         candidates: dict[str, str] = self.available_models_dict
 
         if self.backend_type == "cloud_api":
-            for model_id in candidates.keys():
+            for model_id in candidates:
                 if is_vision_model_sync(model_id):
                     vision_model_ids.append(model_id)
         elif self.backend_type == "vllm":

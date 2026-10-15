@@ -104,6 +104,7 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
             pass
         try:
             from datetime import datetime, timedelta
+
             from ..lib.vision_store import VisionStore
             store = VisionStore()
             events = store.list_events_with_summary(

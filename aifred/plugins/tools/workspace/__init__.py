@@ -7,24 +7,36 @@ Provides tools for:
 
 import asyncio
 import json
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, Optional
 
-from ....lib.config import (
-    DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
-    DOCUMENT_SEARCH_DISTANCE_STRONG, WORKSPACE_READ_MAX_BYTES,
-    WORKSPACE_WRITE_EXTENSIONS,
-)
 from ....lib import file_manager as fm
 from ....lib.bubble import KIND_DOCUMENT_PAGES, BubbleArtifact
-from ....lib.message_builder import image_marker
-from ....lib.vision_utils import is_image_file
+from ....lib.config import (
+    DOCUMENT_SEARCH_DISTANCE_STRONG,
+    DOCUMENT_SEARCH_MAX_RESULTS,
+    DOCUMENTS_DIR,
+    WORKSPACE_READ_MAX_BYTES,
+    WORKSPACE_WRITE_EXTENSIONS,
+)
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM, retrieved_data_notice
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.i18n import t
 from ....lib.logging_utils import log_message
+from ....lib.message_builder import image_marker
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
+from ....lib.security import (
+    TIER_READONLY,
+    TIER_WRITE_DATA,
+    TIER_WRITE_SYSTEM,
+    retrieved_data_notice,
+)
+from ....lib.vision_utils import is_image_file
 
 
 def _split_parent_leaf(rel_path: str) -> tuple[str, str]:
@@ -35,7 +47,7 @@ def _split_parent_leaf(rel_path: str) -> tuple[str, str]:
     return ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
 
 
-def _container_text(file_path: Path) -> Optional[str]:
+def _container_text(file_path: Path) -> str | None:
     """Text of an Office/ODF file through the same parser the index uses
     (SSOT, document_store.PARSERS); None for every other format."""
     from ....lib.document_store import CONTAINER_FORMATS, PARSERS
@@ -67,6 +79,7 @@ def _read_pdf(file_path: Path, pages: str, session_id: str) -> tuple[dict[str, A
     READ_FILE_RENDER_MAX_PAGES per call. Returns the result dict and the
     image URLs."""
     import pymupdf
+
     from ....lib.config import READ_FILE_RENDER_DPI, READ_FILE_RENDER_MAX_PAGES
     from ....lib.vision_utils import get_image_url, save_session_upload
 
@@ -656,7 +669,7 @@ class WorkspacePlugin:
         async def _search_documents(
             query: str,
             n_results: int = 5,
-            folder: Optional[str] = None,
+            folder: str | None = None,
             page: int = 1,
         ) -> str:
             """Semantic search in ChromaDB, optionally restricted to a folder.

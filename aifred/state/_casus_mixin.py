@@ -681,7 +681,7 @@ class CasusMixin(rx.State, mixin=True):
                     offset=0,
                 )
                 from collections import OrderedDict
-                cluster_groups: "OrderedDict[str, list[dict[str, Any]]]" = OrderedDict()
+                cluster_groups: OrderedDict[str, list[dict[str, Any]]] = OrderedDict()
                 solo_events: list[dict[str, Any]] = []
                 for e in raw:
                     cid = str(e.get("cluster_id") or "")

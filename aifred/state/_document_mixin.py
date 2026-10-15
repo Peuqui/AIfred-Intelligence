@@ -4,9 +4,11 @@ Document Mixin – file explorer, upload, indexing and management.
 Part of the AIfred State refactoring (aifred/state/ package).
 """
 
+from collections.abc import AsyncGenerator
+from typing import Any
+
 import reflex as rx
 from reflex.event import EventSpec
-from typing import Any, AsyncGenerator, Dict, List
 
 
 class DocumentMixin(rx.State, mixin=True):
@@ -21,7 +23,7 @@ class DocumentMixin(rx.State, mixin=True):
 
     # File explorer state
     doc_current_folder: str = ""  # relative to data/documents/, empty = root
-    doc_file_list: List[Dict[str, Any]] = []  # [{name, type, size, indexed, chunks}]
+    doc_file_list: list[dict[str, Any]] = []  # [{name, type, size, indexed, chunks}]
 
     @rx.var
     def doc_path_prefix(self) -> str:
@@ -60,7 +62,7 @@ class DocumentMixin(rx.State, mixin=True):
     # folder only — _refresh_file_list drops entries that are no longer
     # listed, so navigating away cannot carry a selection into a folder
     # where the same name means a different file.
-    doc_selected_files: List[str] = []
+    doc_selected_files: list[str] = []
     doc_delete_batch: bool = False  # dialog targets the selection, not one file
 
     @rx.var
@@ -169,8 +171,8 @@ class DocumentMixin(rx.State, mixin=True):
     # download_url instead of the local index/rename/delete fields.
 
     doc_source: str = "local"
-    doc_source_options: List[Dict[str, str]] = []  # [{key, label}], local first
-    doc_remote_trail: List[Dict[str, str]] = []    # opened folders [{id, name}], root = empty
+    doc_source_options: list[dict[str, str]] = []  # [{key, label}], local first
+    doc_remote_trail: list[dict[str, str]] = []    # opened folders [{id, name}], root = empty
     doc_remote_query: str = ""                     # active search ("" = folder listing)
     doc_remote_query_input: str = ""
 
@@ -344,11 +346,16 @@ class DocumentMixin(rx.State, mixin=True):
     # UPLOAD
     # ================================================================
 
-    async def handle_document_upload(self, files: List[rx.UploadFile]) -> AsyncGenerator[EventSpec | None, None]:  # type: ignore[override]
+    async def handle_document_upload(self, files: list[rx.UploadFile]) -> AsyncGenerator[EventSpec | None, None]:  # type: ignore[override]
         """Handle document file upload — save to current folder."""
-        from ..lib.config import DOCUMENT_ALLOWED_EXTENSIONS, DOCUMENT_MAX_FILE_SIZE_MB, DOCUMENTS_DIR
-        from ..lib.i18n import t
         from pathlib import Path
+
+        from ..lib.config import (
+            DOCUMENT_ALLOWED_EXTENSIONS,
+            DOCUMENT_MAX_FILE_SIZE_MB,
+            DOCUMENTS_DIR,
+        )
+        from ..lib.i18n import t
 
         self.is_uploading_document = True
         self.document_upload_status = ""

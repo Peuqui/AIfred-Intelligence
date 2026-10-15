@@ -5,7 +5,7 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-import aifred.lib.tts_service as tts_service
+from aifred.lib import tts_service
 from aifred.lib.api.app import api_app
 from aifred.lib.tts_client import TTSClient
 

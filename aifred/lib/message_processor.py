@@ -10,9 +10,9 @@ Handles the complete flow for inbound messages:
 
 import contextvars
 import secrets
+from collections.abc import Iterator, Sequence
 from contextlib import contextmanager
 from pathlib import Path
-from typing import Iterator, Optional, Sequence
 
 from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage
@@ -170,6 +170,7 @@ def _mapped_user_name(channel: str, channel_id: str, sender: str) -> str | None:
     is mapped to a known AIfred user.
     """
     import json
+
     from .config import DATA_DIR
 
     mapping_path = DATA_DIR / "user_mapping.json"
@@ -226,10 +227,10 @@ async def detect_target_agent_via_llm(text: str) -> tuple[str, str, str, dict, f
         empty dict if the user did not request a mode change.
         load_time is the model load this call had to wait for (0.0 = warm).
     """
+    from .config import get_effective_model_from_settings
     from .intent_detector import detect_query_intent_and_addressee
     from .llm_client import LLMClient
     from .settings import load_settings
-    from .config import get_effective_model_from_settings
 
     settings = load_settings() or {}
     backend_type = settings.get("backend_type", "llamacpp")
@@ -272,7 +273,7 @@ async def dispatch_inbound(message: InboundMessage, channel_label: str) -> None:
         )
 
 
-async def process_inbound(message: InboundMessage, user_saved: bool = False) -> Optional[OutboundMessage]:
+async def process_inbound(message: InboundMessage, user_saved: bool = False) -> OutboundMessage | None:
     """Process an inbound message through the full pipeline.
 
     Args:
@@ -284,10 +285,6 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
     Uses the Debug Bus (session_scope) so all debug() calls from any
     depth (tools, research, plugins) automatically go to the session.
     """
-    from .debug_bus import debug, session_scope
-    from .session_storage import get_session_title
-    from .plugin_registry import get_channel
-
     # Kalibrier-Gate: Während einer GPU-Kalibrierung gehört das VRAM
     # exklusiv der Messung — eine Inferenz würde llama-swap neu starten
     # und die Messwerte verderben. Die Hub-Kanäle laufen an Reflex vorbei,
@@ -297,6 +294,9 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
     # freeecho2: eine Voice-Reply würde die TTS-Synthese anwerfen — genau
     # die GPU-Kollision, die das Gate verhindert; dort bleibt es beim Log.
     from .calibration_gate import is_calibration_active
+    from .debug_bus import debug, session_scope
+    from .plugin_registry import get_channel
+    from .session_storage import get_session_title
     if is_calibration_active():
         log_message(
             f"🛑 Inbound via {message.channel} rejected: calibration in progress"
@@ -375,6 +375,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
     # The pipeline_scope context manager handles register + unregister even on
     # exceptions/cancellation.
     import asyncio as _asyncio
+
     from .pipeline_registry import pipeline_scope
     _current_task = _asyncio.current_task()
 
@@ -403,7 +404,8 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             debug(f"❌ Intent detection FAILED: {e}")
             raise
 
-        from .agent_config import get_agent_config as _get_agent_cfg, get_agent_label
+        from .agent_config import get_agent_config as _get_agent_cfg
+        from .agent_config import get_agent_label
         from .intent_detector import format_intent_result, format_mode_switch_summary
         from .session_storage import get_session_config, update_session_config
 
@@ -482,7 +484,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
         # Wrap external messages in security delimiters. Trust label from
         # the authenticated owner verdict (N5) — the raw sender string is
         # forgeable (email From), the mapped name is derived from it.
-        from .security import wrap_external_message, resolve_trust_label
+        from .security import resolve_trust_label, wrap_external_message
         trust = resolve_trust_label(message.channel, original_sender, message.metadata)
         llm_context = wrap_external_message(
             llm_context, message.sender, message.channel, trust,
@@ -579,7 +581,7 @@ async def _call_engine(
     agent: str = "aifred",
     max_tier: int = 4,
     source: str = "browser",
-    metadata: Optional[dict] = None,
+    metadata: dict | None = None,
     trust: str = "external",
 ) -> tuple[str, str, dict, list[str]]:
     """Call the AIfred engine with full toolkit (memory + plugins).
@@ -589,12 +591,12 @@ async def _call_engine(
     (PipelineResult.history_notes).
     Debug messages go through the Debug Bus (session_scope must be active).
     """
+    from .agent_settings import get_persisted_tuning
+    from .config import BACKEND_URLS, DEFAULT_SETTINGS, DEFAULT_TEMPERATURE
     from .debug_bus import debug
     from .llm_engine import call_llm
     from .session_storage import load_session
     from .settings import load_settings
-    from .agent_settings import get_persisted_tuning
-    from .config import DEFAULT_SETTINGS, DEFAULT_TEMPERATURE, BACKEND_URLS
 
 
     # Load current settings
@@ -810,9 +812,9 @@ def _append_response(
     in the prompt. On engine failure neither entry is written — the LLM
     never saw an answer, so the exchange stays out of its history.
     """
-    from .session_storage import load_session, session_rmw_lock
-    from .formatting import format_performance_footer, build_assistant_chat_entry
+    from .formatting import build_assistant_chat_entry, format_performance_footer
     from .message_builder import with_history_notes
+    from .session_storage import load_session, session_rmw_lock
 
     # Bubble: text plus the turn's artifacts (lib/bubble.py), then the
     # metadata footer (shared with browser-path add_agent_panel). llm_history
@@ -878,6 +880,7 @@ def _resolve_channel_recipient(channel: str, recipient: str) -> str:
     through. Empty → auto-resolve (first user's channel id / email_out), then
     fall back to the channel allowlist (owner = first entry)."""
     import json as _json
+
     from .config import DATA_DIR
 
     mapping_path = DATA_DIR / "user_mapping.json"
@@ -946,6 +949,7 @@ def _freeecho2_groups() -> dict[str, list[str]]:
     [room, …]). Fehlt/ungültig → keine Gruppen. Rein serverseitig; die
     Firmware kennt nur ``room``."""
     import json as _json
+
     from .config import DATA_DIR
 
     path = DATA_DIR / "freeecho2_groups.json"
@@ -979,8 +983,7 @@ def resolve_announce_targets(channel: str, target: str) -> list[str]:
         t = (target or "").strip()
         # Manche LLMs packen den Kanal-Präfix mit in den target-Param
         # ("freeecho2:wohnzimmer") — defensiv abstreifen.
-        if t.startswith("freeecho2:"):
-            t = t[len("freeecho2:"):]
+        t = t.removeprefix("freeecho2:")
         # Broadcast / leer → alle gerade verbundenen Pucks.
         if t in ("", "*"):
             return list(_devices.keys())
@@ -1010,6 +1013,7 @@ async def announce_to_channel(
     announcement lands in that same session instead of opening a new one.
     ``None`` when the message belongs to no session."""
     from datetime import datetime
+
     from .plugin_registry import get_channel
 
     plugin = get_channel(channel)
@@ -1061,6 +1065,7 @@ def record_routed_voice_turn(
     the outcome as an autonomous event). Returns the session_id.
     """
     from datetime import datetime
+
     from .message_builder import stamp_user_turn, user_turn_stamp
     from .security import resolve_trust_label, wrap_external_message
     from .session_storage import load_session, session_rmw_lock
@@ -1150,6 +1155,7 @@ def record_autonomous_turn(
         image_urls = frames + crops
     elif media:
         from pathlib import Path
+
         from .vision_utils import get_image_url
         url = get_image_url(Path(media))
         if url:

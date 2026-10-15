@@ -21,7 +21,6 @@ from __future__ import annotations
 import logging
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 from .config import DATA_DIR, LLAMACPP_VISION_PROBE_RESOLUTION
 from .vram_peak_cache import JsonPeakCache
@@ -33,7 +32,7 @@ CACHE_FILE = DATA_DIR / "mmproj_encode_vram_cache.json"
 _store = JsonPeakCache(CACHE_FILE, "mmproj_encode_vram_cache")
 
 
-def get(mmproj_path: Path) -> Optional[int]:
+def get(mmproj_path: Path) -> int | None:
     """Gemessener Encode-Buffer-Peak in MiB für diese mmproj-Datei —
     ``None`` bei Miss, veralteter mtime oder geänderter Probe-Auflösung."""
     try:

@@ -364,8 +364,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
         Store laden — Quelle für die „Quellen"-Sektion im Settings-
         Modal."""
         try:
-            from ..lib.frame_sources import list_all
             from ..lib.config import VISION_MIN_EVENT_INTERVAL_SEC
+            from ..lib.frame_sources import list_all
             from ..lib.vision_store import VisionStore
             store = VisionStore()
             cams: list[dict[str, Any]] = []
@@ -1019,7 +1019,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.vlm_model_busy = True
         try:
             from ..lib.vision_prewarm import (
-                is_vlm_loaded, prewarm_vlm, unload_vlm_model,
+                is_vlm_loaded,
+                prewarm_vlm,
+                unload_vlm_model,
             )
             currently_loaded = await is_vlm_loaded(model)
             if currently_loaded:

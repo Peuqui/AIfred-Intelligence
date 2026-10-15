@@ -8,9 +8,13 @@ from pathlib import Path
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_READONLY
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.logging_utils import log_message
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
+from ....lib.security import TIER_READONLY
 from ....lib.service_status import get_monitor
 
 

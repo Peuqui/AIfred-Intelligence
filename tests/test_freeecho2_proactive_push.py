@@ -292,7 +292,7 @@ class TestAlertBusSeverityMapping:
     das via announce_to_channel-metadata an die Sinks weiter."""
 
     def test_critical_maps_to_alarm(self):
-        from aifred.lib.alert_bus import _default_deliver, AlertEvent, AlertRule
+        from aifred.lib.alert_bus import AlertEvent, AlertRule, _default_deliver
 
         ev = AlertEvent(
             producer="vision", category="intruder", severity="critical",
@@ -325,7 +325,7 @@ class TestAlertBusSeverityMapping:
         # warning (z.B. unbekannte Person an der Tür) → auffälliger
         # alarm-Sound, nicht notification. SSoT: alert_bus._default_deliver
         # mappt critical UND warning auf "alarm".
-        from aifred.lib.alert_bus import _default_deliver, AlertEvent, AlertRule
+        from aifred.lib.alert_bus import AlertEvent, AlertRule, _default_deliver
 
         ev = AlertEvent(
             producer="vision", category="face_unknown", severity="warning",
@@ -350,7 +350,7 @@ class TestAlertBusSeverityMapping:
         assert captured["metadata"].get("severity") == "warning"
 
     def test_info_maps_to_notification(self):
-        from aifred.lib.alert_bus import _default_deliver, AlertEvent, AlertRule
+        from aifred.lib.alert_bus import AlertEvent, AlertRule, _default_deliver
 
         ev = AlertEvent(
             producer="scheduler", category="reminder", severity="info",

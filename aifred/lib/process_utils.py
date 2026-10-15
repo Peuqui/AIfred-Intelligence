@@ -9,11 +9,11 @@ Provides common functions for:
 This module reduces code duplication across the state mixins.
 """
 
+import asyncio
 import subprocess
 from collections.abc import Sequence
-import asyncio
-from .logging_utils import log_message
 
+from .logging_utils import log_message
 
 #: Cached TTS GPU UUID. Computed once per process by
 #: :func:`get_tts_gpu_uuid` from :func:`_detect_tts_gpu_uuid` so that
@@ -251,6 +251,7 @@ def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
     duerfen belegt bleiben). None = alle Karten.
     """
     from pathlib import Path
+
     from .nvidia_smi import compute_apps
 
     procs: list[str] = []

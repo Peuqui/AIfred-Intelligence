@@ -20,26 +20,25 @@ import shutil
 import signal
 import subprocess
 import time
-
-import psutil
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
+import psutil
 import yaml
 
-from ..perf_metrics import prefill_tokens_per_second
 from ..config import (
     DATA_DIR,
     VLLM_CALIBRATION_CACHE_MAX_GIB,
+    VLLM_CALIBRATION_CACHE_ROOT,
+    VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO,
     VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS,
     VLLM_PRODUCTION_CACHE_MAX_GIB,
     VLLM_PRODUCTION_CACHE_ROOT,
-    VLLM_CALIBRATION_CACHE_ROOT,
-    VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO,
 )
+from ..perf_metrics import prefill_tokens_per_second
 
 VLLM_RUNTIME_PATH = DATA_DIR / "vllm_runtime.yaml"
 
@@ -783,8 +782,10 @@ def generation_defaults(checkpoint: Path) -> dict[str, float]:
     llama-server-Defaults der Konfiguration), danach die Abweichungen
     aus ``generation_overrides`` in vllm_runtime.yaml."""
     from ..config import (
-        LLAMASERVER_DEFAULT_MIN_P, LLAMASERVER_DEFAULT_REPEAT_PENALTY,
-        LLAMASERVER_DEFAULT_TEMPERATURE, LLAMASERVER_DEFAULT_TOP_K,
+        LLAMASERVER_DEFAULT_MIN_P,
+        LLAMASERVER_DEFAULT_REPEAT_PENALTY,
+        LLAMASERVER_DEFAULT_TEMPERATURE,
+        LLAMASERVER_DEFAULT_TOP_K,
         LLAMASERVER_DEFAULT_TOP_P,
     )
     defaults: dict[str, float] = {

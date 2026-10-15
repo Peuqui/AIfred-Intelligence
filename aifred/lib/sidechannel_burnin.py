@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, Optional, TypedDict
+from typing import Any, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +32,7 @@ def _query_gpu_used_mb(gpu_index: int) -> int:
         return 0
 
 
-def _resolve_tts_gpu_index() -> Optional[int]:
+def _resolve_tts_gpu_index() -> int | None:
     """Resolve the TTS GPU's PCI_BUS_ID index by mapping the cached UUID
     through nvidia-smi. Returns ``None`` if the UUID can't be resolved
     (no TTS GPU pinned, or NVML unavailable)."""
@@ -59,20 +59,19 @@ class _PeakMonitor:
         self._gpu = gpu_index
         self._interval = interval
         self._peak = 0
-        self._task: Optional[asyncio.Task[None]] = None
+        self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
 
     async def _run(self) -> None:
         while not self._stop.is_set():
             used = _query_gpu_used_mb(self._gpu)
-            if used > self._peak:
-                self._peak = used
+            self._peak = max(self._peak, used)
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
             except asyncio.TimeoutError:
                 pass
 
-    async def __aenter__(self) -> "_PeakMonitor":
+    async def __aenter__(self) -> _PeakMonitor:
         self._task = asyncio.create_task(self._run())
         return self
 
@@ -104,7 +103,7 @@ async def burnin_sidechannel(
     tts_engine_key: str,
     *,
     debug: Any = None,
-) -> Optional[SidechannelResult]:
+) -> SidechannelResult | None:
     """VLM laden, TTS-Stresslauf darueber, gemeinsame VRAM-Spitze messen.
 
     Gibt ``None`` zurueck, wenn keine Side-Channel-Karte aufloesbar ist

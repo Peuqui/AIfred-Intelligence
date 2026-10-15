@@ -13,11 +13,11 @@ Also detects dialog addressing (who is being spoken to):
 - None: No specific addressee
 """
 
-from typing import Optional, Dict, Tuple, Any, List
+from typing import Any
+
+from .context_manager import strip_thinking_blocks
 from .logging_utils import log_message
 from .prompt_loader import get_intent_detection_prompt
-from .context_manager import strip_thinking_blocks
-
 
 # Valid values for mode-switch field validation (defensive parsing).
 _VALID_MULTI_AGENT_MODES = {
@@ -26,7 +26,7 @@ _VALID_MULTI_AGENT_MODES = {
 }
 
 
-def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
+def _parse_mode_switch(mode_field: str) -> dict[str, Any]:
     """
     Parse the MODE_SWITCH field of the intent detection output.
 
@@ -50,12 +50,12 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
     """
     from .agent_config import resolve_agent_id
 
-    updates: Dict[str, Any] = {}
+    updates: dict[str, Any] = {}
     if not mode_field or not mode_field.strip():
         return updates
 
     # Set while consuming a symposion_agents list — bare tokens append to it.
-    collecting_agents: List[str] | None = None
+    collecting_agents: list[str] | None = None
 
     for pair in mode_field.split(","):
         if "=" not in pair:
@@ -100,11 +100,11 @@ def _parse_mode_switch(mode_field: str) -> Dict[str, Any]:
     return updates
 
 
-def format_mode_switch_summary(updates: Dict[str, Any], lang: str = "de") -> str:
+def format_mode_switch_summary(updates: dict[str, Any], lang: str = "de") -> str:
     """Format a human-readable summary of a mode switch for confirmation messages."""
     if not updates:
         return ""
-    parts: List[str] = []
+    parts: list[str] = []
     if lang == "de":
         multi_labels = {
             "standard": "Standard",
@@ -141,7 +141,7 @@ def format_mode_switch_summary(updates: Dict[str, Any], lang: str = "de") -> str
     return " · ".join(parts)
 
 
-def format_intent_result(intent: str, addressee: Optional[str], language: str) -> str:
+def format_intent_result(intent: str, addressee: str | None, language: str) -> str:
     """Format intent detection result as debug string (single source of truth).
 
     Used by browser (add_debug), message_processor (debug), and log output.
@@ -158,7 +158,7 @@ def format_intent_result(intent: str, addressee: Optional[str], language: str) -
 
 def parse_intent_addressee_language(
     response_raw: str,
-) -> Tuple[str, Optional[str], str, Dict[str, Any], bool]:
+) -> tuple[str, str | None, str, dict[str, Any], bool]:
     """
     Extract intent, addressee, language, mode-switch, and pure-command flag.
 
@@ -222,7 +222,7 @@ def parse_intent_addressee_language(
 
     # Parse addressee — resolve_agent_id handles ID, display_name and aliases
     # in one place. Phonetic STT variations live in agents.json (aliases field).
-    addressee: Optional[str] = None
+    addressee: str | None = None
     if addressee_part:
         from .agent_config import resolve_agent_id
         addressee = resolve_agent_id(addressee_part)
@@ -253,9 +253,9 @@ async def detect_query_intent_and_addressee(
     user_query: str,
     automatik_model: str,
     llm_client,
-    llm_options: Optional[Dict] = None,
-    automatik_num_ctx: Optional[int] = None
-) -> Tuple[str, Optional[str], str, Dict[str, Any], bool, str, float]:
+    llm_options: dict | None = None,
+    automatik_num_ctx: int | None = None
+) -> tuple[str, str | None, str, dict[str, Any], bool, str, float]:
     """
     Detect intent, addressee, language, mode-switch, and pure-command flag.
 
@@ -296,7 +296,7 @@ async def detect_query_intent_and_addressee(
 
     log_message(f"🎯 Intent+Addressee+Language detection for query: {user_query[:60]}...")
 
-    intent_options: Dict = {
+    intent_options: dict = {
         'temperature': 0.2,  # Low for consistent detection
         'enable_thinking': False  # Fast detection without reasoning
     }
@@ -346,7 +346,7 @@ def get_temperature_for_intent(intent: str) -> float:
     from .config import (
         INTENT_TEMPERATURE_FAKTISCH,
         INTENT_TEMPERATURE_GEMISCHT,
-        INTENT_TEMPERATURE_KREATIV
+        INTENT_TEMPERATURE_KREATIV,
     )
 
     temp_map: dict[str, float] = {

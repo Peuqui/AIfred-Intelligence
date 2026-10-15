@@ -23,7 +23,7 @@ import requests
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
-from scripts.download_judaica import TEXTS  # noqa: E402
+from scripts.download_judaica import TEXTS
 
 SEFARIA_INDEX = "https://www.sefaria.org/api/index/{ref}"
 SEFARIA_TEXT = "https://www.sefaria.org/api/texts/{ref}.{section}?lang=en&context=0&pad=0"

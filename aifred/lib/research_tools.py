@@ -14,7 +14,8 @@ the results stay in the history anyway.
 
 import json
 import logging
-from typing import Any, AsyncGenerator, Sequence, TYPE_CHECKING
+from collections.abc import AsyncGenerator, Sequence
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -84,13 +85,13 @@ async def execute_research(
     Results stored in state._research_context, state._research_sources_html
     and state._research_note (the llm_history line, see research_note).
     """
-    from .research.query_processor import process_query_and_search
-    from .research.url_ranker import rank_urls_by_relevance
-    from .research.scraper_orchestrator import orchestrate_scraping
-    from .tools import build_context
     from .formatting import build_sources_collapsible
     from .llm_client import LLMClient
     from .research.context_utils import get_agent_num_ctx
+    from .research.query_processor import process_query_and_search
+    from .research.scraper_orchestrator import orchestrate_scraping
+    from .research.url_ranker import rank_urls_by_relevance
+    from .tools import build_context
 
     # Automatik-LLM for URL ranking and any other
     # research-pipeline helper inference. Two separate ids:
@@ -280,14 +281,14 @@ async def hub_web_search(queries: list[str], llm_history: list[dict]) -> tuple[s
     Returns (context, number of sources read); the caller builds the
     llm_history line from the count (research_note).
     """
+    from .config import BACKEND_DEFAULT_MODELS, BACKEND_URLS, DEFAULT_SETTINGS
     from .debug_bus import debug
-    from .research.query_processor import process_query_and_search
-    from .research.url_ranker import rank_urls_by_relevance
-    from .research.scraper_orchestrator import orchestrate_scraping
-    from .tools import build_context
     from .llm_client import LLMClient
+    from .research.query_processor import process_query_and_search
+    from .research.scraper_orchestrator import orchestrate_scraping
+    from .research.url_ranker import rank_urls_by_relevance
     from .settings import load_settings
-    from .config import DEFAULT_SETTINGS, BACKEND_DEFAULT_MODELS, BACKEND_URLS
+    from .tools import build_context
 
     debug(f"🔍 Web search: {', '.join(queries)}")
 

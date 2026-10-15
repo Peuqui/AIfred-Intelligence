@@ -7,18 +7,19 @@ based on available GPU memory.
 
 import logging
 import struct
-import requests
 from pathlib import Path
-from typing import Optional, Dict
+
+import requests
+
+from . import nvidia_smi
 from .config import (
-    VRAM_SAFETY_MARGIN,
+    DEFAULT_OLLAMA_URL,
+    ENABLE_VRAM_CONTEXT_CALCULATION,
     VRAM_CONTEXT_RATIO_DENSE,
     VRAM_CONTEXT_RATIO_MOE,
-    ENABLE_VRAM_CONTEXT_CALCULATION,
-    DEFAULT_OLLAMA_URL
+    VRAM_SAFETY_MARGIN,
 )
 from .formatting import format_number
-from . import nvidia_smi
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +42,7 @@ def total_actual_vram_gb(gpu_info) -> float:
 # - vLLM: Always True (model fixed at server start)
 
 
-def get_gpu_memory_info(gpu_index: int = 0) -> Optional[Dict]:
+def get_gpu_memory_info(gpu_index: int = 0) -> dict | None:
     """
     Query comprehensive GPU memory info via nvidia-smi.
 
@@ -68,7 +69,7 @@ def get_gpu_memory_info(gpu_index: int = 0) -> Optional[Dict]:
     }
 
 
-def get_free_vram_for_single_gpu(gpu_index: int = 0) -> Optional[int]:
+def get_free_vram_for_single_gpu(gpu_index: int = 0) -> int | None:
     """
     Query free VRAM for a specific GPU via nvidia-smi.
 
@@ -84,7 +85,7 @@ def get_free_vram_for_single_gpu(gpu_index: int = 0) -> Optional[int]:
     return int(rows[0]["memory.free"])
 
 
-def get_free_vram_mb() -> Optional[int]:
+def get_free_vram_mb() -> int | None:
     """
     Query free VRAM via nvidia-smi.
 
@@ -110,7 +111,7 @@ def get_free_vram_mb() -> Optional[int]:
     return total_free
 
 
-def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
+def get_gpu_model_name(gpu_index: int = 0) -> str | None:
     """
     Get GPU model name (e.g., "NVIDIA GeForce RTX 3090 Ti")
 
@@ -126,7 +127,7 @@ def get_gpu_model_name(gpu_index: int = 0) -> Optional[str]:
     return rows[0]["name"]
 
 
-def get_all_gpus_memory_info() -> Optional[Dict]:
+def get_all_gpus_memory_info() -> dict | None:
     """
     Query memory info for ALL GPUs in the system via nvidia-smi.
 
@@ -181,7 +182,7 @@ def get_all_gpus_memory_info() -> Optional[Dict]:
     }
 
 
-def get_free_ram_mb() -> Optional[int]:
+def get_free_ram_mb() -> int | None:
     """
     Query free system RAM using psutil.
 
@@ -200,7 +201,7 @@ def get_free_ram_mb() -> Optional[int]:
         return None
 
 
-def get_swap_used_mb() -> Optional[int]:
+def get_swap_used_mb() -> int | None:
     """
     Query current swap usage using psutil.
 
@@ -250,7 +251,7 @@ def calculate_context_from_memory(
     return calculated_tokens
 
 
-def read_gguf_field(gguf_path: Path, key_suffix: str) -> Optional[int]:
+def read_gguf_field(gguf_path: Path, key_suffix: str) -> int | None:
     """
     Read an integer field from GGUF metadata by key suffix.
 
@@ -358,7 +359,7 @@ def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
     Returns:
         True if MoE, False if Dense or unknown
     """
-    from .model_vram_cache import load_cache, get_expert_counts, set_expert_counts
+    from .model_vram_cache import get_expert_counts, load_cache, set_expert_counts
 
     # Method 1: Check cached expert_count (fastest path)
     cached = get_expert_counts(model_name)
@@ -533,7 +534,10 @@ async def calculate_vram_based_context(
     # PRIORITY 1: Check for calibrated max_context (most accurate!)
     # If we have a manually calibrated value, use it directly instead of calculating dynamically
     if backend_type == "ollama":
-        from .model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model
+        from .model_vram_cache import (
+            get_ollama_calibrated_max_context,
+            get_rope_factor_for_model,
+        )
 
         # Read RoPE factor from cache (per-model setting)
         rope_factor = get_rope_factor_for_model(model_name)

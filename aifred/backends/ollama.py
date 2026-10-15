@@ -4,25 +4,25 @@ Ollama Backend Adapter
 Wraps Ollama API into unified LLMBackend interface
 """
 
-import httpx
 import logging
-from typing import Any, List, Optional, AsyncIterator, Dict
+from collections.abc import AsyncIterator
+from typing import Any
+
+import httpx
+
+from ..lib.config import DEFAULT_OLLAMA_URL, MIN_FREE_RAM_MB, MIN_USEFUL_CONTEXT_TOKENS
+from ..lib.logging_utils import log_message
 from ..lib.perf_metrics import InferenceWork, ThinkingClock
 from ..lib.timer import Timer
 from .base import (
+    BackendConnectionError,
+    BackendInferenceError,
+    BackendModelNotFoundError,
     LLMBackend,
     LLMMessage,
     LLMOptions,
     LLMResponse,
-    BackendConnectionError,
-    BackendModelNotFoundError,
-    BackendInferenceError,
     done_metrics,
-)
-from ..lib.logging_utils import log_message
-from ..lib.config import (
-    DEFAULT_OLLAMA_URL,
-    MIN_USEFUL_CONTEXT_TOKENS, MIN_FREE_RAM_MB
 )
 
 logger = logging.getLogger(__name__)
@@ -49,6 +49,7 @@ async def wait_for_vram_stable(
         tuple: (stabilized: bool, wait_time: float, final_vram_mb: int)
     """
     import asyncio
+
     from ..lib.gpu_utils import get_free_vram_mb
     from ..lib.timer import Timer
 
@@ -100,7 +101,7 @@ class OllamaBackend(LLMBackend):
         self.client = httpx.AsyncClient(timeout=timeout, limits=limits)
 
     @staticmethod
-    def _convert_messages(messages: List[LLMMessage]) -> list[dict[str, Any]]:
+    def _convert_messages(messages: list[LLMMessage]) -> list[dict[str, Any]]:
         """Convert LLMMessage list to Ollama format (supports multimodal content)."""
         ollama_messages: list[dict[str, Any]] = []
         for msg in messages:
@@ -134,7 +135,7 @@ class OllamaBackend(LLMBackend):
                 })
         return ollama_messages
 
-    async def list_models(self) -> List[str]:
+    async def list_models(self) -> list[str]:
         """Get list of available Ollama models"""
         try:
             response = await self.client.get(f"{self.base_url}/api/tags")
@@ -148,7 +149,7 @@ class OllamaBackend(LLMBackend):
     def _build_chat_payload(
         self,
         model: str,
-        messages: List[LLMMessage],
+        messages: list[LLMMessage],
         options: LLMOptions,
         stream: bool
     ) -> dict[str, Any]:
@@ -238,8 +239,8 @@ class OllamaBackend(LLMBackend):
     async def chat(
         self,
         model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
+        messages: list[LLMMessage],
+        options: LLMOptions | None = None,
         stream: bool = False
     ) -> LLMResponse:
         """
@@ -321,9 +322,9 @@ class OllamaBackend(LLMBackend):
     async def chat_stream(
         self,
         model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
-    ) -> AsyncIterator[Dict]:
+        messages: list[LLMMessage],
+        options: LLMOptions | None = None
+    ) -> AsyncIterator[dict]:
         """
         Streaming chat with Ollama
 
@@ -359,7 +360,7 @@ class OllamaBackend(LLMBackend):
                 thinking_buffer = ""
                 think_clock = ThinkingClock()
 
-                def content_item(text: str) -> Dict[str, Any]:
+                def content_item(text: str) -> dict[str, Any]:
                     think_clock.observe(text, timer.elapsed())
                     return {"type": "content", "text": text}
 
@@ -519,7 +520,10 @@ class OllamaBackend(LLMBackend):
         Args:
             model: Model name to check
         """
-        from ..lib.model_vram_cache import is_ollama_model_hybrid, get_rope_factor_for_model
+        from ..lib.model_vram_cache import (
+            get_rope_factor_for_model,
+            is_ollama_model_hybrid,
+        )
 
         # Check if this is a hybrid model (CPU+GPU offload)
         rope_factor = get_rope_factor_for_model(model)
@@ -622,7 +626,7 @@ class OllamaBackend(LLMBackend):
             logger.warning(f"Failed to unload models: {e}")
             return (False, [])
 
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: int | None = None) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal chat request.
         This warms up the model so future requests are faster.
@@ -800,7 +804,7 @@ class OllamaBackend(LLMBackend):
             logger.warning(f"Failed to query Ollama /api/ps: {e}")
             return False  # Assume not loaded on error
 
-    def get_capabilities(self) -> Dict[str, bool]:
+    def get_capabilities(self) -> dict[str, bool]:
         """
         Return Ollama backend capabilities
 
@@ -885,9 +889,10 @@ class OllamaBackend(LLMBackend):
             int: Best found context size (via special "__BINARY_RESULT__:{ctx}" message)
         """
         import asyncio
-        from ..lib.gpu_utils import get_free_ram_mb, get_swap_used_mb
-        from ..lib.formatting import format_number
+
         from ..lib.config import MAX_SWAP_INCREASE_MB
+        from ..lib.formatting import format_number
+        from ..lib.gpu_utils import get_free_ram_mb, get_swap_used_mb
 
         result = low
         iteration = start_iteration
@@ -947,8 +952,8 @@ class OllamaBackend(LLMBackend):
         is_hybrid: bool
     ) -> None:
         """Persist a calibration result to the model VRAM cache."""
-        from ..lib.model_vram_cache import add_ollama_calibration
         from ..lib.gpu_utils import get_gpu_model_name
+        from ..lib.model_vram_cache import add_ollama_calibration
 
         gpu_model = get_gpu_model_name() or "Unknown"
         add_ollama_calibration(
@@ -982,8 +987,9 @@ class OllamaBackend(LLMBackend):
            model>VRAM: "✅ Hybrid mode: {ctx} tokens saved")
         """
         import asyncio
+
         from ..lib.formatting import format_number
-        from ..lib.gpu_utils import get_free_vram_mb, get_free_ram_mb
+        from ..lib.gpu_utils import get_free_ram_mb, get_free_vram_mb
 
         yield f"→ Binary search range: {format_number(effective_min_context)} → {format_number(calculated_upper)} tok"
         yield f"→ RAM reserve: {format_number(MIN_FREE_RAM_MB)} MB ({format_number(ratio, 2)} MB/token)"
@@ -1064,8 +1070,9 @@ class OllamaBackend(LLMBackend):
                  where mode is "gpu", "hybrid", or "error"
         """
         import asyncio
-        from ..lib.formatting import format_number
+
         from ..lib.config import CALIBRATION_MIN_CONTEXT
+        from ..lib.formatting import format_number
 
         # 1. Get native context limit AND model size
         native_ctx, model_size_bytes = await self.get_model_context_limit(model)
@@ -1097,12 +1104,12 @@ class OllamaBackend(LLMBackend):
 
         # === HYBRID MODE DETECTION ===
         # Check if model is larger than available VRAM (requires CPU offloading)
+        from ..lib.config import VRAM_CONTEXT_RATIO_DENSE, VRAM_CONTEXT_RATIO_MOE
         from ..lib.gpu_utils import (
-            get_free_vram_mb, get_free_ram_mb, is_moe_model,
-            calculate_context_from_memory
-        )
-        from ..lib.config import (
-            VRAM_CONTEXT_RATIO_MOE, VRAM_CONTEXT_RATIO_DENSE
+            calculate_context_from_memory,
+            get_free_ram_mb,
+            get_free_vram_mb,
+            is_moe_model,
         )
 
         free_vram_mb = get_free_vram_mb()

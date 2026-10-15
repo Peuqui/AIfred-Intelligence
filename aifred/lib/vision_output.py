@@ -37,8 +37,8 @@ class FinalizedFrame:
     * ``path`` — Speicherpfad, ``""`` wenn nicht gespeichert.
     """
 
-    detect: "Frame"
-    output: "Frame"
+    detect: Frame
+    output: Frame
     path: str
 
 
@@ -50,7 +50,7 @@ class PairOutput:
 
     wide: FinalizedFrame
     zoom_path: str
-    zoom_detect: "Frame | None"
+    zoom_detect: Frame | None
 
 
 class OutputChain:
@@ -71,7 +71,7 @@ class OutputChain:
     # ── Kette ─────────────────────────────────────────────────────
 
     async def finalize(
-        self, frame: "Frame", *,
+        self, frame: Frame, *,
         label_suffix: str = "", save: bool = True, stamp: bool = True,
     ) -> FinalizedFrame:
         def _work() -> FinalizedFrame:
@@ -82,7 +82,7 @@ class OutputChain:
         return await asyncio.to_thread(_work)
 
     async def finalize_pair(
-        self, wide: "Frame", zoom: "Frame", *, save: bool = True,
+        self, wide: Frame, zoom: Frame, *, save: bool = True,
     ) -> PairOutput:
         """Wide- und Zoom-Bild durch die Kette. Ist ``zoom`` dasselbe Objekt
         wie ``wide`` (kein Tele-Objektiv), entsteht kein zweites Bild."""
@@ -96,7 +96,7 @@ class OutputChain:
 
     # ── Stufen ────────────────────────────────────────────────────
 
-    def _blackout(self, frame: "Frame") -> "Frame":
+    def _blackout(self, frame: Frame) -> Frame:
         """DSGVO-Schwärzung: hat die Quelle eine ``blackout``-Maske, werden
         die Pixel der Zone geschwärzt — Speichern/Face/VLM sehen dann nie den
         öffentlichen Raum. Ohne Maske bleibt der Frame unverändert. Ein Bild,
@@ -125,7 +125,7 @@ class OutputChain:
         return replace(frame, image_bytes=buf.tobytes())
 
     @staticmethod
-    def _stamp(frame: "Frame", label_suffix: str) -> "Frame":
+    def _stamp(frame: Frame, label_suffix: str) -> Frame:
         """Dokumentations-Overlay (Name + Ort + Aufnahmezeit) einmal ins Bild
         brennen — im Moment, in dem es als Output genommen wird. Derselbe
         gestempelte Frame fließt dann in Speichern, VLM und Gesichtserkennung;
@@ -145,7 +145,7 @@ class OutputChain:
             ),
         )
 
-    def _save(self, frame: "Frame") -> str:
+    def _save(self, frame: Frame) -> str:
         """JPEG nach ``<frames_dir>/<source>/<date>/`` schreiben. Gibt den
         Pfad zurück, bei Fehler ``""`` (der Fehler wird als Warnung
         gemeldet, das Ereignis entsteht dann ohne Bildpfad)."""

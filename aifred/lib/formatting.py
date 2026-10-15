@@ -7,14 +7,21 @@ and thinking processes in the Reflex UI.
 
 import re
 import threading
+from collections import OrderedDict
+from datetime import datetime
 from pathlib import Path
 from typing import Any
-from collections import OrderedDict
-from .logging_utils import log_message
-from .config import get_xml_tag_config, BACKEND_URL, DATA_DIR, PROJECT_ROOT, HTML_PREVIEW_MAX_FILES
-from .perf_metrics import InferenceWork
+
+from .config import (
+    BACKEND_URL,
+    DATA_DIR,
+    HTML_PREVIEW_MAX_FILES,
+    PROJECT_ROOT,
+    get_xml_tag_config,
+)
 from .html_tags import HTML_TAG_BLACKLIST  # HTML tags to exclude from XML processing
-from datetime import datetime
+from .logging_utils import log_message
+from .perf_metrics import InferenceWork
 
 # HTML Preview: Path to data/html_preview directory
 # Located in data/ which is excluded from hot-reload
@@ -41,7 +48,7 @@ def get_ui_locale() -> str:
     return _ui_locale
 
 
-def format_number(n: int | float, decimals: int = 0, locale: str | None = None) -> str:
+def format_number(n: float, decimals: int = 0, locale: str | None = None) -> str:
     """
     Format number with locale-aware separators.
 
@@ -85,7 +92,7 @@ def format_number(n: int | float, decimals: int = 0, locale: str | None = None) 
             return formatted
 
 
-def format_clock(seconds: float | int, pad_hours: bool = False) -> str:
+def format_clock(seconds: float, pad_hours: bool = False) -> str:
     """
     SSOT for the clock-style duration string: "M:SS" or "H:MM:SS".
 
@@ -113,7 +120,7 @@ def format_clock(seconds: float | int, pad_hours: bool = False) -> str:
     return f"{minutes}:{secs:02d}"
 
 
-def format_duration_ms(ms: float | int) -> str:
+def format_duration_ms(ms: float) -> str:
     """
     Format a duration given in milliseconds as a compact human-readable string.
 
@@ -1283,6 +1290,7 @@ def build_tool_collapsible(block: dict[str, Any]) -> str:
     estimate like every ``<details>`` block.
     """
     import html as _html
+
     from ..theme import COLORS
     title = _html.escape(str(block.get("title", "")).strip()) or "…"
     # Optional text-glyph icon (e.g. ⇄) in the accent colour, so it stands out

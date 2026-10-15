@@ -4,9 +4,8 @@ Base Tool Classes and Exceptions
 Extracted from agent_tools.py for better modularity.
 """
 
-import time
 import logging
-from typing import Dict, List
+import time
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -40,7 +39,7 @@ class BaseTool:
         # Subclasses must set name, description and min_call_interval
         self.last_call_time: float = 0.0
 
-    def execute(self, query: str, **kwargs) -> Dict:
+    def execute(self, query: str, **kwargs) -> dict:
         """
         Execute tool and return result
 
@@ -65,7 +64,7 @@ class BaseTool:
 
         self.last_call_time = time.time()
 
-    def _extract_urls_from_results(self, results: List[Dict], url_key='url', title_key='title', content_key='description', max_results=10) -> tuple:
+    def _extract_urls_from_results(self, results: list[dict], url_key='url', title_key='title', content_key='description', max_results=10) -> tuple:
         """
         Extract URLs, titles and snippets from search results
 

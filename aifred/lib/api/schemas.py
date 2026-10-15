@@ -1,7 +1,8 @@
 """Pydantic models shared by multiple router modules."""
 
+from typing import Annotated
+
 from pydantic import BaseModel, Field
-from typing import Annotated, Optional
 
 # Name, unter dem sich ein Aufrufer der Service-Token-Endpunkte (inject, trigger, announce)
 # zu erkennen gibt. Pflicht, reine Anzeige: Echtheit sichert das Token, nie der Name.
@@ -16,4 +17,4 @@ class SystemActionResponse(BaseModel):
     """Response for system actions"""
     success: bool
     message: str
-    details: Optional[str] = None
+    details: str | None = None

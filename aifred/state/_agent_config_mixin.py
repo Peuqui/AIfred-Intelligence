@@ -10,9 +10,7 @@ per agent id) — access via the ``agent_settings`` helpers.
 
 from __future__ import annotations
 
-from ..lib.config import LLAMASWAP_BACKENDS
-
-from typing import ClassVar, List
+from typing import ClassVar
 
 import reflex as rx
 
@@ -33,11 +31,12 @@ from ..lib.config import (
     LLAMASERVER_DEFAULT_TEMPERATURE,
     LLAMASERVER_DEFAULT_TOP_K,
     LLAMASERVER_DEFAULT_TOP_P,
+    LLAMASWAP_BACKENDS,
+    VISION_DEFAULT_MIN_P,
+    VISION_DEFAULT_REPEAT_PENALTY,
     VISION_DEFAULT_TEMPERATURE,
     VISION_DEFAULT_TOP_K,
     VISION_DEFAULT_TOP_P,
-    VISION_DEFAULT_MIN_P,
-    VISION_DEFAULT_REPEAT_PENALTY,
 )
 
 # NOTE (mypy SCC): agent_tuning.py is dependency-free and safe to import at
@@ -350,7 +349,10 @@ class AgentConfigMixin(rx.State, mixin=True):
             from ..lib.agent_settings import get_agent_base_model_id
             model_id = get_agent_base_model_id(self, agent)
             if model_id:
-                from ..lib.calibration import parse_llamaswap_config, parse_sampling_from_cmd
+                from ..lib.calibration import (
+                    parse_llamaswap_config,
+                    parse_sampling_from_cmd,
+                )
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
                 config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
                 if model_id in config:
@@ -370,6 +372,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             model_id = get_agent_base_model_id(self, agent)
             if model_id:
                 from pathlib import Path
+
                 from ..lib.calibration import parse_llamaswap_config
                 from ..lib.calibration.vllm_probe import generation_defaults
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
@@ -532,11 +535,13 @@ class AgentConfigMixin(rx.State, mixin=True):
         aifred_model_id: str = get_agent_setting(self, "aifred", "model_id")
         if aifred_model_id:
             from ..lib.model_vram_cache import (
-                set_rope_factor_for_model,
+                format_model_with_ctx as _format_model_with_ctx,
+            )
+            from ..lib.model_vram_cache import (
+                get_llamacpp_calibration,
                 get_ollama_calibrated_max_context,
                 get_rope_factor_for_model,
-                get_llamacpp_calibration,
-                format_model_with_ctx as _format_model_with_ctx,
+                set_rope_factor_for_model,
             )
             set_rope_factor_for_model(aifred_model_id, factor)
 
@@ -714,7 +719,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         return t("speed_switch_tooltip", lang=lang)
 
     @rx.var(deps=["ui_language"], auto_deps=False)
-    def multi_agent_mode_options(self) -> List[List[str]]:
+    def multi_agent_mode_options(self) -> list[list[str]]:
         """Get localized multi-agent mode options as [key, label] pairs for dropdown."""
         from ..lib.i18n import TranslationManager
         return [
@@ -731,7 +736,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     FIXED_MODES: ClassVar[set[str]] = {"critical_review", "auto_consensus", "tribunal"}
 
     @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
-    def selectable_agents(self) -> List[dict[str, str]]:
+    def selectable_agents(self) -> list[dict[str, str]]:
         """Agent list for the active-agent toggle row (id, display_name, emoji).
 
         Excludes:

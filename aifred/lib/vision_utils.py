@@ -10,7 +10,7 @@ import re
 import shlex
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Tuple, Optional
+from typing import Any
 
 # Imports for session-based image storage
 from .config import DATA_DIR, LLAMASWAP_BACKENDS
@@ -177,7 +177,7 @@ def resolve_source_id(name_or_id: str) -> str:
     return name_or_id
 
 
-def _safe_session_dir(base_dir: Path, session_id: str) -> Optional[Path]:
+def _safe_session_dir(base_dir: Path, session_id: str) -> Path | None:
     """Return ``base_dir/session_id`` if session_id is well-formed and the
     resolved path stays under ``base_dir``, else None (path-traversal-safe)."""
     if not isinstance(session_id, str) or not SESSION_ID_RE.match(session_id):
@@ -328,8 +328,8 @@ async def is_vision_model(state, model_name: str) -> bool:
     try:
         # === OLLAMA: Check model_info for .vision.* keys ===
         if backend_type == "ollama":
-            from ..backends.ollama import OllamaBackend
             from ..backends import BackendFactory
+            from ..backends.ollama import OllamaBackend
 
             # Get backend instance (create if not cached)
             backend = BackendFactory.create("ollama", base_url=state.backend_url)
@@ -464,7 +464,7 @@ def _is_vision_model_by_name(model_name: str) -> bool:
     return is_vision
 
 
-def validate_image_file(filename: str, size_bytes: int) -> Tuple[bool, Optional[str]]:
+def validate_image_file(filename: str, size_bytes: int) -> tuple[bool, str | None]:
     """
     Validate uploaded image file.
 
@@ -490,7 +490,7 @@ def validate_image_file(filename: str, size_bytes: int) -> Tuple[bool, Optional[
     return True, None
 
 
-async def get_vision_model_capabilities(backend_url: str, model_name: str) -> Tuple[bool, Optional[int]]:
+async def get_vision_model_capabilities(backend_url: str, model_name: str) -> tuple[bool, int | None]:
     """
     Get vision model capabilities: chat template support and context window size.
 
@@ -597,8 +597,9 @@ def resize_image_if_needed(image_bytes: bytes, max_dimension: int | None = None)
 
     if max_dimension is None:
         max_dimension = VISION_MAX_IMAGE_DIMENSION
-    from PIL import Image, ImageOps
     import io
+
+    from PIL import Image, ImageOps
 
     img: Image.Image = Image.open(io.BytesIO(image_bytes))
     original_size = (img.width, img.height)
@@ -668,7 +669,7 @@ def annotate_frame(
     image_bytes: bytes,
     label: str,
     *,
-    timestamp: Optional[datetime] = None,
+    timestamp: datetime | None = None,
 ) -> bytes:
     """Burn a documentation overlay into a JPEG frame.
 
@@ -763,9 +764,11 @@ def crop_and_resize_image(
         - Uses LANCZOS resampling for quality
         - Re-encodes as JPEG with quality=90
     """
-    from .config import VISION_MAX_IMAGE_DIMENSION
-    from PIL import Image, ImageOps
     import io
+
+    from PIL import Image, ImageOps
+
+    from .config import VISION_MAX_IMAGE_DIMENSION
 
     if max_dimension is None:
         max_dimension = VISION_MAX_IMAGE_DIMENSION
@@ -941,7 +944,7 @@ def load_image_as_base64(image_path: Path) -> str:
     return base64.b64encode(image_bytes).decode('utf-8')
 
 
-def url_to_file_path(image_url: str, session_id: str) -> Optional[Path]:
+def url_to_file_path(image_url: str, session_id: str) -> Path | None:
     """
     Convert an image URL back to filesystem path.
 
@@ -984,7 +987,7 @@ def url_to_file_path(image_url: str, session_id: str) -> Optional[Path]:
 
 def _resolve_upload_marker(
     url: str, session_id: str, markers: tuple[tuple[str, Path, bool], ...]
-) -> Optional[Path]:
+) -> Path | None:
     """Resolve a ``/_upload/<marker>/...`` URL to a filesystem path.
 
     SSOT for URL→path resolution, shared by url_to_file_path (images) and
@@ -1034,7 +1037,7 @@ def is_image_file(path: Path) -> bool:
 
 def resolve_outbound_attachment(
     attachment: str, session_id: str, source: str
-) -> tuple[Optional[Path], Optional[str]]:
+) -> tuple[Path | None, str | None]:
     """Resolve an attachment reference for a channel ``*_send`` tool → file.
 
     SSOT for the outbound-attachment path across ALL channel plugins
@@ -1055,7 +1058,7 @@ def resolve_outbound_attachment(
     combined, an injected external prompt can at most re-send a file already
     in its own session to an allowlisted recipient.
     """
-    from .config import SANDBOX_OUTPUT_DIR, DOCUMENTS_DIR, OUTBOUND_ATTACHMENT_MAX_BYTES
+    from .config import DOCUMENTS_DIR, OUTBOUND_ATTACHMENT_MAX_BYTES, SANDBOX_OUTPUT_DIR
 
     if not attachment or not attachment.strip():
         return None, "No attachment reference provided."
@@ -1085,7 +1088,7 @@ def resolve_outbound_attachment(
     return path, None
 
 
-def _contain_under(base: Path, relative: str) -> Optional[Path]:
+def _contain_under(base: Path, relative: str) -> Path | None:
     """Resolve ``relative`` under ``base`` and reject path traversal.
 
     Returns the resolved path only if it stays inside ``base`` — otherwise
@@ -1101,7 +1104,7 @@ def _contain_under(base: Path, relative: str) -> Optional[Path]:
     return candidate
 
 
-def load_image_url_as_base64(image_url: str, session_id: str) -> Optional[str]:
+def load_image_url_as_base64(image_url: str, session_id: str) -> str | None:
     """
     Load image from URL and return as Base64 data URI.
 

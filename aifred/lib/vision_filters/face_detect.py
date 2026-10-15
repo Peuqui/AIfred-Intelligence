@@ -186,7 +186,7 @@ class FaceDetector:
             self._app = app
             return app
 
-    def detect(self, frame: "Frame") -> list[FaceDetection]:
+    def detect(self, frame: Frame) -> list[FaceDetection]:
         """Detect faces + extract embeddings for one frame.
 
         Returns leere Liste wenn das Frame nicht decodiert werden kann
@@ -205,7 +205,7 @@ class FaceDetector:
         return self._to_detections(raw, frame.source_id)
 
     def detect_in_regions(
-        self, frame: "Frame", regions: list[tuple[int, int, int, int]],
+        self, frame: Frame, regions: list[tuple[int, int, int, int]],
     ) -> list[FaceDetection]:
         """Zweiter Durchgang auf Bildausschnitten — für Gesichter, die im
         Vollbild unter die Wahrnehmungsschwelle fallen.

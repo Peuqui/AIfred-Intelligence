@@ -3,14 +3,13 @@
 import html as _html
 import time
 
-from fastapi import HTTPException, BackgroundTasks, Request, UploadFile, File, Form
+from fastapi import BackgroundTasks, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from ..logging_utils import log_message
 from .app import api_app
 from .schemas import CallerName
-
 
 # ============================================================
 # AGENT TRIGGER (Webhook API)
@@ -61,9 +60,10 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
     # background. process_inbound picks up the existing session via
     # routing_table.get_route().
     import secrets
+
     from ..config import MESSAGE_HUB_OWNER
-    from ..session_storage import create_empty_session
     from ..routing_table import routing_table
+    from ..session_storage import create_empty_session
 
     session_id = secrets.token_hex(16)
     channel_id = secrets.token_hex(8)
@@ -73,9 +73,10 @@ async def trigger_agent(request: AgentTriggerRequest, background_tasks: Backgrou
 
     async def _run():
         from datetime import datetime
+
         from ..envelope import InboundMessage
         from ..message_processor import process_inbound
-        from ..scheduler import _deliver_result, Job
+        from ..scheduler import Job, _deliver_result
 
         msg = InboundMessage(
             channel="webhook",

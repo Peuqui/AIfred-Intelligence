@@ -1,26 +1,26 @@
 """Modal dialogs for AIfred UI (Paket-Split aus dem frueheren ui/modals.py)."""
 
+from .bundles import bundle_export_modal, bundle_import_modal
+from .credentials import channel_credentials_page
+from .crop import crop_modal
+from .documents import document_manager_page
 from .help import (
+    model_lifecycle_help_modal,
     multi_agent_help_modal,
     reasoning_thinking_help_modal,
-    model_lifecycle_help_modal,
 )
-from .login import login_dialog
-from .crop import crop_modal
 from .lightbox import image_lightbox_modal
-from .documents import document_manager_page
-from .credentials import channel_credentials_page
-from .bundles import bundle_export_modal, bundle_import_modal
+from .login import login_dialog
 
 __all__ = [
-    "multi_agent_help_modal",
-    "reasoning_thinking_help_modal",
-    "model_lifecycle_help_modal",
-    "login_dialog",
-    "crop_modal",
-    "image_lightbox_modal",
-    "document_manager_page",
-    "channel_credentials_page",
     "bundle_export_modal",
     "bundle_import_modal",
+    "channel_credentials_page",
+    "crop_modal",
+    "document_manager_page",
+    "image_lightbox_modal",
+    "login_dialog",
+    "model_lifecycle_help_modal",
+    "multi_agent_help_modal",
+    "reasoning_thinking_help_modal",
 ]

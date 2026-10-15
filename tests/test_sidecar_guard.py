@@ -69,7 +69,7 @@ class _Client:
     async def __aenter__(self) -> "_Client":
         return self
 
-    async def __aexit__(self, *_: Any) -> None:
+    async def __aexit__(self, *_: object) -> None:
         return None
 
     async def get(self, url: str) -> _Response:
@@ -91,8 +91,7 @@ def _fake_release_whisper_gpu() -> bool:
 
 def _run(monkeypatch: pytest.MonkeyPatch, models: list[str], running: list[str]) -> list[str]:
     """Run the pre-request check for each model in turn on one backend."""
-    import aifred.lib.audio_processing as audio_processing
-    import aifred.lib.calibration as calibration
+    from aifred.lib import audio_processing, calibration
     from aifred.lib.calibration import gpu
 
     _Client.running, _Client.unloaded, _Client.loaded = running, [], []

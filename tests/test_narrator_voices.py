@@ -19,8 +19,8 @@ from fake_tts_service import (
     summary_frame,
 )
 
-import aifred.lib.file_manager as file_manager
 import aifred.lib.settings as settings_module
+from aifred.lib import file_manager
 from aifred.lib.plugin_base import PluginContext
 from aifred.lib.tts_client import EngineRef, TTSSuiteUnreachable
 from aifred.plugins.tools.narrator import _choose_engine_and_voice, plugin
@@ -83,7 +83,7 @@ class TestChooseEngineAndVoice:
             choose("nope")
 
     def test_an_empty_list_is_refused(self, env, monkeypatch):
-        import aifred.lib.tts_service as tts_service
+        from aifred.lib import tts_service
 
         monkeypatch.setattr(tts_service, "persisted_settings", lambda: {"tts_escalation": [], "tts_toggles_per_engine": {}})
         with pytest.raises(ValueError, match="no active TTS entry"):
@@ -106,7 +106,7 @@ class TestListNarratorVoicesTool:
         assert "error" in res and "nope" in res["error"]
 
     def test_a_service_that_does_not_answer_is_a_clear_error(self, env, monkeypatch):
-        import aifred.lib.tts_client as tts_client
+        from aifred.lib import tts_client
 
         def down(self):
             raise TTSSuiteUnreachable("TTS service not reachable")

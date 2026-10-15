@@ -21,8 +21,8 @@ import reflex as rx
 
 from ..lib.config import VISION_PTZ_HEARTBEAT_MS, VISION_PTZ_SPEEDS
 from ..state import AIState
-from .lightbox import LIGHTBOX_JS
 from .helpers import t
+from .lightbox import LIGHTBOX_JS
 
 
 def _header_group(

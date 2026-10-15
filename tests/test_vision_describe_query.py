@@ -97,8 +97,8 @@ class TestQueryEventsDedup:
     """The tool collapses cluster members into one happening per cluster."""
 
     def _run(self, store: VisionStore, monkeypatch) -> dict:
-        from aifred.lib.plugin_base import PluginContext
         from aifred.lib import vision_bulk
+        from aifred.lib.plugin_base import PluginContext
         # Vision kann per Plugin-Manager deaktiviert sein (→ plugins/disabled/)
         vision_plugin = pytest.importorskip(
             "aifred.plugins.tools.vision",

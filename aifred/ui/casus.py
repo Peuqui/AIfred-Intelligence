@@ -14,7 +14,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import confirm_delete_all, t, overlay_modal
+from .helpers import confirm_delete_all, overlay_modal, t
 
 
 def _event_type_badge(event: rx.Var) -> rx.Component:

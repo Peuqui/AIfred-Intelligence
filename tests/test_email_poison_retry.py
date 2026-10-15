@@ -34,9 +34,9 @@ def _clear_failures():
 def _channel():
     ch = EmailChannel()
     # Instance attributes shadow the methods (what monkeypatch.setattr does)
-    setattr(ch, "channel_log", MagicMock())
-    setattr(ch, "_update_checkpoint", MagicMock())
-    setattr(ch, "_quarantine_uid", MagicMock())
+    ch.channel_log = MagicMock()
+    ch._update_checkpoint = MagicMock()
+    ch._quarantine_uid = MagicMock()
     return ch
 
 
@@ -90,7 +90,7 @@ class TestBoundedRetry:
     def test_quarantine_uses_flagged_flag(self):
         # _quarantine_uid setzt \\Flagged via UID STORE (best effort).
         ch = EmailChannel()
-        setattr(ch, "channel_log", MagicMock())
+        ch.channel_log = MagicMock()
         imap = MagicMock()
         ch._quarantine_uid(imap, b"42")
         imap.uid.assert_called_once()
@@ -102,7 +102,7 @@ class TestBoundedRetry:
         # Ein fehlschlagender STORE darf die Schleife nicht crashen.
         ch = EmailChannel()
         channel_log = MagicMock()
-        setattr(ch, "channel_log", channel_log)
+        ch.channel_log = channel_log
         imap = MagicMock()
         imap.uid.side_effect = OSError("STORE failed")
         ch._quarantine_uid(imap, b"42")  # darf NICHT werfen

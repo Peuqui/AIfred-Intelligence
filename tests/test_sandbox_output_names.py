@@ -7,8 +7,7 @@ import uuid
 
 import pytest
 
-import aifred.lib.config as config
-import aifred.lib.sandbox as sandbox
+from aifred.lib import config, sandbox
 from aifred.lib.bubble import KIND_SANDBOX_HTML, BubbleArtifact, render_bubble
 
 SESSION = uuid.uuid4().hex
@@ -91,7 +90,7 @@ def test_bubble_shows_page_collapsed_with_its_source(tmp_path, output_root):
 
 def test_documents_page_shows_its_source_too(tmp_path, monkeypatch) -> None:
     """A page saved to documents/ got no source block under its embed."""
-    import aifred.lib.config as config
+    from aifred.lib import config
     from aifred.lib.bubble import _source_block
 
     monkeypatch.setattr(config, "DOCUMENTS_DIR", tmp_path)

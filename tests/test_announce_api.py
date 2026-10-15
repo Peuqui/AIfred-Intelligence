@@ -30,7 +30,7 @@ def client(monkeypatch: pytest.MonkeyPatch) -> TestClient:
         return f"session-{room}"
 
     # Die Session-Dokumentation nicht in echte Sessions schreiben
-    import aifred.lib.message_processor as message_processor
+    from aifred.lib import message_processor
     monkeypatch.setattr(message_processor, "announce_to_channel", fake_announce)
     monkeypatch.setattr(message_processor, "record_autonomous_turn", fake_record)
     test_client = TestClient(api_app)

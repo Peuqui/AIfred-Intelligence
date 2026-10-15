@@ -42,8 +42,8 @@ import json
 import logging
 import os
 import threading
-from typing import Optional, Dict, Any, List
 from datetime import datetime
+from typing import Any
 
 from .config import DATA_DIR
 
@@ -54,7 +54,7 @@ CACHE_DIR = DATA_DIR
 CACHE_FILE = CACHE_DIR / "model_vram_cache.json"
 
 # In-memory cache with mtime-based invalidation
-_cache: Dict[str, Any] | None = None
+_cache: dict[str, Any] | None = None
 _cache_mtime: float = 0.0
 # Guards read-modify-write sequences (add_vram_measurement, add_vllm_calibration)
 # so two concurrent measurements don't overwrite each other's update.
@@ -66,7 +66,7 @@ def ensure_cache_dir() -> None:
     CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def load_cache(strict: bool = False) -> Dict[str, Any]:
+def load_cache(strict: bool = False) -> dict[str, Any]:
     """
     Load unified model VRAM cache from JSON file.
 
@@ -101,19 +101,19 @@ def load_cache(strict: bool = False) -> Dict[str, Any]:
     # Load from disk
     try:
         with open(CACHE_FILE, encoding='utf-8') as f:
-            cache: Dict[str, Any] = json.load(f)
+            cache: dict[str, Any] = json.load(f)
         logger.info(f"Loaded unified model cache: {len(cache)} models")
         _cache = cache
         _cache_mtime = file_mtime
         return cache
-    except (json.JSONDecodeError, IOError) as e:
+    except (OSError, json.JSONDecodeError) as e:
         logger.error(f"Failed to load cache file {CACHE_FILE}: {e}")
         if strict:
             raise
         return {}
 
 
-def save_cache(cache: Dict[str, Any]) -> bool:
+def save_cache(cache: dict[str, Any]) -> bool:
     """
     Save unified model VRAM cache to JSON file.
 
@@ -142,7 +142,7 @@ def save_cache(cache: Dict[str, Any]) -> bool:
         _cache = None
         _cache_mtime = 0.0
         return True
-    except (IOError, OSError) as e:
+    except OSError as e:
         logger.error(f"Failed to save cache file {CACHE_FILE}: {e}")
         try:
             tmp_path.unlink(missing_ok=True)
@@ -151,21 +151,21 @@ def save_cache(cache: Dict[str, Any]) -> bool:
         return False
 
 
-def _ensure_entry(cache: Dict[str, Any], model_name: str, defaults: Dict[str, Any]) -> Dict[str, Any]:
+def _ensure_entry(cache: dict[str, Any], model_name: str, defaults: dict[str, Any]) -> dict[str, Any]:
     """Initialize a model entry with backend defaults if missing; return the entry.
 
     Must be called with ``_cache_lock`` held (part of the write pattern).
     """
     if model_name not in cache:
         cache[model_name] = dict(defaults)
-    entry: Dict[str, Any] = cache[model_name]
+    entry: dict[str, Any] = cache[model_name]
     return entry
 
 
 def _update_entry(
     model_name: str,
-    defaults: Dict[str, Any],
-    updates: Dict[str, Any],
+    defaults: dict[str, Any],
+    updates: dict[str, Any],
     log_msg: str,
 ) -> bool:
     """SSOT for the simple setter pattern: lock → load → init-entry → set fields → save.
@@ -302,7 +302,7 @@ def _ollama_ctx_field(rope_factor: float) -> tuple[str, str]:
 def get_ollama_calibrated_max_context(
     model_name: str,
     rope_factor: float = 1.0
-) -> Optional[int]:
+) -> int | None:
     """
     Get calibrated max context for an Ollama model.
 
@@ -451,7 +451,7 @@ def is_ollama_model_hybrid(model_name: str, rope_factor: float = 1.0) -> bool:
     return False
 
 
-def get_model_parameters(model_name: str) -> Dict[str, Any]:
+def get_model_parameters(model_name: str) -> dict[str, Any]:
     """
     Get all cached parameters for a model (used by State to avoid repeated file I/O).
 
@@ -568,7 +568,7 @@ def set_thinking_support_for_model(model_name: str, supports_thinking: bool) -> 
     )
 
 
-def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
+def get_thinking_support_for_model(model_name: str) -> bool | None:
     """
     Get thinking/reasoning capability for a model.
 
@@ -583,7 +583,7 @@ def get_thinking_support_for_model(model_name: str) -> Optional[bool]:
 
 
 def set_reasoning_levels_for_model(
-    model_name: str, levels: List[str], default: Optional[str] = None,
+    model_name: str, levels: list[str], default: str | None = None,
 ) -> bool:
     """
     Set the steerable reasoning-effort levels for a model, detected from
@@ -601,7 +601,7 @@ def set_reasoning_levels_for_model(
     )
 
 
-def get_reasoning_levels_for_model(model_name: str) -> Optional[List[str]]:
+def get_reasoning_levels_for_model(model_name: str) -> list[str] | None:
     """
     Get the steerable reasoning-effort levels for a model.
 
@@ -612,11 +612,11 @@ def get_reasoning_levels_for_model(model_name: str) -> Optional[List[str]]:
     cache = load_cache()
     if model_name not in cache:
         return None
-    result: List[str] | None = cache[model_name].get("reasoning_levels")
+    result: list[str] | None = cache[model_name].get("reasoning_levels")
     return result
 
 
-def get_reasoning_default_for_model(model_name: str) -> Optional[str]:
+def get_reasoning_default_for_model(model_name: str) -> str | None:
     """
     The template's default effort level (what a plain "thinking on"
     resolves to). None = no default() in the template or never analyzed.
@@ -632,7 +632,7 @@ def get_reasoning_default_for_model(model_name: str) -> Optional[str]:
 # MoE EXPERT COUNT FUNCTIONS
 # ============================================================================
 
-def get_expert_counts(model_name: str) -> Optional[Dict[str, int]]:
+def get_expert_counts(model_name: str) -> dict[str, int] | None:
     """
     Get cached expert_count and expert_used_count for a model.
 
@@ -677,7 +677,7 @@ def set_expert_counts(model_name: str, expert_count: int, expert_used_count: int
 # vLLM CALIBRATION FUNCTIONS (vLLM-specific)
 # ============================================================================
 
-def get_vllm_calibrations(model_id: str) -> Optional[List[Dict[str, Any]]]:
+def get_vllm_calibrations(model_id: str) -> list[dict[str, Any]] | None:
     """
     Get all vLLM calibration points for a model
 
@@ -770,10 +770,10 @@ def add_llamacpp_calibration(
     ngl: int = 99,
     mode: str = "gpu",
     speed_split: int = 0,
-    vram_per_gpu: Optional[Dict[str, int]] = None,
-    ram_cpu_mb: Optional[int] = None,
-    gpu_uuids: Optional[list] = None,
-    remaining_free_mb: Optional[list] = None,
+    vram_per_gpu: dict[str, int] | None = None,
+    ram_cpu_mb: int | None = None,
+    gpu_uuids: list | None = None,
+    remaining_free_mb: list | None = None,
 ) -> bool:
     """Add a calibration point for a llama.cpp model (via llama-swap).
 
@@ -838,7 +838,7 @@ def add_llamacpp_calibration(
         # so the picker drops the red dot on the same cell.
         entry.pop("failure_status", None)
 
-        calibration: Dict[str, Any] = {
+        calibration: dict[str, Any] = {
             "max_context": max_context,
             "ngl": ngl,
             "mode": mode,
@@ -867,7 +867,7 @@ def add_llamacpp_calibration(
         return save_cache(cache)
 
 
-def get_llamacpp_calibration(model_id: str) -> Optional[int]:
+def get_llamacpp_calibration(model_id: str) -> int | None:
     """
     Get the latest calibrated max_context for a llama.cpp model.
 
@@ -910,7 +910,7 @@ def format_model_with_ctx(model_display: str, model_id: str, backend_type: str) 
     return f"{model_display} ({suffix})"
 
 
-def get_llamacpp_calibration_info(model_id: str) -> Optional[Dict[str, Any]]:
+def get_llamacpp_calibration_info(model_id: str) -> dict[str, Any] | None:
     """
     Get full calibration info for a llama.cpp model (including ngl and mode).
 
@@ -933,7 +933,7 @@ def get_llamacpp_calibration_info(model_id: str) -> Optional[Dict[str, Any]]:
     }
 
 
-def get_llamacpp_remaining_free_by_uuid(model_id: str) -> Dict[str, int]:
+def get_llamacpp_remaining_free_by_uuid(model_id: str) -> dict[str, int]:
     """Map each GPU UUID → measured free VRAM (MiB) after the base model
     loaded at its calibrated context, from the latest calibration.
 
@@ -1092,7 +1092,7 @@ def is_calibration_failed(model_id: str) -> bool:
     return bool(entry and entry.get("failure_status"))
 
 
-def get_model_native_context_from_cache(model_id: str) -> Optional[int]:
+def get_model_native_context_from_cache(model_id: str) -> int | None:
     """
     Get native (architectural) context limit from VRAM cache.
 

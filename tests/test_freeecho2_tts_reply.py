@@ -18,7 +18,11 @@ from fake_tts_service import (
 from aifred.lib import speech_synthesis
 from aifred.lib.audio_channels._audio_orchestrator import silence_pcm
 from aifred.lib.envelope import InboundMessage, OutboundMessage
-from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel, _devices, tts_reply
+from aifred.plugins.channels.freeecho2_channel import (
+    FreeEchoChannel,
+    _devices,
+    tts_reply,
+)
 
 
 def run(coro):

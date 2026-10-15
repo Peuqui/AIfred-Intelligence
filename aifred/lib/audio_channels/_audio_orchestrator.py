@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any
 
 from ..formatting import format_number
 from ..logging_utils import log_message
@@ -101,7 +101,7 @@ class TTSBuffer:
         self._closed = not growing
         self.failed = False  # der Erzeuger ist abgebrochen: Strom ohne Ende-Ton schließen
         # Erzeuger-Task (satzweises Streaming); discard() bricht ihn ab
-        self.producer: "asyncio.Task[None] | None" = None
+        self.producer: asyncio.Task[None] | None = None
         self._lock = threading.Lock()
         self._event = asyncio.Event()
         self._waiter_loop: asyncio.AbstractEventLoop | None = None
@@ -183,16 +183,16 @@ class AudioOrchestrator:
     def __init__(self, room: str, bridge: Any) -> None:
         self.room = room
         self.bridge = bridge  # FreeEchoChannel-Plugin-Instance mit send_*-Methoden
-        self._active_type: Optional[str] = None  # music/tts/alarm/notification
-        self._stream: Optional["FreeEcho2Stream"] = None  # nur fuer music
-        self._tts_buffer: Optional[TTSBuffer] = None  # nur fuer tts
-        self._tts_pump_task: Optional[asyncio.Task[bool]] = None
+        self._active_type: str | None = None  # music/tts/alarm/notification
+        self._stream: FreeEcho2Stream | None = None  # nur fuer music
+        self._tts_buffer: TTSBuffer | None = None  # nur fuer tts
+        self._tts_pump_task: asyncio.Task[bool] | None = None
         self._end_tone: bool = False  # end_tone des Buffer-Stroms im audio_end
         self._paused: bool = False
         self._lock = asyncio.Lock()
 
     @property
-    def active_type(self) -> Optional[str]:
+    def active_type(self) -> str | None:
         """Aktueller Audio-Type oder None wenn IDLE."""
         return self._active_type
 
@@ -206,7 +206,7 @@ class AudioOrchestrator:
 
     # ── Public API: play / pause / resume / stop ────────────────────
 
-    async def play_music(self, stream: "FreeEcho2Stream") -> None:
+    async def play_music(self, stream: FreeEcho2Stream) -> None:
         """Music-Stream am Orchestrator anmelden.
 
         Der Caller (FreeEcho2Channel.play) hat ``stream.start(...)``
@@ -248,7 +248,7 @@ class AudioOrchestrator:
             self._paused = False
             log_message(f"AudioOrchestrator[{self.room}]: → music active")
 
-    async def play_tts(self, pcm_data: "bytes | TTSBuffer") -> None:
+    async def play_tts(self, pcm_data: bytes | TTSBuffer) -> None:
         """Starte einen TTS-PCM-Stream (standalone) und warte bis er durch ist.
 
         Konsens-Spec audio-pipeline.md "Variante (ii)": **kein** Takeover
@@ -265,7 +265,7 @@ class AudioOrchestrator:
         await self._play_buffer("tts", pcm_data, start_tone=False, end_tone=False)
 
     async def play_alarm(
-        self, tts_pcm: "bytes | TTSBuffer | None" = None, *, start_tone: bool, end_tone: bool,
+        self, tts_pcm: bytes | TTSBuffer | None = None, *, start_tone: bool, end_tone: bool,
     ) -> bool:
         """Alarm: der Puck spielt seine lokale Alarm-WAV (``start_tone``), danach
         optional Sprache (``tts_pcm``) und der Ende-Ton (``end_tone``).
@@ -279,7 +279,7 @@ class AudioOrchestrator:
         )
 
     async def play_notification(
-        self, tts_pcm: "bytes | TTSBuffer | None" = None, *, start_tone: bool, end_tone: bool,
+        self, tts_pcm: bytes | TTSBuffer | None = None, *, start_tone: bool, end_tone: bool,
     ) -> bool:
         """Ansage: Beginn-Ton (``start_tone``), Sprache (``tts_pcm``), Ende-Ton
         (``end_tone``). Ohne Sprache folgen die beiden Töne direkt aufeinander
@@ -291,7 +291,7 @@ class AudioOrchestrator:
         )
 
     async def _play_buffer(
-        self, audio_type: str, source: "bytes | TTSBuffer | None", *,
+        self, audio_type: str, source: bytes | TTSBuffer | None, *,
         start_tone: bool, end_tone: bool,
     ) -> bool:
         """Gemeinsamer Ablauf aller Buffer-Audioarten (SSOT): Flag → audio_start →

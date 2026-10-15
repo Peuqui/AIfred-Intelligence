@@ -17,9 +17,14 @@ import pkgutil
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
-from .plugin_base import PLUGIN_DISPLAY_NAME_KEY, BaseChannel, ToolPlugin, plugin_i18n_text
+from .plugin_base import (
+    PLUGIN_DISPLAY_NAME_KEY,
+    BaseChannel,
+    ToolPlugin,
+    plugin_i18n_text,
+)
 
 if TYPE_CHECKING:
     from .function_calling import Tool
@@ -94,7 +99,7 @@ def all_channels() -> dict[str, BaseChannel]:
 # TOOL PLUGIN REGISTRY
 # ============================================================
 
-_tools: Optional[list[ToolPlugin]] = None
+_tools: list[ToolPlugin] | None = None
 
 
 def get_tool_plugin(name: str) -> ToolPlugin | None:
@@ -151,11 +156,11 @@ def discover_tools() -> list[ToolPlugin]:
     return _tools
 
 
-def collect_plugin_tools(ctx: "PluginContext") -> list[tuple[ToolPlugin | BaseChannel, list["Tool"]]]:
+def collect_plugin_tools(ctx: PluginContext) -> list[tuple[ToolPlugin | BaseChannel, list[Tool]]]:
     """Every available tool plugin and configured channel with the tools it
     offers in ``ctx`` — the one plugin-selection rule of the toolkit factory.
     Tier and whitelist filters come afterwards, at the caller."""
-    collected: list[tuple[ToolPlugin | BaseChannel, list["Tool"]]] = []
+    collected: list[tuple[ToolPlugin | BaseChannel, list[Tool]]] = []
     for plugin in discover_tools():
         if plugin.is_available():
             collected.append((plugin, plugin.get_tools(ctx)))

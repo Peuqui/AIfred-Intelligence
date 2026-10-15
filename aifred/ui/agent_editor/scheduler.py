@@ -8,7 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t, clickable_tip
+from ..helpers import clickable_tip, t
 from .header import _editor_header
 
 

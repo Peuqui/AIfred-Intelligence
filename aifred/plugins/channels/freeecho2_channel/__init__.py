@@ -27,8 +27,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from ....lib.plugin_base import CredentialField, load_tool_description, load_tool_parameters
-
+from ....lib.plugin_base import (
+    CredentialField,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ._shared import (
     _DEFAULT_PORT,
     _devices,
@@ -176,20 +179,24 @@ class FreeEchoChannel(ConnectionMixin):
 
     # ── Tools ─────────────────────────────────────────────────
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Stellt ``freeecho2_announce`` bereit: AIfred kann proaktiv eine
         gesprochene Ansage (Chime + TTS) auf einen oder alle verbundenen
         Pucks schicken. Läuft über denselben Queue-Pfad wie die Vision-
         Alerts (announce_to_channel → enqueue → Worker → _done)."""
+        import json
+
         from ....lib.function_calling import Tool
         from ....lib.security import TIER_COMMUNICATE
-        import json
 
         async def _execute_announce(
             message: str, target: str = "*", audio_type: str = "notification",
         ) -> str:
             from ....lib.agent_config import get_agent_config
-            from ....lib.message_processor import announce_into_rooms, resolve_announce_targets
+            from ....lib.message_processor import (
+                announce_into_rooms,
+                resolve_announce_targets,
+            )
 
             if audio_type not in ("alarm", "notification"):
                 # Geloggt statt still koerziert (Projekt-Regel) — tts_reply
@@ -233,7 +240,7 @@ class FreeEchoChannel(ConnectionMixin):
 
     # ── Context ───────────────────────────────────────────────
 
-    def build_context(self, message: "InboundMessage") -> str:
+    def build_context(self, message: InboundMessage) -> str:
         """Format message for LLM context (preamble + transcribed text).
 
         message.text MUST be part of the context: since M3 the llm_history

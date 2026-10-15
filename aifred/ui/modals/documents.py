@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+# Document Manager Header — gemeinsame Groessen fuer Icons + Buttons,
+# damit der Header als Ganzes skaliert (Radix hat keine Halbschritte
+# zwischen size="1" und size="2").
+from typing import Literal
+
 import reflex as rx
+
 # Rohes <a>-Element: rx.link und rx.el.a sind in Reflex 0.8 beide auf den
 # ReactRouterLink gemappt, der wurzel-relative hrefs um den frontend_path
 # ergänzt. Für Links auf die /_upload-Mounts (außerhalb der App-Routen)
@@ -10,13 +16,7 @@ import reflex as rx
 from reflex.components.el.elements.inline import A as _Anchor
 
 from ...state import AIState
-from ..helpers import t, overlay_scaffold
-
-
-# Document Manager Header — gemeinsame Groessen fuer Icons + Buttons,
-# damit der Header als Ganzes skaliert (Radix hat keine Halbschritte
-# zwischen size="1" und size="2").
-from typing import Literal
+from ..helpers import overlay_scaffold, t
 
 DOC_HEADER_ICON_SIZE = 16
 DOC_HEADER_BUTTON_SIZE: Literal["1", "2", "3", "4"] = "2"

@@ -11,33 +11,34 @@ This module contains the core Multi-Agent logic extracted from state.py.
 The functions work with async generators for streaming UI updates.
 """
 
-from typing import TYPE_CHECKING, Any, AsyncGenerator, Optional
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
-# Imports for the functions (same as original state.py methods)
-from .llm_client import LLMClient, build_llm_options
-from .formatting import format_number
-from .message_builder import build_messages_from_llm_history
-from .message_builder import inject_before_question
-from .i18n import t
+from ..backends.base import LLMOptions
 from .context_manager import (
     estimate_tokens,
     estimate_toolkit_tokens,
+    get_largest_compression_model,
     strip_thinking_blocks,
     summarize_history_if_needed,
-    get_largest_compression_model,
 )
+from .formatting import format_number
+from .i18n import t
+
+# Imports for the functions (same as original state.py methods)
+from .llm_client import LLMClient, build_llm_options
+from .logging_utils import console_separator, log_message, log_raw_messages
+from .message_builder import build_messages_from_llm_history, inject_before_question
 from .prompt_loader import (
     get_agent_system_prompt,
+    get_aifred_defense_prompt,
+    get_aifred_refinement_prompt,
+    get_salomo_judge_prompt,
+    get_salomo_mediator_prompt,
     get_sokrates_critic_prompt,
     get_sokrates_devils_advocate_prompt,
-    get_aifred_refinement_prompt,
     get_sokrates_tribunal_prompt,
-    get_aifred_defense_prompt,
-    get_salomo_mediator_prompt,
-    get_salomo_judge_prompt,
 )
-from .logging_utils import log_message, log_raw_messages, console_separator
-from ..backends.base import LLMOptions
 
 if TYPE_CHECKING:
     from ..state import AIState
@@ -229,7 +230,7 @@ async def _stream_agent_to_history(
         agent: Agent key for state/TTS ("sokrates", "aifred", "salomo")
         agent_label: Display label for logs ("Sokrates", "AIfred Refinement", "Salomo")
     """
-    from .llm_pipeline import run_llm_stream, PipelineResult
+    from .llm_pipeline import PipelineResult, run_llm_stream
 
     # State setup: UI styling, vLLM model loading, TTS init
     state._set_current_agent(agent)
@@ -458,7 +459,7 @@ async def _execute_agent_stream(
     messages: list,
     options: LLMOptions,
     toolkit: Any = None,
-) -> AsyncGenerator[Optional[dict[str, Any]], None]:
+) -> AsyncGenerator[dict[str, Any] | None, None]:
     """Execute streaming for one agent turn.
 
     Yields None for UI updates, then yields the result dict as final item.
@@ -490,13 +491,12 @@ def _setup_debate_contexts(
 
     Returns dict with all computed values for use by debate functions.
     """
-    from .research.context_utils import get_agent_num_ctx
-
     # Context limits — pass BASE model_id, not the resolved one.
     # get_agent_num_ctx runs resolve_variant_suffix internally; handing
     # it the already-resolved id produces a double-suffix lookup that
     # misses the YAML entry and triggers the 32K fallback.
     from .agent_settings import get_agent_base_model_id
+    from .research.context_utils import get_agent_num_ctx
     aifred_base = state.agent_tuning["aifred"].model_id  # type: ignore[attr-defined,has-type]
     sokrates_base = get_agent_base_model_id(state, "sokrates")
     salomo_base = get_agent_base_model_id(state, "salomo")
@@ -578,8 +578,8 @@ def _build_debate_messages(
     state: 'AIState',
     system_prompt: str,
     perspective: str,
-    detected_lang: Optional[str],
-    current_user_text: Optional[str] = None,
+    detected_lang: str | None,
+    current_user_text: str | None = None,
 ) -> list[dict[str, str]]:
     """Build message list for an agent in a debate.
 
@@ -607,7 +607,7 @@ def _add_agent_result_panel(
     agent_label: str,
     model: str,
     mode: str,
-    round_num: Optional[int] = None,
+    round_num: int | None = None,
 ) -> str:
     """Format result and add agent panel to chat history. Returns response text."""
     formatted = _format_stream_result(result, agent_label, model)
@@ -644,8 +644,8 @@ async def _run_agent_direct_response(
     emoji: str,
     get_prompt_func: Any,
     user_query: str,
-    detected_lang: Optional[str] = None,
-    detected_intent: Optional[str] = None,
+    detected_lang: str | None = None,
+    detected_intent: str | None = None,
     *,
     llm_user_text: str,
 ) -> AsyncGenerator[None, None]:
@@ -682,7 +682,11 @@ async def _run_agent_direct_response(
         # speed/tts suffix), context lookup wants base (get_agent_num_ctx
         # runs resolve_variant_suffix itself; a resolved id would
         # double-suffix and trigger a 32K fallback).
-        from .agent_settings import get_agent_base_model_id, get_agent_setting, set_agent_setting
+        from .agent_settings import (
+            get_agent_base_model_id,
+            get_agent_setting,
+            set_agent_setting,
+        )
         agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
         agent_base_id = get_agent_base_model_id(state, agent)
         state.add_debug(f"{emoji} {agent_label}-LLM: {agent_model_id} ({state.backend_type})")
@@ -829,7 +833,7 @@ async def _run_agent_direct_response(
         state.add_debug(f"❌ {agent_label} Direct Response Error: {e}")
         state.add_agent_panel(
             agent=agent,
-            content=f"Error: {str(e)}",
+            content=f"Error: {e!s}",
             mode="error"
         )
         yield
@@ -842,8 +846,8 @@ async def run_generic_agent_direct_response(
     state: 'AIState',
     agent_id: str,
     user_query: str,
-    detected_lang: Optional[str] = None,
-    detected_intent: Optional[str] = None,
+    detected_lang: str | None = None,
+    detected_intent: str | None = None,
     *,
     llm_user_text: str,
 ) -> AsyncGenerator[None, None]:
@@ -879,7 +883,7 @@ async def run_sokrates_analysis(
     state: 'AIState',
     user_query: str,
     alfred_answer: str,
-    detected_lang: Optional[str] = None
+    detected_lang: str | None = None
 ) -> AsyncGenerator[None, None]:
     """
     Run Sokrates analysis based on current multi_agent_mode
@@ -1146,7 +1150,7 @@ async def run_tribunal(
     state: 'AIState',
     user_query: str,
     alfred_answer: str,
-    detected_lang: Optional[str] = None
+    detected_lang: str | None = None
 ) -> AsyncGenerator[None, None]:
     """
     Run Tribunal mode: AIfred and Sokrates debate, Salomo judges at end.
@@ -1342,7 +1346,7 @@ async def run_tribunal(
 async def run_symposion(
     state: 'AIState',
     user_query: str,
-    detected_lang: Optional[str] = None,
+    detected_lang: str | None = None,
 ) -> AsyncGenerator[None, None]:
     """Run a Symposion: selected agents discuss a topic in rounds.
 
@@ -1350,9 +1354,9 @@ async def run_symposion(
     No winner, no LGTM - multiperspective discussion.
     """
     from .agent_config import get_agent_config
-    from .prompt_loader import get_agent_system_prompt, load_prompt
     from .agent_memory import prepare_agent_toolkit
     from .agent_settings import get_agent_base_model_id
+    from .prompt_loader import get_agent_system_prompt, load_prompt
     from .research.context_utils import get_agent_num_ctx
 
     agents = state.symposion_agents

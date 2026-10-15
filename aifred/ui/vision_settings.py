@@ -13,7 +13,7 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS
-from .helpers import t, overlay_modal
+from .helpers import overlay_modal, t
 
 
 def _mode_section() -> rx.Component:

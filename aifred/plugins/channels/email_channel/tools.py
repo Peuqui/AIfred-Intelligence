@@ -13,6 +13,7 @@ import asyncio
 from pathlib import Path
 
 from ....lib.function_calling import Tool
+from ....lib.plugin_base import load_tool_description, load_tool_parameters
 from ....lib.security import (
     TIER_COMMUNICATE,
     TIER_WRITE_SYSTEM,
@@ -21,7 +22,6 @@ from ....lib.security import (
     sanitize_outbound,
     wrap_untrusted_data,
 )
-from ....lib.plugin_base import load_tool_description, load_tool_parameters
 
 # Actions offered by the safe (COMMUNICATE) tool vs. the destructive one.
 # Each tool enforces its own set so the model cannot smuggle a delete through

@@ -15,10 +15,9 @@ import tempfile
 import wave
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING
 
 from ....lib.formatting import format_number
-
 from ._shared import _pending_wake_agent
 from .tts_reply import TtsReplyMixin
 from .voice_routes import forward_voice, load_voice_routes
@@ -36,10 +35,10 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
 
         Audio is raw PCM: 16kHz, mono, int16 (little-endian).
         """
+        import time as _fe2_time
+
         from ....lib.envelope import InboundMessage
         from ....lib.message_processor import process_inbound
-
-        import time as _fe2_time
         _fe2_t0 = _fe2_time.monotonic()
 
         num_samples = len(audio_data) // 2
@@ -68,12 +67,13 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
 
         # Resolve session IMMEDIATELY so all debug messages (STT, TTS loading,
         # model switching) reach the browser UI via session_scope.
-        from ....lib.routing_table import routing_table
-        from ....lib.session_storage import create_empty_session
+        import secrets as _secrets
+
         from ....lib.config import MESSAGE_HUB_OWNER
         from ....lib.debug_bus import debug, session_scope
         from ....lib.message_processor import hub_notification_scope
-        import secrets as _secrets
+        from ....lib.routing_table import routing_table
+        from ....lib.session_storage import create_empty_session
 
         route = routing_table.get_route("freeecho2", room)
         if route:
@@ -108,8 +108,8 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                     break
                 await asyncio.sleep(5)
 
-        heartbeat_task: Optional[asyncio.Task] = None
-        wav_path: Optional[str] = None
+        heartbeat_task: asyncio.Task | None = None
+        wav_path: str | None = None
 
         try:
             # Write the temp WAV INSIDE the try so the finally always unlinks it.
@@ -160,7 +160,10 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 # Flush user question to session immediately so browser shows it
                 # BEFORE LLM inference.
                 # Uses the same SSOT function as process_inbound.
-                from ....lib.message_processor import message_from_user, save_inbound_to_session
+                from ....lib.message_processor import (
+                    message_from_user,
+                    save_inbound_to_session,
+                )
                 _early_msg = InboundMessage(
                     channel="freeecho2", channel_id=room, sender=room,
                     text=text, timestamp=datetime.now(timezone.utc),

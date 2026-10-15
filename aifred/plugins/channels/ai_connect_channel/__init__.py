@@ -13,12 +13,18 @@ import fnmatch
 import json
 import time
 from collections import defaultdict, deque
+from collections.abc import Awaitable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Awaitable, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
 
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    BaseChannel,
+    CredentialField,
+    load_tool_description,
+    load_tool_parameters,
+)
 from .client import BRIDGE_SENDER, BridgeClient, BridgeFatalError
 
 if TYPE_CHECKING:
@@ -245,7 +251,7 @@ class AIConnectChannel(BaseChannel):
 
     # ── Reply ─────────────────────────────────────────────────
 
-    async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
+    async def send_reply(self, outbound: OutboundMessage, original: InboundMessage) -> None:
         """Answer the peer; peers are assistants, so the Markdown stays as it is."""
         peer = outbound.recipient or original.channel_id
         bridge = _bridge
@@ -258,7 +264,7 @@ class AIConnectChannel(BaseChannel):
 
     # ── Context ───────────────────────────────────────────────
 
-    def build_context(self, message: "InboundMessage") -> str:
+    def build_context(self, message: InboundMessage) -> str:
         """Prepare a peer message for the LLM with sender context."""
         from ....lib.prompt_loader import load_prompt
         return load_prompt(
@@ -269,7 +275,7 @@ class AIConnectChannel(BaseChannel):
 
     # ── Tools ─────────────────────────────────────────────────
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Provide the peer tools for LLM function calling."""
         from ....lib.function_calling import Tool
         from ....lib.security import TIER_COMMUNICATE, TIER_READONLY, sanitize_outbound

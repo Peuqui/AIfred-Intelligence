@@ -16,10 +16,11 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any
 
 from mcp import ClientSession, StdioServerParameters
 from mcp import types as mcp_types
@@ -164,7 +165,7 @@ class McpClientPlugin:
             outbound=cfg["outbound"],
         )
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)
 

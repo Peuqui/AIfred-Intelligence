@@ -153,14 +153,13 @@ def get_drive_tools(agent_folder_name: str) -> list[Tool]:
         # (Bewusst NICHT über _google_request — Streaming braucht den
         # client.stream-Kontext.)
         token = await _get_token()
-        async with httpx.AsyncClient() as client:
-            async with client.stream(
-                "GET", download_url,
-                headers={"Authorization": f"Bearer {token}"},
-                params=params, timeout=30,
-            ) as r:
-                r.raise_for_status()
-                content = await _read_capped(r)
+        async with httpx.AsyncClient() as client, client.stream(
+            "GET", download_url,
+            headers={"Authorization": f"Bearer {token}"},
+            params=params, timeout=30,
+        ) as r:
+            r.raise_for_status()
+            content = await _read_capped(r)
 
         return wrap_untrusted_data(
             json.dumps({"id": file_id, "name": name, "content": content}, ensure_ascii=False),

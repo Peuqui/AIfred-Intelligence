@@ -5,7 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t, native_select_model, select_model_by_id
+from ..helpers import native_select_model, select_model_by_id, t
 from .controls import (
     _agent_thinking_select,
     _agent_toggle,

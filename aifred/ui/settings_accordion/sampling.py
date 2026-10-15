@@ -10,7 +10,7 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import t, agent_emoji_var, clickable_tip
+from ..helpers import agent_emoji_var, clickable_tip, t
 
 
 def _sampling_input(row: rx.Var, param: str, value: rx.Var, width: str = "55px") -> rx.Component:

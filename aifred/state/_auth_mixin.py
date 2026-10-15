@@ -66,7 +66,7 @@ class AuthMixin(rx.State, mixin=True):
     def _post_auth_script(self):
         """Nach Login/Registrierung: Username- + Session-Cookie setzen und
         den Browser-Push-Bus-SSE-Stream starten (SSOT für beide Pfade)."""
-        from ..lib.browser_storage import set_username_script, set_session_id_script
+        from ..lib.browser_storage import set_session_id_script, set_username_script
         combined_script = (
             set_username_script(self.logged_in_user)
             + "; "
@@ -79,7 +79,7 @@ class AuthMixin(rx.State, mixin=True):
 
     def do_login(self):  # type: ignore[return]
         """Attempt to log in with entered credentials."""
-        from ..lib.session_storage import verify_account, account_exists
+        from ..lib.session_storage import account_exists, verify_account
 
         username = self.login_username.strip()
         password = self.login_password

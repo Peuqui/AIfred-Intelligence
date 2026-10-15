@@ -28,6 +28,8 @@ from typing import Any
 
 from .config import (
     VISION_CLUSTER_GAP_SECONDS as GAP_SECONDS,
+)
+from .config import (
     VISION_CLUSTER_MAX_SECONDS as MAX_SECONDS,
 )
 from .vision_phash import phash_file

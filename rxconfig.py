@@ -1,8 +1,9 @@
 """Reflex configuration for AIfred Intelligence"""
 
-import reflex as rx
 import os
 from pathlib import Path
+
+import reflex as rx
 from reflex.plugins.sitemap import SitemapPlugin
 
 # Load .env file for environment variables

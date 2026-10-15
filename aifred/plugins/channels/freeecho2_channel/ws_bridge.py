@@ -28,7 +28,6 @@ import json
 from typing import Any
 
 from ....lib.plugin_base import BaseChannel
-
 from ._shared import _devices, _fmt_mib, _pause_acks
 
 
@@ -81,7 +80,7 @@ class WsBridgeMixin(BaseChannel):
     async def _send_frame(
         self,
         room: str,
-        payload: "dict[str, Any] | bytes",
+        payload: dict[str, Any] | bytes,
         frame_name: str,
         *,
         quiet: bool = False,

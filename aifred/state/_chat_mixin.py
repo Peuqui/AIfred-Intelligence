@@ -6,21 +6,19 @@ and chat clearing.
 
 from __future__ import annotations
 
-from ..lib.config import LLAMASWAP_BACKENDS
-
 import asyncio
 import json
 import re
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from datetime import datetime
-from typing import Any, Dict, List, Sequence
+from typing import Any
 
 import reflex as rx
 from reflex.event import EventSpec
 
-from ..lib.logging_utils import log_message
-from ..lib.config import DEBUG_MESSAGES_MAX
+from ..lib.config import DEBUG_MESSAGES_MAX, LLAMASWAP_BACKENDS
 from ..lib.context_manager import strip_thinking_blocks
+from ..lib.logging_utils import log_message
 
 
 class ChatMixin(rx.State, mixin=True):
@@ -52,7 +50,7 @@ class ChatMixin(rx.State, mixin=True):
     is_compressing: bool = False  # Shows if history compression is running
 
     # Debug Console
-    debug_messages: List[str] = []
+    debug_messages: list[str] = []
     auto_refresh_enabled: bool = True  # For Debug Console + Chat History + AI Response Area
 
     # Processing Progress (Automatik, Scraping, LLM)
@@ -86,6 +84,7 @@ class ChatMixin(rx.State, mixin=True):
         dirty so Reflex pushes the delta.
         """
         import datetime as _dt
+
         from ..lib.debug_bus import debug as _debug
 
         timestamp = _dt.datetime.now().strftime("%H:%M:%S")
@@ -332,7 +331,7 @@ class ChatMixin(rx.State, mixin=True):
             msg_metadata["playback_rate"] = "1.0x"  # Speed is baked into audio via engine or ffmpeg
         # SSOT: base dict from shared builder
         from ..lib.formatting import build_assistant_chat_entry
-        new_message: Dict[str, Any] = build_assistant_chat_entry(final_content, agent, msg_metadata)
+        new_message: dict[str, Any] = build_assistant_chat_entry(final_content, agent, msg_metadata)
 
         # Browser-specific fields (mode, round, audio, sources)
         new_message["mode"] = mode
@@ -420,11 +419,12 @@ class ChatMixin(rx.State, mixin=True):
         descriptions of the same image). The caller appends the result to
         the user turn and continues with the normal text pipeline.
         """
+        from pathlib import Path
+
         from ..backends.base import LLMOptions
         from ..lib.llm_client import LLMClient
         from ..lib.prompt_loader import load_prompt
         from ..lib.vision_utils import load_image_as_base64
-        from pathlib import Path
 
         content: list[dict] = []
         for img in local_images:
@@ -564,7 +564,7 @@ class ChatMixin(rx.State, mixin=True):
                 result_data = item["data"]
 
         # Separator after VL inference (consistent with all other inference paths)
-        from ..lib.logging_utils import console_separator, CONSOLE_SEPARATOR
+        from ..lib.logging_utils import CONSOLE_SEPARATOR, console_separator
         console_separator()
         self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
         yield
@@ -623,9 +623,12 @@ class ChatMixin(rx.State, mixin=True):
         if not self._chat_sub().chat_history:
             return
 
-        from ..lib.context_manager import summarize_history_if_needed, get_largest_compression_model
-        from ..lib.research.context_utils import get_agent_num_ctx
+        from ..lib.context_manager import (
+            get_largest_compression_model,
+            summarize_history_if_needed,
+        )
         from ..lib.prompt_loader import get_max_direct_prompt_tokens
+        from ..lib.research.context_utils import get_agent_num_ctx
 
         # Determine effective context limit (minimum of all agents).
         # get_agent_num_ctx() runs resolve_variant_suffix itself — pass the
@@ -740,8 +743,8 @@ class ChatMixin(rx.State, mixin=True):
                 from ..lib.tts_llm_coordination import planned_tts_engine
                 from ..lib.tts_service import gpu_engine_keys
                 from ..lib.vision_prewarm import (
-                    is_vision_active,
                     get_active_vlm_key,
+                    is_vision_active,
                 )
                 _vlm_active_chat = is_vision_active()
                 _vlm_key_chat = get_active_vlm_key() if _vlm_active_chat else ""
@@ -773,8 +776,8 @@ class ChatMixin(rx.State, mixin=True):
         # Cleanup bookkeeping referenced by the finally block — must exist
         # BEFORE the try so every abort point (including the early yields
         # below) resets is_generating and releases pipeline/TTS again.
-        from ..lib.pipeline_registry import register_pipeline, unregister_pipeline
         from ..lib.llm_client import LLMClient
+        from ..lib.pipeline_registry import register_pipeline, unregister_pipeline
         ai_text = ""  # Used in finally block
         _pipeline_task: asyncio.Task | None = None
         llm_client: LLMClient | None = None
@@ -938,8 +941,9 @@ class ChatMixin(rx.State, mixin=True):
                     yield
 
                     # Build multimodal content (images + text) for call_llm()
-                    from ..lib.vision_utils import load_image_as_base64
                     from pathlib import Path
+
+                    from ..lib.vision_utils import load_image_as_base64
 
                     content_parts: list[dict] = []
 
@@ -1116,8 +1120,10 @@ class ChatMixin(rx.State, mixin=True):
                     automatik_num_ctx=auto_num_ctx,
                 )
                 # Log Intent Detection result to UI debug console (always visible)
-                from ..lib.intent_detector import format_intent_result
-                from ..lib.intent_detector import format_mode_switch_summary
+                from ..lib.intent_detector import (
+                    format_intent_result,
+                    format_mode_switch_summary,
+                )
                 switch_str = format_mode_switch_summary(mode_switch_updates) if mode_switch_updates else "–"
                 pure_str = "yes" if is_pure_command else "no"
                 self.add_debug(
@@ -1469,7 +1475,9 @@ class ChatMixin(rx.State, mixin=True):
     async def save_session_memory(self) -> AsyncGenerator[EventSpec | None, None]:
         """Generate a session summary and store it for all participating agents."""
         import re
+
         import reflex as rx
+
         from ..lib.agent_memory import get_agent_memory
 
         if not self.logged_in_user:  # type: ignore[attr-defined]

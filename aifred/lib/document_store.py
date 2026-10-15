@@ -8,7 +8,7 @@ Uses the ChromaDB server and the embedding function from embeddings.py
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from chromadb.errors import ChromaError, NotFoundError
 
@@ -16,12 +16,12 @@ from .config import (
     DEFAULT_OLLAMA_URL,
     DOCUMENT_CHUNK_OVERLAP,
     DOCUMENT_CHUNK_SIZE,
-    DOCUMENT_EMBED_BATCH_SIZE,
     DOCUMENT_COLLECTION,
+    DOCUMENT_EMBED_BATCH_SIZE,
     DOCUMENTS_DIR,
 )
-from .logging_utils import log_message
 from .embeddings import OLLAMA_EMBEDDING_MODEL, OllamaEmbeddingFunction
+from .logging_utils import log_message
 
 
 def _read_text_file(file_path: Path) -> str:
@@ -196,7 +196,7 @@ def _read_odt(file_path: Path) -> str:
 def _read_ods(file_path: Path) -> str:
     """Extract text from a .ods spreadsheet as markdown tables."""
     from odf.opendocument import load
-    from odf.table import Table, TableRow, TableCell
+    from odf.table import Table, TableCell, TableRow
     from odf.text import P
     doc = load(str(file_path))
     parts: list[str] = []
@@ -227,8 +227,8 @@ def _read_ods(file_path: Path) -> str:
 
 def _read_odp(file_path: Path) -> str:
     """Extract text from a .odp presentation."""
-    from odf.opendocument import load
     from odf.draw import Page
+    from odf.opendocument import load
     from odf.text import P
     doc = load(str(file_path))
     parts: list[str] = []
@@ -413,7 +413,7 @@ class DocumentStore:
         # Lazily-loaded set of distinct folder values for prefix-match search.
         # Invalidated whenever index_document / delete_document mutate the
         # collection — the cache stays correct without a per-search round-trip.
-        self._folder_cache: Optional[set[str]] = None
+        self._folder_cache: set[str] | None = None
 
     def _resolve_collection(self) -> Any:
         """Bootstrap-time get-or-create. Called ONLY from ``__init__`` —
@@ -607,8 +607,8 @@ class DocumentStore:
         self,
         query: str,
         n_results: int = 5,
-        folder: Optional[str] = None,
-        neighbor_window: Optional[int] = None,
+        folder: str | None = None,
+        neighbor_window: int | None = None,
         page: int = 1,
         diversify: bool = True,
         mmr_lambda: float = 0.5,
@@ -652,7 +652,7 @@ class DocumentStore:
             from .config import DOCUMENT_SEARCH_NEIGHBOR_WINDOW
             neighbor_window = DOCUMENT_SEARCH_NEIGHBOR_WINDOW
 
-        from .config import DOCUMENT_SEARCH_MAX_RESULTS, DOCUMENT_SEARCH_DISTANCE_MAX
+        from .config import DOCUMENT_SEARCH_DISTANCE_MAX, DOCUMENT_SEARCH_MAX_RESULTS
         page = max(1, page)
         # Stable pool: always fetch the full MAX_RESULTS slice (or whole index
         # if smaller). Same query → same pool → page-stable. MMR re-rank acts
@@ -849,10 +849,10 @@ class DocumentStore:
 
 
 # Singleton
-_store: Optional[DocumentStore] = None
+_store: DocumentStore | None = None
 
 
-def get_document_store() -> Optional[DocumentStore]:
+def get_document_store() -> DocumentStore | None:
     """Get or create the global DocumentStore singleton."""
     global _store
     if _store is None:

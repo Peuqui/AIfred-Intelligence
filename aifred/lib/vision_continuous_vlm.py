@@ -8,8 +8,9 @@ pro ~2 s würde den Casus fluten). Die Historie lebt im Popup (Ring + SSE).
 from __future__ import annotations
 
 import logging
+from collections.abc import Callable
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from .config import VISION_IDENTITY_CONTEXT_WINDOW_SEC
 from .logging_utils import log_message
@@ -45,7 +46,7 @@ class ContinuousVlm:
         self._store = store
         self._output = output
 
-    async def describe(self, frame: "Frame", is_current: Callable[[], bool]) -> None:
+    async def describe(self, frame: Frame, is_current: Callable[[], bool]) -> None:
         """``is_current`` sagt, ob die Watch-Session noch dieselbe ist; ein
         Ergebnis aus einer beendeten Session wird verworfen. Fehler (kein
         Vision-Modell, Analyse-Fehler, unlesbare Einstellungen) gehen an den

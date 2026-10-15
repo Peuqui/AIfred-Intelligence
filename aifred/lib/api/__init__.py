@@ -30,40 +30,40 @@ modules below register their endpoints on import (same registration
 order as the former single-file api.py).
 """
 
-from .app import API_VERSION, api_app, get_api_app, get_global_backend_state
-
 # Router modules — importing them registers their routes on api_app.
 # Order matters: it mirrors the original single-file section order.
-from . import core  # noqa: E402
-from . import chat  # noqa: E402
-from . import system  # noqa: E402
-from . import browser_bus  # noqa: E402
-from . import agents  # noqa: E402
-from . import audio  # noqa: E402
-from . import announce  # noqa: E402
-from . import vision  # noqa: E402
-from . import tts  # noqa: E402
-from . import documents  # noqa: E402
-from . import service_status  # noqa: E402
-
-from .browser_bus import browser_push, browser_queue_clear  # noqa: E402
+from . import (
+    agents,
+    announce,
+    audio,
+    browser_bus,
+    chat,
+    core,
+    documents,
+    service_status,
+    system,
+    tts,
+    vision,
+)
+from .app import API_VERSION, api_app, get_api_app, get_global_backend_state
+from .browser_bus import browser_push, browser_queue_clear
 
 __all__ = [
     "API_VERSION",
+    "agents",
+    "announce",
     "api_app",
-    "get_api_app",
-    "get_global_backend_state",
+    "audio",
+    "browser_bus",
     "browser_push",
     "browser_queue_clear",
-    "core",
     "chat",
-    "system",
-    "browser_bus",
-    "agents",
-    "audio",
-    "announce",
-    "vision",
-    "tts",
+    "core",
     "documents",
+    "get_api_app",
+    "get_global_backend_state",
     "service_status",
+    "system",
+    "tts",
+    "vision",
 ]

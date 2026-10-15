@@ -41,8 +41,9 @@ import os
 import socket
 import threading
 import uuid
+from collections.abc import AsyncIterator
 from datetime import datetime
-from typing import Any, AsyncIterator
+from typing import Any
 from urllib.parse import quote
 
 # FFMPEG-Robustheit für RTSP — MUSS vor dem ersten cv2.VideoCapture gesetzt
@@ -66,7 +67,7 @@ os.environ.setdefault(
 # (z.B. fürs Debuggen von Kamera-Verbindungen).
 os.environ.setdefault("OPENCV_FFMPEG_LOGLEVEL", "-8")
 
-import cv2  # noqa: E402  — nach dem env-Set, damit FFMPEG die Optionen sieht
+import cv2
 
 from ..credential_broker import broker
 from ..vision_settings import load_vision_settings
@@ -194,7 +195,7 @@ def _grab_period_for(cap: cv2.VideoCapture) -> float:
     return 1.0 / fps
 
 
-async def _drain_sleep(cap: "_CapGuard", interval: float, grab_period: float) -> None:
+async def _drain_sleep(cap: _CapGuard, interval: float, grab_period: float) -> None:
     """Warte ``interval`` Sekunden, aber leere dabei laufend den
     Decoder-Puffer via ``cap.grab()`` (billig — kein Decode), damit der
     nächste ``cap.read()`` einen frischen Frame liefert statt eines, der
@@ -265,7 +266,7 @@ class _CapGuard:
 
 
 async def _drain_backlog(
-    cap: "_CapGuard", grab_period: float, max_grabs: int = 120,
+    cap: _CapGuard, grab_period: float, max_grabs: int = 120,
 ) -> int:
     """Aufgelaufenen Puffer-Rückstand bis zum Live-Rand verwerfen.
 

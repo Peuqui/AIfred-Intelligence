@@ -12,7 +12,6 @@ from typing import TYPE_CHECKING, Any
 
 from ....lib.formatting import format_clock, format_number
 from ....lib.plugin_base import BaseChannel
-
 from ._shared import _pending_wake_agent, _pipeline_tasks, signal_pause_ack
 from .alert_queue import signal_playback_done
 

@@ -6,7 +6,7 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import t, agent_emoji
+from ..helpers import agent_emoji, t
 
 
 def _ctx_column(

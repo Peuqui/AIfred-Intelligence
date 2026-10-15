@@ -11,7 +11,8 @@ import asyncio
 import logging
 import xml.etree.ElementTree as ET
 from collections import deque
-from typing import Any, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from typing import Any
 
 import httpx
 import pytest

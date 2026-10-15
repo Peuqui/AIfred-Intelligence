@@ -138,7 +138,7 @@ class PersonDetector:
             self._session = session
             return session
 
-    def detect(self, frame: "Frame") -> list[PersonDetection]:
+    def detect(self, frame: Frame) -> list[PersonDetection]:
         """Detektiert Personen in einem Frame. Leere Liste wenn das Bild
         nicht decodiert werden kann oder keine Person erkannt wird."""
         img = self._decode(frame.image_bytes)
@@ -154,7 +154,7 @@ class PersonDetector:
         return self._postprocess(outputs[0], img.shape[:2], scale, pad_x, pad_y)
 
     def detect_category_counts(
-        self, frame: "Frame", coco_map: dict[str, list[int]],
+        self, frame: Frame, coco_map: dict[str, list[int]],
         wanted: set[str],
     ) -> dict[str, int]:
         """Multi-Class-Zählung in EINER Inferenz. Returnt pro angefragter

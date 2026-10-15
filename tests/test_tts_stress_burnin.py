@@ -9,10 +9,15 @@ from typing import Any
 import httpx
 import pytest
 
-import aifred.lib.config as config
-from aifred.lib import tts_stress_burnin
+from aifred.lib import config, tts_stress_burnin
 from aifred.lib.tts_stress_burnin import stress_burnin_tts
-from tests.fake_tts_service import FakeTTSService, audio_frame, catalog_row, install_fake_service, summary_frame
+from tests.fake_tts_service import (
+    FakeTTSService,
+    audio_frame,
+    catalog_row,
+    install_fake_service,
+    summary_frame,
+)
 
 GOOD_READING = audio_frame(b"RIFF") + summary_frame()
 
@@ -156,7 +161,7 @@ def test_an_engine_the_service_does_not_offer_is_no_burnin(monkeypatch, tmp_path
 
 def test_an_unreachable_service_fails_the_burnin(monkeypatch) -> None:
     # conftest points the default client at a dead address and forbids systemctl
-    import aifred.lib.tts_client as tts_client
+    from aifred.lib import tts_client
 
     monkeypatch.setattr(tts_client.TTSClient, "ensure_ready", lambda self, timeout_s=0: None)
 

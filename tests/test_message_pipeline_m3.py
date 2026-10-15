@@ -11,7 +11,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-import aifred.lib.session_storage as session_storage
+from aifred.lib import session_storage
 from aifred.lib.envelope import InboundMessage
 from aifred.lib.message_processor import _append_response, save_inbound_to_session
 from aifred.lib.security import wrap_external_message
@@ -116,6 +116,7 @@ def test_announcement_carries_its_session_for_threading(monkeypatch) -> None:
     metadata, so a threading channel (email) registers it and the answer to
     the announcement returns to that session (14.09.: it opened a new one)."""
     import asyncio
+
     import aifred.lib.message_processor as mp
 
     sent = {}

@@ -7,14 +7,17 @@ running announcement is not interrupted: items of one room play one after
 the other. Token-guarded like inject/webhook, with ``Authorization: Bearer``.
 """
 
-from typing import Annotated, Dict, List
+from typing import Annotated
 
 from fastapi import Header, HTTPException
 from pydantic import BaseModel, Field, model_validator
 
 from ..auth import require_service_token
 from ..config import (
-    ANNOUNCE_MAX_CHARS, ANNOUNCE_MAX_PAUSE_MS, ANNOUNCE_MAX_TOTAL_CHARS, ANNOUNCE_PAUSE_MS,
+    ANNOUNCE_MAX_CHARS,
+    ANNOUNCE_MAX_PAUSE_MS,
+    ANNOUNCE_MAX_TOTAL_CHARS,
+    ANNOUNCE_PAUSE_MS,
 )
 from ..logging_utils import log_message
 from ..message_processor import announce_into_rooms, resolve_announce_targets
@@ -32,7 +35,7 @@ class AnnounceRequest(BaseModel):
         description="Room name from GET /audio/announce/rooms, '@group' for a group, '*' for all connected rooms",
     )
     text: str | None = Field(None, min_length=1, description="Text to read aloud")
-    texts: List[Annotated[str, Field(min_length=1)]] | None = Field(
+    texts: list[Annotated[str, Field(min_length=1)]] | None = Field(
         None, min_length=1,
         description="Several paragraphs, read as ONE announcement (one start tone before the "
         "first, one end tone after the last, silence between them)",
@@ -50,19 +53,19 @@ class AnnounceRequest(BaseModel):
         return self
 
     @property
-    def paragraphs(self) -> List[str]:
+    def paragraphs(self) -> list[str]:
         return self.texts if self.texts is not None else [self.text or ""]
 
 
 class AnnounceRoomsResponse(BaseModel):
     """Rooms that currently accept announcements"""
-    rooms: List[str]
+    rooms: list[str]
 
 
 class AnnounceResponse(BaseModel):
     """Announcement response"""
     success: bool
-    rooms: List[str]
+    rooms: list[str]
 
 
 def _require_announce_token(authorization: str | None) -> None:
@@ -72,14 +75,14 @@ def _require_announce_token(authorization: str | None) -> None:
 
 
 @api_app.get("/audio/announce/rooms", response_model=AnnounceRoomsResponse, tags=["Audio"])
-async def announce_rooms(authorization: str | None = Header(None)) -> Dict[str, List[str]]:
+async def announce_rooms(authorization: str | None = Header(None)) -> dict[str, list[str]]:
     """The FreeEcho.2 rooms connected right now — the valid values of ``room``."""
     _require_announce_token(authorization)
     return {"rooms": resolve_announce_targets("freeecho2", "*")}
 
 
 @api_app.post("/audio/announce", response_model=AnnounceResponse, tags=["Audio"])
-async def announce(request: AnnounceRequest, authorization: str | None = Header(None)) -> Dict[str, object]:
+async def announce(request: AnnounceRequest, authorization: str | None = Header(None)) -> dict[str, object]:
     """Read the text (or the paragraphs of ``texts`` as ONE announcement) aloud in ``room``
     (404 for an unknown or not connected room, 413 for a text longer than
     ``ANNOUNCE_MAX_CHARS`` per entry or ``ANNOUNCE_MAX_TOTAL_CHARS`` in total)."""

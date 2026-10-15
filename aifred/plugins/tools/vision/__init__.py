@@ -25,11 +25,19 @@ from typing import Any
 
 from ....lib.frame_sources import (
     get as get_source,
+)
+from ....lib.frame_sources import (
     list_all as list_all_sources,
+)
+from ....lib.frame_sources import (
     rescan as rescan_sources,
 )
 from ....lib.function_calling import Tool
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 from ....lib.vision_analyzer import (
     DEFAULT_KEEP_ALIVE,
@@ -186,7 +194,7 @@ class VisionPlugin:
         return VISION_SETTINGS_PATH.exists()
 
     def get_prompt_instructions(
-        self, lang: str, granted_tools: "set[str] | None" = None
+        self, lang: str, granted_tools: set[str] | None = None
     ) -> str:
         # Kein Hardcoding — atomare Fragmente pro Tool in prompts/<de|en>/.
         from ....lib.plugin_base import load_plugin_instructions
@@ -307,6 +315,7 @@ class VisionPlugin:
         async def _exec(source_id: str, n_frames: int = 1, save: bool = True) -> str:
             import asyncio
             from dataclasses import replace
+
             # LLMs übergeben gern den Anzeigenamen ("Büro") — auflösen wie
             # in vision_analyze.
             from ....lib.vision_utils import resolve_source_id
@@ -320,8 +329,8 @@ class VisionPlugin:
             # preview popup). Tools share the same persistent config as
             # the UI so a 4K outdoor cam stays at 4K for snapshots and
             # a low-res door cam stays low. (0, 0) → driver default.
-            from ....lib.vision_utils import resolve_source_resolution
             from ....lib.frame_hub import get_default_hub
+            from ....lib.vision_utils import resolve_source_resolution
             w, h = resolve_source_resolution(source_id)
             n = max(1, min(int(n_frames), 10))
             # Burst spread: a tight loop would grab N near-identical frames.
@@ -435,8 +444,8 @@ class VisionPlugin:
             # runs the VLM on ALREADY-captured images (from vision_snapshot, an
             # upload, or any saved image_url). A single url or a list is
             # accepted; a list is sent as a temporal sequence ("film").
-            from ....lib.vision_utils import url_to_file_path
             from ....lib.frame_sources import Frame
+            from ....lib.vision_utils import url_to_file_path
 
             if isinstance(image_urls, str):
                 urls = [image_urls]
@@ -469,7 +478,7 @@ class VisionPlugin:
                     # several MB each; a sync read would stall the worker.
                     import asyncio
                     data = await asyncio.to_thread(p.read_bytes)
-                except OSError as e:  # noqa: BLE001
+                except OSError as e:
                     return _err(f"cannot read image {u}: {e}")
                 frames.append(Frame(
                     source_id=source_id or "",
@@ -508,7 +517,9 @@ class VisionPlugin:
             from ....lib.config import get_effective_model_from_settings
             from ....lib.logging_utils import log_message
             from ....lib.vision_routing import (
-                NoVisionModelError, camera_describer, chat_describer,
+                NoVisionModelError,
+                camera_describer,
+                chat_describer,
                 eviction_notice,
             )
             try:
@@ -875,7 +886,7 @@ class VisionPlugin:
             def _sig(ev: dict[str, Any]) -> int:
                 return _SIG.get(str(ev.get("event_type") or ""), 0)
 
-            reps: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+            reps: OrderedDict[str, dict[str, Any]] = OrderedDict()
             solo: list[dict[str, Any]] = []
             member_count: dict[str, int] = {}
             for ev in raw:

@@ -7,10 +7,9 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fake_tts_service import FakeTTSService, install_fake_service
 
 from aifred.lib import agent_bundle
-
-from fake_tts_service import FakeTTSService, install_fake_service
 
 
 @pytest.fixture
@@ -52,7 +51,7 @@ def test_import_writes_voice_folder_and_keeps_existing_ones(
             out.writestr(name, source.read(name))
         out.writestr("voices/Neu/Neu.wav", b"neu")
     saved: dict[str, Any] = {}
-    monkeypatch.setattr(agent_bundle, "load_agents_raw", lambda: {})
+    monkeypatch.setattr(agent_bundle, "load_agents_raw", dict)
     monkeypatch.setattr(agent_bundle, "save_agents_raw", lambda agents: saved.update(agents=agents))
     monkeypatch.setattr(agent_bundle, "save_settings", lambda settings: saved.update(settings=settings))
     _ids, warnings = agent_bundle.import_bundle(buf.getvalue())

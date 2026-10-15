@@ -12,7 +12,6 @@ import reflex as rx
 from ...state import AIState
 from ..helpers import plugin_text, t
 
-
 # Tier badge colors: 0=green, 1=blue, 2=orange, 3=red, 4=purple
 _TIER_COLORS = {0: "#4CAF50", 1: "#2196F3", 2: "#FF9800", 3: "#f44336", 4: "#9C27B0"}
 
@@ -97,8 +96,8 @@ def _group_header(name: str | rx.Var, tool_names: list[str]) -> rx.Component:
 
 def _build_tool_groups() -> list[rx.Component]:
     """Build tool pill groups at build-time, grouped by plugin."""
-    from ...lib.plugin_registry import discover_tools, all_channels
     from ...lib.plugin_base import PluginContext, plugin_display_name
+    from ...lib.plugin_registry import all_channels, discover_tools
 
     ctx = PluginContext(agent_id="__build__", lang="de", session_id="", llm_history=[])
     groups: list[rx.Component] = []

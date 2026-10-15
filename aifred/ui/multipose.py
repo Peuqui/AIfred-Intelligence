@@ -16,7 +16,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t, overlay_modal
+from .helpers import overlay_modal, t
 
 
 def _capture_thumb(cap: rx.Var) -> rx.Component:

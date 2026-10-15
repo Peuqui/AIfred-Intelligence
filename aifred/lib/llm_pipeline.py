@@ -17,11 +17,10 @@ and add their own concerns (streaming to UI, TTS, debug routing).
 import asyncio
 import json
 import re
+from collections.abc import AsyncGenerator, AsyncIterator, Callable
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, AsyncGenerator, AsyncIterator, Callable, Optional
+from typing import TYPE_CHECKING, Any
 
-from .config import DEBUG_LOG_RAW_OUTPUT
-from .context_manager import estimate_tokens, strip_thinking_blocks
 from .bubble import (
     KIND_SANDBOX_HTML,
     KIND_SANDBOX_IMAGE,
@@ -31,6 +30,8 @@ from .bubble import (
     BubbleArtifact,
     image_markdown,
 )
+from .config import DEBUG_LOG_RAW_OUTPUT
+from .context_manager import estimate_tokens, strip_thinking_blocks
 from .formatting import build_inference_metadata
 from .logging_utils import log_message, log_raw_messages, log_system_prompt
 from .model_discovery import running_profile_label
@@ -38,8 +39,8 @@ from .perf_metrics import InferenceWork
 from .timer import Timer
 
 if TYPE_CHECKING:
-    from .llm_client import LLMClient
     from ..backends.base import LLMOptions
+    from .llm_client import LLMClient
 
 
 @dataclass
@@ -244,8 +245,8 @@ async def run_llm_stream(
     shown_image_urls: set[str] = set()
     # The turn's own web_fetch calls share one sources block; the entry of
     # the call in flight gets its success flag from the next tool result.
-    own_sources: Optional[BubbleArtifact] = None
-    pending_fetch: Optional[dict[str, Any]] = None
+    own_sources: BubbleArtifact | None = None
+    pending_fetch: dict[str, Any] | None = None
     history_notes: list[str] = []
 
     def add_artifact(artifact: BubbleArtifact) -> None:

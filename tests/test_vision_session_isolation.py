@@ -8,7 +8,7 @@ Kamera-Bilder) sind nicht session-gebunden.
 
 from __future__ import annotations
 
-from aifred.lib.vision_utils import url_to_file_path, UPLOAD_IMAGES_DIR, VIGILANTIA_DIR
+from aifred.lib.vision_utils import UPLOAD_IMAGES_DIR, VIGILANTIA_DIR, url_to_file_path
 
 
 class TestSessionIsolation:

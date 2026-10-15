@@ -135,7 +135,7 @@ def _resolve_field_id(name: str, name_to_id: dict[str, int]) -> int | None:
     return None
 
 
-def decode_fieldsdata(raw: str, field_map: Optional[dict[int, str]] = None) -> dict[str, str]:
+def decode_fieldsdata(raw: str, field_map: dict[int, str] | None = None) -> dict[str, str]:
     """Decode EPIM hex-encoded FIELDSDATA to a ``{field_name: value}`` dict.
 
     Args:
@@ -384,7 +384,7 @@ class EpimDatabase:
         self._db_path = db_path
         self._fb_lib = fb_lib
         self._fb_dir = fb_dir
-        self._con: Optional[fdb.Connection] = None
+        self._con: fdb.Connection | None = None
         self._lock = threading.RLock()
         # Set the Firebird env once at construction — not on every _connect()
         # (that mutated process-global state repeatedly, racy across threads).
@@ -481,28 +481,28 @@ class EpimDatabase:
     # NAME → ID RESOLUTION
     # ============================================================
 
-    def resolve_category(self, name: str) -> Optional[int]:
+    def resolve_category(self, name: str) -> int | None:
         """Resolve a category name to its ID (case-insensitive)."""
         for cat in self.get_categories():
             if str(cat["name"]).lower() == name.lower():
                 return int(cat["id"])
         return None
 
-    def resolve_calendar(self, name: str) -> Optional[int]:
+    def resolve_calendar(self, name: str) -> int | None:
         """Resolve a calendar name to its ID (case-insensitive)."""
         for cal in self.get_calendars():
             if str(cal["name"]).lower() == name.lower():
                 return int(cal["id"])
         return None
 
-    def resolve_todolist(self, name: str) -> Optional[int]:
+    def resolve_todolist(self, name: str) -> int | None:
         """Resolve a todo list name to its ID (case-insensitive)."""
         for tl in self.get_todolists():
             if str(tl["name"]).lower() == name.lower():
                 return int(tl["id"])
         return None
 
-    def resolve_notetree(self, name: str) -> Optional[int]:
+    def resolve_notetree(self, name: str) -> int | None:
         """Resolve a note tree name to its ID (case-insensitive)."""
         for nt in self.get_notetrees():
             if str(nt["name"]).lower() == name.lower():
@@ -609,9 +609,9 @@ class EpimDatabase:
     @_serialized
     def search_tasks(
         self,
-        title: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
+        title: str | None = None,
+        date_from: str | None = None,
+        date_to: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         """Search calendar tasks/events."""
@@ -658,7 +658,7 @@ class EpimDatabase:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
     @_serialized
-    def get_task(self, task_id: int) -> Optional[dict]:
+    def get_task(self, task_id: int) -> dict | None:
         """Get a single task by ID with full details."""
         con = self._connect()
         cur = con.cursor()
@@ -682,15 +682,15 @@ class EpimDatabase:
         title: str,
         start: str,
         end: str,
-        location: Optional[str] = None,
+        location: str | None = None,
         allday: bool = False,
-        calendar_id: Optional[int] = None,
-        calendar_name: Optional[str] = None,
-        category_id: Optional[int] = None,
-        category_name: Optional[str] = None,
-        text: Optional[str] = None,
+        calendar_id: int | None = None,
+        calendar_name: str | None = None,
+        category_id: int | None = None,
+        category_name: str | None = None,
+        text: str | None = None,
         priority: int = 0,
-        tags: Optional[str] = None,
+        tags: str | None = None,
     ) -> int:
         """Create a new calendar task. Returns the new task ID.
 
@@ -701,8 +701,8 @@ class EpimDatabase:
 
         # Empty date strings would hit Firebird as invalid TIMESTAMP literals
         # (cryptic conversion error) — normalize to NULL.
-        start_ts: Optional[str] = start or None
-        end_ts: Optional[str] = end or None
+        start_ts: str | None = start or None
+        end_ts: str | None = end or None
 
         # Resolve names to IDs — fail-loud: ein nicht auflösbarer Name darf
         # nicht still zu "ohne Kategorie"/"Default-Kalender" degradieren
@@ -810,7 +810,7 @@ class EpimDatabase:
     @_serialized
     def search_contacts(
         self,
-        name: Optional[str] = None,
+        name: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         """Search contacts by name."""
@@ -849,7 +849,7 @@ class EpimDatabase:
         return results
 
     @_serialized
-    def get_contact(self, contact_id: int) -> Optional[dict]:
+    def get_contact(self, contact_id: int) -> dict | None:
         """Get a single contact by ID with decoded fields."""
         con = self._connect()
         cur = con.cursor()
@@ -875,7 +875,7 @@ class EpimDatabase:
         }
 
     @_serialized
-    def create_contact(self, name: str, fields: Optional[dict[str, str]] = None, tags: Optional[str] = None) -> int:
+    def create_contact(self, name: str, fields: dict[str, str] | None = None, tags: str | None = None) -> int:
         """Create a new contact. Returns the new contact ID."""
         con = self._connect()
         cur = con.cursor()
@@ -899,8 +899,8 @@ class EpimDatabase:
         return new_id
 
     @_serialized
-    def update_contact(self, contact_id: int, name: Optional[str] = None,
-                       fields: Optional[dict[str, str]] = None, tags: Optional[str] = None) -> bool:
+    def update_contact(self, contact_id: int, name: str | None = None,
+                       fields: dict[str, str] | None = None, tags: str | None = None) -> bool:
         """Update a contact."""
         if not self._row_exists("CONTACTS", "IDCONTACT", contact_id):
             return False
@@ -934,8 +934,8 @@ class EpimDatabase:
     @_serialized
     def search_notes(
         self,
-        title: Optional[str] = None,
-        text: Optional[str] = None,
+        title: str | None = None,
+        text: str | None = None,
         limit: int = 50,
     ) -> list[dict]:
         """Search notes by title OR tab content.
@@ -977,7 +977,7 @@ class EpimDatabase:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
     @_serialized
-    def get_note(self, note_id: int) -> Optional[dict]:
+    def get_note(self, note_id: int) -> dict | None:
         """Get a note with all its tabs."""
         con = self._connect()
         cur = con.cursor()
@@ -1024,10 +1024,10 @@ class EpimDatabase:
         return note
 
     @_serialized
-    def create_note(self, title: str, tree_id: Optional[int] = None,
-                    tree_name: Optional[str] = None,
+    def create_note(self, title: str, tree_id: int | None = None,
+                    tree_name: str | None = None,
                     tab_name: str = "Tab 1", tab_text: str = "",
-                    tags: Optional[str] = None) -> int:
+                    tags: str | None = None) -> int:
         """Create a new note with one tab. Returns note ID."""
         con = self._connect()
         cur = con.cursor()
@@ -1077,8 +1077,8 @@ class EpimDatabase:
         return note_id
 
     @_serialized
-    def update_note(self, note_id: int, title: Optional[str] = None,
-                    tags: Optional[str] = None) -> bool:
+    def update_note(self, note_id: int, title: str | None = None,
+                    tags: str | None = None) -> bool:
         """Update note metadata."""
         updates: dict[str, object] = {}
         if title is not None:
@@ -1089,8 +1089,8 @@ class EpimDatabase:
         return updated
 
     @_serialized
-    def update_note_tab(self, tab_id: int, name: Optional[str] = None,
-                        text: Optional[str] = None) -> bool:
+    def update_note_tab(self, tab_id: int, name: str | None = None,
+                        text: str | None = None) -> bool:
         """Update a note tab's content."""
         updates: dict[str, object] = {}
         if name is not None:
@@ -1134,8 +1134,8 @@ class EpimDatabase:
     @_serialized
     def search_todos(
         self,
-        title: Optional[str] = None,
-        completed: Optional[bool] = None,
+        title: str | None = None,
+        completed: bool | None = None,
         limit: int = 50,
     ) -> list[dict]:
         """Search todo items."""
@@ -1171,13 +1171,13 @@ class EpimDatabase:
     def create_todo(
         self,
         title: str,
-        list_id: Optional[int] = None,
-        list_name: Optional[str] = None,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
+        list_id: int | None = None,
+        list_name: str | None = None,
+        start: str | None = None,
+        end: str | None = None,
         priority: int = 0,
-        text: Optional[str] = None,
-        tags: Optional[str] = None,
+        text: str | None = None,
+        tags: str | None = None,
     ) -> int:
         """Create a new todo item. Returns todo ID."""
         con = self._connect()
@@ -1247,7 +1247,7 @@ class EpimDatabase:
     # ============================================================
 
     @_serialized
-    def search_passwords(self, subject: Optional[str] = None, limit: int = 50) -> list[dict]:
+    def search_passwords(self, subject: str | None = None, limit: int = 50) -> list[dict]:
         """Search password entries (returns subjects only, no credentials)."""
         con = self._connect()
         cur = con.cursor()
@@ -1277,8 +1277,8 @@ class EpimDatabase:
         return [dict(zip(columns, row)) for row in cur.fetchall()]
 
     @_serialized
-    def create_password(self, subject: str, fields: Optional[dict[str, str]] = None,
-                        group_id: Optional[int] = None, tags: Optional[str] = None) -> int:
+    def create_password(self, subject: str, fields: dict[str, str] | None = None,
+                        group_id: int | None = None, tags: str | None = None) -> int:
         """Create a new password entry."""
         con = self._connect()
         cur = con.cursor()
@@ -1303,9 +1303,9 @@ class EpimDatabase:
         return new_id
 
     @_serialized
-    def update_password(self, entry_id: int, subject: Optional[str] = None,
-                        fields: Optional[dict[str, str]] = None,
-                        tags: Optional[str] = None) -> bool:
+    def update_password(self, entry_id: int, subject: str | None = None,
+                        fields: dict[str, str] | None = None,
+                        tags: str | None = None) -> bool:
         """Update a password entry."""
         if not self._row_exists("PASSENTRIES", "IDPASSENTRY", entry_id):
             return False

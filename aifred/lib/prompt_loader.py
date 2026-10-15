@@ -12,7 +12,6 @@ Personality System (v2.15.3+):
 """
 
 from pathlib import Path
-from typing import Optional
 
 from .settings import persisted_settings
 
@@ -59,7 +58,7 @@ def get_reasoning_enabled(agent: str) -> bool:
     return _agent_toggle(agent, "reasoning", default=False)
 
 
-def _resolve_prompt_file(agent: str, prompt_key: str, lang: Optional[str] = None) -> Optional[Path]:
+def _resolve_prompt_file(agent: str, prompt_key: str, lang: str | None = None) -> Path | None:
     """
     Resolve prompt file path for an agent via agent_config.
 
@@ -94,7 +93,7 @@ def _resolve_prompt_file(agent: str, prompt_key: str, lang: Optional[str] = None
     return None
 
 
-def load_reasoning(agent: str, lang: Optional[str] = None) -> str:
+def load_reasoning(agent: str, lang: str | None = None) -> str:
     """
     Load reasoning prompt for an agent (if enabled).
 
@@ -121,7 +120,7 @@ def load_reasoning(agent: str, lang: Optional[str] = None) -> str:
     return reasoning_file.read_text(encoding="utf-8").strip()
 
 
-def load_identity(agent: str, lang: Optional[str] = None) -> str:
+def load_identity(agent: str, lang: str | None = None) -> str:
     """
     Load identity prompt for an agent (always loaded).
 
@@ -142,7 +141,7 @@ def load_identity(agent: str, lang: Optional[str] = None) -> str:
     return identity_file.read_text(encoding="utf-8").strip()
 
 
-def load_personality(agent: str, lang: Optional[str] = None) -> str:
+def load_personality(agent: str, lang: str | None = None) -> str:
     """
     Load personality prompt for an agent.
 
@@ -167,7 +166,7 @@ def load_personality(agent: str, lang: Optional[str] = None) -> str:
     return personality_file.read_text(encoding="utf-8").strip()
 
 
-def load_personality_reminder(agent: str, lang: Optional[str] = None) -> str:
+def load_personality_reminder(agent: str, lang: str | None = None) -> str:
     """
     Load short personality reminder for user-message prefix.
 
@@ -298,8 +297,8 @@ def render_standard_placeholders(text: str, lang: str) -> str:
 
 def load_prompt(
     prompt_name: str,
-    lang: Optional[str] = None,
-    user_text: Optional[str] = None,
+    lang: str | None = None,
+    user_text: str | None = None,
     **kwargs
 ) -> str:
     """
@@ -397,7 +396,7 @@ def list_available_prompts() -> list:
 def get_agent_system_prompt(
     agent_id: str,
     prompt_key: str = "task",
-    lang: Optional[str] = None,
+    lang: str | None = None,
     multi_agent: bool = False,
     memory: bool = True,
     **kwargs,
@@ -447,7 +446,7 @@ def get_agent_system_prompt(
 # Convenience functions for frequently used prompts
 # ============================================================
 
-def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> str:
+def get_intent_detection_prompt(user_query: str, lang: str | None = None) -> str:
     """Load intent detection prompt with dynamic agent list + descriptions + aliases."""
     from .agent_config import load_agents_raw
     agents = load_agents_raw()
@@ -472,7 +471,7 @@ def get_intent_detection_prompt(user_query: str, lang: Optional[str] = None) -> 
     )
 
 
-def load_multi_agent_roles(lang: Optional[str] = None) -> str:
+def load_multi_agent_roles(lang: str | None = None) -> str:
     """
     Load shared multi-agent roles description.
 
@@ -488,7 +487,7 @@ def load_multi_agent_roles(lang: Optional[str] = None) -> str:
     return load_prompt('shared/multi_agent_roles', lang=lang)
 
 
-def load_memory_instructions(lang: Optional[str] = None) -> str:
+def load_memory_instructions(lang: str | None = None) -> str:
     """Load shared memory instructions for agents with long-term memory."""
     return load_prompt('shared/memory_instructions', lang=lang)
 
@@ -496,7 +495,7 @@ def load_memory_instructions(lang: Optional[str] = None) -> str:
 def _merge_prompt_layers(
     agent: str,
     task_prompt: str,
-    lang: Optional[str] = None,
+    lang: str | None = None,
     multi_agent: bool = False,
     memory: bool = True,
     source: str = "browser",
@@ -610,7 +609,7 @@ def _merge_prompt_layers(
     return "\n\n".join(parts)
 
 
-def get_vision_ir_context_prompt(lang: Optional[str] = None) -> str:
+def get_vision_ir_context_prompt(lang: str | None = None) -> str:
     """Kontext-Baustein für Infrarot-/Graustufen-Aufnahmen: verhindert, dass
     das VLM IR-Helligkeiten als reale Farben beschreibt ("helles T-Shirt").
     In ``prompts/{lang}/vision/vision_ir_context.txt``."""
@@ -622,7 +621,7 @@ def get_vision_ir_context_prompt(lang: Optional[str] = None) -> str:
 
 
 def get_vision_identity_context_prompt(
-    names: list[str], lang: Optional[str] = None
+    names: list[str], lang: str | None = None
 ) -> str:
     """Identitäts-Kontext für VLM-Beschreibungen: die sicher erkannten
     Personen als Fakt voranstellen, damit das VLM sie beim Namen nennt.
@@ -636,7 +635,7 @@ def get_vision_identity_context_prompt(
 
 
 def get_vision_headcount_context_prompt(
-    count: int, lang: Optional[str] = None
+    count: int, lang: str | None = None
 ) -> str:
     """Personenzahl-Kontext für VLM-Beschreibungen: die von YOLO gezählten
     Personen als Fakt mitgeben, damit das VLM auch verdeckte/abgewandte
@@ -649,7 +648,7 @@ def get_vision_headcount_context_prompt(
         return f.read().strip().replace("{count}", str(count))
 
 
-def get_vision_continuous_prompt(lang: Optional[str] = None) -> str:
+def get_vision_continuous_prompt(lang: str | None = None) -> str:
     """Prompt für die Dauer-Beschreibung des Live-Teleprompters. In
     ``prompts/{lang}/vision/vision_continuous.txt``."""
     if lang is None:
@@ -659,7 +658,7 @@ def get_vision_continuous_prompt(lang: Optional[str] = None) -> str:
         return f.read().strip()
 
 
-def get_vision_event_single_prompt(lang: Optional[str] = None) -> str:
+def get_vision_event_single_prompt(lang: str | None = None) -> str:
     """Prompt für die Einzelbild-Analyse eines gespeicherten Vision-Events
     (Casus-Button). In ``prompts/{lang}/vision/vision_event_single.txt``."""
     if lang is None:
@@ -669,7 +668,7 @@ def get_vision_event_single_prompt(lang: Optional[str] = None) -> str:
         return f.read().strip()
 
 
-def get_vision_event_sequence_prompt(lang: Optional[str] = None) -> str:
+def get_vision_event_sequence_prompt(lang: str | None = None) -> str:
     """Prompt für die Sequenz-Analyse eines Vorkommnisses (mehrere Keyframes
     in Zeitreihenfolge — Szene + was sich verändert). Genutzt vom Cluster-/
     Bulk-Describe. In ``prompts/{lang}/vision/vision_event_sequence.txt``."""
@@ -684,7 +683,7 @@ def get_vision_event_sequence_prompt(lang: Optional[str] = None) -> str:
 # Sokrates Multi-Agent Prompts
 # ============================================================
 
-def get_sokrates_critic_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
+def get_sokrates_critic_prompt(round_num: int = 1, lang: str | None = None) -> str:
     """
     Load Sokrates Critic prompt for User-as-Judge and Auto-Consensus modes.
 
@@ -698,7 +697,7 @@ def get_sokrates_critic_prompt(round_num: int = 1, lang: Optional[str] = None) -
     return load_prompt('sokrates/critic', lang=lang, round_num=round_num)
 
 
-def get_sokrates_devils_advocate_prompt(lang: Optional[str] = None) -> str:
+def get_sokrates_devils_advocate_prompt(lang: str | None = None) -> str:
     """
     Load Sokrates Devil's Advocate prompt for Pro/Contra analysis.
 
@@ -714,7 +713,7 @@ def get_sokrates_devils_advocate_prompt(lang: Optional[str] = None) -> str:
 def get_aifred_refinement_prompt(
     critique: str,
     user_interjection: str = "",
-    lang: Optional[str] = None,
+    lang: str | None = None,
     round_num: int = 2
 ) -> str:
     """
@@ -743,7 +742,7 @@ def get_aifred_refinement_prompt(
 # Tribunal Mode Prompts (Adversarial Debate)
 # ============================================================
 
-def get_sokrates_tribunal_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
+def get_sokrates_tribunal_prompt(round_num: int = 1, lang: str | None = None) -> str:
     """
     Load Sokrates Tribunal prompt for adversarial debate mode.
 
@@ -763,7 +762,7 @@ def get_sokrates_tribunal_prompt(round_num: int = 1, lang: Optional[str] = None)
 def get_aifred_defense_prompt(
     critique: str,
     user_interjection: str = "",
-    lang: Optional[str] = None,
+    lang: str | None = None,
     round_num: int = 2
 ) -> str:
     """
@@ -796,7 +795,7 @@ def get_aifred_defense_prompt(
 # ============================================================
 
 def get_agent_direct_prompt(
-    agent_id: str, lang: Optional[str] = None, memory: bool = True,
+    agent_id: str, lang: str | None = None, memory: bool = True,
 ) -> str:
     """Load direct response prompt for any agent via layer merging.
 
@@ -809,7 +808,7 @@ def get_agent_direct_prompt(
     )
 
 
-def get_salomo_mediator_prompt(round_num: int = 1, lang: Optional[str] = None) -> str:
+def get_salomo_mediator_prompt(round_num: int = 1, lang: str | None = None) -> str:
     """
     Load Salomo Mediator prompt for Auto-Consensus mode (Trialog).
 
@@ -826,7 +825,7 @@ def get_salomo_mediator_prompt(round_num: int = 1, lang: Optional[str] = None) -
     return load_prompt('salomo/mediator', lang=lang, round_num=round_num)
 
 
-def get_salomo_judge_prompt(lang: Optional[str] = None) -> str:
+def get_salomo_judge_prompt(lang: str | None = None) -> str:
     """
     Load Salomo Judge prompt for Tribunal mode.
 
@@ -893,10 +892,10 @@ def get_max_direct_prompt_tokens(
     return max(aifred_tokens, sokrates_tokens)
 
 def get_subagent_system_prompt(
-    lang: Optional[str] = None,
-    granted_tools: Optional[set] = None,
+    lang: str | None = None,
+    granted_tools: set | None = None,
     source: str = "browser",
-    persona_agent: Optional[str] = None,
+    persona_agent: str | None = None,
 ) -> str:
     """System prompt for a sub-agent run by the ``subagent`` plugin.
 

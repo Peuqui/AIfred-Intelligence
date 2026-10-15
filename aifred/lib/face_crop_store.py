@@ -54,6 +54,8 @@ import numpy as np
 # zeigt (und wie oft dieselbe Person doppelt).
 from .config import (
     VISION_PERSON_CROP_TOP_RATIO,
+)
+from .config import (
     VISION_UNKNOWN_CLUSTER_SIM as UNKNOWN_SIM,
 )
 

@@ -21,7 +21,6 @@ import sys
 from collections import Counter
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
 
 # Dieses Skript ist ein Config-Helfer, kein App-Prozess: AIFRED_CLI_MODE
 # haelt aifred/__init__.py davon ab, die Reflex-App zu importieren. Ohne den
@@ -299,7 +298,7 @@ def build_gpu_fingerprint() -> str:
     return ",".join(parts)
 
 
-def read_gpu_fingerprint(config_path: Path) -> Optional[str]:
+def read_gpu_fingerprint(config_path: Path) -> str | None:
     """Read stored GPU fingerprint from config header comment."""
     if not config_path.exists():
         return None
@@ -527,8 +526,8 @@ def _build_fit_params_cmd(
     ngl: int,
     gpu_flags: str,
     fit_params_bin: Path,
-    kv_quant: Optional[str] = None,
-    mmproj_path: Optional[Path] = None,
+    kv_quant: str | None = None,
+    mmproj_path: Path | None = None,
 ) -> list[str]:
     """Build llama-fit-params command for per-GPU VRAM projection.
 
@@ -581,9 +580,9 @@ def _fit_params_per_gpu(
     ngl: int,
     gpu_flags: str,
     fit_params_bin: Path,
-    kv_quant: Optional[str] = None,
-    mmproj_path: Optional[Path] = None,
-    gpu_total_mb: Optional[list[int]] = None,
+    kv_quant: str | None = None,
+    mmproj_path: Path | None = None,
+    gpu_total_mb: list[int] | None = None,
 ) -> dict[str, dict[str, int]]:
     """
     Run llama-fit-params and parse per-GPU VRAM projections.
@@ -632,9 +631,9 @@ def _find_best_ngl(
     context: int,
     gpu_flags: str,
     fit_params_bin: Path,
-    kv_quant: Optional[str] = None,
-    mmproj_path: Optional[Path] = None,
-    gpu_total_mb: Optional[list[int]] = None,
+    kv_quant: str | None = None,
+    mmproj_path: Path | None = None,
+    gpu_total_mb: list[int] | None = None,
 ) -> tuple[int, dict[str, dict[str, int]]]:
     """
     Binary search for the highest NGL where all GPUs have free >= safety margin.
@@ -771,7 +770,7 @@ def calibrate_model_fit_params(
 # Ollama manifest scanning
 # ---------------------------------------------------------------------------
 
-def find_ollama_base() -> Optional[Path]:
+def find_ollama_base() -> Path | None:
     """Find the active Ollama models directory."""
     for path in OLLAMA_PATHS:
         manifest_dir = path / "manifests" / "registry.ollama.ai" / "library"
@@ -834,13 +833,7 @@ def build_symlink_name(model_name: str, tag: str, config_data: dict) -> str:
     formatted_parts = []
     for part in parts:
         # Already uppercase (Q4_K_M, OCR, VL, F16) or contains underscore → uppercase
-        if part.isupper() or "_" in part:
-            formatted_parts.append(part.upper())
-        # Known abbreviations → uppercase
-        elif part.lower() in UPPERCASE_WORDS:
-            formatted_parts.append(part.upper())
-        # Pure number or size like "8b", "30b", "1.7b" → uppercase
-        elif re.match(r'^\d+\.?\d*[bB]$', part):
+        if part.isupper() or "_" in part or part.lower() in UPPERCASE_WORDS or re.match(r'^\d+\.?\d*[bB]$', part):
             formatted_parts.append(part.upper())
         # Version string like "2507" → keep as-is
         elif part.isdigit():
@@ -1007,7 +1000,7 @@ def create_symlinks(ollama_models: list[dict]) -> list[dict]:
 # HuggingFace cache scanning
 # ---------------------------------------------------------------------------
 
-def _hf_latest_snapshot(repo_dir: Path) -> Optional[Path]:
+def _hf_latest_snapshot(repo_dir: Path) -> Path | None:
     """
     Return the active snapshot directory for an HF repo.
 
@@ -1166,7 +1159,7 @@ def _strip_quant_suffix(stem: str) -> str:
     return re.sub(r'-(?:BF|[QqFf])\d[0-9_A-Za-z]*$', '', stem, flags=re.IGNORECASE)
 
 
-def _find_mmproj(model_stem: str, mmproj_files: dict[str, Path]) -> Optional[Path]:
+def _find_mmproj(model_stem: str, mmproj_files: dict[str, Path]) -> Path | None:
     """
     Match a model stem to a mmproj file by common base name (quantization-stripped).
 
@@ -1339,7 +1332,7 @@ def parse_existing_yaml_models(config_path: Path) -> set[str]:
 def find_new_models(
     all_ggufs: list[dict],
     existing_models: set[str],
-    existing_paths: Optional[set[str]] = None,
+    existing_paths: set[str] | None = None,
 ) -> list[dict]:
     """Find GGUFs that are not yet in the llama-swap config.
 
@@ -1363,7 +1356,7 @@ def find_new_models(
 # GGUF metadata reading
 # ---------------------------------------------------------------------------
 
-def _read_gguf_field(gguf_path: Path, suffix: str) -> Optional[int]:
+def _read_gguf_field(gguf_path: Path, suffix: str) -> int | None:
     """Read a single integer field from GGUF metadata by key suffix."""
     try:
         real_path = gguf_path.resolve()
@@ -1561,7 +1554,7 @@ def append_models_to_yaml(
 VLLM_SEED_CONTEXT = 8192  # konservativ; die Kalibrierung findet das Maximum
 
 
-def dominant_hf_repo(checkpoint: Path) -> Optional[str]:
+def dominant_hf_repo(checkpoint: Path) -> str | None:
     """Cache-Verzeichnis des Repos, aus dem die meisten Gewichte stammen.
 
     Zusammengesetzte Checkpoints unter MODELS_DIR sind Symlink-Farmen auf die
@@ -1878,7 +1871,7 @@ def _vram_free_models(config_path: Path) -> set[str]:
         return set()
 
     free: set[str] = set()
-    current: Optional[str] = None
+    current: str | None = None
     block: list[str] = []
     in_models = False
 
@@ -2083,7 +2076,7 @@ def cleanup_dead_symlinks() -> list[str]:
     return removed
 
 
-def _extract_model_path(cmd: str) -> Optional[Path]:
+def _extract_model_path(cmd: str) -> Path | None:
     """Extract the --model file path from a llama-server command line."""
     match = re.search(r'--model\s+(\S+)', cmd)
     return Path(match.group(1)) if match else None
@@ -2153,7 +2146,7 @@ def _parse_model_cmds(config_path: Path) -> dict[str, str]:
     content = config_path.read_text()
     entries: dict[str, str] = {}
     in_models = False
-    current_name: Optional[str] = None
+    current_name: str | None = None
     cmd_lines: list[str] = []
     collecting_cmd = False
 
@@ -2287,42 +2280,42 @@ AIFRED_CONFIG_PY = PROJECT_ROOT / "aifred" / "lib" / "config.py"
 _MMPROJ_PRECISION_RE = re.compile(r"-(f16|bf16|f32|q8_0)$", re.IGNORECASE)
 
 
-def _read_aifred_config_int(name: str) -> Optional[int]:
+def _read_aifred_config_int(name: str) -> int | None:
     """Ganzzahlige Konstante aus aifred/lib/config.py lesen (SSOT). Bewusst
     per Regex statt Import — ein aifred-Import zöge Logging-/App-
     Seiteneffekte in den Autoscan."""
     try:
         m = re.search(
-            rf"^{re.escape(name)}\s*=\s*(\d+)", AIFRED_CONFIG_PY.read_text(), re.M,
+            rf"^{re.escape(name)}\s*=\s*(\d+)", AIFRED_CONFIG_PY.read_text(), re.MULTILINE,
         )
     except OSError:
         return None
     return int(m.group(1)) if m else None
 
 
-def read_vlm_num_ctx() -> Optional[int]:
+def read_vlm_num_ctx() -> int | None:
     """``VLM_NUM_CTX`` aus aifred/lib/config.py (SSOT)."""
     return _read_aifred_config_int("VLM_NUM_CTX")
 
 
-def read_vlm_kv_cache_type() -> Optional[str]:
+def read_vlm_kv_cache_type() -> str | None:
     """``VLM_KV_CACHE_TYPE`` aus aifred/lib/config.py (SSOT)."""
     try:
         m = re.search(
-            r'^VLM_KV_CACHE_TYPE\s*=\s*"([^"]+)"', AIFRED_CONFIG_PY.read_text(), re.M,
+            r'^VLM_KV_CACHE_TYPE\s*=\s*"([^"]+)"', AIFRED_CONFIG_PY.read_text(), re.MULTILINE,
         )
     except OSError:
         return None
     return m.group(1) if m else None
 
 
-def _find_mmproj_for(gguf_path: Path) -> Optional[Path]:
+def _find_mmproj_for(gguf_path: Path) -> Path | None:
     """mmproj-Datei im Verzeichnis des Modells, deren Basisname (ohne
     ``mmproj-``-Präfix und Präzisions-Suffix) Präfix des Modell-Stems ist.
     Längster Treffer gewinnt (mmproj-Qwen3.8-27B-F16 ↔
     Qwen3.8-27B-MTP-UD-Q8_K_XL)."""
     stem = gguf_path.stem
-    best: Optional[tuple[str, Path]] = None
+    best: tuple[str, Path] | None = None
     for f in gguf_path.parent.glob("mmproj-*.gguf"):
         base = _MMPROJ_PRECISION_RE.sub("", f.stem[len("mmproj-"):])
         if stem == base or stem.startswith(base + "-"):
@@ -2358,7 +2351,7 @@ def ensure_visiond_profiles(config_path: Path) -> int:
     if not model_cmds:
         return 0
     added = 0
-    gpu_uuid: Optional[str] = None  # lazy — nur ermitteln wenn gebraucht
+    gpu_uuid: str | None = None  # lazy — nur ermitteln wenn gebraucht
     content = config_path.read_text()
     for name, cmd in sorted(model_cmds.items()):
         if (
@@ -2401,7 +2394,7 @@ def ensure_visiond_profiles(config_path: Path) -> int:
 def _insert_model_block(content: str, block: str) -> str:
     """Modell-Block ans Ende der models:-Sektion setzen (vor ``groups:``
     bzw. ans Dateiende, wenn keine groups existieren)."""
-    m = re.search(r"^groups:", content, re.M)
+    m = re.search(r"^groups:", content, re.MULTILINE)
     if m:
         return content[: m.start()] + block + content[m.start():]
     return content.rstrip("\n") + "\n" + block
@@ -2418,16 +2411,16 @@ def _ensure_vision_group_member(content: str, profile: str) -> str:
         "  vision:\n    exclusive: false\n    swap: true\n"
         "    persistent: true\n    members:\n"
     )
-    if re.search(rf"^ +- {re.escape(profile)}$", content, re.M):
+    if re.search(rf"^ +- {re.escape(profile)}$", content, re.MULTILINE):
         return content
-    m = re.search(r"^groups:\n", content, re.M)
+    m = re.search(r"^groups:\n", content, re.MULTILINE)
     if not m:
         return content + f"\ngroups:\n{vision_block}      - {profile}\n"
-    vm = re.search(r"^  vision:\n(?:^    .*\n)*", content[m.end():], re.M)
+    vm = re.search(r"^  vision:\n(?:^    .*\n)*", content[m.end():], re.MULTILINE)
     if not vm:
         insert_at = m.end()
         return content[:insert_at] + vision_block + f"      - {profile}\n" + content[insert_at:]
-    existing = re.search(r"^( +)- ", vm.group(0), re.M)
+    existing = re.search(r"^( +)- ", vm.group(0), re.MULTILINE)
     indent = existing.group(1) if existing else "      "
     insert_at = m.end() + vm.end()
     return content[:insert_at] + f"{indent}- {profile}\n" + content[insert_at:]
@@ -2647,7 +2640,7 @@ def _free_port() -> int:
 def test_model_compatibility(
     gguf_path: Path,
     server_bin: Path,
-    mmproj_path: Optional[Path] = None,
+    mmproj_path: Path | None = None,
 ) -> tuple[bool, str]:
     """
     Quick llama-server startup test for a new model.

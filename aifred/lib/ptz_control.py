@@ -41,7 +41,6 @@ from .config import (
 )
 from .frame_sources.rtsp_source import find_camera_config
 from .logging_utils import log_message
-from .reolink_ai import ReolinkAIError
 from .onvif_soap import (
     OnvifError,
     content_type,
@@ -50,6 +49,7 @@ from .onvif_soap import (
     parse_response,
     xml_escape,
 )
+from .reolink_ai import ReolinkAIError
 
 logger = logging.getLogger(__name__)
 

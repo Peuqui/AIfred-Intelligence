@@ -28,7 +28,7 @@ import json
 import threading
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .config import AUDIO_STATE_CLEANUP_AGE_DAYS, DATA_DIR
 from .logging_utils import log_message
@@ -105,7 +105,7 @@ class AudioState:
         key: str,
         uri: str,
         pos_sec: float,
-        duration_sec: Optional[float] = None,
+        duration_sec: float | None = None,
     ) -> None:
         """Update or insert position for a state_key."""
         with self._lock:
@@ -130,7 +130,7 @@ class AudioState:
                 self._data[key]["last_played"] = datetime.now().isoformat(timespec="seconds")
                 self._save_unlocked()
 
-    def get(self, key: str) -> Optional[dict[str, Any]]:
+    def get(self, key: str) -> dict[str, Any] | None:
         with self._lock:
             entry = self._data.get(key)
             return dict(entry) if entry else None
@@ -154,7 +154,7 @@ class AudioState:
         entries.sort(key=lambda e: e.get("last_played", ""), reverse=True)
         return entries
 
-    def last_played_key(self) -> Optional[str]:
+    def last_played_key(self) -> str | None:
         """state_key of the most recently played unfinished item, or None."""
         unfinished = self.list_unfinished()
         return unfinished[0]["key"] if unfinished else None
@@ -171,8 +171,8 @@ async def cleanup_audio_state_task() -> None:
     Runs alongside the AIfred service. Mirrors the pattern used by
     cleanup_expired_cache_task() for the vector cache.
     """
-    from .config import GARBAGE_COLLECTION_HOUR
     from .cleanup_utils import seconds_until_next_run
+    from .config import GARBAGE_COLLECTION_HOUR
 
     log_message(
         f"🗑️ AudioState cleanup task started "

@@ -21,10 +21,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import replace
 from datetime import datetime
-from typing import Any, AsyncIterator, Optional
+from typing import Any
 
 from .config import VISION_SAME_SCENE_MAX_HAMMING
 from .vision_phash import hamming_distance, phash_bytes
@@ -54,7 +55,7 @@ def _client_key(cam: dict[str, Any]) -> str:
 
 
 def frame_from_snap(
-    source_id: str, jpeg: bytes, timestamp: Optional[datetime] = None,
+    source_id: str, jpeg: bytes, timestamp: datetime | None = None,
 ) -> Any:
     """``Frame`` aus Snap-JPEG bauen — eine Wahrheit für alle Snap-Pfade
     (auch der Watcher nutzt dies). ``width/height=0``: der Caller dekodiert
@@ -73,7 +74,7 @@ def frame_from_snap(
 
 def resolve_snap_channel(
     source_id: str, *, prefer_face: bool = False,
-) -> Optional[int]:
+) -> int | None:
     """Snap-Kanal aus der Kamera-Config — oder ``None``, wenn die Quelle
     nicht snap-fähig ist (keine ``cred`` / kein snapbarer Kanal).
 
@@ -138,7 +139,7 @@ def _get_client_with_key(source_id: str) -> tuple[str, Any] | None:
 async def snap_frames(
     source_id: str, n: int = 1, interval: float = 0.0, *,
     prefer_face: bool = False,
-) -> Optional[list[Any]]:
+) -> list[Any] | None:
     """``n`` frische Snap-Frames der Quelle (volle Linsen-Auflösung).
 
     ``None`` = nicht snap-fähig ODER Fehler — der Caller fällt dann auf den
@@ -170,7 +171,7 @@ async def snap_frames(
 
 
 @asynccontextmanager
-async def _in_use_guard(key: Optional[str]) -> AsyncIterator[None]:
+async def _in_use_guard(key: str | None) -> AsyncIterator[None]:
     """Markiert einen laufenden Snap-Lauf auf dem Client ``key``; schließt
     ein währenddessen angefordertes ``close_clients`` beim letzten Nutzer
     nach. ``None`` (Client nicht im Cache, z. B. ein Test-Fake): kein Schutz."""
@@ -195,7 +196,7 @@ async def snap_pair(
     fallback: Any,
     *,
     wide_channel: int,
-    face_channel: Optional[int],
+    face_channel: int | None,
 ) -> tuple[Any, Any]:
     """Wide- und Zoom-Objektiv FRISCH und parallel snappen. Jedes Bild
     bekommt den Zeitstempel seines Eingangs bei AIfred (die Kamera liefert
@@ -222,7 +223,7 @@ async def snap_pair(
 
     def _stamped(
         result: tuple[bytes, datetime] | BaseException,
-    ) -> Optional[tuple[bytes, datetime]]:
+    ) -> tuple[bytes, datetime] | None:
         if isinstance(result, BaseException):
             logger.warning(
                 "edge-ai snap failed for %s: %s", fallback.source_id, result,
@@ -267,7 +268,7 @@ async def _close_key(key: str) -> None:
         logger.warning("snap client close failed for %s: %s", key, e)
 
 
-async def close_clients(source_id: Optional[str] = None) -> None:
+async def close_clients(source_id: str | None = None) -> None:
     """Snap-Clients schließen (Reolink ``aclose`` → Logout, gibt die
     Session frei) und aus dem Cache nehmen. Ohne Argument: alle. Wird z.B.
     beim Schließen des Multipose-Modals gerufen.

@@ -72,8 +72,8 @@ def debug(msg: str) -> None:
 
 def _flush_to_session(session_id: str, messages: list[str]) -> None:
     """Write buffered debug messages to the session file."""
-    from .session_storage import load_session, update_chat_data, session_rmw_lock
     from .config import MESSAGE_HUB_OWNER
+    from .session_storage import load_session, session_rmw_lock, update_chat_data
 
     # M4: load→append→save as ONE unit — debug flushes run concurrently
     # with hub/browser chat writes on the same file (see session_rmw_lock).

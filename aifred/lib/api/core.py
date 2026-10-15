@@ -1,16 +1,15 @@
 """Health, Settings and Models endpoints."""
 
+
 from fastapi import HTTPException
 from pydantic import BaseModel
-from typing import Optional, Dict, List
 
 from ..agent_settings import get_persisted_tuning as _tuning
-from ..settings import load_settings, save_settings, get_default_settings
+from ..config import DEFAULT_OLLAMA_URL, DEFAULT_TEMPERATURE
 from ..formatting import format_number
 from ..logging_utils import log_message
-from ..config import DEFAULT_OLLAMA_URL, DEFAULT_TEMPERATURE
-from .app import api_app, API_VERSION, get_global_backend_state
-
+from ..settings import get_default_settings, load_settings, save_settings
+from .app import API_VERSION, api_app, get_global_backend_state
 
 # ============================================================
 # Pydantic Models for API Request/Response
@@ -65,45 +64,45 @@ class SettingsResponse(BaseModel):
 class SettingsUpdate(BaseModel):
     """Settings update request - all fields optional"""
     # Backend
-    backend_type: Optional[str] = None
+    backend_type: str | None = None
 
     # Models (by ID, not display name)
-    aifred_model: Optional[str] = None
-    sokrates_model: Optional[str] = None
-    salomo_model: Optional[str] = None
-    automatik_model: Optional[str] = None
-    vision_model: Optional[str] = None
+    aifred_model: str | None = None
+    sokrates_model: str | None = None
+    salomo_model: str | None = None
+    automatik_model: str | None = None
+    vision_model: str | None = None
 
     # RoPE Factors
-    aifred_rope_factor: Optional[float] = None
-    sokrates_rope_factor: Optional[float] = None
-    salomo_rope_factor: Optional[float] = None
-    automatik_rope_factor: Optional[float] = None
-    vision_rope_factor: Optional[float] = None
+    aifred_rope_factor: float | None = None
+    sokrates_rope_factor: float | None = None
+    salomo_rope_factor: float | None = None
+    automatik_rope_factor: float | None = None
+    vision_rope_factor: float | None = None
 
     # LLM Parameters
-    temperature: Optional[float] = None
-    temperature_mode: Optional[str] = None
-    enable_thinking: Optional[bool] = None
+    temperature: float | None = None
+    temperature_mode: str | None = None
+    enable_thinking: bool | None = None
 
     # Multi-Agent
-    multi_agent_mode: Optional[str] = None
-    max_debate_rounds: Optional[int] = None
-    consensus_type: Optional[str] = None
+    multi_agent_mode: str | None = None
+    max_debate_rounds: int | None = None
+    consensus_type: str | None = None
 
     # TTS/STT
-    enable_tts: Optional[bool] = None
+    enable_tts: bool | None = None
 
     # UI
-    ui_language: Optional[str] = None
-    user_name: Optional[str] = None
+    ui_language: str | None = None
+    user_name: str | None = None
 
 
 class ModelsResponse(BaseModel):
     """Available models response"""
     backend_type: str
-    models: Dict[str, str]  # {model_id: display_label}
-    vision_models: List[str]  # List of vision-capable model IDs
+    models: dict[str, str]  # {model_id: display_label}
+    vision_models: list[str]  # List of vision-capable model IDs
 
 
 # ============================================================
@@ -263,8 +262,8 @@ async def get_available_models():
     global_state = get_global_backend_state()
     settings = load_settings() or {}
 
-    models_dict: Dict[str, str] = {}
-    vision_models: List[str] = []
+    models_dict: dict[str, str] = {}
+    vision_models: list[str] = []
     backend_type = settings.get("backend_type", "ollama")
 
     # SSOT for vision detection: lib.vision_utils.is_vision_model_sync covers

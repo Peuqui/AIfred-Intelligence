@@ -25,7 +25,11 @@ from ....lib.audio_player_settings import (
 )
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 
 
@@ -229,7 +233,7 @@ class AudioPlayerPlugin:
             executor=_play,
         )
 
-    def _tool_play_folder(self, ctx: PluginContext) -> Tool:  # noqa: PLR0915
+    def _tool_play_folder(self, ctx: PluginContext) -> Tool:
         """Sequential playback of all audio files in a folder, alphabetically."""
 
         async def _play_folder(
@@ -837,6 +841,7 @@ class AudioPlayerPlugin:
     def _tool_index_rebuild(self) -> Tool:
         async def _rebuild(source: str | None = None, force: bool = False) -> str:
             import functools
+
             from ....lib.audio_index import audio_index
             from ....lib.audio_sources import build_source_map
             from ....lib.config import MEDIA_AUDIO_DIR
@@ -926,7 +931,7 @@ class AudioPlayerPlugin:
 
     # ── ToolPlugin Protocol ──────────────────────────────
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)

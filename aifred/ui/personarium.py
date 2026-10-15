@@ -11,7 +11,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import bulk_delete_bar, t, overlay_modal
+from .helpers import bulk_delete_bar, overlay_modal, t
 
 
 def _face_row(face: rx.Var) -> rx.Component:

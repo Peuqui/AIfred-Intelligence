@@ -2,7 +2,6 @@
 
 import asyncio
 from pathlib import Path
-from typing import Optional, Dict
 
 from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
@@ -11,7 +10,7 @@ from pydantic import BaseModel
 from .app import api_app
 
 # In-memory map: session_id -> last requested state_key (for re-resolve from JS)
-_audio_active: Dict[str, str] = {}
+_audio_active: dict[str, str] = {}
 
 
 def _audio_resolver():  # type: ignore[no-untyped-def]
@@ -24,6 +23,7 @@ def _audio_resolver():  # type: ignore[no-untyped-def]
     """
     import json as _json
     from pathlib import Path as _Path
+
     from ..audio_sources import SourceResolver, build_source_map
     from ..config import MEDIA_AUDIO_DIR
 
@@ -31,7 +31,7 @@ def _audio_resolver():  # type: ignore[no-untyped-def]
         _Path(__file__).parent.parent.parent
         / "plugins" / "tools" / "audio_player" / "settings.json"
     )
-    streams: Dict[str, Dict[str, str]] = {}
+    streams: dict[str, dict[str, str]] = {}
     if settings_path.exists():
         try:
             with open(settings_path, encoding="utf-8") as f:
@@ -55,7 +55,8 @@ async def audio_file(request: Request, key: str):
     The key is resolved against the audio_player plugin's source map, so
     the LLM never sees raw paths. Path-traversal is rejected by the resolver.
     """
-    from fastapi.responses import StreamingResponse, RedirectResponse
+    from fastapi.responses import RedirectResponse, StreamingResponse
+
     from ..audio_sources import ALLOWED_EXTENSIONS
 
     try:
@@ -168,7 +169,7 @@ class AudioPositionRequest(BaseModel):
     """Browser → server: persist current playback position for resume."""
     state_key: str
     pos_sec: float
-    duration_sec: Optional[float] = None
+    duration_sec: float | None = None
     completed: bool = False
 
 

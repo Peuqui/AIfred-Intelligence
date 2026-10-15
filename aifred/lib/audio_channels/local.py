@@ -26,7 +26,7 @@ class LocalChannel(AudioOutputChannel):
     def can_handle(self, target_id: str) -> bool:
         return target_id == "local"
 
-    def list_targets(self, ctx: "PluginContext") -> list[TargetInfo]:
+    def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
         return [
             TargetInfo(
                 id="local",
@@ -37,10 +37,10 @@ class LocalChannel(AudioOutputChannel):
 
     async def play(
         self,
-        src: "ResolvedSource",
+        src: ResolvedSource,
         target_id: str,
         start_pos_sec: float | None,
-        ctx: "PluginContext",
+        ctx: PluginContext,
     ) -> dict[str, Any]:
         from ..audio_manager import audio_manager
         # Streams haben keine sinnvolle Start-Position
@@ -67,15 +67,15 @@ class LocalChannel(AudioOutputChannel):
             "resumed_at_sec": result["start_pos_sec"],
         }
 
-    async def pause(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         from ..audio_manager import audio_manager
         return await audio_manager.pause()
 
-    async def resume(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def resume(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         from ..audio_manager import audio_manager
         return await audio_manager.resume()
 
-    async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         from ..audio_manager import audio_manager
         return await audio_manager.stop()
 
@@ -84,13 +84,13 @@ class LocalChannel(AudioOutputChannel):
         target_id: str,
         position_sec: float,
         relative: bool = False,
-        ctx: "PluginContext | None" = None,
+        ctx: PluginContext | None = None,
     ) -> bool:
         from ..audio_manager import audio_manager
         return await audio_manager.seek(float(position_sec), relative=relative)
 
     async def set_speed(
-        self, target_id: str, factor: float, ctx: "PluginContext | None" = None
+        self, target_id: str, factor: float, ctx: PluginContext | None = None
     ) -> bool:
         from ..audio_manager import audio_manager
         try:
@@ -102,7 +102,7 @@ class LocalChannel(AudioOutputChannel):
         self,
         items: list[dict[str, str]],
         target_id: str,
-        ctx: "PluginContext",
+        ctx: PluginContext,
         audio_type: str = "music",
         shuffle: bool = False,
     ) -> dict[str, Any]:
@@ -114,6 +114,6 @@ class LocalChannel(AudioOutputChannel):
             "error": "Sequential playback not implemented for local channel",
         }
 
-    async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:
+    async def status(self, target_id: str, ctx: PluginContext | None = None) -> dict[str, Any]:
         from ..audio_manager import audio_manager
         return await audio_manager.status()

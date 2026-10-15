@@ -12,8 +12,12 @@ from dataclasses import dataclass
 from typing import Any
 
 from ....lib.function_calling import Tool
-from ....lib.security import TIER_WRITE_DATA, TIER_READONLY
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
+from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 
 
 @dataclass

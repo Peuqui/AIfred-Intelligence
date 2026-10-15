@@ -10,12 +10,17 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
 from . import vision_alerts
-from .config import EDGE_AI_CONFIRM, VISION_OVERLAY_SUFFIX_PREROLL, VISION_SAME_SCENE_MAX_HAMMING
+from .config import (
+    EDGE_AI_CONFIRM,
+    VISION_OVERLAY_SUFFIX_PREROLL,
+    VISION_SAME_SCENE_MAX_HAMMING,
+)
 from .vision_burst import BurstRunner
 from .vision_detect import DetectionService
 from .vision_edge_source import EdgeAiEventSource
@@ -66,12 +71,12 @@ class EdgeAiHandler:
 
     async def handle(
         self,
-        frame: "Frame",
+        frame: Frame,
         classes: list[str],
         config: WatchConfig,
         client: Any,
         events: EdgeAiEventSource,
-        preroll_frames: list["Frame"],
+        preroll_frames: list[Frame],
         is_current: Callable[[], bool],
     ) -> None:
         """``frame`` ist das RTSP-Frame zum Trigger (Rückfall-Bild, falls der
@@ -248,7 +253,7 @@ class EdgeAiHandler:
         return False
 
     async def _persist_preroll(
-        self, frames: list["Frame"], config: WatchConfig, cluster_id: str,
+        self, frames: list[Frame], config: WatchConfig, cluster_id: str,
     ) -> None:
         """Vorlauf-Frames eines Triggers als Ereignisse im Cluster des Triggers
         ablegen (Ausgabekette, ohne Auswertung — die Auflösung des RTSP-
@@ -326,6 +331,6 @@ async def run_edge_ai_cycle(
             await handler.handle(
                 frame, rising, config, client, events, preroll_frames, is_current,
             )
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("edge-ai event handling failed for %s", source_id)
 

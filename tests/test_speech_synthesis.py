@@ -17,8 +17,7 @@ from fake_tts_service import (
     summary_frame,
 )
 
-import aifred.lib.tts_client as tts_client
-from aifred.lib import speech_synthesis
+from aifred.lib import speech_synthesis, tts_client
 from aifred.lib.audio_channels._audio_orchestrator import KEEPALIVE_SILENCE, silence_pcm
 
 
@@ -64,7 +63,7 @@ class TestStoreReadingAudio:
     def test_markers_carry_no_audio_and_make_no_file(self, service, monkeypatch, tmp_path):
         """A narrator with a paragraph pause set gets pause markers: they must not end in an empty audio file."""
         stored: list[bytes] = []
-        import aifred.lib.audio_processing as audio_processing
+        from aifred.lib import audio_processing
 
         def fake_store(audio: bytes, media_type: str, agent: str, engine: str) -> str:
             stored.append(audio)

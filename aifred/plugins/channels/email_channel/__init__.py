@@ -15,9 +15,9 @@ import re
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING
 
-from .config import EMAIL_SENT_FOLDER_DEFAULT
-from ....lib.plugin_base import BaseChannel, CredentialField
 from ....lib.logging_utils import log_message
+from ....lib.plugin_base import BaseChannel, CredentialField
+from .config import EMAIL_SENT_FOLDER_DEFAULT
 
 if TYPE_CHECKING:
     from ....lib.envelope import InboundMessage, OutboundMessage
@@ -461,7 +461,7 @@ class EmailChannel(BaseChannel):
 
     # ── Reply ─────────────────────────────────────────────────
 
-    async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
+    async def send_reply(self, outbound: OutboundMessage, original: InboundMessage) -> None:
         """Send an email reply via SMTP."""
         from .client import send_email
 
@@ -497,7 +497,7 @@ class EmailChannel(BaseChannel):
 
     # ── Context ───────────────────────────────────────────────
 
-    def build_context(self, message: "InboundMessage") -> str:
+    def build_context(self, message: InboundMessage) -> str:
         """Prepare email for LLM with sender/subject context."""
         from ....lib.prompt_loader import load_prompt
 
@@ -511,12 +511,12 @@ class EmailChannel(BaseChannel):
 
     # ── Tools (LLM can read/send/search emails) ────────────────
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Email tools for LLM function calling."""
         from .tools import get_email_tools
         return get_email_tools(session_id=ctx.session_id, source=ctx.source, lang=ctx.lang)
 
-    def build_reply_metadata(self, message: "InboundMessage") -> dict:
+    def build_reply_metadata(self, message: InboundMessage) -> dict:
         """Build email-specific reply headers (In-Reply-To, References)."""
         subject = message.metadata.get("subject", "")
         # A crafted RFC2047 encoded-word can smuggle CR/LF into the decoded
@@ -636,7 +636,7 @@ def _get_existing_uids(imap: imaplib.IMAP4_SSL) -> set[bytes]:
     return set()
 
 
-def _auto_response_marker(msg: "email_lib.message.Message") -> str | None:
+def _auto_response_marker(msg: email_lib.message.Message) -> str | None:
     """Grund-String, wenn die Mail maschinell erzeugt/Massenpost ist, sonst None.
 
     RFC-3834-Loop-Schutz: Auf Autoresponder (Out-of-Office, Bounces,
@@ -656,11 +656,11 @@ def _auto_response_marker(msg: "email_lib.message.Message") -> str | None:
     return None
 
 
-def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> "InboundMessage | None":
+def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> InboundMessage | None:
     """Fetch a single email by UID and convert to InboundMessage."""
+    from ....lib.envelope import InboundMessage
     from .client import _decode_header, _extract_body
     from .config import EMAIL_MAX_BODY_CHARS
-    from ....lib.envelope import InboundMessage
 
     _, msg_data = imap.uid("FETCH", uid, "(RFC822)")  # type: ignore[arg-type]
     if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):

@@ -22,7 +22,12 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import CredentialField, PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    CredentialField,
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.security import TIER_READONLY
 from .reference import (
     BIBLE_FOLDER,

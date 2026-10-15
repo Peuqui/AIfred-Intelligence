@@ -20,8 +20,8 @@ from typing import TYPE_CHECKING
 
 from .base import AudioFormat, AudioOutputChannel, TargetInfo
 from .browser import BrowserChannel
-from .local import LocalChannel
 from .freeecho2 import FreeEcho2Channel
+from .local import LocalChannel
 
 if TYPE_CHECKING:
     from ..plugin_base import PluginContext
@@ -30,10 +30,10 @@ __all__ = [
     "AudioFormat",
     "AudioOutputChannel",
     "TargetInfo",
+    "all_channels",
+    "all_targets",
     "register",
     "resolve",
-    "all_targets",
-    "all_channels",
 ]
 
 _REGISTRY: list[AudioOutputChannel] = []
@@ -55,7 +55,7 @@ def resolve(target_id: str) -> AudioOutputChannel | None:
     return None
 
 
-def all_targets(ctx: "PluginContext") -> list[TargetInfo]:
+def all_targets(ctx: PluginContext) -> list[TargetInfo]:
     """Sammle Live-Targets aller registrierten Channels."""
     targets: list[TargetInfo] = []
     for ch in _REGISTRY:

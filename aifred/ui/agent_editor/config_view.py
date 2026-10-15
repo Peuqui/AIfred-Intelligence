@@ -9,7 +9,6 @@ import reflex as rx
 
 from ...state import AIState
 from ..helpers import t
-from .header import _editor_header
 from .config_sections import (
     _action_buttons,
     _dirty_warning,
@@ -17,7 +16,7 @@ from .config_sections import (
     _tools_section,
     _tts_section,
 )
-
+from .header import _editor_header
 
 # Shared style for DOM-only input fields
 _INPUT_STYLE = {

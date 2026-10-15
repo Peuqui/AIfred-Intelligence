@@ -22,8 +22,13 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.logging_utils import log_message
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.security import TIER_READONLY
+
 # All Judaica source texts live under this folder. file_manager's
 # folder filter is a recursive prefix-match, so "judaica" covers the
 # sub-folders (judaica/talmud, judaica/tanakh/tora, ...) as well.

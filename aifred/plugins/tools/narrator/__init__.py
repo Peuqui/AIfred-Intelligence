@@ -19,12 +19,16 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from ....lib.function_calling import Tool
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.tts_client import EngineRef, TTSSuiteError, new_run_id
 
 
-async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple["EngineRef", str, list[str]]:
+async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple[EngineRef, str, list[str]]:
     """Engine, default voice and the engine's voice names for a narration.
 
     Shared by narrate_file and list_narrator_voices so both always agree.
@@ -97,7 +101,11 @@ class NarratorPlugin:
                 TTS_AUDIO_DIR,
                 concatenate_wav_files,
             )
-            from ....lib.config import NARRATE_CHUNK_LIMIT_CHARS, NARRATE_PARAGRAPH_PAUSE_MS, NARRATE_SPEECH_UNIT
+            from ....lib.config import (
+                NARRATE_CHUNK_LIMIT_CHARS,
+                NARRATE_PARAGRAPH_PAUSE_MS,
+                NARRATE_SPEECH_UNIT,
+            )
             from ....lib.debug_bus import debug
             from ....lib.speech_synthesis import store_reading_audio
             from ....lib.text_chunking import (
@@ -305,7 +313,7 @@ class NarratorPlugin:
             ),
         ]
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)
 

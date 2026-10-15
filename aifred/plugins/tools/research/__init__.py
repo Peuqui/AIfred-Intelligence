@@ -9,16 +9,21 @@ den ``prompts/<de|en>/``-Fragmenten (granted_tools-gated). Die Pipeline
 """
 
 import json
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, Optional
 
 from ....lib.function_calling import Tool
 from ....lib.i18n import t
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.security import TIER_READONLY
 
 
-def get_research_tools(state: Optional[Any] = None, lang: str = "de", llm_history: Optional[list] = None) -> list[Tool]:
+def get_research_tools(state: Any | None = None, lang: str = "de", llm_history: list | None = None) -> list[Tool]:
     """Create research tools bound to a specific state instance.
 
     The web_search tool runs the full pipeline (search + scraping).

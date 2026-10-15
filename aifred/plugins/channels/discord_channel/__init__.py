@@ -11,8 +11,13 @@ from typing import TYPE_CHECKING
 
 import discord
 
-from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description, load_tool_parameters
 from ....lib.logging_utils import log_message
+from ....lib.plugin_base import (
+    BaseChannel,
+    CredentialField,
+    load_tool_description,
+    load_tool_parameters,
+)
 
 if TYPE_CHECKING:
     from ....lib.envelope import InboundMessage, OutboundMessage
@@ -246,7 +251,6 @@ class DiscordChannel(BaseChannel):
             timestamp = message.created_at
 
             from ....lib.envelope import InboundMessage
-
             from ....lib.routing_table import REPLY_TO_MESSAGE_KEY, message_route_key
 
             reply_meta = (
@@ -301,7 +305,7 @@ class DiscordChannel(BaseChannel):
 
     # ── Reply ─────────────────────────────────────────────────
 
-    async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
+    async def send_reply(self, outbound: OutboundMessage, original: InboundMessage) -> None:
         """Send a reply message to the Discord channel."""
         if not _discord_client:
             self.channel_log("Discord Plugin: no client connected, cannot send reply", "error")
@@ -332,7 +336,7 @@ class DiscordChannel(BaseChannel):
         channel_name = getattr(channel, 'name', channel_id)
         debug(f"📤 Reply sent to {outbound.recipient} (#{channel_name})")
 
-    async def _deliver(self, channel, text: str, media: "str | None") -> list[int]:
+    async def _deliver(self, channel, text: str, media: str | None) -> list[int]:
         """SSOT for the actual Discord send: text in 2000-char chunks plus an
         optional file attachment on the first message. Used by both the reply
         path and the discord_send tool. Discord renders any file type as an
@@ -359,7 +363,7 @@ class DiscordChannel(BaseChannel):
 
     # ── Context ───────────────────────────────────────────────
 
-    def build_context(self, message: "InboundMessage") -> str:
+    def build_context(self, message: InboundMessage) -> str:
         """Prepare Discord message for LLM."""
         from ....lib.prompt_loader import load_prompt
 
@@ -374,12 +378,13 @@ class DiscordChannel(BaseChannel):
 
     # ── Tools ─────────────────────────────────────────────────
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Provide discord_send tool for LLM function calling."""
+        import json
+
+        from ....lib.credential_broker import broker
         from ....lib.function_calling import Tool
         from ....lib.security import TIER_COMMUNICATE, sanitize_outbound
-        from ....lib.credential_broker import broker
-        import json
 
         async def _execute_discord_send(message: str, channel_id: str = "", attachment: str = "") -> str:
             """Send a message to a Discord channel."""

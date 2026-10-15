@@ -26,7 +26,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import unquote
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -39,8 +39,8 @@ sys.path.insert(0, str(REPO_ROOT))
 # Reflex app and resets the running service's live debug log.
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
-from aifred.lib.document_store import get_document_store  # noqa: E402
-from aifred.lib.config import DOCUMENTS_DIR  # noqa: E402
+from aifred.lib.config import DOCUMENTS_DIR
+from aifred.lib.document_store import get_document_store
 
 app = FastAPI(title="AIfred Bibliothek", version="1.0")
 
@@ -634,7 +634,7 @@ def folder_cleanup_orphans(folder: str) -> dict[str, Any]:
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     mode: str = Field(default="semantic", pattern=r"^(semantic|literal|phrase)$")
-    folder: Optional[str] = None
+    folder: str | None = None
     # n_results = Anzeige-Limit (semantic) bzw. Hard-Cap (literal/phrase). Bei
     # phrase-mode iteriert der Server ueber alle Chunks und liefert alle
     # Phrase-Treffer (bis zu n_results, default hoch genug fuer Volltextsuche).
@@ -642,7 +642,7 @@ class SearchRequest(BaseModel):
     neighbor: int = Field(default=1, ge=0, le=5)
 
 
-def _build_phrase_regex(query: str) -> Optional[re.Pattern[str]]:
+def _build_phrase_regex(query: str) -> re.Pattern[str] | None:
     """Build a case-insensitive phrase regex with German-stem tolerance.
 
     Mirror of the frontend stem heuristic so frontend Highlight and backend

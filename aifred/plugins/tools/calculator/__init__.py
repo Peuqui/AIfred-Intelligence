@@ -3,12 +3,17 @@
 import ast
 import json
 import operator
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
 
 from ....lib.function_calling import Tool
+from ....lib.plugin_base import (
+    PluginContext,
+    load_tool_description,
+    load_tool_parameters,
+)
 from ....lib.security import TIER_READONLY
-from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 
 
 @dataclass

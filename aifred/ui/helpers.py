@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import reflex as rx
 
+from ..lib.i18n import TranslationManager
 from ..state import AIState
 from ..theme import COLORS
-from ..lib.i18n import TranslationManager
-
 
 # ============================================================
 # MARKDOWN CONFIGURATION

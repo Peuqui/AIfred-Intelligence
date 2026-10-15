@@ -11,13 +11,13 @@ Returns Dict[model_id, display_label] for UI dropdown population.
 """
 
 
-from .config import LLAMASWAP_BACKENDS
 import json
 from pathlib import Path
-from typing import Dict, Optional
+
 import httpx
 
 from .calibration.llamaswap_io import display_model_name
+from .config import LLAMASWAP_BACKENDS
 from .formatting import format_number
 from .logging_utils import log_message
 from .model_manager import sort_models_grouped
@@ -34,7 +34,7 @@ def is_vllm_entry(model_id: str) -> bool:
     return model_id.endswith(VLLM_ENTRY_SUFFIX)
 
 
-def discover_ollama_models(backend_url: str, timeout: float = 5.0) -> Dict[str, str]:
+def discover_ollama_models(backend_url: str, timeout: float = 5.0) -> dict[str, str]:
     """
     Discover models from Ollama server API.
 
@@ -69,7 +69,7 @@ def discover_llamaswap_models(
     backend_url: str,
     timeout: float = 10.0,
     vllm_entries: bool = False,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """
     Discover models from llama-swap via OpenAI-compatible /v1/models endpoint.
 
@@ -152,7 +152,7 @@ def vllm_checkpoint_size_bytes(checkpoint_dir: Path) -> int:
 # model (TTS/VLM/speed) points at the same checkpoint, and model discovery runs
 # several times per session start — summing a 180B checkpoint's shards took
 # 1.6 s each time (session start 34 s, 14.09.2026).
-_SIZE_CACHE: Dict[tuple[str, float], int] = {}
+_SIZE_CACHE: dict[tuple[str, float], int] = {}
 
 
 def _weights_size_bytes(model_path: Path) -> int:
@@ -198,7 +198,7 @@ def running_profile_label(model_id: str) -> str:
     return profile_label(model_id, entry_badges(model_id, info))
 
 
-def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, list[str]]]:
+def _get_llamaswap_model_facts() -> tuple[dict[str, float], dict[str, list[str]]]:
     """Model sizes (GB) and display badges of the llama-swap entries.
 
     Badges come from ``entry_badges`` (speculative predictor, PLE overflow)
@@ -210,9 +210,9 @@ def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, list[str]]
     den Safetensors-Index.
     """
     try:
-        from .calibration.projection import draft_gguf_path
         from .calibration import parse_llamaswap_config
         from .calibration.llamaswap_io import entry_badges
+        from .calibration.projection import draft_gguf_path
         from .config import LLAMASWAP_CONFIG_PATH
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         result = {}
@@ -236,8 +236,8 @@ def _get_llamaswap_model_facts() -> tuple[Dict[str, float], Dict[str, list[str]]
 
 def discover_models(
     backend_type: str,
-    backend_url: Optional[str] = None,
-) -> Dict[str, str]:
+    backend_url: str | None = None,
+) -> dict[str, str]:
     """
     Unified model discovery for any backend type.
 

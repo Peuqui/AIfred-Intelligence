@@ -14,34 +14,35 @@
 
 import asyncio
 from types import SimpleNamespace
-from typing import Any, Dict, List
+from typing import Any
 
 import pytest
 from openai.types.chat import ChatCompletionChunk
 
-# aifred.lib zuerst: aifred.backends allein laeuft in einen Zirkelimport
-from aifred.lib.function_calling import Tool, ToolKit
 from aifred.backends.base import LLMMessage
 from aifred.backends.llamacpp import LlamaCppBackend
 from aifred.backends.vllm import vLLMBackend
+
+# aifred.lib zuerst: aifred.backends allein laeuft in einen Zirkelimport
+from aifred.lib.function_calling import Tool, ToolKit
 from aifred.lib.perf_metrics import InferenceWork
 
 
-def _chunk(delta: Dict[str, Any], finish_reason: str | None = None) -> ChatCompletionChunk:
+def _chunk(delta: dict[str, Any], finish_reason: str | None = None) -> ChatCompletionChunk:
     return ChatCompletionChunk.model_validate({
         "id": "c", "object": "chat.completion.chunk", "created": 0, "model": "m",
         "choices": [{"index": 0, "delta": delta, "finish_reason": finish_reason}],
     })
 
 
-async def _stream(chunks: List[ChatCompletionChunk]):
+async def _stream(chunks: list[ChatCompletionChunk]):
     for chunk in chunks:
         yield chunk
 
 
-def _consume(backend: Any, chunks: List[ChatCompletionChunk]) -> tuple[str, Dict[str, Any]]:
-    state: Dict[str, Any] = {}
-    counters: Dict[str, Any] = {"prompt_tokens": 0, "total_tokens": 0,
+def _consume(backend: Any, chunks: list[ChatCompletionChunk]) -> tuple[str, dict[str, Any]]:
+    state: dict[str, Any] = {}
+    counters: dict[str, Any] = {"prompt_tokens": 0, "total_tokens": 0,
                                 "server_timings": {}, "last_finish_reason": None}
 
     async def run() -> str:
@@ -102,7 +103,7 @@ def test_swallowed_tool_call_is_reported(monkeypatch) -> None:
         [_chunk({"content": ""}), _chunk({}, finish_reason="tool_calls")],
         [_chunk({"content": "Ohne Werkzeug."}), _chunk({}, finish_reason="stop")],
     ]
-    requests: List[Dict[str, Any]] = []
+    requests: list[dict[str, Any]] = []
 
     async def create(**kwargs: Any):
         requests.append(kwargs)
@@ -111,7 +112,7 @@ def test_swallowed_tool_call_is_reported(monkeypatch) -> None:
     backend.client = SimpleNamespace(  # type: ignore[assignment]
         chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
-    async def run() -> List[Dict[str, Any]]:
+    async def run() -> list[dict[str, Any]]:
         return [item async for item in backend.chat_stream(
             "m", [LLMMessage(role="user", content="Psalm 91?")], toolkit=_toolkit())]
 
@@ -123,7 +124,7 @@ def test_swallowed_tool_call_is_reported(monkeypatch) -> None:
     assert "Ohne Werkzeug." in "".join(i.get("text", "") for i in items)
 
 
-def _tool_round_turn(monkeypatch, counter_states: list, toolkit: ToolKit | None = None) -> Dict[str, Any]:
+def _tool_round_turn(monkeypatch, counter_states: list, toolkit: ToolKit | None = None) -> dict[str, Any]:
     """A two-round vLLM turn (tool call, then answer) against fake counters;
     returns the done metrics. ``counter_states`` are the successive
     /metrics readings, one before and one after each request:
@@ -144,8 +145,8 @@ def _tool_round_turn(monkeypatch, counter_states: list, toolkit: ToolKit | None 
     backend.client = SimpleNamespace(  # type: ignore[assignment]
         chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
-    async def run() -> Dict[str, Any]:
-        done: Dict[str, Any] = {}
+    async def run() -> dict[str, Any]:
+        done: dict[str, Any] = {}
         async for item in backend.chat_stream(
                 "m", [LLMMessage(role="user", content="Psalm 91?")], toolkit=toolkit or _toolkit()):
             if item.get("type") == "done":
@@ -207,7 +208,7 @@ def test_thinking_of_every_round_is_summed(monkeypatch) -> None:
     call = {"index": 0, "id": "c1", "type": "function",
             "function": {"name": "search_bible", "arguments": '{"query": "Psalm 91"}'}}
 
-    async def slow(chunks: List[ChatCompletionChunk]):
+    async def slow(chunks: list[ChatCompletionChunk]):
         for chunk in chunks:
             await asyncio.sleep(0.05)
             yield chunk
@@ -225,8 +226,8 @@ def test_thinking_of_every_round_is_summed(monkeypatch) -> None:
     backend.client = SimpleNamespace(  # type: ignore[assignment]
         chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
 
-    async def run() -> Dict[str, Any]:
-        done: Dict[str, Any] = {}
+    async def run() -> dict[str, Any]:
+        done: dict[str, Any] = {}
         async for item in backend.chat_stream(
                 "m", [LLMMessage(role="user", content="Psalm 91?")], toolkit=_toolkit()):
             if item.get("type") == "done":

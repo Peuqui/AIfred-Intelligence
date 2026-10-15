@@ -5,7 +5,7 @@ import json
 import pytest
 import requests
 
-import aifred.lib.stt_client as stt_client
+from aifred.lib import stt_client
 from aifred.lib.stt_client import (
     STTBusyError,
     STTClient,
@@ -170,7 +170,7 @@ def test_ensure_ready_reports_failed_start(client, monkeypatch):
 
 
 def test_ensure_ready_times_out(client, monkeypatch):
-    now = iter(range(0, 100))
+    now = iter(range(100))
     monkeypatch.setattr(client, "is_ready", lambda: False)
     monkeypatch.setattr(client, "start_container", lambda: (True, "up"))
     monkeypatch.setattr(stt_client.time, "sleep", lambda _s: None)

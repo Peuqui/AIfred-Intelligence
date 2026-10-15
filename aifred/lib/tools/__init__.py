@@ -11,27 +11,33 @@ This module contains all agent tools split into logical components:
 """
 
 # Base classes and exceptions
-from .base import BaseTool, RateLimitError, APIKeyMissingError
-
-# URL utilities
-from .url_utils import normalize_url, deduplicate_urls
-
-# Search tools
-from .search_tools import (
-    BraveSearchTool,
-    TavilySearchTool,
-    SearXNGSearchTool,
-    MultiAPISearchTool
-)
-
-# Scraper tool
-from .scraper_tool import WebScraperTool
+from .base import APIKeyMissingError, BaseTool, RateLimitError
 
 # Context builder
 from .context_builder import build_context
 
 # Registry and wrappers
-from .registry import ToolRegistry, get_tool_registry, search_web, search_web_multi, scrape_webpage
+from .registry import (
+    ToolRegistry,
+    get_tool_registry,
+    scrape_webpage,
+    search_web,
+    search_web_multi,
+)
+
+# Scraper tool
+from .scraper_tool import WebScraperTool
+
+# Search tools
+from .search_tools import (
+    BraveSearchTool,
+    MultiAPISearchTool,
+    SearXNGSearchTool,
+    TavilySearchTool,
+)
+
+# URL utilities
+from .url_utils import deduplicate_urls, normalize_url
 
 __all__ = [
     # Base

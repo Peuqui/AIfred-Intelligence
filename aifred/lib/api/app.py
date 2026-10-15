@@ -1,8 +1,9 @@
 """FastAPI app core: app instance, login-cookie middleware, global state access."""
 
+from typing import Any
+
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
-from typing import Dict, Any
 
 API_VERSION = "3.1.0"
 
@@ -48,8 +49,8 @@ _COOKIE_EXEMPT_PATHS = (
 
 @api_app.middleware("http")
 async def _require_login_cookie(request: Request, call_next):
-    from ..browser_storage import USERNAME_COOKIE_NAME
     from ..auth import verify_signed_username
+    from ..browser_storage import USERNAME_COOKIE_NAME
 
     # Mounted under /api (aifred.py) — scope path is mount-relative, but be
     # tolerant if the app ever runs unmounted (tests, standalone).
@@ -74,7 +75,7 @@ async def _require_login_cookie(request: Request, call_next):
 # Global State Access
 # ============================================================
 
-def get_global_backend_state() -> Dict[str, Any]:
+def get_global_backend_state() -> dict[str, Any]:
     """Get reference to global backend state from state.py"""
     try:
         from ...state import _global_backend_state

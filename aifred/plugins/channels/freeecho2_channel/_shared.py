@@ -63,7 +63,7 @@ _pending_wake_agent: dict[str, str] = {}
 # Offene server-initiierte Pausen pro Room: der Puck bestätigt ein {"wake","_pause"} mit
 # demselben Frame; commands.py löst das Future auf, sobald die Pause serverseitig
 # verarbeitet ist (Stream gestoppt, Position gespeichert).
-_pause_acks: "dict[str, asyncio.Future[None]]" = {}
+_pause_acks: dict[str, asyncio.Future[None]] = {}
 
 
 def signal_pause_ack(room: str) -> None:

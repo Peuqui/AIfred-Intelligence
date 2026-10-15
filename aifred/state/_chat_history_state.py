@@ -10,7 +10,7 @@ reference ChatHistoryState vars subscribe ONLY to this context.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 from ._base import AIState
 
@@ -18,5 +18,5 @@ from ._base import AIState
 class ChatHistoryState(AIState):
     """Substate for chat + LLM history — separate React context."""
 
-    chat_history: List[Dict[str, Any]] = []
-    llm_history: List[Dict[str, str]] = []
+    chat_history: list[dict[str, Any]] = []
+    llm_history: list[dict[str, str]] = []

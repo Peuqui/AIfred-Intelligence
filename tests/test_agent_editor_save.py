@@ -8,7 +8,7 @@ from types import MethodType
 
 import pytest
 
-import aifred.lib.agent_config as agent_config
+from aifred.lib import agent_config
 from aifred.state._agent_editor_mixin import AgentEditorMixin as M
 
 

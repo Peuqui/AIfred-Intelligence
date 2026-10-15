@@ -35,9 +35,10 @@ import sqlite3
 import subprocess
 import threading
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any
 
 from .config import (
     DATA_DIR,
@@ -71,9 +72,9 @@ class LoudnessInfo:
 
     path: str                          # absolute, resolved
     mtime: int                         # filesystem mtime at analysis time
-    integrated_lufs: Optional[float]   # None if measurement failed
-    true_peak_dbfs: Optional[float]    # None if measurement failed
-    duration_sec: Optional[float]      # None if unknown
+    integrated_lufs: float | None   # None if measurement failed
+    true_peak_dbfs: float | None    # None if measurement failed
+    duration_sec: float | None      # None if unknown
     analyzed_at: int                   # epoch seconds
 
 
@@ -88,7 +89,7 @@ class ScanResult:
 
 def _calc_gain_db(
     integrated_lufs: float,
-    true_peak_dbfs: Optional[float],
+    true_peak_dbfs: float | None,
     target_lufs: float,
     ceiling_dbfs: float,
 ) -> float:
@@ -107,7 +108,7 @@ def _calc_gain_db(
     return min(raw_gain, headroom)
 
 
-def _parse_duration(stderr: str) -> Optional[float]:
+def _parse_duration(stderr: str) -> float | None:
     m = _DURATION_RE.search(stderr)
     if not m:
         return None
@@ -122,7 +123,7 @@ def _parse_duration(stderr: str) -> Optional[float]:
     return secs
 
 
-def _parse_loudnorm_json(stderr: str) -> Optional[dict[str, Any]]:
+def _parse_loudnorm_json(stderr: str) -> dict[str, Any] | None:
     """Find the JSON block at the end of loudnorm's stderr output.
 
     loudnorm prints a multi-line JSON object after the "[Parsed_loudnorm
@@ -143,7 +144,7 @@ def _parse_loudnorm_json(stderr: str) -> Optional[dict[str, Any]]:
     return parsed if isinstance(parsed, dict) else None
 
 
-def _measure_file_sync(file_path: Path) -> Optional[LoudnessInfo]:
+def _measure_file_sync(file_path: Path) -> LoudnessInfo | None:
     """Run ffmpeg loudnorm measurement on file. Sync, blocking.
 
     Returns ``LoudnessInfo`` with the measurement, or ``None`` if ffmpeg
@@ -206,8 +207,8 @@ def _measure_file_sync(file_path: Path) -> Optional[LoudnessInfo]:
     duration = _parse_duration(stderr)
     data = _parse_loudnorm_json(stderr)
 
-    integrated: Optional[float] = None
-    true_peak: Optional[float] = None
+    integrated: float | None = None
+    true_peak: float | None = None
     if data is not None:
         try:
             i_str = data.get("input_i")
@@ -240,7 +241,7 @@ class LoudnessIndex:
         self._inflight_lock = threading.Lock()
         # Concurrency-Limit für Background-Messungen (asyncio-only).
         # Wird beim ersten Aufruf erzeugt — Loop muss laufen.
-        self._sem: Optional[asyncio.Semaphore] = None
+        self._sem: asyncio.Semaphore | None = None
         self._init_schema()
 
     # ── Schema ──────────────────────────────────────────────
@@ -270,7 +271,7 @@ class LoudnessIndex:
 
     # ── Lookup ──────────────────────────────────────────────
 
-    def get_info(self, file_path: Path | str) -> Optional[LoudnessInfo]:
+    def get_info(self, file_path: Path | str) -> LoudnessInfo | None:
         """Return cached info if present and mtime matches; else None.
 
         Stale entries (mtime mismatch) are NOT returned — caller should
@@ -309,7 +310,7 @@ class LoudnessIndex:
         file_path: Path | str,
         target_lufs: float = LOUDNESS_TARGET_LUFS,
         ceiling_dbfs: float = LOUDNESS_CEILING_DBFS,
-    ) -> Optional[float]:
+    ) -> float | None:
         """Return the gain in dB to apply, or ``None`` if unknown.
 
         ``None`` means: no measurement available (either never analyzed
@@ -328,7 +329,7 @@ class LoudnessIndex:
 
     # ── Analyse ─────────────────────────────────────────────
 
-    def analyze_file(self, file_path: Path | str) -> Optional[LoudnessInfo]:
+    def analyze_file(self, file_path: Path | str) -> LoudnessInfo | None:
         """Synchron messen + cachen. Returns LoudnessInfo (auch bei
         partiellem Erfolg) oder None wenn ffmpeg gar nicht starten konnte
         bzw. das File nicht stat-bar war.
@@ -449,7 +450,7 @@ class LoudnessIndex:
     def scan_directory(
         self,
         root_path: Path | str,
-        on_progress: Optional[Callable[[int, int, int], None]] = None,
+        on_progress: Callable[[int, int, int], None] | None = None,
         force: bool = False,
         workers: int = 1,
     ) -> ScanResult:
@@ -463,6 +464,7 @@ class LoudnessIndex:
         I/O-bound NAS-Scans hilft Parallelität trotzdem deutlich.
         """
         from concurrent.futures import ThreadPoolExecutor
+
         from .audio_sources import ALLOWED_EXTENSIONS
 
         root = Path(root_path).expanduser().resolve()
