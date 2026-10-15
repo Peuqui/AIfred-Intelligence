@@ -7,7 +7,7 @@ current message must never appear twice in a prompt. Therefore:
   response via _append_response(user_llm_text=...) AFTER the engine call.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -36,7 +36,7 @@ def _make_message(text: str) -> InboundMessage:
         channel_id="thread-1",
         sender="somebody@example.com",
         text=text,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 
@@ -60,7 +60,7 @@ class TestM3WrappedHistory:
 
         peer = InboundMessage(
             channel="ai_connect", channel_id="Mini:Peer", sender="Mini:Peer",
-            text="Verbindungstest", timestamp=datetime.now(timezone.utc),
+            text="Verbindungstest", timestamp=datetime.now(UTC),
         )
         save_inbound_to_session(sid, peer, from_user=False)
 

@@ -1,0 +1,12 @@
+target-version = "py312"
+
+[lint]
+ignore = [
+    # AIfred runs on a single machine and stores local wall-clock time (vision store, chat
+    # timestamps, logs). Timezone-aware values would change the persisted format.
+    "DTZ",
+]
+
+[lint.per-file-ignores]
+# Reflex state variables are declared as mutable class attributes; ClassVar would take them out of the state.
+"aifred/state/*" = ["RUF012"]

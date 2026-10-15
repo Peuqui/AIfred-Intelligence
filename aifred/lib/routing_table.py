@@ -6,7 +6,7 @@ Thread-safe via sqlite3's built-in locking.
 
 import sqlite3
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from .config import DATA_DIR
@@ -98,7 +98,7 @@ class RoutingTable:
 
     def set_route(self, channel: str, channel_id: str, session_id: str) -> None:
         """Create or update a route."""
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         with self._connect() as conn:
             conn.execute(
                 """

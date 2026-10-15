@@ -11,7 +11,7 @@ import asyncio
 import json
 import pathlib
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime, timezone
 from typing import TYPE_CHECKING
 
 from ....lib.credential_broker import broker
@@ -528,7 +528,7 @@ def _build_inbound(update: Update) -> InboundMessage:
         channel_id=str(chat.id),
         sender=sender,
         text=msg.text or "",
-        timestamp=msg.date or datetime.now(timezone.utc),
+        timestamp=msg.date or datetime.now(UTC),
         metadata=metadata,
     )
 

@@ -166,7 +166,7 @@ async def _alert_worker(room: str) -> None:
             done_timeout = playback_sec + _PLAYBACK_DONE_MARGIN_SEC
             try:
                 await asyncio.wait_for(evt.wait(), timeout=done_timeout)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 log_message(
                     f"[FreeEcho.2 {room}] alert worker: no _done within "
                     f"{done_timeout:.0f}s (playback ~{playback_sec:.0f}s) — proceeding",

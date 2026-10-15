@@ -68,7 +68,7 @@ class _PeakMonitor:
             self._peak = max(self._peak, used)
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def __aenter__(self) -> _PeakMonitor:

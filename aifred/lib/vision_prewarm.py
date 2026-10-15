@@ -213,7 +213,7 @@ async def prewarm_vlm(
             ),
             timeout=timeout_seconds,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("prewarm_vlm: load took longer than %.0fs", timeout_seconds)
         return False
     except Exception as e:  # noqa: BLE001
@@ -292,7 +292,7 @@ async def unload_vlm_model(model: str, host: str | None = None) -> bool:
             ),
             timeout=10.0,
         )
-    except asyncio.TimeoutError:
+    except TimeoutError:
         logger.warning("unload_vlm_model: timeout while unloading %s", model)
         return False
     except Exception as e:  # noqa: BLE001

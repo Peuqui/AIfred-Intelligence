@@ -5,9 +5,7 @@ Usage:
     from aifred.lib.types import StreamChunk, ContentChunk, DoneChunk
 """
 
-from typing import Literal, TypedDict, Union
-
-from typing_extensions import NotRequired
+from typing import Literal, NotRequired, TypedDict, Union
 
 __all__ = [
     "ContentChunk",

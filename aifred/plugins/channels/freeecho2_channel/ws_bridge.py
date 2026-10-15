@@ -119,7 +119,7 @@ class WsBridgeMixin(BaseChannel):
             )
             await asyncio.wait_for(send, timeout=self._CHUNK_SEND_TIMEOUT_SEC)
             return True
-        except asyncio.TimeoutError:
+        except TimeoutError:
             if not quiet:
                 self.channel_log(
                     f"[FreeEcho.2 {room}] {frame_name} timeout{timeout_note} "
@@ -244,7 +244,7 @@ class WsBridgeMixin(BaseChannel):
             ):
                 raise ConnectionError(f"pause command to '{room}' could not be sent")
             await asyncio.wait_for(future, timeout=timeout_sec)
-        except asyncio.TimeoutError as exc:
+        except TimeoutError as exc:
             raise TimeoutError(
                 f"puck '{room}' did not acknowledge _pause within {timeout_sec:.1f} s"
             ) from exc

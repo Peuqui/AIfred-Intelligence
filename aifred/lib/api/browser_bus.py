@@ -284,7 +284,7 @@ async def browser_stream(session_id: str, request: Request):
                         f"v{item['version']} {item.get('url', '').split('/')[-1]}"
                     )
 
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     yield ": keepalive\n\n"
 
                 except asyncio.CancelledError:

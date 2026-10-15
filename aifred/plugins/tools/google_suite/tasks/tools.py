@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC
 from typing import Any
 
 from .....lib.function_calling import Tool
@@ -92,8 +93,8 @@ def get_tasks_tools() -> list[Tool]:
         if status:
             task["status"] = status
             if status == "completed" and "completed" not in task:
-                from datetime import datetime, timezone
-                task["completed"] = datetime.now(timezone.utc).isoformat()
+                from datetime import datetime
+                task["completed"] = datetime.now(UTC).isoformat()
             elif status == "needsAction":
                 task.pop("completed", None)
 

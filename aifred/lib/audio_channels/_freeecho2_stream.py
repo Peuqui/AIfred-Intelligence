@@ -485,11 +485,11 @@ class FreeEcho2Stream:
             try:
                 self._proc.terminate()
                 await asyncio.wait_for(self._proc.wait(), timeout=2.0)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 self._proc.kill()
                 try:
                     await asyncio.wait_for(self._proc.wait(), timeout=1.0)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     pass
             except ProcessLookupError:
                 pass
@@ -508,7 +508,7 @@ class FreeEcho2Stream:
             if task is not None:
                 try:
                     await asyncio.wait_for(task, timeout=2.0)
-                except (asyncio.CancelledError, asyncio.TimeoutError, Exception):  # noqa: BLE001
+                except (TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
                     pass
         self._fifo_pump_task = None
         self._save_task = None
@@ -735,7 +735,7 @@ class FreeEcho2Stream:
                 ),
                 timeout=10.0,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             log_message(
                 f"FreeEcho2Stream[{self.room}]: mpv hat FIFO nicht "
                 f"innerhalb 10 s geöffnet — Source/Codec-Fehler?",

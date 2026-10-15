@@ -11,7 +11,7 @@ lose entries and fail.
 """
 
 import threading
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 
@@ -32,7 +32,7 @@ def _make_message(text: str) -> InboundMessage:
         channel_id="thread-1",
         sender="tester",
         text=text,
-        timestamp=datetime.now(timezone.utc),
+        timestamp=datetime.now(UTC),
     )
 
 

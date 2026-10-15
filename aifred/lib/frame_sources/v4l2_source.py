@@ -583,13 +583,13 @@ async def _drain_sleep(
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=grab_period)
                 return False  # evicted mid-sleep
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
         else:
             try:
                 await asyncio.wait_for(stop_event.wait(), timeout=remaining)
                 return False
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 return True
     return False
 

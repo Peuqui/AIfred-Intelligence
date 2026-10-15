@@ -442,7 +442,7 @@ async def generate_session_title(
 
         return title
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         from .debug_bus import debug
         debug(f"⚠️ Title generation timed out (>{SESSION_TITLE_TIMEOUT_SECONDS:.0f}s)")
         return ""

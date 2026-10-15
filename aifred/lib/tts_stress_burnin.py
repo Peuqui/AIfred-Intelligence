@@ -173,7 +173,7 @@ class _VramPeakMonitor:
             await self._sample()
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=TTS_BURNIN_VRAM_POLL_S)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def __aenter__(self) -> _VramPeakMonitor:

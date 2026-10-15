@@ -143,7 +143,7 @@ async def _run_fit(
     )
     try:
         stdout, _ = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-    except asyncio.TimeoutError as exc:
+    except TimeoutError as exc:
         proc.kill()
         await proc.wait()
         raise FitParamsError(f"fit-params timeout: {' '.join(argv)}") from exc

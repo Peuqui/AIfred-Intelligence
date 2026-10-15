@@ -130,7 +130,7 @@ class _PeakMonitor:
             self._peak = max(self._peak, used)
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
     async def __aenter__(self) -> _PeakMonitor:
@@ -264,7 +264,7 @@ async def stress_prewarm_vlm(
                         timeout=infer_timeout_seconds,
                     )
                     r.raise_for_status()
-            except (httpx.HTTPError, asyncio.TimeoutError) as e:
+            except (TimeoutError, httpx.HTTPError) as e:
                 # Teilmessung schlägt keine Messung — Load-Peak behalten.
                 logger.warning("vlm_stress_prewarm: stress inference failed: %s", e)
         peak = monitor.peak_mb

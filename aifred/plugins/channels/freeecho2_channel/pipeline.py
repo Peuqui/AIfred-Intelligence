@@ -13,7 +13,7 @@ import io
 import json
 import tempfile
 import wave
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -166,7 +166,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 )
                 _early_msg = InboundMessage(
                     channel="freeecho2", channel_id=room, sender=room,
-                    text=text, timestamp=datetime.now(timezone.utc),
+                    text=text, timestamp=datetime.now(UTC),
                     metadata={"room": room, "wake_agent": wake_agent},
                 )
                 save_inbound_to_session(
@@ -192,7 +192,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
                 channel_id=room,
                 sender=room,
                 text=text,
-                timestamp=datetime.now(timezone.utc),
+                timestamp=datetime.now(UTC),
                 metadata={
                     "wav_path": wav_path,
                     "room": room,

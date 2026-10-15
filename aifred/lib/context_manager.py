@@ -6,7 +6,6 @@ Handles token estimation and history compression for LLMs:
 - History compression (summarize_history_if_needed)
 """
 
-import asyncio
 import json
 import re
 from collections.abc import AsyncIterator
@@ -705,7 +704,7 @@ async def summarize_history_if_needed(
             log_message(f"   └─ Compression: {format_number(tokens_to_compress)} → {format_number(tokens_generated)} tok ({format_number(tokens_to_compress/tokens_generated, 1)}:1)")
         console_separator()
 
-    except asyncio.TimeoutError:
+    except TimeoutError:
         log_message("⚠️ Async timeout during summary generation")
         yield {"type": "debug", "message": "⚠️ Summary generation timeout"}
         summary_text = ""
