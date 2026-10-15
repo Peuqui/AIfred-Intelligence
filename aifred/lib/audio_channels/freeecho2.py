@@ -69,7 +69,7 @@ def _bridge() -> Any:
 _F = TypeVar("_F", bound=Callable[..., Coroutine[Any, Any, Any]])
 
 
-def _on_ws_loop(method: _F) -> _F:
+def _on_ws_loop[_F: Callable[..., Coroutine[Any, Any, Any]]](method: _F) -> _F:
     """Public-Methode auf dem WebSocket-Server-Loop ausführen.
 
     Browser-/Scheduler-initiierte Audio-Befehle (play, pause, …) laufen im

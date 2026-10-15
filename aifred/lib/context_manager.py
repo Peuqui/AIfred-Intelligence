@@ -205,7 +205,7 @@ def strip_thinking_blocks(text: str) -> str:
     # GPT-OSS Harmony analysis channel: <|channel|>analysis<|message|>...<|end|>
     text = re.sub(r'<\|channel\|>analysis<\|message\|>.*?<\|end\|>', '', text, flags=re.DOTALL)
     # Alle konfigurierten Collapsible-Tags (ROH, vor dem Rendern) — NICHT details.
-    for tag in get_xml_tag_config().keys():
+    for tag in get_xml_tag_config():
         text = re.sub(rf'<{tag}\b[^>]*>.*?</{tag}>', '', text, flags=re.DOTALL)
     return text.strip()
 
@@ -400,9 +400,7 @@ def is_summary_message(msg: dict[str, Any]) -> bool:
     # Assistant with no user context and summary marker
     if role == "assistant":
         return bool(
-            content.startswith("[📊 Compressed") or
-            content.startswith("[📊 Komprimiert") or
-            content.startswith("[📊 Summary #")
+            content.startswith(("[📊 Compressed", "[📊 Komprimiert", "[📊 Summary #"))
         )
 
     return False

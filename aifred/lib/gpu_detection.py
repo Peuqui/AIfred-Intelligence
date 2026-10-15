@@ -198,9 +198,7 @@ class GPUDetector:
         # Pascal generation (6.x) generally has slow FP16
         if 6.0 <= compute_cap < 7.0:
             # P100 is exception (6.0) - has decent FP16
-            if "P100" in gpu_name:
-                return True
-            return False
+            return "P100" in gpu_name
 
         # Volta+ (7.0+) has fast FP16
         return compute_cap >= 7.0

@@ -246,9 +246,9 @@ class TestRun:
         assert any("done (" in e.get("progress", "") for e in events)
         assert work == self.pipeline_result.metrics["work"]
         assert "progress" in kinds
-        result = [e for e in events if "result" in e][0]["result"]
+        result = next(e for e in events if "result" in e)["result"]
         assert result == "Der Bericht: alles gut."
-        (transcript,) = [e for e in events if "artifacts" in e][0]["artifacts"]
+        (transcript,) = next(e for e in events if "artifacts" in e)["artifacts"]
         assert transcript["kind"] == KIND_COLLAPSIBLE
         assert "Lies a.txt" in transcript["data"]["title"]
         assert transcript["data"]["icon"] == sub.SUBAGENT_ICON
@@ -277,13 +277,13 @@ class TestRun:
         tool = plugin.get_tools(ctx)[0]
         events = _run(_collect(tool.executor(task="Lies a.txt", expected_result="Zusammenfassung")))
 
-        forwarded = [e for e in events if "artifacts" in e][0]["artifacts"]
+        forwarded = next(e for e in events if "artifacts" in e)["artifacts"]
         assert [a["kind"] for a in forwarded] == [
             KIND_COLLAPSIBLE, KIND_COLLAPSIBLE, KIND_SOURCES, KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE,
             KIND_VISION_IMAGES,
         ]
         assert "Lies a.txt" in forwarded[0]["data"]["title"]  # own transcript first
-        lines = [e for e in events if "result" in e][0]["result"].splitlines()
+        lines = next(e for e in events if "result" in e)["result"].splitlines()
         # Markers lead the report, so a capped result keeps them.
         assert lines[0] == f"{SANDBOX_HTML_URL_MARKER}/_upload/sandbox_output/s/page.html"
         assert lines[1] == f"{SANDBOX_IMAGE_URL_MARKER}/_upload/sandbox_output/s/plot.png"

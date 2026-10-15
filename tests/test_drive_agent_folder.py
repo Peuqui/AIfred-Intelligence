@@ -150,7 +150,7 @@ def test_missing_agent_folder_is_created_in_my_drive(monkeypatch: pytest.MonkeyP
     monkeypatch.setattr(agent_folder_module, "_google_request", fake.request)
     monkeypatch.setattr(tools_module, "_google_request", fake.request)
     _run(_tools("Agenten")["google_drive_list_files"]())
-    assert [f for f in fake.files.values() if f["name"] == "Agenten"][0]["parents"] == ["root"]
+    assert next(f for f in fake.files.values() if f["name"] == "Agenten")["parents"] == ["root"]
 
 
 def test_two_folders_with_the_name_are_ambiguous(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -397,7 +397,7 @@ class TestLifecycle:
 
         _run(camera, scenario)
         assert camera.count("Unsubscribe") == 1
-        operation, url, body = next(r for r in camera.requests if r[0] == "Unsubscribe")
+        _operation, url, body = next(r for r in camera.requests if r[0] == "Unsubscribe")
         assert url == SUB_ADDRESS
         assert SUB_ADDRESS in body  # wsa:To
 

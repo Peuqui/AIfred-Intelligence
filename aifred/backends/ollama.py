@@ -1096,7 +1096,7 @@ class OllamaBackend(LLMBackend):
         await self.unload_all_models(wait_for_stability=False)
 
         # Wait for VRAM to stabilize (handles slower GPUs like P40)
-        stabilized, wait_time, free_vram = await wait_for_vram_stable()
+        stabilized, wait_time, _free_vram = await wait_for_vram_stable()
         if stabilized:
             yield f"VRAM stable after {wait_time:.1f}s"
         else:

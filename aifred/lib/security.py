@@ -201,9 +201,7 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
         # address on that domain. A bare suffix is NOT accepted — otherwise
         # "attacker@evil-e.mail.de" would match a "e.mail.de" entry and an
         # attacker could spoof owner privileges (owner addresses are forgeable).
-        if first_entry.startswith("@") and sender_email.endswith(first_entry):
-            return True
-        return False
+        return bool(first_entry.startswith("@") and sender_email.endswith(first_entry))
 
     if channel == "discord":
         # Discord doesn't have a simple owner concept in the whitelist.

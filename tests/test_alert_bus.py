@@ -14,10 +14,10 @@ _T0 = datetime(2026, 6, 3, 14, 0, 0)
 
 
 def _ev(**kw: Any) -> AlertEvent:
-    base: dict[str, Any] = dict(
-        producer="vision", category="face_unknown", source_id="cam/office",
-        severity="warning", title="Unbekannt", body="cam/office", timestamp=_T0,
-    )
+    base: dict[str, Any] = {
+        "producer": "vision", "category": "face_unknown", "source_id": "cam/office",
+        "severity": "warning", "title": "Unbekannt", "body": "cam/office", "timestamp": _T0,
+    }
     base.update(kw)
     return AlertEvent(**base)
 
@@ -136,7 +136,7 @@ class TestThrottle:
 
 class TestQuietHours:
     def test_event_in_quiet_window_suppressed(self):
-        calls, deliver = _recorder()
+        _calls, deliver = _recorder()
         d = AlertDispatcher(
             [AlertRule(producer="vision", sinks=["telegram"], quiet_hours=(22, 7))],
             deliver=deliver,

@@ -201,14 +201,14 @@ def overlay_scaffold(
     ``flex_center`` zentriert per Flexbox; ohne ``open_var`` wird das
     Overlay unbedingt gerendert (Vollbild-Pages mit eigener Route).
     """
-    outer: dict[str, Any] = dict(
-        position="fixed",
-        top="0",
-        left="0",
-        width="100vw",
-        height="100dvh",
-        z_index=z_index,
-    )
+    outer: dict[str, Any] = {
+        "position": "fixed",
+        "top": "0",
+        "left": "0",
+        "width": "100vw",
+        "height": "100dvh",
+        "z_index": z_index,
+    }
     if flex_center:
         outer.update(display="flex", justify_content="center", align_items="center")
     if touch_action_none:

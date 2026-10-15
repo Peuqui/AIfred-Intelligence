@@ -61,10 +61,10 @@ def _audio_player_element() -> rx.Component:
     Browser Push Bus and JS sets the source (a React-bound ``src`` would race with it and
     double-load).
     """
-    common_kwargs: dict = dict(
-        id="tts-audio-player",
-        controls=True,
-        style={
+    common_kwargs: dict = {
+        "id": "tts-audio-player",
+        "controls": True,
+        "style": {
             "width": "100%",
             "height": "40px",
             "margin_top": "8px",
@@ -74,7 +74,7 @@ def _audio_player_element() -> rx.Component:
                 "none",
             ),
         },
-    )
+    }
     data_attrs = {
         "data-playback-rate": AIState.tts_playback_rate,
         # data-media-url is NOT a trigger anymore (Audio Bus owns that).

@@ -410,7 +410,7 @@ class ImageMixin(rx.State, mixin=True):
 
         from PIL import Image
         original_img = Image.open(io.BytesIO(original_bytes))
-        orig_width, orig_height = original_img.size
+        _orig_width, _orig_height = original_img.size
 
         # Crop anwenden (nur wenn nicht 100%)
         if x > 0.5 or y > 0.5 or width < 99.5 or height < 99.5:

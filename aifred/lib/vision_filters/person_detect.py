@@ -51,12 +51,12 @@ def _letterbox(
     plus ``(scale, pad_x, pad_y)`` zum Zurückrechnen der Boxen."""
     h, w = img.shape[:2]
     scale = min(size / w, size / h)
-    new_w, new_h = int(round(w * scale)), int(round(h * scale))
+    new_w, new_h = round(w * scale), round(h * scale)
     resized = cv2.resize(img, (new_w, new_h), interpolation=cv2.INTER_LINEAR)
     canvas = np.full((size, size, 3), 114, dtype=np.uint8)
     pad_x = (size - new_w) / 2
     pad_y = (size - new_h) / 2
-    top, left = int(round(pad_y)), int(round(pad_x))
+    top, left = round(pad_y), round(pad_x)
     canvas[top : top + new_h, left : left + new_w] = resized
     return canvas, scale, pad_x, pad_y
 

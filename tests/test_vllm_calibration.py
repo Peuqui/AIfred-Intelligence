@@ -924,7 +924,7 @@ def test_sweep_boot_oom_lowers_gmu_and_keeps_it(monkeypatch, tmp_path):
                                  coherence=(3, 3), full_context=True,
                                  long_tokens=1000, long_prefill_tps=500.0, long_decode_tps=30.0)
 
-    best_spec, best_speed, best_k, sweep = vllm_flow._sweep_k(
+    best_spec, _best_speed, best_k, sweep = vllm_flow._sweep_k(
         rung, _meta(20.0), MINI_GPUS, SMI, RUNTIME, tmp_path, lambda m: None, None)
 
     # k=3: erster Boot bei 0,97 stirbt, zweiter bei 0,95 traegt; k=2 erbt 0,95
@@ -1076,7 +1076,7 @@ def test_full_run_measures_the_whole_ladder_and_persists(monkeypatch, tmp_path: 
 def test_single_card_rung_is_swept(monkeypatch, tmp_path: Path) -> None:
     # Hardwareagnostisch: ohne gesweepte Sprosse derselben Klasse gibt es
     # keinen Faktor -> die einzige Sprosse wird gesweept.
-    result, measured, persisted, log, swept = _fake_full_run(
+    result, _measured, _persisted, _log, swept = _fake_full_run(
         monkeypatch, tmp_path, topologies=["TP1 on RTX 8000"])
     assert swept == ["TP1 on RTX 8000"] and result.spec.tp == 1
 
@@ -1084,7 +1084,7 @@ def test_single_card_rung_is_swept(monkeypatch, tmp_path: Path) -> None:
 def test_resweep_measures_only_the_requested_topology_and_dry_run_persists_nothing(
     monkeypatch, tmp_path: Path,
 ) -> None:
-    result, measured, persisted, log, swept = _fake_full_run(
+    result, measured, persisted, log, _swept = _fake_full_run(
         monkeypatch, tmp_path, topologies=["TP2 across RTX 8000 class"], dry_run=True)
     assert measured == ["TP2 across RTX 8000 class"]
     assert persisted == [] and result.profile_path is None
@@ -1100,7 +1100,7 @@ def test_without_native_context_the_largest_reachable_context_competes(
     # Kleiner Rechner: keine Sprosse traegt die nativen 65.536. TP1 haelt nur
     # 16k, TP2 und PP2 halten 32k -> die beiden konkurrieren, TP1 ist
     # Speed-Kandidat (schnellster Kontext-Verlierer), auch ohne Voll-Kontext.
-    result, measured, persisted, log, swept = _fake_full_run(
+    result, _measured, _persisted, log, swept = _fake_full_run(
         monkeypatch, tmp_path,
         mml_by_label={"TP1 on RTX 8000": 16384, "TP2 across RTX 8000 class": 32768,
                       "PP2 across RTX 8000 class": 32768})
@@ -1116,7 +1116,7 @@ def test_resweep_flag_takes_the_operating_point_topology(monkeypatch, tmp_path: 
     monkeypatch.setattr(operating_points, "get_operating_point",
                         lambda m: {"llamaswap": {"cmd": "x"},
                                    "meta": {"topology": "TP=1 PP=2 GPUs=[0, 2]"}})
-    result, measured, persisted, log, swept = _fake_full_run(
+    _result, measured, persisted, _log, swept = _fake_full_run(
         monkeypatch, tmp_path, resweep=True, dry_run=True)
     assert measured == ["PP2 across RTX 8000 class"] and swept == measured
     assert persisted == []

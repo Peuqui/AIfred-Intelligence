@@ -57,7 +57,7 @@ def safe_resolve(rel_path: str) -> tuple[Path | None, str | None]:
     """
     if not isinstance(rel_path, str):
         return None, f"Invalid path type: {type(rel_path).__name__}"
-    if rel_path.startswith("/") or rel_path.startswith("\\"):
+    if rel_path.startswith(("/", "\\")):
         return None, f"Absolute paths not allowed: {rel_path!r}"
 
     candidate = (DOCUMENTS_DIR / rel_path).resolve()
@@ -75,9 +75,7 @@ def _is_safe_name(name: str) -> bool:
         return False
     if "/" in name or "\\" in name:
         return False
-    if name in (".", ".."):
-        return False
-    return True
+    return name not in (".", "..")
 
 
 # ─────────────────────────────────────────────────────────────────────────

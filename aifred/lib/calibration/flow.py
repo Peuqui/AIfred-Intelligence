@@ -926,7 +926,7 @@ async def _try_ai_calibration(
     # A colon-joined split here shifted every following field in the parser
     # (_parse_calibration_result splits on ":"): tensor_split became the
     # first layer count, num_gpus the second, uuids the third.
-    ts_csv = ",".join(str(int(round(r))) for r in ai_split if r > 0)
+    ts_csv = ",".join(str(round(r)) for r in ai_split if r > 0)
 
     if config_path:
         result = Result(
@@ -1667,7 +1667,7 @@ async def _ai_variant_from_base(
         # full GPU list so the mixin's parser keeps the right CUDA order.
         full_split = [0] * len(gpus)
         for j, idx in enumerate(active):
-            full_split[idx] = int(round(ai_split[j])) if j < len(ai_split) else 0
+            full_split[idx] = round(ai_split[j]) if j < len(ai_split) else 0
         split_colon = ":".join(str(x) for x in full_split)
         yield f"__SPEED__:{split_colon},{ai_ctx},{num_gpus},{base_kv},{uuid_csv}"
         return

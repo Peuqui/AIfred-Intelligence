@@ -366,7 +366,7 @@ def _seed_tensor_split(
         weights = [float(gpus[i].total_mb) for i in active_gpus]
     total_w = sum(weights)
     raw = [total_layers * w / total_w for w in weights]
-    layers = [int(round(r)) for r in raw]
+    layers = [round(r) for r in raw]
     diff = total_layers - sum(layers)
     if diff != 0:
         order = sorted(

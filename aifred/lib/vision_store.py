@@ -978,8 +978,8 @@ class VisionStore:
         ``since`` / ``until`` grenzen das Zeitfenster ein — vom On-demand-
         Chat-Hook genutzt, der nur die gerade abgefragte Spanne beschreibt
         statt des ganzen Backlogs."""
-        clauses: list[str] = ["(json_extract(classification, '$.description') IS NULL"
-                              " OR json_extract(classification, '$.description') = '')"]
+        clauses: list[str] = [("(json_extract(classification, '$.description') IS NULL"
+                              " OR json_extract(classification, '$.description') = '')")]
         params: list[Any] = []
         if source_id:
             clauses.append("source_id = ?")

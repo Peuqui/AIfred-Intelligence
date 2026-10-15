@@ -70,7 +70,7 @@ def _voice_file_name(voice: str) -> str:
 
 def _is_safe_member(name: str) -> bool:
     """Reject ZIP members that try to escape via '..' or absolute paths."""
-    if name.startswith("/") or name.startswith("\\"):
+    if name.startswith(("/", "\\")):
         return False
     parts = Path(name).parts
     return ".." not in parts

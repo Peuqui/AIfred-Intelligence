@@ -1111,7 +1111,7 @@ class ChatMixin(rx.State, mixin=True):
                     detected_language,
                     mode_switch_updates,
                     is_pure_command,
-                    intent_raw,
+                    _intent_raw,
                     self._pending_load_time,
                 ) = await detect_query_intent_and_addressee(
                     user_msg,

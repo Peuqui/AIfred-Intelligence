@@ -1892,7 +1892,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     _speed_ts = parse_tensor_split(str(speed_entry.get("full_cmd", "")))
                     if _speed_ts:
                         speed_layer_split = ":".join(
-                            str(int(round(v))) for v in _speed_ts
+                            str(round(v)) for v in _speed_ts
                         )
                     else:
                         speed_layer_split = f"{s_cuda0}:{s_rest}"

@@ -35,7 +35,7 @@ def test_hook_figure_is_collected_as_plot(dirs):
 
 
 def test_self_saved_png_is_collected_under_its_own_name(dirs):
-    work, output = dirs
+    work, _output = dirs
     (work / "heizoel_28tage.png").write_bytes(PNG)
     urls = sandbox._collect_images(work, SESSION)
     assert len(urls) == 1

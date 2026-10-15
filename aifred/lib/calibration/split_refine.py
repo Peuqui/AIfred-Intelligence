@@ -171,7 +171,7 @@ def _refine_split_from_measurement(
             f"no OOM danger"
         )
 
-    base_overhead, slope_per_layer = _per_gpu_coefficients(
+    _base_overhead, slope_per_layer = _per_gpu_coefficients(
         vram_model, total_layers, model_size_mb,
     )
     mb_per_layer = model_size_mb / total_layers if total_layers else 0.0
@@ -337,7 +337,7 @@ def _context_refine_swap(
     save_per_layer = mb_per_layer + slope_per_layer[src] * current_context
     deficit = 2 * sm - _free(src)
     if save_per_layer > 0 and deficit > 0:
-        step = max(1, int(_math.ceil(deficit / save_per_layer)))
+        step = max(1, _math.ceil(deficit / save_per_layer))
     else:
         step = 1
     step = min(step, int(current_split[src]))
@@ -397,9 +397,9 @@ def _context_refine_swap(
     new_split[best_dest] += step
     return (
         tuple(new_split),
-        f"CUDA{src} (ctx-limiter) → CUDA{best_dest} ({step} layer, "
+        (f"CUDA{src} (ctx-limiter) → CUDA{best_dest} ({step} layer, "
         f"ceiling {format_number(int(cur_ceiling))}→"
-        f"{format_number(int(best_ceiling))} tok)",
+        f"{format_number(int(best_ceiling))} tok)"),
     )
 
 

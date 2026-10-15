@@ -907,7 +907,7 @@ def _resolve_channel_recipient(channel: str, recipient: str) -> str:
         return resolved or recipient
 
     # Auto: first user's address for this channel
-    for user_name, channels in mappings.items():
+    for channels in mappings.values():
         if channel == "email" and channels.get("email_out"):
             out = channels["email_out"]
             return out[0] if isinstance(out, list) else str(out)

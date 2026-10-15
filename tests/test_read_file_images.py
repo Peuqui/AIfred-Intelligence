@@ -53,14 +53,14 @@ def test_text_pages_stay_text_scanned_pages_become_images(upload_dir, mixed_pdf)
 
 
 def test_page_selection_limits_rendering(upload_dir, mixed_pdf):
-    result, urls = _read_pdf(mixed_pdf, "3", SESSION)
+    result, _urls = _read_pdf(mixed_pdf, "3", SESSION)
     assert result["content"] == ""
     assert [p["page"] for p in result["image_pages"]] == [3]
 
 
 def test_render_cap_reports_the_rest(upload_dir, mixed_pdf, monkeypatch):
     monkeypatch.setattr(config, "READ_FILE_RENDER_MAX_PAGES", 1)
-    result, urls = _read_pdf(mixed_pdf, "", SESSION)
+    result, _urls = _read_pdf(mixed_pdf, "", SESSION)
     assert [p["page"] for p in result["image_pages"]] == [2]
     assert result["image_pages_not_rendered"] == [3]
 

@@ -708,12 +708,12 @@ def boot_vllm(
 # (sehr kurze Prompts kippen bei QSA-Modellen unabhaengig von MTP — Handover
 # 2026-08-28); erwartete Substrings sind temperatur-0-stabil.
 COHERENCE_CHECKS: list[tuple[str, str]] = [
-    ("Die Hauptstadt von Frankreich ist Paris. Die Hauptstadt von "
-     "Deutschland ist welche Stadt? Antworte in einem Satz.", "Berlin"),
-    ("Rechne Schritt fuer Schritt und nenne am Ende das Ergebnis: "
-     "Was ist 37 mal 43?", "1591"),
-    ("Schreibe eine Python-Funktion, die einen String umdreht. "
-     "Nur der Code, keine Erklaerung.", "[::-1]"),
+    (("Die Hauptstadt von Frankreich ist Paris. Die Hauptstadt von "
+     "Deutschland ist welche Stadt? Antworte in einem Satz."), "Berlin"),
+    (("Rechne Schritt fuer Schritt und nenne am Ende das Ergebnis: "
+     "Was ist 37 mal 43?"), "1591"),
+    (("Schreibe eine Python-Funktion, die einen String umdreht. "
+     "Nur der Code, keine Erklaerung."), "[::-1]"),
 ]
 
 THROUGHPUT_PROMPT = (

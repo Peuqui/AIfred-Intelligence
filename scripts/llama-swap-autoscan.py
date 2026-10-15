@@ -2174,7 +2174,7 @@ def _parse_model_cmds(config_path: Path) -> dict[str, str]:
                 # YAML block scalar (cmd: | or cmd: >) — collect indented lines
                 cmd_lines = []
                 collecting_cmd = True
-            elif raw.startswith("'") or raw.startswith('"'):
+            elif raw.startswith(("'", '"')):
                 quote = raw[0]
                 if raw.endswith(quote) and len(raw) > 1:
                     cmd_lines = [raw[1:-1]]
@@ -2191,7 +2191,7 @@ def _parse_model_cmds(config_path: Path) -> dict[str, str]:
 
         if collecting_cmd and current_name:
             stripped = line.strip()
-            if stripped.endswith("'") or stripped.endswith('"'):
+            if stripped.endswith(("'", '"')):
                 cmd_lines.append(stripped[:-1])
                 collecting_cmd = False
             elif line.startswith("      "):

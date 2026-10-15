@@ -429,7 +429,7 @@ class BackendMixin(rx.State, mixin=True):
                     try:
                         from ..backends.ollama import OllamaBackend
                         ollama = OllamaBackend()
-                        success, unloaded = await ollama.unload_all_models(wait_for_stability=False)
+                        _success, unloaded = await ollama.unload_all_models(wait_for_stability=False)
                         if unloaded:
                             log_message(f"🧹 Startup: Unloaded {len(unloaded)} model(s) from VRAM: {', '.join(unloaded)}")
                         else:
@@ -1226,11 +1226,11 @@ class BackendMixin(rx.State, mixin=True):
                     vision_model_ids.append(model_id)
         elif self.backend_type == "vllm":
             candidates = self._vision_candidate_catalog()
-            for model_id in candidates.keys():
+            for model_id in candidates:
                 if is_vision_model_sync(model_id):
                     vision_model_ids.append(model_id)
         else:
-            for model_id, model_display in candidates.items():
+            for model_id in candidates:
                 try:
                     if await is_vision_model(self, model_id):
                         vision_model_ids.append(model_id)
@@ -1293,7 +1293,7 @@ class BackendMixin(rx.State, mixin=True):
                 backend = llm_client._get_backend()
 
                 if hasattr(backend, 'unload_all_models'):
-                    success, unloaded_models = await backend.unload_all_models()
+                    _success, unloaded_models = await backend.unload_all_models()
                     count = len(unloaded_models)
                     if count > 0:
                         self.add_debug(f"✅ Unloaded {count} Ollama model(s)")  # type: ignore[attr-defined, has-type]
