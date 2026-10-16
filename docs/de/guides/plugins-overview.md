@@ -27,8 +27,8 @@ Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische 
 | `create_folder` | Unterordner anlegen | WRITE_DATA |
 | `copy_file` | Datei kopieren (serverseitig, binärsicher) | WRITE_DATA |
 | `move_file` | Datei/Ordner verschieben (Index folgt) | WRITE_DATA |
-| `delete_file` | Datei löschen (entfernt sie auch aus dem Index) | WRITE_SYSTEM |
-| `delete_folder` | Leeren Ordner löschen | WRITE_SYSTEM |
+| `delete_file` | Datei löschen (entfernt sie auch aus dem Index) | WRITE_DATA |
+| `delete_folder` | Leeren Ordner löschen | WRITE_DATA |
 | `index_document` | Datei in ChromaDB-Vektordatenbank einspeisen | WRITE_DATA |
 | `search_documents` | Indexierte Dokumente semantisch durchsuchen | READONLY |
 | `list_indexed` | Alle indexierten Dokumente anzeigen | READONLY |
@@ -98,7 +98,7 @@ Isolierte Python-Code-Ausführung in Subprocess.
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
 | `execute_code` | Python-Code ausführen (Dokumente read-only) | WRITE_DATA |
-| `execute_code_write` | Python-Code ausführen mit Schreibzugriff auf Dokumente | WRITE_SYSTEM |
+| `execute_code_write` | Python-Code ausführen mit Schreibzugriff auf Dokumente | WRITE_DATA |
 | `render_html` | Von der Sandbox erzeugte HTML-Seite im Headless-Browser rendern und prüfen | WRITE_DATA |
 
 **Features:**

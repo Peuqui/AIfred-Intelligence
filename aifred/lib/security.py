@@ -32,8 +32,8 @@ logger = logging.getLogger(__name__)
 # ============================================================
 TIER_READONLY = 0       # calculator, web_search, epim_search, list/search_documents
 TIER_COMMUNICATE = 1    # email, discord_send, telegram_send
-TIER_WRITE_DATA = 2     # epim_create, epim_update, store_memory, execute_code
-TIER_WRITE_SYSTEM = 3   # delete_file, epim_delete
+TIER_WRITE_DATA = 2     # epim_create, epim_update, store_memory, execute_code(_write), write/delete_file
+TIER_WRITE_SYSTEM = 3   # epim_delete, email_manage, chromadb_clear, Drive/Tasks deletes
 TIER_ADMIN = 4          # Shell, unrestricted code execution (future)
 
 # Default max tier per source context

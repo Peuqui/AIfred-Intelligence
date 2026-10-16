@@ -19,8 +19,8 @@ Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Ver
 | `rename` | Datei oder Ordner umbenennen (hält den ChromaDB-Index synchron) | WRITE_DATA |
 | `copy_file` | Datei kopieren (serverseitig, binärsicher — auch MP3/PDF) | WRITE_DATA |
 | `move_file` | Datei oder Ordner verschieben (Index folgt verschobenen Dateien) | WRITE_DATA |
-| `delete_file` | Datei löschen (entfernt sie auch aus dem Index) | WRITE_SYSTEM |
-| `delete_folder` | Ordner löschen (standardmäßig leer, `recursive=true` löscht den ganzen Baum) | WRITE_SYSTEM |
+| `delete_file` | Datei löschen (entfernt sie auch aus dem Index) | WRITE_DATA |
+| `delete_folder` | Ordner löschen (standardmäßig leer, `recursive=true` löscht den ganzen Baum) | WRITE_DATA |
 
 ### ChromaDB (Vektordatenbank)
 

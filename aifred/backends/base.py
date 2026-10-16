@@ -10,7 +10,7 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Optional, AsyncIterator, Union, Any
 from dataclasses import dataclass
 
-from aifred.lib.config import DEFAULT_OLLAMA_URL
+from aifred.lib.config import DEFAULT_OLLAMA_URL, MAX_OUTPUT_TOKENS
 from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
 
 
@@ -712,8 +712,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "top_p": options.top_p,
             "stream": False,
         }
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
+        kwargs["max_tokens"] = options.num_predict or MAX_OUTPUT_TOKENS
 
         extra_body = self._build_extra_body(options, model)
         if extra_body:
@@ -855,8 +854,7 @@ class OpenAICompatibleBackend(LLMBackend):
             "stream": True,
             "stream_options": {"include_usage": True},
         }
-        if options.num_predict:
-            kwargs["max_tokens"] = options.num_predict
+        kwargs["max_tokens"] = options.num_predict or MAX_OUTPUT_TOKENS
         if toolkit and toolkit.definitions:
             kwargs["tools"] = toolkit.definitions
 
