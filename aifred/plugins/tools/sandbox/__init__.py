@@ -21,7 +21,7 @@ from ....lib.sandbox import (
     SANDBOX_IMAGE_URL_MARKER,
     SANDBOX_VISION_FOCUS_MARKER,
 )
-from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from ....lib.security import TIER_WRITE_DATA
 
 
 def _looks_like_html_document(text: str) -> bool:
@@ -81,7 +81,7 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
 
     Returns three tools:
       - execute_code       (TIER_WRITE_DATA):   documents/ mounted read-only
-      - execute_code_write (TIER_WRITE_SYSTEM): documents/ mounted read-write
+      - execute_code_write (TIER_WRITE_DATA): documents/ mounted read-write
       - render_html        (TIER_WRITE_DATA):   headless-Chrome verify pass
         for a SANDBOX_HTML_URL (console messages + screenshot)
 
@@ -222,7 +222,7 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         ),
         Tool(
             name="execute_code_write",
-            tier=TIER_WRITE_SYSTEM,
+            tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "execute_code_write").replace("{AVAILABLE_LIBRARIES}", _libraries),
             parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code_write,

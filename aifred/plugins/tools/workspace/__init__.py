@@ -520,7 +520,7 @@ class WorkspacePlugin:
 
         tools.append(Tool(
             name="delete_file",
-            tier=TIER_WRITE_SYSTEM,
+            tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "delete_file"),
             parameters=load_tool_parameters(__file__, "delete_file"),
             executor=_delete_file,
@@ -542,7 +542,7 @@ class WorkspacePlugin:
 
         tools.append(Tool(
             name="delete_folder",
-            tier=TIER_WRITE_SYSTEM,
+            tier=TIER_WRITE_DATA,
             description=(
                 load_tool_description(__file__, "delete_folder")
             ),

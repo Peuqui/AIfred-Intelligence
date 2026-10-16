@@ -397,6 +397,14 @@ HISTORY_CHARS_PER_TOKEN = 3.5
 # Note: num_ctx only affects max context size, NOT processing speed!
 AUTOMATIK_LLM_NUM_CTX = 12288  # 12K context for all Automatik tasks
 
+# Obergrenze für die Antwortlänge jedes Aufrufs über die OpenAI-kompatiblen
+# Backends (vLLM, llama.cpp), wenn der Aufruf selbst keine setzt. Ohne sie lief
+# am 16.10.2026 ein Sub-Agent über drei Stunden: DeepSeek schrieb nach einem
+# base64-Bild im Kontext 198.101 Token ohne Ende. 64.000 Token reichen für jede
+# Code-Datei und lange Denkphasen (Peuqui 16.10.2026); vLLM kürzt den Wert
+# selbst, wenn der Kontext weniger Platz lässt.
+MAX_OUTPUT_TOKENS = 64000
+
 # Maximum tokens for the session title generation call. Hoch genug, damit auch
 # Thinking-Modelle (z.B. Step-3.5-Flash) genug Budget haben um nach langem
 # Reasoning den eigentlichen Titel auszugeben. Bei Instruct-Modellen schadet

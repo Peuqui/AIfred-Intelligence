@@ -27,8 +27,8 @@ File access to the documents directory (`data/documents/`) and semantic search v
 | `create_folder` | Create a subfolder | WRITE_DATA |
 | `copy_file` | Copy a file (server-side, binary-safe) | WRITE_DATA |
 | `move_file` | Move a file/folder (index follows) | WRITE_DATA |
-| `delete_file` | Delete a file (also removes it from the index) | WRITE_SYSTEM |
-| `delete_folder` | Delete an empty folder | WRITE_SYSTEM |
+| `delete_file` | Delete a file (also removes it from the index) | WRITE_DATA |
+| `delete_folder` | Delete an empty folder | WRITE_DATA |
 | `index_document` | Index a file into the ChromaDB vector database | WRITE_DATA |
 | `search_documents` | Search indexed documents semantically | READONLY |
 | `list_indexed` | List all indexed documents | READONLY |
@@ -98,7 +98,7 @@ Isolated Python code execution in subprocess.
 | Tool | Description | Tier |
 |------|------------|------|
 | `execute_code` | Run Python code (documents read-only) | WRITE_DATA |
-| `execute_code_write` | Run Python code with write access to documents | WRITE_SYSTEM |
+| `execute_code_write` | Run Python code with write access to documents | WRITE_DATA |
 | `render_html` | Render and check an HTML page produced by the sandbox in the headless browser | WRITE_DATA |
 
 **Features:**
