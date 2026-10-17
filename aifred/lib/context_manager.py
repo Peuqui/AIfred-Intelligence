@@ -10,7 +10,7 @@ import json
 import re
 import asyncio
 from .timer import Timer
-from typing import Any, Dict, List, Optional, AsyncIterator
+from typing import TYPE_CHECKING, Any, Dict, List, Optional, AsyncIterator
 from .logging_utils import log_message, log_raw_messages, console_separator
 from .prompt_loader import load_prompt
 from .formatting import format_number
@@ -26,8 +26,11 @@ from .config import (
     HISTORY_SUMMARY_TEMPERATURE,
 )
 
+if TYPE_CHECKING:
+    from tokenizers import Tokenizer
+
 # Global tokenizer cache (model_name -> tokenizer)
-_tokenizer_cache = {}
+_tokenizer_cache: dict[str, "Tokenizer"] = {}
 
 
 def parse_model_size_from_name(model_name: str) -> float:

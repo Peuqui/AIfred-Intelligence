@@ -362,7 +362,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                             "Indexieren",
                             size="1",
                             variant="soft",
-                            on_click=AIState.audio_index_rebuild_source(src["label"], False),
+                            on_click=AIState.audio_index_rebuild_source(src["label"], False),  # type: ignore[misc]
                             cursor="pointer",
                             disabled=AIState.audio_settings_busy != "",
                         ),
@@ -372,7 +372,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                             size="1",
                             variant="soft",
                             color_scheme="orange",
-                            on_click=AIState.audio_index_rebuild_source(src["label"], True),
+                            on_click=AIState.audio_index_rebuild_source(src["label"], True),  # type: ignore[misc]
                             cursor="pointer",
                             disabled=AIState.audio_settings_busy != "",
                             title="Komplett neu indexieren (ignoriert mtime, liest alle Tags neu)",

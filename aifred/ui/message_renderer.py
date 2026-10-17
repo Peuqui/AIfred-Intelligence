@@ -142,7 +142,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
                 rx.spinner(size="1"),
                 rx.icon("refresh-cw", size=16),  # type: ignore[operator]
             ),
-            on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),  # type: ignore[call-arg]
+            on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),  # type: ignore[misc]
             title=t("audio_generate_tooltip"),
             size="1",
             variant="ghost",
