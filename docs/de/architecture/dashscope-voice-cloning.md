@@ -3,8 +3,8 @@
 > **English version:** [dashscope-voice-cloning.md](../../en/architecture/dashscope-voice-cloning.md)
 
 > Stand: 2026-10-10 | Region: international/Singapur (`dashscope-intl.aliyuncs.com`)
-> Code: [`aifred/lib/tts_engines/dashscope_audio3/engine.py`](../../../aifred/lib/tts_engines/dashscope_audio3/engine.py),
-> [`aifred/lib/tts_engines/dashscope_audio3/enroll.py`](../../../aifred/lib/tts_engines/dashscope_audio3/enroll.py),
+> Code: [`src/tts_suite/engines/dashscope_audio3/engine.py`](https://github.com/Peuqui/TTS-Suite/blob/main/src/tts_suite/engines/dashscope_audio3/engine.py),
+> [`src/tts_suite/engines/dashscope_audio3/enroll.py`](https://github.com/Peuqui/TTS-Suite/blob/main/src/tts_suite/engines/dashscope_audio3/enroll.py),
 > [`aifred/state/_tts_config_mixin.py`](../../../aifred/state/_tts_config_mixin.py)
 
 > **Hinweis (12.10.2026):** Der Engine-Code liegt jetzt im Repository der TTS-Suite (`src/tts_suite/engines/dashscope_audio3/`). Die unten genannten Pfade und AIfred-Interna (`engine.py`, `enroll.py`, `_apply_planned_tts`, `TTS_VOICES_DIR`, `TTSFailure`) beschreiben den Stand vor dem Umzug und werden in die Dokumentation der TTS-Suite übernommen; AIfred führt die Engine jetzt nur noch in seiner Liste und schickt Texte.
@@ -58,7 +58,7 @@ Stimme selbst. Alle anderen Stimmen, auch die geklonten, nutzen **Flash**.
 
 ## Geklonte Stimmen
 
-Quelle ist der gemeinsame Stimmenbaum `TTS_VOICES_DIR` (`docker/tts/voices/<Name>/<Name>.wav`,
+Quelle ist der gemeinsame Stimmenbaum `TTS_VOICES_DIR` (`voices/<Name>/<Name>.wav` in der TTS-Suite,
 derselbe wie bei den Container-Engines).
 Jede Referenz-WAV wird **einmal** bei DashScope angelegt (enrolled). Die zurückgegebene
 `voice_id` steht in der Zuordnungsdatei

@@ -18,7 +18,7 @@ AIfred wählt keine feste Engine mehr, sondern geht eine **Liste an die TTS-Suit
 [tts-suite.md](../architecture/tts-suite.md)): der erste Eintrag, der sprechen kann, spricht.
 Die Standardliste einer frischen Installation ist Qwen3-TTS → XTTS → DashScope Qwen-Audio 3 → Piper
 → Edge → Browser. Die Tabelle fasst zusammen, was die Engines im Code über sich selbst angeben
-(`aifred/lib/tts_engines/<key>/engine.py`); „—“ heißt: Die Engine nutzt den Sprachparameter nicht,
+(`src/tts_suite/engines/<key>/engine.py` in der [TTS-Suite](https://github.com/Peuqui/TTS-Suite)); „—“ heißt: Die Engine nutzt den Sprachparameter nicht,
 die Sprache steckt in der Stimme oder wird aus dem Text erkannt. Qualitäts- und Latenzurteile
 stehen weiter unten in den Praxis-Tests, nicht in dieser Tabelle.
 
@@ -234,7 +234,7 @@ Für AIfred (kurze Sätze, konversationell) können die Ergebnisse abweichen.
   [HuggingFace Local](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Local-Transformer) |
   [HuggingFace 8B](https://huggingface.co/OpenMOSS-Team/MOSS-TTS) |
   [HuggingFace Realtime](https://huggingface.co/OpenMOSS-Team/MOSS-TTS-Realtime)
-- **Docker-Container:** `docker/tts/moss-tts/` (Port 5055)
+- **Container:** als Experiment ausprobiert (Port 5055), nicht Teil der TTS-Suite — braucht sehr viel Speicher
 - **Benchmarks (Seed-TTS-eval):**
   | Modell | EN WER | EN SIM | ZH CER | ZH SIM |
   |--------|--------|--------|--------|--------|

@@ -162,12 +162,14 @@ DEFAULT_SETTINGS = {
 # - Automatik: Qwen3-4B-Instruct-2507 (~2.6GB)
 # - Multi-Agent (Sokrates, Salomo, AIfred): Qwen3-4B-Instruct-2507 (~2.6GB)
 BACKEND_DEFAULT_MODELS = {
+    # Ollama: one small model for everything (chat, tools, images) — the installer offers it as the
+    # starter download (install-all.sh reads the name from here)
     "ollama": {
-        "aifred": "qwen3:4b-instruct-2507-q4_K_M",                  # AIfred Main-LLM: GGUF Q8_0, ~32GB
-        "automatik": "qwen3:4b-instruct-2507-q4_K_M",               # Automatik: GGUF Q4_K_M, ~2.6GB
-        "sokrates": "qwen3:4b-instruct-2507-q4_K_M",                # Sokrates: GGUF Q4_K_M, ~2.6GB
-        "salomo": "qwen3:4b-instruct-2507-q4_K_M",                  # Salomo: GGUF Q4_K_M, ~2.6GB
-        "vision": "qwen3-vl:4b",                                    # Vision: Qwen3-VL 4B
+        "aifred": "qwen3.5:4b",
+        "automatik": "qwen3.5:4b",
+        "sokrates": "qwen3.5:4b",
+        "salomo": "qwen3.5:4b",
+        "vision": "qwen3.5:4b",
     },
     "vllm": {
         # vLLM-Eintraege ("-vllm") sind installationsspezifisch (kalibrierte

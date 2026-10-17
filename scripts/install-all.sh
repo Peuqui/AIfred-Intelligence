@@ -645,6 +645,29 @@ ollama_pull_bge_m3() {
     fi
 }
 
+# Starter model: one small model for chat, tools and images; the name is the Ollama default
+# of the app (BACKEND_DEFAULT_MODELS), so there is a single source for it. Everything bigger the
+# user chooses and downloads himself.
+ollama_pull_default_model() {
+    local model
+    model=$(cd "$PROJECT_DIR" && AIFRED_CLI_MODE=1 venv/bin/python -c \
+        "from aifred.lib.config import BACKEND_DEFAULT_MODELS; print(BACKEND_DEFAULT_MODELS['ollama']['aifred'])" | tail -1)
+    if timeout 10 ollama list 2>/dev/null | awk 'NR>1 {print $1}' | grep -qx "$model"; then
+        echo -e "${GREEN}✅ Starter model '$model' already pulled${NC}"
+        return 0
+    fi
+    ask AIFRED_INSTALL_MODEL "Download the starter model '$model' (chat, tools and images in one small model)? (Y/n): "
+    if [[ $REPLY =~ ^[Nn]$ ]]; then
+        echo -e "${YELLOW}⏭️  Starter model skipped — pick a model in the UI and download it with: ollama pull <model>${NC}"
+        STEP_WARNINGS+=("No chat model downloaded — AIfred answers nothing before you pull one  (ollama pull $model)")
+    elif ollama pull "$model"; then
+        echo -e "${GREEN}✅ $model pulled successfully${NC}"
+    else
+        echo -e "${YELLOW}⚠️  Could not pull $model — internet ok?${NC}"
+        STEP_WARNINGS+=("Starter model '$model' not downloaded  (ollama pull $model)")
+    fi
+}
+
 echo ""
 echo "🦙 Ollama (embedding provider + starter LLM backend)..."
 echo "   Note: Ollama provides 'bge-m3' embeddings for the ChromaDB"
@@ -660,6 +683,7 @@ if command -v ollama &>/dev/null; then
         echo "   Catch up:         ollama pull bge-m3"
     else
         ollama_pull_bge_m3
+        ollama_pull_default_model
     fi
 else
     echo -e "${YELLOW}⚠️  ollama not found — STRONGLY recommended to install.${NC}"
@@ -688,6 +712,7 @@ else
 
                 if timeout 5 ollama list &>/dev/null; then
                     ollama_pull_bge_m3
+                    ollama_pull_default_model
                 else
                     echo -e "${YELLOW}⚠️  Ollama daemon not yet responding.${NC}"
                     echo "   After reboot/login catch up with:  ollama pull bge-m3"
@@ -703,7 +728,7 @@ else
         echo "   Catch up later:"
         echo "       curl -fsSL https://ollama.com/install.sh | sh"
         echo "       ollama pull bge-m3                  # embeddings (required for vector cache)"
-        echo "       ollama pull qwen3:8b                # example LLM (see README)"
+        echo "       ollama pull qwen3.5:4b              # starter model (chat, tools, images)"
     fi
 fi
 echo ""
@@ -1486,8 +1511,8 @@ fi
 echo ""
 echo "3. Set up at least ONE LLM backend (otherwise no agent answers):"
 echo "   • Ollama (easiest start, local):"
-echo "       ollama pull qwen3:8b           # ~5 GB, good all-rounder"
-echo "       ollama pull qwen3:30b-a3b      # ~18 GB, MoE model with thinking mode"
+echo "       the starter model is offered during the install; bigger ones: https://ollama.com/library"
+echo "       (pick the model per agent in the UI, then: ollama pull <model>)"
 echo "   • llama.cpp via llama-swap (best performance, see docs/en/guides/llamacpp-setup.md)"
 echo "   • Cloud backends: enter API keys in .env (DASHSCOPE/DEEPSEEK/ANTHROPIC/MOONSHOT)"
 echo ""

@@ -131,7 +131,7 @@ Einrichtung: [Telegram](docs/de/guides/telegram-setup.md) · [Discord](docs/de/g
 
 ### 👁️ Vision & Vigilantia
 
-**Bildanalyse im Chat** — bis zu fünf Bilder pro Nachricht ablegen (inklusive Crop-Dialog), Folgefragen zum selben Bild, ein eigenes Vision-LLM (Qwen3-VL, DeepSeek-OCR, Ministral, jedes llama.cpp-Modell mit `--mmproj`) übergibt strukturiertes JSON an das Haupt-LLM.
+**Bildanalyse im Chat** — mehrere Bilder pro Nachricht ablegen (Obergrenze: `MAX_IMAGES_PER_MESSAGE` in `config.py`, inklusive Crop-Dialog), Folgefragen zum selben Bild, ein eigenes Vision-LLM (Qwen3-VL, DeepSeek-OCR, Ministral, jedes llama.cpp-Modell mit `--mmproj`) übergibt strukturiertes JSON an das Haupt-LLM.
 
 **Vigilantia — Kameraüberwachung.** Der Watch-Modus der Vision-Pipeline macht AIfred zu einem kontinuierlichen Überwachungs-Agenten:
 
@@ -181,7 +181,7 @@ Details: [Security-Architektur](docs/de/architecture/security.md).
 
 ## 🚀 Schnellstart
 
-**Voraussetzungen:** Linux mit systemd, Python 3.10+, Docker, eine NVIDIA-GPU (CUDA) mit genug VRAM für die gewünschten Modelle samt [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (GPU-Container für Spracherkennung und TTS; ohne GPU läuft die STT-Suite auf der CPU, die TTS-Suite bietet ihre Cloud-Engines und die Browser-Stimme) und ein LLM-Backend — llama.cpp über llama-swap (empfohlen, [Einrichtung](docs/de/guides/llamacpp-setup.md)) oder Ollama (einfachster Einstieg).
+**Voraussetzungen:** Linux mit systemd, Python 3.10+ (3.12+ für die TTS-Suite), Docker, eine NVIDIA-GPU (CUDA) mit genug VRAM für die gewünschten Modelle samt [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (GPU-Container für Spracherkennung und TTS; ohne GPU läuft die STT-Suite auf der CPU, die TTS-Suite bietet ihre Cloud-Engines und die Browser-Stimme) und ein LLM-Backend — llama.cpp über llama-swap (empfohlen, [Einrichtung](docs/de/guides/llamacpp-setup.md)) oder Ollama (einfachster Einstieg: der Installer bietet das kleine Starter-Modell `qwen3.5:4b` für Chat, Werkzeuge und Bilder an; für Tempo später auf llama.cpp oder vLLM wechseln, die deutlich schneller sind als Ollama).
 
 ```bash
 git clone https://github.com/Peuqui/AIfred-Intelligence.git
@@ -217,6 +217,18 @@ Vollständiger Index: [docs/README.md](docs/README.md)
 | Architektur | [Multi-Agent](docs/de/architecture/multi-agent.md) · [Recherche-Pipeline](docs/de/architecture/research-pipeline.md) · [LLM-Call](docs/de/architecture/llm-call.md) · [Message Hub](docs/de/architecture/message-hub.md) · [Security](docs/de/architecture/security.md) · [Scheduler](docs/de/architecture/scheduler.md) · [Sprachausgabe / TTS-Suite](docs/de/architecture/tts-suite.md) · [Codebasis](docs/de/architecture/codebase.md) |
 | Kalibrierung | [Strategie](docs/de/architecture/calibration-strategy.md) · [vLLM](docs/de/architecture/calibration-vllm.md) |
 | Benchmarks | [vLLM-Autokalibrierung](docs/de/benchmarks/vllm-autocalibration.md) · [Quantisierungsqualität](docs/de/benchmarks/quantization-quality.md) · [Tensor Split](docs/de/benchmarks/tensor-split.md) |
+
+---
+
+## 🧰 Mehr aus derselben Werkstatt
+
+AIfred entsteht mit diesen Open-Source-Werkzeugen, die auch allein laufen:
+
+- **[TTS-Suite](https://github.com/Peuqui/TTS-Suite)** und **[STT-Suite](https://github.com/Peuqui/STT-Suite)** — die Sprachdienste, die AIfred nutzt
+- **[Agent-Orc](https://github.com/Peuqui/Agent-Orc)** — startet, überwacht und stoppt Coding-Agenten (Claude Code, …) in `tmux`-Sitzungen, vom Handy oder vom Desktop
+- **[AI-Connect](https://github.com/Peuqui/AI-Connect)** — lässt KI-Coding-Agenten über Rechnergrenzen hinweg Nachrichten austauschen
+- **[sandbox-install](https://github.com/Peuqui/sandbox-install)** — spielt die Installation eines Projekts in einem frischen Container durch, so wie ein Fremder sie erlebt
+- **[1Cat-vLLM](https://github.com/Peuqui/1Cat-vLLM)** — mein vLLM-Fork für ältere NVIDIA-Karten (Volta, Turing), Grundlage für AIfreds schnelle lokale Inferenz
 
 ---
 

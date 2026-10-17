@@ -29,7 +29,7 @@ one, update the other.
 | Multi-agent system | [EN](en/architecture/multi-agent.md) · [DE](de/architecture/multi-agent.md) | Agents, discussion modes, prompt layers, perspectives |
 | Research pipeline | [EN](en/architecture/research-pipeline.md) · [DE](de/architecture/research-pipeline.md) | When agents research, pre-processing, pipeline, code map |
 | LLM call | [EN](en/architecture/llm-call.md) · [DE](de/architecture/llm-call.md) | The path of a single LLM call through the stack |
-| Codebase overview | [EN](en/architecture/codebase.md) · [DE](de/architecture/codebase.md) | Directory map (incl. `tts_engines/<key>/`), conventions, checks |
+| Codebase overview | [EN](en/architecture/codebase.md) · [DE](de/architecture/codebase.md) | Directory map (the TTS engines live in the [TTS-Suite](https://github.com/Peuqui/TTS-Suite) repo), conventions, checks |
 | Message Hub | [EN](en/architecture/message-hub.md) · [DE](de/architecture/message-hub.md) | Headless channel processing: listeners, envelopes, routing table |
 | Scheduler | [EN](en/architecture/scheduler.md) · [DE](de/architecture/scheduler.md) | Job store, cron, webhook API |
 | Security | [EN](en/architecture/security.md) · [DE](de/architecture/security.md) | Tiers, owner elevation, auth |

@@ -36,7 +36,7 @@ User <-> AIfred (Reflex web app) <-> llama-swap (:11435) <-> llama-server (per m
 ### Software
 - Linux mit systemd (Ubuntu/Debian empfohlen)
 - CUDA Toolkit >= 12.0
-- Python 3.10+
+- Python 3.10+ (die TTS-Suite braucht 3.12+)
 - Git
 
 ---
