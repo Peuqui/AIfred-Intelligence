@@ -1380,6 +1380,48 @@ elif [ "$SYSTEMD_CHOSEN" = "1" ]; then
     step_summary "3 — Systemd services"
 fi
 
+# ============================================================
+# STEP 3b: Reverse proxy (Caddy, optional, WITH sudo)
+# ============================================================
+# Without one, images, audio and camera previews stay blank: their routes
+# (/api, /_upload) exist only on the backend (see deployment guide, "Access
+# the web UI"). deploy/Caddyfile is the whole configuration.
+echo ""
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Step 3b: Reverse proxy (Caddy)${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo "AIfred needs a reverse proxy in front of its two processes, otherwise"
+echo "images, audio and camera previews stay blank. This installs Caddy with"
+echo "the minimal config deploy/Caddyfile (port 8080 → frontend + backend)."
+if [ "$DRY_RUN" = "1" ]; then
+    echo -e "${YELLOW}📝 DRY-RUN: no sudo, no disk writes — Caddy would be installed and configured.${NC}"
+else
+    echo -e "${YELLOW}⚠️  Needs sudo! An existing /etc/caddy/Caddyfile is kept as Caddyfile~.${NC}"
+    echo ""
+    ask AIFRED_INSTALL_PROXY "Install Caddy as reverse proxy? (Y/n): "
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+        install_one "Caddy" "command -v caddy" apt:caddy dnf:caddy pacman:caddy
+        if cmp -s "$PROJECT_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile; then
+            echo -e "${GREEN}✅ /etc/caddy/Caddyfile is already up to date${NC}"
+        else
+            sudo install -b -D -m 644 "$PROJECT_DIR/deploy/Caddyfile" /etc/caddy/Caddyfile
+        fi
+        sudo systemctl enable caddy
+        sudo systemctl restart caddy
+        echo ""
+        echo -e "${BLUE}🔎 Verifying reverse proxy...${NC}"
+        verify_step "caddy.service is-active" \
+            "systemctl is-active caddy.service" \
+            "journalctl -u caddy.service -e --no-pager"
+        PROXY_INSTALLED=1
+    else
+        echo -e "${YELLOW}⏭️  Reverse proxy skipped${NC}"
+        STEP_WARNINGS+=("No reverse proxy — images, audio and camera previews stay blank  (deployment guide: Access the web UI)")
+    fi
+    step_summary "3b — Reverse proxy"
+fi
+
 echo ""
 echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 echo -e "${BLUE}  Final summary${NC}"
@@ -1436,7 +1478,11 @@ else
 fi
 echo ""
 echo "2. Open browser, register with the whitelist username:"
-echo "   http://localhost:3002"
+if [ "${PROXY_INSTALLED:-0}" = "1" ]; then
+    echo "   http://localhost:8080   (through the Caddy reverse proxy)"
+else
+    echo "   http://localhost:3002   (without a reverse proxy: no images/audio, see deployment guide)"
+fi
 echo ""
 echo "3. Set up at least ONE LLM backend (otherwise no agent answers):"
 echo "   • Ollama (easiest start, local):"
@@ -1466,7 +1512,7 @@ echo "       https://github.com/mostlygeek/llama-swap"
 echo "       Binary into ~/bin, config in ~/.config/llama-swap/config.yaml,"
 echo "       systemd unit into /etc/systemd/system/llama-swap.service (own research)."
 echo ""
-echo "   • Reverse proxy setup (own domain via nginx/caddy):"
+echo "   • Own domain behind the reverse proxy (TLS: see the Caddy docs or the nginx example):"
 echo "       # set AIFRED_ALLOWED_HOST=your-domain.tld in .env, then restart:"
 echo "       sudo systemctl restart aifred-intelligence"
 echo ""

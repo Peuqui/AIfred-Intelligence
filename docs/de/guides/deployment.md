@@ -98,6 +98,7 @@ gewohnt gefragt — ohne Terminal gilt die Standardantwort:
 |---|---|---|
 | `AIFRED_INSTALL_OLLAMA` | Ollama installieren (`curl \| sh`) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_SYSTEMD` | systemd-Dienste installieren | `y` / `n` (Standard `n`) |
+| `AIFRED_INSTALL_PROXY` | Caddy als Reverse-Proxy installieren (sudo, Konfiguration `deploy/Caddyfile`, Port 8080) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_USER` | erster Whitelist-Benutzer | ein Benutzername oder `skip` (Standard: `$USER`) |
 | `AIFRED_INSTALL_TTS_SYSTEMD` | TTS-Suite als Systemdienst `tts-suite@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `n`: Benutzerdienst) |
 
@@ -515,7 +516,14 @@ Live-Modal, Casus-Vorschauen und die Audiowiedergabe leer. Diese Routen existier
 im Backend, und nur ein Reverse-Proxy vor beiden Prozessen macht
 sie unter einem gemeinsamen Origin erreichbar.
 
-**Empfohlen: ein Reverse-Proxy (nginx/Caddy)**, der anhand des Pfadpräfixes zu den
+**Der Installer richtet das ein:** `install-all.sh` bietet an, Caddy mit der
+minimalen Konfiguration `deploy/Caddyfile` zu installieren (kopiert nach `/etc/caddy/Caddyfile`; eine
+vorhandene Datei bleibt als `Caddyfile~` erhalten). Danach **`http://<host>:8080/`** öffnen. Port 8080 und die
+Upstream-Ports lassen sich mit `AIFRED_PROXY_PORT`, `AIFRED_BACKEND_PORT`
+und `AIFRED_FRONTEND_PORT` in der Umgebung des Caddy-Dienstes ändern. Für TLS oder eine eigene
+Domain passt du diese Datei an (siehe Caddy-Doku) oder nimmst nginx wie unten.
+
+**Alternativ ein beliebiger Reverse-Proxy (nginx/Caddy)**, der anhand des Pfadpräfixes zu den
 beiden Upstreams weiterleitet. Minimaler nginx-Sketch (generisch – ersetze deinen eigenen Host,
 Ports und, falls gewünscht, TLS/Authentifizierung):
 
