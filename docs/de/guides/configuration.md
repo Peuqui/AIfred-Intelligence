@@ -54,7 +54,7 @@ Globale Einstellungen liegen in `data/settings.json` und werden von der UI, der 
         "sokrates": "",
         "salomo": ""
       },
-      "ollama": { "aifred": "qwen3:4b-instruct-2507-q4_K_M", "vision": "qwen3-vl:4b" }
+      "ollama": { "aifred": "qwen3.5:4b", "vision": "qwen3.5:4b" }
     },
     "agent_tuning": {
       "aifred": { "temperature": 0.7, "reasoning": true, "thinking": true, "reasoning_effort": "" }
@@ -269,7 +269,7 @@ SALOMO_TEMPERATURE_OFFSET = 0.3
 SECURITY_MAX_TOOL_CHAIN_DEPTH = 100  # tool calls per request
 
 # Default models per backend
-BACKEND_DEFAULT_MODELS = {...}       # Ollama: qwen3:4b-instruct-2507-q4_K_M, qwen3-vl:4b
+BACKEND_DEFAULT_MODELS = {...}       # Ollama: qwen3.5:4b für jeden Agenten und für Vision
 ```
 
 URLs: `LLAMACPP_URL` (Standard `http://localhost:11435/v1`, llama-swap — wird auch

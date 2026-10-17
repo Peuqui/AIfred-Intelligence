@@ -131,7 +131,7 @@ Setup: [Telegram](docs/en/guides/telegram-setup.md) · [Discord](docs/en/guides/
 
 ### 👁️ Vision & Vigilantia
 
-**Image analysis in chat** — drop up to five images per message (crop dialog included), follow-up questions on the same image, a dedicated vision LLM (Qwen3-VL, DeepSeek-OCR, Ministral, any llama.cpp model with `--mmproj`) hands structured JSON to the main LLM.
+**Image analysis in chat** — drop several images per message (limit: `MAX_IMAGES_PER_MESSAGE` in `config.py`, crop dialog included), follow-up questions on the same image, a dedicated vision LLM (Qwen3-VL, DeepSeek-OCR, Ministral, any llama.cpp model with `--mmproj`) hands structured JSON to the main LLM.
 
 **Vigilantia — camera surveillance.** The vision pipeline's watch mode turns AIfred into a continuous monitoring agent:
 
@@ -181,7 +181,7 @@ Details: [Security Architecture](docs/en/architecture/security.md).
 
 ## 🚀 Quick Start
 
-**Requirements:** Linux with systemd, Python 3.10+, Docker, an NVIDIA GPU (CUDA) with enough VRAM for the models you want plus the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (GPU containers for speech recognition and TTS; without a GPU the STT-Suite runs on the CPU and the TTS-Suite offers its cloud engines and the browser voice), and one LLM backend — llama.cpp via llama-swap (recommended, [setup](docs/en/guides/llamacpp-setup.md)) or Ollama (easiest start).
+**Requirements:** Linux with systemd, Python 3.10+ (3.12+ for the TTS-Suite), Docker, an NVIDIA GPU (CUDA) with enough VRAM for the models you want plus the [NVIDIA Container Toolkit](https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html) (GPU containers for speech recognition and TTS; without a GPU the STT-Suite runs on the CPU and the TTS-Suite offers its cloud engines and the browser voice), and one LLM backend — llama.cpp via llama-swap (recommended, [setup](docs/en/guides/llamacpp-setup.md)) or Ollama (easiest start: the installer offers the small starter model `qwen3.5:4b` for chat, tools and images; for speed switch later to llama.cpp or vLLM, which are considerably faster than Ollama).
 
 ```bash
 git clone https://github.com/Peuqui/AIfred-Intelligence.git
@@ -217,6 +217,18 @@ Full index: [docs/README.md](docs/README.md)
 | Architecture | [Multi-Agent](docs/en/architecture/multi-agent.md) · [Research Pipeline](docs/en/architecture/research-pipeline.md) · [LLM Call](docs/en/architecture/llm-call.md) · [Message Hub](docs/en/architecture/message-hub.md) · [Security](docs/en/architecture/security.md) · [Scheduler](docs/en/architecture/scheduler.md) · [Spoken Output / TTS-Suite](docs/en/architecture/tts-suite.md) · [Codebase](docs/en/architecture/codebase.md) |
 | Calibration | [Strategy](docs/de/architecture/calibration-strategy.md) (German) · [vLLM](docs/en/architecture/calibration-vllm.md) |
 | Benchmarks | [vLLM Auto-Calibration](docs/en/benchmarks/vllm-autocalibration.md) · [Quantization Quality](docs/en/benchmarks/quantization-quality.md) · [Tensor Split](docs/en/benchmarks/tensor-split.md) |
+
+---
+
+## 🧰 More from the same workshop
+
+AIfred is developed with these open-source tools, which also work on their own:
+
+- **[TTS-Suite](https://github.com/Peuqui/TTS-Suite)** and **[STT-Suite](https://github.com/Peuqui/STT-Suite)** — the speech services AIfred uses
+- **[Agent-Orc](https://github.com/Peuqui/Agent-Orc)** — starts, watches and stops coding agents (Claude Code, …) in `tmux` sessions, from the phone or the desktop
+- **[AI-Connect](https://github.com/Peuqui/AI-Connect)** — lets AI coding agents message each other across machines
+- **[sandbox-install](https://github.com/Peuqui/sandbox-install)** — plays a project's installation through in a fresh container, the way a stranger would
+- **[1Cat-vLLM](https://github.com/Peuqui/1Cat-vLLM)** — my fork of vLLM for older NVIDIA cards (Volta, Turing), the basis of AIfred's fast local inference
 
 ---
 

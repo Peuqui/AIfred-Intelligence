@@ -14,8 +14,7 @@ they come from the llama-swap YAML config per model at runtime.
 """
 
 import json
-from dataclasses import dataclass, field, asdict
-from typing import Optional
+from dataclasses import asdict, dataclass, field
 
 from .config import DATA_DIR
 
@@ -50,7 +49,7 @@ class AgentConfig:
     })
 
     # Tool whitelist — None means all tools allowed
-    tools: Optional[list[str]] = None
+    tools: list[str] | None = None
 
     # Cloud-API provider + model identifier — only meaningful for system
     # agents that call out to a Cloud LLM (e.g. the calibration agent).
@@ -149,7 +148,7 @@ def _default_agents() -> dict[str, dict]:
             "toggles": {
                 "personality": True,
                 "reasoning": False,
-                "thinking": True,
+                "thinking": False,
             },
         },
     }
@@ -234,7 +233,7 @@ def get_agent_label(agent_id: str) -> str:
     return agent_id.capitalize()
 
 
-def get_agent_config(agent_id: str) -> Optional[AgentConfig]:
+def get_agent_config(agent_id: str) -> AgentConfig | None:
     """Get config for a specific agent, or None if not found."""
     agents = load_agents()
     return agents.get(agent_id)
@@ -281,7 +280,7 @@ def get_tts_voice_defaults_for_engine(engine: str) -> dict[str, dict[str, str | 
     return result
 
 
-def resolve_agent_id(name_or_alias: str) -> Optional[str]:
+def resolve_agent_id(name_or_alias: str) -> str | None:
     """Map a user-supplied name to a canonical agent id.
 
     Tries (in order):
@@ -384,9 +383,9 @@ def delete_agent(agent_id: str) -> None:
         ValueError: If agent is a default agent or doesn't exist
     """
     import shutil
-    from .prompt_loader import PROMPTS_DIR
 
     from .agent_settings import CANONICAL_AGENTS
+    from .prompt_loader import PROMPTS_DIR
     if agent_id in CANONICAL_AGENTS:
         raise ValueError(f"Cannot delete default agent '{agent_id}'")
 
