@@ -197,7 +197,7 @@ Vollständig getestet auf einem frischen Ubuntu 24.04 (Container mit durchgereic
 
 Danach:
 1. **Registrieren** in der Web-UI mit dem Benutzernamen von der Whitelist (`./aifred-admin add <name>` für weitere Benutzer)
-2. **Die UI über einen Reverse Proxy erreichen** — die App läuft als zwei Prozesse (Frontend `3002`, Backend `8002`); ohne Proxy bleiben Bilder und Audio leer. nginx-Beispiel: [Auf die Web-UI zugreifen](docs/de/guides/deployment.md#auf-die-web-ui-zugreifen)
+2. **`http://localhost:8080` öffnen** — der Installer richtet einen minimalen Caddy-Reverse-Proxy (`deploy/Caddyfile`) vor die beiden Prozesse (Frontend `3002`, Backend `8002`); ohne Proxy bleiben Bilder und Audio leer. Eigene Domain oder nginx stattdessen: [Auf die Web-UI zugreifen](docs/de/guides/deployment.md#auf-die-web-ui-zugreifen)
 3. **Modelle hinzufügen** und in der UI **kalibrieren**
 
 Schritt für Schritt, Dienste, `.env`, Polkit, Vision- und Kamera-Einrichtung: [Einrichtungsanleitung](docs/de/guides/deployment.md).

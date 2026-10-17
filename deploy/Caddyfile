@@ -1,0 +1,14 @@
+# Minimal reverse proxy for AIfred (installed to /etc/caddy/Caddyfile by
+# scripts/install-all.sh). AIfred runs as two processes; the browser expects
+# one origin: /api, /_upload and /_event live on the backend, everything else
+# (pages, WebSocket) on the frontend. Ports follow rxconfig.py; override them
+# with environment variables in the Caddy service if you changed them there.
+:{$AIFRED_PROXY_PORT:8080} {
+	@backend path /api/* /_upload/* /_event*
+	handle @backend {
+		reverse_proxy 127.0.0.1:{$AIFRED_BACKEND_PORT:8002}
+	}
+	handle {
+		reverse_proxy 127.0.0.1:{$AIFRED_FRONTEND_PORT:3002}
+	}
+}
