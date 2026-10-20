@@ -11,8 +11,8 @@ writes nothing into the service. The VRAM *budget* of an engine in the service (
 service may place on a card) is kept by hand in the suite's own web interface; the burn-in
 measures what the engine really takes, for the calibration's reserve.
 
-The calibration consumes the cached value plus a fixed headroom (see
-:data:`LLAMACPP_TTS_BURNIN_HEADROOM_MB` in config.py). No more
+The calibration consumes the cached peak as the engine's reserve; the one fixed residual per
+card (:data:`SIDE_CHANNEL_RESIDUAL_MB` in config.py) is added where the reserves are held. No
 hand-measured reserve per engine — the burn-in is the source of truth.
 
 Triggers:
@@ -327,10 +327,9 @@ async def resolve_tts_reserve(
 
     Resolution order:
 
-    1. JSON cache hit (:mod:`tts_vram_cache`) → cached peak +
-       :data:`LLAMACPP_TTS_BURNIN_HEADROOM_MB`.
+    1. JSON cache hit (:mod:`tts_vram_cache`) → the cached peak.
     2. Cold path: run :func:`stress_burnin_tts`, write the peak to the
-       cache, return peak + headroom.
+       cache, return it.
     3. On burn-in failure: 0 (caller should warn but not crash —
        subtracting 0 means the calibration plans the TTS GPU as fully
        available).
@@ -338,18 +337,17 @@ async def resolve_tts_reserve(
     Engines that don't allocate persistent GPU memory (CPU/Cloud engines
     with ``needs_gpu=False``) always return 0.
     """
-    from .config import LLAMACPP_TTS_BURNIN_HEADROOM_MB
     from . import tts_vram_cache
 
     cached = tts_vram_cache.get(engine_key)
     if cached:
-        return cached + LLAMACPP_TTS_BURNIN_HEADROOM_MB
+        return cached
 
     peak = await stress_burnin_tts(engine_key, debug=debug)
     if peak is None or peak <= 0:
         return 0
     tts_vram_cache.put(engine_key, peak)
-    return peak + LLAMACPP_TTS_BURNIN_HEADROOM_MB
+    return peak
 
 
 if __name__ == "__main__":  # pragma: no cover

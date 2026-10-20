@@ -312,9 +312,11 @@ async def resolve_vlm_reserve(
     Resolution order — hardware-agnostic, no hand-pinned tables:
 
     1. **JSON cache** :mod:`vlm_vram_cache` — previous stress-prewarm runs.
-       Adds :data:`config.LLAMACPP_VLM_HEADROOM_MB` on top.
     2. **Stress prewarm** (cold path) — fires a worst-case inference, writes
-       the peak to the cache, returns ``peak + headroom``.
+       the peak to the cache, returns it.
+
+    The reserve is the measured peak; the one fixed residual per card
+    (:data:`config.SIDE_CHANNEL_RESIDUAL_MB`) is added where the reserves are held.
 
     Failure of step 2 returns ``(uuid, 0)`` — caller should warn and skip
     the reservation. The alternative (a fabricated default) would either
@@ -344,18 +346,13 @@ async def resolve_vlm_reserve(
         return None, 0
 
     # 3. Resolve reserve_mb — agnostic, cache + stress prewarm only.
-    from .config import LLAMACPP_VLM_HEADROOM_MB
     from . import vlm_vram_cache
 
-    # 3a. Cache hit — stress-measured peak + runtime headroom.
+    # 3a. Cache hit — stress-measured peak.
     cached = vlm_vram_cache.get(model_id, num_ctx)
     if cached:
-        reserve = cached + LLAMACPP_VLM_HEADROOM_MB
-        logger.info(
-            "vlm reserve: cache hit for %s (num_ctx=%d) → %d + %d MiB headroom = %d",
-            model_id, num_ctx, cached, LLAMACPP_VLM_HEADROOM_MB, reserve,
-        )
-        return uuid, reserve
+        logger.info("vlm reserve: cache hit for %s (num_ctx=%d) → %d MiB", model_id, num_ctx, cached)
+        return uuid, cached
 
     # 3b. Cold path — stress prewarm + persist.
     logger.info(
@@ -370,9 +367,5 @@ async def resolve_vlm_reserve(
         )
         return uuid, 0
     vlm_vram_cache.put(model_id, num_ctx, peak)
-    reserve = peak + LLAMACPP_VLM_HEADROOM_MB
-    logger.info(
-        "vlm reserve: stress-measured %s peak=%d MiB + headroom %d = %d",
-        model_id, peak, LLAMACPP_VLM_HEADROOM_MB, reserve,
-    )
-    return uuid, reserve
+    logger.info("vlm reserve: stress-measured %s peak=%d MiB", model_id, peak)
+    return uuid, peak

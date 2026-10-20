@@ -45,3 +45,22 @@ def test_no_card_holds_the_reserve() -> None:
 def test_a_split_that_does_not_match_the_gpus_is_an_error() -> None:
     with pytest.raises(ValueError):
         pick_tts_reserve_gpu(GPUS, [1, 1], 8000)
+
+
+def test_the_card_keeps_one_residual_on_top_of_the_reserves() -> None:
+    from aifred.lib.config import SIDE_CHANNEL_RESIDUAL_MB
+
+    gpus = [_gpu("A", 48000), _gpu("B", 9000 + SIDE_CHANNEL_RESIDUAL_MB - 1)]
+    assert pick_tts_reserve_gpu(gpus, [1, 0], 9000) == "A"  # B holds the reserve but not the residual as well
+    exact = [_gpu("A", 48000), _gpu("B", 9000 + SIDE_CHANNEL_RESIDUAL_MB)]
+    assert pick_tts_reserve_gpu(exact, [1, 0], 9000) == "B"
+
+
+def test_reserves_per_card_add_the_peaks_and_one_residual_per_card_that_holds_something() -> None:
+    from aifred.lib.calibration.tts_card import side_channel_reserves
+    from aifred.lib.config import SIDE_CHANNEL_RESIDUAL_MB as R
+
+    gpus = [_gpu("A", 48000), _gpu("B", 32000), _gpu("C", 32000)]
+    assert side_channel_reserves(gpus, [("B", 6000), ("B", 7000)]) == [0, 13000 + R, 0]  # TTS and VLM share B: one residual
+    assert side_channel_reserves(gpus, [("A", 6000), ("C", 7000)]) == [6000 + R, 0, 7000 + R]
+    assert side_channel_reserves(gpus, [(None, 6000), ("C", 0), ("X", 5000)]) == [0, 0, 0]  # no card, no peak, card not there

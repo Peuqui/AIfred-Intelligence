@@ -1089,31 +1089,18 @@ RESEARCH_SCRAPE_URLS = 7
 # 4K = Worst Case der Kamera-Frames (Vigilantia/Reolink).
 LLAMACPP_VISION_PROBE_RESOLUTION = (3840, 2160)
 
-# Extra headroom added on top of the stress-prewarm-measured VLM peak
-# before subtracting from the LLM's VRAM budget. Covers Ollama
-# compute-graph reallocation spikes and small drift between
-# calibration-time measurement and production-time peak.
-# Bewusst knapp (2026-06-12 geprüft): Der größte Varianz-Treiber —
-# abweichendes num_ctx des auslösenden Calls — ist seit dem Clamp in
-# analyze_sequence eliminiert; die gemessene Rest-Streuung der Ollama-
-# Allokation liegt bei ~100 MB (4B: 6,8 vs. 6,9 GB). Ein zu knapper
-# Puffer ist außerdem detektierbar statt fatal (VLM lädt degradiert →
-# langsam, sichtbar via /api/ps und calibration.log) — jedes MB mehr
-# wäre dauerhaft verlorenes Kontextfenster. Nach einem Ollama-Upgrade
-# den Stress-Prewarm neu messen lassen (vlm_vram_cache.json löschen),
-# die Peaks können sich versionsbedingt verschieben.
-LLAMACPP_VLM_HEADROOM_MB = 500
-
-# Extra headroom added on top of the stress-burn-in-measured TTS peak
-# before subtracting from the LLM's VRAM budget on the TTS GPU. 512 MB
-# covers minor run-to-run drift between the burn-in and production
-# inference, plus container restart overhead.
-LLAMACPP_TTS_BURNIN_HEADROOM_MB = 512
+# Fester Restpuffer auf jeder Karte, auf der Zusatzmodelle (VLM, TTS, STT) sitzen: EINMAL je
+# Karte, egal wie viele dort liegen, über die gemessenen Burn-in-Spitzen hinaus (keine Aufschläge
+# je Modell, kein Prozent). Gilt für llama.cpp- und vLLM-Kalibration und für die Laufzeitprüfung
+# des Describers (Peuqui 20.10.2026: so viel von den Karten ausreizen wie möglich; reicht er im
+# Betrieb nicht, wird er erhöht). Nach einem Ollama- oder Engine-Upgrade die Burn-ins neu messen
+# lassen (vlm_vram_cache.json / tts_vram_cache.json löschen), die Spitzen verschieben sich.
+SIDE_CHANNEL_RESIDUAL_MB = 512
 
 # Number of stress syntheses per TTS-engine burn-in. Real-world data
 # (Qwen3-TTS, XTTS) shows the VRAM peak is reached by
 # synthesis 1 with at most +10 MiB drift on synthesis 2 — fully covered
-# by the headroom above. Default 2 = DE + EN; one warm-up, one
+# by SIDE_CHANNEL_RESIDUAL_MB. Default 2 = DE + EN; one warm-up, one
 # steady-state. Raise this if a new engine shows late-arriving peaks.
 LLAMACPP_TTS_BURNIN_ITERATIONS = 2
 

@@ -95,9 +95,10 @@ Der gemeinsame Burn-in bleibt als Prüfung, ob die Summe trägt.
 
 ### 3. Puffer
 
-- `VLLM_SIDECHANNEL_RESIDUAL_MB = 512` (neu, `config.py`): freier Rest, der auf der Karte
-  der Zusatzmodelle über deren Budgets hinaus bleiben muss. Reicht er im Betrieb nicht,
-  wird er erhöht.
+- `SIDE_CHANNEL_RESIDUAL_MB = 512` (`config.py`, gebaut, gilt für beide Backends): EIN fester
+  Rest je Karte, auf der Zusatzmodelle sitzen, über deren gemessene Spitzen hinaus. Die Budgets
+  selbst sind die nackten Burn-in-Spitzen (die früheren Aufschläge je Modell, 512 MiB TTS und
+  500 MiB VLM, sind entfallen). Reicht er im Betrieb nicht, wird er erhöht.
 - `VLLM_VRAM_RESERVE_MB` (Reserve außerhalb der GMU: CUDA-Kontexte, Hilfsprozesse wie der
   PLE-Offload-Worker, Allokator-Wachstum) bleibt bei 1024 mit seiner OOM-Leiter; auf diesem Stack
   nicht gemessen, deshalb keine Senkung ohne Messung.
@@ -109,5 +110,5 @@ einer Matrix der Profile: angehakt = Variante wird kalibriert.
 
 ## Offen
 
-- `memory.used` je Karte in den A/B-Protokollen von vllm-research mitschreiben (Vorschlag
-  vllm-research, Entscheidung Peuqui): liefert die Reserve außerhalb der GMU je Modell nebenbei.
+- `memory.used` je Karte schreibt vllm-research in seinen A/B-Protokollen mit (Peuqui 20.10.:
+  ja). Ändert den Algorithmus nicht, liefert aber echte Zahlen zur Reserve außerhalb der GMU.
