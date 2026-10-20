@@ -224,9 +224,8 @@ def _calibration_row() -> rx.Component:
                 rx.cond(
                 # vLLM: eigener Popover — Bestaetigungsstufe vor einem
                 # stundenlangen Lauf (llama.cpp-Muskelgedaechtnis erwartet
-                # einen Dialog) plus Kalibrier-Status und Side-Channel-Info.
-                # Keine VLM x TTS-Matrix: side_channel_uuids() haelt diese
-                # Karten aus der Leiter, jede Zelle maesse dasselbe.
+                # einen Dialog) plus Kalibrier-Status, Profil-Matrix wie bei
+                # llama.cpp und die Optionen Nachmessen/Trockenlauf.
                 AIState.backend_id == "vllm",
                 vllm_calibration_button(),
                 # Ollama: kein Varianten-Picker → Direktklick.

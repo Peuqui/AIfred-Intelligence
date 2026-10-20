@@ -280,16 +280,10 @@ def _resweep_options() -> rx.Component:
 
 
 def _vllm_calibration_popover() -> rx.Component:
-    """Calibrate popover for vLLM — same layout as the llama.cpp picker,
-    different meaning per cell.
-
-    llama.cpp: one cell = one llama-swap profile to calibrate. vLLM:
-    ``side_channel_uuids()`` keeps the VLM/TTS card out of the topology
-    ladder, so calibrating per combination would measure the identical
-    thing nine times at ~80 minutes each. A cell here is therefore a
-    BURN-IN PAIR — VLM and TTS share that one card, and the question is
-    whether they fit on it together under load. Green = measured and it
-    fits, red = measured and it does not.
+    """Calibrate popover for vLLM — the same profile matrix as the llama.cpp
+    picker: one cell = one llama-swap profile (base, ``-tts-<engine>``,
+    ``-vlm-<key>`` and their combination). The base runs on every card; a
+    side-channel profile frees exactly the room its models need.
 
     The popover also serves as a confirmation step: a stray click used to
     start an hours-long run that seizes every GPU, while llama.cpp muscle
@@ -367,12 +361,12 @@ def _vllm_calibration_popover() -> rx.Component:
                 ),
                 rx.divider(margin_y="2px"),
                 rx.text(
-                    t("calibration_vllm_burnin_title"),
+                    t("calibration_vllm_profiles_title"),
                     font_size="11px",
                     font_weight="bold",
                 ),
                 _matrix_header(),
-                rx.foreach(AIState.vllm_burnin_matrix_rows, _matrix_row),
+                rx.foreach(AIState.calibration_matrix_rows, _matrix_row),
                 rx.divider(margin_y="2px"),
                 _resweep_options(),
                 rx.text(
