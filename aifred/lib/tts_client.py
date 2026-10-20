@@ -7,7 +7,8 @@ service on demand. The client knows only the HTTP interface of the service
 agents, LLM tuning) lives with the callers.
 
 AIfred only reads, speaks and asks: the client has no call that writes to the service (no
-configuration, no start or stop of an engine, no voice sync, no token). Hosts, defaults and
+configuration, no stop of an engine, no voice sync) except ``start_on_gpu``, the calibration's
+start of an engine on a given card, which sends the service's local token. Hosts, defaults and
 the life of the engine containers are set in the service's own web interface; the service
 starts and stops the containers itself when a request reaches it. The one request that is
 not a reading is ``release``: AIfred ASKS the service to take containers off the cards (to
@@ -43,12 +44,15 @@ from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, InvalidH
 from .config import (
     TTS_SUITE_CONNECT_TIMEOUT_S,
     TTS_SUITE_CONTROL_TIMEOUT_S,
+    TTS_SUITE_ENGINE_START_TIMEOUT_S,
     TTS_SUITE_RELEASE_TIMEOUT_S,
     TTS_SUITE_SERVICE_UNIT,
     TTS_SUITE_START_POLL_S,
     TTS_SUITE_START_TIMEOUT_S,
     TTS_SUITE_STREAM_READ_TIMEOUT_S,
     TTS_SUITE_SYSTEMCTL_TIMEOUT_S,
+    TTS_SUITE_TOKEN_FILE,
+    TTS_SUITE_TOKEN_HEADER,
     TTS_SUITE_URL,
 )
 from .service_status import notify_used
@@ -120,6 +124,20 @@ class InvalidRequest(TTSSuiteError):
     status = 422
 
 
+class EngineInUse(TTSSuiteError):
+    """A start on a given card for an engine that runs or starts already (its card is chosen)."""
+
+    code = "engine_in_use"
+    status = 409
+
+
+class EngineControlFailed(TTSSuiteError):
+    """A start did not work; the detail says why (card missing, too little room, container failed)."""
+
+    code = "engine_control_failed"
+    status = 502
+
+
 class UnsupportedLanguage(TTSSuiteError):
     code = "unsupported_language"
     status = 422
@@ -131,7 +149,8 @@ class TextTooLong(TTSSuiteError):
 
 
 class Unauthorized(TTSSuiteError):
-    """The service demands a token (it listens beyond localhost); AIfred sends none."""
+    """The service demands a token: for a reading it listens beyond localhost (AIfred sends none there);
+    for ``start_on_gpu`` the local token was wrong."""
 
     code = "unauthorized"
     status = 401
@@ -176,6 +195,8 @@ ERROR_CLASSES: dict[str, type[TTSSuiteError]] = {
         UnknownEngine,
         UnknownHost,
         InvalidRequest,
+        EngineInUse,
+        EngineControlFailed,
         UnsupportedLanguage,
         TextTooLong,
         Unauthorized,
@@ -650,6 +671,30 @@ class TTSClient:
         if response.is_error:
             raise _error_from_response(response)
         return [_decode(ReleaseResult, item, "/release") for item in response.json()]
+
+    # ---- start on a given card (calibration) ----
+
+    def start_on_gpu(self, engine: str, gpu: str) -> None:
+        """Have the service start the engine of this machine on the card ``gpu`` (PCI index or UUID) and wait
+        until it serves. For a measurement on a given card (the joint burn-in); in normal operation the
+        service chooses the card itself. Sends the token of ``TTS_SUITE_TOKEN_FILE``. Blocking.
+
+        Raises:
+            EngineInUse: the engine runs or starts already.
+            EngineControlFailed: the card is missing or has too little room, or the start failed.
+            InvalidRequest: the engine takes no local GPU.
+            TTSSuiteUnreachable: the service does not answer.
+        """
+        token = TTS_SUITE_TOKEN_FILE.read_text(encoding="utf-8").strip()
+        try:
+            with self._sync_http(TTS_SUITE_ENGINE_START_TIMEOUT_S) as http:
+                response = http.post(
+                    f"/engines/{engine}/start", params={"gpu": gpu}, headers={TTS_SUITE_TOKEN_HEADER: token},
+                )
+        except httpx.TransportError as error:
+            raise TTSSuiteUnreachable(f"TTS service not reachable on /engines/{engine}/start: {error!r}") from error
+        if response.is_error:
+            raise _error_from_response(response)
 
     # ---- speak ----
 

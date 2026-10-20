@@ -313,6 +313,8 @@ ERROR_CASES = [
     ("unknown_engine", 404, UnknownEngine),
     ("unknown_host", 404, UnknownHost),
     ("invalid_request", 422, InvalidRequest),
+    ("engine_in_use", 409, tts_client.EngineInUse),
+    ("engine_control_failed", 502, tts_client.EngineControlFailed),
     ("unsupported_language", 422, UnsupportedLanguage),
     ("text_too_long", 413, TextTooLong),
     ("unauthorized", 401, Unauthorized),
@@ -382,12 +384,41 @@ def test_timeout_is_unreachable() -> None:
 # ---- Read calls -----------------------------------------------------------------
 
 
-def test_client_has_no_writing_or_token_calls() -> None:
-    """AIfred writes nothing into the service and starts or stops no container there."""
+def test_client_writes_nothing_but_the_start_on_a_given_card() -> None:
+    """AIfred writes nothing into the service and stops no container there; its one command is the
+    calibration's start of an engine on a given card."""
     for name in ("set_config", "start", "stop", "reload", "sync_voices", "config", "_auth_headers"):
         assert not hasattr(TTSClient, name), name
     assert not hasattr(tts_client, "_read_token")
-    assert not any(hasattr(tts_client, name) for name in ("EngineInUse", "EngineControlFailed", "ConfigInvalid"))
+    assert not hasattr(tts_client, "ConfigInvalid")
+
+
+def test_start_on_gpu_sends_the_card_and_the_local_token(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text("secret\n", encoding="utf-8")
+    monkeypatch.setattr(tts_client, "TTS_SUITE_TOKEN_FILE", token_file)
+    seen: list[tuple[str, str, str | None, str | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append((request.method, request.url.path, request.url.params.get("gpu"), request.headers.get("x-tts-suite-token")))
+        return httpx.Response(204)
+
+    make_client(handler).start_on_gpu("xtts", "4")
+    assert seen == [("POST", "/engines/xtts/start", "4", "secret")]
+
+
+def test_start_on_gpu_maps_the_refusals(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text("secret", encoding="utf-8")
+    monkeypatch.setattr(tts_client, "TTS_SUITE_TOKEN_FILE", token_file)
+    for status, code, error in (
+        (409, "engine_in_use", tts_client.EngineInUse),
+        (502, "engine_control_failed", tts_client.EngineControlFailed),
+        (401, "unauthorized", tts_client.Unauthorized),
+    ):
+        client = make_client(lambda _, s=status, c=code: httpx.Response(s, json={"error": c, "detail": "why"}))
+        with pytest.raises(error, match="why"):
+            client.start_on_gpu("xtts", "4")
 
 
 def test_read_calls_are_get_requests_without_token() -> None:

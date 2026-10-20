@@ -10,7 +10,7 @@ import httpx
 import pytest
 
 import aifred.lib.config as config
-from aifred.lib import tts_stress_burnin
+from aifred.lib import tts_client, tts_stress_burnin
 from aifred.lib.tts_stress_burnin import stress_burnin_tts
 from tests.fake_tts_service import FakeTTSService, audio_frame, catalog_row, install_fake_service, summary_frame
 
@@ -166,3 +166,24 @@ def test_an_unreachable_service_fails_the_burnin(monkeypatch) -> None:
 def test_the_cli_helpers_of_the_old_registry_are_gone() -> None:
     assert not hasattr(tts_stress_burnin, "_query_gpu_used_mb")
     assert not hasattr(tts_stress_burnin, "_resolve_tts_gpu_index")
+
+
+def test_with_a_card_the_engine_is_started_on_it_before_the_first_synthesis(monkeypatch, tmp_path) -> None:
+    token_file = tmp_path / "token"
+    token_file.write_text("secret", encoding="utf-8")
+    monkeypatch.setattr(tts_client, "TTS_SUITE_TOKEN_FILE", token_file)
+    fake = VramFake([catalog_row("xtts")], [{"GPU-4": 3000}])
+    fake.script = [GOOD_READING]
+    install(monkeypatch, tmp_path, fake)
+
+    assert asyncio.run(stress_burnin_tts("xtts", iterations=1, gpu="4")) == 3000
+    assert fake.starts == [("xtts", "4", "secret")]
+
+
+def test_without_a_card_the_service_chooses_and_nothing_is_started(monkeypatch, tmp_path) -> None:
+    fake = VramFake([catalog_row("xtts")], [{"GPU-a": 3000}])
+    fake.script = [GOOD_READING]
+    install(monkeypatch, tmp_path, fake)
+
+    run(iterations=1)
+    assert fake.starts == []

@@ -9,7 +9,9 @@ Karte. Die Summe ist nicht die Wahrheit, weil beide Dienste ihre Puffer
 gleichzeitig halten und der Allokator dazwischen fragmentiert.
 
 Dieses Modul misst deshalb den GEMEINSAMEN Spitzenbedarf: VLM laden, dann
-den TTS-Stresslauf darueber fahren, Spitze auf der Karte mitschreiben.
+den TTS-Stresslauf darueber fahren, Spitze auf der Karte mitschreiben. Die
+TTS-Engine startet dafuer ausdruecklich auf dieser Karte
+(``stress_burnin_tts(gpu=...)``).
 """
 
 from __future__ import annotations
@@ -136,9 +138,14 @@ async def burnin_sidechannel(
     # Der TTS-Stresslauf laeuft jetzt MIT geladenem VLM — genau der
     # Zustand, den der Produktionsbetrieb herstellt.
     _say(f"TTS burn-in {tts_engine_key} with the VLM resident ...")
+    # Die TTS-Suite platziert sonst selbst (leere Karte zuerst) — die Engine
+    # landete dann nicht neben dem VLM, und die Spitze zeigte nur das VLM.
     async with _PeakMonitor(gpu_index) as mon:
-        await stress_burnin_tts(tts_engine_key, debug=debug)
+        tts_peak = await stress_burnin_tts(tts_engine_key, gpu=str(gpu_index), debug=debug)
         joint_peak_mb = max(mon.peak_mb, _query_gpu_used_mb(gpu_index))
+    if tts_peak is None:
+        _say(f"TTS burn-in of {tts_engine_key} on GPU {gpu_index} failed — joint peak not measured")
+        return None
 
     headroom_mb = total_mb - joint_peak_mb
     fits = headroom_mb > 0

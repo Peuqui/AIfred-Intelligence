@@ -1207,9 +1207,15 @@ STT_SUITE_COMPOSE_PATH = os.path.join(STT_SUITE_DIR, "docker-compose.yml")
 STT_SUITE_CPU_COMPOSE_PATH = os.path.join(STT_SUITE_DIR, "docker-compose.cpu.yml")
 
 # TTS-Suite service (own repo, runs as a system service on this machine).
-# AIfred only reads and speaks, so it needs no token: speaking and the read-only endpoints
-# ask for none while the service listens on localhost.
+# AIfred reads and speaks, which needs no token while the service listens on localhost. The one
+# exception is the calibration's joint burn-in: it starts an engine on a given card
+# (``POST /engines/{engine}/start?gpu=``), a command, and reads the service's token file on this
+# machine for it (same user as the service).
 TTS_SUITE_URL = os.environ.get("TTS_SUITE_URL", "http://127.0.0.1:5090")
+TTS_SUITE_TOKEN_FILE = Path(
+    os.environ.get("TTS_SUITE_TOKEN_FILE", str(Path.home() / ".config" / "tts-suite" / "token"))
+)
+TTS_SUITE_TOKEN_HEADER = "X-TTS-Suite-Token"
 TTS_SUITE_CONNECT_TIMEOUT_S = 5       # service not reachable -> fail fast
 # Longest silence tolerated on a reading: a cold start of an engine container takes up
 # to 240 s before the first frame; afterwards keep-alive markers arrive every few seconds.
@@ -1217,6 +1223,9 @@ TTS_SUITE_STREAM_READ_TIMEOUT_S = 240
 TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices (read calls)
 # A release request (POST /release) waits while the service takes the containers down.
 TTS_SUITE_RELEASE_TIMEOUT_S = 120
+# A start on a given card waits until the engine's model is loaded (the service allows the
+# engine's startup time plus a reserve).
+TTS_SUITE_ENGINE_START_TIMEOUT_S = 300
 # On-demand start of the service (system unit template, ``{user}`` = the user AIfred runs as; Polkit lets
 # that user start it): name of the unit, how long to wait for /health
 # afterwards, how often to ask meanwhile, and the limit for the ``systemctl`` call itself.
