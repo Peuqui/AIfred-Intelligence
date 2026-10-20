@@ -13,23 +13,32 @@ A card that holds side channels keeps their measured peaks plus ONE fixed residu
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
+from collections.abc import Hashable, Iterable, Sequence
+from typing import TypeVar
 
 from ..config import SIDE_CHANNEL_RESIDUAL_MB
 from .types import GPU
 
+Card = TypeVar("Card", bound=Hashable)
+
+
+def side_channel_needs(holds: Iterable[tuple[Card | None, int]]) -> dict[Card, int]:
+    """Per card that holds side channels: their peaks plus the residual once (MiB).
+
+    ``holds`` are ``(card, peak MiB)`` pairs; a pair without a card or without a peak holds nothing.
+    The card is whatever identifies it for the caller (UUID for llama.cpp, nvidia-smi index for vLLM).
+    """
+    peaks: dict[Card, int] = {}
+    for card, peak_mb in holds:
+        if card is not None and peak_mb > 0:
+            peaks[card] = peaks.get(card, 0) + peak_mb
+    return {card: peak + SIDE_CHANNEL_RESIDUAL_MB for card, peak in peaks.items()}
+
 
 def side_channel_reserves(gpus: Sequence[GPU], holds: Iterable[tuple[str | None, int]]) -> list[int]:
-    """Per card (aligned to ``gpus``): the peaks of the side channels held there plus the residual once.
-
-    ``holds`` are ``(card uuid, peak MiB)`` pairs; a pair without a card or without a peak holds nothing.
-    """
-    peaks = [0] * len(gpus)
-    index_of = {gpu.uuid: index for index, gpu in enumerate(gpus)}
-    for uuid, peak_mb in holds:
-        if uuid is not None and peak_mb > 0 and uuid in index_of:
-            peaks[index_of[uuid]] += peak_mb
-    return [peak + SIDE_CHANNEL_RESIDUAL_MB if peak > 0 else 0 for peak in peaks]
+    """:func:`side_channel_needs` aligned to ``gpus`` (0 on cards that hold nothing)."""
+    needs = side_channel_needs(holds)
+    return [needs.get(gpu.uuid, 0) for gpu in gpus]
 
 
 def pick_tts_reserve_gpu(

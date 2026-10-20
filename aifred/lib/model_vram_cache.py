@@ -1044,6 +1044,7 @@ def record_calibration_failure(
     model_id: str,
     reason: str,
     detail: str = "",
+    backend: str = "llamacpp",
 ) -> bool:
     """Record a failed calibration attempt for ``model_id``.
 
@@ -1057,6 +1058,7 @@ def record_calibration_failure(
             ``"<base>-tts-xtts-vlm-qwen3vl8b"``).
         reason: One of ``_VALID_FAILURE_REASONS``.
         detail: Human-readable explanation, shown in the UI tooltip.
+        backend: Backend of the variant, stored when the failure creates the entry.
 
     Returns:
         True if the failure was stored, False on validation or I/O error.
@@ -1070,7 +1072,7 @@ def record_calibration_failure(
 
     with _cache_lock:
         cache = load_cache(strict=True)
-        entry = cache.get(model_id) or {"backend": "llamacpp"}
+        entry = cache.get(model_id) or {"backend": backend}
         entry["failure_status"] = {
             "reason": reason,
             "detail": detail,
@@ -1084,6 +1086,21 @@ def record_calibration_failure(
         cache[model_id] = entry
         logger.info(f"Recorded calibration failure for {model_id}: {reason} — {detail}")
         return save_cache(cache)
+
+
+def clear_calibration_failure(model_id: str) -> None:
+    """Drop the failure record of ``model_id`` (a new attempt, or a success outside this cache)."""
+    with _cache_lock:
+        cache = load_cache(strict=True)
+        entry = cache.get(model_id)
+        if not entry or not entry.pop("failure_status", None):
+            return
+        # Ein Eintrag, der nur fuer den Fehlschlag angelegt wurde, geht ganz
+        if set(entry) <= {"backend"}:
+            del cache[model_id]
+        else:
+            cache[model_id] = entry
+        save_cache(cache)
 
 
 def is_calibration_failed(model_id: str) -> bool:

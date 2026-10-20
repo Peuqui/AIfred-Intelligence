@@ -24,10 +24,12 @@ import subprocess
 from collections.abc import Callable, Iterable, Iterator
 from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
+from typing import Literal
 
 from ..config import (
     LLAMASWAP_CONFIG_PATH,
     PROJECT_ROOT,
+    SIDE_CHANNEL_RESIDUAL_MB,
     VLLM_CALIBRATION_CACHE_MAX_GIB,
     VLLM_CALIBRATION_CACHE_ROOT,
     VLLM_CALIBRATION_CHUNK_AB,
@@ -38,6 +40,7 @@ from ..config import (
 )
 from ..formatting import format_number
 from .gpu import enumerate_gpus
+from .tts_card import side_channel_needs
 from .types import GPU
 from .vllm_model_meta import VllmModelMeta, analyze_checkpoint
 from .vllm_probe import (
@@ -606,6 +609,9 @@ def _oom_step(
     return None
 
 
+BlockPolicy = Literal["grow", "exact", "keep"]
+
+
 def _kv_target(kv: KvReport, blocks: int, lean: bool = False) -> tuple[int, int]:
     """(Ziel-Blockzahl, Bloecke fuer einen vollen Kontext) nach einem bestandenen Boot.
 
@@ -624,7 +630,7 @@ def _boot(
     cancel_check: Callable[[], bool] | None,
     progress: Callable[[str], None],
     *,
-    exact: bool,
+    policy: BlockPolicy,
     lean: bool = False,
 ) -> tuple[VllmServer, VllmSpec, int]:
     """boot_vllm mit der Blockzahl, die das Boot-Log selbst nennt.
@@ -638,10 +644,12 @@ def _boot(
       (so laeuft DeepSeek-V4, dessen knappe Stufen das Budget kaum tragen).
       Laeuft die Karte damit ueber, gilt vLLMs Schaetzung fuer das Budget
       als Kontextgrenze — der Aufrufer bootet mit kleinerem Kontext neu.
-    - Bestanden mit weniger Bloecken als dem Ziel: neu booten, denn eine
-      Messung mit kleinerem Cache waere zu optimistisch (der Allokator haette
-      mehr Luft als im Betrieb). ``exact`` bootet auch bei MEHR Bloecken neu —
-      fuer Messungen, die genau den Cache des Betriebspunkts brauchen.
+    - Nach dem bestandenen Boot entscheidet ``policy``: "grow" bootet neu,
+      wenn das Ziel MEHR Bloecke hat — eine Messung mit kleinerem Cache waere
+      zu optimistisch (der Allokator haette mehr Luft als im Betrieb).
+      "exact" bootet bei jeder Abweichung neu, fuer Messungen mit genau dem
+      Cache des Betriebspunkts. "keep" laesst die Blockzahl, wie sie ist:
+      Profile fuer die Zusatzmodelle verkleinern den Cache absichtlich.
     - ``lean``: Ziel ist genau ein voller Kontext (siehe _kv_target).
     """
     assert spec.num_gpu_blocks
@@ -654,6 +662,8 @@ def _boot(
         try:
             server = boot_vllm(spec, port, attempt_log, BOOT_TIMEOUT_S, cancel_check)
         except VllmBootError as e:
+            if policy == "keep":
+                raise
             kv = e.kv
             if kv.too_small and blocks == kv.blocks_auto:
                 budget_context = e.parsed_max_len
@@ -685,7 +695,9 @@ def _boot(
                 f"boot log {attempt_log} names no KV block counts — the vLLM build "
                 f"does not log 'Overriding num_gpu_blocks' / 'GPU KV cache size'"
             )
-        if not last and (target > blocks or (exact and target != blocks)):
+        if policy == "keep":
+            return server, spec, one_context
+        if not last and (target > blocks or (policy == "exact" and target != blocks)):
             server.shutdown()
             progress(f"   ↳ the GMU budget holds {format_number(target)} KV blocks "
                      f"({format_number(one_context)} for one full context): rebooting with them")
@@ -737,6 +749,7 @@ def measure_under_load(
     progress: Callable[[str], None],
     cancel_check: Callable[[], bool] | None,
     *,
+    policy: BlockPolicy = "exact",
     lean: bool = False,
 ) -> tuple[VllmSpec, KvMeasurement]:
     """Betriebspunkt booten, die laengste Anfrage fahren, frei je Karte messen.
@@ -744,6 +757,8 @@ def measure_under_load(
     Laeuft eine Karte dabei ueber, wird zuerst der Cache auf einen vollen
     Kontext gesenkt (Beschluss 20.10.2026: groesser nur, wenn Platz da ist),
     danach der Kontext halbiert. Rueckgabe: der tragende Spec und seine Messung.
+    Mit ``policy="keep"`` (Profil fuer Zusatzmodelle) steht der Spec fest:
+    ein Ueberlauf ist dann ein Fehler, keine Stufe der Leiter.
     """
     tag = spec.served_name
     for attempt in range(8):
@@ -751,17 +766,17 @@ def measure_under_load(
             raise RuntimeError("cancelled")
         log = log_dir / f"boot-fill-{tag}-try{attempt}.log"
         server, spec, one_context = _boot(spec, find_free_port(), log, cancel_check,
-                                          progress, exact=True, lean=lean)
+                                          progress, policy=policy, lean=lean)
         progress(f"   ↳ filling the context ({format_number(spec.mml)} tokens, "
                  f"{format_number(spec.num_gpu_blocks or 0)} KV blocks)...")
         try:
             fill_tokens = probe_fill_context(server, spec.mml)
             free = free_mb_by_index()
             kv = server.kv_report(spec.tp)
-        except Exception as fill_err:  # noqa: BLE001 — OOM entscheidet ueber die Leiter
+        except Exception as fill_err:  # OOM entscheidet ueber die Leiter
             overran = any(sig in server.log_text() for sig in OOM_SIGNATURES)
             server.shutdown()
-            if not overran:
+            if not overran or policy == "keep":
                 raise RuntimeError(f"fill probe failed: {type(fill_err).__name__}: {fill_err}") from fill_err
             if not lean and (spec.num_gpu_blocks or 0) > one_context:
                 lean = True
@@ -862,7 +877,7 @@ def _measure_topology(
         retries_left = attempt < max_attempts - 1
         try:
             server, spec, one_context = _boot(spec, port, log, cancel_check, progress,
-                                              exact=True)
+                                              policy="exact")
             blocks = spec.num_gpu_blocks or blocks
         except VllmBootError as e:
             if e.kv.blocks_auto > 0:
@@ -1072,7 +1087,7 @@ def _sweep_k(
                              f"capture {capture}, spec-attn {spec_attn or 'default'})...")
                 try:
                     server, booted_k, _ = _boot(spec_k, port, log, cancel_check, progress,
-                                                exact=False)
+                                                policy="grow")
                     blocks_k = booted_k.num_gpu_blocks or blocks_k
                     break
                 except VllmBootError as e:
@@ -1229,10 +1244,10 @@ def _challenger_ab(
     port = find_free_port()
     log = log_dir / f"boot-{tag}.log"
     try:
-        # exact: eine GMU-Senkung verkleinert das Budget — der Herausforderer
+        # "exact": eine GMU-Senkung verkleinert das Budget — der Herausforderer
         # tritt mit SEINEM Cache an, sonst gaebe die Senkung nichts frei.
         server, challenger, _ = _boot(challenger, port, log, cancel_check, progress,
-                                      exact=True)
+                                      policy="exact")
     except VllmBootError as e:
         progress(f"   ↳ {tag} boot failed ({e.reason}) — keeping {keep_note}")
         return best_spec, best_speed, None
@@ -1690,12 +1705,6 @@ def persist_operating_point(
     """Profil schreiben (mit Hardware-Fingerprint) und Eintrag anwenden."""
     import datetime
 
-    import yaml
-
-    from ..config import OPERATING_POINTS_DIR
-    from ..operating_points import apply_operating_point, gpu_fingerprint
-
-    entry = render_llamaswap_entry(spec)
     meta_block: dict = {
         "source": "AIfred vLLM auto-calibration",
         "measured": datetime.date.today().isoformat(),
@@ -1713,12 +1722,21 @@ def persist_operating_point(
         }
     if kv is not None:
         meta_block["kv"] = kv.as_meta()
-    meta_block["spec"] = spec_meta(spec)
+    return _write_profile(spec, meta_block)
+
+
+def _write_profile(spec: VllmSpec, meta_block: dict) -> Path:
+    """Betriebspunkt-Datei schreiben (cmd aus dem Spec, Spec in meta.spec) und anwenden."""
+    import yaml
+
+    from ..config import OPERATING_POINTS_DIR
+    from ..operating_points import apply_operating_point, gpu_fingerprint
+
     profile = {
-        "llamaswap": entry,
+        "llamaswap": render_llamaswap_entry(spec),
         "group": "main",
         "hardware": gpu_fingerprint(),
-        "meta": meta_block,
+        "meta": {**meta_block, "spec": spec_meta(spec)},
     }
     OPERATING_POINTS_DIR.mkdir(parents=True, exist_ok=True)
     path = OPERATING_POINTS_DIR / f"{spec.served_name}.yaml"
@@ -1727,4 +1745,210 @@ def persist_operating_point(
     apply_operating_point(spec.served_name)
     logger.info(f"operating point persisted + applied: {path} "
                 f"({LLAMASWAP_CONFIG_PATH})")
+    return path
+
+
+# --- Profile fuer die Zusatzmodelle (TTS, VLM) --------------------------------
+#
+# Weg A (Beschluss Peuqui 20.10.2026): Die Basis rechnet auf allen Karten;
+# ein Profil <entry>-tts-<engine>[-vlm-<key>] schafft genau den Platz, den
+# seine Zusatzmodelle brauchen. Die Topologie der Basis bleibt, freigemacht
+# wird in dieser Reihenfolge — die erste Stufe, die passt, gewinnt:
+#   1. eine Karte, die die Topologie nicht nutzt,
+#   2. gemessener Rest auf einer Modellkarte (nach der laengsten Anfrage),
+#   3. KV-Cache verkleinern, hoechstens bis ein voller Kontext,
+#   4. GMU senken (nur PLE-Modelle: PLE fuellt seine Stufe bis zur GMU),
+#   5. Kontext verkleinern.
+# Stufe 1-2 brauchen keinen Boot; jede andere Stufe wird gebootet und nach
+# der laengsten Anfrage nachgemessen.
+
+SPARE_CARD = "spare card"
+MEASURED_HEADROOM = "measured headroom"
+SMALLER_CACHE = "smaller KV cache"
+LOWER_GMU = "lower GMU"
+SMALLER_CONTEXT = "smaller context"
+GMU_STEP = 0.02
+# Boots, in denen ein Profil fuer die Zusatzmodelle nachgeregelt wird
+VARIANT_ATTEMPTS = 4
+MIB = 1024 * 1024
+
+
+@dataclass(frozen=True)
+class SideChannelPlan:
+    """Wie ein Profil Platz fuer TTS und VLM schafft. Karten sind nvidia-smi-Indizes."""
+    tts_card: int | None
+    blocks: int
+    gmu: float
+    mml: int
+    step: str
+
+    @property
+    def needs_boot(self) -> bool:
+        return self.step not in (SPARE_CARD, MEASURED_HEADROOM)
+
+
+def _shortfall(needs: dict[int, int], free_mb: dict[int, int]) -> dict[int, int]:
+    """MiB, die je Karte noch fehlen (leer = alles passt)."""
+    return {card: need - free_mb.get(card, 0)
+            for card, need in needs.items() if free_mb.get(card, 0) < need}
+
+
+def _escalate(
+    plan: SideChannelPlan, short: dict[int, int], kv: KvMeasurement, base_mml: int,
+    total_mb: dict[int, int], ple: bool,
+) -> SideChannelPlan | None:
+    """Naechste Stufe fuer die Karten, denen noch ``short`` MiB fehlen; None = nichts hilft.
+
+    Nur Modellkarten gewinnen durch das Profil Platz — fehlt einer Karte
+    ohne Modell etwas, haengt das nicht an diesem Profil.
+    """
+    if any(card not in kv.bytes_per_block for card in short):
+        return None
+    drop = max(math.ceil(mb * MIB / kv.bytes_per_block[card]) for card, mb in short.items())
+    one_context = math.ceil(kv.blocks_one_context * plan.mml / base_mml)
+    if plan.blocks - drop >= one_context:
+        return replace(plan, blocks=plan.blocks - drop, step=SMALLER_CACHE)
+    if ple and plan.step != LOWER_GMU:
+        # Der Cache traegt nur noch einen Kontext; den Rest gibt die PLE-Stufe
+        # her, wenn ihre GMU sinkt (je 0,02 rund 2 % der Karte).
+        rest = max((mb * MIB - (plan.blocks - one_context) * kv.bytes_per_block[card]) / MIB
+                   / total_mb[card] for card, mb in short.items())
+        gmu = round(plan.gmu - math.ceil(rest / GMU_STEP) * GMU_STEP, 2)
+        if gmu > 0:
+            return replace(plan, blocks=one_context, gmu=gmu, step=LOWER_GMU)
+    blocks = plan.blocks - drop
+    mml = (plan.mml * blocks // one_context) // 1024 * 1024 if blocks > 0 else 0
+    if mml < MIN_USEFUL_CONTEXT:
+        return None
+    return replace(plan, blocks=blocks, mml=mml, step=SMALLER_CONTEXT)
+
+
+def plan_side_channels(
+    kv: KvMeasurement, base: VllmSpec, *, tts_mb: int, vlm_card: int | None, vlm_mb: int,
+    total_mb: dict[int, int], ple: bool,
+) -> tuple[SideChannelPlan, dict[int, int]] | None:
+    """Karte fuer die TTS waehlen und die erste tragende Stufe planen.
+
+    Rueckgabe: (Plan, was jede beteiligte Karte frei haben muss) oder None.
+    Die VLM-Karte steht fest (das VLM laeuft auf der Sammelkarte); die TTS
+    platziert die TTS-Suite selbst, also gilt die Karte, die am wenigsten
+    kostet: eine ohne Modell, dann der groesste gemessene Rest, dann der
+    kleinste Verzicht auf KV-Bloecke (dieselbe Reihenfolge wie
+    ``pick_tts_reserve_gpu`` bei llama.cpp).
+    """
+    free = kv.free_under_load_mb
+    candidates: list[int | None] = list(free) if tts_mb > 0 else [None]
+    ranked: list[tuple[tuple, int | None]] = []
+    for card in candidates:
+        needs = side_channel_needs([(card, tts_mb), (vlm_card, vlm_mb)])
+        short = _shortfall(needs, free)
+        on_model = any(c in kv.bytes_per_block for c in needs)
+        if not short:
+            room = min(free[c] - need for c, need in needs.items()) if needs else 0
+            ranked.append(((0, on_model, -room, card if card is not None else -1), card))
+        elif all(c in kv.bytes_per_block for c in short):
+            drop = max(math.ceil(mb * MIB / kv.bytes_per_block[c]) for c, mb in short.items())
+            ranked.append(((1, drop, 0, card if card is not None else -1), card))
+    if not ranked:
+        return None
+    _, tts_card = min(ranked, key=lambda item: item[0])
+    needs = side_channel_needs([(tts_card, tts_mb), (vlm_card, vlm_mb)])
+    on_model = any(c in kv.bytes_per_block for c in needs)
+    plan = SideChannelPlan(tts_card=tts_card, blocks=kv.blocks, gmu=base.gmu, mml=base.mml,
+                           step=MEASURED_HEADROOM if on_model else SPARE_CARD)
+    short = _shortfall(needs, free)
+    if not short:
+        return plan, needs
+    escalated = _escalate(plan, short, kv, base.mml, total_mb, ple)
+    return (escalated, needs) if escalated else None
+
+
+def _describe(plan: SideChannelPlan, needs: dict[int, int]) -> str:
+    held = ", ".join(f"{format_number(mb)} MiB on GPU {card}" for card, mb in sorted(needs.items()))
+    return (f"{plan.step}: holding {held} (incl. {SIDE_CHANNEL_RESIDUAL_MB} MiB residual); "
+            f"{format_number(plan.blocks)} KV blocks, GMU {plan.gmu}, ctx {format_number(plan.mml)}")
+
+
+def calibrate_vllm_side_channel_variant(
+    entry_name: str,
+    variant_name: str,
+    *,
+    tts_mb: int,
+    vlm_card: int | None,
+    vlm_mb: int,
+    log_dir: Path,
+    progress: Callable[[str], None],
+    cancel_check: Callable[[], bool] | None = None,
+) -> Path | None:
+    """Profil ``variant_name`` aus der kalibrierten Basis ``entry_name`` ableiten.
+
+    ``tts_mb``/``vlm_mb`` sind die nackten Burn-in-Spitzen (0 = kein TTS bzw.
+    kein VLM), ``vlm_card`` die Karte des VLM. Rueckgabe: Pfad des Profils,
+    oder None, wenn keine Stufe Platz schafft (als Fehlschlag vermerkt, wie
+    ``capacity_exceeded`` bei llama.cpp). Der Aufrufer hat llama-swap und
+    die Zusatzmodelle gestoppt.
+    """
+    from ..model_vram_cache import clear_calibration_failure, record_calibration_failure
+    from ..operating_points import get_operating_point
+
+    profile = get_operating_point(entry_name)
+    base_meta = (profile or {}).get("meta") or {}
+    if "kv" not in base_meta or "spec" not in base_meta:
+        raise RuntimeError(
+            f"{entry_name} has no measured operating point (meta.kv) — calibrate the base first"
+        )
+    kv = KvMeasurement.from_meta(base_meta["kv"])
+    base = spec_from_meta(base_meta["spec"])
+    smi = _smi_index_by_uuid()
+    total_mb = {smi[g.uuid]: g.total_mb for g in drain_gpus(progress, cancel_check)}
+    ple = analyze_checkpoint(base.checkpoint).ple_bytes > 0
+
+    planned = plan_side_channels(kv, base, tts_mb=tts_mb, vlm_card=vlm_card, vlm_mb=vlm_mb,
+                                 total_mb=total_mb, ple=ple)
+
+    def _fail(why: str) -> None:
+        progress(f"   ↳ ❌ {variant_name}: {why}")
+        record_calibration_failure(variant_name, "capacity_exceeded", why, backend="vllm")
+
+    if planned is None:
+        _fail("no step frees the side channels' budget on these cards")
+        return None
+    plan, needs = planned
+    progress(f"🔀 {variant_name}: {_describe(plan, needs)}")
+    measured = kv
+    spec = replace(base, served_name=variant_name)
+    if plan.needs_boot:
+        for _ in range(VARIANT_ATTEMPTS):
+            candidate = replace(spec, num_gpu_blocks=plan.blocks, gmu=plan.gmu, mml=plan.mml)
+            candidate, measured = measure_under_load(candidate, log_dir, progress, cancel_check,
+                                                     policy="keep")
+            short = _shortfall(needs, measured.free_under_load_mb)
+            if not short:
+                spec = candidate
+                break
+            progress("   ↳ still short: " + ", ".join(
+                f"GPU {card} {format_number(mb)} MiB" for card, mb in sorted(short.items())))
+            escalated = _escalate(plan, short, measured, plan.mml, total_mb, ple)
+            if escalated is None:
+                _fail("no further step frees the missing memory")
+                return None
+            plan = escalated
+            progress(f"   ↳ {_describe(plan, needs)}")
+        else:
+            _fail(f"the free memory did not settle within {VARIANT_ATTEMPTS} boots")
+            return None
+    meta_block = {
+        key: value for key, value in base_meta.items() if key not in ("kv", "spec")
+    }
+    meta_block["derived_from"] = entry_name
+    meta_block["side_channels"] = {
+        "step": plan.step,
+        "tts_card": plan.tts_card, "tts_peak_mb": tts_mb,
+        "vlm_card": vlm_card, "vlm_peak_mb": vlm_mb,
+        "residual_mb": SIDE_CHANNEL_RESIDUAL_MB,
+    }
+    meta_block["kv"] = measured.as_meta()
+    path = _write_profile(spec, meta_block)
+    clear_calibration_failure(variant_name)
+    progress(f"💾 {variant_name} saved: {path}")
     return path
