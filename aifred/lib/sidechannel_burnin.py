@@ -1,8 +1,7 @@
 """Gemeinsamer Burn-in fuer VLM und TTS auf der Side-Channel-Karte.
 
-Bei vLLM rechnet das Haupt-LLM nur auf den Karten, die
-``calibration.vllm_flow.side_channel_uuids()`` uebrig laesst — VLM und TTS
-teilen sich also EINE Karte. Ob beide dort zusammen unter Last passen,
+Die Profile fuer die Zusatzmodelle planen mit der Summe der Einzelspitzen;
+landen VLM und TTS auf derselben Karte, zaehlt ihre Summe. Ob beide dort zusammen unter Last passen,
 beantwortet keine der Einzelmessungen: ``stress_burnin_tts`` misst die
 TTS-Spitze auf leerer Karte, der VLM-Prewarm die VLM-Spitze auf leerer
 Karte. Die Summe ist nicht die Wahrheit, weil beide Dienste ihre Puffer

@@ -124,6 +124,17 @@ def _calibration_engine_keys() -> list[str]:
         return []
 
 
+def variant_id_for_cell(model_id: str, vlm_key: str, tts_key: str) -> str:
+    """The llama-swap profile a matrix cell stands for (both sides empty = the base)."""
+    if vlm_key and tts_key:
+        return f"{model_id}-tts-{tts_key}-vlm-{vlm_key}"
+    if vlm_key:
+        return f"{model_id}-vlm-{vlm_key}"
+    if tts_key:
+        return f"{model_id}-tts-{tts_key}"
+    return model_id
+
+
 def _release_tts_for_calibration(report: Any) -> None:
     """Ask the TTS service to release every local GPU engine: the calibration measures cards that must
     be free (a running container would count as the model's own consumption). A refused release
@@ -282,72 +293,11 @@ class CalibrationMixin(rx.State, mixin=True):
     # TTS engine picker (per-click selection, not persisted)
     # ------------------------------------------------------------------
 
-    @rx.var(cache=True, auto_deps=False,
-            deps=["calibration_matrix", "backend_id", "ui_language", "agent_tuning"])
-    def vllm_burnin_matrix_rows(self) -> list[CalibrationRow]:
-        """Dieselbe VLM x TTS-Matrix wie bei llama.cpp — andere Bedeutung.
-
-        Bei llama.cpp ist eine Zelle ein zu kalibrierendes llama-swap-Profil.
-        Bei vLLM waere das sinnlos: ``side_channel_uuids()`` haelt die
-        TTS-/VLM-Karte aus der Topologie-Leiter, jede Zelle maesse dasselbe
-        bei ~80 Minuten Laufzeit. Hier steht eine Zelle deshalb fuer ein
-        BURN-IN-PAAR: VLM und TTS teilen sich diese eine Karte, und die
-        Frage ist, ob sie zusammen unter Last darauf passen.
-
-        Gruen = gemeinsam vermessen UND es passte. Rot = vermessen und es
-        passte NICHT (die Karte wuerde unter Last ueberlaufen).
-        """
-        if self.backend_id != "vllm":  # type: ignore[attr-defined]
-            return []
-        from aifred.lib import sidechannel_vram_cache
-        from aifred.lib.i18n import t as _t
-        from aifred.lib.vision_routing import vlm_calibration_choices
-
-        from aifred.lib.operating_points import is_vllm_calibrated
-
-        engines = _calibration_engine_keys()
-        model_id = self.agent_tuning["aifred"].model_id or ""  # type: ignore[attr-defined]
-        base_calibrated = bool(model_id) and is_vllm_calibrated(model_id)
-
-        def _row(vlm_key: str, label: str) -> CalibrationRow:
-            cells: list[CalibrationCell] = []
-            for tts_key in ["", *engines]:
-                key = sidechannel_vram_cache.pair_key(vlm_key, tts_key)
-                # The "no VLM / no TTS" cell stands for the base operating
-                # point, not for a side-channel pair: it is green when the
-                # selected model has a profile for this hardware.
-                verdict = (
-                    base_calibrated or None
-                    if not vlm_key and not tts_key
-                    else sidechannel_vram_cache.fits(vlm_key, tts_key)
-                )
-                cells.append({
-                    "key": key,
-                    "checked": self.calibration_matrix.get(key, False),
-                    "already_calibrated": verdict is True,
-                    "calibration_failed": verdict is False,
-                    # Ohne VLM und ohne TTS gibt es kein Paar auf der
-                    # Side-Channel-Karte — nichts zu vermessen.
-                    # Basiszelle ist auch hier anhakbar — wie bei
-                    # llama.cpp bedeutet sie "Basis neu vermessen".
-                    "not_applicable": False,
-                })
-            return {"label": label, "cells": cells}
-
-        rows = [_row("", _t("calibration_matrix_no_vlm"))]
-        for choice in vlm_calibration_choices():
-            rows.append(_row(choice["key"], choice["label"]))
-        return rows
-
     @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "backend_id", "ui_language"])
     def vllm_sidechannel_summary(self) -> list[str]:
-        """Zeilen fuer den vLLM-Kalibrations-Popover: was auf der
-        Side-Channel-Karte liegt und was davon schon vermessen ist.
-
-        vLLM rechnet nur auf den Karten, die ``side_channel_uuids()``
-        uebrig laesst — statt der llama.cpp-Matrix (VLM x TTS als
-        Kalibrierziele) zeigt der Popover deshalb nur, WAS sich diese eine
-        Karte teilt und ob deren gemeinsamer Bedarf schon gemessen wurde.
+        """Zeilen fuer den vLLM-Kalibrations-Popover: welche Spitzen von VLM
+        und TTS schon vermessen sind — aus ihnen planen die Profile der
+        Matrix ihren Platz.
 
         Bewusst ohne ``running_gpu_engine``: das ist ein
         HTTP-Health-Check mit Timeout und haette in einer rx.var die
@@ -396,13 +346,8 @@ class CalibrationMixin(rx.State, mixin=True):
     @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "backend_id"])
     def vllm_model_calibrated(self) -> bool:
         """Traegt das aktuell gewaehlte vLLM-Modell einen Betriebspunkt
-        DIESER Hardware? Speist den gruenen Punkt am Kalibrieren-Knopf.
-
-        Das Gegenstueck zum gruenen Punkt der llama.cpp-Matrix, nur ohne
-        Matrix: vLLM rechnet ausschliesslich auf den Karten, die
-        ``side_channel_uuids()`` uebrig laesst — was auf der TTS-/VLM-Karte
-        laeuft, aendert das Ergebnis nicht. Es gibt deshalb genau einen
-        Zustand je Modell statt einer VLM x TTS-Matrix.
+        DIESER Hardware? Speist den gruenen Punkt am Kalibrieren-Knopf
+        (die Profile der Zusatzmodelle zeigt die Matrix).
 
         Auto-deps ist aus: Reflex kann die Dateipruefung in
         ``is_vllm_calibrated`` nicht introspizieren.
@@ -435,7 +380,8 @@ class CalibrationMixin(rx.State, mixin=True):
             engine_labels = [unreachable_text(unreachable)]
         return ["", t("calibration_matrix_no_tts"), *engine_labels]
 
-    @rx.var(cache=True, auto_deps=False, deps=["agent_tuning", "calibration_matrix", "ui_language"])
+    @rx.var(cache=True, auto_deps=False,
+            deps=["agent_tuning", "calibration_matrix", "ui_language", "backend_id"])
     def calibration_matrix_rows(self) -> list[CalibrationRow]:
         """One entry per VLM choice (including "no VLM"). Each entry
         carries ``{label, cells}`` where ``cells`` is a list of dicts
@@ -449,7 +395,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
         ``already_calibrated`` reflects the real cache state — the
         green dot appears only when ``gpu_model`` is set on the cache
-        entry. ``calibration_failed`` lights up red when a prior
+        entry (vLLM: when the profile has an operating point of this
+        hardware). ``calibration_failed`` lights up red when a prior
         calibration attempt left a ``failure_status`` record.
 
         Caching is verbindlich (``cache=True``) — ``cache=False`` would
@@ -472,75 +419,54 @@ class CalibrationMixin(rx.State, mixin=True):
             is_vlm_variant_calibrated,
             load_cache,
         )
+        from aifred.lib.operating_points import is_vllm_calibrated
         from aifred.lib.vision_routing import vlm_calibration_choices
         vlm_choices = vlm_calibration_choices()
 
         model_id = self.agent_tuning["aifred"].model_id or ""
         engines = _calibration_engine_keys()
         cache = load_cache() if model_id else {}
+        vllm = self.backend_id == "vllm"  # type: ignore[attr-defined]
 
-        def _combo_done(vlm_key: str, tts_key: str) -> bool:
+        def _done(vlm_key: str, tts_key: str) -> bool:
             if not model_id:
                 return False
-            full_id = f"{model_id}-tts-{tts_key}-vlm-{vlm_key}"
-            entry = cache.get(full_id)
-            return bool(entry and entry.get("gpu_model"))
+            variant = variant_id_for_cell(model_id, vlm_key, tts_key)
+            if vllm:
+                # vLLM: das Profil hat einen Betriebspunkt dieser Hardware
+                return is_vllm_calibrated(variant)
+            if vlm_key and tts_key:
+                entry = cache.get(variant)
+                return bool(entry and entry.get("gpu_model"))
+            if vlm_key:
+                return is_vlm_variant_calibrated(model_id, vlm_key)
+            if tts_key:
+                return is_tts_variant_calibrated(model_id, tts_key)
+            return is_model_calibrated(model_id)
 
-        def _failed(variant_id: str) -> bool:
-            return bool(model_id) and is_calibration_failed(variant_id)
-
-        rows: list[CalibrationRow] = []
-
-        # "Kein VLM" row — covers BASE + plain TTS variants.
-        no_vlm_cells: list[CalibrationCell] = []
-        no_vlm_cells.append({
-            "key": "|",
-            "checked": self.calibration_matrix.get("|", False),
-            "already_calibrated": is_model_calibrated(model_id) if model_id else False,
-            "calibration_failed": _failed(model_id) if model_id else False,
-            "not_applicable": False,
-        })
-        for engine_key in engines:
-            done = bool(model_id) and is_tts_variant_calibrated(model_id, engine_key)
-            no_vlm_cells.append({
-                "key": f"|{engine_key}",
-                "checked": self.calibration_matrix.get(f"|{engine_key}", False),
-                "already_calibrated": done,
-                "calibration_failed": _failed(f"{model_id}-tts-{engine_key}"),
+        def _cell(vlm_key: str, tts_key: str) -> CalibrationCell:
+            key = f"{vlm_key}|{tts_key}"
+            return {
+                "key": key,
+                "checked": self.calibration_matrix.get(key, False),
+                "already_calibrated": _done(vlm_key, tts_key),
+                "calibration_failed": bool(model_id) and is_calibration_failed(
+                    variant_id_for_cell(model_id, vlm_key, tts_key)),
                 "not_applicable": False,
-            })
+            }
+
         from aifred.lib.i18n import t as _t
-        rows.append({"label": _t("calibration_matrix_no_vlm"), "cells": no_vlm_cells})
-
-        # One row per VLM choice — first cell is VLM-only, then each
-        # column is a VLM × TTS combination.
+        # "Kein VLM" row — BASE + plain TTS variants; then one row per VLM
+        # choice: VLM-only first, then each VLM × TTS combination.
+        rows: list[CalibrationRow] = [{
+            "label": _t("calibration_matrix_no_vlm"),
+            "cells": [_cell("", tts_key) for tts_key in ["", *engines]],
+        }]
         for choice in vlm_choices:
-            vlm_key = choice["key"]
-            vlm_label = choice["label"]
-            cells: list[CalibrationCell] = []
-            vlm_only_done = (
-                bool(model_id) and is_vlm_variant_calibrated(model_id, vlm_key)
-            )
-            cells.append({
-                "key": f"{vlm_key}|",
-                "checked": self.calibration_matrix.get(f"{vlm_key}|", False),
-                "already_calibrated": vlm_only_done,
-                "calibration_failed": _failed(f"{model_id}-vlm-{vlm_key}"),
-                "not_applicable": False,
+            rows.append({
+                "label": choice["label"],
+                "cells": [_cell(choice["key"], tts_key) for tts_key in ["", *engines]],
             })
-            for engine_key in engines:
-                combo_key = f"{vlm_key}|{engine_key}"
-                cells.append({
-                    "key": combo_key,
-                    "checked": self.calibration_matrix.get(combo_key, False),
-                    "already_calibrated": _combo_done(vlm_key, engine_key),
-                    "calibration_failed": _failed(
-                        f"{model_id}-tts-{engine_key}-vlm-{vlm_key}"
-                    ),
-                    "not_applicable": False,
-                })
-            rows.append({"label": vlm_label, "cells": cells})
-
         return rows
 
     def open_calibration_picker(self) -> None:
@@ -633,7 +559,7 @@ class CalibrationMixin(rx.State, mixin=True):
         corresponding model_vram_cache variant id and drop any stored
         failure_status. No-op if the cache has no entry or no failure
         for that id."""
-        from aifred.lib.model_vram_cache import load_cache, save_cache
+        from aifred.lib.model_vram_cache import clear_calibration_failure
         from aifred.lib.vision_routing import vlm_calibration_choices
 
         model_id = self.agent_tuning["aifred"].model_id or ""
@@ -643,22 +569,7 @@ class CalibrationMixin(rx.State, mixin=True):
         valid_vlms = {c["key"] for c in vlm_calibration_choices()}
         if vlm_key and vlm_key not in valid_vlms:
             return
-        if vlm_key and tts_key:
-            variant_id = f"{model_id}-tts-{tts_key}-vlm-{vlm_key}"
-        elif vlm_key:
-            variant_id = f"{model_id}-vlm-{vlm_key}"
-        elif tts_key:
-            variant_id = f"{model_id}-tts-{tts_key}"
-        else:
-            variant_id = model_id
-
-        cache = load_cache()
-        entry = cache.get(variant_id)
-        if not entry or not entry.get("failure_status"):
-            return
-        entry.pop("failure_status", None)
-        cache[variant_id] = entry
-        save_cache(cache)
+        clear_calibration_failure(variant_id_for_cell(model_id, vlm_key, tts_key))
 
     @rx.var(cache=True, deps=["_agents_json_revision"])
     def calibration_ai_label(self) -> str:
@@ -884,142 +795,153 @@ class CalibrationMixin(rx.State, mixin=True):
             )
 
     async def _calibrate_vllm_impl(self):
-        """vLLM-Betriebspunkt-Suche als Background-Lauf (Paket 3).
+        """vLLM-Kalibration als Background-Lauf: Basis und Profile der angehakten Zellen.
 
-        Die blockierende Suche (Boots, Messungen) laeuft in einem Thread;
-        Fortschritt fliesst thread-sicher ueber eine Queue in den
-        Kalibrier-Puffer. Cancel: das prozessweite Gate-Flag reicht bis in
-        die Boot-Warteschleifen der Probe; zusaetzlich haelt ein lokales
-        Stop-Event den Thread an, falls der Wrapper den Generator schliesst
-        BEVOR der Gate-Reset das Cancel-Flag wieder loescht (sonst liefe
-        ein Zombie-Boot weiter).
+        Wie bei llama.cpp steht jede Zelle der Matrix fuer ein llama-swap-Profil
+        (Weg A, 20.10.2026): die Basiszelle fuer den Betriebspunkt auf allen
+        Karten, jede andere fuer ``<entry>-tts-<engine>[-vlm-<key>]``, das genau
+        den Platz seiner Zusatzmodelle schafft. Vorab laufen die Burn-ins, deren
+        Spitzen noch fehlen. Die blockierenden Laeufe (Boots, Messungen) laufen
+        in einem Thread (_run_vllm_work).
         """
-        import asyncio
-        import queue as _queue
+        import functools
         import threading
 
-        from ..lib.calibration.vllm_flow import calibrate_vllm_checkpoint
+        from ..lib import tts_vram_cache
+        from ..lib.calibration.vllm_flow import (
+            _smi_index_by_uuid,
+            calibrate_vllm_checkpoint,
+            calibrate_vllm_side_channel_variant,
+        )
         from ..lib.calibration_gate import is_cancel_requested
-        from ..lib.config import DATA_DIR
-        from ..lib.formatting import format_number
-        from ..lib.tts_service import running_gpu_engine
+        from ..lib.config import DATA_DIR, VLM_NUM_CTX
+        from ..lib.process_utils import start_llama_swap, stop_llama_swap
+        from ..lib.vision_routing import vlm_calibration_choices
+        from ..lib.vlm_stress_prewarm import resolve_vlm_reserve
 
         assert _vllm_cal_target is not None
         checkpoint, entry_name = _vllm_cal_target
-        progress_q: _queue.Queue[str] = _queue.Queue()
         stop_event = threading.Event()
         log_dir = DATA_DIR / "logs" / "vllm_calibration" / entry_name
 
         def _cancelled() -> bool:
             return stop_event.is_set() or is_cancel_requested()
 
-        # Wie beim llamacpp-Lauf: llama-swap stoppen, damit geladene
-        # Modelle den VRAM freigeben — sonst ist die Topologie-Leiter
-        # blind (belegte Karten liessen am 2026-08-30 nur das Gitter
-        # durch, dessen Boot an den vollen GPUs starb). Den Drain-Check
-        # (prozessbasiert, SSOT-Primitiv) macht der Flow selbst; der
-        # Neustart im finally laedt zugleich die frisch persistierte
-        # Config des neuen Betriebspunkts.
-        from ..lib.process_utils import start_llama_swap, stop_llama_swap
+        # Wie beim llamacpp-Lauf: llama-swap stoppen, damit geladene Modelle
+        # den VRAM freigeben — sonst ist die Topologie-Leiter blind (belegte
+        # Karten liessen am 2026-08-30 nur das Gitter durch, dessen Boot dann
+        # starb). Der Neustart im finally laedt die frisch persistierten Profile.
         llama_swap_stopped = False
         try:
-            if stop_llama_swap():
-                llama_swap_stopped = True
-                self._cal_debug("🧹 llama-swap stopped (freeing VRAM for calibration)")
-        except Exception as stop_err:  # noqa: BLE001 — weiter mit Warnung
-            self._cal_debug(f"⚠️ Could not stop llama-swap: {stop_err}")
-        await asyncio.to_thread(_release_tts_for_calibration, self._cal_debug)
-
-        # Gemeinsamer Side-Channel-Burn-in VOR der Topologie-Leiter:
-        # vLLM laesst die TTS-/VLM-Karte ohnehin aus (side_channel_uuids),
-        # deshalb braucht es hier keine VLM x TTS-Matrix wie bei llama.cpp
-        # — wohl aber die Antwort, ob beide Dienste zusammen auf diese EINE
-        # Karte passen. Der Lauf laeuft mit gestopptem llama-swap, also auf
-        # sonst leerer Karte, und misst die gemeinsame Spitze unter Last.
-        _tts_engine = running_gpu_engine()
-        if _tts_engine:
-            from ..lib.sidechannel_burnin import burnin_sidechannel
-            self._cal_debug(
-                f"🔥 Side-channel burn-in: {_tts_engine} + VLM on one card..."
-            )
-            yield
             try:
-                _sc = await burnin_sidechannel(_tts_engine, debug=self._cal_debug)
-            except Exception as sc_err:  # noqa: BLE001 — Messung, kein Tor
-                self._cal_debug(f"⚠️ Side-channel burn-in failed: {sc_err}")
-                _sc = None
-            if _sc and not _sc["fits"]:
-                self._cal_debug(
-                    f"🚨 VLM + {_tts_engine} exceed GPU {_sc['gpu_index']}: "
-                    f"{format_number(_sc['joint_peak_mb'])} MiB peak vs "
-                    f"{format_number(_sc['total_mb'])} MiB — the side channel "
-                    f"will OOM under load."
-                )
-            yield
+                if stop_llama_swap():
+                    llama_swap_stopped = True
+                    self._cal_debug("🧹 llama-swap stopped (freeing VRAM for calibration)")
+            except Exception as stop_err:  # noqa: BLE001 — weiter mit Warnung
+                self._cal_debug(f"⚠️ Could not stop llama-swap: {stop_err}")
+            await asyncio.to_thread(_release_tts_for_calibration, self._cal_debug)
 
-        # Basiszelle wie bei llama.cpp: nicht angehakt heisst, den
-        # vorhandenen Betriebspunkt behalten und nur die angehakten
-        # Seitenkanal-Paare einzubrennen (das ist oben schon passiert).
-        if not self.calibration_matrix.get("|", False):
-            self._cal_debug(  # type: ignore[attr-defined]
-                "⏭️ Skipping base — keeping the persisted operating point"
-            )
-            yield
-            return
-
-        def _run():
-            return calibrate_vllm_checkpoint(
-                checkpoint=checkpoint,
-                entry_name=entry_name,
-                log_dir=log_dir,
-                progress=progress_q.put,
-                cancel_check=_cancelled,
-                resweep=self.calibration_vllm_resweep,
-                dry_run=self.calibration_vllm_dry_run,
-            )
-
-        task = asyncio.create_task(asyncio.to_thread(_run))
-        try:
-            while not task.done():
-                while not progress_q.empty():
-                    self._cal_debug(progress_q.get_nowait())
+            burnin_failures: list[str] = []
+            async for _ in self._side_channel_burnins(burnin_failures):
                 yield
-                await asyncio.sleep(1.0)
-            while not progress_q.empty():
-                self._cal_debug(progress_q.get_nowait())
-            result = task.result()
-            # Abschluss-Optik wie beim llamacpp-Lauf (Doppelstrich +
-            # Zusammenfassung + Trennstrich), Zahlen via format_number-SSOT.
-            from ..lib.formatting import format_number
-            from ..lib.logging_utils import CONSOLE_SEPARATOR
-            sweep = ", ".join(
-                f"k={k}: {format_number(v, 1)}"
-                for k, v in sorted(result.k_sweep.items())
-            )
-            self._cal_debug("═" * 20)
-            self._cal_debug(
-                f"✅ vLLM calibration complete for {entry_name}:"
-            )
-            self._cal_debug(
-                f"   {format_number(result.throughput_tok_s, 1)} tok/s "
-                f"(TP{result.spec.tp}×PP{result.spec.pp}, k={result.spec.k}, "
-                f"ctx {format_number(result.spec.mml)})"
-            )
-            self._cal_debug(f"   k-sweep: {sweep}")
-            if result.speed_label:
-                self._cal_debug(
-                    f"   Speed candidate: {result.speed_label} k={result.speed_k}, "
-                    f"{format_number(result.speed_tps, 1)} tok/s "
-                    f"(ctx {format_number(result.speed_mml)}, info only)"
-                )
-            self._cal_debug(
-                f"   Profile: {result.profile_path}" if result.profile_path
-                else "   Profile: not persisted (dry run)"
-            )
-            self._cal_debug(CONSOLE_SEPARATOR)
+            if burnin_failures:
+                self._log_burnin_failures(burnin_failures)
+                yield
+                return
+            async for _ in self._joint_side_channel_burnins():
+                yield
+
+            if self.calibration_matrix.get("|", False):
+                outcome: list = []
+                async for _ in self._run_vllm_work(
+                    lambda progress: calibrate_vllm_checkpoint(
+                        checkpoint=checkpoint, entry_name=entry_name, log_dir=log_dir,
+                        progress=progress, cancel_check=_cancelled,
+                        resweep=self.calibration_vllm_resweep,
+                        dry_run=self.calibration_vllm_dry_run,
+                    ),
+                    stop_event, outcome,
+                ):
+                    yield
+                self._report_vllm_base(entry_name, outcome[0])
+            else:
+                self._cal_debug("⏭️ Skipping base — keeping the persisted operating point")
+            yield
+
+            vlm_by_key = {c["key"]: c for c in vlm_calibration_choices()}
+            for cell, ticked in sorted(self.calibration_matrix.items()):
+                vlm_key, _, tts_key = cell.partition("|")
+                if not ticked or cell == "|" or (vlm_key and vlm_key not in vlm_by_key):
+                    continue
+                variant = variant_id_for_cell(entry_name, vlm_key, tts_key)
+                tts_mb = (tts_vram_cache.get(tts_key) or 0) if tts_key else 0
+                vlm_card: int | None = None
+                vlm_mb = 0
+                if vlm_key:
+                    vlm_uuid, vlm_mb = await resolve_vlm_reserve(
+                        VLM_NUM_CTX, model_id_override=vlm_by_key[vlm_key]["model_id"])
+                    vlm_card = _smi_index_by_uuid().get(vlm_uuid or "")
+                if (tts_key and tts_mb <= 0) or (vlm_key and (vlm_card is None or vlm_mb <= 0)):
+                    self._cal_debug(f"⚠️ {variant}: side-channel peak unknown — skipped")
+                    yield
+                    continue
+                self._cal_debug(f"🔀 Profile {variant} ...")
+                yield
+                async for _ in self._run_vllm_work(
+                    functools.partial(
+                        calibrate_vllm_side_channel_variant,
+                        entry_name, variant, tts_mb=tts_mb, vlm_card=vlm_card,
+                        vlm_mb=vlm_mb, log_dir=log_dir, cancel_check=_cancelled,
+                    ),
+                    stop_event, [],
+                ):
+                    yield
         except Exception as e:  # noqa: BLE001 — Background-Lauf: Fehler
             # muessen als Meldung ankommen, nicht still verschwinden
             self._cal_debug(f"❌ vLLM calibration failed: {type(e).__name__}: {e}")
+        finally:
+            if llama_swap_stopped:
+                try:
+                    if start_llama_swap():
+                        self._cal_debug(
+                            "🔄 llama-swap restarted (loads the freshly "
+                            "persisted operating points)"
+                            if not self.calibration_vllm_dry_run
+                            else "🔄 llama-swap restarted (dry run: operating "
+                                 "point unchanged)"
+                        )
+                except Exception as start_err:  # noqa: BLE001
+                    self._cal_debug(
+                        f"⚠️ llama-swap restart failed: {start_err} — "
+                        f"run llama-swap-restart manually"
+                    )
+
+    async def _run_vllm_work(self, work: Any, stop_event: Any, outcome: list):
+        """``work(progress=...)`` in einem Thread; Fortschritt fliesst thread-sicher in den Kalibrier-Puffer.
+
+        Das Ergebnis landet in ``outcome``, ein Fehler des Laufs geht an den
+        Aufrufer. Cancel: das prozessweite Gate-Flag reicht bis in die
+        Boot-Warteschleifen der Probe; zusaetzlich haelt ``stop_event`` den
+        Thread an, falls der Wrapper den Generator schliesst, BEVOR der
+        Gate-Reset das Cancel-Flag wieder loescht (sonst liefe ein Zombie-Boot
+        weiter).
+        """
+        import queue
+
+        progress_q: queue.Queue[str] = queue.Queue()
+
+        def _drain() -> None:
+            while not progress_q.empty():
+                self._cal_debug(progress_q.get_nowait())
+
+        task = asyncio.create_task(asyncio.to_thread(work, progress=progress_q.put))
+        try:
+            while not task.done():
+                _drain()
+                yield
+                await asyncio.sleep(1.0)
+            _drain()
+            outcome.append(task.result())
         finally:
             if not task.done():
                 stop_event.set()
@@ -1030,23 +952,81 @@ class CalibrationMixin(rx.State, mixin=True):
                         "⚠️ vLLM calibration thread still winding down — "
                         "a probe server may linger briefly"
                     )
-            while not progress_q.empty():
-                self._cal_debug(progress_q.get_nowait())
-            if llama_swap_stopped:
-                try:
-                    if start_llama_swap():
-                        self._cal_debug(
-                            "🔄 llama-swap restarted (loads the freshly "
-                            "persisted operating point)"
-                            if not self.calibration_vllm_dry_run
-                            else "🔄 llama-swap restarted (dry run: operating "
-                                 "point unchanged)"
-                        )
-                except Exception as start_err:  # noqa: BLE001
-                    self._cal_debug(
-                        f"⚠️ llama-swap restart failed: {start_err} — "
-                        f"run llama-swap-restart manually"
-                    )
+            _drain()
+
+    async def _joint_side_channel_burnins(self):
+        """Gemeinsame Spitze von VLM und TTS auf der Sammelkarte, je angehakter Kombination.
+
+        Die Profile planen mit der Summe der Einzelspitzen; ob die Summe traegt,
+        wenn beide gleichzeitig ihre Puffer halten, misst dieser Lauf (VLM
+        laden, TTS-Stresslauf auf derselben Karte). Er misst das aktive VLM —
+        Kombinationen mit einem anderen VLM bleiben ungeprueft. Ergebnis ist
+        eine Warnung, kein Tor.
+        """
+        from ..lib.formatting import format_number
+        from ..lib.sidechannel_burnin import burnin_sidechannel
+        from ..lib.vision_prewarm import get_active_vlm_key
+
+        active_vlm = get_active_vlm_key() or ""
+        for cell, ticked in sorted(self.calibration_matrix.items()):
+            vlm_key, _, tts_key = cell.partition("|")
+            if not (ticked and vlm_key and tts_key and vlm_key == active_vlm):
+                continue
+            self._cal_debug(f"🔥 Joint burn-in: {tts_key} next to the VLM on one card...")
+            yield
+            try:
+                joint = await burnin_sidechannel(tts_key, debug=self._cal_debug)
+            except Exception as joint_err:  # noqa: BLE001 — Messung, kein Tor
+                self._cal_debug(f"⚠️ Joint burn-in failed: {joint_err}")
+                joint = None
+            if joint and not joint["fits"]:
+                self._cal_debug(
+                    f"🚨 VLM + {tts_key} exceed GPU {joint['gpu_index']}: "
+                    f"{format_number(joint['joint_peak_mb'])} MiB peak vs "
+                    f"{format_number(joint['total_mb'])} MiB — the side channel "
+                    f"will OOM under load."
+                )
+            yield
+
+    def _report_vllm_base(self, entry_name: str, result: Any) -> None:
+        """Abschluss-Optik wie beim llamacpp-Lauf (Doppelstrich, Zusammenfassung, Trennstrich)."""
+        from ..lib.formatting import format_number
+        from ..lib.logging_utils import CONSOLE_SEPARATOR
+        sweep = ", ".join(
+            f"k={k}: {format_number(v, 1)}" for k, v in sorted(result.k_sweep.items())
+        )
+        self._cal_debug("═" * 20)
+        self._cal_debug(f"✅ vLLM calibration complete for {entry_name}:")
+        self._cal_debug(
+            f"   {format_number(result.throughput_tok_s, 1)} tok/s "
+            f"(TP{result.spec.tp}×PP{result.spec.pp}, k={result.spec.k}, "
+            f"ctx {format_number(result.spec.mml)})"
+        )
+        self._cal_debug(f"   k-sweep: {sweep}")
+        if result.speed_label:
+            self._cal_debug(
+                f"   Speed candidate: {result.speed_label} k={result.speed_k}, "
+                f"{format_number(result.speed_tps, 1)} tok/s "
+                f"(ctx {format_number(result.speed_mml)}, info only)"
+            )
+        self._cal_debug(
+            f"   Profile: {result.profile_path}" if result.profile_path
+            else "   Profile: not persisted (dry run)"
+        )
+        self._cal_debug(CONSOLE_SEPARATOR)
+
+    def _log_burnin_failures(self, failures: list[str]) -> None:
+        """Why the calibration stops after a failed burn-in (both backends)."""
+        from ..lib.logging_utils import CONSOLE_SEPARATOR
+        self._cal_debug(CONSOLE_SEPARATOR)
+        self._cal_debug("❌ Burn-in failed — calibration aborted. Issues:")
+        for failure in failures:
+            self._cal_debug(f"   • {failure}")
+        self._cal_debug(
+            "Check container logs (and verify voice/language "
+            "config for the failing engine), then restart "
+            "the calibration."
+        )
 
     async def _calibrate_context_impl(self):
         """Eigentlicher Kalibrierlauf (async generator, kein Event-Handler).
@@ -1436,6 +1416,200 @@ class CalibrationMixin(rx.State, mixin=True):
             )
         yield
 
+    async def _side_channel_burnins(self, _burnin_failures: list[str]):
+        """Burn-ins for every TTS engine and VLM a ticked matrix cell needs but whose peak is not cached.
+
+        Shared by the llama.cpp and the vLLM calibration: both plan the side channels' budgets from
+        these peaks. Failures land in ``_burnin_failures``; the caller aborts on any.
+        """
+        from ..lib.config import VLM_NUM_CTX
+        from ..lib.vision_routing import vlm_calibration_choices
+        vlm_choices = vlm_calibration_choices()
+
+        # Step 1c: Pre-burn-in for any TTS engine or VLM model that
+        # appears in an active matrix cell but has no entry in its
+        # VRAM cache yet. Doing this *before* the LLM calibration
+        # guarantees the values are available when the variant loops
+        # need them — also covers the isolated-mode shortcut path,
+        # which writes TTS variants without ever calling
+        # ``resolve_tts_reserve`` and would otherwise leave caches
+        # permanently empty.
+        from ..lib import tts_vram_cache, vlm_vram_cache
+        from ..lib.tts_service import installed_gpu_engine_keys
+
+        # Which engines / VLMs does the user's matrix selection reach?
+        _engine_list = installed_gpu_engine_keys()
+        _needed_tts: set[str] = set()
+        for _ek in _engine_list:
+            if self.calibration_matrix.get(f"|{_ek}", False):
+                _needed_tts.add(_ek)
+            for _vc in vlm_choices:
+                if self.calibration_matrix.get(f"{_vc['key']}|{_ek}", False):
+                    _needed_tts.add(_ek)
+        _needed_vlms: list[dict[str, str]] = []
+        _all_tts_slots = ["", *_engine_list]
+        for _vc in vlm_choices:
+            if any(
+                self.calibration_matrix.get(f"{_vc['key']}|{_t}", False)
+                for _t in _all_tts_slots
+            ):
+                _needed_vlms.append(_vc)
+
+        # TTS burn-ins for missing cache entries. Failures are fatal:
+        # a burn-in that can't actually do real synthesis would write
+        # only the container's idle footprint, misleading the LLM
+        # calibration into reserving too little VRAM on the TTS GPU.
+        # Better to abort here than silently calibrate a profile that
+        # OOMs on the first production call.
+        #
+        # Progress-Callbacks laufen über ``self._cal_debug`` (Logfile +
+        # Puffer, KEIN State-Zugriff) — der Background-Wrapper drainiert
+        # den Puffer unter Lock in die Konsole. ``self.add_debug`` als
+        # Callback würde hier (außerhalb ``async with self``) mit
+        # ImmutableStateError crashen (beobachtet 2026-07-05 19:00 beim
+        # Start der TTS-Varianten-Kalibrierung). session_scope bleibt für
+        # etwaige direkte bus-``debug()``-Aufrufe tieferer Ebenen.
+        from ..lib.debug_bus import session_scope as _debug_session_scope
+        _session_id = getattr(self, "session_id", "") or ""
+        if _needed_tts:
+            from ..lib.tts_stress_burnin import stress_burnin_tts
+            missing_tts = [k for k in sorted(_needed_tts)
+                           if tts_vram_cache.get(k) is None]
+            if missing_tts:
+                self._cal_debug(  # type: ignore[attr-defined]
+                    f"🔥 Pre-burn-in TTS (missing cache: {', '.join(missing_tts)})"
+                )
+                yield
+                for _ek in missing_tts:
+                    # Same pattern as the channels: bus_debug writes
+                    # to the session file (live via mtime-watcher),
+                    # asyncio.create_task keeps the work off the
+                    # main coroutine so periodic yields can push
+                    # any state-bound updates concurrently.
+                    with _debug_session_scope(_session_id):
+                        # _cal_debug: Logfile + Puffer (kein State-Zugriff)
+                        # — der Wrapper flusht den Puffer beim nächsten
+                        # yield unter Lock in die Konsole.
+                        _t_task = asyncio.create_task(
+                            stress_burnin_tts(_ek, debug=self._cal_debug)  # type: ignore[attr-defined]
+                        )
+                        try:
+                            while not _t_task.done():
+                                yield
+                                await asyncio.sleep(0.3)
+                            _peak = await _t_task
+                        except Exception as _e:  # noqa: BLE001
+                            self._cal_debug(  # type: ignore[attr-defined]
+                                f"   ❌ {_ek} burn-in error: {_e}"
+                            )
+                            _burnin_failures.append(f"TTS {_ek}: {_e}")
+                        else:
+                            if _peak is not None and _peak > 0:
+                                tts_vram_cache.put(_ek, _peak)
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   ✅ {_ek}: peak {_peak} MiB cached"
+                                )
+                            elif _peak is None:
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   ❌ {_ek}: burn-in failed — see error above"
+                                )
+                                _burnin_failures.append(
+                                    f"TTS {_ek}: stress synthesis failed"
+                                )
+                            else:
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   ⚠️ {_ek}: burn-in returned 0 MiB"
+                                )
+                                _burnin_failures.append(
+                                    f"TTS {_ek}: zero-peak measurement"
+                                )
+                        finally:
+                            # User-Cancel trifft als GeneratorExit das
+                            # yield in der Poll-Schleife (kein Exception-
+                            # Subtyp) — ohne Cancel liefe der Burn-in
+                            # weiter, während das Teardown llama-swap
+                            # schon wieder hochfährt.
+                            if not _t_task.done():
+                                _t_task.cancel()
+                    yield
+
+        # VLM burn-ins for missing cache entries
+        if _needed_vlms:
+            from ..lib.vlm_stress_prewarm import stress_prewarm_vlm
+            from ..lib.vision_gpu_select import pick_vlm_gpu
+            missing_vlms = [c for c in _needed_vlms
+                            if vlm_vram_cache.get(c["model_id"], VLM_NUM_CTX) is None]
+            if missing_vlms:
+                _labels = ", ".join(c["label"] for c in missing_vlms)
+                self._cal_debug(  # type: ignore[attr-defined]
+                    f"🔥 Pre-burn-in VLM (missing cache: {_labels})"
+                )
+                yield
+                try:
+                    _gpu_idx = pick_vlm_gpu()
+                except RuntimeError as _e:
+                    self._cal_debug(  # type: ignore[attr-defined]
+                        f"   ⚠️ VLM GPU pick failed: {_e}"
+                    )
+                    _gpu_idx = -1
+                if _gpu_idx >= 0:
+                    for _vc in missing_vlms:
+                        _mid = _vc["model_id"]
+                        self._cal_debug(  # type: ignore[attr-defined]
+                            f"   🔥 {_vc['label']} stress prewarm on GPU{_gpu_idx}..."
+                        )
+                        yield
+                        with _debug_session_scope(_session_id):
+                            # stress_prewarm_vlm logs internally via
+                            # ``logger.info`` (no debug callback);
+                            # progress for the outer mixin happens
+                            # below in the while loop's yields.
+                            _v_task = asyncio.create_task(
+                                stress_prewarm_vlm(
+                                    _mid, num_ctx=VLM_NUM_CTX,
+                                    gpu_index=_gpu_idx,
+                                )
+                            )
+                            try:
+                                while not _v_task.done():
+                                    yield
+                                    await asyncio.sleep(0.3)
+                                _peak = await _v_task
+                            except Exception as _e:  # noqa: BLE001
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   ❌ {_vc['label']} prewarm error: {_e}"
+                                )
+                                _burnin_failures.append(
+                                    f"VLM {_vc['label']}: {_e}"
+                                )
+                            else:
+                                if _peak is not None and _peak > 0:
+                                    vlm_vram_cache.put(_mid, VLM_NUM_CTX, _peak)
+                                    self._cal_debug(  # type: ignore[attr-defined]
+                                        f"   ✅ {_vc['label']}: peak {_peak} MiB cached"
+                                    )
+                                else:
+                                    self._cal_debug(  # type: ignore[attr-defined]
+                                        f"   ❌ {_vc['label']}: prewarm failed"
+                                    )
+                                    _burnin_failures.append(
+                                        f"VLM {_vc['label']}: prewarm failed"
+                                    )
+                            finally:
+                                # Wie beim TTS-Burn-in: GeneratorExit am
+                                # Poll-yield darf den Prewarm-Task nicht
+                                # verwaisen lassen.
+                                if not _v_task.done():
+                                    _v_task.cancel()
+                        yield
+
+        # Wait for VRAM to settle after burn-ins so the LLM
+        # calibration's nvidia-smi probe sees free memory, not
+        # leftover container allocations.
+        if _needed_tts or _needed_vlms:
+            from ..backends.ollama import wait_for_vram_stable
+            await wait_for_vram_stable(max_wait_seconds=15.0)
+
     async def _calibrate_llamacpp(self):
         """
         llama.cpp calibration via direct llama-server binary search.
@@ -1609,206 +1783,15 @@ class CalibrationMixin(rx.State, mixin=True):
             from ..lib.vision_routing import vlm_calibration_choices
             vlm_choices = vlm_calibration_choices()
 
-            # Step 1c: Pre-burn-in for any TTS engine or VLM model that
-            # appears in an active matrix cell but has no entry in its
-            # VRAM cache yet. Doing this *before* the LLM calibration
-            # guarantees the values are available when the variant loops
-            # need them — also covers the isolated-mode shortcut path,
-            # which writes TTS variants without ever calling
-            # ``resolve_tts_reserve`` and would otherwise leave caches
-            # permanently empty.
-            from ..lib import tts_vram_cache, vlm_vram_cache
-            from ..lib.tts_service import installed_gpu_engine_keys
-
-            # Which engines / VLMs does the user's matrix selection reach?
-            _engine_list = installed_gpu_engine_keys()
-            _needed_tts: set[str] = set()
-            for _ek in _engine_list:
-                if self.calibration_matrix.get(f"|{_ek}", False):
-                    _needed_tts.add(_ek)
-                for _vc in vlm_choices:
-                    if self.calibration_matrix.get(f"{_vc['key']}|{_ek}", False):
-                        _needed_tts.add(_ek)
-            _needed_vlms: list[dict[str, str]] = []
-            _all_tts_slots = ["", *_engine_list]
-            for _vc in vlm_choices:
-                if any(
-                    self.calibration_matrix.get(f"{_vc['key']}|{_t}", False)
-                    for _t in _all_tts_slots
-                ):
-                    _needed_vlms.append(_vc)
-
-            # TTS burn-ins for missing cache entries. Failures are fatal:
-            # a burn-in that can't actually do real synthesis would write
-            # only the container's idle footprint, misleading the LLM
-            # calibration into reserving too little VRAM on the TTS GPU.
-            # Better to abort here than silently calibrate a profile that
-            # OOMs on the first production call.
-            #
-            # Progress-Callbacks laufen über ``self._cal_debug`` (Logfile +
-            # Puffer, KEIN State-Zugriff) — der Background-Wrapper drainiert
-            # den Puffer unter Lock in die Konsole. ``self.add_debug`` als
-            # Callback würde hier (außerhalb ``async with self``) mit
-            # ImmutableStateError crashen (beobachtet 2026-07-05 19:00 beim
-            # Start der TTS-Varianten-Kalibrierung). session_scope bleibt für
-            # etwaige direkte bus-``debug()``-Aufrufe tieferer Ebenen.
-            from ..lib.debug_bus import session_scope as _debug_session_scope
-            _session_id = getattr(self, "session_id", "") or ""
             _burnin_failures: list[str] = []
-            if _needed_tts:
-                from ..lib.tts_stress_burnin import stress_burnin_tts
-                missing_tts = [k for k in sorted(_needed_tts)
-                               if tts_vram_cache.get(k) is None]
-                if missing_tts:
-                    self._cal_debug(  # type: ignore[attr-defined]
-                        f"🔥 Pre-burn-in TTS (missing cache: {', '.join(missing_tts)})"
-                    )
-                    yield
-                    for _ek in missing_tts:
-                        # Same pattern as the channels: bus_debug writes
-                        # to the session file (live via mtime-watcher),
-                        # asyncio.create_task keeps the work off the
-                        # main coroutine so periodic yields can push
-                        # any state-bound updates concurrently.
-                        with _debug_session_scope(_session_id):
-                            # _cal_debug: Logfile + Puffer (kein State-Zugriff)
-                            # — der Wrapper flusht den Puffer beim nächsten
-                            # yield unter Lock in die Konsole.
-                            _t_task = asyncio.create_task(
-                                stress_burnin_tts(_ek, debug=self._cal_debug)  # type: ignore[attr-defined]
-                            )
-                            try:
-                                while not _t_task.done():
-                                    yield
-                                    await asyncio.sleep(0.3)
-                                _peak = await _t_task
-                            except Exception as _e:  # noqa: BLE001
-                                self._cal_debug(  # type: ignore[attr-defined]
-                                    f"   ❌ {_ek} burn-in error: {_e}"
-                                )
-                                _burnin_failures.append(f"TTS {_ek}: {_e}")
-                            else:
-                                if _peak is not None and _peak > 0:
-                                    tts_vram_cache.put(_ek, _peak)
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ✅ {_ek}: peak {_peak} MiB cached"
-                                    )
-                                elif _peak is None:
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ❌ {_ek}: burn-in failed — see error above"
-                                    )
-                                    _burnin_failures.append(
-                                        f"TTS {_ek}: stress synthesis failed"
-                                    )
-                                else:
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ⚠️ {_ek}: burn-in returned 0 MiB"
-                                    )
-                                    _burnin_failures.append(
-                                        f"TTS {_ek}: zero-peak measurement"
-                                    )
-                            finally:
-                                # User-Cancel trifft als GeneratorExit das
-                                # yield in der Poll-Schleife (kein Exception-
-                                # Subtyp) — ohne Cancel liefe der Burn-in
-                                # weiter, während das Teardown llama-swap
-                                # schon wieder hochfährt.
-                                if not _t_task.done():
-                                    _t_task.cancel()
-                        yield
-
-            # VLM burn-ins for missing cache entries
-            if _needed_vlms:
-                from ..lib.vlm_stress_prewarm import stress_prewarm_vlm
-                from ..lib.vision_gpu_select import pick_vlm_gpu
-                missing_vlms = [c for c in _needed_vlms
-                                if vlm_vram_cache.get(c["model_id"], VLM_NUM_CTX) is None]
-                if missing_vlms:
-                    _labels = ", ".join(c["label"] for c in missing_vlms)
-                    self._cal_debug(  # type: ignore[attr-defined]
-                        f"🔥 Pre-burn-in VLM (missing cache: {_labels})"
-                    )
-                    yield
-                    try:
-                        _gpu_idx = pick_vlm_gpu()
-                    except RuntimeError as _e:
-                        self._cal_debug(  # type: ignore[attr-defined]
-                            f"   ⚠️ VLM GPU pick failed: {_e}"
-                        )
-                        _gpu_idx = -1
-                    if _gpu_idx >= 0:
-                        for _vc in missing_vlms:
-                            _mid = _vc["model_id"]
-                            self._cal_debug(  # type: ignore[attr-defined]
-                                f"   🔥 {_vc['label']} stress prewarm on GPU{_gpu_idx}..."
-                            )
-                            yield
-                            with _debug_session_scope(_session_id):
-                                # stress_prewarm_vlm logs internally via
-                                # ``logger.info`` (no debug callback);
-                                # progress for the outer mixin happens
-                                # below in the while loop's yields.
-                                _v_task = asyncio.create_task(
-                                    stress_prewarm_vlm(
-                                        _mid, num_ctx=VLM_NUM_CTX,
-                                        gpu_index=_gpu_idx,
-                                    )
-                                )
-                                try:
-                                    while not _v_task.done():
-                                        yield
-                                        await asyncio.sleep(0.3)
-                                    _peak = await _v_task
-                                except Exception as _e:  # noqa: BLE001
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ❌ {_vc['label']} prewarm error: {_e}"
-                                    )
-                                    _burnin_failures.append(
-                                        f"VLM {_vc['label']}: {_e}"
-                                    )
-                                else:
-                                    if _peak is not None and _peak > 0:
-                                        vlm_vram_cache.put(_mid, VLM_NUM_CTX, _peak)
-                                        self._cal_debug(  # type: ignore[attr-defined]
-                                            f"   ✅ {_vc['label']}: peak {_peak} MiB cached"
-                                        )
-                                    else:
-                                        self._cal_debug(  # type: ignore[attr-defined]
-                                            f"   ❌ {_vc['label']}: prewarm failed"
-                                        )
-                                        _burnin_failures.append(
-                                            f"VLM {_vc['label']}: prewarm failed"
-                                        )
-                                finally:
-                                    # Wie beim TTS-Burn-in: GeneratorExit am
-                                    # Poll-yield darf den Prewarm-Task nicht
-                                    # verwaisen lassen.
-                                    if not _v_task.done():
-                                        _v_task.cancel()
-                            yield
-
-            # Wait for VRAM to settle after burn-ins so the LLM
-            # calibration's nvidia-smi probe sees free memory, not
-            # leftover container allocations.
-            if _needed_tts or _needed_vlms:
-                from ..backends.ollama import wait_for_vram_stable
-                await wait_for_vram_stable(max_wait_seconds=15.0)
+            async for _ in self._side_channel_burnins(_burnin_failures):
+                yield
 
             # Hard abort if any burn-in failed — better to surface the
             # problem now than write a calibration profile based on
             # idle-only or fallback values that OOM in production.
             if _burnin_failures:
-                self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
-                self._cal_debug(  # type: ignore[attr-defined]
-                    "❌ Burn-in failed — calibration aborted. Issues:"
-                )
-                for _f in _burnin_failures:
-                    self._cal_debug(f"   • {_f}")  # type: ignore[attr-defined]
-                self._cal_debug(  # type: ignore[attr-defined]
-                    "Check container logs (and verify voice/language "
-                    "config for the failing engine), then restart "
-                    "the calibration."
-                )
+                self._log_burnin_failures(_burnin_failures)
                 yield
                 # llama-swap wieder hochfahren, sonst hängt das System
                 from ..lib.process_utils import start_llama_swap
