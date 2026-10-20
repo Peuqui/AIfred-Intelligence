@@ -76,9 +76,9 @@ calibration).
   tunnel; a TP/PP group does not, because every token syncs across all
   of its cards. With uniform depth (or unknown bus IDs) the rule stays
   "second tier card".
-- **`pick_tts_gpu()`** and **`pick_vlm_gpu()`** both return this shared
-  card. TTS containers get its UUID via `get_tts_gpu_uuid()`
-  ([`process_utils.py`](../../../aifred/lib/process_utils.py)).
+- **`pick_vlm_gpu()`** returns this shared card. The TTS-Suite places the
+  TTS engine itself (unused card first); the vLLM calibration keeps the
+  shared card free, and the joint burn-in measures VLM and TTS on it.
 - **InsightFace** (face recognition) follows the VLM: `gpu_id: "auto"` in
   the vision plugin's `face_recognition` settings resolves via
   `resolve_gpu_id()` → `pick_vlm_gpu()`.
@@ -106,7 +106,7 @@ When no card does, the profile is not written (a combo removes an old one and
 remembers the failure). The TTS variants (`-tts-<engine>`) stay, because runs
 without speech keep the full context. The vLLM calibration and the joint
 VLM + TTS burn-in (`sidechannel_burnin.py`) still work with the shared card
-(`get_tts_gpu_uuid()`).
+(`pick_side_channel_gpu()`).
 
 ### Examples
 
@@ -144,7 +144,7 @@ otherwise Ollama picks greedy first-fit. This VLM pin lives in externally
 managed configs (`ollama-vlm.service`, `-visiond` entries of the llama-swap
 config) that are **not** rewritten automatically. That is why the shared
 card is deliberately the second tier card, the one the VLM always ran on;
-TTS resolves its card itself via `get_tts_gpu_uuid()`. If the picker's
+the TTS-Suite places the TTS engine itself. If the picker's
 choice changes (hardware change, attachment depth), the VLM pin must be
 adjusted by hand.
 
@@ -465,9 +465,8 @@ from the base split via
 (relieves every reserve-loaded card) and verify with `lock_split=True` —
 only the context is free there.
 
-**Generic:** The TTS card is always the shared side-channel card
-(`pick_tts_gpu()` → `get_tts_gpu_uuid()`), whichever card that is on the
-current hardware — the algorithm adapts automatically, because free VRAM
+**Generic:** `pick_tts_reserve_gpu()` chooses the TTS card per layout from
+the current hardware — the algorithm adapts automatically, because free VRAM
 is measured live. The verify/refine loop is identical to the base path,
 only with different free VRAM values and reserves as input.
 
@@ -620,12 +619,12 @@ Evaluation of this path:
 - Hardware: [`aifred/lib/calibration/gpu.py`](../../../aifred/lib/calibration/gpu.py)
   - `enumerate_gpus()` — compute capability sorting, speed classes, `first_in_class`
   - `measure_first_gpu_handicap()` — idle handicap (floor/ceiling)
-- TTS pinning: [`aifred/lib/process_utils.py`](../../../aifred/lib/process_utils.py)
-  - `get_tts_gpu_uuid()` — TTS GPU pinning (UUID, via `pick_tts_gpu`)
+- TTS reserve: [`aifred/lib/calibration/tts_card.py`](../../../aifred/lib/calibration/tts_card.py)
+  - `pick_tts_reserve_gpu()` — card of the TTS reserve per layout (llama.cpp)
 - Side-channel placement: [`aifred/lib/vision_gpu_select.py`](../../../aifred/lib/vision_gpu_select.py)
   - `_side_channel_tier()` — tier formation + compute floor
   - `pick_side_channel_gpu()` — shared card (second tier card, weakest attachment first)
-  - `pick_tts_gpu()` / `pick_vlm_gpu()` — both return the shared card
+  - `pick_vlm_gpu()` — returns the shared card
   - `resolve_gpu_id()` — `"auto"` → `pick_vlm_gpu()` (InsightFace)
 - AI variant: [`aifred/lib/calibration/ai_agent.py`](../../../aifred/lib/calibration/ai_agent.py)
   - `calibrate_with_ai()` — tool loop (`estimate_config`, `probe_config`, `finalize`)

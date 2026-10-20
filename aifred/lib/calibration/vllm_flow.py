@@ -159,15 +159,8 @@ def eligible_gpus(reserved_uuids: set[str]) -> list[GPU]:
 
 
 def side_channel_uuids() -> set[str]:
-    """UUIDs der TTS-/VLM-Karten (bleiben frei, wie beim Betriebspunkt)."""
+    """UUID der Sammelkarte (VLM, daneben TTS; bleibt frei, wie beim Betriebspunkt)."""
     reserved: set[str] = set()
-    try:
-        from ..process_utils import get_tts_gpu_uuid
-        uuid = get_tts_gpu_uuid()
-        if uuid:
-            reserved.add(uuid)
-    except Exception as e:  # noqa: BLE001 — Side-Channel optional installiert
-        logger.debug(f"tts gpu lookup skipped: {e}")
     try:
         from ..vision_gpu_select import pick_vlm_gpu
         vlm_index = pick_vlm_gpu()  # PCI_BUS_ID-Index

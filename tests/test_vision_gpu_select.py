@@ -8,7 +8,7 @@ from aifred.lib import vision_gpu_select as vgs
 from aifred.lib.vision_gpu_select import (
     GpuInfo,
     ollama_override_text,
-    pick_tts_gpu,
+    pick_side_channel_gpu,
     pick_vlm_gpu,
     resolve_gpu_id,
 )
@@ -90,33 +90,33 @@ class TestPickVlmGpu:
         assert pick_vlm_gpu([a, b]) == 2  # b is LLM (idx 0), a is VLM (idx 2)
 
 
-class TestPickTtsGpu:
+class TestPickSideChannelGpu:
     def test_user_real_setup_tts_on_v100(self):
         """One V100 in the tier → TTS co-locates with VLM on it."""
         gpus = [_rtx8000(0), _p40(1), _rtx8000(2), _v100(3), _p40(4)]
-        assert pick_tts_gpu(gpus) == 3  # V100
+        assert pick_side_channel_gpu(gpus) == 3  # V100
 
     def test_two_v100_tier_shares_one_card(self):
         """Sammelkarte (2026-08-29): TTS und VLM teilen sich die zweite
         Tier-Karte — die erste bleibt für Backend-Topologien frei
         (z.B. TP2×PP2 bei der vLLM-Kalibration)."""
         gpus = [_rtx8000(0), _rtx8000(1), _v100(2), _v100(3), _p40(4)]
-        assert pick_tts_gpu(gpus) == 3  # gemeinsame Sammelkarte
+        assert pick_side_channel_gpu(gpus) == 3  # gemeinsame Sammelkarte
         assert pick_vlm_gpu(gpus) == 3  # dieselbe Karte
 
     def test_three_top_class_shared_on_third(self):
         """3× same class: LLM keeps the first, side channels share the
         third — the second stays free for the backend."""
         gpus = [_rtx8000(0), _rtx8000(1), _rtx8000(2)]
-        assert pick_tts_gpu(gpus) == 2
+        assert pick_side_channel_gpu(gpus) == 2
         assert pick_vlm_gpu(gpus) == 2
 
     def test_single_gpu_tts_on_it(self):
-        assert pick_tts_gpu([_rtx8000(0)]) == 0
+        assert pick_side_channel_gpu([_rtx8000(0)]) == 0
 
     def test_no_gpus_raises(self):
         with pytest.raises(RuntimeError, match="no CUDA GPU"):
-            pick_tts_gpu([])
+            pick_side_channel_gpu([])
 
 
 class TestComputeFloor:
@@ -124,21 +124,21 @@ class TestComputeFloor:
         """Floor: a P40 is never a side-channel host while a Volta+ card
         sits in the tier. TTS and VLM both land on the V100, not the P40."""
         gpus = [_rtx8000(0), _v100(1), _p40(2), _p40(3)]
-        assert pick_tts_gpu(gpus) == 1  # V100, not a P40
+        assert pick_side_channel_gpu(gpus) == 1  # V100, not a P40
         assert pick_vlm_gpu(gpus) == 1  # V100 (only floored card)
 
     def test_p40_only_soft_fallback(self):
         """All-P40 host: floor finds nothing ≥ 7.0, so it falls back —
         LLM keeps the first P40, side channels share the third."""
         gpus = [_p40(0), _p40(1), _p40(2)]
-        assert pick_tts_gpu(gpus) == 2  # gemeinsame Sammelkarte
+        assert pick_side_channel_gpu(gpus) == 2  # gemeinsame Sammelkarte
         assert pick_vlm_gpu(gpus) == 2  # dieselbe Karte
 
     def test_rtx_plus_p40_soft_fallback_to_p40(self):
         """Top tier is the only Volta+ card → side-channels fall back to
         the P40 rather than invading the LLM's RTX 8000."""
         gpus = [_rtx8000(0), _p40(1)]
-        assert pick_tts_gpu(gpus) == 1  # P40 (last resort)
+        assert pick_side_channel_gpu(gpus) == 1  # P40 (last resort)
         assert pick_vlm_gpu(gpus) == 1  # P40
 
 
@@ -234,7 +234,7 @@ class TestWeakAttachmentPreference:
         gpus = [_rtx8000(0), self._v100_bus(1), _rtx8000(2),
                 self._v100_bus(3), self._v100_bus(4)]
         assert pick_vlm_gpu(gpus) == 4
-        assert pick_tts_gpu(gpus) == 4
+        assert pick_side_channel_gpu(gpus) == 4
 
     def test_uniform_attachment_keeps_second_tier_card(self, monkeypatch):
         """Ohne Tunnel bleibt es bei der bisherigen Regel (zweite Karte)."""
