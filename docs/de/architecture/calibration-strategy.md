@@ -50,9 +50,10 @@ Die schnellste Compute-Klasse bleibt komplett frei für die Chat-LLMs
 (Haupt + Automatik via llama-swap). Die Side-Channels — das
 Vigilantia-VLM (Ollama) und die TTS-Container — laufen auf dem
 **Side-Channel-Tier**: der Compute-Klasse direkt darunter. Beide teilen
-sich **eine Karte** dieses Tiers (Entscheidung 2026-08-29), damit alle
-übrigen Karten für Backend-Topologien frei bleiben (z.B. TP2×PP2 über vier
-Karten bei der vLLM-Kalibration).
+sich **eine Karte** dieses Tiers (Entscheidung 2026-08-29). Freigehalten
+wird sie bei keiner Kalibration mehr (Weg A, 20.10.2026): das Hauptmodell
+darf alle Karten nutzen, die Profile `-tts-`/`-vlm-` schaffen genau den Platz
+ihrer Zusatzmodelle.
 
 ### Tier-Bildung (`_side_channel_tier()`)
 
@@ -78,8 +79,8 @@ Karten bei der vLLM-Kalibration).
   über alle ihre Karten synchronisiert. Bei gleicher Tiefe (oder
   unbekannten Bus-IDs) bleibt es bei „zweite Tier-Karte".
 - **`pick_vlm_gpu()`** liefert diese Sammelkarte. Die TTS-Engine platziert
-  die TTS-Suite selbst (leere Karte zuerst); die vLLM-Kalibration hält die
-  Sammelkarte frei, der gemeinsame Burn-in misst VLM und TTS auf ihr.
+  die TTS-Suite selbst (leere Karte zuerst); der gemeinsame Burn-in misst
+  VLM und TTS auf der Sammelkarte.
 - **InsightFace** (Gesichtserkennung) folgt dem VLM: `gpu_id: "auto"` in
   den `face_recognition`-Settings des Vision-Plugins wird über
   `resolve_gpu_id()` → `pick_vlm_gpu()` aufgelöst.
@@ -109,8 +110,10 @@ Die VLM-Reserve zählt auf ihrer Karte mit: beide Side-Channels müssen
 zusammen passen. Findet sich keine Karte, wird das Profil nicht geschrieben
 (Combo: ein altes Profil wird entfernt, der Fehler gemerkt). Die TTS-Varianten
 (`-tts-<engine>`) bleiben, weil Läufe ohne Sprachausgabe den vollen Kontext
-behalten sollen. Die vLLM-Kalibration und der gemeinsame Burn-in von VLM + TTS
-(`sidechannel_burnin.py`) rechnen weiter mit der Sammelkarte
+behalten sollen. Die vLLM-Kalibration folgt derselben Regel mit eigenen
+Mitteln (Override der KV-Blöcke statt Layer-Split), siehe
+[calibration-vllm.md](calibration-vllm.md), Phase H. Der gemeinsame Burn-in von
+VLM + TTS (`sidechannel_burnin.py`) misst weiter auf der Sammelkarte
 (`pick_side_channel_gpu()`).
 
 ### Beispiele

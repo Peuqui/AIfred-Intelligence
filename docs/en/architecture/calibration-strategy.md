@@ -49,9 +49,9 @@ The fastest compute class stays completely free for the chat LLMs
 (main + automatic via llama-swap). The side channels — the
 Vigilantia VLM (Ollama) and the TTS containers — run on the
 **side-channel tier**: the compute class directly below it. Both share
-**one card** of this tier (decision 2026-08-29), so all other cards stay
-free for backend topologies (e.g. TP2×PP2 across four cards in the vLLM
-calibration).
+**one card** of this tier (decision 2026-08-29). No calibration keeps it
+free any more (route A, 2026-10-20): the main model may use every card, and
+the `-tts-`/`-vlm-` profiles free exactly the room their side models need.
 
 ### Tier formation (`_side_channel_tier()`)
 
@@ -77,8 +77,8 @@ calibration).
   of its cards. With uniform depth (or unknown bus IDs) the rule stays
   "second tier card".
 - **`pick_vlm_gpu()`** returns this shared card. The TTS-Suite places the
-  TTS engine itself (unused card first); the vLLM calibration keeps the
-  shared card free, and the joint burn-in measures VLM and TTS on it.
+  TTS engine itself (unused card first); the joint burn-in measures VLM
+  and TTS on the shared card.
 - **InsightFace** (face recognition) follows the VLM: `gpu_id: "auto"` in
   the vision plugin's `face_recognition` settings resolves via
   `resolve_gpu_id()` → `pick_vlm_gpu()`.
@@ -104,8 +104,10 @@ then the one with the most free VRAM). The llama.cpp calibration therefore
 The VLM reserve counts on its card: both side channels must fit together.
 When no card does, the profile is not written (a combo removes an old one and
 remembers the failure). The TTS variants (`-tts-<engine>`) stay, because runs
-without speech keep the full context. The vLLM calibration and the joint
-VLM + TTS burn-in (`sidechannel_burnin.py`) still work with the shared card
+without speech keep the full context. The vLLM calibration follows the same
+rule with its own means (KV block override instead of a layer split), see
+[calibration-vllm.md](calibration-vllm.md), phase H. The joint VLM + TTS
+burn-in (`sidechannel_burnin.py`) still measures on the shared card
 (`pick_side_channel_gpu()`).
 
 ### Examples
