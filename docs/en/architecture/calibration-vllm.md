@@ -43,10 +43,10 @@ package insert and persists it as an operating-point YAML
   ceil((ratio + k) / ratio)`, block size = `lcm(16, capacity)`. This
   determines which speculation depths are economical (Flash-Next:
   k=5–8 force block 48 → uneconomical).
-- **GPU enumeration** with reserves: occupied cards (side channel: TTS,
-  VLM) are subtracted; before calibration the llama-swap backend is
-  stopped and drained via the process list (SSOT primitives, no dual
-  state with loaded models).
+- **GPU enumeration** over every card: before calibration llama-swap
+  and the side models are stopped, then the cards are drained via the
+  process list (`drain_gpus`, SSOT primitives, no dual state with loaded
+  models).
 
 ## Flow
 
@@ -59,6 +59,29 @@ boots with k=0 and iterates the context window: vLLM's own limit
 estimate is too optimistic with the MTP draft head loaded, so its error
 message is adopted as the new `max-model-len` and the rung reboots (up
 to 3 rounds).
+
+### KV blocks (override on every boot)
+
+Every calibration boot runs with `--num-gpu-blocks-override`. Only then
+does the boot log name, per worker, how many blocks the budget under the
+GMU would hold (`Overriding num_gpu_blocks=<A_i>`) and, after the boot,
+the pool size (`GPU KV cache size`, `Maximum concurrency`). From these
+(`KvReport` in `vllm_probe.py`): `N_auto = min(A_i)` and the block count
+of one full context `N_min = N × mml / pool tokens`. The target is
+`max(N_auto, N_min)` — as much cache as the budget holds, at least one
+full context (decision 2026-10-20). `_boot` settles the number:
+
+- Start check failed below the budget → back to the budget.
+- The budget holds no full context → the override forces one (that is
+  how DeepSeek-V4 runs). If that overruns the card, vLLM's estimate for
+  the budget becomes the context limit.
+- Passed with fewer blocks than the target → reboot: with a smaller
+  cache the allocator would have more room than in production.
+
+The start value is the block count of the existing llama-swap entry;
+without one, a single block, whose certain rejection yields both numbers
+(costs one load). Every further rung starts with `N_min` at the native
+window — the number depends on the context, not on the topology.
 
 ### Phase B — coherence gate
 
@@ -121,11 +144,45 @@ point.
 
 ### Phase G — persistence
 
+Before the winner is persisted it runs the longest request
+(`probe_fill_context`, 95 % of the window, tokens counted at the server).
+Only then does "free under load" hold: the allocator keeps its high-water
+mark, and buffers such as the DSv4 indexer grow with the context. If a
+card overruns, first the cache drops to one full context, then the
+context. What each card has free afterwards goes into `meta.kv` with the
+block counts and bytes per block, the boot parameter set into
+`meta.spec` — the basis of the profiles in phase H.
+
 Operating-point YAML with the full boot command, environment, hardware
 fingerprint and meta (k-sweep matrix, long-context measurements,
 acceptance). Optionally a `-speed` variant (fewer cards, reduced
 context) — persisted only if it beats the operating point. After
 calibration, llama-swap restarts and loads the freshly persisted point.
+
+### Phase H — profiles for the side models
+
+Route A (decision 2026-10-20): the base runs on every card, none stays
+free. Every ticked cell of the calibration matrix except the base stands
+for a profile `<entry>-tts-<engine>[-vlm-<key>]`, which
+`calibrate_vllm_side_channel_variant` derives from the base's `meta.kv`
+and `meta.spec`. Budgets are the bare burn-in peaks plus ONE residual
+`SIDE_CHANNEL_RESIDUAL_MB` per card holding side models
+(`side_channel_needs`, the same rule as for llama.cpp). The VLM card is
+fixed (shared card); the planner picks the TTS card: a card without the
+model, then the largest measured headroom, then the fewest KV blocks
+given up. The topology stays; the first step that fits wins:
+
+1. a card the topology does not use — no boot,
+2. measured headroom on a model card — no boot,
+3. shrink the KV cache, at most down to one full context,
+4. lower the GMU, PLE models only (PLE fills its stage up to the GMU),
+5. shrink the context.
+
+Steps 3–5 are booted (block count fixed, `policy="keep"`), run the
+longest request and are adjusted by the measured headroom. If nothing
+fits, the profile is not written and is recorded as `capacity_exceeded`
+(red dot). STT gets no profile of its own: it takes what stays free,
+the CPU if need be.
 
 ## Known limits
 
