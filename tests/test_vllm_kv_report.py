@@ -10,8 +10,13 @@ from pathlib import Path
 
 import pytest
 
-from aifred.lib.calibration import vllm_probe
-from aifred.lib.calibration.vllm_probe import VllmSpec, parse_kv_report
+from aifred.lib.calibration import vllm_flow, vllm_probe
+from aifred.lib.calibration.vllm_probe import (
+    KvReport,
+    VllmBootError,
+    VllmSpec,
+    parse_kv_report,
+)
 
 DSV4_BOOT = """\
 (Worker_PP1 pid=1968929) INFO 10-20 06:49:17 [gpu_worker.py:728] GPU startup budget bytes: requested=32368931636 weights=29018915840 activation_peak=629426176 warmup_live=869087744 idle_reserved=220807680 non_torch=50331648 graph=629426176 kv=1171744052
@@ -149,9 +154,6 @@ def test_fill_probe_counts_tokens_at_the_server_and_fills_near_the_window() -> N
 # _boot: die Blockzahl regelt sich am Boot-Log ein
 # ---------------------------------------------------------------------------
 
-from aifred.lib.calibration import vllm_flow  # noqa: E402
-from aifred.lib.calibration.vllm_probe import KvReport, VllmBootError  # noqa: E402
-
 MML = 65536
 
 
@@ -206,9 +208,9 @@ def test_unknown_model_learns_the_budget_from_the_rejected_seed(monkeypatch, tmp
         lambda n: _too_small(budget=2304),
         lambda n: _Server(_passed(budget=2304, one_context=2048, blocks=n)),
     ])
-    server, spec, one_context = vllm_flow._boot(
+    _, spec, one_context = vllm_flow._boot(
         _spec(vllm_flow.UNKNOWN_BLOCKS_SEED), 0, tmp_path / "b.log", None, lambda m: None,
-        exact=True)
+        policy="exact")
     assert booted == [1, 2304]
     assert (spec.num_gpu_blocks, one_context) == (2304, 2048)
 
@@ -222,14 +224,14 @@ def test_a_smaller_cache_than_the_budget_is_rebooted_a_larger_one_only_when_exac
         lambda n: _Server(_passed(budget=1000, one_context=400, blocks=n)),
     ])
     _, spec, _ = vllm_flow._boot(_spec(400), 0, tmp_path / "b.log", None, lambda m: None,
-                                 exact=False)
+                                 policy="grow")
     assert booted == [400, 1000] and spec.num_gpu_blocks == 1000
-    # Mehr Bloecke als das Budget: ohne exact gilt die Messung, persistiert wird das Budget
+    # Mehr Bloecke als das Budget: bei "grow" gilt die Messung, persistiert wird das Budget
     booted = _scripted_boots(monkeypatch, [
         lambda n: _Server(_passed(budget=1000, one_context=400, blocks=n)),
     ])
     _, spec, _ = vllm_flow._boot(_spec(1200), 0, tmp_path / "b.log", None, lambda m: None,
-                                 exact=False)
+                                 policy="grow")
     assert booted == [1200] and spec.num_gpu_blocks == 1000
 
 
@@ -240,7 +242,7 @@ def test_budget_without_a_full_context_forces_the_cache_beyond_it(monkeypatch, t
         lambda n: _Server(_passed(budget=1000, one_context=2000, blocks=n)),
     ])
     _, spec, one_context = vllm_flow._boot(_spec(1000), 0, tmp_path / "b.log", None,
-                                           lambda m: None, exact=True)
+                                           lambda m: None, policy="exact")
     assert booted == [1000, 2000]
     assert (spec.num_gpu_blocks, one_context) == (2000, 2000)
 
@@ -252,7 +254,7 @@ def test_forcing_that_overruns_the_card_hands_back_vllms_context_cap(monkeypatch
         auto_blocks=(1000,), kv_bytes=(1000 * 4096,)))
     booted = _scripted_boots(monkeypatch, [lambda n: budget_failure, lambda n: overrun])
     with pytest.raises(VllmBootError) as caught:
-        vllm_flow._boot(_spec(1000), 0, tmp_path / "b.log", None, lambda m: None, exact=True)
+        vllm_flow._boot(_spec(1000), 0, tmp_path / "b.log", None, lambda m: None, policy="exact")
     assert booted == [1000, 2000]
     assert caught.value.parsed_max_len == 32768 and not caught.value.oom
     assert caught.value.kv.blocks_auto == 1000     # der Aufrufer bootet beim Budget neu
