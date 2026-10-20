@@ -90,6 +90,29 @@ Combo-Capacity-Check der Kalibration ab: übersteigen TTS-Reserve +
 VLM-Reserve den Gesamt-VRAM der Sammelkarte, wird genau dieses
 Combo-Profil nicht geschrieben (Rest läuft).
 
+### TTS-Reserve in der llama.cpp-Kalibration (`pick_tts_reserve_gpu()`)
+
+Die TTS-Suite platziert ihre Engines zur Laufzeit selbst (eine unbelegte Karte
+zuerst, dann die mit dem meisten freien VRAM). Die llama.cpp-Kalibration geht
+deshalb **nicht mehr von einer festen TTS-Karte aus**. Sie hält die
+Burn-in-Spitze der Engine (`resolve_tts_reserve()`) auf der Karte frei, auf der
+das den LLM am wenigsten kostet
+([`tts_card.py`](../../../aifred/lib/calibration/tts_card.py)):
+
+1. Eine Karte, die das Layout gar nicht nutzt, nimmt die Reserve — das
+   Basis-Ergebnis bleibt unverändert gültig (Isolated-Modus, keine neue
+   Kalibration).
+2. Sonst die Layout-Karte mit dem kleinsten Layer-Anteil je MiB; dort
+   wandern die wenigsten Layer.
+
+Die VLM-Reserve zählt auf ihrer Karte mit: beide Side-Channels müssen
+zusammen passen. Findet sich keine Karte, wird das Profil nicht geschrieben
+(Combo: ein altes Profil wird entfernt, der Fehler gemerkt). Die TTS-Varianten
+(`-tts-<engine>`) bleiben, weil Läufe ohne Sprachausgabe den vollen Kontext
+behalten sollen. Die vLLM-Kalibration und der gemeinsame Burn-in von VLM + TTS
+(`sidechannel_burnin.py`) rechnen weiter mit der Sammelkarte
+(`get_tts_gpu_uuid()`).
+
 ### Beispiele
 
 | Setup | LLM-Tier | Gemeinsame TTS- + VLM-Karte |
