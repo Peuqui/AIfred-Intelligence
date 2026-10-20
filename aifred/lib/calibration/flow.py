@@ -19,6 +19,7 @@ from ..config import (
     LLAMACPP_VRAM_SAFETY_MARGIN,
     MIN_FREE_RAM_MB,
     MIN_USEFUL_CONTEXT_TOKENS,
+    SIDE_CHANNEL_RESIDUAL_MB,
 )
 from ..formatting import format_number
 from ..model_vram_cache import add_llamacpp_calibration
@@ -62,10 +63,42 @@ from .reporting import (
     _split_str,
     _track_failed_solo,
 )
+from .tts_card import side_channel_reserves
 from .types import Budget, Candidate, GPU, Model, Result
 from .verifier import kill_orphan_on_port, verify
 
 logger = logging.getLogger(__name__)
+
+
+def _hold_side_channels(
+    gpus: list[GPU],
+    tts_gpu_uuid: Optional[str],
+    tts_reserve_mb: int,
+    vlm_gpu_uuid: Optional[str],
+    vlm_reserve_mb: int,
+) -> tuple[list[GPU], list[int], list[str]]:
+    """Take the side-channel reserves (measured peaks plus one residual per card) off the free VRAM.
+
+    Returns the adjusted cards, the reserve per card (goes into the budget so that verify() subtracts
+    it from the probe readings too — the side channels are unloaded during the probes) and one log line
+    per card that holds something.
+    """
+    from dataclasses import replace
+
+    reserves = side_channel_reserves(gpus, [(tts_gpu_uuid, tts_reserve_mb), (vlm_gpu_uuid, vlm_reserve_mb)])
+    held: list[GPU] = []
+    lines: list[str] = []
+    for gpu, reserve in zip(gpus, reserves):
+        if reserve <= 0:
+            held.append(gpu)
+            continue
+        new_free = max(0, gpu.free_mb - reserve)
+        lines.append(
+            f"Side channels: holding {reserve} MB on {gpu.name} ({gpu.free_mb} → {new_free} MB free, "
+            f"incl. {SIDE_CHANNEL_RESIDUAL_MB} MB residual)"
+        )
+        held.append(replace(gpu, free_mb=new_free))
+    return held, reserves, lines
 
 
 @_tee_calibration_log
@@ -126,44 +159,11 @@ async def calibrate_llamacpp_model(
     # Channel-Reserven. Wandert ins Budget, damit verify() dieselben
     # Reserven auch von den PROBE-Messwerten abzieht — sonst optimiert
     # der Refine-Loop in den (physisch leeren) Reserve-Platz hinein.
-    reserve_vec = [0] * len(gpus)
-    if tts_gpu_extra_reserve_mb > 0 and tts_gpu_uuid:
-        from dataclasses import replace
-        adjusted = []
-        for i, g in enumerate(gpus):
-            if g.uuid == tts_gpu_uuid:
-                new_free = max(0, g.free_mb - tts_gpu_extra_reserve_mb)
-                yield (
-                    f"TTS variant: reserving {tts_gpu_extra_reserve_mb} MB "
-                    f"on {g.name} ({g.free_mb} → {new_free} MB free)"
-                )
-                reserve_vec[i] += tts_gpu_extra_reserve_mb
-                adjusted.append(replace(g, free_mb=new_free))
-            else:
-                adjusted.append(g)
-        gpus = adjusted
-
-    # Same idea for the VLM side-channel (Vigilantia + on-demand Tool-Use):
-    # the configured VLM model occupies a known peak (measured table or
-    # stress-prewarm cache) on its assigned GPU. Subtract that from the
-    # free budget so the LLM is permanently planned around it — the VLM
-    # may be unloaded at calibration time but will reclaim its slot on
-    # next inference.
-    if vlm_gpu_extra_reserve_mb > 0 and vlm_gpu_uuid:
-        from dataclasses import replace
-        adjusted = []
-        for i, g in enumerate(gpus):
-            if g.uuid == vlm_gpu_uuid:
-                new_free = max(0, g.free_mb - vlm_gpu_extra_reserve_mb)
-                yield (
-                    f"VLM reserve: holding {vlm_gpu_extra_reserve_mb} MB "
-                    f"on {g.name} ({g.free_mb} → {new_free} MB free)"
-                )
-                reserve_vec[i] += vlm_gpu_extra_reserve_mb
-                adjusted.append(replace(g, free_mb=new_free))
-            else:
-                adjusted.append(g)
-        gpus = adjusted
+    gpus, reserve_vec, held_lines = _hold_side_channels(
+        gpus, tts_gpu_uuid, tts_gpu_extra_reserve_mb, vlm_gpu_uuid, vlm_gpu_extra_reserve_mb,
+    )
+    for line in held_lines:
+        yield line
 
     gpu_total = tuple(g.total_mb for g in gpus)
 
@@ -1201,44 +1201,11 @@ async def calibrate_tts_variant_from_base(
     # reserve_vec: Side-Channel-Reserven pro GPU — wandert ins Budget,
     # damit verify() sie auch von den Probe-Messwerten abzieht (die
     # Side-Channels sind während der Probes per Vertrag entladen).
-    reserve_vec = [0] * len(gpus)
-    if tts_gpu_extra_reserve_mb > 0:
-        from dataclasses import replace
-        adjusted = []
-        for i, g in enumerate(gpus):
-            if g.uuid == tts_gpu_uuid:
-                old = g.free_mb
-                new_free = max(0, g.free_mb - tts_gpu_extra_reserve_mb)
-                yield (
-                    f"TTS variant: reserving extra {tts_gpu_extra_reserve_mb} MB "
-                    f"on {g.name} ({old} → {new_free} MB free) for TTS dynamic growth"
-                )
-                reserve_vec[i] += tts_gpu_extra_reserve_mb
-                adjusted.append(replace(g, free_mb=new_free))
-            else:
-                adjusted.append(g)
-        gpus = adjusted
-
-    # VLM reserve — same rationale as in calibrate_llamacpp_model: the
-    # configured VLM may be unloaded right now, but the next inference
-    # call will pull its measured peak back into VRAM, so we plan around
-    # it permanently.
-    if vlm_gpu_extra_reserve_mb > 0 and vlm_gpu_uuid:
-        from dataclasses import replace
-        adjusted = []
-        for i, g in enumerate(gpus):
-            if g.uuid == vlm_gpu_uuid:
-                old = g.free_mb
-                new_free = max(0, g.free_mb - vlm_gpu_extra_reserve_mb)
-                yield (
-                    f"VLM reserve: holding {vlm_gpu_extra_reserve_mb} MB "
-                    f"on {g.name} ({old} → {new_free} MB free)"
-                )
-                reserve_vec[i] += vlm_gpu_extra_reserve_mb
-                adjusted.append(replace(g, free_mb=new_free))
-            else:
-                adjusted.append(g)
-        gpus = adjusted
+    gpus, reserve_vec, held_lines = _hold_side_channels(
+        gpus, tts_gpu_uuid, tts_gpu_extra_reserve_mb, vlm_gpu_uuid, vlm_gpu_extra_reserve_mb,
+    )
+    for line in held_lines:
+        yield line
 
     model = _load_model_meta(model_id, gguf_path)
     if not model:

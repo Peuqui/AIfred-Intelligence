@@ -446,9 +446,11 @@ existiert), deren `|<engine>`-Zelle im Calibration-Picker angehakt ist
 2. Sonst: TTS-Container starten → belegt VRAM auf der TTS-Karte. Die
    **TTS-Reserve** kommt aus `resolve_tts_reserve()`
    ([`tts_stress_burnin.py`](../../../aifred/lib/tts_stress_burnin.py)):
-   gemessener Peak aus `data/tts_vram_cache.json` +
-   `LLAMACPP_TTS_BURNIN_HEADROOM_MB` (512 MB); bei Cache-Miss läuft vorher
-   der Stress-Burn-In.
+   gemessener Peak aus `data/tts_vram_cache.json`; bei Cache-Miss läuft vorher
+   der Stress-Burn-In. Jede Karte, auf der Zusatzmodelle reserviert werden,
+   behält zusätzlich EINEN festen Restpuffer `SIDE_CHANNEL_RESIDUAL_MB`
+   (512 MB), egal wie viele dort sitzen — kein Aufschlag je Modell
+   (`side_channel_reserves()` in [`tts_card.py`](../../../aifred/lib/calibration/tts_card.py)).
 3. **Fast Path:** [`calibrate_tts_variant_from_base()`](../../../aifred/lib/calibration/flow.py)
    projiziert **dasselbe aktive GPU-Set** wie BASE unter dem TTS-bewussten
    Free-VRAM neu (`enumerate_gpus()` live + Reserve) und fährt

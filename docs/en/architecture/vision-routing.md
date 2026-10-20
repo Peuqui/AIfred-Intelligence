@@ -83,7 +83,7 @@ only dispatches: `has_native_vision` → llama-swap, otherwise Ollama.
 **Does it fit alongside?** `check_visiond_fits`
 ([`aifred/lib/vision_vram_check.py`](../../../aifred/lib/vision_vram_check.py)):
 an already loaded profile always fits; otherwise the burn-in peak from
-`data/vlm_vram_cache.json` (model × context) plus `LLAMACPP_VLM_HEADROOM_MB`
+`data/vlm_vram_cache.json` (model × context) plus `SIDE_CHANNEL_RESIDUAL_MB`
 against the free VRAM of the cards the profile is pinned to via
 `CUDA_VISIBLE_DEVICES` (unpinned: sum of all cards). A missing measurement or
 card means it does not fit.

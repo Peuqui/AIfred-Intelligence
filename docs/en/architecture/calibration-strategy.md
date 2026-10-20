@@ -438,9 +438,11 @@ XTTS, Qwen3-TTS, as far as the TTS-Suite lists them as installed) whose `|<engin
 2. Otherwise: start the TTS container → occupies VRAM on the TTS card. The
    **TTS reserve** comes from `resolve_tts_reserve()`
    ([`tts_stress_burnin.py`](../../../aifred/lib/tts_stress_burnin.py)):
-   measured peak from `data/tts_vram_cache.json` +
-   `LLAMACPP_TTS_BURNIN_HEADROOM_MB` (512 MB); on a cache miss the stress
-   burn-in runs first.
+   measured peak from `data/tts_vram_cache.json`; on a cache miss the stress
+   burn-in runs first. Every card that holds side-channel reserves also keeps
+   ONE fixed residual `SIDE_CHANNEL_RESIDUAL_MB` (512 MB) free, however many sit
+   there — no headroom per model (`side_channel_reserves()` in
+   [`tts_card.py`](../../../aifred/lib/calibration/tts_card.py)).
 3. **Fast path:** [`calibrate_tts_variant_from_base()`](../../../aifred/lib/calibration/flow.py)
    re-projects the **same active GPU set** as BASE under the TTS-aware free
    VRAM (`enumerate_gpus()` live + reserve) and runs `_verify_and_refine()`;
