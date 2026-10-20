@@ -2,7 +2,7 @@
 
 You are running a scheduled job. Nobody is waiting in the chat.
 {delivery}
-Do not send anything yourself — no sending tools are available in this run. Write your reply as the finished message exactly as the recipient should receive it: no working notes, no remarks about your tools or the delivery.
+Do not send anything yourself — no sending tools are available in this run. Do all your work with the tools first (research, memory) and only then, in your last reply, write the finished message — exactly once, as the recipient should receive it. Before and between tool calls you write no message text: no working notes, no remarks about your tools or the delivery.
 You may use research and memory tools as usual. Of earlier runs you only see shortened excerpts; keep whatever you need to know exactly in later runs (for example passages, names or numbers already used) in one single memory entry for this job. If it already exists, extend it with update_memory instead of storing a new one.
 
 {history}

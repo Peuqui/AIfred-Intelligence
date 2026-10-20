@@ -101,3 +101,41 @@ def test_rendered_bubble_follows_the_turn():
     # Every frame shown once, although the text references the last one twice
     # over (top reference and the model's own echo).
     assert html.count(BURST[-1]) == 1 and html.count(BURST[0]) == 1
+
+
+def test_the_answer_is_what_the_model_wrote_after_its_last_tool_call():
+    result = _result()
+    # The bubble keeps the narration between the tools; history and delivery get the answer alone.
+    assert "Ich schaue nach." in result.text and "Ich delegiere." in result.text
+    assert "Ich schaue nach." not in result.answer_text and "Ich delegiere." not in result.answer_text
+    assert "Fertig." in result.text_clean and "Ich delegiere." not in result.text_clean
+    assert f"]({BURST[-1]})" in result.answer_text  # the camera reference for later turns stays
+    assert "\x00" not in result.answer_text
+
+
+class _DraftThenAnswer:
+    """The daily-prayer case: the whole message before the tools, and again after them."""
+
+    backend_type = "vllm"
+
+    async def chat_stream(self, model, messages, options, toolkit=None):
+        yield {"type": "content", "text": "Guten Morgen! Psalm 37."}
+        yield {"type": "tool_call", "name": "update_memory", "arguments": "{}"}
+        yield {"type": "tool_result", "name": "update_memory", "result": "ok"}
+        yield {"type": "content", "text": "Guten Morgen! Psalm 37."}
+        yield {"type": "done", "metrics": {}}
+
+
+def test_a_message_written_before_and_after_the_tools_is_delivered_once():
+    async def run():
+        async for event in run_llm_stream(
+            _DraftThenAnswer(), "m", [], SimpleNamespace(enable_thinking=False), "AIfred", source="scheduler", retry=False,  # type: ignore[arg-type]
+        ):
+            if event["type"] == "pipeline_result":
+                return event["result"]
+        return None
+
+    result = asyncio.run(run())
+    assert result is not None
+    assert result.text_clean == "Guten Morgen! Psalm 37."
+    assert result.text.count("Guten Morgen!") == 2  # the bubble still shows the turn as it ran
