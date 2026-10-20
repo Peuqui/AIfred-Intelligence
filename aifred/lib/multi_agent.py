@@ -360,7 +360,7 @@ async def _stream_agent_to_history(
 
     # Sync to llm_history with CLEAN text (no HTML collapsibles), plus what
     # the turn's tools left for the next turn.
-    state._sync_to_llm_history(agent, pipeline_result.text, pipeline_result.history_notes)
+    state._sync_to_llm_history(agent, pipeline_result.answer_text, pipeline_result.history_notes)
 
     # Clear streaming state (cleanup BEFORE yield)
     state._js_chunk_buffer = ""

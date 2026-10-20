@@ -47,7 +47,8 @@ class PipelineResult:
     """Final result from run_llm_stream() — everything a consumer needs."""
 
     text: str = ""                                      # Full response (incl. <think> blocks)
-    text_clean: str = ""                                # Response without thinking
+    answer_text: str = ""                               # What the model wrote after its last tool call (incl. <think> blocks)
+    text_clean: str = ""                                # The answer without thinking — history and delivery channels
     metadata_dict: dict[str, Any] = field(default_factory=dict)
     metadata_display: str = ""                          # Metadata string for UI
     debug_msg: str = ""                                 # Metadata debug line
@@ -247,6 +248,12 @@ async def run_llm_stream(
     own_sources: Optional[BubbleArtifact] = None
     pending_fetch: Optional[dict[str, Any]] = None
     history_notes: list[str] = []
+    # Text a model writes before a tool call is narration of the turn, not its
+    # answer: after the tools it delivers the answer whole (2026-10-20: daily
+    # prayer mail, every message twice). The spans of the running round move
+    # to interim_spans at its tool call; the answer is the text without them.
+    round_spans: list[tuple[int, int]] = []
+    interim_spans: list[tuple[int, int]] = []
 
     def add_artifact(artifact: BubbleArtifact) -> None:
         nonlocal full_response
@@ -300,7 +307,9 @@ async def run_llm_stream(
                 log_message(f"⚡ {agent_label} TTFT: {ttft:.2f}s")
                 yield {"type": "ttft", "value": ttft}
 
+            span_start = len(full_response)
             full_response += chunk["text"]
+            round_spans.append((span_start, len(full_response)))
             yield chunk  # passthrough
 
         elif chunk_type == "tool_call_start":
@@ -311,6 +320,8 @@ async def run_llm_stream(
             full_args = chunk.get("arguments", "")
             shown_args = full_args if DEBUG_LOG_RAW_OUTPUT else full_args[:200]
             log_message(f"🔧 Tool call: {tool_name}({shown_args})")
+            interim_spans.extend(round_spans)
+            round_spans.clear()
 
             # Track web_fetch URLs for the turn's sources block
             if tool_name == "web_fetch":
@@ -507,65 +518,76 @@ async def run_llm_stream(
 
     # --- Post-processing ---
 
-    # Strip fallback tool-call JSON from response text
-    full_response = strip_tool_json(full_response)
-    # Bild-URLs absolut machen (LLM lässt den führenden Slash mal weg) — sonst
-    # bricht das Bild nach einem Tab-Reload (relative URL → 404).
-    full_response = _normalize_image_urls(full_response)
+    def finalize_text(full_response: str) -> tuple[str, dict[int, int]]:
+        """The turn's text as the consumers get it, and the offset of every artifact anchor in it."""
 
-    # Kamerabilder des Turns als Referenz an den Textanfang: Der Text geht in
-    # den Verlauf, und nur dort bleibt die URL für spätere Turns erhalten
-    # (Tool-Ergebnisse werden nicht gespeichert). Je Bild-Artefakt die letzte
-    # Aufnahme (bei einer Serie das repräsentative Bild). Angezeigt werden die
-    # Bilder über ihre Artefakte an der Stelle des Turns (render_bubble).
-    camera_images = [a for a in artifacts if a.kind == KIND_VISION_IMAGES]
-    if camera_images:
-        refs = [image_markdown(a.data["alt"], a.data["urls"][-1]) for a in camera_images]
-        full_response = "\n\n".join(refs) + "\n\n" + full_response
-        full_response = _dedup_injected_images(
-            full_response, [a.data["urls"][-1] for a in camera_images],
-        )
+        # Strip fallback tool-call JSON from response text
+        full_response = strip_tool_json(full_response)
+        # Bild-URLs absolut machen (LLM lässt den führenden Slash mal weg) — sonst
+        # bricht das Bild nach einem Tab-Reload (relative URL → 404).
+        full_response = _normalize_image_urls(full_response)
 
-    # Original-VLM-Beschreibungen der TATSÄCHLICH gezeigten Event-Bilder als
-    # Collapsible oben in die Bubble hängen, je mit Bildname davor. Als
-    # <image_descriptions>-Tag — wird wie think/vlm_output generisch zum
-    # Collapsible gerendert (SSoT get_xml_tag_config), aus dem Klartext gestript
-    # und vom TTS nicht vorgelesen.
-    if event_descriptions:
-        shown_urls = [
-            u for _alt, u in re.findall(r"!\[([^\]]*)\]\(([^)]+)\)", full_response)
-        ]
-        # Akzent-Orange aus dem Theme (SSoT), nicht hardcoden.
-        try:
-            from ..theme import COLORS
-            _orange = COLORS.get("primary", "#e67700")
-        except Exception:  # noqa: BLE001
-            _orange = "#e67700"
-        # Trennlinie zwischen den Einträgen im Lieblingsorange.
-        sep = (
-            f'<hr style="border:none;border-top:1px solid {_orange};'
-            'opacity:0.6;margin:0.7em 0">'
-        )
-        seen_urls: set[str] = set()
-        entries: list[str] = []
-        for u in shown_urls:
-            if u in event_descriptions and u not in seen_urls:
-                seen_urls.add(u)
-                label, desc = event_descriptions[u]
-                head = (
-                    f'<b style="color:{_orange}">{label}</b><br>\n' if label else ""
-                )
-                entries.append(f"{head}{desc}")
-        if entries:
-            full_response = (
-                "<image_descriptions>\n"
-                + ("\n" + sep + "\n").join(entries)
-                + "\n</image_descriptions>"
-                + full_response
+        # Kamerabilder des Turns als Referenz an den Textanfang: Der Text geht in
+        # den Verlauf, und nur dort bleibt die URL für spätere Turns erhalten
+        # (Tool-Ergebnisse werden nicht gespeichert). Je Bild-Artefakt die letzte
+        # Aufnahme (bei einer Serie das repräsentative Bild). Angezeigt werden die
+        # Bilder über ihre Artefakte an der Stelle des Turns (render_bubble).
+        camera_images = [a for a in artifacts if a.kind == KIND_VISION_IMAGES]
+        if camera_images:
+            refs = [image_markdown(a.data["alt"], a.data["urls"][-1]) for a in camera_images]
+            full_response = "\n\n".join(refs) + "\n\n" + full_response
+            full_response = _dedup_injected_images(
+                full_response, [a.data["urls"][-1] for a in camera_images],
             )
 
-    # Artifact anchors → offsets in the final text
-    full_response, anchor_offsets = resolve_artifact_anchors(full_response)
+        # Original-VLM-Beschreibungen der TATSÄCHLICH gezeigten Event-Bilder als
+        # Collapsible oben in die Bubble hängen, je mit Bildname davor. Als
+        # <image_descriptions>-Tag — wird wie think/vlm_output generisch zum
+        # Collapsible gerendert (SSoT get_xml_tag_config), aus dem Klartext gestript
+        # und vom TTS nicht vorgelesen.
+        if event_descriptions:
+            shown_urls = [
+                u for _alt, u in re.findall(r"!\[([^\]]*)\]\(([^)]+)\)", full_response)
+            ]
+            # Akzent-Orange aus dem Theme (SSoT), nicht hardcoden.
+            try:
+                from ..theme import COLORS
+                _orange = COLORS.get("primary", "#e67700")
+            except Exception:  # noqa: BLE001
+                _orange = "#e67700"
+            # Trennlinie zwischen den Einträgen im Lieblingsorange.
+            sep = (
+                f'<hr style="border:none;border-top:1px solid {_orange};'
+                'opacity:0.6;margin:0.7em 0">'
+            )
+            seen_urls: set[str] = set()
+            entries: list[str] = []
+            for u in shown_urls:
+                if u in event_descriptions and u not in seen_urls:
+                    seen_urls.add(u)
+                    label, desc = event_descriptions[u]
+                    head = (
+                        f'<b style="color:{_orange}">{label}</b><br>\n' if label else ""
+                    )
+                    entries.append(f"{head}{desc}")
+            if entries:
+                full_response = (
+                    "<image_descriptions>\n"
+                    + ("\n" + sep + "\n").join(entries)
+                    + "\n</image_descriptions>"
+                    + full_response
+                )
+
+        # Artifact anchors → offsets in the final text
+        return resolve_artifact_anchors(full_response)
+
+    # The bubble shows the whole turn, the answer (history, delivery) only what the model wrote after
+    # its last tool call.
+    answer_response = full_response
+    for span_start, span_end in reversed(interim_spans):
+        answer_response = answer_response[:span_start] + answer_response[span_end:]
+    full_response, anchor_offsets = finalize_text(full_response)
+    answer_text, _ = finalize_text(answer_response)
     for index, artifact in enumerate(artifacts):
         artifact.offset = anchor_offsets[index]
 
@@ -578,7 +600,7 @@ async def run_llm_stream(
         log_message("=" * 80)
 
     # Thinking blocks
-    text_clean = strip_thinking_blocks(full_response) if full_response else ""
+    text_clean = strip_thinking_blocks(answer_text) if answer_text else ""
     inference_time = timer.elapsed() - load_time
     # Measured by the backend over every request of the turn and the
     # sub-agents it ran; a stream that ended without its done chunk has no
@@ -605,6 +627,7 @@ async def run_llm_stream(
         "type": "pipeline_result",
         "result": PipelineResult(
             text=full_response,
+            answer_text=answer_text,
             text_clean=text_clean,
             metadata_dict=metadata_dict,
             metadata_display=metadata_display,
