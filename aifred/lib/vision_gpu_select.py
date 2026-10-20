@@ -1,23 +1,21 @@
-"""Hardware-agnostische GPU-Auswahl für Vision- und TTS-Workloads.
+"""Hardware-agnostische GPU-Auswahl für die Side-Channels (VLM, bei vLLM auch TTS).
 
 Designentscheidung: Die schnellste Compute-Klasse bleibt komplett frei
 für den Haupt-Chat-LLM (typisch via llama-swap). Die Side-Channels
-(VLM + TTS) leben auf dem **Side-Channel-Tier** — der Klasse darunter.
+leben auf dem **Side-Channel-Tier** — der Klasse darunter.
 
-**TTS und VLM teilen sich EINE Sammelkarte** (Entscheidung 2026-08-29):
-beide Side-Channels landen auf derselben Tier-Karte, damit alle übrigen
-Karten für Backend-Topologien frei bleiben (z.B. TP2×PP2 über vier
-Karten bei der vLLM-Kalibration). Der Preis: sehr große TTS-Engines
-passen nicht mehr gleichzeitig mit dem VLM auf eine Karte —
-das fängt der Kombi-Kapazitäts-Guard der Kalibration ab (Profil wird
-abgelehnt statt kaputt geschrieben).
+**Sammelkarte** (``pick_side_channel_gpu``): die Karte des VLM; die
+vLLM-Kalibration hält sie frei, und der gemeinsame Burn-in
+(``sidechannel_burnin``) misst VLM und TTS auf ihr. Die TTS-Engine selbst
+platziert die TTS-Suite (leere Karte zuerst); die llama.cpp-Kalibration
+legt die TTS-Reserve auf die Karte mit den geringsten Kosten
+(``calibration.pick_tts_reserve_gpu``).
 
 Als Sammelkarte dient die **zweite** Tier-Karte (Fallback: die erste,
 wenn der Tier nur eine hat). Das ist bewusst die Karte, auf der das VLM
 schon immer lag: dessen Pin steckt in extern verwalteten Configs
 (ollama-vlm.service, ``-visiond``-Einträge der llama-swap-Config), die
-nicht automatisch umgeschrieben werden — TTS liest seine UUID dagegen
-bei jedem Container-Start neu und kann verlustfrei umziehen.
+nicht automatisch umgeschrieben werden.
 
 **Compute-Floor (weich):** Side-Channels bevorzugen Karten mit Compute
 ≥ 7.0 (Volta+). Eine P40 (Pascal, cc 6.1) ist beim VLM-Prefill 3–4×
@@ -29,8 +27,8 @@ Side-Channel-Tier-Kaskade:
 1. **Bevorzugt:** Karten der **zweithöchsten** Compute-Klasse, gefiltert
    auf Compute ≥ 7.0.
 2. **Wenn alle GPUs in derselben Klasse sind:** alle außer der
-   schnellsten (die bleibt fürs LLM) — z.B. 3× RTX 8000 ⇒ TTS auf die
-   zweite, VLM auf die dritte.
+   schnellsten (die bleibt fürs LLM) — z.B. 3× RTX 8000 ⇒ Sammelkarte
+   ist die dritte.
 3. **Wenn nur unter-7.0-Karten als Tier übrig sind:** weicher Fallback
    auf diese (P40 als Notnagel).
 4. **Wenn nur eine GPU im System:** diese eine GPU.
@@ -235,11 +233,6 @@ def pick_side_channel_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
                    if attachment_depth(g.pci_bus_id) == deepest]
         return _rank(weakest)[0].index
     return tier[1].index
-
-
-def pick_tts_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:
-    """GPU index for TTS containers: die gemeinsame Sammelkarte."""
-    return pick_side_channel_gpu(gpus)
 
 
 def pick_vlm_gpu(gpus: Sequence[GpuInfo] | None = None) -> int:

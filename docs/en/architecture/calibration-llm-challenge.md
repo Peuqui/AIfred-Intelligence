@@ -18,9 +18,8 @@ Summary:
   the next slower one if needed. Min. GPUs, max. ctx.
 - **SPEED**: fewer GPUs than BASE via ctx reduction.
 - **TTS variants** (the installed GPU engines: XTTS,
-  Qwen3-TTS): BASE/SPEED again, with a TTS reserve on the shared
-  side-channel card of the second-highest compute class (`pick_tts_gpu`/
-  `pick_vlm_gpu` → `pick_side_channel_gpu`). Fast path: re-projection of
+  Qwen3-TTS): BASE/SPEED again, with a TTS reserve on the card where it
+  costs least (`pick_tts_reserve_gpu`). Fast path: re-projection of
   the BASE GPU set via `calibrate_tts_variant_from_base`; full
   re-calibration only if that finds no fit. Profiles whose GPU set is
   disjoint from the TTS card are copied without probes (isolated mode).

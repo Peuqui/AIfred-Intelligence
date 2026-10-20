@@ -15,13 +15,6 @@ import asyncio
 from .logging_utils import log_message
 
 
-#: Cached TTS GPU UUID. Computed once per process by
-#: :func:`get_tts_gpu_uuid` from :func:`_detect_tts_gpu_uuid` so that
-#: the same hardware-bound identifier is reported throughout an AIfred
-#: run — calibration's collision detection depends on this stability.
-_cached_tts_gpu_uuid: str | None = None
-
-
 async def stop_process(
     pattern: str,
     wait_for_vram: bool = True,
@@ -103,59 +96,6 @@ def restart_service(service_name: str, check: bool = False) -> bool:
 # ============================================================
 # Docker Container Management
 # ============================================================
-
-def _detect_tts_gpu_uuid() -> str:
-    """Pick the UUID of the GPU that TTS containers should pin to.
-
-    **Design rule (2026-08-29):** TTS und VLM teilen sich die gemeinsame
-    Sammelkarte (``pick_side_channel_gpu``) — alle übrigen Karten bleiben
-    für Backend-Topologien frei (z.B. TP2×PP2 bei der vLLM-Kalibration).
-    Ob eine TTS-Engine neben das VLM passt, prüft der Kombi-Kapazitäts-
-    Guard der Kalibration.
-
-    Returns ``""`` if NVML / nvidia-smi is unavailable. Caller (TTS
-    compose env builder) treats ``""`` as "no GPU pin", which falls
-    back to whatever the container's own GPU selection logic does.
-    """
-    from .vision_gpu_select import pick_tts_gpu
-    try:
-        gpu_idx = pick_tts_gpu()
-    except RuntimeError:
-        return ""
-    # Map PCI_BUS_ID index → UUID. TTS container compose files use
-    # the UUID form (``CUDA_VISIBLE_DEVICES=GPU-…``) because UUIDs
-    # survive PCI re-enumeration across reboots; indices don't.
-    try:
-        result = subprocess.run(
-            [
-                "nvidia-smi",
-                f"--id={gpu_idx}",
-                "--query-gpu=uuid",
-                "--format=csv,noheader",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
-        )
-        if result.returncode != 0:
-            return ""
-        return result.stdout.strip().split("\n")[0] or ""
-    except (OSError, subprocess.TimeoutExpired):
-        return ""
-
-
-def get_tts_gpu_uuid() -> str:
-    """UUID of the GPU TTS containers run on (cached per process).
-
-    See :func:`_detect_tts_gpu_uuid` for the selection rule. Cached
-    so it stays stable for the lifetime of the AIfred process —
-    calibration's collision detection depends on a stable answer.
-    """
-    global _cached_tts_gpu_uuid
-    if _cached_tts_gpu_uuid is None:
-        _cached_tts_gpu_uuid = _detect_tts_gpu_uuid()
-    return _cached_tts_gpu_uuid
-
 
 def docker_compose_action(
     compose_file: str,

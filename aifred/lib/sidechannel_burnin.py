@@ -32,22 +32,14 @@ def _query_gpu_used_mb(gpu_index: int) -> int:
         return 0
 
 
-def _resolve_tts_gpu_index() -> Optional[int]:
-    """Resolve the TTS GPU's PCI_BUS_ID index by mapping the cached UUID
-    through nvidia-smi. Returns ``None`` if the UUID can't be resolved
-    (no TTS GPU pinned, or NVML unavailable)."""
-    from .process_utils import get_tts_gpu_uuid
-    uuid = get_tts_gpu_uuid()
-    if not uuid:
-        return None
-    from .nvidia_smi import query
+def _resolve_side_channel_gpu_index() -> Optional[int]:
+    """PCI_BUS_ID index of the shared side-channel card (``pick_side_channel_gpu``);
+    ``None`` when no GPU is available."""
+    from .vision_gpu_select import pick_side_channel_gpu
     try:
-        for row in query("index,uuid") or []:
-            if row["uuid"] == uuid:
-                return int(row["index"])
-    except ValueError as e:
-        logger.warning("tts_stress_burnin: index lookup failed (%s)", e)
-    return None
+        return pick_side_channel_gpu()
+    except RuntimeError:
+        return None
 
 
 class _PeakMonitor:
@@ -108,7 +100,7 @@ async def burnin_sidechannel(
     """VLM laden, TTS-Stresslauf darueber, gemeinsame VRAM-Spitze messen.
 
     Gibt ``None`` zurueck, wenn keine Side-Channel-Karte aufloesbar ist
-    (kein TTS gepinnt) — der Aufrufer behandelt das als "nicht gemessen",
+    (keine GPU) — der Aufrufer behandelt das als "nicht gemessen",
     nicht als Fehlschlag.
     """
     def _say(msg: str) -> None:
@@ -118,9 +110,9 @@ async def burnin_sidechannel(
 
     from .tts_stress_burnin import stress_burnin_tts
 
-    gpu_index = _resolve_tts_gpu_index()
+    gpu_index = _resolve_side_channel_gpu_index()
     if gpu_index is None:
-        _say("no side-channel GPU pinned — joint burn-in skipped")
+        _say("no side-channel GPU — joint burn-in skipped")
         return None
 
     from .nvidia_smi import query
