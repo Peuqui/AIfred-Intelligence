@@ -218,6 +218,7 @@ async def stress_burnin_tts(
     engine_key: str,
     *,
     iterations: Optional[int] = None,
+    gpu: str | None = None,
     debug: Any = None,
 ) -> Optional[int]:
     """Have the TTS-Suite service read a worst-case bilingual text loop on the engine and
@@ -228,7 +229,8 @@ async def stress_burnin_tts(
     ``iterations`` defaults to :data:`config.LLAMACPP_TTS_BURNIN_ITERATIONS`
     when not specified — single tunable knob for the burn-in loop length.
 
-    The service starts the container itself and chooses the card; AIfred releases the
+    The service starts the container itself and chooses the card — with ``gpu`` (PCI index) it starts it
+    on that card first (the joint burn-in measures beside the VLM); AIfred releases the
     container at the end, so the measurement reflects the container's full footprint at peak
     decode, not just idle usage.
     """
@@ -262,6 +264,9 @@ async def stress_burnin_tts(
             logger.warning("tts_stress_burnin: %s not installed (no docker image)", engine_key)
             return None
         try:
+            if gpu is not None:
+                _log(f"   starting {engine_key} on GPU {gpu}")
+                await asyncio.to_thread(get_tts_client().start_on_gpu, engine_key, gpu)
             peak, successes = await _measure(engine_key, iterations, _log)
         finally:
             await _release(engine_key)

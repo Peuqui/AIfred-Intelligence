@@ -79,6 +79,7 @@ class FakeTTSService:
         self.speaks: list[dict[str, Any]] = []
         self.releases: list[Any] = []  # the "targets" of each POST /release
         self.release_outcome = "stopped"  # what every released target answers
+        self.starts: list[tuple[str, str | None, str | None]] = []  # (engine, gpu, token) of each POST /engines/*/start
 
     def handler(self, request: httpx.Request) -> httpx.Response:
         path = request.url.path
@@ -97,6 +98,10 @@ class FakeTTSService:
                 body = {"error": "no_engine", "detail": "no TTS entry can speak", "trace": []}
                 return httpx.Response(step, json=body)
             return httpx.Response(200, headers={"content-type": tts_client.FRAMES_MEDIA_TYPE}, content=_in_pieces(step))
+        if path.startswith("/engines/") and path.endswith("/start"):
+            engine = path.removeprefix("/engines/").removesuffix("/start")
+            self.starts.append((engine, request.url.params.get("gpu"), request.headers.get("x-tts-suite-token")))
+            return httpx.Response(204)
         if path == "/release":
             targets = json.loads(request.content)["targets"]
             self.releases.append(targets)
