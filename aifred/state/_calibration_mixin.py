@@ -10,9 +10,9 @@ from ..lib.config import LLAMASWAP_BACKENDS
 
 import asyncio
 import re
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Sequence
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import reflex as rx
 
@@ -20,6 +20,9 @@ from datetime import datetime
 
 from ..lib.config import DEBUG_MESSAGES_MAX
 from ..lib.logging_utils import CONSOLE_SEPARATOR, log_message
+
+if TYPE_CHECKING:
+    from ..lib.calibration.types import GPU
 
 # Meldungs-Puffer des Kalibrier-Background-Tasks. Der Wrapper
 # (calibrate_context) drainiert ihn alle ~2 s in seinem
@@ -34,6 +37,13 @@ _cal_debug_buffer: list[str] = []
 # calibrate_context gesetzt, vom Impl-Dispatch gelesen. Prozessweit ein
 # Slot ist korrekt: das Kalibrier-Gate erlaubt ohnehin nur einen Lauf.
 _vllm_cal_target: tuple | None = None
+
+
+def _tensor_split_aligned_to(full_cmd: str, gpus: Sequence[GPU]) -> tuple[float, ...]:
+    """The tensor split of a profile command as a tuple aligned to the visible GPUs (0.0 on unused slots)."""
+    from ..lib.calibration import parse_tensor_split
+    shares = parse_tensor_split(full_cmd) or []
+    return tuple(float(shares[i]) if i < len(shares) else 0.0 for i in range(len(gpus)))
 
 
 def _write_variant_cache_entry(
@@ -2108,10 +2118,13 @@ class CalibrationMixin(rx.State, mixin=True):
                     # without re-calibrating.
                     from ..lib.calibration.gpu import enumerate_gpus
                     from ..lib.calibration import llamaswap_io as _io
-                    from ..lib.process_utils import get_tts_gpu_uuid
+                    from ..lib.calibration import pick_tts_reserve_gpu
+                    from ..lib.tts_stress_burnin import resolve_tts_reserve
 
                     gpus = enumerate_gpus()
-                    tts_uuid = get_tts_gpu_uuid()
+                    tts_reserve_mb = await resolve_tts_reserve(
+                        tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
+                    )
                     uuid_to_name = {g.uuid: g.name for g in gpus}
                     cfg = _io._read_yaml(LLAMASWAP_CONFIG_PATH)
                     models_cfg = (cfg.get("models") or {})
@@ -2156,7 +2169,14 @@ class CalibrationMixin(rx.State, mixin=True):
                         # disjointness — skip this candidate. (Legacy
                         # stale entry without ``CUDA_VISIBLE_DEVICES``.)
                         from ..lib.calibration import side_channel_disjoint
-                        if not side_channel_disjoint(
+                        # The TTS engine's card is chosen per layout: a
+                        # card this layout leaves unused takes it for free.
+                        tts_uuid = pick_tts_reserve_gpu(
+                            gpus,
+                            [1.0 if g.uuid in _llm_uuids else 0.0 for g in gpus],
+                            tts_reserve_mb,
+                        )
+                        if tts_uuid is None or not side_channel_disjoint(
                             _llm_uuids, [tts_uuid], len(gpus),
                         ):
                             continue
@@ -2228,7 +2248,6 @@ class CalibrationMixin(rx.State, mixin=True):
                             calibrate_tts_variant_from_base,
                             parse_llamaswap_config,
                         )
-                        from ..lib.process_utils import get_tts_gpu_uuid
                         from ..lib.calibration.gpu import (
                             cuda_visible_devices as _cvd,
                             enumerate_gpus as _eg,
@@ -2238,16 +2257,13 @@ class CalibrationMixin(rx.State, mixin=True):
                         _full_cmd = str(_base_info.get("full_cmd", ""))
                         _gguf_path = Path(_base_info.get("gguf_path", ""))
                         _all_gpus = _eg()
-                        # Construct base_split as a tuple aligned to visible GPUs.
                         # Source of truth: the tensor-split parsed from the
                         # current base full_cmd (already pinned via UUID order).
-                        from ..lib.calibration import parse_tensor_split
-                        _ts = parse_tensor_split(_full_cmd) or []
-                        _base_split = tuple(
-                            float(_ts[i]) if i < len(_ts) else 0.0
-                            for i in range(len(_all_gpus))
+                        _base_split = _tensor_split_aligned_to(_full_cmd, _all_gpus)
+                        _tts_uuid = (
+                            pick_tts_reserve_gpu(_all_gpus, _base_split, tts_reserve_mb)
+                            if _all_gpus else None
                         )
-                        _tts_uuid = get_tts_gpu_uuid()
                         _approx_env = (
                             {"CUDA_VISIBLE_DEVICES": _cvd(_all_gpus)}
                             if _all_gpus else None
@@ -2262,20 +2278,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"from base (skip Phase-1 search)..."
                             )
                             yield
-                            # Stress-burn-in resolver: returns the cached
-                            # peak measurement plus 512 MB headroom. On
-                            # cache miss the burn-in runs first (starts
-                            # the container, fires a worst-case bilingual
-                            # synthesis loop, polls peak VRAM, writes the
-                            # value to data/tts_vram_cache.json), so the
-                            # next call is fast. Hardware-agnostic — no
-                            # hand-pinned per-engine reserves.
-                            from ..lib.tts_stress_burnin import (
-                                resolve_tts_reserve,
-                            )
-                            _tts_extra_reserve_mb = await resolve_tts_reserve(
-                                tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
-                            )
+                            _tts_extra_reserve_mb = tts_reserve_mb
                             async for _msg in calibrate_tts_variant_from_base(
                                 model_id=calibration_model_id,
                                 gguf_path=_gguf_path,
@@ -2373,7 +2376,9 @@ class CalibrationMixin(rx.State, mixin=True):
                                         base_split=_speed_split_tuple,
                                         base_ctx=int(speed_split_context),
                                         base_kv=speed_kv_quant,
-                                        tts_gpu_uuid=_tts_uuid,
+                                        tts_gpu_uuid=pick_tts_reserve_gpu(
+                                            _all_gpus, _speed_split_tuple, tts_reserve_mb,
+                                        ),
                                         port=LLAMACPP_CALIBRATION_PORT,
                                         env=_approx_env,
                                         known_thinking=(
@@ -2473,12 +2478,25 @@ class CalibrationMixin(rx.State, mixin=True):
                     # it, but without this the fallback would plan the TTS
                     # GPU full and the resulting profile would OOM once the
                     # real TTS container is up.
-                    from ..lib.process_utils import get_tts_gpu_uuid as _get_tts_uuid
-                    _fallback_tts_uuid = _get_tts_uuid()
-                    from ..lib.tts_stress_burnin import resolve_tts_reserve
-                    _fallback_reserve_mb = await resolve_tts_reserve(
-                        tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
+                    from ..lib.calibration import parse_llamaswap_config
+                    _fallback_gpus = enumerate_gpus()
+                    _fallback_base_cmd = str(
+                        parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                        .get(calibration_model_id, {}).get("full_cmd", "")
                     )
+                    _fallback_tts_uuid = pick_tts_reserve_gpu(
+                        _fallback_gpus,
+                        _tensor_split_aligned_to(_fallback_base_cmd, _fallback_gpus),
+                        tts_reserve_mb,
+                    )
+                    if _fallback_tts_uuid is None:
+                        self._cal_debug(  # type: ignore[attr-defined]
+                            f"   ❌ {tts_label}: no GPU can hold the {tts_reserve_mb} MB "
+                            f"reserve — variant not calibrated"
+                        )
+                        yield
+                        continue
+                    _fallback_reserve_mb = tts_reserve_mb
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
                         known_thinking=known_thinking,
@@ -2697,11 +2715,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     p.strip() for p in _base_cvd_v.split(",")
                     if p.strip().startswith("GPU-")
                 ]
-                _ts_v = parse_tensor_split(_full_cmd_v) or []
-                _base_split_v = tuple(
-                    float(_ts_v[i]) if i < len(_ts_v) else 0.0
-                    for i in range(len(_all_gpus_v))
-                )
+                _base_split_v = _tensor_split_aligned_to(_full_cmd_v, _all_gpus_v)
                 _approx_env_v = (
                     {"CUDA_VISIBLE_DEVICES": _vlm_cvd(_all_gpus_v)}
                     if _all_gpus_v else None
@@ -2967,7 +2981,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # both reserves passed in.
             # ``_any_combo`` was computed in the shared-setup block above.
             if _any_combo and calibrated_ctx and calibrated_ctx > 0:
-                from ..lib.process_utils import get_tts_gpu_uuid
+                from ..lib.calibration import pick_tts_reserve_gpu
 
                 for tts_backend_c in installed_gpu_engine_keys():
                     # Skip engines that have no combo ticked at all
@@ -2981,8 +2995,6 @@ class CalibrationMixin(rx.State, mixin=True):
                     tts_reserve_c = await resolve_tts_reserve(
                         tts_backend_c, debug=self._cal_debug,  # type: ignore[attr-defined]
                     )
-                    _tts_uuid_c = get_tts_gpu_uuid()
-
                     for vlm_choice_c in vlm_choices:
                         vlm_key_c = vlm_choice_c["key"]
                         if not self.calibration_matrix.get(f"{vlm_key_c}|{tts_backend_c}", False):
@@ -3011,79 +3023,70 @@ class CalibrationMixin(rx.State, mixin=True):
                             continue
 
                         if not (_full_cmd_v and _gguf_path_v.exists()
-                                and _all_gpus_v and _tts_uuid_c
+                                and _all_gpus_v
                                 and any(s > 0 for s in _base_split_v)):
                             self._cal_debug(  # type: ignore[attr-defined]
-                                "   ⚠️ combo: base config / TTS GPU missing, skipping"
+                                "   ⚠️ combo: base config missing, skipping"
                             )
                             yield
                             continue
 
-                        # Side-channel capacity check: when TTS and VLM
-                        # share the same GPU (the design rule — both
-                        # land on the second-highest compute class via
-                        # ``pick_vlm_gpu``), their two reserves must
-                        # fit on that one card. If not, the YAML profile
-                        # we'd write here is physically impossible at
-                        # runtime: container + VLM would crash with an
-                        # OOM on first inference. Better fail fast and
-                        # skip the profile than silently produce a trap.
-                        if _tts_uuid_c == _vu:
-                            _side_gpu = next(
-                                (g for g in _all_gpus_v if g.uuid == _vu),
-                                None,
+                        # The TTS engine's card is chosen per layout, with the
+                        # VLM's reserve counted on its card (both side
+                        # channels must fit together). When no card holds
+                        # the TTS reserve, the YAML profile we'd write here
+                        # is physically impossible at runtime: the engine
+                        # would crash with an OOM on first use. Better fail
+                        # fast and skip the profile than silently produce a
+                        # trap.
+                        _tts_uuid_c = pick_tts_reserve_gpu(
+                            _all_gpus_v, _base_split_v, tts_reserve_c,
+                            vlm_gpu_uuid=_vu, vlm_reserve_mb=_vmb,
+                        )
+                        if _tts_uuid_c is None:
+                            _side_needed = tts_reserve_c + _vmb
+                            self._cal_debug(  # type: ignore[attr-defined]
+                                f"   ❌ {tts_label_c} × {vlm_label_c} "
+                                f"combo: no GPU holds TTS {tts_reserve_c} MB "
+                                f"with VLM {_vmb} MB. Profile NOT written "
+                                f"(would OOM at runtime)."
                             )
-                            if _side_gpu is not None:
-                                _side_total = _side_gpu.total_mb
-                                _side_needed = tts_reserve_c + _vmb
-                                if _side_needed > _side_total:
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ❌ {tts_label_c} × {vlm_label_c} "
-                                        f"combo: needs {_side_needed} MB on "
-                                        f"{_side_gpu.name} ({_side_total} MB total) — "
-                                        f"TTS {tts_reserve_c} + VLM {_vmb} "
-                                        f"= {_side_needed} exceeds capacity by "
-                                        f"{_side_needed - _side_total} MB. Profile "
-                                        f"NOT written (would OOM at runtime)."
-                                    )
-                                    # Tear down any stale profile + cache
-                                    # entry from a previous run that
-                                    # predates this capacity check — the
-                                    # picker would otherwise show a green
-                                    # "calibrated" dot for a combo we now
-                                    # know is unusable.
-                                    from ..lib.model_vram_cache import (
-                                        record_calibration_failure,
-                                        remove_model_from_cache,
-                                    )
-                                    if remove_llamaswap_vlm_variant(
-                                        LLAMASWAP_CONFIG_PATH,
-                                        calibration_model_id,
-                                        vlm_key_c,
-                                        tts_backend=tts_backend_c,
-                                    ):
-                                        self._cal_debug(  # type: ignore[attr-defined]
-                                            f"   🧹 Removed stale "
-                                            f"{tts_label_c}+{vlm_label_c} "
-                                            f"profile from llama-swap.yaml"
-                                        )
-                                    remove_model_from_cache(
-                                        f"{calibration_model_id}-tts-"
-                                        f"{tts_backend_c}-vlm-{vlm_key_c}"
-                                    )
-                                    # Persist the failure so the picker
-                                    # shows a red dot ("tried, doesn't fit")
-                                    # next time the dialog opens.
-                                    record_calibration_failure(
-                                        f"{calibration_model_id}-tts-"
-                                        f"{tts_backend_c}-vlm-{vlm_key_c}",
-                                        "capacity_exceeded",
-                                        f"TTS {tts_reserve_c} + VLM {_vmb} "
-                                        f"= {_side_needed} MB exceeds "
-                                        f"{_side_gpu.name} ({_side_total} MB total)",
-                                    )
-                                    yield
-                                    continue
+                            # Tear down any stale profile + cache
+                            # entry from a previous run — the
+                            # picker would otherwise show a green
+                            # "calibrated" dot for a combo we now
+                            # know is unusable.
+                            from ..lib.model_vram_cache import (
+                                record_calibration_failure,
+                                remove_model_from_cache,
+                            )
+                            if remove_llamaswap_vlm_variant(
+                                LLAMASWAP_CONFIG_PATH,
+                                calibration_model_id,
+                                vlm_key_c,
+                                tts_backend=tts_backend_c,
+                            ):
+                                self._cal_debug(  # type: ignore[attr-defined]
+                                    f"   🧹 Removed stale "
+                                    f"{tts_label_c}+{vlm_label_c} "
+                                    f"profile from llama-swap.yaml"
+                                )
+                            remove_model_from_cache(
+                                f"{calibration_model_id}-tts-"
+                                f"{tts_backend_c}-vlm-{vlm_key_c}"
+                            )
+                            # Persist the failure so the picker
+                            # shows a red dot ("tried, doesn't fit")
+                            # next time the dialog opens.
+                            record_calibration_failure(
+                                f"{calibration_model_id}-tts-"
+                                f"{tts_backend_c}-vlm-{vlm_key_c}",
+                                "capacity_exceeded",
+                                f"no GPU holds TTS {tts_reserve_c} + VLM "
+                                f"{_vmb} = {_side_needed} MB",
+                            )
+                            yield
+                            continue
 
                         # 🎯 Isolated mode: base GPU set disjoint from BOTH
                         # side-channel GPUs (TTS + VLM) → the base result is

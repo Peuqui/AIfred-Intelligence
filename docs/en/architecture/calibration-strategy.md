@@ -88,6 +88,26 @@ fit onto one card together with the VLM. The combo capacity check of the
 calibration catches this: if TTS reserve + VLM reserve exceed the shared
 card's total VRAM, exactly this combo profile is not written (the rest runs).
 
+### TTS reserve in the llama.cpp calibration (`pick_tts_reserve_gpu()`)
+
+The TTS-Suite places its engines itself at runtime (a card nobody uses first,
+then the one with the most free VRAM). The llama.cpp calibration therefore
+**no longer assumes a fixed TTS card**. It keeps the engine's burn-in peak
+(`resolve_tts_reserve()`) free on the card where that costs the LLM the least
+([`tts_card.py`](../../../aifred/lib/calibration/tts_card.py)):
+
+1. A card the layout does not use at all takes the reserve — the base result
+   stays valid unchanged (isolated mode, no new calibration).
+2. Otherwise the layout card with the smallest layer share per MiB, so the
+   fewest layers move.
+
+The VLM reserve counts on its card: both side channels must fit together.
+When no card does, the profile is not written (a combo removes an old one and
+remembers the failure). The TTS variants (`-tts-<engine>`) stay, because runs
+without speech keep the full context. The vLLM calibration and the joint
+VLM + TTS burn-in (`sidechannel_burnin.py`) still work with the shared card
+(`get_tts_gpu_uuid()`).
+
 ### Examples
 
 | Setup | LLM tier | Shared TTS + VLM card |

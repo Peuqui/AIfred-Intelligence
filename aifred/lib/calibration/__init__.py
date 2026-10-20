@@ -14,6 +14,7 @@ so callers (backends, state mixins) keep a single import path:
 """
 
 from .flow import calibrate_llamacpp_model, calibrate_tts_variant_from_base
+from .tts_card import pick_tts_reserve_gpu
 from .llamaswap_io import (
     add_llamaswap_speed_variant,
     add_llamaswap_tts_variant,
@@ -69,5 +70,6 @@ __all__ = [
     "remove_llamaswap_vlm_variant",
     "resolve_effective_suffix",
     "resolve_variant_suffix",
+    "pick_tts_reserve_gpu",
     "side_channel_disjoint",
 ]
