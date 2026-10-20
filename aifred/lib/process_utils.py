@@ -9,9 +9,10 @@ Provides common functions for:
 This module reduces code duplication across the state mixins.
 """
 
+import asyncio
 import subprocess
 from collections.abc import Sequence
-import asyncio
+
 from .logging_utils import log_message
 
 
@@ -175,7 +176,7 @@ def restart_llama_swap() -> bool:
         return False
 
 
-def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
+def gpu_compute_processes() -> list[str]:
     """Human-readable list of processes currently holding GPU VRAM.
 
     One entry per compute process: ``"<name> (PID <pid>, <mem> MiB)"``,
@@ -185,19 +186,14 @@ def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
     foreign program is reported by name instead of just a residual-MB
     number. Empty list when nothing is on the GPUs (or nvidia-smi is
     unavailable). Read-only: this never kills anything.
-
-    ``gpu_uuids``: nur Prozesse auf diesen Karten zaehlen (vLLM-
-    Kalibration: Side-Channel-Karten wie TTS/VLM sind reserviert und
-    duerfen belegt bleiben). None = alle Karten.
     """
     from pathlib import Path
+
     from .nvidia_smi import compute_apps
 
     procs: list[str] = []
     for app in compute_apps():
-        pid, name, mem, uuid = app["pid"], app["process_name"], app["used_memory"], app["gpu_uuid"]
-        if gpu_uuids is not None and uuid not in gpu_uuids:
-            continue
+        pid, name, mem = app["pid"], app["process_name"], app["used_memory"]
         tag = ""
         try:
             cgroup = Path(f"/proc/{pid}/cgroup").read_text()

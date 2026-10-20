@@ -381,6 +381,16 @@ def _meta(total_gib: float, giants: list[int] | None = None) -> VllmModelMeta:
 
 PARSERS = vllm_probe.TemplateParsers("qwen3_coder", "qwen3")
 
+# Ein bestandener Boot mit Override nennt Budget und Poolgroesse; mit diesen
+# Werten traegt das Budget (1000 Bloecke) zwei volle Kontexte — die Faelle
+# in diesem Modul booten also ohne Nachregeln der Blockzahl.
+BLOCKS = 1000
+
+
+def _kv_ok(mml: int = 65536) -> vllm_probe.KvReport:
+    return vllm_probe.KvReport(auto_blocks=(BLOCKS,), kv_bytes=(BLOCKS * 4096,),
+                               pool_tokens=2 * mml, max_model_len=mml)
+
 
 def test_topology_ladder_small_model(monkeypatch) -> None:
     monkeypatch.setattr(vllm_flow, "_smi_index_by_uuid", lambda: SMI)
@@ -631,6 +641,9 @@ class _FakeServer:
     def shutdown(self) -> None:
         pass
 
+    def kv_report(self, tp: int) -> vllm_probe.KvReport:
+        return _kv_ok()
+
 
 def _sweep_harness(monkeypatch, caps: dict[int, int], decode: dict[int, float]):
     """Simuliert Boots: caps[k] ist der groesste Kontext, den k traegt.
@@ -677,7 +690,7 @@ def test_sweep_inherits_context_and_regrows_winner(monkeypatch, tmp_path):
     attempts = _sweep_harness(monkeypatch, caps, decode)
 
     spec = VllmSpec(checkpoint=tmp_path, served_name="m", gpu_ids=[0],
-                    mml=65536, block_size=16)
+                    mml=65536, block_size=16, num_gpu_blocks=BLOCKS)
     rung = vllm_flow._RungResult(spec=spec, label="TP1", tps=10.0,
                                  coherence=(3, 3), full_context=True,
                                  long_tokens=1000, long_prefill_tps=500.0,
@@ -701,7 +714,7 @@ def test_sweep_without_cap_does_not_regrow(monkeypatch, tmp_path):
     attempts = _sweep_harness(monkeypatch, caps,
                               {3: 30.0, 2: 50.0, 1: 40.0})
     spec = VllmSpec(checkpoint=tmp_path, served_name="m", gpu_ids=[0],
-                    mml=65536, block_size=16)
+                    mml=65536, block_size=16, num_gpu_blocks=BLOCKS)
     rung = vllm_flow._RungResult(spec=spec, label="TP1", tps=10.0,
                                  coherence=(3, 3), full_context=True,
                                  long_tokens=1000, long_prefill_tps=500.0,
@@ -817,6 +830,9 @@ class _OomLogServer:
     def log_tail(self, n_chars: int = 4000) -> str:
         return "torch.OutOfMemoryError: CUDA out of memory" if self._oom else ""
 
+    def kv_report(self, tp: int) -> vllm_probe.KvReport:
+        return _kv_ok()
+
     def shutdown(self) -> None:
         pass
 
@@ -859,7 +875,7 @@ def test_probe_oom_climbs_reserve_ladder_instead_of_rejecting(monkeypatch, tmp_p
 
     rung = vllm_flow._measure_topology(
         cand, "m", _meta(20.0), MINI_GPUS, SMI, tmp_path, messages.append, None,
-        parsers=PARSERS)
+        parsers=PARSERS, blocks=BLOCKS)
 
     assert rung is not None
     # Die aus dem Template abgeleiteten Parser landen im Betriebspunkt
@@ -883,7 +899,7 @@ def test_probe_crash_without_oom_still_rejects_rung(monkeypatch, tmp_path):
 
     rung = vllm_flow._measure_topology(
         cand, "m", _meta(20.0), MINI_GPUS, SMI, tmp_path, messages.append, None,
-        parsers=PARSERS)
+        parsers=PARSERS, blocks=BLOCKS)
 
     assert rung is None
     assert len(booted) == 1
@@ -921,7 +937,7 @@ def test_sweep_boot_oom_lowers_gmu_and_keeps_it(monkeypatch, tmp_path):
         },
     )
     spec = VllmSpec(checkpoint=Path("."), served_name="m", gpu_ids=[1, 3], tp=2, pp=1,
-                    gmu=0.97, mml=65536, k=0, block_size=16)
+                    gmu=0.97, mml=65536, k=0, block_size=16, num_gpu_blocks=BLOCKS)
     rung = vllm_flow._RungResult(spec=spec, label="TP2 V100", tps=10.0,
                                  coherence=(3, 3), full_context=True,
                                  long_tokens=1000, long_prefill_tps=500.0, long_decode_tps=30.0)
@@ -983,7 +999,6 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
     """calibrate_vllm_checkpoint mit gefaelschten Messungen: gibt (result,
     gemessene Labels, persist-Aufrufe, Log, gesweepte Labels) zurueck.
     ``mml_by_label`` setzt je Sprosse den erreichten Kontext (Default: nativ)."""
-    import aifred.lib.process_utils as process_utils
 
     gpus = [_gpu("g0", "RTX 8000", 7.5, 49152, 49000, 0),
             _gpu("g2", "RTX 8000", 7.5, 49152, 49000, 0)]
@@ -991,18 +1006,19 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
     monkeypatch.setattr(vllm_flow, "prune_calibration_cache", lambda: (0, 0))
     monkeypatch.setattr(vllm_flow, "clear_calibration_cache", lambda: 0)
     monkeypatch.setattr(vllm_flow, "analyze_checkpoint", lambda c: _meta(20.0))
-    monkeypatch.setattr(vllm_flow, "side_channel_uuids", lambda: set())
-    monkeypatch.setattr(vllm_flow, "eligible_gpus", lambda reserved: gpus)
-    monkeypatch.setattr(process_utils, "gpu_compute_processes", lambda uuids=None: [])
+    monkeypatch.setattr(vllm_flow, "drain_gpus", lambda progress, cancel_check: gpus)
+    monkeypatch.setattr(operating_points, "get_vllm_entry_blocks", lambda m: 0)
     monkeypatch.setattr(vllm_flow, "_smi_index_by_uuid", lambda: {"g0": 0, "g2": 2})
     monkeypatch.setattr(vllm_flow, "topology_ladder", lambda m, g, r: _candidates())
     monkeypatch.setattr(vllm_flow, "VLLM_CALIBRATION_CHUNK_AB", False)
     monkeypatch.setattr(vllm_flow, "VLLM_CALIBRATION_GMU_AB", False)
     measured: list[str] = []
+    seeds: list[int] = []
 
     def fake_measure(cand, entry_name, meta, gpus_, smi, log_dir, progress, cancel_check,
-                     parsers):
+                     parsers, blocks):
         assert parsers == PARSERS
+        seeds.append(blocks)
         measured.append(cand.label)
         mml = (mml_by_label or {}).get(cand.label, 65536)
         spec = VllmSpec(checkpoint=tmp_path, served_name=entry_name,
@@ -1011,7 +1027,8 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
                                      coherence=(3, 3), full_context=(mml >= 65536),
                                      short_tokens=2000,
                                      long_tokens=20000, long_prefill_tps=500.0,
-                                     long_decode_tps=30.0 + cand.tp - 2 * (cand.pp - 1))
+                                     long_decode_tps=30.0 + cand.tp - 2 * (cand.pp - 1),
+                                     one_context_blocks=400 * mml // 65536)
 
     def fake_sweep(rung, meta, gpus_, smi, runtime, log_dir, progress, cancel_check,
                    allow_ctx_reduction=False, matrix=None):
@@ -1033,10 +1050,15 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
         return tmp_path / "p.yaml"
 
     monkeypatch.setattr(vllm_flow, "persist_operating_point", recording_persist)
+    monkeypatch.setattr(vllm_flow, "measure_under_load",
+                        lambda spec, log_dir, progress, cancel_check: (spec, None))
     log: list[str] = []
     result = vllm_flow.calibrate_vllm_checkpoint(
         checkpoint=tmp_path, entry_name="m", log_dir=tmp_path / "log",
-        progress=log.append, cancel_check=None, reserve_side_channel=False, **kwargs)
+        progress=log.append, cancel_check=None, **kwargs)
+    assert seeds[0] == vllm_flow.UNKNOWN_BLOCKS_SEED
+    # Jede weitere Sprosse startet mit einem vollen Kontext beim nativen Fenster
+    assert all(seed == 400 for seed in seeds[1:])
     return result, measured, persisted, log, swept
 
 
@@ -1054,7 +1076,7 @@ def test_unknown_tool_call_format_aborts_before_the_first_boot(
     with pytest.raises(ValueError, match="no known tool-call format"):
         vllm_flow.calibrate_vllm_checkpoint(
             checkpoint=tmp_path, entry_name="m", log_dir=tmp_path / "log",
-            progress=lambda m: None, cancel_check=None, reserve_side_channel=False)
+            progress=lambda m: None, cancel_check=None)
     assert booted == []
 
 

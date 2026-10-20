@@ -30,8 +30,8 @@ from pathlib import Path
 
 import yaml
 
-from .config import LLAMASWAP_CONFIG_PATH, OPERATING_POINTS_DIR
 from .calibration.llamaswap_io import _ensure_in_group, _read_yaml, _write_yaml
+from .config import LLAMASWAP_CONFIG_PATH, OPERATING_POINTS_DIR
 
 logger = logging.getLogger(__name__)
 
@@ -76,12 +76,11 @@ def _flag_int_from_cmd(cmd: str, flag: str) -> int | None:
     return None
 
 
-def get_vllm_entry_context(model_id: str) -> int:
-    """Context limit (``--max-model-len``) of a vLLM llama-swap entry.
+def _vllm_entry_flag(model_id: str, flag: str) -> int:
+    """Integer flag of a vLLM llama-swap entry; 0 if the entry or the flag is missing.
 
-    SSOT ist der Eintrag in der llama-swap-Config selbst (dort steht
-    auch bei frisch geseedeten Eintraegen ohne Profil ein Wert); 0 wenn
-    der Eintrag fehlt oder kein --max-model-len traegt.
+    SSOT ist der Eintrag in der llama-swap-Config selbst (dort steht auch bei
+    frisch geseedeten oder von Hand gepflegten Eintraegen ohne Profil ein Wert).
     """
     from .calibration.llamaswap_io import parse_llamaswap_config
     try:
@@ -91,7 +90,17 @@ def get_vllm_entry_context(model_id: str) -> int:
     info = config.get(model_id)
     if not info:
         return 0
-    return _flag_int_from_cmd(info["full_cmd"], "--max-model-len") or 0
+    return _flag_int_from_cmd(info["full_cmd"], flag) or 0
+
+
+def get_vllm_entry_context(model_id: str) -> int:
+    """Context limit (``--max-model-len``) of a vLLM llama-swap entry (0 = unknown)."""
+    return _vllm_entry_flag(model_id, "--max-model-len")
+
+
+def get_vllm_entry_blocks(model_id: str) -> int:
+    """KV blocks (``--num-gpu-blocks-override``) of a vLLM llama-swap entry (0 = none set)."""
+    return _vllm_entry_flag(model_id, "--num-gpu-blocks-override")
 
 
 def list_operating_points() -> dict[str, Path]:

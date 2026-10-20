@@ -14,32 +14,32 @@ Fallback: vLLM-Kalibration setzt eine deklarierte Umgebung voraus.
 
 import json
 import logging
+import math
 import os
 import re
 import shutil
 import signal
 import subprocess
 import time
-
-import psutil
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import NamedTuple
 
+import psutil
 import yaml
 
-from ..perf_metrics import prefill_tokens_per_second
 from ..config import (
     DATA_DIR,
     VLLM_CALIBRATION_CACHE_MAX_GIB,
+    VLLM_CALIBRATION_CACHE_ROOT,
+    VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO,
     VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS,
     VLLM_PRODUCTION_CACHE_MAX_GIB,
     VLLM_PRODUCTION_CACHE_ROOT,
-    VLLM_CALIBRATION_CACHE_ROOT,
-    VLLM_CALIBRATION_HOST_MEM_FLOOR_RATIO,
 )
+from ..perf_metrics import prefill_tokens_per_second
 
 VLLM_RUNTIME_PATH = DATA_DIR / "vllm_runtime.yaml"
 
@@ -184,6 +184,106 @@ def parse_vllm_required_kv_dtype(error_output: str) -> str | None:
     return gefordert if gefordert != aktuell else None
 
 
+GIB = 1024 ** 3
+
+# Zeilen, die vLLM (1Cat-Fork) zum KV-Cache schreibt. Die Worker-Zeilen
+# tragen ihren Rang im Praefix: "(Worker_PP1_TP0 pid=…)", bei TP1×PP1 laeuft
+# der Worker im EngineCore selbst.
+_STARTUP_BUDGET_RE = re.compile(
+    r"\((?:Worker(?:_PP(?P<pp>\d+))?(?:_TP(?P<tp>\d+))?|EngineCore) pid=\d+\).*?"
+    r"GPU startup budget bytes: .*?\bkv=(?P<kv>-?\d+)"
+)
+_OVERRIDE_RE = re.compile(
+    r"Overriding num_gpu_blocks=(?P<auto>-?\d+) with num_gpu_blocks_override=\d+"
+)
+_POOL_TOKENS_RE = re.compile(r"GPU KV cache size: (?P<tokens>[\d,]+) tokens")
+_CONCURRENCY_RE = re.compile(
+    r"Maximum concurrency for (?P<mml>[\d,]+) tokens per request: (?P<x>[\d.]+)x"
+)
+_KV_TOO_SMALL_RE = re.compile(
+    r"\((?P<needed>[\d.]+) GiB KV cache is needed, which is larger than the "
+    r"available KV cache memory \((?P<available>[\d.]+) GiB\)"
+)
+
+
+@dataclass(frozen=True)
+class KvReport:
+    """Was ein Boot-Log mit Override ueber den KV-Cache sagt.
+
+    Je Worker in Rang-Reihenfolge (Rang = PP-Stufe × TP + TP-Rang, das ist
+    auch die Position in CUDA_VISIBLE_DEVICES): ``auto_blocks`` sind die
+    Bloecke, die das Budget unter der GMU halten wuerde, ``kv_bytes`` ist
+    dieses Budget. ``pool_tokens``/``max_model_len`` stehen nur nach einem
+    bestandenen Boot im Log; ``needed_gib``/``available_gib`` nur, wenn der
+    Override fuer einen vollen Kontext zu klein war.
+    """
+
+    auto_blocks: tuple[int, ...] = ()
+    kv_bytes: tuple[int, ...] = ()
+    pool_tokens: int = 0
+    max_model_len: int = 0
+    needed_gib: float = 0.0
+    available_gib: float = 0.0
+
+    @property
+    def blocks_auto(self) -> int:
+        """N_auto: was auf JEDER Stufe unter der GMU Platz haette."""
+        return min(self.auto_blocks) if self.auto_blocks else 0
+
+    @property
+    def too_small(self) -> bool:
+        """Der Override traegt keinen vollen Kontext (vLLMs Startpruefung)."""
+        return self.needed_gib > 0
+
+    def bytes_per_block(self) -> tuple[int, ...]:
+        """Bytes, die ein Block je Worker belegt (Budget / Bloecke im Budget)."""
+        if len(self.kv_bytes) != len(self.auto_blocks):
+            return ()
+        return tuple(kv // blocks if blocks > 0 else 0
+                     for kv, blocks in zip(self.kv_bytes, self.auto_blocks))
+
+    def blocks_for_one_context(self, override: int) -> int:
+        """N_min: kleinste Blockzahl fuer einen vollen Kontext, 0 = unbekannt.
+
+        Nach einem bestandenen Boot genau aus der Poolgroesse (N × mml /
+        Token im Pool). Nach der gescheiterten Startpruefung eine Schaetzung
+        aus den gerundeten GiB-Werten — eine Untergrenze, weil spaetere
+        Stufen mehr brauchen koennen; ist der Override so klein, dass vLLM
+        0,0 GiB meldet, ueber die Bytes je Block des ersten Workers (an dem
+        die Pruefung dann scheitert).
+        """
+        if self.pool_tokens and self.max_model_len:
+            return math.ceil(override * self.max_model_len / self.pool_tokens)
+        if self.needed_gib and self.available_gib:
+            return math.ceil(override * self.needed_gib / self.available_gib)
+        per_block = self.bytes_per_block()
+        if self.needed_gib and per_block and per_block[0] > 0:
+            return math.ceil(self.needed_gib * GIB / per_block[0])
+        return 0
+
+
+def parse_kv_report(log_text: str, tp: int) -> KvReport:
+    """KvReport aus dem Boot-Log; ``tp`` ordnet die Worker-Zeilen ihrem Rang zu."""
+    kv_by_rank: dict[int, int] = {}
+    for m in _STARTUP_BUDGET_RE.finditer(log_text):
+        rank = int(m.group("pp") or 0) * tp + int(m.group("tp") or 0)
+        kv_by_rank[rank] = int(m.group("kv"))
+    auto = tuple(int(m.group("auto")) for m in _OVERRIDE_RE.finditer(log_text))
+    kv_bytes = tuple(kv_by_rank[r] for r in sorted(kv_by_rank))
+    pool = _POOL_TOKENS_RE.search(log_text)
+    concurrency = _CONCURRENCY_RE.search(log_text)
+    too_small = _KV_TOO_SMALL_RE.search(log_text)
+    return KvReport(
+        auto_blocks=auto,
+        kv_bytes=kv_bytes,
+        pool_tokens=int(pool.group("tokens").replace(",", "")) if pool else 0,
+        max_model_len=(int(concurrency.group("mml").replace(",", ""))
+                       if concurrency else 0),
+        needed_gib=float(too_small.group("needed")) if too_small else 0.0,
+        available_gib=float(too_small.group("available")) if too_small else 0.0,
+    )
+
+
 def load_vllm_runtime() -> dict:
     """Laufzeitumgebung laden; fehlende/kaputte Datei ist ein harter Fehler."""
     if not VLLM_RUNTIME_PATH.exists():
@@ -271,6 +371,11 @@ class VllmSpec:
     # Aus dem Chat-Template (template_parsers); None = Flag entfaellt
     tool_call_parser: str | None = None
     reasoning_parser: str | None = None
+    # KV-Bloecke je Worker (--num-gpu-blocks-override). Die Kalibration setzt
+    # sie bei jedem Boot: nur mit Override nennt das Log, was unter der GMU
+    # Platz haette (KvReport), und nur so laesst sich der Cache zugunsten
+    # der Zusatzmodelle gezielt verkleinern.
+    num_gpu_blocks: int | None = None
     extra_env: dict[str, str] = field(default_factory=dict)
     extra_args: list[str] = field(default_factory=list)
 
@@ -294,6 +399,8 @@ class VllmSpec:
             "--max-num-batched-tokens", str(self.max_batched_tokens),
             *(["--kv-cache-dtype", self.kv_cache_dtype]
               if self.kv_cache_dtype else []),
+            *(["--num-gpu-blocks-override", str(self.num_gpu_blocks)]
+              if self.num_gpu_blocks else []),
             "--host", "127.0.0.1", "--port", str(port),
         ]
         if self.pp > 1:
@@ -337,7 +444,8 @@ class VllmBootError(Exception):
     def __init__(self, reason: str, log_tail: str = "",
                  parsed_max_len: int | None = None, oom: bool = False,
                  required_batched_tokens: int | None = None,
-                 required_kv_dtype: str | None = None):
+                 required_kv_dtype: str | None = None,
+                 kv: KvReport | None = None):
         super().__init__(reason)
         self.reason = reason
         self.log_tail = log_tail
@@ -352,6 +460,10 @@ class VllmBootError(Exception):
         self.required_batched_tokens = required_batched_tokens
         # Von vLLM gefordertes KV-Cache-Format (Architektur-Zwang).
         self.required_kv_dtype = required_kv_dtype
+        # Was das Log ueber den KV-Cache sagt (auch ein gescheiterter Boot
+        # nennt die Bloecke unter der GMU und, bei zu kleinem Override, den
+        # Bedarf eines vollen Kontexts).
+        self.kv = kv or KvReport()
 
 
 def _kill_tree(pid: int, grace_s: int = 25) -> None:
@@ -460,11 +572,16 @@ class VllmServer:
                 out[m.group(1)] = out.get(m.group(1), 0.0) + float(m.group(2))
         return out
 
-    def log_tail(self, n_chars: int = 4000) -> str:
+    def log_text(self) -> str:
         if not self.log_path.exists():
             return ""
-        text = self.log_path.read_text(errors="replace")
-        return text[-n_chars:]
+        return self.log_path.read_text(errors="replace")
+
+    def log_tail(self, n_chars: int = 4000) -> str:
+        return self.log_text()[-n_chars:]
+
+    def kv_report(self, tp: int) -> KvReport:
+        return parse_kv_report(self.log_text(), tp)
 
 
 def _cache_entries(root: Path) -> list[Path]:
@@ -649,10 +766,17 @@ def boot_vllm(
         """
         full_log = (server.log_path.read_text(errors="replace")
                     if server.log_path.exists() else "")
+        kv = parse_kv_report(full_log, spec.tp)
         return VllmBootError(
             reason,
             log_tail=full_log[-4000:],
-            parsed_max_len=parse_vllm_max_context_from_error(full_log),
+            # Scheitert die Startpruefung an einem Override unter dem
+            # GMU-Budget, ist die Blockzahl zu klein, nicht der Kontext zu
+            # gross — die "estimated maximum model length" derselben Meldung
+            # ist dann keine Kontextgrenze. Nur beim Budget selbst ist sie es.
+            parsed_max_len=(None if kv.too_small and spec.num_gpu_blocks != kv.blocks_auto
+                            else parse_vllm_max_context_from_error(full_log)),
+            kv=kv,
             required_batched_tokens=parse_vllm_required_batched_tokens(full_log),
             required_kv_dtype=parse_vllm_required_kv_dtype(full_log),
             oom=any(sig in full_log for sig in OOM_SIGNATURES),
@@ -783,8 +907,10 @@ def generation_defaults(checkpoint: Path) -> dict[str, float]:
     llama-server-Defaults der Konfiguration), danach die Abweichungen
     aus ``generation_overrides`` in vllm_runtime.yaml."""
     from ..config import (
-        LLAMASERVER_DEFAULT_MIN_P, LLAMASERVER_DEFAULT_REPEAT_PENALTY,
-        LLAMASERVER_DEFAULT_TEMPERATURE, LLAMASERVER_DEFAULT_TOP_K,
+        LLAMASERVER_DEFAULT_MIN_P,
+        LLAMASERVER_DEFAULT_REPEAT_PENALTY,
+        LLAMASERVER_DEFAULT_TEMPERATURE,
+        LLAMASERVER_DEFAULT_TOP_K,
         LLAMASERVER_DEFAULT_TOP_P,
     )
     defaults: dict[str, float] = {
@@ -904,6 +1030,41 @@ def probe_long_context(server: VllmServer, mml: int,
             pass
     return {"tokens": prompt_tokens, "prefill_tps": prefill_tps,
             "decode_tps": decode_tps, "accept_rate": accept_rate}
+
+
+# Fuellsonde: die laengste Anfrage nahe der Kontextgrenze. Erst danach gilt
+# "frei unter Last": Der Allokator behaelt seine Hochwassermarke, und Puffer
+# wie der DSv4-Indexer wachsen mit dem Kontext — die 30k-Sonde sieht das nicht.
+FILL_CONTEXT_FRACTION = 0.95
+# Wie viele Fuelltext-Wiederholungen die Token-Zaehlung vorab misst
+FILL_SAMPLE_REPEATS = 100
+FILL_TIMEOUT_S = 3600.0
+
+
+def probe_fill_context(server: VllmServer, mml: int) -> int:
+    """Eine Anfrage mit ~95 % des Fensters; gibt ihre Prompt-Token zurueck.
+
+    Die Token je Fuelltext-Wiederholung werden am Server gezaehlt statt
+    geschaetzt — eine Schaetzung ueber dem Fenster liesse vLLM die Anfrage
+    abweisen, eine darunter maesse nicht die Grenze.
+    """
+    _, sample, _ = server.chat(LONG_CONTEXT_FILLER * FILL_SAMPLE_REPEATS, max_tokens=1)
+    per_repeat = int(sample["prompt_tokens"]) / FILL_SAMPLE_REPEATS
+    repeats = int((mml * FILL_CONTEXT_FRACTION) / per_repeat)
+    prompt = (LONG_CONTEXT_FILLER * repeats
+              + "\nFasse den Kern des Textes in einem Satz zusammen:")
+    _, usage, _ = server.chat(prompt, max_tokens=16, ignore_eos=True,
+                              timeout_s=FILL_TIMEOUT_S)
+    return int(usage["prompt_tokens"])
+
+
+def free_mb_by_index() -> dict[int, int]:
+    """Freier Speicher je Karte (nvidia-smi-Index, MiB)."""
+    from ..nvidia_smi import query
+    rows = query("index,memory.free")
+    if not rows:
+        raise RuntimeError("nvidia-smi gave no memory readings")
+    return {int(row["index"]): int(row["memory.free"]) for row in rows}
 
 
 def find_free_port(start: int = 8050, end: int = 8090) -> int:

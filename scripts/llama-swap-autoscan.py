@@ -1711,12 +1711,11 @@ def seed_vllm_entries(config_path: Path) -> int:
         sys.path.insert(0, str(repo))
     import yaml as _yaml
 
+    from aifred.lib.calibration.gpu import enumerate_gpus
     from aifred.lib.calibration.vllm_flow import (
         _gmu_for,
         _smi_index_by_uuid,
-        eligible_gpus,
         render_llamaswap_entry,
-        side_channel_uuids,
         topology_ladder,
     )
     from aifred.lib.calibration.vllm_model_meta import analyze_checkpoint
@@ -1727,7 +1726,7 @@ def seed_vllm_entries(config_path: Path) -> int:
     )
 
     runtime = load_vllm_runtime()
-    gpus = eligible_gpus(side_channel_uuids())
+    gpus = enumerate_gpus()
     smi = _smi_index_by_uuid()
 
     content = config_path.read_text()
@@ -1747,7 +1746,7 @@ def seed_vllm_entries(config_path: Path) -> int:
             parsers = template_parsers(meta.chat_template, runtime)
             rung = next(iter(topology_ladder(meta, gpus, runtime)), None)
             if rung is None:
-                print(f"  ✗ {name}: no topology fits the eligible GPUs — skipping")
+                print(f"  ✗ {name}: no topology fits the GPUs — skipping")
                 continue
             cand_gpus = [g for g in gpus if smi[g.uuid] in rung.gpu_ids]
             spec = VllmSpec(

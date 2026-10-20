@@ -38,8 +38,6 @@ def main() -> int:
     parser.add_argument("--topology", action="append", default=None,
                         help="ladder label to (re)measure; repeatable; default: the operating point's topology")
     parser.add_argument("--dry-run", action="store_true", help="measure and write the matrix, persist nothing")
-    parser.add_argument("--no-side-channel", action="store_true",
-                        help="do not reserve the side-channel pair (TTS/VLM card may be used)")
     parser.add_argument("--log", type=Path, default=None,
                         help="progress log file (default: data/logs/vllm_calibration/<entry>/resweep-<date>.log)")
     args = parser.parse_args()
@@ -63,7 +61,6 @@ def main() -> int:
         result = calibrate_vllm_checkpoint(
             checkpoint=checkpoint, entry_name=args.entry, log_dir=log_dir,
             progress=progress, cancel_check=lambda: False,
-            reserve_side_channel=not args.no_side_channel,
             topologies=args.topology, resweep=args.topology is None,
             dry_run=args.dry_run,
         )
