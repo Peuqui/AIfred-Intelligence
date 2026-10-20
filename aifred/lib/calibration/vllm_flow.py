@@ -19,10 +19,11 @@ Messungen (die llama.cpp-Kalibration verifiziert genauso).
 """
 
 import logging
+import math
 import subprocess
-from dataclasses import dataclass, field
+from collections.abc import Callable, Iterable, Iterator
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
-from typing import Callable, Iterable, Iterator
 
 from ..config import (
     LLAMASWAP_CONFIG_PATH,
@@ -40,8 +41,8 @@ from .gpu import enumerate_gpus
 from .types import GPU
 from .vllm_model_meta import VllmModelMeta, analyze_checkpoint
 from .vllm_probe import (
-    probe_sampling,
     OOM_SIGNATURES,
+    KvReport,
     TemplateParsers,
     VllmBootError,
     VllmServer,
@@ -49,9 +50,12 @@ from .vllm_probe import (
     boot_vllm,
     clear_calibration_cache,
     find_free_port,
+    free_mb_by_index,
     load_vllm_runtime,
     probe_coherence,
+    probe_fill_context,
     probe_long_context,
+    probe_sampling,
     probe_throughput,
     prune_calibration_cache,
     template_parsers,
@@ -106,6 +110,15 @@ MTP_MAX_READ_FRACTION = 0.25
 BOOT_TIMEOUT_S = 2400
 MIN_USEFUL_CONTEXT = 4096
 
+# Blockzahl des ersten Boots, wenn es keine bekannte gibt (neues Modell).
+# Ein einzelner Block besteht vLLMs Startpruefung sicher nicht, und genau
+# diese Absage nennt, was die Kalibration braucht: die Bloecke unter der GMU
+# je Stufe und den Bedarf eines vollen Kontexts. Kostet einen Ladevorgang.
+UNKNOWN_BLOCKS_SEED = 1
+# Boots, mit denen _boot die Blockzahl einregelt (Samen → Budget →
+# erzwungen → zurueck aufs Budget)
+KV_BOOT_ATTEMPTS = 4
+
 # Siegerregel (Peuqui 2026-08-29): Kontext-Vorrang, danach entscheidet die
 # Gesamtzeit eines Turns (siehe _beats). Die frueheren Schwellen
 # LONG_TIE_BREAK_REL/-_PREFILL_REL sind damit ersetzt: sie wogen Decode und
@@ -153,23 +166,38 @@ def _smi_index_by_uuid() -> dict[str, int]:
     return mapping
 
 
-def eligible_gpus(reserved_uuids: set[str]) -> list[GPU]:
-    """Kalibrierbare GPUs: alle minus Side-Channel-Karten (TTS/VLM)."""
-    return [g for g in enumerate_gpus() if g.uuid not in reserved_uuids]
+def drain_gpus(
+    progress: Callable[[str], None], cancel_check: Callable[[], bool] | None,
+) -> list[GPU]:
+    """Warten, bis keine Karte mehr einen Rechenprozess traegt; danach inventarisieren.
 
+    Geladene Modelle machen die Topologie-Leiter blind (belegte Karten liessen
+    am 2026-08-30 nur das Gitter durch, dessen Boot dann starb). Der Aufrufer
+    hat llama-swap und die Zusatzmodelle bereits gestoppt; Readiness ist
+    prozessbasiert, nicht speicherbasiert (SSOT-Primitiv wie beim llama.cpp-Lauf).
+    Das Inventar entsteht erst danach, weil die Leiter ueber free_mb entscheidet.
+    """
+    import time
 
-def side_channel_uuids() -> set[str]:
-    """UUID der Sammelkarte (VLM, daneben TTS; bleibt frei, wie beim Betriebspunkt)."""
-    reserved: set[str] = set()
-    try:
-        from ..vision_gpu_select import pick_vlm_gpu
-        vlm_index = pick_vlm_gpu()  # PCI_BUS_ID-Index
-        by_index = {v: k for k, v in _smi_index_by_uuid().items()}
-        if vlm_index in by_index:
-            reserved.add(by_index[vlm_index])
-    except Exception as e:  # noqa: BLE001
-        logger.debug(f"vlm gpu lookup skipped: {e}")
-    return reserved
+    from ..config import LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S
+    from ..process_utils import gpu_compute_processes
+    deadline = time.monotonic() + LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S
+    procs = gpu_compute_processes()
+    while procs and time.monotonic() < deadline:
+        if cancel_check and cancel_check():
+            raise RuntimeError("cancelled")
+        progress(f"⏳ GPUs still busy ({'; '.join(procs)}) — waiting...")
+        time.sleep(3.0)
+        procs = gpu_compute_processes()
+    if procs:
+        raise RuntimeError(
+            f"GPUs still busy after drain timeout: {'; '.join(procs)} "
+            f"— free them and recalibrate"
+        )
+    gpus = enumerate_gpus()
+    if not gpus:
+        raise RuntimeError("no GPUs found")
+    return gpus
 
 
 def _capture_sizes_for(k: int, runtime: dict) -> list[int]:
@@ -429,6 +457,8 @@ class _RungResult:
     long_tokens: int = 0
     long_prefill_tps: float = 0.0
     long_decode_tps: float = 0.0
+    # KV-Bloecke fuer einen vollen Kontext dieser Sprosse (bei spec.mml)
+    one_context_blocks: int = 0
 
 
 def _rung_class(rung: _RungResult, gpus: list[GPU], smi: dict[str, int]) -> tuple:
@@ -576,6 +606,189 @@ def _oom_step(
     return None
 
 
+def _kv_target(kv: KvReport, blocks: int, lean: bool = False) -> tuple[int, int]:
+    """(Ziel-Blockzahl, Bloecke fuer einen vollen Kontext) nach einem bestandenen Boot.
+
+    Ziel ist so viel Cache, wie das GMU-Budget auf jeder Stufe traegt,
+    mindestens ein voller Kontext (Beschluss Peuqui 20.10.2026). ``lean``:
+    genau ein voller Kontext — wenn der volle Cache die Karten ueberlaufen liess.
+    """
+    one_context = kv.blocks_for_one_context(blocks)
+    return (one_context if lean else max(kv.blocks_auto, one_context)), one_context
+
+
+def _boot(
+    spec: VllmSpec,
+    port: int,
+    log: Path,
+    cancel_check: Callable[[], bool] | None,
+    progress: Callable[[str], None],
+    *,
+    exact: bool,
+    lean: bool = False,
+) -> tuple[VllmServer, VllmSpec, int]:
+    """boot_vllm mit der Blockzahl, die das Boot-Log selbst nennt.
+
+    Rueckgabe: (Server, Spec mit der Ziel-Blockzahl, Bloecke fuer einen
+    vollen Kontext). Eingeregelt wird nur die Blockzahl; jede andere
+    Absage geht als VllmBootError an die Leitern des Aufrufers.
+
+    - Startpruefung unter dem Budget gescheitert: zurueck aufs Budget.
+    - Das Budget traegt keinen vollen Kontext: der Override erzwingt ihn
+      (so laeuft DeepSeek-V4, dessen knappe Stufen das Budget kaum tragen).
+      Laeuft die Karte damit ueber, gilt vLLMs Schaetzung fuer das Budget
+      als Kontextgrenze — der Aufrufer bootet mit kleinerem Kontext neu.
+    - Bestanden mit weniger Bloecken als dem Ziel: neu booten, denn eine
+      Messung mit kleinerem Cache waere zu optimistisch (der Allokator haette
+      mehr Luft als im Betrieb). ``exact`` bootet auch bei MEHR Bloecken neu —
+      fuer Messungen, die genau den Cache des Betriebspunkts brauchen.
+    - ``lean``: Ziel ist genau ein voller Kontext (siehe _kv_target).
+    """
+    assert spec.num_gpu_blocks
+    budget_context: int | None = None   # vLLMs Kontextgrenze fuer das Budget
+    forcing_overran = False
+    for attempt in range(KV_BOOT_ATTEMPTS):
+        last = attempt == KV_BOOT_ATTEMPTS - 1
+        attempt_log = log if attempt == 0 else log.with_name(f"{log.stem}-kv{attempt}{log.suffix}")
+        blocks = spec.num_gpu_blocks
+        try:
+            server = boot_vllm(spec, port, attempt_log, BOOT_TIMEOUT_S, cancel_check)
+        except VllmBootError as e:
+            kv = e.kv
+            if kv.too_small and blocks == kv.blocks_auto:
+                budget_context = e.parsed_max_len
+            if kv.too_small and blocks < kv.blocks_auto:
+                next_blocks, note = kv.blocks_auto, "the GMU budget holds"
+            elif kv.too_small and not forcing_overran:
+                next_blocks = max(kv.blocks_for_one_context(blocks), blocks + 1)
+                note = "one full context needs (beyond the GMU budget)"
+            elif e.oom and 0 < kv.blocks_auto < blocks and not forcing_overran:
+                forcing_overran = True
+                if budget_context:
+                    raise VllmBootError(
+                        f"{blocks} KV blocks beyond the GMU budget overran the card",
+                        log_tail=e.log_tail, parsed_max_len=budget_context, kv=kv,
+                    ) from e
+                next_blocks, note = kv.blocks_auto, "the GMU budget holds"
+            else:
+                raise
+            if last:
+                raise
+            progress(f"   ↳ {format_number(blocks)} KV blocks rejected: retry with the "
+                     f"{format_number(next_blocks)} {note}")
+            spec = replace(spec, num_gpu_blocks=next_blocks)
+            continue
+        target, one_context = _kv_target(server.kv_report(spec.tp), blocks, lean)
+        if target <= 0 or one_context <= 0:
+            server.shutdown()
+            raise RuntimeError(
+                f"boot log {attempt_log} names no KV block counts — the vLLM build "
+                f"does not log 'Overriding num_gpu_blocks' / 'GPU KV cache size'"
+            )
+        if not last and (target > blocks or (exact and target != blocks)):
+            server.shutdown()
+            progress(f"   ↳ the GMU budget holds {format_number(target)} KV blocks "
+                     f"({format_number(one_context)} for one full context): rebooting with them")
+            spec = replace(spec, num_gpu_blocks=target)
+            continue
+        return server, replace(spec, num_gpu_blocks=target), one_context
+    raise AssertionError("unreachable: the last attempt returns or raises")
+
+
+@dataclass(frozen=True)
+class KvMeasurement:
+    """Was ein Betriebspunkt nach der laengsten Anfrage auf den Karten laesst (meta.kv).
+
+    Grundlage der Varianten fuer die Zusatzmodelle: Sie verkleinern den
+    Cache, bis auf der gewaehlten Karte deren Budget frei ist. Karten sind
+    nvidia-smi-Indizes; ``bytes_per_block`` gibt es nur fuer Modellkarten.
+    """
+    blocks: int                      # Override des Betriebspunkts
+    blocks_budget: int               # N_auto: was unter der GMU Platz haette
+    blocks_one_context: int          # N_min: ein voller Kontext
+    fill_tokens: int                 # Prompt der Fuellsonde
+    bytes_per_block: dict[int, int]
+    free_under_load_mb: dict[int, int]
+
+    def as_meta(self) -> dict:
+        return asdict(self)
+
+    @classmethod
+    def from_meta(cls, data: dict) -> "KvMeasurement":
+        return cls(
+            blocks=int(data["blocks"]), blocks_budget=int(data["blocks_budget"]),
+            blocks_one_context=int(data["blocks_one_context"]),
+            fill_tokens=int(data["fill_tokens"]),
+            bytes_per_block={int(k): int(v) for k, v in data["bytes_per_block"].items()},
+            free_under_load_mb={int(k): int(v) for k, v in data["free_under_load_mb"].items()},
+        )
+
+
+def _bytes_per_block_by_gpu(kv: KvReport, spec: VllmSpec) -> dict[int, int]:
+    """Bytes je Block je Modellkarte (Worker-Rang = Position in gpu_ids)."""
+    return {spec.gpu_ids[rank]: per_block
+            for rank, per_block in enumerate(kv.bytes_per_block())
+            if rank < len(spec.gpu_ids)}
+
+
+def measure_under_load(
+    spec: VllmSpec,
+    log_dir: Path,
+    progress: Callable[[str], None],
+    cancel_check: Callable[[], bool] | None,
+    *,
+    lean: bool = False,
+) -> tuple[VllmSpec, KvMeasurement]:
+    """Betriebspunkt booten, die laengste Anfrage fahren, frei je Karte messen.
+
+    Laeuft eine Karte dabei ueber, wird zuerst der Cache auf einen vollen
+    Kontext gesenkt (Beschluss 20.10.2026: groesser nur, wenn Platz da ist),
+    danach der Kontext halbiert. Rueckgabe: der tragende Spec und seine Messung.
+    """
+    tag = spec.served_name
+    for attempt in range(8):
+        if cancel_check and cancel_check():
+            raise RuntimeError("cancelled")
+        log = log_dir / f"boot-fill-{tag}-try{attempt}.log"
+        server, spec, one_context = _boot(spec, find_free_port(), log, cancel_check,
+                                          progress, exact=True, lean=lean)
+        progress(f"   ↳ filling the context ({format_number(spec.mml)} tokens, "
+                 f"{format_number(spec.num_gpu_blocks or 0)} KV blocks)...")
+        try:
+            fill_tokens = probe_fill_context(server, spec.mml)
+            free = free_mb_by_index()
+            kv = server.kv_report(spec.tp)
+        except Exception as fill_err:  # noqa: BLE001 — OOM entscheidet ueber die Leiter
+            overran = any(sig in server.log_text() for sig in OOM_SIGNATURES)
+            server.shutdown()
+            if not overran:
+                raise RuntimeError(f"fill probe failed: {type(fill_err).__name__}: {fill_err}") from fill_err
+            if not lean and (spec.num_gpu_blocks or 0) > one_context:
+                lean = True
+                progress(f"   ↳ the full context overran a card: retry with "
+                         f"{format_number(one_context)} KV blocks (one full context)")
+                spec = replace(spec, num_gpu_blocks=one_context)
+                continue
+            if spec.mml // 2 < MIN_USEFUL_CONTEXT:
+                raise RuntimeError("no context survives a full request on these cards") from fill_err
+            progress(f"   ↳ the full context overran a card even with one context of "
+                     f"cache: retry with ctx {format_number(spec.mml // 2)}")
+            spec = replace(spec, mml=spec.mml // 2,
+                           num_gpu_blocks=max(1, math.ceil(one_context / 2)))
+            continue
+        server.shutdown()
+        measurement = KvMeasurement(
+            blocks=spec.num_gpu_blocks or 0, blocks_budget=kv.blocks_auto,
+            blocks_one_context=one_context, fill_tokens=fill_tokens,
+            bytes_per_block=_bytes_per_block_by_gpu(kv, spec),
+            free_under_load_mb=free,
+        )
+        progress("   ↳ free after the longest request: " + ", ".join(
+            f"GPU {gpu} {format_number(mb)} MiB" for gpu, mb in sorted(free.items())))
+        return spec, measurement
+    raise RuntimeError("fill probe did not settle")
+
+
 def _probe_rung(
     server: VllmServer, spec: VllmSpec, meta: VllmModelMeta,
 ) -> tuple[int, int, float, int, dict | None]:
@@ -604,12 +817,16 @@ def _measure_topology(
     cancel_check: Callable[[], bool] | None,
     *,
     parsers: TemplateParsers,
+    blocks: int,
 ) -> _RungResult | None:
     """Eine Sprosse booten und messen; None = Sprosse nicht nutzbar.
 
     Kontext-Strategie: Start mit nativem Kontext. Nennt vLLM selbst eine
     Grenze, wird sie uebernommen; ein nacktes OOM halbiert den Kontext.
     So tritt jede Sprosse mit ihrem maximal tragbaren Kontext an.
+
+    ``blocks`` ist die Start-Blockzahl des Overrides; _boot regelt sie auf
+    das GMU-Budget dieser Topologie ein.
     """
     cand_gpus = [g for g in gpus if smi[g.uuid] in cand.gpu_ids]
     reserve_mb = VLLM_VRAM_RESERVE_MB
@@ -625,6 +842,7 @@ def _measure_topology(
     kv_dtype: str | None = VllmSpec.kv_cache_dtype
     max_attempts = 6
     probed: tuple[int, int, float, int, dict | None] | None = None
+    one_context = 0
     for attempt in range(max_attempts):
         spec = VllmSpec(
             checkpoint=meta.checkpoint, served_name=entry_name,
@@ -636,14 +854,19 @@ def _measure_topology(
             kv_cache_dtype=kv_dtype,
             tool_call_parser=parsers.tool_call,
             reasoning_parser=parsers.reasoning,
+            num_gpu_blocks=blocks,
         )
         port = find_free_port()
         gpu_slug = "-".join(str(i) for i in cand.gpu_ids)
         log = log_dir / f"boot-{cand.tp}x{cand.pp}-gpu{gpu_slug}-try{attempt}.log"
         retries_left = attempt < max_attempts - 1
         try:
-            server = boot_vllm(spec, port, log, BOOT_TIMEOUT_S, cancel_check)
+            server, spec, one_context = _boot(spec, port, log, cancel_check, progress,
+                                              exact=True)
+            blocks = spec.num_gpu_blocks or blocks
         except VllmBootError as e:
+            if e.kv.blocks_auto > 0:
+                blocks = e.kv.blocks_auto
             if retries_left and e.required_kv_dtype and e.required_kv_dtype != kv_dtype:
                 # Architektur-Zwang: vLLM nennt das noetige Format selbst.
                 kv_dtype = e.required_kv_dtype
@@ -720,7 +943,8 @@ def _measure_topology(
     return _RungResult(spec=spec, label=cand.label, tps=tps,
                        coherence=(ok, total), short_tokens=short_tokens,
                        full_context=(spec.mml >= native),
-                       long_tokens=lt, long_prefill_tps=lp, long_decode_tps=ld)
+                       long_tokens=lt, long_prefill_tps=lp, long_decode_tps=ld,
+                       one_context_blocks=one_context)
 
 
 def _sweep_k(
@@ -773,6 +997,11 @@ def _sweep_k(
     # wuerden ausserdem bei verschiedenen Chunkgroessen gemessen — genau
     # der Achse, die den Prefill um bis zu 12 % dreht.
     mbt_k = rung.spec.max_batched_tokens
+    # KV-Bloecke wandern wie der Chunk-Deckel durch den Sweep: was ein k-Boot
+    # ueber das GMU-Budget gelernt hat, gilt als Start fuer das naechste k.
+    blocks_k = rung.spec.num_gpu_blocks
+    best_blocks = rung.spec.num_gpu_blocks
+    best_mbt = rung.spec.max_batched_tokens
     # Kontext wandert wie GMU und Chunk-Deckel durch den Sweep. Jedes k
     # startete frueher wieder beim vollen Sprossen-Kontext, scheiterte und
     # lernte den Deckel erst im zweiten Boot — sieben k kosteten so sieben
@@ -829,7 +1058,8 @@ def _sweep_k(
                        "gmu": gmu_k, "block_size": meta.boot_block_size(k),
                        "max_batched_tokens": mbt_k,
                        "kv_cache_dtype": rung.spec.kv_cache_dtype,
-                       "capture_sizes": capture, "spec_attn_backend": spec_attn},
+                       "capture_sizes": capture, "spec_attn_backend": spec_attn,
+                       "num_gpu_blocks": blocks_k},
                 )
                 port = find_free_port()
                 gpu_slug = "-".join(str(i) for i in rung.spec.gpu_ids)
@@ -841,9 +1071,13 @@ def _sweep_k(
                     progress(f"🎲 Probing k={k} on {rung.label} (block {meta.boot_block_size(k)}, "
                              f"capture {capture}, spec-attn {spec_attn or 'default'})...")
                 try:
-                    server = boot_vllm(spec_k, port, log, BOOT_TIMEOUT_S, cancel_check)
+                    server, booted_k, _ = _boot(spec_k, port, log, cancel_check, progress,
+                                                exact=False)
+                    blocks_k = booted_k.num_gpu_blocks or blocks_k
                     break
                 except VllmBootError as e:
+                    if e.kv.blocks_auto > 0:
+                        blocks_k = e.kv.blocks_auto
                     if (attempt < 2 and e.required_batched_tokens
                             and e.required_batched_tokens > mbt_k):
                         mbt_k = e.required_batched_tokens
@@ -952,11 +1186,15 @@ def _sweep_k(
             # den Betriebspunkt (Ausfall 2026-08-30: mit 0,95 gemessen,
             # 0,97 persistiert → QPN8-Workspace-OOM beim ersten Request).
             best_gmu = gmu_k
+            # Ebenso Chunk und Bloecke: der Betriebspunkt bootet mit genau
+            # dem, womit der Sieger gemessen wurde.
+            best_mbt, best_blocks = mbt_k, blocks_k
 
     if best_k:
         best_spec = VllmSpec(
             **{**rung.spec.__dict__, "k": best_k, "mml": best_mml,
-               "gmu": best_gmu,
+               "gmu": best_gmu, "max_batched_tokens": best_mbt,
+               "num_gpu_blocks": best_blocks,
                "block_size": meta.boot_block_size(best_k),
                "capture_sizes": _capture_sizes_for(best_k, runtime),
                "spec_attn_backend": _spec_attn_for(rung.spec, gpus, smi, runtime)},
@@ -991,7 +1229,10 @@ def _challenger_ab(
     port = find_free_port()
     log = log_dir / f"boot-{tag}.log"
     try:
-        server = boot_vllm(challenger, port, log, BOOT_TIMEOUT_S, cancel_check)
+        # exact: eine GMU-Senkung verkleinert das Budget — der Herausforderer
+        # tritt mit SEINEM Cache an, sonst gaebe die Senkung nichts frei.
+        server, challenger, _ = _boot(challenger, port, log, cancel_check, progress,
+                                      exact=True)
     except VllmBootError as e:
         progress(f"   ↳ {tag} boot failed ({e.reason}) — keeping {keep_note}")
         return best_spec, best_speed, None
@@ -1080,7 +1321,6 @@ def calibrate_vllm_checkpoint(
     log_dir: Path,
     progress: Callable[[str], None],
     cancel_check: Callable[[], bool] | None = None,
-    reserve_side_channel: bool = True,
     topologies: list[str] | None = None,
     resweep: bool = False,
     dry_run: bool = False,
@@ -1101,6 +1341,11 @@ def calibrate_vllm_checkpoint(
     Faktor 2,5 vs. TP2 Faktor 1,4); kontext-reduzierte Sprossen werden
     gemessen und berichtet, gewinnen aber nur, wenn keine Sprosse den
     nativen Kontext traegt.
+
+    Gerechnet wird auf ALLEN Karten (Beschluss 20.10.2026, Weg A): Keine
+    Karte bleibt fuer die Zusatzmodelle frei. Was der Betriebspunkt nach der
+    laengsten Anfrage auf jeder Karte uebrig laesst, steht in meta.kv — daraus
+    entstehen die Profile fuer TTS und VLM (calibrate_vllm_side_channel_variant).
     """
     runtime = load_vllm_runtime()  # frueh scheitern, wenn die Umgebung fehlt
     gib = 1024 ** 3
@@ -1133,47 +1378,8 @@ def calibrate_vllm_checkpoint(
         f"reasoning parser {parsers.reasoning or 'none'}"
     )
 
-    # Reserviert wird nur, wenn im Picker auch ein Seitenkanal-Paar
-    # angehakt ist. Ist keines gewaehlt, laufen weder TTS noch VLM waehrend
-    # dieser Messung — die Karte dann freizuhalten kostet nur Speicher.
-    # Beim 284B-DeepSeek entscheidet das ueber Passen oder Nicht-Passen:
-    # 164,0 GiB Gewichte gegen 156,3 GiB auf vier Karten, 187,5 auf fuenf.
-    reserved = side_channel_uuids() if reserve_side_channel else set()
-    if not reserve_side_channel:
-        progress("🔓 No side-channel pair selected — all GPUs available")
-    gpus = eligible_gpus(reserved)
-    if not gpus:
-        raise RuntimeError("no eligible GPUs (all reserved for side channels)")
-    progress(f"🖥️ Eligible GPUs: {[f'{g.name}({g.total_mb}MB)' for g in gpus]}")
-
-    # Drain-Check (SSOT-Primitiv wie beim llamacpp-Lauf): geladene Modelle
-    # machen die Topologie-Leiter blind (belegte Karten liessen am
-    # 2026-08-30 nur das Gitter durch, dessen Boot dann starb). Der
-    # Aufrufer hat llama-swap bereits gestoppt — hier warten wir, bis die
-    # ELIGIBLE Karten prozessfrei sind (Side-Channels duerfen belegt
-    # bleiben); Readiness ist prozessbasiert, nicht speicherbasiert.
-    import time as _time
-
-    from ..config import LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S
-    from ..process_utils import gpu_compute_processes
-    eligible_uuids = {g.uuid for g in gpus}
-    drain_deadline = _time.monotonic() + LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S
-    procs = gpu_compute_processes(eligible_uuids)
-    while procs and _time.monotonic() < drain_deadline:
-        if cancel_check and cancel_check():
-            raise RuntimeError("cancelled")
-        progress(f"⏳ GPUs still busy ({'; '.join(procs)}) — waiting...")
-        _time.sleep(3.0)
-        procs = gpu_compute_processes(eligible_uuids)
-    if procs:
-        raise RuntimeError(
-            f"eligible GPUs still busy after drain timeout: {'; '.join(procs)} "
-            f"— free them and recalibrate"
-        )
-    # Nach dem Drain neu inventarisieren: die free_mb-Werte von oben
-    # stammen aus der Zeit VOR der VRAM-Freigabe, und die Topologie-
-    # Leiter entscheidet ueber free_mb.
-    gpus = eligible_gpus(reserved)
+    gpus = drain_gpus(progress, cancel_check)
+    progress(f"🖥️ GPUs: {[f'{g.name}({g.total_mb}MB)' for g in gpus]}")
 
     # --- Phase C/D: ALLE Topologie-Kandidaten booten und messen ----------
     # Der erste bootende Kandidat ist selten der schnellste (27B: TP=1 auf
@@ -1190,12 +1396,21 @@ def calibrate_vllm_checkpoint(
     if topologies is not None:
         progress("🎯 Re-sweep: " + ", ".join(c.label for c in candidates)
                  + " (rest of the topology ladder skipped)")
+    # Start-Blockzahl: die des vorhandenen Eintrags, sonst der Absage-Samen.
+    # Danach traegt jede Sprosse weiter, was ein voller Kontext braucht — die
+    # Zahl haengt am Kontext, nicht an der Topologie, und besteht deshalb die
+    # Startpruefung der naechsten Sprosse; deren Budget nennt dann ihr Log.
+    from ..operating_points import get_vllm_entry_blocks
+    blocks = get_vllm_entry_blocks(entry_name) or UNKNOWN_BLOCKS_SEED
+    native = meta.native_context or 32768
     for cand in candidates:
         if cancel_check and cancel_check():
             raise RuntimeError("cancelled")
         result = _measure_topology(cand, entry_name, meta, gpus, smi,
-                                   log_dir, progress, cancel_check, parsers=parsers)
+                                   log_dir, progress, cancel_check, parsers=parsers,
+                                   blocks=blocks)
         if result is not None:
+            blocks = math.ceil(result.one_context_blocks * native / result.spec.mml)
             rungs.append(result)
             matrix.append({"label": result.label, "k": 0,
                            "ctx": result.spec.mml, "short": result.tps,
@@ -1357,9 +1572,16 @@ def calibrate_vllm_checkpoint(
     if dry_run:
         progress("🧪 Dry run: operating point NOT persisted, llama-swap entry unchanged")
     else:
+        # Der Betriebspunkt muss die laengste Anfrage tragen, und was er dann
+        # auf jeder Karte frei laesst, ist die Grundlage der Profile fuer die
+        # Zusatzmodelle.
+        progress(f"🧪 Longest request on the winner ({format_number(best_spec.mml)} "
+                 f"tokens window)...")
+        best_spec, kv_measurement = measure_under_load(best_spec, log_dir, progress, cancel_check)
         profile_path = persist_operating_point(
             best_spec, best_speed.long_tps, best_sweep, meta,
-            long_ctx=ab_row or _matrix_row(best_rung.label, best_k))
+            long_ctx=ab_row or _matrix_row(best_rung.label, best_k),
+            kv=kv_measurement)
         progress(f"💾 Operating point saved: {profile_path}")
 
     # Speed-Variante nur persistieren, wenn sie den Betriebspunkt schlaegt —
@@ -1447,9 +1669,23 @@ def render_llamaswap_entry(spec: VllmSpec, ttl: int = 3600) -> dict:
     }
 
 
+def spec_meta(spec: VllmSpec) -> dict:
+    """Der Boot-Parametersatz als YAML-taugliches Dict (meta.spec).
+
+    Die Varianten fuer die Zusatzmodelle entstehen aus dem Spec der Basis,
+    nicht aus ihrem cmd: Der cmd ist aus Spec und Runtime gerendert.
+    """
+    return {**asdict(spec), "checkpoint": str(spec.checkpoint)}
+
+
+def spec_from_meta(data: dict) -> VllmSpec:
+    return VllmSpec(**{**data, "checkpoint": Path(data["checkpoint"])})
+
+
 def persist_operating_point(
     spec: VllmSpec, tok_s: float, k_sweep: dict[int, float], meta: VllmModelMeta,
     long_ctx: dict | None = None,
+    kv: KvMeasurement | None = None,
 ) -> Path:
     """Profil schreiben (mit Hardware-Fingerprint) und Eintrag anwenden."""
     import datetime
@@ -1475,6 +1711,9 @@ def persist_operating_point(
             "prefill_tok_s": round(long_ctx["long_prefill"], 0),
             "decode_tok_s": round(long_ctx["long_decode"], 1),
         }
+    if kv is not None:
+        meta_block["kv"] = kv.as_meta()
+    meta_block["spec"] = spec_meta(spec)
     profile = {
         "llamaswap": entry,
         "group": "main",
