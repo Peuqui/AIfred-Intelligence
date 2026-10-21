@@ -16,7 +16,7 @@
     },
     "page": {
       "type": "integer",
-      "description": "1-based page number for pagination. page=1 (default) returns the top similarity hits, page=2 the next batch deeper into the ranking, etc. Use the SAME query when paginating. Watch has_more in the response to decide whether another page is worth fetching.",
+      "description": "1-based page number. page=1 (default) returns the top similarity hits, page=2 the next batch deeper into the ranking, etc. Use the SAME query; fetch a next page only when the response contains a next_page_hint.",
       "default": 1
     }
   },

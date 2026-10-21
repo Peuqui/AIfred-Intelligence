@@ -1,1 +1,1 @@
-Write or overwrite a complete text file in the documents directory. Only text formats: .txt, .md, .csv, .json, .xml, .html (HTML is embedded in the chat automatically). Look at an existing file with read_file first; for targeted edits use patch_file.
+Write or overwrite a complete text file in the documents directory. Only text formats: .txt, .md, .csv, .json, .xml, .html (HTML is embedded in the chat automatically). ALWAYS look at an existing file with read_file first; for targeted edits use patch_file.

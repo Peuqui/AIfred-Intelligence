@@ -1,1 +1,1 @@
-Store a new entry in your long-term memory — you decide when, no user request needed. Only for a topic, person or job that has no entry yet; otherwise use update_memory on that entry.
+Store a new entry in your long-term memory (important insights, good arguments, personal information about the user) — you decide when, no user request needed. Only for a topic, person or job that has no entry yet; otherwise use update_memory on that entry.
