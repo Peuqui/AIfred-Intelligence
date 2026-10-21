@@ -102,7 +102,7 @@ aifred/plugins/tools/my_plugin/
 |------|---------|-----------|
 | `prompts/tools/<tool>.txt` | `load_tool_description(__file__, "<tool>")` | Read fresh on every toolkit build; missing or empty file → `RuntimeError`, no fallback text. English only — the recipient is the model |
 | `prompts/tools/<tool>.params.json` | `load_tool_parameters(__file__, "<tool>", enums=…, values=…)` | See [Tool Parameters](#tool-parameters-promptstoolsparamsjson) |
-| `prompts/<de\|en>/*.txt` | `load_plugin_instructions(plugin, lang, granted_tools)` | File name = required tool(s), joined with `+` (AND); `_intro.txt` is prepended once at least one tool fragment applies. Transitional fallback: a flat `prompts/<de\|en>.txt`, gated plugin-wide |
+| `prompts/<de\|en>/*.txt` | `load_plugin_instructions(plugin, lang, granted_tools)` | File name = required tool(s), joined with `+` (AND); `_intro.txt` is prepended once at least one tool fragment applies |
 | `i18n.json` | `plugin_display_name()`, `plugin_description()`, settings modal | See [Plugin i18n](#plugin-i18n) |
 | `settings.json` | Channels: `BaseChannel.load_settings()` / `save_settings()`; tools: `load_plugin_settings(__file__)` / `save_plugin_settings(__file__, …)` | See [Credential Storage](#credential-storage-secrets-vs-settings) |
 
