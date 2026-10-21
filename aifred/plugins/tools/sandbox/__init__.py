@@ -223,7 +223,8 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         Tool(
             name="execute_code_write",
             tier=TIER_WRITE_DATA,
-            description=load_tool_description(__file__, "execute_code_write").replace("{AVAILABLE_LIBRARIES}", _libraries),
+            description=load_tool_description(__file__, "execute_code_write")
+            .replace("{VENDOR_BASE}", _vb).replace("{AVAILABLE_LIBRARIES}", _libraries),
             parameters=load_tool_parameters(__file__, "execute_code"),
             executor=_execute_code_write,
         ),
