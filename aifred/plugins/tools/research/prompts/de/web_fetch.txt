@@ -1,1 +1,0 @@
-URLs im Text des Benutzers → web_fetch, um den Inhalt der Seite zu lesen.

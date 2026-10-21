@@ -20,27 +20,15 @@ When the user plans something ("remind me", "every morning", "in 2 hours"):
 
 IMPORTANT: When the user asks for system status, call system_status DIRECTLY — do NOT create a scheduler job for it!
 
-TYPICAL USE CASES (suggest these proactively when appropriate):
+TYPICAL USE CASES (suggest these proactively when appropriate): morning email summary, today's appointments (epim_search), one-time reminders, a periodic status check that reports only problems. Two examples of the format:
 
-Email summary:
   scheduler_create(name="email_summary", schedule_type="cron", schedule_expr="0 7 * * *",
     message="Check my recent unread emails using the email tool. Summarize the key points briefly.",
     delivery="announce", channel="telegram", recipient="Lord Helmchen")
 
-Calendar reminder:
-  scheduler_create(name="calendar_morning", schedule_type="cron", schedule_expr="0 8 * * 1-5",
-    message="Check my appointments for today using epim_search. List them chronologically.",
-    delivery="announce", channel="telegram")
-
-One-time reminder:
   scheduler_create(name="doctor_reminder", schedule_type="once", schedule_expr="2026-03-30T09:30:00",
     message="Reminder: Doctor's appointment at 10:00!",
     delivery="announce", channel="telegram")
-
-Periodic status check:
-  scheduler_create(name="server_health", schedule_type="interval", schedule_expr="3600",
-    message="Run a quick system status check. Report only problems.",
-    delivery="review")
 
 When the user asks "what did I schedule" or "show my jobs" → scheduler_list (returns each job's stored prompt as "message" too)
 When the user wants to change a job ("move the report to 7:05", "change the text") → read it with scheduler_list, then scheduler_update — do NOT delete and recreate

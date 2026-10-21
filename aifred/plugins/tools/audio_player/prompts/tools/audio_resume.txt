@@ -1,5 +1,1 @@
-Resume audio playback. Three behaviors auto-selected:
-  - If 'item' is given: resume that specific state_key from its saved position (pre-roll for audiobooks).
-  - If currently paused: simple unpause, no parameter needed.
-  - If stopped/idle: resume the most recently unfinished audio from saved position.
-Use after 'audio_pause', 'audio_stop', or to continue an audiobook. Pair with 'audio_list_unfinished()' to discover specific state_keys. The 'target' parameter selects the output sink ('browser:<id>', 'local', 'freeecho2:<room>'); when omitted, audio is routed to the channel where the request came from (same routing as audio_play).
+Resume playback, behavior auto-selected: with 'item' (a state_key, e.g. from audio_list_unfinished) that item from its saved position (pre-roll for audiobooks); without 'item' a simple unpause if paused, otherwise the most recently unfinished audio from its saved position. Use after audio_pause or audio_stop, or to continue an audiobook.
