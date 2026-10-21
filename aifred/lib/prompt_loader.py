@@ -196,24 +196,6 @@ def get_language() -> str:
     return str(persisted_settings()["ui_language"])
 
 
-def load_shared_tool_description(filename: str) -> str:
-    """Load a tool description from prompts/shared/ — für Toolsets, die in
-    aifred/lib definiert sind und daher keinen Plugin-Ordner haben (seit
-    der Atomarisierung von research/sandbox nur noch memory/store_memory).
-    Plugin-eigene Tools nutzen plugin_base.load_tool_description.
-
-    Args:
-        filename: File name (e.g. 'email_tool.txt')
-
-    Raises:
-        FileNotFoundError: If prompt file doesn't exist
-    """
-    path = PROMPTS_DIR / "shared" / filename
-    if not path.exists():
-        raise FileNotFoundError(f"Tool description not found: {path}")
-    return path.read_text(encoding="utf-8").strip()
-
-
 def _build_standard_placeholders(lang: str) -> dict:
     """Build the always-available date/time/user/EPIM placeholder dict.
 

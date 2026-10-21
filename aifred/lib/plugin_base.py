@@ -94,7 +94,9 @@ def load_tool_description(plugin_file: str | Path, tool_name: str) -> str:
     Wahrheiten.
 
     Args:
-        plugin_file: ``__file__`` des Plugin-Moduls.
+        plugin_file: ``__file__`` des Plugin-Moduls — oder ein Verzeichnis,
+            unter dem ``prompts/tools/`` liegt (Toolsets aus aifred/lib wie die
+            Gedächtnis-Tools: ``PROJECT_ROOT``).
         tool_name: Tool-Name = Dateiname ohne ``.txt``.
     """
     from pathlib import Path

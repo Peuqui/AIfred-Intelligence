@@ -20,11 +20,12 @@ from .config import (
     AGENT_MEMORY_RESULTS,
     AGENT_MEMORY_SUMMARY_MAX_CHARS,
     DEFAULT_OLLAMA_URL,
+    PROJECT_ROOT,
 )
 from .embeddings import OLLAMA_EMBEDDING_MODEL
 from .function_calling import Tool, ToolKit
 from .logging_utils import log_message
-from .prompt_loader import load_shared_tool_description
+from .plugin_base import load_tool_description, load_tool_parameters
 from .security import TIER_READONLY, TIER_WRITE_DATA
 
 # The agent memory tools and their tiers — one list for toolkit, agent
@@ -311,7 +312,7 @@ class AgentMemory:
             # The summary is the entry's line in the memory index (and what is
             # embedded for search): refuse, never truncate - the model rewrites it.
             if not summary_fits_index(summary):
-                raise ValueError(load_shared_tool_description("memory_summary_too_long.txt").format(
+                raise ValueError(load_tool_description(PROJECT_ROOT, "memory_summary_too_long").format(
                     length=len(summary.strip()), max_chars=AGENT_MEMORY_SUMMARY_MAX_CHARS,
                 ))
 
@@ -325,7 +326,7 @@ class AgentMemory:
                 line = summary.strip()
                 if line and line in lines and content.strip() != line:
                     raise ValueError(
-                        load_shared_tool_description("memory_content_repeats_summary.txt").format(line=line)
+                        load_tool_description(PROJECT_ROOT, "memory_content_repeats_summary").format(line=line)
                     )
 
         async def store_memory(content: str, memory_type: str, summary: str) -> str:
@@ -347,59 +348,24 @@ class AgentMemory:
         async def read_memory(memory_id: str) -> str:
             return await self.read(agent_id, memory_id)
 
+        # Descriptions and parameter schemas live in prompts/tools/ — same
+        # layout and loaders as a plugin's prompts/tools/.
+        summary_limit = {"max_chars": AGENT_MEMORY_SUMMARY_MAX_CHARS}
         return ToolKit(tools=[
             Tool(
                 name="store_memory",
                 tier=MEMORY_TOOL_TIERS["store_memory"],
                 owner_gated=True,
-                description=load_shared_tool_description("store_memory_tool.txt"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "content": {
-                            "type": "string",
-                            "description": "The full text to remember",
-                        },
-                        "memory_type": {
-                            "type": "string",
-                            "description": "Category (e.g. sermon, prayer, analysis, insight, code_review, counsel)",
-                        },
-                        "summary": {
-                            "type": "string",
-                            "description": f"One short sentence, at most {AGENT_MEMORY_SUMMARY_MAX_CHARS} characters, on one line - this entry's line in your memory index",
-                        },
-                    },
-                    "required": ["content", "memory_type", "summary"],
-                },
+                description=load_tool_description(PROJECT_ROOT, "store_memory"),
+                parameters=load_tool_parameters(PROJECT_ROOT, "store_memory", values=summary_limit),
                 executor=store_memory,
             ),
             Tool(
                 name="update_memory",
                 tier=MEMORY_TOOL_TIERS["update_memory"],
                 owner_gated=True,
-                description=load_shared_tool_description("update_memory_tool.txt"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "memory_id": {
-                            "type": "string",
-                            "description": "ID of the memory to update (shown in brackets in your memory context)",
-                        },
-                        "content": {
-                            "type": "string",
-                            "description": "The corrected full text (replaces the old content)",
-                        },
-                        "summary": {
-                            "type": "string",
-                            "description": f"One short sentence, at most {AGENT_MEMORY_SUMMARY_MAX_CHARS} characters, on one line - this entry's line in your memory index",
-                        },
-                        "memory_type": {
-                            "type": "string",
-                            "description": "New category (optional, keeps the existing one if omitted)",
-                        },
-                    },
-                    "required": ["memory_id", "content", "summary"],
-                },
+                description=load_tool_description(PROJECT_ROOT, "update_memory"),
+                parameters=load_tool_parameters(PROJECT_ROOT, "update_memory", values=summary_limit),
                 executor=update_memory,
             ),
             # Own-memory delete is WRITE_DATA, not WRITE_SYSTEM: update_memory
@@ -410,34 +376,16 @@ class AgentMemory:
                 name="delete_memory",
                 tier=MEMORY_TOOL_TIERS["delete_memory"],
                 owner_gated=True,
-                description=load_shared_tool_description("delete_memory_tool.txt"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "memory_id": {
-                            "type": "string",
-                            "description": "ID of the memory to delete (shown in brackets in your memory context)",
-                        },
-                    },
-                    "required": ["memory_id"],
-                },
+                description=load_tool_description(PROJECT_ROOT, "delete_memory"),
+                parameters=load_tool_parameters(PROJECT_ROOT, "delete_memory"),
                 executor=delete_memory,
             ),
             Tool(
                 name="read_memory",
                 tier=MEMORY_TOOL_TIERS["read_memory"],
                 owner_gated=True,
-                description=load_shared_tool_description("read_memory_tool.txt"),
-                parameters={
-                    "type": "object",
-                    "properties": {
-                        "memory_id": {
-                            "type": "string",
-                            "description": "ID of the memory to read (shown in brackets in your memory context)",
-                        },
-                    },
-                    "required": ["memory_id"],
-                },
+                description=load_tool_description(PROJECT_ROOT, "read_memory"),
+                parameters=load_tool_parameters(PROJECT_ROOT, "read_memory"),
                 executor=read_memory,
             ),
         ], _agent_id=agent_id, _session_id=session_id)

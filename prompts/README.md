@@ -11,6 +11,8 @@ prompts/
 │   ├── sokrates/          # Sokrates agent prompts
 │   ├── salomo/            # Salomo agent prompts
 │   └── *.txt              # Shared prompts (German)
+├── tools/                 # Tool descriptions + parameter schemas of the toolsets in
+│                          # aifred/lib (memory tools), same layout as a plugin's prompts/tools/
 └── en/                    # English prompts
     ├── aifred/            # AIfred agent prompts
     ├── sokrates/          # Sokrates agent prompts
