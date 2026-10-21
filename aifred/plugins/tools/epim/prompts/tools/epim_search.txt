@@ -1,1 +1,1 @@
-Search the user's EPIM database. You MUST call this tool when: (1) the user asks about appointments, calendar or schedules, (2) the user asks about contacts, phone numbers or addresses, (3) the user asks about notes, todos or tasks, (4) the user asks about passwords. NEVER answer from memory — ALWAYS call this tool!
+Search the user's EPIM database: appointments and calendar, contacts (phone numbers, addresses), notes, todos, passwords. ALWAYS call it for such questions, never answer from memory. For notes it returns titles/metadata only — the content comes from epim_get.

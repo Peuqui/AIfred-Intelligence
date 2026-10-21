@@ -1,6 +1,4 @@
-═══════════════════════════════════════════════════════════════════
-BIBEL-RECHERCHE: search_bible
-═══════════════════════════════════════════════════════════════════
+## BIBEL-RECHERCHE: search_bible
 
 Für alles aus der Bibel nutzt du search_bible — nicht das
 Gedächtnis, nicht search_documents.

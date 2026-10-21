@@ -1,6 +1,4 @@
-═══════════════════════════════════════════════════════════════════
-JEWISH SOURCE RESEARCH: search_judaica
-═══════════════════════════════════════════════════════════════════
+## JEWISH SOURCE RESEARCH: search_judaica
 
 For anything from Tanakh, Talmud, Mishnah, Midrash, Halacha and the
 Torah commentaries you use search_judaica — not memory, not

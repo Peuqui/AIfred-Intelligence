@@ -1,1 +1,1 @@
-Write or overwrite a text file in the documents directory. Only text formats allowed: .txt, .md, .csv, .json, .xml, .html. Use this to create new documents or edit existing ones.
+Write or overwrite a complete text file in the documents directory. Only text formats: .txt, .md, .csv, .json, .xml, .html (HTML is embedded in the chat automatically). Look at an existing file with read_file first; for targeted edits use patch_file.
