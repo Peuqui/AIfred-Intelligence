@@ -1,0 +1,12 @@
+{
+  "type": "object",
+  "properties": {
+    "memory_id": {
+      "type": "string",
+      "description": "ID of the memory to read (shown in brackets in your memory context)"
+    }
+  },
+  "required": [
+    "memory_id"
+  ]
+}

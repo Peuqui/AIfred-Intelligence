@@ -1,0 +1,26 @@
+{
+  "type": "object",
+  "properties": {
+    "memory_id": {
+      "type": "string",
+      "description": "ID of the memory to update (shown in brackets in your memory context)"
+    },
+    "content": {
+      "type": "string",
+      "description": "The corrected full text (replaces the old content)"
+    },
+    "summary": {
+      "type": "string",
+      "description": "One short sentence, at most {max_chars} characters, on one line - this entry's line in your memory index"
+    },
+    "memory_type": {
+      "type": "string",
+      "description": "New category (optional, keeps the existing one if omitted)"
+    }
+  },
+  "required": [
+    "memory_id",
+    "content",
+    "summary"
+  ]
+}

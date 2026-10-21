@@ -1,0 +1,22 @@
+{
+  "type": "object",
+  "properties": {
+    "content": {
+      "type": "string",
+      "description": "The full text to remember"
+    },
+    "memory_type": {
+      "type": "string",
+      "description": "Category (e.g. sermon, prayer, analysis, insight, code_review, counsel)"
+    },
+    "summary": {
+      "type": "string",
+      "description": "One short sentence, at most {max_chars} characters, on one line - this entry's line in your memory index"
+    }
+  },
+  "required": [
+    "content",
+    "memory_type",
+    "summary"
+  ]
+}
