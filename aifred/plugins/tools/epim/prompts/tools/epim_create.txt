@@ -1,1 +1,1 @@
-Create a new entry in the EPIM database. You MUST call this tool when: (1) the user wants to create, add or schedule an appointment, (2) the user wants to create a contact, note, todo or password. IMPORTANT: Call this tool IMMEDIATELY — do NOT just describe what you would do! When the user confirms the category, call this tool IMMEDIATELY!
+Create a new EPIM entry: appointment, contact, note, todo or password. Call it IMMEDIATELY once the user wants it or confirms the details (e.g. the category) — never just describe what you would do.

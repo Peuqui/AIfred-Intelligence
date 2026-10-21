@@ -7,7 +7,7 @@
     },
     "data": {
       "type": "object",
-      "description": "Entity data. Task: {title, start, end, location, allday, text, priority, tags}. Contact: {name, fields: {Vorname, Nachname, Telefon, E-Mail, ...}, tags}. Note: {title, text, tab_name, tree_id, tags}. Todo: {title, start, end, priority, text, tags, list_id}. Password: {subject, fields: {key: value, ...}, tags, group_id}."
+      "description": "Entity data. Task: {title, start, end, location, allday, text, priority, tags, category, calendar}. Contact: {name, fields: {Vorname, Nachname, Telefon, E-Mail, ...}, tags}. Note: {title, text, tab_name, tree, tags}. Todo: {title, start, end, priority, text, tags, list}. Password: {subject, fields: {key: value, ...}, tags, group_id}. category, calendar, tree and list take the NAME from your instructions."
     }
   },
   "required": [

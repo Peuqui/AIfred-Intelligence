@@ -1,6 +1,4 @@
-═══════════════════════════════════════════════════════════════════
-BIBLE RESEARCH: search_bible
-═══════════════════════════════════════════════════════════════════
+## BIBLE RESEARCH: search_bible
 
 For anything from the Bible you use search_bible — not memory, not
 search_documents.

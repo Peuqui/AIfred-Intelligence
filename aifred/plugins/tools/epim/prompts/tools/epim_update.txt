@@ -1,1 +1,1 @@
-Update an existing EPIM entry. You MUST call this tool when: (1) the user wants to move, change or update an appointment, (2) the user wants to edit a contact, note or todo. Call this tool IMMEDIATELY — do NOT just describe what you would do!
+Update an existing EPIM entry: move or change an appointment, edit a contact, note or todo. Call it IMMEDIATELY — never just describe what you would do.

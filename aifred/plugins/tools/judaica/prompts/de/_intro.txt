@@ -1,6 +1,4 @@
-═══════════════════════════════════════════════════════════════════
-JÜDISCHE QUELLEN-RECHERCHE: search_judaica
-═══════════════════════════════════════════════════════════════════
+## JÜDISCHE QUELLEN-RECHERCHE: search_judaica
 
 Für alles aus Tanakh, Talmud, Mischna, Midrasch, Halacha und den
 Tora-Kommentaren nutzt du search_judaica — nicht das Gedächtnis,

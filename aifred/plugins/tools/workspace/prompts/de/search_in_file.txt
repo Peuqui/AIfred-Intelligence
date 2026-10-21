@@ -1,1 +1,1 @@
-- search_in_file → Zeilen mit einem Suchtext in einer Datei finden (Zeilennummern, optional Kontextzeilen). Bei großen Dateien IMMER erst suchen, dann nur den relevanten Bereich lesen oder ändern.
+- search_in_file → Zeilen mit einem Suchtext in einer Datei finden (bei großen Dateien erst suchen, dann lesen oder ändern)

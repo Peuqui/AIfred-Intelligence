@@ -1,1 +1,1 @@
-Delete an EPIM entry (soft-delete, recoverable). You MUST call this tool when the user wants to delete or remove an appointment, contact, note, todo or password.
+Delete an EPIM entry (soft-delete, recoverable): appointment, contact, note, todo or password.
