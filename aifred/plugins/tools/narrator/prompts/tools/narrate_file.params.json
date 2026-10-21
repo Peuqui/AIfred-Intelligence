@@ -11,7 +11,7 @@
     },
     "voice": {
       "type": "string",
-      "description": "Reference voice name (default: AIfred). Must be one of the cloned voices of the TTS engine."
+      "description": "Voice name from list_narrator_voices. Default: the narrator voice set for the engine, otherwise its first voice."
     },
     "language": {
       "type": "string",
