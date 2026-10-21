@@ -19,14 +19,14 @@
     },
     "engine": {
       "type": "string",
-      "description": "Optional TTS engine key. Default: the topmost active entry of the TTS list. The TTS service starts the engine and speaks the whole file with it; if it cannot, the tool reports the reason."
+      "description": "Optional TTS engine key. Default: the topmost active entry of the TTS list."
     },
     "speaker_voices": {
       "type": "object",
       "additionalProperties": {
         "type": "string"
       },
-      "description": "Optional multi-voice mapping: speaker label → voice name. Lines in the source file starting with '[LABEL]:' switch to that speaker's voice (the marker itself is not spoken); text before the first marker uses the default voice. Voice names are engine-specific — call list_narrator_voices first and use names from its result."
+      "description": "Optional multi-voice mapping: speaker label → voice name (from list_narrator_voices). Lines in the source file starting with '[LABEL]:' switch to that speaker's voice (the marker itself is not spoken); text before the first marker uses the default voice."
     }
   },
   "required": [

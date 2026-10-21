@@ -28,11 +28,11 @@
     },
     "body": {
       "type": "string",
-      "description": "Email body as Markdown (for send). ![alt](/_upload/… URL) embeds an image from THIS conversation in the text, [name](/_upload/… URL) attaches the file."
+      "description": "Email body as Markdown (for send). Files from THIS conversation are addressed by their /_upload/… URL: ![alt](URL) embeds an image in the text, [name](URL) attaches the file."
     },
     "attachment": {
       "type": "string",
-      "description": "Optional (for send): URL of a file from THIS conversation to attach (an uploaded image, or generated sandbox output like a PDF — its /_upload/... URL). To show an image inside the text instead, embed it in the body with ![alt](URL)."
+      "description": "Optional (for send): /_upload/… URL of a file from THIS conversation to attach (an uploaded image, or sandbox output like a PDF). Embedding in the body and attaching can be combined, also for the same image."
     },
     "folder": {
       "type": "string",
