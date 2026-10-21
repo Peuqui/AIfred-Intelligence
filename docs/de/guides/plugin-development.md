@@ -102,7 +102,7 @@ aifred/plugins/tools/my_plugin/
 |-------|-------------|-----------|
 | `prompts/tools/<tool>.txt` | `load_tool_description(__file__, "<tool>")` | Bei jedem Toolkit-Build frisch gelesen; fehlende oder leere Datei → `RuntimeError`, kein Fallback-Text. Nur Englisch — Empfänger ist das Modell |
 | `prompts/tools/<tool>.params.json` | `load_tool_parameters(__file__, "<tool>", enums=…, values=…)` | Siehe [Tool-Parameter](#tool-parameter-promptstoolsparamsjson) |
-| `prompts/<de\|en>/*.txt` | `load_plugin_instructions(plugin, lang, granted_tools)` | Dateiname = benötigte(s) Tool(s), mit `+` verknüpft (UND); `_intro.txt` wird vorangestellt, sobald mindestens ein Tool-Fragment greift. Übergangs-Fallback: eine flache `prompts/<de\|en>.txt`, plugin-weit gegated |
+| `prompts/<de\|en>/*.txt` | `load_plugin_instructions(plugin, lang, granted_tools)` | Dateiname = benötigte(s) Tool(s), mit `+` verknüpft (UND); `_intro.txt` wird vorangestellt, sobald mindestens ein Tool-Fragment greift |
 | `i18n.json` | `plugin_display_name()`, `plugin_description()`, Settings-Modal | Siehe [Plugin-i18n](#plugin-i18n) |
 | `settings.json` | Channels: `BaseChannel.load_settings()` / `save_settings()`; Tools: `load_plugin_settings(__file__)` / `save_plugin_settings(__file__, …)` | Siehe [Credential-Speicherung](#credential-speicherung-secrets-gegen-settings) |
 

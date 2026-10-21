@@ -13,16 +13,17 @@ from __future__ import annotations
 import sys
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Optional, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
 
 if TYPE_CHECKING:
     from pathlib import Path
+
     from ..lib.envelope import InboundMessage, OutboundMessage
     from ..lib.function_calling import Tool
 
 
 def load_plugin_instructions(
-    plugin: Any, lang: str, granted_tools: "set[str] | None" = None
+    plugin: Any, lang: str, granted_tools: set[str] | None = None
 ) -> str:
     """Baut die Prompt-Anleitung eines Plugins aus ATOMAREN Fragment-Dateien im
     Plugin-Ordner zusammen — layered, je nach freigeschalteten Tools.
@@ -40,10 +41,8 @@ def load_plugin_instructions(
         mindestens ein Tool-Fragment greift.
       * ``granted_tools=None`` → keine Whitelist → alle Fragmente.
 
-    Fallback: Existiert (noch) kein per-Tool-Ordner, aber eine flache
-    ``<de|en>.txt``, wird die als Ganzes geliefert — plugin-weit gegated über die
-    Tool-Namen des Plugins (Übergangslösung für noch nicht aufgesplittete
-    Plugins). Leerer String, wenn der Agent kein Tool des Plugins hat.
+    Leerer String, wenn das Plugin keinen Ordner für die Sprache hat oder der
+    Agent kein Tool des Plugins hat.
     """
     import inspect
     from pathlib import Path
@@ -54,42 +53,33 @@ def load_plugin_instructions(
         return ""
 
     per_tool_dir = prompts_dir / lang_code
-    if per_tool_dir.is_dir():
-        intro_text = ""
-        fragments: list[str] = []
-        for f in sorted(per_tool_dir.glob("*.txt")):
-            if f.stem == "_intro":
-                intro_text = f.read_text(encoding="utf-8").strip()
-                continue
-            required = set(f.stem.split("+"))
-            if granted_tools is None or required <= granted_tools:
-                txt = f.read_text(encoding="utf-8").strip()
-                if txt:
-                    fragments.append(txt)
-        # ``_intro`` ist der allgemeine Plugin-Text (gilt für alle Tools des
-        # Plugins) → zeigen, sobald der Agent MINDESTENS EIN Tool des Plugins
-        # hat. So funktioniert es auch für Plugins, die NUR ein _intro haben
-        # (kein per-Tool-Text). Tool-spezifische Fragmente kommen zusätzlich.
-        out: list[str] = []
-        if intro_text:
-            ptools = _plugin_tool_names(plugin)
-            if granted_tools is None or not ptools or (ptools & granted_tools):
-                out.append(intro_text)
-        out.extend(fragments)
-        return "\n\n".join(out)  # "" wenn nichts greift
-
-    # Übergangs-Fallback: flache Plugin-Datei, plugin-weit gegated.
-    flat = prompts_dir / f"{lang_code}.txt"
-    if not flat.exists():
+    if not per_tool_dir.is_dir():
         return ""
-    if granted_tools is not None:
-        names = _plugin_tool_names(plugin)
-        if names and not (names & granted_tools):
-            return ""
-    return flat.read_text(encoding="utf-8").strip()
+    intro_text = ""
+    fragments: list[str] = []
+    for f in sorted(per_tool_dir.glob("*.txt")):
+        if f.stem == "_intro":
+            intro_text = f.read_text(encoding="utf-8").strip()
+            continue
+        required = set(f.stem.split("+"))
+        if granted_tools is None or required <= granted_tools:
+            txt = f.read_text(encoding="utf-8").strip()
+            if txt:
+                fragments.append(txt)
+    # ``_intro`` ist der allgemeine Plugin-Text (gilt für alle Tools des
+    # Plugins) → zeigen, sobald der Agent MINDESTENS EIN Tool des Plugins
+    # hat. So funktioniert es auch für Plugins, die NUR ein _intro haben
+    # (kein per-Tool-Text). Tool-spezifische Fragmente kommen zusätzlich.
+    out: list[str] = []
+    if intro_text:
+        ptools = _plugin_tool_names(plugin)
+        if granted_tools is None or not ptools or (ptools & granted_tools):
+            out.append(intro_text)
+    out.extend(fragments)
+    return "\n\n".join(out)  # "" wenn nichts greift
 
 
-def load_tool_description(plugin_file: "str | Path", tool_name: str) -> str:
+def load_tool_description(plugin_file: str | Path, tool_name: str) -> str:
     """Tool-Description aus ``<plugin_dir>/prompts/tools/<tool_name>.txt``.
 
     Descriptions sind Prompt-Engineering-Material — sie steuern, WANN und
@@ -122,11 +112,11 @@ def load_tool_description(plugin_file: "str | Path", tool_name: str) -> str:
 
 
 def load_tool_parameters(
-    plugin_file: "str | Path",
+    plugin_file: str | Path,
     tool_name: str,
     *,
-    enums: "dict[str, list[Any]] | None" = None,
-    values: "dict[str, Any] | None" = None,
+    enums: dict[str, list[Any]] | None = None,
+    values: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """JSON-Schema der Tool-Parameter aus
     ``<plugin_dir>/prompts/tools/<tool_name>.params.json``.
@@ -174,7 +164,7 @@ def load_tool_parameters(
     return schema
 
 
-def load_plugin_settings(plugin_file: "str | Path") -> dict[str, str]:
+def load_plugin_settings(plugin_file: str | Path) -> dict[str, str]:
     """``settings.json`` neben dem Plugin lesen — das Tool-Plugin-Pendant
     zu :meth:`BaseChannel.load_settings` (SSOT statt Boilerplate pro
     Plugin; vorher hielten bible und google_suite je eine eigene Kopie).
@@ -192,7 +182,7 @@ def load_plugin_settings(plugin_file: "str | Path") -> dict[str, str]:
         return data
 
 
-def save_plugin_settings(plugin_file: "str | Path", settings: dict[str, str]) -> None:
+def save_plugin_settings(plugin_file: str | Path, settings: dict[str, str]) -> None:
     """``settings.json`` neben dem Plugin schreiben (Gegenstück zu
     :func:`load_plugin_settings`). Der UI-Save-Pfad ruft weiterhin die
     ``_save_settings``-Methode des Plugins (Duck-Typing-Konvention in
@@ -216,14 +206,14 @@ PLUGIN_DISPLAY_NAME_KEY = "plugin_display_name"
 PLUGIN_DESCRIPTION_KEY = "plugin_description"
 
 
-def plugin_dir_of(plugin: object) -> "Path":
+def plugin_dir_of(plugin: object) -> Path:
     """Directory of a loaded plugin instance (its package)."""
     import inspect
     from pathlib import Path
     return Path(inspect.getfile(type(plugin))).parent
 
 
-def load_plugin_i18n(plugin_dir: "Path") -> dict[str, dict[str, str]]:
+def load_plugin_i18n(plugin_dir: Path) -> dict[str, dict[str, str]]:
     """Read ``<plugin_dir>/i18n.json``. Read fresh on every call, like the
     tool description files: edit the file, the next render shows it."""
     import json
@@ -235,7 +225,7 @@ def load_plugin_i18n(plugin_dir: "Path") -> dict[str, dict[str, str]]:
     return data
 
 
-def plugin_i18n_text(plugin_dir: "Path", key: str, lang: str) -> str:
+def plugin_i18n_text(plugin_dir: Path, key: str, lang: str) -> str:
     """A required plugin text. Fail-loud: a missing file, key or language is
     a packaging error of the plugin, not something to paper over."""
     text = load_plugin_i18n(plugin_dir).get(key, {}).get(lang, "")
@@ -254,18 +244,17 @@ def plugin_description(plugin: object, lang: str) -> str:
     return plugin_i18n_text(plugin_dir_of(plugin), PLUGIN_DESCRIPTION_KEY, lang)
 
 
-_plugin_tool_names_cache: "dict[str, set[str]]" = {}
+_plugin_tool_names_cache: dict[str, set[str]] = {}
 
 
-def _plugin_tool_names(plugin: Any) -> "set[str]":
-    """Tool-Namen eines Plugins (gecacht) — fürs plugin-weite Gate der flachen
-    Fallback-Datei. Leere Menge, wenn nicht ermittelbar (Caller schließt dann
-    NICHT aus)."""
+def _plugin_tool_names(plugin: Any) -> set[str]:
+    """Tool-Namen eines Plugins (gecacht) — fürs Gate des ``_intro``-Texts.
+    Leere Menge, wenn nicht ermittelbar (Caller schließt dann NICHT aus)."""
     key = getattr(plugin, "name", plugin.__class__.__name__)
     cached = _plugin_tool_names_cache.get(key)
     if cached is not None:
         return cached
-    names: "set[str]" = set()
+    names: set[str] = set()
     try:
         ctx = PluginContext(agent_id="_promptscan", lang="de", session_id="")
         names = {t.name for t in plugin.get_tools(ctx)}
@@ -286,7 +275,7 @@ class PluginContext:
     agent_id: str
     lang: str
     session_id: str
-    state: Optional[Any] = None
+    state: Any | None = None
     user_query: str = ""
     max_tier: int = 4        # Max allowed tool tier in this context
     source: str = "browser"  # Origin: browser/email/discord/cron/webhook
@@ -316,12 +305,12 @@ class ToolPlugin(Protocol):
         """Check if this plugin can run right now (config flags, services, etc.)."""
         ...
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Return Tool instances bound to the given context."""
         ...
 
     def get_prompt_instructions(
-        self, lang: str, granted_tools: "set[str] | None" = None
+        self, lang: str, granted_tools: set[str] | None = None
     ) -> str:
         """Prompt-Anleitung fürs System-Prompt. ``granted_tools`` = die für
         diesen Agent freigeschalteten Tool-Namen (None = keine Whitelist).
@@ -379,7 +368,7 @@ class BaseChannel(ABC):
 
     # ── Plugin Settings (settings.json in plugin directory) ────
 
-    def _settings_path(self) -> "Path":
+    def _settings_path(self) -> Path:
         """Path to this plugin's settings.json."""
         from pathlib import Path
         return Path(__file__).parent.parent / "plugins" / "channels" / f"{self.name}_channel" / "settings.json"
@@ -453,11 +442,11 @@ class BaseChannel(ABC):
         ...
 
     @abstractmethod
-    async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
+    async def send_reply(self, outbound: OutboundMessage, original: InboundMessage) -> None:
         ...
 
     @abstractmethod
-    def build_context(self, message: "InboundMessage") -> str:
+    def build_context(self, message: InboundMessage) -> str:
         ...
 
     @property
@@ -478,7 +467,7 @@ class BaseChannel(ABC):
         """
         return True
 
-    def build_reply_metadata(self, message: "InboundMessage") -> dict:
+    def build_reply_metadata(self, message: InboundMessage) -> dict:
         return {}
 
     def format_outbound(self, text: str) -> dict[str, str]:
@@ -517,7 +506,7 @@ class BaseChannel(ABC):
         sid = _current_session.get()
         if sid:
             from datetime import datetime
-            ts = datetime.now().strftime("%H:%M:%S")
+            ts = datetime.now().astimezone().strftime("%H:%M:%S")
             _flush_to_session(sid, [f"{ts} | {msg}"])
 
     def load_settings_to_env(self) -> None:
@@ -533,7 +522,7 @@ class BaseChannel(ABC):
             if value:
                 os.environ[key] = value
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Optional: Return tools this channel provides for LLM function calling.
 
         Override to expose channel-specific tools (e.g. discord_send).
