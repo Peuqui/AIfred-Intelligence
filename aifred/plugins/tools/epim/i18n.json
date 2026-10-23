@@ -4,15 +4,55 @@
     "en": "EPIM"
   },
   "plugin_description": {
-    "de": "Lese- und Schreibzugriff auf den persönlichen EPIM-Datenbestand: Termine, Kontakte, Notizen, Aufgaben.",
-    "en": "Read and write access to the personal EPIM data: appointments, contacts, notes, tasks."
+    "de": "Zugriff auf den persönlichen EPIM-Datenbestand: Termine, Kontakte, Notizen, Aufgaben. Schreiben nur, wenn in den Einstellungen freigegeben.",
+    "en": "Access to the personal EPIM data: appointments, contacts, notes, tasks. Writing only when enabled in the settings."
   },
   "epim_cred_db_path": {
     "de": "Datenbank-Pfad",
     "en": "Database Path"
   },
   "epim_cred_db_path_tooltip": {
-    "de": "Vollstaendiger Pfad zur EPIM-Datenbankdatei (.epim).",
+    "de": "Vollständiger Pfad zur EPIM-Datenbankdatei (.epim).",
     "en": "Full path to the EPIM database file (.epim)."
+  },
+  "epim_cred_write_enabled": {
+    "de": "Schreibzugriff",
+    "en": "Write access"
+  },
+  "epim_cred_write_enabled_tooltip": {
+    "de": "Aus: AIfred kann nur lesen, die Datenbankdatei ist schreibgeschützt. An: AIfred darf Einträge anlegen, ändern und löschen.",
+    "en": "Off: AIfred can only read, the database file is read-only. On: AIfred may create, change and delete entries."
+  },
+  "epim_write_off": {
+    "de": "Aus",
+    "en": "Off"
+  },
+  "epim_write_on": {
+    "de": "An",
+    "en": "On"
+  },
+  "tool_epim_search": {
+    "de": "📅 {entity}: {query}",
+    "en": "📅 {entity}: {query}"
+  },
+  "tool_epim_search_bare": {
+    "de": "📅 {entity}...",
+    "en": "📅 {entity}..."
+  },
+  "tool_epim_get": {
+    "de": "📅 Lese {entity}...",
+    "en": "📅 Reading {entity}..."
+  },
+  "tool_epim_create": {
+    "de": "📅 Erstelle {entity}...",
+    "en": "📅 Creating {entity}..."
+  },
+  "tool_epim_update": {
+    "de": "📅 Aktualisiere {entity}...",
+    "en": "📅 Updating {entity}..."
+  },
+  "tool_epim_delete": {
+    "de": "📅 Lösche {entity}...",
+    "en": "📅 Deleting {entity}..."
   }
 }

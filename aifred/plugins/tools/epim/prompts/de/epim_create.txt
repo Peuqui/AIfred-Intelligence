@@ -1,0 +1,4 @@
+NEUE EINTRÄGE (epim_create):
+- Fehlt Wichtiges (Datum, Uhrzeit, Kategorie bei mehreren Möglichkeiten), frag nach. Sobald der Benutzer bestätigt, rufst du epim_create SOFORT auf.
+- Erst nach dem Tool-Ergebnis bestätigen ("Eingetragen: Titel am Datum"). Nie behaupten, etwas eingetragen zu haben, ohne das Tool aufgerufen zu haben.
+- Kategorie, Kalender, Liste und Notizbaum immer mit einem Namen aus den Listen oben. Kommt die Meldung "several … exist", frag den Benutzer, welcher gemeint ist.

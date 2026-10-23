@@ -1,0 +1,5 @@
+ÄNDERUNGEN (epim_update):
+- Nur die Felder schicken, die sich ändern. null oder "" leert ein Feld.
+- Termin verschieben: nur "start" schicken — die Dauer bleibt erhalten.
+- Notiztext: "append_text" hängt an, "text" ersetzt den ganzen Tab — ersetzen nur, wenn der Benutzer das ausdrücklich will.
+- Serientermine lassen sich nur in EPIM ändern; sag das dem Benutzer, wenn das Tool es meldet.

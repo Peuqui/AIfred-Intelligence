@@ -1,1 +1,1 @@
-Update an existing EPIM entry: move or change an appointment, edit a contact, note or todo. Call it IMMEDIATELY — never just describe what you would do.
+Change an existing EPIM entry: move or edit an appointment, edit a contact, rename a note, change a note tab's text, edit a todo.

@@ -1,1 +1,1 @@
-Delete an EPIM entry (soft-delete, recoverable): appointment, contact, note, todo or password.
+Move an EPIM entry to the EPIM trash: an appointment, a contact, a note, a todo or a password entry.

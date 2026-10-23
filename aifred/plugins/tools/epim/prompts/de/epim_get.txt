@@ -1,0 +1,1 @@
+Notizinhalte und alle Details eines Eintrags: erst mit epim_search finden, dann epim_get mit der ID. epim_search liefert bei Notizen nur Titel.

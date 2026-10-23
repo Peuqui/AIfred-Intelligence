@@ -3,15 +3,12 @@
   "properties": {
     "entity_type": {
       "type": "string",
-      "description": "Entity type: task, contact, note"
+      "enum": []
     },
     "entity_id": {
       "type": "string",
-      "description": "IDTASK/IDCONTACT/IDNOTE from epim_search results. IMPORTANT: Copy the FULL ID string exactly as returned — do not shorten or round it!"
+      "description": "ID from epim_search, copied exactly"
     }
   },
-  "required": [
-    "entity_type",
-    "entity_id"
-  ]
+  "required": ["entity_type", "entity_id"]
 }

@@ -197,12 +197,12 @@ def get_language() -> str:
 
 
 def _build_standard_placeholders(lang: str) -> dict:
-    """Build the always-available date/time/user/EPIM placeholder dict.
+    """Build the always-available date/time/user placeholder dict.
 
     Single source of truth for both :func:`load_prompt` (prompt-tree files) and
     :func:`render_standard_placeholders` (plugin instruction fragments), so a
-    plugin prompt like the EPIM intro can carry ``{upcoming_week}`` /
-    ``{epim_categories}`` instead of a hardcoded, quickly-stale snapshot.
+    plugin prompt like the EPIM intro can carry ``{upcoming_week}`` instead
+    of a hardcoded, quickly-stale snapshot.
     """
     from datetime import datetime, timedelta
     now = datetime.now()
@@ -231,24 +231,6 @@ def _build_standard_placeholders(lang: str) -> dict:
             upcoming_days.append(f"{d.strftime('%A')} {d.strftime('%Y-%m-%d')}")
     upcoming_week = ", ".join(upcoming_days)
 
-    # EPIM lookup data (loaded once, cached in DB singleton)
-    epim_categories = ""
-    epim_todolists = ""
-    epim_notetrees = ""
-    epim_calendars = ""
-    try:
-        from .config import EPIM_ENABLED
-        if EPIM_ENABLED:
-            from ..plugins.tools.epim.db import get_epim_db
-            _epim = get_epim_db()
-            if _epim:
-                epim_categories = ", ".join(str(c["name"]) for c in _epim.get_categories())
-                epim_todolists = ", ".join(str(t["name"]) for t in _epim.get_todolists())
-                epim_notetrees = ", ".join(str(n["name"]) for n in _epim.get_notetrees())
-                epim_calendars = ", ".join(str(c["name"]) for c in _epim.get_calendars())
-    except Exception:
-        pass  # EPIM not available — placeholders stay empty
-
     current_year_int = now.year
     return {
         'current_year': str(current_year_int),
@@ -256,10 +238,6 @@ def _build_standard_placeholders(lang: str) -> dict:
         'current_time': now.strftime('%H:%M:%S'),
         'current_weekday': weekday,
         'upcoming_week': upcoming_week,
-        'epim_categories': epim_categories,
-        'epim_todolists': epim_todolists,
-        'epim_notetrees': epim_notetrees,
-        'epim_calendars': epim_calendars,
         'previous_years': f"{current_year_int - 2} oder {current_year_int - 1}",  # e.g., "2024 oder 2025"
         'user_name': get_user_name(),
         'user_gender': ("männlich" if get_user_gender() == "male" else "weiblich") if lang == "de" else get_user_gender(),

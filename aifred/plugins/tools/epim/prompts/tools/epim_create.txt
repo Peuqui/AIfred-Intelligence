@@ -1,1 +1,1 @@
-Create a new EPIM entry: appointment, contact, note, todo or password. Call it IMMEDIATELY once the user wants it or confirms the details (e.g. the category) — never just describe what you would do.
+Create a new EPIM entry: an appointment, a contact, a note or a todo.

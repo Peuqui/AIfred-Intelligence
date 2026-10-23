@@ -4,51 +4,73 @@
 
 **File:** `aifred/plugins/tools/epim/`
 
-CRUD operations on an EssentialPIM Firebird database. Allows the LLM to manage contacts, appointments, notes, tasks (todos), passwords and other entities.
-
-The plugin only becomes available once a database path is configured — without it, `is_available()` returns `False` and the tools are not registered (see [Configuration](#configuration)).
+Access to an EssentialPIM database (Firebird 2.5, embedded): appointments, contacts, notes, todos and the titles of password entries. **Read-only** by default; the "Write access" switch in the plugin settings enables writing.
 
 ## Tools
 
-| Tool | Description | Tier |
-|------|------------|------|
-| `epim_search` | Search/read entries (tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees) | READONLY |
-| `epim_create` | Create a new entry (task, contact, note, todo, password) | WRITE_DATA |
-| `epim_update` | Update an existing entry (task, contact, note, note_tab, todo, password) | WRITE_DATA |
-| `epim_delete` | Soft-delete an entry (task, contact, note, todo, password) | WRITE_SYSTEM |
+| Tool | Description | Tier | Offered |
+|------|-------------|------|---------|
+| `epim_search` | Appointments, contacts, notes, todos, password titles; lists of categories, calendars, todo lists, note trees | READONLY | always |
+| `epim_get` | One appointment, contact, or note with all tabs | READONLY | always |
+| `epim_create` | Create an appointment, contact, note, todo | WRITE_DATA | write access only |
+| `epim_update` | Change an appointment, contact, note, note tab, todo | WRITE_DATA | write access only |
+| `epim_delete` | Move to the EPIM trash | WRITE_SYSTEM | write access only |
 
-### `epim_search` parameters
+With write access off, the model never sees the write tools or their instructions.
 
-| Parameter | Type | Notes |
-|-----------|------|-------|
-| `entity_type` | string | **Required.** One of the entity types above |
-| `query` | string | Search text (title, name, subject) |
-| `date_from` | string | Start date filter `YYYY-MM-DD`, tasks only |
-| `date_to` | string | End date filter `YYYY-MM-DD`, tasks only |
-| `completed` | boolean | Filter by completion status, todos only |
-| `limit` | integer | Max results (default: 20) |
+**Not enabled yet**, until EPIM's own write format is established by a reference recording: creating notes and todos, changing note text, marking todos done, creating or changing password entries. The tool says so explicitly.
 
-`epim_create` and `epim_update` take an `entity_type` plus a `data` object with the
-entity's fields. `epim_update` and `epim_delete` additionally require the `entity_id`
-returned by `epim_search`.
+## Protecting the database
 
-## Features
+With write access off, four independent locks apply:
 
-- **Name-to-ID resolution:** Natural references like "meeting with Max" are resolved to the correct DB ID; category, calendar, todo-list and note-tree can be given by name instead of ID.
-- **Entity aliases:** Both English and German entity names (e.g. `tasks`/`termine`, `contacts`/`kontakte`) resolve to the same canonical type.
-- **7-day date reference:** The system prompt injects the upcoming week so relative expressions ("tomorrow", "next Monday") are interpreted correctly.
-- **Anti-hallucination:** Strict prompt rules forbid inventing entries; an empty result is reported honestly instead.
-- **Field mapping:** LLM-friendly and English field names are mapped to the internal German EPIM column names.
-- **Large-ID safety:** Large integer IDs are returned as strings so the LLM does not truncate or round them.
+1. The write tools are not offered.
+2. The database layer refuses every write call (`EpimWriteDisabled`).
+3. Every read runs in a read-only transaction that ends right away.
+4. The file itself is in Firebird's `read_only` mode — the engine rejects any change. Saving the switch in the settings applies this mode.
+
+Further rules, also with writing on:
+
+- Every transaction ends with its call (commit or rollback as one unit), with a 10 s lock timeout instead of waiting forever. Database calls run in a worker thread and never block the event loop.
+- AIfred connects without EPIM's database triggers (`DB_CONNECT0` would register every session in `CONNECTIONS`). Table triggers run as usual.
+- When the file is replaced (a new mirror), the next call reconnects.
+- Arguments are parsed strictly: dates only as `YYYY-MM-DD` or `YYYY-MM-DD HH:MM`; unknown fields produce an error instead of vanishing; an end before the start is refused.
+- Recurring appointments (EPIM materializes every occurrence as its own row) and entries with sub-entries are not changed or deleted — that is left to EPIM.
+- Contact fields: the codec writes only when it understands the stored fields completely and can re-encode them byte-identically; otherwise it refuses. Reads report incompletely stored fields (`field_data_error`).
+- Deleting moves the entry to the EPIM trash (`STATUS=1`, `DELETED`), the way EPIM does it.
+
+## EPIM specifics
+
+- EPIM stores "no date" as 1899-12-30 (Delphi's zero date); AIfred returns `null` for it.
+- All-day appointments: EPIM's end is the midnight after the last day; AIfred takes and returns the inclusive last day.
+- EPIM shows note text from `FORMATEDTEXT` (zlib-compressed RTF); `TEXT` is the plain copy.
+- Standard contact fields carry no name in the database; their names live in `contact_fields.py` (established fields only). Date fields hold Delphi day numbers.
+
+## Mirror from Aragon
+
+The working database lives on Aragon (Windows). The script `aragon/push-epim-to-mini.ps1` copies it to the Mini once EssentialPIM is closed (the exclusive open fails otherwise). On the Mini, `install-mirror` rebuilds the copy with a Firebird backup and restore, compares the record count of every table, makes it read-only and atomically replaces the configured file; the previous one stays as `.previous`. With write access on, `install-mirror` refuses, so AIfred's changes are not overwritten.
 
 ## Configuration
 
-Set via the credential field `EPIM_DB_PATH` (e.g. in `.env` or the plugin settings UI):
+In the plugin settings (stored in `aifred/plugins/tools/epim/settings.json`):
+
+| Field | Meaning |
+|-------|---------|
+| `EPIM_DB_PATH` | Path to the `.epim` file |
+| `EPIM_WRITE_ENABLED` | `false` (default) or `true` |
+
+The embedded Firebird library lives in `lib/firebird25/` (not versioned).
+
+## Maintenance
 
 ```
-EPIM_DB_PATH=/path/to/database.epim
+python -m aifred.plugins.tools.epim.maintenance validate FILE
+python -m aifred.plugins.tools.epim.maintenance rebuild SOURCE DEST
+python -m aifred.plugins.tools.epim.maintenance set-mode FILE read-only|read-write
+python -m aifred.plugins.tools.epim.maintenance snapshot FILE OUT.json
+python -m aifred.plugins.tools.epim.maintenance diff BEFORE.json AFTER.json
+python -m aifred.plugins.tools.epim.maintenance install-mirror INCOMING
+python -m aifred.plugins.tools.epim.maintenance make-fixture SOURCE DEST
 ```
 
-- `EPIM_ENABLED` is derived automatically — it is true exactly when `EPIM_DB_PATH` is set.
-- Without a valid, readable database the plugin reports unavailable and contributes no tools.
-- Passwords are never shown unsolicited (enforced by the prompt instructions).
+`make-fixture` creates the database for the integration tests (`data/epim/test-fixture.epim`): EPIM's complete schema with triggers and views, but only the lookup tables, no entries.
