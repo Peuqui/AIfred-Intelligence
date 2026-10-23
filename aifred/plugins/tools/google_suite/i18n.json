@@ -4,8 +4,8 @@
     "en": "Google Suite"
   },
   "plugin_description": {
-    "de": "Zugriff auf Google Calendar, Kontakte, Tasks und Drive (Lesen und Schreiben — OAuth-2.0-authentifiziert).",
-    "en": "Access to Google Calendar, Contacts, Tasks and Drive (read and write — OAuth 2.0 authenticated)."
+    "de": "Zugriff auf Google Calendar, Kontakte, Tasks und Drive — je Dienst aus, nur lesen oder lesen und schreiben (OAuth 2.0).",
+    "en": "Access to Google Calendar, Contacts, Tasks and Drive — per service off, read only, or read and write (OAuth 2.0)."
   },
   "google_client_id": {
     "de": "Google Client ID",
@@ -15,11 +15,23 @@
     "de": "Google Client Secret",
     "en": "Google Client Secret"
   },
-  "google_calendar_enabled": {
+  "module_access_off": {
+    "de": "Aus",
+    "en": "Off"
+  },
+  "module_access_read": {
+    "de": "Lesen",
+    "en": "Read"
+  },
+  "module_access_write": {
+    "de": "Lesen und Schreiben",
+    "en": "Read and write"
+  },
+  "google_cred_module_calendar": {
     "de": "Kalender",
     "en": "Calendar"
   },
-  "google_contacts_enabled": {
+  "google_cred_module_contacts": {
     "de": "Kontakte",
     "en": "Contacts"
   },
@@ -71,7 +83,7 @@
     "de": "👥 Kontakt löschen…",
     "en": "👥 Deleting contact…"
   },
-  "google_tasks_enabled": {
+  "google_cred_module_tasks": {
     "de": "Tasks",
     "en": "Tasks"
   },
@@ -99,7 +111,7 @@
     "de": "✅ Aufgabe löschen…",
     "en": "✅ Deleting task…"
   },
-  "google_drive_enabled": {
+  "google_cred_module_drive": {
     "de": "Drive",
     "en": "Drive"
   },

@@ -54,6 +54,16 @@ async def _read_capped(response: httpx.Response) -> str:
     return b"".join(chunks).decode(encoding, errors="replace")
 
 
+# The tools that only read — offered alone when the service is set to read.
+# (Tiers do not tell: reading tools carry TIER_WRITE_DATA to keep private data
+# away from external channels.)
+READ_TOOL_NAMES = frozenset({
+    "google_drive_list_files",
+    "google_drive_search",
+    "google_drive_get_file",
+})
+
+
 def get_drive_tools(agent_folder_name: str) -> list[Tool]:
     folder = AgentFolder(agent_folder_name)
     placeholders = {"agent_folder": agent_folder_name}
