@@ -1,0 +1,1 @@
+Read ONE Nextcloud entry with all details: an appointment, a task or a contact. Use the ID from nextcloud_search.

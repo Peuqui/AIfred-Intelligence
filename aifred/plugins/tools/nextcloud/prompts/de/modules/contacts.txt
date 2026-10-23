@@ -1,0 +1,1 @@
+KONTAKTE: Telefonnummern nach Art (mobile, home, work), E-Mail-Adressen (home, work), Anschriften (home, work).

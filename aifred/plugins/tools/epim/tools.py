@@ -10,14 +10,13 @@ query never blocks the event loop.
 import asyncio
 import json
 import logging
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
-from .db import EpimDatabase, EpimModuleDisabled, EpimRefused, EpimWriteDisabled
-from .values import (
+from ....lib.tool_args import (
     InvalidValue,
     parse_bool,
     parse_date,
@@ -25,8 +24,10 @@ from .values import (
     parse_id,
     parse_optional_text,
     parse_text,
+    parse_when,
     reject_unknown,
 )
+from .db import EpimDatabase, EpimModuleDisabled, EpimRefused, EpimWriteDisabled
 
 logger = logging.getLogger(__name__)
 
@@ -96,15 +97,6 @@ def _require(data: dict, key: str, what: str) -> Any:
     return data[key]
 
 
-def _when(value: object, field: str, is_end: bool) -> datetime:
-    """A date+time is exact. A bare date means the whole day: a start at
-    00:00, an end as the inclusive last day (EPIM stores the next midnight)."""
-    if isinstance(value, str) and len(value.strip()) == 10:
-        day = parse_date(value, field)
-        return datetime.combine(day + timedelta(days=1) if is_end else day, datetime.min.time())
-    return parse_datetime(value, field)
-
-
 def _tags(data: dict) -> tuple[str | None, bool]:
     return (parse_optional_text(data["tags"], "tags"), True) if "tags" in data else (None, False)
 
@@ -122,7 +114,7 @@ def _task_create(db: EpimDatabase, data: dict) -> int:
     start_raw = _require(data, "start", "task")
     if all_day:
         start = datetime.combine(parse_date(start_raw, "start"), datetime.min.time())
-        end = _when(data.get("end", start_raw), "end", is_end=True)
+        end = parse_when(data.get("end", start_raw), "end", is_end=True)
     else:
         start = parse_datetime(start_raw, "start")
         end = parse_datetime(_require(data, "end", "task"), "end")
@@ -141,9 +133,9 @@ def _task_update(db: EpimDatabase, task_id: int, data: dict) -> None:
     reject_unknown(data, _TASK_KEYS, "task")
     changes: dict[str, Any] = {}
     if "start" in data:
-        changes["start"] = _when(data["start"], "start", is_end=False)
+        changes["start"] = parse_when(data["start"], "start", is_end=False)
     if "end" in data:
-        changes["end"] = _when(data["end"], "end", is_end=True)
+        changes["end"] = parse_when(data["end"], "end", is_end=True)
     if "all_day" in data:
         changes["all_day"] = parse_bool(data["all_day"], "all_day")
     if "title" in data:
@@ -204,8 +196,8 @@ def _todo_create(db: EpimDatabase, data: dict) -> int:
     return db.create_todo(
         title=parse_text(_require(data, "title", "todo"), "title"),
         todo_list=parse_optional_text(data.get("todo_list"), "todo_list"),
-        start=_when(data["start"], "start", is_end=False) if data.get("start") is not None else None,
-        end=_when(data["end"], "end", is_end=True) if data.get("end") is not None else None,
+        start=parse_when(data["start"], "start", is_end=False) if data.get("start") is not None else None,
+        end=parse_when(data["end"], "end", is_end=True) if data.get("end") is not None else None,
         text=parse_optional_text(data.get("text"), "text"),
         tags=_tags(data)[0],
     )
@@ -216,7 +208,7 @@ def _todo_update(db: EpimDatabase, todo_id: int, data: dict) -> None:
     changes: dict[str, Any] = {}
     for key, is_end in (("start", False), ("end", True)):
         if key in data:
-            changes[key] = None if data[key] is None else _when(data[key], key, is_end)
+            changes[key] = None if data[key] is None else parse_when(data[key], key, is_end)
     if "title" in data:
         changes["title"] = parse_text(data["title"], "title")
     for key in ("text", "tags"):

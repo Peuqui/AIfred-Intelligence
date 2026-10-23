@@ -3,10 +3,13 @@
 
 Each module is ``off``, ``read`` or ``write`` in the plugin's own settings.
 The labels of the three levels live in every plugin's ``i18n.json`` under
-:data:`LEVEL_LABEL_KEYS` (plugins ship their texts themselves).
+:data:`LEVEL_LABEL_KEYS` (plugins ship their texts themselves). Module
+instructions live in ``prompts/<lang>/modules/<module>.txt`` and, for
+writable modules, ``<module>.write.txt``.
 """
 
 from dataclasses import dataclass
+from pathlib import Path
 
 from .plugin_base import CredentialField
 
@@ -61,3 +64,20 @@ def module_credential_fields(prefix: str, defaults: dict[str, str], label_key: s
         )
         for module, default in defaults.items()
     ]
+
+
+def module_instructions(plugin_dir: Path, lang: str, modules: ModuleAccess, write_granted: bool) -> list[str]:
+    """Instruction fragments of the readable modules, plus the write fragment
+    of each writable module when the agent was granted a write tool. Every
+    readable module must ship its fragment; a write fragment is optional."""
+    lang_code = "de" if str(lang).startswith("de") else "en"
+    module_dir = plugin_dir / "prompts" / lang_code / "modules"
+    parts = []
+    for module in modules.levels:
+        if not modules.can_read(module):
+            continue
+        parts.append((module_dir / f"{module}.txt").read_text(encoding="utf-8").strip())
+        write_fragment = module_dir / f"{module}.write.txt"
+        if write_granted and modules.can_write(module) and write_fragment.exists():
+            parts.append(write_fragment.read_text(encoding="utf-8").strip())
+    return parts

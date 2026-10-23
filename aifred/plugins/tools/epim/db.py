@@ -773,7 +773,7 @@ class ContactFieldMap:
     def _date_value_in(self, field_id: int, value: str) -> str:
         if field_id not in self.date_fields:
             return value
-        from .values import parse_date
+        from ....lib.tool_args import parse_date
         return str((parse_date(value, self.label_by_id[field_id]) - DELPHI_EPOCH).days)
 
     def display_name(self, items: list[tuple[int, str]]) -> str:

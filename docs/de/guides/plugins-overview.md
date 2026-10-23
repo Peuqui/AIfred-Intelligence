@@ -51,22 +51,40 @@ Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische 
 
 **Datei:** `plugins/tools/epim/`
 
-Vollzugriff auf die [EssentialPIM](https://www.essentialpim.com/) Firebird-Datenbank — Termine, Kontakte, Notizen, Todos, Passwörter.
+Zugriff auf eine [EssentialPIM](https://www.essentialpim.com/)-Datenbank (Firebird 2.5, eingebettet) — Termine, Kontakte, Notizen, Aufgaben, Passwort-Titel. Jedes Modul einzeln aus, lesbar oder beschreibbar; ohne beschreibbares Modul ist die Datei schreibgeschützt.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `epim_search` | Einträge suchen (Kalender, Kontakte, Notizen, Todos, Passwörter) | READONLY |
+| `epim_search` | Einträge suchen, Listen (Kategorien, Kalender, Aufgabenlisten, Notizbäume) | READONLY |
+| `epim_get` | Einen Eintrag mit allen Details lesen | READONLY |
 | `epim_create` | Neuen Eintrag anlegen | WRITE_DATA |
 | `epim_update` | Eintrag ändern/verschieben | WRITE_DATA |
-| `epim_delete` | Eintrag löschen | WRITE_SYSTEM |
+| `epim_delete` | In den EPIM-Papierkorb verschieben | WRITE_SYSTEM |
 
 **Features:**
-- Automatische Name-zu-ID-Auflösung
-- 7-Tage-Datumsreferenz im Prompt
-- Anti-Halluzinations-Guardrails
-- Field-Mapping (Englisch → Deutsch)
+- Kurze Transaktionen, Schreibschutz durch die Engine, Neuverbindung nach Spiegeltausch
+- Strikte Argumente und strikter Feld-Codec (verweigert statt Daten zu verlieren)
+- Wartungs-CLI (Prüfen, Neuaufbau, Spiegel von einem Windows-Rechner)
 
 > **Details:** [EPIM Plugin](plugins/epim.md)
+
+---
+
+### Nextcloud (Kalender, Aufgaben, Kontakte)
+
+**Datei:** `plugins/tools/nextcloud/`
+
+Termine, Aufgaben und Kontakte aus Nextcloud über CalDAV und CardDAV. Jedes Modul einzeln aus, lesbar oder beschreibbar; geschrieben wird nur, wo Nextcloud dem eingetragenen Benutzer das Schreibrecht gibt. Unabhängig vom EPIM-Plugin.
+
+| Tool | Beschreibung | Tier |
+|------|-------------|------|
+| `nextcloud_search` | Termine im Zeitraum, Aufgaben, Kontakte; Kalender, Aufgabenlisten, Adressbücher | READONLY |
+| `nextcloud_get` | Einen Eintrag mit allen Details lesen | READONLY |
+| `nextcloud_create` | Termin, Aufgabe oder Kontakt anlegen | WRITE_DATA |
+| `nextcloud_update` | Termin, Aufgabe oder Kontakt ändern | WRITE_DATA |
+| `nextcloud_delete` | Termin, Aufgabe oder Kontakt löschen | WRITE_SYSTEM |
+
+> **Details:** [Nextcloud Plugin](plugins/nextcloud.md)
 
 ---
 

@@ -1,16 +1,16 @@
-"""Strict parsing of tool arguments before they reach the EPIM database.
+"""Strict parsing of tool arguments (shared by the EPIM and Nextcloud plugins).
 
 The model sends JSON; nothing in this module guesses. A value that is not in
 the documented form raises :class:`InvalidValue` with a message the model can
-act on, instead of being coerced into something it did not mean (Firebird
-itself reads "10/11/2026" as October 11th and accepts "TOMORROW").
+act on, instead of being coerced into something it did not mean (Firebird,
+for one, reads "10/11/2026" as October 11th and accepts "TOMORROW").
 """
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 
-# EPIM stores local wall-clock time without zone; ISO dates with an optional
-# time (space or "T", minutes or seconds) are the one accepted form.
+# Local wall-clock time without zone; ISO dates with an optional time
+# (space or "T", minutes or seconds) are the one accepted form.
 _DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 _DATETIME_RE = re.compile(r"\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?")
 
@@ -37,6 +37,15 @@ def parse_date(value: object, field: str) -> date:
         return date.fromisoformat(value.strip())
     except ValueError as exc:
         raise InvalidValue(f"{field}: {exc}") from exc
+
+
+def parse_when(value: object, field: str, is_end: bool) -> datetime:
+    """A date with time is exact. A bare date means the whole day: a start
+    at 00:00, an end as the inclusive last day (stored as the next midnight)."""
+    if isinstance(value, str) and _DATE_RE.fullmatch(value.strip()):
+        day = parse_date(value, field)
+        return datetime.combine(day + timedelta(days=1) if is_end else day, datetime.min.time())
+    return parse_datetime(value, field)
 
 
 def parse_bool(value: object, field: str) -> bool:

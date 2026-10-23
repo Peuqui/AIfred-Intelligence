@@ -1,0 +1,1 @@
+TERMINE ÄNDERN: Zum Verschieben nur "start" schicken — die Dauer bleibt erhalten. Serientermine lassen sich nur in der Kalender-App ändern oder löschen; sag das dem Benutzer, wenn das Tool es meldet.

@@ -1,0 +1,1 @@
+CHANGING APPOINTMENTS: to move one, send only "start" — the duration is kept. Recurring appointments can only be changed or deleted in the calendar app; tell the user when the tool reports it.

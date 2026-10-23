@@ -1,0 +1,31 @@
+{
+  "type": "object",
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "enum": [],
+      "description": "What to search"
+    },
+    "query": {
+      "type": "string",
+      "description": "Search text in title, name, organization, phone or e-mail. Omit to list entries."
+    },
+    "date_from": {
+      "type": "string",
+      "description": "events only: first day, YYYY-MM-DD (default today)"
+    },
+    "date_to": {
+      "type": "string",
+      "description": "events only: last day (inclusive), YYYY-MM-DD (default 30 days after date_from)"
+    },
+    "completed": {
+      "type": "boolean",
+      "description": "tasks only: true = done, false = open"
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum number of results (default 20)"
+    }
+  },
+  "required": ["entity_type"]
+}

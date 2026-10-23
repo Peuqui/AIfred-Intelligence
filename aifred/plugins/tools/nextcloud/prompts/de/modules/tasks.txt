@@ -1,0 +1,1 @@
+AUFGABEN: done=true heißt erledigt. Priorität: high, medium, low oder none.

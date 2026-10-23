@@ -1,0 +1,1 @@
+TERMINE: Ohne Zeitraum sucht nextcloud_search die nächsten 30 Tage. Ganztägige Termine haben Datumsangaben ohne Uhrzeit; das Ende ist der letzte Tag (einschließlich). Vorkommen von Serien tragen recurring=true.

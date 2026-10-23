@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "enum": []
+    },
+    "entity_id": {
+      "type": "string",
+      "description": "ID from nextcloud_search, copied exactly"
+    }
+  },
+  "required": ["entity_type", "entity_id"]
+}

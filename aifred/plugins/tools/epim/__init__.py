@@ -13,7 +13,7 @@ from ....lib.plugin_base import (
     plugin_dir_of,
     plugin_i18n_text,
 )
-from ....lib.plugin_modules import module_credential_fields
+from ....lib.plugin_modules import module_credential_fields, module_instructions
 from .settings import (
     DB_PATH_KEY,
     MODULE_DEFAULTS,
@@ -98,16 +98,12 @@ class EpimPlugin:
         if not text:
             return ""
         lang_code = "de" if str(lang).startswith("de") else "en"
-        module_dir = Path(__file__).parent / "prompts" / lang_code / "modules"
         parts = [text]
         if db.can_read("calendar") or db.can_read("todos"):
-            parts.append((module_dir / "categories.txt").read_text(encoding="utf-8").strip())
-        for module in MODULE_DEFAULTS:
-            if db.can_read(module):
-                parts.append((module_dir / f"{module}.txt").read_text(encoding="utf-8").strip())
-            write_fragment = module_dir / f"{module}.write.txt"
-            if db.can_write(module) and granted & _WRITE_TOOLS and write_fragment.exists():
-                parts.append(write_fragment.read_text(encoding="utf-8").strip())
+            # Categories serve two modules, so they are no module fragment of their own.
+            categories = Path(__file__).parent / "prompts" / lang_code / "modules" / "categories.txt"
+            parts.append(categories.read_text(encoding="utf-8").strip())
+        parts += module_instructions(Path(__file__).parent, lang_code, db.modules, bool(granted & _WRITE_TOOLS))
         text = "\n\n".join(parts)
         lookups = db.lookups()
         for placeholder, key in _LOOKUP_PLACEHOLDERS.items():

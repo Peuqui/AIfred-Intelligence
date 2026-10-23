@@ -1,0 +1,1 @@
+ÄNDERUNGEN (nextcloud_update): Nur die Felder schicken, die sich ändern. null leert ein Feld. Meldet das Tool, dass der Eintrag inzwischen anderswo geändert wurde, lies ihn neu und versuch es noch einmal.
