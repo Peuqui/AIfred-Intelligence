@@ -1,0 +1,22 @@
+{
+  "plugin_display_name": {
+    "de": "Nextcloud",
+    "en": "Nextcloud"
+  },
+  "plugin_description": {
+    "de": "Kalender, Aufgaben und Kontakte aus Nextcloud über CalDAV und CardDAV. Jedes Modul einzeln aus, lesbar oder beschreibbar; Schreiben nur, wo Nextcloud es dem AIfred-Benutzer erlaubt.",
+    "en": "Calendars, tasks and contacts from Nextcloud via CalDAV and CardDAV. Each module off, readable or writable on its own; writing only where Nextcloud grants it to the AIfred user."
+  },
+  "module_access_off": {
+    "de": "Aus",
+    "en": "Off"
+  },
+  "module_access_read": {
+    "de": "Lesen",
+    "en": "Read"
+  },
+  "module_access_write": {
+    "de": "Lesen und Schreiben",
+    "en": "Read and write"
+  }
+}
