@@ -1,0 +1,2 @@
+KALENDER: {epim_calendars}
+Ganztägige Termine haben Datumsangaben ohne Uhrzeit; das Ende ist der letzte Tag (einschließlich).

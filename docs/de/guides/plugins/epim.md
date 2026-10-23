@@ -4,30 +4,30 @@
 
 **Datei:** `aifred/plugins/tools/epim/`
 
-Zugriff auf eine EssentialPIM-Datenbank (Firebird 2.5, eingebettet): Termine, Kontakte, Notizen, Aufgaben und die Titel der Passworteinträge. Standardmäßig **nur lesend**; Schreiben schaltet der Schalter „Schreibzugriff“ in den Plugin-Einstellungen frei.
+Zugriff auf eine EssentialPIM-Datenbank (Firebird 2.5, eingebettet): Termine, Kontakte, Notizen, Aufgaben und die Titel der Passworteinträge. Jedes Modul ist in den Plugin-Einstellungen einzeln **Aus**, **Lesen** oder **Lesen und Schreiben**; standardmäßig sind Kalender, Kontakte, Notizen und Aufgaben lesbar und Passwörter aus.
 
 ## Tools
 
 | Tool | Beschreibung | Tier | Angeboten |
 |------|-------------|------|-----------|
-| `epim_search` | Termine, Kontakte, Notizen, Aufgaben, Passwort-Titel; Listen der Kategorien, Kalender, Aufgabenlisten, Notizbäume | READONLY | immer |
-| `epim_get` | Ein Termin, Kontakt oder eine Notiz mit allen Tabs | READONLY | immer |
-| `epim_create` | Termin, Kontakt, Notiz, Aufgabe anlegen | WRITE_DATA | nur mit Schreibzugriff |
-| `epim_update` | Termin, Kontakt, Notiz, Notiz-Tab, Aufgabe ändern | WRITE_DATA | nur mit Schreibzugriff |
-| `epim_delete` | In den EPIM-Papierkorb verschieben | WRITE_SYSTEM | nur mit Schreibzugriff |
+| `epim_search` | Termine, Kontakte, Notizen, Aufgaben, Passwort-Titel; Listen der Kategorien, Kalender, Aufgabenlisten, Notizbäume | READONLY | für lesbare Module |
+| `epim_get` | Ein Termin, Kontakt oder eine Notiz mit allen Tabs | READONLY | für lesbare Module |
+| `epim_create` | Termin, Kontakt, Notiz, Aufgabe anlegen | WRITE_DATA | für beschreibbare Module |
+| `epim_update` | Termin, Kontakt, Notiz, Notiz-Tab, Aufgabe ändern | WRITE_DATA | für beschreibbare Module |
+| `epim_delete` | In den EPIM-Papierkorb verschieben | WRITE_SYSTEM | für beschreibbare Module |
 
-Ist der Schreibzugriff aus, bekommt das Modell die Schreib-Tools und ihre Anleitung gar nicht erst zu sehen.
+Die Aufzählung der Entitätstypen jedes Tools enthält nur die freigegebenen Module; ein Tool ohne freigegebenes Modul wird nicht angeboten. Die Anleitung besteht aus Tool-Fragmenten (`prompts/<lang>/epim_*.txt`) und Modul-Fragmenten (`prompts/<lang>/modules/<modul>.txt`, Schreibregeln in `<modul>.write.txt`) — das Modell sieht nur die Regeln der freigegebenen Module.
 
 ## Schutz der Datenbank
 
-Ist der Schreibzugriff aus, greifen vier voneinander unabhängige Sperren:
+Für jedes Modul, das nicht auf Schreiben steht, greifen voneinander unabhängige Sperren:
 
-1. Die Schreib-Tools werden nicht angeboten.
-2. Die Datenbankschicht verweigert jeden Schreibaufruf (`EpimWriteDisabled`).
+1. Tool und Entitätstyp werden nicht angeboten.
+2. Die Datenbankschicht prüft bei jedem Aufruf das Modul (`EpimModuleDisabled`, `EpimWriteDisabled`).
 3. Jeder Lesezugriff läuft in einer nur-lesenden Transaktion, die sofort wieder endet.
-4. Die Datei selbst steht im Firebird-Modus `read_only` — die Engine lehnt jede Änderung ab. Der Schalter in den Einstellungen setzt diesen Modus beim Speichern um.
+4. Steht kein Modul auf Schreiben, ist die Datei im Firebird-Modus `read_only` — die Engine lehnt jede Änderung ab. Das Speichern der Einstellungen setzt diesen Modus um.
 
-Weitere Regeln, auch bei eingeschaltetem Schreiben:
+Weitere Regeln, auch für beschreibbare Module:
 
 - Jede Transaktion endet mit dem Aufruf (Commit oder Rollback als Einheit), mit 10 s Sperr-Zeitlimit statt unbegrenztem Warten. Die Datenbankaufrufe laufen in einem Worker-Thread und blockieren den Event-Loop nicht.
 - AIfred verbindet sich ohne EPIMs Datenbank-Trigger (`DB_CONNECT0` trägt sonst jede Sitzung in `CONNECTIONS` ein). Die Trigger auf den Tabellen laufen normal.
@@ -48,7 +48,7 @@ Weitere Regeln, auch bei eingeschaltetem Schreiben:
 
 ## Spiegel von Aragon
 
-Die Arbeits-DB liegt auf Aragon (Windows). Das Skript `aragon/push-epim-to-mini.ps1` kopiert sie zum Mini, sobald EssentialPIM geschlossen ist (exklusives Öffnen schlägt sonst fehl). Auf dem Mini baut `install-mirror` die Kopie per Firebird-Sicherung und -Wiederherstellung neu auf, vergleicht die Datensatzzahl jeder Tabelle, setzt sie schreibgeschützt und tauscht sie atomar gegen die konfigurierte Datei; die vorige bleibt als `.previous`. Bei eingeschaltetem Schreibzugriff verweigert `install-mirror`, damit AIfreds Änderungen nicht überschrieben werden.
+Die Arbeits-DB liegt auf Aragon (Windows). Das Skript `aragon/push-epim-to-mini.ps1` kopiert sie zum Mini, sobald EssentialPIM geschlossen ist (exklusives Öffnen schlägt sonst fehl). Auf dem Mini baut `install-mirror` die Kopie per Firebird-Sicherung und -Wiederherstellung neu auf, vergleicht die Datensatzzahl jeder Tabelle, setzt sie schreibgeschützt und tauscht sie atomar gegen die konfigurierte Datei; die vorige bleibt als `.previous`. Steht ein Modul auf Schreiben, verweigert `install-mirror`, damit AIfreds Änderungen nicht überschrieben werden.
 
 ## Konfiguration
 
@@ -57,7 +57,8 @@ In den Plugin-Einstellungen (gespeichert in `aifred/plugins/tools/epim/settings.
 | Feld | Bedeutung |
 |------|-----------|
 | `EPIM_DB_PATH` | Pfad zur `.epim`-Datei |
-| `EPIM_WRITE_ENABLED` | `false` (Standard) oder `true` |
+| `EPIM_MODULE_CALENDAR`, `_CONTACTS`, `_NOTES`, `_TODOS` | `off`, `read` (Standard) oder `write` |
+| `EPIM_MODULE_PASSWORDS` | `off` (Standard), `read` (nur Titel) oder `write` |
 
 Die eingebettete Firebird-Bibliothek liegt in `lib/firebird25/` (nicht versioniert).
 

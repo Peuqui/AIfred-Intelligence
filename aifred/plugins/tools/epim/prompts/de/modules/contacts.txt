@@ -1,0 +1,2 @@
+KONTAKTFELDER (genau diese Namen): {epim_contact_fields}
+Steht in einem Kontakt "field_data_error", sind seine Felder unvollständig gespeichert — sag das dazu.

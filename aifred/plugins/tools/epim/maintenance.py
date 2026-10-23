@@ -135,13 +135,13 @@ def _install_lock(directory: Path) -> Iterator[None]:
 def install_mirror(incoming: Path) -> Path:
     """Replace the configured database with a verified copy of ``incoming``.
 
-    Refused while the write switch is on: then the Mini copy may hold
+    Refused while any module is writable: then the Mini copy may hold
     AIfred's own changes, which a mirror from Aragon would overwrite."""
     settings = load_epim_settings()
     if settings.db_path is None:
         raise MaintenanceError("no EPIM database path is configured")
-    if settings.write_enabled:
-        raise MaintenanceError("EPIM write access is on; a mirror would overwrite AIfred's changes")
+    if settings.any_write:
+        raise MaintenanceError("an EPIM module is writable; a mirror would overwrite AIfred's changes")
     target = settings.db_path
     staged = target.with_name(target.name + ".staged")
     previous = target.with_name(target.name + ".previous")

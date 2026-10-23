@@ -1,1 +1,1 @@
-Note contents and all details of an entry: find it with epim_search first, then call epim_get with its ID. epim_search returns only titles for notes.
+Details of an entry: find it with epim_search first, then call epim_get with its ID.

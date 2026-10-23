@@ -1,0 +1,2 @@
+CONTACT FIELDS (exactly these names): {epim_contact_fields}
+If a contact carries "field_data_error", its fields are stored incompletely — say so.

@@ -1,0 +1,2 @@
+NOTIZBÄUME: {epim_notetrees}
+epim_search liefert bei Notizen nur Titel; den Inhalt liest du mit epim_get.

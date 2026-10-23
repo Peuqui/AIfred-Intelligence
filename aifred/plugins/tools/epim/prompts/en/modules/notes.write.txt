@@ -1,0 +1,1 @@
+CHANGING NOTES: "append_text" appends, "text" replaces the whole tab — replace only when the user explicitly wants that.

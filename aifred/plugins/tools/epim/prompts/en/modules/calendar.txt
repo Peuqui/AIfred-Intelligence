@@ -1,0 +1,2 @@
+CALENDARS: {epim_calendars}
+All-day appointments carry dates without a time; the end is the last day (inclusive).

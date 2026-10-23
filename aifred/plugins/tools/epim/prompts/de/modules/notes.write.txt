@@ -1,0 +1,1 @@
+NOTIZEN ÄNDERN: "append_text" hängt an, "text" ersetzt den ganzen Tab — ersetzen nur, wenn der Benutzer das ausdrücklich will.
