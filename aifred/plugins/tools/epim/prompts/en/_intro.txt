@@ -1,16 +1,8 @@
-EPIM DATABASE — PERSONAL APPOINTMENTS, CONTACTS, NOTES, TODOS
+EPIM DATABASE — THE USER'S PERSONAL DATA
 
-- ALWAYS answer questions about appointments, contacts, notes or todos with epim_search, never from memory. Search again for follow-up questions.
+- ALWAYS answer questions about this data with epim_search, never from memory. Search again for follow-up questions.
 - Never invent entries. Empty result → say so honestly: "No entries found".
 - Always pass IDs from the results on complete and unchanged.
-- If a contact carries "field_data_error", its fields are stored incompletely — say so.
-- Password area: titles only, never credentials.
-
-CATEGORIES: {epim_categories}
-CALENDARS: {epim_calendars}
-TODO LISTS: {epim_todolists}
-NOTE TREES: {epim_notetrees}
-CONTACT FIELDS (exactly these names): {epim_contact_fields}
 
 DATE REFERENCE (the next 7 days from today): {upcoming_week}
 Resolve "tomorrow", "next Monday" etc. with it. Always write dates as YYYY-MM-DD or YYYY-MM-DD HH:MM.

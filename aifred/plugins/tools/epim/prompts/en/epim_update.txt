@@ -1,5 +1,1 @@
-CHANGES (epim_update):
-- Send only the fields that change. null or "" clears a field.
-- Moving an appointment: send only "start" — the duration is kept.
-- Note text: "append_text" appends, "text" replaces the whole tab — replace only when the user explicitly wants that.
-- Recurring appointments can only be changed in EPIM; tell the user when the tool reports it.
+CHANGES (epim_update): send only the fields that change. null or "" clears a field.

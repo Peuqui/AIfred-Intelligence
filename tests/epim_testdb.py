@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 from aifred.lib.config import PROJECT_ROOT
+from aifred.plugins.tools.epim.settings import MODULE_DEFAULTS, READ, WRITE
 
 FIXTURE = PROJECT_ROOT / "data" / "epim" / "test-fixture.epim"
 
@@ -20,6 +21,10 @@ requires_fixture = pytest.mark.skipif(
     not FIXTURE.exists(),
     reason=f"EPIM test fixture missing ({FIXTURE}); build it with maintenance make-fixture",
 )
+
+
+ALL_WRITE = {module: WRITE for module in MODULE_DEFAULTS}
+ALL_READ = {module: READ for module in MODULE_DEFAULTS}
 
 
 def copy_fixture(directory: Path, name: str = "test.epim") -> Path:

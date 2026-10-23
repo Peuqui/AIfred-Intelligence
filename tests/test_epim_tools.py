@@ -9,8 +9,10 @@ import json
 from datetime import datetime
 
 import pytest
-from epim_testdb import copy_fixture, requires_fixture
+from epim_testdb import ALL_READ, ALL_WRITE, copy_fixture, requires_fixture
 
+from aifred.plugins.tools.epim import db as epim_db
+from aifred.plugins.tools.epim import plugin as epim_plugin
 from aifred.plugins.tools.epim.db import EpimDatabase
 from aifred.plugins.tools.epim.tools import get_epim_tools
 
@@ -28,13 +30,13 @@ def _call(tool, **kwargs) -> dict:
 
 @pytest.fixture
 def db(tmp_path):
-    database = EpimDatabase(copy_fixture(tmp_path), write_enabled=True)
+    database = EpimDatabase(copy_fixture(tmp_path), ALL_WRITE)
     yield database
     database.close()
 
 
 def test_write_tools_only_with_the_switch_on(tmp_path, db):
-    read_only = EpimDatabase(copy_fixture(tmp_path, "ro.epim"), write_enabled=False)
+    read_only = EpimDatabase(copy_fixture(tmp_path, "ro.epim"), ALL_READ)
     assert set(_tools(read_only)) == {"epim_search", "epim_get"}
     assert set(_tools(db)) == {"epim_search", "epim_get", "epim_create", "epim_update", "epim_delete"}
     read_only.close()
@@ -84,3 +86,28 @@ def test_search_returns_ids_as_strings(db):
 def test_password_delete_only_from_the_browser(db):
     result = _call(_tools(db, source="email")["epim_delete"], entity_type="password", entity_id="1")
     assert "web UI" in result["error"]
+
+
+def test_switched_off_module_disappears_from_tools_and_instructions(tmp_path, monkeypatch):
+    access = {**ALL_READ, "contacts": "off", "passwords": "off", "calendar": "write"}
+    database = EpimDatabase(copy_fixture(tmp_path, "mixed.epim"), access)
+    tools = _tools(database)
+    assert set(tools) == {"epim_search", "epim_get", "epim_create", "epim_update", "epim_delete"}
+    search_enum = tools["epim_search"].parameters["properties"]["entity_type"]["enum"]
+    assert "contacts" not in search_enum and "passwords" not in search_enum and "tasks" in search_enum
+    assert tools["epim_create"].parameters["properties"]["entity_type"]["enum"] == ["task"]
+    refused = _call(tools["epim_search"], entity_type="contacts")
+    assert "entity_type must be one of" in refused["error"]
+
+    monkeypatch.setattr(epim_db, "get_epim_db", lambda: database)
+    text = epim_plugin.get_prompt_instructions("de")
+    assert "KALENDER: Kalender 1" in text and "TERMINE ÄNDERN" in text
+    assert "KONTAKTFELDER" not in text and "PASSWORTBEREICH" not in text
+    assert "NOTIZEN ÄNDERN" not in text  # notes are readable only
+    database.close()
+
+
+def test_no_readable_module_means_no_tools(tmp_path):
+    database = EpimDatabase(copy_fixture(tmp_path, "off.epim"), {m: "off" for m in ALL_READ})
+    assert _tools(database) == {}
+    database.close()

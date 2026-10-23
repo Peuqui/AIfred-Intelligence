@@ -4,32 +4,32 @@
 
 **File:** `aifred/plugins/tools/epim/`
 
-Access to an EssentialPIM database (Firebird 2.5, embedded): appointments, contacts, notes, todos and the titles of password entries. **Read-only** by default; the "Write access" switch in the plugin settings enables writing.
+Access to an EssentialPIM database (Firebird 2.5, embedded): appointments, contacts, notes, todos and the titles of password entries. Each module is **Off**, **Read** or **Read and write** on its own in the plugin settings; by default calendar, contacts, notes and todos are readable and passwords are off.
 
 ## Tools
 
 | Tool | Description | Tier | Offered |
 |------|-------------|------|---------|
-| `epim_search` | Appointments, contacts, notes, todos, password titles; lists of categories, calendars, todo lists, note trees | READONLY | always |
-| `epim_get` | One appointment, contact, or note with all tabs | READONLY | always |
-| `epim_create` | Create an appointment, contact, note, todo | WRITE_DATA | write access only |
-| `epim_update` | Change an appointment, contact, note, note tab, todo | WRITE_DATA | write access only |
-| `epim_delete` | Move to the EPIM trash | WRITE_SYSTEM | write access only |
+| `epim_search` | Appointments, contacts, notes, todos, password titles; lists of categories, calendars, todo lists, note trees | READONLY | for readable modules |
+| `epim_get` | One appointment, contact, or note with all tabs | READONLY | for readable modules |
+| `epim_create` | Create an appointment, contact, note, todo | WRITE_DATA | for writable modules |
+| `epim_update` | Change an appointment, contact, note, note tab, todo | WRITE_DATA | for writable modules |
+| `epim_delete` | Move to the EPIM trash | WRITE_SYSTEM | for writable modules |
 
-With write access off, the model never sees the write tools or their instructions.
+Each tool's entity-type enum lists only the enabled modules; a tool without an enabled module is not offered. The instructions consist of tool fragments (`prompts/<lang>/epim_*.txt`) and module fragments (`prompts/<lang>/modules/<module>.txt`, write rules in `<module>.write.txt`) — the model only sees the rules of the enabled modules.
 
 **Not enabled yet**, until EPIM's own write format is established by a reference recording: creating notes and todos, changing note text, marking todos done, creating or changing password entries. The tool says so explicitly.
 
 ## Protecting the database
 
-With write access off, four independent locks apply:
+For every module that is not writable, independent locks apply:
 
-1. The write tools are not offered.
-2. The database layer refuses every write call (`EpimWriteDisabled`).
+1. Tool and entity type are not offered.
+2. The database layer checks the module on every call (`EpimModuleDisabled`, `EpimWriteDisabled`).
 3. Every read runs in a read-only transaction that ends right away.
-4. The file itself is in Firebird's `read_only` mode — the engine rejects any change. Saving the switch in the settings applies this mode.
+4. With no writable module, the file is in Firebird's `read_only` mode — the engine rejects any change. Saving the settings applies this mode.
 
-Further rules, also with writing on:
+Further rules, also for writable modules:
 
 - Every transaction ends with its call (commit or rollback as one unit), with a 10 s lock timeout instead of waiting forever. Database calls run in a worker thread and never block the event loop.
 - AIfred connects without EPIM's database triggers (`DB_CONNECT0` would register every session in `CONNECTIONS`). Table triggers run as usual.
@@ -48,7 +48,7 @@ Further rules, also with writing on:
 
 ## Mirror from Aragon
 
-The working database lives on Aragon (Windows). The script `aragon/push-epim-to-mini.ps1` copies it to the Mini once EssentialPIM is closed (the exclusive open fails otherwise). On the Mini, `install-mirror` rebuilds the copy with a Firebird backup and restore, compares the record count of every table, makes it read-only and atomically replaces the configured file; the previous one stays as `.previous`. With write access on, `install-mirror` refuses, so AIfred's changes are not overwritten.
+The working database lives on Aragon (Windows). The script `aragon/push-epim-to-mini.ps1` copies it to the Mini once EssentialPIM is closed (the exclusive open fails otherwise). On the Mini, `install-mirror` rebuilds the copy with a Firebird backup and restore, compares the record count of every table, makes it read-only and atomically replaces the configured file; the previous one stays as `.previous`. With a writable module, `install-mirror` refuses, so AIfred's changes are not overwritten.
 
 ## Configuration
 
@@ -57,7 +57,8 @@ In the plugin settings (stored in `aifred/plugins/tools/epim/settings.json`):
 | Field | Meaning |
 |-------|---------|
 | `EPIM_DB_PATH` | Path to the `.epim` file |
-| `EPIM_WRITE_ENABLED` | `false` (default) or `true` |
+| `EPIM_MODULE_CALENDAR`, `_CONTACTS`, `_NOTES`, `_TODOS` | `off`, `read` (default) or `write` |
+| `EPIM_MODULE_PASSWORDS` | `off` (default), `read` (titles only) or `write` |
 
 The embedded Firebird library lives in `lib/firebird25/` (not versioned).
 

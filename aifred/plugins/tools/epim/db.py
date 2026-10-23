@@ -35,7 +35,7 @@ import fdb
 
 from . import codec, firebird
 from .contact_fields import CONTACT_FIELD_LABELS, DATE_FIELD_TYPE, DELPHI_EPOCH
-from .settings import load_epim_settings
+from .settings import OFF, WRITE, load_epim_settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,7 +46,11 @@ _LIVE, _DELETED = 0, 1
 
 
 class EpimWriteDisabled(PermissionError):
-    """Write access is switched off in the plugin settings."""
+    """The module is not writable in the plugin settings."""
+
+
+class EpimModuleDisabled(PermissionError):
+    """The module is switched off in the plugin settings."""
 
 
 class EpimRefused(ValueError):
@@ -104,9 +108,9 @@ class EpimDatabase:
     """One EPIM database file. All methods are safe to call from any thread;
     a lock serializes them (Firebird connections are not thread-safe)."""
 
-    def __init__(self, db_path: Path, write_enabled: bool) -> None:
+    def __init__(self, db_path: Path, access: dict[str, str]) -> None:
         self._db_path = db_path
-        self._write_enabled = write_enabled
+        self._access = dict(access)
         self._lock = threading.RLock()
         self._in_transaction = False
         self._con: fdb.Connection | None = None
@@ -120,8 +124,25 @@ class EpimDatabase:
         return self._db_path
 
     @property
-    def write_enabled(self) -> bool:
-        return self._write_enabled
+    def access(self) -> dict[str, str]:
+        return dict(self._access)
+
+    def can_read(self, module: str) -> bool:
+        return self._access[module] != OFF
+
+    def can_write(self, module: str) -> bool:
+        return self._access[module] == WRITE
+
+    @property
+    def any_write(self) -> bool:
+        return WRITE in self._access.values()
+
+    def _allow(self, module: str, write: bool) -> None:
+        """Second guard behind the tool layer: the settings decide per module."""
+        if self._access[module] == OFF:
+            raise EpimModuleDisabled(f"the EPIM module {module!r} is switched off in the plugin settings")
+        if write and self._access[module] != WRITE:
+            raise EpimWriteDisabled(f"the EPIM module {module!r} is read-only in the plugin settings")
 
     # ── connection and transactions ───────────────────────────────
 
@@ -150,13 +171,13 @@ class EpimDatabase:
             self._read_tr = con.trans(default_tpb=fdb.ISOLATION_LEVEL_READ_COMMITED_RO)
             self._write_tr = con.trans(default_tpb=_write_tpb())
             self._con, self._file_ident = con, ident
-            logger.info("EPIM database connected: %s (write %s)", self._db_path,
-                        "enabled" if self._write_enabled else "disabled")
+            logger.info("EPIM database connected: %s (%s)", self._db_path,
+                        ", ".join(f"{m} {level}" for m, level in self._access.items()))
 
     @contextmanager
     def _transaction(self, write: bool) -> Iterator[Any]:
-        if write and not self._write_enabled:
-            raise EpimWriteDisabled("EPIM write access is switched off in the plugin settings")
+        if write and not self.any_write:
+            raise EpimWriteDisabled("no EPIM module is writable in the plugin settings")
         with self._lock:
             if self._in_transaction:
                 # A nested begin() would end the outer transaction half-way.
@@ -241,17 +262,23 @@ class EpimDatabase:
         return self._lookup(cur, "SELECT IDNOTETREE, NAME FROM NOTETREES WHERE NAME IS NOT NULL")
 
     def lookups(self) -> dict[str, list[LookupEntry]]:
-        """Categories, calendars, todo lists, note trees and the writable
-        contact fields in one transaction."""
+        """The lookup lists of the readable modules, in one transaction:
+        categories (calendar, todos), calendars, todo lists, note trees and
+        the writable contact fields."""
+        out: dict[str, list[LookupEntry]] = {}
         with self._read() as cur:
-            fields = self._contact_fields(cur)
-            return {
-                "categories": self._categories(cur),
-                "calendars": self._calendars(cur),
-                "todolists": self._todolists(cur),
-                "notetrees": self._notetrees(cur),
-                "contact_fields": [LookupEntry(fid, label) for label, fid in sorted(fields.id_by_label.items())],
-            }
+            if self.can_read("calendar") or self.can_read("todos"):
+                out["categories"] = self._categories(cur)
+            if self.can_read("calendar"):
+                out["calendars"] = self._calendars(cur)
+            if self.can_read("todos"):
+                out["todolists"] = self._todolists(cur)
+            if self.can_read("notes"):
+                out["notetrees"] = self._notetrees(cur)
+            if self.can_read("contacts"):
+                fields = self._contact_fields(cur)
+                out["contact_fields"] = [LookupEntry(fid, label) for label, fid in sorted(fields.id_by_label.items())]
+        return out
 
     @staticmethod
     def _resolve(entries: list[LookupEntry], name: str, what: str) -> int:
@@ -298,6 +325,7 @@ class EpimDatabase:
 
     def search_tasks(self, title: str | None, date_from: date | None, date_to: date | None,
                      limit: int) -> list[dict[str, Any]]:
+        self._allow("calendar", write=False)
         conditions = ["t.STATUS = 0"]
         params: list[Any] = []
         if title:
@@ -317,6 +345,7 @@ class EpimDatabase:
             return [self._task_out(r) for r in self._rows(cur)]
 
     def get_task(self, task_id: int) -> dict[str, Any] | None:
+        self._allow("calendar", write=False)
         with self._read() as cur:
             cur.execute(f"SELECT {self._TASK_COLUMNS}WHERE t.IDTASK = ? AND t.STATUS = 0", (task_id,))
             rows = self._rows(cur)
@@ -330,6 +359,7 @@ class EpimDatabase:
     def create_task(self, *, title: str, start: datetime, end: datetime, all_day: bool,
                     location: str | None, text: str | None, category: str | None,
                     calendar: str | None, tags: str | None) -> int:
+        self._allow("calendar", write=True)
         self._check_range(start, end)
         with self._write() as cur:
             calendars = self._calendars(cur)
@@ -364,6 +394,7 @@ class EpimDatabase:
         """``changes`` keys: title, start, end, all_day, location, text,
         category, calendar, tags. A new start without a new end moves the
         event and keeps its duration."""
+        self._allow("calendar", write=True)
         with self._write() as cur:
             current = self._live_single_task(cur, task_id)
             columns: dict[str, Any] = {}
@@ -388,6 +419,7 @@ class EpimDatabase:
             self._update_columns(cur, "TASKS", "IDTASK", task_id, columns)
 
     def delete_task(self, task_id: int) -> None:
+        self._allow("calendar", write=True)
         with self._write() as cur:
             self._live_single_task(cur, task_id)
             self._soft_delete(cur, "TASKS", "IDTASK", task_id)
@@ -446,6 +478,7 @@ class EpimDatabase:
     _CONTACT_COLUMNS = "IDCONTACT, SUBJECT, FIELDSDATA, FIELDSDATA2, TAGS, CREATED, LASTCHANGED"
 
     def search_contacts(self, name: str | None, limit: int) -> list[dict[str, Any]]:
+        self._allow("contacts", write=False)
         conditions = ["STATUS = 0"]
         params: list[Any] = []
         if name:
@@ -458,6 +491,7 @@ class EpimDatabase:
             return [self._contact_out(fields, row) for row in cur.fetchall()]
 
     def get_contact(self, contact_id: int) -> dict[str, Any] | None:
+        self._allow("contacts", write=False)
         with self._read() as cur:
             fields = self._contact_fields(cur)
             cur.execute(f"SELECT {self._CONTACT_COLUMNS} FROM CONTACTS WHERE IDCONTACT = ? AND STATUS = 0",
@@ -466,6 +500,7 @@ class EpimDatabase:
             return self._contact_out(fields, row) if row else None
 
     def create_contact(self, *, name: str | None, fields: dict[str, str | None], tags: str | None) -> int:
+        self._allow("contacts", write=True)
         with self._write() as cur:
             field_map = self._contact_fields(cur)
             updates = field_map.to_ids(fields)
@@ -488,6 +523,7 @@ class EpimDatabase:
 
     def update_contact(self, contact_id: int, *, name: str | None, fields: dict[str, str | None],
                        tags: str | None, tags_given: bool) -> None:
+        self._allow("contacts", write=True)
         with self._write() as cur:
             cur.execute("SELECT FIELDSDATA, FIELDSDATA2 FROM CONTACTS WHERE IDCONTACT = ? AND STATUS = 0",
                         (contact_id,))
@@ -513,6 +549,7 @@ class EpimDatabase:
             self._update_columns(cur, "CONTACTS", "IDCONTACT", contact_id, columns)
 
     def delete_contact(self, contact_id: int) -> None:
+        self._allow("contacts", write=True)
         with self._write() as cur:
             self._require_live(cur, "CONTACTS", "IDCONTACT", contact_id, "contact")
             self._soft_delete(cur, "CONTACTS", "IDCONTACT", contact_id)
@@ -520,6 +557,7 @@ class EpimDatabase:
     # ── notes ─────────────────────────────────────────────────────
 
     def search_notes(self, query: str | None, limit: int) -> list[dict[str, Any]]:
+        self._allow("notes", write=False)
         conditions = ["n.STATUS = 0"]
         params: list[Any] = []
         if query:
@@ -539,6 +577,7 @@ class EpimDatabase:
             return self._rows(cur)
 
     def get_note(self, note_id: int) -> dict[str, Any] | None:
+        self._allow("notes", write=False)
         with self._read() as cur:
             cur.execute("SELECT n.IDNOTE AS id, n.TITLE AS title, n.TAGS AS tags, nt.NAME AS note_tree, "
                         "n.CREATED AS created, n.LASTCHANGED AS last_changed FROM NOTES n "
@@ -560,9 +599,11 @@ class EpimDatabase:
 
     def create_note(self, *, title: str, text: str, tab_name: str, note_tree: str | None,
                     tags: str | None) -> int:
+        self._allow("notes", write=True)
         raise EpimRefused("creating notes is not available until EPIM's note format is verified")
 
     def update_note(self, note_id: int, *, title: str | None, tags: str | None, tags_given: bool) -> None:
+        self._allow("notes", write=True)
         with self._write() as cur:
             self._require_live(cur, "NOTES", "IDNOTE", note_id, "note")
             columns: dict[str, Any] = {}
@@ -574,6 +615,7 @@ class EpimDatabase:
 
     def update_note_tab(self, tab_id: int, *, name: str | None, text: str | None,
                         append_text: str | None) -> None:
+        self._allow("notes", write=True)
         if text is not None or append_text is not None:
             raise EpimRefused("changing note text is not available until EPIM's note format is verified")
         with self._write() as cur:
@@ -581,6 +623,7 @@ class EpimDatabase:
             self._update_columns(cur, "NOTETABS", "IDNOTETAB", tab_id, {"NAME": name} if name is not None else {})
 
     def delete_note(self, note_id: int) -> None:
+        self._allow("notes", write=True)
         with self._write() as cur:
             self._require_live(cur, "NOTES", "IDNOTE", note_id, "note")
             self._require_no_live_children(cur, "NOTES", "IDNOTE", note_id, "note")
@@ -592,6 +635,7 @@ class EpimDatabase:
     # ── todos ─────────────────────────────────────────────────────
 
     def search_todos(self, title: str | None, completed: bool | None, limit: int) -> list[dict[str, Any]]:
+        self._allow("todos", write=False)
         conditions = ["t.STATUS = 0"]
         params: list[Any] = []
         if title:
@@ -615,9 +659,11 @@ class EpimDatabase:
 
     def create_todo(self, *, title: str, todo_list: str | None, start: datetime | None,
                     end: datetime | None, text: str | None, tags: str | None) -> int:
+        self._allow("todos", write=True)
         raise EpimRefused("creating todos is not available until EPIM's todo format is verified")
 
     def update_todo(self, todo_id: int, changes: dict[str, Any]) -> None:
+        self._allow("todos", write=True)
         if "done" in changes:
             raise EpimRefused("marking todos done is not available until EPIM's todo format is verified")
         with self._write() as cur:
@@ -641,6 +687,7 @@ class EpimDatabase:
             self._update_columns(cur, "TODOS", "IDTODO", todo_id, columns)
 
     def delete_todo(self, todo_id: int) -> None:
+        self._allow("todos", write=True)
         with self._write() as cur:
             self._require_live(cur, "TODOS", "IDTODO", todo_id, "todo")
             self._require_no_live_children(cur, "TODOS", "IDTODO", todo_id, "todo")
@@ -649,6 +696,7 @@ class EpimDatabase:
     # ── password entries (subjects only) ──────────────────────────
 
     def search_passwords(self, subject: str | None, limit: int) -> list[dict[str, Any]]:
+        self._allow("passwords", write=False)
         conditions = ["STATUS = 0"]
         params: list[Any] = []
         if subject:
@@ -661,6 +709,7 @@ class EpimDatabase:
             return self._rows(cur)
 
     def delete_password(self, entry_id: int) -> None:
+        self._allow("passwords", write=True)
         with self._write() as cur:
             self._require_live(cur, "PASSENTRIES", "IDPASSENTRY", entry_id, "password entry")
             self._soft_delete(cur, "PASSENTRIES", "IDPASSENTRY", entry_id)
@@ -745,7 +794,7 @@ _instance: EpimDatabase | None = None
 
 def get_epim_db() -> EpimDatabase | None:
     """The database configured in the plugin settings, or None when no path
-    is set. A changed path or write switch yields a fresh instance."""
+    is set. A changed path or access level yields a fresh instance."""
     global _instance
     settings = load_epim_settings()
     with _settings_lock:
@@ -754,9 +803,8 @@ def get_epim_db() -> EpimDatabase | None:
                 _instance.close()
                 _instance = None
             return None
-        if (_instance is None or _instance.db_path != settings.db_path
-                or _instance.write_enabled != settings.write_enabled):
+        if _instance is None or _instance.db_path != settings.db_path or _instance.access != settings.access:
             if _instance is not None:
                 _instance.close()
-            _instance = EpimDatabase(settings.db_path, settings.write_enabled)
+            _instance = EpimDatabase(settings.db_path, settings.access)
         return _instance

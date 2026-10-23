@@ -6,7 +6,7 @@
 from datetime import datetime, timedelta
 
 import pytest
-from epim_testdb import copy_fixture, requires_fixture
+from epim_testdb import ALL_READ, ALL_WRITE, copy_fixture, requires_fixture
 
 from aifred.plugins.tools.epim import firebird, maintenance
 from aifred.plugins.tools.epim.db import EpimDatabase
@@ -16,7 +16,7 @@ pytestmark = requires_fixture
 
 
 def _add_task(path, title: str) -> None:
-    db = EpimDatabase(path, write_enabled=True)
+    db = EpimDatabase(path, ALL_WRITE)
     start = datetime(2026, 11, 3, 10)
     db.create_task(title=title, start=start, end=start + timedelta(hours=1), all_day=False,
                    location=None, text=None, category=None, calendar=None, tags=None)
@@ -48,20 +48,20 @@ def test_install_mirror_replaces_atomically_and_keeps_previous(tmp_path, monkeyp
     target = copy_fixture(tmp_path, "mirror.epim")
     incoming = copy_fixture(tmp_path, "incoming.epim")
     _add_task(incoming, "Neu von Aragon")
-    monkeypatch.setattr(maintenance, "load_epim_settings", lambda: EpimSettings(target, write_enabled=False))
+    monkeypatch.setattr(maintenance, "load_epim_settings", lambda: EpimSettings(target, ALL_READ))
     maintenance.install_mirror(incoming)
     assert not incoming.exists()
     assert (tmp_path / "mirror.epim.previous").exists()
     assert _is_read_only(target)
-    db = EpimDatabase(target, write_enabled=False)
+    db = EpimDatabase(target, ALL_READ)
     assert [t["title"] for t in db.search_tasks(None, None, None, 10)] == ["Neu von Aragon"]
     db.close()
 
 
-def test_install_mirror_refused_while_writing_is_on(tmp_path, monkeypatch):
+def test_install_mirror_refused_while_a_module_is_writable(tmp_path, monkeypatch):
     target = copy_fixture(tmp_path, "mirror.epim")
-    monkeypatch.setattr(maintenance, "load_epim_settings", lambda: EpimSettings(target, write_enabled=True))
-    with pytest.raises(maintenance.MaintenanceError, match="write access"):
+    monkeypatch.setattr(maintenance, "load_epim_settings", lambda: EpimSettings(target, ALL_WRITE))
+    with pytest.raises(maintenance.MaintenanceError, match="writable"):
         maintenance.install_mirror(copy_fixture(tmp_path, "incoming.epim"))
 
 

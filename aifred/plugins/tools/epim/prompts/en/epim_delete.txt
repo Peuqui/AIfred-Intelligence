@@ -1,1 +1,1 @@
-DELETING (epim_delete): entries go to the EPIM trash. Name the entry and get confirmation before deleting. The tool refuses recurring appointments and entries with sub-entries — then point to EPIM.
+DELETING (epim_delete): entries go to the EPIM trash. Name the entry and get confirmation before deleting. The tool refuses entries with sub-entries — then point to EPIM.

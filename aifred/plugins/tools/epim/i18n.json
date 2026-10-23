@@ -4,8 +4,8 @@
     "en": "EPIM"
   },
   "plugin_description": {
-    "de": "Zugriff auf den persönlichen EPIM-Datenbestand: Termine, Kontakte, Notizen, Aufgaben. Schreiben nur, wenn in den Einstellungen freigegeben.",
-    "en": "Access to the personal EPIM data: appointments, contacts, notes, tasks. Writing only when enabled in the settings."
+    "de": "Zugriff auf den persönlichen EPIM-Datenbestand: Termine, Kontakte, Notizen, Aufgaben, Passwort-Titel. Jedes Modul einzeln aus, lesbar oder beschreibbar.",
+    "en": "Access to the personal EPIM data: appointments, contacts, notes, todos, password titles. Each module off, readable or writable on its own."
   },
   "epim_cred_db_path": {
     "de": "Datenbank-Pfad",
@@ -14,22 +14,6 @@
   "epim_cred_db_path_tooltip": {
     "de": "Vollständiger Pfad zur EPIM-Datenbankdatei (.epim).",
     "en": "Full path to the EPIM database file (.epim)."
-  },
-  "epim_cred_write_enabled": {
-    "de": "Schreibzugriff",
-    "en": "Write access"
-  },
-  "epim_cred_write_enabled_tooltip": {
-    "de": "Aus: AIfred kann nur lesen, die Datenbankdatei ist schreibgeschützt. An: AIfred darf Einträge anlegen, ändern und löschen.",
-    "en": "Off: AIfred can only read, the database file is read-only. On: AIfred may create, change and delete entries."
-  },
-  "epim_write_off": {
-    "de": "Aus",
-    "en": "Off"
-  },
-  "epim_write_on": {
-    "de": "An",
-    "en": "On"
   },
   "tool_epim_search": {
     "de": "📅 {entity}: {query}",
@@ -54,5 +38,41 @@
   "tool_epim_delete": {
     "de": "📅 Lösche {entity}...",
     "en": "📅 Deleting {entity}..."
+  },
+  "epim_cred_module_calendar": {
+    "de": "Kalender",
+    "en": "Calendar"
+  },
+  "epim_cred_module_contacts": {
+    "de": "Kontakte",
+    "en": "Contacts"
+  },
+  "epim_cred_module_notes": {
+    "de": "Notizen",
+    "en": "Notes"
+  },
+  "epim_cred_module_todos": {
+    "de": "Aufgaben",
+    "en": "Todos"
+  },
+  "epim_cred_module_passwords": {
+    "de": "Passwörter",
+    "en": "Passwords"
+  },
+  "epim_cred_module_passwords_tooltip": {
+    "de": "Auch bei „Lesen“ sieht AIfred nur die Titel der Einträge, nie die Zugangsdaten.",
+    "en": "Even with \"Read\" AIfred sees only the titles of the entries, never the credentials."
+  },
+  "epim_access_off": {
+    "de": "Aus",
+    "en": "Off"
+  },
+  "epim_access_read": {
+    "de": "Lesen",
+    "en": "Read"
+  },
+  "epim_access_write": {
+    "de": "Lesen und Schreiben",
+    "en": "Read and write"
   }
 }

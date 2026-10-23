@@ -1,0 +1,2 @@
+NOTE TREES: {epim_notetrees}
+epim_search returns only titles for notes; read the content with epim_get.

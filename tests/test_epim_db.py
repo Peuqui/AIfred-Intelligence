@@ -9,10 +9,15 @@ from datetime import datetime, timedelta
 
 import fdb
 import pytest
-from epim_testdb import copy_fixture, requires_fixture
+from epim_testdb import ALL_READ, ALL_WRITE, copy_fixture, requires_fixture
 
 from aifred.plugins.tools.epim import codec, firebird
-from aifred.plugins.tools.epim.db import EpimDatabase, EpimRefused, EpimWriteDisabled
+from aifred.plugins.tools.epim.db import (
+    EpimDatabase,
+    EpimModuleDisabled,
+    EpimRefused,
+    EpimWriteDisabled,
+)
 from aifred.plugins.tools.epim.maintenance import set_access_mode
 
 pytestmark = requires_fixture
@@ -40,23 +45,33 @@ def _raw_write(db: EpimDatabase, sql: str, params: tuple = ()) -> None:
 
 @pytest.fixture
 def db(tmp_path):
-    database = EpimDatabase(copy_fixture(tmp_path), write_enabled=True)
+    database = EpimDatabase(copy_fixture(tmp_path), ALL_WRITE)
     yield database
     database.close()
 
 
 def test_write_switch_off_refuses_before_touching_the_file(tmp_path):
-    database = EpimDatabase(copy_fixture(tmp_path), write_enabled=False)
+    database = EpimDatabase(copy_fixture(tmp_path), ALL_READ)
     with pytest.raises(EpimWriteDisabled):
         _task(database)
     assert database.search_tasks(None, None, None, 10) == []
     database.close()
 
 
+def test_module_levels_are_enforced_in_the_database_layer(tmp_path):
+    database = EpimDatabase(copy_fixture(tmp_path), {**ALL_WRITE, "contacts": "off", "notes": "read"})
+    with pytest.raises(EpimModuleDisabled):
+        database.search_contacts(None, 10)
+    with pytest.raises(EpimWriteDisabled):
+        database.delete_note(1)
+    assert "contact_fields" not in database.lookups() and "notetrees" in database.lookups()
+    database.close()
+
+
 def test_read_only_file_is_refused_by_the_engine(tmp_path):
     path = copy_fixture(tmp_path)
     set_access_mode(path, read_only=True)
-    database = EpimDatabase(path, write_enabled=True)
+    database = EpimDatabase(path, ALL_WRITE)
     with pytest.raises(fdb.DatabaseError):
         _task(database)
     assert database.search_tasks(None, None, None, 10) == []
@@ -68,7 +83,7 @@ def test_reading_a_read_only_file_leaves_it_byte_identical(tmp_path):
     path = copy_fixture(tmp_path)
     set_access_mode(path, read_only=True)
     before = hashlib.sha256(path.read_bytes()).hexdigest()
-    database = EpimDatabase(path, write_enabled=False)
+    database = EpimDatabase(path, ALL_READ)
     database.search_tasks(None, None, None, 10)
     database.search_contacts(None, 10)
     database.lookups()
@@ -148,7 +163,7 @@ def test_no_transaction_stays_open(db):
 
 def test_replaced_file_is_reconnected(db, tmp_path):
     other_path = copy_fixture(tmp_path, "other.epim")
-    other = EpimDatabase(other_path, write_enabled=True)
+    other = EpimDatabase(other_path, ALL_WRITE)
     _task(other, "Aus dem Spiegel")
     other.close()
     assert db.search_tasks("Spiegel", None, None, 10) == []

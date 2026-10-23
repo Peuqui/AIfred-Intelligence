@@ -1,9 +1,10 @@
 """EPIM tools for LLM function calling.
 
-``epim_search`` and ``epim_get`` read. ``epim_create``, ``epim_update`` and
-``epim_delete`` exist only while the plugin's write switch is on. Arguments
-are parsed strictly (``values``); the database layer runs in a worker thread
-so a query never blocks the event loop.
+``epim_search`` and ``epim_get`` read; ``epim_create``, ``epim_update`` and
+``epim_delete`` write. Each tool, and each entity type in its enum, exists
+only for the modules the plugin settings allow. Arguments are parsed
+strictly (``values``); the database layer runs in a worker thread so a
+query never blocks the event loop.
 """
 
 import asyncio
@@ -15,7 +16,7 @@ from typing import Any
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
-from .db import EpimDatabase, EpimRefused, EpimWriteDisabled
+from .db import EpimDatabase, EpimModuleDisabled, EpimRefused, EpimWriteDisabled
 from .values import (
     InvalidValue,
     parse_bool,
@@ -37,6 +38,24 @@ UPDATE_TYPES = ["task", "contact", "note", "note_tab", "todo"]
 DELETE_TYPES = ["task", "contact", "note", "todo", "password"]
 DEFAULT_LIMIT = 20
 
+# Entity type → the modules it belongs to (categories serve calendar and todos).
+_ENTITY_MODULES: dict[str, tuple[str, ...]] = {
+    "tasks": ("calendar",), "task": ("calendar",), "calendars": ("calendar",),
+    "contacts": ("contacts",), "contact": ("contacts",),
+    "notes": ("notes",), "note": ("notes",), "note_tab": ("notes",), "notetrees": ("notes",),
+    "todos": ("todos",), "todo": ("todos",), "todolists": ("todos",),
+    "passwords": ("passwords",), "password": ("passwords",),
+    "categories": ("calendar", "todos"),
+}
+
+
+def readable_types(db: EpimDatabase, types: list[str]) -> list[str]:
+    return [t for t in types if any(db.can_read(m) for m in _ENTITY_MODULES[t])]
+
+
+def writable_types(db: EpimDatabase, types: list[str]) -> list[str]:
+    return [t for t in types if any(db.can_write(m) for m in _ENTITY_MODULES[t])]
+
 _TASK_KEYS = {"title", "start", "end", "all_day", "location", "text", "category", "calendar", "tags"}
 _CONTACT_KEYS = {"name", "fields", "tags"}
 _NOTE_KEYS = {"title", "tags"}
@@ -44,7 +63,7 @@ _NOTE_CREATE_KEYS = {"title", "text", "tab_name", "note_tree", "tags"}
 _NOTE_TAB_KEYS = {"name", "text", "append_text"}
 _TODO_KEYS = {"title", "start", "end", "text", "tags", "todo_list", "done"}
 
-_EXPECTED_ERRORS = (InvalidValue, EpimRefused, EpimWriteDisabled)
+_EXPECTED_ERRORS = (InvalidValue, EpimRefused, EpimWriteDisabled, EpimModuleDisabled)
 # Password entries hold credentials: deleting one needs the user at the
 # browser, never a message arriving through an external channel.
 _PASSWORD_CHANNEL = "browser"
@@ -231,8 +250,13 @@ def _search(db: EpimDatabase, entity_type: str, query: str | None, date_from: st
 
 
 def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
-    """Tools for ``db``; write tools only when its write switch is on.
-    ``source`` is the channel the request came from (browser, email, …)."""
+    """Tools for the modules ``db`` allows. ``source`` is the channel the
+    request came from (browser, email, …)."""
+    search_types = readable_types(db, SEARCH_TYPES)
+    get_types = readable_types(db, GET_TYPES)
+    create_types = writable_types(db, CREATE_TYPES)
+    update_types = writable_types(db, UPDATE_TYPES)
+    delete_types = writable_types(db, DELETE_TYPES)
 
     async def run(label: str, func: Any, *args: Any) -> Any:
         from ....lib.logging_utils import log_message
@@ -243,8 +267,8 @@ def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
                           date_to: str | None = None, completed: object = None,
                           limit: int = DEFAULT_LIMIT) -> str:
         try:
-            if entity_type not in SEARCH_TYPES:
-                raise InvalidValue(f"entity_type must be one of {', '.join(SEARCH_TYPES)}")
+            if entity_type not in search_types:
+                raise InvalidValue(f"entity_type must be one of {', '.join(search_types)}")
             results = await run(f"epim_search {entity_type} query={query}", _search, db,
                                 entity_type, query, date_from, date_to, completed, limit)
         except _EXPECTED_ERRORS as exc:
@@ -254,8 +278,8 @@ def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
     async def epim_get(entity_type: str, entity_id: object) -> str:
         getters = {"task": db.get_task, "contact": db.get_contact, "note": db.get_note}
         try:
-            if entity_type not in getters:
-                raise InvalidValue(f"entity_type must be one of {', '.join(GET_TYPES)}")
+            if entity_type not in get_types:
+                raise InvalidValue(f"entity_type must be one of {', '.join(get_types)}")
             row_id = parse_id(entity_id, "entity_id")
             result = await run(f"epim_get {entity_type} {row_id}", getters[entity_type], row_id)
         except _EXPECTED_ERRORS as exc:
@@ -268,8 +292,8 @@ def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
         creators = {"task": _task_create, "contact": _contact_create, "note": _note_create,
                     "todo": _todo_create}
         try:
-            if entity_type not in creators:
-                raise InvalidValue(f"entity_type must be one of {', '.join(CREATE_TYPES)}")
+            if entity_type not in create_types:
+                raise InvalidValue(f"entity_type must be one of {', '.join(create_types)}")
             if not isinstance(data, dict):
                 raise InvalidValue("data must be an object")
             new_id = await run(f"epim_create {entity_type}", creators[entity_type], db, data)
@@ -281,8 +305,8 @@ def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
         updaters = {"task": _task_update, "contact": _contact_update, "note": _note_update,
                     "note_tab": _note_tab_update, "todo": _todo_update}
         try:
-            if entity_type not in updaters:
-                raise InvalidValue(f"entity_type must be one of {', '.join(UPDATE_TYPES)}")
+            if entity_type not in update_types:
+                raise InvalidValue(f"entity_type must be one of {', '.join(update_types)}")
             if not isinstance(data, dict):
                 raise InvalidValue("data must be an object")
             row_id = parse_id(entity_id, "entity_id")
@@ -295,8 +319,8 @@ def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
         deleters = {"task": db.delete_task, "contact": db.delete_contact, "note": db.delete_note,
                     "todo": db.delete_todo, "password": db.delete_password}
         try:
-            if entity_type not in deleters:
-                raise InvalidValue(f"entity_type must be one of {', '.join(DELETE_TYPES)}")
+            if entity_type not in delete_types:
+                raise InvalidValue(f"entity_type must be one of {', '.join(delete_types)}")
             if entity_type == "password" and source != _PASSWORD_CHANNEL:
                 raise EpimRefused("password entries can only be deleted from the web UI")
             row_id = parse_id(entity_id, "entity_id")
@@ -310,18 +334,12 @@ def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
                     description=load_tool_description(__file__, name),
                     parameters=load_tool_parameters(__file__, name, enums={"entity_type": enum}))
 
-    tools = [
-        tool("epim_search", TIER_READONLY, epim_search, SEARCH_TYPES),
-        tool("epim_get", TIER_READONLY, epim_get, GET_TYPES),
-    ]
-    if db.write_enabled:
-        tools += [
-            tool("epim_create", TIER_WRITE_DATA, epim_create, CREATE_TYPES),
-            tool("epim_update", TIER_WRITE_DATA, epim_update, UPDATE_TYPES),
-            tool("epim_delete", TIER_WRITE_SYSTEM, epim_delete, DELETE_TYPES),
-        ]
-    return tools
+    candidates = (
+        ("epim_search", TIER_READONLY, epim_search, search_types),
+        ("epim_get", TIER_READONLY, epim_get, get_types),
+        ("epim_create", TIER_WRITE_DATA, epim_create, create_types),
+        ("epim_update", TIER_WRITE_DATA, epim_update, update_types),
+        ("epim_delete", TIER_WRITE_SYSTEM, epim_delete, delete_types),
+    )
+    return [tool(name, tier, executor, types) for name, tier, executor, types in candidates if types]
 
-
-READ_TOOL_NAMES = frozenset({"epim_search", "epim_get"})
-WRITE_TOOL_NAMES = frozenset({"epim_create", "epim_update", "epim_delete"})
