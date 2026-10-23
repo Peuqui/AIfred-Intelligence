@@ -77,12 +77,12 @@ def test_reject_unknown_names_the_fields():
 
 def test_settings_modules_default_and_strict_levels():
     defaults = parse_settings({})
-    assert defaults.db_path is None and not defaults.any_write
-    assert defaults.can_read("calendar") and not defaults.can_read("passwords")
+    assert defaults.db_path is None and not defaults.modules.any_write
+    assert defaults.modules.can_read("calendar") and not defaults.modules.can_read("passwords")
     parsed = parse_settings({"EPIM_DB_PATH": "/x/y.epim", "EPIM_MODULE_CONTACTS": "write",
                              "EPIM_MODULE_NOTES": "off"})
     assert parsed.db_path == Path("/x/y.epim")
-    assert parsed.can_write("contacts") and parsed.any_write
-    assert not parsed.can_read("notes") and not parsed.can_write("calendar")
+    assert parsed.modules.can_write("contacts") and parsed.modules.any_write
+    assert not parsed.modules.can_read("notes") and not parsed.modules.can_write("calendar")
     with pytest.raises(ValueError):
         parse_settings({"EPIM_MODULE_TODOS": "yes"})

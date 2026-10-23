@@ -11,6 +11,7 @@ import fdb
 import pytest
 from epim_testdb import ALL_READ, ALL_WRITE, copy_fixture, requires_fixture
 
+from aifred.lib.plugin_modules import ModuleAccess
 from aifred.plugins.tools.epim import codec, firebird
 from aifred.plugins.tools.epim.db import (
     EpimDatabase,
@@ -59,7 +60,7 @@ def test_write_switch_off_refuses_before_touching_the_file(tmp_path):
 
 
 def test_module_levels_are_enforced_in_the_database_layer(tmp_path):
-    database = EpimDatabase(copy_fixture(tmp_path), {**ALL_WRITE, "contacts": "off", "notes": "read"})
+    database = EpimDatabase(copy_fixture(tmp_path), ModuleAccess({**ALL_WRITE.levels, "contacts": "off", "notes": "read"}))
     with pytest.raises(EpimModuleDisabled):
         database.search_contacts(None, 10)
     with pytest.raises(EpimWriteDisabled):

@@ -9,7 +9,14 @@ import json
 from datetime import datetime
 
 import pytest
-from epim_testdb import ALL_READ, ALL_WRITE, copy_fixture, requires_fixture
+from epim_testdb import (
+    ALL_OFF,
+    ALL_READ,
+    ALL_WRITE,
+    copy_fixture,
+    modules,
+    requires_fixture,
+)
 
 from aifred.plugins.tools.epim import db as epim_db
 from aifred.plugins.tools.epim import plugin as epim_plugin
@@ -89,8 +96,8 @@ def test_password_delete_only_from_the_browser(db):
 
 
 def test_switched_off_module_disappears_from_tools_and_instructions(tmp_path, monkeypatch):
-    access = {**ALL_READ, "contacts": "off", "passwords": "off", "calendar": "write"}
-    database = EpimDatabase(copy_fixture(tmp_path, "mixed.epim"), access)
+    database = EpimDatabase(copy_fixture(tmp_path, "mixed.epim"),
+                            modules(contacts="off", passwords="off", calendar="write"))
     tools = _tools(database)
     assert set(tools) == {"epim_search", "epim_get", "epim_create", "epim_update", "epim_delete"}
     search_enum = tools["epim_search"].parameters["properties"]["entity_type"]["enum"]
@@ -108,6 +115,6 @@ def test_switched_off_module_disappears_from_tools_and_instructions(tmp_path, mo
 
 
 def test_no_readable_module_means_no_tools(tmp_path):
-    database = EpimDatabase(copy_fixture(tmp_path, "off.epim"), {m: "off" for m in ALL_READ})
+    database = EpimDatabase(copy_fixture(tmp_path, "off.epim"), ALL_OFF)
     assert _tools(database) == {}
     database.close()

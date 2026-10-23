@@ -63,15 +63,15 @@
     "de": "Auch bei „Lesen“ sieht AIfred nur die Titel der Einträge, nie die Zugangsdaten.",
     "en": "Even with \"Read\" AIfred sees only the titles of the entries, never the credentials."
   },
-  "epim_access_off": {
+  "module_access_off": {
     "de": "Aus",
     "en": "Off"
   },
-  "epim_access_read": {
+  "module_access_read": {
     "de": "Lesen",
     "en": "Read"
   },
-  "epim_access_write": {
+  "module_access_write": {
     "de": "Lesen und Schreiben",
     "en": "Read and write"
   }

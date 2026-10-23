@@ -140,7 +140,7 @@ def install_mirror(incoming: Path) -> Path:
     settings = load_epim_settings()
     if settings.db_path is None:
         raise MaintenanceError("no EPIM database path is configured")
-    if settings.any_write:
+    if settings.modules.any_write:
         raise MaintenanceError("an EPIM module is writable; a mirror would overwrite AIfred's changes")
     target = settings.db_path
     staged = target.with_name(target.name + ".staged")

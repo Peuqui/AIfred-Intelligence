@@ -33,9 +33,10 @@ from typing import Any
 
 import fdb
 
+from ....lib.plugin_modules import ModuleAccess
 from . import codec, firebird
 from .contact_fields import CONTACT_FIELD_LABELS, DATE_FIELD_TYPE, DELPHI_EPOCH
-from .settings import OFF, WRITE, load_epim_settings
+from .settings import load_epim_settings
 
 logger = logging.getLogger(__name__)
 
@@ -108,9 +109,9 @@ class EpimDatabase:
     """One EPIM database file. All methods are safe to call from any thread;
     a lock serializes them (Firebird connections are not thread-safe)."""
 
-    def __init__(self, db_path: Path, access: dict[str, str]) -> None:
+    def __init__(self, db_path: Path, modules: ModuleAccess) -> None:
         self._db_path = db_path
-        self._access = dict(access)
+        self._modules = modules
         self._lock = threading.RLock()
         self._in_transaction = False
         self._con: fdb.Connection | None = None
@@ -124,24 +125,24 @@ class EpimDatabase:
         return self._db_path
 
     @property
-    def access(self) -> dict[str, str]:
-        return dict(self._access)
+    def modules(self) -> ModuleAccess:
+        return self._modules
 
     def can_read(self, module: str) -> bool:
-        return self._access[module] != OFF
+        return self._modules.can_read(module)
 
     def can_write(self, module: str) -> bool:
-        return self._access[module] == WRITE
+        return self._modules.can_write(module)
 
     @property
     def any_write(self) -> bool:
-        return WRITE in self._access.values()
+        return self._modules.any_write
 
     def _allow(self, module: str, write: bool) -> None:
         """Second guard behind the tool layer: the settings decide per module."""
-        if self._access[module] == OFF:
+        if not self.can_read(module):
             raise EpimModuleDisabled(f"the EPIM module {module!r} is switched off in the plugin settings")
-        if write and self._access[module] != WRITE:
+        if write and not self.can_write(module):
             raise EpimWriteDisabled(f"the EPIM module {module!r} is read-only in the plugin settings")
 
     # ── connection and transactions ───────────────────────────────
@@ -172,7 +173,7 @@ class EpimDatabase:
             self._write_tr = con.trans(default_tpb=_write_tpb())
             self._con, self._file_ident = con, ident
             logger.info("EPIM database connected: %s (%s)", self._db_path,
-                        ", ".join(f"{m} {level}" for m, level in self._access.items()))
+                        ", ".join(f"{m} {level}" for m, level in self._modules.levels.items()))
 
     @contextmanager
     def _transaction(self, write: bool) -> Iterator[Any]:
@@ -803,8 +804,8 @@ def get_epim_db() -> EpimDatabase | None:
                 _instance.close()
                 _instance = None
             return None
-        if _instance is None or _instance.db_path != settings.db_path or _instance.access != settings.access:
+        if _instance is None or _instance.db_path != settings.db_path or _instance.modules != settings.modules:
             if _instance is not None:
                 _instance.close()
-            _instance = EpimDatabase(settings.db_path, settings.access)
+            _instance = EpimDatabase(settings.db_path, settings.modules)
         return _instance
