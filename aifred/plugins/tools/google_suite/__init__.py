@@ -1,11 +1,12 @@
 """Google Suite Plugin — Orchestrator für Calendar, Contacts, Tasks und Drive.
 
 Jeder Dienst steht in der settings.json auf Aus, Lesen oder Lesen und
-Schreiben (lib.plugin_modules). Bei „Lesen“ fordert AIfred bei Google nur die
-readonly-Berechtigung an und bietet nur die lesenden Werkzeuge an — Google
-selbst verhindert dann jede Änderung. Passen die erteilten Berechtigungen
-nicht mehr zu den Einstellungen, ist das Plugin bis zum Neuverbinden aus.
-OAuth-Flow über den generischen OAuthBroker.
+Schreiben (lib.plugin_modules). Die Stufe setzt AIfred selbst durch: bei
+„Lesen“ bietet er nur die lesenden Werkzeuge an, und die Drive-Quelle nimmt
+keine Uploads an. Bei Google fordert er für jeden eingeschalteten Dienst das
+volle Recht an — so wechselt die Stufe ohne Neuverbinden; nur ein Dienst, dem
+Google noch nicht zugestimmt hat, braucht eine neue Zustimmung (bis dahin ist
+das Plugin aus). OAuth-Flow über den generischen OAuthBroker.
 """
 
 from __future__ import annotations
@@ -17,7 +18,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import CredentialField, PluginContext, load_plugin_i18n
-from ....lib.plugin_modules import READ, WRITE, ModuleAccess, module_credential_fields
+from ....lib.plugin_modules import READ, ModuleAccess, module_credential_fields
 
 SETTINGS_PREFIX = "GOOGLE"
 MODULE_DEFAULTS: dict[str, str] = {
@@ -26,18 +27,13 @@ MODULE_DEFAULTS: dict[str, str] = {
     "tasks": READ,
     "drive": READ,
 }
-# Berechtigung je Dienst und Stufe.
-_SCOPES: dict[str, dict[str, str]] = {
-    "calendar": {READ: "https://www.googleapis.com/auth/calendar.readonly",
-                 WRITE: "https://www.googleapis.com/auth/calendar"},
-    "contacts": {READ: "https://www.googleapis.com/auth/contacts.readonly",
-                 WRITE: "https://www.googleapis.com/auth/contacts"},
-    "tasks": {READ: "https://www.googleapis.com/auth/tasks.readonly",
-              WRITE: "https://www.googleapis.com/auth/tasks"},
-    "drive": {READ: "https://www.googleapis.com/auth/drive.readonly",
-              WRITE: "https://www.googleapis.com/auth/drive"},
+# Berechtigung je Dienst — unabhängig von der Stufe (die setzt AIfred durch).
+_SCOPES: dict[str, str] = {
+    "calendar": "https://www.googleapis.com/auth/calendar",
+    "contacts": "https://www.googleapis.com/auth/contacts",
+    "tasks": "https://www.googleapis.com/auth/tasks",
+    "drive": "https://www.googleapis.com/auth/drive",
 }
-_SERVICE_SCOPES = frozenset(scope for levels in _SCOPES.values() for scope in levels.values())
 # User-Identität immer mitscopen (sonst gibt Google nichts zurück).
 _IDENTITY_SCOPES = ("https://www.googleapis.com/auth/userinfo.email",
                     "https://www.googleapis.com/auth/userinfo.profile")
@@ -136,7 +132,7 @@ class GooglePlugin:
         ]
 
     def is_available(self) -> bool:
-        """Connected, and the granted rights match the service levels."""
+        """Connected, with a right for every service that is switched on."""
         from ....lib.credential_broker import broker
         if not broker.get("google", "client_id"):
             return False
@@ -146,11 +142,9 @@ class GooglePlugin:
         return self.oauth_grant_current(oauth_broker.granted_scopes("google"))
 
     def oauth_grant_current(self, granted: list[str]) -> bool:
-        """True when the granted service scopes are exactly those of the
-        current levels — after a level change the user has to reconnect
-        (fewer rights must not linger, missing ones would fail)."""
-        required = set(self.aggregated_scopes()) & _SERVICE_SCOPES
-        return set(granted) & _SERVICE_SCOPES == required
+        """True when Google granted every right the switched-on services
+        need. Further rights do no harm: the levels are enforced by AIfred."""
+        return set(self._service_scopes()) <= set(granted)
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         settings = self._load_settings()
@@ -171,7 +165,7 @@ class GooglePlugin:
         from .drive.source import DriveDocumentSource
         return DriveDocumentSource(writable=modules.can_write("drive"))
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin;
         # nur für die Werkzeuge, die die Dienst-Stufen anbieten.
         from ....lib.plugin_base import load_plugin_instructions
@@ -190,11 +184,12 @@ class GooglePlugin:
         return "" if label == key else label
 
     def aggregated_scopes(self) -> list[str]:
-        """Berechtigungen der eingeschalteten Dienste je Stufe — für den OAuth-Flow."""
+        """Berechtigungen der eingeschalteten Dienste — für den OAuth-Flow."""
+        return [*self._service_scopes(), *_IDENTITY_SCOPES]
+
+    def _service_scopes(self) -> list[str]:
         modules = self.modules()
-        scopes = [_SCOPES[service][modules.levels[service]] for service in MODULE_DEFAULTS
-                  if modules.can_read(service)]
-        return [*scopes, *_IDENTITY_SCOPES]
+        return [_SCOPES[service] for service in MODULE_DEFAULTS if modules.can_read(service)]
 
 
 plugin = GooglePlugin()

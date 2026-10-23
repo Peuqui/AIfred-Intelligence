@@ -59,7 +59,7 @@ class DriveDocumentSource:
     key = "google_drive"
 
     def __init__(self, writable: bool) -> None:
-        # Follows the plugin's Drive level; read level also means a read-only grant at Google.
+        # Follows the plugin's Drive level (the grant at Google always allows writing).
         self.writable = writable
 
     def label(self, lang: str) -> str:
