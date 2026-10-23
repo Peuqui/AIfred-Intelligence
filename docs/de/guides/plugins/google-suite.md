@@ -20,9 +20,9 @@ Google Calendar, Contacts, Tasks und Drive über OAuth 2.0. Orchestrator-Plugin 
    GOOGLE_CLIENT_SECRET=GOCSPX-...
    ```
 5. Stufe je Dienst in den Plugin-Einstellungen wählen (Plugin-Manager → Zahnrad; Standard: alle vier „Lesen“), speichern
-6. Im selben Fenster **Mit Google verbinden** → Google-Login → Zustimmung → fertig. AIfred fragt dabei genau die Berechtigungen der gewählten Stufen an.
+6. Im selben Fenster **Mit Google verbinden** → Google-Login → Zustimmung → fertig. AIfred fragt dabei die Berechtigungen der eingeschalteten Dienste an.
 
-Der API-Weg (`GET /api/oauth/google/auth-url?redirect_uri=…&scopes=…`) bleibt für Skripte; er muss dann genau die Berechtigungen der Stufen anfordern (siehe Tabelle unten), sonst bleibt das Plugin aus. `GET /api/oauth/google/status` meldet nur, ob ein Token gespeichert ist, nicht ob seine Rechte zu den Stufen passen.
+Der API-Weg (`GET /api/oauth/google/auth-url?redirect_uri=…&scopes=…`) bleibt für Skripte; er muss dann die Berechtigungen aller eingeschalteten Dienste anfordern (siehe Tabelle unten), sonst bleibt das Plugin aus. `GET /api/oauth/google/status` meldet nur, ob ein Token gespeichert ist, nicht ob ihm Rechte fehlen.
 
 ## Dienste und Stufen
 
@@ -38,20 +38,24 @@ Der API-Weg (`GET /api/oauth/google/auth-url?redirect_uri=…&scopes=…`) bleib
 
 Jeder Dienst steht auf `off`, `read` oder `write` (gemeinsamer Baustein `aifred/lib/plugin_modules.py`, wie bei EPIM und Nextcloud). Ein unbekannter Wert lässt das Speichern scheitern, statt still als irgendeine Stufe zu gelten.
 
-| Dienst | `read` — Berechtigung bei Google | `write` — Berechtigung bei Google |
-|--------|----------------------------------|-----------------------------------|
-| Kalender | `calendar.readonly` | `calendar` |
-| Kontakte | `contacts.readonly` | `contacts` |
-| Aufgaben | `tasks.readonly` | `tasks` |
-| Drive | `drive.readonly` | `drive` |
+Die Stufe setzt AIfred selbst durch, nicht Google:
+
+- **Aus:** keine Werkzeuge, keine Berechtigung bei Google; Drive aus nimmt Drive auch aus dem Dokumentenfenster.
+- **Lesen:** nur die Lesewerkzeuge (`READ_TOOL_NAMES` in der `tools.py` des Dienstes). Die schreibenden stehen nicht im Werkzeugkasten; ruft das Modell trotzdem eines auf, lehnt die Ausführung es als unbekanntes Werkzeug ab. Drive im Dokumentenfenster: ansehen und herunterladen, kein Upload-Feld, und die Quelle lehnt `upload()` ab.
+- **Lesen und Schreiben:** alle Werkzeuge des Dienstes, Upload ins Drive.
+
+Bei Google fragt AIfred für jeden eingeschalteten Dienst das volle Recht an, gleich welche Stufe:
+
+| Dienst | Berechtigung bei Google |
+|--------|-------------------------|
+| Kalender | `calendar` |
+| Kontakte | `contacts` |
+| Aufgaben | `tasks` |
+| Drive | `drive` |
 
 Dazu kommen immer `userinfo.email` und `userinfo.profile`.
 
-- **Aus:** keine Werkzeuge, keine Berechtigung; Drive aus nimmt Drive auch aus dem Dokumentenfenster.
-- **Lesen:** nur die Lesewerkzeuge (`READ_TOOL_NAMES` in der `tools.py` des Dienstes), und Google selbst lässt mit dem readonly-Token keine Änderung zu — die Sperre hängt also nicht nur an AIfred. Drive im Dokumentenfenster: ansehen und herunterladen, kein Upload.
-- **Lesen und Schreiben:** alle Werkzeuge des Dienstes, Upload ins Drive.
-
-**Stufe ändern:** jederzeit möglich. Die gespeicherten Rechte müssen danach genau zu den Stufen passen (`oauth_grant_current()`): Passen sie nicht — mehr Rechte als eingestellt oder fehlende —, ist das Plugin aus, und das Einstellungsfenster zeigt den Hinweis „Die Berechtigungen passen nicht mehr zu den Einstellungen“ und wieder **Mit Google verbinden**. Die neue Zustimmung ersetzt das alte Token. Das alte, breitere Recht steht bei Google noch in der Kontoübersicht (Sicherheit → Drittanbieter-Zugriff), AIfred hat sein Token aber nicht mehr; wer es dort ganz los sein will, entfernt den Zugriff und verbindet danach neu.
+**Stufe ändern:** jederzeit, ohne neu zu verbinden — zwischen „Lesen“ und „Lesen und Schreiben“ ändert sich bei Google nichts. Neu verbinden muss man nur, wenn ein Dienst eingeschaltet wird, dem Google noch nicht zugestimmt hat (`oauth_grant_current()`: jedem eingeschalteten Dienst muss sein Recht erteilt sein, weitere Rechte schaden nicht). Bis dahin ist das Plugin aus, und das Einstellungsfenster zeigt den Hinweis „Für die eingeschalteten Dienste fehlen Berechtigungen“ und wieder **Mit Google verbinden**. Wer Google ein Recht ganz entziehen will, entfernt den Zugriff in der Google-Kontoübersicht (Sicherheit → Drittanbieter-Zugriff) und verbindet danach mit den gewünschten Diensten neu.
 
 ## Calendar Tools
 
@@ -231,7 +235,7 @@ er fehlt.
 
 **Dateien:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/state/_document_mixin.py`, `aifred/ui/modals/documents.py`, `aifred/lib/api/documents.py`
 
-Steht Drive mindestens auf „Lesen“ und ist Google mit passenden Rechten verbunden, erscheint im
+Steht Drive mindestens auf „Lesen“ und ist Google mit dem Drive-Recht verbunden, erscheint im
 Dokumentenfenster neben dem lokalen Ordner eine zweite Quelle „Google Drive“
 (Umschalter oben). Es ist eine Live-Ansicht, kein Abbild des Drives.
 

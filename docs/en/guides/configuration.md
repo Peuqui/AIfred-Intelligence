@@ -246,7 +246,7 @@ Plugin settings worth knowing:
 | Plugin | Key | Meaning |
 |---|---|---|
 | Google Suite | `GOOGLE_DRIVE_AGENT_FOLDER` | Name of the one Drive folder the agents work in (created if missing). They read, write, move and delete inside it and nowhere else; the folder itself cannot be changed or deleted by them. The Document Manager is not bound to it |
-| Google Suite | `GOOGLE_MODULE_CALENDAR`, `GOOGLE_MODULE_CONTACTS`, `GOOGLE_MODULE_TASKS`, `GOOGLE_MODULE_DRIVE` | Per Google service `off`, `read` or `write`; sets the rights requested from Google (a change means reconnecting); Drive off also removes it from the Document Manager |
+| Google Suite | `GOOGLE_MODULE_CALENDAR`, `GOOGLE_MODULE_CONTACTS`, `GOOGLE_MODULE_TASKS`, `GOOGLE_MODULE_DRIVE` | Per Google service `off`, `read` or `write` (enforced by AIfred; a service newly switched on needs one reconnect); Drive off also removes it from the Document Manager |
 | FreeEcho.2 | `FREEECHO2_LANGUAGE` | Household language: `de` or `en` (STT language prior, prompt language, tool replies) |
 | FreeEcho.2 | `FREEECHO2_NOTIFICATION_START_TONE`, `FREEECHO2_NOTIFICATION_END_TONE` | Whether announcements request the start tone (ding) and end tone (dong); which sound that is, the puck decides |
 | Printer | `PRINTER_DEFAULT` | Default printer, chosen from what CUPS lists (a single printer is picked automatically) |

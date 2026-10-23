@@ -64,8 +64,8 @@ class SettingsMixin(rx.State, mixin=True):
 
     # OAuth-Verbindung im Credentials-Modal: idle | connecting | connected | error
     oauth_connect_status: str = "idle"
-    # The stored grant no longer matches what the plugin's settings ask for.
-    oauth_rights_changed: bool = False
+    # Connected, but the stored grant lacks a right the plugin's settings need.
+    oauth_rights_missing: bool = False
     # Provider-Name des aktuell im Modal bearbeiteten OAuth-Plugins (leer wenn nicht OAuth)
     oauth_connect_provider: str = ""
     # Vorab generierte Auth-URL — wird vom Connect-Link (target="_blank") direkt genutzt,
@@ -575,7 +575,7 @@ class SettingsMixin(rx.State, mixin=True):
             # Timeout das Modal-Öffnen nie blockiert.
             target_plugin = plugin if plugin is not None else get_tool_plugin(channel_name)
             connected = self._oauth_grant_current(oauth_provider, target_plugin)
-            self.oauth_rights_changed = oauth_broker.is_connected(oauth_provider) and not connected
+            self.oauth_rights_missing = oauth_broker.is_connected(oauth_provider) and not connected
             self.oauth_connect_status = "connected" if connected else "idle"
             # Auth-URL vorab generieren — der Modal-Connect-Link nutzt sie
             # direkt als <a target="_blank"> (umgeht den Pop-up-Blocker, der
@@ -621,7 +621,7 @@ class SettingsMixin(rx.State, mixin=True):
 
     @staticmethod
     def _oauth_grant_current(provider: str, plugin: Any) -> bool:
-        """Connected with the rights the plugin's settings ask for. A plugin
+        """Connected with every right the plugin's settings need. A plugin
         without ``oauth_grant_current`` accepts any stored grant."""
         from ..lib.oauth import oauth_broker
         if not oauth_broker.is_connected(provider):
@@ -724,11 +724,11 @@ class SettingsMixin(rx.State, mixin=True):
         # Poll up to 5 min (60 × 5 s) — Google Login + Consent kann dauern.
         for _ in range(60):
             await _aio.sleep(5)
-            # Not merely "a token exists": after a change of levels the old
-            # token is still there until the new consent replaces it.
+            # Not merely "a token exists": after a service was switched on,
+            # the old token lacks its right until the new consent replaces it.
             if self._oauth_grant_current(provider, plugin):
                 self.oauth_connect_status = "connected"
-                self.oauth_rights_changed = False
+                self.oauth_rights_missing = False
                 self.add_debug(  # type: ignore[attr-defined]
                     f"✅ {display}: OAuth connected — plugin available."
                 )

@@ -276,9 +276,9 @@ def channel_credentials_page() -> rx.Component:
                             ),
                         ),
                         rx.cond(
-                            AIState.oauth_rights_changed,
+                            AIState.oauth_rights_missing,
                             rx.text(
-                                t("oauth_connect_rights_changed"),
+                                t("oauth_connect_rights_missing"),
                                 font_size="12px",
                                 color=COLORS["warning_text"],
                             ),

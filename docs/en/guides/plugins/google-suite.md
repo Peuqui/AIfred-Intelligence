@@ -20,9 +20,9 @@ Google Calendar, Contacts, Tasks, and Drive via OAuth 2.0. Orchestrator plugin w
    GOOGLE_CLIENT_SECRET=GOCSPX-...
    ```
 5. Choose a level per service in the plugin settings (Plugin Manager → gear; default: all four "Read"), save
-6. In the same window **Connect to Google** → Google login → consent → done. AIfred requests exactly the permissions of the chosen levels.
+6. In the same window **Connect to Google** → Google login → consent → done. AIfred requests the permissions of the services switched on.
 
-The API route (`GET /api/oauth/google/auth-url?redirect_uri=…&scopes=…`) remains for scripts; it must then request exactly the permissions of the levels (see the table below), otherwise the plugin stays off. `GET /api/oauth/google/status` only reports whether a token is stored, not whether its rights match the levels.
+The API route (`GET /api/oauth/google/auth-url?redirect_uri=…&scopes=…`) remains for scripts; it must then request the permissions of all services switched on (see the table below), otherwise the plugin stays off. `GET /api/oauth/google/status` only reports whether a token is stored, not whether it lacks rights.
 
 ## Services and levels
 
@@ -38,20 +38,24 @@ The API route (`GET /api/oauth/google/auth-url?redirect_uri=…&scopes=…`) rem
 
 Each service is `off`, `read` or `write` (shared building block `aifred/lib/plugin_modules.py`, as for EPIM and Nextcloud). An unknown value makes saving fail instead of silently counting as some level.
 
-| Service | `read` — permission at Google | `write` — permission at Google |
-|---------|-------------------------------|--------------------------------|
-| Calendar | `calendar.readonly` | `calendar` |
-| Contacts | `contacts.readonly` | `contacts` |
-| Tasks | `tasks.readonly` | `tasks` |
-| Drive | `drive.readonly` | `drive` |
+AIfred enforces the level itself, not Google:
+
+- **Off:** no tools, no permission at Google; Drive off also removes Drive from the document manager.
+- **Read:** only the read tools (`READ_TOOL_NAMES` in the service's `tools.py`). The writing ones are not in the toolkit; if the model calls one anyway, execution refuses it as an unknown tool. Drive in the document manager: browse and download, no upload zone, and the source refuses `upload()`.
+- **Read and write:** all tools of the service, uploads to Drive.
+
+At Google, AIfred requests the full right for every service switched on, whatever its level:
+
+| Service | Permission at Google |
+|---------|----------------------|
+| Calendar | `calendar` |
+| Contacts | `contacts` |
+| Tasks | `tasks` |
+| Drive | `drive` |
 
 `userinfo.email` and `userinfo.profile` are always added.
 
-- **Off:** no tools, no permission; Drive off also removes Drive from the document manager.
-- **Read:** only the read tools (`READ_TOOL_NAMES` in the service's `tools.py`), and Google itself allows no change with the read-only token — so the lock does not depend on AIfred alone. Drive in the document manager: browse and download, no upload.
-- **Read and write:** all tools of the service, uploads to Drive.
-
-**Changing a level:** possible at any time. The stored rights must then match the levels exactly (`oauth_grant_current()`): if they do not — more rights than set, or missing ones — the plugin is off, and the settings window shows the hint "The granted permissions no longer match the settings" and **Connect to Google** again. The new consent replaces the old token. The old, broader right is still listed in the Google account overview (Security → third-party access), but AIfred no longer holds its token; to drop it completely, remove the access there and reconnect.
+**Changing a level:** any time, without reconnecting — between "Read" and "Read and write" nothing changes at Google. Reconnecting is only needed when a service is switched on that Google has not consented to yet (`oauth_grant_current()`: every service switched on needs its right, further rights do no harm). Until then the plugin is off, and the settings window shows the hint "Permissions for the services switched on are missing" and **Connect to Google** again. To withdraw a right from Google completely, remove the access in the Google account overview (Security → third-party access) and reconnect with the services you want.
 
 ## Calendar Tools
 
@@ -229,7 +233,7 @@ folder is looked up directly under "My Drive" and created on first access if mis
 
 **Files:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/state/_document_mixin.py`, `aifred/ui/modals/documents.py`, `aifred/lib/api/documents.py`
 
-With Drive at least on "Read" and Google connected with matching rights, the
+With Drive at least on "Read" and Google connected with the Drive right, the
 document manager shows a second source, "Google Drive", next to the local folder
 (switch at the top). It is a live view, not a mirror of the Drive.
 

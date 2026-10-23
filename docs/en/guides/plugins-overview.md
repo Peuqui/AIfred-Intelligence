@@ -232,7 +232,7 @@ OAuth 2.0 integration for Google Calendar, Contacts, Tasks and Drive. Orchestrat
 
 **Features:**
 - Single OAuth login for all services (scopes aggregated)
-- Per service Off / Read / Read and write (default: all four "Read"); on "Read" AIfred requests only read-only rights from Google, a change means reconnecting
+- Per service Off / Read / Read and write (default: all four "Read"); AIfred enforces the level itself, a change needs no reconnect
 - Drive: agents work only in the agent folder (`GOOGLE_DRIVE_AGENT_FOLDER`); the document manager shows the whole Drive (searchable, download incl. export, upload)
 - Group support: categorize contacts, filter by group
 - Fernet-encrypted token storage

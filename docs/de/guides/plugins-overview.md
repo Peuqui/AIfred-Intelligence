@@ -232,7 +232,7 @@ OAuth 2.0 Integration für Google Calendar, Contacts, Tasks und Drive. Orchestra
 
 **Features:**
 - Ein OAuth-Login für alle Dienste (Scopes werden aggregiert)
-- Je Dienst Aus / Lesen / Lesen und Schreiben (Standard: alle vier „Lesen“); bei „Lesen“ fordert AIfred bei Google nur readonly-Rechte an, nach einer Änderung wird neu verbunden
+- Je Dienst Aus / Lesen / Lesen und Schreiben (Standard: alle vier „Lesen“); die Stufe setzt AIfred selbst durch, ein Wechsel braucht kein Neuverbinden
 - Drive: Agenten arbeiten nur im Agenten-Ordner (`GOOGLE_DRIVE_AGENT_FOLDER`); das Dokumentenfenster zeigt das ganze Drive (durchsuchbar, Download inkl. Export, Upload)
 - Gruppen-Support: Kontakte kategorisieren, nach Gruppe filtern
 - Fernet-verschlüsselte Token-Speicherung

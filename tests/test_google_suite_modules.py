@@ -46,35 +46,34 @@ def test_read_tool_names_exist():
         assert names < offered  # every read name is a real tool, and some tools write
 
 
-def test_scopes_follow_the_levels(plugin):
+def test_scopes_cover_the_services_switched_on(plugin):
     plugin.levels.update(calendar="write", contacts="read", tasks="off", drive="read")
-    assert plugin.aggregated_scopes() == [f"{SCOPE}calendar", f"{SCOPE}contacts.readonly",
-                                          f"{SCOPE}drive.readonly", *IDENTITY]
+    assert plugin.aggregated_scopes() == [f"{SCOPE}calendar", f"{SCOPE}contacts", f"{SCOPE}drive", *IDENTITY]
 
 
-def test_default_is_read_only_everywhere(plugin):
-    assert all(s.endswith(".readonly") for s in plugin.aggregated_scopes()[:-2])
+def test_default_offers_only_read_tools(plugin):
     assert {t.name for t in plugin.get_tools(CTX)} == CALENDAR_READ | CONTACTS_READ | TASKS_READ | DRIVE_READ
 
 
-def test_grant_must_match_the_levels_exactly(plugin):
+def test_grant_needs_a_right_per_service_switched_on(plugin):
     plugin.levels.update(calendar="read", contacts="off", tasks="off", drive="off")
-    assert plugin.oauth_grant_current([f"{SCOPE}calendar.readonly", *IDENTITY])
-    assert plugin.oauth_grant_current([f"{SCOPE}calendar.readonly"])  # identity does not count
-    assert not plugin.oauth_grant_current([f"{SCOPE}calendar", *IDENTITY])  # more rights than set
-    assert not plugin.oauth_grant_current([f"{SCOPE}calendar.readonly", f"{SCOPE}drive"])  # service is off
-    assert not plugin.oauth_grant_current(IDENTITY)  # missing right
+    assert plugin.oauth_grant_current([f"{SCOPE}calendar"])  # identity does not count
+    assert plugin.oauth_grant_current([f"{SCOPE}calendar", f"{SCOPE}drive", *IDENTITY])  # more rights do no harm
+    assert not plugin.oauth_grant_current([f"{SCOPE}calendar.readonly", *IDENTITY])  # read-only grant is not enough
+    assert not plugin.oauth_grant_current(IDENTITY)
 
 
-def test_plugin_unavailable_until_reconnect(plugin, monkeypatch):
+def test_level_changes_need_no_reconnect(plugin, monkeypatch):
     from aifred.lib.credential_broker import broker as credentials
     monkeypatch.setattr(credentials, "get", lambda service, key: "client" if service == "google" else "")
     monkeypatch.setattr(broker_module.oauth_broker, "is_connected", lambda name: True)
-    granted = [f"{SCOPE}calendar", f"{SCOPE}contacts", f"{SCOPE}tasks", f"{SCOPE}drive", *IDENTITY]
+    granted = [f"{SCOPE}calendar", f"{SCOPE}contacts", f"{SCOPE}tasks", *IDENTITY]
     monkeypatch.setattr(broker_module.oauth_broker, "granted_scopes", lambda name: granted)
-    plugin.levels.update(calendar="write", contacts="write", tasks="write", drive="write")
+    plugin.levels.update(calendar="write", contacts="read", tasks="off", drive="off")
     assert plugin.is_available()
-    plugin.levels.update(drive="read")
+    plugin.levels.update(calendar="read", contacts="write", tasks="read")
+    assert plugin.is_available()
+    plugin.levels.update(drive="read")  # never granted: reconnect needed
     assert not plugin.is_available()
 
 
