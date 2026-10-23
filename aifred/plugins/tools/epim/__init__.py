@@ -13,12 +13,12 @@ from ....lib.plugin_base import (
     plugin_dir_of,
     plugin_i18n_text,
 )
+from ....lib.plugin_modules import module_credential_fields
 from .settings import (
-    ACCESS_LEVELS,
     DB_PATH_KEY,
     MODULE_DEFAULTS,
+    SETTINGS_PREFIX,
     load_raw_settings,
-    module_key,
     parse_settings,
     save_raw_settings,
 )
@@ -40,21 +40,14 @@ class EpimPlugin:
 
     @property
     def credential_fields(self) -> list[CredentialField]:
-        fields = [
+        return [
             CredentialField(
                 env_key=DB_PATH_KEY,
                 label_key="epim_cred_db_path",
                 placeholder="/path/to/database.epim",
             ),
+            *module_credential_fields(SETTINGS_PREFIX, MODULE_DEFAULTS, "epim_cred_module_{module}"),
         ]
-        for module, default in MODULE_DEFAULTS.items():
-            fields.append(CredentialField(
-                env_key=module_key(module),
-                label_key=f"epim_cred_module_{module}",
-                default=default,
-                options=[(level, f"epim_access_{level}") for level in ACCESS_LEVELS],
-            ))
-        return fields
 
     def _load_settings(self) -> dict[str, str]:
         return load_raw_settings()
@@ -71,7 +64,7 @@ class EpimPlugin:
             # The access mode can only change while nobody is attached.
             current.close()
         if parsed.db_path is not None:
-            set_access_mode(parsed.db_path, read_only=not parsed.any_write)
+            set_access_mode(parsed.db_path, read_only=not parsed.modules.any_write)
         save_raw_settings(settings)
 
     def is_available(self) -> bool:

@@ -13,7 +13,8 @@ from pathlib import Path
 import pytest
 
 from aifred.lib.config import PROJECT_ROOT
-from aifred.plugins.tools.epim.settings import MODULE_DEFAULTS, READ, WRITE
+from aifred.lib.plugin_modules import OFF, READ, WRITE, ModuleAccess
+from aifred.plugins.tools.epim.settings import MODULE_DEFAULTS
 
 FIXTURE = PROJECT_ROOT / "data" / "epim" / "test-fixture.epim"
 
@@ -23,8 +24,14 @@ requires_fixture = pytest.mark.skipif(
 )
 
 
-ALL_WRITE = {module: WRITE for module in MODULE_DEFAULTS}
-ALL_READ = {module: READ for module in MODULE_DEFAULTS}
+ALL_WRITE = ModuleAccess({module: WRITE for module in MODULE_DEFAULTS})
+ALL_READ = ModuleAccess({module: READ for module in MODULE_DEFAULTS})
+ALL_OFF = ModuleAccess({module: OFF for module in MODULE_DEFAULTS})
+
+
+def modules(**levels: str) -> ModuleAccess:
+    """All modules readable, the given ones at the given level."""
+    return ModuleAccess({**ALL_READ.levels, **levels})
 
 
 def copy_fixture(directory: Path, name: str = "test.epim") -> Path:
