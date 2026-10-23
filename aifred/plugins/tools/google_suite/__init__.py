@@ -1,7 +1,10 @@
 """Google Suite Plugin — Orchestrator für Calendar, Contacts, Tasks und Drive.
 
-Aktiviert Sub-Services via settings.json (GOOGLE_CALENDAR_ENABLED,
-GOOGLE_CONTACTS_ENABLED, GOOGLE_TASKS_ENABLED, GOOGLE_DRIVE_ENABLED).
+Jeder Dienst steht in der settings.json auf Aus, Lesen oder Lesen und
+Schreiben (lib.plugin_modules). Bei „Lesen“ fordert AIfred bei Google nur die
+readonly-Berechtigung an und bietet nur die lesenden Werkzeuge an — Google
+selbst verhindert dann jede Änderung. Passen die erteilten Berechtigungen
+nicht mehr zu den Einstellungen, ist das Plugin bis zum Neuverbinden aus.
 OAuth-Flow über den generischen OAuthBroker.
 """
 
@@ -14,14 +17,35 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import CredentialField, PluginContext, load_plugin_i18n
+from ....lib.plugin_modules import READ, WRITE, ModuleAccess, module_credential_fields
 
-# Scopes pro Sub-Service
-_SCOPES: dict[str, str] = {
-    "GOOGLE_CALENDAR_ENABLED": "https://www.googleapis.com/auth/calendar",
-    "GOOGLE_CONTACTS_ENABLED": "https://www.googleapis.com/auth/contacts",
-    "GOOGLE_TASKS_ENABLED":    "https://www.googleapis.com/auth/tasks",
-    "GOOGLE_DRIVE_ENABLED":    "https://www.googleapis.com/auth/drive",
+SETTINGS_PREFIX = "GOOGLE"
+MODULE_DEFAULTS: dict[str, str] = {
+    "calendar": READ,
+    "contacts": READ,
+    "tasks": READ,
+    "drive": READ,
 }
+# Berechtigung je Dienst und Stufe.
+_SCOPES: dict[str, dict[str, str]] = {
+    "calendar": {READ: "https://www.googleapis.com/auth/calendar.readonly",
+                 WRITE: "https://www.googleapis.com/auth/calendar"},
+    "contacts": {READ: "https://www.googleapis.com/auth/contacts.readonly",
+                 WRITE: "https://www.googleapis.com/auth/contacts"},
+    "tasks": {READ: "https://www.googleapis.com/auth/tasks.readonly",
+              WRITE: "https://www.googleapis.com/auth/tasks"},
+    "drive": {READ: "https://www.googleapis.com/auth/drive.readonly",
+              WRITE: "https://www.googleapis.com/auth/drive"},
+}
+_SERVICE_SCOPES = frozenset(scope for levels in _SCOPES.values() for scope in levels.values())
+# User-Identität immer mitscopen (sonst gibt Google nichts zurück).
+_IDENTITY_SCOPES = ("https://www.googleapis.com/auth/userinfo.email",
+                    "https://www.googleapis.com/auth/userinfo.profile")
+
+# The one Drive folder the agents may work in (drive/agent_folder.py); the
+# document manager is not bound to it.
+_DRIVE_AGENT_FOLDER_DEFAULT = "AIfred-Intelligence"
+
 
 @functools.lru_cache(maxsize=1)
 def _load_i18n() -> dict[str, dict[str, str]]:
@@ -31,15 +55,29 @@ def _load_i18n() -> dict[str, dict[str, str]]:
     return load_plugin_i18n(Path(__file__).parent)
 
 
-# SSOT für den Default eines fehlenden *_ENABLED-Keys in settings.json —
-# muss in credential_fields, get_tools und aggregated_scopes identisch sein,
-# sonst zeigt die UI "Aktiviert"/fordert OAuth-Scopes an, während get_tools
-# die Tools nicht lädt (latenter Bug bei frischer Installation).
-_SERVICE_ENABLED_DEFAULT = "true"
+def _service_tools(service: str, settings: dict[str, str]) -> list[Tool]:
+    if service == "calendar":
+        from .calendar import tools as calendar_tools
+        return _limit(calendar_tools.get_calendar_tools(), calendar_tools.READ_TOOL_NAMES, settings, service)
+    if service == "contacts":
+        from .contacts import tools as contacts_tools
+        return _limit(contacts_tools.get_contacts_tools(), contacts_tools.READ_TOOL_NAMES, settings, service)
+    if service == "tasks":
+        from .tasks import tools as tasks_tools
+        return _limit(tasks_tools.get_tasks_tools(), tasks_tools.READ_TOOL_NAMES, settings, service)
+    from .drive import tools as drive_tools
+    folder = settings.get("GOOGLE_DRIVE_AGENT_FOLDER", _DRIVE_AGENT_FOLDER_DEFAULT)
+    return _limit(drive_tools.get_drive_tools(folder), drive_tools.READ_TOOL_NAMES, settings, service)
 
-# The one Drive folder the agents may work in (drive/agent_folder.py); the
-# document manager is not bound to it.
-_DRIVE_AGENT_FOLDER_DEFAULT = "AIfred-Intelligence"
+
+def _limit(tools: list[Tool], read_names: frozenset[str], settings: dict[str, str], service: str) -> list[Tool]:
+    if _modules(settings).can_write(service):
+        return tools
+    return [t for t in tools if t.name in read_names]
+
+
+def _modules(settings: dict[str, str]) -> ModuleAccess:
+    return ModuleAccess.parse(settings, SETTINGS_PREFIX, MODULE_DEFAULTS)
 
 
 @dataclass
@@ -60,11 +98,15 @@ class GooglePlugin:
 
     def _save_settings(self, settings: dict[str, str]) -> None:
         from ....lib.plugin_base import save_plugin_settings
+        _modules(settings)  # an invalid level saves nothing
         save_plugin_settings(__file__, settings)
 
     def _translate(self, key: str, lang: str = "de") -> str:
         entry = _load_i18n().get(key, {})
         return entry.get(lang) or entry.get("de") or key
+
+    def modules(self) -> ModuleAccess:
+        return _modules(self._load_settings())
 
     # ── ToolPlugin Protocol ──────────────────────────────────────
 
@@ -84,34 +126,8 @@ class GooglePlugin:
                 is_password=True,
                 group="oauth",
             ),
-            CredentialField(
-                env_key="GOOGLE_CALENDAR_ENABLED",
-                label_key="google_calendar_enabled",
-                default=_SERVICE_ENABLED_DEFAULT,
-                options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
-                group="services",
-            ),
-            CredentialField(
-                env_key="GOOGLE_CONTACTS_ENABLED",
-                label_key="google_contacts_enabled",
-                default=_SERVICE_ENABLED_DEFAULT,
-                options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
-                group="services",
-            ),
-            CredentialField(
-                env_key="GOOGLE_TASKS_ENABLED",
-                label_key="google_tasks_enabled",
-                default=_SERVICE_ENABLED_DEFAULT,
-                options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
-                group="services",
-            ),
-            CredentialField(
-                env_key="GOOGLE_DRIVE_ENABLED",
-                label_key="google_drive_enabled",
-                default=_SERVICE_ENABLED_DEFAULT,
-                options=[("true", "Aktiviert"), ("false", "Deaktiviert")],
-                group="services",
-            ),
+            *module_credential_fields(SETTINGS_PREFIX, MODULE_DEFAULTS, "google_cred_module_{module}",
+                                      group="services"),
             CredentialField(
                 env_key="GOOGLE_DRIVE_AGENT_FOLDER",
                 label_key="google_drive_agent_folder",
@@ -120,49 +136,48 @@ class GooglePlugin:
         ]
 
     def is_available(self) -> bool:
+        """Connected, and the granted rights match the service levels."""
         from ....lib.credential_broker import broker
         if not broker.get("google", "client_id"):
             return False
         from ....lib.oauth.broker import oauth_broker
-        return oauth_broker.is_connected("google")
+        if not oauth_broker.is_connected("google"):
+            return False
+        return self.oauth_grant_current(oauth_broker.granted_scopes("google"))
+
+    def oauth_grant_current(self, granted: list[str]) -> bool:
+        """True when the granted service scopes are exactly those of the
+        current levels — after a level change the user has to reconnect
+        (fewer rights must not linger, missing ones would fail)."""
+        required = set(self.aggregated_scopes()) & _SERVICE_SCOPES
+        return set(granted) & _SERVICE_SCOPES == required
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         settings = self._load_settings()
+        modules = _modules(settings)
         tools: list[Tool] = []
-
-        if settings.get("GOOGLE_CALENDAR_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
-            from .calendar.tools import get_calendar_tools
-            tools.extend(get_calendar_tools())
-
-        if settings.get("GOOGLE_CONTACTS_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
-            from .contacts.tools import get_contacts_tools
-            tools.extend(get_contacts_tools())
-
-        if settings.get("GOOGLE_TASKS_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
-            from .tasks.tools import get_tasks_tools
-            tools.extend(get_tasks_tools())
-
-        if settings.get("GOOGLE_DRIVE_ENABLED", _SERVICE_ENABLED_DEFAULT) == "true":
-            from .drive.tools import get_drive_tools
-            tools.extend(get_drive_tools(
-                settings.get("GOOGLE_DRIVE_AGENT_FOLDER", _DRIVE_AGENT_FOLDER_DEFAULT),
-            ))
-
+        for service in MODULE_DEFAULTS:
+            if modules.can_read(service):
+                tools.extend(_service_tools(service, settings))
         return tools
 
     @property
     def document_source(self) -> Any:
         """Drive as a second source of the document manager (lib.document_sources)
-        — only while the Drive service is switched on."""
-        if self._load_settings().get("GOOGLE_DRIVE_ENABLED", _SERVICE_ENABLED_DEFAULT) != "true":
+        — while the Drive service is on; writable only at write level."""
+        modules = self.modules()
+        if not modules.can_read("drive"):
             return None
         from .drive.source import DriveDocumentSource
-        return DriveDocumentSource()
+        return DriveDocumentSource(writable=modules.can_write("drive"))
 
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
-        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
+        # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin;
+        # nur für die Werkzeuge, die die Dienst-Stufen anbieten.
         from ....lib.plugin_base import load_plugin_instructions
-        return load_plugin_instructions(self, lang, granted_tools)
+        offered = {t.name for t in self.get_tools(PluginContext(agent_id="_prompt", lang=lang, session_id=""))}
+        granted = offered if granted_tools is None else granted_tools & offered
+        return load_plugin_instructions(self, lang, granted)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
         # i18n-Key wird aus dem Tool-Namen abgeleitet (tool_<tool_name>) —
@@ -175,21 +190,11 @@ class GooglePlugin:
         return "" if label == key else label
 
     def aggregated_scopes(self) -> list[str]:
-        """Alle Scopes der aktiven Sub-Services — für den OAuth-Flow.
-
-        Plus die userinfo-Scopes (email, profile) — die brauchen wir immer,
-        damit der OAuth-Flow den User identifizieren kann.
-        """
-        settings = self._load_settings()
-        scopes = [
-            scope
-            for key, scope in _SCOPES.items()
-            if settings.get(key, _SERVICE_ENABLED_DEFAULT) == "true"
-        ]
-        # User-Identität immer mitscopen (sonst gibt Google nichts zurück)
-        scopes.append("https://www.googleapis.com/auth/userinfo.email")
-        scopes.append("https://www.googleapis.com/auth/userinfo.profile")
-        return scopes
+        """Berechtigungen der eingeschalteten Dienste je Stufe — für den OAuth-Flow."""
+        modules = self.modules()
+        scopes = [_SCOPES[service][modules.levels[service]] for service in MODULE_DEFAULTS
+                  if modules.can_read(service)]
+        return [*scopes, *_IDENTITY_SCOPES]
 
 
 plugin = GooglePlugin()

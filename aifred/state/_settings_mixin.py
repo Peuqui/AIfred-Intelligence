@@ -64,6 +64,8 @@ class SettingsMixin(rx.State, mixin=True):
 
     # OAuth-Verbindung im Credentials-Modal: idle | connecting | connected | error
     oauth_connect_status: str = "idle"
+    # The stored grant no longer matches what the plugin's settings ask for.
+    oauth_rights_changed: bool = False
     # Provider-Name des aktuell im Modal bearbeiteten OAuth-Plugins (leer wenn nicht OAuth)
     oauth_connect_provider: str = ""
     # Vorab generierte Auth-URL — wird vom Connect-Link (target="_blank") direkt genutzt,
@@ -571,12 +573,13 @@ class SettingsMixin(rx.State, mixin=True):
             # Optimistisch aus der Token-Datei — die Echt-Prüfung (Refresh-
             # Roundtrip) läuft als nachgekettetes Event, damit ein Provider-
             # Timeout das Modal-Öffnen nie blockiert.
-            connected = oauth_broker.is_connected(oauth_provider)
+            target_plugin = plugin if plugin is not None else get_tool_plugin(channel_name)
+            connected = self._oauth_grant_current(oauth_provider, target_plugin)
+            self.oauth_rights_changed = oauth_broker.is_connected(oauth_provider) and not connected
             self.oauth_connect_status = "connected" if connected else "idle"
             # Auth-URL vorab generieren — der Modal-Connect-Link nutzt sie
             # direkt als <a target="_blank"> (umgeht den Pop-up-Blocker, der
             # window.open() aus async Reflex-Events stillschweigend killt).
-            target_plugin = plugin if plugin is not None else get_tool_plugin(channel_name)
             self.oauth_auth_url = (
                 "" if connected else self._build_oauth_auth_url(oauth_provider, target_plugin)
             )
@@ -615,6 +618,16 @@ class SettingsMixin(rx.State, mixin=True):
     def toggle_channel_cred_show_password(self) -> None:
         """Toggle password visibility in credentials modal."""
         self.channel_cred_show_password = not self.channel_cred_show_password
+
+    @staticmethod
+    def _oauth_grant_current(provider: str, plugin: Any) -> bool:
+        """Connected with the rights the plugin's settings ask for. A plugin
+        without ``oauth_grant_current`` accepts any stored grant."""
+        from ..lib.oauth import oauth_broker
+        if not oauth_broker.is_connected(provider):
+            return False
+        check = getattr(plugin, "oauth_grant_current", None)
+        return check is None or bool(check(oauth_broker.granted_scopes(provider)))
 
     def _build_oauth_auth_url(self, provider: str, plugin: Any) -> str:
         """Generate the OAuth Auth-URL for the given provider+plugin.
@@ -695,7 +708,6 @@ class SettingsMixin(rx.State, mixin=True):
         to the pop-up blocker. This handler only manages the polling state.
         """
         import asyncio as _aio
-        from ..lib.oauth import oauth_broker
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
         provider = self.oauth_connect_provider
@@ -712,8 +724,11 @@ class SettingsMixin(rx.State, mixin=True):
         # Poll up to 5 min (60 × 5 s) — Google Login + Consent kann dauern.
         for _ in range(60):
             await _aio.sleep(5)
-            if oauth_broker.is_connected(provider):
+            # Not merely "a token exists": after a change of levels the old
+            # token is still there until the new consent replaces it.
+            if self._oauth_grant_current(provider, plugin):
                 self.oauth_connect_status = "connected"
+                self.oauth_rights_changed = False
                 self.add_debug(  # type: ignore[attr-defined]
                     f"✅ {display}: OAuth connected — plugin available."
                 )
@@ -883,16 +898,16 @@ class SettingsMixin(rx.State, mixin=True):
         from ..lib.plugin_registry import (
             disable_plugin, enable_plugin, get_tool_plugin, is_plugin_enabled,
         )
-        from ..lib.oauth import oauth_broker
 
         toggles = dict(self.tool_plugin_toggles)
         current = bool(toggles.get(plugin_name, ""))
         plugin = get_tool_plugin(plugin_name)
 
-        # Block toggling ON for OAuth plugins that aren't connected yet.
+        # Block toggling ON for OAuth plugins that aren't connected (with the
+        # rights their settings ask for) yet.
         if not current and plugin is not None:
             oauth_provider = getattr(plugin, "oauth_provider", None)
-            if oauth_provider and not oauth_broker.is_connected(oauth_provider):
+            if oauth_provider and not self._oauth_grant_current(oauth_provider, plugin):
                 self.add_debug(  # type: ignore[attr-defined]
                     f"🔐 {plugin_display_name(plugin, 'en')}: connect via the gear icon "
                     f"first — the toggle becomes active afterwards."

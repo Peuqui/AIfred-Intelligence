@@ -832,6 +832,7 @@
   "oauth_connect_no_credentials": "Bitte erst Client-ID und Secret eintragen und speichern",
   "oauth_connect_disconnect": "Verbindung trennen",
   "oauth_connect_hint": "Öffnet ein neues Browser-Tab zum Login.",
+  "oauth_connect_rights_changed": "Die Berechtigungen passen nicht mehr zu den Einstellungen. Bitte neu verbinden — bis dahin ist das Plugin aus.",
   "agent_editor_name": "Name",
   "agent_editor_agent_id": "Agent-ID",
   "agent_editor_emoji": "Emoji",

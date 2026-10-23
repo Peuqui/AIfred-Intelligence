@@ -104,6 +104,7 @@ class DocumentMixin(rx.State, mixin=True):
         in open_document_manager lag (vor dem Multi-Route-Split)."""
         self.doc_current_folder = ""
         self.doc_source = "local"
+        self.doc_source_writable = True
         self.doc_remote_trail = []
         self.doc_remote_query = ""
         self._load_doc_source_options()
@@ -170,6 +171,7 @@ class DocumentMixin(rx.State, mixin=True):
 
     doc_source: str = "local"
     doc_source_options: List[Dict[str, str]] = []  # [{key, label}], local first
+    doc_source_writable: bool = True               # the open source takes uploads
     doc_remote_trail: List[Dict[str, str]] = []    # opened folders [{id, name}], root = empty
     doc_remote_query: str = ""                     # active search ("" = folder listing)
     doc_remote_query_input: str = ""
@@ -202,9 +204,11 @@ class DocumentMixin(rx.State, mixin=True):
         folder_id = self.doc_remote_trail[-1]["id"] if self.doc_remote_trail else ""
         try:
             source = get_document_source(self.doc_source)
+            self.doc_source_writable = source.writable
             entries = await (source.search(self.doc_remote_query) if self.doc_remote_query else source.list_folder(folder_id))
         except (LookupError, DocumentSourceError) as failed:
             self.doc_file_list = []
+            self.doc_source_writable = False
             self.add_debug(f"⚠️ Document source {self.doc_source}: {failed}")  # type: ignore[attr-defined]
             return rx.toast.error(
                 t("doc_source_failed", lang=self.ui_language, error=str(failed)),  # type: ignore[attr-defined]
@@ -230,6 +234,7 @@ class DocumentMixin(rx.State, mixin=True):
         if isinstance(key, list):
             key = key[0]
         self.doc_source = key
+        self.doc_source_writable = key == "local"  # a further source reports its own
         self.doc_remote_trail = []
         self.doc_remote_query = ""
         self.doc_remote_query_input = ""

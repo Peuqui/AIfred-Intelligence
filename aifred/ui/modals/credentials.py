@@ -5,6 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import clickable_tip, t
 
 
@@ -272,6 +273,14 @@ def channel_credentials_page() -> rx.Component:
                                     width="100%",
                                     disabled=True,
                                 ),
+                            ),
+                        ),
+                        rx.cond(
+                            AIState.oauth_rights_changed,
+                            rx.text(
+                                t("oauth_connect_rights_changed"),
+                                font_size="12px",
+                                color=COLORS["warning_text"],
                             ),
                         ),
                         rx.text(

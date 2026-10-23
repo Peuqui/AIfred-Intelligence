@@ -42,6 +42,7 @@ class SourceDownload:
 @runtime_checkable
 class DocumentSource(Protocol):
     key: str          # stable id, e.g. "google_drive"
+    writable: bool    # False: the document manager offers no upload, upload() refuses
 
     def label(self, lang: str) -> str: ...  # its name in the document manager
 

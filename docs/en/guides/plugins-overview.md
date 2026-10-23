@@ -213,7 +213,7 @@ Hardware status: CPU, RAM, GPU, disk, temperature.
 
 **Directory:** `plugins/tools/google_suite/`
 
-OAuth 2.0 integration for Google Calendar, Contacts, Tasks and Drive. Orchestrator plugin with toggleable sub-services. The Tasks and Drive tools are listed in the [plugin guide](plugins/google-suite.md).
+OAuth 2.0 integration for Google Calendar, Contacts, Tasks and Drive. Orchestrator plugin; each service off, read only, or read and write. The Tasks and Drive tools are listed in the [plugin guide](plugins/google-suite.md).
 
 | Tool | Description | Tier |
 |------|------------|------|
@@ -231,8 +231,8 @@ OAuth 2.0 integration for Google Calendar, Contacts, Tasks and Drive. Orchestrat
 | `google_contacts_delete` | Delete a contact | WRITE_DATA |
 
 **Features:**
-- Single OAuth login for all sub-services (scopes aggregated)
-- Sub-services toggleable via `settings.json` (default: all four on)
+- Single OAuth login for all services (scopes aggregated)
+- Per service Off / Read / Read and write (default: all four "Read"); on "Read" AIfred requests only read-only rights from Google, a change means reconnecting
 - Drive: agents work only in the agent folder (`GOOGLE_DRIVE_AGENT_FOLDER`); the document manager shows the whole Drive (searchable, download incl. export, upload)
 - Group support: categorize contacts, filter by group
 - Fernet-encrypted token storage

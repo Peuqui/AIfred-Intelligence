@@ -4,7 +4,7 @@
 
 **Files:** `aifred/plugins/tools/google_suite/`
 
-Google Calendar, Contacts, Tasks, and Drive via OAuth 2.0. Orchestrator plugin with four toggleable sub-services. Requires a one-time OAuth flow in Google Cloud Console. The OAuth mechanism (token storage, auto-refresh, API endpoints) is described in [oauth.md](oauth.md).
+Google Calendar, Contacts, Tasks, and Drive via OAuth 2.0. Orchestrator plugin with four services, each off, read only, or read and write. Requires a one-time OAuth flow in Google Cloud Console. The OAuth mechanism (token storage, auto-refresh, API endpoints) is described in [oauth.md](oauth.md).
 
 ## Setup
 
@@ -19,30 +19,39 @@ Google Calendar, Contacts, Tasks, and Drive via OAuth 2.0. Orchestrator plugin w
    GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=GOCSPX-...
    ```
-5. Enable/disable sub-services in `aifred/plugins/tools/google_suite/settings.json` (default: all four enabled)
-6. Start the OAuth flow — generate an auth URL:
-   ```bash
-   curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://example.com:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
-   ```
-   Open the returned URL in a browser → Google login → redirected to callback URL → done.
-7. Check connection status:
-   ```bash
-   curl http://localhost:8002/api/oauth/google/status
-   ```
+5. Choose a level per service in the plugin settings (Plugin Manager → gear; default: all four "Read"), save
+6. In the same window **Connect to Google** → Google login → consent → done. AIfred requests exactly the permissions of the chosen levels.
 
-## Sub-Services & Settings
+The API route (`GET /api/oauth/google/auth-url?redirect_uri=…&scopes=…`) remains for scripts; it must then request exactly the permissions of the levels (see the table below), otherwise the plugin stays off. `GET /api/oauth/google/status` only reports whether a token is stored, not whether its rights match the levels.
 
-`aifred/plugins/tools/google_suite/settings.json`:
+## Services and levels
+
+`aifred/plugins/tools/google_suite/settings.json` (written by the settings window):
 ```json
 {
-  "GOOGLE_CALENDAR_ENABLED": "true",
-  "GOOGLE_CONTACTS_ENABLED": "true",
-  "GOOGLE_TASKS_ENABLED": "true",
-  "GOOGLE_DRIVE_ENABLED": "true"
+  "GOOGLE_MODULE_CALENDAR": "read",
+  "GOOGLE_MODULE_CONTACTS": "read",
+  "GOOGLE_MODULE_TASKS": "read",
+  "GOOGLE_MODULE_DRIVE": "read"
 }
 ```
 
-To disable a sub-service: set the value to `"false"` and restart AIfred. Which scopes the OAuth flow requests depends on the enabled sub-services (`aggregated_scopes()`).
+Each service is `off`, `read` or `write` (shared building block `aifred/lib/plugin_modules.py`, as for EPIM and Nextcloud). An unknown value makes saving fail instead of silently counting as some level.
+
+| Service | `read` — permission at Google | `write` — permission at Google |
+|---------|-------------------------------|--------------------------------|
+| Calendar | `calendar.readonly` | `calendar` |
+| Contacts | `contacts.readonly` | `contacts` |
+| Tasks | `tasks.readonly` | `tasks` |
+| Drive | `drive.readonly` | `drive` |
+
+`userinfo.email` and `userinfo.profile` are always added.
+
+- **Off:** no tools, no permission; Drive off also removes Drive from the document manager.
+- **Read:** only the read tools (`READ_TOOL_NAMES` in the service's `tools.py`), and Google itself allows no change with the read-only token — so the lock does not depend on AIfred alone. Drive in the document manager: browse and download, no upload.
+- **Read and write:** all tools of the service, uploads to Drive.
+
+**Changing a level:** possible at any time. The stored rights must then match the levels exactly (`oauth_grant_current()`): if they do not — more rights than set, or missing ones — the plugin is off, and the settings window shows the hint "The granted permissions no longer match the settings" and **Connect to Google** again. The new consent replaces the old token. The old, broader right is still listed in the Google account overview (Security → third-party access), but AIfred no longer holds its token; to drop it completely, remove the access there and reconnect.
 
 ## Calendar Tools
 
@@ -196,7 +205,8 @@ AIfred calls `google_drive_search(query="project plan")`.
 | `google_drive_move_file` | Move a file to a different folder | WRITE_DATA |
 
 The read tools are deliberately `WRITE_DATA`: they expose private Drive content and
-therefore stay blocked for external channels (email, Discord, Telegram). The cap for
+therefore stay blocked for external channels (email, Discord, Telegram). Which tools the
+"Read" level offers is therefore decided by `READ_TOOL_NAMES`, not by the tier. The cap for
 `google_drive_get_file` is `DRIVE_MAX_DOWNLOAD_BYTES` (environment variable, default
 5 MiB).
 
@@ -219,7 +229,7 @@ folder is looked up directly under "My Drive" and created on first access if mis
 
 **Files:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/state/_document_mixin.py`, `aifred/ui/modals/documents.py`, `aifred/lib/api/documents.py`
 
-With the Drive sub-service enabled (`GOOGLE_DRIVE_ENABLED`) and Google connected, the
+With Drive at least on "Read" and Google connected with matching rights, the
 document manager shows a second source, "Google Drive", next to the local folder
 (switch at the top). It is a live view, not a mirror of the Drive.
 
@@ -229,7 +239,7 @@ document manager shows a second source, "Google Drive", next to the local folder
 | Search | Input field in the toolbar, searches the whole Drive by file name and full text (at most 100 hits, by relevance) |
 | Download | Arrow icon per file; the file is streamed, never routed through Reflex state (`GET /api/documents/source/{key}/file/{id}`, login cookie). 404 for an unknown source, 502 if the source fails |
 | Export | Google's own formats have no file and are exported: Docs → `.docx`, Sheets → `.xlsx`, Slides → `.pptx`, Drawings → `.pdf`. Other Google formats and folders cannot be downloaded |
-| Upload | The document manager's upload goes into the currently open Drive folder (root: "My Drive"); the same size limit as locally applies (`DOCUMENT_MAX_FILE_SIZE_MB`) |
+| Upload | Only with Drive on "Read and write": the document manager's upload goes into the currently open Drive folder (root: "My Drive"); the same size limit as locally applies (`DOCUMENT_MAX_FILE_SIZE_MB`). On "Read" the upload zone is hidden and the source refuses `upload()` |
 
 Not available for Drive rows: indexing, renaming, deleting and preview — those stay with
 the local folder.
@@ -245,10 +255,11 @@ source (plugin atomicity, the core imports no plugin).
 | Part | Purpose |
 |------|---------|
 | `key`, `label(lang)` | stable id (`google_drive`) and name in the switch |
+| `writable` | `False`: the document manager shows no upload zone, `upload()` refuses |
 | `list_folder(folder_id)` | folder contents; folders are addressed by id, `""` = root |
 | `search(query)` | search across the whole source |
 | `download(file_id)` | streamed download (`SourceDownload`) |
-| `upload(folder_id, name, data, mime)` | upload a file |
+| `upload(folder_id, name, data, mime)` | upload a file (only when `writable`) |
 
 Sources raise only `DocumentSourceError` (a message for the user, shown as a toast).
 The state (active source, folder trail, search term) lives in `_document_mixin.py`.

@@ -1,5 +1,6 @@
 """Per-module access levels for plugins whose data falls into modules — EPIM
-(calendar, contacts, notes, …) and Nextcloud (calendars, contacts, tasks).
+(calendar, contacts, notes, …), Nextcloud (calendars, contacts, tasks) and
+the Google Suite (its services).
 
 Each module is ``off``, ``read`` or ``write`` in the plugin's own settings.
 The labels of the three levels live in every plugin's ``i18n.json`` under
@@ -51,9 +52,11 @@ class ModuleAccess:
         return cls(levels)
 
 
-def module_credential_fields(prefix: str, defaults: dict[str, str], label_key: str) -> list[CredentialField]:
+def module_credential_fields(prefix: str, defaults: dict[str, str], label_key: str,
+                             group: str = "") -> list[CredentialField]:
     """One dropdown per module for the plugin settings UI. ``label_key`` is a
-    format string with ``{module}`` naming the plugin's i18n key."""
+    format string with ``{module}`` naming the plugin's i18n key; ``group``
+    puts the dropdowns into one row of the settings form."""
     options = [(level, LEVEL_LABEL_KEYS[level]) for level in ACCESS_LEVELS]
     return [
         CredentialField(
@@ -61,6 +64,7 @@ def module_credential_fields(prefix: str, defaults: dict[str, str], label_key: s
             label_key=label_key.format(module=module),
             default=default,
             options=options,
+            group=group,
         )
         for module, default in defaults.items()
     ]
