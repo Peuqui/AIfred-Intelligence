@@ -1,0 +1,14 @@
+{
+  "type": "object",
+  "properties": {
+    "entity_type": {
+      "type": "string",
+      "enum": []
+    },
+    "data": {
+      "type": "object",
+      "description": "event: {title, start, end, all_day, location, description, calendar} — timed: start and end as 'YYYY-MM-DD HH:MM'; all_day=true: start and end as 'YYYY-MM-DD', end = last day (inclusive, may be omitted for one day). task: {title, due ('YYYY-MM-DD' or 'YYYY-MM-DD HH:MM'), priority (high|medium|low|none), description, list}. contact: {name, first_name, last_name, organization, title, birthday ('YYYY-MM-DD'), note, phones: {mobile, home, work}, emails: {home, work}, addresses: {home|work: {street, city, postal_code, region, country}}, addressbook}. calendar, list and addressbook take a name from nextcloud_search; omit them when only one is writable."
+    }
+  },
+  "required": ["entity_type", "data"]
+}

@@ -1,0 +1,1 @@
+DELETING (nextcloud_delete): final. Name the entry and get confirmation before deleting.

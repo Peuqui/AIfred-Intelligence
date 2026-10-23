@@ -1,0 +1,1 @@
+APPOINTMENTS: without a date window, nextcloud_search covers the next 30 days. All-day appointments carry dates without a time; the end is the last day (inclusive). Occurrences of a series carry recurring=true.

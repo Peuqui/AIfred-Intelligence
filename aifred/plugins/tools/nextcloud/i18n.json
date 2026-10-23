@@ -18,5 +18,65 @@
   "module_access_write": {
     "de": "Lesen und Schreiben",
     "en": "Read and write"
+  },
+  "nextcloud_cred_url": {
+    "de": "Nextcloud-Adresse",
+    "en": "Nextcloud address"
+  },
+  "nextcloud_cred_url_tooltip": {
+    "de": "Adresse deiner Nextcloud, z. B. https://cloud.example.org oder https://example.org/nextcloud.",
+    "en": "Address of your Nextcloud, e.g. https://cloud.example.org or https://example.org/nextcloud."
+  },
+  "nextcloud_cred_user": {
+    "de": "Benutzer",
+    "en": "User"
+  },
+  "nextcloud_cred_user_tooltip": {
+    "de": "Am besten ein eigener Nextcloud-Benutzer für AIfred: Was du ihm nur lesend freigibst, kann AIfred auch nur lesen — das erzwingt Nextcloud selbst.",
+    "en": "Preferably a Nextcloud user of AIfred's own: what you share with it read-only, AIfred can only read — Nextcloud itself enforces that."
+  },
+  "nextcloud_cred_app_password": {
+    "de": "App-Passwort",
+    "en": "App password"
+  },
+  "nextcloud_cred_app_password_tooltip": {
+    "de": "In Nextcloud unter Einstellungen → Sicherheit → Neues App-Passwort erzeugen.",
+    "en": "Create it in Nextcloud under Settings → Security → new app password."
+  },
+  "nextcloud_cred_module_calendar": {
+    "de": "Termine",
+    "en": "Appointments"
+  },
+  "nextcloud_cred_module_tasks": {
+    "de": "Aufgaben",
+    "en": "Tasks"
+  },
+  "nextcloud_cred_module_contacts": {
+    "de": "Kontakte",
+    "en": "Contacts"
+  },
+  "tool_nextcloud_search": {
+    "de": "☁️ {entity}: {query}",
+    "en": "☁️ {entity}: {query}"
+  },
+  "tool_nextcloud_search_bare": {
+    "de": "☁️ {entity}...",
+    "en": "☁️ {entity}..."
+  },
+  "tool_nextcloud_get": {
+    "de": "☁️ Lese {entity}...",
+    "en": "☁️ Reading {entity}..."
+  },
+  "tool_nextcloud_create": {
+    "de": "☁️ Erstelle {entity}...",
+    "en": "☁️ Creating {entity}..."
+  },
+  "tool_nextcloud_update": {
+    "de": "☁️ Aktualisiere {entity}...",
+    "en": "☁️ Updating {entity}..."
+  },
+  "tool_nextcloud_delete": {
+    "de": "☁️ Lösche {entity}...",
+    "en": "☁️ Deleting {entity}..."
   }
 }

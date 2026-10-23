@@ -1,0 +1,1 @@
+Details of an entry: find it with nextcloud_search first, then call nextcloud_get with its ID.

@@ -1,0 +1,1 @@
+CONTACTS: phone numbers by kind (mobile, home, work), e-mail addresses (home, work), postal addresses (home, work).

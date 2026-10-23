@@ -1,0 +1,1 @@
+TASKS: done=true means completed. Priority: high, medium, low or none.

@@ -1,0 +1,1 @@
+LÖSCHEN (nextcloud_delete): endgültig. Vor dem Löschen den Eintrag nennen und bestätigen lassen.

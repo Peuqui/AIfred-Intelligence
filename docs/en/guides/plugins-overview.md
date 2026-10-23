@@ -51,22 +51,40 @@ File access to the documents directory (`data/documents/`) and semantic search v
 
 **File:** `plugins/tools/epim/`
 
-Full CRUD access to the [EssentialPIM](https://www.essentialpim.com/) Firebird database — appointments, contacts, notes, todos, passwords.
+Access to an [EssentialPIM](https://www.essentialpim.com/) database (Firebird 2.5, embedded) — appointments, contacts, notes, todos, password titles. Each module off, readable or writable on its own; without a writable module the file is read-only.
 
 | Tool | Description | Tier |
-|------|------------|------|
-| `epim_search` | Search entries (calendar, contacts, notes, todos, passwords) | READONLY |
+|------|-------------|------|
+| `epim_search` | Search entries, lists (categories, calendars, todo lists, note trees) | READONLY |
+| `epim_get` | Read one entry with all details | READONLY |
 | `epim_create` | Create a new entry | WRITE_DATA |
-| `epim_update` | Update/move an entry | WRITE_DATA |
-| `epim_delete` | Delete an entry | WRITE_SYSTEM |
+| `epim_update` | Change/move an entry | WRITE_DATA |
+| `epim_delete` | Move to the EPIM trash | WRITE_SYSTEM |
 
 **Features:**
-- Automatic name-to-ID resolution
-- 7-day date reference in prompt
-- Anti-hallucination guardrails
-- Field mapping (English to German)
+- Short transactions, engine-enforced read-only mode, reconnect after a mirror swap
+- Strict arguments and a strict field codec (refuses instead of losing data)
+- Maintenance CLI (validate, rebuild, mirror from a Windows machine)
 
 > **Details:** [EPIM Plugin](plugins/epim.md)
+
+---
+
+### Nextcloud (Calendars, Tasks, Contacts)
+
+**File:** `plugins/tools/nextcloud/`
+
+Appointments, tasks and contacts from Nextcloud via CalDAV and CardDAV. Each module off, readable or writable on its own; writing only where Nextcloud grants the configured user the write right. Independent of the EPIM plugin.
+
+| Tool | Description | Tier |
+|------|-------------|------|
+| `nextcloud_search` | Appointments in a date window, tasks, contacts; calendars, task lists, address books | READONLY |
+| `nextcloud_get` | Read one entry with all details | READONLY |
+| `nextcloud_create` | Create an appointment, task or contact | WRITE_DATA |
+| `nextcloud_update` | Change an appointment, task or contact | WRITE_DATA |
+| `nextcloud_delete` | Delete an appointment, task or contact | WRITE_SYSTEM |
+
+> **Details:** [Nextcloud Plugin](plugins/nextcloud.md)
 
 ---
 
