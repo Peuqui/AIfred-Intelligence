@@ -1,442 +1,327 @@
-"""EPIM database tools for LLM function calling.
+"""EPIM tools for LLM function calling.
 
-Provides 5 tools for full CRUD on EPIM entities:
-- epim_search: Search/read tasks, contacts, notes, todos, passwords
-- epim_get: Read one entry with full details (note tabs, contact fields)
-- epim_create: Create new entries
-- epim_update: Update existing entries
-- epim_delete: Soft-delete entries
+``epim_search`` and ``epim_get`` read. ``epim_create``, ``epim_update`` and
+``epim_delete`` exist only while the plugin's write switch is on. Arguments
+are parsed strictly (``values``); the database layer runs in a worker thread
+so a query never blocks the event loop.
 """
 
+import asyncio
 import json
 import logging
-from typing import Any, Optional
+from datetime import date, datetime, timedelta
+from typing import Any
 
 from ....lib.function_calling import Tool
+from ....lib.plugin_base import load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from .db import EpimDatabase, EpimRefused, EpimWriteDisabled
+from .values import (
+    InvalidValue,
+    parse_bool,
+    parse_date,
+    parse_datetime,
+    parse_id,
+    parse_optional_text,
+    parse_text,
+    reject_unknown,
+)
 
 logger = logging.getLogger(__name__)
 
-# Canonical entity type mapping — all aliases resolve to one key
-ENTITY_ALIASES: dict[str, str] = {
-    "task": "task", "tasks": "task", "termin": "task", "termine": "task",
-    "kalender": "task", "calendar": "task",
-    "contact": "contact", "contacts": "contact", "kontakt": "contact", "kontakte": "contact",
-    "note": "note", "notes": "note", "notiz": "note", "notizen": "note",
-    "todo": "todo", "todos": "todo", "aufgabe": "todo", "aufgaben": "todo",
-    "password": "password", "passwords": "password", "passwort": "password", "passwoerter": "password",
-    "category": "category", "categories": "category", "kategorie": "category", "kategorien": "category",
-    "calendar_list": "calendar_list", "kalender_liste": "calendar_list",
-    "todolist": "todolist", "todolists": "todolist", "todoliste": "todolist", "todolisten": "todolist",
-    "notetree": "notetree", "notetrees": "notetree", "notizbaum": "notetree",
-    "note_tab": "note_tab", "notiz_tab": "note_tab",
-}
+SEARCH_TYPES = ["tasks", "contacts", "notes", "todos", "passwords",
+                "categories", "calendars", "todolists", "notetrees"]
+GET_TYPES = ["task", "contact", "note"]
+CREATE_TYPES = ["task", "contact", "note", "todo"]
+UPDATE_TYPES = ["task", "contact", "note", "note_tab", "todo"]
+DELETE_TYPES = ["task", "contact", "note", "todo", "password"]
+DEFAULT_LIMIT = 20
 
-VALID_ENTITY_TYPES = "tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees"
+_TASK_KEYS = {"title", "start", "end", "all_day", "location", "text", "category", "calendar", "tags"}
+_CONTACT_KEYS = {"name", "fields", "tags"}
+_NOTE_KEYS = {"title", "tags"}
+_NOTE_CREATE_KEYS = {"title", "text", "tab_name", "note_tree", "tags"}
+_NOTE_TAB_KEYS = {"name", "text", "append_text"}
+_TODO_KEYS = {"title", "start", "end", "text", "tags", "todo_list", "done"}
 
-_PASSWORD_WRITE_REFUSED = (
-    "Error: refused to create/update a password entry from an external "
-    "channel (credential-safety guard). Password entries can only be "
-    "modified from the web UI."
-)
+_EXPECTED_ERRORS = (InvalidValue, EpimRefused, EpimWriteDisabled)
+# Password entries hold credentials: deleting one needs the user at the
+# browser, never a message arriving through an external channel.
+_PASSWORD_CHANNEL = "browser"
 
 
-def _resolve_entity(entity_type: str) -> str | None:
-    """Resolve entity type alias to canonical name. Returns None if unknown."""
-    return ENTITY_ALIASES.get(entity_type.lower())
+def _json_value(value: Any, key: str = "") -> Any:
+    if isinstance(value, dict):
+        return {k: _json_value(v, k) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_json_value(v) for v in value]
+    if isinstance(value, (datetime, date)):
+        return value.isoformat(sep=" ", timespec="minutes") if isinstance(value, datetime) else value.isoformat()
+    # Models round long integers; IDs travel as strings.
+    if isinstance(value, int) and not isinstance(value, bool) and (key == "id" or key.endswith("_id")):
+        return str(value)
+    return value
 
 
-# EN→DE-Aliasse für flache Kontaktfelder. Alle Ziele MÜSSEN in
-# DEFAULT_CONTACT_FIELDS existieren — encode_fieldsdata ist fail-loud bei
-# unbekannten Namen (der frühere work_email-Geist bewies, warum).
-_CONTACT_EN_TO_DE = {
-    "first_name": "Vorname", "last_name": "Nachname",
-    "phone": "Telefon", "mobile": "Mobiltelefon",
-    "email": "E-Mail", "address": "Adresse",
-    "city": "Ort", "zip": "PLZ", "state": "Bundesland",
-    "country": "Land", "birthday": "Geburtstag",
-    "website": "Webseite", "fax": "Fax",
-    "company": "Firma", "job_title": "Position", "notes": "Notizen",
-    "work_phone": "Telefon geschäftlich",
-    "work_address": "Adresse geschäftlich",
-    "work_city": "Ort geschäftlich", "work_zip": "PLZ geschäftlich",
-}
+def _ok(**payload: Any) -> str:
+    return json.dumps(_json_value({"success": True, **payload}), ensure_ascii=False)
 
 
-def _extract_contact_fields(data: dict) -> "dict[str, Any] | None":
-    """Flache Kontaktfelder ({"Telefon": ...} / {"phone": ...}) aus dem
-    data-Dict extrahieren, EN-Aliasse auf die EPIM-Feldnamen mappen.
-
-    SSOT für epim_create UND epim_update — die deutschen Namen kommen aus
-    der Feldmap DEFAULT_CONTACT_FIELDS (keine driftende Zweitliste).
-    None, wenn nichts extrahierbar ist.
-    """
-    from .db import DEFAULT_CONTACT_FIELDS
-    keys = set(DEFAULT_CONTACT_FIELDS.values()) | set(_CONTACT_EN_TO_DE)
-    fields = {k: v for k, v in data.items() if k in keys and v}
-    return {_CONTACT_EN_TO_DE.get(k, k): v for k, v in fields.items()} or None
+def _error(message: str) -> str:
+    return json.dumps({"error": message}, ensure_ascii=False)
 
 
-def _serialize(obj: Any, key: str = "") -> Any:
-    """JSON-serialize EPIM results (handle datetime, large IDs etc.)."""
-    if obj is None:
-        return None
-    if isinstance(obj, dict):
-        return {k: _serialize(v, key=k) for k, v in obj.items()}
-    if isinstance(obj, list):
-        return [_serialize(v) for v in obj]
-    if hasattr(obj, "isoformat"):
-        return obj.isoformat()
-    if isinstance(obj, bytes):
-        return "<binary>"
-    # Convert large integer IDs to strings so LLMs don't truncate them
-    if isinstance(obj, int) and "ID" in key.upper():
-        return str(obj)
-    return obj
+def _require(data: dict, key: str, what: str) -> Any:
+    if key not in data or data[key] is None:
+        raise InvalidValue(f"{what}: '{key}' is required")
+    return data[key]
 
 
-def get_epim_tools(source: str = "browser") -> list[Tool]:
-    """Create EPIM database tools for LLM function calling.
+def _when(value: object, field: str, is_end: bool) -> datetime:
+    """A date+time is exact. A bare date means the whole day: a start at
+    00:00, an end as the inclusive last day (EPIM stores the next midnight)."""
+    if isinstance(value, str) and len(value.strip()) == 10:
+        day = parse_date(value, field)
+        return datetime.combine(day + timedelta(days=1) if is_end else day, datetime.min.time())
+    return parse_datetime(value, field)
 
-    Returns empty list if EPIM is not available.
 
-    ``source`` is the channel origin (browser/email/discord/…). Password
-    entries hold plaintext credentials, so create/update on ``password`` is
-    restricted to the browser (user present, driving) — an injected prompt
-    arriving through any external channel must not plant or overwrite a
-    credential entry. Non-password EPIM writes stay at their tool tier.
-    """
-    from .db import get_epim_db
+def _tags(data: dict) -> tuple[str | None, bool]:
+    return (parse_optional_text(data["tags"], "tags"), True) if "tags" in data else (None, False)
 
-    db = get_epim_db()
-    if db is None:
-        return []
 
-    # ----------------------------------------------------------
-    # epim_search
-    # ----------------------------------------------------------
-    async def _epim_search(
-        entity_type: str,
-        query: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        completed: Optional[bool] = None,
-        limit: int = 20,
-    ) -> str:
-        """Search EPIM database."""
+def _contact_fields(data: dict) -> dict[str, str | None]:
+    fields = data.get("fields", {})
+    if not isinstance(fields, dict):
+        raise InvalidValue("contact: 'fields' must be an object of field name → value")
+    return {str(label): parse_optional_text(value, str(label)) for label, value in fields.items()}
+
+
+def _task_create(db: EpimDatabase, data: dict) -> int:
+    reject_unknown(data, _TASK_KEYS, "task")
+    all_day = parse_bool(data.get("all_day", False), "all_day")
+    start_raw = _require(data, "start", "task")
+    if all_day:
+        start = datetime.combine(parse_date(start_raw, "start"), datetime.min.time())
+        end = _when(data.get("end", start_raw), "end", is_end=True)
+    else:
+        start = parse_datetime(start_raw, "start")
+        end = parse_datetime(_require(data, "end", "task"), "end")
+    return db.create_task(
+        title=parse_text(_require(data, "title", "task"), "title"),
+        start=start, end=end, all_day=all_day,
+        location=parse_optional_text(data.get("location"), "location"),
+        text=parse_optional_text(data.get("text"), "text"),
+        category=parse_optional_text(data.get("category"), "category"),
+        calendar=parse_optional_text(data.get("calendar"), "calendar"),
+        tags=_tags(data)[0],
+    )
+
+
+def _task_update(db: EpimDatabase, task_id: int, data: dict) -> None:
+    reject_unknown(data, _TASK_KEYS, "task")
+    changes: dict[str, Any] = {}
+    if "start" in data:
+        changes["start"] = _when(data["start"], "start", is_end=False)
+    if "end" in data:
+        changes["end"] = _when(data["end"], "end", is_end=True)
+    if "all_day" in data:
+        changes["all_day"] = parse_bool(data["all_day"], "all_day")
+    if "title" in data:
+        changes["title"] = parse_text(data["title"], "title")
+    for key in ("location", "text", "category", "tags"):
+        if key in data:
+            changes[key] = parse_optional_text(data[key], key)
+    if "calendar" in data:
+        changes["calendar"] = parse_text(data["calendar"], "calendar")
+    db.update_task(task_id, changes)
+
+
+def _contact_create(db: EpimDatabase, data: dict) -> int:
+    reject_unknown(data, _CONTACT_KEYS, "contact")
+    return db.create_contact(name=parse_optional_text(data.get("name"), "name"),
+                             fields=_contact_fields(data), tags=_tags(data)[0])
+
+
+def _contact_update(db: EpimDatabase, contact_id: int, data: dict) -> None:
+    reject_unknown(data, _CONTACT_KEYS, "contact")
+    tags, tags_given = _tags(data)
+    name = parse_text(data["name"], "name") if "name" in data else None
+    db.update_contact(contact_id, name=name, fields=_contact_fields(data), tags=tags, tags_given=tags_given)
+
+
+def _note_create(db: EpimDatabase, data: dict) -> int:
+    reject_unknown(data, _NOTE_CREATE_KEYS, "note")
+    return db.create_note(
+        title=parse_text(_require(data, "title", "note"), "title"),
+        text=parse_text(data.get("text", ""), "text"),
+        tab_name=parse_text(_require(data, "tab_name", "note"), "tab_name"),
+        note_tree=parse_optional_text(data.get("note_tree"), "note_tree"),
+        tags=_tags(data)[0],
+    )
+
+
+def _note_update(db: EpimDatabase, note_id: int, data: dict) -> None:
+    reject_unknown(data, _NOTE_KEYS, "note")
+    tags, tags_given = _tags(data)
+    title = parse_text(data["title"], "title") if "title" in data else None
+    db.update_note(note_id, title=title, tags=tags, tags_given=tags_given)
+
+
+def _note_tab_update(db: EpimDatabase, tab_id: int, data: dict) -> None:
+    reject_unknown(data, _NOTE_TAB_KEYS, "note_tab")
+    if "text" in data and "append_text" in data:
+        raise InvalidValue("note_tab: give either 'text' (replace) or 'append_text', not both")
+    db.update_note_tab(
+        tab_id,
+        name=parse_text(data["name"], "name") if "name" in data else None,
+        text=parse_text(data["text"], "text") if "text" in data else None,
+        append_text=parse_text(data["append_text"], "append_text") if "append_text" in data else None,
+    )
+
+
+def _todo_create(db: EpimDatabase, data: dict) -> int:
+    reject_unknown(data, _TODO_KEYS - {"done"}, "todo")
+    return db.create_todo(
+        title=parse_text(_require(data, "title", "todo"), "title"),
+        todo_list=parse_optional_text(data.get("todo_list"), "todo_list"),
+        start=_when(data["start"], "start", is_end=False) if data.get("start") is not None else None,
+        end=_when(data["end"], "end", is_end=True) if data.get("end") is not None else None,
+        text=parse_optional_text(data.get("text"), "text"),
+        tags=_tags(data)[0],
+    )
+
+
+def _todo_update(db: EpimDatabase, todo_id: int, data: dict) -> None:
+    reject_unknown(data, _TODO_KEYS, "todo")
+    changes: dict[str, Any] = {}
+    for key, is_end in (("start", False), ("end", True)):
+        if key in data:
+            changes[key] = None if data[key] is None else _when(data[key], key, is_end)
+    if "title" in data:
+        changes["title"] = parse_text(data["title"], "title")
+    for key in ("text", "tags"):
+        if key in data:
+            changes[key] = parse_optional_text(data[key], key)
+    if "todo_list" in data:
+        changes["todo_list"] = parse_text(data["todo_list"], "todo_list")
+    if "done" in data:
+        changes["done"] = parse_bool(data["done"], "done")
+    db.update_todo(todo_id, changes)
+
+
+def _search(db: EpimDatabase, entity_type: str, query: str | None, date_from: str | None,
+            date_to: str | None, completed: object, limit: int) -> list[dict[str, Any]]:
+    query = query or None
+    if entity_type == "tasks":
+        return db.search_tasks(query,
+                               parse_date(date_from, "date_from") if date_from else None,
+                               parse_date(date_to, "date_to") if date_to else None, limit)
+    if entity_type == "contacts":
+        return db.search_contacts(query, limit)
+    if entity_type == "notes":
+        return db.search_notes(query, limit)
+    if entity_type == "todos":
+        done = None if completed is None else parse_bool(completed, "completed")
+        return db.search_todos(query, done, limit)
+    if entity_type == "passwords":
+        return db.search_passwords(query, limit)
+    lookups = db.lookups()
+    return [{"id": e.id, "name": e.name} for e in lookups[entity_type]]
+
+
+def get_epim_tools(db: EpimDatabase, source: str) -> list[Tool]:
+    """Tools for ``db``; write tools only when its write switch is on.
+    ``source`` is the channel the request came from (browser, email, …)."""
+
+    async def run(label: str, func: Any, *args: Any) -> Any:
         from ....lib.logging_utils import log_message
-        log_message(f"🗓️ epim_search: {entity_type} query={query}")
+        log_message(f"🗓️ {label}")
+        return await asyncio.to_thread(func, *args)
 
-        entity = _resolve_entity(entity_type)
-        if not entity:
-            return json.dumps({"error": f"Unknown entity_type: {entity_type}. Use: {VALID_ENTITY_TYPES}"})
+    async def epim_search(entity_type: str, query: str | None = None, date_from: str | None = None,
+                          date_to: str | None = None, completed: object = None,
+                          limit: int = DEFAULT_LIMIT) -> str:
+        try:
+            if entity_type not in SEARCH_TYPES:
+                raise InvalidValue(f"entity_type must be one of {', '.join(SEARCH_TYPES)}")
+            results = await run(f"epim_search {entity_type} query={query}", _search, db,
+                                entity_type, query, date_from, date_to, completed, limit)
+        except _EXPECTED_ERRORS as exc:
+            return _error(str(exc))
+        return json.dumps(_json_value({"total_count": len(results), "results": results}), ensure_ascii=False)
 
-        results: list[dict] | dict | None = None
-
-        if entity == "task":
-            results = db.search_tasks(title=query, date_from=date_from, date_to=date_to, limit=limit)
-        elif entity == "contact":
-            results = db.search_contacts(name=query, limit=limit)
-        elif entity == "note":
-            results = db.search_notes(title=query, text=query, limit=limit)
-        elif entity == "todo":
-            results = db.search_todos(title=query, completed=completed, limit=limit)
-        elif entity == "password":
-            results = db.search_passwords(subject=query, limit=limit)
-        elif entity == "category":
-            results = db.get_categories()
-        elif entity == "calendar_list":
-            results = db.get_calendars()
-        elif entity == "todolist":
-            results = db.get_todolists()
-        elif entity == "notetree":
-            results = db.get_notetrees()
-        else:
-            # e.g. "note_tab" resolves via ENTITY_ALIASES but has no search path
-            # — return an explicit error instead of a confusing {results: null}.
-            return json.dumps({
-                "error": f"entity_type {entity_type!r} is not searchable. Use: {VALID_ENTITY_TYPES}"
-            })
-
-        serialized = _serialize(results)
-        count = len(serialized) if isinstance(serialized, list) else 1
-        log_message(f"✅ epim_search: {count} {entity_type} found")
-
-        # Add short index numbers so the LLM can reference entries easily
-        if isinstance(serialized, list):
-            for i, item in enumerate(serialized, 1):
-                if isinstance(item, dict):
-                    item["_index"] = i
-
-        return json.dumps({"total_count": count, "results": serialized}, ensure_ascii=False, default=str)
-
-    # ----------------------------------------------------------
-    # epim_get
-    # ----------------------------------------------------------
-    async def _epim_get(entity_type: str, entity_id: int | str) -> str:
-        """Read one EPIM entry with full details."""
-        from ....lib.logging_utils import log_message
-        entity_id = int(entity_id)  # Accept string IDs from LLM
-        log_message(f"🗓️ epim_get: {entity_type} id={entity_id}")
-
-        entity = _resolve_entity(entity_type)
-        if entity == "password":
-            # search_passwords deliberately returns subjects only; a detail
-            # read would hand plaintext credentials to whatever channel is
-            # driving the LLM. Password contents stay out of the tool surface.
-            return json.dumps({
-                "error": "password entries cannot be read via epim_get "
-                "(credential safety) — only searched by subject."
-            })
-        if entity not in ("task", "contact", "note"):
-            return json.dumps({
-                "error": f"Unknown entity_type for get: {entity_type}. "
-                "Use: task, contact, note (todos already include their text in epim_search)"
-            })
-
-        result: Optional[dict]
-        if entity == "task":
-            result = db.get_task(entity_id)
-            if result is not None:
-                # Raw hex-encoded custom-field blob — meaningless to the LLM
-                result.pop("FIELDSDATA", None)
-                result.pop("FIELDSDATA2", None)
-        elif entity == "contact":
-            result = db.get_contact(entity_id)
-        else:
-            result = db.get_note(entity_id)
-
+    async def epim_get(entity_type: str, entity_id: object) -> str:
+        getters = {"task": db.get_task, "contact": db.get_contact, "note": db.get_note}
+        try:
+            if entity_type not in getters:
+                raise InvalidValue(f"entity_type must be one of {', '.join(GET_TYPES)}")
+            row_id = parse_id(entity_id, "entity_id")
+            result = await run(f"epim_get {entity_type} {row_id}", getters[entity_type], row_id)
+        except _EXPECTED_ERRORS as exc:
+            return _error(str(exc))
         if result is None:
-            log_message(f"❌ epim_get: {entity} {entity_id} not found")
-            return json.dumps({"error": f"{entity} {entity_id} not found"})
+            return _error(f"{entity_type} {entity_id} not found")
+        return json.dumps(_json_value({"result": result}), ensure_ascii=False)
 
-        log_message(f"✅ epim_get: {entity} {entity_id}")
-        return json.dumps({"result": _serialize(result)}, ensure_ascii=False, default=str)
+    async def epim_create(entity_type: str, data: dict) -> str:
+        creators = {"task": _task_create, "contact": _contact_create, "note": _note_create,
+                    "todo": _todo_create}
+        try:
+            if entity_type not in creators:
+                raise InvalidValue(f"entity_type must be one of {', '.join(CREATE_TYPES)}")
+            if not isinstance(data, dict):
+                raise InvalidValue("data must be an object")
+            new_id = await run(f"epim_create {entity_type}", creators[entity_type], db, data)
+        except _EXPECTED_ERRORS as exc:
+            return _error(str(exc))
+        return _ok(id=new_id)
 
-    # ----------------------------------------------------------
-    # epim_create
-    # ----------------------------------------------------------
-    async def _epim_create(entity_type: str, data: dict) -> str:
-        """Create a new EPIM entry."""
-        from ....lib.logging_utils import log_message
-        log_message(f"🗓️ epim_create: {entity_type}")
+    async def epim_update(entity_type: str, entity_id: object, data: dict) -> str:
+        updaters = {"task": _task_update, "contact": _contact_update, "note": _note_update,
+                    "note_tab": _note_tab_update, "todo": _todo_update}
+        try:
+            if entity_type not in updaters:
+                raise InvalidValue(f"entity_type must be one of {', '.join(UPDATE_TYPES)}")
+            if not isinstance(data, dict):
+                raise InvalidValue("data must be an object")
+            row_id = parse_id(entity_id, "entity_id")
+            await run(f"epim_update {entity_type} {row_id}", updaters[entity_type], db, row_id, data)
+        except _EXPECTED_ERRORS as exc:
+            return _error(str(exc))
+        return _ok(id=row_id)
 
-        entity = _resolve_entity(entity_type)
-        if entity not in ("task", "contact", "note", "todo", "password"):
-            return json.dumps({"error": f"Unknown entity_type for create: {entity_type}. Use: task, contact, note, todo, password"})
+    async def epim_delete(entity_type: str, entity_id: object) -> str:
+        deleters = {"task": db.delete_task, "contact": db.delete_contact, "note": db.delete_note,
+                    "todo": db.delete_todo, "password": db.delete_password}
+        try:
+            if entity_type not in deleters:
+                raise InvalidValue(f"entity_type must be one of {', '.join(DELETE_TYPES)}")
+            if entity_type == "password" and source != _PASSWORD_CHANNEL:
+                raise EpimRefused("password entries can only be deleted from the web UI")
+            row_id = parse_id(entity_id, "entity_id")
+            await run(f"epim_delete {entity_type} {row_id}", deleters[entity_type], row_id)
+        except _EXPECTED_ERRORS as exc:
+            return _error(str(exc))
+        return _ok(id=row_id)
 
-        if entity == "password" and source != "browser":
-            return json.dumps({"error": _PASSWORD_WRITE_REFUSED})
+    def tool(name: str, tier: int, executor: Any, enum: list[str]) -> Tool:
+        return Tool(name=name, tier=tier, executor=executor,
+                    description=load_tool_description(__file__, name),
+                    parameters=load_tool_parameters(__file__, name, enums={"entity_type": enum}))
 
-        if entity == "task":
-            title = data.get("title", "Neuer Termin")
-            new_id = db.create_task(
-                title=title,
-                start=data.get("start", ""),
-                end=data.get("end", ""),
-                location=data.get("location"),
-                allday=data.get("allday", False),
-                text=data.get("text"),
-                priority=data.get("priority", 0),
-                tags=data.get("tags"),
-                calendar_id=data.get("calendar_id"),
-                calendar_name=data.get("calendar_name") or data.get("calendar"),
-                category_id=data.get("category_id"),
-                category_name=data.get("category_name") or data.get("category"),
-            )
-            log_message(f"✅ epim_create: Task {new_id} '{title}'")
-            return json.dumps({"success": True, "id": new_id, "title": title})
-
-        elif entity == "contact":
-            name = data.get("name", "Neuer Kontakt")
-            # Fields can be nested {"fields": {"Telefon": "..."}} or flat {"Telefon": "..."}
-            fields = data.get("fields") or _extract_contact_fields(data)
-            new_id = db.create_contact(
-                name=name,
-                fields=fields if fields else None,
-                tags=data.get("tags"),
-            )
-            log_message(f"✅ epim_create: Contact {new_id} '{name}'")
-            return json.dumps({"success": True, "id": new_id, "name": name})
-
-        elif entity == "note":
-            title = data.get("title", "Neue Notiz")
-            new_id = db.create_note(
-                title=title,
-                tab_name=data.get("tab_name", "Tab 1"),
-                tab_text=data.get("text", ""),
-                tags=data.get("tags"),
-                tree_id=data.get("tree_id"),
-                tree_name=data.get("tree_name") or data.get("tree"),
-            )
-            log_message(f"✅ epim_create: Note {new_id} '{title}'")
-            return json.dumps({"success": True, "id": new_id, "title": title})
-
-        elif entity == "todo":
-            title = data.get("title", "Neue Aufgabe")
-            new_id = db.create_todo(
-                title=title,
-                start=data.get("start"),
-                end=data.get("end"),
-                priority=data.get("priority", 0),
-                text=data.get("text"),
-                tags=data.get("tags"),
-                list_id=data.get("list_id"),
-                list_name=data.get("list_name") or data.get("list"),
-            )
-            log_message(f"✅ epim_create: Todo {new_id} '{title}'")
-            return json.dumps({"success": True, "id": new_id, "title": title})
-
-        else:  # password
-            subject = data.get("subject", "Neuer Eintrag")
-            new_id = db.create_password(
-                subject=subject,
-                fields=data.get("fields"),
-                group_id=data.get("group_id"),
-                tags=data.get("tags"),
-            )
-            log_message(f"✅ epim_create: Password {new_id} '{subject}'")
-            return json.dumps({"success": True, "id": new_id, "subject": subject})
-
-    # ----------------------------------------------------------
-    # epim_update
-    # ----------------------------------------------------------
-    async def _epim_update(entity_type: str, entity_id: int | str, data: dict) -> str:
-        """Update an existing EPIM entry."""
-        from ....lib.logging_utils import log_message
-        entity_id = int(entity_id)  # Accept string IDs from LLM
-        log_message(f"🗓️ epim_update: {entity_type} id={entity_id}")
-
-        entity = _resolve_entity(entity_type)
-        if entity not in ("task", "contact", "note", "note_tab", "todo", "password"):
-            return json.dumps({"error": f"Unknown entity_type for update: {entity_type}. Use: task, contact, note, note_tab, todo, password"})
-
-        if entity == "password" and source != "browser":
-            return json.dumps({"error": _PASSWORD_WRITE_REFUSED})
-
-        if entity == "task":
-            # Map LLM-friendly field names to DB column names
-            field_map = {
-                "start": "STARTTIME", "end": "ENDTIME",
-                "title": "TITLE", "location": "LOCATION",
-                "text": "TEXT", "priority": "PRIORITY",
-                "allday": "ALLDAY", "tags": "TAGS",
-            }
-            mapped = {field_map.get(k, k): v for k, v in data.items()}
-            ok = db.update_task(entity_id, **mapped)
-        elif entity == "contact":
-            # Flache Felder ({"Telefon": ...}) wie beim Create extrahieren —
-            # vorher ignorierte der Update-Pfad sie kommentarlos.
-            ok = db.update_contact(
-                entity_id,
-                name=data.get("name"),
-                fields=data.get("fields") or _extract_contact_fields(data),
-                tags=data.get("tags"),
-            )
-        elif entity == "note":
-            ok = db.update_note(entity_id, title=data.get("title"), tags=data.get("tags"))
-        elif entity == "note_tab":
-            ok = db.update_note_tab(entity_id, name=data.get("name"), text=data.get("text"))
-        elif entity == "todo":
-            # Same LLM→column mapping as task, otherwise 'start'/'end' etc. are
-            # silently dropped (the DB allowlist only knows STARTTIME/ENDTIME).
-            todo_field_map = {
-                "start": "STARTTIME", "end": "ENDTIME",
-                "title": "TITLE", "text": "TEXT",
-                "priority": "PRIORITY", "tags": "TAGS",
-            }
-            mapped = {todo_field_map.get(k, k): v for k, v in data.items()}
-            ok = db.update_todo(entity_id, **mapped)
-        else:  # password
-            ok = db.update_password(
-                entity_id,
-                subject=data.get("subject"),
-                fields=data.get("fields"),
-                tags=data.get("tags"),
-            )
-
-        status = "updated" if ok else "not found or unchanged"
-        log_message(f"{'✅' if ok else '❌'} epim_update: {entity_type} {entity_id} → {status}")
-        return json.dumps({"success": ok, "id": entity_id, "status": status})
-
-    # ----------------------------------------------------------
-    # epim_delete
-    # ----------------------------------------------------------
-    async def _epim_delete(entity_type: str, entity_id: int | str) -> str:
-        """Soft-delete an EPIM entry."""
-        from ....lib.logging_utils import log_message
-        entity_id = int(entity_id)  # Accept string IDs from LLM
-        log_message(f"🗓️ epim_delete: {entity_type} id={entity_id}")
-
-        entity = _resolve_entity(entity_type)
-        if entity not in ("task", "contact", "note", "todo", "password"):
-            return json.dumps({"error": f"Unknown entity_type for delete: {entity_type}. Use: task, contact, note, todo, password"})
-
-        # Symmetrisch zu create/update: Passwort-Operationen nur mit
-        # anwesendem User (Browser), nicht von externen Kanälen.
-        if entity == "password" and source != "browser":
-            return json.dumps({"error": _PASSWORD_WRITE_REFUSED})
-
-        if entity == "task":
-            ok = db.delete_task(entity_id)
-        elif entity == "contact":
-            ok = db.delete_contact(entity_id)
-        elif entity == "note":
-            ok = db.delete_note(entity_id)
-        elif entity == "todo":
-            ok = db.delete_todo(entity_id)
-        else:  # password
-            ok = db.delete_password(entity_id)
-
-        status = "deleted" if ok else "not found"
-        log_message(f"{'✅' if ok else '❌'} epim_delete: {entity_type} {entity_id} → {status}")
-        return json.dumps({"success": ok, "id": entity_id, "status": status})
-
-    # ----------------------------------------------------------
-    # Tool definitions — Descriptions aus prompts/tools/ beim Plugin
-    # (Standard-Konvention load_tool_description, nur EN, fail-loud)
-    # ----------------------------------------------------------
-    from ....lib.plugin_base import load_tool_description, load_tool_parameters
-    search_desc = load_tool_description(__file__, "epim_search")
-    get_desc = load_tool_description(__file__, "epim_get")
-    create_desc = load_tool_description(__file__, "epim_create")
-    update_desc = load_tool_description(__file__, "epim_update")
-    delete_desc = load_tool_description(__file__, "epim_delete")
-
-    return [
-        Tool(
-            name="epim_search",
-            tier=TIER_READONLY,
-            description=search_desc,
-            parameters=load_tool_parameters(__file__, "epim_search"),
-            executor=_epim_search,
-        ),
-        Tool(
-            name="epim_get",
-            tier=TIER_READONLY,
-            description=get_desc,
-            parameters=load_tool_parameters(__file__, "epim_get"),
-            executor=_epim_get,
-        ),
-        Tool(
-            name="epim_create",
-            tier=TIER_WRITE_DATA,
-            description=create_desc,
-            parameters=load_tool_parameters(__file__, "epim_create"),
-            executor=_epim_create,
-        ),
-        Tool(
-            name="epim_update",
-            tier=TIER_WRITE_DATA,
-            description=update_desc,
-            parameters=load_tool_parameters(__file__, "epim_update"),
-            executor=_epim_update,
-        ),
-        Tool(
-            name="epim_delete",
-            tier=TIER_WRITE_SYSTEM,
-            description=delete_desc,
-            parameters=load_tool_parameters(__file__, "epim_delete"),
-            executor=_epim_delete,
-        ),
+    tools = [
+        tool("epim_search", TIER_READONLY, epim_search, SEARCH_TYPES),
+        tool("epim_get", TIER_READONLY, epim_get, GET_TYPES),
     ]
+    if db.write_enabled:
+        tools += [
+            tool("epim_create", TIER_WRITE_DATA, epim_create, CREATE_TYPES),
+            tool("epim_update", TIER_WRITE_DATA, epim_update, UPDATE_TYPES),
+            tool("epim_delete", TIER_WRITE_SYSTEM, epim_delete, DELETE_TYPES),
+        ]
+    return tools
+
+
+READ_TOOL_NAMES = frozenset({"epim_search", "epim_get"})
+WRITE_TOOL_NAMES = frozenset({"epim_create", "epim_update", "epim_delete"})

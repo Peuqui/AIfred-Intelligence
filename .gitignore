@@ -143,3 +143,6 @@ aifred/plugins/tools/mcp_client/servers.json
 
 # FreeEcho.2-Sprachweichen: maschinenlokale Routentabelle (Vorlage: voice_routes.example.json)
 aifred/plugins/channels/freeecho2_channel/voice_routes.json
+# Local Aragon configuration and state of the push script
+aifred/plugins/tools/epim/aragon/push-epim-to-mini.json
+aifred/plugins/tools/epim/aragon/push-epim-to-mini.state.json

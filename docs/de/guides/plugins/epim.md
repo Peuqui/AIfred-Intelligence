@@ -4,51 +4,73 @@
 
 **Datei:** `aifred/plugins/tools/epim/`
 
-CRUD-Operationen auf einer EssentialPIM Firebird-Datenbank. Ermöglicht dem LLM, Kontakte, Termine, Notizen, Aufgaben (Todos), Passwörter und weitere Entitäten zu verwalten.
-
-Das Plugin ist erst verfügbar, sobald ein Datenbankpfad konfiguriert ist — ohne ihn liefert `is_available()` `False` und die Tools werden nicht registriert (siehe [Konfiguration](#konfiguration)).
+Zugriff auf eine EssentialPIM-Datenbank (Firebird 2.5, eingebettet): Termine, Kontakte, Notizen, Aufgaben und die Titel der Passworteinträge. Standardmäßig **nur lesend**; Schreiben schaltet der Schalter „Schreibzugriff“ in den Plugin-Einstellungen frei.
 
 ## Tools
 
-| Tool | Beschreibung | Tier |
-|------|-------------|------|
-| `epim_search` | Einträge suchen/lesen (tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees) | READONLY |
-| `epim_create` | Neuen Eintrag anlegen (task, contact, note, todo, password) | WRITE_DATA |
-| `epim_update` | Bestehenden Eintrag aktualisieren (task, contact, note, note_tab, todo, password) | WRITE_DATA |
-| `epim_delete` | Eintrag soft-löschen (task, contact, note, todo, password) | WRITE_SYSTEM |
+| Tool | Beschreibung | Tier | Angeboten |
+|------|-------------|------|-----------|
+| `epim_search` | Termine, Kontakte, Notizen, Aufgaben, Passwort-Titel; Listen der Kategorien, Kalender, Aufgabenlisten, Notizbäume | READONLY | immer |
+| `epim_get` | Ein Termin, Kontakt oder eine Notiz mit allen Tabs | READONLY | immer |
+| `epim_create` | Termin, Kontakt, Notiz, Aufgabe anlegen | WRITE_DATA | nur mit Schreibzugriff |
+| `epim_update` | Termin, Kontakt, Notiz, Notiz-Tab, Aufgabe ändern | WRITE_DATA | nur mit Schreibzugriff |
+| `epim_delete` | In den EPIM-Papierkorb verschieben | WRITE_SYSTEM | nur mit Schreibzugriff |
 
-### Parameter von `epim_search`
+Ist der Schreibzugriff aus, bekommt das Modell die Schreib-Tools und ihre Anleitung gar nicht erst zu sehen.
 
-| Parameter | Typ | Hinweis |
-|-----------|-----|---------|
-| `entity_type` | string | **Pflicht.** Einer der obigen Entity-Typen |
-| `query` | string | Suchtext (Titel, Name, Betreff) |
-| `date_from` | string | Startdatum-Filter `YYYY-MM-DD`, nur für Tasks |
-| `date_to` | string | Enddatum-Filter `YYYY-MM-DD`, nur für Tasks |
-| `completed` | boolean | Filter nach Erledigt-Status, nur für Todos |
-| `limit` | integer | Max. Ergebnisse (Standard: 20) |
+## Schutz der Datenbank
 
-`epim_create` und `epim_update` erwarten einen `entity_type` sowie ein `data`-Objekt
-mit den Feldern der Entität. `epim_update` und `epim_delete` benötigen zusätzlich die
-`entity_id` aus den Ergebnissen von `epim_search`.
+Ist der Schreibzugriff aus, greifen vier voneinander unabhängige Sperren:
 
-## Features
+1. Die Schreib-Tools werden nicht angeboten.
+2. Die Datenbankschicht verweigert jeden Schreibaufruf (`EpimWriteDisabled`).
+3. Jeder Lesezugriff läuft in einer nur-lesenden Transaktion, die sofort wieder endet.
+4. Die Datei selbst steht im Firebird-Modus `read_only` — die Engine lehnt jede Änderung ab. Der Schalter in den Einstellungen setzt diesen Modus beim Speichern um.
 
-- **Name-zu-ID-Auflösung:** Natürliche Referenzen wie "Termin mit Max" werden auf die richtige DB-ID aufgelöst; Kategorie, Kalender, Todo-Liste und Notizbaum können per Name statt ID angegeben werden.
-- **Entity-Aliase:** Englische und deutsche Entity-Namen (z. B. `tasks`/`termine`, `contacts`/`kontakte`) werden auf denselben kanonischen Typ aufgelöst.
-- **7-Tage-Datumsreferenz:** Der System-Prompt injiziert die kommende Woche, damit relative Angaben ("morgen", "nächsten Montag") korrekt interpretiert werden.
-- **Anti-Halluzination:** Strikte Prompt-Regeln verbieten das Erfinden von Einträgen; ein leeres Ergebnis wird ehrlich gemeldet.
-- **Field-Mapping:** LLM-freundliche und englische Feldnamen werden auf die internen deutschen EPIM-Spaltennamen gemappt.
-- **Große-ID-Sicherheit:** Große Integer-IDs werden als Strings zurückgegeben, damit das LLM sie nicht kürzt oder rundet.
+Weitere Regeln, auch bei eingeschaltetem Schreiben:
+
+- Jede Transaktion endet mit dem Aufruf (Commit oder Rollback als Einheit), mit 10 s Sperr-Zeitlimit statt unbegrenztem Warten. Die Datenbankaufrufe laufen in einem Worker-Thread und blockieren den Event-Loop nicht.
+- AIfred verbindet sich ohne EPIMs Datenbank-Trigger (`DB_CONNECT0` trägt sonst jede Sitzung in `CONNECTIONS` ein). Die Trigger auf den Tabellen laufen normal.
+- Wird die Datei ersetzt (neuer Spiegel), verbindet sich der nächste Aufruf neu.
+- Eingaben werden streng geprüft: Datum nur als `YYYY-MM-DD` bzw. `YYYY-MM-DD HH:MM`, unbekannte Felder führen zu einer Fehlermeldung statt still zu verschwinden, ein Ende vor dem Start wird abgelehnt.
+- Serientermine (EPIM erzeugt jedes Vorkommen als eigene Zeile) und Einträge mit Untereinträgen werden nicht geändert oder gelöscht — das bleibt EPIM vorbehalten.
+- Kontaktfelder: Der Codec schreibt nur, wenn er die gespeicherten Felder vollständig versteht und bytegenau zurückschreiben kann; sonst lehnt er ab. Lesen meldet unvollständig gespeicherte Felder (`field_data_error`).
+- Löschen ist ein Verschieben in den EPIM-Papierkorb (`STATUS=1`, `DELETED`), wie EPIM selbst es macht.
+
+**Noch nicht freigeschaltet**, bis EPIMs eigenes Schreibformat per Referenzprotokoll belegt ist: Notizen und Aufgaben anlegen, Notiztext ändern, Aufgaben abhaken, Passworteinträge anlegen oder ändern. Das Tool meldet das ausdrücklich.
+
+## EPIM-Eigenheiten
+
+- „Kein Datum“ speichert EPIM als 30.12.1899 (Delphi-Nullwert); AIfred gibt dafür `null` aus.
+- Ganztägige Termine: Ende in EPIM = Mitternacht nach dem letzten Tag; AIfred nimmt und liefert den letzten Tag einschließlich.
+- Notiztext zeigt EPIM aus `FORMATEDTEXT` (zlib-komprimiertes RTF); `TEXT` ist die Klartextkopie.
+- Standard-Kontaktfelder tragen in der Datenbank keinen Namen; die Namen stehen in `contact_fields.py` (nur belegte Felder). Datumsfelder enthalten Delphi-Tageszahlen.
+
+## Spiegel von Aragon
+
+Die Arbeits-DB liegt auf Aragon (Windows). Das Skript `aragon/push-epim-to-mini.ps1` kopiert sie zum Mini, sobald EssentialPIM geschlossen ist (exklusives Öffnen schlägt sonst fehl). Auf dem Mini baut `install-mirror` die Kopie per Firebird-Sicherung und -Wiederherstellung neu auf, vergleicht die Datensatzzahl jeder Tabelle, setzt sie schreibgeschützt und tauscht sie atomar gegen die konfigurierte Datei; die vorige bleibt als `.previous`. Bei eingeschaltetem Schreibzugriff verweigert `install-mirror`, damit AIfreds Änderungen nicht überschrieben werden.
 
 ## Konfiguration
 
-Über das Credential-Feld `EPIM_DB_PATH` setzen (z. B. in `.env` oder im Plugin-Einstellungs-UI):
+In den Plugin-Einstellungen (gespeichert in `aifred/plugins/tools/epim/settings.json`):
+
+| Feld | Bedeutung |
+|------|-----------|
+| `EPIM_DB_PATH` | Pfad zur `.epim`-Datei |
+| `EPIM_WRITE_ENABLED` | `false` (Standard) oder `true` |
+
+Die eingebettete Firebird-Bibliothek liegt in `lib/firebird25/` (nicht versioniert).
+
+## Wartung
 
 ```
-EPIM_DB_PATH=/path/to/database.epim
+python -m aifred.plugins.tools.epim.maintenance validate FILE
+python -m aifred.plugins.tools.epim.maintenance rebuild SOURCE DEST
+python -m aifred.plugins.tools.epim.maintenance set-mode FILE read-only|read-write
+python -m aifred.plugins.tools.epim.maintenance snapshot FILE OUT.json
+python -m aifred.plugins.tools.epim.maintenance diff BEFORE.json AFTER.json
+python -m aifred.plugins.tools.epim.maintenance install-mirror INCOMING
+python -m aifred.plugins.tools.epim.maintenance make-fixture SOURCE DEST
 ```
 
-- `EPIM_ENABLED` wird automatisch abgeleitet — es ist genau dann true, wenn `EPIM_DB_PATH` gesetzt ist.
-- Ohne gültige, lesbare Datenbank meldet sich das Plugin als nicht verfügbar und stellt keine Tools bereit.
-- Passwörter werden niemals ungefragt angezeigt (durch die Prompt-Instruktionen erzwungen).
+`make-fixture` erzeugt die Test-Datenbank für die Integrationstests (`data/epim/test-fixture.epim`): das komplette EPIM-Schema mit Triggern und Views, aber nur die Grundtabellen, keine Einträge.

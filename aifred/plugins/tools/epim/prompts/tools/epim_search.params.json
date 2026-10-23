@@ -3,30 +3,29 @@
   "properties": {
     "entity_type": {
       "type": "string",
-      "description": "Entity type: tasks, contacts, notes, todos, passwords, categories, calendar_list, todolists, notetrees"
+      "enum": [],
+      "description": "What to search"
     },
     "query": {
       "type": "string",
-      "description": "Search text (title, name, subject)"
+      "description": "Search text in title, name or subject; for notes also in the text. Omit to list entries."
     },
     "date_from": {
       "type": "string",
-      "description": "Start date filter (YYYY-MM-DD), only for tasks"
+      "description": "tasks only: first day, YYYY-MM-DD"
     },
     "date_to": {
       "type": "string",
-      "description": "End date filter (YYYY-MM-DD), only for tasks"
+      "description": "tasks only: last day (inclusive), YYYY-MM-DD"
     },
     "completed": {
       "type": "boolean",
-      "description": "Filter by completion status, only for todos"
+      "description": "todos only: true = done, false = open"
     },
     "limit": {
       "type": "integer",
-      "description": "Max results (default: 20)"
+      "description": "Maximum number of results (default 20)"
     }
   },
-  "required": [
-    "entity_type"
-  ]
+  "required": ["entity_type"]
 }

@@ -1,1 +1,1 @@
-Search the user's EPIM database: appointments and calendar, contacts (phone numbers, addresses), notes, todos, passwords. ALWAYS call it for such questions, never answer from memory. For notes it returns titles/metadata only — the content comes from epim_get.
+Search the user's EPIM database: appointments, contacts (phone numbers, addresses), notes, todos, password titles, and the lists of categories, calendars, todo lists and note trees. Call it for every such question.

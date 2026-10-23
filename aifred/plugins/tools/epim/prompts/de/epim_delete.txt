@@ -1,0 +1,1 @@
+LÖSCHEN (epim_delete): Einträge wandern in den EPIM-Papierkorb. Vor dem Löschen den Eintrag nennen und bestätigen lassen. Serientermine und Einträge mit Untereinträgen lehnt das Tool ab — dann auf EPIM verweisen.

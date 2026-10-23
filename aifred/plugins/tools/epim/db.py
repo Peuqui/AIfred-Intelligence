@@ -1,1369 +1,762 @@
-"""EPIM Firebird 2.5 database access layer.
+"""EPIM database access (EssentialPIM, embedded Firebird 2.5).
 
-Provides CRUD operations for all EPIM entities:
-- Tasks (calendar events)
-- Contacts
-- Notes (with tabs)
-- Todos
-- Password entries
+Every call runs in its own short transaction and ends it: reads in a
+read-only read-committed transaction, writes in a read-committed write
+transaction with a lock timeout that commits or rolls back as one unit.
+Nothing keeps a transaction open between calls (an open transaction holds
+back Firebird's garbage collection and, after a crash, the oldest
+interesting transaction).
 
-Connection: Firebird 2.5 embedded via fdb library.
+Writes are refused unless the plugin's write switch is on; the tool layer
+does not even offer write tools then. The database file is opened by path;
+when it is replaced (a new mirror from Aragon), the next call reconnects.
+
+EPIM's own conventions this module follows (verified on the database):
+- STATUS 0 = live, 1 = deleted (soft delete with a DELETED timestamp).
+- Recurring series: the master row points to itself (IDPARENT = IDTASK),
+  EPIM materializes every occurrence as its own row pointing to the master.
+  Series are edited in EPIM only.
+- "No date" is stored as 1899-12-30 (Delphi's zero date), not NULL.
+- Note text is shown from FORMATEDTEXT (zlib-compressed RTF); TEXT is the
+  plain copy used for search and preview.
 """
 
-import functools
 import logging
-import os
 import threading
-from datetime import datetime
+import time
+from collections.abc import Iterator
+from contextlib import contextmanager
+from dataclasses import dataclass
+from datetime import date, datetime, timedelta
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import fdb
 
+from . import codec, firebird
+from .contact_fields import CONTACT_FIELD_LABELS, DATE_FIELD_TYPE, DELPHI_EPOCH
+from .settings import load_epim_settings
+
 logger = logging.getLogger(__name__)
 
-# Singleton instance
-_instance: Optional["EpimDatabase"] = None
-_lock = threading.Lock()
+LOCK_TIMEOUT_SEC = 10
+LIMIT_MAX = 500
+_ZERO_DATE = datetime(1899, 12, 30)  # noqa: DTZ001 — EPIM stores naive local time
+_LIVE, _DELETED = 0, 1
 
 
-def get_epim_db() -> Optional["EpimDatabase"]:
-    """Get or create the singleton EpimDatabase instance.
-
-    Returns None if EPIM is disabled or DB file doesn't exist.
-    """
-    global _instance
-    if _instance is not None:
-        return _instance
-
-    with _lock:
-        if _instance is not None:
-            return _instance
-
-        from ....lib.config import EPIM_DB_PATH, EPIM_ENABLED, EPIM_FB_DIR, EPIM_FB_LIB
-
-        if not EPIM_ENABLED:
-            return None
-
-        db_path = Path(EPIM_DB_PATH)
-        lib_path = Path(EPIM_FB_LIB)
-        if not db_path.exists():
-            logger.warning("EPIM database not found: %s", db_path)
-            return None
-        if not lib_path.exists():
-            logger.warning("Firebird library not found: %s", lib_path)
-            return None
-
-        _instance = EpimDatabase(
-            db_path=str(db_path),
-            fb_lib=str(lib_path),
-            fb_dir=str(EPIM_FB_DIR),
-        )
-        return _instance
+class EpimWriteDisabled(PermissionError):
+    """Write access is switched off in the plugin settings."""
 
 
-# ============================================================
-# FIELDSDATA codec
-# ============================================================
-# Format: [field_id (8 hex)][length (4 hex)][value]...
-# Example: "000000010006Stefan" → field_id=1, length=6, value="Stefan"
-#
-# CRITICAL: `length` is the number of UTF-8 *bytes* of the value, NOT the
-# character count. For ASCII the two are equal, but any value with an umlaut
-# (ä/ö/ü/ß …) has more bytes than characters. Empirically verified against the
-# real database: byte-length reproduces 398/399 contacts exactly, char-length
-# only 298/399 — and a char-based decoder corrupts/drops every field that
-# follows a multibyte character. Therefore the codec works on the UTF-8 byte
-# stream and slices values by byte offset. The 8+4 hex header is pure ASCII, so
-# header byte offsets and char offsets coincide.
+class EpimRefused(ValueError):
+    """The operation would break EPIM's data model and is refused."""
 
 
-def _decode_fieldsdata_items(raw: str) -> list[tuple[int, str]]:
-    """Low-level decode: raw hex string → ordered ``[(field_id, value)]``.
-
-    Preserves EVERY field including unknown/custom field ids (no name mapping,
-    no dropping). This is the basis for a lossless read-modify-write merge.
-    """
-    if not raw:
-        return []
-    data = raw.encode("utf-8")
-    out: list[tuple[int, str]] = []
-    pos = 0
-    n = len(data)
-    while pos + 12 <= n:  # 8 (id) + 4 (length) header bytes
-        try:
-            field_id = int(data[pos:pos + 8], 16)
-            length = int(data[pos + 8:pos + 12], 16)
-            pos += 12
-            if pos + length > n:
-                break
-            value = data[pos:pos + length].decode("utf-8", "replace")
-            pos += length
-            out.append((field_id, value))
-        except (ValueError, IndexError):
-            break
-    return out
+@dataclass(frozen=True)
+class LookupEntry:
+    id: int
+    name: str
 
 
-def _encode_fieldsdata_items(items: list[tuple[int, str]]) -> str:
-    """Low-level encode: ordered ``[(field_id, value)]`` → raw hex string.
-
-    The length header is the UTF-8 *byte* count of the value (see module note).
-    """
-    parts: list[str] = []
-    for field_id, value in items:
-        str_value = value if isinstance(value, str) else str(value)
-        byte_len = len(str_value.encode("utf-8"))
-        # The length is a 4-hex-digit field: values longer than 0xFFFF bytes
-        # would overflow to 5 digits and corrupt the format for ALL following
-        # fields. Fail loudly instead of silently writing garbage.
-        if byte_len > 0xFFFF:
-            raise ValueError(
-                f"EPIM field {field_id} too long ({byte_len} bytes, max {0xFFFF})"
-            )
-        parts.append(f"{field_id:08X}{byte_len:04X}{str_value}")
-    return "".join(parts)
+def _write_tpb() -> fdb.TPB:
+    tpb = fdb.TPB()
+    tpb.access_mode = fdb.isc_tpb_write
+    tpb.isolation_level = (fdb.isc_tpb_read_committed, fdb.isc_tpb_rec_version)
+    tpb.lock_resolution = fdb.isc_tpb_wait
+    tpb.lock_timeout = LOCK_TIMEOUT_SEC
+    return tpb
 
 
-def _resolve_field_id(name: str, name_to_id: dict[str, int]) -> int | None:
-    """Map a field name to its id. Accepts the ``field_<id>`` form used by the
-    decoder for ids without a known name, so custom fields survive a round-trip."""
-    if name in name_to_id:
-        return name_to_id[name]
-    if name.startswith("field_") and name[6:].isdigit():
-        return int(name[6:])
-    return None
-
-
-def decode_fieldsdata(raw: str, field_map: Optional[dict[int, str]] = None) -> dict[str, str]:
-    """Decode EPIM hex-encoded FIELDSDATA to a ``{field_name: value}`` dict.
-
-    Args:
-        raw: Hex-encoded field string from database.
-        field_map: Optional mapping of field_id → human-readable name.
-    """
-    result: dict[str, str] = {}
-    for field_id, value in _decode_fieldsdata_items(raw):
-        if field_map and field_id in field_map:
-            key = field_map[field_id]
-        else:
-            key = f"field_{field_id}"
-        result[key] = value
-    return result
-
-
-def encode_fieldsdata(fields: dict[str, str], name_to_id: dict[str, int]) -> str:
-    """Encode a ``{field_name: value}`` dict back to EPIM FIELDSDATA.
-
-    Fail-loud: a name that resolves to no field id raises instead of being
-    silently dropped (the tool would otherwise report success while the
-    value never reached the database). The ``field_<id>`` form is accepted
-    so custom fields keep their id.
-    """
-    items: list[tuple[int, str]] = []
-    unknown: list[str] = []
-    for name, value in fields.items():
-        field_id = _resolve_field_id(name, name_to_id)
-        if field_id is None:
-            unknown.append(name)
-            continue
-        items.append((field_id, value))
-    if unknown:
-        raise ValueError(
-            f"Unknown contact field(s): {', '.join(sorted(unknown))}. "
-            f"Valid names: {', '.join(sorted(name_to_id))}"
-        )
-    return _encode_fieldsdata_items(items)
-
-
-def merge_fieldsdata(
-    existing_raw: str, new_fields: dict[str, str], name_to_id: dict[str, int]
-) -> str:
-    """Read-modify-write merge: keep every existing field, overlay ``new_fields``.
-
-    EPIM stores all of a record's fields concatenated in ONE column. A partial
-    update must therefore re-encode the FULL set — writing only the changed
-    fields (as the old code did) wipes everything else. Merging at the raw
-    field-id level preserves fields whose id has no human-readable name
-    (custom fields decoded as ``field_<id>``), which a name-level merge drops.
-    """
-    items = _decode_fieldsdata_items(existing_raw)
-    index = {field_id: i for i, (field_id, _) in enumerate(items)}
-    unknown: list[str] = []
-    for name, value in new_fields.items():
-        field_id = _resolve_field_id(name, name_to_id)
-        if field_id is None:
-            # Fail-loud (wie encode_fieldsdata): stilles Skippen ließe das
-            # Tool Erfolg melden, ohne dass der Wert je ankommt.
-            unknown.append(name)
-            continue
-        if field_id in index:
-            items[index[field_id]] = (field_id, value)
-        else:
-            items.append((field_id, value))
-            index[field_id] = len(items) - 1
-    if unknown:
-        raise ValueError(
-            f"Unknown contact field(s): {', '.join(sorted(unknown))}. "
-            f"Valid names: {', '.join(sorted(name_to_id))}"
-        )
-    return _encode_fieldsdata_items(items)
-
-
-# ============================================================
-# Default contact field IDs (EPIM built-in)
-# ============================================================
-# IDs 1-60 are default fields with DEFFIELDINDEX mapping.
-# Custom fields have large IDs and user-defined names.
-DEFAULT_CONTACT_FIELDS: dict[int, str] = {
-    1: "Vorname",
-    2: "Nachname",
-    3: "Telefon",
-    4: "Telefon 2",
-    5: "Mobiltelefon",
-    6: "Adresse",
-    7: "Ort",
-    8: "Bundesland",
-    9: "PLZ",
-    10: "Land",
-    14: "Firma",
-    15: "Geburtstag",
-    16: "Jahrestag",
-    21: "E-Mail",
-    22: "E-Mail 2",
-    23: "Webseite",
-    24: "Telefon geschäftlich",
-    25: "Telefon geschäftlich 2",
-    26: "Fax geschäftlich",
-    27: "Adresse geschäftlich",
-    28: "Ort geschäftlich",
-    29: "Bundesland geschäftlich",
-    30: "PLZ geschäftlich",
-    31: "Land geschäftlich",
-    32: "Firma geschäftlich",
-    36: "Notizen",
-    37: "Fax",
-    38: "Pager",
-    43: "IM",
-    49: "Position",
-    55: "Abteilung",
-    56: "Assistent",
-    57: "Primär",
-    60: "Foto-URL",
-    61: "Adresse 2",
-    62: "Ort 2",
-    63: "PLZ 2",
-}
-
-_LIMIT_MAX = 500
+def _clamp_limit(limit: int) -> int:
+    # FIRST takes no bound parameter, so the value is interpolated — as int only.
+    return max(1, min(int(limit), LIMIT_MAX))
 
 
 def _like_pattern(term: str) -> str:
-    """Wrap a user-supplied search term in ``%…%`` with LIKE wildcards escaped.
-
-    ``%``/``_`` in the term would otherwise act as wildcards (a query for
-    ``100%`` matches everything). Every LIKE condition using this pattern must
-    carry ``ESCAPE '\\'``.
-    """
+    """``%term%`` with LIKE wildcards escaped; every LIKE using it carries ``ESCAPE '\\'``."""
     escaped = term.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
     return f"%{escaped}%"
 
 
-def _as_bool(value: object) -> bool:
-    """Coerce an LLM-supplied boolean-ish value.
-
-    The model sometimes sends the STRINGS "false"/"0"/"no" instead of a JSON
-    boolean; ``bool("false")`` is True, which would e.g. mark a timed event as
-    all-day. Treat the common falsey strings as False.
-    """
-    if isinstance(value, str):
-        return value.strip().lower() not in ("", "false", "0", "no", "none", "nein")
-    return bool(value)
+def _now() -> datetime:
+    return datetime.now()  # noqa: DTZ005 — EPIM stores naive local wall-clock time
 
 
-def _as_priority(value: object) -> int:
-    """Coerce an LLM-supplied priority — SSOT für create UND update.
-
-    Das Modell schickt manchmal "high"/"low"-Strings statt Zahlen; roh in
-    die Integer-Spalte geschrieben wäre das ein Firebird-Fehler bzw. Müll.
-    Unbekannte Strings → 0 ("keine Priorität", wie EPIMs Default).
-    """
-    if isinstance(value, str):
-        return {"low": 1, "medium": 5, "high": 9, "none": 0}.get(value.strip().lower(), 0)
-    if isinstance(value, (int, float)):
-        return int(value)
-    return 0
+def _date_out(value: datetime | None) -> datetime | None:
+    """EPIM's zero date means "no date"."""
+    return None if value is None or value == _ZERO_DATE else value
 
 
-def _effective_fieldsdata(fieldsdata: "str | None", fieldsdata2: "str | bytes | None") -> str:
-    """FIELDSDATA2 (BLOB) überschreibt FIELDSDATA, wenn belegt — EPIM-Semantik.
-
-    SSOT für search_contacts UND get_contact. fdb kann BLOBs als ``bytes``
-    liefern; ``decode_fieldsdata`` erwartet einen Hex-STRING (``raw.encode``
-    crashte sonst mit AttributeError auf bytes).
-    """
-    if fieldsdata2:
-        if isinstance(fieldsdata2, bytes):
-            return fieldsdata2.decode("utf-8", errors="replace")
-        return fieldsdata2
-    return fieldsdata or ""
-
-
-def _pop_alias(fields: dict, primary: str, fallback: str) -> "str | None":
-    """Beide Alias-Keys unconditional poppen und den Wert liefern.
-
-    Short-circuit (``pop(a) or pop(b)``) ließe den zweiten Key im Dict
-    stehen — und Alias-Namen würden groß-geschrieben zu erlaubten Spalten.
-    None, wenn keiner gesetzt oder der Wert kein String ist.
-    """
-    a = fields.pop(primary, None)
-    b = fields.pop(fallback, None)
-    val = a if a else b
-    return str(val) if val and isinstance(val, str) else None
-
-
-def _clamp_limit(limit: int) -> int:
-    """Coerce a tool-supplied ``limit`` to a safe integer for ``SELECT FIRST``.
-
-    ``limit`` is interpolated into SQL (Firebird has no parameter binding for
-    FIRST), so it must never reach the query as an arbitrary string. The JSON
-    tool schema declares ``integer`` but that is not enforced by the executor,
-    so we coerce here. A non-numeric value raises ValueError (surfaced to the
-    LLM as a tool error) rather than being silently dropped.
-    """
-    value = int(limit)
-    return max(1, min(value, _LIMIT_MAX))
-
-
-# Allowed UPDATE columns per entity (consumed by the generic _update_row).
-# Internal constants, never LLM input.
-_TASK_UPDATE_COLUMNS = frozenset({
-    "TITLE", "STARTTIME", "ENDTIME", "LOCATION", "ALLDAY",
-    "CALENDAR", "CATEGORY", "TEXT", "PRIORITY", "TAGS",
-    "COMPLETION", "COMPLETED", "EXCLUSIVE", "REPEATING",
-})
-_TODO_UPDATE_COLUMNS = frozenset({
-    "TITLE", "STARTTIME", "ENDTIME", "PRIORITY", "TEXT",
-    "TAGS", "COMPLETION", "COMPLETED", "IDLIST",
-})
-_CONTACT_UPDATE_COLUMNS = frozenset({"SUBJECT", "FIELDSDATA", "TAGS"})
-_NOTE_UPDATE_COLUMNS = frozenset({"TITLE", "TAGS"})
-_NOTETAB_UPDATE_COLUMNS = frozenset({"NAME", "TEXT"})
-_PASSWORD_UPDATE_COLUMNS = frozenset({"SUBJECT", "FIELDSDATA", "TAGS"})
-
-
-def _serialized(method):
-    """EP6: serialize all DB access through the instance RLock.
-
-    Firebird connections are not thread-safe (see class docstring); this
-    decorator is applied to every method that touches ``self._connect()``
-    or the connection. New DB methods MUST carry it too.
-    """
-    @functools.wraps(method)
-    def wrapper(self, *args, **kwargs):
-        with self._lock:
-            return method(self, *args, **kwargs)
-    return wrapper
+def _generate_id(last: list[int]) -> int:
+    """64-bit ID from the millisecond clock plus 10 random bits, strictly
+    increasing within the process (EPIM's IDs are random 64-bit values; the
+    primary keys reject a collision loudly)."""
+    import random
+    candidate = (int(time.time() * 1000) << 10) | random.randint(0, 1023)
+    if candidate <= last[0]:
+        candidate = last[0] + 1
+    last[0] = candidate
+    return candidate
 
 
 class EpimDatabase:
-    """Firebird 2.5 embedded database access for EPIM.
+    """One EPIM database file. All methods are safe to call from any thread;
+    a lock serializes them (Firebird connections are not thread-safe)."""
 
-    EP6: every DB method is wrapped in ``@_serialized`` — one process-wide
-    RLock serializes ALL database work. The singleton fdb connection is
-    shared between the Reflex backend loop and the Message-Hub worker
-    thread, and Firebird connections are not thread-safe; two concurrent
-    cursors can corrupt each other, and with the embedded C library the
-    worst case is a segfault of the whole worker. EPIM queries take
-    milliseconds, so strictly serial access costs nothing (decided with
-    user 2026-07-06 — same philosophy as the single inference slot).
-    RLock (not Lock) because methods call each other (resolve_* → get_*).
-    """
-
-    def __init__(self, db_path: str, fb_lib: str, fb_dir: str) -> None:
+    def __init__(self, db_path: Path, write_enabled: bool) -> None:
         self._db_path = db_path
-        self._fb_lib = fb_lib
-        self._fb_dir = fb_dir
-        self._con: Optional[fdb.Connection] = None
+        self._write_enabled = write_enabled
         self._lock = threading.RLock()
-        # Set the Firebird env once at construction — not on every _connect()
-        # (that mutated process-global state repeatedly, racy across threads).
-        os.environ["FIREBIRD"] = self._fb_dir
+        self._in_transaction = False
+        self._con: fdb.Connection | None = None
+        self._file_ident: tuple[int, int] | None = None
+        self._read_tr: Any = None
+        self._write_tr: Any = None
+        self._last_id = [0]
 
-    def _preload_libs(self) -> None:
-        """Preload Firebird's ICU dependencies before fdb loads libfbembed.
+    @property
+    def db_path(self) -> Path:
+        return self._db_path
 
-        LD_LIBRARY_PATH set at runtime doesn't affect dlopen() for transitive
-        dependencies. We must load ICU explicitly via ctypes first.
-        """
-        import ctypes
-        icu_libs = ["libicudata.so.57", "libicuuc.so.57", "libicui18n.so.57"]
-        for lib_name in icu_libs:
-            lib_path = os.path.join(self._fb_dir, lib_name)
-            if os.path.exists(lib_path):
-                try:
-                    ctypes.cdll.LoadLibrary(lib_path)
-                except OSError as e:
-                    logger.warning("Failed to preload %s: %s", lib_name, e)
+    @property
+    def write_enabled(self) -> bool:
+        return self._write_enabled
 
-    def _connect(self) -> fdb.Connection:
-        """Get or create database connection."""
-        if self._con is not None:
+    # ── connection and transactions ───────────────────────────────
+
+    def close(self) -> None:
+        with self._lock:
+            self._discard_connection()
+
+    def _discard_connection(self) -> None:
+        con, self._con = self._con, None
+        self._read_tr = self._write_tr = None
+        self._file_ident = None
+        if con is not None:
             try:
-                # Test if connection is still alive
-                self._con.cursor().execute("SELECT 1 FROM RDB$DATABASE")
-                return self._con
-            except Exception:
-                self._con = None
+                con.close()
+            except fdb.Error as exc:
+                logger.warning("EPIM: closing the connection failed: %s", exc)
 
-        self._preload_libs()
+    def _ensure_connection(self) -> None:
+        stat = self._db_path.stat()
+        ident = (stat.st_dev, stat.st_ino)
+        if self._con is not None and ident != self._file_ident:
+            logger.info("EPIM database file was replaced, reconnecting: %s", self._db_path)
+            self._discard_connection()
+        if self._con is None:
+            con = firebird.connect(self._db_path)
+            self._read_tr = con.trans(default_tpb=fdb.ISOLATION_LEVEL_READ_COMMITED_RO)
+            self._write_tr = con.trans(default_tpb=_write_tpb())
+            self._con, self._file_ident = con, ident
+            logger.info("EPIM database connected: %s (write %s)", self._db_path,
+                        "enabled" if self._write_enabled else "disabled")
 
-        self._con = fdb.connect(
-            dsn=self._db_path,
-            # Firebird EMBEDDED ignoriert die Authentifizierung komplett
-            # (Zugriff = Dateirechte); SYSDBA/masterkey sind reine
-            # Platzhalter, keine echten Credentials.
-            user="SYSDBA",
-            password="masterkey",
-            charset="UTF8",
-            fb_library_name=self._fb_lib,
-        )
-        logger.info("EPIM database connected: %s", self._db_path)
-        return self._con
+    @contextmanager
+    def _transaction(self, write: bool) -> Iterator[Any]:
+        if write and not self._write_enabled:
+            raise EpimWriteDisabled("EPIM write access is switched off in the plugin settings")
+        with self._lock:
+            if self._in_transaction:
+                # A nested begin() would end the outer transaction half-way.
+                raise RuntimeError("nested EPIM transaction")
+            self._in_transaction = True
+            try:
+                self._ensure_connection()
+                tr = self._write_tr if write else self._read_tr
+                tr.begin()
+                cur = tr.cursor()
+                try:
+                    yield cur
+                except BaseException:
+                    cur.close()
+                    try:
+                        tr.rollback()
+                    except fdb.Error as exc:
+                        logger.error("EPIM: rollback failed: %s", exc)
+                        self._discard_connection()
+                    raise
+                else:
+                    cur.close()
+                    tr.commit()
+            except fdb.DatabaseError:
+                self._discard_connection()
+                raise
+            finally:
+                self._in_transaction = False
 
-    @_serialized
-    @_serialized
-    def _get_contact_field_map(self) -> dict[int, str]:
-        """Get combined default + custom contact field mapping.
+    def _read(self) -> Any:
+        return self._transaction(write=False)
 
-        Read fresh on every call — CONTACTFIELDS is tiny and can change while
-        AIfred runs (user adds a custom field in EPIM); a forever-cache would
-        decode/encode against a stale map.
-        """
-        field_map = dict(DEFAULT_CONTACT_FIELDS)
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute(
-            "SELECT IDFIELD, NAME FROM CONTACTFIELDS "
-            "WHERE ENABLED = 1 AND NAME IS NOT NULL"
-        )
-        for row in cur.fetchall():
-            field_map[row[0]] = row[1].strip()
-        return field_map
+    def _write(self) -> Any:
+        return self._transaction(write=True)
 
-    # ============================================================
-    # ID GENERATION
-    # ============================================================
-
-    _last_generated_id: int = 0
-
-    @classmethod
-    def _generate_id(cls) -> int:
-        """Generate an EPIM-compatible entity ID.
-
-        EPIM uses large 64-bit IDs based on timestamps. We replicate
-        the pattern: millisecond timestamp shifted left with random bits.
-
-        Kept strictly monotonic within the process so two creates in the same
-        millisecond can't collide on the 10 random bits (p=1/1024) and raise a
-        PK violation.
-        """
-        import random
-        import time
-        ts_ms = int(time.time() * 1000)
-        candidate = (ts_ms << 10) | random.randint(0, 1023)
-        if candidate <= cls._last_generated_id:
-            candidate = cls._last_generated_id + 1
-        cls._last_generated_id = candidate
-        return candidate
-
-    # ============================================================
-    # NAME → ID RESOLUTION
-    # ============================================================
-
-    def resolve_category(self, name: str) -> Optional[int]:
-        """Resolve a category name to its ID (case-insensitive)."""
-        for cat in self.get_categories():
-            if str(cat["name"]).lower() == name.lower():
-                return int(cat["id"])
-        return None
-
-    def resolve_calendar(self, name: str) -> Optional[int]:
-        """Resolve a calendar name to its ID (case-insensitive)."""
-        for cal in self.get_calendars():
-            if str(cal["name"]).lower() == name.lower():
-                return int(cal["id"])
-        return None
-
-    def resolve_todolist(self, name: str) -> Optional[int]:
-        """Resolve a todo list name to its ID (case-insensitive)."""
-        for tl in self.get_todolists():
-            if str(tl["name"]).lower() == name.lower():
-                return int(tl["id"])
-        return None
-
-    def resolve_notetree(self, name: str) -> Optional[int]:
-        """Resolve a note tree name to its ID (case-insensitive)."""
-        for nt in self.get_notetrees():
-            if str(nt["name"]).lower() == name.lower():
-                return int(nt["id"])
-        return None
-
-    @_serialized
-    def _row_exists(self, table: str, id_col: str, entity_id: int) -> bool:
-        """True if a live (STATUS=0) row with the given id exists.
-
-        fdb does not reliably report rowcount for UPDATEs, so update/delete
-        tools check existence explicitly instead of blindly reporting success —
-        otherwise a hallucinated/truncated ID silently reports 'updated'/
-        'deleted'. ``table``/``id_col`` are internal constants, never LLM input.
-        """
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? AND STATUS = 0", (entity_id,))
-        return cur.fetchone() is not None
-
-    def _contact_name_to_id(self) -> dict[str, int]:
-        """Invertierte Kontakt-Feldmap (Name → ID) — SSOT für create/update."""
-        return {v: k for k, v in self._get_contact_field_map().items()}
+    def _new_id(self) -> int:
+        return _generate_id(self._last_id)
 
     @staticmethod
-    def _password_field_map(cur: Any) -> dict[str, int]:
-        """Passwort-Feldmap (Name → ID) aus PASSENTRYFIELDS — SSOT für
-        create_password und update_password."""
-        cur.execute("SELECT IDFIELD, NAME FROM PASSENTRYFIELDS WHERE ENABLED = 1")
-        return {r[1].strip(): r[0] for r in cur.fetchall() if r[1]}
-
-    def _read_fieldsdata_for_update(self, cur: Any, table: str, id_col: str, entity_id: int) -> str:
-        """Return the existing FIELDSDATA of a row, for a read-modify-write merge.
-
-        Raises if FIELDSDATA2 (the BLOB variant) is populated: reads prefer that
-        column, but EPIM's semantics for it are undocumented/reverse-engineered
-        and it is unused in the current database (0/399 contacts). Rather than
-        guess and risk silent corruption, refuse the update loudly.
-        ``table``/``id_col`` are internal constants, never LLM input.
-        """
-        cur.execute(
-            f"SELECT FIELDSDATA, FIELDSDATA2 FROM {table} WHERE {id_col} = ?",
-            (entity_id,),
-        )
+    def _current_user_id(cur: Any) -> int:
+        """EPIM's user row for the connection user (its triggers resolve the
+        editor the same way)."""
+        cur.execute("SELECT IDUSER FROM USERS WHERE NAME = CURRENT_USER")
         row = cur.fetchone()
-        if not row:
-            return ""
-        if row[1] is not None:
-            raise ValueError(
-                f"{table} row {entity_id} uses FIELDSDATA2 (BLOB) storage — "
-                "update refused to avoid corrupting an unsupported format."
-            )
-        return row[0] or ""
+        if row is None:
+            raise EpimRefused(f"EPIM has no user {firebird.EPIM_USER!r} in this database")
+        return int(row[0])
 
-    @_serialized
-    def _update_row(
-        self,
-        table: str,
-        id_col: str,
-        row_id: int,
-        fields: dict[str, object],
-        allowed: frozenset[str],
-        touch_lastchanged: bool = True,
-    ) -> bool:
-        """SSOT for the UPDATE-builder pattern: allowed-filter →
-        updates/params loop → _row_exists → LASTCHANGED → execute/commit.
+    @staticmethod
+    def _single_account(cur: Any) -> int:
+        cur.execute("SELECT IDACCOUNT FROM ACCOUNTS")
+        rows = cur.fetchall()
+        if len(rows) != 1:
+            raise EpimRefused(f"expected exactly one EPIM account, found {len(rows)}")
+        return int(rows[0][0])
 
-        ``table``/``id_col``/``allowed`` are internal constants, never LLM
-        input. Note: Firebird fdb driver does not reliably report rowcount
-        for UPDATEs, hence the explicit ``_row_exists`` check.
-        """
-        con = self._connect()
-        cur = con.cursor()
+    @staticmethod
+    def _rows(cur: Any) -> list[dict[str, Any]]:
+        columns = [desc[0].strip().lower() for desc in cur.description]
+        return [dict(zip(columns, row)) for row in cur.fetchall()]
 
-        updates = []
-        params: list = []
-        for key, value in fields.items():
-            col = key.upper()
-            if col not in allowed:
-                continue
-            updates.append(f"{col} = ?")
-            params.append(value)
+    # ── lookup tables ─────────────────────────────────────────────
 
-        if not updates:
-            return False
+    @staticmethod
+    def _lookup(cur: Any, sql: str) -> list[LookupEntry]:
+        cur.execute(sql)
+        return [LookupEntry(int(r[0]), str(r[1]).strip()) for r in cur.fetchall()]
 
-        if not self._row_exists(table, id_col, row_id):
-            return False
+    def _categories(self, cur: Any) -> list[LookupEntry]:
+        return self._lookup(cur, "SELECT IDCATEGORY, NAME FROM CATEGORIES "
+                                 "WHERE NAME IS NOT NULL ORDER BY CATEGORYINDEX")
 
-        if touch_lastchanged:
-            updates.append("LASTCHANGED = ?")
-            params.append(datetime.now())
-        params.append(row_id)
+    def _calendars(self, cur: Any) -> list[LookupEntry]:
+        # Calendars without a name are EPIM-internal; READONLY ones take no entries.
+        return self._lookup(cur, "SELECT IDCALENDAR, NAME FROM CALENDARS "
+                                 "WHERE NAME IS NOT NULL AND COALESCE(READONLY, 0) = 0")
 
-        sql = f"UPDATE {table} SET {', '.join(updates)} WHERE {id_col} = ?"
-        cur.execute(sql, params)
-        con.commit()
-        return True
+    def _todolists(self, cur: Any) -> list[LookupEntry]:
+        return self._lookup(cur, "SELECT IDTODOLIST, NAME FROM TODOLISTS WHERE NAME IS NOT NULL")
 
-    # ============================================================
-    # TASKS / CALENDAR
-    # ============================================================
+    def _notetrees(self, cur: Any) -> list[LookupEntry]:
+        return self._lookup(cur, "SELECT IDNOTETREE, NAME FROM NOTETREES WHERE NAME IS NOT NULL")
 
-    @_serialized
-    def search_tasks(
-        self,
-        title: Optional[str] = None,
-        date_from: Optional[str] = None,
-        date_to: Optional[str] = None,
-        limit: int = 50,
-    ) -> list[dict]:
-        """Search calendar tasks/events."""
-        con = self._connect()
-        cur = con.cursor()
+    def lookups(self) -> dict[str, list[LookupEntry]]:
+        """Categories, calendars, todo lists, note trees and the writable
+        contact fields in one transaction."""
+        with self._read() as cur:
+            fields = self._contact_fields(cur)
+            return {
+                "categories": self._categories(cur),
+                "calendars": self._calendars(cur),
+                "todolists": self._todolists(cur),
+                "notetrees": self._notetrees(cur),
+                "contact_fields": [LookupEntry(fid, label) for label, fid in sorted(fields.id_by_label.items())],
+            }
 
+    @staticmethod
+    def _resolve(entries: list[LookupEntry], name: str, what: str) -> int:
+        matches = [e.id for e in entries if e.name.casefold() == name.strip().casefold()]
+        names = ", ".join(e.name for e in entries)
+        if not matches:
+            raise EpimRefused(f"unknown {what} {name!r}; available: {names}")
+        if len(matches) > 1:
+            raise EpimRefused(f"{what} name {name!r} exists {len(matches)} times; rename it in EPIM")
+        return matches[0]
+
+    @staticmethod
+    def _single(entries: list[LookupEntry], what: str) -> int:
+        if len(entries) == 1:
+            return entries[0].id
+        names = ", ".join(e.name for e in entries)
+        raise EpimRefused(f"several {what}s exist, name one: {names}" if entries
+                          else f"this database has no {what}")
+
+    # ── tasks (calendar) ──────────────────────────────────────────
+
+    _TASK_COLUMNS = (
+        "t.IDTASK AS id, t.TITLE AS title, t.STARTTIME AS start_time, t.ENDTIME AS end_time, "
+        "t.ALLDAY AS all_day, t.LOCATION AS location, t.TEXT AS text, t.TAGS AS tags, "
+        "t.REPEATING AS repeating, c.NAME AS calendar, cat.NAME AS category, "
+        "t.CREATED AS created, t.LASTCHANGED AS last_changed "
+        "FROM TASKS t "
+        "LEFT JOIN CALENDARS c ON c.IDCALENDAR = t.CALENDAR "
+        "LEFT JOIN CATEGORIES cat ON cat.IDCATEGORY = t.CATEGORY "
+    )
+
+    @staticmethod
+    def _task_out(row: dict[str, Any]) -> dict[str, Any]:
+        row["all_day"] = bool(row["all_day"])
+        row["recurring"] = bool(row.pop("repeating"))
+        start, end = _date_out(row["start_time"]), _date_out(row["end_time"])
+        if row["all_day"] and start is not None and end is not None:
+            # Same rule as the input: dates, and the inclusive last day
+            # (EPIM stores the midnight after it).
+            row["start_time"], row["end_time"] = start.date(), (end - timedelta(days=1)).date()
+        else:
+            row["start_time"], row["end_time"] = start, end
+        return row
+
+    def search_tasks(self, title: str | None, date_from: date | None, date_to: date | None,
+                     limit: int) -> list[dict[str, Any]]:
         conditions = ["t.STATUS = 0"]
-        params: list = []
-
+        params: list[Any] = []
         if title:
             conditions.append("UPPER(t.TITLE) LIKE UPPER(?) ESCAPE '\\'")
             params.append(_like_pattern(title))
         if date_from:
-            # Overlap semantics: an event that STARTS before date_from but
-            # reaches into the window (multi-day event) must match too, so the
-            # lower bound checks ENDTIME. Recurring events need no expansion —
-            # EPIM materializes every occurrence as its own TASKS row
-            # (empirically verified: e.g. one weekly series = 552 rows).
-            conditions.append(
-                "(t.ENDTIME >= ? OR (t.ENDTIME IS NULL AND t.STARTTIME >= ?))"
-            )
-            params.extend([date_from, date_from])
+            # Overlap: an event that started earlier but reaches into the window matches.
+            conditions.append("t.ENDTIME >= ?")
+            params.append(datetime.combine(date_from, datetime.min.time()))
         if date_to:
-            # "2026-04-01" → "2026-04-01 23:59:59" (Firebird treats bare dates as 00:00:00)
-            dt = date_to.strip()
-            if len(dt) == 10:  # YYYY-MM-DD without time
-                dt = f"{dt} 23:59:59"
-            conditions.append("t.STARTTIME <= ?")
-            params.append(dt)
-        where = " AND ".join(conditions)
-        sql = (
-            f"SELECT FIRST {_clamp_limit(limit)} t.IDTASK, t.TITLE, t.STARTTIME, t.ENDTIME, "
-            f"t.LOCATION, t.PRIORITY, t.ALLDAY, t.REPEATING, t.TAGS, "
-            f"t.TEXT, t.COMPLETION, t.COMPLETED, "
-            f"c.NAME AS CALENDAR_NAME, cat.NAME AS CATEGORY_NAME "
-            f"FROM TASKS t "
-            f"LEFT JOIN CALENDARS c ON c.IDCALENDAR = t.CALENDAR "
-            f"LEFT JOIN CATEGORIES cat ON cat.IDCATEGORY = t.CATEGORY "
-            f"WHERE {where} "
-            f"ORDER BY t.STARTTIME"
-        )
-        cur.execute(sql, params)
-        columns = [desc[0].strip() for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
+            conditions.append("t.STARTTIME < ?")
+            params.append(datetime.combine(date_to + timedelta(days=1), datetime.min.time()))
+        sql = (f"SELECT FIRST {_clamp_limit(limit)} {self._TASK_COLUMNS}"
+               f"WHERE {' AND '.join(conditions)} ORDER BY t.STARTTIME")
+        with self._read() as cur:
+            cur.execute(sql, params)
+            return [self._task_out(r) for r in self._rows(cur)]
 
-    @_serialized
-    def get_task(self, task_id: int) -> Optional[dict]:
-        """Get a single task by ID with full details."""
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute(
-            "SELECT t.*, c.NAME AS CALENDAR_NAME, cat.NAME AS CATEGORY_NAME "
-            "FROM TASKS t "
-            "LEFT JOIN CALENDARS c ON c.IDCALENDAR = t.CALENDAR "
-            "LEFT JOIN CATEGORIES cat ON cat.IDCATEGORY = t.CATEGORY "
-            "WHERE t.IDTASK = ? AND t.STATUS = 0",
-            (task_id,),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        columns = [desc[0].strip() for desc in cur.description]
-        return dict(zip(columns, row))
+    def get_task(self, task_id: int) -> dict[str, Any] | None:
+        with self._read() as cur:
+            cur.execute(f"SELECT {self._TASK_COLUMNS}WHERE t.IDTASK = ? AND t.STATUS = 0", (task_id,))
+            rows = self._rows(cur)
+        return self._task_out(rows[0]) if rows else None
 
-    @_serialized
-    def create_task(
-        self,
-        title: str,
-        start: str,
-        end: str,
-        location: Optional[str] = None,
-        allday: bool = False,
-        calendar_id: Optional[int] = None,
-        calendar_name: Optional[str] = None,
-        category_id: Optional[int] = None,
-        category_name: Optional[str] = None,
-        text: Optional[str] = None,
-        priority: int = 0,
-        tags: Optional[str] = None,
-    ) -> int:
-        """Create a new calendar task. Returns the new task ID.
+    @staticmethod
+    def _check_range(start: datetime, end: datetime) -> None:
+        if end < start:
+            raise EpimRefused(f"end {end:%Y-%m-%d %H:%M} lies before start {start:%Y-%m-%d %H:%M}")
 
-        Accepts category/calendar by name or ID. Name takes precedence.
-        """
-        con = self._connect()
-        cur = con.cursor()
-
-        # Empty date strings would hit Firebird as invalid TIMESTAMP literals
-        # (cryptic conversion error) — normalize to NULL.
-        start_ts: Optional[str] = start or None
-        end_ts: Optional[str] = end or None
-
-        # Resolve names to IDs — fail-loud: ein nicht auflösbarer Name darf
-        # nicht still zu "ohne Kategorie"/"Default-Kalender" degradieren
-        # (Tool meldete sonst success für etwas anderes als bestellt).
-        if category_name:
-            category_id = self.resolve_category(category_name)
-            if category_id is None:
-                raise ValueError(f"Unknown category: {category_name!r}")
-        if calendar_name:
-            calendar_id = self.resolve_calendar(calendar_name)
-            if calendar_id is None:
-                raise ValueError(f"Unknown calendar: {calendar_name!r}")
-
-        priority = _as_priority(priority)
-
-        # Generate ID
-        new_id = self._generate_id()
-
-        # Default calendar
-        if calendar_id is None:
-            cur.execute("SELECT FIRST 1 IDCALENDAR FROM CALENDARS")
-            row = cur.fetchone()
-            calendar_id = row[0] if row else 0
-
-        now = datetime.now()
-        cur.execute(
-            "INSERT INTO TASKS (IDTASK, IDPARENT, TITLE, STARTTIME, ENDTIME, "
-            "LOCATION, ALLDAY, CALENDAR, CATEGORY, TEXT, PRIORITY, TAGS, "
-            "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
-            "READACCESS, WRITEACCESS, COMPLETION, EXCLUSIVE, REPEATING) "
-            "VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0, 0, 0)",
-            (new_id, title, start_ts, end_ts, location, 1 if _as_bool(allday) else 0,
-             calendar_id, category_id or 0, text, priority, tags,
-             now, now),
-        )
-        con.commit()
-        logger.info("EPIM: Created task %d: %s", new_id, title)
+    def create_task(self, *, title: str, start: datetime, end: datetime, all_day: bool,
+                    location: str | None, text: str | None, category: str | None,
+                    calendar: str | None, tags: str | None) -> int:
+        self._check_range(start, end)
+        with self._write() as cur:
+            calendars = self._calendars(cur)
+            calendar_id = (self._resolve(calendars, calendar, "calendar") if calendar
+                           else self._single(calendars, "calendar"))
+            category_id = self._resolve(self._categories(cur), category, "category") if category else 0
+            user_id = self._current_user_id(cur)
+            new_id = self._new_id()
+            now = _now()
+            cur.execute(
+                "INSERT INTO TASKS (IDTASK, IDPARENT, READACCESS, WRITEACCESS, CREATED, LASTCHANGED, "
+                "IDCREATOR, IDEDITOR, STATUS, TITLE, STARTTIME, ENDTIME, TEXT, LOCATION, PRIORITY, "
+                "CATEGORY, COMPLETION, EXCLUSIVE, REPEATING, ALLDAY, TAGS, CALENDAR) "
+                "VALUES (?, 0, -1, -1, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, 0, ?, 0, 0, 0, ?, ?, ?)",
+                (new_id, now, now, user_id, user_id, title, start, end, text, location,
+                 category_id, 1 if all_day else 0, tags, calendar_id),
+            )
+        logger.info("EPIM: created task %d", new_id)
         return new_id
 
-    @_serialized
-    def update_task(self, task_id: int, **fields: object) -> bool:
-        """Update fields on an existing task."""
-        if not fields:
-            return False
+    def _live_single_task(self, cur: Any, task_id: int) -> dict[str, Any]:
+        cur.execute("SELECT IDPARENT, REPEATING, STARTTIME, ENDTIME, ALLDAY FROM TASKS "
+                    "WHERE IDTASK = ? AND STATUS = 0", (task_id,))
+        row = cur.fetchone()
+        if row is None:
+            raise EpimRefused(f"task {task_id} not found")
+        if row[0] != 0 or row[1] != 0:
+            raise EpimRefused(f"task {task_id} belongs to a recurring series; edit series in EPIM")
+        return {"start": row[2], "end": row[3], "all_day": bool(row[4])}
 
-        # Resolve name-based fields to IDs. Pop BOTH aliases unconditionally —
-        # a short-circuit (`pop(a) or pop(b)`) would leave the second key in
-        # `fields`, and "category"/"calendar" upper-case to allowed columns, so
-        # the raw name string would be written into the integer FK column.
-        if "category" in fields or "category_name" in fields:
-            cat_name = _pop_alias(fields, "category_name", "category")
-            if cat_name:
-                cat_id = self.resolve_category(cat_name)
-                if cat_id is None:
-                    # Fail-loud statt Feld still weglassen
-                    raise ValueError(f"Unknown category: {cat_name!r}")
-                fields["CATEGORY"] = cat_id
-        if "calendar" in fields or "calendar_name" in fields:
-            cal_name = _pop_alias(fields, "calendar_name", "calendar")
-            if cal_name:
-                cal_id = self.resolve_calendar(cal_name)
-                if cal_id is None:
-                    raise ValueError(f"Unknown calendar: {cal_name!r}")
-                fields["CALENDAR"] = cal_id
+    def update_task(self, task_id: int, changes: dict[str, Any]) -> None:
+        """``changes`` keys: title, start, end, all_day, location, text,
+        category, calendar, tags. A new start without a new end moves the
+        event and keeps its duration."""
+        with self._write() as cur:
+            current = self._live_single_task(cur, task_id)
+            columns: dict[str, Any] = {}
+            start = changes.get("start", current["start"])
+            end = changes.get("end", current["end"])
+            if "start" in changes and "end" not in changes:
+                end = current["end"] + (start - current["start"])
+            if "start" in changes or "end" in changes:
+                self._check_range(start, end)
+                columns["STARTTIME"], columns["ENDTIME"] = start, end
+            for key, column in (("title", "TITLE"), ("location", "LOCATION"),
+                                ("text", "TEXT"), ("tags", "TAGS")):
+                if key in changes:
+                    columns[column] = changes[key]
+            if "all_day" in changes:
+                columns["ALLDAY"] = 1 if changes["all_day"] else 0
+            if "category" in changes:
+                columns["CATEGORY"] = (self._resolve(self._categories(cur), changes["category"], "category")
+                                       if changes["category"] else 0)
+            if "calendar" in changes:
+                columns["CALENDAR"] = self._resolve(self._calendars(cur), changes["calendar"], "calendar")
+            self._update_columns(cur, "TASKS", "IDTASK", task_id, columns)
 
-        # Gleiche Sanitisierung wie create_task — der Update-Pfad schrieb
-        # LLM-Strings ("false", "high") sonst roh in die Integer-Spalten.
-        if "ALLDAY" in fields:
-            fields["ALLDAY"] = 1 if _as_bool(fields["ALLDAY"]) else 0
-        if "PRIORITY" in fields:
-            fields["PRIORITY"] = _as_priority(fields["PRIORITY"])
+    def delete_task(self, task_id: int) -> None:
+        with self._write() as cur:
+            self._live_single_task(cur, task_id)
+            self._soft_delete(cur, "TASKS", "IDTASK", task_id)
 
-        updated: bool = self._update_row("TASKS", "IDTASK", task_id, fields, _TASK_UPDATE_COLUMNS)
-        return updated
+    # ── shared write helpers ──────────────────────────────────────
 
-    def _soft_delete(self, table: str, id_col: str, row_id: int) -> bool:
-        """Gemeinsame Soft-Delete-SSOT: STATUS=1 + DELETED-Timestamp.
+    @staticmethod
+    def _update_columns(cur: Any, table: str, id_col: str, row_id: int, columns: dict[str, Any]) -> None:
+        """``table``/``id_col``/column names are internal constants, never model input."""
+        if not columns:
+            raise EpimRefused("nothing to change")
+        columns = {**columns, "LASTCHANGED": _now()}
+        assignments = ", ".join(f"{name} = ?" for name in columns)
+        cur.execute(f"UPDATE {table} SET {assignments} WHERE {id_col} = ? AND STATUS = 0",
+                    (*columns.values(), row_id))
 
-        ``table``/``id_col`` sind ausschließlich interne Konstanten der
-        delete_*-Methoden, nie User-Input. Kein eigener ``@_serialized`` —
-        die Caller halten den Lock bereits (RLock, wäre aber auch reentrant).
-        """
-        if not self._row_exists(table, id_col, row_id):
-            return False
-        con = self._connect()
-        cur = con.cursor()
-        now = datetime.now()
-        cur.execute(
-            f"UPDATE {table} SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-            f"WHERE {id_col} = ?",
-            (now, now, row_id),
-        )
-        con.commit()
-        return True
+    @staticmethod
+    def _soft_delete(cur: Any, table: str, id_col: str, row_id: int) -> None:
+        # EPIM leaves LASTCHANGED alone when it moves an entry to the trash.
+        cur.execute(f"UPDATE {table} SET STATUS = 1, DELETED = ? WHERE {id_col} = ? AND STATUS = 0",
+                    (_now(), row_id))
 
-    @_serialized
-    def delete_task(self, task_id: int) -> bool:
-        """Soft-delete a task (set STATUS=1, DELETED=now)."""
-        return self._soft_delete("TASKS", "IDTASK", task_id)
+    @staticmethod
+    def _require_live(cur: Any, table: str, id_col: str, row_id: int, what: str) -> None:
+        cur.execute(f"SELECT 1 FROM {table} WHERE {id_col} = ? AND STATUS = 0", (row_id,))
+        if cur.fetchone() is None:
+            raise EpimRefused(f"{what} {row_id} not found")
 
-    # ============================================================
-    # CONTACTS
-    # ============================================================
+    @staticmethod
+    def _require_no_live_children(cur: Any, table: str, id_col: str, row_id: int, what: str) -> None:
+        cur.execute(f"SELECT COUNT(*) FROM {table} WHERE IDPARENT = ? AND {id_col} <> ? AND STATUS = 0",
+                    (row_id, row_id))
+        children = int(cur.fetchone()[0])
+        if children:
+            raise EpimRefused(f"{what} {row_id} has {children} sub-entries; delete or move them in EPIM first")
 
-    @_serialized
-    def search_contacts(
-        self,
-        name: Optional[str] = None,
-        limit: int = 50,
-    ) -> list[dict]:
-        """Search contacts by name."""
-        con = self._connect()
-        cur = con.cursor()
+    # ── contacts ──────────────────────────────────────────────────
 
+    def _contact_fields(self, cur: Any) -> "ContactFieldMap":
+        cur.execute("SELECT IDFIELD, NAME, FIELDTYPE FROM CONTACTFIELDS WHERE ENABLED = 1")
+        return ContactFieldMap.build(cur.fetchall())
+
+    def _contact_out(self, fields: "ContactFieldMap", row: tuple[Any, ...]) -> dict[str, Any]:
+        contact_id, subject, fieldsdata, fieldsdata2, tags, created, last_changed = row
+        if fieldsdata2 is not None:
+            raise EpimRefused(f"contact {contact_id} stores its fields in FIELDSDATA2, which this plugin cannot read")
+        decoded = codec.decode(fieldsdata or "")
+        out: dict[str, Any] = {
+            "id": contact_id, "name": subject, "fields": fields.to_labels(decoded.items),
+            "tags": tags, "created": created, "last_changed": last_changed,
+        }
+        if decoded.error is not None:
+            out["field_data_error"] = f"stored fields are incomplete ({decoded.error})"
+        return out
+
+    _CONTACT_COLUMNS = "IDCONTACT, SUBJECT, FIELDSDATA, FIELDSDATA2, TAGS, CREATED, LASTCHANGED"
+
+    def search_contacts(self, name: str | None, limit: int) -> list[dict[str, Any]]:
         conditions = ["STATUS = 0"]
-        params: list = []
-
+        params: list[Any] = []
         if name:
             conditions.append("UPPER(SUBJECT) LIKE UPPER(?) ESCAPE '\\'")
             params.append(_like_pattern(name))
+        with self._read() as cur:
+            fields = self._contact_fields(cur)
+            cur.execute(f"SELECT FIRST {_clamp_limit(limit)} {self._CONTACT_COLUMNS} FROM CONTACTS "
+                        f"WHERE {' AND '.join(conditions)} ORDER BY SUBJECT", params)
+            return [self._contact_out(fields, row) for row in cur.fetchall()]
 
-        where = " AND ".join(conditions)
-        cur.execute(
-            f"SELECT FIRST {_clamp_limit(limit)} IDCONTACT, SUBJECT, FIELDSDATA, FIELDSDATA2, "
-            f"TAGS, CREATED, LASTCHANGED "
-            f"FROM CONTACTS WHERE {where} ORDER BY SUBJECT",
-            params,
-        )
+    def get_contact(self, contact_id: int) -> dict[str, Any] | None:
+        with self._read() as cur:
+            fields = self._contact_fields(cur)
+            cur.execute(f"SELECT {self._CONTACT_COLUMNS} FROM CONTACTS WHERE IDCONTACT = ? AND STATUS = 0",
+                        (contact_id,))
+            row = cur.fetchone()
+            return self._contact_out(fields, row) if row else None
 
-        field_map = self._get_contact_field_map()
-        results = []
-        for row in cur.fetchall():
-            contact = {
-                "id": row[0],
-                "name": row[1],
-                "tags": row[4],
-                "created": row[5],
-                "last_changed": row[6],
-            }
-            contact["fields"] = decode_fieldsdata(
-                _effective_fieldsdata(row[2], row[3]), field_map
+    def create_contact(self, *, name: str | None, fields: dict[str, str | None], tags: str | None) -> int:
+        with self._write() as cur:
+            field_map = self._contact_fields(cur)
+            updates = field_map.to_ids(fields)
+            fieldsdata = codec.merge("", updates)
+            subject = name or field_map.display_name(codec.decode(fieldsdata).items)
+            if not subject:
+                raise EpimRefused("a contact needs a name or a first/last name")
+            user_id = self._current_user_id(cur)
+            account_id = self._single_account(cur)
+            new_id = self._new_id()
+            now = _now()
+            cur.execute(
+                "INSERT INTO CONTACTS (IDCONTACT, IDACCOUNT, READACCESS, WRITEACCESS, CREATED, LASTCHANGED, "
+                "IDCREATOR, IDEDITOR, STATUS, SUBJECT, COLLADR, FIELDSDATA, TAGS) "
+                "VALUES (?, ?, -1, -1, ?, ?, ?, ?, 0, ?, 0, ?, ?)",
+                (new_id, account_id, now, now, user_id, user_id, subject, fieldsdata, tags),
             )
-            results.append(contact)
-        return results
-
-    @_serialized
-    def get_contact(self, contact_id: int) -> Optional[dict]:
-        """Get a single contact by ID with decoded fields."""
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute(
-            "SELECT IDCONTACT, SUBJECT, FIELDSDATA, FIELDSDATA2, TAGS, "
-            "CREATED, LASTCHANGED "
-            "FROM CONTACTS WHERE IDCONTACT = ? AND STATUS = 0",
-            (contact_id,),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-        field_map = self._get_contact_field_map()
-        return {
-            "id": row[0],
-            "name": row[1],
-            "tags": row[4],
-            "created": row[5],
-            "last_changed": row[6],
-            "fields": decode_fieldsdata(
-                _effective_fieldsdata(row[2], row[3]), field_map
-            ),
-        }
-
-    @_serialized
-    def create_contact(self, name: str, fields: Optional[dict[str, str]] = None, tags: Optional[str] = None) -> int:
-        """Create a new contact. Returns the new contact ID."""
-        con = self._connect()
-        cur = con.cursor()
-
-        new_id = self._generate_id()
-
-        fieldsdata = ""
-        if fields:
-            fieldsdata = encode_fieldsdata(fields, self._contact_name_to_id())
-
-        now = datetime.now()
-        cur.execute(
-            "INSERT INTO CONTACTS (IDCONTACT, IDACCOUNT, SUBJECT, FIELDSDATA, TAGS, "
-            "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
-            "READACCESS, WRITEACCESS, COLLADR) "
-            "VALUES (?, 1, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0)",
-            (new_id, name, fieldsdata, tags, now, now),
-        )
-        con.commit()
-        logger.info("EPIM: Created contact %d: %s", new_id, name)
+        logger.info("EPIM: created contact %d", new_id)
         return new_id
 
-    @_serialized
-    def update_contact(self, contact_id: int, name: Optional[str] = None,
-                       fields: Optional[dict[str, str]] = None, tags: Optional[str] = None) -> bool:
-        """Update a contact."""
-        if not self._row_exists("CONTACTS", "IDCONTACT", contact_id):
-            return False
-
-        updates: dict[str, object] = {}
-        if name is not None:
-            updates["SUBJECT"] = name
-        if fields is not None:
-            cur = self._connect().cursor()
-            existing_raw = self._read_fieldsdata_for_update(
-                cur, "CONTACTS", "IDCONTACT", contact_id
-            )
-            updates["FIELDSDATA"] = merge_fieldsdata(
-                existing_raw, fields, self._contact_name_to_id()
-            )
-        if tags is not None:
-            updates["TAGS"] = tags
-
-        updated: bool = self._update_row("CONTACTS", "IDCONTACT", contact_id, updates, _CONTACT_UPDATE_COLUMNS)
-        return updated
-
-    @_serialized
-    def delete_contact(self, contact_id: int) -> bool:
-        """Soft-delete a contact."""
-        return self._soft_delete("CONTACTS", "IDCONTACT", contact_id)
-
-    # ============================================================
-    # NOTES
-    # ============================================================
-
-    @_serialized
-    def search_notes(
-        self,
-        title: Optional[str] = None,
-        text: Optional[str] = None,
-        limit: int = 50,
-    ) -> list[dict]:
-        """Search notes by title OR tab content.
-
-        The search tool passes the same query as both ``title`` and ``text``;
-        a note must match if the term is in the title OR in the tab content/name
-        (not both — that AND semantics made content hits with a non-matching
-        title invisible).
-        """
-        con = self._connect()
-        cur = con.cursor()
-
-        conditions = ["n.STATUS = 0"]
-        params: list = []
-        match_terms: list[str] = []
-        if title:
-            match_terms.append("UPPER(n.TITLE) LIKE UPPER(?) ESCAPE '\\'")
-            params.append(_like_pattern(title))
-        if text:
-            match_terms.append(
-                "n.IDNOTE IN (SELECT IDNOTE FROM NOTETABS "
-                "WHERE UPPER(TEXT) LIKE UPPER(?) ESCAPE '\\' "
-                "OR UPPER(NAME) LIKE UPPER(?) ESCAPE '\\')"
-            )
-            params.extend([_like_pattern(text), _like_pattern(text)])
-        if match_terms:
-            conditions.append("(" + " OR ".join(match_terms) + ")")
-        where = " AND ".join(conditions)
-
-        cur.execute(
-            f"SELECT FIRST {_clamp_limit(limit)} n.IDNOTE, n.TITLE, n.TAGS, n.CREATED, "
-            f"n.LASTCHANGED, nt.NAME AS TREE_NAME "
-            f"FROM NOTES n "
-            f"LEFT JOIN NOTETREES nt ON nt.IDNOTETREE = n.IDNOTETREE "
-            f"WHERE {where} ORDER BY n.TITLE",
-            params,
-        )
-        columns = [desc[0].strip() for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
-
-    @_serialized
-    def get_note(self, note_id: int) -> Optional[dict]:
-        """Get a note with all its tabs."""
-        con = self._connect()
-        cur = con.cursor()
-
-        cur.execute(
-            "SELECT IDNOTE, TITLE, TAGS, CREATED, LASTCHANGED, IDNOTETREE "
-            "FROM NOTES WHERE IDNOTE = ? AND STATUS = 0",
-            (note_id,),
-        )
-        row = cur.fetchone()
-        if not row:
-            return None
-
-        note = {
-            "id": row[0], "title": row[1], "tags": row[2],
-            "created": row[3], "last_changed": row[4], "tree_id": row[5],
-        }
-
-        # Get tabs
-        cur.execute(
-            "SELECT IDNOTETAB, NAME, TEXT, TEXT2 "
-            "FROM NOTETABS WHERE IDNOTE = ? AND STATUS = 0 ORDER BY IDNOTETAB",
-            (note_id,),
-        )
-        tabs = []
-        for tab_row in cur.fetchall():
-            # TEXT ist die einzige gelebte Inhalts-Spalte (DB-Befund
-            # 2026-08-12: TEXT2 in 0 von 31 Tabs belegt) — Schreiber
-            # (create/update_note_tab) und Suche nutzen ausschließlich TEXT.
-            # Ein still bevorzugtes TEXT2 machte Updates unsichtbar.
-            # Fail-loud analog _read_fieldsdata_for_update: unerwartet
-            # belegtes TEXT2 → Fehler statt stiller Spaltenwahl.
-            if tab_row[3]:
-                raise RuntimeError(
-                    f"Note tab {tab_row[0]} has TEXT2 content — unsupported "
-                    "(this plugin reads/writes the TEXT column only)"
-                )
-            tabs.append({
-                "id": tab_row[0],
-                "name": tab_row[1],
-                "text": tab_row[2],
-            })
-        note["tabs"] = tabs
-        return note
-
-    @_serialized
-    def create_note(self, title: str, tree_id: Optional[int] = None,
-                    tree_name: Optional[str] = None,
-                    tab_name: str = "Tab 1", tab_text: str = "",
-                    tags: Optional[str] = None) -> int:
-        """Create a new note with one tab. Returns note ID."""
-        con = self._connect()
-        cur = con.cursor()
-
-        # Resolve name to ID — fail-loud bei unbekanntem Namen (kein stiller
-        # Fall auf den Default-Tree)
-        if tree_name:
-            tree_id = self.resolve_notetree(tree_name)
-            if tree_id is None:
-                raise ValueError(f"Unknown note tree: {tree_name!r}")
-
-        # Default tree
-        if tree_id is None:
-            cur.execute("SELECT FIRST 1 IDNOTETREE FROM NOTETREES")
+    def update_contact(self, contact_id: int, *, name: str | None, fields: dict[str, str | None],
+                       tags: str | None, tags_given: bool) -> None:
+        with self._write() as cur:
+            cur.execute("SELECT FIELDSDATA, FIELDSDATA2 FROM CONTACTS WHERE IDCONTACT = ? AND STATUS = 0",
+                        (contact_id,))
             row = cur.fetchone()
-            tree_id = row[0] if row else 0
+            if row is None:
+                raise EpimRefused(f"contact {contact_id} not found")
+            if row[1] is not None:
+                raise EpimRefused(f"contact {contact_id} stores its fields in FIELDSDATA2; edit it in EPIM")
+            field_map = self._contact_fields(cur)
+            columns: dict[str, Any] = {}
+            if fields:
+                try:
+                    merged = codec.merge(row[0] or "", field_map.to_ids(fields))
+                except codec.MalformedFieldData as exc:
+                    raise EpimRefused(f"contact {contact_id} has damaged field data ({exc}); repair it in EPIM") from exc
+                columns["FIELDSDATA"] = merged
+                if name is None and field_map.changes_display_name(fields):
+                    name = field_map.display_name(codec.decode(merged).items)
+            if name is not None:
+                columns["SUBJECT"] = name
+            if tags_given:
+                columns["TAGS"] = tags
+            self._update_columns(cur, "CONTACTS", "IDCONTACT", contact_id, columns)
 
-        note_id = self._generate_id()
+    def delete_contact(self, contact_id: int) -> None:
+        with self._write() as cur:
+            self._require_live(cur, "CONTACTS", "IDCONTACT", contact_id, "contact")
+            self._soft_delete(cur, "CONTACTS", "IDCONTACT", contact_id)
 
-        now = datetime.now()
-        # Two inserts (note + its tab) form one unit. Roll back on failure so a
-        # half-written note (note row without its tab) can't be picked up by the
-        # next unrelated commit on this shared connection.
-        try:
-            cur.execute(
-                "INSERT INTO NOTES (IDNOTE, IDPARENT, TITLE, IDNOTETREE, TAGS, "
-                "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
-                "READACCESS, WRITEACCESS, ICONINDEX) "
-                "VALUES (?, 0, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0)",
-                (note_id, title, tree_id, tags, now, now),
+    # ── notes ─────────────────────────────────────────────────────
+
+    def search_notes(self, query: str | None, limit: int) -> list[dict[str, Any]]:
+        conditions = ["n.STATUS = 0"]
+        params: list[Any] = []
+        if query:
+            pattern = _like_pattern(query)
+            conditions.append(
+                "(UPPER(n.TITLE) LIKE UPPER(?) ESCAPE '\\' OR n.IDNOTE IN "
+                "(SELECT IDNOTE FROM NOTETABS WHERE STATUS = 0 AND "
+                "(UPPER(TEXT) LIKE UPPER(?) ESCAPE '\\' OR UPPER(NAME) LIKE UPPER(?) ESCAPE '\\')))"
             )
-
-            # Create default tab
-            tab_id = self._generate_id()
+            params.extend([pattern, pattern, pattern])
+        with self._read() as cur:
             cur.execute(
-                "INSERT INTO NOTETABS (IDNOTETAB, IDNOTE, NAME, TEXT, "
-                "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
-                "READACCESS, WRITEACCESS, COLOR, BACKCOLOR) "
-                "VALUES (?, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0, 0)",
-                (tab_id, note_id, tab_name, tab_text, now, now),
-            )
-            con.commit()
-        except Exception:
-            con.rollback()
-            raise
-        logger.info("EPIM: Created note %d: %s", note_id, title)
-        return note_id
+                f"SELECT FIRST {_clamp_limit(limit)} n.IDNOTE AS id, n.TITLE AS title, n.TAGS AS tags, "
+                f"nt.NAME AS note_tree, n.CREATED AS created, n.LASTCHANGED AS last_changed "
+                f"FROM NOTES n LEFT JOIN NOTETREES nt ON nt.IDNOTETREE = n.IDNOTETREE "
+                f"WHERE {' AND '.join(conditions)} ORDER BY n.TITLE", params)
+            return self._rows(cur)
 
-    @_serialized
-    def update_note(self, note_id: int, title: Optional[str] = None,
-                    tags: Optional[str] = None) -> bool:
-        """Update note metadata."""
-        updates: dict[str, object] = {}
-        if title is not None:
-            updates["TITLE"] = title
-        if tags is not None:
-            updates["TAGS"] = tags
-        updated: bool = self._update_row("NOTES", "IDNOTE", note_id, updates, _NOTE_UPDATE_COLUMNS)
-        return updated
+    def get_note(self, note_id: int) -> dict[str, Any] | None:
+        with self._read() as cur:
+            cur.execute("SELECT n.IDNOTE AS id, n.TITLE AS title, n.TAGS AS tags, nt.NAME AS note_tree, "
+                        "n.CREATED AS created, n.LASTCHANGED AS last_changed FROM NOTES n "
+                        "LEFT JOIN NOTETREES nt ON nt.IDNOTETREE = n.IDNOTETREE "
+                        "WHERE n.IDNOTE = ? AND n.STATUS = 0", (note_id,))
+            rows = self._rows(cur)
+            if not rows:
+                return None
+            note = rows[0]
+            cur.execute("SELECT IDNOTETAB, NAME, TEXT, TEXT2 FROM NOTETABS "
+                        "WHERE IDNOTE = ? AND STATUS = 0 ORDER BY IDNOTETAB", (note_id,))
+            tabs = []
+            for tab_id, tab_name, text, text2 in cur.fetchall():
+                if text2 is not None:
+                    raise EpimRefused(f"note tab {tab_id} keeps its text in TEXT2, which this plugin cannot read")
+                tabs.append({"id": tab_id, "name": tab_name, "text": text})
+            note["tabs"] = tabs
+            return note
 
-    @_serialized
-    def update_note_tab(self, tab_id: int, name: Optional[str] = None,
-                        text: Optional[str] = None) -> bool:
-        """Update a note tab's content."""
-        updates: dict[str, object] = {}
-        if name is not None:
-            updates["NAME"] = name
-        if text is not None:
-            updates["TEXT"] = text
-        updated: bool = self._update_row("NOTETABS", "IDNOTETAB", tab_id, updates, _NOTETAB_UPDATE_COLUMNS)
-        return updated
+    def create_note(self, *, title: str, text: str, tab_name: str, note_tree: str | None,
+                    tags: str | None) -> int:
+        raise EpimRefused("creating notes is not available until EPIM's note format is verified")
 
-    @_serialized
-    def delete_note(self, note_id: int) -> bool:
-        """Soft-delete a note and its tabs."""
-        if not self._row_exists("NOTES", "IDNOTE", note_id):
-            return False
-        con = self._connect()
-        cur = con.cursor()
-        now = datetime.now()
-        # Two updates form one unit — roll back on failure to avoid a
-        # half-deleted note (tabs gone, note still visible or vice versa).
-        try:
-            cur.execute(
-                "UPDATE NOTETABS SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-                "WHERE IDNOTE = ?",
-                (now, now, note_id),
-            )
-            cur.execute(
-                "UPDATE NOTES SET STATUS = 1, DELETED = ?, LASTCHANGED = ? "
-                "WHERE IDNOTE = ?",
-                (now, now, note_id),
-            )
-            con.commit()
-        except Exception:
-            con.rollback()
-            raise
-        return True
+    def update_note(self, note_id: int, *, title: str | None, tags: str | None, tags_given: bool) -> None:
+        with self._write() as cur:
+            self._require_live(cur, "NOTES", "IDNOTE", note_id, "note")
+            columns: dict[str, Any] = {}
+            if title is not None:
+                columns["TITLE"] = title
+            if tags_given:
+                columns["TAGS"] = tags
+            self._update_columns(cur, "NOTES", "IDNOTE", note_id, columns)
 
-    # ============================================================
-    # TODOS
-    # ============================================================
+    def update_note_tab(self, tab_id: int, *, name: str | None, text: str | None,
+                        append_text: str | None) -> None:
+        if text is not None or append_text is not None:
+            raise EpimRefused("changing note text is not available until EPIM's note format is verified")
+        with self._write() as cur:
+            self._require_live(cur, "NOTETABS", "IDNOTETAB", tab_id, "note tab")
+            self._update_columns(cur, "NOTETABS", "IDNOTETAB", tab_id, {"NAME": name} if name is not None else {})
 
-    @_serialized
-    def search_todos(
-        self,
-        title: Optional[str] = None,
-        completed: Optional[bool] = None,
-        limit: int = 50,
-    ) -> list[dict]:
-        """Search todo items."""
-        con = self._connect()
-        cur = con.cursor()
+    def delete_note(self, note_id: int) -> None:
+        with self._write() as cur:
+            self._require_live(cur, "NOTES", "IDNOTE", note_id, "note")
+            self._require_no_live_children(cur, "NOTES", "IDNOTE", note_id, "note")
+            now = _now()
+            cur.execute("UPDATE NOTETABS SET STATUS = 1, DELETED = ? WHERE IDNOTE = ? AND STATUS = 0",
+                        (now, note_id))
+            self._soft_delete(cur, "NOTES", "IDNOTE", note_id)
 
+    # ── todos ─────────────────────────────────────────────────────
+
+    def search_todos(self, title: str | None, completed: bool | None, limit: int) -> list[dict[str, Any]]:
         conditions = ["t.STATUS = 0"]
-        params: list = []
-
+        params: list[Any] = []
         if title:
             conditions.append("UPPER(t.TITLE) LIKE UPPER(?) ESCAPE '\\'")
             params.append(_like_pattern(title))
         if completed is not None:
-            if _as_bool(completed):
-                conditions.append("t.COMPLETION = 100")
-            else:
-                conditions.append("(t.COMPLETION < 100 OR t.COMPLETION IS NULL)")
+            conditions.append("t.COMPLETION = 100" if completed else "COALESCE(t.COMPLETION, -1) < 100")
+        with self._read() as cur:
+            cur.execute(
+                f"SELECT FIRST {_clamp_limit(limit)} t.IDTODO AS id, t.TITLE AS title, "
+                f"t.STARTTIME AS start_time, t.ENDTIME AS end_time, t.COMPLETION AS completion, "
+                f"t.TEXT AS text, t.TAGS AS tags, l.NAME AS todo_list "
+                f"FROM TODOS t LEFT JOIN TODOLISTS l ON l.IDTODOLIST = t.IDLIST "
+                f"WHERE {' AND '.join(conditions)} ORDER BY t.ENDTIME, t.TITLE", params)
+            rows = self._rows(cur)
+        for row in rows:
+            row["start_time"] = _date_out(row["start_time"])
+            row["end_time"] = _date_out(row["end_time"])
+            row["done"] = row.pop("completion") == 100
+        return rows
 
-        where = " AND ".join(conditions)
-        cur.execute(
-            f"SELECT FIRST {_clamp_limit(limit)} t.IDTODO, t.TITLE, t.STARTTIME, t.ENDTIME, "
-            f"t.PRIORITY, t.COMPLETION, t.COMPLETED, t.TAGS, t.TEXT, "
-            f"l.NAME AS LIST_NAME "
-            f"FROM TODOS t "
-            f"LEFT JOIN TODOLISTS l ON l.IDTODOLIST = t.IDLIST "
-            f"WHERE {where} ORDER BY t.STARTTIME",
-            params,
-        )
-        columns = [desc[0].strip() for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
+    def create_todo(self, *, title: str, todo_list: str | None, start: datetime | None,
+                    end: datetime | None, text: str | None, tags: str | None) -> int:
+        raise EpimRefused("creating todos is not available until EPIM's todo format is verified")
 
-    @_serialized
-    def create_todo(
-        self,
-        title: str,
-        list_id: Optional[int] = None,
-        list_name: Optional[str] = None,
-        start: Optional[str] = None,
-        end: Optional[str] = None,
-        priority: int = 0,
-        text: Optional[str] = None,
-        tags: Optional[str] = None,
-    ) -> int:
-        """Create a new todo item. Returns todo ID."""
-        con = self._connect()
-        cur = con.cursor()
-
-        # Empty date strings → NULL (invalid TIMESTAMP literal otherwise).
-        start = start or None
-        end = end or None
-
-        # Resolve name to ID — fail-loud bei unbekanntem Namen (kein stiller
-        # Fall auf die Default-Liste)
-        if list_name:
-            list_id = self.resolve_todolist(list_name)
-            if list_id is None:
-                raise ValueError(f"Unknown todo list: {list_name!r}")
-
-        if list_id is None:
-            cur.execute("SELECT FIRST 1 IDTODOLIST FROM TODOLISTS")
+    def update_todo(self, todo_id: int, changes: dict[str, Any]) -> None:
+        if "done" in changes:
+            raise EpimRefused("marking todos done is not available until EPIM's todo format is verified")
+        with self._write() as cur:
+            cur.execute("SELECT STARTTIME, ENDTIME FROM TODOS WHERE IDTODO = ? AND STATUS = 0", (todo_id,))
             row = cur.fetchone()
-            list_id = row[0] if row else 0
+            if row is None:
+                raise EpimRefused(f"todo {todo_id} not found")
+            columns: dict[str, Any] = {}
+            for key, column in (("title", "TITLE"), ("text", "TEXT"), ("tags", "TAGS")):
+                if key in changes:
+                    columns[column] = changes[key]
+            start = changes.get("start", _date_out(row[0]))
+            end = changes.get("end", _date_out(row[1]))
+            if start is not None and end is not None:
+                self._check_range(start, end)
+            for key, column in (("start", "STARTTIME"), ("end", "ENDTIME")):
+                if key in changes:
+                    columns[column] = changes[key] if changes[key] is not None else _ZERO_DATE
+            if "todo_list" in changes:
+                columns["IDLIST"] = self._resolve(self._todolists(cur), changes["todo_list"], "todo list")
+            self._update_columns(cur, "TODOS", "IDTODO", todo_id, columns)
 
-        new_id = self._generate_id()
+    def delete_todo(self, todo_id: int) -> None:
+        with self._write() as cur:
+            self._require_live(cur, "TODOS", "IDTODO", todo_id, "todo")
+            self._require_no_live_children(cur, "TODOS", "IDTODO", todo_id, "todo")
+            self._soft_delete(cur, "TODOS", "IDTODO", todo_id)
 
-        now = datetime.now()
-        cur.execute(
-            "INSERT INTO TODOS (IDTODO, IDPARENT, TITLE, STARTTIME, ENDTIME, "
-            "PRIORITY, TEXT, TAGS, IDLIST, "
-            "CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
-            "READACCESS, WRITEACCESS, COMPLETION, FLOATING, SHOWINSCH) "
-            "VALUES (?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0, 0, 0)",
-            (new_id, title, start, end, priority, text, tags, list_id, now, now),
-        )
-        con.commit()
-        logger.info("EPIM: Created todo %d: %s", new_id, title)
-        return new_id
+    # ── password entries (subjects only) ──────────────────────────
 
-    @_serialized
-    def update_todo(self, todo_id: int, **fields: object) -> bool:
-        """Update a todo item."""
-        if not fields:
-            return False
-
-        # Resolve name-based fields to IDs. Beide Aliase unconditional poppen
-        # (Short-circuit ließe den zweiten Key stehen — gleiches Muster wie
-        # in update_task dokumentiert); nicht auflösbar → fail-loud.
-        if "list" in fields or "list_name" in fields:
-            list_name = _pop_alias(fields, "list_name", "list")
-            if list_name:
-                list_id = self.resolve_todolist(list_name)
-                if list_id is None:
-                    raise ValueError(f"Unknown todo list: {list_name!r}")
-                fields["IDLIST"] = list_id
-
-        if "PRIORITY" in fields:
-            fields["PRIORITY"] = _as_priority(fields["PRIORITY"])
-
-        updated: bool = self._update_row("TODOS", "IDTODO", todo_id, fields, _TODO_UPDATE_COLUMNS)
-        return updated
-
-    @_serialized
-    def delete_todo(self, todo_id: int) -> bool:
-        """Soft-delete a todo."""
-        return self._soft_delete("TODOS", "IDTODO", todo_id)
-
-    # ============================================================
-    # PASSWORD ENTRIES
-    # ============================================================
-
-    @_serialized
-    def search_passwords(self, subject: Optional[str] = None, limit: int = 50) -> list[dict]:
-        """Search password entries (returns subjects only, no credentials)."""
-        con = self._connect()
-        cur = con.cursor()
-
-        conditions = ["pe.STATUS = 0"]
-        params: list = []
+    def search_passwords(self, subject: str | None, limit: int) -> list[dict[str, Any]]:
+        conditions = ["STATUS = 0"]
+        params: list[Any] = []
         if subject:
-            conditions.append("UPPER(pe.SUBJECT) LIKE UPPER(?) ESCAPE '\\'")
+            conditions.append("UPPER(SUBJECT) LIKE UPPER(?) ESCAPE '\\'")
             params.append(_like_pattern(subject))
+        with self._read() as cur:
+            cur.execute(f"SELECT FIRST {_clamp_limit(limit)} IDPASSENTRY AS id, SUBJECT AS subject, "
+                        f"TAGS AS tags, LASTCHANGED AS last_changed FROM PASSENTRIES "
+                        f"WHERE {' AND '.join(conditions)} ORDER BY SUBJECT", params)
+            return self._rows(cur)
 
-        where = " AND ".join(conditions)
-        # Gruppen-Zuordnung läuft über PASSENTRIES.PATH (trägt die Gruppen-ID
-        # als String, so schreibt create_password sie; "0" = keine Gruppe).
-        # PASSENTRIES hat KEINE IDPARENT-Spalte — die frühere Subquery
-        # (SELECT IDPARENT FROM PASSENTRIES ...) löste unqualifiziert zur
-        # äußeren PASSGROUPS.IDPARENT auf und lieferte semantischen Unsinn.
-        cur.execute(
-            f"SELECT FIRST {_clamp_limit(limit)} pe.IDPASSENTRY, pe.SUBJECT, pe.TAGS, "
-            f"pe.CREATED, pe.LASTCHANGED, pg.SUBJECT AS GROUP_NAME "
-            f"FROM PASSENTRIES pe "
-            f"LEFT JOIN PASSGROUPS pg "
-            f"ON pe.PATH = CAST(pg.IDPASSGROUP AS VARCHAR(20)) "
-            f"WHERE {where} ORDER BY pe.SUBJECT",
-            params,
-        )
-        columns = [desc[0].strip() for desc in cur.description]
-        return [dict(zip(columns, row)) for row in cur.fetchall()]
+    def delete_password(self, entry_id: int) -> None:
+        with self._write() as cur:
+            self._require_live(cur, "PASSENTRIES", "IDPASSENTRY", entry_id, "password entry")
+            self._soft_delete(cur, "PASSENTRIES", "IDPASSENTRY", entry_id)
 
-    @_serialized
-    def create_password(self, subject: str, fields: Optional[dict[str, str]] = None,
-                        group_id: Optional[int] = None, tags: Optional[str] = None) -> int:
-        """Create a new password entry."""
-        con = self._connect()
-        cur = con.cursor()
 
-        new_id = self._generate_id()
+@dataclass(frozen=True)
+class ContactFieldMap:
+    """Contact field ids ↔ labels for one database.
 
-        fieldsdata = ""
-        if fields:
-            fieldsdata = encode_fieldsdata(fields, self._password_field_map(cur))
+    Standard fields carry no name in the database (EPIM names them in its UI
+    language); their labels come from :data:`CONTACT_FIELD_LABELS`. Custom
+    fields carry their own name. A label that exists twice is ambiguous: it
+    is shown with its id and cannot be written by name."""
 
-        parent_id = group_id or 0
-        now = datetime.now()
-        cur.execute(
-            "INSERT INTO PASSENTRIES (IDPASSENTRY, SUBJECT, FIELDSDATA, TAGS, "
-            "PATH, CREATED, LASTCHANGED, STATUS, IDCREATOR, IDEDITOR, "
-            "READACCESS, WRITEACCESS, ICONINDEX) "
-            "VALUES (?, ?, ?, ?, ?, ?, ?, 0, 1, 1, -1, -1, 0)",
-            (new_id, subject, fieldsdata, tags, str(parent_id), now, now),
-        )
-        con.commit()
-        logger.info("EPIM: Created password entry %d: %s", new_id, subject)
-        return new_id
+    label_by_id: dict[int, str]
+    id_by_label: dict[str, int]
+    date_fields: frozenset[int]
 
-    @_serialized
-    def update_password(self, entry_id: int, subject: Optional[str] = None,
-                        fields: Optional[dict[str, str]] = None,
-                        tags: Optional[str] = None) -> bool:
-        """Update a password entry."""
-        if not self._row_exists("PASSENTRIES", "IDPASSENTRY", entry_id):
-            return False
+    @classmethod
+    def build(cls, rows: list[tuple[Any, ...]]) -> "ContactFieldMap":
+        names: dict[int, str] = {}
+        date_fields: set[int] = set()
+        for field_id, name, field_type in rows:
+            label = name.strip() if name else CONTACT_FIELD_LABELS.get(int(field_id))
+            if label:
+                names[int(field_id)] = label
+            if field_type == DATE_FIELD_TYPE:
+                date_fields.add(int(field_id))
+        counts: dict[str, int] = {}
+        for label in names.values():
+            counts[label] = counts.get(label, 0) + 1
+        label_by_id = {fid: (label if counts[label] == 1 else f"{label} [{fid}]") for fid, label in names.items()}
+        id_by_label = {label: fid for fid, label in label_by_id.items() if counts[names[fid]] == 1}
+        return cls(label_by_id, id_by_label, frozenset(date_fields))
 
-        updates: dict[str, object] = {}
-        if subject is not None:
-            updates["SUBJECT"] = subject
-        if fields is not None:
-            cur = self._connect().cursor()
-            existing_raw = self._read_fieldsdata_for_update(
-                cur, "PASSENTRIES", "IDPASSENTRY", entry_id
-            )
-            updates["FIELDSDATA"] = merge_fieldsdata(
-                existing_raw, fields, self._password_field_map(cur)
-            )
-        if tags is not None:
-            updates["TAGS"] = tags
+    def to_labels(self, items: list[tuple[int, str]]) -> dict[str, str]:
+        out: dict[str, str] = {}
+        for field_id, value in items:
+            label = self.label_by_id.get(field_id, f"field_{field_id}")
+            out[label] = self._date_value_out(field_id, value)
+        return out
 
-        updated: bool = self._update_row("PASSENTRIES", "IDPASSENTRY", entry_id, updates, _PASSWORD_UPDATE_COLUMNS)
-        return updated
+    def to_ids(self, fields: dict[str, str | None]) -> dict[int, str | None]:
+        unknown = sorted(label for label in fields if label not in self.id_by_label)
+        if unknown:
+            raise EpimRefused(f"unknown contact field(s) {', '.join(unknown)}; "
+                              f"writable: {', '.join(sorted(self.id_by_label))}")
+        out: dict[int, str | None] = {}
+        for label, value in fields.items():
+            field_id = self.id_by_label[label]
+            out[field_id] = self._date_value_in(field_id, value) if value is not None else None
+        return out
 
-    @_serialized
-    def delete_password(self, entry_id: int) -> bool:
-        """Soft-delete a password entry."""
-        return self._soft_delete("PASSENTRIES", "IDPASSENTRY", entry_id)
+    def _date_value_out(self, field_id: int, value: str) -> str:
+        # Date fields hold Delphi day numbers (days since 1899-12-30).
+        if field_id in self.date_fields and value.isdigit():
+            return (DELPHI_EPOCH + timedelta(days=int(value))).isoformat()
+        return value
 
-    # ============================================================
-    # LOOKUP TABLES
-    # ============================================================
+    def _date_value_in(self, field_id: int, value: str) -> str:
+        if field_id not in self.date_fields:
+            return value
+        from .values import parse_date
+        return str((parse_date(value, self.label_by_id[field_id]) - DELPHI_EPOCH).days)
 
-    @_serialized
-    def get_categories(self) -> list[dict[str, int | str]]:
-        """Get all categories."""
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute("SELECT IDCATEGORY, NAME FROM CATEGORIES WHERE NAME IS NOT NULL ORDER BY CATEGORYINDEX")
-        return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
+    def display_name(self, items: list[tuple[int, str]]) -> str:
+        values = dict(items)
+        parts = [values.get(field_id, "").strip() for field_id in _NAME_FIELD_IDS]
+        return " ".join(p for p in parts if p)
 
-    @_serialized
-    def get_calendars(self) -> list[dict[str, int | str]]:
-        """Get all calendars."""
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute("SELECT IDCALENDAR, NAME FROM CALENDARS WHERE NAME IS NOT NULL")
-        return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
+    def changes_display_name(self, fields: dict[str, str | None]) -> bool:
+        return any(self.id_by_label.get(label) in _NAME_FIELD_IDS for label in fields)
 
-    @_serialized
-    def get_todolists(self) -> list[dict[str, int | str]]:
-        """Get all todo lists."""
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute("SELECT IDTODOLIST, NAME FROM TODOLISTS")
-        return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
 
-    @_serialized
-    def get_notetrees(self) -> list[dict[str, int | str]]:
-        """Get all note trees."""
-        con = self._connect()
-        cur = con.cursor()
-        cur.execute("SELECT IDNOTETREE, NAME FROM NOTETREES")
-        return [{"id": r[0], "name": r[1]} for r in cur.fetchall()]
+# EPIM builds a contact's display name (SUBJECT) as "first last".
+_NAME_FIELD_IDS = (1, 2)
+
+
+_settings_lock = threading.Lock()
+_instance: EpimDatabase | None = None
+
+
+def get_epim_db() -> EpimDatabase | None:
+    """The database configured in the plugin settings, or None when no path
+    is set. A changed path or write switch yields a fresh instance."""
+    global _instance
+    settings = load_epim_settings()
+    with _settings_lock:
+        if settings.db_path is None:
+            if _instance is not None:
+                _instance.close()
+                _instance = None
+            return None
+        if (_instance is None or _instance.db_path != settings.db_path
+                or _instance.write_enabled != settings.write_enabled):
+            if _instance is not None:
+                _instance.close()
+            _instance = EpimDatabase(settings.db_path, settings.write_enabled)
+        return _instance

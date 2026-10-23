@@ -3,15 +3,12 @@
   "properties": {
     "entity_type": {
       "type": "string",
-      "description": "Entity type: task, contact, note, todo, password"
+      "enum": []
     },
     "data": {
       "type": "object",
-      "description": "Entity data. Task: {title, start, end, location, allday, text, priority, tags, category, calendar}. Contact: {name, fields: {Vorname, Nachname, Telefon, E-Mail, ...}, tags}. Note: {title, text, tab_name, tree, tags}. Todo: {title, start, end, priority, text, tags, list}. Password: {subject, fields: {key: value, ...}, tags, group_id}. category, calendar, tree and list take the NAME from your instructions."
+      "description": "task: {title, start, end, all_day, location, text, category, calendar, tags} — timed: start and end as 'YYYY-MM-DD HH:MM'; all_day=true: start and end as 'YYYY-MM-DD', end = last day (inclusive, may be omitted for one day). contact: {name, fields: {field name: value}, tags} — name defaults to first and last name. note: {title, tab_name, text, note_tree, tags}. todo: {title, todo_list, start, end, text, tags}."
     }
   },
-  "required": [
-    "entity_type",
-    "data"
-  ]
+  "required": ["entity_type", "data"]
 }

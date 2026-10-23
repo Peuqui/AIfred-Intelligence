@@ -1,0 +1,9 @@
+{
+  "Database": "C:\\Users\\YOUR_USER\\Documents\\EssentialPIM\\YOUR_DATABASE.epim",
+  "MiniHost": "10.0.0.1",
+  "MiniPort": 2222,
+  "MiniUser": "mp",
+  "RemoteRepo": "/home/mp/Projekte/AIfred-Intelligence",
+  "RemoteIncoming": "/home/mp/Projekte/AIfred-Intelligence/data/epim/incoming",
+  "RemotePython": "/home/mp/Projekte/AIfred-Intelligence/venv/bin/python"
+}
