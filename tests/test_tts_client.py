@@ -26,6 +26,7 @@ from aifred.lib.tts_client import (
     InvalidRequest,
     NoEngineAvailable,
     Overloaded,
+    ReadingAborted,
     StreamBroken,
     TextTooLong,
     TextStream,
@@ -297,6 +298,20 @@ def test_connection_lost_during_reading() -> None:
         asyncio.run(collect(make_client(lambda _: httpx.Response(200, content=broken()))))
 
 
+def test_a_forced_gpu_release_ends_the_reading_with_its_reason() -> None:
+    data = audio(b"first") + error_frame("reading_aborted", "reading aborted, the GPU is needed: loading 'm'")
+    received: list[bytes] = []
+
+    async def run_collecting() -> None:
+        stream = await make_client(lambda _: frames_response(data)).speak("Hallo", language="de", engines=LIST, paragraph_pause_ms=0, run="r")
+        async for segment in stream:
+            received.append(segment.audio)
+
+    with pytest.raises(ReadingAborted, match="loading 'm'"):
+        asyncio.run(run_collecting())
+    assert received == [b"first"]
+
+
 def test_frame_decoder_pending_bytes() -> None:
     decoder = FrameDecoder()
     assert decoder.feed(audio(b"abc")[:5]) == []
@@ -315,6 +330,7 @@ ERROR_CASES = [
     ("invalid_request", 422, InvalidRequest),
     ("unsupported_language", 422, UnsupportedLanguage),
     ("text_too_long", 413, TextTooLong),
+    ("reading_aborted", 503, ReadingAborted),
     ("unauthorized", 401, Unauthorized),
     ("bad_request", 400, BadRequest),
 ]
@@ -403,50 +419,47 @@ def test_read_calls_are_get_requests_without_token() -> None:
     assert seen == [("GET", "/engines", None), ("GET", "/voices", None)]
 
 
-def test_release_all_sends_the_word_all_and_decodes_the_results() -> None:
+def test_gpu_release_sends_items_force_and_reason_and_decodes_the_results() -> None:
     seen: dict[str, Any] = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen["path"], seen["body"] = request.url.path, json.loads(request.content)
         seen["authorization"] = request.headers.get("authorization")
-        return httpx.Response(200, json=[
-            {"engine": "xtts", "host": None, "outcome": "stopped", "detail": ""},
-            {"engine": "fish", "host": "Aragon", "outcome": "in_use", "detail": "a reading holds it"},
-        ])
+        return httpx.Response(200, json={"results": [{"item": "xtts", "outcome": "released", "detail": "down"}]})
 
-    results = make_client(handler).release("all")
-    assert seen == {"path": "/release", "body": {"targets": "all"}, "authorization": None}
-    assert results == [
-        tts_client.ReleaseResult("xtts", None, "stopped", ""),
-        tts_client.ReleaseResult("fish", "Aragon", "in_use", "a reading holds it"),
+    results = make_client(handler).gpu_release(["xtts"], force=False, reason="burn-in")
+    assert seen == {
+        "path": "/gpu/release",
+        "body": {"items": ["xtts"], "force": False, "reason": "burn-in"},
+        "authorization": None,
+    }
+    assert results == [tts_client.GpuReleaseResult("xtts", "released", "down")]
+
+
+@pytest.mark.parametrize(("status", "outcome"), [(409, "busy"), (500, "failed")])
+def test_a_busy_or_failed_gpu_release_is_a_result_not_an_error(status: int, outcome: str) -> None:
+    def handler(_: httpx.Request) -> httpx.Response:
+        return httpx.Response(status, json={"results": [{"item": "xtts", "outcome": outcome, "detail": "why"}]})
+
+    assert make_client(handler).gpu_release(["xtts"], force=False, reason="r") == [
+        tts_client.GpuReleaseResult("xtts", outcome, "why"),
     ]
 
 
-def test_release_sends_the_given_targets() -> None:
-    seen: dict[str, Any] = {}
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        seen.update(json.loads(request.content))
-        return httpx.Response(200, json=[])
-
-    make_client(handler).release([tts_client.EngineTarget("xtts", None), tts_client.EngineTarget("fish", "Aragon")])
-    assert seen == {"targets": [{"engine": "xtts", "host": None}, {"engine": "fish", "host": "Aragon"}]}
-
-
-def test_release_maps_a_refused_request_to_the_error_table() -> None:
+def test_gpu_release_maps_a_refused_request_to_the_error_table() -> None:
     def handler(_: httpx.Request) -> httpx.Response:
-        return httpx.Response(404, json={"error": "unknown_engine", "detail": "no engine 'nope'"})
+        return httpx.Response(422, json={"error": "invalid_request", "detail": "no GPU engine 'nope'"})
 
-    with pytest.raises(UnknownEngine, match="nope"):
-        make_client(handler).release([tts_client.EngineTarget("nope", None)])
+    with pytest.raises(InvalidRequest, match="nope"):
+        make_client(handler).gpu_release(["nope"], force=False, reason="r")
 
 
-def test_release_without_a_service_is_unreachable() -> None:
+def test_gpu_release_without_a_service_is_unreachable() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         raise httpx.ConnectError("refused", request=request)
 
-    with pytest.raises(TTSSuiteUnreachable, match="/release"):
-        make_client(handler).release("all")
+    with pytest.raises(TTSSuiteUnreachable, match="/gpu/release"):
+        make_client(handler).gpu_release(["xtts"], force=False, reason="r")
 
 
 def test_a_catalog_with_other_fields_is_an_incompatible_service_naming_them() -> None:

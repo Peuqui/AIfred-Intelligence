@@ -15,6 +15,7 @@ from aifred.lib.tts_stress_burnin import stress_burnin_tts
 from tests.fake_tts_service import FakeTTSService, audio_frame, catalog_row, install_fake_service, summary_frame
 
 GOOD_READING = audio_frame(b"RIFF") + summary_frame()
+BURNIN_RELEASE = {"items": ["xtts"], "force": False, "reason": "AIfred: TTS burn-in finished"}
 
 
 class VramFake(FakeTTSService):
@@ -93,7 +94,18 @@ def test_the_container_is_released_at_the_end(monkeypatch, tmp_path) -> None:
 
     run()
 
-    assert fake.releases == [[{"engine": "xtts", "host": None}]]
+    assert fake.releases == [BURNIN_RELEASE]
+
+
+def test_a_container_a_reading_holds_stays_and_the_burnin_still_measures(monkeypatch, tmp_path, caplog) -> None:
+    fake = VramFake([catalog_row("xtts")], [{"GPU-a": 100}])
+    fake.script = [GOOD_READING]
+    fake.release_outcome = "busy"
+    install(monkeypatch, tmp_path, fake)
+
+    with caplog.at_level("WARNING"):
+        assert run() == 100
+    assert "xtts stays on the card (busy)" in caplog.text
 
 
 def test_all_syntheses_failed_gives_no_number_but_still_releases(monkeypatch, tmp_path) -> None:
@@ -102,7 +114,7 @@ def test_all_syntheses_failed_gives_no_number_but_still_releases(monkeypatch, tm
     install(monkeypatch, tmp_path, fake)
 
     assert run() is None
-    assert fake.releases == [[{"engine": "xtts", "host": None}]]
+    assert fake.releases == [BURNIN_RELEASE]
 
 
 def test_a_reading_without_audio_is_no_success(monkeypatch, tmp_path) -> None:
@@ -127,7 +139,7 @@ def test_a_vram_the_service_could_not_measure_fails_the_burnin_and_releases(monk
     install(monkeypatch, tmp_path, fake)
 
     assert run() is None
-    assert fake.releases == [[{"engine": "xtts", "host": None}]]
+    assert fake.releases == [BURNIN_RELEASE]
 
 
 def test_an_engine_without_local_gpu_needs_no_burnin(monkeypatch, tmp_path) -> None:

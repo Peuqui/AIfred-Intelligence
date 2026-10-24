@@ -7,7 +7,6 @@ import requests
 
 import aifred.lib.stt_client as stt_client
 from aifred.lib.stt_client import (
-    STTBusyError,
     STTClient,
     STTError,
     STTGPUUnavailableError,
@@ -56,7 +55,7 @@ def test_health_and_is_ready(client, calls):
 
 
 def test_an_idle_service_is_ready_it_loads_on_the_first_request(client, calls):
-    """After /unload?device=all the service has no model but answers: waiting for one froze the microphone."""
+    """After /unload the service has no model but answers: waiting for one froze the microphone."""
     calls.answer = _response(200, {"status": "idle", "model_loaded": False})
     assert client.is_ready()
 
@@ -125,20 +124,6 @@ def test_invalid_json_is_an_stt_error(client, calls):
     calls.answer = _response(200, b"<html>")
     with pytest.raises(STTError, match="invalid JSON"):
         client.status()
-
-
-def test_unload_returns_unloaded_devices_and_passes_force(client, calls):
-    calls.answer = _response(200, {"unloaded": ["gpu"]})
-    assert client.unload("cuda") == ["gpu"]
-    assert calls.sent[0][2]["params"] == {"device": "cuda"}
-    client.unload("cuda", force=True)
-    assert calls.sent[1][2]["params"] == {"device": "cuda", "force": "1"}
-
-
-def test_unload_409_is_busy(client, calls):
-    calls.answer = _response(409, {"error": "transcription running"})
-    with pytest.raises(STTBusyError):
-        client.unload("cuda")
 
 
 def test_ensure_ready_does_nothing_when_ready(client, calls, monkeypatch):

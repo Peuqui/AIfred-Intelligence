@@ -705,9 +705,13 @@ dasselbe, wenn es den Container selbst startet (`STTClient.start_container`).
 - **Was die STT-Suite einstellt** (ihre Oberfläche unter `/ui/`, am Proxy `/stt-suite/ui/`): Engine,
   Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik, der Speicherpuffer und die
   Messung des Speicherbedarfs.
-- **GPU freigeben:** Vor jedem Kaltstart eines großen Modells entlädt AIfred den GPU-Worker
-  (`/unload?device=cuda`, die CPU-Modelle bleiben), die lokalen TTS-Engines (über die TTS-Suite)
-  und das vorherige Modell.
+- **GPU freigeben:** Vor jedem Kaltstart eines Modells lässt AIfred
+  [GPU-Orc](https://github.com/Peuqui/GPU-Orc) die Karten des Modells freiräumen: GPU-Orc gibt den
+  GPU-Worker der STT-Suite (die CPU-Modelle bleiben) und die lokalen TTS-Engines über deren
+  `POST /gpu/release` frei. Eine laufende Transkription bekommt die Wartezeit aus GPU-Orcs Config;
+  danach läuft sie mit `device=auto` auf der CPU weiter. GPU-Orc muss auf dem Rechner laufen
+  (Adresse `GPU_ORC_URL` in `.env`, Standard `http://127.0.0.1:5070`); fehlt er, steht das bei jedem
+  Laden laut im Log, und die Platzprüfung des Describers findet keinen Platz.
 
 ---
 

@@ -137,44 +137,16 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     return max(fitting, key=lambda item: item[1].free_mb)
 
 
-def release_side_channels_for_describer(profile: str) -> bool:
-    """TTS-Container und Whisper-GPU-Worker freigeben, wenn sie auf der Karte
-    des Describer-Profils sitzen, das gleich lädt (Rangfolge: Hauptmodell >
-    Describer > TTS > STT; die Platzprüfung hat ihren VRAM schon als frei
-    gezählt). Die TTS-Container stoppt der TTS-Dienst auf AIfreds Anfrage
-    (``release_gpu_engines``; läuft gerade eine Ansage, lehnt er ab und das
-    Log sagt es); eine laufende Ansage wechselt danach zum nächsten Eintrag
-    der Eskalationsliste. Blockiert bis zur Gnadenfrist einer laufenden
-    Transkription — aus async-Code per ``asyncio.to_thread`` rufen. True, wenn
-    etwas freigegeben wurde."""
-    from .audio_processing import release_whisper_gpu, whisper_gpu_footprint
-    from .calibration.llamaswap_io import parse_llamaswap_config
-    from .config import LLAMASWAP_CONFIG_PATH
-    from .tts_client import TTSSuiteError
-    from .tts_service import TTSVramUnknown, release_gpu_engines
+def release_side_channels_for_describer(profile: str) -> None:
+    """Die Karten des Describer-Profils, das gleich lädt, von GPU-Orc freiräumen lassen (Rangfolge:
+    Hauptmodell > Describer > TTS > STT; die Platzprüfung hat den VRAM von TTS und STT schon als frei
+    gezählt). Dieselbe Modell-Form wie vor jedem Laden eines Chat-Modells: GPU-Orc gibt STT- und
+    TTS-Worker auf den Karten des Profils frei, die dauerhaften Modelle von llama-swap (das Profil
+    gehört selbst zu ihnen) und die Chat-Modelle bleiben. Blockiert, bis GPU-Orc fertig ist — aus
+    async-Code per ``asyncio.to_thread`` rufen."""
+    from .gpu_orc_client import clear_cards_for
 
-    if profile in loaded_llamaswap_profiles():
-        return False
-    entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(profile) or {}
-    pinned = {
-        u.strip() for u in str((entry.get("env") or {}).get("CUDA_VISIBLE_DEVICES", "")).split(",")
-        if u.strip()
-    }
-
-    def on_target_card(held: set[str]) -> bool:
-        return bool(held) and (not pinned or bool(pinned & held))
-
-    released = False
-    try:
-        # No pin = the describer may land on any card: every running TTS container is in the way.
-        stopped = release_gpu_engines(pinned or None, reason=f"describer {profile}")
-        released = any(result.outcome == "stopped" for result in stopped)
-    except (TTSSuiteError, TTSVramUnknown) as error:
-        logger.warning("TTS release for describer %s failed: %s: %s", profile, type(error).__name__, error)
-    if on_target_card(set(whisper_gpu_footprint())) and release_whisper_gpu():
-        logger.info("Whisper GPU worker released for describer %s", profile)
-        released = True
-    return released
+    clear_cards_for(profile, reason=f"AIfred: describer {profile}")
 
 
 class NoVisionModelError(RuntimeError):

@@ -1,42 +1,26 @@
-"""Describer vor TTS und STT: der VRAM von Whisper-Worker und TTS-Containern zählt als frei; vor dem Laden
-gibt AIfred den Worker frei und bittet den TTS-Dienst um die Freigabe der Container (Anfrage, kein Stoppen)."""
+"""Describer vor TTS und STT: was GPU-Orc auf der Karte des Profils freiräumen kann, zählt als frei; vor dem
+Laden lässt AIfred GPU-Orc die Karten des Profils freiräumen (dieselbe Modell-Form wie vor einem Chat-Modell)."""
 
 import pytest
+from fake_gpu_orc import FakeGpuOrc, card, install_fake_gpu_orc
 
-import aifred.lib.audio_processing as ap
-from aifred.lib import nvidia_smi, tts_service, vision_routing, vision_vram_check, vlm_vram_cache
+from aifred.lib import (
+    gpu_orc_client,
+    nvidia_smi,
+    vision_routing,
+    vision_vram_check,
+    vlm_vram_cache,
+)
 from aifred.lib.calibration import llamaswap_io
-from aifred.lib.tts_client import ReleaseResult, TTSSuiteUnreachable
+from aifred.lib.config import GPU_ORC_MODEL_SERVER
 
 PROFILE = "VL-4B-visiond-gpu0"
 CARD, OTHER = "GPU-a", "GPU-b"
 
 
-def test_footprint_counts_only_the_whisper_worker(monkeypatch, tmp_path):
-    from aifred.lib.stt_client import get_default_client
-    monkeypatch.setattr(get_default_client(), "status", lambda: {"gpu_worker_pid": 42})
-    monkeypatch.setattr(nvidia_smi, "compute_apps", lambda: [
-        {"pid": "1001", "process_name": "python3.12", "used_memory": "3652", "gpu_uuid": CARD},
-        {"pid": "1002", "process_name": "python3.12", "used_memory": "2100", "gpu_uuid": OTHER},
-        {"pid": "1003", "process_name": "VLLM::Worker", "used_memory": "39000", "gpu_uuid": CARD},
-    ])
-    nspid = {"1001": "NSpid:\t1001\t42\n", "1002": "NSpid:\t1002\t7\n", "1003": "NSpid:\t1003\n"}
-    real_open = open
-
-    def fake_open(path, *a, **k):
-        pid = str(path).split("/")[2] if str(path).startswith("/proc/") else ""
-        if pid in nspid:
-            target = tmp_path / f"status-{pid}"
-            target.write_text(nspid[pid])
-            return real_open(target, *a, **k)
-        return real_open(path, *a, **k)
-
-    monkeypatch.setattr("builtins.open", fake_open)
-    assert ap.whisper_gpu_footprint() == {CARD: 3652}
-
-
 @pytest.fixture
-def card(monkeypatch):
+def fake(monkeypatch) -> FakeGpuOrc:
+    """The profile needs 7396 MiB + reserve on CARD; 5665 MiB are free there."""
     monkeypatch.setattr(llamaswap_io, "parse_llamaswap_config", lambda _p: {
         PROFILE: {"current_context": 24576, "env": {"CUDA_VISIBLE_DEVICES": CARD}},
     })
@@ -44,70 +28,57 @@ def card(monkeypatch):
     monkeypatch.setattr(nvidia_smi, "query", lambda _f: [
         {"index": "0", "uuid": CARD, "memory.free": "5665"},
     ])
-    monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: [])
-    monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {})
-    monkeypatch.setattr(tts_service, "running_gpu_footprint", lambda: {})
+    monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", list)
+    service = FakeGpuOrc()
+    service.cards = [card(CARD), card(OTHER)]
+    install_fake_gpu_orc(monkeypatch, service)
+    return service
 
 
-def test_whisper_vram_counts_as_free_for_the_describer(card, monkeypatch):
-    assert not vision_vram_check.check_visiond_fits(PROFILE).fits
-    monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {CARD: 3652})
-    assert vision_vram_check.check_visiond_fits(PROFILE).fits
+def fits() -> bool:
+    return vision_vram_check.check_visiond_fits(PROFILE).fits
 
 
-def test_whisper_on_the_target_card_is_released(card, monkeypatch):
-    released: list[int] = []
-
-    def release() -> bool:
-        released.append(1)
-        return True
-
-    monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {CARD: 3652})
-    monkeypatch.setattr(ap, "release_whisper_gpu", release)
-    assert vision_routing.release_side_channels_for_describer(PROFILE) is True
-    assert released == [1]
+def test_stt_and_tts_vram_on_the_card_counts_as_free(fake):
+    assert not fits()
+    fake.cards = [card(CARD, ("stt-suite", "gpu-worker", 3652)), card(OTHER)]
+    assert fits()
+    fake.cards = [card(CARD, ("tts-suite", "xtts", 3680)), card(OTHER)]
+    assert fits()
 
 
-def test_whisper_on_another_card_stays(card, monkeypatch):
-    monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {OTHER: 3652})
-    monkeypatch.setattr(ap, "release_whisper_gpu", lambda: pytest.fail("must not release"))
-    assert vision_routing.release_side_channels_for_describer(PROFILE) is False
+def test_vram_on_another_card_does_not_count(fake):
+    fake.cards = [card(CARD), card(OTHER, ("stt-suite", "gpu-worker", 3652))]
+    assert not fits()
 
 
-def test_tts_vram_counts_as_free_for_the_describer(card, monkeypatch):
-    assert not vision_vram_check.check_visiond_fits(PROFILE).fits
-    monkeypatch.setattr(tts_service, "running_gpu_footprint", lambda: {"xtts": {CARD: 3680}})
-    assert vision_vram_check.check_visiond_fits(PROFILE).fits
-    monkeypatch.setattr(tts_service, "running_gpu_footprint", lambda: {"xtts": {OTHER: 3680}})
-    assert not vision_vram_check.check_visiond_fits(PROFILE).fits
+def test_the_model_servers_models_stay_and_give_no_room(fake):
+    fake.cards = [card(CARD, (GPU_ORC_MODEL_SERVER, "bge-embed", 3652)), card(OTHER)]
+    assert not fits()
 
 
-def test_tts_container_on_the_target_card_is_released_by_request(card, monkeypatch):
-    asked: list[tuple] = []
-
-    def release(cards, *, reason):
-        asked.append((cards, reason))
-        return [ReleaseResult("xtts", None, "stopped", "")]
-
-    monkeypatch.setattr(tts_service, "release_gpu_engines", release)
-    assert vision_routing.release_side_channels_for_describer(PROFILE) is True
-    assert asked == [({CARD}, f"describer {PROFILE}")]
+def test_a_holder_without_a_measured_memory_gives_no_room(fake):
+    fake.cards = [card(CARD, ("stt-suite", "diarize-worker", None)), card(OTHER)]
+    assert not fits()
 
 
-def test_a_refused_tts_release_is_not_a_release(card, monkeypatch):
-    monkeypatch.setattr(
-        tts_service, "release_gpu_engines", lambda cards, *, reason: [ReleaseResult("xtts", None, "in_use", "x")],
-    )
-    assert vision_routing.release_side_channels_for_describer(PROFILE) is False
+def test_without_gpu_orc_the_room_is_unknown_and_said(fake, monkeypatch):
+    """The page asks this on every load: a dead GPU-Orc means 'room unknown' with the reason, not an error."""
+    monkeypatch.setattr(gpu_orc_client, "_default_client", gpu_orc_client.GpuOrcClient("http://127.0.0.1:9"))
+    result = vision_vram_check.check_visiond_fits(PROFILE)
+    assert not result.fits and result.gpu_index == -1
+    assert "Belegung der Karten unbekannt" in result.message
 
 
-def test_an_unreachable_tts_service_does_not_stop_the_describer_load(card, monkeypatch, caplog):
-    def unreachable(cards, *, reason):
-        raise TTSSuiteUnreachable("not reachable on /engines")
+def test_the_describer_has_gpu_orc_clear_its_cards(fake):
+    vision_routing.release_side_channels_for_describer(PROFILE)
+    assert fake.frees == [
+        {"model": PROFILE, "model_server": GPU_ORC_MODEL_SERVER, "reason": f"AIfred: describer {PROFILE}"},
+    ]
 
-    monkeypatch.setattr(tts_service, "release_gpu_engines", unreachable)
-    monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {CARD: 3652})
-    monkeypatch.setattr(ap, "release_whisper_gpu", lambda: True)
-    with caplog.at_level("WARNING"):
-        assert vision_routing.release_side_channels_for_describer(PROFILE) is True  # Whisper still released
-    assert "TTS release for describer" in caplog.text
+
+def test_a_gpu_orc_that_does_not_answer_does_not_stop_the_describer_load(monkeypatch):
+    said: list[tuple[str, str]] = []
+    monkeypatch.setattr(gpu_orc_client, "log_message", lambda message, category="info": said.append((category, message)))
+    vision_routing.release_side_channels_for_describer(PROFILE)  # conftest: dead address, no exception
+    assert len(said) == 1 and said[0][0] == "warning" and PROFILE in said[0][1]

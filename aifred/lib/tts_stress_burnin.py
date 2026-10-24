@@ -33,11 +33,15 @@ import time
 from typing import Any, Optional
 
 from .config import TTS_BURNIN_AGENT
-from .tts_client import EngineRef, EngineTarget, TTSSuiteError, get_tts_client, new_run_id
-from .tts_service import TTSVramUnknown, catalog, release_targets
+from .tts_client import EngineRef, TTSSuiteError, get_tts_client, new_run_id
+from .tts_service import catalog
 from .tts_voices import voices_for
 
 logger = logging.getLogger(__name__)
+
+
+class TTSVramUnknown(RuntimeError):
+    """The service could not measure the VRAM of a running local GPU engine."""
 
 
 # Deterministic worst-case input — long bilingual passages designed
@@ -210,8 +214,16 @@ async def _synthesize(text: str, language: str, engine_key: str) -> int:
 
 
 async def _release(engine_key: str) -> None:
-    """Ask the service to take the burn-in's container off the card (it may refuse: ``in_use``)."""
-    await asyncio.to_thread(release_targets, [EngineTarget(engine_key, None)], reason="TTS burn-in finished")
+    """Ask the service to take the burn-in's container off the card. A reading may hold it (``busy``):
+    then it stays, and the log says so."""
+    results = await asyncio.to_thread(
+        get_tts_client().gpu_release, [engine_key], force=False, reason="AIfred: TTS burn-in finished",
+    )
+    for result in results:
+        if result.outcome not in ("released", "not_running"):
+            logger.warning(
+                "tts_stress_burnin: %s stays on the card (%s): %s", engine_key, result.outcome, result.detail,
+            )
 
 
 async def stress_burnin_tts(

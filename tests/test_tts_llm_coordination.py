@@ -1,5 +1,6 @@
 """Abstimmung LLM und TTS: nur das LLM-Profil wird gewählt (llama-swap), kein TTS-Container wird
-gestartet, gestoppt oder geladen. Der Dienst ist ein httpx.MockTransport, der nur GET /engines beantwortet."""
+gestartet, gestoppt oder geladen; Platz auf den Karten macht GPU-Orc. Der TTS-Dienst ist ein
+httpx.MockTransport, der nur GET /engines beantwortet."""
 
 from __future__ import annotations
 
@@ -7,6 +8,7 @@ from typing import Any
 
 import httpx
 import pytest
+from fake_gpu_orc import FakeGpuOrc, install_fake_gpu_orc
 
 from aifred.lib import process_utils, tts_llm_coordination, tts_service
 from aifred.lib.tts_client import TTSClient
@@ -24,15 +26,20 @@ def row(engine: str, **fields: Any) -> dict[str, Any]:
 
 @pytest.fixture
 def calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
-    """Catalog: xtts (GPU) and piper (CPU); records the LLM-side actions and every request to the service."""
+    """Catalog: xtts (GPU) and piper (CPU); records the LLM-side actions and every /free to GPU-Orc."""
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if (request.method, request.url.path) == ("POST", "/release"):
-            seen.append("release")   # AIfred only ASKS the service; it stops no container itself
-            return httpx.Response(200, json=[{"engine": "xtts", "host": None, "outcome": "stopped", "detail": ""}])
         assert (request.method, request.url.path) == ("GET", "/engines"), "no other request may be sent"
         return httpx.Response(200, json=[row("xtts"), row("piper", needs_gpu=False)])
+
+    class RecordingGpuOrc(FakeGpuOrc):
+        def handler(self, request: httpx.Request) -> httpx.Response:
+            if request.url.path == "/free":
+                seen.append("free")   # AIfred only ASKS GPU-Orc; it stops no container itself
+            return super().handler(request)
+
+    install_fake_gpu_orc(monkeypatch, RecordingGpuOrc())
 
     monkeypatch.setattr(tts_service, "get_tts_client", lambda: TTSClient("http://tts.test", transport=httpx.MockTransport(handler)))
     tts_service.reset_cache()
@@ -56,7 +63,7 @@ def run(wanted: str) -> tuple[list[str], tts_llm_coordination.TTSState]:
 
 def test_a_gpu_engine_switches_the_llm_profile_only(calls) -> None:
     messages, state = run("xtts")
-    assert calls == ["unload", "release", "restart"]
+    assert calls == ["unload", "free", "restart"]
     assert state.success and state.changed
     assert messages[-1] == "LLM profile ready: model (ctx: 1)"
 

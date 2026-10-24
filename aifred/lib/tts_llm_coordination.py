@@ -16,16 +16,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Generator
 
+from .gpu_orc_client import GpuOrcError, describe, get_gpu_orc_client
 from .logging_utils import log_message
 from .service_status import LlamaSwapError, running_models
-from .tts_client import TTSSuiteError
-from .tts_service import (
-    TTSVramUnknown,
-    active_local_keys,
-    engine_label_short,
-    gpu_engine_keys,
-    release_gpu_engines,
-)
+from .tts_service import active_local_keys, engine_label_short, gpu_engine_keys
 
 
 def _label(engine_key: str) -> str:
@@ -118,10 +112,10 @@ def ensure_tts_state(
 
 
 def _switch_llm_profile(backend_type: str, wanted_tts: str) -> Generator[str, None, None]:
-    """Unload the LLM if one is loaded, ask the TTS service to release every local GPU engine
-    (the new profile leaves room for ``wanted_tts``; the service places an engine again after the load),
-    restart the LLM backend so it picks up the TTS-calibrated profile. A release the service refuses or cannot do is logged by
-    ``release_gpu_engines`` and reported here; the switch goes on."""
+    """Unload the LLM if one is loaded, have GPU-Orc clear every card of everything but llama-swap's
+    models (the new profile leaves room for ``wanted_tts``; the TTS service places an engine again after
+    the load), restart the LLM backend so it picks up the TTS-calibrated profile. What stays on the cards,
+    or a GPU-Orc that does not answer, is reported here; the switch goes on."""
     from .process_utils import unload_llm_models
 
     if _is_llm_loaded(backend_type):
@@ -129,13 +123,12 @@ def _switch_llm_profile(backend_type: str, wanted_tts: str) -> Generator[str, No
         if actions:
             yield f"LLM unloaded: {', '.join(actions)}"
     try:
-        released = release_gpu_engines(reason=f"the {_label(wanted_tts)} profile")
-    except (TTSSuiteError, TTSVramUnknown) as error:
-        yield f"⚠️ TTS release failed: {error}"
+        result = get_gpu_orc_client().free_all_but_models(reason=f"AIfred: the {_label(wanted_tts)} profile")
+    except GpuOrcError as error:
+        yield f"⚠️ GPU-Orc could not clear the cards: {error}"
     else:
-        for result in released:
-            if result.outcome == "in_use":
-                yield f"⚠️ {_label(result.engine)}: TTS in use, release refused"
+        for line, _category in describe(result):
+            yield line
     restart_llm_backend(backend_type)
     model_info = get_effective_model_info(backend_type)
     if model_info:

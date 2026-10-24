@@ -24,11 +24,8 @@ def _no_debug_log_file():
 
 @pytest.fixture(autouse=True)
 def _no_real_whisper_service(monkeypatch):
-    """Tests dürfen den echten whisper-stt-Dienst weder abfragen noch dessen
-    GPU-Worker beenden: Die Describer-Platzierung zählt seinen VRAM als
-    freigebbar und gibt ihn vor dem Laden frei. Ohne diese Sperre hätte ein
-    Testlauf Peuquis laufenden GPU-Worker abgeschossen. Tests für die
-    Zuordnung selbst überschreiben das gezielt."""
+    """Tests dürfen den echten whisper-stt-Dienst weder abfragen noch den
+    Container starten. Tests für den Client selbst überschreiben das gezielt."""
     import aifred.lib.stt_client as stt_client
 
     def _no_container_start() -> tuple[bool, str]:
@@ -59,6 +56,17 @@ def _no_real_tts_service(monkeypatch):
     tts_service.reset_cache()
     yield
     tts_service.reset_cache()
+
+
+@pytest.fixture(autouse=True)
+def _no_real_gpu_orc(monkeypatch):
+    """Tests dürfen den echten GPU-Orc nie fragen: ein /free gäbe STT- und
+    TTS-Worker frei. Der Default-Client zeigt auf eine tote Adresse, jeder
+    Aufruf scheitert mit GpuOrcError. Tests, die GPU-Orc brauchen, setzen
+    einen Fake (tests/fake_gpu_orc.py)."""
+    from aifred.lib import gpu_orc_client
+
+    monkeypatch.setattr(gpu_orc_client, "_default_client", gpu_orc_client.GpuOrcClient("http://127.0.0.1:9"))
 
 
 @pytest.fixture(autouse=True)

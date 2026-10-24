@@ -702,9 +702,13 @@ reserves a GPU, which Docker refuses there. AIfred does the same when it starts 
 - **What the STT-Suite sets** (its page at `/ui/`, `/stt-suite/ui/` behind the proxy): engine, model and
   quality per device, the order of the automatic mode, the memory margin and the measurement of the
   memory need.
-- **Freeing the GPU:** before the cold start of a big model AIfred unloads the GPU worker
-  (`/unload?device=cuda`, the CPU models stay), the local TTS engines (through the TTS-Suite) and the
-  previous model.
+- **Freeing the GPU:** before the cold start of a model AIfred has
+  [GPU-Orc](https://github.com/Peuqui/GPU-Orc) clear the model's cards: GPU-Orc releases the
+  STT-Suite's GPU worker (the CPU models stay) and the local TTS engines through their
+  `POST /gpu/release`. A running transcription gets the wait from GPU-Orc's config; after that it
+  goes on on the CPU with `device=auto`. GPU-Orc must run on the machine (address `GPU_ORC_URL` in
+  `.env`, default `http://127.0.0.1:5070`); without it every load says so loudly in the log, and the
+  describer's room check finds no room.
 
 ---
 
