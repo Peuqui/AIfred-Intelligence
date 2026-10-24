@@ -13,6 +13,7 @@ from aifred.lib.document_sources import DocumentSource, DocumentSourceError, Sou
 
 class FakeSource:
     key = "fake_drive"
+    writable = True
 
     def label(self, lang: str) -> str:
         return "Fake Drive"
