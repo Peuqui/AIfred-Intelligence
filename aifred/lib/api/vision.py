@@ -484,8 +484,8 @@ async def vision_frame(id: int, w: int = 0, zoom: int = 0) -> Response:
     >0 skaliert serverseitig herunter (Casus-Thumbnail nutzt w=80, das
     Bild-Modal lädt ohne ``w`` in Vollauflösung). ``zoom=1`` liefert statt
     des Weitwinkels den Tele-Snap des Events (404, wenn keiner existiert).
-    Kein extra Auth-Gate — Zugriff ist von außen ohnehin durch den
-    Basic-Auth-Reverse-Proxy und lokal durch Maschinenzugang geschützt
+    Kein extra Auth-Gate — es gilt die Login-Cookie-Pflicht der API
+    (lib/api/app.py), von außen zusätzlich die Anmeldung am Reverse-Proxy
     (gleiches Niveau wie die face-crop-Auslieferung unter /_upload)."""
     from ..vision_store import VisionStore
     path_str = VisionStore().get_event_frame_path(id, zoom=bool(zoom))

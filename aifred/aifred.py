@@ -1234,7 +1234,7 @@ app._api.mount(
 # Mount html_preview directory for share_chat feature.
 # BEWUSST OHNE Cookie-Pflicht: Share-Links sollen von Empfängern ohne
 # AIfred-Login geöffnet werden können; der Inhalt wird durch bewusste
-# User-Aktion publiziert. Von außen schützt weiterhin nginx-Basic-Auth.
+# User-Aktion publiziert. Von außen schützt weiterhin die Anmeldung am Reverse-Proxy.
 html_preview_dir = DATA_DIR / "html_preview"
 html_preview_dir.mkdir(parents=True, exist_ok=True)
 app._api.mount("/_upload/html_preview", StaticFiles(directory=str(html_preview_dir)), name="html_preview")

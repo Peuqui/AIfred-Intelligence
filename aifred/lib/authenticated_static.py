@@ -4,7 +4,7 @@ The sensitive surveillance directories (Vigilantia frames, face crops, session
 audio) are mounted just like the public ones, but every request must carry a
 valid login cookie. This moves the access check from the reverse proxy down
 into the app, so the files are also protected on localhost/LAN — not only
-behind nginx's basic-auth (which stays as the outer layer).
+behind the reverse proxy's own login (which stays as the outer layer).
 
 Auth is the same integrity-signed ``aifred_username`` cookie the web login
 sets; verification goes through :mod:`aifred.lib.auth` (single source of
