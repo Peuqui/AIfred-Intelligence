@@ -1,5 +1,5 @@
 """Nextcloud tools and instructions against the live server, in the test
-collections of the dedicated user. Skipped without local credentials;
+collections of the test user. Skipped without local credentials;
 every test removes what it creates."""
 
 import asyncio

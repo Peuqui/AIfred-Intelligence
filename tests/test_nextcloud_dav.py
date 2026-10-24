@@ -1,5 +1,6 @@
 """Nextcloud DAV layer against the live server, in the test collections of
-the dedicated user (``aifred-test`` calendar and address book).
+a test user of its own (``aifred-test`` calendar and address book). The user
+AIfred runs as sees only what is shared with it, never test data.
 
 Credentials come from a local file (never versioned); without it the tests
 are skipped. Every test removes what it creates.
@@ -23,7 +24,7 @@ from aifred.plugins.tools.nextcloud.dav import (
     DavObject,
 )
 
-CREDENTIALS = Path.home() / ".config" / "aifred" / "nextcloud-aifred.env"
+CREDENTIALS = Path.home() / ".config" / "aifred" / "nextcloud-test.env"
 TEST_COLLECTION = "aifred-test"
 
 pytestmark = pytest.mark.skipif(not CREDENTIALS.exists(), reason=f"no Nextcloud test credentials ({CREDENTIALS})")

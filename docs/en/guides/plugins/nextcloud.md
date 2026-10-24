@@ -47,4 +47,4 @@ Required packages: `icalendar`, `vobject` (see `requirements.txt`).
 
 ## Tests
 
-`tests/test_nextcloud_ical_vcard.py` needs no server. `tests/test_nextcloud_dav.py` and `tests/test_nextcloud_tools.py` work live in the `aifred-test` collections of a dedicated user; the credentials live locally in `~/.config/aifred/nextcloud-aifred.env` (without the file they are skipped). Every test removes what it creates.
+`tests/test_nextcloud_ical_vcard.py` needs no server. `tests/test_nextcloud_dav.py` and `tests/test_nextcloud_tools.py` work live in the `aifred-test` collections of a test user of their own, separate from the user AIfred runs as, which only sees what is shared with it. The test user's credentials live locally in `~/.config/aifred/nextcloud-test.env` (without the file the tests are skipped). Every test removes what it creates; Nextcloud keeps deleted items in its trash bin for 30 days.
