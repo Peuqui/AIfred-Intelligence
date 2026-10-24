@@ -101,6 +101,7 @@ gewohnt gefragt — ohne Terminal gilt die Standardantwort:
 | `AIFRED_INSTALL_PROXY` | Caddy als Reverse-Proxy installieren (sudo, Konfiguration `deploy/Caddyfile`, Port 8080) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_USER` | erster Whitelist-Benutzer | ein Benutzername oder `skip` (Standard: `$USER`) |
 | `AIFRED_INSTALL_TTS_SYSTEMD` | TTS-Suite als Systemdienst `tts-suite@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `n`: Benutzerdienst) |
+| `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | GPU-Orc als Systemdienst `gpu-orc@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `n`: Benutzerdienst) |
 
 ```bash
 AIFRED_INSTALL_OLLAMA=n AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh
@@ -711,7 +712,9 @@ dasselbe, wenn es den Container selbst startet (`STTClient.start_container`).
   `POST /gpu/release` frei. Eine laufende Transkription bekommt die Wartezeit aus GPU-Orcs Config;
   danach läuft sie mit `device=auto` auf der CPU weiter. GPU-Orc muss auf dem Rechner laufen
   (Adresse `GPU_ORC_URL` in `.env`, Standard `http://127.0.0.1:5070`); fehlt er, steht das bei jedem
-  Laden laut im Log, und die Platzprüfung des Describers findet keinen Platz.
+  Laden laut im Log, und die Platzprüfung des Describers findet keinen Platz. `install-all.sh`
+  (Schritt 2g) klont GPU-Orc neben AIfred und führt dessen `deploy/install.sh` aus; die erste Config
+  (`~/.config/gpu-orc/config.yaml`) nennt STT-Suite, TTS-Suite und llama-swap an AIfreds Adressen.
 
 ---
 

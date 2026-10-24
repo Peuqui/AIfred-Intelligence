@@ -101,6 +101,7 @@ is asked as usual, or takes its default when there is no terminal:
 | `AIFRED_INSTALL_PROXY` | install Caddy as reverse proxy (sudo, config `deploy/Caddyfile`, port 8080) | `y` / `n` (default `y`) |
 | `AIFRED_INSTALL_USER` | first whitelist user | a username, or `skip` (default: `$USER`) |
 | `AIFRED_INSTALL_TTS_SYSTEMD` | install the TTS-Suite as system service `tts-suite@<user>` (sudo, with the polkit rule) | `y` / `n` (default `n`: user service) |
+| `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | install GPU-Orc as system service `gpu-orc@<user>` (sudo, with the polkit rule) | `y` / `n` (default `n`: user service) |
 
 ```bash
 AIFRED_INSTALL_OLLAMA=n AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh
@@ -708,7 +709,9 @@ reserves a GPU, which Docker refuses there. AIfred does the same when it starts 
   `POST /gpu/release`. A running transcription gets the wait from GPU-Orc's config; after that it
   goes on on the CPU with `device=auto`. GPU-Orc must run on the machine (address `GPU_ORC_URL` in
   `.env`, default `http://127.0.0.1:5070`); without it every load says so loudly in the log, and the
-  describer's room check finds no room.
+  describer's room check finds no room. `install-all.sh` (step 2g) clones GPU-Orc next to AIfred and
+  runs its `deploy/install.sh`; the first config (`~/.config/gpu-orc/config.yaml`) names the
+  STT-Suite, the TTS-Suite and llama-swap at AIfred's addresses.
 
 ---
 
