@@ -247,7 +247,7 @@ Wichtige Plugin-Einstellungen:
 | Plugin | Schlüssel | Bedeutung |
 |---|---|---|
 | Google Suite | `GOOGLE_DRIVE_AGENT_FOLDER` | Name des einen Drive-Ordners, in dem die Agenten arbeiten (wird angelegt, falls er fehlt). Darin lesen, schreiben, verschieben und löschen sie, außerhalb nichts; den Ordner selbst können sie weder ändern noch löschen. Der Dokumentenmanager ist nicht daran gebunden |
-| Google Suite | `GOOGLE_DRIVE_ENABLED`, `GOOGLE_CALENDAR_ENABLED`, `GOOGLE_CONTACTS_ENABLED`, `GOOGLE_TASKS_ENABLED` | Jeden Google-Dienst ein- oder ausschalten; Drive aus nimmt es auch aus dem Dokumentenmanager |
+| Google Suite | `GOOGLE_MODULE_CALENDAR`, `GOOGLE_MODULE_CONTACTS`, `GOOGLE_MODULE_TASKS`, `GOOGLE_MODULE_DRIVE` | Je Google-Dienst `off`, `read` oder `write` (setzt AIfred durch; ein neu eingeschalteter Dienst braucht einmal Neuverbinden); Drive aus nimmt es auch aus dem Dokumentenmanager |
 | FreeEcho.2 | `FREEECHO2_LANGUAGE` | Haushaltssprache: `de` oder `en` (STT-Sprache, Prompt-Sprache, Tool-Antworten) |
 | FreeEcho.2 | `FREEECHO2_NOTIFICATION_START_TONE`, `FREEECHO2_NOTIFICATION_END_TONE` | Ob Ansagen den Beginn-Ton (Ding) und den Ende-Ton (Dong) anfordern; welcher Klang das ist, legt der Puck fest |
 | Drucker | `PRINTER_DEFAULT` | Standarddrucker, gewählt aus dem, was CUPS auflistet (ein einziger Drucker wird automatisch genommen) |

@@ -608,23 +608,26 @@ def document_manager_page() -> rx.Component:
             rx.flex(
                 # Left: File list
                 rx.vstack(
-                    # Upload drop zone
-                    rx.upload(
-                        rx.hstack(
-                            rx.icon("upload", size=14, color="#888"),
-                            rx.text(
-                                t("doc_drop_files"),
-                                font_size="11px", color="#888",
+                    # Upload drop zone — only where the open source takes uploads
+                    rx.cond(
+                        AIState.doc_source_writable,
+                        rx.upload(
+                            rx.hstack(
+                                rx.icon("upload", size=14, color="#888"),
+                                rx.text(
+                                    t("doc_drop_files"),
+                                    font_size="11px", color="#888",
+                                ),
+                                spacing="2", align="center", justify="center",
+                                width="100%", padding="8px",
+                                border="1px dashed #444", border_radius="6px",
+                                _hover={"border_color": "#d29922", "color": "#d29922"},
                             ),
-                            spacing="2", align="center", justify="center",
-                            width="100%", padding="8px",
-                            border="1px dashed #444", border_radius="6px",
-                            _hover={"border_color": "#d29922", "color": "#d29922"},
+                            id="doc-explorer-upload",
+                            on_drop=AIState.handle_document_upload,
+                            multiple=True,
+                            border="none", padding="0", width="100%",
                         ),
-                        id="doc-explorer-upload",
-                        on_drop=AIState.handle_document_upload,
-                        multiple=True,
-                        border="none", padding="0", width="100%",
                     ),
 
                     # Selection bar — only once the folder holds files (local only)

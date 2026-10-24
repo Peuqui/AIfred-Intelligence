@@ -13,6 +13,15 @@ from .._common import PLUGIN_DIR, _google_request
 TASKS_API = "https://tasks.googleapis.com/tasks/v1"
 
 
+# The tools that only read — offered alone when the service is set to read.
+# (Tiers do not tell: reading tools carry TIER_WRITE_DATA to keep private data
+# away from external channels.)
+READ_TOOL_NAMES = frozenset({
+    "google_tasks_list_tasklists",
+    "google_tasks_list",
+})
+
+
 def get_tasks_tools() -> list[Tool]:
     async def list_tasklists() -> str:
         """Alle Task-Listen des Nutzers auflisten."""
