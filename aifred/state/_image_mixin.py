@@ -123,6 +123,12 @@ class ImageMixin(rx.State, mixin=True):
             get_image_url,
         )
 
+        # POST /_upload reaches this handler with any client token, a fresh one gives a state
+        # without login: nothing may touch the disk before this check.
+        if not self.logged_in_user:  # type: ignore[attr-defined]
+            self.add_debug("⚠️ Image upload rejected: not logged in")  # type: ignore[attr-defined]
+            return
+
         # Show loading state immediately
         self.is_uploading_image = True
 
