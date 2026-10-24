@@ -7,7 +7,7 @@ Two concerns live here so they cannot drift apart across call sites:
 2. Integrity-protected username cookies for the web auto-login. The cookie
    is HMAC-signed with a server-side secret so a client cannot forge it to
    impersonate another account (the cookie sits behind the reverse proxy's
-   basic-auth, but the signature is the per-account boundary underneath it).
+   own login, but the signature is the per-account boundary underneath it).
 
 The server secret is read from AIFRED_SESSION_SECRET; if unset, a random
 secret is generated once and persisted to ``data/.session_secret`` (0600).
