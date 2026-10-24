@@ -13,6 +13,15 @@ from .._common import PLUGIN_DIR, _google_request
 CALENDAR_API = "https://www.googleapis.com/calendar/v3"
 
 
+# The tools that only read — offered alone when the service is set to read.
+# (Tiers do not tell: reading tools carry TIER_WRITE_DATA to keep private data
+# away from external channels.)
+READ_TOOL_NAMES = frozenset({
+    "google_calendar_list_events",
+    "google_calendar_list_calendars",
+})
+
+
 def get_calendar_tools() -> list[Tool]:
     async def list_events(
         start: str,

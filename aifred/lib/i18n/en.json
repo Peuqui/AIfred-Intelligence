@@ -830,6 +830,7 @@
   "oauth_connect_no_credentials": "Please enter and save Client ID and Secret first",
   "oauth_connect_disconnect": "Disconnect",
   "oauth_connect_hint": "Opens a new browser tab for the login.",
+  "oauth_connect_rights_missing": "Permissions for the services switched on are missing. Please reconnect — the plugin is off until then.",
   "agent_editor_cancel": "Cancel",
   "agent_editor_reset": "Reset",
   "agent_editor_name": "Name",

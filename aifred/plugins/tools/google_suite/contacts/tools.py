@@ -64,6 +64,17 @@ async def _resolve_group_resource_name(group_name: str) -> str:
     raise ValueError(f"Contact group '{group_name}' not found.")
 
 
+# The tools that only read — offered alone when the service is set to read.
+# (Tiers do not tell: reading tools carry TIER_WRITE_DATA to keep private data
+# away from external channels.)
+READ_TOOL_NAMES = frozenset({
+    "google_contacts_list_all",
+    "google_contacts_list_groups",
+    "google_contacts_list_by_group",
+    "google_contacts_search",
+})
+
+
 def get_contacts_tools() -> list[Tool]:
 
     async def list_all_contacts(max_results: int = 500) -> str:

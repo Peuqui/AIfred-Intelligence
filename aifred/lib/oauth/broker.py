@@ -167,6 +167,11 @@ class OAuthBroker:
     def is_connected(self, provider_name: str) -> bool:
         return _load_token(provider_name) is not None
 
+    def granted_scopes(self, provider_name: str) -> list[str]:
+        """The scopes the provider granted the stored token (empty when not connected)."""
+        token_set = _load_token(provider_name)
+        return [] if token_set is None else list(token_set.scopes)
+
     async def verify_connection(self, provider_name: str) -> bool:
         """Prove the stored grant is still valid via a forced refresh roundtrip.
 

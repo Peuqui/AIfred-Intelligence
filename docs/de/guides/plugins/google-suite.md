@@ -4,7 +4,7 @@
 
 **Dateien:** `aifred/plugins/tools/google_suite/`
 
-Google Calendar, Contacts, Tasks und Drive über OAuth 2.0. Orchestrator-Plugin mit vier aktivierbaren Sub-Services. Benötigt einmaligen OAuth-Flow in der Google Cloud Console. Den OAuth-Mechanismus (Token-Storage, Auto-Refresh, API-Endpoints) beschreibt [oauth.md](oauth.md).
+Google Calendar, Contacts, Tasks und Drive über OAuth 2.0. Orchestrator-Plugin mit vier Diensten, jeder einzeln aus, nur lesend oder lesend und schreibend. Benötigt einmaligen OAuth-Flow in der Google Cloud Console. Den OAuth-Mechanismus (Token-Storage, Auto-Refresh, API-Endpoints) beschreibt [oauth.md](oauth.md).
 
 ## Setup
 
@@ -19,30 +19,43 @@ Google Calendar, Contacts, Tasks und Drive über OAuth 2.0. Orchestrator-Plugin 
    GOOGLE_CLIENT_ID=1234567890-abc.apps.googleusercontent.com
    GOOGLE_CLIENT_SECRET=GOCSPX-...
    ```
-5. Sub-Services in `aifred/plugins/tools/google_suite/settings.json` aktivieren/deaktivieren (Standard: alle vier an)
-6. OAuth-Flow starten — Auth-URL generieren:
-   ```bash
-   curl "http://localhost:8002/api/oauth/google/auth-url?redirect_uri=https://example.com:8443/api/oauth/google/callback&scopes=https://www.googleapis.com/auth/calendar,https://www.googleapis.com/auth/contacts"
-   ```
-   Zurückgegebene URL im Browser öffnen → Google-Login → Weiterleitung auf Callback-URL → fertig.
-7. Verbindungsstatus prüfen:
-   ```bash
-   curl http://localhost:8002/api/oauth/google/status
-   ```
+5. Stufe je Dienst in den Plugin-Einstellungen wählen (Plugin-Manager → Zahnrad; Standard: alle vier „Lesen“), speichern
+6. Im selben Fenster **Mit Google verbinden** → Google-Login → Zustimmung → fertig. AIfred fragt dabei die Berechtigungen der eingeschalteten Dienste an.
 
-## Sub-Services & Settings
+Der API-Weg (`GET /api/oauth/google/auth-url?redirect_uri=…&scopes=…`) bleibt für Skripte; er muss dann die Berechtigungen aller eingeschalteten Dienste anfordern (siehe Tabelle unten), sonst bleibt das Plugin aus. `GET /api/oauth/google/status` meldet nur, ob ein Token gespeichert ist, nicht ob ihm Rechte fehlen.
 
-`aifred/plugins/tools/google_suite/settings.json`:
+## Dienste und Stufen
+
+`aifred/plugins/tools/google_suite/settings.json` (geschrieben vom Einstellungsfenster):
 ```json
 {
-  "GOOGLE_CALENDAR_ENABLED": "true",
-  "GOOGLE_CONTACTS_ENABLED": "true",
-  "GOOGLE_TASKS_ENABLED": "true",
-  "GOOGLE_DRIVE_ENABLED": "true"
+  "GOOGLE_MODULE_CALENDAR": "read",
+  "GOOGLE_MODULE_CONTACTS": "read",
+  "GOOGLE_MODULE_TASKS": "read",
+  "GOOGLE_MODULE_DRIVE": "read"
 }
 ```
 
-Einen Sub-Service deaktivieren: Wert auf `"false"` setzen, AIfred neu starten. Welche Scopes der OAuth-Flow anfragt, ergibt sich aus den aktivierten Sub-Services (`aggregated_scopes()`).
+Jeder Dienst steht auf `off`, `read` oder `write` (gemeinsamer Baustein `aifred/lib/plugin_modules.py`, wie bei EPIM und Nextcloud). Ein unbekannter Wert lässt das Speichern scheitern, statt still als irgendeine Stufe zu gelten.
+
+Die Stufe setzt AIfred selbst durch, nicht Google:
+
+- **Aus:** keine Werkzeuge, keine Berechtigung bei Google; Drive aus nimmt Drive auch aus dem Dokumentenfenster.
+- **Lesen:** nur die Lesewerkzeuge (`READ_TOOL_NAMES` in der `tools.py` des Dienstes). Die schreibenden stehen nicht im Werkzeugkasten; ruft das Modell trotzdem eines auf, lehnt die Ausführung es als unbekanntes Werkzeug ab. Drive im Dokumentenfenster: ansehen und herunterladen, kein Upload-Feld, und die Quelle lehnt `upload()` ab.
+- **Lesen und Schreiben:** alle Werkzeuge des Dienstes, Upload ins Drive.
+
+Bei Google fragt AIfred für jeden eingeschalteten Dienst das volle Recht an, gleich welche Stufe:
+
+| Dienst | Berechtigung bei Google |
+|--------|-------------------------|
+| Kalender | `calendar` |
+| Kontakte | `contacts` |
+| Aufgaben | `tasks` |
+| Drive | `drive` |
+
+Dazu kommen immer `userinfo.email` und `userinfo.profile`.
+
+**Stufe ändern:** jederzeit, ohne neu zu verbinden — zwischen „Lesen“ und „Lesen und Schreiben“ ändert sich bei Google nichts. Neu verbinden muss man nur, wenn ein Dienst eingeschaltet wird, dem Google noch nicht zugestimmt hat (`oauth_grant_current()`: jedem eingeschalteten Dienst muss sein Recht erteilt sein, weitere Rechte schaden nicht). Bis dahin ist das Plugin aus, und das Einstellungsfenster zeigt den Hinweis „Für die eingeschalteten Dienste fehlen Berechtigungen“ und wieder **Mit Google verbinden**. Wer Google ein Recht ganz entziehen will, entfernt den Zugriff in der Google-Kontoübersicht (Sicherheit → Drittanbieter-Zugriff) und verbindet danach mit den gewünschten Diensten neu.
 
 ## Calendar Tools
 
@@ -196,7 +209,9 @@ AIfred ruft `google_drive_search(query="Projektplan")` auf.
 | `google_drive_move_file` | Datei in anderen Ordner verschieben | WRITE_DATA |
 
 Die Lese-Tools sind bewusst `WRITE_DATA`: Sie legen private Drive-Inhalte offen und
-bleiben damit für externe Kanäle (E-Mail, Discord, Telegram) gesperrt. Die Obergrenze
+bleiben damit für externe Kanäle (E-Mail, Discord, Telegram) gesperrt. Welche Werkzeuge
+bei der Stufe „Lesen“ angeboten werden, entscheidet deshalb nicht der Tier, sondern
+`READ_TOOL_NAMES`. Die Obergrenze
 für `google_drive_get_file` ist `DRIVE_MAX_DOWNLOAD_BYTES` (Umgebungsvariable,
 Standard 5 MiB).
 
@@ -220,7 +235,7 @@ er fehlt.
 
 **Dateien:** `aifred/lib/document_sources.py`, `aifred/plugins/tools/google_suite/drive/source.py`, `aifred/state/_document_mixin.py`, `aifred/ui/modals/documents.py`, `aifred/lib/api/documents.py`
 
-Ist der Drive-Sub-Service aktiv (`GOOGLE_DRIVE_ENABLED`) und Google verbunden, erscheint im
+Steht Drive mindestens auf „Lesen“ und ist Google mit dem Drive-Recht verbunden, erscheint im
 Dokumentenfenster neben dem lokalen Ordner eine zweite Quelle „Google Drive“
 (Umschalter oben). Es ist eine Live-Ansicht, kein Abbild des Drives.
 
@@ -230,7 +245,7 @@ Dokumentenfenster neben dem lokalen Ordner eine zweite Quelle „Google Drive“
 | Suche | Eingabefeld in der Werkzeugleiste, durchsucht das ganze Drive nach Dateiname und Volltext (höchstens 100 Treffer, nach Relevanz) |
 | Download | Pfeil-Symbol je Datei; die Datei wird gestreamt, nicht durch den Reflex-State geleitet (`GET /api/documents/source/{key}/file/{id}`, Login-Cookie). 404 bei unbekannter Quelle, 502 bei Fehler der Quelle |
 | Export | Googles eigene Formate haben keine Datei und werden exportiert: Docs → `.docx`, Sheets → `.xlsx`, Slides → `.pptx`, Zeichnungen → `.pdf`. Andere Google-Formate und Ordner sind nicht herunterladbar |
-| Upload | Der Upload des Dokumentenfensters lädt in den gerade geöffneten Drive-Ordner (Wurzel: „Meine Ablage“); es gilt dieselbe Größenobergrenze wie lokal (`DOCUMENT_MAX_FILE_SIZE_MB`) |
+| Upload | Nur bei Drive auf „Lesen und Schreiben“: Der Upload des Dokumentenfensters lädt in den gerade geöffneten Drive-Ordner (Wurzel: „Meine Ablage“); es gilt dieselbe Größenobergrenze wie lokal (`DOCUMENT_MAX_FILE_SIZE_MB`). Bei „Lesen“ fehlt das Upload-Feld, und die Quelle lehnt `upload()` ab |
 
 Nicht verfügbar für Drive-Zeilen: Indexieren, Umbenennen, Löschen und Vorschau — das bleibt
 dem lokalen Ordner vorbehalten.
@@ -247,10 +262,11 @@ kein Plugin).
 | Teil | Aufgabe |
 |------|---------|
 | `key`, `label(lang)` | stabile Kennung (`google_drive`) und Name im Umschalter |
+| `writable` | `False`: das Dokumentenfenster zeigt kein Upload-Feld, `upload()` lehnt ab |
 | `list_folder(folder_id)` | Ordnerinhalt; Ordner werden über IDs angesprochen, `""` = Wurzel |
 | `search(query)` | Suche über die ganze Quelle |
 | `download(file_id)` | gestreamter Download (`SourceDownload`) |
-| `upload(folder_id, name, data, mime)` | Datei hochladen |
+| `upload(folder_id, name, data, mime)` | Datei hochladen (nur bei `writable`) |
 
 Quellen werfen nur `DocumentSourceError` (Meldung für den Anwender, erscheint als Toast).
 Der Zustand (aktive Quelle, Ordnerpfad, Suchbegriff) liegt in `_document_mixin.py`.

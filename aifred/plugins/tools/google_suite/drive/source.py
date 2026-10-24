@@ -58,6 +58,10 @@ def _source_error(exc: Exception, action: str) -> DocumentSourceError:
 class DriveDocumentSource:
     key = "google_drive"
 
+    def __init__(self, writable: bool) -> None:
+        # Follows the plugin's Drive level (the grant at Google always allows writing).
+        self.writable = writable
+
     def label(self, lang: str) -> str:
         from pathlib import Path
 
@@ -142,6 +146,8 @@ class DriveDocumentSource:
             await client.aclose()
 
     async def upload(self, folder_id: str, name: str, data: bytes, mime: str) -> SourceEntry:
+        if not self.writable:
+            raise DocumentSourceError("Google Drive is read-only in the plugin settings")
         boundary = f"aifred-{uuid.uuid4().hex}"
         metadata = {"name": name, "parents": [folder_id or "root"]}
         body = b"".join([
