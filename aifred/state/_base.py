@@ -422,6 +422,12 @@ class AIState(  # type: ignore[misc]
 
     async def _handle_audio(self, files: List[rx.UploadFile], source: str):
         """Shared validation + device routing for both audio sources."""
+        # POST /_upload reaches this handler with any client token, a fresh one gives a state
+        # without login: nothing may touch the disk or start the STT service before this check.
+        if not self.logged_in_user:
+            self.add_debug("⚠️ Audio upload rejected: not logged in")
+            return
+
         # Check Whisper Docker service is ready
         from ..lib.stt_client import STTError, get_default_client
         stt = get_default_client()

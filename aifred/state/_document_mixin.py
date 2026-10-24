@@ -355,6 +355,12 @@ class DocumentMixin(rx.State, mixin=True):
         from ..lib.i18n import t
         from pathlib import Path
 
+        # POST /_upload reaches this handler with any client token, a fresh one gives a state
+        # without login: nothing may touch the disk before this check.
+        if not self.logged_in_user:  # type: ignore[attr-defined]
+            self.add_debug("⚠️ Document upload rejected: not logged in")  # type: ignore[attr-defined]
+            return
+
         self.is_uploading_document = True
         self.document_upload_status = ""
         yield  # type: ignore[misc]
