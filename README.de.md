@@ -236,9 +236,9 @@ AIfred entsteht mit diesen Open-Source-Werkzeugen, die auch allein laufen:
 
 ## Star History
 
-![Star History](.github/traffic/star-history.svg)
+![Star History](https://raw.githubusercontent.com/Peuqui/Traffic/main/data/AIfred-Intelligence/star-history.svg)
 
-<sub>Vom Repo selbst erhoben: Ein täglicher Workflow zeichnet die Anzahl der Sterne auf und rendert das Diagramm. GitHub hat die Stargazer-API am 30.06.2026 auf Repo-Admins beschränkt, deshalb brauchen externe Diagramm-Dienste jetzt ein Token mit Schreibrechten.</sub>
+<sub>Täglich erhoben in [Peuqui/Traffic](https://github.com/Peuqui/Traffic), zusammen mit Aufrufen und Klonen. GitHub hat die Stargazer-API am 30.06.2026 auf Repo-Admins beschränkt, deshalb brauchen externe Diagramm-Dienste jetzt ein Token mit Schreibrechten.</sub>
 
 ## 📄 Lizenz
 
