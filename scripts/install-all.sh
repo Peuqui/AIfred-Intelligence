@@ -982,8 +982,8 @@ if [ "$TTS_SUITE_INSTALLED" = "1" ]; then
     echo "AIfred starts the service when it is needed. That works through the system unit"
     echo "tts-suite@$USER with a polkit rule (one sudo step); without it the service runs as"
     echo "a user service and has to be started by hand after a reboot."
-    ask AIFRED_INSTALL_TTS_SYSTEMD "Install the TTS-Suite as system service tts-suite@$USER? Needs sudo. (y/N): "
-    if [[ $REPLY =~ ^[JjYy]$ ]]; then
+    ask AIFRED_INSTALL_TTS_SYSTEMD "Install the TTS-Suite as system service tts-suite@$USER? Needs sudo. (Y/n): "
+    if [[ ! $REPLY =~ ^[Nn]$ ]]; then
         if sudo bash "$TTS_SUITE_DIR/deploy/switch-to-system-unit.sh" "$USER"; then
             TTS_SUITE_UNIT=1
         else
@@ -1262,8 +1262,8 @@ if [ "$GPU_ORC_INSTALLED" = "1" ]; then
         echo "GPU-Orc has to run whenever AIfred loads a model. The system unit gpu-orc@$USER starts it"
         echo "at boot without a login and comes with a polkit rule to restart it (one sudo step);"
         echo "without it the service runs as a user service of your login."
-        ask AIFRED_INSTALL_GPU_ORC_SYSTEMD "Install GPU-Orc as system service gpu-orc@$USER? Needs sudo. (y/N): "
-        if [[ $REPLY =~ ^[JjYy]$ ]]; then
+        ask AIFRED_INSTALL_GPU_ORC_SYSTEMD "Install GPU-Orc as system service gpu-orc@$USER? Needs sudo. (Y/n): "
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
             if ! sudo bash "$GPU_ORC_DIR/deploy/switch-to-system-unit.sh" "$USER"; then
                 echo -e "${YELLOW}⚠️  switch-to-system-unit.sh failed.${NC}"
                 STEP_WARNINGS+=("GPU-Orc system unit not installed — sudo bash $GPU_ORC_DIR/deploy/switch-to-system-unit.sh $USER")
@@ -1391,12 +1391,12 @@ if [ "$DRY_RUN" = "1" ]; then
 else
     echo -e "${YELLOW}⚠️  Needs sudo!${NC}"
     echo ""
-    ask AIFRED_INSTALL_SYSTEMD "Install systemd services? (y/N): "
+    ask AIFRED_INSTALL_SYSTEMD "Install systemd services? (Y/n): "
 fi
 
 SYSTEMD_CHOSEN=0
 SYSTEMD_SVC_EXIT=0
-if [[ $REPLY =~ ^[JjYy]$ ]]; then
+if [[ ! $REPLY =~ ^[Nn]$ ]]; then
     SYSTEMD_CHOSEN=1
     if [ -f "$SCRIPT_DIR/install-services.sh" ]; then
         # In dry-run we don't need sudo (install-services.sh handles it

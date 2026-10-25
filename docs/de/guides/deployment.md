@@ -107,11 +107,11 @@ gewohnt gefragt — ohne Terminal gilt die Standardantwort:
 | Variable | Frage | Werte |
 |---|---|---|
 | `AIFRED_INSTALL_OLLAMA` | Ollama installieren (`curl \| sh`) | `y` / `n` (Standard `y`) |
-| `AIFRED_INSTALL_SYSTEMD` | systemd-Dienste installieren | `y` / `n` (Standard `n`) |
+| `AIFRED_INSTALL_SYSTEMD` | systemd-Dienste installieren | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_PROXY` | Caddy als Reverse-Proxy installieren (sudo, Konfiguration `deploy/Caddyfile`, Port 8080) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_USER` | erster Whitelist-Benutzer | ein Benutzername oder `skip` (Standard: `$USER`) |
-| `AIFRED_INSTALL_TTS_SYSTEMD` | TTS-Suite als Systemdienst `tts-suite@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `n`: Benutzerdienst) |
-| `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | GPU-Orc als Systemdienst `gpu-orc@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `n`: Benutzerdienst) |
+| `AIFRED_INSTALL_TTS_SYSTEMD` | TTS-Suite als Systemdienst `tts-suite@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `y`; `n`: Benutzerdienst, läuft nur, solange du angemeldet bist) |
+| `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | GPU-Orc als Systemdienst `gpu-orc@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `y`; `n`: Benutzerdienst, läuft nur, solange du angemeldet bist) |
 
 ```bash
 AIFRED_INSTALL_OLLAMA=n AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh
