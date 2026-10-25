@@ -107,7 +107,8 @@ ein/aus und Autoplay stehen auf der Hauptseite.
 - **Sprecheinheit** — `sentence`, `paragraph` oder `whole` — ist eine Einstellung je Engine, gültig
   für alle Agenten und Kanäle (`tts_toggles_per_engine`).
 - **VRAM:** Das kalibrierte Profil `<Modell>-tts-<Engine>` lässt Platz für die Engine; vor dem
-  Kaltstart des Hauptmodells bittet AIfred den Dienst, alle lokalen GPU-Engines freizugeben.
+  Kaltstart eines Modells räumt [GPU-Orc](deployment.md#9c-karten-freiräumen-gpu-orc) dessen Karten
+  frei, lokale TTS-Engines eingeschlossen.
 - **Dienst nicht erreichbar:** TTS-Wege scheitern laut (die Browser-Stimme übernimmt, wenn
   eingeschaltet); der Rest von AIfred läuft weiter.
 

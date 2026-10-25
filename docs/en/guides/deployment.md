@@ -4,12 +4,13 @@
 
 Setup guide for a fresh AIfred installation with the llama.cpp backend (llama-swap).
 
-**Last updated:** 2026-10-10
+**Last updated:** 2026-10-25
 
 > **TL;DR — fastest path:** `./scripts/install-all.sh` from a fresh
 > clone handles dependencies, venv, Playwright, the Reflex routing
-> patch, optional systemd services, `.env`, the `bge-m3` embedding pull
-> and a first whitelist user in one go. The sections below describe
+> patch, optional systemd services, `.env`, the `bge-m3` embedding pull,
+> the companion services (TTS-Suite, STT-Suite, SearXNG, GPU-Orc) and a
+> first whitelist user in one go. The sections below describe
 > the same flow **manually** for debugging and for non-standard setups
 > (multi-GPU rigs, camera surveillance, vLLM coexistence).
 
@@ -24,6 +25,15 @@ models automatically and configures them without any manual YAML editing.
 ```
 User <-> AIfred (Reflex web app) <-> llama-swap (:11435) <-> llama-server (per model)
 ```
+
+Next to AIfred run three services of their own, each from its own repository; the installer sets
+them up:
+
+| Service | Port | Job |
+|---|---|---|
+| [TTS-Suite](https://github.com/Peuqui/TTS-Suite) | 5090 | speech output: engines in containers, on other hosts, in the cloud ([9a](#9a-speech-output-tts-suite)) |
+| [STT-Suite](https://github.com/Peuqui/STT-Suite) | 5080 | speech recognition: Whisper and Parakeet, a CPU model always, a GPU worker on demand ([9b](#9b-speech-input-stt-suite)) |
+| [GPU-Orc](https://github.com/Peuqui/GPU-Orc) | 5070 | clears the cards before a model loads: asks the two suites and llama-swap to let go ([9c](#9c-clearing-the-cards-gpu-orc)) |
 
 ---
 
@@ -136,6 +146,10 @@ a clean system are no-ops.
 | `aifred-chromadb.service` | `docker compose up -d chromadb searxng` — vector store + web search |
 | `aifred-intelligence.service` | the Reflex app (frontend `3002`, backend `8002`) |
 | `aifred-bibliothek.service` | optional search & admin API of the AIfred Bibliothek (`127.0.0.1:8005`, for `deploy/bibliothek/`) |
+
+The companion services bring their own units, installed by the scripts of their repositories (which
+`install-all.sh` runs): `tts-suite@<user>` and `gpu-orc@<user>` as system units with a polkit rule, or
+as user services; the STT-Suite runs as a Docker container (`restart: unless-stopped`).
 
 The installer renders `systemd/aifred-intelligence.service` (and the
 chromadb / Bibliothek units) into `/etc/systemd/system/`, substitutes the
@@ -442,6 +456,9 @@ sudo journalctl -u llama-swap -b | head -60
 # Check available models
 curl -s http://localhost:11435/v1/models | python3 -m json.tool
 
+# GPU-Orc answers (AIfred asks it before every model load)
+curl -s http://127.0.0.1:5070/health
+
 # Start AIfred
 sudo systemctl start aifred-intelligence
 ```
@@ -703,15 +720,50 @@ reserves a GPU, which Docker refuses there. AIfred does the same when it starts 
 - **What the STT-Suite sets** (its page at `/ui/`, `/stt-suite/ui/` behind the proxy): engine, model and
   quality per device, the order of the automatic mode, the memory margin and the measurement of the
   memory need.
-- **Freeing the GPU:** before the cold start of a model AIfred has
-  [GPU-Orc](https://github.com/Peuqui/GPU-Orc) clear the model's cards: GPU-Orc releases the
-  STT-Suite's GPU worker (the CPU models stay) and the local TTS engines through their
-  `POST /gpu/release`. A running transcription gets the wait from GPU-Orc's config; after that it
-  goes on on the CPU with `device=auto`. GPU-Orc must run on the machine (address `GPU_ORC_URL` in
-  `.env`, default `http://127.0.0.1:5070`); without it every load says so loudly in the log, and the
-  describer's room check finds no room. `install-all.sh` (step 2g) clones GPU-Orc next to AIfred and
-  runs its `deploy/install.sh`; the first config (`~/.config/gpu-orc/config.yaml`) names the
-  STT-Suite, the TTS-Suite and llama-swap at AIfred's addresses.
+- **Freeing the GPU:** before a model loads on its card, GPU-Orc ends the GPU worker (the CPU models
+  stay). A transcription that is still running with `device=auto` is then done again on the CPU from
+  the same file, nothing is lost ([9c](#9c-clearing-the-cards-gpu-orc)).
+
+## 9c. Clearing the cards (GPU-Orc)
+
+Before a model loads, something else may hold its cards: the STT-Suite's GPU worker, a local TTS
+engine, the persistent helper models of llama-swap (describer, embedder).
+[GPU-Orc](https://github.com/Peuqui/GPU-Orc) is the one place per machine that knows how to clear
+them. AIfred asks it before every cold start of a model through llama-swap, before it switches to a
+TTS-calibrated profile and before a calibration; the describer's room check reads from it who holds
+which card. GPU-Orc asks the services to let go through their own interfaces (`POST /gpu/release` of
+the suites, llama-swap's unload) and checks the result (status and memory per card); it never ends a
+process itself.
+
+- **Installation:** `install-all.sh` (step 2g) clones the repository next to AIfred (or `GPU_ORC_DIR`
+  from `.env`), runs its `deploy/install.sh` (own virtual environment, command `gpu-orc`, first
+  configuration) and asks whether to install the system unit `gpu-orc@<user>` with the polkit rule
+  (one sudo step, `deploy/switch-to-system-unit.sh`: it then starts at boot without a login, and you
+  restart it without a password). Otherwise GPU-Orc runs as a user service. Then the installer checks
+  `/health` on port 5070. A re-run pulls the repository and restarts the service.
+- **Configuration:** `~/.config/gpu-orc/config.yaml`, written from the example at the first install.
+  It names the STT-Suite (`127.0.0.1:5080`), the TTS-Suite (`127.0.0.1:5090`) and llama-swap
+  (`127.0.0.1:11435`, with its `~/.config/llama-swap/config.yaml`). Per suite: how long to wait while
+  it is busy (`busy_wait_s`) and whether to force afterwards (`force_after_wait`):
+  - STT 30 s: a dictation is done on the GPU in seconds; a long recording with `device=auto` is then
+    transcribed again on the CPU from the same file.
+  - TTS 5 s: a reading then ends with `reading_aborted`, an engine that is still starting is shot
+    down (`docker kill`).
+  - A request ends after `free_timeout_s` (180 s) at the latest. After a change:
+    `systemctl restart gpu-orc@<user>` (or `systemctl --user restart gpu-orc`).
+- **AIfred's side:** `GPU_ORC_URL` in `.env` (default `http://127.0.0.1:5070`) and
+  `GPU_ORC_MODEL_SERVER` (the consumer name of the model server in GPU-Orc's configuration, default
+  `llama-swap`). AIfred takes its HTTP timeout from GPU-Orc's `/health`.
+- **Without GPU-Orc** AIfred runs and loads anyway, but every load says loudly in the log that the
+  cards could not be cleared, and the describer's room check finds no room. **Without an NVIDIA GPU**
+  GPU-Orc runs, but there is nothing to clear.
+- **Check:** `curl -s http://127.0.0.1:5070/status` shows per card who holds what. A preview without
+  effect: `curl -s -X POST http://127.0.0.1:5070/free -H 'Content-Type: application/json' -d
+  '{"model":"<model>","reason":"test","dry_run":true}'`.
+- **Callers on other machines** (for example an agent on another host that loads models here):
+  GPU-Orc then listens on all addresses and asks for a token (`listen.host` and `token_file` in its
+  configuration; loopback stays without a token). Details:
+  [GPU-Orc interface](https://github.com/Peuqui/GPU-Orc/blob/main/docs/interface.md).
 
 ---
 
@@ -884,6 +936,16 @@ models:
 ```
 
 Run autoscan once, then remove the `_dummy` entry.
+
+### Every load logs "GPU-Orc could not clear the cards"
+
+GPU-Orc does not answer. Check it and start it:
+
+```bash
+curl -s http://127.0.0.1:5070/health
+systemctl status gpu-orc@$USER          # system unit (or: systemctl --user status gpu-orc)
+journalctl -u gpu-orc@$USER -n 50       # (or: journalctl --user -u gpu-orc -n 50)
+```
 
 ### OOM crash / context too large
 
