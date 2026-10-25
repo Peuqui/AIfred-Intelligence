@@ -2,79 +2,23 @@
 Process Utilities - Unified process management for AIfred backends
 
 Provides common functions for:
-- Stopping processes by pattern (pgrep/pkill)
-- GPU memory cleanup
-- Service management (systemctl)
+- Service management (systemctl, llama-swap)
+- Docker container management
+- GPU process listing
 
 This module reduces code duplication across the state mixins.
 """
 
 import subprocess
 from collections.abc import Sequence
-import asyncio
-from .logging_utils import log_message
 
+from .logging_utils import log_message
 
 #: Cached TTS GPU UUID. Computed once per process by
 #: :func:`get_tts_gpu_uuid` from :func:`_detect_tts_gpu_uuid` so that
 #: the same hardware-bound identifier is reported throughout an AIfred
 #: run — calibration's collision detection depends on this stability.
 _cached_tts_gpu_uuid: str | None = None
-
-
-async def stop_process(
-    pattern: str,
-    wait_for_vram: bool = True,
-    wait_seconds: float = 2.0
-) -> bool:
-    """
-    Stop a process by pattern and optionally wait for VRAM release.
-
-    Uses pgrep to check if process exists, pkill to terminate.
-
-    Args:
-        pattern: Process pattern for pgrep/pkill (e.g., "vllm serve")
-        wait_for_vram: Wait for GPU memory to be freed after stopping
-        wait_seconds: Seconds to wait for VRAM release (default: 2.0)
-
-    Returns:
-        True if process was running and stopped, False if not running
-    """
-    try:
-        result = subprocess.run(
-            ["pgrep", "-f", pattern],
-            capture_output=True,
-            text=True
-        )
-
-        if result.returncode == 0:
-            # Process is running - kill it
-            subprocess.run(["pkill", "-f", pattern])
-            log_message(f"Stopped process: {pattern}")
-
-            if wait_for_vram:
-                await asyncio.sleep(wait_seconds)
-                log_message(f"Waited {wait_seconds}s for VRAM release")
-
-            return True
-        else:
-            # Process not running
-            return False
-
-    except subprocess.CalledProcessError as e:
-        log_message(f"Error stopping process '{pattern}': {e}")
-        return False
-
-
-def cleanup_gpu_memory():
-    """
-    Force garbage collection to release Python objects holding resources.
-
-    GPU VRAM is managed by Docker containers (XTTS, Qwen3-TTS, Whisper) and
-    llama-swap — no torch needed in the AIfred process.
-    """
-    import gc
-    gc.collect()
 
 
 def restart_service(service_name: str, check: bool = False) -> bool:
@@ -136,6 +80,7 @@ def _detect_tts_gpu_uuid() -> str:
             capture_output=True,
             text=True,
             timeout=5,
+            check=False,
         )
         if result.returncode != 0:
             return ""
@@ -195,6 +140,7 @@ def docker_compose_action(
             capture_output=True,
             text=True,
             cwd=str(compose_path.parent),
+            check=False,
         )
         if result.returncode != 0:
             return False, f"docker compose {action} failed: {result.stderr}"
@@ -205,34 +151,34 @@ def docker_compose_action(
         return False, f"docker compose {action} error: {e}"
 
 
+def _systemctl_llama_swap(action: str, done: str) -> bool:
+    """``systemctl <action> llama-swap``; ``True`` once the job is done.
+
+    No timeout of our own: systemctl waits for the job, and the unit's TimeoutStartSec/TimeoutStopSec
+    bound it. A start runs the model autoscan first and can take over a minute — a shorter limit here
+    reported a failure while the service was still coming up (25.10.2026: 74 s).
+    """
+    result = subprocess.run(["systemctl", action, "llama-swap"], capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        log_message(f"❌ llama-swap {action} failed: {result.stderr.strip()}", "error")
+        return False
+    log_message(f"llama-swap {done}")
+    return True
+
+
 def stop_llama_swap() -> bool:
     """Stop llama-swap service to free all LLM VRAM."""
-    try:
-        subprocess.run(["systemctl", "stop", "llama-swap"], check=True, timeout=15)
-        log_message("llama-swap stopped")
-        return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
+    return _systemctl_llama_swap("stop", "stopped")
 
 
 def start_llama_swap() -> bool:
     """Start llama-swap service."""
-    try:
-        subprocess.run(["systemctl", "start", "llama-swap"], check=True, timeout=15)
-        log_message("llama-swap started")
-        return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
+    return _systemctl_llama_swap("start", "started")
 
 
 def restart_llama_swap() -> bool:
     """Restart llama-swap service (triggers autoscan for new models)."""
-    try:
-        subprocess.run(["systemctl", "restart", "llama-swap"], check=True, timeout=15)
-        log_message("llama-swap restarted")
-        return True
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
-        return False
+    return _systemctl_llama_swap("restart", "restarted")
 
 
 def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
@@ -251,6 +197,7 @@ def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
     duerfen belegt bleiben). None = alle Karten.
     """
     from pathlib import Path
+
     from .nvidia_smi import compute_apps
 
     procs: list[str] = []
@@ -295,8 +242,8 @@ def unload_llm_models(backend_type: str = "llamacpp") -> list[str]:
                 timeout=10,
             )
             actions.append("Ollama models unloaded")
-        except Exception:
-            pass
+        except requests.RequestException as error:
+            log_message(f"⚠️ Ollama unload failed: {error}", "warning")
     # vLLM-Eintraege laufen unter llama-swap — deren Prozesse stoppt
     # llama-swap selbst (cmdStop: vllm-swap-stop), kein eigener Zweig.
 

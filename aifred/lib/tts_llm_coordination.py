@@ -13,11 +13,10 @@ Central function: ensure_tts_state(wanted_tts, backend_type)
 
 from __future__ import annotations
 
+from collections.abc import Generator
 from dataclasses import dataclass
-from typing import Generator
 
 from .gpu_orc_client import GpuOrcError, describe, get_gpu_orc_client
-from .logging_utils import log_message
 from .service_status import LlamaSwapError, running_models
 from .tts_service import active_local_keys, engine_label_short, gpu_engine_keys
 
@@ -129,7 +128,9 @@ def _switch_llm_profile(backend_type: str, wanted_tts: str) -> Generator[str, No
     else:
         for line, _category in describe(result):
             yield line
-    restart_llm_backend(backend_type)
+    if not restart_llm_backend(backend_type):
+        yield "⚠️ llama-swap did not start again — see journalctl -u llama-swap"
+        return
     model_info = get_effective_model_info(backend_type)
     if model_info:
         yield f"LLM profile ready: {model_info}"
@@ -161,10 +162,10 @@ def get_effective_model_info(backend_type: str = "llamacpp") -> str:
 def restart_llm_backend(
     backend_type: str = "llamacpp",
 ) -> bool:
-    """Restart the LLM backend with current VRAM profile."""
-    if backend_type == "llamacpp":
-        from .process_utils import start_llama_swap
-        if start_llama_swap():
-            log_message("llama-swap restarted")
-            return True
-    return False
+    """Start llama-swap again after the profile switch (llama.cpp: ``unload_llm_models`` stopped it).
+    The other backends were not stopped, there is nothing to start. ``False``: llama-swap did not start."""
+    if backend_type != "llamacpp":
+        return True
+    from .process_utils import start_llama_swap
+
+    return start_llama_swap()

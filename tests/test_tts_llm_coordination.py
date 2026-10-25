@@ -4,6 +4,7 @@ httpx.MockTransport, der nur GET /engines beantwortet."""
 
 from __future__ import annotations
 
+import subprocess
 from typing import Any
 
 import httpx
@@ -41,13 +42,21 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 
     install_fake_gpu_orc(monkeypatch, RecordingGpuOrc())
 
+    def restart(backend: str = "llamacpp") -> bool:
+        seen.append("restart")
+        return True
+
+    def unload(backend: str = "llamacpp") -> list[str]:
+        seen.append("unload")
+        return ["llama-swap stopped"]
+
     monkeypatch.setattr(tts_service, "get_tts_client", lambda: TTSClient("http://tts.test", transport=httpx.MockTransport(handler)))
     tts_service.reset_cache()
     monkeypatch.setattr(tts_llm_coordination, "_is_llm_loaded", lambda backend: True)
     monkeypatch.setattr(tts_llm_coordination, "_llm_already_on_tts_variant", lambda engine, backend: False)
-    monkeypatch.setattr(tts_llm_coordination, "restart_llm_backend", lambda backend="llamacpp": seen.append("restart") or True)
+    monkeypatch.setattr(tts_llm_coordination, "restart_llm_backend", restart)
     monkeypatch.setattr(tts_llm_coordination, "get_effective_model_info", lambda backend="llamacpp": "model (ctx: 1)")
-    monkeypatch.setattr(process_utils, "unload_llm_models", lambda backend="llamacpp": seen.append("unload") or ["llama-swap stopped"])
+    monkeypatch.setattr(process_utils, "unload_llm_models", unload)
     return seen
 
 
@@ -66,6 +75,40 @@ def test_a_gpu_engine_switches_the_llm_profile_only(calls) -> None:
     assert calls == ["unload", "free", "restart"]
     assert state.success and state.changed
     assert messages[-1] == "LLM profile ready: model (ctx: 1)"
+
+
+def test_a_llama_swap_that_does_not_start_again_is_reported_not_ready(calls, monkeypatch) -> None:
+    def restart_fails(backend: str = "llamacpp") -> bool:
+        calls.append("restart")
+        return False
+
+    monkeypatch.setattr(tts_llm_coordination, "restart_llm_backend", restart_fails)
+    messages, _state = run("xtts")
+    assert calls == ["unload", "free", "restart"]
+    assert messages[-1] == "⚠️ llama-swap did not start again — see journalctl -u llama-swap"
+    assert not any(m.startswith("LLM profile ready") for m in messages)
+
+
+@pytest.mark.parametrize("backend", ["vllm", "ollama"])
+def test_only_llama_cpp_has_a_backend_to_start_again(backend: str, monkeypatch) -> None:
+    monkeypatch.setattr(process_utils, "start_llama_swap", lambda: pytest.fail("llama-swap was not stopped"))
+    assert tts_llm_coordination.restart_llm_backend(backend)
+
+
+def test_llama_swap_service_calls_wait_as_long_as_the_unit_allows(monkeypatch) -> None:
+    seen: list[tuple[list[str], dict[str, Any]]] = []
+
+    def fake_run(command: list[str], **options: Any) -> subprocess.CompletedProcess[str]:
+        seen.append((command, options))
+        failed = command[1] == "start"
+        return subprocess.CompletedProcess(command, 1 if failed else 0, stdout="", stderr="Job failed" if failed else "")
+
+    monkeypatch.setattr(process_utils.subprocess, "run", fake_run)
+    assert process_utils.stop_llama_swap()
+    assert not process_utils.start_llama_swap()
+    assert process_utils.restart_llama_swap()
+    assert [command for command, _ in seen] == [["systemctl", action, "llama-swap"] for action in ("stop", "start", "restart")]
+    assert all("timeout" not in options for _, options in seen)
 
 
 def test_a_llm_already_on_the_matching_profile_is_left_alone(calls, monkeypatch) -> None:
