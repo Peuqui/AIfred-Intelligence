@@ -118,9 +118,6 @@ class FakeState:
         self.file.data = settings
         self.file.writes += 1
 
-    def replan_tts(self) -> None:
-        """Stands for the event the handlers chain when the planned engine moved."""
-
 
 def computed(name: str, state: FakeState) -> Any:
     """Value of a computed var of the mixin (its function, without Reflex)."""
@@ -238,7 +235,7 @@ def test_move_entry_swaps_neighbours_and_saves_the_complete_matched_list(service
     assert file.data["tts_escalation"] == [
         stored("piper"), stored("xtts"), stored("edge"), stored("extra_engine", enabled=False),   # the unknown row is saved, off
     ]
-    assert events == [FakeState.replan_tts] and state.tts_list_revision == 1
+    assert events == [] and state.tts_list_revision == 1   # the moved plan acts at the next load, no event
 
 
 def test_enable_entry_changes_only_the_flag_of_that_entry(service, toasts) -> None:

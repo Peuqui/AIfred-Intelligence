@@ -145,7 +145,6 @@
   "tts_entry_not_offered": "Vom Dienst nicht angeboten",
   "tts_entry_unreachable_warning": "Eingeschaltet, aber nicht erreichbar – wird beim Sprechen übersprungen",
   "tts_status_not_offered": "nicht angeboten",
-  "tts_plan_unchecked": "Gespeichert — ob sich die VRAM-Planung ändert, ließ sich nicht prüfen (TTS-Dienst nicht erreichbar).",
   "tts_service_unreachable": "TTS-Dienst nicht erreichbar: {reason}",
   "tts_reading_service_failed": "Sprachdienst gescheitert ({reason}) — der Browser spricht.",
   "tts_reading_service_failed_silent": "Sprachausgabe nicht möglich: {reason}",

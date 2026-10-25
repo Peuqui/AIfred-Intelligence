@@ -432,9 +432,9 @@ class AgentConfigMixin(rx.State, mixin=True):
         Probing the container via HTTP every call would leak transient
         states (idle KEEP_ALIVE, busy with a batch of sentences,
         restart in progress) into model resolution.
-        ``ensure_tts_state()`` at pipeline start guarantees the
-        container is up before inference; from there the toggle stays
-        authoritative for the rest of the request.
+        The load of that name clears the profile's cards through GPU-Orc
+        (``_load_model``); the toggle stays authoritative for the rest of
+        the request.
         """
         from ..lib.agent_settings import get_agent_setting
         base_id: str = get_agent_setting(self, agent, "model_id")

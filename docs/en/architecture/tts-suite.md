@@ -136,9 +136,11 @@ How much text goes to the engine at once is **one setting per TTS engine**, syst
 - **Plan:** which `-tts-<engine>` profile loads is read from `settings.json` and the llama-swap
   configuration alone (`planned_tts_engine()`: the topmost active local entry for which the model
   has a calibrated profile). The service is not asked, so a service that is down does not stop
-  the language model.
-- **Before a cold start of the main model** (and before the describer, a calibration, a profile
-  switch) AIfred asks GPU-Orc to clear the cards; GPU-Orc calls the service's `POST /gpu/release`.
+  the language model. A changed plan takes effect at the model's next load: the profile is part of
+  the model name, and llama-swap swaps the running model by itself. AIfred stops neither
+  llama-swap nor a TTS container for it.
+- **Before a cold start of the main model** (and before the describer and a calibration) AIfred
+  asks GPU-Orc to clear the cards; GPU-Orc calls the service's `POST /gpu/release`.
   If a reading holds the engine, GPU-Orc waits a little (`busy_wait_s` in its config) and then
   forces: the reading ends with the error `reading_aborted` naming the reason, AIfred shows it
   (`tts_reading_aborted`) and moves on to no other entry, the browser included. After the load the

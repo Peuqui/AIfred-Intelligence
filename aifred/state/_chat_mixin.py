@@ -600,22 +600,6 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Main Send Message ────────────────────────────────────────────
 
-    async def _phase_tts_llm_profile(self) -> AsyncGenerator[None, None]:
-        """Bring the LLM onto the profile that reserves VRAM for the planned TTS
-        engine, before the LLM loads. No TTS container is touched: the TTS
-        service starts and unloads its engines itself.
-        """
-        from ..lib.tts_llm_coordination import planned_tts_engine
-
-        if not self.enable_tts:  # type: ignore[attr-defined]
-            return
-        wanted = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
-        if not wanted:
-            return
-
-        async for _ in self._run_tts_plan(wanted):  # type: ignore[attr-defined]
-            yield
-
     async def _phase_pre_message_compression(
         self, llm_client: Any, detected_language: str,
     ) -> AsyncGenerator[None, None]:
@@ -880,10 +864,7 @@ class ChatMixin(rx.State, mixin=True):
 
             # vLLM-Eintraege werden von llama-swap on demand geladen —
             # kein eigener Lade-Schritt mehr (ehem. PHASE 4, Direkt-Pfad).
-
-            # TTS: LLM onto the profile that reserves VRAM for the planned engine, BEFORE the LLM loads
-            async for _ in self._phase_tts_llm_profile():
-                yield
+            # Das TTS-Profil (-tts-<engine>) steckt im Modellnamen, den der Load verlangt.
 
             # Register this coroutine in the pipeline registry so external stop
             # commands (UI stop button, future cross-channel stop) can cancel it.

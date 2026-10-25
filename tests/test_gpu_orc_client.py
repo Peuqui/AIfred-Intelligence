@@ -1,12 +1,11 @@
-"""GPU-Orc client: the two forms of /free AIfred sends, what it reads from /status, and the callers that
-clear every card but the models (calibration, TTS profile switch)."""
+"""GPU-Orc client: the two forms of /free AIfred sends, what it reads from /status, and the caller that
+clears every card but the models (calibration)."""
 
 from __future__ import annotations
 
 import pytest
 from fake_gpu_orc import FakeGpuOrc, card, install_fake_gpu_orc
 
-import aifred.lib.tts_llm_coordination as coordination
 from aifred.lib.config import GPU_ORC_MODEL_SERVER
 from aifred.lib.gpu_orc_client import (
     CardHolder,
@@ -96,42 +95,3 @@ def test_a_gpu_orc_that_does_not_answer_is_said_and_the_calibration_goes_on() ->
     said: list[str] = []
     _free_cards_for_calibration(said.append)  # conftest points the client at a dead address
     assert len(said) == 1 and "GPU-Orc could not clear the cards for the calibration" in said[0]
-
-
-# ---- TTS profile switch ---------------------------------------------------------------------------
-
-
-@pytest.fixture
-def llm_steps(monkeypatch) -> list[str]:
-    steps: list[str] = []
-    monkeypatch.setattr(coordination, "gpu_engine_keys", lambda: {"xtts"})
-    monkeypatch.setattr(coordination, "engine_label_short", lambda key, lang: key.upper())
-    monkeypatch.setattr(coordination, "_is_llm_loaded", lambda backend: False)
-    monkeypatch.setattr(coordination, "_llm_already_on_tts_variant", lambda engine, backend: False)
-
-    def restart(backend: str = "llamacpp") -> bool:
-        steps.append("restart")
-        return True
-
-    monkeypatch.setattr(coordination, "restart_llm_backend", restart)
-    monkeypatch.setattr(coordination, "get_effective_model_info", lambda backend="llamacpp": "model")
-    return steps
-
-
-def run_plan(wanted: str) -> list[str]:
-    return list(coordination.ensure_tts_state(wanted_tts=wanted, backend_type="llamacpp"))
-
-
-def test_the_profile_switch_clears_every_card_but_the_models(fake, llm_steps) -> None:
-    fake.free = False
-    fake.actions = [{"consumer": "tts-suite", "item": "fish", "outcome": "refused_busy", "detail": "still busy"}]
-    messages = run_plan("xtts")
-    assert fake.frees == [{"gpus": "all", "keep": [GPU_ORC_MODEL_SERVER], "reason": "AIfred: the XTTS profile"}]
-    assert "⚠️ GPU-Orc: tts-suite fish refused_busy (still busy)" in messages
-    assert llm_steps == ["restart"]
-
-
-def test_a_gpu_orc_that_does_not_answer_is_reported_and_the_switch_goes_on(llm_steps) -> None:
-    messages = run_plan("xtts")
-    assert any(m.startswith("⚠️ GPU-Orc could not clear the cards") for m in messages)
-    assert llm_steps == ["restart"]

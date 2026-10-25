@@ -145,7 +145,6 @@
   "tts_entry_not_offered": "Not offered by the service",
   "tts_entry_unreachable_warning": "Switched on but not reachable – skipped when speaking",
   "tts_status_not_offered": "not offered",
-  "tts_plan_unchecked": "Saved — whether the VRAM plan changes could not be checked (TTS service unreachable).",
   "tts_service_unreachable": "TTS service unreachable: {reason}",
   "tts_reading_service_failed": "Speech service failed ({reason}) — the browser speaks.",
   "tts_reading_service_failed_silent": "Speech output not possible: {reason}",
