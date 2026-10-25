@@ -295,11 +295,17 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     @rx.var(deps=["ui_language", "editor_tts_engine", "tts_agents", "editor_agent_id"], auto_deps=False)
     def editor_tts_engine_label(self) -> str:
-        """'Off' when the agent is muted, the edited engine otherwise."""
+        """'Off' when the agent is muted, the edited engine otherwise (the failure while the service
+        does not answer: the app compiles this var at start, AIfred must start without the service)."""
         from ..lib.i18n import tts_key_to_label
+        from ..lib.tts_client import TTSSuiteUnreachable
+        from ..lib.tts_service import unreachable_text
         if not self.tts_agent_enabled(self.editor_agent_id):  # type: ignore[attr-defined]
             return tts_key_to_label("off", lang=_lang(self))
-        return tts_key_to_label(self.editor_tts_engine, lang=_lang(self))
+        try:
+            return tts_key_to_label(self.editor_tts_engine, lang=_lang(self))
+        except TTSSuiteUnreachable as unreachable:
+            return unreachable_text(unreachable, _lang(self))
 
     @rx.var(deps=["editor_tts_engine", "_editor_tts_settings"], auto_deps=False)
     def editor_tts_available_voices(self) -> List[str]:
@@ -431,7 +437,12 @@ class TTSConfigMixin(rx.State, mixin=True):
     @rx.var(deps=["ui_language", "narrator_voice_engine"], auto_deps=False)
     def narrator_engine_display(self) -> str:
         from ..lib.i18n import tts_key_to_label
-        return tts_key_to_label(self.narrator_voice_engine, lang=_lang(self))
+        from ..lib.tts_client import TTSSuiteUnreachable
+        from ..lib.tts_service import unreachable_text
+        try:
+            return tts_key_to_label(self.narrator_voice_engine, lang=_lang(self))
+        except TTSSuiteUnreachable as unreachable:
+            return unreachable_text(unreachable, _lang(self))
 
     @rx.var(deps=["narrator_voice_engine"], auto_deps=False)
     def narrator_voice_options(self) -> List[str]:

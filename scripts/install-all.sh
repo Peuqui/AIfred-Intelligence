@@ -193,6 +193,7 @@ echo "  • python3 (>=3.10), python3-venv, python3-pip — Python runtime + ven
 echo "  • poppler-utils — pdftotext for clean PDF indexing"
 echo "  • ffmpeg        — audio concat (TTS replay, narrator)"
 echo "  • bubblewrap    — sandbox for the 'execute_python' tool"
+echo "  • polkit        — restart the TTS-Suite and GPU-Orc units without a password"
 echo "  • docker + docker compose plugin — ChromaDB vector cache + Whisper STT"
 echo ""
 
@@ -288,6 +289,13 @@ install_one "ffmpeg" "command -v ffmpeg" \
     apt:ffmpeg dnf:ffmpeg pacman:ffmpeg brew:ffmpeg
 install_one "bubblewrap (bwrap)" "command -v bwrap" \
     apt:bubblewrap dnf:bubblewrap pacman:bubblewrap brew:bubblewrap
+# polkit: the system units of the TTS-Suite and GPU-Orc come with a polkit rule, so this user restarts
+# them (and AIfred starts the TTS-Suite) without a password. A fresh Ubuntu 24.04 container does not
+# ship it, and their switch scripts stop without /etc/polkit-1/rules.d. macOS has no systemd units.
+if [ "$PKG" != "brew" ]; then
+    install_one "polkit (units restartable without a password)" "[ -d /etc/polkit-1/rules.d ]" \
+        apt:polkitd dnf:polkit pacman:polkit
+fi
 # curl is needed in a moment for the Ollama installer ('curl | sh').
 # Minimal images (Debian slim, some container hosts) don't ship curl
 # out of the box.

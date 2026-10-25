@@ -190,6 +190,18 @@ def test_unreachable_service_shows_the_stored_list_and_a_message_but_raises_noth
     assert computed("tts_service_error", state).startswith(UNREACHABLE_PREFIX)
 
 
+def test_engine_labels_show_the_failure_instead_of_raising_while_the_service_is_down(settings_file) -> None:
+    # Found in the sandbox (25.10.): the app compiles these vars at start; raising there kept AIfred from starting.
+    settings_file([stored("xtts")])
+    state = FakeState()  # the conftest client points at a dead address
+    state.editor_agent_id = "aifred"  # type: ignore[attr-defined]
+    state.editor_tts_engine = "xtts"  # type: ignore[attr-defined]
+    state.narrator_voice_engine = "xtts"  # type: ignore[attr-defined]
+    state.tts_agent_enabled = lambda agent_id: True  # type: ignore[attr-defined]
+    assert computed("editor_tts_engine_label", state).startswith(UNREACHABLE_PREFIX)
+    assert computed("narrator_engine_display", state).startswith(UNREACHABLE_PREFIX)
+
+
 def test_warn_only_for_a_switched_on_entry_whose_machine_or_service_is_unreachable(service) -> None:
     service(
         [stored("xtts", "Box"), stored("piper", "Box", enabled=False), stored("edge", "Aragon"), stored("extra_engine")],
