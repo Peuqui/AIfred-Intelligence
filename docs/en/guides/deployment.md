@@ -46,8 +46,10 @@ them up:
 ### Software
 - Linux with systemd (Ubuntu/Debian recommended)
 - CUDA Toolkit >= 12.0
-- Python 3.10+ (the TTS-Suite needs 3.12+)
+- Python 3.10+ (the TTS-Suite and GPU-Orc need 3.12+)
 - Git
+- polkit (`polkitd` on Debian/Ubuntu; the installer adds it): your user restarts the units of the
+  TTS-Suite and GPU-Orc without sudo, and AIfred starts the TTS-Suite when it is needed
 
 ---
 
