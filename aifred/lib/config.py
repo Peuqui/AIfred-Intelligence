@@ -1461,6 +1461,10 @@ AGENT_MEMORY_DISTANCE_THRESHOLD = 1.0  # Max distance for relevant memories (bge
 AGENT_MEMORY_RESULTS = 5             # Semantic hits shown with their content
 AGENT_MEMORY_RECENT_COUNT = 3        # Newest entries shown with their content
 AGENT_MEMORY_SUMMARY_MAX_CHARS = 160  # summary = the entry's index line; longer is refused
+# The semantic search embeds the start of the request only: bge-m3 takes at most 8192 tokens at once and
+# refuses more with an error that ended the whole answer (26.10.2026: 9,980 tokens). A token covers at least
+# one character, so this many characters always fit; the beginning carries the topic anyway.
+AGENT_MEMORY_QUERY_MAX_CHARS = 8000
 
 # ============================================================
 # SANDBOX (CODE EXECUTION) CONFIGURATION

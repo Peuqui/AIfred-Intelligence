@@ -148,3 +148,22 @@ def test_content_must_not_repeat_old_or_new_summary(memory):
     # A short fact may consist of its summary alone.
     asyncio.run(store(content="Kurzer Fakt", memory_type="insight", summary="Kurzer Fakt"))
     assert memory._collections["pater"].count() == 2
+
+
+def test_a_long_request_is_searched_by_its_start_only(memory, monkeypatch):
+    # bge-m3 refuses more than 8192 tokens and the error ended the whole answer (26.10.2026).
+    monkeypatch.setattr(agent_memory, "AGENT_MEMORY_QUERY_MAX_CHARS", 20)
+    _store(memory, "Heizöl Morgenbericht")
+    asked: list[str] = []
+    collection = memory._collections["pater"]
+    original = collection.query
+
+    def query(query_texts, n_results, include):
+        asked.extend(query_texts)
+        return original(query_texts, n_results, include)
+
+    collection.query = query
+    request = "Heizöl Morgenbericht" + " mit sehr viel Text dahinter" * 50
+    hits = asyncio.run(memory.recall("pater", request))
+    assert asked == ["Heizöl Morgenbericht"]
+    assert [hit["summary"] for hit in hits] == ["Heizöl Morgenbericht"]

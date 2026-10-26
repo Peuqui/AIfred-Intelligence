@@ -16,6 +16,7 @@ from typing import Any, Optional
 from .config import (
     AGENT_MEMORY_COLLECTION_MAX,
     AGENT_MEMORY_DISTANCE_THRESHOLD,
+    AGENT_MEMORY_QUERY_MAX_CHARS,
     AGENT_MEMORY_RECENT_COUNT,
     AGENT_MEMORY_RESULTS,
     AGENT_MEMORY_SUMMARY_MAX_CHARS,
@@ -239,13 +240,19 @@ class AgentMemory:
     async def recall(
         self, agent_id: str, query: str, n_results: int = AGENT_MEMORY_RESULTS,
     ) -> list[dict[str, Any]]:
-        """Query an agent's memory by semantic similarity."""
+        """Query an agent's memory by semantic similarity. Only the start of a long query is embedded
+        (``AGENT_MEMORY_QUERY_MAX_CHARS``); the request itself is not shortened."""
         col = self._collection(agent_id)
         if col.count() == 0:
             return []
 
+        if len(query) > AGENT_MEMORY_QUERY_MAX_CHARS:
+            log_message(
+                f"Agent memory: semantic search uses the first {AGENT_MEMORY_QUERY_MAX_CHARS} "
+                f"of {len(query)} characters of the request"
+            )
         results = col.query(
-            query_texts=[query],
+            query_texts=[query[:AGENT_MEMORY_QUERY_MAX_CHARS]],
             n_results=min(n_results, col.count()),
             include=["metadatas", "distances"],
         )
