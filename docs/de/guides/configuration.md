@@ -192,7 +192,7 @@ Collections, beide mit **bge-m3** eingebettet (mehrsprachig, 8192 Token Kontext,
 | Collection | Inhalt | Zugriff |
 |---|---|---|
 | `aifred_documents` | Indexierte Dokumente (token-genaue Chunks) | `search_documents`-Tool; Dokument-UI und Workspace-Plugin |
-| `agent_memory_<agent_id>` | Langzeitgedächtnis pro Agent | Wird vor einer Antwort abgerufen (neueste Einträge + semantische Suche); Memory-Tools für den Agenten |
+| `agent_memory_<agent_id>` | Langzeitgedächtnis pro Agent | Wird vor einer Antwort abgerufen: das Verzeichnis aller Einträge, vollständig die neuesten und die zur Anfrage passenden (semantische Suche über bge-m3 mit den ersten `AGENT_MEMORY_QUERY_MAX_CHARS` Zeichen der Anfrage, Standard 8.000); Memory-Tools für den Agenten |
 
 Das Embedding-Modell wird vom Embed-Profil in llama-swap bereitgestellt oder, als zweite
 Wahl, von Ollama (`ollama pull bge-m3`). Massen-Indexierung läuft im GPU-Modus, einzelne

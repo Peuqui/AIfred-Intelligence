@@ -192,7 +192,7 @@ collections, both embedded with **bge-m3** (multilingual, 8192-token context,
 | Collection | Content | Access |
 |---|---|---|
 | `aifred_documents` | Indexed documents (token-accurate chunks) | `search_documents` tool; Document UI and Workspace plugin |
-| `agent_memory_<agent_id>` | Per-agent long-term memory | Recalled before an answer (recent entries + semantic search); memory tools for the agent |
+| `agent_memory_<agent_id>` | Per-agent long-term memory | Recalled before an answer: the index of all entries, in full the newest and those matching the request (semantic search via bge-m3 over the first `AGENT_MEMORY_QUERY_MAX_CHARS` characters of the request, default 8,000); memory tools for the agent |
 
 The embedding model is served by the llama-swap embed profile or, as second
 choice, by Ollama (`ollama pull bge-m3`). Bulk indexing runs in GPU mode, single
