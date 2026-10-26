@@ -127,7 +127,7 @@ def _release_tts_for_calibration(report: Any) -> None:
         report(f"   ⚠️ TTS release for the calibration failed: {type(error).__name__}: {error}")
         return
     for result in released:
-        report(f"   🔊 TTS {result.engine}: {result.outcome}")
+        report(f"   🔊 TTS {result.item}: {result.outcome}")
 
 
 def _calib_line(progress_msg: str) -> str:

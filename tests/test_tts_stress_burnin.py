@@ -93,7 +93,7 @@ def test_the_container_is_released_at_the_end(monkeypatch, tmp_path) -> None:
 
     run()
 
-    assert fake.releases == [[{"engine": "xtts", "host": None}]]
+    assert [body["items"] for body in fake.releases] == [["xtts"]]
 
 
 def test_all_syntheses_failed_gives_no_number_but_still_releases(monkeypatch, tmp_path) -> None:
@@ -102,7 +102,7 @@ def test_all_syntheses_failed_gives_no_number_but_still_releases(monkeypatch, tm
     install(monkeypatch, tmp_path, fake)
 
     assert run() is None
-    assert fake.releases == [[{"engine": "xtts", "host": None}]]
+    assert [body["items"] for body in fake.releases] == [["xtts"]]
 
 
 def test_a_reading_without_audio_is_no_success(monkeypatch, tmp_path) -> None:
@@ -127,7 +127,7 @@ def test_a_vram_the_service_could_not_measure_fails_the_burnin_and_releases(monk
     install(monkeypatch, tmp_path, fake)
 
     assert run() is None
-    assert fake.releases == [[{"engine": "xtts", "host": None}]]
+    assert [body["items"] for body in fake.releases] == [["xtts"]]
 
 
 def test_an_engine_without_local_gpu_needs_no_burnin(monkeypatch, tmp_path) -> None:

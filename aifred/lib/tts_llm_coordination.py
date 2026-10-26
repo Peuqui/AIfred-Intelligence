@@ -133,8 +133,8 @@ def _switch_llm_profile(backend_type: str, wanted_tts: str) -> Generator[str, No
         yield f"⚠️ TTS release failed: {error}"
     else:
         for result in released:
-            if result.outcome == "in_use":
-                yield f"⚠️ {_label(result.engine)}: TTS in use, release refused"
+            if result.outcome == "busy":
+                yield f"⚠️ {_label(result.item)}: TTS in use, release refused"
     if not restart_llm_backend(backend_type):
         yield "⚠️ llama-swap did not start again — see journalctl -u llama-swap"
         return

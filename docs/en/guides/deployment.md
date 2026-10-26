@@ -705,7 +705,7 @@ reserves a GPU, which Docker refuses there. AIfred does the same when it starts 
   quality per device, the order of the automatic mode, the memory margin and the measurement of the
   memory need.
 - **Freeing the GPU:** before the cold start of a big model AIfred unloads the GPU worker
-  (`/unload?device=cuda`, the CPU models stay), the local TTS engines (through the TTS-Suite) and the
+  (`POST /gpu/release`, the CPU models stay), the local TTS engines (through the TTS-Suite) and the
   previous model.
 
 ---

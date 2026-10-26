@@ -6,7 +6,7 @@ import pytest
 import aifred.lib.audio_processing as ap
 from aifred.lib import nvidia_smi, tts_service, vision_routing, vision_vram_check, vlm_vram_cache
 from aifred.lib.calibration import llamaswap_io
-from aifred.lib.tts_client import ReleaseResult, TTSSuiteUnreachable
+from aifred.lib.tts_client import GpuReleaseResult, TTSSuiteUnreachable
 
 PROFILE = "VL-4B-visiond-gpu0"
 CARD, OTHER = "GPU-a", "GPU-b"
@@ -58,19 +58,19 @@ def test_whisper_vram_counts_as_free_for_the_describer(card, monkeypatch):
 def test_whisper_on_the_target_card_is_released(card, monkeypatch):
     released: list[int] = []
 
-    def release() -> bool:
-        released.append(1)
+    def release(reason: str) -> bool:
+        released.append(reason)
         return True
 
     monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {CARD: 3652})
     monkeypatch.setattr(ap, "release_whisper_gpu", release)
     assert vision_routing.release_side_channels_for_describer(PROFILE) is True
-    assert released == [1]
+    assert released == [f"describer {PROFILE}"]
 
 
 def test_whisper_on_another_card_stays(card, monkeypatch):
     monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {OTHER: 3652})
-    monkeypatch.setattr(ap, "release_whisper_gpu", lambda: pytest.fail("must not release"))
+    monkeypatch.setattr(ap, "release_whisper_gpu", lambda reason: pytest.fail("must not release"))
     assert vision_routing.release_side_channels_for_describer(PROFILE) is False
 
 
@@ -87,7 +87,7 @@ def test_tts_container_on_the_target_card_is_released_by_request(card, monkeypat
 
     def release(cards, *, reason):
         asked.append((cards, reason))
-        return [ReleaseResult("xtts", None, "stopped", "")]
+        return [GpuReleaseResult("xtts", "released", "")]
 
     monkeypatch.setattr(tts_service, "release_gpu_engines", release)
     assert vision_routing.release_side_channels_for_describer(PROFILE) is True
@@ -96,7 +96,7 @@ def test_tts_container_on_the_target_card_is_released_by_request(card, monkeypat
 
 def test_a_refused_tts_release_is_not_a_release(card, monkeypatch):
     monkeypatch.setattr(
-        tts_service, "release_gpu_engines", lambda cards, *, reason: [ReleaseResult("xtts", None, "in_use", "x")],
+        tts_service, "release_gpu_engines", lambda cards, *, reason: [GpuReleaseResult("xtts", "busy", "x")],
     )
     assert vision_routing.release_side_channels_for_describer(PROFILE) is False
 
@@ -107,7 +107,7 @@ def test_an_unreachable_tts_service_does_not_stop_the_describer_load(card, monke
 
     monkeypatch.setattr(tts_service, "release_gpu_engines", unreachable)
     monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {CARD: 3652})
-    monkeypatch.setattr(ap, "release_whisper_gpu", lambda: True)
+    monkeypatch.setattr(ap, "release_whisper_gpu", lambda reason: True)
     with caplog.at_level("WARNING"):
         assert vision_routing.release_side_channels_for_describer(PROFILE) is True  # Whisper still released
     assert "TTS release for describer" in caplog.text

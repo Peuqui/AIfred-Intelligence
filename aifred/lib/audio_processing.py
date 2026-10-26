@@ -1054,16 +1054,18 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
     return deleted
 
 
-def release_whisper_gpu() -> bool:
-    """Kill the STT-Suite GPU worker so its VRAM can't collide with an
-    LLM cold start (calibrated splits assume empty cards).
+def release_whisper_gpu(reason: str) -> bool:
+    """End the STT-Suite GPU workers (transcription and diarization) so their
+    VRAM can't collide with an LLM cold start (calibrated splits assume empty
+    cards). ``reason`` goes to the service's log.
 
     A transcription in flight is granted WHISPER_RELEASE_WAIT_MAX_S to
     finish (the service answers 409 while busy); after the deadline the
-    worker is force-killed — interactive chat has priority.
+    worker is ended by force — interactive chat has priority. The
+    transcription is told the reason and goes on on the CPU (device=auto).
 
-    Returns True if a GPU worker was actually unloaded. No-op (False) when
-    the service is down or no GPU worker is running.
+    Returns True if the transcription worker was actually ended. No-op (False)
+    when the service is down or no GPU worker is running.
     """
     import time
     from .config import WHISPER_RELEASE_POLL_S, WHISPER_RELEASE_WAIT_MAX_S
@@ -1074,7 +1076,7 @@ def release_whisper_gpu() -> bool:
     try:
         while True:
             try:
-                return "gpu" in client.unload("cuda")
+                return "gpu-worker" in client.gpu_release(force=False, reason=reason)
             except STTBusyError:
                 if time.monotonic() >= deadline:
                     break
@@ -1084,7 +1086,7 @@ def release_whisper_gpu() -> bool:
             f"{WHISPER_RELEASE_WAIT_MAX_S}s — force-killing GPU worker "
             f"for model load", "warning",
         )
-        return "gpu" in client.unload("cuda", force=True)
+        return "gpu-worker" in client.gpu_release(force=True, reason=reason)
     except STTError as error:
         log_message(f"⚠️ Whisper GPU release failed: {type(error).__name__}: {error}", "warning")
         return False

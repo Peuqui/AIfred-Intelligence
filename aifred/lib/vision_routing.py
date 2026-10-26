@@ -168,10 +168,10 @@ def release_side_channels_for_describer(profile: str) -> bool:
     try:
         # No pin = the describer may land on any card: every running TTS container is in the way.
         stopped = release_gpu_engines(pinned or None, reason=f"describer {profile}")
-        released = any(result.outcome == "stopped" for result in stopped)
+        released = any(result.outcome == "released" for result in stopped)
     except (TTSSuiteError, TTSVramUnknown) as error:
         logger.warning("TTS release for describer %s failed: %s: %s", profile, type(error).__name__, error)
-    if on_target_card(set(whisper_gpu_footprint())) and release_whisper_gpu():
+    if on_target_card(set(whisper_gpu_footprint())) and release_whisper_gpu(f"describer {profile}"):
         logger.info("Whisper GPU worker released for describer %s", profile)
         released = True
     return released

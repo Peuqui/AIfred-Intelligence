@@ -1,5 +1,5 @@
-"""Freigabe statt Container-Stoppen: AIfred BITTET den TTS-Dienst (POST /release), Karten freizugeben; der
-Dienst entscheidet. Adapter (release_gpu_engines), GPU-Wächter vor dem Modellstart, Abstimmung LLM/TTS."""
+"""Freigabe statt Container-Stoppen: AIfred BITTET den TTS-Dienst (POST /gpu/release, ohne Zwang), Karten
+freizugeben; der Dienst entscheidet. Adapter (release_gpu_engines), GPU-Wächter vor dem Modellstart, Abstimmung LLM/TTS."""
 
 from __future__ import annotations
 
@@ -52,13 +52,13 @@ def logged(monkeypatch) -> list[tuple[str, str]]:
 
 def test_without_cards_every_running_local_gpu_engine_is_asked_to_go(fake) -> None:
     results = tts_service.release_gpu_engines(reason="test")
-    assert fake.releases == [[{"engine": "xtts", "host": None}, {"engine": "fish", "host": None}]]
-    assert [(r.engine, r.host, r.outcome) for r in results] == [("xtts", None, "stopped"), ("fish", None, "stopped")]
+    assert fake.releases == [{"items": ["xtts", "fish"], "force": False, "reason": "test"}]
+    assert [(r.item, r.outcome) for r in results] == [("xtts", "released"), ("fish", "released")]
 
 
 def test_with_cards_only_the_engines_on_those_cards_are_asked(fake) -> None:
     tts_service.release_gpu_engines({CARD_B, CARD_C}, reason="test")
-    assert fake.releases == [[{"engine": "fish", "host": None}]]
+    assert [body["items"] for body in fake.releases] == [["fish"]]
 
 
 def test_nothing_in_the_way_sends_no_request(fake) -> None:
@@ -82,18 +82,17 @@ def test_the_catalog_is_not_stale_after_a_release(fake) -> None:
 
 
 def test_a_refused_release_is_logged_visibly_and_returned(fake, logged) -> None:
-    fake.release_outcome = "in_use"
+    fake.release_outcome = "busy"
     results = tts_service.release_gpu_engines(reason="loading 'm'")
-    assert {r.outcome for r in results} == {"in_use"}
+    assert {r.outcome for r in results} == {"busy"}
     refusals = [m for c, m in logged if c == "warning" and "TTS in use, release of xtts refused" in m]
     assert len(refusals) == 1 and "loading 'm'" in refusals[0]
 
 
-@pytest.mark.parametrize("outcome", ["unreachable", "failed"])
-def test_a_failed_release_is_logged_with_its_outcome(fake, logged, outcome: str) -> None:
-    fake.release_outcome = outcome
+def test_a_failed_release_is_logged_with_its_outcome(fake, logged) -> None:
+    fake.release_outcome = "failed"
     tts_service.release_gpu_engines(reason="test")
-    assert any(c == "warning" and f"({outcome})" in m for c, m in logged)
+    assert any(c == "warning" and "(failed)" in m for c, m in logged)
 
 
 def test_a_service_that_is_not_there_is_a_clear_error(monkeypatch) -> None:
@@ -126,11 +125,11 @@ def test_the_guard_asks_for_every_running_gpu_engine_whatever_the_model_or_its_c
     """Where an engine sits does not matter: before a load every local GPU engine is released (also the one
     the model's ``-tts-<engine>`` profile reserves room for; the service places it again after the load)."""
     OpenAICompatibleBackend._release_tts_for_load(model)
-    assert fake.releases == [[{"engine": "xtts", "host": None}, {"engine": "fish", "host": None}]]
+    assert [body["items"] for body in fake.releases] == [["xtts", "fish"]]
 
 
 def test_a_refused_release_is_shown_and_not_repeated(fake, config, logged) -> None:
-    fake.release_outcome = "in_use"
+    fake.release_outcome = "busy"
     OpenAICompatibleBackend._release_tts_for_load("on-b")
     assert len(fake.releases) == 1                      # no retry, no waiting: the load goes on
     assert any("TTS in use, release of fish refused" in m for _, m in logged)
@@ -165,12 +164,12 @@ def run_plan(wanted: str) -> list[str]:
 
 def test_the_plan_asks_for_every_running_gpu_engine(fake, llm_steps) -> None:
     run_plan("xtts")
-    assert fake.releases == [[{"engine": "xtts", "host": None}, {"engine": "fish", "host": None}]]
+    assert [body["items"] for body in fake.releases] == [["xtts", "fish"]]
     assert llm_steps == ["restart"]
 
 
 def test_a_refused_release_in_the_plan_is_reported_and_the_switch_goes_on(fake, llm_steps) -> None:
-    fake.release_outcome = "in_use"
+    fake.release_outcome = "busy"
     messages = run_plan("xtts")
     assert any("FISH" in m and "TTS in use, release refused" in m for m in messages)
     assert llm_steps == ["restart"]
@@ -191,8 +190,8 @@ def test_the_calibration_asks_for_every_running_local_gpu_engine_and_says_what_c
 
     said: list[str] = []
     _release_tts_for_calibration(said.append)
-    assert fake.releases == [[{"engine": "xtts", "host": None}, {"engine": "fish", "host": None}]]
-    assert said == ["   🔊 TTS xtts: stopped", "   🔊 TTS fish: stopped"]
+    assert [body["items"] for body in fake.releases] == [["xtts", "fish"]]
+    assert said == ["   🔊 TTS xtts: released", "   🔊 TTS fish: released"]
 
 
 def test_a_service_that_does_not_answer_is_said_and_the_calibration_goes_on() -> None:

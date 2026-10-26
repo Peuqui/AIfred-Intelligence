@@ -31,7 +31,7 @@ planning in the [calibration documents](calibration-strategy.md).
   configuration of the service (hosts, GPU rules, pronunciations, voices) is edited in the
   service's own web interface.
 - AIfred **never** starts or stops a container itself. It asks the service to release engines
-  (`POST /release`, see *VRAM*); everything else — start on demand, unload when idle — is the
+  (`POST /gpu/release`, without force, see *VRAM*); everything else — start on demand, unload when idle — is the
   service's own business.
 - Other machines with engines (e.g. Aragon) are hosts of the **service's** configuration
   (`~/.config/tts-suite/config.json`), not of AIfred's settings. `tts_hosts` in `settings.json`
@@ -138,7 +138,7 @@ How much text goes to the engine at once is **one setting per TTS engine**, syst
   the language model.
 - **Before a cold start of the main model** AIfred asks the service to release **every local GPU
   engine** (`release_gpu_engines()`, SSOT for everything that needs room: model load, describer,
-  calibration). The service decides per target; a container a reading holds is refused (`in_use`),
+  calibration). The service decides per engine; a container a reading holds or that is starting is refused (`busy`),
   which is logged, and the load goes on as with too little room. After the load the next reading
   starts an engine again on a card with room (Qwen3 about 18 s, XTTS about 33 s to the first sound).
 - **Burn-in** (`tts_stress_burnin.py`): the calibration has the service read a worst-case text

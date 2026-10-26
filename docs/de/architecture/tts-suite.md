@@ -32,7 +32,7 @@ VRAM-Planung in den [Kalibrierungs-Dokumenten](calibration-strategy.md).
   Konfiguration des Dienstes (Hosts, GPU-Regeln, Aussprache, Stimmen) wird in dessen eigener
   Weboberfläche bearbeitet.
 - AIfred startet oder stoppt **nie** selbst einen Container. Er bittet den Dienst, Engines
-  freizugeben (`POST /release`, siehe *VRAM*); alles andere — Start bei Bedarf, Entladen im
+  freizugeben (`POST /gpu/release`, ohne Zwang, siehe *VRAM*); alles andere — Start bei Bedarf, Entladen im
   Leerlauf — erledigt der Dienst selbst.
 - Weitere Rechner mit Engines (z. B. Aragon) sind Hosts in der Konfiguration des **Dienstes**
   (`~/.config/tts-suite/config.json`), nicht in AIfreds Einstellungen. `tts_hosts` in der
@@ -142,8 +142,8 @@ Wie viel Text auf einmal an die Engine geht, ist **eine Einstellung pro TTS-Engi
   Dienstes hält das Sprachmodell also nicht auf.
 - **Vor dem Kaltstart des Hauptmodells** bittet AIfred den Dienst, **alle lokalen GPU-Engines**
   freizugeben (`release_gpu_engines()`, SSOT für alles, was Platz braucht: Modellstart,
-  Beschreiber, Kalibrierung). Der Dienst entscheidet je Ziel; ein Container, den eine Lesung
-  hält, wird abgelehnt (`in_use`), das steht im Log, und das Laden geht weiter wie bei zu wenig
+  Beschreiber, Kalibrierung). Der Dienst entscheidet je Engine; ein Container, den eine Lesung
+  hält oder der gerade startet, wird abgelehnt (`busy`), das steht im Log, und das Laden geht weiter wie bei zu wenig
   Platz. Nach dem Laden startet die nächste Lesung eine Engine wieder auf einer Karte mit Platz
   (Qwen3 rund 18 s, XTTS rund 33 s bis zum ersten Ton).
 - **Burn-in** (`tts_stress_burnin.py`): Die Kalibrierung lässt den Dienst einen Worst-Case-Text

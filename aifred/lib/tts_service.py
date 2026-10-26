@@ -16,8 +16,8 @@ saves the complete matched list (``matched_list``).
 AIfred writes nothing into the service and starts or stops no container there: the service
 starts and unloads its engines itself when a request reaches it. AIfred only ASKS: before a
 language model (or describer) needs cards a TTS container holds, ``release_gpu_engines`` asks
-the service to take those containers down; the service decides (a container a reading holds
-stays, the answer says so).
+the service to take those containers down (``/gpu/release``, without force); the service decides
+(a container a reading holds stays, the answer says so).
 
 An entry is the pair of both: ``ListEntry`` (what the user decided + the catalog row of
 ``(engine, host)``, ``None`` if the service does not offer it). The catalog is cached for
@@ -45,8 +45,7 @@ from .tts_client import (
     SPEECH_UNITS,
     EngineInfo,
     EngineRef,
-    EngineTarget,
-    ReleaseResult,
+    GpuReleaseResult,
     SpeakSummary,
     TraceStep,
     TTSSuiteError,
@@ -506,14 +505,14 @@ def running_gpu_footprint() -> dict[str, dict[str, int]]:
 
 def release_gpu_engines(
     cards_needed: Collection[str] | None = None, *, reason: str,
-) -> list[ReleaseResult]:
+) -> list[GpuReleaseResult]:
     """Ask the service to release the local GPU engines that run right now (SSOT of every place that
     needs room on the cards: the GPU guard before a model load, the describer, the TTS plan).
 
     ``cards_needed`` None = all running local GPU engines; a set of GPU UUIDs = only engines whose
-    footprint touches one of them. The service decides per target; every answer that is not a
-    success is logged here, visibly: ``in_use`` = a reading holds the container, so the release
-    was refused (callers neither repeat nor wait: the load behaves as with too little room).
+    footprint touches one of them. The service decides per engine; every answer that is not a
+    success is logged here, visibly: ``busy`` = a reading holds the container or it is starting, so
+    the release was refused (callers neither repeat nor wait: the load behaves as with too little room).
     ``reason`` says what the room is for ("loading 'model'").
 
     Raises:
@@ -521,32 +520,32 @@ def release_gpu_engines(
         TTSSuiteError: the service does not answer or refuses the request (callers log it; there
             is no other way to free the cards).
     """
-    targets = [
-        EngineTarget(info.engine, info.host)
+    engines = [
+        info.engine
         for info in _local_gpu_rows(fresh=True)
         if info.status == "running" and _touches(info, cards_needed)
     ]
-    return release_targets(targets, reason=reason)
+    return release_engines(engines, reason=reason)
 
 
-def release_targets(targets: Sequence[EngineTarget], *, reason: str) -> list[ReleaseResult]:
-    """Ask the service to release exactly these catalog rows and log every answer that is not a
-    success (``release_gpu_engines`` and the TTS burn-in share this).
+def release_engines(engines: Sequence[str], *, reason: str) -> list[GpuReleaseResult]:
+    """Ask the service to release exactly these local GPU engines, without force, and log every
+    answer that is not a success (``release_gpu_engines`` and the TTS burn-in share this).
 
     Raises:
         TTSSuiteError: the service does not answer or refuses the request.
     """
-    if not targets:
+    if not engines:
         return []
     try:
-        results = get_tts_client().release(targets)
+        results = get_tts_client().gpu_release(engines, force=False, reason=reason)
     finally:
         reset_cache()
     for result in results:
-        label = ref_label(EngineRef(result.engine, "", result.host))
-        if result.outcome == "stopped":
+        label = ref_label(EngineRef(result.item, "", None))
+        if result.outcome == "released":
             log_message(f"🔊 TTS container {label} released for {reason}")
-        elif result.outcome == "in_use":
+        elif result.outcome == "busy":
             log_message(f"⚠️ TTS in use, release of {label} refused ({reason}): {result.detail}", "warning")
         elif result.outcome != "not_running":
             log_message(

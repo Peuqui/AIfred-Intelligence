@@ -29,9 +29,9 @@ def calls(monkeypatch: pytest.MonkeyPatch) -> list[str]:
     seen: list[str] = []
 
     def handler(request: httpx.Request) -> httpx.Response:
-        if (request.method, request.url.path) == ("POST", "/release"):
+        if (request.method, request.url.path) == ("POST", "/gpu/release"):
             seen.append("release")   # AIfred only ASKS the service; it stops no container itself
-            return httpx.Response(200, json=[{"engine": "xtts", "host": None, "outcome": "stopped", "detail": ""}])
+            return httpx.Response(200, json={"results": [{"item": "xtts", "outcome": "released", "detail": ""}]})
         assert (request.method, request.url.path) == ("GET", "/engines"), "no other request may be sent"
         return httpx.Response(200, json=[row("xtts"), row("piper", needs_gpu=False)])
 

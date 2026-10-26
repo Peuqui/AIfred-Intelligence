@@ -84,8 +84,8 @@ class _Client:
 _whisper_releases: list[str] = []
 
 
-def _fake_release_whisper_gpu() -> bool:
-    _whisper_releases.append("gpu")
+def _fake_release_whisper_gpu(reason: str) -> bool:
+    _whisper_releases.append(reason)
     return False
 
 
@@ -147,7 +147,7 @@ def test_whisper_gpu_is_released_before_every_load(monkeypatch) -> None:
     # Same model twice while it is not running = a re-load after its ttl
     # expired: Whisper may have taken the card meanwhile, so both release.
     _run(monkeypatch, ["pp4-vllm", "pp4-vllm"], ["bge-embed"])
-    assert _whisper_releases == ["gpu", "gpu"]
+    assert _whisper_releases == ["loading 'pp4-vllm'", "loading 'pp4-vllm'"]
 
 
 def test_whisper_gpu_stays_when_the_target_already_runs(monkeypatch) -> None:
@@ -159,7 +159,7 @@ def test_whisper_gpu_stays_when_the_target_already_runs(monkeypatch) -> None:
 def test_whisper_gpu_is_released_for_reserve_and_sidecar_loads(monkeypatch) -> None:
     # A -vlm- profile or a describer loads onto the side card too.
     assert _run(monkeypatch, ["pp4-vllm-vlm-qwen3vl4b", "vl4b-visiond"], []) == []
-    assert _whisper_releases == ["gpu", "gpu"]
+    assert _whisper_releases == ["loading 'pp4-vllm-vlm-qwen3vl4b'", "loading 'vl4b-visiond'"]
 
 
 def test_load_runs_only_for_a_model_that_is_not_running(monkeypatch) -> None:

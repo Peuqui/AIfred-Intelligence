@@ -33,8 +33,8 @@ import time
 from typing import Any, Optional
 
 from .config import TTS_BURNIN_AGENT
-from .tts_client import EngineRef, EngineTarget, TTSSuiteError, get_tts_client, new_run_id
-from .tts_service import TTSVramUnknown, catalog, release_targets
+from .tts_client import EngineRef, TTSSuiteError, get_tts_client, new_run_id
+from .tts_service import TTSVramUnknown, catalog, release_engines
 from .tts_voices import voices_for
 
 logger = logging.getLogger(__name__)
@@ -210,8 +210,8 @@ async def _synthesize(text: str, language: str, engine_key: str) -> int:
 
 
 async def _release(engine_key: str) -> None:
-    """Ask the service to take the burn-in's container off the card (it may refuse: ``in_use``)."""
-    await asyncio.to_thread(release_targets, [EngineTarget(engine_key, None)], reason="TTS burn-in finished")
+    """Ask the service to take the burn-in's container off the card (it may refuse: ``busy``)."""
+    await asyncio.to_thread(release_engines, [engine_key], reason="TTS burn-in finished")
 
 
 async def stress_burnin_tts(

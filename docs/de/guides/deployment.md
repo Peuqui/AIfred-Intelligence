@@ -708,7 +708,7 @@ dasselbe, wenn es den Container selbst startet (`STTClient.start_container`).
   Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik, der Speicherpuffer und die
   Messung des Speicherbedarfs.
 - **GPU freigeben:** Vor jedem Kaltstart eines großen Modells entlädt AIfred den GPU-Worker
-  (`/unload?device=cuda`, die CPU-Modelle bleiben), die lokalen TTS-Engines (über die TTS-Suite)
+  (`POST /gpu/release`, die CPU-Modelle bleiben), die lokalen TTS-Engines (über die TTS-Suite)
   und das vorherige Modell.
 
 ---

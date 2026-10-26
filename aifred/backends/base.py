@@ -547,7 +547,7 @@ class OpenAICompatibleBackend(LLMBackend):
         root = self._llamaswap_root()
         try:
             async with httpx.AsyncClient(timeout=5.0) as client:
-                if await asyncio.to_thread(release_whisper_gpu):
+                if await asyncio.to_thread(release_whisper_gpu, f"loading '{model}'"):
                     log_message(f"🎤 Whisper GPU worker released before loading '{model}'")
                 await asyncio.to_thread(self._release_tts_for_load, model)
                 if "-vlm-" in model or is_visiond_profile(model) or is_embed_profile(model):

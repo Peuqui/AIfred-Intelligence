@@ -127,18 +127,23 @@ def test_invalid_json_is_an_stt_error(client, calls):
         client.status()
 
 
-def test_unload_returns_unloaded_devices_and_passes_force(client, calls):
-    calls.answer = _response(200, {"unloaded": ["gpu"]})
-    assert client.unload("cuda") == ["gpu"]
-    assert calls.sent[0][2]["params"] == {"device": "cuda"}
-    client.unload("cuda", force=True)
-    assert calls.sent[1][2]["params"] == {"device": "cuda", "force": "1"}
+def test_gpu_release_returns_the_ended_workers_and_passes_force_and_reason(client, calls):
+    calls.answer = _response(200, {"results": [
+        {"item": "gpu-worker", "outcome": "released", "detail": "PID 7 ended"},
+        {"item": "diarize-worker", "outcome": "not_running", "detail": "nothing runs"},
+    ]})
+    assert client.gpu_release(force=False, reason="loading 'm'") == ["gpu-worker"]
+    method, url, kwargs = calls.sent[0]
+    assert (method, url.rsplit("/", 2)[-2:]) == ("POST", ["gpu", "release"])
+    assert kwargs["json"] == {"items": "all", "force": False, "reason": "loading 'm'"}
+    client.gpu_release(force=True, reason="loading 'm'")
+    assert calls.sent[1][2]["json"]["force"] is True
 
 
-def test_unload_409_is_busy(client, calls):
-    calls.answer = _response(409, {"error": "transcription running"})
+def test_gpu_release_409_is_busy(client, calls):
+    calls.answer = _response(409, {"results": [{"item": "gpu-worker", "outcome": "busy", "detail": "a job is running on it"}]})
     with pytest.raises(STTBusyError):
-        client.unload("cuda")
+        client.gpu_release(force=False, reason="loading 'm'")
 
 
 def test_ensure_ready_does_nothing_when_ready(client, calls, monkeypatch):
