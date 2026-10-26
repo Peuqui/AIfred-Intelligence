@@ -31,6 +31,17 @@ def _error_text(error: Exception, lang: str) -> str:
     return unreachable_text(error, lang) if isinstance(error, TTSSuiteUnreachable) else str(error)
 
 
+def _planned_engine(model_id: str) -> str | None:
+    """The engine the LLM profile reserves VRAM for; ``None`` while the service does not answer
+    (blocking: call in a thread)."""
+    from ..lib.tts_client import TTSSuiteError
+    from ..lib.tts_llm_coordination import planned_tts_engine
+    try:
+        return planned_tts_engine(model_id)
+    except TTSSuiteError:
+        return None
+
+
 def _entry_at(entries: List[Dict[str, Any]], index: int) -> Dict[str, Any]:
     if not 0 <= index < len(entries):
         raise ValueError(f"the list has no entry at position {index} (it changed, reload the page)")
@@ -122,31 +133,75 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     # ── Spoken output on/off, autoplay ────────────────────────────
 
-    def set_enable_tts(self, enabled: bool):
+    async def set_enable_tts(self, enabled: bool):
         self.enable_tts = enabled
         self._save_settings()  # type: ignore[attr-defined]
         self.add_debug(f"🔊 TTS: {'enabled' if enabled else 'disabled'}")  # type: ignore[attr-defined]
+        yield
+        async for _ in self._apply_planned_tts():
+            yield
 
     def toggle_tts_autoplay(self):
         self.tts_autoplay = not self.tts_autoplay
         self._save_settings()  # type: ignore[attr-defined]
         self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")  # type: ignore[attr-defined]
 
+    async def _apply_planned_tts(self):
+        """Bring the LLM profile in line with the list: it reserves room for the
+        planned engine (topmost enabled local entry with a calibrated profile), or for none when
+        the spoken output is off. No container is touched here.
+        Async generator — each yield is one finished blocking step (``_run_tts_plan``)."""
+        from ..lib.tts_llm_coordination import planned_tts_engine
+
+        wanted = (
+            planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
+            if self.enable_tts else ""
+        )
+        async for _ in self._run_tts_plan(wanted):
+            yield
+
+    async def _run_tts_plan(self, wanted: str):
+        """Run ``ensure_tts_state`` for the planned engine ``wanted`` (``""`` = none), step by step.
+
+        Every step of the generator is a whole blocking chunk (LLM restart: up to minutes, a release
+        of the TTS service: up to 120 s). Run bare in an event handler it froze the whole event loop,
+        and granian took the worker for dead. ``to_thread`` keeps the loop free; ``next(gen, sentinel)``
+        because a ``StopIteration`` propagating out of ``to_thread`` becomes a RuntimeError."""
+        from ..lib.tts_llm_coordination import ensure_tts_state
+
+        generator = ensure_tts_state(wanted_tts=wanted, backend_type=self.backend_type)  # type: ignore[attr-defined]
+        done = object()
+        while True:
+            message = await asyncio.to_thread(next, generator, done)
+            if message is done:
+                break
+            self.add_debug(f"🔊 {message}")  # type: ignore[attr-defined]
+            yield
+
     # ── List editing (settings.json) ──────────────────────────────
+
+    async def replan_tts(self):
+        """Bring the VRAM state in line with the list (event chain after an edit that moved
+        the planned engine)."""
+        async for _ in self._apply_planned_tts():
+            yield
 
     async def _edit_tts_lists(self, change: Callable[[Dict[str, Any]], None]) -> List[Any]:
         """Match the list with the catalog, apply ``change`` to a copy of the persisted
         settings, check, save the complete result. Returns the events the handler yields: an error
         toast when nothing was saved (also while the service does not answer: the match needs the
-        catalog). A moved planned engine needs nothing here: the next load of the model picks its
-        profile (``planned_tts_engine``)."""
+        catalog), a warning when the service could not be asked for the VRAM plan, the re-plan when
+        the planned engine moved."""
         import copy
 
         from ..lib.settings import persisted_settings
+        from ..lib.i18n import t
         from ..lib.toast import toast
         from ..lib.tts_client import TTSSuiteError
         from ..lib.tts_service import catalog, check_stored_settings, matched_list
 
+        model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
+        before = await asyncio.to_thread(_planned_engine, model_id)
         settings = copy.deepcopy(persisted_settings())
         try:
             rows = await asyncio.to_thread(catalog)
@@ -157,7 +212,10 @@ class TTSConfigMixin(rx.State, mixin=True):
             return [toast("error", f"TTS: {_error_text(error, _lang(self))}")]
         self._write_settings_file(settings)  # type: ignore[attr-defined]
         self.tts_list_revision += 1
-        return []
+        after = await asyncio.to_thread(_planned_engine, model_id)
+        if before is None or after is None:
+            return [toast("warning", t("tts_plan_unchecked", lang=_lang(self)))]
+        return [type(self).replan_tts] if after != before else []
 
     async def move_tts_entry(self, index: int, delta: int):
         def change(settings: Dict[str, Any]) -> None:

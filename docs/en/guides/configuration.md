@@ -106,9 +106,8 @@ main page.
   `agents.json`).
 - **Speech unit** — `sentence`, `paragraph` or `whole` — is one setting per engine, valid for all
   agents and channels (`tts_toggles_per_engine`).
-- **VRAM:** the calibrated profile `<model>-tts-<engine>` leaves room for the engine; before a model
-  cold-starts, [GPU-Orc](deployment.md#9c-clearing-the-cards-gpu-orc) clears its cards, local TTS
-  engines included.
+- **VRAM:** the calibrated profile `<model>-tts-<engine>` leaves room for the engine; before the main
+  model cold-starts AIfred asks the service to release every local GPU engine.
 - **Service not reachable:** TTS paths fail loudly (the browser voice takes over if enabled); the
   rest of AIfred keeps working.
 

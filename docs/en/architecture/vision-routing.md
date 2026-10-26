@@ -134,23 +134,22 @@ happens only via the profile's `ttl`** (e.g. 900 s idle for
 `ttl_for_model_size`).
 
 The conflict case — a main model wants a card a sidecar holds — is handled
-by [GPU-Orc](https://github.com/Peuqui/GPU-Orc), a service of its own per machine:
-`_free_gpus_for_load` ([`aifred/backends/base.py`](../../../aifred/backends/base.py))
+by AIfred itself: `_free_gpus_for_load`
+([`aifred/backends/base.py`](../../../aifred/backends/base.py))
 runs in `_pre_request_check` of the llama.cpp and vLLM backends on every
 request and reads llama-swap's `/running`. If the target model is already
 running, nothing is touched. Otherwise the request triggers a load (also a
-re-load of the same model after its ttl), and AIfred first asks GPU-Orc to clear
-the model's cards (`POST /free {"model": …}`, `aifred/lib/gpu_orc_client.py`).
-GPU-Orc reads the entry's cards from the llama-swap config, releases the GPU
-workers of the STT and TTS suites there and unloads the persistent models of
-the groups with `persistent: true` (sidecars `-visiond`, `-embed`). Profiles
-with a `-vlm-` marker (reserve by calibration) and the sidecars themselves
-evict no sidecar (`no_eviction_models` in GPU-Orc's config). What GPU-Orc cannot
-free, or a GPU-Orc that does not answer, is logged loudly; the load goes on.
-The describer is cleared by the same call with its `-visiond` profile
-(`release_side_channels_for_describer`), and the room check
-(`check_visiond_fits`) counts the measured memory GPU-Orc's `GET /status`
-reports for STT and TTS on the card as free.
+re-load of the same model after its ttl) and the guard first releases Whisper's
+GPU worker (`release_whisper_gpu`; a running transcription gets a grace
+period), then handles the sidecars. Profiles with a `-vlm-` marker (reserve by
+calibration) and the sidecars themselves never evict sidecars; with no sidecar
+(`-visiond`, `-embed`) loaded there is nothing more to do. It then
+compares the GPUs of the target entry and of each running sidecar
+(`CUDA_VISIBLE_DEVICES` from the llama-swap config, `entry_gpu_uuids`) and
+unloads every sidecar sharing a GPU via `POST /api/models/unload/<sidecar>`
+before the load starts. If the GPUs cannot be determined, it unloads all
+sidecars. llama-swap has no VRAM/profile semantics — the decision is made by
+the instance that understands the profiles.
 
 ## Badge logic
 

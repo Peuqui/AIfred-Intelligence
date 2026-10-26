@@ -30,7 +30,6 @@ AIfred-Intelligence/
 │   │   ├── vision_*.py · frame_sources/ · frame_hub.py   # Vision + Vigilantia
 │   │   ├── tts_client.py · tts_service.py · tts_voices.py   # Client of the TTS-Suite service: HTTP/WebSocket, catalog ↔ AIfred's list, voices
 │   │   ├── tts_llm_coordination.py · tts_stress_burnin.py · tts_vram_cache.py   # LLM profile plan, release before a load, measured VRAM peaks
-│   │   ├── gpu_orc_client.py      # Client of GPU-Orc: clear the cards before a load, who holds which card
 │   │   ├── speech_synthesis.py · audio_*.py · audio_channels/   # Synthesis, STT, output paths (browser, FreeEcho.2, local)
 │   │   ├── api/                   # REST API (FastAPI, mounted under /api): chat, agents, audio, announce, tts, documents, vision, …
 │   │   ├── i18n/                  # UI translations (de.json, en.json)

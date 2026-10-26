@@ -114,19 +114,20 @@ def _calibration_engine_keys() -> list[str]:
         return []
 
 
-def _free_cards_for_calibration(report: Any) -> None:
-    """Have GPU-Orc clear every card of everything but llama-swap's models (the STT and TTS workers): the
-    calibration measures cards that must be free (a running worker would count as the model's own
-    consumption). What stays on the cards, or a GPU-Orc that does not answer, is reported; the run goes on."""
-    from aifred.lib.gpu_orc_client import GpuOrcError, describe, get_gpu_orc_client
+def _release_tts_for_calibration(report: Any) -> None:
+    """Ask the TTS service to release every local GPU engine: the calibration measures cards that must
+    be free (a running container would count as the model's own consumption). A refused release
+    (a reading holds the container) or a service that does not answer is reported, the run goes on."""
+    from aifred.lib.tts_client import TTSSuiteError
+    from aifred.lib.tts_service import TTSVramUnknown, release_gpu_engines
 
     try:
-        result = get_gpu_orc_client().free_all_but_models(reason="AIfred: calibration")
-    except GpuOrcError as error:
-        report(f"   ⚠️ GPU-Orc could not clear the cards for the calibration: {error}")
+        released = release_gpu_engines(reason="calibration")
+    except (TTSSuiteError, TTSVramUnknown) as error:
+        report(f"   ⚠️ TTS release for the calibration failed: {type(error).__name__}: {error}")
         return
-    for line, _category in describe(result):
-        report(f"   {line}")
+    for result in released:
+        report(f"   🔊 TTS {result.engine}: {result.outcome}")
 
 
 def _calib_line(progress_msg: str) -> str:
@@ -917,7 +918,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 self._cal_debug("🧹 llama-swap stopped (freeing VRAM for calibration)")
         except Exception as stop_err:  # noqa: BLE001 — weiter mit Warnung
             self._cal_debug(f"⚠️ Could not stop llama-swap: {stop_err}")
-        await asyncio.to_thread(_free_cards_for_calibration, self._cal_debug)
+        await asyncio.to_thread(_release_tts_for_calibration, self._cal_debug)
 
         # Gemeinsamer Side-Channel-Burn-in VOR der Topologie-Leiter:
         # vLLM laesst die TTS-/VLM-Karte ohnehin aus (side_channel_uuids),
@@ -1467,12 +1468,12 @@ class CalibrationMixin(rx.State, mixin=True):
             )
 
             # Step 0: Kill orphaned calibration servers left over from a previous
-            # interrupted calibration, and have GPU-Orc clear the STT and TTS workers (the
+            # interrupted calibration, and ask the TTS service to release its engines (the
             # calibration reserves the burn-in peak of the planned engine instead of loading it).
             from ..lib.config import LLAMACPP_CALIBRATION_PORT
-            self._cal_debug("🧹 Cleaning up VRAM (orphaned servers, STT/TTS workers)...")  # type: ignore[attr-defined]
+            self._cal_debug("🧹 Cleaning up VRAM (orphaned servers, TTS engines)...")  # type: ignore[attr-defined]
             yield
-            await asyncio.to_thread(_free_cards_for_calibration, self._cal_debug)  # type: ignore[attr-defined]
+            await asyncio.to_thread(_release_tts_for_calibration, self._cal_debug)  # type: ignore[attr-defined]
             # Kill any llama-server still running on calibration port
             try:
                 result = subprocess.run(

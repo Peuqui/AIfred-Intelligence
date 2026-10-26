@@ -4,13 +4,12 @@
 
 Anleitung zur Einrichtung einer neuen AIfred-Installation mit dem llama.cpp-Backend (llama-swap).
 
-**Zuletzt aktualisiert:** 25.10.2026
+**Zuletzt aktualisiert:** 25.09.2026
 
 > **TL;DR – der schnellste Weg:** `./scripts/install-all.sh` aus einem frischen
 > Klon kümmert sich in einem Durchgang um Abhängigkeiten, venv, Playwright, den Reflex-Routing-
-> Patch, optionale systemd-Dienste, `.env`, den `bge-m3`-Embedding-Pull,
-> die Begleitdienste (TTS-Suite, STT-Suite, SearXNG, GPU-Orc) und einen ersten
-> Whitelist-Benutzer. Die folgenden Abschnitte beschreiben
+> Patch, optionale systemd-Dienste, `.env`, den `bge-m3`-Embedding-Pull
+> und einen ersten Whitelist-Benutzer. Die folgenden Abschnitte beschreiben
 > denselben Ablauf **manuell** für die Fehlersuche und für nicht standardmäßige Konfigurationen
 > (Multi-GPU-Systeme, Kameraüberwachung, Koexistenz mit vLLM).
 
@@ -26,15 +25,6 @@ Modelle automatisch und konfiguriert sie, ohne dass manuelle YAML-Bearbeitung n�
 User <-> AIfred (Reflex web app) <-> llama-swap (:11435) <-> llama-server (per model)
 ```
 
-Neben AIfred laufen drei eigene Dienste, jeder aus einem eigenen Repository; der Installer richtet sie
-ein:
-
-| Dienst | Port | Aufgabe |
-|---|---|---|
-| [TTS-Suite](https://github.com/Peuqui/TTS-Suite) | 5090 | Sprachausgabe: Engines in Containern, auf anderen Rechnern, in der Cloud ([9a](#9a-sprachausgabe-tts-suite)) |
-| [STT-Suite](https://github.com/Peuqui/STT-Suite) | 5080 | Spracherkennung: Whisper und Parakeet, ein CPU-Modell immer, ein GPU-Worker bei Bedarf ([9b](#9b-spracherkennung-stt-suite)) |
-| [GPU-Orc](https://github.com/Peuqui/GPU-Orc) | 5070 | räumt die Karten frei, bevor ein Modell lädt: bittet die beiden Suiten und llama-swap, loszulassen ([9c](#9c-karten-freiräumen-gpu-orc)) |
-
 ---
 
 ## 1. Voraussetzungen
@@ -46,10 +36,10 @@ ein:
 ### Software
 - Linux mit systemd (Ubuntu/Debian empfohlen)
 - CUDA Toolkit >= 12.0
-- Python 3.10+ (TTS-Suite und GPU-Orc brauchen 3.12+)
+- Python 3.10+ (die TTS-Suite braucht 3.12+)
 - Git
-- polkit (`polkitd` unter Debian/Ubuntu; der Installer richtet es ein): Dein Benutzer startet die Units
-  von TTS-Suite und GPU-Orc ohne sudo neu, und AIfred startet die TTS-Suite, wenn sie gebraucht wird
+- polkit (`polkitd` unter Debian/Ubuntu; der Installer richtet es ein): Dein Benutzer startet die Unit
+  der TTS-Suite ohne sudo neu, und AIfred startet die TTS-Suite, wenn sie gebraucht wird
 
 ---
 
@@ -113,7 +103,6 @@ gewohnt gefragt — ohne Terminal gilt die Standardantwort:
 | `AIFRED_INSTALL_PROXY` | Caddy als Reverse-Proxy installieren (sudo, Konfiguration `deploy/Caddyfile`, Port 8080) | `y` / `n` (Standard `y`) |
 | `AIFRED_INSTALL_USER` | erster Whitelist-Benutzer | ein Benutzername oder `skip` (Standard: `$USER`) |
 | `AIFRED_INSTALL_TTS_SYSTEMD` | TTS-Suite als Systemdienst `tts-suite@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `y`; `n`: Benutzerdienst, läuft nur, solange du angemeldet bist) |
-| `AIFRED_INSTALL_GPU_ORC_SYSTEMD` | GPU-Orc als Systemdienst `gpu-orc@<Benutzer>` installieren (sudo, mit Polkit-Regel) | `y` / `n` (Standard `y`; `n`: Benutzerdienst, läuft nur, solange du angemeldet bist) |
 
 ```bash
 AIFRED_INSTALL_OLLAMA=n AIFRED_INSTALL_SYSTEMD=y AIFRED_INSTALL_USER=alice ./scripts/install-all.sh
@@ -148,11 +137,6 @@ Ausführungen auf einem sauberen System haben keine Auswirkungen.
 | `aifred-chromadb.service` | `docker compose up -d chromadb searxng` — Vector Store + Websuche |
 | `aifred-intelligence.service` | die Reflex-App (Frontend `3002`, Backend `8002`) |
 | `aifred-bibliothek.service` | optionale Such- und Verwaltungs-API der AIfred Bibliothek (`127.0.0.1:8005`, für `deploy/bibliothek/`) |
-
-Die Begleitdienste bringen eigene Units mit, eingerichtet von den Skripten ihrer Repositories (die
-`install-all.sh` aufruft): `tts-suite@<Benutzer>` und `gpu-orc@<Benutzer>` als System-Units mit
-Polkit-Regel oder als Benutzerdienste; die STT-Suite läuft als Docker-Container
-(`restart: unless-stopped`).
 
 Das Installationsskript rendert `systemd/aifred-intelligence.service` (und die
 chromadb-/Bibliothek-Einheiten) in `/etc/systemd/system/`, ersetzt die
@@ -457,9 +441,6 @@ sudo journalctl -u llama-swap -b | head -60
 # Check available models
 curl -s http://localhost:11435/v1/models | python3 -m json.tool
 
-# GPU-Orc answers (AIfred asks it before every model load)
-curl -s http://127.0.0.1:5070/health
-
 # Start AIfred
 sudo systemctl start aifred-intelligence
 ```
@@ -726,52 +707,9 @@ dasselbe, wenn es den Container selbst startet (`STTClient.start_container`).
 - **Was die STT-Suite einstellt** (ihre Oberfläche unter `/ui/`, am Proxy `/stt-suite/ui/`): Engine,
   Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik, der Speicherpuffer und die
   Messung des Speicherbedarfs.
-- **GPU freigeben:** Bevor ein Modell auf seine Karte lädt, beendet GPU-Orc den GPU-Worker (die
-  CPU-Modelle bleiben). Eine Transkription, die mit `device=auto` noch läuft, wird dann mit derselben
-  Datei auf der CPU noch einmal gemacht; verloren geht nichts ([9c](#9c-karten-freiräumen-gpu-orc)).
-
-## 9c. Karten freiräumen (GPU-Orc)
-
-Bevor ein Modell lädt, kann etwas anderes seine Karten belegen: der GPU-Worker der STT-Suite, eine
-lokale TTS-Engine, die dauerhaften Hilfsmodelle von llama-swap (Describer, Embedder).
-[GPU-Orc](https://github.com/Peuqui/GPU-Orc) ist die eine Stelle je Rechner, die weiß, wie man sie
-freiräumt. AIfred fragt ihn vor jedem Kaltstart eines Modells über llama-swap, vor dem Wechsel auf ein
-TTS-kalibriertes Profil und vor einer Kalibrierung; die Platzprüfung des Describers liest bei ihm, wer
-welche Karte belegt. GPU-Orc bittet die Dienste über deren eigene Schnittstellen loszulassen
-(`POST /gpu/release` der Suiten, das Entladen von llama-swap) und prüft das Ergebnis nach (Status und
-Speicher je Karte); er beendet nie selbst einen Prozess.
-
-- **Installation:** `install-all.sh` (Schritt 2g) klont das Repository neben AIfred (oder
-  `GPU_ORC_DIR` aus `.env`), führt dessen `deploy/install.sh` aus (eigene virtuelle Umgebung, Befehl
-  `gpu-orc`, erste Konfiguration) und fragt, ob die System-Unit `gpu-orc@<Benutzer>` mit Polkit-Regel
-  eingerichtet werden soll (ein sudo-Schritt, `deploy/switch-to-system-unit.sh`: dann startet sie beim
-  Hochfahren ohne Anmeldung, und ein Neustart braucht kein Passwort). Sonst läuft GPU-Orc als
-  Benutzerdienst. Danach prüft der Installer `/health` auf Port 5070. Ein erneuter Lauf holt das
-  Repository neu und startet den Dienst neu.
-- **Konfiguration:** `~/.config/gpu-orc/config.yaml`, bei der ersten Installation aus dem Beispiel
-  geschrieben. Sie nennt die STT-Suite (`127.0.0.1:5080`), die TTS-Suite (`127.0.0.1:5090`) und
-  llama-swap (`127.0.0.1:11435`, mit dessen `~/.config/llama-swap/config.yaml`). Je Suite: wie lange
-  gewartet wird, solange sie beschäftigt ist (`busy_wait_s`), und ob danach erzwungen wird
-  (`force_after_wait`):
-  - STT 30 s: Ein Diktat ist auf der GPU in Sekunden fertig; eine lange Aufnahme mit `device=auto`
-    wird danach mit derselben Datei auf der CPU noch einmal transkribiert.
-  - TTS 5 s: Eine Vorlesung endet dann mit `reading_aborted`, eine Engine, die noch startet, wird
-    abgeschossen (`docker kill`).
-  - Eine Anfrage endet spätestens nach `free_timeout_s` (180 s). Nach einer Änderung:
-    `systemctl restart gpu-orc@<Benutzer>` (oder `systemctl --user restart gpu-orc`).
-- **AIfreds Seite:** `GPU_ORC_URL` in `.env` (Standard `http://127.0.0.1:5070`) und
-  `GPU_ORC_MODEL_SERVER` (der Name des Modellservers unter den Verbrauchern in GPU-Orcs Konfiguration,
-  Standard `llama-swap`). Sein HTTP-Timeout nimmt AIfred aus GPU-Orcs `/health`.
-- **Ohne GPU-Orc** läuft und lädt AIfred trotzdem, aber jedes Laden meldet laut im Log, dass die
-  Karten nicht freigeräumt werden konnten, und die Platzprüfung des Describers findet keinen Platz.
-  **Ohne NVIDIA-Karte** läuft GPU-Orc, hat aber nichts freizuräumen.
-- **Prüfen:** `curl -s http://127.0.0.1:5070/status` zeigt je Karte, wer was belegt. Eine Vorschau
-  ohne Wirkung: `curl -s -X POST http://127.0.0.1:5070/free -H 'Content-Type: application/json' -d
-  '{"model":"<Modell>","reason":"Test","dry_run":true}'`.
-- **Aufrufer auf anderen Rechnern** (etwa ein Agent auf einem anderen Rechner, der hier Modelle lädt):
-  GPU-Orc lauscht dann auf allen Adressen und verlangt ein Token (`listen.host` und `token_file` in
-  seiner Konfiguration; Loopback bleibt ohne Token). Einzelheiten:
-  [GPU-Orc-Schnittstelle](https://github.com/Peuqui/GPU-Orc/blob/main/docs/interface.de.md).
+- **GPU freigeben:** Vor jedem Kaltstart eines großen Modells entlädt AIfred den GPU-Worker
+  (`/unload?device=cuda`, die CPU-Modelle bleiben), die lokalen TTS-Engines (über die TTS-Suite)
+  und das vorherige Modell.
 
 ---
 
@@ -943,16 +881,6 @@ models:
 ```
 
 Führe den Autoscan einmal aus und entferne anschließend den `_dummy`-Eintrag.
-
-### Jedes Laden meldet „GPU-Orc could not clear the cards“
-
-GPU-Orc antwortet nicht. Prüfen und starten:
-
-```bash
-curl -s http://127.0.0.1:5070/health
-systemctl status gpu-orc@$USER          # System-Unit (oder: systemctl --user status gpu-orc)
-journalctl -u gpu-orc@$USER -n 50       # (oder: journalctl --user -u gpu-orc -n 50)
-```
 
 ### OOM-Absturz / Kontext zu groß
 

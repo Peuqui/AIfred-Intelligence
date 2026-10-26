@@ -10,11 +10,11 @@ AIfred only reads, speaks and asks: the client has no call that writes to the se
 configuration, no start or stop of an engine, no voice sync, no token). Hosts, defaults and
 the life of the engine containers are set in the service's own web interface; the service
 starts and stops the containers itself when a request reaches it. The one request that is
-not a reading is ``gpu_release``: the TTS burn-in ASKS the service to take its container off the
-card; the service decides and leaves a container a reading holds. Room for a language model is
-GPU-Orc's to make (``gpu_orc_client``), which uses the same interface of the service.
+not a reading is ``release``: AIfred ASKS the service to take containers off the cards (to
+make room for a language model); the service decides per target and never stops a container
+a reading holds.
 
-Read calls (``engines``, ``voices``), ``gpu_release`` and ``ensure_ready`` are
+Read calls (``engines``, ``voices``), ``release`` and ``ensure_ready`` are
 synchronous (short calls, usable from threads and plain code; async callers wrap them in
 ``asyncio.to_thread``). Only ``speak`` and ``open_stream`` are async. A fresh ``httpx``
 client is used per request (cheap on localhost), so the client holds no connection that is
@@ -34,7 +34,7 @@ from collections.abc import AsyncIterator, Iterator, Mapping, Sequence
 from dataclasses import asdict, dataclass, fields
 from pathlib import Path
 from time import monotonic, sleep
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from websockets.asyncio.client import ClientConnection, connect
@@ -130,14 +130,6 @@ class TextTooLong(TTSSuiteError):
     status = 413
 
 
-class ReadingAborted(TTSSuiteError):
-    """A forced GPU release (GPU-Orc, before a model loads) ended the reading: its card is needed. The
-    reading moves on to no other engine; the text can be read again later."""
-
-    code = "reading_aborted"
-    status = 503
-
-
 class Unauthorized(TTSSuiteError):
     """The service demands a token (it listens beyond localhost); AIfred sends none."""
 
@@ -186,7 +178,6 @@ ERROR_CLASSES: dict[str, type[TTSSuiteError]] = {
         InvalidRequest,
         UnsupportedLanguage,
         TextTooLong,
-        ReadingAborted,
         Unauthorized,
         BadRequest,
     )
@@ -270,12 +261,22 @@ class VoiceInfo:
 
 
 @dataclass(frozen=True)
-class GpuReleaseResult:
-    """What the service did for one engine of a GPU release (``POST /gpu/release``). ``outcome``:
-    ``released`` (the container is proven down), ``not_running`` (nothing to release), ``busy`` (a
-    reading holds it or it is starting, left alone), ``failed`` (the end could not be proven)."""
+class EngineTarget:
+    """One catalog row AIfred asks the service to release. ``host=None`` is the explicit value
+    "this machine"."""
 
-    item: str
+    engine: str
+    host: str | None
+
+
+@dataclass(frozen=True)
+class ReleaseResult:
+    """What the service did for one target of a release request. ``outcome``: ``stopped`` (container
+    taken down, VRAM free), ``not_running`` (nothing to release), ``in_use`` (a reading holds it, left
+    alone), ``unreachable`` (the host does not answer), ``failed`` (``detail`` says why)."""
+
+    engine: str
+    host: str | None
     outcome: str
     detail: str
 
@@ -628,28 +629,27 @@ class TTSClient:
 
     # ---- release ----
 
-    def gpu_release(self, items: Sequence[str], *, force: bool, reason: str) -> list[GpuReleaseResult]:
-        """Ask the service to take these local GPU engines off the cards (``reason`` goes to its log).
+    def release(self, targets: Sequence[EngineTarget] | Literal["all"]) -> list[ReleaseResult]:
+        """Ask the service to take containers off the cards: ``"all"`` or the given catalog rows.
 
-        The service decides per engine (see ``GpuReleaseResult``): ``busy`` and ``failed`` are results,
-        not errors. Blocking (the service stops containers): call in a thread from async code.
+        The service decides per target (see ``ReleaseResult``); a refusal of one target
+        (``in_use``, ``failed``, ...) is a result, not an error. Results come in the order of the
+        targets. Blocking (the service stops containers): call in a thread from async code.
 
         Raises:
-            InvalidRequest: an item is no GPU engine of this machine (checked before the first stop).
+            InvalidRequest, UnknownEngine, UnknownHost: the whole request was refused (checked
+                before the first stop).
             TTSSuiteUnreachable: the service does not answer.
         """
+        wanted = targets if isinstance(targets, str) else [asdict(target) for target in targets]
         try:
             with self._sync_http(TTS_SUITE_RELEASE_TIMEOUT_S) as http:
-                response = http.post("/gpu/release", json={"items": list(items), "force": force, "reason": reason})
+                response = http.post("/release", json={"targets": wanted})
         except httpx.TransportError as error:
-            raise TTSSuiteUnreachable(f"TTS service not reachable on /gpu/release: {error!r}") from error
-        # 409 (an engine busy) and 500 (an end not proven) carry the results like 200.
-        if response.status_code not in (200, 409, 500):
+            raise TTSSuiteUnreachable(f"TTS service not reachable on /release: {error!r}") from error
+        if response.is_error:
             raise _error_from_response(response)
-        body = response.json()
-        if not isinstance(body, dict) or not isinstance(body.get("results"), list):
-            raise IncompatibleService("the service's /gpu/release answer has no results")
-        return [_decode(GpuReleaseResult, item, "/gpu/release") for item in body["results"]]
+        return [_decode(ReleaseResult, item, "/release") for item in response.json()]
 
     # ---- speak ----
 

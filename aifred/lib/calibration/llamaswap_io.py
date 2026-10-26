@@ -290,6 +290,44 @@ def display_model_name(model_id: str, badges: Sequence[str]) -> str:
     return re.sub(r"-PLE-[A-Za-z0-9]+", "", model_id)
 
 
+def entry_gpu_uuids(
+    env: Dict[str, str], uuids_by_index: Sequence[str]
+) -> frozenset[str] | None:
+    """The GPUs a llama-swap entry may touch, as UUIDs.
+
+    ``None`` when the entry does not set ``CUDA_VISIBLE_DEVICES`` and so sees
+    every GPU; an empty set for ``CUDA_VISIBLE_DEVICES=`` (CPU only). Entries
+    name their cards either by UUID (llama.cpp, also as a unique prefix) or by
+    index under ``CUDA_DEVICE_ORDER=PCI_BUS_ID`` (vLLM). An index without
+    that order is CUDA's FASTEST_FIRST numbering, which nvidia-smi cannot
+    map — that raises instead of guessing.
+    """
+    if "CUDA_VISIBLE_DEVICES" not in env:
+        return None
+    uuids: set[str] = set()
+    for token in (t.strip() for t in env["CUDA_VISIBLE_DEVICES"].split(",")):
+        if not token:
+            continue
+        if token.startswith("GPU-"):
+            matches = [u for u in uuids_by_index if u.startswith(token)]
+            if len(matches) != 1:
+                raise ValueError(f"CUDA_VISIBLE_DEVICES names unknown GPU {token!r}")
+            uuids.add(matches[0])
+        elif token.isdigit():
+            if env.get("CUDA_DEVICE_ORDER") != "PCI_BUS_ID":
+                raise ValueError(
+                    f"CUDA_VISIBLE_DEVICES index {token} without "
+                    "CUDA_DEVICE_ORDER=PCI_BUS_ID cannot be mapped to a GPU"
+                )
+            index = int(token)
+            if index >= len(uuids_by_index):
+                raise ValueError(f"CUDA_VISIBLE_DEVICES index {index} has no GPU")
+            uuids.add(uuids_by_index[index])
+        else:
+            raise ValueError(f"CUDA_VISIBLE_DEVICES entry {token!r} is not a GPU")
+    return frozenset(uuids)
+
+
 def ple_cascade_path(env: Dict[str, str]) -> str:
     """Die PLE-Stufen eines Eintrags als Pfad, z.B. ``PLE→Host→SSD``.
 

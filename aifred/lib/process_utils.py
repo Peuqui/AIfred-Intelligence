@@ -216,3 +216,38 @@ def gpu_compute_processes(gpu_uuids: "set[str] | None" = None) -> list[str]:
     return procs
 
 
+def unload_llm_models(backend_type: str = "llamacpp") -> list[str]:
+    """Unload the language models of the LLM backend to free VRAM.
+
+    TTS containers are not touched: the TTS service unloads its engines itself.
+
+    Args:
+        backend_type: Active LLM backend ("llamacpp", "ollama", "vllm")
+
+    Returns list of actions taken.
+    """
+    actions = []
+
+    if backend_type == "llamacpp":
+        if stop_llama_swap():
+            actions.append("llama-swap stopped")
+    elif backend_type == "ollama":
+        # Ollama: unload via API (keep service running)
+        import requests
+        try:
+            # Generate with keep_alive=0 unloads the model
+            requests.post(
+                "http://localhost:11434/api/generate",
+                json={"model": "", "keep_alive": 0},
+                timeout=10,
+            )
+            actions.append("Ollama models unloaded")
+        except requests.RequestException as error:
+            log_message(f"⚠️ Ollama unload failed: {error}", "warning")
+    # vLLM-Eintraege laufen unter llama-swap — deren Prozesse stoppt
+    # llama-swap selbst (cmdStop: vllm-swap-stop), kein eigener Zweig.
+
+    log_message(f"LLM unload: {', '.join(actions) if actions else 'nothing to unload'}")
+    return actions
+
+

@@ -473,7 +473,7 @@ class OpenAICompatibleBackend(LLMBackend):
         if model in running:
             return 0.0
 
-        await self._free_gpus_for_load(model)
+        await self._free_gpus_for_load(model, running)
         log_message(f"🔄 Loading '{model}' via llama-swap")
         timer = Timer()
         try:
@@ -487,17 +487,99 @@ class OpenAICompatibleBackend(LLMBackend):
         log_message(f"✅ '{model}' loaded in {load_s:.1f}s")
         return load_s
 
-    async def _free_gpus_for_load(self, model: str) -> None:
-        """Have GPU-Orc clear the cards before llama-swap loads ``model``.
+    @staticmethod
+    def _release_tts_for_load(model: str) -> None:
+        """Ask the TTS service to release ALL local GPU engines before ``model`` loads.
 
-        Called by ``_load_model`` only when ``model`` is not running, i.e. when a load follows — also a
-        re-load of the same model after its ttl expired. What may hold the cards the calibrated split
-        counts as free (the STT and TTS GPU workers, the persistent describers and embedders of
-        llama-swap) is GPU-Orc's to know and to release; the load goes on whatever it answers.
+        Where a TTS container sits does not matter: the calibrated profile of ``model`` leaves room
+        for it, and after the load the service places an engine again wherever it finds room. AIfred
+        stops no container itself: the service decides (a container a reading holds is refused,
+        and logged as such by ``release_gpu_engines``). The load goes on either way, as with too
+        little room; an unreachable service is logged, not repeated."""
+        from ..lib.logging_utils import log_message
+        from ..lib.tts_client import TTSSuiteError
+        from ..lib.tts_service import TTSVramUnknown, release_gpu_engines
+
+        try:
+            release_gpu_engines(reason=f"loading '{model}'")
+        except (TTSSuiteError, TTSVramUnknown) as error:
+            log_message(f"⚠️ TTS release before loading '{model}' failed: {type(error).__name__}: {error}", "warning")
+
+    async def _free_gpus_for_load(self, model: str, running: List[str]) -> None:
+        """Clear the cards before llama-swap loads ``model``.
+
+        Called by ``_load_model`` only when ``model`` is not among the
+        ``running`` ones, i.e. when a load follows — also a re-load of the
+        same model after its ttl expired. Two things may hold VRAM the
+        calibrated split counts as free:
+
+        * Whisper's GPU worker: it loads only onto a card with free VRAM
+          (otherwise transcription falls back to the CPU), so it can sit on
+          a card an unloaded model will need again. Released first; a
+          running transcription gets WHISPER_RELEASE_WAIT_MAX_S.
+        * TTS containers the TTS service started into free VRAM: AIfred asks the
+          service to release every local GPU engine before the load (main model
+          ranks above TTS; the calibrated profile leaves room, the service places
+          an engine again after the load). The service decides; a refusal
+          (reading in progress) is logged and the load goes on.
+        * Sidecars: the llama-swap ``vision`` and ``embed`` groups are
+          ``persistent`` — llama-swap never unloads their ``-visiond``
+          describers and ``-embed`` servers for a main model (only their
+          ttl does). A main model that wants a card a sidecar holds then
+          fails to start (2026-09-24: DeepSeek-V4 over all five cards, the
+          4B describer on the fifth). Every running sidecar whose GPUs
+          overlap the target entry's is unloaded. Profiles with a ``-vlm-``
+          marker keep a reserve for the describer by calibration and never
+          evict; sidecars never evict each other.
         """
-        from ..lib.gpu_orc_client import clear_cards_for
+        import asyncio
 
-        await asyncio.to_thread(clear_cards_for, model, reason=f"AIfred: loading '{model}'")
+        import httpx
+
+        from ..lib.audio_processing import release_whisper_gpu
+        from ..lib.calibration import parse_llamaswap_config
+        from ..lib.calibration.gpu import gpu_uuids_by_index
+        from ..lib.calibration.llamaswap_io import entry_gpu_uuids
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
+        from ..lib.logging_utils import log_message
+        from ..lib.vlm_naming import is_embed_profile, is_visiond_profile
+
+        root = self._llamaswap_root()
+        try:
+            async with httpx.AsyncClient(timeout=5.0) as client:
+                if await asyncio.to_thread(release_whisper_gpu):
+                    log_message(f"🎤 Whisper GPU worker released before loading '{model}'")
+                await asyncio.to_thread(self._release_tts_for_load, model)
+                if "-vlm-" in model or is_visiond_profile(model) or is_embed_profile(model):
+                    return
+                sidecars = [m for m in running if is_visiond_profile(m) or is_embed_profile(m)]
+                if not sidecars:
+                    return
+                config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
+                uuids = gpu_uuids_by_index()
+                try:
+                    target = entry_gpu_uuids(config[model]["env"], uuids)
+                    held = {s: entry_gpu_uuids(config[s]["env"], uuids) for s in sidecars}
+                except (KeyError, ValueError) as e:
+                    # Unknown cards: the chat must not fail on a held GPU,
+                    # so unload every sidecar, and say why.
+                    log_message(
+                        f"⚠️ Cannot tell which GPUs '{model}' or its sidecars use "
+                        f"({e}) — evicting all sidecars before the load"
+                    )
+                    held = {s: None for s in sidecars}
+                    target = None
+                for sidecar, gpus in held.items():
+                    if target is None or gpus is None or target & gpus:
+                        await client.post(f"{root}/api/models/unload/{sidecar}")
+                        log_message(
+                            f"🧹 Sidecar '{sidecar}' evicted before loading "
+                            f"'{model}' (shares a GPU, profile has no -vlm- reserve)"
+                        )
+        except (httpx.HTTPError, ValueError) as e:
+            # The guard must not kill the chat, but it fails loudly: the load
+            # may then fail on a held card, visible in the llama-swap log.
+            log_message(f"⚠️ GPU clean-up before load failed: {e}")
 
     @classmethod
     def _last_exception_line(cls, log_text: str) -> Optional[str]:

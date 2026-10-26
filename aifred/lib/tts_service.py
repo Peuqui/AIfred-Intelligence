@@ -14,14 +14,16 @@ as not offered, never active, never sent). The match is a pure view; every chang
 saves the complete matched list (``matched_list``).
 
 AIfred writes nothing into the service and starts or stops no container there: the service
-starts and unloads its engines itself when a request reaches it. Room on the cards for a
-language model or describer is GPU-Orc's to make (``gpu_orc_client``), not AIfred's.
+starts and unloads its engines itself when a request reaches it. AIfred only ASKS: before a
+language model (or describer) needs cards a TTS container holds, ``release_gpu_engines`` asks
+the service to take those containers down; the service decides (a container a reading holds
+stays, the answer says so).
 
 An entry is the pair of both: ``ListEntry`` (what the user decided + the catalog row of
 ``(engine, host)``, ``None`` if the service does not offer it). The catalog is cached for
 ``TTS_SUITE_CACHE_TTL_S`` seconds, no longer (computed UI variables and planning calls ask
 often); the settings are never cached here. Callers that decide on the live state (running
-engine) bypass the cache.
+engine, footprint) bypass the cache.
 
 The service not being reachable is an error, not an empty catalog: ``TTSSuiteUnreachable``
 passes through. UI code that must keep rendering shows ``unreachable_text`` instead.
@@ -30,24 +32,30 @@ passes through. UI code that must keep rendering shows ``unreachable_text`` inst
 from __future__ import annotations
 
 import threading
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
 from .config import TTS_BROWSER_DEFAULT_UNIT, TTS_BROWSER_ENGINE_KEY, TTS_SUITE_CACHE_TTL_S
 from .i18n import TranslationManager, t
+from .logging_utils import log_message
 from .settings import persisted_settings
 from .tts_client import (
     SPEECH_UNITS,
     EngineInfo,
     EngineRef,
-    ReadingAborted,
+    EngineTarget,
+    ReleaseResult,
     SpeakSummary,
     TraceStep,
     TTSSuiteError,
     get_tts_client,
 )
+
+
+class TTSVramUnknown(RuntimeError):
+    """The service could not measure the VRAM of a running local GPU engine."""
 
 
 # ---- The catalog: GET /engines (cached) ---------------------------------------
@@ -83,13 +91,6 @@ def catalog(*, fresh: bool = False) -> tuple[EngineInfo, ...]:
 def unreachable_text(error: TTSSuiteError, lang: str | None = None) -> str:
     """Message for UI places that show the failure instead of data."""
     return t("tts_service_unreachable", lang=lang, reason=str(error))
-
-
-def reading_failure_text(error: TTSSuiteError, lang: str | None = None) -> str:
-    """Message for a reading that gave no sound: a forced GPU release says why the card was needed, any
-    other failure names the service's reason."""
-    key = "tts_reading_aborted" if isinstance(error, ReadingAborted) else "tts_reading_service_failed_silent"
-    return t(key, lang=lang, reason=str(error))
 
 
 def _pick(names: Mapping[str, str], lang: str | None) -> str:
@@ -480,6 +481,87 @@ def running_gpu_engine_keys() -> list[str]:
 def running_gpu_engine() -> str:
     """Key of the first local GPU engine that runs right now, ``""`` if none."""
     return next(iter(running_gpu_engine_keys()), "")
+
+
+# ---- Release: AIfred asks the service for room on the cards ---------------------
+
+
+def running_gpu_footprint() -> dict[str, dict[str, int]]:
+    """VRAM (MiB) of the running local GPU engines that hold any: ``{engine_key: {gpu_uuid: MiB}}``.
+
+    Raises:
+        TTSVramUnknown: the service could not measure an engine that runs.
+        TTSSuiteUnreachable: the service does not answer.
+    """
+    footprint: dict[str, dict[str, int]] = {}
+    for info in _local_gpu_rows(fresh=True):
+        if info.status != "running":
+            continue
+        if info.vram_mib is None:
+            raise TTSVramUnknown(f"the VRAM of {info.engine} could not be measured by the TTS service")
+        if info.vram_mib:
+            footprint[info.engine] = dict(info.vram_mib)
+    return footprint
+
+
+def release_gpu_engines(
+    cards_needed: Collection[str] | None = None, *, reason: str,
+) -> list[ReleaseResult]:
+    """Ask the service to release the local GPU engines that run right now (SSOT of every place that
+    needs room on the cards: the GPU guard before a model load, the describer, the TTS plan).
+
+    ``cards_needed`` None = all running local GPU engines; a set of GPU UUIDs = only engines whose
+    footprint touches one of them. The service decides per target; every answer that is not a
+    success is logged here, visibly: ``in_use`` = a reading holds the container, so the release
+    was refused (callers neither repeat nor wait: the load behaves as with too little room).
+    ``reason`` says what the room is for ("loading 'model'").
+
+    Raises:
+        TTSVramUnknown: ``cards_needed`` is given and the service could not measure a running engine.
+        TTSSuiteError: the service does not answer or refuses the request (callers log it; there
+            is no other way to free the cards).
+    """
+    targets = [
+        EngineTarget(info.engine, info.host)
+        for info in _local_gpu_rows(fresh=True)
+        if info.status == "running" and _touches(info, cards_needed)
+    ]
+    return release_targets(targets, reason=reason)
+
+
+def release_targets(targets: Sequence[EngineTarget], *, reason: str) -> list[ReleaseResult]:
+    """Ask the service to release exactly these catalog rows and log every answer that is not a
+    success (``release_gpu_engines`` and the TTS burn-in share this).
+
+    Raises:
+        TTSSuiteError: the service does not answer or refuses the request.
+    """
+    if not targets:
+        return []
+    try:
+        results = get_tts_client().release(targets)
+    finally:
+        reset_cache()
+    for result in results:
+        label = ref_label(EngineRef(result.engine, "", result.host))
+        if result.outcome == "stopped":
+            log_message(f"🔊 TTS container {label} released for {reason}")
+        elif result.outcome == "in_use":
+            log_message(f"⚠️ TTS in use, release of {label} refused ({reason}): {result.detail}", "warning")
+        elif result.outcome != "not_running":
+            log_message(
+                f"⚠️ TTS container {label} NOT released for {reason} ({result.outcome}): {result.detail}", "warning",
+            )
+    return results
+
+
+def _touches(info: EngineInfo, cards: Collection[str] | None) -> bool:
+    """Does the engine's footprint touch one of ``cards``? ``None`` = every engine does."""
+    if cards is None:
+        return True
+    if info.vram_mib is None:
+        raise TTSVramUnknown(f"the VRAM of {info.engine} could not be measured by the TTS service")
+    return bool(set(cards) & set(info.vram_mib))
 
 
 def escalation_report(summary: SpeakSummary, label: str) -> list[str]:

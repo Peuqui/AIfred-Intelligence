@@ -273,22 +273,6 @@ class TestBrowserEntry:
 
 
 class TestBreakOffAndAbort:
-    def test_a_reading_aborted_for_the_gpu_is_said_and_not_taken_over_by_the_browser(self, monkeypatch, tmp_path, fake):
-        """A forced GPU release (GPU-Orc before a load) ends the reading: the browser does not speak instead,
-        as in the service itself, and the toast says why."""
-        stream = FakeStreamingService(on_start=[error_frame("reading_aborted", "the GPU is needed: loading 'm'")])
-
-        async def scenario() -> Page:
-            async with served(monkeypatch, tmp_path, fake, stream, ["xtts", "browser"]):
-                page = Page()
-                await read(page, ["Ein Satz, den der Browser nicht übernimmt."])
-                return page
-
-        page = asyncio.run(scenario())
-        assert page.playlist == []
-        assert [kind for kind, _ in page.toasts] == ["warning"]
-        assert "loading 'm'" in page.toasts[0][1] and "Grafikkarte" in page.toasts[0][1]
-
     def test_a_break_off_after_the_first_sound_is_not_taken_over_by_the_browser(self, monkeypatch, tmp_path, fake):
         stream = FakeStreamingService(
             after_text=[[audio_frame(b"one")]], after_finish=[error_frame("no_engine", "engine died")],

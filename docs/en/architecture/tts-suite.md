@@ -30,9 +30,8 @@ planning in the [calibration documents](calibration-strategy.md).
 - Reading the catalog, speaking and releasing engines need no token; AIfred sends none. The
   configuration of the service (hosts, GPU rules, pronunciations, voices) is edited in the
   service's own web interface.
-- AIfred **never** starts or stops a container itself. Room on the cards is made by
-  [GPU-Orc](https://github.com/Peuqui/GPU-Orc) through the service's release interface
-  (`POST /gpu/release`, see *VRAM*); everything else — start on demand, unload when idle — is the
+- AIfred **never** starts or stops a container itself. It asks the service to release engines
+  (`POST /release`, see *VRAM*); everything else — start on demand, unload when idle — is the
   service's own business.
 - Other machines with engines (e.g. Aragon) are hosts of the **service's** configuration
   (`~/.config/tts-suite/config.json`), not of AIfred's settings. `tts_hosts` in `settings.json`
@@ -136,20 +135,15 @@ How much text goes to the engine at once is **one setting per TTS engine**, syst
 - **Plan:** which `-tts-<engine>` profile loads is read from `settings.json` and the llama-swap
   configuration alone (`planned_tts_engine()`: the topmost active local entry for which the model
   has a calibrated profile). The service is not asked, so a service that is down does not stop
-  the language model. A changed plan takes effect at the model's next load: the profile is part of
-  the model name, and llama-swap swaps the running model by itself. AIfred stops neither
-  llama-swap nor a TTS container for it.
-- **Before a cold start of the main model** (and before the describer and a calibration) AIfred
-  asks GPU-Orc to clear the cards; GPU-Orc calls the service's `POST /gpu/release`.
-  If a reading holds the engine, GPU-Orc waits a little (`busy_wait_s` in its config) and then
-  forces: the reading ends with the error `reading_aborted` naming the reason, AIfred shows it
-  (`tts_reading_aborted`) and moves on to no other entry, the browser included. After the load the
-  next reading starts an engine again on a card with room (Qwen3 about 18 s, XTTS about 33 s to the
-  first sound).
+  the language model.
+- **Before a cold start of the main model** AIfred asks the service to release **every local GPU
+  engine** (`release_gpu_engines()`, SSOT for everything that needs room: model load, describer,
+  calibration). The service decides per target; a container a reading holds is refused (`in_use`),
+  which is logged, and the load goes on as with too little room. After the load the next reading
+  starts an engine again on a card with room (Qwen3 about 18 s, XTTS about 33 s to the first sound).
 - **Burn-in** (`tts_stress_burnin.py`): the calibration has the service read a worst-case text
   on the engine and takes the peak of the VRAM the catalog reports; the result is cached in
-  `data/tts_vram_cache.json`. Afterwards AIfred asks the service directly to take the container
-  down again (`POST /gpu/release` without `force`).
+  `data/tts_vram_cache.json`.
 
 ## When the Service Is Not Reachable
 
