@@ -538,7 +538,7 @@ models:
 
   # Hand-maintained CPU-only embedding profile (-ngl 0) → group "embed"
   bge-m3-567M-Q8_0-embed:
-    cmd: /home/YOUR_USER/llama.cpp/build/bin/llama-server --port ${PORT} --model /home/YOUR_USER/models/bge-m3-567M-Q8_0.gguf --embedding --pooling cls -ub 8192 -c 8192 -ngl 0 …
+    cmd: /home/YOUR_USER/llama.cpp/build/bin/llama-server --port ${PORT} --model /home/YOUR_USER/models/bge-m3-567M-Q8_0.gguf --embedding --pooling cls -b 8192 -ub 8192 -c 8192 -ngl 0 …
     ttl: 1800
     env:
     - CUDA_VISIBLE_DEVICES=
@@ -565,6 +565,11 @@ Notes:
 - `llama-swap-restart` additionally runs `scripts/llama-swap-build-config`,
   which adds speculative-decoding flags (`--spec-type …`) and
   `--cache-reuse 256` (models without `--mmproj`) to the entries.
+- The embedding profile needs both `-b` and `-ub` at 8192: an embedding
+  model processes each input in one physical batch, and llama.cpp caps `-ub`
+  at `-b` (default 2048). Without `-b 8192` every input over 2048 tokens fails
+  with "input is too large to process" (2026-10-26: the memory recall of a
+  scheduled job).
 - A third group `vision` (persistent) holds the `-visiond` describer
   profiles when there are any.
 - vLLM checkpoints also run under llama-swap as `-vllm` entries (seeded by
