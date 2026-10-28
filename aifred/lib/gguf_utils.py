@@ -6,8 +6,8 @@ for llama.cpp backend integration.
 """
 
 import logging
+from collections.abc import Callable
 from pathlib import Path
-from typing import Callable, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +37,7 @@ def _is_numeric_scalar(field) -> bool:  # type: ignore[no-untyped-def]
 GGUF_LAZY_READ_MIN_BYTES = 4 * 1024 ** 3
 
 
-def get_gguf_part_paths(gguf_path: Path) -> List[Path]:
+def get_gguf_part_paths(gguf_path: Path) -> list[Path]:
     """
     Alle Dateien eines GGUF-Modells, inklusive aller Split-Teile.
 
@@ -60,7 +60,7 @@ def get_gguf_part_paths(gguf_path: Path) -> List[Path]:
 
     prefix = match.group(1)
     total_parts = int(match.group(3))
-    parts: List[Path] = []
+    parts: list[Path] = []
     for i in range(1, total_parts + 1):
         part_path = gguf_path.parent / f"{prefix}-{i:05d}-of-{total_parts:05d}.gguf"
         if part_path.exists():
@@ -151,7 +151,7 @@ def _arch_cache_store(cache: dict) -> None:
         logger.debug(f"arch cache write failed: {e}")
 
 
-def get_gguf_architecture(gguf_path: Path) -> Optional[str]:
+def get_gguf_architecture(gguf_path: Path) -> str | None:
     """``general.architecture`` aus den GGUF-Metadaten (z.B. "qwen3", "bert").
 
     Embedding-Modelle (bert-Familie) tragen hier ihre Nicht-Kausal-
@@ -201,8 +201,8 @@ def _scan_gguf_numeric_field(
     gguf_path: Path,
     key_match: Callable[[str], bool],
     description: str,
-    not_found_hints: Optional[list[str]] = None,
-) -> Optional[int]:
+    not_found_hints: list[str] | None = None,
+) -> int | None:
     """Shared GGUF metadata scan: return the first positive int value of a
     field whose lowercased name satisfies ``key_match``.
 
@@ -262,7 +262,7 @@ def _scan_gguf_numeric_field(
         return None
 
 
-def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
+def get_gguf_layer_count(gguf_path: Path) -> int | None:
     """
     Extract layer count (block_count) from GGUF model metadata.
 
@@ -279,7 +279,7 @@ def get_gguf_layer_count(gguf_path: Path) -> Optional[int]:
     )
 
 
-def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
+def get_gguf_native_context(gguf_path: Path) -> int | None:
     """
     Extract native context length from GGUF model metadata.
 
@@ -298,7 +298,7 @@ def get_gguf_native_context(gguf_path: Path) -> Optional[int]:
     )
 
 
-def get_gguf_chat_template(gguf_path: Path) -> Optional[str]:
+def get_gguf_chat_template(gguf_path: Path) -> str | None:
     """
     Extract the embedded Jinja chat template from GGUF metadata
     (``tokenizer.chat_template``). For split GGUFs the metadata lives in
@@ -330,7 +330,32 @@ def get_gguf_chat_template(gguf_path: Path) -> Optional[str]:
         return None
 
 
-def detect_reasoning_levels(template: str) -> List[str]:
+def _effort_alias_assignments(template: str) -> list[tuple[str, str]]:
+    """``(alias, expression)`` for every ``{% set alias = reasoning_effort… %}``
+    in the template — the templates that rename the variable before comparing
+    it (Qwen3.8, GLM-5.3). The expression runs to the end of the tag."""
+    import re
+
+    return [
+        (m.group(1), m.group(2))
+        for m in re.finditer(r"\bset\s+(\w+)\s*=\s*(reasoning_effort\b[^%]*)", template)
+    ]
+
+
+def _effort_fallback_level(expression: str) -> str | None:
+    """The level an effort assignment resolves to when ``reasoning_effort`` is
+    unset: its ``default('xhigh')`` literal (Qwen3.8) or its ``else 'max'``
+    literal (GLM-5.3: ``reasoning_effort if reasoning_effort in ['low', 'high']
+    else 'max'``)."""
+    import re
+
+    m = re.search(
+        r"\|\s*default\(\s*['\"]([\w-]+)['\"]|\belse\s+['\"]([\w-]+)['\"]", expression
+    )
+    return (m.group(1) or m.group(2)) if m else None
+
+
+def detect_reasoning_levels(template: str) -> list[str]:
     """
     Detect which ``reasoning_effort`` levels a chat template understands.
 
@@ -351,7 +376,7 @@ def detect_reasoning_levels(template: str) -> List[str]:
     """
     import re
 
-    levels: List[str] = []
+    levels: list[str] = []
 
     def _add(name: str) -> None:
         if name and name not in levels:
@@ -360,19 +385,16 @@ def detect_reasoning_levels(template: str) -> List[str]:
     # Alias assignments first — Qwen3.8 renames the variable before every
     # comparison: {%- set resolved_reasoning_effort =
     # reasoning_effort|default('xhigh') %}. All comparisons then run on the
-    # alias, so the patterns below must match alias names too. The
-    # default() literal itself is a valid level (it is what the template
-    # resolves to when the variable is unset).
+    # alias, so the patterns below must match alias names too. The fallback
+    # literal (default('xhigh') / else 'max') is a valid level itself: it is
+    # what the template resolves to when the variable is unset.
     var_names = ["reasoning_effort"]
-    for m in re.finditer(
-        r"\bset\s+(\w+)\s*=\s*reasoning_effort\b"
-        r"(?:\s*\|\s*default\(\s*['\"]([\w-]+)['\"])?",
-        template,
-    ):
-        if m.group(1) not in var_names:
-            var_names.append(m.group(1))
-        if m.group(2):
-            _add(m.group(2))
+    for alias, expression in _effort_alias_assignments(template):
+        if alias not in var_names:
+            var_names.append(alias)
+        fallback = _effort_fallback_level(expression)
+        if fallback:
+            _add(fallback)
 
     for var in var_names:
         v = re.escape(var)
@@ -411,7 +433,7 @@ def detect_reasoning_levels(template: str) -> List[str]:
         for m in re.finditer(
             rf"(?<!\w){v}\s*==\s*['\"]([\w-]+)['\"].{{0,60}}?"
             rf"set\s+{v}\s*=\s*['\"]([\w-]+)['\"]",
-            template, re.S,
+            template, re.DOTALL,
         ):
             source, target = m.group(1), m.group(2)
             if source in levels and source != target:
@@ -430,21 +452,28 @@ def detect_reasoning_levels(template: str) -> List[str]:
     )
 
 
-def detect_reasoning_default(template: str) -> Optional[str]:
+def detect_reasoning_default(template: str) -> str | None:
     """The level the template resolves to when ``reasoning_effort`` is
     unset — the ``default()`` literal (Qwen3.8:
-    ``reasoning_effort|default('xhigh')`` → ``xhigh``). ``None`` when the
-    template has no such default (DeepSeek-V4: plain thinking without an
-    effort instruction); the UI then shows a plain "On" label."""
+    ``reasoning_effort|default('xhigh')`` → ``xhigh``) or the ``else`` literal
+    of the effort assignment (GLM-5.3: ``… else 'max'`` → ``max``). ``None``
+    when the template has no such default (DeepSeek-V4: plain thinking
+    without an effort instruction); the UI then shows a plain "On" label."""
     import re
 
     m = re.search(
         r"\breasoning_effort\s*\|\s*default\(\s*['\"]([\w-]+)['\"]", template
     )
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    for _, expression in _effort_alias_assignments(template):
+        fallback = _effort_fallback_level(expression)
+        if fallback:
+            return fallback
+    return None
 
 
-def get_gguf_reasoning_info(gguf_path: Path) -> tuple[List[str], Optional[str]]:
+def get_gguf_reasoning_info(gguf_path: Path) -> tuple[list[str], str | None]:
     """(effort levels, default level) from the model's embedded chat
     template. ``([], None)`` when the template is absent or has no
     steerable levels."""
@@ -461,7 +490,7 @@ def get_gguf_reasoning_info(gguf_path: Path) -> tuple[List[str], Optional[str]]:
     return levels, default
 
 
-def get_checkpoint_reasoning_info(checkpoint_dir: Path) -> tuple[List[str], Optional[str]]:
+def get_checkpoint_reasoning_info(checkpoint_dir: Path) -> tuple[list[str], str | None]:
     """(effort levels, default level) from a vLLM checkpoint directory.
 
     Liest das Chat-Template aus ``chat_template.jinja`` (Standard bei
@@ -497,7 +526,7 @@ def get_checkpoint_reasoning_info(checkpoint_dir: Path) -> tuple[List[str], Opti
     return levels, default
 
 
-def _read_checkpoint_prompt_encoder(checkpoint_dir: Path) -> Optional[str]:
+def _read_checkpoint_prompt_encoder(checkpoint_dir: Path) -> str | None:
     """Source of the checkpoint's bundled prompt encoder, reduced to the lines
     that change the prompt. ``assert`` lines only validate the argument
     (DeepSeek-V4: ``assert reasoning_effort in ['max', None, 'high']``) —
@@ -513,7 +542,7 @@ def _read_checkpoint_prompt_encoder(checkpoint_dir: Path) -> Optional[str]:
     return "\n".join(line for line in lines if not line.lstrip().startswith("assert "))
 
 
-def resolve_reasoning_levels(model_id: str, force: bool = False) -> List[str]:
+def resolve_reasoning_levels(model_id: str, force: bool = False) -> list[str]:
     """
     Reasoning-effort levels for a llama-swap model — cache-first, on miss
     analyzed from the model's chat template and persisted. GGUF-Einträge
@@ -561,7 +590,7 @@ def resolve_reasoning_levels(model_id: str, force: bool = False) -> List[str]:
     return levels
 
 
-def reasoning_effort_label(model_id: str, effort: Optional[str]) -> str:
+def reasoning_effort_label(model_id: str, effort: str | None) -> str:
     """Effort level for logs. Without a sent level the template inserts its
     own default (Qwen3.8: xhigh, the most expensive one) — name it instead
     of a bare "not sent", which reads like a missing setting."""
