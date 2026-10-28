@@ -13,13 +13,15 @@ Usage:
 """
 
 import asyncio
+import hashlib
 import inspect
 import json
 import logging
 import re
 import time
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
-from typing import Any, AsyncGenerator, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +49,17 @@ def _redact_args_preview(value: Any) -> str:
             return [_walk(x) for x in v]
         return v
     return str(_walk(value))
+
+
+def _identical_call_refusal(name: str, repeats: int, unchanged_result: bool) -> str:
+    """Message to the model when the identical-call breaker stops a tool call."""
+    outcome = " and the result did not change" if unchanged_result else ""
+    return (
+        f"Refused: '{name}' was already called {repeats}× with these exact "
+        f"arguments{outcome}. Do NOT repeat it — use the previous result, or if "
+        f"the task needs a different tool or different arguments, do that "
+        f"instead. Otherwise stop calling tools and answer the user now."
+    )
 
 
 @dataclass
@@ -91,12 +104,16 @@ class ToolKit:
 
     def __post_init__(self) -> None:
         self._by_name: dict[str, Tool] = {t.name: t for t in self.tools}
-        # Loop breaker: how often each (tool, exact-args) pair was seen this
-        # LLM request. A small model that can't make progress tends to re-emit
-        # the SAME call byte-for-byte; that can never yield a new result, so we
-        # refuse it after N repeats instead of burning a full inference round
-        # each time (see SECURITY_MAX_IDENTICAL_TOOL_CALLS).
+        # Loop breaker: a model that can't make progress tends to re-emit the
+        # SAME call byte-for-byte; we stop it after N repeats instead of burning
+        # a full inference round each time (see SECURITY_MAX_IDENTICAL_TOOL_CALLS).
+        # Write tools: how often each (tool, exact-args) pair was called this
+        # LLM request — counted before the call runs.
         self._identical_calls: dict[str, int] = {}
+        # Read-only tools: per (tool, exact-args) pair the digest of the last
+        # result and how often in a row it came back unchanged. A repeat after
+        # something changed in between (a write, a sub-agent) is legitimate.
+        self._unchanged_reads: dict[str, tuple[str, int]] = {}
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
@@ -109,6 +126,22 @@ class ToolKit:
         artifact paths (sandbox screenshots) without reaching into the
         private audit field."""
         return self._session_id
+
+    def _refuse_unchanged_read(self, name: str, call_key: str, result_str: str) -> str:
+        """Count a read-only call whose result equals the previous one for the
+        same arguments; past the limit the result is replaced by a refusal."""
+        from .config import SECURITY_MAX_IDENTICAL_TOOL_CALLS
+
+        if SECURITY_MAX_IDENTICAL_TOOL_CALLS <= 0:
+            return result_str
+        digest = hashlib.sha256(result_str.encode()).hexdigest()
+        last_digest, streak = self._unchanged_reads.get(call_key, ("", 0))
+        streak = streak + 1 if digest == last_digest else 1
+        self._unchanged_reads[call_key] = (digest, streak)
+        if streak <= SECURITY_MAX_IDENTICAL_TOOL_CALLS:
+            return result_str
+        logger.warning("Identical-call breaker: %s (unchanged result %d×)", name, streak)
+        return json.dumps({"error": _identical_call_refusal(name, streak - 1, unchanged_result=True)})
 
     async def execute(self, name: str, arguments: str | dict[str, Any]) -> str:
         """Execute a tool by name and return the final result string.
@@ -170,10 +203,15 @@ class ToolKit:
             args = arguments
 
         # Chain depth limit
-        from .security import check_rate_limit, RateLimitReached, CircuitBreakerTripped
         from .config import (
-            SECURITY_MAX_TOOL_CHAIN_DEPTH,
             SECURITY_MAX_IDENTICAL_TOOL_CALLS,
+            SECURITY_MAX_TOOL_CHAIN_DEPTH,
+        )
+        from .security import (
+            TIER_READONLY,
+            CircuitBreakerTripped,
+            RateLimitReached,
+            check_rate_limit,
         )
 
         self._call_count += 1
@@ -183,22 +221,19 @@ class ToolKit:
             yield {"type": "tool_result", "result": json.dumps({"error": msg})}
             return
 
-        # Identical-call loop breaker. Key on tool name + canonicalised args
-        # (sorted keys) so a trivially different serialisation of the SAME call
-        # still collides, while genuinely different arguments do not.
-        if SECURITY_MAX_IDENTICAL_TOOL_CALLS > 0:
-            call_key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+        # Identical-call loop breaker for write tools: repeating a write is a
+        # duplicate side effect whatever it returns (store_memory answers with a
+        # fresh id each time), so it is refused before it runs. Read-only tools
+        # are judged by their result instead, after the run (_refuse_unchanged_read).
+        # Key on tool name + canonicalised args (sorted keys) so a trivially
+        # different serialisation of the SAME call still collides.
+        call_key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
+        if SECURITY_MAX_IDENTICAL_TOOL_CALLS > 0 and tool.tier != TIER_READONLY:
             seen = self._identical_calls.get(call_key, 0) + 1
             self._identical_calls[call_key] = seen
             if seen > SECURITY_MAX_IDENTICAL_TOOL_CALLS:
-                msg = (
-                    f"Refused: '{name}' was already called {seen - 1}× with these "
-                    f"exact arguments and returned the same result each time. "
-                    f"Do NOT repeat it — use the previous result, or if the task "
-                    f"needs a different tool or different arguments, do that instead. "
-                    f"Otherwise stop calling tools and answer the user now."
-                )
                 logger.warning("Identical-call breaker: %s (seen %d×)", name, seen)
+                msg = _identical_call_refusal(name, seen - 1, unchanged_result=False)
                 yield {"type": "tool_result", "result": json.dumps({"error": msg})}
                 return
 
@@ -289,6 +324,8 @@ class ToolKit:
             # Sanitize before it enters LLM context.
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)
+            if tool.tier == TIER_READONLY:
+                result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         except Exception as e:
             success = False
@@ -296,6 +333,8 @@ class ToolKit:
             result_str = json.dumps({"error": str(e)})
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)
+            if tool.tier == TIER_READONLY:
+                result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         finally:
             try:
