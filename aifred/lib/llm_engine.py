@@ -12,44 +12,44 @@ Yields Dict-Messages die vom Aufrufer geroutet werden:
 - {"type": "result", "data": {...}}
 """
 
-from typing import AsyncIterator, Dict, List, Optional, Any, cast
+from collections.abc import AsyncIterator
+from typing import Any, cast
 
-from .llm_client import LLMClient, build_llm_options
-from .formatting import format_number, build_inference_metadata
-from .prompt_loader import get_agent_system_prompt
 from .context_manager import estimate_tokens
+from .formatting import build_inference_metadata, format_number
 from .intent_detector import get_temperature_for_intent, get_temperature_label
+from .llm_client import LLMClient, build_llm_options
 from .logging_utils import log_message
+from .prompt_loader import get_agent_system_prompt
 from .research.context_utils import get_agent_num_ctx
-
 
 
 async def call_llm(
     user_text: str,
     model_choice: str,
-    history: List,  # chat_history - will be updated and returned in result
-    llm_history: List[Dict[str, str]],
+    history: list,  # chat_history - will be updated and returned in result
+    llm_history: list[dict[str, str]],
     detected_intent: str,
     detected_language: str,
     temperature_mode: str,
     temperature: float,
     backend_type: str,
-    backend_url: Optional[str],
-    state: Optional[Any] = None,
-    multimodal_content: Optional[List[Dict]] = None,
-    memory_ctx: Optional[str] = None,
-    vision_json_context: Optional[Dict] = None,
+    backend_url: str | None,
+    state: Any | None = None,
+    multimodal_content: list[dict] | None = None,
+    memory_ctx: str | None = None,
+    vision_json_context: dict | None = None,
     stt_time: float = 0.0,
-    cloud_provider_label: Optional[str] = None,
+    cloud_provider_label: str | None = None,
     num_ctx_manual_enabled: bool = False,
-    num_ctx_manual_value: Optional[int] = None,
-    provider: Optional[str] = None,
+    num_ctx_manual_value: int | None = None,
+    provider: str | None = None,
     agent: str = "aifred",
     vision_task_addon: str = "",
-    external_toolkit: Optional[Any] = None,
+    external_toolkit: Any | None = None,
     num_ctx_source_label: str = "",
     source: str = "browser",
-) -> AsyncIterator[Dict]:
+) -> AsyncIterator[dict]:
     """
     Generiert eine LLM-Antwort; Werkzeuge kommen über ``external_toolkit`` vom Aufrufer.
 
@@ -216,7 +216,7 @@ async def call_llm(
         yield {"type": "debug", "message": f"{get_agent_emoji(agent)} {agent_label}-LLM starting: {model_choice} ({arch_label})"}
 
         # Stream response via unified pipeline (handles TTFT, tool tracking, metadata)
-        from .llm_pipeline import run_llm_stream, PipelineResult
+        from .llm_pipeline import PipelineResult, run_llm_stream
         log_message("🔬 DEBUG: Starting inference")
 
         pipeline_result: PipelineResult | None = None
@@ -302,11 +302,8 @@ async def call_llm(
             "type": "result",
             "data": {
                 "response_clean": response_clean,
-                # Message Hub view of the bubble: text and artifacts without
-                # thinking (the hub bubble never showed tag collapsibles).
-                "response_display": render_bubble(
-                    pipeline_result.text, pipeline_result.artifacts, show_tags=False,
-                ),
+                # The same bubble the browser shows, thinking included.
+                "response_display": bubble_html,
                 # What the turn's tools left for the llm_history — the hub
                 # persists the answer itself (_append_response), so it needs
                 # them alongside the text.
@@ -352,13 +349,20 @@ async def generate_session_title(
     """
     import asyncio
     import re
+
+    from .config import (
+        AUTOMATIK_LLM_NUM_CTX,
+        BACKEND_URLS,
+        DEFAULT_SETTINGS,
+        SESSION_TITLE_NUM_PREDICT,
+        SESSION_TITLE_TIMEOUT_SECONDS,
+    )
+    from .context_manager import strip_thinking_blocks
     from .llm_client import LLMClient
-    from .prompt_loader import load_prompt, get_language
+    from .logging_utils import log_message
+    from .prompt_loader import get_language, load_prompt
     from .session_storage import update_session_title
     from .settings import load_settings
-    from .config import DEFAULT_SETTINGS, BACKEND_URLS, AUTOMATIK_LLM_NUM_CTX, SESSION_TITLE_NUM_PREDICT, SESSION_TITLE_TIMEOUT_SECONDS
-    from .context_manager import strip_thinking_blocks
-    from .logging_utils import log_message
 
     settings = load_settings() or {}
     backend_type = settings.get("backend_type", DEFAULT_SETTINGS["backend_type"])

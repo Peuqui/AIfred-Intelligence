@@ -32,7 +32,7 @@ def plugin(monkeypatch):
     """Plugin with defaults only: the settings.json on disk must not leak
     into the tests, whatever the gear icon last saved."""
     instance = sub.SubAgentPlugin()
-    monkeypatch.setattr(instance, "_load_settings", lambda: {})
+    monkeypatch.setattr(instance, "_load_settings", dict)
     return instance
 
 
@@ -110,9 +110,8 @@ class TestPluginShape:
 
 class TestDelegationLegend:
     def test_groups_follow_whitelist_tiers_and_plugin_texts(self, ctx, monkeypatch):
-        import aifred.lib.agent_config as agent_config
-        import aifred.lib.plugin_base as plugin_base
         import aifred.lib.plugin_registry as registry
+        from aifred.lib import agent_config, plugin_base
 
         workspace, channel, sandbox = (SimpleNamespace(key=k) for k in ("ws", "tg", "sb"))
         seen_depth = []
@@ -146,7 +145,7 @@ class TestDelegationLegend:
         assert not any("tg" in line for line in lines)
 
     def test_candidates_are_all_main_agents_but_caller_and_system(self, ctx, monkeypatch):
-        import aifred.lib.agent_config as agent_config
+        from aifred.lib import agent_config
 
         # "twin" shares the caller's model and whitelist: its persona alone
         # makes it a candidate.
@@ -247,9 +246,9 @@ class TestRun:
         assert any("done (" in e.get("progress", "") for e in events)
         assert work == self.pipeline_result.metrics["work"]
         assert "progress" in kinds
-        result = [e for e in events if "result" in e][0]["result"]
+        result = next(e for e in events if "result" in e)["result"]
         assert result == "Der Bericht: alles gut."
-        (transcript,) = [e for e in events if "artifacts" in e][0]["artifacts"]
+        (transcript,) = next(e for e in events if "artifacts" in e)["artifacts"]
         assert transcript["kind"] == KIND_COLLAPSIBLE
         assert "Lies a.txt" in transcript["data"]["title"]
         assert transcript["data"]["icon"] == sub.SUBAGENT_ICON
@@ -278,13 +277,13 @@ class TestRun:
         tool = plugin.get_tools(ctx)[0]
         events = _run(_collect(tool.executor(task="Lies a.txt", expected_result="Zusammenfassung")))
 
-        forwarded = [e for e in events if "artifacts" in e][0]["artifacts"]
+        forwarded = next(e for e in events if "artifacts" in e)["artifacts"]
         assert [a["kind"] for a in forwarded] == [
             KIND_COLLAPSIBLE, KIND_COLLAPSIBLE, KIND_SOURCES, KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE,
             KIND_VISION_IMAGES,
         ]
         assert "Lies a.txt" in forwarded[0]["data"]["title"]  # own transcript first
-        lines = [e for e in events if "result" in e][0]["result"].splitlines()
+        lines = next(e for e in events if "result" in e)["result"].splitlines()
         # Markers lead the report, so a capped result keeps them.
         assert lines[0] == f"{SANDBOX_HTML_URL_MARKER}/_upload/sandbox_output/s/page.html"
         assert lines[1] == f"{SANDBOX_IMAGE_URL_MARKER}/_upload/sandbox_output/s/plot.png"
@@ -302,7 +301,7 @@ class TestRun:
         assert [t.name for t in self.captured["toolkit"].tools] == ["read_file"]
 
     def test_other_main_agent_brings_identity_and_personality(self, plugin, ctx, monkeypatch):
-        import aifred.lib.prompt_loader as prompt_loader
+        from aifred.lib import prompt_loader
         monkeypatch.setattr(plugin, "_load_settings", lambda: {sub.DELEGATE_OTHERS_KEY: "1"})
         monkeypatch.setattr(sub, "delegation_candidates", lambda c: ["codine"])
         monkeypatch.setattr(sub, "delegation_legend", lambda c, s, d, cands: "LEGEND")
@@ -401,15 +400,15 @@ class TestToolLoopIntegration:
         # The history reference at the top is not shown a second time.
         assert html.count("vigilantia/a.jpg") == 1
 
-    def test_hub_view_hides_tags_but_keeps_results(self):
+    def test_bubble_shows_thinking_and_results_for_every_channel(self):
         from aifred.lib.bubble import render_bubble
         text = "<think>intern</think>Antwort."
         artifacts = [
             BubbleArtifact(KIND_VLM_OUTPUT, {"body": "VLM sagt"}, offset=0),
             BubbleArtifact(KIND_SANDBOX_IMAGE, {"url": "/_upload/sandbox_output/s/plot.png"}, offset=len(text)),
         ]
-        html = render_bubble(text, artifacts, show_tags=False)
-        assert "intern" not in html and "VLM sagt" not in html
+        html = render_bubble(text, artifacts)
+        assert "intern" in html and "VLM sagt" in html
         assert "Antwort." in html and "plot.png" in html
 
 

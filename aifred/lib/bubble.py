@@ -91,8 +91,8 @@ def _source_block(url: str) -> str:
     })
 
 
-def render_artifact(artifact: BubbleArtifact, model_name: str | None, show_tags: bool) -> str:
-    """Bubble markup of one artifact ("" when this view does not show it)."""
+def render_artifact(artifact: BubbleArtifact, model_name: str | None) -> str:
+    """Bubble markup of one artifact."""
     from .formatting import (
         build_sandbox_iframe,
         build_sandbox_image,
@@ -125,10 +125,7 @@ def render_artifact(artifact: BubbleArtifact, model_name: str | None, show_tags:
     if kind == KIND_DOCUMENT_PAGES:
         return build_thumbnail_row(data["urls"])
     if kind == KIND_VLM_OUTPUT:
-        # The VLM's own text is a tag collapsible like <think>: only in views
-        # that show tags.
-        if not show_tags:
-            return ""
+        # The VLM's own text is a tag collapsible like <think>.
         return format_thinking_process(f"<vlm_output>{data['body']}</vlm_output>", model_name=model_name)
     raise ValueError(f"unknown bubble artifact kind: {kind}")
 
@@ -137,32 +134,28 @@ def render_bubble(
     text: str,
     artifacts: list[BubbleArtifact],
     model_name: str | None = None,
-    show_tags: bool = True,
 ) -> str:
     """Bubble markup for a turn: the text in segments between the artifacts'
     offsets, each artifact where its tool ran.
 
-    ``show_tags`` renders thinking and other tag blocks as collapsibles (chat
-    view); without it they are stripped (Message Hub view). Camera images are
+    Thinking and other tag blocks are rendered as collapsibles. One view for
+    every channel: a session shows the same bubble whether the browser or the
+    Message Hub (scheduler, e-mail, ...) produced the turn. Camera images are
     shown by their artifacts; the text keeps its own image references for the
     conversation history, so they are hidden here.
     """
-    from .context_manager import strip_thinking_blocks
     from .formatting import format_thinking_process
 
     hidden_urls = vision_image_urls(artifacts)
 
     def segment(part: str) -> str:
-        part = strip_image_markdown(part, hidden_urls)
-        if show_tags:
-            return format_thinking_process(part, model_name=model_name)
-        return strip_thinking_blocks(part)
+        return format_thinking_process(strip_image_markdown(part, hidden_urls), model_name=model_name)
 
     parts: list[str] = []
     position = 0
     for artifact in sorted(artifacts, key=lambda a: a.offset):
         parts.append(segment(text[position:artifact.offset]))
-        parts.append(render_artifact(artifact, model_name, show_tags))
+        parts.append(render_artifact(artifact, model_name))
         position = artifact.offset
     parts.append(segment(text[position:]))
     return "\n\n".join(part.strip() for part in parts if part.strip())
