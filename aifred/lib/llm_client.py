@@ -6,7 +6,7 @@ with proper integration into the existing Backend system.
 """
 
 from collections.abc import AsyncIterator
-from typing import TYPE_CHECKING, Any, Union, cast
+from typing import TYPE_CHECKING, Any, cast
 
 from ..backends import BackendFactory
 from ..backends.base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from ..state import AIState
 
 # Type alias for messages: can be Dict[str, str] or LLMMessage
-MessageType = Union[dict[str, Any], LLMMessage]
+MessageType = dict[str, Any] | LLMMessage
 
 
 def build_llm_options(state: "AIState | None", agent: str, temperature: float, num_ctx: int) -> LLMOptions:

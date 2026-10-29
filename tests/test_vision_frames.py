@@ -10,6 +10,7 @@ import pytest
 
 from aifred.lib.frame_sources import Frame
 from aifred.lib.vision_frames import LiveFrames
+import itertools
 
 T0 = datetime(2026, 1, 1, 12, 0, 0)
 
@@ -143,9 +144,9 @@ class TestFreshFrames:
             return stamps, seconds
 
         stamps, seconds = asyncio.run(go())
-        gaps = [b - a for a, b in zip(stamps, stamps[1:], strict=False)]
+        gaps = [b - a for a, b in itertools.pairwise(stamps)]
         assert all(gap >= interval * 0.9 for gap in gaps), gaps
         assert seconds == sorted(set(seconds)), "Frames müssen streng aufsteigend sein"
         # Pro Takt entstehen ~20 neue Frames; geliefert wird das jeweils neueste,
         # also springt die Nummer um deutlich mehr als 1.
-        assert all(b - a > 3 for a, b in zip(seconds, seconds[1:], strict=False)), seconds
+        assert all(b - a > 3 for a, b in itertools.pairwise(seconds)), seconds

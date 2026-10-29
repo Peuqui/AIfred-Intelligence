@@ -70,6 +70,6 @@ class TestCredentialMap:
 
     def test_map_values_are_env_var_names(self):
         """All mapped values should look like environment variable names."""
-        for (service, key), env_var in _CREDENTIAL_MAP.items():
+        for env_var in _CREDENTIAL_MAP.values():
             assert env_var == env_var.upper(), f"Env var {env_var} should be uppercase"
             assert " " not in env_var, f"Env var {env_var} should not contain spaces"

@@ -204,7 +204,7 @@ def _search(store: NextcloudStore, entity_type: str, query: str | None, date_fro
             date_to: str | None, completed: object, limit: int) -> list[dict[str, Any]]:
     query = query or None
     if entity_type == "events":
-        first = parse_date(date_from, "date_from") if date_from else date.today()  # noqa: DTZ011 — local calendar day
+        first = parse_date(date_from, "date_from") if date_from else date.today()
         last = parse_date(date_to, "date_to") if date_to else first + timedelta(days=EVENT_WINDOW_DAYS)
         return store.events(first, last, query, limit)
     if entity_type == "tasks":

@@ -7,7 +7,6 @@ are skipped. Every test removes what it creates.
 """
 
 # EPIM and CalDAV clients here work with naive local wall-clock time.
-# ruff: noqa: DTZ001
 
 import uuid
 from datetime import datetime

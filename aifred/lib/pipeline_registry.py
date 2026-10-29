@@ -30,6 +30,7 @@ import asyncio
 import threading
 
 from .logging_utils import log_message
+from typing import Self
 
 
 # Per-session task registry. Access guarded by lock because pipelines can be
@@ -111,7 +112,7 @@ class pipeline_scope:
         self._session_id = session_id
         self._task = task
 
-    def __enter__(self) -> pipeline_scope:
+    def __enter__(self) -> Self:
         if self._task is not None and self._session_id:
             register_pipeline(self._session_id, self._task)
         return self

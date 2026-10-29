@@ -75,7 +75,7 @@ class TestMotionDetector:
         assert r.motion is True
         assert r.area_ratio > 0.01
         assert r.bbox is not None
-        x, y, w, h = r.bbox
+        _x, _y, w, h = r.bbox
         # Bounding box should roughly cover the rectangle area
         assert w > 50 and h > 50
 

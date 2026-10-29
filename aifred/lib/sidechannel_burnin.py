@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Any, TypedDict
+from typing import Any, Self, TypedDict
 
 logger = logging.getLogger(__name__)
 
@@ -68,14 +68,14 @@ class _PeakMonitor:
             self._peak = max(self._peak, used)
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
-    async def __aenter__(self) -> _PeakMonitor:
+    async def __aenter__(self) -> Self:
         self._task = asyncio.create_task(self._run())
         return self
 
-    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         self._stop.set()
         if self._task is not None:
             await self._task

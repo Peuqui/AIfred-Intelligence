@@ -15,7 +15,7 @@ import base64
 import hashlib
 import secrets
 import xml.etree.ElementTree as ET
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from xml.sax.saxutils import escape as xml_escape
 
 from .credential_broker import broker
@@ -60,7 +60,7 @@ def security_header(cred: str) -> str:
     if not user and not password:
         return ""
     nonce = secrets.token_bytes(16)
-    created = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+    created = datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     digest = base64.b64encode(
         hashlib.sha1(nonce + created.encode() + password.encode()).digest()
     ).decode()

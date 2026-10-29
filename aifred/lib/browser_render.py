@@ -222,7 +222,7 @@ async def render_html_in_browser(
     )
     try:
         await asyncio.wait_for(_run(), timeout=BROWSER_RENDER_TIMEOUT_SECONDS)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         result.timed_out = True
         result.error = "Browser render timed out"
     except Exception as exc:  # noqa: BLE001 — surface launch/render failure to the model

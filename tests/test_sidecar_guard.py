@@ -2,7 +2,7 @@
 embedder only when the next model needs its card."""
 
 import asyncio
-from typing import Any
+from typing import Any, Self
 
 import httpx
 import pytest
@@ -66,7 +66,7 @@ class _Client:
     def __init__(self, **_: Any) -> None:
         pass
 
-    async def __aenter__(self) -> "_Client":
+    async def __aenter__(self) -> Self:
         return self
 
     async def __aexit__(self, *_: object) -> None:

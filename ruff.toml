@@ -1,0 +1,45 @@
+# Ruff-Konfiguration für AIfred-Intelligence. Aufruf mit dem zentralen ruff:
+#   ~/.venv/devtools/bin/ruff check aifred tests
+# Regelsatz: der Standard des zentralen ruff (0.16); hier stehen nur die Zielversion und
+# die begründeten Ausnahmen für Fehlalarme.
+#
+# Bewusst NICHT ausgeschaltet, weil es echte Verhaltensfragen sind (stehen als bekannter
+# Rückstand in der Übergabe): BLE001/S110/S112 (breite except-Blöcke), TRY004 (ValueError
+# statt TypeError), ASYNC210/220/221/230 (blockierende Aufrufe in async-Funktionen),
+# SIM115 (open ohne with), PLW1510 (subprocess.run ohne ``check=``).
+
+# Dieselbe Python-Version wie das Projekt-venv und mypy.ini (sonst ersetzt ruff z. B.
+# typing.Self durch typing_extensions.Self).
+target-version = "py312"
+
+[lint]
+# DTZ001/DTZ005/DTZ006/DTZ011: AIfred ist ein Einzelplatz-System auf einem Rechner. Zeitstempel
+# sind bewusst lokale, zeitzonenlose Zeiten (datetime.now()), werden so gespeichert (isoformat)
+# und verglichen; eine Umstellung auf zeitzonenbehaftete Zeiten würde Vergleiche mit allen
+# gespeicherten Werten brechen.
+ignore = ["DTZ001", "DTZ005", "DTZ006", "DTZ011"]
+
+[lint.per-file-ignores]
+# RUF012: Reflex-State-Variablen sind Klassenattribute mit veränderlichem Startwert
+# (``items: list[str] = []``); Reflex legt pro Sitzung Kopien an. ClassVar würde sie aus dem
+# State nehmen und Reflex brechen.
+#
+# I001 (Importsortierung): In diesen Dateien ist die Reihenfolge der Importe Absicht — der State
+# importiert wegen zirkulärer Abhängigkeiten teils nach Code, __init__.py-Dateien registrieren
+# Routen/Plugins in dieser Reihenfolge, die übrigen Dateien importieren nach Code (E402).
+"aifred/state/**/*.py" = ["RUF012", "I001"]
+# In __init__.py stehen Importe bewusst als Re-Exports (``from aifred.state import AIState``);
+# ihre Reihenfolge registriert Routen und Plugins.
+"**/__init__.py" = ["F401", "I001"]
+"aifred/backends/base.py" = ["I001"]
+"aifred/lib/audio_channels/freeecho2.py" = ["I001"]
+"aifred/lib/calibration/llamaswap_io.py" = ["I001"]
+"aifred/lib/formatting.py" = ["I001"]
+"aifred/lib/pipeline_registry.py" = ["I001"]
+"aifred/lib/plugin_registry.py" = ["I001"]
+"aifred/lib/tools/search_tools.py" = ["I001"]
+# B008: FastAPI-Standard (``File(...)``/Request-Modelle als Parameter-Vorgabe).
+"aifred/lib/api/**/*.py" = ["B008"]
+# Tests: sys.path/Fake-Module werden vor den Importen vorbereitet (I001), Fixtures sind Klassen mit
+# Klassenkonstanten (RUF012), pytest.raises(Exception) prüft hier bewusst nur "wirft".
+"tests/**/*.py" = ["I001", "RUF012", "B017"]

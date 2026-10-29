@@ -2,7 +2,6 @@
 (EPIM's own triggers, views and lookup tables)."""
 
 # EPIM stores naive local wall-clock time; the tests use exactly that.
-# ruff: noqa: DTZ001
 
 import os
 from datetime import datetime, timedelta

@@ -12,7 +12,7 @@ import email.utils
 import imaplib
 import pathlib
 import re
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import TYPE_CHECKING
 
 from .config import EMAIL_SENT_FOLDER_DEFAULT
@@ -260,7 +260,7 @@ class EmailChannel(BaseChannel):
                             self._idle_cycle(imap),
                             timeout=_IDLE_TIMEOUT_SECONDS + 60,  # IDLE timeout + margin for DONE/drain
                         )
-                    except asyncio.TimeoutError:
+                    except TimeoutError:
                         self.channel_log("Email Plugin: IDLE cycle timeout, reconnecting...")
                         raise OSError("IDLE cycle timeout")  # triggers reconnect
 
@@ -326,7 +326,7 @@ class EmailChannel(BaseChannel):
                 asyncio.to_thread(_read_idle_response, imap),
                 timeout=_IDLE_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             self.channel_log("Email Plugin: IDLE timeout (no events), re-entering IDLE")
             response = b""
 
@@ -344,7 +344,7 @@ class EmailChannel(BaseChannel):
                 asyncio.to_thread(_drain_idle_response, imap, tag),
                 timeout=10,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             # DONE/drain hung — connection is dead, let outer loop reconnect
             raise OSError("IDLE exit timeout")
 
@@ -680,7 +680,7 @@ def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> InboundMessa
     try:
         timestamp = email_lib.utils.parsedate_to_datetime(date_raw)
     except (ValueError, TypeError):
-        timestamp = datetime.now(timezone.utc)
+        timestamp = datetime.now(UTC)
 
     # Thread-ID: use In-Reply-To or first Reference, or Message-ID
     thread_id = in_reply_to or (references.split()[0] if references else message_id)

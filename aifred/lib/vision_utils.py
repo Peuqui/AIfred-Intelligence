@@ -362,7 +362,7 @@ async def is_vision_model(state, model_name: str) -> bool:
                 '.sam.block_count'  # Segment Anything Model (for OCR models like DeepSeek-OCR)
             ]
 
-            for key in model_info.keys():
+            for key in model_info:
                 if any(vision_key in key for vision_key in vision_keys):
                     logger.info(f"✅ Vision model detected (Ollama model_info): {model_name} has {key}")
                     return True
@@ -551,7 +551,7 @@ async def get_vision_model_capabilities(backend_url: str, model_name: str) -> tu
 
             if model_info:
                 # Search for any key containing "context_length" (universal approach)
-                for key in model_info.keys():
+                for key in model_info:
                     if "context_length" in key:
                         num_ctx = model_info[key]
                         logger.info(f"✅ Found context window: {num_ctx} tokens (from {key})")

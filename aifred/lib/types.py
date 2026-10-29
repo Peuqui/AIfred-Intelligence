@@ -5,9 +5,7 @@ Usage:
     from aifred.lib.types import StreamChunk, ContentChunk, DoneChunk
 """
 
-from typing import Literal, TypedDict, Union
-
-from typing_extensions import NotRequired
+from typing import Literal, NotRequired, TypedDict
 
 __all__ = [
     "ContentChunk",
@@ -90,4 +88,4 @@ class DoneChunk(TypedDict):
 
 
 # Union type for all possible stream chunks
-StreamChunk = Union[ContentChunk, DebugChunk, ThinkingWarningChunk, DoneChunk]
+StreamChunk = ContentChunk | DebugChunk | ThinkingWarningChunk | DoneChunk

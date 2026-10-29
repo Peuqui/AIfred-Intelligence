@@ -311,8 +311,8 @@ class AIState(  # type: ignore[misc]
             # stuck after a silent music reply finished). The terminal toast
             # then uses a fresh (auto) id so it shows cleanly after the dismiss.
             toast_style = {"width": "420px"}
-            hub_kwargs = dict(id="hub", position="top-center", style=toast_style)
-            final_kwargs = dict(position="top-center", style=toast_style)
+            hub_kwargs = {"id": "hub", "position": "top-center", "style": toast_style}
+            final_kwargs = {"position": "top-center", "style": toast_style}
             if status == "received":
                 toast_msg = _t("hub_toast_received", lang=self.ui_language, channel=channel, sender=sender)
                 toast_events = [rx.toast.info(toast_msg, duration=120000, **hub_kwargs)]
@@ -643,7 +643,7 @@ class AIState(  # type: ignore[misc]
             from ..backends import BackendFactory
             backend = BackendFactory.create("ollama")
             try:
-                success, unloaded = await backend.unload_all_models(wait_for_stability=True)
+                _success, unloaded = await backend.unload_all_models(wait_for_stability=True)
                 self.add_debug(f"🎤 Ollama unloaded: {', '.join(unloaded) if unloaded else 'nothing loaded'}")
             finally:
                 await backend.client.aclose()

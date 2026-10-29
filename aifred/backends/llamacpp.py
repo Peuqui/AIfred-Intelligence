@@ -108,7 +108,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
                 )
                 writer.close()
                 await writer.wait_closed()
-            except (asyncio.TimeoutError, OSError) as e:
+            except (TimeoutError, OSError) as e:
                 raise BackendConnectionError(
                     f"RPC-Server {host}:{port} nicht erreichbar ({type(e).__name__}). "
                     f"Ist der Remote-Rechner eingeschaltet und der RPC-Server gestartet? "

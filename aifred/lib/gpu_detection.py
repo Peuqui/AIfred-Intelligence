@@ -6,7 +6,7 @@ Prevents users from trying to use incompatible backends with their GPU.
 """
 
 from dataclasses import dataclass, field
-from typing import Any, TypedDict
+from typing import Any, ClassVar, TypedDict
 
 from . import nvidia_smi
 
@@ -63,7 +63,7 @@ class GPUDetector:
     # Compute Capability → Architecture mapping
 
     # Backend requirements
-    BACKEND_REQUIREMENTS: dict[str, BackendRequirement] = {
+    BACKEND_REQUIREMENTS: ClassVar[dict[str, BackendRequirement]] = {
         "ollama": {
             "min_compute_capability": 3.5,
             "requires_tensor_cores": False,
@@ -85,7 +85,7 @@ class GPUDetector:
     }
 
     # Known problematic GPUs
-    KNOWN_ISSUES: dict[str, dict[str, Any]] = {
+    KNOWN_ISSUES: ClassVar[dict[str, dict[str, Any]]] = {
         "Tesla P40": {
             "fp16_ratio": "1:64",
             "issue": "Extremely slow FP16 performance",
@@ -198,9 +198,7 @@ class GPUDetector:
         # Pascal generation (6.x) generally has slow FP16
         if 6.0 <= compute_cap < 7.0:
             # P100 is exception (6.0) - has decent FP16
-            if "P100" in gpu_name:
-                return True
-            return False
+            return "P100" in gpu_name
 
         # Volta+ (7.0+) has fast FP16
         return compute_cap >= 7.0

@@ -1093,7 +1093,6 @@ class ChatMixin(rx.State, mixin=True):
                 detected_intent = "FAKTISCH"
                 addressed_to = None
                 detected_language = get_language()
-                intent_raw = ""
                 mode_switch_updates: dict = {}
                 is_pure_command = False
                 _reason = "URL-only" if _is_url_only else "image-only"
@@ -1111,7 +1110,7 @@ class ChatMixin(rx.State, mixin=True):
                     detected_language,
                     mode_switch_updates,
                     is_pure_command,
-                    intent_raw,
+                    _intent_raw,
                     self._pending_load_time,
                 ) = await detect_query_intent_and_addressee(
                     user_msg,

@@ -237,7 +237,7 @@ def test_context_refine_can_move_upstream():
     vmodel = _vmodel(split, [0.005, 0.005, 0.005, 0.005, 0.020])
     r = VerifyResult(fits=False, measured_free_mb=(9000, 9000, 12000, 9000, 250),
                      thinks=None, detail="")
-    out, reason = _context_refine_swap(
+    out, _reason = _context_refine_swap(
         split, gpus, r, _budget((20000, 20000, 18000, 14000, 14000)),
         vmodel, TOTAL_LAYERS, MODEL_MB, 120000,
     )
@@ -262,7 +262,7 @@ def test_vlm_case_relieves_limiter_not_fast_sibling():
     # limiter; GPU1 (fast sibling) has comfortable headroom.
     r = VerifyResult(fits=False, measured_free_mb=(600, 9000, 3500, 8000, 8000),
                      thinks=None, detail="")
-    out, reason = _context_refine_swap(
+    out, _reason = _context_refine_swap(
         split, gpus, r, _budget((20000, 20000, 18000, 14000, 14000)),
         vmodel, TOTAL_LAYERS, MODEL_MB, 120000,
         keep_active_set=True,  # VLM pins the GPU set
@@ -432,13 +432,13 @@ def test_cross_variant_bias_cache_carries_to_next_variant(monkeypatch):
         return VerifyResult(False, (150,) * 5, None, "oom")
 
     monkeypatch.setattr(ctx_search, "verify", _fake_verify)
-    common = dict(
-        current_split=split, candidate=_candidate(split, vram_model=vmodel),
-        model=_model(), gpus=_gpus_5(), budget=_budget((30000,) * 5),
-        full_cmd="--model x", port=1, env=None, probe_thinking=False,
-        thinks_seen=None, status_prefix="v", lo=8192, hi=200000,
-        iteration=0, initial_load_sig=None, initial_bias_mb=None,
-    )
+    common = {
+        "current_split": split, "candidate": _candidate(split, vram_model=vmodel),
+        "model": _model(), "gpus": _gpus_5(), "budget": _budget((30000,) * 5),
+        "full_cmd": "--model x", "port": 1, "env": None, "probe_thinking": False,
+        "thinks_seen": None, "status_prefix": "v", "lo": 8192, "hi": 200000,
+        "iteration": 0, "initial_load_sig": None, "initial_bias_mb": None,
+    }
     # Variant 1: no seed, no cache — learns and caches the bias (the cached
     # value may legitimately be negative since the bias is bidirectional).
     res1, _ = _drain_search_verbose(**common)

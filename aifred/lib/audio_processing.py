@@ -546,7 +546,7 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
         if char == ':':
             after_colon = remaining[i+1:i+3] if i+1 < len(remaining) else ""
             # Colon followed by newline(s) = sentence end (intro before list/table)
-            if after_colon.startswith('\n\n') or after_colon.startswith('\n'):
+            if after_colon.startswith(('\n\n', '\n')):
                 sentence = remaining[sentence_start:i+1].strip()
                 # NOTE: Don't clean here - cleaning happens in _tts_generate_sentence_async()
                 if sentence and len(sentence) > 10:  # Minimum length to avoid false positives

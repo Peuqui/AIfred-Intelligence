@@ -9,7 +9,7 @@ Uses the ChromaDB server and the embedding function from embeddings.py
 """
 
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, Optional
 
 from .config import (
@@ -108,7 +108,7 @@ class AgentMemory:
             )
 
         doc_id = str(uuid.uuid4())
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
 
         col.add(
             ids=[doc_id],
@@ -159,7 +159,7 @@ class AgentMemory:
             existing = col.get(ids=[full_id], include=["metadatas"])
             memory_type = existing["metadatas"][0].get("type", "")  # type: ignore[index]
 
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         col.update(
             ids=[full_id],
             documents=[summary],
@@ -222,7 +222,7 @@ class AgentMemory:
         if not ids:
             return
         col = self._collection(agent_id)
-        now = datetime.now(timezone.utc).isoformat()
+        now = datetime.now(UTC).isoformat()
         col.update(
             ids=ids,
             documents=[new_content[:120]] * len(ids),

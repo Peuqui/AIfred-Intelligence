@@ -241,7 +241,7 @@ class TestPauseStream:
         run(go())
 
     def test_missing_ack_raises(self, room):
-        rid, ws = room
+        rid, _ws = room
         ch = FreeEchoChannel()
         with pytest.raises(TimeoutError, match="did not acknowledge"):
             run(ch.pause_stream(rid, timeout_sec=0.1))

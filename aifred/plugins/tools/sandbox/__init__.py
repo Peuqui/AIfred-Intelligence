@@ -32,7 +32,7 @@ def _looks_like_html_document(text: str) -> bool:
     and skips the interactive chat embed.
     """
     head = text.lstrip()[:64].lower()
-    return head.startswith("<!doctype html") or head.startswith("<html")
+    return head.startswith(("<!doctype html", "<html"))
 
 
 _HTML_IN_STDOUT_HINT = (

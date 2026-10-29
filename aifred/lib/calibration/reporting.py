@@ -140,7 +140,7 @@ def _build_result(
     num_active_gpus: int,
 ) -> Result:
     return Result(
-        variant="base" if candidate.mode == "gpu" else "base",
+        variant="base",
         mode=candidate.mode,
         context=ctx,
         ngl=candidate.ngl,

@@ -39,7 +39,7 @@ _bridge_loop: asyncio.AbstractEventLoop | None = None
 _turn_times: dict[str, deque[float]] = defaultdict(deque)
 
 
-async def _on_bridge_loop(coro: Awaitable[T]) -> T:
+async def _on_bridge_loop[T](coro: Awaitable[T]) -> T:
     """Await ``coro`` on the loop that owns the Bridge connection."""
     loop = _bridge_loop
     if loop is None:
@@ -238,7 +238,7 @@ class AIConnectChannel(BaseChannel):
             channel_id=sender,
             sender=sender,
             text=_with_context(content, data.get("context")),
-            timestamp=datetime.fromisoformat(data["timestamp"].replace("Z", "+00:00")),
+            timestamp=datetime.fromisoformat(data["timestamp"]),
             metadata={"peer": sender},
         )
         self.channel_log(f"AI-Connect Plugin: message from '{sender}'")

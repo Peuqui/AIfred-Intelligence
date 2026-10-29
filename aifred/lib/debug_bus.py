@@ -20,6 +20,7 @@ Usage:
 
 import contextvars
 from datetime import datetime
+from typing import Self
 
 from .logging_utils import log_message
 
@@ -42,7 +43,7 @@ class session_scope:
         self._session_id = session_id
         self._session_token: contextvars.Token | None = None
 
-    def __enter__(self) -> "session_scope":
+    def __enter__(self) -> Self:
         self._session_token = _current_session.set(self._session_id)
         return self
 

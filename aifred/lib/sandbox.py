@@ -596,7 +596,7 @@ async def execute_sandboxed_code(
                 proc.communicate(),
                 timeout=SANDBOX_TIMEOUT_SECONDS,
             )
-        except asyncio.TimeoutError:
+        except TimeoutError:
             proc.kill()
             await proc.wait()
             result.timed_out = True

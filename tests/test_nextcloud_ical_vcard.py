@@ -1,7 +1,6 @@
 """iCalendar and vCard handling of the Nextcloud plugin (no server needed)."""
 
 # Local wall-clock time is the plugin's input and output form.
-# ruff: noqa: DTZ001
 
 from datetime import date, datetime
 

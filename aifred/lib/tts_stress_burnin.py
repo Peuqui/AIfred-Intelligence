@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any
+from typing import Any, Self
 
 from .config import TTS_BURNIN_AGENT
 from .tts_client import EngineRef, TTSSuiteError, get_tts_client, new_run_id
@@ -167,14 +167,14 @@ class _VramPeakMonitor:
             await self._sample()
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=TTS_BURNIN_VRAM_POLL_S)
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 pass
 
-    async def __aenter__(self) -> _VramPeakMonitor:
+    async def __aenter__(self) -> Self:
         self._task = asyncio.create_task(self._run())
         return self
 
-    async def __aexit__(self, exc_type: Any, exc: Any, tb: Any) -> None:
+    async def __aexit__(self, exc_type: object, exc: object, tb: object) -> None:
         self._stop.set()
         assert self._task is not None
         await self._task

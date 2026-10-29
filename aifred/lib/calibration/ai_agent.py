@@ -185,7 +185,7 @@ def _safe_int(value: object) -> int:
 
 
 def _format_split(split: list[float] | tuple[float, ...]) -> str:
-    return ",".join(str(int(round(v))) for v in split)
+    return ",".join(str(round(v)) for v in split)
 
 
 def _hardware_block(gpus: list[GPU], reserve_mb: tuple[int, ...] = ()) -> str:

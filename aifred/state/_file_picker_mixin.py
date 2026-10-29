@@ -117,7 +117,7 @@ class FilePickerMixin(rx.State, mixin=True):
         self.picker_mode = mode
         self.picker_caps = caps or {}
         self.picker_file_filter = file_filter or []
-        self.picker_show_files = show_files if mode != "pick_folder" else show_files
+        self.picker_show_files = show_files
         self.picker_callback_event = callback_event
         self.picker_callback_args = callback_args or {}
         self.picker_symlink_target_must_be_under_root = symlink_target_must_be_under_root

@@ -1,6 +1,6 @@
 """Header of the user's bubble: "[Channel] Sender → Agent" (build_user_chat_content)."""
 
-from datetime import datetime, timezone
+from datetime import datetime, UTC
 
 import pytest
 
@@ -19,7 +19,7 @@ def _agents(monkeypatch: pytest.MonkeyPatch) -> None:
 def _message(metadata: dict) -> InboundMessage:
     return InboundMessage(
         channel="freeecho2", channel_id="Buero-Puck-2", sender="Buero-Puck-2",
-        text="Erkläre Quantenphysik.", timestamp=datetime.now(timezone.utc), metadata=metadata,
+        text="Erkläre Quantenphysik.", timestamp=datetime.now(UTC), metadata=metadata,
     )
 
 

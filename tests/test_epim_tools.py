@@ -2,7 +2,6 @@
 parsed strictly, IDs travel as strings."""
 
 # EPIM stores naive local wall-clock time; the tests use exactly that.
-# ruff: noqa: DTZ001
 
 import asyncio
 import json

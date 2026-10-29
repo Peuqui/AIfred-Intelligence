@@ -192,7 +192,7 @@ def reload_all() -> None:
         _log(f"Plugin Registry: channel teardown warning: {exc}", "warning")
 
     # 2. Clear tool cache + stale modules
-    stale = [k for k in sys.modules if k.startswith("aifred.plugins.tools.") or k.startswith("aifred.plugins.channels.")]
+    stale = [k for k in sys.modules if k.startswith(("aifred.plugins.tools.", "aifred.plugins.channels."))]
     for k in stale:
         del sys.modules[k]
 

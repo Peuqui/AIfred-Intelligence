@@ -1,7 +1,6 @@
 """Strict parsing of EPIM tool arguments and of the plugin settings."""
 
 # EPIM stores naive local wall-clock time; the tests use exactly that.
-# ruff: noqa: DTZ001
 
 from datetime import date, datetime
 from pathlib import Path

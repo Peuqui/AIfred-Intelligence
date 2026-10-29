@@ -42,7 +42,7 @@ logger = logging.getLogger(__name__)
 
 LOCK_TIMEOUT_SEC = 10
 LIMIT_MAX = 500
-_ZERO_DATE = datetime(1899, 12, 30)  # noqa: DTZ001 — EPIM stores naive local time
+_ZERO_DATE = datetime(1899, 12, 30)
 _LIVE, _DELETED = 0, 1
 
 
@@ -85,7 +85,7 @@ def _like_pattern(term: str) -> str:
 
 
 def _now() -> datetime:
-    return datetime.now()  # noqa: DTZ005 — EPIM stores naive local wall-clock time
+    return datetime.now()
 
 
 def _date_out(value: datetime | None) -> datetime | None:

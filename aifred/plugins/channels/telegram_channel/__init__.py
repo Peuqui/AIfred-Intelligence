@@ -11,7 +11,7 @@ import asyncio
 import json
 import pathlib
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, UTC
 from typing import TYPE_CHECKING
 
 from ....lib.plugin_base import BaseChannel, CredentialField, load_tool_description, load_tool_parameters
@@ -525,7 +525,7 @@ def _build_inbound(update: Update) -> InboundMessage:
         channel_id=str(chat.id),
         sender=sender,
         text=msg.text or "",
-        timestamp=msg.date or datetime.now(timezone.utc),
+        timestamp=msg.date or datetime.now(UTC),
         metadata=metadata,
     )
 

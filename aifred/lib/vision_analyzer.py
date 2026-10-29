@@ -91,8 +91,8 @@ def downscale_for_vlm(image_bytes: bytes, max_pixels: int) -> bytes:
     if w * h <= max_pixels:
         return image_bytes
     scale = (max_pixels / float(w * h)) ** 0.5
-    new_w = max(1, int(round(w * scale)))
-    new_h = max(1, int(round(h * scale)))
+    new_w = max(1, round(w * scale))
+    new_h = max(1, round(h * scale))
     resized = cv2.resize(arr, (new_w, new_h), interpolation=cv2.INTER_AREA)
     ok, buf = cv2.imencode(".jpg", resized, [cv2.IMWRITE_JPEG_QUALITY, 90])
     if not ok:

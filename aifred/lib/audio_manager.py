@@ -131,7 +131,7 @@ class AudioManager:
                 self._proc.terminate()
                 try:
                     await asyncio.wait_for(self._proc.wait(), timeout=2)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     self._proc.kill()
             self._proc = None
             try:

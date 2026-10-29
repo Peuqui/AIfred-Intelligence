@@ -1210,7 +1210,7 @@ async def run_tribunal(
         memories = await _recall_agent_memories(state, ["sokrates", "salomo", "aifred"], user_query, detected_lang or "de")
         t_sokrates_memory_ctx, t_sokrates_toolkit = memories["sokrates"]
         t_salomo_memory_ctx, t_salomo_toolkit = memories["salomo"]
-        t_aifred_memory_ctx, t_aifred_toolkit = memories["aifred"]
+        _t_aifred_memory_ctx, t_aifred_toolkit = memories["aifred"]
 
         max_rounds = state.max_debate_rounds
 

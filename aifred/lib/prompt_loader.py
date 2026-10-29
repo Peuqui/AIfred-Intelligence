@@ -346,7 +346,7 @@ def list_available_prompts() -> list:
         if lang_path.exists():
             prompts.update(p.stem for p in lang_path.glob('*.txt'))
 
-    return sorted(list(prompts))
+    return sorted(prompts)
 
 
 # ============================================================

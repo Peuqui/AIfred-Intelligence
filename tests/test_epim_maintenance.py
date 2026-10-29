@@ -1,7 +1,6 @@
 """EPIM maintenance: rebuild, mirror installation, snapshots."""
 
 # EPIM stores naive local wall-clock time; the tests use exactly that.
-# ruff: noqa: DTZ001
 
 from datetime import datetime, timedelta
 
