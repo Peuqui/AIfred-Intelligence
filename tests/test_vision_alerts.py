@@ -251,6 +251,20 @@ def test_burst_news_is_a_short_text_without_images_or_vlm(monkeypatch):
     assert "3 Personen" in news.title
 
 
+def test_burst_unsure_face_upgrade_is_no_news(monkeypatch):
+    report, _disp = _burst_report(monkeypatch)
+    asyncio.run(report.send())
+    report.observe_face("face_unsure", "", 0.4, 0.9, "/x/w.jpg", "/x/z.jpg", "")
+    assert not report.has_news()
+
+
+def test_burst_unknown_face_upgrade_is_news(monkeypatch):
+    report, _disp = _burst_report(monkeypatch)
+    asyncio.run(report.send())
+    report.observe_face("face_unknown", "", 0.2, 0.9, "/x/w.jpg", "/x/z.jpg", "")
+    assert report.has_news()
+
+
 def test_burst_final_summary_carries_the_films(monkeypatch):
     report, disp = _burst_report(monkeypatch, films=["/f/wide.mp4", "/f/zoom.mp4"])
     asyncio.run(report.send())

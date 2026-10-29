@@ -693,13 +693,14 @@ class BurstReport:
         return (datetime.now() - self._news_since).total_seconds() >= settle_sec
 
     def has_news(self) -> bool:
-        """Hinweis nötig? Neuer Name, Band-Upgrade oder mehr Personen
-        gleichzeitig als bisher gemeldet."""
+        """Hinweis nötig? Neuer Name, Band-Upgrade (außer auf „unsicher“) oder
+        mehr Personen gleichzeitig als bisher gemeldet. Eine unsichere Erkennung
+        ist als reiner Text-Hinweis nichtssagend; sie steht in der Zusammenfassung."""
         if not self._sent_messages:
             return False
         if set(self.known_named) - self._sent_names:
             return True
-        if self._current_band_rank() > self._sent_band_rank:
+        if self._current_band_rank() > self._sent_band_rank and self._best_face_band != "face_unsure":
             return True
         return self._person_count_max > max(self._sent_person_count, 1)
 
