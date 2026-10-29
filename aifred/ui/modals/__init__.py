@@ -7,7 +7,6 @@ from .help import (
 )
 from .login import login_dialog
 from .crop import crop_modal
-from .lightbox import image_lightbox_modal
 from .documents import document_manager_page
 from .credentials import channel_credentials_page
 from .bundles import bundle_export_modal, bundle_import_modal
@@ -18,7 +17,6 @@ __all__ = [
     "channel_credentials_page",
     "crop_modal",
     "document_manager_page",
-    "image_lightbox_modal",
     "login_dialog",
     "model_lifecycle_help_modal",
     "multi_agent_help_modal",

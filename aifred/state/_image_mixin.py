@@ -1,5 +1,5 @@
 """
-Image Mixin – handles image upload, crop, lightbox, camera detection, and mobile detection.
+Image Mixin – handles image upload, crop, camera detection, and mobile detection.
 
 Part of the AIfred State refactoring (aifred/state/ package).
 """
@@ -10,7 +10,7 @@ from ..lib.config import MAX_IMAGES_PER_MESSAGE
 
 
 class ImageMixin(rx.State, mixin=True):
-    """Mixin for image upload, crop, lightbox, help modals, and device detection."""
+    """Mixin for image upload, crop, help modals, and device detection."""
 
     # ------------------------------------------------------------------
     # State variables
@@ -33,10 +33,6 @@ class ImageMixin(rx.State, mixin=True):
     crop_box_width: float = 100.0
     crop_box_height: float = 100.0
     crop_rotation: int = 0
-
-    # Image Lightbox State
-    lightbox_open: bool = False
-    lightbox_image_url: str = ""
 
     # Help Modals
     multi_agent_help_open: bool = False
@@ -219,20 +215,6 @@ class ImageMixin(rx.State, mixin=True):
         self.image_upload_warning = ""
         if count > 0:
             self.add_debug(f"📷 {count} pending image(s) cleared")  # type: ignore[attr-defined]
-
-    # ------------------------------------------------------------------
-    # Image Lightbox Handlers
-    # ------------------------------------------------------------------
-
-    def open_lightbox(self, image_url: str) -> None:
-        """Opens lightbox to view image in full size"""
-        self.lightbox_image_url = image_url
-        self.lightbox_open = True
-
-    def close_lightbox(self) -> None:
-        """Closes the lightbox modal"""
-        self.lightbox_open = False
-        self.lightbox_image_url = ""
 
     # ------------------------------------------------------------------
     # Multi-Agent Help Modal Handlers

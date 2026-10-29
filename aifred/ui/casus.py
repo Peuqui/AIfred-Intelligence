@@ -694,24 +694,23 @@ _OVERLAY_VIEWPORT_STYLE = {
 def _overlay_image(
     src: rx.Var, scale: rx.Var | int, which: str, max_w: str,
 ) -> rx.Component:
-    """Eine Overlay-Ansicht (Weitwinkel oder Zoom) mit Klick-Zoom:
-    Stufe 1 passt das Bild ein, Klick schaltet auf 200 % und 300 %
-    Breite (scrollbarer Viewport), der dritte Klick wieder auf
-    eingepasst. ``which`` adressiert die Stufen-Var im State."""
-    def _zoomed(width_pct: str, cursor: str) -> rx.Component:
-        return rx.box(
+    """Eine Overlay-Ansicht (Weitwinkel oder Zoom) mit Klick-Zoom wie die
+    Lightbox (aifred/ui/lightbox.py): Stufe 1 passt das Bild ein, der Klick
+    schaltet auf 200 % Breite (scrollbarer Viewport), der nächste Klick
+    schließt das Modal. ``which`` adressiert die Stufen-Var im State."""
+    return rx.match(
+        scale,
+        (2, rx.box(
             rx.image(
                 src=src,
                 on_click=AIState.casus_image_cycle_scale(which),
-                style={"width": width_pct, "display": "block", "cursor": cursor},
+                style={"width": "200%", "display": "block"},
             ),
+            # Hand-Schwenken (Mausziehen/Finger) wie in der Lightbox: das
+            # Attribut aktiviert den gemeinsamen Handler aus ui/lightbox.py.
+            custom_attrs={"data-drag-pan": "true"},
             style={**_OVERLAY_VIEWPORT_STYLE, "width": max_w},
-        )
-
-    return rx.match(
-        scale,
-        (2, _zoomed("200%", "zoom-in")),
-        (3, _zoomed("300%", "zoom-out")),
+        )),
         rx.image(
             src=src,
             on_click=AIState.casus_image_cycle_scale(which),

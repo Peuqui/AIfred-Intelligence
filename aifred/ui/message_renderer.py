@@ -12,51 +12,6 @@ from .helpers import (
 )
 
 # ============================================================
-# IMAGE THUMBNAILS
-# ============================================================
-
-def render_history_thumbnail(img_data) -> rx.Component:
-    """Render clickable thumbnail that opens lightbox on click.
-
-    Args:
-        img_data: Either a string URL or a dict with {"name": str, "url": str}
-    """
-    # Handle both string URLs and dict format
-    img_url = rx.cond(
-        img_data.is_string(),
-        img_data,
-        img_data["url"]
-    )
-    return rx.image(
-        src=img_url,
-        width="50px",
-        height="50px",
-        object_fit="cover",
-        border_radius="4px",
-        cursor="pointer",
-        border=f"1px solid {COLORS['border']}",
-        on_click=AIState.open_lightbox(img_url),  # type: ignore[call-arg, func-returns-value]
-        style={
-            "transition": "transform 0.2s ease, box-shadow 0.2s ease",
-            # Mobile touch handling - prevent native context menu
-            "touch_action": "manipulation",
-            "user_select": "none",
-            "-webkit_touch_callout": "none",
-            "-webkit_user_select": "none",
-            "&:hover": {
-                "transform": "scale(1.05)",
-                "box_shadow": "0 2px 8px rgba(0,0,0,0.3)",
-            },
-            # Mobile active state (visual feedback on tap)
-            "&:active": {
-                "transform": "scale(0.95)",
-                "opacity": "0.8",
-            },
-        },
-    )
-
-
-# ============================================================
 # MESSAGE BUBBLES
 # ============================================================
 

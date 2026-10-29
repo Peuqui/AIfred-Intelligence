@@ -465,19 +465,24 @@ class CasusMixin(rx.State, mixin=True):
         total = len(self.casus_all_ids)
         return f"{total - self.casus_image_index} / {total}"
 
-    # Klick-Zoom im Bild-Modal: Stufe pro Ansicht (1 = eingepasst,
-    # 2/3 = 200 %/300 % Breite mit Scroll). Klick aufs Bild zykliert
-    # 1 → 2 → 3 → 1; Navigation/Öffnen/Schließen setzt zurück.
+    # Klick-Zoom im Bild-Modal, einheitlich mit der Lightbox
+    # (aifred/ui/lightbox.py): Stufe pro Ansicht (1 = eingepasst, 2 = 200 %
+    # Breite mit Scroll). Klick aufs Bild: 1 → 2 → Modal schließen;
+    # Navigation/Öffnen/Schließen setzt die Stufen zurück.
     casus_image_scale_wide: int = 1
     casus_image_scale_zoom: int = 1
 
     @rx.event
     def casus_image_cycle_scale(self, which: str) -> None:
-        """Zoom-Stufe der geklickten Ansicht weiterschalten."""
-        if which == "zoom":
-            self.casus_image_scale_zoom = self.casus_image_scale_zoom % 3 + 1
+        """Zoom-Stufe der geklickten Ansicht weiterschalten; auf der
+        letzten Stufe schließt der Klick das Bild-Modal."""
+        scale = self.casus_image_scale_zoom if which == "zoom" else self.casus_image_scale_wide
+        if scale >= 2:
+            self._casus_close_image_modal()
+        elif which == "zoom":
+            self.casus_image_scale_zoom = scale + 1
         else:
-            self.casus_image_scale_wide = self.casus_image_scale_wide % 3 + 1
+            self.casus_image_scale_wide = scale + 1
 
     def _casus_reset_image_scale(self) -> None:
         self.casus_image_scale_wide = 1
@@ -559,11 +564,14 @@ class CasusMixin(rx.State, mixin=True):
             self._casus_reset_image_scale()
             self.casus_image_index += 1
 
+    def _casus_close_image_modal(self) -> None:
+        self._casus_reset_image_scale()
+        self.casus_image_index = -1
+
     @rx.event
     def casus_close_image(self) -> None:
         """Bild-Modal schließen."""
-        self._casus_reset_image_scale()
-        self.casus_image_index = -1
+        self._casus_close_image_modal()
 
     @rx.event
     def casus_refresh(self) -> None:

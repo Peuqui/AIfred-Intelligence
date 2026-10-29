@@ -36,7 +36,6 @@ from .ui.modals import (
     channel_credentials_page,
     crop_modal,
     document_manager_page,
-    image_lightbox_modal,
     login_dialog,
     model_lifecycle_help_modal,
     multi_agent_help_modal,
@@ -769,9 +768,6 @@ console.log('✂️ Crop handler loaded');
 
         # Crop Modal (rendered but hidden until open)
         crop_modal(),
-
-        # Image Lightbox Modal (for viewing history images full-size)
-        image_lightbox_modal(),
 
         # Vigilantia-Plugin Settings Modal (gear icon next to "Vigilantia")
         vision_settings_modal(),

@@ -160,7 +160,7 @@ class AIState(  # type: ignore[misc]
     - CalibrationMixin: context calibration, backend restart
     - UIConfigMixin: temperature mode, context, whisper
     - AuthMixin: login/logout, user authentication
-    - ImageMixin: image upload, crop, lightbox
+    - ImageMixin: image upload, crop
     - ExportMixin: chat export (HTML)
     - SessionMixin: session management, persistence
     """
