@@ -1,8 +1,9 @@
 """Lightbox für Content-Bilder (Hauptseite und Live-Vorschau).
 
 In der Bubble verkleinert (CSS), Klick öffnet die VOLLE Auflösung als Overlay
-(Klick/Escape schließt; Klick ins Bild wechselt zwischen eingepasst und 1:1-
-Pixelansicht mit Schwenken). Greift nur auf ``/_upload/``-Bilder (Kamera-Fotos,
+(eingepasst); ein weiterer Klick ins Bild zeigt die 1:1-Pixelansicht mit
+Schwenken, der nächste Klick schließt (ebenso Klick neben das Bild/Escape;
+Bilder, die eingepasst schon 1:1 passen, schließen beim zweiten Klick). Greift nur auf ``/_upload/``-Bilder (Kamera-Fotos,
 Uploads, Crops) — Emojis/Icons bleiben unberührt. Das window-Flag macht den
 Listener idempotent gegen React-Remounts (gleiche Falle wie beim custom_js).
 """
@@ -65,19 +66,20 @@ LIGHTBOX_JS = """
         }
         big.addEventListener('pointerup', endDrag);
         big.addEventListener('pointercancel', endDrag);
+        // Klickfolge: Bubble → eingepasst → 1:1 → zu. Passt das Bild schon
+        // eingepasst in 1:1 (nicht größer als der Bildschirm), entfällt die
+        // 1:1-Stufe und der zweite Klick schließt.
         big.addEventListener('click', function(ev) {
             if (moved) { moved = false; ev.stopPropagation(); return; }
             var zoomable = big.naturalWidth > ov.clientWidth + 8 || big.naturalHeight > ov.clientHeight + 8;
-            if (fitted && !zoomable) { close(); return; }
+            if (!fitted || !zoomable) { close(); return; }
             ev.stopPropagation();
             var rx = ev.offsetX / big.clientWidth, ry = ev.offsetY / big.clientHeight;
-            fitted = !fitted;
+            fitted = false;
             applyMode();
-            if (!fitted) {
-                // Klickstelle in die Bildschirmmitte scrollen
-                ov.scrollLeft = rx * big.naturalWidth - ov.clientWidth / 2;
-                ov.scrollTop = ry * big.naturalHeight - ov.clientHeight / 2;
-            }
+            // Klickstelle in die Bildschirmmitte scrollen
+            ov.scrollLeft = rx * big.naturalWidth - ov.clientWidth / 2;
+            ov.scrollTop = ry * big.naturalHeight - ov.clientHeight / 2;
         });
         function esc(ev) { if (ev.key === 'Escape') close(); }
         function close() { ov.remove(); document.removeEventListener('keydown', esc); }
