@@ -1,4 +1,4 @@
-"""snap_pair: Zeitstempel je Bild und Tele-Duplikat des Weitwinkels."""
+"""snap_pair: Zeitstempel je Bild, beide Linsen bleiben eigene Bilder."""
 
 from __future__ import annotations
 
@@ -22,11 +22,12 @@ def _fallback() -> Frame:
     return Frame(source_id="cam/x", timestamp=None, image_bytes=b"")  # type: ignore[arg-type]
 
 
-def test_tele_showing_the_wide_scene_gets_no_second_image() -> None:
+def test_tele_showing_the_wide_scene_stays_a_separate_image() -> None:
     wide, zoom = asyncio.run(
         snap_pair(_SameSceneClient(), _fallback(), wide_channel=0, face_channel=1)
     )
-    assert zoom is wide
+    assert zoom is not wide
+    assert zoom.metadata["lens"] == "zoom"
 
 
 def test_real_tele_stays_a_separate_image() -> None:

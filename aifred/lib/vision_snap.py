@@ -27,9 +27,6 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
-from .config import VISION_SAME_SCENE_MAX_HAMMING
-from .vision_phash import hamming_distance, phash_bytes
-
 logger = logging.getLogger(__name__)
 
 # Snap-Clients pro KAMERA (Schlüssel host:api_port), NICHT pro Source:
@@ -201,9 +198,8 @@ async def snap_pair(
     """Wide- und Zoom-Objektiv FRISCH und parallel snappen. Jedes Bild
     bekommt den Zeitstempel seines Eingangs bei AIfred (die Kamera liefert
     weder EXIF noch Millisekunden, nur ein sekundengenaues HTTP-Date).
-    Returnt ``(wide_frame, zoom_frame)``. Zeigt das Tele praktisch dieselbe
-    Szene wie das Weitwinkel (pHash-Abstand), ist der Zoom dasselbe Objekt wie
-    der Wide — es entsteht kein zweites, gleiches Bild.
+    Returnt ``(wide_frame, zoom_frame)``. Beide Linsen bleiben immer eigene
+    Bilder, auch wenn sie sich ähneln — im Zoom soll das Detail erkennbar sein.
 
     Schlägt der Wide-Snap fehl, bleibt ``fallback`` (mit Warnung) als Wide
     erhalten; ohne ``face_channel`` oder bei fehlgeschlagenem Zoom-Snap ist
@@ -245,16 +241,6 @@ async def snap_pair(
                 metadata={"kind": "rgb", "via": "snap",
                           "lens": "zoom", "face_channel": face_channel},
             )
-    if zoom_frame is not wide_frame and wide_frame is not fallback:
-        distance = await asyncio.to_thread(
-            lambda: hamming_distance(
-                phash_bytes(wide_frame.image_bytes), phash_bytes(zoom_frame.image_bytes),
-            ),
-        )
-        if distance <= VISION_SAME_SCENE_MAX_HAMMING:
-            # Tele nicht herangezoomt: dieselbe Szene noch einmal. Wie "kein
-            # Tele" behandeln — die Pipeline kennt ``zoom is wide`` schon.
-            zoom_frame = wide_frame
     return wide_frame, zoom_frame
 
 
