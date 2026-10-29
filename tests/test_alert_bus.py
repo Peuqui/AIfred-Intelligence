@@ -182,3 +182,40 @@ class TestLoadRules:
         import aifred.lib.alert_bus as ab
         self._write(monkeypatch, tmp_path, "{ not json")
         assert ab.load_rules() == []
+
+
+class TestSinkMedia:
+    """Burst-Bilanzen: ein Bild, das das Vorkommnis schon gezeigt hat, geht an die
+    Kanäle nicht noch einmal (Telegram sendete es sonst bei jeder Zwischenbilanz erneut)."""
+
+    def _deliver_once(self, monkeypatch, ev: AlertEvent) -> dict[str, Any]:
+        import aifred.lib.message_processor as mp
+        from aifred.lib.alert_bus import _default_deliver
+        from aifred.lib.routing_table import routing_table
+
+        sent: dict[str, Any] = {}
+
+        async def fake_announce(channel, recipient, text, *, session_id=None, media=None, metadata=None):
+            sent.update(channel=channel, media=media, metadata=metadata or {})
+            return True
+
+        monkeypatch.setattr(mp, "announce_to_channel", fake_announce)
+        monkeypatch.setattr(mp, "resolve_announce_targets", lambda channel, target: ["1"])
+        monkeypatch.setattr(mp, "record_autonomous_turn", lambda *a, **k: None)
+        monkeypatch.setattr(routing_table, "get_route", lambda *a, **k: None)
+        rule = AlertRule(producer="vision", sinks=["telegram:1"], rule_id="r")
+        asyncio.run(_default_deliver(ev, rule))
+        return sent
+
+    def test_new_media_goes_to_the_channel_with_its_context(self, monkeypatch):
+        ev = _ev(media="/x/zoom.jpg", media_context="/x/wide.jpg")
+        sent = self._deliver_once(monkeypatch, ev)
+        assert sent["media"] == "/x/zoom.jpg"
+        assert sent["metadata"]["media_context"] == "/x/wide.jpg"
+
+    def test_repeated_media_goes_out_as_text_only(self, monkeypatch):
+        ev = _ev(media="/x/zoom.jpg", media_context="/x/wide.jpg", media_is_new=False)
+        sent = self._deliver_once(monkeypatch, ev)
+        assert sent["media"] is None
+        assert "media_context" not in sent["metadata"]
+        assert ev.media == "/x/zoom.jpg"  # das VLM bekommt sein Bild weiterhin

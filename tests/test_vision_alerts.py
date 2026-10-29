@@ -110,6 +110,33 @@ def test_gallery_repeats_nothing_within_one_happening(monkeypatch):
     assert disp.events[1].media_gallery == []
     # media bleibt unangetastet — das VLM braucht sein Bild.
     assert disp.events[1].media == "/x/zoom.jpg"
+    # …aber die Kanäle (Telegram-Album) bekommen es nur beim ersten Mal.
+    assert [e.media_is_new for e in disp.events] == [True, False]
+
+
+def test_media_is_new_again_when_the_best_frame_changes(monkeypatch):
+    disp = _dispatcher_with_urls(monkeypatch)
+    shown: set[str] = set()
+    for zoom in ("/x/zoom.jpg", "/x/zoom.jpg", "/x/zoom2.jpg"):
+        asyncio.run(va.emit_face_alert(
+            source_id="cam/door", event_type="face_unknown",
+            frame_path="/x/wide.jpg", zoom_frame_path=zoom,
+            cluster_id="cluster-1", count=1, timestamp=_TS, store=None,
+            shown_media=shown,
+        ))
+    # Weitwinkel schon gezeigt, aber ein neues Zoom-Bild → neu.
+    assert [e.media_is_new for e in disp.events] == [True, False, True]
+
+
+def test_media_is_always_new_without_shown_media(monkeypatch):
+    disp = _dispatcher_with_urls(monkeypatch)
+    for _ in range(2):
+        asyncio.run(va.emit_face_alert(
+            source_id="cam/door", event_type="face_unknown",
+            frame_path="/x/wide.jpg", cluster_id="c", count=1,
+            timestamp=_TS, store=None,
+        ))
+    assert [e.media_is_new for e in disp.events] == [True, True]
 
 
 def test_gallery_still_shows_what_is_new(monkeypatch):

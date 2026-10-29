@@ -233,9 +233,12 @@ async def _emit(
             else None
         )
         gallery: list[str] = []
+        frame_urls: list[str] = []
         for p in (frame_path, zoom_frame_path):
             if p:
                 u = get_image_url(_Path(p))
+                if u:
+                    frame_urls.append(u)
                 if u and u not in gallery:
                     gallery.append(u)
         # Ausschnitte: der des besten Gesichts zuerst, dann die der übrigen
@@ -250,6 +253,13 @@ async def _emit(
         # Nur NEUES zeigen (siehe ``shown_media`` im Docstring). Bleibt nichts
         # übrig, geht die Bubble ohne Bild raus — ihr Text ist das neue
         # Kapitel, die Bilder dazu stehen schon darüber im selben Chat.
+        # Dasselbe gilt für das Einzelbild/Album der Kanäle (Telegram): zeigt die
+        # Meldung weder Weitwinkel noch Zoom neu, geht sie dort nur als Text raus.
+        media_is_new = (
+            shown_media is None
+            or not frame_urls
+            or any(u not in shown_media for u in frame_urls)
+        )
         if shown_media is not None:
             gallery = [u for u in gallery if u not in shown_media]
             shown_media.update(gallery)
@@ -265,6 +275,7 @@ async def _emit(
             dedup_key=dedup_key,
             media=primary or None,
             media_context=context,
+            media_is_new=media_is_new,
             media_gallery=gallery,
             timestamp=timestamp,
             metadata=metadata or {},

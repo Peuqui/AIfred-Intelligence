@@ -45,6 +45,10 @@ class AlertEvent:
     # same moment. The VLM describes ``media`` (subject) + ``media_context``
     # (scene) together. None when there is only one view.
     media_context: str | None = None
+    # False = ``media``/``media_context`` hat dasselbe Vorkommnis in einer früheren Meldung schon
+    # gezeigt (Burst-Bilanzen). Einzelbild-/Album-Kanäle (Telegram, E-Mail) senden dann nur Text;
+    # das VLM bekommt sein Bild trotzdem — es braucht es zum Beschreiben.
+    media_is_new: bool = True
     # Additional image URLs for the browser session (e.g. wide + zoom + crop).
     # ``media`` is the subject view; this is the full gallery shown in chat.
     media_gallery: list[str] = field(default_factory=list)
@@ -439,7 +443,8 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     # Dual-Lens: Weitwinkel-Kontext desselben Moments — Kanäle, die mehrere
     # Bilder können (Telegram-Album), hängen ihn mit an; andere ignorieren
     # das Feld stillschweigend (gleiches Muster wie audio_type).
-    if ev.media_context:
+    sink_media = ev.media if ev.media_is_new else None
+    if ev.media_context and ev.media_is_new:
         sink_metadata["media_context"] = ev.media_context
 
     # Sink-Format: "channel" oder "channel:ziel". ziel ist kanalspezifisch —
@@ -458,7 +463,7 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         for recipient in recipients:
             if await announce_to_channel(
                 channel, recipient, text, session_id=alert_session_id,
-                media=ev.media, metadata=sink_metadata,
+                media=sink_media, metadata=sink_metadata,
             ):
                 channel_ok = True
 
