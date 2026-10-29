@@ -24,7 +24,6 @@ import threading
 import time
 from abc import ABC, abstractmethod
 from dataclasses import asdict, dataclass
-from typing import Optional
 
 import httpx
 from cryptography.fernet import Fernet
@@ -116,7 +115,7 @@ class OAuthBroker:
         return self._providers[provider_name].get_auth_url(scopes, redirect_uri, state)
 
     async def handle_callback(
-        self, state: str, code: str, expected_provider: Optional[str] = None
+        self, state: str, code: str, expected_provider: str | None = None
     ) -> str:
         """Exchange authorization code for tokens.  Returns provider name.
 
@@ -300,7 +299,7 @@ def _save_all_tokens(tokens: dict[str, TokenSet]) -> None:
             pass
 
 
-def _load_token(provider_name: str) -> Optional[TokenSet]:
+def _load_token(provider_name: str) -> TokenSet | None:
     return _load_all_tokens().get(provider_name)
 
 

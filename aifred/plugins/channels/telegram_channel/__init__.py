@@ -38,7 +38,7 @@ _MAX_MESSAGE_LENGTH = 4096
 # because the PTB handler loop and the hub's send_reply run concurrently.
 _MSGLOG_CAP = 500  # per chat — older ids are past the 48h limit anyway
 _msglog_lock = threading.Lock()
-_MSGLOG_FILE: "pathlib.Path | None" = None
+_MSGLOG_FILE: pathlib.Path | None = None
 
 
 def _msglog_file() -> pathlib.Path:
@@ -63,7 +63,7 @@ def _msglog_load() -> dict[str, list[int]]:
     return data if isinstance(data, dict) else {}
 
 
-def _msglog_add(chat_id: "str | int", *message_ids: int) -> None:
+def _msglog_add(chat_id: str | int, *message_ids: int) -> None:
     """Track message ids for a chat (bounded to _MSGLOG_CAP per chat)."""
     if not message_ids:
         return
@@ -75,7 +75,7 @@ def _msglog_add(chat_id: "str | int", *message_ids: int) -> None:
         _msglog_file().write_text(json.dumps(log))
 
 
-def _msglog_take(chat_id: "str | int") -> list[int]:
+def _msglog_take(chat_id: str | int) -> list[int]:
     """Return and remove all tracked ids for a chat."""
     with _msglog_lock:
         log = _msglog_load()
@@ -274,8 +274,8 @@ class TelegramChannel(BaseChannel):
         return {"text": md_to_plain(text)}
 
     async def _deliver(
-        self, bot, chat_id: int, text: str, media: "str | None",
-        media_context: "str | None" = None,
+        self, bot, chat_id: int, text: str, media: str | None,
+        media_context: str | None = None,
     ) -> list[int]:
         """SSOT for the actual Telegram send: attachment+caption when ``media``
         is set (photo for images, document otherwise), else chunked text. Used
@@ -361,7 +361,7 @@ class TelegramChannel(BaseChannel):
         _msglog_add(chat_id, *sent_ids)
         return sent_ids
 
-    async def send_reply(self, outbound: "OutboundMessage", original: "InboundMessage") -> None:
+    async def send_reply(self, outbound: OutboundMessage, original: InboundMessage) -> None:
         """Send a reply via Telegram Bot API. If ``outbound.media`` is set
         (local path or URL), send it as a photo with the text as caption;
         otherwise plain text."""
@@ -385,7 +385,7 @@ class TelegramChannel(BaseChannel):
 
     # ── Context ───────────────────────────────────────────────
 
-    def build_context(self, message: "InboundMessage") -> str:
+    def build_context(self, message: InboundMessage) -> str:
         """Prepare Telegram message for LLM with sender context."""
         from ....lib.prompt_loader import load_prompt
         return load_prompt(
@@ -396,7 +396,7 @@ class TelegramChannel(BaseChannel):
 
     # ── Tools ─────────────────────────────────────────────────
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Provide telegram_send tool for LLM function calling."""
         from ....lib.function_calling import Tool
         from ....lib.security import TIER_COMMUNICATE, sanitize_outbound
@@ -473,12 +473,12 @@ class TelegramChannel(BaseChannel):
 
 # ── Helpers ──────────────────────────────────────────────────
 
-def _photo_url(media: "str | None") -> "str | None":
+def _photo_url(media: str | None) -> str | None:
     """``media`` if it is an http(s) URL Telegram can fetch, else None."""
     return media if media and media.startswith(("http://", "https://")) else None
 
 
-def _owner_chat_id() -> "int | None":
+def _owner_chat_id() -> int | None:
     """The owner's chat id — Konvention lebt in der lib-SSOT
     security.first_allowlist_entry. Default target for telegram_send when
     the model doesn't know a chat id ("schick mir das per Telegram").
@@ -496,7 +496,7 @@ def _is_user_allowed(user_id: int) -> bool:
     return is_sender_allowed("telegram", "allowed_users", user_id)
 
 
-def _build_inbound(update: "Update") -> "InboundMessage":
+def _build_inbound(update: Update) -> InboundMessage:
     """Convert a Telegram Update to InboundMessage."""
     from ....lib.envelope import InboundMessage
 

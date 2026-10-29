@@ -13,7 +13,8 @@ Does NOT contain TTS streaming/generation logic (see _tts_streaming_mixin.py).
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Callable, Dict, List
+from collections.abc import Callable
+from typing import Any
 
 import reflex as rx
 
@@ -42,7 +43,7 @@ def _planned_engine(model_id: str) -> str | None:
         return None
 
 
-def _entry_at(entries: List[Dict[str, Any]], index: int) -> Dict[str, Any]:
+def _entry_at(entries: list[dict[str, Any]], index: int) -> dict[str, Any]:
     if not 0 <= index < len(entries):
         raise ValueError(f"the list has no entry at position {index} (it changed, reload the page)")
     return entries[index]
@@ -57,14 +58,14 @@ class TTSConfigMixin(rx.State, mixin=True):
     tts_playback_rate: str = "1.0x"  # Browser playback rate (1.0 = neutral, speed via Agent Settings)
     tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
     # Per agent, for every engine: {"enabled": bool, "language": "auto"|ISO code}
-    tts_agents: Dict[str, Dict[str, Any]] = {}
+    tts_agents: dict[str, dict[str, Any]] = {}
 
     # The list and the unit per engine live in settings.json; bumping this revision recomputes every var derived from them.
     tts_list_revision: int = 0
     tts_status_checking: bool = False
 
     # Narrator (narrate_file) voice PER ENGINE — voices are engine-bound.
-    narrator_voices: Dict[str, str] = {}
+    narrator_voices: dict[str, str] = {}
     narrator_voice_engine: str = TTS_DEFAULT_ENGINE  # Engine whose narrator voice the modal edits
     narrator_settings_open: bool = False
 
@@ -85,7 +86,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         deps=["tts_list_revision", "ui_language", "agent_tuning", "backend_type", "llamaswap_revision"],
         auto_deps=False,
     )
-    def tts_escalation_rows(self) -> List[Dict[str, Any]]:
+    def tts_escalation_rows(self) -> list[dict[str, Any]]:
         """One row per list entry, in order — what the menu shows. The list comes from the
         settings and is shown even while the service does not answer; then label, status
         and note are bare (``tts_service_error`` says why)."""
@@ -103,7 +104,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         except TTSSuiteError:
             service_down = True
             listed = tuple(stored_entries())
-        rows: List[Dict[str, Any]] = []
+        rows: list[dict[str, Any]] = []
         for index, entry in enumerate(listed):
             unavailable = entry.info is None and not service_down
             if unavailable:
@@ -186,7 +187,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         async for _ in self._apply_planned_tts():
             yield
 
-    async def _edit_tts_lists(self, change: Callable[[Dict[str, Any]], None]) -> List[Any]:
+    async def _edit_tts_lists(self, change: Callable[[dict[str, Any]], None]) -> list[Any]:
         """Match the list with the catalog, apply ``change`` to a copy of the persisted
         settings, check, save the complete result. Returns the events the handler yields: an error
         toast when nothing was saved (also while the service does not answer: the match needs the
@@ -194,8 +195,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         the planned engine moved."""
         import copy
 
-        from ..lib.settings import persisted_settings
         from ..lib.i18n import t
+        from ..lib.settings import persisted_settings
         from ..lib.toast import toast
         from ..lib.tts_client import TTSSuiteError
         from ..lib.tts_service import catalog, check_stored_settings, matched_list
@@ -218,7 +219,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         return [type(self).replan_tts] if after != before else []
 
     async def move_tts_entry(self, index: int, delta: int):
-        def change(settings: Dict[str, Any]) -> None:
+        def change(settings: dict[str, Any]) -> None:
             entries = settings["tts_escalation"]
             _entry_at(entries, index)
             target = index + delta
@@ -228,7 +229,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             yield event
 
     async def set_tts_entry_enabled(self, index: int, enabled: bool):
-        def change(settings: Dict[str, Any]) -> None:
+        def change(settings: dict[str, Any]) -> None:
             _entry_at(settings["tts_escalation"], index)["enabled"] = enabled
         for event in await self._edit_tts_lists(change):
             yield event
@@ -237,7 +238,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Speech unit of an engine (system-wide, every agent and channel)."""
         from ..lib.tts_client import SPEECH_UNITS
 
-        def change(settings: Dict[str, Any]) -> None:
+        def change(settings: dict[str, Any]) -> None:
             if unit not in SPEECH_UNITS:
                 raise ValueError(f"speech unit must be one of {SPEECH_UNITS}, got {unit!r}")
             settings.setdefault("tts_toggles_per_engine", {}).setdefault(engine_key, {})["unit"] = unit
@@ -280,10 +281,10 @@ class TTSConfigMixin(rx.State, mixin=True):
     # The editor configures each agent's voice per engine; whether that
     # engine speaks is the escalation list's decision.
     editor_tts_engine: str = TTS_DEFAULT_ENGINE
-    _editor_tts_settings: Dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ...}
+    _editor_tts_settings: dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ...}
 
     @rx.var(deps=["ui_language", "tts_list_revision"], auto_deps=False)
-    def tts_editor_engine_options(self) -> List[str]:
+    def tts_editor_engine_options(self) -> list[str]:
         """'Off' (agent muted) plus every usable engine."""
         from ..lib.i18n import tts_key_to_label
         from ..lib.tts_client import TTSSuiteUnreachable
@@ -308,7 +309,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             return unreachable_text(unreachable, _lang(self))
 
     @rx.var(deps=["editor_tts_engine", "_editor_tts_settings"], auto_deps=False)
-    def editor_tts_available_voices(self) -> List[str]:
+    def editor_tts_available_voices(self) -> list[str]:
         """Voices of the edited engine from the TTS service plus every voice already
         saved for it (the saved ones alone while the service does not answer)."""
         from ..lib.settings import persisted_settings
@@ -349,7 +350,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         return TTS_LANGUAGE_CODE_TO_LABEL.get(code, "Auto")
 
     @rx.var(auto_deps=False)
-    def tts_language_labels(self) -> List[str]:
+    def tts_language_labels(self) -> list[str]:
         """Static list of labels for the agent-editor language dropdown."""
         from ..lib.config import TTS_LANGUAGE_LABELS
         return TTS_LANGUAGE_LABELS
@@ -424,7 +425,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         return is_plugin_enabled("narrator")
 
     @rx.var(deps=["ui_language", "tts_list_revision"], auto_deps=False)
-    def narrator_engine_options(self) -> List[str]:
+    def narrator_engine_options(self) -> list[str]:
         """Engines whose narrator voice can be set (usable here or on a list host)."""
         from ..lib.i18n import tts_key_to_label
         from ..lib.tts_client import TTSSuiteUnreachable
@@ -445,7 +446,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             return unreachable_text(unreachable, _lang(self))
 
     @rx.var(deps=["narrator_voice_engine"], auto_deps=False)
-    def narrator_voice_options(self) -> List[str]:
+    def narrator_voice_options(self) -> list[str]:
         """The edited engine's voices from the TTS service (none while it does not answer)."""
         from ..lib.tts_client import TTSSuiteUnreachable
         from ..lib.tts_service import voice_names

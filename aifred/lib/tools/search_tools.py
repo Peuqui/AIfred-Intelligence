@@ -9,7 +9,6 @@ import httpx
 import requests
 import logging
 import os
-from typing import Dict, List, Optional
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .base import BaseTool, RateLimitError, APIKeyMissingError
@@ -52,7 +51,7 @@ class BraveSearchTool(BaseTool):
     - API Key: https://brave.com/search/api/
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         super().__init__()
         self.name = "Brave Search"
         self.description = "Brave Search API (Primary)"
@@ -60,7 +59,7 @@ class BraveSearchTool(BaseTool):
         self.api_url = "https://api.search.brave.com/res/v1/web/search"
         self.min_call_interval = 1.0
 
-    def execute(self, query: str, **kwargs) -> Dict:
+    def execute(self, query: str, **kwargs) -> dict:
         """
         Execute Brave Search
 
@@ -158,7 +157,7 @@ class TavilySearchTool(BaseTool):
     - API Key: https://www.tavily.com/
     """
 
-    def __init__(self, api_key: Optional[str] = None):
+    def __init__(self, api_key: str | None = None):
         super().__init__()
         self.name = "Tavily AI"
         self.description = "Tavily AI Search (RAG-optimiert)"
@@ -166,7 +165,7 @@ class TavilySearchTool(BaseTool):
         self.api_url = "https://api.tavily.com/search"
         self.min_call_interval = 1.0
 
-    def execute(self, query: str, **kwargs) -> Dict:
+    def execute(self, query: str, **kwargs) -> dict:
         """Execute Tavily Search"""
         if not self.api_key:
             raise APIKeyMissingError("Tavily API Key missing! Set TAVILY_API_KEY env variable.")
@@ -263,7 +262,7 @@ class SearXNGSearchTool(BaseTool):
         self.base_url = base_url.rstrip('/')
         self.min_call_interval = 0.5  # Local, can be faster
 
-    def execute(self, query: str, **kwargs) -> Dict:
+    def execute(self, query: str, **kwargs) -> dict:
         """Execute SearXNG Search"""
         self._rate_limit_check()
 
@@ -340,8 +339,8 @@ class MultiAPISearchTool(BaseTool):
     """
 
     def __init__(self,
-                 brave_key: Optional[str] = None,
-                 tavily_key: Optional[str] = None,
+                 brave_key: str | None = None,
+                 tavily_key: str | None = None,
                  searxng_url: str = "http://localhost:8888"):
         super().__init__()
         self.name = "Multi-API Search"
@@ -354,7 +353,7 @@ class MultiAPISearchTool(BaseTool):
         # unlimited source — and because AIfred re-ranks + scrapes URLs
         # itself, Tavily's pre-filtered snippets aren't worth more than
         # SearXNG's broader meta-search aggregation.
-        self.apis: List[BaseTool] = []
+        self.apis: list[BaseTool] = []
 
         # SearXNG (Primary) - Self-hosted, unlimited, private
         self.apis.append(SearXNGSearchTool(searxng_url))
@@ -377,7 +376,7 @@ class MultiAPISearchTool(BaseTool):
                 logger.warning(f"⚠️ Brave Search API could not be initialized: {e}")
 
     @staticmethod
-    def _outcome_kind(result: Dict) -> str:
+    def _outcome_kind(result: dict) -> str:
         """Classify a single API result dict for the network-vs-empty decision:
         'urls' (usable hits), 'empty' (server answered but 0 results),
         'network' (request never reached a server), or 'http' (server error).
@@ -388,7 +387,7 @@ class MultiAPISearchTool(BaseTool):
             return "empty"  # reached server, just no hits
         return str(result.get("error_type", "http"))  # 'network' or 'http'
 
-    def execute(self, query: str, **kwargs) -> Dict:
+    def execute(self, query: str, **kwargs) -> dict:
         """
         Execute search in PARALLEL - collect URLs from ALL APIs!
 
@@ -496,7 +495,7 @@ class MultiAPISearchTool(BaseTool):
             }
         }
 
-    def execute_multi_query(self, queries: List[str], **kwargs) -> Dict:
+    def execute_multi_query(self, queries: list[str], **kwargs) -> dict:
         """
         Distribute multiple queries across available APIs (1:1 mapping)
 

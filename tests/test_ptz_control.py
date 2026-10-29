@@ -8,7 +8,7 @@ import asyncio
 import pytest
 
 from aifred.lib import ptz_control
-from aifred.lib.ptz_control import DIRECTIONS, PTZError, PtzDriver, get_controller
+from aifred.lib.ptz_control import DIRECTIONS, PtzDriver, PTZError, get_controller
 from aifred.lib.reolink_ai import ReolinkAIError
 
 SOURCE = "cam/rtsp_test"

@@ -8,7 +8,7 @@ darf :mod:`flow` NICHT importieren.
 
 from __future__ import annotations
 
-from typing import AsyncIterator, Optional
+from collections.abc import AsyncIterator
 
 from ..config import (
     LLAMACPP_CALIBRATION_PRECISION,
@@ -37,7 +37,7 @@ from .split_refine import (
     _refine_split_from_measurement,
     _shift_one_layer_blind,
 )
-from .types import Budget, Candidate, GPU, Model, Result
+from .types import GPU, Budget, Candidate, Model, Result
 from .verifier import VerifyResult, verify
 
 
@@ -55,11 +55,11 @@ class _CtxSearchResult:
     """Sentinel yielded as the LAST item of :func:`_binary_search_fitting_ctx`
     so the caller can pull the outcome plus the running counters back out of
     the extracted search."""
-    __slots__ = ("best_r", "best_ctx", "iteration", "thinks_seen")
+    __slots__ = ("best_ctx", "best_r", "iteration", "thinks_seen")
 
     def __init__(
         self,
-        best_r: "VerifyResult | None",
+        best_r: VerifyResult | None,
         best_ctx: int,
         iteration: int,
         thinks_seen: bool | None,
@@ -85,7 +85,7 @@ async def _load_and_cache(
     port: int,
     gpus: list[GPU],
     budget: Budget,
-    env: Optional[dict[str, str]],
+    env: dict[str, str] | None,
     probe_thinking: bool,
 ) -> VerifyResult:
     """Physically probe ``(split, ctx)`` and record the result in
@@ -260,7 +260,7 @@ async def _binary_search_fitting_ctx(
     budget: Budget,
     full_cmd: str,
     port: int,
-    env: Optional[dict[str, str]],
+    env: dict[str, str] | None,
     probe_thinking: bool,
     thinks_seen: bool | None,
     status_prefix: str,
@@ -420,11 +420,11 @@ async def _verify_and_refine(
     budget: Budget,
     full_cmd: str,
     port: int,
-    env: Optional[dict[str, str]],
+    env: dict[str, str] | None,
     probe_thinking: bool,
     status_prefix: str,
     lock_active_gpus: bool = False,
-    ctx_ceiling: Optional[int] = None,
+    ctx_ceiling: int | None = None,
     lock_split: bool = False,
 ):
     """Verify ``candidate``; refine split and context from measured VRAM.

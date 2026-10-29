@@ -6,13 +6,12 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
+from aifred.lib.tools.scraper_tool import WebScraperTool
 from aifred.plugins.tools.google_suite.drive._api import escape_drive_term
 from aifred.plugins.tools.google_suite.drive.tools import (
     _DRIVE_QUERY_OPERATOR,
     _read_capped,
 )
-from aifred.lib.tools.scraper_tool import WebScraperTool
-
 
 # ── Drive: Query-Escape ───────────────────────────────────────
 

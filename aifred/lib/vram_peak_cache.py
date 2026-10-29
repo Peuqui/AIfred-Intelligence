@@ -12,7 +12,7 @@ import json
 import logging
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -63,7 +63,7 @@ class JsonPeakCache:
         self._cache = data
         self._mtime = self._file.stat().st_mtime
 
-    def get_entry(self, key: str) -> Optional[dict[str, Any]]:
+    def get_entry(self, key: str) -> dict[str, Any] | None:
         """Return the raw entry dict for ``key`` — or ``None`` on miss."""
         with self._lock:
             data = self._load()

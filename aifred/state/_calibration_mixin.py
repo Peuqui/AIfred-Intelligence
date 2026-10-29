@@ -1269,16 +1269,16 @@ class CalibrationMixin(rx.State, mixin=True):
         vlm_label: str,
         vlm_u: str,
         vlm_mb: int,
-        tts_uuid: "str | None",
+        tts_uuid: str | None,
         tts_reserve_mb: int,
-        tts_backend: "str | None",
-        gguf_path: "Path",
+        tts_backend: str | None,
+        gguf_path: Path,
         full_cmd: str,
-        speed_split: "tuple[float, ...]",
+        speed_split: tuple[float, ...],
         speed_ctx: int,
         speed_kv: str,
-        env: "dict[str, str] | None",
-        known_thinking: "bool | None",
+        env: dict[str, str] | None,
+        known_thinking: bool | None,
     ):
         """Re-project a VLM (or VLM×TTS) variant onto the fewer-GPU base-speed
         subset — the Speed flavour of the VLM variant.

@@ -41,7 +41,7 @@ class BrowserChannel(AudioOutputChannel):
     def can_handle(self, target_id: str) -> bool:
         return target_id == "browser" or target_id.startswith("browser:")
 
-    def list_targets(self, ctx: "PluginContext") -> list[TargetInfo]:
+    def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
         # Aktuell ist immer höchstens ein Browser-Tab pro Session aktiv;
         # Multi-Tab könnte später zusätzlich Tabs enthalten.
         device = getattr(ctx, "session_id", "") or "default"
@@ -55,10 +55,10 @@ class BrowserChannel(AudioOutputChannel):
 
     async def play(
         self,
-        src: "ResolvedSource",
+        src: ResolvedSource,
         target_id: str,
         start_pos_sec: float | None,
-        ctx: "PluginContext",
+        ctx: PluginContext,
     ) -> dict[str, Any]:
         from ..api import browser_push
 
@@ -112,7 +112,7 @@ class BrowserChannel(AudioOutputChannel):
             "resumed_at_sec": seek_to,
         }
 
-    async def pause(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         from ..api import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
@@ -136,7 +136,7 @@ class BrowserChannel(AudioOutputChannel):
             browser_push(session_id, "pause", "")
         return True
 
-    async def resume(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def resume(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         from ..api import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
@@ -156,7 +156,7 @@ class BrowserChannel(AudioOutputChannel):
             browser_push(session_id, "resume", "")
         return True
 
-    async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         from ..api import browser_push
 
         state = getattr(ctx, "state", None) if ctx else None
@@ -193,7 +193,7 @@ class BrowserChannel(AudioOutputChannel):
         target_id: str,
         position_sec: float,
         relative: bool = False,
-        ctx: "PluginContext | None" = None,
+        ctx: PluginContext | None = None,
     ) -> bool:
         from ..api import browser_push
 
@@ -216,7 +216,7 @@ class BrowserChannel(AudioOutputChannel):
         return True
 
     async def set_speed(
-        self, target_id: str, factor: float, ctx: "PluginContext | None" = None
+        self, target_id: str, factor: float, ctx: PluginContext | None = None
     ) -> bool:
         from ..api import browser_push
 
@@ -240,7 +240,7 @@ class BrowserChannel(AudioOutputChannel):
         self,
         items: list[dict[str, str]],
         target_id: str,
-        ctx: "PluginContext",
+        ctx: PluginContext,
         audio_type: str = "music",
         shuffle: bool = False,
     ) -> dict[str, Any]:
@@ -256,6 +256,7 @@ class BrowserChannel(AudioOutputChannel):
         ``state_key`` zur API-URL.
         """
         import random
+
         from ..api import browser_push
 
         if not items:
@@ -310,7 +311,7 @@ class BrowserChannel(AudioOutputChannel):
             "first": {"state_key": first_key, "uri": first_url},
         }
 
-    async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:
+    async def status(self, target_id: str, ctx: PluginContext | None = None) -> dict[str, Any]:
         state = getattr(ctx, "state", None) if ctx else None
         if state is None:
             return {"running": False, "playing": False, "paused": False}

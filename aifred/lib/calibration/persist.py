@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import AsyncIterator
 
 from ..formatting import format_number
 from ..model_vram_cache import add_llamacpp_calibration

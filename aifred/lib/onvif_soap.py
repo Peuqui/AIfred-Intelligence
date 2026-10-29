@@ -95,7 +95,7 @@ def envelope(
         '<s:Envelope xmlns:s="http://www.w3.org/2003/05/soap-envelope">'
         f"<s:Header>{addressing}{security_header(cred)}</s:Header>"
         f"<s:Body>{body}</s:Body></s:Envelope>"
-    ).encode("utf-8")
+    ).encode()
 
 
 def content_type(action: str) -> str:

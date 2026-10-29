@@ -15,7 +15,7 @@ import pytest
 from websockets.asyncio.server import ServerConnection, serve
 from websockets.exceptions import ConnectionClosed
 
-import aifred.lib.tts_client as tts_client
+from aifred.lib import tts_client
 from aifred.lib.tts_client import (
     ERROR_CLASSES,
     BadRequest,
@@ -27,8 +27,8 @@ from aifred.lib.tts_client import (
     NoEngineAvailable,
     Overloaded,
     StreamBroken,
-    TextTooLong,
     TextStream,
+    TextTooLong,
     TTSClient,
     TTSSuiteStartFailed,
     TTSSuiteUnreachable,

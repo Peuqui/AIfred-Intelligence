@@ -8,10 +8,10 @@ hartcodiertem ``localhost:8000`` (api/system.py).
 
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 
-def chroma_client(host: Optional[str] = None, port: Optional[int] = None) -> Any:
+def chroma_client(host: str | None = None, port: int | None = None) -> Any:
     """Verbundenen ChromaDB-HttpClient liefern (thread-safe, async-tauglich).
 
     ``host``/``port`` nur für explizite Overrides — ``None`` (Normalfall)

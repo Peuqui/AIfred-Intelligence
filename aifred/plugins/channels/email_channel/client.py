@@ -14,16 +14,15 @@ import imaplib
 import quopri
 import smtplib
 import ssl
-from datetime import datetime
 from dataclasses import dataclass, field
+from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
-from typing import Optional
 
-from .config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH, EMAIL_SENT_FOLDER_DEFAULT
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
+from .config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH, EMAIL_SENT_FOLDER_DEFAULT
 
 
 @dataclass
@@ -57,7 +56,7 @@ class EmailMessage:
 _IMAP_TIMEOUT_SECONDS = 30
 
 
-def _safe_decode(payload: bytes, charset: Optional[str]) -> str:
+def _safe_decode(payload: bytes, charset: str | None) -> str:
     """Decode bytes with a charset, tolerant of unknown/bogus charset names.
 
     ``bytes.decode(errors="replace")`` only replaces undecodable *bytes* — an
@@ -83,7 +82,7 @@ def _reject_imap_arg(value: str, field_name: str) -> str:
     return value
 
 
-def _decode_header(raw: Optional[str]) -> str:
+def _decode_header(raw: str | None) -> str:
     """Decode RFC2047 encoded header."""
     if not raw:
         return ""
@@ -133,7 +132,7 @@ def _get_attachments(msg: email.message.Message) -> list[str]:
     return attachments
 
 
-def _safe_parsedate(date_raw: str) -> Optional[datetime]:
+def _safe_parsedate(date_raw: str) -> datetime | None:
     """Parse an RFC 2822 Date header, tolerant of malformed values.
 
     ``parsedate_to_datetime`` raises on a broken Date header; a crafted mail
@@ -343,11 +342,11 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
     return results
 
 
-def _file_part(path: str, disposition: str, content_id: Optional[str] = None) -> email.message.Message:
+def _file_part(path: str, disposition: str, content_id: str | None = None) -> email.message.Message:
     """A MIME part for a local file; ``content_id`` makes it addressable as ``cid:``."""
     import mimetypes
-    from email.mime.base import MIMEBase
     from email import encoders as _encoders
+    from email.mime.base import MIMEBase
 
     ctype, _enc = mimetypes.guess_type(path)
     maintype, _, subtype = (ctype or "application/octet-stream").partition("/")
@@ -367,11 +366,11 @@ def send_email(
     to: str,
     subject: str,
     body: str,
-    reply_to_id: Optional[str] = None,
-    session_id: Optional[str] = None,
-    html: Optional[str] = None,
-    attachments: Optional[list[str]] = None,
-    inline_images: Optional[list[tuple[str, str]]] = None,
+    reply_to_id: str | None = None,
+    session_id: str | None = None,
+    html: str | None = None,
+    attachments: list[str] | None = None,
+    inline_images: list[tuple[str, str]] | None = None,
 ) -> str:
     """Send an email via SMTP. Returns confirmation string.
 

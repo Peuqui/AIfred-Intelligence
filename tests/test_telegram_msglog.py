@@ -34,10 +34,9 @@ class TestMsglog:
             assert tg._msglog_take("b") == [2]
 
     def test_cap_keeps_newest(self, tmp_path):
-        with _with_tmp_log(tmp_path):
-            with patch.object(tg, "_MSGLOG_CAP", 5):
-                tg._msglog_add("c", *range(1, 11))  # 1..10, Cap 5
-                assert tg._msglog_take("c") == [6, 7, 8, 9, 10]
+        with _with_tmp_log(tmp_path), patch.object(tg, "_MSGLOG_CAP", 5):
+            tg._msglog_add("c", *range(1, 11))  # 1..10, Cap 5
+            assert tg._msglog_take("c") == [6, 7, 8, 9, 10]
 
     def test_corrupt_file_returns_empty(self, tmp_path):
         with _with_tmp_log(tmp_path):

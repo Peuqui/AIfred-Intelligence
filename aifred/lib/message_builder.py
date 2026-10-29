@@ -5,18 +5,19 @@ Converts llm_history (List[Dict]) to Ollama Messages format.
 All LLM calls use llm_history exclusively (not chat_history).
 """
 
-from typing import Any, List, Dict, Optional, Sequence
+from collections.abc import Sequence
 from datetime import datetime
+from typing import Any
 
 from .prompt_loader import get_user_name
 
 
 def build_messages_from_llm_history(
-    llm_history: List[Dict[str, str]],
+    llm_history: list[dict[str, str]],
     current_user_text: str = "",
     perspective: str = "aifred",  # REQUIRED: "sokrates", "aifred", "salomo", "observer"
-    detected_language: Optional[str] = None  # Language from Intent Detection ("de" or "en")
-) -> List[Dict[str, str]]:
+    detected_language: str | None = None  # Language from Intent Detection ("de" or "en")
+) -> list[dict[str, str]]:
     """
     Build LLM messages directly from llm_history (v2.13.0+).
 
@@ -124,7 +125,7 @@ def build_messages_from_llm_history(
     if current_user_text:
         # Add personality reminder as prefix (v2.15.15+)
         # Reinforces agent's speech style in long conversations
-        from .prompt_loader import load_personality_reminder, get_language
+        from .prompt_loader import get_language, load_personality_reminder
 
         # Determine agent name: perspective if set, otherwise "aifred" (default)
         agent_name = perspective.lower() if perspective else "aifred"
@@ -153,7 +154,7 @@ def build_messages_from_llm_history(
 
 
 def inject_before_question(
-    messages: List[Dict[str, str]],
+    messages: list[dict[str, str]],
     content: str,
     position: int = -1
 ) -> None:
@@ -178,7 +179,7 @@ def inject_before_question(
 
 
 def inject_vision_json_context(
-    messages: List[Dict[str, str]],
+    messages: list[dict[str, str]],
     vision_json: dict,
     position: int = -1
 ) -> None:
@@ -218,8 +219,8 @@ def build_history_entry(
     agent: str,
     content: str,
     mode: str = "own_knowledge",
-    metadata: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Build a chat_history entry for an agent response.
 
     Single Source of Truth for the history dict format.
@@ -308,7 +309,7 @@ def image_marker(image_urls: Sequence[str]) -> str:
 
 def build_autonomous_history_entry(
     channel: str, text: str, image_urls: Sequence[str] = (), speaker: str | None = None,
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """llm_history entry for an event that came in on its own (e.g. a camera alert).
     Role ``assistant`` without an agent label: every perspective sees it as a
     labelled message from someone else, never as its own words or the user's.
@@ -323,7 +324,7 @@ def build_autonomous_history_entry(
 
 def build_llm_history_entry(
     agent: str, response_clean: str, history_notes: Sequence[str] = (),
-) -> Dict[str, str]:
+) -> dict[str, str]:
     """Build an llm_history entry with agent speaker tag.
 
     Single Source of Truth for the [Agent]: prefix format. Uses the

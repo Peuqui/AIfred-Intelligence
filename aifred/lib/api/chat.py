@@ -1,8 +1,9 @@
 """Chat endpoints: inject, status, clear, history, sessions, session config."""
 
+from typing import Any
+
 from fastapi import HTTPException
 from pydantic import BaseModel, Field
-from typing import Optional, Dict, Any, List
 
 from ..logging_utils import log_message
 from .app import api_app
@@ -21,8 +22,8 @@ class ChatInjectRequest(BaseModel):
 
 class ChatHistoryResponse(BaseModel):
     """Chat history response"""
-    chat_history: List[Dict[str, str]]  # [{user: "...", assistant: "..."}]
-    llm_history: List[Dict[str, str]]  # [{role: "user/assistant/system", content: "..."}]
+    chat_history: list[dict[str, str]]  # [{user: "...", assistant: "..."}]
+    llm_history: list[dict[str, str]]  # [{role: "user/assistant/system", content: "..."}]
     session_id: str = ""
 
 
@@ -52,13 +53,12 @@ async def inject_message(request: ChatInjectRequest):
     Requires session_id to identify the target browser session.
     Use GET /api/sessions to list available sessions.
     """
-    from ..session_storage import set_pending_message
-
     # Auth: inject läuft die volle Agenten-Pipeline (inkl. Tools) auf der
     # Ziel-Session — also hinter ein Token klemmen, fail-closed. Ohne
     # konfiguriertes Token ist der Endpoint deaktiviert (kein offener
     # Remote-Control-Zugang). Zentrale, konstant-zeitige Prüfung in lib/auth.
     from ..auth import require_service_token
+    from ..session_storage import set_pending_message
     require_service_token("inject", request.token)
 
     log_message(f"📨 API: Injecting message to {request.session_id[:8]}...")
@@ -66,6 +66,7 @@ async def inject_message(request: ChatInjectRequest):
     # The injected text acts as the user's own input; the header names who sent it
     # (same "[Channel] Sender" header as every other channel message from the user).
     from datetime import datetime
+
     from ..envelope import InboundMessage
     from ..message_processor import build_user_chat_content
     headed = build_user_chat_content(InboundMessage(
@@ -123,7 +124,7 @@ async def get_chat_status(session_id: str):
 
 class ChatClearRequest(BaseModel):
     """Chat clear request"""
-    session_id: Optional[str] = Field(None, description="Browser session session_id to clear")
+    session_id: str | None = Field(None, description="Browser session session_id to clear")
 
 
 @api_app.post("/chat/clear", response_model=SystemActionResponse, tags=["Chat"])
@@ -135,9 +136,7 @@ async def clear_chat(request: ChatClearRequest = ChatClearRequest(session_id=Non
     Otherwise clears the most recently modified session.
     The browser will auto-reload and show empty chat.
     """
-    from ..session_storage import (
-        update_chat_data, get_latest_session_file
-    )
+    from ..session_storage import get_latest_session_file, update_chat_data
 
     # Determine which session to clear
     session_id = request.session_id
@@ -182,7 +181,7 @@ class SessionInfo(BaseModel):
 
 class SessionsListResponse(BaseModel):
     """List of all sessions"""
-    sessions: List[SessionInfo]
+    sessions: list[SessionInfo]
 
 
 @api_app.get("/sessions", response_model=SessionsListResponse, tags=["Chat"])
@@ -202,7 +201,7 @@ async def list_all_sessions():
 
 
 @api_app.get("/chat/history", response_model=ChatHistoryResponse, tags=["Chat"])
-async def get_chat_history(session_id: Optional[str] = None):
+async def get_chat_history(session_id: str | None = None):
     """
     Get chat history for a session.
 
@@ -211,7 +210,7 @@ async def get_chat_history(session_id: Optional[str] = None):
 
     Returns both the UI-friendly chat_history and the LLM-optimized llm_history.
     """
-    from ..session_storage import load_session, get_latest_session_file
+    from ..session_storage import get_latest_session_file, load_session
 
     try:
         # Determine which session to load
@@ -273,15 +272,15 @@ class SessionConfigRequest(BaseModel):
     via mtime-watching on the session file.
     """
     session_id: str = Field(..., description="Session identifier")
-    active_agent: Optional[str] = Field(
+    active_agent: str | None = Field(
         None,
         description="Agent that responds to messages (e.g. 'aifred', 'sokrates', custom IDs)"
     )
-    multi_agent_mode: Optional[str] = Field(
+    multi_agent_mode: str | None = Field(
         None,
         description="Multi-agent mode: 'standard', 'sokrates', 'tribunal', 'symposion', 'critical_review', 'auto_consensus'"
     )
-    symposion_agents: Optional[List[str]] = Field(
+    symposion_agents: list[str] | None = Field(
         None,
         description="Selected agents for Symposion mode (list of agent IDs)"
     )
@@ -291,7 +290,7 @@ class SessionConfigResponse(BaseModel):
     """Session config response (reflects the current state after update)."""
     success: bool
     session_id: str
-    config: Dict[str, Any]
+    config: dict[str, Any]
 
 
 @api_app.post("/session/config", response_model=SessionConfigResponse, tags=["Chat"])
@@ -310,7 +309,7 @@ async def update_session_config_endpoint(request: SessionConfigRequest):
 
     Returns the full current config after the update.
     """
-    from ..session_storage import update_session_config, get_session_config
+    from ..session_storage import get_session_config, update_session_config
 
     updates = request.model_dump(exclude={"session_id"}, exclude_none=True)
     if not updates:

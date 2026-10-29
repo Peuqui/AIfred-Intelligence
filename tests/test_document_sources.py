@@ -8,7 +8,12 @@ from starlette.testclient import TestClient
 
 from aifred.lib import document_sources as ds
 from aifred.lib.api.app import api_app
-from aifred.lib.document_sources import DocumentSource, DocumentSourceError, SourceDownload, SourceEntry
+from aifred.lib.document_sources import (
+    DocumentSource,
+    DocumentSourceError,
+    SourceDownload,
+    SourceEntry,
+)
 
 
 class FakeSource:

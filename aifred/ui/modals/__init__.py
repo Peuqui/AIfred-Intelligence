@@ -13,14 +13,14 @@ from .credentials import channel_credentials_page
 from .bundles import bundle_export_modal, bundle_import_modal
 
 __all__ = [
-    "multi_agent_help_modal",
-    "reasoning_thinking_help_modal",
-    "model_lifecycle_help_modal",
-    "login_dialog",
-    "crop_modal",
-    "image_lightbox_modal",
-    "document_manager_page",
-    "channel_credentials_page",
     "bundle_export_modal",
     "bundle_import_modal",
+    "channel_credentials_page",
+    "crop_modal",
+    "document_manager_page",
+    "image_lightbox_modal",
+    "login_dialog",
+    "model_lifecycle_help_modal",
+    "multi_agent_help_modal",
+    "reasoning_thinking_help_modal",
 ]

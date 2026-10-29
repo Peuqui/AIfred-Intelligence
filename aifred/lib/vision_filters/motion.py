@@ -80,7 +80,7 @@ class MotionDetector:
         min_area_ratio: float = 0.01,
         warmup_frames: int = 10,
         return_mask: bool = False,
-        zone_mask: "ZoneMask | None" = None,
+        zone_mask: ZoneMask | None = None,
         ego_shift_px: float = 3.0,
     ) -> None:
         self._history = history
@@ -112,7 +112,7 @@ class MotionDetector:
         self._ego_shift_px = float(ego_shift_px)
         self._prev_small: np.ndarray | None = None
 
-    def set_zone_mask(self, zone_mask: "ZoneMask | None") -> None:
+    def set_zone_mask(self, zone_mask: ZoneMask | None) -> None:
         """Zonen-Maske zur Laufzeit austauschen (Live-Reload aus dem
         Editor), ohne den Background-Subtractor zurückzusetzen."""
         self._zone_mask = zone_mask
@@ -122,7 +122,7 @@ class MotionDetector:
         Settings), ohne den Background-Subtractor zurückzusetzen."""
         self._min_area_ratio = float(ratio)
 
-    def process(self, frame: "Frame") -> MotionResult:
+    def process(self, frame: Frame) -> MotionResult:
         """Apply background subtraction and report motion.
 
         Decodiert ``frame.image_bytes`` (JPEG) in ein cv2-Array und

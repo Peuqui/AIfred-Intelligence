@@ -16,7 +16,8 @@ import logging
 import os
 import re
 from pathlib import Path
-from typing import Any, Dict, Sequence
+from typing import Any
+from collections.abc import Sequence
 
 import yaml
 
@@ -155,7 +156,7 @@ def _ensure_in_group(config: dict, model_id: str, group_name: str = "main") -> N
 # cmd-string parsers (pure, no IO)
 # ═══════════════════════════════════════════════════════════════════
 
-def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
+def parse_llamaswap_config(config_path: Path) -> dict[str, dict]:
     """Parse llama-swap YAML and extract per-model info.
 
     Returns a dict ``{model_id: {...}}`` with fields used across aifred:
@@ -170,7 +171,7 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
     if not config.get("models"):
         return {}
 
-    result: Dict[str, Dict] = {}
+    result: dict[str, dict] = {}
     for model_id, entry in config["models"].items():
         cmd: str = entry.get("cmd", "") or ""
         if not cmd:
@@ -192,7 +193,7 @@ def parse_llamaswap_config(config_path: Path) -> Dict[str, Dict]:
                 return default
 
         env_list = entry.get("env", []) or []
-        env_dict: Dict[str, str] = {}
+        env_dict: dict[str, str] = {}
         for e in env_list:
             if isinstance(e, str) and "=" in e:
                 k, v = e.split("=", 1)
@@ -247,7 +248,7 @@ def speculative_predictor(cmd: str) -> str:
     return ""
 
 
-def entry_badges(model_id: str, info: Dict[str, Any]) -> list[str]:
+def entry_badges(model_id: str, info: dict[str, Any]) -> list[str]:
     """Display badges of one llama-swap entry, in dropdown order.
 
     A badge states what the entry name does not: the name carries the model's
@@ -291,7 +292,7 @@ def display_model_name(model_id: str, badges: Sequence[str]) -> str:
 
 
 def entry_gpu_uuids(
-    env: Dict[str, str], uuids_by_index: Sequence[str]
+    env: dict[str, str], uuids_by_index: Sequence[str]
 ) -> frozenset[str] | None:
     """The GPUs a llama-swap entry may touch, as UUIDs.
 
@@ -328,7 +329,7 @@ def entry_gpu_uuids(
     return frozenset(uuids)
 
 
-def ple_cascade_path(env: Dict[str, str]) -> str:
+def ple_cascade_path(env: dict[str, str]) -> str:
     """Die PLE-Stufen eines Eintrags als Pfad, z.B. ``PLE→Host→SSD``.
 
     Genannt werden nur die Stufen jenseits des VRAM der Rechenkarten, in der
@@ -351,7 +352,7 @@ def _positive(value: str) -> bool:
         return False
 
 
-def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
+def parse_sampling_from_cmd(cmd: str) -> dict[str, float]:
     """Extract sampling parameters (--temp, --top-k, etc.) from a cmd string."""
     flag_map = {
         "--temp": "temperature",
@@ -361,7 +362,7 @@ def parse_sampling_from_cmd(cmd: str) -> Dict[str, float]:
         "--repeat-penalty": "repeat_penalty",
     }
     parts = cmd.split()
-    out: Dict[str, float] = {}
+    out: dict[str, float] = {}
     for i, p in enumerate(parts):
         if p in flag_map and i + 1 < len(parts):
             try:

@@ -8,7 +8,12 @@ import httpx
 import pytest
 
 from aifred.lib.oauth import broker as broker_module
-from aifred.lib.oauth.broker import OAuthBroker, OAuthGrantRevoked, OAuthProvider, TokenSet
+from aifred.lib.oauth.broker import (
+    OAuthBroker,
+    OAuthGrantRevoked,
+    OAuthProvider,
+    TokenSet,
+)
 
 
 class _FakeProvider(OAuthProvider):

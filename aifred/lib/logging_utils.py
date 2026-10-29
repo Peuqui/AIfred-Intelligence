@@ -12,8 +12,8 @@ UNIFIED LOGGING SYSTEM:
 import os
 import time
 from datetime import datetime
-from typing import List
-from .config import CONSOLE_DEBUG_ENABLED, FILE_DEBUG_ENABLED, DATA_DIR
+
+from .config import CONSOLE_DEBUG_ENABLED, DATA_DIR, FILE_DEBUG_ENABLED
 
 # ============================================================
 # DEBUG-LOG-FILE Configuration
@@ -30,11 +30,12 @@ DEBUG_LOG_MAX_SIZE_MB = 1  # Max 1 MB, then rotate
 # ============================================================
 # CONSOLE STATE (for Reflex UI)
 # ============================================================
-_console_messages: List[str] = []  # Thread-safe list for Console-Output
+_console_messages: list[str] = []  # Thread-safe list for Console-Output
 MAX_CONSOLE_MESSAGES = 200
 
 # Queue for Thread-to-UI communication (Pipe!)
-import queue  # noqa: E402
+import queue
+
 _message_queue: queue.Queue = queue.Queue(maxsize=500)  # Thread-safe Pipe!
 
 

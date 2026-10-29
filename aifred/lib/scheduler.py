@@ -413,6 +413,7 @@ async def _execute_job(job: Job) -> None:
     """
     import secrets
     from datetime import datetime
+
     from .envelope import InboundMessage
     from .message_processor import process_inbound
 
@@ -596,6 +597,7 @@ def _deliver_review(job: Job, response_text: str, session_id: str) -> None:
 async def _deliver_webhook(job: Job, response_text: str) -> None:
     """POST result to an external URL."""
     import aiohttp
+
     from .security import UnsafeURLError, validate_external_url
 
     url = job.payload.get("webhook_url", "")

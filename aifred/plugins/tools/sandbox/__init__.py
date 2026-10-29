@@ -76,7 +76,7 @@ def _available_libraries() -> str:
     return "Python standard library plus " + ", ".join(available)
 
 
-def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
+def get_sandbox_tools(session_id: str | None = None) -> list[Tool]:
     """Create sandbox tools for LLM function calling.
 
     Returns three tools:
@@ -159,7 +159,7 @@ def get_sandbox_tools(session_id: Optional[str] = None) -> list[Tool]:
         return await _run(code, description, allow_write=True)
 
     async def _render_html(
-        html_url: str, wait_ms: int = 0, actions: Optional[list] = None,
+        html_url: str, wait_ms: int = 0, actions: list | None = None,
         vision_focus: str = "",
     ) -> str:
         from ....lib.browser_render import render_html_in_browser

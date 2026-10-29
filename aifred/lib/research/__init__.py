@@ -12,6 +12,6 @@ from .query_processor import process_query_and_search
 from .scraper_orchestrator import orchestrate_scraping
 
 __all__ = [
-    'process_query_and_search',
     'orchestrate_scraping',
+    'process_query_and_search',
 ]

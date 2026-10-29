@@ -176,7 +176,7 @@ class FreeEchoChannel(ConnectionMixin):
 
     # ── Tools ─────────────────────────────────────────────────
 
-    def get_tools(self, ctx: "PluginContext") -> list["Tool"]:
+    def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Stellt ``freeecho2_announce`` bereit: AIfred kann proaktiv eine
         gesprochene Ansage (Chime + TTS) auf einen oder alle verbundenen
         Pucks schicken. Läuft über denselben Queue-Pfad wie die Vision-
@@ -233,7 +233,7 @@ class FreeEchoChannel(ConnectionMixin):
 
     # ── Context ───────────────────────────────────────────────
 
-    def build_context(self, message: "InboundMessage") -> str:
+    def build_context(self, message: InboundMessage) -> str:
         """Format message for LLM context (preamble + transcribed text).
 
         message.text MUST be part of the context: since M3 the llm_history

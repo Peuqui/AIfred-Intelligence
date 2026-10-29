@@ -14,9 +14,10 @@ core only orchestrates. See docs/de/architecture/proactive-alerts.md.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -103,7 +104,7 @@ class AlertDispatcher:
         self,
         rules: list[AlertRule],
         *,
-        deliver: "DeliverFn | None" = None,
+        deliver: DeliverFn | None = None,
     ) -> None:
         from .config import ALERT_DEDUP_RETENTION_SEC
         self.rules = list(rules)
@@ -285,6 +286,7 @@ async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | Non
     ``extra_context``: optionale VLM-Bildbeschreibung, die AIfred als
     zusätzlichen Kontext mitbekommt (compose-Modus ``vlm+llm``)."""
     from datetime import datetime as _dt
+
     from .envelope import InboundMessage
     from .message_processor import process_inbound
 

@@ -7,7 +7,7 @@ einem Event-Handler zurückgeben oder per ``yield`` ausgeben.
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 import reflex as rx
 from reflex.event import EventSpec

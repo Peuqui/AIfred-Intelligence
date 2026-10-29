@@ -9,7 +9,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime
 from pathlib import Path
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import cv2
 import numpy as np

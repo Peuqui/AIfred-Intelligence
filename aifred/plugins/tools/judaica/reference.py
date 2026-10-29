@@ -24,9 +24,9 @@ import functools
 import json
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 from ....lib.config import DATA_DIR
+
 # Normalisierung + Alias-Flexibilisierung: lib-SSOT, geteilt mit bible
 # (Option-2-Entscheidung — nur diese Primitiva, Rest bleibt plugin-lokal).
 from ....lib.reference_lookup import flex_alias, normalize_name
@@ -110,13 +110,13 @@ class JudaicaReference:
     work_key: str
     work_name: str             # display name
     section: str               # section number (JSON keys are strings)
-    amud: Optional[str]        # 'a' / 'b' for Talmud Bavli daf, else None
-    entry_from: Optional[str]  # None = whole section
-    entry_to: Optional[str]    # None = single entry (or whole section)
+    amud: str | None        # 'a' / 'b' for Talmud Bavli daf, else None
+    entry_from: str | None  # None = whole section
+    entry_to: str | None    # None = single entry (or whole section)
     display: str               # human form, e.g. "Berakhot 3" or "Sanhedrin 97b"
 
 
-def parse_reference(text: str) -> Optional[JudaicaReference]:
+def parse_reference(text: str) -> JudaicaReference | None:
     """Extract the first Judaica reference from ``text``; None if none."""
     if not data_available():
         # Sichtbar degradieren (Projekt-Regel: keine stillen Fallbacks):
@@ -206,7 +206,7 @@ def lookup(ref: JudaicaReference) -> dict:
     }
 
 
-def resolve(text: str) -> Optional[dict]:
+def resolve(text: str) -> dict | None:
     """Parse a reference from ``text`` and look it up in one step.
 
     Returns the lookup result dict, or None if ``text`` contains no

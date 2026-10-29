@@ -17,11 +17,17 @@ from .config import (
     VISION_FACE_THRESHOLD_KNOWN,
     VISION_FACE_THRESHOLD_UNSURE,
 )
-from .vision_filters.face_detect import FaceDetection, FaceDetector, get_default_detector
+from .vision_filters.face_detect import (
+    FaceDetection,
+    FaceDetector,
+    get_default_detector,
+)
 from .vision_filters.face_recognize import FaceRecognizer
 from .vision_filters.person_detect import (
     PersonDetection,
     PersonDetector,
+)
+from .vision_filters.person_detect import (
     get_default_detector as get_default_person_detector,
 )
 from .vision_settings import load_vision_settings
@@ -77,22 +83,22 @@ class DetectionService:
             )
         return self._face_recognizer
 
-    async def detect_faces(self, frame: "Frame") -> list[FaceDetection]:
+    async def detect_faces(self, frame: Frame) -> list[FaceDetection]:
         return await asyncio.to_thread(self.face_detector.detect, frame)
 
     async def detect_faces_in_regions(
-        self, frame: "Frame", boxes: list[tuple[int, int, int, int]],
+        self, frame: Frame, boxes: list[tuple[int, int, int, int]],
     ) -> list[FaceDetection]:
         """Gesichtssuche im Ausschnitt jeder Box (z. B. der Personenboxen)."""
         return await asyncio.to_thread(
             self.face_detector.detect_in_regions, frame, boxes,
         )
 
-    async def detect_persons(self, frame: "Frame") -> list[PersonDetection]:
+    async def detect_persons(self, frame: Frame) -> list[PersonDetection]:
         return await asyncio.to_thread(self.person_detector.detect, frame)
 
     async def count_categories(
-        self, frame: "Frame", wanted: set[str],
+        self, frame: Frame, wanted: set[str],
     ) -> dict[str, int]:
         """YOLO-Zählung der Edge-AI-Klassen in EINER Inferenz: pro Kategorie
         die Anzahl (0 = nicht bestätigt). Dient als Gate (count > 0 =

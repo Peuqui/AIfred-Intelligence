@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .config import DATA_DIR
 from .logging_utils import log_message
@@ -55,7 +55,7 @@ class AudioManager:
     """Singleton mpv-IPC controller. Async-first."""
 
     def __init__(self) -> None:
-        self._proc: Optional[asyncio.subprocess.Process] = None
+        self._proc: asyncio.subprocess.Process | None = None
         self._ipc = MpvIpcClient(
             command_timeout_sec=COMMAND_TIMEOUT_SEC,
             error_factory=MpvError,
@@ -63,10 +63,10 @@ class AudioManager:
             read_error_log_level="error",
             on_eof=self._on_eof,
         )
-        self._position_task: Optional[asyncio.Task[None]] = None
+        self._position_task: asyncio.Task[None] | None = None
         self._lock = asyncio.Lock()
-        self._current_uri: Optional[str] = None
-        self._current_state_key: Optional[str] = None
+        self._current_uri: str | None = None
+        self._current_state_key: str | None = None
         self._save_interval: int = POSITION_SAVE_INTERVAL_SEC
 
     # ── Lifecycle ─────────────────────────────────────────
@@ -184,8 +184,8 @@ class AudioManager:
         self,
         uri: str,
         *,
-        state_key: Optional[str] = None,
-        start_pos_sec: Optional[float] = None,
+        state_key: str | None = None,
+        start_pos_sec: float | None = None,
     ) -> dict[str, Any]:
         """Load and start a URI (file path or HTTP URL).
 

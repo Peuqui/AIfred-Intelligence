@@ -25,7 +25,7 @@ import threading
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .config import DATA_DIR
 from .logging_utils import log_message
@@ -196,7 +196,7 @@ class AudioIndex:
                 return {}
             tags: dict[str, Any] = {}
 
-            def first(key: str) -> Optional[str]:
+            def first(key: str) -> str | None:
                 vals = m.get(key)
                 if not vals:
                     return None
@@ -235,7 +235,7 @@ class AudioIndex:
         self,
         source: str,
         root_path: str,
-        on_progress: Optional[Any] = None,
+        on_progress: Any | None = None,
         force: bool = False,
     ) -> ScanResult:
         """Walk root_path, update index incrementally.
@@ -413,7 +413,7 @@ class AudioIndex:
     def search(
         self,
         query: str,
-        source: Optional[str] = None,
+        source: str | None = None,
         limit: int | None = None,
     ) -> list[dict[str, Any]]:
         """FTS5 search ranked by BM25.
@@ -492,7 +492,7 @@ class AudioIndex:
             rows = conn.execute(sql, params).fetchall()
         return [dict(r) for r in rows]
 
-    def get_genre(self, source: str, rel_path: str) -> Optional[str]:
+    def get_genre(self, source: str, rel_path: str) -> str | None:
         """Quick lookup: read the indexed Genre tag for one item.
 
         Used by audio_type-resolution to derive music/speech/alarm from
@@ -563,6 +563,7 @@ async def sync_audio_index_task() -> None:
     (otherwise we'd kick off a multi-minute NAS scan unbidden at startup).
     """
     import asyncio as _asyncio
+
     from .audio_sources import build_source_map
     from .config import AUDIO_INDEX_SYNC_INTERVAL_HOURS, MEDIA_AUDIO_DIR
 

@@ -4,7 +4,11 @@ import pytest
 
 from aifred.lib import config, vision_routing, vision_utils, vision_vram_check
 from aifred.lib.calibration import llamaswap_io
-from aifred.lib.vision_routing import NoVisionModelError, camera_describer, chat_describer
+from aifred.lib.vision_routing import (
+    NoVisionModelError,
+    camera_describer,
+    chat_describer,
+)
 from aifred.lib.vision_vram_check import VRAMCheckResult
 
 MAIN = "Big-Text-Model"

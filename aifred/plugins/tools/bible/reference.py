@@ -32,9 +32,9 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Optional
 
 from ....lib.config import DATA_DIR
+
 # Normalisierung + Alias-Flexibilisierung: lib-SSOT, geteilt mit judaica
 # (Option-2-Entscheidung — nur diese Primitiva, Rest bleibt plugin-lokal).
 from ....lib.reference_lookup import flex_alias, normalize_name
@@ -65,7 +65,7 @@ def available_translations() -> list[str]:
     )
 
 
-def _active_bible_path() -> Optional[Path]:
+def _active_bible_path() -> Path | None:
     """The JSON file of the currently selected translation.
 
     The translation is the BIBLE_ROOT sub-folder named by the
@@ -191,12 +191,12 @@ class BibleReference:
     book_nr: int
     book_name: str       # canonical name, as the loaded JSON spells it
     chapter: int
-    verse_from: Optional[int]   # None = whole chapter
-    verse_to: Optional[int]     # None = single verse (or whole chapter)
+    verse_from: int | None   # None = whole chapter
+    verse_to: int | None     # None = single verse (or whole chapter)
     display: str         # human form, e.g. "Psalmen 5" or "Johannes 3,16"
 
 
-def parse_reference(text: str) -> Optional[BibleReference]:
+def parse_reference(text: str) -> BibleReference | None:
     """Extract the first scripture reference from ``text``; None if none."""
     if not data_available():
         # Gleiche Semantik wie judaica: sichtbar zur thematischen Suche
@@ -266,7 +266,7 @@ def lookup(ref: BibleReference) -> dict:
     }
 
 
-def resolve(text: str) -> Optional[dict]:
+def resolve(text: str) -> dict | None:
     """Parse a reference from ``text`` and look it up in one step.
 
     Returns the lookup result dict, or None if ``text`` contains no

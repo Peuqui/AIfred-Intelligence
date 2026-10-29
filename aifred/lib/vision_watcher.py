@@ -24,11 +24,12 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
 from threading import Lock
-from typing import TYPE_CHECKING, Callable
+from typing import TYPE_CHECKING
 
 from . import vision_snap
 from .config import DATA_DIR
@@ -67,12 +68,12 @@ class _Session:
 
     config: WatchConfig
     motion: MotionDetector
-    task: "asyncio.Task[None] | None" = None
+    task: asyncio.Task[None] | None = None
     # Abgekoppelter Motion-Handler: die Event-Verarbeitung (Face, YOLO, Alert)
     # läuft neben dem frame_consumer, der währenddessen lückenlos weiter
     # sampelt. Der Eintrag ist zugleich In-Flight-Schutz (max. ein Handler pro
     # Source) und die starke Referenz, die den Task vor dem GC schützt.
-    motion_task: "asyncio.Task[None] | None" = None
+    motion_task: asyncio.Task[None] | None = None
 
 
 class VisionWatcher:
@@ -225,7 +226,7 @@ class VisionWatcher:
 
     # ── Watch-Schleife ────────────────────────────────────────────
 
-    async def _watch_loop(self, source: "FrameSource", session: _Session) -> None:
+    async def _watch_loop(self, source: FrameSource, session: _Session) -> None:
         """Per-source watch loop: ein ``frame_consumer`` hält ``live`` aktuell
         (und fährt bei Kameras ohne Edge-AI die Motion-Detection), die Zyklen
         pullen sich jeweils das AKTUELL frischeste Frame — kein Frame-Backlog."""
@@ -260,7 +261,7 @@ class VisionWatcher:
                 pending.cancel()
 
     async def _frame_consumer(
-        self, source: "FrameSource", session: _Session, live: LiveFrames,
+        self, source: FrameSource, session: _Session, live: LiveFrames,
     ) -> None:
         source_id = source.source_id
         config = session.config
@@ -299,7 +300,7 @@ class VisionWatcher:
             )
 
     async def _run_motion_handler(
-        self, frame: "Frame", motion_result: MotionResult, config: WatchConfig,
+        self, frame: Frame, motion_result: MotionResult, config: WatchConfig,
     ) -> None:
         """Abgekoppelter Motion-Handler: fängt Fehler selbst, damit ein Crash in
         Face/YOLO/Alert nicht stumm im verworfenen Task-Objekt verschwindet."""
@@ -307,7 +308,7 @@ class VisionWatcher:
             await self._motion_handler.handle(frame, motion_result, config)
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("motion handler crashed for %s", frame.source_id)
 
     async def _vlm_cycle(
@@ -317,7 +318,7 @@ class VisionWatcher:
         async for frame in live.fresh_frames(config.vlm_cooldown_sec):
             try:
                 await self._vlm.describe(frame, is_current)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("continuous-VLM cycle error for %s", source_id)
 
     async def _face_cycle(
@@ -328,7 +329,7 @@ class VisionWatcher:
         async for frame in live.fresh_frames(config.min_event_interval_sec):
             try:
                 await self._motion_handler.handle_continuous_face(frame, config)
-            except Exception:  # noqa: BLE001
+            except Exception:
                 logger.exception("continuous face cycle error for %s", source_id)
 
     async def _edge_ai_cycle(

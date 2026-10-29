@@ -10,8 +10,9 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import Awaitable, Callable
 from http import HTTPStatus
-from typing import Any, Awaitable, Callable
+from typing import Any
 
 import websockets
 

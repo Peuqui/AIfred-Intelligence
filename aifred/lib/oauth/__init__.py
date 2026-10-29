@@ -21,4 +21,4 @@ from .google import GoogleProvider
 # Register built-in providers
 oauth_broker.register(GoogleProvider())
 
-__all__ = ["oauth_broker", "OAuthBroker", "OAuthProvider", "TokenSet", "GoogleProvider"]
+__all__ = ["GoogleProvider", "OAuthBroker", "OAuthProvider", "TokenSet", "oauth_broker"]

@@ -225,7 +225,7 @@ def _update_event_classification(
     """Direkt ins SQL — VisionStore.add_event ist append-only, wir
     brauchen ein UPDATE für classification."""
     import json
-    with store._conn() as conn:  # noqa: SLF001
+    with store._conn() as conn:
         conn.execute(
             "UPDATE events SET classification = ? WHERE id = ?",
             (json.dumps(classification), event_id),

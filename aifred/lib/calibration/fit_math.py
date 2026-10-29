@@ -16,8 +16,7 @@ from ..config import (
 )
 from .gpu import gpu_label
 from .optimizer import OptResult, fill_fastest_first
-from .types import Budget, Candidate, GPU, Model
-
+from .types import GPU, Budget, Candidate, Model
 
 # KV-quant levels in order of quality (higher = better, larger VRAM).
 # Q4 is intentionally excluded from the default sweep: it sacrifices
@@ -496,7 +495,9 @@ def _math_predicts_fit(
         # impossible — optimistically assume fit; the real probe decides.
         return (True, budget.safety_margin)
     from .optimizer import (
-        _per_gpu_coefficients, _predicted_free, first_gpu_handicap_mb,
+        _per_gpu_coefficients,
+        _predicted_free,
+        first_gpu_handicap_mb,
     )
     base, slope = _per_gpu_coefficients(
         candidate.vram_model, model.total_layers, model.size_mb,

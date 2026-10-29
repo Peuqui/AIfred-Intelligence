@@ -24,7 +24,7 @@ import secrets
 import time
 from hashlib import sha256
 
-from .config import DATA_DIR, AUTH_COOKIE_MAX_AGE_DAYS
+from .config import AUTH_COOKIE_MAX_AGE_DAYS, DATA_DIR
 from .credential_broker import broker
 
 logger = logging.getLogger(__name__)

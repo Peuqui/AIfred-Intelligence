@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 
 import aifred.lib.audio_channels as ac
+
 # Direkt das alert_queue-Modul, nicht das Paket: die Tests REBINDEN
 # fe._ws_loop, und run_on_ws_loop löst das Global zur Laufzeit in
 # alert_queue auf — ein Rebind am Paket-Re-Export käme dort nie an.

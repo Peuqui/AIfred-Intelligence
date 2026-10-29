@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 import pytest
 
-import aifred.lib.session_storage as session_storage
+from aifred.lib import session_storage
 from aifred.lib.envelope import InboundMessage
 
 
@@ -75,8 +75,8 @@ class TestConcurrentSessionWrites:
         """Hub response appends and debug-bus flushes hit the same file:
         both fields must survive intact (the debug flush re-writes
         chat_history from its own load, and vice versa)."""
-        from aifred.lib.message_processor import _append_response
         from aifred.lib.debug_bus import _flush_to_session
+        from aifred.lib.message_processor import _append_response
 
         sid = "b" * 32
         session_storage.create_empty_session(sid, owner="mp")

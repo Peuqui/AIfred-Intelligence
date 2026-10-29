@@ -9,8 +9,8 @@ existing state-mixin parsers keep working without change.
 from __future__ import annotations
 
 import logging
+from collections.abc import AsyncIterator
 from pathlib import Path
-from typing import AsyncIterator, Optional
 
 from ..config import (
     CALIBRATION_MIN_CONTEXT,
@@ -62,7 +62,7 @@ from .reporting import (
     _split_str,
     _track_failed_solo,
 )
-from .types import Budget, Candidate, GPU, Model, Result
+from .types import GPU, Budget, Candidate, Model, Result
 from .verifier import kill_orphan_on_port, verify
 
 logger = logging.getLogger(__name__)
@@ -74,13 +74,13 @@ async def calibrate_llamacpp_model(
     gguf_path: Path,
     full_cmd: str,
     port: int = LLAMACPP_CALIBRATION_PORT,
-    config_path: Optional[Path] = None,
+    config_path: Path | None = None,
     min_kv: str = "f16",
-    known_thinking: Optional[bool] = None,
-    env: Optional[dict[str, str]] = None,
-    tts_gpu_uuid: Optional[str] = None,
+    known_thinking: bool | None = None,
+    env: dict[str, str] | None = None,
+    tts_gpu_uuid: str | None = None,
     tts_gpu_extra_reserve_mb: int = 0,
-    vlm_gpu_uuid: Optional[str] = None,
+    vlm_gpu_uuid: str | None = None,
     vlm_gpu_extra_reserve_mb: int = 0,
 ) -> AsyncIterator[str]:
     """Calibrate one llama.cpp model end-to-end.
@@ -480,7 +480,7 @@ async def calibrate_llamacpp_model(
     thinks = final.thinks if known_thinking is None else known_thinking
 
     # ── Phase E: speed variant (fewer GPUs, fastest class only) ─────
-    speed_result: Optional[Result] = None
+    speed_result: Result | None = None
     if len(gpus) > 1 and final.num_gpus > 1:
         speed_pick = await _find_speed_candidate(
             model, gpus, budget, full_cmd, all_tried,
@@ -854,11 +854,11 @@ async def _try_ai_calibration(
     gguf_path: Path,
     safety_margin: int,
     port: int,
-    env: Optional[dict[str, str]],
+    env: dict[str, str] | None,
     model_size_mb: float,
     native_ctx: int,
     total_layers: int,
-    config_path: Optional[Path],
+    config_path: Path | None,
     gpus: list[GPU],
     reserve_mb: tuple[int, ...] = (),
 ) -> AsyncIterator[str]:
@@ -878,8 +878,8 @@ async def _try_ai_calibration(
     # we don't seed a ctx here — only the capacity-based tensor split.
     seed_split = parse_tensor_split(full_cmd)
 
-    ai_ctx: Optional[int] = None
-    ai_split: Optional[list[float]] = None
+    ai_ctx: int | None = None
+    ai_split: list[float] | None = None
 
     async for line in calibrate_with_ai(
         model_id=model_id,
@@ -998,9 +998,9 @@ async def _calibrate_hybrid(
     budget: Budget,
     full_cmd: str,
     port: int,
-    env: Optional[dict[str, str]],
-    known_thinking: Optional[bool],
-    config_path: Optional[Path],
+    env: dict[str, str] | None,
+    known_thinking: bool | None,
+    config_path: Path | None,
 ) -> AsyncIterator[str]:
     """Offload layers to CPU to free GPU VRAM for more context.
 
@@ -1155,14 +1155,14 @@ async def calibrate_tts_variant_from_base(
     base_split: tuple[float, ...],
     base_ctx: int,
     base_kv: str,
-    tts_gpu_uuid: Optional[str],
+    tts_gpu_uuid: str | None,
     port: int,
-    env: Optional[dict[str, str]] = None,
-    known_thinking: Optional[bool] = None,
+    env: dict[str, str] | None = None,
+    known_thinking: bool | None = None,
     tts_gpu_extra_reserve_mb: int = 0,
-    vlm_gpu_uuid: Optional[str] = None,
+    vlm_gpu_uuid: str | None = None,
     vlm_gpu_extra_reserve_mb: int = 0,
-    base_remaining_free: Optional[dict[str, int]] = None,
+    base_remaining_free: dict[str, int] | None = None,
 ) -> AsyncIterator[str]:
     """Derive a TTS variant from an already-calibrated base config.
 
@@ -1561,7 +1561,7 @@ async def calibrate_tts_variant_from_base(
 
 async def _ai_variant_from_base(
     *,
-    model: "Model",
+    model: Model,
     gguf_path: Path,
     full_cmd: str,
     gpus: list[GPU],
@@ -1569,10 +1569,10 @@ async def _ai_variant_from_base(
     base_split: tuple[float, ...],
     base_ctx: int,
     base_kv: str,
-    budget: "Budget",
+    budget: Budget,
     port: int,
-    env: Optional[dict[str, str]],
-    known_thinking: Optional[bool],
+    env: dict[str, str] | None,
+    known_thinking: bool | None,
     as_speed: bool = False,
 ) -> AsyncIterator[str]:
     """AI calibration of one variant cell, restricted to the active GPU set.
@@ -1617,8 +1617,8 @@ async def _ai_variant_from_base(
         "CUDA_VISIBLE_DEVICES": cuda_visible_devices(gpus_active),
     }
 
-    ai_ctx: Optional[int] = None
-    ai_split: Optional[list[float]] = None
+    ai_ctx: int | None = None
+    ai_split: list[float] | None = None
     async for line in calibrate_with_ai(
         model_id=model.model_id,
         full_cmd=full_cmd,

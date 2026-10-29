@@ -12,7 +12,6 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Optional
 
-
 from .config import (
     AGENT_MEMORY_COLLECTION_MAX,
     AGENT_MEMORY_DISTANCE_THRESHOLD,
@@ -444,12 +443,12 @@ async def prepare_agent_toolkit(
     lang: str = "de",
     memory_enabled: bool = True,
     research_tools_enabled: bool = True,
-    state: Optional[Any] = None,
-    session_id: Optional[str] = None,
-    llm_history: Optional[list] = None,
+    state: Any | None = None,
+    session_id: str | None = None,
+    llm_history: list | None = None,
     max_tier: int = 4,
     source: str = "browser",
-    metadata: Optional[dict] = None,
+    metadata: dict | None = None,
     trust: str = "external",
 ) -> tuple[str, Optional["ToolKit"]]:
     """Prepare combined toolkit (memory + research tools) for an agent.
@@ -539,10 +538,10 @@ async def prepare_agent_toolkit(
 
 
 # Singleton
-_instance: Optional[AgentMemory] = None
+_instance: AgentMemory | None = None
 
 
-def get_agent_memory() -> Optional[AgentMemory]:
+def get_agent_memory() -> AgentMemory | None:
     """Get the global AgentMemory instance. Returns None if ChromaDB unavailable."""
     global _instance
     if _instance is None:

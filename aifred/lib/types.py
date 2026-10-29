@@ -5,16 +5,17 @@ Usage:
     from aifred.lib.types import StreamChunk, ContentChunk, DoneChunk
 """
 
-from typing import TypedDict, Literal, Union
+from typing import Literal, TypedDict, Union
+
 from typing_extensions import NotRequired
 
 __all__ = [
     "ContentChunk",
     "DebugChunk",
-    "ThinkingWarningChunk",
     "DoneChunk",
     "StreamChunk",
     "StreamMetrics",
+    "ThinkingWarningChunk",
 ]
 
 

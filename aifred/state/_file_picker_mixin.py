@@ -15,7 +15,7 @@ path (relative to ``picker_root``) plus any args the caller stashed in
 from __future__ import annotations
 
 from pathlib import PurePosixPath
-from typing import Any, Dict, List
+from typing import Any
 
 import reflex as rx
 
@@ -27,10 +27,10 @@ class FilePickerMixin(rx.State, mixin=True):
     picker_title: str = ""
     picker_root: str = ""               # absolute path of the sandbox
     picker_current: str = ""            # rel_path inside root
-    picker_entries: List[Dict[str, Any]] = []  # serialized BrowseEntry list
-    picker_caps: Dict[str, bool] = {}   # can_create_folder/delete/rename/upload/can_create_symlink
+    picker_entries: list[dict[str, Any]] = []  # serialized BrowseEntry list
+    picker_caps: dict[str, bool] = {}   # can_create_folder/delete/rename/upload/can_create_symlink
     picker_symlink_target_must_be_under_root: bool = True  # fail-closed sandbox-escape protection
-    picker_file_filter: List[str] = []
+    picker_file_filter: list[str] = []
     picker_show_files: bool = True
     picker_show_hidden: bool = False
     picker_sort_by: str = "name"        # "name" | "mtime" | "size"
@@ -38,7 +38,7 @@ class FilePickerMixin(rx.State, mixin=True):
 
     # Callback (string-based event dispatch into the caller's mixin)
     picker_callback_event: str = ""
-    picker_callback_args: Dict[str, str] = {}
+    picker_callback_args: dict[str, str] = {}
 
     # UI sub-states
     picker_loading: bool = False
@@ -59,7 +59,7 @@ class FilePickerMixin(rx.State, mixin=True):
     # ── Computed ─────────────────────────────────────────
 
     @rx.var
-    def picker_breadcrumbs(self) -> List[Dict[str, str]]:
+    def picker_breadcrumbs(self) -> list[dict[str, str]]:
         """Breadcrumb segments [{label, rel_path}] from sandbox root → current.
 
         - First crumb (root): shows the actual sandbox path (e.g. '/mnt')
@@ -81,7 +81,7 @@ class FilePickerMixin(rx.State, mixin=True):
         return crumbs
 
     @rx.var
-    def picker_filtered_entries(self) -> List[Dict[str, Any]]:
+    def picker_filtered_entries(self) -> list[dict[str, Any]]:
         """Live-filtered version of picker_entries by picker_filter_text."""
         if not self.picker_filter_text:
             return self.picker_entries
@@ -97,11 +97,11 @@ class FilePickerMixin(rx.State, mixin=True):
         root: str,
         start_at: str = "",
         mode: str = "pick_folder",
-        caps: Dict[str, bool] | None = None,
-        file_filter: List[str] | None = None,
+        caps: dict[str, bool] | None = None,
+        file_filter: list[str] | None = None,
         show_files: bool = True,
         callback_event: str = "",
-        callback_args: Dict[str, str] | None = None,
+        callback_args: dict[str, str] | None = None,
         symlink_target_must_be_under_root: bool = True,
     ) -> None:
         """Initialize and open the picker modal.

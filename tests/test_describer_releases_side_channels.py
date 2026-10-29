@@ -4,7 +4,13 @@ gibt AIfred den Worker frei und bittet den TTS-Dienst um die Freigabe der Contai
 import pytest
 
 import aifred.lib.audio_processing as ap
-from aifred.lib import nvidia_smi, tts_service, vision_routing, vision_vram_check, vlm_vram_cache
+from aifred.lib import (
+    nvidia_smi,
+    tts_service,
+    vision_routing,
+    vision_vram_check,
+    vlm_vram_cache,
+)
 from aifred.lib.calibration import llamaswap_io
 from aifred.lib.tts_client import GpuReleaseResult, TTSSuiteUnreachable
 
@@ -44,9 +50,9 @@ def card(monkeypatch):
     monkeypatch.setattr(nvidia_smi, "query", lambda _f: [
         {"index": "0", "uuid": CARD, "memory.free": "5665"},
     ])
-    monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: [])
-    monkeypatch.setattr(ap, "whisper_gpu_footprint", lambda: {})
-    monkeypatch.setattr(tts_service, "running_gpu_footprint", lambda: {})
+    monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", list)
+    monkeypatch.setattr(ap, "whisper_gpu_footprint", dict)
+    monkeypatch.setattr(tts_service, "running_gpu_footprint", dict)
 
 
 def test_whisper_vram_counts_as_free_for_the_describer(card, monkeypatch):

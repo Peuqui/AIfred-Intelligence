@@ -13,10 +13,9 @@ import logging
 import re
 import urllib.error
 import urllib.request
-from typing import Any, Dict, Optional
+from typing import Any
 
 from ..lib.perf_metrics import InferenceWork
-
 from .base import (
     LLMOptions,
     OpenAICompatibleBackend,
@@ -134,8 +133,8 @@ class vLLMBackend(OpenAICompatibleBackend):
         self,
         prompt_tokens: int,
         tokens_generated: int,
-        server_timings: Dict[str, Any],
-        first_token_s: Optional[float],
+        server_timings: dict[str, Any],
+        first_token_s: float | None,
         elapsed_s: float,
     ) -> InferenceWork:
         """vLLM's own measurement of the request that just finished.
@@ -170,7 +169,7 @@ class vLLMBackend(OpenAICompatibleBackend):
             prompt_tokens, tokens_generated, server_timings, first_token_s, elapsed_s,
         )
 
-    def _build_extra_body(self, options: LLMOptions, model: str) -> Dict:
+    def _build_extra_body(self, options: LLMOptions, model: str) -> dict:
         """Wie die Basisklasse, aber ohne ``repetition_penalty``.
 
         ``repetition_penalty`` bedeutet bei vLLM etwas anderes als die
@@ -194,7 +193,7 @@ class vLLMBackend(OpenAICompatibleBackend):
             )
         return extra_body
 
-    def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
+    def _extract_server_timings(self, response_or_chunk: Any) -> dict[str, Any]:
         """Rueckfallebene: wie viel vom Prompt aus dem Praefix-Cache kam.
 
         Seit ``_request_work()`` holen wir die Prefill-Rate
@@ -274,7 +273,7 @@ class vLLMBackend(OpenAICompatibleBackend):
         """llama-swap lädt den Eintrag beim ersten Request selbst."""
         return True
 
-    def get_capabilities(self) -> Dict[str, bool]:
+    def get_capabilities(self) -> dict[str, bool]:
         """vLLM via llama-swap: Modellwechsel = Swap, Kontext je Eintrag fix."""
         return {
             "dynamic_models": True,      # llama-swap swappt Einträge on demand

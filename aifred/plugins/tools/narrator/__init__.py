@@ -24,7 +24,7 @@ from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_
 from ....lib.tts_client import EngineRef, TTSSuiteError, new_run_id
 
 
-async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple["EngineRef", str, list[str]]:
+async def _choose_engine_and_voice(engine: str = "", voice: str = "") -> tuple[EngineRef, str, list[str]]:
     """Engine, default voice and the engine's voice names for a narration.
 
     Shared by narrate_file and list_narrator_voices so both always agree.
@@ -305,7 +305,7 @@ class NarratorPlugin:
             ),
         ]
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)
 

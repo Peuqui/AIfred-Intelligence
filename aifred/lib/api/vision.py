@@ -2,13 +2,14 @@
 event frames, zone masks and motion tuning."""
 
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from fastapi import HTTPException
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
 from ..logging_utils import log_message
+
 # resolve_source_resolution lives in vision_utils.py — shared with the
 # plugin tools so popup-UI resolution and tool-call resolution match.
 from ..vision_settings import load_vision_settings, save_vision_settings
@@ -38,7 +39,7 @@ async def vision_snapshot_endpoint(
     hub = get_default_hub()
     try:
         frame = await hub.snapshot(src, width=w, height=h)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"snapshot failed: {e}") from e
     return Response(
         content=frame.image_bytes,
@@ -148,6 +149,7 @@ async def _mjpeg_stream(
     gereicht werden.
     """
     import time
+
     from ..frame_hub import get_default_hub
 
     hub = get_default_hub()
@@ -191,6 +193,7 @@ async def vision_stream_endpoint(
     ein (Zonen-Editor-Tuning) — eigener MOG2-State pro Stream, zustandslos.
     """
     from starlette.responses import StreamingResponse
+
     from ..frame_sources import get as get_source
 
     src = get_source(source_id)
@@ -239,10 +242,11 @@ async def vision_events_endpoint(source_id: str) -> Any:
     started/stopped separately via the start/stop endpoints (or via
     the tool plugin's vision_start_watch / vision_stop_watch).
     """
-    from starlette.responses import StreamingResponse
-    from ..vision_event_bus import subscribe
-
     import json as _json
+
+    from starlette.responses import StreamingResponse
+
+    from ..vision_event_bus import subscribe
 
     async def _gen() -> Any:
         # Initial comment-line so the EventSource sees a successful
@@ -299,7 +303,9 @@ async def vision_face_enroll(request: FaceEnrollRequest) -> FaceEnrollResponse:
     weiteren Posen anreichern.
     """
     import base64 as _b64
+
     import numpy as _np
+
     from ..vision_store import VisionStore
 
     name = request.name.strip()
@@ -312,7 +318,7 @@ async def vision_face_enroll(request: FaceEnrollRequest) -> FaceEnrollResponse:
         embedding = _np.frombuffer(emb_bytes, dtype=_np.float32)
         if embedding.size == 0:
             raise ValueError("empty embedding")
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(
             status_code=400, detail=f"invalid embedding: {e}"
         ) from e
@@ -323,7 +329,7 @@ async def vision_face_enroll(request: FaceEnrollRequest) -> FaceEnrollResponse:
 
     try:
         store.add_embedding(face_id, embedding, quality_score=1.0)
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         raise HTTPException(status_code=500, detail=f"add_embedding failed: {e}") from e
 
     log_message(
@@ -358,7 +364,7 @@ class FaceSummary(BaseModel):
 
 
 class FaceSummaryList(BaseModel):
-    faces: List[FaceSummary]
+    faces: list[FaceSummary]
 
 
 class FaceEvent(BaseModel):
@@ -375,7 +381,7 @@ class FaceDetailResponse(BaseModel):
     name: str
     notes: str
     embedding_count: int
-    events: List[FaceEvent]
+    events: list[FaceEvent]
 
 
 class FaceRenameRequest(BaseModel):
@@ -525,7 +531,7 @@ class ZoneMaskPayload(BaseModel):
 
 
 @api_app.get("/vision/zone-mask", tags=["Vision"])
-async def get_zone_mask(source_id: str) -> Dict[str, Any]:
+async def get_zone_mask(source_id: str) -> dict[str, Any]:
     """Gespeicherte Zonen-Maske einer Quelle (für den Editor zum Laden)."""
     entry = (load_vision_settings().get("zone_masks") or {}).get(source_id)
     if not isinstance(entry, dict):
@@ -592,7 +598,7 @@ class MotionMinPayload(BaseModel):
 
 
 @api_app.get("/vision/motion-min", tags=["Vision"])
-async def get_motion_min(source_id: str) -> Dict[str, Any]:
+async def get_motion_min(source_id: str) -> dict[str, Any]:
     """Bewegungs-Schwellwert einer Quelle (für den Editor-Slider zum Laden).
 
     Fällt auf den globalen Default (0.02) zurück, wenn die Quelle (noch)
@@ -633,6 +639,7 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
     damit er unabhängig vom frontend_path-Prefix erreichbar ist; die
     source_id kommt als Query-Param (das JS liest sie aus location.search)."""
     import json
+
     from ...theme import css_variables
     from ..formatting import format_number
     from ..i18n import TranslationManager, t

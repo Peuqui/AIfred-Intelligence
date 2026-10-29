@@ -29,7 +29,7 @@ To add a new kind see docs/de/architecture/browser-push-bus.md.
 """
 
 import asyncio
-from typing import Dict, Any, List
+from typing import Any
 
 from fastapi import Request
 from pydantic import BaseModel, Field
@@ -39,15 +39,15 @@ from .app import api_app
 
 # Per-session storage: {session_id: {"queue": [...items...], "version": int,
 #                                    "playback_rate": str}}
-_browser_event_storage: Dict[str, Dict[str, Any]] = {}
+_browser_event_storage: dict[str, dict[str, Any]] = {}
 
 # Per-session asyncio.Queue for SSE listeners. Pushed alongside _browser_event_storage.
-_browser_sse_queues: Dict[str, asyncio.Queue] = {}
+_browser_sse_queues: dict[str, asyncio.Queue] = {}
 
 
 class BrowserEventQueueResponse(BaseModel):
     """Response for browser-event queue polling (fallback when SSE unavailable)."""
-    queue: List[Dict[str, Any]] = Field(
+    queue: list[dict[str, Any]] = Field(
         default_factory=list,
         description="Audio items {kind, url, ...metadata} to play",
     )
@@ -123,7 +123,7 @@ def browser_push(
     storage["version"] += 1
     new_version = storage["version"]
 
-    item: Dict[str, Any] = {
+    item: dict[str, Any] = {
         "kind": kind,
         "url": url,
         "version": new_version,
@@ -230,8 +230,9 @@ async def browser_stream(session_id: str, request: Request):
     the browser auto-sends ``Last-Event-ID``, so we only replay items
     with a higher version — no duplicates, no client-side reset.
     """
-    from fastapi.responses import StreamingResponse
     import json
+
+    from fastapi.responses import StreamingResponse
 
     last_event_id_raw = request.headers.get("last-event-id", "0")
     try:

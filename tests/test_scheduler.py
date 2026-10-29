@@ -6,7 +6,6 @@ import pytest
 
 from aifred.lib.scheduler import JobStore, _calculate_next_run, _now_iso
 
-
 # ── Helpers ───────────────────────────────────────────────────
 
 @pytest.fixture

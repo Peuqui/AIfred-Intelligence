@@ -41,7 +41,7 @@ def get_ui_locale() -> str:
     return _ui_locale
 
 
-def format_number(n: int | float, decimals: int = 0, locale: str | None = None) -> str:
+def format_number(n: float, decimals: int = 0, locale: str | None = None) -> str:
     """
     Format number with locale-aware separators.
 
@@ -85,7 +85,7 @@ def format_number(n: int | float, decimals: int = 0, locale: str | None = None) 
             return formatted
 
 
-def format_clock(seconds: float | int, pad_hours: bool = False) -> str:
+def format_clock(seconds: float, pad_hours: bool = False) -> str:
     """
     SSOT for the clock-style duration string: "M:SS" or "H:MM:SS".
 
@@ -113,7 +113,7 @@ def format_clock(seconds: float | int, pad_hours: bool = False) -> str:
     return f"{minutes}:{secs:02d}"
 
 
-def format_duration_ms(ms: float | int) -> str:
+def format_duration_ms(ms: float) -> str:
     """
     Format a duration given in milliseconds as a compact human-readable string.
 

@@ -10,14 +10,13 @@ from __future__ import annotations
 
 import json
 import uuid
-from typing import AsyncIterator
+from collections.abc import AsyncIterator
 
 import httpx
 
 from .....lib.document_sources import DocumentSourceError, SourceDownload, SourceEntry
 from .._common import _get_token, _google_request
 from ._api import DRIVE_API, FOLDER_MIME, UPLOAD_API, escape_drive_term
-
 
 # Google-native type → (export type, file extension) for downloads.
 _EXPORT_FOR_DOWNLOAD: dict[str, tuple[str, str]] = {
@@ -87,7 +86,7 @@ class DriveDocumentSource:
         parent = escape_drive_term(folder_id or "root")
         try:
             return await self._files(f"'{parent}' in parents and trashed=false", None, "folder,name_natural")
-        except Exception as exc:  # noqa: BLE001 — every failure reaches the user as one message
+        except Exception as exc:
             raise _source_error(exc, "listing the folder") from exc
 
     async def search(self, query: str) -> list[SourceEntry]:
@@ -97,7 +96,7 @@ class DriveDocumentSource:
             return await self._files(
                 f"(name contains '{term}' or fullText contains '{term}') and trashed=false", _SEARCH_LIMIT, "",
             )
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _source_error(exc, "searching") from exc
 
     async def download(self, file_id: str) -> SourceDownload:
@@ -105,7 +104,7 @@ class DriveDocumentSource:
             meta = (await _google_request(
                 "GET", f"{DRIVE_API}/files/{file_id}", params={"fields": "id,name,mimeType"},
             )).json()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _source_error(exc, "opening the file") from exc
         mime = meta["mimeType"]
         name = meta["name"]
@@ -127,7 +126,7 @@ class DriveDocumentSource:
             token = await _get_token()
             request = client.build_request("GET", url, params=params, headers={"Authorization": f"Bearer {token}"})
             response = await client.send(request, stream=True)
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             await client.aclose()
             raise _source_error(exc, f"downloading {name}") from exc
         if response.is_error:
@@ -166,6 +165,6 @@ class DriveDocumentSource:
                     content=body,
                 )
             response.raise_for_status()
-        except Exception as exc:  # noqa: BLE001
+        except Exception as exc:
             raise _source_error(exc, f"uploading {name}") from exc
         return _entry(response.json())

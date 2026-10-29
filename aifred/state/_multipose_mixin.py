@@ -222,8 +222,9 @@ class MultiposeMixin(rx.State, mixin=True):
         if not self.multipose_captures:
             return
         try:
-            from ..lib.vision_store import VisionStore
             import numpy as np
+
+            from ..lib.vision_store import VisionStore
             store = VisionStore()
             face_id = int(self.multipose_target_face_id)
             if face_id <= 0:
@@ -340,6 +341,7 @@ class MultiposeMixin(rx.State, mixin=True):
         """Frisches Frame + größtes Gesicht detektieren.
         Returnt ``(jpeg_bytes, detection_or_none)``."""
         import asyncio
+
         from ..lib.vision_filters.face_detect import get_default_detector
         frame = await self._fresh_frame(source_id)
         detector = get_default_detector()

@@ -229,7 +229,7 @@ class AudioPlayerPlugin:
             executor=_play,
         )
 
-    def _tool_play_folder(self, ctx: PluginContext) -> Tool:  # noqa: PLR0915
+    def _tool_play_folder(self, ctx: PluginContext) -> Tool:
         """Sequential playback of all audio files in a folder, alphabetically."""
 
         async def _play_folder(
@@ -926,7 +926,7 @@ class AudioPlayerPlugin:
 
     # ── ToolPlugin Protocol ──────────────────────────────
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         # Kein Hardcoding — atomare Fragmente in prompts/<de|en>/ beim Plugin.
         from ....lib.plugin_base import load_plugin_instructions
         return load_plugin_instructions(self, lang, granted_tools)

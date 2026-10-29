@@ -5,12 +5,12 @@ Handles session CRUD, title generation, session restore, and session list.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import reflex as rx
 
 
-def _successor_session(order: List[str], current: str, deleted: set[str]) -> str | None:
+def _successor_session(order: list[str], current: str, deleted: set[str]) -> str | None:
     """The session that takes over after the open one was deleted.
 
     ``order`` is the picker order before deleting. The nearest remaining
@@ -33,17 +33,17 @@ class SessionMixin(rx.State, mixin=True):
     session_restored: bool = False  # True if chat history was loaded from session
     _session_initialized: bool = False  # Guard against multiple session restore callbacks
 
-    available_sessions: List[Dict[str, Any]] = []  # List of sessions from list_sessions()
+    available_sessions: list[dict[str, Any]] = []  # List of sessions from list_sessions()
     current_session_title: str = ""  # Title of current session (for display)
-    selected_session_ids: List[str] = []  # Sessions ticked in the picker for bulk delete
+    selected_session_ids: list[str] = []  # Sessions ticked in the picker for bulk delete
     session_confirm_delete_all: bool = False  # "Delete all" asked, waiting for the second click
 
     # ── Session CRUD ─────────────────────────────────────────────────
 
     def new_session(self):  # type: ignore[return]
         """Create a new empty session and switch to it."""
-        from ..lib.session_storage import generate_session_id, create_empty_session
         from ..lib.logging_utils import log_message
+        from ..lib.session_storage import create_empty_session, generate_session_id
 
         # Must be logged in to create session
         if not self.logged_in_user:  # type: ignore[attr-defined]
@@ -84,8 +84,8 @@ class SessionMixin(rx.State, mixin=True):
         Loads the target session and updates state.
         Note: No save here - sessions are auto-saved after each inference.
         """
-        from ..lib.session_storage import load_session, touch_session
         from ..lib.logging_utils import log_message
+        from ..lib.session_storage import load_session, touch_session
 
         self.add_debug(f"switch_session called: {session_id[:8] if session_id else 'None'}...")  # type: ignore[attr-defined]
 
@@ -149,6 +149,7 @@ class SessionMixin(rx.State, mixin=True):
         # newer than the previously tracked session) and reloads the whole
         # session a second time right after this switch.
         import os as _os
+
         from ..lib.session_storage import get_session_path
         try:
             self._last_session_mtime = _os.path.getmtime(get_session_path(session_id))  # type: ignore[attr-defined]
@@ -214,15 +215,15 @@ class SessionMixin(rx.State, mixin=True):
         """Delete every session ticked in the picker."""
         return self._delete_sessions(list(self.selected_session_ids))
 
-    def _delete_sessions(self, session_ids: List[str]):  # type: ignore[return]
+    def _delete_sessions(self, session_ids: list[str]):  # type: ignore[return]
         """Delete sessions owner-only; if the open one goes, move on.
 
         The open session is followed by the nearest remaining session below it
         in the picker, else the nearest above; with none left a new session
         opens.
         """
-        from ..lib.session_storage import delete_session as storage_delete_session
         from ..lib.logging_utils import log_message
+        from ..lib.session_storage import delete_session as storage_delete_session
         from ._audio_player_mixin import discard_audio_runtime_state
         from ._tts_streaming_mixin import discard_tts_backend_state
 
@@ -240,7 +241,7 @@ class SessionMixin(rx.State, mixin=True):
 
         # Picker order before deleting decides who follows the open session.
         order = [str(s["session_id"]) for s in self.available_sessions]
-        deleted: List[str] = []
+        deleted: list[str] = []
         for session_id in session_ids:
             if storage_delete_session(session_id, expected_owner=owner):
                 # Free in-memory runtime state tied to that session so it
@@ -296,11 +297,16 @@ class SessionMixin(rx.State, mixin=True):
 
     def _load_session_by_id(self, session_id: str):
         """Load a specific session by ID (internal helper)."""
-        from ..lib.session_storage import load_session, get_session_title, get_session_path
+        import os as _os
+
+        from ..lib.config import HISTORY_COMPRESSION_TRIGGER
         from ..lib.context_manager import estimate_tokens_from_llm_history
         from ..lib.formatting import format_number
-        from ..lib.config import HISTORY_COMPRESSION_TRIGGER
-        import os as _os
+        from ..lib.session_storage import (
+            get_session_path,
+            get_session_title,
+            load_session,
+        )
 
         self.session_id = session_id
         session = load_session(session_id)
@@ -420,9 +426,10 @@ class SessionMixin(rx.State, mixin=True):
         if not self.session_id:
             return
 
-        from ..lib.session_storage import update_chat_data, get_session_path
-        from ..lib.config import DEBUG_LOG_MAX_ENTRIES
         import os as _os
+
+        from ..lib.config import DEBUG_LOG_MAX_ENTRIES
+        from ..lib.session_storage import get_session_path, update_chat_data
 
         # DEBUG-PERSISTENCE: Keep only last N entries
         debug_to_save = self.debug_messages[-DEBUG_LOG_MAX_ENTRIES:] if self.debug_messages else []  # type: ignore[attr-defined]
@@ -457,8 +464,9 @@ class SessionMixin(rx.State, mixin=True):
         if not self.session_id:
             return
 
-        from ..lib.session_storage import update_session_config, get_session_path
         import os as _os
+
+        from ..lib.session_storage import get_session_path, update_session_config
 
         update_session_config(
             self.session_id,
@@ -648,10 +656,10 @@ class SessionMixin(rx.State, mixin=True):
             title_model_override: If set, use this model instead of AIfred model.
                 Useful after Vision-Only inference where the vision model is still loaded.
         """
-        from ..lib.session_storage import get_session_title
+        from ..lib.api import browser_push
         from ..lib.llm_engine import generate_session_title
         from ..lib.logging_utils import console_separator
-        from ..lib.api import browser_push
+        from ..lib.session_storage import get_session_title
 
         # Bind the session id up front. As a background task we may outlive
         # a session switch — every disk write and bus push must target the
@@ -732,8 +740,9 @@ class SessionMixin(rx.State, mixin=True):
         # background task got the title). Same SSOT pattern as
         # _save_current_session / _persist_session_config.
         try:
-            from ..lib.session_storage import get_session_path
             import os as _os
+
+            from ..lib.session_storage import get_session_path
             self._last_session_mtime = _os.path.getmtime(  # type: ignore[attr-defined]
                 get_session_path(title_sid)
             )

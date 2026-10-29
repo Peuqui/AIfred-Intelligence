@@ -12,7 +12,8 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
-from typing import TYPE_CHECKING, AsyncIterator
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .frame_sources import Frame
@@ -24,16 +25,16 @@ class LiveFrames:
 
     def __init__(self, preroll_sec: float) -> None:
         self._preroll_sec = preroll_sec
-        self._preroll: deque["Frame"] = deque()
-        self._latest: "Frame | None" = None
+        self._preroll: deque[Frame] = deque()
+        self._latest: Frame | None = None
         self._seq = 0
         self._new_frame = asyncio.Event()
 
     @property
-    def latest(self) -> "Frame | None":
+    def latest(self) -> Frame | None:
         return self._latest
 
-    def push(self, frame: "Frame") -> None:
+    def push(self, frame: Frame) -> None:
         self._latest = frame
         self._seq += 1
         self._new_frame.set()
@@ -44,11 +45,11 @@ class LiveFrames:
             ).total_seconds() > self._preroll_sec:
                 self._preroll.popleft()
 
-    def preroll_snapshot(self) -> list["Frame"]:
+    def preroll_snapshot(self) -> list[Frame]:
         """Die Frames der letzten ``preroll_sec`` Sekunden (älteste zuerst)."""
         return list(self._preroll)
 
-    async def fresh_frames(self, min_interval_sec: float) -> AsyncIterator["Frame"]:
+    async def fresh_frames(self, min_interval_sec: float) -> AsyncIterator[Frame]:
         """Liefert jeweils das AKTUELL frischeste Frame — nie dasselbe zweimal
         und höchstens alle ``min_interval_sec`` (Schutz vor GPU-Überlast).
         Wartet per Event auf ein neues Frame, kein Polling."""

@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 
 from _vision_fakes import FakeAiClient, noise_jpeg
+
 from aifred.lib.frame_sources.base import Frame
 from aifred.lib.vision_snap import snap_pair
 

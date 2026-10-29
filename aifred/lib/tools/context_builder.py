@@ -5,15 +5,19 @@ Extracted from agent_tools.py for better modularity.
 """
 
 import logging
-from typing import Dict, List
 
-from ..config import MAX_RAG_CONTEXT_TOKENS, MAX_WORDS_PER_SOURCE, MAX_WORDS_SINGLE_SOURCE, CHARS_PER_TOKEN
+from ..config import (
+    CHARS_PER_TOKEN,
+    MAX_RAG_CONTEXT_TOKENS,
+    MAX_WORDS_PER_SOURCE,
+    MAX_WORDS_SINGLE_SOURCE,
+)
 from ..logging_utils import log_message
 
 # Logging Setup
 logger = logging.getLogger(__name__)
 
-def build_context(user_text: str, tool_results: List[Dict], max_context_tokens: int | None = None) -> str:
+def build_context(user_text: str, tool_results: list[dict], max_context_tokens: int | None = None) -> str:
     """
     Build structured context for AI from tool results
 

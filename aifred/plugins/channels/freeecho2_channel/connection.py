@@ -38,6 +38,7 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
     async def listener_loop(self) -> None:
         """Run WebSocket server for FreeEcho.2 devices."""
         import ssl
+
         from ....lib.credential_broker import broker
 
         port = int(broker.get("freeecho2", "port") or str(_DEFAULT_PORT))
@@ -118,7 +119,7 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
 
     async def _handle_ws(self, request: Request) -> WebSocketResponse:
         """Handle a single FreeEcho.2 WebSocket connection."""
-        from aiohttp import web, WSMsgType
+        from aiohttp import WSMsgType, web
 
         ws = web.WebSocketResponse()
         await ws.prepare(request)
@@ -129,11 +130,11 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
         # Verbindungen kollidierten auf demselben Pipeline-/Device-Slot
         # (Pipeline-Supersession, TTS-Fehlrouting). Jetzt: bis zum Register
         # werden Frames verworfen (geloggt).
-        room: "str | None" = None
+        room: str | None = None
         # Letzte VON DIESER Verbindung gestartete Pipeline-Task — der finally
         # cancelt nur die eigene Task, nie den Dict-Eintrag: nach einem
         # Room-Takeover steht dort schon die Pipeline der NEUEN Verbindung.
-        my_pipeline: "asyncio.Task | None" = None
+        my_pipeline: asyncio.Task | None = None
         self.channel_log(f"FreeEcho.2 connection from {request.remote}")
 
         try:

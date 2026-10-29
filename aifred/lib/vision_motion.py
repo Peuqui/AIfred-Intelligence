@@ -47,7 +47,7 @@ class MotionEventHandler:
         self._faces = faces
 
     async def handle(
-        self, frame: "Frame", motion_result: MotionResult, config: WatchConfig,
+        self, frame: Frame, motion_result: MotionResult, config: WatchConfig,
     ) -> None:
         # SSoT-Ausgabekette; die Detektionen unten bekommen das UNgestempelte
         # detect-Frame (kein Overlay in Crops/Embeddings), Speichern und
@@ -85,7 +85,7 @@ class MotionEventHandler:
             )
 
     async def handle_continuous_face(
-        self, frame: "Frame", config: WatchConfig,
+        self, frame: Frame, config: WatchConfig,
     ) -> None:
         """Kontinuierliche Gesichtserkennung (motion-unabhängig): nur
         Schwärzung, kein Stempel und kein Speichern — Detektions-Input."""
@@ -100,13 +100,13 @@ class MotionEventHandler:
         gemeldet und stoppt die andere Stufe nicht."""
         try:
             return bool(await work)
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("%s detection failed for %s", stage, source_id)
             return False
 
     async def run_person_detection(
         self,
-        frame: "Frame",
+        frame: Frame,
         *,
         motion_event_id: int | None,
         frame_path: str,

@@ -6,7 +6,6 @@ service's own web interface. Token-guarded with ``Authorization: Bearer <TTS_CON
 """
 
 import asyncio
-from typing import Dict, List
 
 from fastapi import Header, HTTPException, Query
 from pydantic import BaseModel, Field
@@ -32,10 +31,10 @@ def _require_tts_token(authorization: str | None) -> None:
     require_service_token("tts_control", token if scheme.lower() == "bearer" else None)
 
 
-@api_app.get("/tts/entries", response_model=List[TTSEntry], tags=["TTS"])
+@api_app.get("/tts/entries", response_model=list[TTSEntry], tags=["TTS"])
 async def tts_entries(
     lang: str = Query(..., pattern="^(de|en)$"), authorization: str | None = Header(None),
-) -> List[Dict[str, object]]:
+) -> list[dict[str, object]]:
     """AIfred's list in speaking order, with the live status of each entry."""
     from ..i18n import t
     from ..tts_service import entries, entry_label, status_key
@@ -45,7 +44,7 @@ async def tts_entries(
         listed = await asyncio.to_thread(entries, fresh=True)
     except TTSSuiteUnreachable as unreachable:
         raise HTTPException(status_code=503, detail=str(unreachable)) from unreachable
-    rows: List[Dict[str, object]] = []
+    rows: list[dict[str, object]] = []
     for entry in listed:
         status = status_key(entry)
         rows.append({

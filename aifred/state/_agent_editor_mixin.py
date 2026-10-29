@@ -7,8 +7,6 @@ and the scheduler job editor.
 
 from __future__ import annotations
 
-from typing import Dict, List
-
 import reflex as rx
 from reflex.event import EventSpec
 
@@ -25,7 +23,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     agent_editor_mode: str = "config"
 
     # Scheduler state
-    scheduler_job_list: List[Dict[str, str]] = []
+    scheduler_job_list: list[dict[str, str]] = []
     scheduler_edit_id: str = ""  # Job being edited ("" = none, "new" = create)
     scheduler_edit_name: str = ""
     scheduler_edit_type: str = "cron"
@@ -49,9 +47,9 @@ class AgentEditorMixin(rx.State, mixin=True):
     scheduler_once_time: str = "10:00"
 
     # Agent dropdown options for the editor (["emoji name", ...])
-    _agent_dropdown_items: List[str] = []
+    _agent_dropdown_items: list[str] = []
     # Mapping: display label → agent_id (for dropdown selection)
-    _agent_id_by_label: Dict[str, str] = {}
+    _agent_id_by_label: dict[str, str] = {}
 
     # Currently editing agent (empty = creating new)
     editor_agent_id: str = ""
@@ -65,7 +63,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     # the calibration loop use (same SSOT as the main chat backend).
     editor_cloud_provider: str = "qwen"
     # Live model list fetched from the selected provider's /models endpoint.
-    editor_cloud_models: List[str] = []
+    editor_cloud_models: list[str] = []
     # Reasoning toggle for system-role agents (e.g. calibration). Mirrors
     # agents.json `toggles.reasoning`. Off by default — system workflows
     # typically don't benefit enough from chain-of-thought to justify the
@@ -77,7 +75,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     _editor_prompt_content: str = ""
     editor_prompt_lang: str = "de"  # Language toggle for prompt editor
     # Available prompt keys for current agent (for tab rendering)
-    editor_prompt_keys: List[str] = []
+    editor_prompt_keys: list[str] = []
 
     # New agent creation fields
     _editor_new_agent_id: str = ""
@@ -91,11 +89,11 @@ class AgentEditorMixin(rx.State, mixin=True):
     editor_emoji_picker_open: bool = False
 
     # Tool whitelist editor — list of all tool names with enabled/disabled state
-    editor_tools: Dict[str, bool] = {}
+    editor_tools: dict[str, bool] = {}
 
 
     @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
-    def agent_dropdown_options(self) -> List[str]:
+    def agent_dropdown_options(self) -> list[str]:
         """Agent dropdown labels for the editor (e.g. ['🎩 AIfred', '🏛️ Sokrates', ...])."""
         return self._agent_dropdown_items
 
@@ -130,7 +128,7 @@ class AgentEditorMixin(rx.State, mixin=True):
 
     # Static registry; explicit empty deps avoid the lazy-import auto-dep warning.
     @rx.var(deps=[], auto_deps=False)
-    def editor_cloud_provider_options(self) -> List[str]:
+    def editor_cloud_provider_options(self) -> list[str]:
         """Provider display labels — the SAME labels the main backend dropdown
         shows ("Qwen (DashScope)", …), via the shared cloud_api SSOT."""
         from ..backends.cloud_api import cloud_provider_labels
@@ -143,7 +141,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         return cloud_provider_label(self.editor_cloud_provider)
 
     @rx.var(deps=["editor_cloud_models", "editor_model"], auto_deps=False)
-    def editor_cloud_model_options(self) -> List[str]:
+    def editor_cloud_model_options(self) -> list[str]:
         """Live model list, with the currently-saved model guaranteed present
         so the select shows it even before the list has been fetched."""
         models = list(self.editor_cloud_models)
@@ -167,7 +165,9 @@ class AgentEditorMixin(rx.State, mixin=True):
         """Fetch the live /models list for the selected provider via the
         shared cloud_api SSOT (CloudAPIBackend.list_models)."""
         from ..backends.cloud_api import (
-            CloudAPIBackend, get_cloud_api_key, is_cloud_api_configured,
+            CloudAPIBackend,
+            get_cloud_api_key,
+            is_cloud_api_configured,
         )
         from ..lib.config import CLOUD_API_PROVIDERS
         provider = self.editor_cloud_provider
@@ -295,7 +295,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     # that push (e.g. after a reconnect) is empty, and saving it would wipe the
     # stored text (10.10.2026: AIfred's identity and description emptied). So
     # a text field is taken from the page only when the user changed it.
-    _editor_typed: List[str] = []
+    _editor_typed: list[str] = []
 
     def mark_editor_dirty(self, field: str) -> None:
         """Mark editor as having unsaved changes (any input in a text field)."""
@@ -380,7 +380,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             # list_all_plugins() (not discover_tools) so DISABLED tool plugins
             # stay visible and can be re-enabled — enabled == in tools/.
             from ..lib.credential_broker import broker
-            from ..lib.plugin_registry import list_all_plugins, all_channels
+            from ..lib.plugin_registry import all_channels, list_all_plugins
             self.tool_plugin_toggles = {
                 p["name"]: p["enabled"]
                 for p in list_all_plugins() if p["type"] == "tool"
@@ -1005,8 +1005,8 @@ class AgentEditorMixin(rx.State, mixin=True):
         )
 
         # Load tool whitelist — None means all tools allowed
-        from ..lib.plugin_registry import discover_tools
         from ..lib.plugin_base import PluginContext
+        from ..lib.plugin_registry import discover_tools
         # Collect all available tool names
         all_tool_names: list[str] = []
         ctx = PluginContext(agent_id=agent_id, lang="de", session_id="", llm_history=[])
@@ -1200,7 +1200,8 @@ class AgentEditorMixin(rx.State, mixin=True):
     def save_agent_editor(self, dom_values: str = "{}") -> EventSpec | None:
         """Save agent editor — receives DOM values JSON from UI call_script callback."""
         import json
-        from ..lib.agent_config import update_agent, create_agent
+
+        from ..lib.agent_config import create_agent, update_agent
 
         self.editor_dirty = False
         typed, self._editor_typed = self._editor_typed, []
@@ -1319,6 +1320,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     def clear_agent_memory(self, agent_id: str) -> EventSpec | None:
         """Clear an agent's long-term memory (confirm on first click, delete on second)."""
         import reflex as rx
+
         from ..lib.agent_memory import get_agent_memory
 
         if self.editor_memory_confirm != agent_id:

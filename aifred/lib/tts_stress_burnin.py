@@ -30,7 +30,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
-from typing import Any, Optional
+from typing import Any
 
 from .config import TTS_BURNIN_AGENT
 from .tts_client import EngineRef, TTSSuiteError, get_tts_client, new_run_id
@@ -154,7 +154,7 @@ class _VramPeakMonitor:
     def __init__(self, engine_key: str) -> None:
         self._engine_key = engine_key
         self._peak = 0
-        self._task: Optional[asyncio.Task[None]] = None
+        self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
 
     async def _sample(self) -> None:
@@ -170,7 +170,7 @@ class _VramPeakMonitor:
             except asyncio.TimeoutError:
                 pass
 
-    async def __aenter__(self) -> "_VramPeakMonitor":
+    async def __aenter__(self) -> _VramPeakMonitor:
         self._task = asyncio.create_task(self._run())
         return self
 
@@ -217,9 +217,9 @@ async def _release(engine_key: str) -> None:
 async def stress_burnin_tts(
     engine_key: str,
     *,
-    iterations: Optional[int] = None,
+    iterations: int | None = None,
     debug: Any = None,
-) -> Optional[int]:
+) -> int | None:
     """Have the TTS-Suite service read a worst-case bilingual text loop on the engine and
     return the peak VRAM in MiB the service reported for it. Returns ``None`` on any failure
     (service error, engine unknown or not installed, VRAM not measurable, every synthesis
@@ -333,8 +333,8 @@ async def resolve_tts_reserve(
     Engines that don't allocate persistent GPU memory (CPU/Cloud engines
     with ``needs_gpu=False``) always return 0.
     """
-    from .config import LLAMACPP_TTS_BURNIN_HEADROOM_MB
     from . import tts_vram_cache
+    from .config import LLAMACPP_TTS_BURNIN_HEADROOM_MB
 
     cached = tts_vram_cache.get(engine_key)
     if cached:

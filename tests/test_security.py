@@ -4,15 +4,15 @@ import os
 import sqlite3
 from unittest.mock import patch
 
-
+from aifred.lib.function_calling import Tool
 from aifred.lib.security import (
+    DEFAULT_TIER_BY_SOURCE,
+    OWNER_TIER,
     TIER_ADMIN,
     TIER_COMMUNICATE,
     TIER_READONLY,
     TIER_WRITE_DATA,
     TIER_WRITE_SYSTEM,
-    OWNER_TIER,
-    DEFAULT_TIER_BY_SOURCE,
     _RateTracker,
     audit_log,
     filter_tools_by_tier,
@@ -24,8 +24,6 @@ from aifred.lib.security import (
     sanitize_tool_output,
     wrap_external_message,
 )
-from aifred.lib.function_calling import Tool
-
 
 # ── Helpers ───────────────────────────────────────────────────
 

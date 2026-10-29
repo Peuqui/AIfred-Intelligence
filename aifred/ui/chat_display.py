@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import reflex as rx
 
-from ..state import AIState, StreamingState, ChatHistoryState
+from ..state import AIState, ChatHistoryState, StreamingState
 from ..theme import COLORS
 from .helpers import bulk_delete_bar, t
 from .message_renderer import render_message_standalone

@@ -7,7 +7,8 @@ Supports: Ollama, vLLM, llama.cpp, OpenAI, etc.
 import asyncio
 import re
 from abc import ABC, abstractmethod
-from typing import Dict, List, Optional, AsyncIterator, Union, Any
+from typing import Any
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
 from aifred.lib.config import DEFAULT_OLLAMA_URL, MAX_OUTPUT_TOKENS
@@ -32,27 +33,27 @@ class LLMMessage:
         ])
     """
     role: str  # "system", "user", "assistant"
-    content: Union[str, List[Dict[str, Any]]]  # String for text-only, list for multimodal
+    content: str | list[dict[str, Any]]  # String for text-only, list for multimodal
 
 
 @dataclass
 class LLMOptions:
     """LLM generation options"""
     temperature: float = 0.2
-    num_ctx: Optional[int] = None  # Context window
-    num_predict: Optional[int] = None  # Max tokens to generate
+    num_ctx: int | None = None  # Context window
+    num_predict: int | None = None  # Max tokens to generate
     repeat_penalty: float = 1.1
     top_p: float = 0.9
     top_k: int = 40
     min_p: float = 0.0  # Min-P sampling (0 = disabled, typical: 0.05)
-    seed: Optional[int] = None
-    enable_thinking: Optional[bool] = None  # User preference: enable thinking if model supports it
-    supports_thinking: Optional[bool] = None  # Model capability: None=unknown, True=supports, False=not supported
+    seed: int | None = None
+    enable_thinking: bool | None = None  # User preference: enable thinking if model supports it
+    supports_thinking: bool | None = None  # Model capability: None=unknown, True=supports, False=not supported
     # Steerable reasoning-effort level (chat_template_kwargs), e.g. "max"
     # for DeepSeek-V4. None = no effort kwarg sent (template default).
     # Only meaningful with enable_thinking=True on templates that
     # support levels (model_vram_cache.reasoning_levels).
-    reasoning_effort: Optional[str] = None
+    reasoning_effort: str | None = None
 
 
 @dataclass
@@ -68,7 +69,7 @@ class LLMResponse:
     load_time: float = 0.0
 
 
-def done_metrics(prompt_tokens: int, work: InferenceWork, inference_time: float, model: str) -> Dict[str, Any]:
+def done_metrics(prompt_tokens: int, work: InferenceWork, inference_time: float, model: str) -> dict[str, Any]:
     """Metrics of the "done" chunk, the same shape for every backend.
 
     Token counts and rates are deliberately not copied in here: consumers
@@ -93,21 +94,21 @@ class LLMBackend(ABC):
     Implementations: OllamaBackend, vLLMBackend, LlamaCppBackend, OpenAIBackend
     """
 
-    def __init__(self, base_url: str = DEFAULT_OLLAMA_URL, api_key: Optional[str] = None):
+    def __init__(self, base_url: str = DEFAULT_OLLAMA_URL, api_key: str | None = None):
         self.base_url = base_url
         self.api_key = api_key
-        self._available_models: List[str] = []
+        self._available_models: list[str] = []
 
     @abstractmethod
-    async def list_models(self) -> List[str]:
+    async def list_models(self) -> list[str]:
         """Get list of available models"""
 
     @abstractmethod
     async def chat(
         self,
         model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
+        messages: list[LLMMessage],
+        options: LLMOptions | None = None,
         stream: bool = False
     ) -> LLMResponse:
         """
@@ -127,9 +128,9 @@ class LLMBackend(ABC):
     def chat_stream(
         self,
         model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None
-    ) -> AsyncIterator[Dict]:
+        messages: list[LLMMessage],
+        options: LLMOptions | None = None
+    ) -> AsyncIterator[dict]:
         """
         Streaming chat completion (async generator)
 
@@ -198,7 +199,7 @@ class LLMBackend(ABC):
         """
 
     @abstractmethod
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: int | None = None) -> tuple[bool, float]:
         """
         Preload a model into VRAM by sending a minimal request.
         This warms up the model so future requests are faster.
@@ -221,7 +222,7 @@ class LLMBackend(ABC):
         """
 
     @abstractmethod
-    def get_capabilities(self) -> Dict[str, bool]:
+    def get_capabilities(self) -> dict[str, bool]:
         """
         Return backend capabilities and behavior flags.
 
@@ -313,7 +314,7 @@ class OpenAICompatibleBackend(LLMBackend):
     # als <think>-Text im Inhalt. Ein Backend, das ein Feld nennt, das sein
     # Server nicht sendet, verliert den Denkblock kommentarlos — vLLM las
     # hier bis 2026-09-11 nichts, der Flash-Next-Denkblock fehlte seit 07.09.
-    REASONING_FIELD: Optional[str] = None
+    REASONING_FIELD: str | None = None
 
     def __init__(self, base_url: str, api_key: str = "dummy"):
         super().__init__(base_url=base_url, api_key=api_key)
@@ -326,7 +327,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
     # === Common implementations (override in subclasses only if needed) ===
 
-    async def list_models(self) -> List[str]:
+    async def list_models(self) -> list[str]:
         """Get list of available models via OpenAI-compatible API."""
         import openai
         try:
@@ -345,15 +346,15 @@ class OpenAICompatibleBackend(LLMBackend):
         except openai.OpenAIError:
             return False
 
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: int | None = None) -> tuple[bool, float]:
         """No-op preload — models are already loaded. Override for Ollama/llamacpp."""
         return (True, 0.0)
 
     # === Hooks (override in subclasses as needed) ===
 
-    def _build_extra_body(self, options: LLMOptions, model: str) -> Dict[str, Any]:
+    def _build_extra_body(self, options: LLMOptions, model: str) -> dict[str, Any]:
         """Build extra_body for API call. Default: conditional sampling params + thinking."""
-        extra_body: Dict[str, Any] = {}
+        extra_body: dict[str, Any] = {}
         if options.repeat_penalty and options.repeat_penalty != 1.0:
             extra_body["repetition_penalty"] = options.repeat_penalty
         if options.top_k and options.top_k != 40:
@@ -391,7 +392,7 @@ class OpenAICompatibleBackend(LLMBackend):
             return f"<think>{reasoning}</think>\n\n{content}"
         return content
 
-    def _process_stream_delta(self, delta: Any, delta_dict: Dict, stream_state: Dict) -> List[Dict]:
+    def _process_stream_delta(self, delta: Any, delta_dict: dict, stream_state: dict) -> list[dict]:
         """Stream the reasoning field as <think> tags (state machine).
 
         Nebenbei werden Reasoning und sichtbarer Text getrennt akkumuliert
@@ -401,7 +402,7 @@ class OpenAICompatibleBackend(LLMBackend):
         Template rendert turn-internes Reasoning immer; ältere Templates
         ignorieren das Feld einfach).
         """
-        chunks: List[Dict] = []
+        chunks: list[dict] = []
         reasoning = (delta_dict.get(self.REASONING_FIELD) or "") if self.REASONING_FIELD else ""
 
         if reasoning:
@@ -427,7 +428,7 @@ class OpenAICompatibleBackend(LLMBackend):
         right after the request, so the delta is exactly that one request.
         """
 
-    def _finalize_stream(self, stream_state: Dict) -> List[Dict]:
+    def _finalize_stream(self, stream_state: dict) -> list[dict]:
         """Close open <think> tag if stream ends during thinking (edge case)."""
         if stream_state.get("thinking_started"):
             return [{"type": "content", "text": "</think>\n\n"}]
@@ -505,7 +506,7 @@ class OpenAICompatibleBackend(LLMBackend):
         except (TTSSuiteError, TTSVramUnknown) as error:
             log_message(f"⚠️ TTS release before loading '{model}' failed: {type(error).__name__}: {error}", "warning")
 
-    async def _free_gpus_for_load(self, model: str, running: List[str]) -> None:
+    async def _free_gpus_for_load(self, model: str, running: list[str]) -> None:
         """Clear the cards before llama-swap loads ``model``.
 
         Called by ``_load_model`` only when ``model`` is not among the
@@ -582,7 +583,7 @@ class OpenAICompatibleBackend(LLMBackend):
             log_message(f"⚠️ GPU clean-up before load failed: {e}")
 
     @classmethod
-    def _last_exception_line(cls, log_text: str) -> Optional[str]:
+    def _last_exception_line(cls, log_text: str) -> str | None:
         """Last ``SomeError: message`` line of an upstream log, if any."""
         for line in reversed(log_text.splitlines()):
             match = cls._UPSTREAM_EXCEPTION_LINE.match(line.strip())
@@ -590,20 +591,19 @@ class OpenAICompatibleBackend(LLMBackend):
                 return match.group(1)
         return None
 
-    async def _upstream_exit_cause(self) -> Optional[str]:
+    async def _upstream_exit_cause(self) -> str | None:
         """The exception the upstream process ended with, read from the
         upstream log history of llama-swap (``/logs/stream/upstream``)."""
         import httpx
 
-        chunks: List[str] = []
+        chunks: list[str] = []
         try:
             async with asyncio.timeout(self._UPSTREAM_LOG_COLLECT_S):
-                async with httpx.AsyncClient() as client:
-                    async with client.stream(
-                        "GET", f"{self._llamaswap_root()}/logs/stream/upstream"
-                    ) as response:
-                        async for chunk in response.aiter_text():
-                            chunks.append(chunk)
+                async with httpx.AsyncClient() as client, client.stream(
+                    "GET", f"{self._llamaswap_root()}/logs/stream/upstream"
+                ) as response:
+                    async for chunk in response.aiter_text():
+                        chunks.append(chunk)
         except (TimeoutError, httpx.HTTPError):
             # Timeout is the normal end: the history has arrived, the stream
             # would stay open for new lines. Parse whatever was collected.
@@ -631,7 +631,7 @@ class OpenAICompatibleBackend(LLMBackend):
             return BackendModelNotFoundError(f"Model '{model}' not found in {self.BACKEND_NAME}")
         return BackendInferenceError(f"{self.BACKEND_NAME} inference failed: {error}")
 
-    def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
+    def _extract_server_timings(self, response_or_chunk: Any) -> dict[str, Any]:
         """Extract server-side timings from response (e.g. llama-server's timings field).
 
         Override in subclasses that have access to server-side timing data.
@@ -642,8 +642,8 @@ class OpenAICompatibleBackend(LLMBackend):
         self,
         prompt_tokens: int,
         tokens_generated: int,
-        server_timings: Dict[str, Any],
-        first_token_s: Optional[float],
+        server_timings: dict[str, Any],
+        first_token_s: float | None,
         elapsed_s: float,
     ) -> InferenceWork:
         """What the server computed for the request that just finished.
@@ -667,7 +667,7 @@ class OpenAICompatibleBackend(LLMBackend):
         tokens_generated: int,
         inference_time: float,
         model: str,
-        server_timings: Dict[str, Any],
+        server_timings: dict[str, Any],
     ) -> LLMResponse:
         """Build LLMResponse for non-streaming chat.
 
@@ -694,8 +694,8 @@ class OpenAICompatibleBackend(LLMBackend):
     async def chat(
         self,
         model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
+        messages: list[LLMMessage],
+        options: LLMOptions | None = None,
         stream: bool = False,
     ) -> LLMResponse:
         if options is None:
@@ -705,7 +705,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
         openai_messages = [{"role": msg.role, "content": msg.content} for msg in messages]
 
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "model": model,
             "messages": openai_messages,
             "temperature": options.temperature,
@@ -745,7 +745,7 @@ class OpenAICompatibleBackend(LLMBackend):
             raise await self._backend_error(e, model)
 
     @staticmethod
-    def _truncation_debug(finish_reason: Optional[str]) -> List[Dict[str, str]]:
+    def _truncation_debug(finish_reason: str | None) -> list[dict[str, str]]:
         """Debug item when the model stopped at the token/context limit.
 
         ``finish_reason="length"`` means the answer is cut off: with
@@ -768,10 +768,10 @@ class OpenAICompatibleBackend(LLMBackend):
     async def _consume_stream(
         self,
         stream: Any,
-        stream_state: Dict[str, Any],
-        counters: Dict[str, Any],
-        tool_calls: Optional[List[Dict[str, Any]]],
-    ) -> AsyncIterator[Dict]:
+        stream_state: dict[str, Any],
+        counters: dict[str, Any],
+        tool_calls: list[dict[str, Any]] | None,
+    ) -> AsyncIterator[dict]:
         """Consume one completion stream and yield UI items.
 
         Updates counters in place (prompt_tokens, total_tokens,
@@ -831,10 +831,10 @@ class OpenAICompatibleBackend(LLMBackend):
     async def chat_stream(
         self,
         model: str,
-        messages: List[LLMMessage],
-        options: Optional[LLMOptions] = None,
-        toolkit: Optional[Any] = None,
-    ) -> AsyncIterator[Dict]:
+        messages: list[LLMMessage],
+        options: LLMOptions | None = None,
+        toolkit: Any | None = None,
+    ) -> AsyncIterator[dict]:
         if options is None:
             options = LLMOptions()
 
@@ -842,11 +842,11 @@ class OpenAICompatibleBackend(LLMBackend):
         if load_s:
             yield {"type": "model_load", "seconds": load_s}
 
-        openai_messages: List[Dict[str, Any]] = [
+        openai_messages: list[dict[str, Any]] = [
             {"role": msg.role, "content": msg.content} for msg in messages
         ]
 
-        kwargs: Dict[str, Any] = {
+        kwargs: dict[str, Any] = {
             "model": model,
             "messages": openai_messages,
             "temperature": options.temperature,
@@ -874,7 +874,7 @@ class OpenAICompatibleBackend(LLMBackend):
         from ..lib.config import MAX_TOOL_ROUNDS, TOOL_LOOP_CONTEXT_GUARD
         max_tool_rounds = MAX_TOOL_ROUNDS
         start_time = time.monotonic()
-        last_error: Optional[Exception] = None
+        last_error: Exception | None = None
 
         # Once we have yielded anything to the caller, retries are no longer
         # safe: the caller has already received partial output (content chunks,
@@ -889,7 +889,7 @@ class OpenAICompatibleBackend(LLMBackend):
 
                 total_tokens = 0
                 prompt_tokens = 0
-                server_timings: Dict[str, Any] = {}
+                server_timings: dict[str, Any] = {}
                 # Summed over every request of this turn and the sub-agents
                 # its tools ran (they report theirs as tool_work events).
                 work = InferenceWork()
@@ -905,17 +905,17 @@ class OpenAICompatibleBackend(LLMBackend):
                 context_guard_tripped = False
                 # Seconds from request start to the first streamed token —
                 # the decode fallback divides by the time after it.
-                first_token_s: Optional[float] = None
+                first_token_s: float | None = None
 
                 for _tool_round in range(max_tool_rounds):
                     self._before_stream_request()
                     request_start = timer.elapsed()
-                    request_first: Optional[float] = None
+                    request_first: float | None = None
                     stream = await self.client.chat.completions.create(**kwargs)
 
-                    stream_state: Dict[str, Any] = {}
-                    tool_calls: List[Dict[str, Any]] = []
-                    counters: Dict[str, Any] = {
+                    stream_state: dict[str, Any] = {}
+                    tool_calls: list[dict[str, Any]] = []
+                    counters: dict[str, Any] = {
                         "prompt_tokens": 0,
                         "total_tokens": 0,
                         "server_timings": {},
@@ -939,7 +939,7 @@ class OpenAICompatibleBackend(LLMBackend):
                         prompt_tokens, total_tokens, server_timings,
                         request_first, timer.elapsed() - request_start,
                     )
-                    last_finish_reason: Optional[str] = counters["last_finish_reason"]
+                    last_finish_reason: str | None = counters["last_finish_reason"]
 
                     # Surface a hit token/context limit. Without this a
                     # truncated answer is indistinguishable from a finished
@@ -1021,7 +1021,7 @@ class OpenAICompatibleBackend(LLMBackend):
                     # Tool-Runden verloren und es musste seinen Stand jede
                     # Runde aus Tool-Args/Results rekonstruieren. Zwischen
                     # den Turns strippt die llm_history weiterhin (bewusst).
-                    assistant_msg: Dict[str, Any] = {
+                    assistant_msg: dict[str, Any] = {
                         "role": "assistant",
                         "content": stream_state.get("_visible_acc") or None,
                         "tool_calls": [

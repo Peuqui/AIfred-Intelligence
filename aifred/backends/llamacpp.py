@@ -11,21 +11,23 @@ See docs/en/guides/llamacpp-setup.md for hardware configuration and performance 
 import asyncio
 import logging
 import re
-from typing import Optional, AsyncIterator, Dict, Any
+from collections.abc import AsyncIterator
+from typing import Any
+
 import openai
 
 from ..lib.perf_metrics import InferenceWork
 from .base import (
-    OpenAICompatibleBackend,
+    BackendConnectionError,
     LLMOptions,
     LLMResponse,
-    BackendConnectionError,
+    OpenAICompatibleBackend,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _require_timings(server_timings: Dict[str, Any]) -> None:
+def _require_timings(server_timings: dict[str, Any]) -> None:
     """Fail with a diagnostic message when llama-server timings are absent.
 
     A response without ``timings`` means the server died mid-generation
@@ -80,8 +82,8 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     async def _check_rpc_servers(self, model: str) -> None:
         """Alle ``--rpc``-Endpoints des Modells müssen erreichbar sein."""
-        from ..lib.config import LLAMASWAP_CONFIG_PATH
         from ..lib.calibration import parse_llamaswap_config
+        from ..lib.config import LLAMASWAP_CONFIG_PATH
 
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
         if model not in config:
@@ -115,9 +117,9 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     # === Hook overrides ===
 
-    def _build_extra_body(self, options: LLMOptions, model: str) -> Dict[str, Any]:
+    def _build_extra_body(self, options: LLMOptions, model: str) -> dict[str, Any]:
         """llama.cpp: ALWAYS send all params to override server CLI defaults."""
-        extra_body: Dict[str, Any] = {
+        extra_body: dict[str, Any] = {
             "repetition_penalty": options.repeat_penalty,
             "top_k": options.top_k,
             "min_p": options.min_p,
@@ -144,10 +146,10 @@ class LlamaCppBackend(OpenAICompatibleBackend):
             ] = options.reasoning_effort
         return extra_body
 
-    def _extract_server_timings(self, response_or_chunk: Any) -> Dict[str, Any]:
+    def _extract_server_timings(self, response_or_chunk: Any) -> dict[str, Any]:
         """Extract llama-server's timings from OpenAI SDK model_extra."""
         if hasattr(response_or_chunk, "model_extra") and response_or_chunk.model_extra:
-            timings: Dict[str, Any] = response_or_chunk.model_extra.get("timings", {})
+            timings: dict[str, Any] = response_or_chunk.model_extra.get("timings", {})
             return timings
         return {}
 
@@ -155,8 +157,8 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         self,
         prompt_tokens: int,
         tokens_generated: int,
-        server_timings: Dict[str, Any],
-        first_token_s: Optional[float],
+        server_timings: dict[str, Any],
+        first_token_s: float | None,
         elapsed_s: float,
     ) -> InferenceWork:
         """llama-server's own phase times of this request.
@@ -174,7 +176,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         tokens_generated: int,
         inference_time: float,
         model: str,
-        server_timings: Dict[str, Any],
+        server_timings: dict[str, Any],
     ) -> LLMResponse:
         """Use llama-server's pure inference timings."""
         _require_timings(server_timings)
@@ -189,7 +191,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     # === Backend-specific methods ===
 
-    async def preload_model(self, model: str, num_ctx: Optional[int] = None) -> tuple[bool, float]:
+    async def preload_model(self, model: str, num_ctx: int | None = None) -> tuple[bool, float]:
         """
         Trigger llama-swap to load a model by sending a minimal completion request.
 
@@ -237,10 +239,11 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
         # 2. Read native context from GGUF metadata
         try:
+            from pathlib import Path
+
             from ..lib.calibration import parse_llamaswap_config
             from ..lib.config import LLAMASWAP_CONFIG_PATH
             from ..lib.gguf_utils import get_gguf_native_context
-            from pathlib import Path
 
             config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
             if model in config:
@@ -265,7 +268,7 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         except openai.OpenAIError:
             return False
 
-    def get_capabilities(self) -> Dict[str, bool]:
+    def get_capabilities(self) -> dict[str, bool]:
         """
         llama.cpp/llama-swap capabilities.
 
@@ -284,10 +287,10 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         model: str,
         dry_run: bool = False,
         min_kv: str = "f16",
-        known_thinking: Optional[bool] = None,
-        tts_gpu_uuid: Optional[str] = None,
+        known_thinking: bool | None = None,
+        tts_gpu_uuid: str | None = None,
         tts_gpu_extra_reserve_mb: int = 0,
-        vlm_gpu_uuid: Optional[str] = None,
+        vlm_gpu_uuid: str | None = None,
         vlm_gpu_extra_reserve_mb: int = 0,
     ) -> AsyncIterator[str]:
         """
@@ -297,9 +300,10 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         Final yield: "__RESULT__:{context}" or "__RESULT__:0:error"
         """
         from pathlib import Path
+
         from ..lib.calibration import (
-            parse_llamaswap_config,
             calibrate_llamacpp_model,
+            parse_llamaswap_config,
         )
         from ..lib.config import LLAMASWAP_CONFIG_PATH
 
@@ -323,6 +327,8 @@ class LlamaCppBackend(OpenAICompatibleBackend):
         # compute-DESC order (UUID-pinned, no FASTEST_FIRST/PCI lottery).
         from ..lib.calibration.gpu import (
             cuda_visible_devices as _cuda_visible_devices,
+        )
+        from ..lib.calibration.gpu import (
             enumerate_gpus as _enumerate_gpus,
         )
         cal_gpus = _enumerate_gpus()

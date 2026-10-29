@@ -2,15 +2,22 @@
 Dienstes, Einheit, request_engines, Zwischenspeicher des Katalogs, Dienst nicht erreichbar.
 Der Dienst ist ein httpx.MockTransport; der echte wird nie getroffen (conftest). AIfred schreibt nichts hinein."""
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import httpx
 import pytest
 
-import aifred.lib.tts_service as tts_service
-from aifred.lib.config import TTS_SUITE_CACHE_TTL_S
-from aifred.lib.config import DEFAULT_TTS_ESCALATION
-from aifred.lib.tts_client import EngineInfo, EngineRef, SpeakSummary, TraceStep, TTSClient, TTSSuiteUnreachable
+from aifred.lib import tts_service
+from aifred.lib.config import DEFAULT_TTS_ESCALATION, TTS_SUITE_CACHE_TTL_S
+from aifred.lib.tts_client import (
+    EngineInfo,
+    EngineRef,
+    SpeakSummary,
+    TraceStep,
+    TTSClient,
+    TTSSuiteUnreachable,
+)
 
 
 def row(engine: str = "xtts", host: str | None = None, **fields: Any) -> dict[str, Any]:

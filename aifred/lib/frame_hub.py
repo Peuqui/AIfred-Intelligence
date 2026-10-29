@@ -27,8 +27,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import AsyncIterator
 from threading import Lock
-from typing import TYPE_CHECKING, AsyncIterator
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .frame_sources.base import Frame, FrameSource
@@ -47,10 +48,10 @@ _DEFAULT_FPS = 2.0
 class _HubChannel:
     """Per-Source-Zustand im Hub."""
 
-    def __init__(self, source: "FrameSource") -> None:
+    def __init__(self, source: FrameSource) -> None:
         self.source = source
         self.reader_task: asyncio.Task[None] | None = None
-        self.subscribers: list[asyncio.Queue["Frame"]] = []
+        self.subscribers: list[asyncio.Queue[Frame]] = []
         self.shutdown_task: asyncio.Task[None] | None = None
         # Effektive Stream-Parameter des laufenden Readers.
         self.current_fps: float = 0.0
@@ -132,7 +133,7 @@ class _HubChannel:
                             pass
         except asyncio.CancelledError:
             raise
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception(
                 "hub reader for %s crashed", self.source.source_id
             )
@@ -178,7 +179,7 @@ class FrameHub:
         self._channels: dict[str, _HubChannel] = {}
         self._lock = Lock()
 
-    def _get_channel(self, source: "FrameSource") -> _HubChannel:
+    def _get_channel(self, source: FrameSource) -> _HubChannel:
         with self._lock:
             ch = self._channels.get(source.source_id)
             if ch is None:
@@ -196,13 +197,13 @@ class FrameHub:
 
     async def subscribe(
         self,
-        source: "FrameSource",
+        source: FrameSource,
         *,
         name: str = "anon",
         fps: float = _DEFAULT_FPS,
         width: int = 0,
         height: int = 0,
-    ) -> AsyncIterator["Frame"]:
+    ) -> AsyncIterator[Frame]:
         """Async-Iterator über Frames der Source. Beim Verlassen
         (break/return/Exception) wird der Subscriber automatisch
         deregistriert."""
@@ -213,7 +214,7 @@ class FrameHub:
             ch.shutdown_task = None
         async with ch.lock:
             await ch._ensure_reader(fps, width, height)
-        q: asyncio.Queue["Frame"] = asyncio.Queue(maxsize=4)
+        q: asyncio.Queue[Frame] = asyncio.Queue(maxsize=4)
         ch.subscribers.append(q)
         logger.debug(
             "hub subscribe %s name=%s (subs=%d)",
@@ -235,12 +236,12 @@ class FrameHub:
 
     async def snapshot(
         self,
-        source: "FrameSource",
+        source: FrameSource,
         *,
         width: int = 0,
         height: int = 0,
         timeout: float = 15.0,
-    ) -> "Frame":
+    ) -> Frame:
         """One-Shot: holt den nächsten Frame aus dem Hub-Stream und
         kehrt zurück. Wenn noch kein Reader läuft, wird einer mit der
         angeforderten Auflösung gestartet (und nach Grace-Period
@@ -253,7 +254,7 @@ class FrameHub:
         idle Reolink regelmäßig ("snapshot failed: " mit leerem
         TimeoutError), obwohl die Kamera gesund war.
         """
-        async def _first_frame() -> "Frame":
+        async def _first_frame() -> Frame:
             async for frame in self.subscribe(
                 source, name="snapshot", fps=_DEFAULT_FPS, width=width, height=height,
             ):

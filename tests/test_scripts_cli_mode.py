@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent / "scripts"
-IMPORT = re.compile(r"^\s*(from aifred|import aifred)", re.M)
+IMPORT = re.compile(r"^\s*(from aifred|import aifred)", re.MULTILINE)
 CLI = re.compile(r"AIFRED_CLI_MODE")
 
 

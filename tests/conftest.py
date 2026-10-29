@@ -6,7 +6,7 @@ import os
 # service's live debug log (14.09.2026).
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
-import pytest  # noqa: E402
+import pytest
 
 @pytest.fixture(autouse=True, scope="session")
 def _no_debug_log_file():
@@ -29,7 +29,7 @@ def _no_real_whisper_service(monkeypatch):
     freigebbar und gibt ihn vor dem Laden frei. Ohne diese Sperre hätte ein
     Testlauf Peuquis laufenden GPU-Worker abgeschossen. Tests für die
     Zuordnung selbst überschreiben das gezielt."""
-    import aifred.lib.stt_client as stt_client
+    from aifred.lib import stt_client
 
     def _no_container_start() -> tuple[bool, str]:
         raise AssertionError("Test darf den STT-Container nicht starten")
@@ -48,8 +48,8 @@ def _no_real_tts_service(monkeypatch):
     (Der Client hat keine Schreibaufrufe mehr: AIfred schreibt nichts in die Suite.)
     Tests, die den Client brauchen, setzen einen eigenen mit MockTransport
     (oder ersetzen get_tts_client)."""
-    import aifred.lib.tts_client as tts_client
-    import aifred.lib.tts_service as tts_service
+    from aifred.lib import tts_client
+    from aifred.lib import tts_service
 
     def _no_systemctl() -> tuple[int, str]:
         raise AssertionError("Test darf den TTS-Dienst nicht per systemctl starten")

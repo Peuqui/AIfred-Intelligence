@@ -9,13 +9,12 @@ Handles:
 """
 
 import re
-from typing import Dict, List, AsyncIterator, Optional
+from collections.abc import AsyncIterator
 from urllib.parse import urlparse
 
-from ..tools import search_web_multi
 from ..logging_utils import log_message
+from ..tools import search_web_multi
 from ..tools.url_utils import deduplicate_urls, deduplicate_urls_with_metadata
-
 
 # ============================================================
 # URL DETECTION & INTENT ANALYSIS
@@ -40,7 +39,7 @@ SEARCH_INTENT_KEYWORDS = [
 ]
 
 
-def detect_urls_in_text(text: str, max_urls: int = 7) -> List[str]:
+def detect_urls_in_text(text: str, max_urls: int = 7) -> list[str]:
     """
     Detects URLs in user text using regex
 
@@ -94,7 +93,7 @@ def detect_search_intent(text: str) -> bool:
     return any(keyword in text_lower for keyword in SEARCH_INTENT_KEYWORDS)
 
 
-def remove_urls_from_text(text: str, urls: List[str]) -> str:
+def remove_urls_from_text(text: str, urls: list[str]) -> str:
     """
     Removes detected URLs from user text for query optimization
 
@@ -123,13 +122,13 @@ def remove_urls_from_text(text: str, urls: List[str]) -> str:
 
 async def process_query_and_search(
     user_text: str,
-    llm_history: List[Dict[str, str]],
+    llm_history: list[dict[str, str]],
     automatik_model: str,
     automatik_llm_client,
-    llm_options: Dict | None = None,
-    vision_json_context: Optional[Dict] = None,
-    pre_generated_queries: Optional[List[str]] = None
-) -> AsyncIterator[Dict]:
+    llm_options: dict | None = None,
+    vision_json_context: dict | None = None,
+    pre_generated_queries: list[str] | None = None
+) -> AsyncIterator[dict]:
     """
     Process query optimization and perform web search
 
@@ -149,7 +148,7 @@ async def process_query_and_search(
         Tuple[str, str, float, List[str], List[Dict]]:
         (optimized_query, query_reasoning, query_opt_time, related_urls, tool_results)
     """
-    tool_results: List[Dict] = []
+    tool_results: list[dict] = []
 
     # ============================================================
     # STEP 0: URL DETECTION & INTENT ANALYSIS

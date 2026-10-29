@@ -12,8 +12,6 @@ the var annotation without rotating mypy's SCC analysis order.
 
 from __future__ import annotations
 
-from typing import Optional
-
 from dataclasses import dataclass, field
 
 from .config import (
@@ -77,7 +75,7 @@ class AgentTuning:
     rope_factor: float = 1.0
     max_context: int = 0
     is_hybrid: bool = False
-    supports_thinking: Optional[bool] = None
+    supports_thinking: bool | None = None
 
     # Manual context override (persisted for vision only)
     num_ctx_manual: int = 4096

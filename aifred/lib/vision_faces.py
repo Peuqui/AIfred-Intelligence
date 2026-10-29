@@ -34,7 +34,7 @@ class FacePipeline:
 
     async def run(
         self,
-        frame: "Frame",
+        frame: Frame,
         *,
         trigger: str,
         frame_path: str = "",

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Literal, Optional
+from typing import Literal
 
 
 @dataclass(frozen=True)
@@ -145,7 +145,7 @@ class Candidate:
     tensor_split: tuple[float, ...]      # integer-valued, len == total GPUs
     max_context: int
     predicted_free_mb: tuple[int, ...]   # per-GPU predicted free at max_context
-    vram_model: Optional[VRamModel]
+    vram_model: VRamModel | None
 
 
 @dataclass(frozen=True)

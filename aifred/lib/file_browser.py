@@ -20,7 +20,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
-from typing import Optional
 
 
 @dataclass
@@ -40,9 +39,9 @@ class BrowseEntry:
     abs_path: str               # resolved absolute path (target if symlink)
     is_dir: bool
     is_symlink: bool
-    size: Optional[int] = None
-    mtime: Optional[int] = None
-    error: Optional[str] = None  # set if entry can't be inspected (broken symlink etc.)
+    size: int | None = None
+    mtime: int | None = None
+    error: str | None = None  # set if entry can't be inspected (broken symlink etc.)
 
 
 @dataclass
@@ -65,7 +64,7 @@ def _is_safe_to_enter(abs_path: Path) -> bool:
     return not any(s == p or s.startswith(p + "/") for p in _DANGEROUS_PREFIXES)
 
 
-def safe_resolve(root: str, rel_path: str) -> tuple[Optional[Path], Optional[str]]:
+def safe_resolve(root: str, rel_path: str) -> tuple[Path | None, str | None]:
     """Validate that rel_path stays inside root.
 
     Path-traversal logic uses POSIX joining + lexical check on the
@@ -129,9 +128,9 @@ def browse(req: BrowseRequest) -> BrowseResult:
         # Determine type without crashing on broken symlinks
         is_symlink = child.is_symlink()
         is_dir = False
-        size: Optional[int] = None
-        mtime: Optional[int] = None
-        entry_error: Optional[str] = None
+        size: int | None = None
+        mtime: int | None = None
+        entry_error: str | None = None
 
         try:
             stat = child.stat()  # follows symlinks

@@ -29,8 +29,9 @@ import json
 import re
 import time
 import zipfile
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Iterable, Literal
+from typing import Literal
 
 from .agent_config import load_agents_raw, save_agents_raw
 from .config import PROJECT_ROOT

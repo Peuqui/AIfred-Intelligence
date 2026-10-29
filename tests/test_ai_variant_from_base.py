@@ -10,9 +10,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import aifred.lib.calibration.ai_agent as ai_agent
-import aifred.lib.calibration.flow as flow
-from aifred.lib.calibration.types import Budget, GPU, Model
+from aifred.lib.calibration import ai_agent, flow
+from aifred.lib.calibration.types import GPU, Budget, Model
 
 
 def _gpu(uuid: str, name: str, cc: float, total: int) -> GPU:

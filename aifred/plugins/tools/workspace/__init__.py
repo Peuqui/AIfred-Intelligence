@@ -9,7 +9,8 @@ import asyncio
 import json
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, Optional
+from collections.abc import AsyncGenerator
 
 from ....lib.config import (
     DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
@@ -35,7 +36,7 @@ def _split_parent_leaf(rel_path: str) -> tuple[str, str]:
     return ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
 
 
-def _container_text(file_path: Path) -> Optional[str]:
+def _container_text(file_path: Path) -> str | None:
     """Text of an Office/ODF file through the same parser the index uses
     (SSOT, document_store.PARSERS); None for every other format."""
     from ....lib.document_store import CONTAINER_FORMATS, PARSERS
@@ -656,7 +657,7 @@ class WorkspacePlugin:
         async def _search_documents(
             query: str,
             n_results: int = 5,
-            folder: Optional[str] = None,
+            folder: str | None = None,
             page: int = 1,
         ) -> str:
             """Semantic search in ChromaDB, optionally restricted to a folder.

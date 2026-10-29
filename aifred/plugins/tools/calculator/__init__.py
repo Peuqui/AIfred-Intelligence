@@ -4,7 +4,8 @@ import ast
 import json
 import operator
 from dataclasses import dataclass
-from typing import Any, Callable
+from typing import Any
+from collections.abc import Callable
 
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY

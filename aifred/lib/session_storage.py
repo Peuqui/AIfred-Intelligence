@@ -12,21 +12,20 @@ Each session belongs to a user (owner field).
 Users can access their sessions from any device via username + password.
 """
 
-import os
-import json
 import hashlib
 import hmac
+import json
+import os
 import re
 import secrets
 import threading
-from pathlib import Path
 from datetime import datetime
-from typing import Optional, Dict, Any, List
+from pathlib import Path
+from typing import Any
 
 import bcrypt
 
 from .config import DATA_DIR
-
 
 # Session directory (subdirectory of data/)
 SESSION_DIR = DATA_DIR / "sessions"
@@ -69,7 +68,7 @@ def _ensure_session_dir() -> None:
 # Whitelist Management
 # ============================================================
 
-def _load_whitelist() -> List[str]:
+def _load_whitelist() -> list[str]:
     """
     Load whitelist of allowed usernames.
 
@@ -84,11 +83,11 @@ def _load_whitelist() -> List[str]:
             data = json.load(f)
             # Normalize to lowercase
             return [u.lower() for u in data if isinstance(u, str)]
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return []
 
 
-def _save_whitelist(whitelist: List[str]) -> bool:
+def _save_whitelist(whitelist: list[str]) -> bool:
     """
     Save whitelist to file.
 
@@ -103,7 +102,7 @@ def _save_whitelist(whitelist: List[str]) -> bool:
         with open(WHITELIST_FILE, "w", encoding="utf-8") as f:
             json.dump(whitelist, f, ensure_ascii=False, indent=2)
         return True
-    except IOError:
+    except OSError:
         return False
 
 
@@ -125,7 +124,7 @@ def is_username_allowed(username: str) -> bool:
     return username.lower() in whitelist
 
 
-def get_whitelist() -> List[str]:
+def get_whitelist() -> list[str]:
     """
     Get list of allowed usernames.
 
@@ -185,7 +184,7 @@ def remove_from_whitelist(username: str) -> bool:
 # Account Management (Username + Password)
 # ============================================================
 
-def _load_accounts() -> Dict[str, str]:
+def _load_accounts() -> dict[str, str]:
     """
     Load accounts file.
 
@@ -197,13 +196,13 @@ def _load_accounts() -> Dict[str, str]:
 
     try:
         with open(ACCOUNTS_FILE, "r", encoding="utf-8") as f:
-            result: Dict[str, str] = json.load(f)
+            result: dict[str, str] = json.load(f)
             return result
-    except (json.JSONDecodeError, IOError):
+    except (OSError, json.JSONDecodeError):
         return {}
 
 
-def _save_accounts(accounts: Dict[str, str]) -> bool:
+def _save_accounts(accounts: dict[str, str]) -> bool:
     """
     Save accounts file atomically (tmp + os.replace).
 
@@ -226,7 +225,7 @@ def _save_accounts(accounts: Dict[str, str]) -> bool:
         os.chmod(tmp_path, 0o600)
         os.replace(tmp_path, ACCOUNTS_FILE)
         return True
-    except IOError:
+    except OSError:
         try:
             ACCOUNTS_FILE.with_suffix(".json.tmp").unlink(missing_ok=True)
         except OSError:
@@ -315,7 +314,7 @@ def verify_account(username: str, password: str) -> bool:
     return True
 
 
-def list_accounts() -> List[str]:
+def list_accounts() -> list[str]:
     """
     List all usernames.
 
@@ -354,7 +353,7 @@ def delete_account(username: str, delete_sessions: bool = False) -> bool:
                     data = json.load(f)
                 if data.get("owner", "").lower() == username_lower:
                     session_file.unlink()
-            except (json.JSONDecodeError, IOError):
+            except (OSError, json.JSONDecodeError):
                 continue
 
     # Delete account
@@ -426,7 +425,7 @@ def get_session_path(session_id: str) -> Path:
     return path
 
 
-def load_session(session_id: str) -> Optional[Dict[str, Any]]:
+def load_session(session_id: str) -> dict[str, Any] | None:
     """
     Load session for Session-ID.
 
@@ -452,15 +451,15 @@ def load_session(session_id: str) -> Optional[Dict[str, Any]]:
 
     try:
         with open(session_path, "r", encoding="utf-8") as f:
-            session: Dict[str, Any] = json.load(f)
+            session: dict[str, Any] = json.load(f)
 
         return session
 
-    except (json.JSONDecodeError, IOError, KeyError):
+    except (OSError, json.JSONDecodeError, KeyError):
         return None
 
 
-def _stamp_new_session(session: Dict[str, Any], now: str) -> None:
+def _stamp_new_session(session: dict[str, Any], now: str) -> None:
     """Stamp a session that is being created.
 
     ``last_message_at`` orders the chat picker. A new session starts there as
@@ -471,7 +470,7 @@ def _stamp_new_session(session: Dict[str, Any], now: str) -> None:
     session["last_message_at"] = now
 
 
-def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
+def _write_session_file(path: Path, session: dict[str, Any]) -> bool:
     """
     Write session dict to file (internal helper).
 
@@ -491,7 +490,7 @@ def _write_session_file(path: Path, session: Dict[str, Any]) -> bool:
             json.dump(session, f, ensure_ascii=False, indent=2)
         os.replace(tmp_path, path)
         return True
-    except IOError:
+    except OSError:
         try:
             tmp_path.unlink(missing_ok=True)
         except OSError:
@@ -532,8 +531,8 @@ def create_empty_session(session_id: str, owner: str, channel: str = "") -> bool
 
 def save_session(
     session_id: str,
-    session_data: Dict[str, Any],
-    owner: Optional[str] = None
+    session_data: dict[str, Any],
+    owner: str | None = None
 ) -> bool:
     """
     Save session for Session-ID.
@@ -570,12 +569,12 @@ def save_session(
 
 def update_chat_data(
     session_id: str,
-    chat_history: List[Dict[str, Any]],
-    chat_summaries: Optional[List[str]] = None,
-    llm_history: Optional[List[Dict[str, str]]] = None,
-    debug_messages: Optional[List[str]] = None,
-    is_generating: Optional[bool] = None,
-    owner: Optional[str] = None
+    chat_history: list[dict[str, Any]],
+    chat_summaries: list[str] | None = None,
+    llm_history: list[dict[str, str]] | None = None,
+    debug_messages: list[str] | None = None,
+    is_generating: bool | None = None,
+    owner: str | None = None
 ) -> bool:
     """
     Update chat data of a session.
@@ -669,14 +668,14 @@ def attach_reply_audio(session_id: str, audio_url: str, tts_note: str) -> bool:
 
 # Clean defaults for new sessions — explicitly hardcoded, not inherited
 # from global settings. Every new session starts from this state.
-DEFAULT_SESSION_CONFIG: Dict[str, Any] = {
+DEFAULT_SESSION_CONFIG: dict[str, Any] = {
     "active_agent": "aifred",
     "multi_agent_mode": "standard",
     "symposion_agents": [],
 }
 
 
-def get_session_config(session_id: str) -> Dict[str, Any]:
+def get_session_config(session_id: str) -> dict[str, Any]:
     """
     Get the config block of a session.
 
@@ -757,7 +756,7 @@ def set_session_active_agent(session_id: str, agent_id: str) -> bool:
     return update_session_config(session_id, active_agent=agent_id)
 
 
-def delete_session(session_id: str, expected_owner: Optional[str] = None) -> bool:
+def delete_session(session_id: str, expected_owner: str | None = None) -> bool:
     """
     Delete session completely, including associated images and audio.
 
@@ -816,7 +815,7 @@ def delete_session(session_id: str, expected_owner: Optional[str] = None) -> boo
         routing_table.delete_routes_for_session(session_id)
 
         return True
-    except (ValueError, IOError):
+    except (OSError, ValueError):
         return False
 
 
@@ -880,7 +879,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 # Session Discovery (for API access)
 # ============================================================
 
-def get_latest_session_file() -> Optional[Path]:
+def get_latest_session_file() -> Path | None:
     """
     Get the most recently modified session file.
 
@@ -907,10 +906,10 @@ def get_latest_session_file() -> Optional[Path]:
 # refresh made bulk deletes sluggish. A file is re-parsed only when its
 # mtime or size changed. No lock: dict ops are GIL-atomic, a concurrent
 # refresh at worst parses a file twice.
-_session_meta_cache: Dict[str, tuple] = {}
+_session_meta_cache: dict[str, tuple] = {}
 
 
-def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_sessions(owner: str | None = None) -> list[dict[str, Any]]:
     """
     List sessions with basic info, optionally filtered by owner.
 
@@ -969,7 +968,7 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
                 continue
 
             sessions.append(dict(meta))
-        except (json.JSONDecodeError, IOError, OSError):
+        except (json.JSONDecodeError, OSError):
             continue
 
     # Evict entries for deleted files so the cache mirrors the directory.
@@ -981,7 +980,7 @@ def list_sessions(owner: Optional[str] = None) -> List[Dict[str, Any]]:
     return sessions
 
 
-def most_recently_seen_session_id(owner: str) -> Optional[str]:
+def most_recently_seen_session_id(owner: str) -> str | None:
     """The owner's session with the newest last_seen, or None without sessions.
 
     This is what the login auto-load returns to: the session the user opened
@@ -1046,7 +1045,7 @@ def touch_session(session_id: str) -> bool:
         return save_session(session_id, session)
 
 
-def get_session_title(session_id: str) -> Optional[str]:
+def get_session_title(session_id: str) -> str | None:
     """
     Get the title of a session.
 
@@ -1119,11 +1118,11 @@ def set_pending_message(session_id: str, message: str) -> bool:
         flag_path.touch()
 
         return True
-    except (ValueError, IOError, json.JSONDecodeError):
+    except (OSError, ValueError, json.JSONDecodeError):
         return False
 
 
-def get_and_clear_pending_message(session_id: str) -> Optional[str]:
+def get_and_clear_pending_message(session_id: str) -> str | None:
     """
     Get pending message and clear it.
 
@@ -1168,5 +1167,5 @@ def get_and_clear_pending_message(session_id: str) -> Optional[str]:
         result: str | None = pending_msg
         return result
 
-    except (ValueError, IOError, json.JSONDecodeError):
+    except (OSError, ValueError, json.JSONDecodeError):
         return None

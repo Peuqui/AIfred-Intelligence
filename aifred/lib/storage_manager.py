@@ -54,8 +54,7 @@ def list_managed_files() -> list[dict]:
             rel = f.relative_to(base)
             st = f.stat()
             display = f.stem
-            if display.startswith(_EXPORT_PREFIX):
-                display = display[len(_EXPORT_PREFIX):]
+            display = display.removeprefix(_EXPORT_PREFIX)
             out.append({
                 "id": f"{kind}/{rel.as_posix()}",
                 "kind": kind,

@@ -79,8 +79,8 @@ def visiond_profile_for(name: str) -> str | None:
     # Rolle ("…-vlm-qwen3vl4b"); das Describer-Profil hängt am BASIS-Namen.
     from .vision_utils import strip_variant_suffixes
     name = strip_variant_suffixes(name)
-    from .config import LLAMASWAP_CONFIG_PATH
     from .calibration.llamaswap_io import parse_llamaswap_config
+    from .config import LLAMASWAP_CONFIG_PATH
     try:
         models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
     except (OSError, ValueError):
@@ -307,6 +307,7 @@ def loaded_llamaswap_profiles() -> list[str]:
     behandeln (nichts, worauf man sich draufsetzen kann).
     """
     import httpx
+
     from .config import DEFAULT_LLAMACPP_URL
     base = DEFAULT_LLAMACPP_URL.rstrip("/").removesuffix("/v1")
     try:
@@ -364,8 +365,8 @@ def vlm_calibration_choices() -> list[dict[str, str]]:
     ``{key, model_id, label}``: ``model_id`` ist der Basisname,
     ``key`` kommt aus :func:`vlm_profile_key`, das Label ist der
     Basisname (Anzeige in der Kalibrier-Matrix)."""
-    from .config import LLAMASWAP_CONFIG_PATH
     from .calibration.llamaswap_io import parse_llamaswap_config
+    from .config import LLAMASWAP_CONFIG_PATH
     from .vlm_naming import vlm_profile_key
     try:
         models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)

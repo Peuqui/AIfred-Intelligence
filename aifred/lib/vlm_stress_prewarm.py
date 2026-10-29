@@ -18,7 +18,7 @@ import asyncio
 import base64
 import logging
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .config import DATA_DIR
 
@@ -37,8 +37,9 @@ def _generate_stress_image(path: Path, *, size: int = 1536) -> None:
     Deterministic via fixed PRNG seed so cache invalidation only happens on
     explicit size/config changes, not run-to-run jitter.
     """
-    from PIL import Image, ImageDraw, ImageFont  # heavy import — lazy
     import random
+
+    from PIL import Image, ImageDraw, ImageFont  # heavy import — lazy
 
     rng = random.Random(42)
     img = Image.new("RGB", (size, size), color=(20, 20, 30))
@@ -120,20 +121,19 @@ class _PeakMonitor:
         self._gpu = gpu_index
         self._interval = interval
         self._peak = 0
-        self._task: Optional[asyncio.Task[None]] = None
+        self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
 
     async def _run(self) -> None:
         while not self._stop.is_set():
             used = _gpu_used_mb(self._gpu)
-            if used > self._peak:
-                self._peak = used
+            self._peak = max(self._peak, used)
             try:
                 await asyncio.wait_for(self._stop.wait(), timeout=self._interval)
             except asyncio.TimeoutError:
                 pass
 
-    async def __aenter__(self) -> "_PeakMonitor":
+    async def __aenter__(self) -> _PeakMonitor:
         self._task = asyncio.create_task(self._run())
         return self
 
@@ -162,7 +162,7 @@ async def stress_prewarm_vlm(
     gpu_index: int,
     load_timeout_seconds: float = 240.0,
     infer_timeout_seconds: float = 180.0,
-) -> Optional[int]:
+) -> int | None:
     """Start the model's llama-swap ``-visiond`` profile as a standalone
     llama-server on ``gpu_index``, run a stress inference, return the
     observed peak VRAM in MiB. Returns ``None`` on any failure (caller
@@ -176,12 +176,13 @@ async def stress_prewarm_vlm(
     """
     import httpx
 
-    from .config import LLAMASWAP_CONFIG_PATH
     from .calibration.llamaswap_io import parse_llamaswap_config
+
     # Interne Verifier-Helfer bewusst wiederverwendet (SSOT für
     # Test-Server-Spawn/Readiness/Kill der Kalibrierung) statt einen
     # zweiten llama-server-Launcher zu bauen.
     from .calibration.verifier import _cleanup_log, _kill, _start_server, _wait_ready
+    from .config import LLAMASWAP_CONFIG_PATH
     from .vision_routing import visiond_profile_for
 
     profile = visiond_profile_for(model)
@@ -279,7 +280,7 @@ async def stress_prewarm_vlm(
     return peak if peak > 0 else None
 
 
-def _query_gpu_uuid(gpu_index: int) -> Optional[str]:
+def _query_gpu_uuid(gpu_index: int) -> str | None:
     """Resolve a PCI_BUS_ID-ordered GPU index to its persistent NVIDIA UUID
     via nvidia-smi. Returns ``None`` on failure."""
     from .nvidia_smi import query
@@ -292,8 +293,8 @@ def _query_gpu_uuid(gpu_index: int) -> Optional[str]:
 
 async def resolve_vlm_reserve(
     num_ctx: int,
-    model_id_override: Optional[str] = None,
-) -> tuple[Optional[str], int]:
+    model_id_override: str | None = None,
+) -> tuple[str | None, int]:
     """Determine ``(vlm_gpu_uuid, reserve_mb)`` for a VLM model. Returns
     ``(None, 0)`` when no work is required.
 
@@ -323,9 +324,9 @@ async def resolve_vlm_reserve(
     """
     # 1. Resolve model id — explicit override wins over plugin settings
     if model_id_override:
-        model_id: Optional[str] = model_id_override
+        model_id: str | None = model_id_override
     else:
-        from .vision_prewarm import is_vision_active, get_active_vlm_model
+        from .vision_prewarm import get_active_vlm_model, is_vision_active
         if not is_vision_active():
             return None, 0
         model_id = get_active_vlm_model()
@@ -344,8 +345,8 @@ async def resolve_vlm_reserve(
         return None, 0
 
     # 3. Resolve reserve_mb — agnostic, cache + stress prewarm only.
-    from .config import LLAMACPP_VLM_HEADROOM_MB
     from . import vlm_vram_cache
+    from .config import LLAMACPP_VLM_HEADROOM_MB
 
     # 3a. Cache hit — stress-measured peak + runtime headroom.
     cached = vlm_vram_cache.get(model_id, num_ctx)

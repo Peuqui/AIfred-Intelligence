@@ -160,7 +160,7 @@ class TestResolveGpuId:
         assert resolve_gpu_id("auto") == 2
 
     def test_auto_returns_none_on_no_gpu(self, monkeypatch):
-        monkeypatch.setattr(vgs, "list_gpus", lambda: [])
+        monkeypatch.setattr(vgs, "list_gpus", list)
         assert resolve_gpu_id("auto") is None
 
     def test_auto_is_cached(self, monkeypatch):

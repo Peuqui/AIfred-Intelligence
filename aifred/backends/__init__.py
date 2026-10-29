@@ -34,9 +34,9 @@ class BackendFactory:
     def create(
         cls,
         backend_type: str,
-        base_url: Optional[str] = None,
-        api_key: Optional[str] = None,
-        provider: Optional[str] = None
+        base_url: str | None = None,
+        api_key: str | None = None,
+        provider: str | None = None
     ) -> LLMBackend:
         """
         Create a backend instance
@@ -109,14 +109,14 @@ class BackendFactory:
 
 __all__ = [
     "BackendFactory",
+    "CloudAPIBackend",
     "LLMBackend",
     "LLMMessage",
     "LLMOptions",
     "LLMResponse",
-    "OllamaBackend",
-    "vLLMBackend",
     "LlamaCppBackend",
-    "CloudAPIBackend",
+    "OllamaBackend",
     "get_cloud_api_key",
     "is_cloud_api_configured",
+    "vLLMBackend",
 ]

@@ -16,11 +16,21 @@ import asyncio
 from collections.abc import AsyncIterator, Sequence
 from dataclasses import dataclass, field
 
-from .audio_channels._audio_orchestrator import KEEPALIVE_SILENCE, TTSBuffer, silence_pcm
+from .audio_channels._audio_orchestrator import (
+    KEEPALIVE_SILENCE,
+    TTSBuffer,
+    silence_pcm,
+)
 from .config import REPLAY_PARAGRAPH_PAUSE_MS
 from .debug_bus import debug
 from .logging_utils import log_message
-from .tts_client import SpeakSummary, SpeechStream, TTSSuiteError, get_tts_client, new_run_id
+from .tts_client import (
+    SpeakSummary,
+    SpeechStream,
+    TTSSuiteError,
+    get_tts_client,
+    new_run_id,
+)
 from .tts_service import escalation_report, request_engines, spoken_note
 from .tts_text_filter import strip_ui_only_content
 from .tts_voices import voices_for

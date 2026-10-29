@@ -16,8 +16,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any
 
 from .logging_utils import log_message
 
@@ -50,9 +51,9 @@ class MpvIpcClient:
         self._read_error_log_level = read_error_log_level
         self._on_eof = on_eof
 
-        self._reader: Optional[asyncio.StreamReader] = None
-        self._writer: Optional[asyncio.StreamWriter] = None
-        self._reader_task: Optional[asyncio.Task[None]] = None
+        self._reader: asyncio.StreamReader | None = None
+        self._writer: asyncio.StreamWriter | None = None
+        self._reader_task: asyncio.Task[None] | None = None
         self._request_id = 0
         self._pending: dict[int, asyncio.Future[dict[str, Any]]] = {}
 
@@ -63,7 +64,7 @@ class MpvIpcClient:
         return self._writer is not None
 
     @property
-    def reader_task(self) -> Optional["asyncio.Task[None]"]:
+    def reader_task(self) -> asyncio.Task[None] | None:
         """Read-Loop-Task — für Consumer, die ihn in ihre eigene
         Cancel/Await-Reihenfolge einsortieren (FreeEcho2-Cleanup)."""
         return self._reader_task

@@ -12,7 +12,7 @@ moves a session up, merely opening it does not.
 
 import pytest
 
-import aifred.lib.session_storage as session_storage
+from aifred.lib import session_storage
 from aifred.lib.session_storage import (
     create_empty_session,
     list_sessions,

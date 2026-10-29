@@ -28,7 +28,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from typing import Optional
 
 from .logging_utils import log_message
 
@@ -64,7 +63,7 @@ def register_pipeline(session_id: str, task: asyncio.Task) -> None:
         previous.cancel()
 
 
-def unregister_pipeline(session_id: str, task: Optional[asyncio.Task] = None) -> None:
+def unregister_pipeline(session_id: str, task: asyncio.Task | None = None) -> None:
     """Remove the entry for ``session_id`` (idempotent).
 
     If ``task`` is given, only removes when that task is still the registered
@@ -108,11 +107,11 @@ class pipeline_scope:
     don't need to special-case those situations.
     """
 
-    def __init__(self, session_id: str, task: Optional[asyncio.Task]) -> None:
+    def __init__(self, session_id: str, task: asyncio.Task | None) -> None:
         self._session_id = session_id
         self._task = task
 
-    def __enter__(self) -> "pipeline_scope":
+    def __enter__(self) -> pipeline_scope:
         if self._task is not None and self._session_id:
             register_pipeline(self._session_id, self._task)
         return self

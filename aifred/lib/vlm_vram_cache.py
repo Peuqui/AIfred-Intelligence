@@ -25,7 +25,6 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
-from typing import Optional
 
 from .config import DATA_DIR
 from .vram_peak_cache import JsonPeakCache
@@ -37,7 +36,7 @@ CACHE_FILE = DATA_DIR / "vlm_vram_cache.json"
 _store = JsonPeakCache(CACHE_FILE, "vlm_vram_cache")
 
 
-def get(model_id: str, num_ctx: int) -> Optional[int]:
+def get(model_id: str, num_ctx: int) -> int | None:
     """Return cached peak MiB for ``(model_id, num_ctx)`` — or ``None``
     on miss/mismatch."""
     entry = _store.get_entry(model_id)
@@ -51,7 +50,7 @@ def get(model_id: str, num_ctx: int) -> Optional[int]:
     return int(peak)
 
 
-def get_any(model_id: str) -> Optional[tuple[int, int]]:
+def get_any(model_id: str) -> tuple[int, int] | None:
     """Gemessene Spitze fuer ``model_id`` OHNE Kontext-Abgleich, als
     ``(peak_mb, num_ctx)``.
 

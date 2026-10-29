@@ -7,10 +7,10 @@ Upward-Push. Helfer-Schicht: darf :mod:`flow` NICHT importieren.
 
 from __future__ import annotations
 
-from typing import Sequence
+from collections.abc import Sequence
 
 from ..formatting import format_number
-from .types import Budget, GPU
+from .types import GPU, Budget
 from .verifier import VerifyResult
 
 
@@ -228,7 +228,7 @@ def _refine_split_from_measurement(
 def _measured_split_ceiling(
     layers: list[int],
     free: list[float],
-    slope_per_layer: "Sequence[float]",
+    slope_per_layer: Sequence[float],
     current_context: int,
     safety_margin: int,
 ) -> float:

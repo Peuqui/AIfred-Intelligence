@@ -17,7 +17,7 @@ import shutil
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .config import DOCUMENTS_DIR
 
@@ -48,7 +48,7 @@ class FileOpResult:
 # ─────────────────────────────────────────────────────────────────────────
 
 
-def safe_resolve(rel_path: str) -> tuple[Optional[Path], Optional[str]]:
+def safe_resolve(rel_path: str) -> tuple[Path | None, str | None]:
     """Resolve a path relative to DOCUMENTS_DIR, refusing escape attempts.
 
     Returns ``(path, None)`` on success or ``(None, error_message)`` if
@@ -567,7 +567,7 @@ async def deindex_file(rel_path: str, fallback_filename: str = "") -> FileOpResu
 async def search_index(
     query: str,
     n_results: int = 5,
-    folder: Optional[str] = None,
+    folder: str | None = None,
     page: int = 1,
 ) -> FileOpResult:
     """Semantic search over indexed documents.

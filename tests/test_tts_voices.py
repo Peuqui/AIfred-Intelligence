@@ -2,8 +2,8 @@
 
 import pytest
 
-import aifred.lib.agent_config as agent_config
 import aifred.lib.settings as settings_module
+from aifred.lib import agent_config
 from aifred.lib.tts_client import EngineRef
 from aifred.lib.tts_voices import (
     NoVoiceConfigured,

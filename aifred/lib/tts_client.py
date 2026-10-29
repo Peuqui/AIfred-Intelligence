@@ -38,7 +38,12 @@ from typing import Any
 
 import httpx
 from websockets.asyncio.client import ClientConnection, connect
-from websockets.exceptions import ConnectionClosed, ConnectionClosedOK, InvalidHandshake, InvalidStatus
+from websockets.exceptions import (
+    ConnectionClosed,
+    ConnectionClosedOK,
+    InvalidHandshake,
+    InvalidStatus,
+)
 
 from .config import (
     TTS_SUITE_CONNECT_TIMEOUT_S,

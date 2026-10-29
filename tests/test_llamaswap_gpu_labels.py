@@ -17,7 +17,6 @@ import yaml
 import aifred.lib.calibration.gpu as gpu_mod
 import aifred.lib.calibration.llamaswap_io as io
 
-
 _U0 = "GPU-9216479c-8775-d2a2-bf55-3ee210ad8d0c"  # RTX 8000, nvidia-smi 0
 _U2 = "GPU-fa3199cb-39df-0cff-86e4-5aba7166ef81"  # RTX 8000, nvidia-smi 2
 _U3 = "GPU-83455f9f-a97a-112d-565b-da80f0757300"  # V100, nvidia-smi 3

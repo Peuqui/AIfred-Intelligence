@@ -5,11 +5,11 @@ Extracted from agent_tools.py for better modularity.
 """
 
 import logging
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 from .base import BaseTool
-from .search_tools import MultiAPISearchTool
 from .scraper_tool import WebScraperTool
+from .search_tools import MultiAPISearchTool
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class ToolRegistry:
         self.tools[tool.name] = tool
         logger.info(f"Tool registered: {tool.name}")
 
-    def get(self, name: str) -> Optional[BaseTool]:
+    def get(self, name: str) -> BaseTool | None:
         """Get a tool by name"""
         return self.tools.get(name)
 
@@ -54,7 +54,7 @@ def get_tool_registry() -> ToolRegistry:
 # CONVENIENCE FUNCTIONS
 # ============================================================
 
-def search_web(query: str) -> Dict[str, Any]:
+def search_web(query: str) -> dict[str, Any]:
     """
     Convenience function for web search with multi-API fallback
     (Legacy: Single query to ALL APIs in parallel)
@@ -65,7 +65,7 @@ def search_web(query: str) -> Dict[str, Any]:
     return search_tool.execute(query)
 
 
-def search_web_multi(queries: List[str]) -> Dict[str, Any]:
+def search_web_multi(queries: list[str]) -> dict[str, Any]:
     """
     Multi-query web search: Distributes queries across different APIs
 
@@ -102,7 +102,7 @@ def search_web_multi(queries: List[str]) -> Dict[str, Any]:
     return search_tool.execute_multi_query(queries)
 
 
-def scrape_webpage(url: str) -> Dict[str, Any]:
+def scrape_webpage(url: str) -> dict[str, Any]:
     """
     Convenience function for web scraping
 

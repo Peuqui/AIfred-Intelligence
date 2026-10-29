@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 import httpx
 
@@ -24,8 +24,8 @@ async def _google_request(
     method: str,
     url: str,
     *,
-    params: Optional[dict[str, Any]] = None,
-    json: Optional[dict[str, Any]] = None,
+    params: dict[str, Any] | None = None,
+    json: dict[str, Any] | None = None,
     timeout: float = 15.0,
 ) -> httpx.Response:
     """One HTTP path for every Google API call (SSOT).

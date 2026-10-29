@@ -34,36 +34,36 @@ from .app import API_VERSION, api_app, get_api_app, get_global_backend_state
 
 # Router modules — importing them registers their routes on api_app.
 # Order matters: it mirrors the original single-file section order.
-from . import core  # noqa: E402
-from . import chat  # noqa: E402
-from . import system  # noqa: E402
-from . import browser_bus  # noqa: E402
-from . import agents  # noqa: E402
-from . import audio  # noqa: E402
-from . import announce  # noqa: E402
-from . import vision  # noqa: E402
-from . import tts  # noqa: E402
-from . import documents  # noqa: E402
-from . import service_status  # noqa: E402
+from . import core
+from . import chat
+from . import system
+from . import browser_bus
+from . import agents
+from . import audio
+from . import announce
+from . import vision
+from . import tts
+from . import documents
+from . import service_status
 
-from .browser_bus import browser_push, browser_queue_clear  # noqa: E402
+from .browser_bus import browser_push, browser_queue_clear
 
 __all__ = [
     "API_VERSION",
+    "agents",
+    "announce",
     "api_app",
-    "get_api_app",
-    "get_global_backend_state",
+    "audio",
+    "browser_bus",
     "browser_push",
     "browser_queue_clear",
-    "core",
     "chat",
-    "system",
-    "browser_bus",
-    "agents",
-    "audio",
-    "announce",
-    "vision",
-    "tts",
+    "core",
     "documents",
+    "get_api_app",
+    "get_global_backend_state",
     "service_status",
+    "system",
+    "tts",
+    "vision",
 ]

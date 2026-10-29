@@ -5,12 +5,10 @@ Extracted from agent_tools.py for better modularity.
 """
 
 from pathlib import Path
-from typing import List, Set, Tuple
 from urllib.parse import urlparse
 
 from ..config import DEBUG_LOG_RAW_MESSAGES
 from ..logging_utils import log_message
-
 
 # ============================================================
 # NON-SCRAPABLE DOMAIN FILTER
@@ -20,10 +18,10 @@ from ..logging_utils import log_message
 _NON_SCRAPABLE_DOMAINS_FILE = Path(__file__).parent.parent.parent.parent / 'data' / 'non_scrapable_domains.txt'
 
 # Cached set of non-scrapable domains (loaded once at first access)
-_non_scrapable_domains_cache: Set[str] | None = None
+_non_scrapable_domains_cache: set[str] | None = None
 
 
-def _load_non_scrapable_domains() -> Set[str]:
+def _load_non_scrapable_domains() -> set[str]:
     """
     Load non-scrapable domains from data/non_scrapable_domains.txt.
 
@@ -43,7 +41,7 @@ def _load_non_scrapable_domains() -> Set[str]:
     if _non_scrapable_domains_cache is not None:
         return _non_scrapable_domains_cache
 
-    domains: Set[str] = set()
+    domains: set[str] = set()
 
     if not _NON_SCRAPABLE_DOMAINS_FILE.exists():
         log_message(f"⚠️ Non-scrapable domains file not found: {_NON_SCRAPABLE_DOMAINS_FILE}")
@@ -85,10 +83,10 @@ def is_non_scrapable_url(url: str) -> bool:
 
 
 def filter_non_scrapable_urls(
-    urls: List[str],
-    titles: List[str],
-    snippets: List[str]
-) -> Tuple[List[str], List[str], List[str], int]:
+    urls: list[str],
+    titles: list[str],
+    snippets: list[str]
+) -> tuple[list[str], list[str], list[str], int]:
     """
     Filter out non-scrapable URLs (video platforms, login walls, etc.)
 
@@ -164,7 +162,7 @@ def normalize_url(url: str) -> str:
         return url  # Fallback: Original URL
 
 
-def deduplicate_urls(urls: List[str]) -> List[str]:
+def deduplicate_urls(urls: list[str]) -> list[str]:
     """
     Remove duplicate URLs from list
 
@@ -197,10 +195,10 @@ def deduplicate_urls(urls: List[str]) -> List[str]:
 
 
 def deduplicate_urls_with_metadata(
-    urls: List[str],
-    titles: List[str],
-    snippets: List[str]
-) -> Tuple[List[str], List[str], List[str]]:
+    urls: list[str],
+    titles: list[str],
+    snippets: list[str]
+) -> tuple[list[str], list[str], list[str]]:
     """
     Remove duplicate URLs while preserving associated titles and snippets.
 

@@ -45,7 +45,7 @@ class TestFreeEcho2Targets:
 
     def test_unknown_group_is_empty(self, monkeypatch):
         _set_devices(monkeypatch, ["wohnzimmer"])
-        monkeypatch.setattr(mp, "_freeecho2_groups", lambda: {})
+        monkeypatch.setattr(mp, "_freeecho2_groups", dict)
         assert mp.resolve_announce_targets("freeecho2", "@nope") == []
 
     def test_connected_room_returned(self, monkeypatch):

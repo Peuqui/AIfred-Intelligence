@@ -3,11 +3,11 @@
 import asyncio
 import subprocess
 
-from fastapi import HTTPException, BackgroundTasks
+from fastapi import BackgroundTasks, HTTPException
 
-from ..settings import load_settings
-from ..logging_utils import log_message
 from ..config import DEFAULT_OLLAMA_URL
+from ..logging_utils import log_message
+from ..settings import load_settings
 from .app import api_app
 from .schemas import SystemActionResponse
 

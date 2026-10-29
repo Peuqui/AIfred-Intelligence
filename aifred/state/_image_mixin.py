@@ -5,7 +5,6 @@ Part of the AIfred State refactoring (aifred/state/ package).
 """
 
 import reflex as rx
-from typing import Dict, List
 
 from ..lib.config import MAX_IMAGES_PER_MESSAGE
 
@@ -19,7 +18,7 @@ class ImageMixin(rx.State, mixin=True):
 
     # Image Upload State
     is_uploading_image: bool = False
-    pending_images: List[Dict[str, str]] = []
+    pending_images: list[dict[str, str]] = []
     image_upload_warning: str = ""
     max_images_per_message: int = MAX_IMAGES_PER_MESSAGE
     camera_available: bool = False
@@ -105,22 +104,22 @@ class ImageMixin(rx.State, mixin=True):
         self.add_debug("\U0001f5bc\ufe0f Opening file picker...")  # type: ignore[attr-defined]
         yield
 
-    async def handle_image_upload(self, files: List[rx.UploadFile]):
+    async def handle_image_upload(self, files: list[rx.UploadFile]):
         """Handle image file uploads - keeps original filename"""
         async for _ in self._process_image_upload(files, from_camera=False):
             yield
 
-    async def handle_camera_upload(self, files: List[rx.UploadFile]):
+    async def handle_camera_upload(self, files: list[rx.UploadFile]):
         """Handle camera uploads - shortens filename to Image_001.jpg"""
         async for _ in self._process_image_upload(files, from_camera=True):
             yield
 
-    async def _process_image_upload(self, files: List[rx.UploadFile], from_camera: bool = False):
+    async def _process_image_upload(self, files: list[rx.UploadFile], from_camera: bool = False):
         """Internal handler for image uploads with validation (async generator for UI updates)"""
         from ..lib.vision_utils import (
-            validate_image_file,
-            save_session_upload,
             get_image_url,
+            save_session_upload,
+            validate_image_file,
         )
 
         # POST /_upload reaches this handler with any client token, a fresh one gives a state
@@ -306,8 +305,9 @@ class ImageMixin(rx.State, mixin=True):
 
     def _rotate_crop_image(self, clockwise: bool = True) -> None:
         """Internal: Rotate image 90 degrees in crop preview"""
-        from PIL import Image
         from pathlib import Path
+
+        from PIL import Image
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
             return
@@ -389,9 +389,9 @@ class ImageMixin(rx.State, mixin=True):
         from ..lib.vision_utils import (
             UPLOAD_IMAGES_DIR,
             crop_and_resize_image,
-            save_image_to_file,
-            get_image_url,
             filename_timestamp,
+            get_image_url,
+            save_image_to_file,
         )
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
@@ -411,10 +411,11 @@ class ImageMixin(rx.State, mixin=True):
             self.cancel_crop()
             return
 
-        from PIL import Image
         import io
+
+        from PIL import Image
         original_img = Image.open(io.BytesIO(original_bytes))
-        orig_width, orig_height = original_img.size  # noqa: F841
+        orig_width, orig_height = original_img.size
 
         # Crop anwenden (nur wenn nicht 100%)
         if x > 0.5 or y > 0.5 or width < 99.5 or height < 99.5:

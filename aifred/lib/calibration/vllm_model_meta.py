@@ -18,9 +18,10 @@ liefert die Fakten, aus denen die Suche ihre Kandidaten baut:
 import json
 import math
 import struct
-from .vllm_probe import generation_defaults
 from dataclasses import dataclass, field
 from pathlib import Path
+
+from .vllm_probe import generation_defaults
 
 # Layer, dessen Gewichte das X-fache des Medians wiegen, gilt als
 # "gebundener Riese" (Flash-Next: PLE-Layer 52,7 GB gegen 1,7-1,9 GB).

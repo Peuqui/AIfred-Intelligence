@@ -16,7 +16,8 @@ from __future__ import annotations
 import asyncio
 import functools
 import logging
-from typing import TYPE_CHECKING, Any, Callable, Coroutine, TypeVar
+from typing import TYPE_CHECKING, Any, TypeVar
+from collections.abc import Callable, Coroutine
 
 from ._audio_orchestrator import AudioOrchestrator
 from ._freeecho2_stream import FreeEcho2Stream
@@ -109,7 +110,7 @@ class FreeEcho2Channel:
     def can_handle(self, target_id: str) -> bool:
         return target_id.startswith(TARGET_PREFIX)
 
-    def list_targets(self, ctx: "PluginContext") -> list[TargetInfo]:
+    def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
         return [
             TargetInfo(
                 id=f"{TARGET_PREFIX}{room}",
@@ -202,10 +203,10 @@ class FreeEcho2Channel:
     @_on_ws_loop
     async def play(
         self,
-        src: "ResolvedSource",
+        src: ResolvedSource,
         target_id: str,
         start_pos_sec: float | None,
-        ctx: "PluginContext",
+        ctx: PluginContext,
     ) -> dict[str, Any]:
         room = _parse_room(target_id)
         if not room:
@@ -266,7 +267,7 @@ class FreeEcho2Channel:
         }
 
     @_on_ws_loop
-    async def pause(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         """Type-aware pause via AudioOrchestrator.
 
         Music/TTS → echtes Pause (Position bleibt). Alarm/Notification →
@@ -281,7 +282,7 @@ class FreeEcho2Channel:
         return await orc.pause()
 
     @_on_ws_loop
-    async def resume(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def resume(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         """Resume via AudioOrchestrator. No-op wenn nichts pausiert ist."""
         room = _parse_room(target_id)
         if not room:
@@ -292,7 +293,7 @@ class FreeEcho2Channel:
         return await orc.resume()
 
     @_on_ws_loop
-    async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         """Stop alles via AudioOrchestrator + cleanup queue + stream-state.
 
         Wake-word _stop / audio_stop beenden die ganze Session, nicht
@@ -322,7 +323,7 @@ class FreeEcho2Channel:
         self,
         items: list[dict[str, str]],
         target_id: str,
-        ctx: "PluginContext",
+        ctx: PluginContext,
         audio_type: str = "music",
         shuffle: bool = False,
     ) -> dict[str, Any]:
@@ -483,7 +484,7 @@ class FreeEcho2Channel:
         target_id: str,
         position_sec: float,
         relative: bool = False,
-        ctx: "PluginContext | None" = None,
+        ctx: PluginContext | None = None,
     ) -> bool:
         room = _parse_room(target_id)
         if not room:
@@ -495,7 +496,7 @@ class FreeEcho2Channel:
 
     @_on_ws_loop
     async def set_speed(
-        self, target_id: str, factor: float, ctx: "PluginContext | None" = None
+        self, target_id: str, factor: float, ctx: PluginContext | None = None
     ) -> bool:
         room = _parse_room(target_id)
         if not room:
@@ -512,7 +513,7 @@ class FreeEcho2Channel:
             return False
 
     @_on_ws_loop
-    async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:
+    async def status(self, target_id: str, ctx: PluginContext | None = None) -> dict[str, Any]:
         room = _parse_room(target_id)
         if not room:
             return {"running": False, "playing": False, "paused": False, "target": target_id}

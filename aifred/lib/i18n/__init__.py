@@ -13,7 +13,7 @@ from typing import Dict, Optional
 from ..prompt_loader import get_language
 
 
-def _load_translations() -> Dict[str, Dict[str, str]]:
+def _load_translations() -> dict[str, dict[str, str]]:
     """Load every <lang>.json in this package directory."""
     return {
         path.stem: json.loads(path.read_text(encoding="utf-8"))
@@ -25,10 +25,10 @@ class TranslationManager:
     """Manages UI translations"""
 
     # Translation dictionary, loaded from the per-language JSON files
-    _translations: Dict[str, Dict[str, str]] = _load_translations()
+    _translations: dict[str, dict[str, str]] = _load_translations()
 
     @staticmethod
-    def _resolve_lang(lang: Optional[str]) -> str:
+    def _resolve_lang(lang: str | None) -> str:
         """Normalize a language argument to a key of ``_translations``."""
         if lang is None:
             lang = get_language()
@@ -40,7 +40,7 @@ class TranslationManager:
         return lang
 
     @staticmethod
-    def get_text(key: str, lang: Optional[str] = None) -> str:
+    def get_text(key: str, lang: str | None = None) -> str:
         """
         Get translated text for a given key
 
@@ -66,7 +66,7 @@ class TranslationManager:
 
 
 # Convenience function
-def t(key: str, lang: Optional[str] = None, count: Optional[int] = None, **kwargs) -> str:
+def t(key: str, lang: str | None = None, count: int | None = None, **kwargs) -> str:
     """
     Convenience function to get translated text with optional formatting and pluralization.
 
@@ -110,7 +110,7 @@ def tts_label_to_key(label: str) -> str:
     return engine_key_for_label(label)
 
 
-def tts_key_to_label(key: str, lang: Optional[str] = None) -> str:
+def tts_key_to_label(key: str, lang: str | None = None) -> str:
     """Map an internal TTS engine key to its translated display label.
 
     Used by the engine dropdowns (escalation list, agent editor, narrator).

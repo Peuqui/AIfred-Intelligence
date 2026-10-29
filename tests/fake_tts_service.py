@@ -15,10 +15,8 @@ import httpx
 import pytest
 from websockets.asyncio.server import ServerConnection, serve
 
-import aifred.lib.audio_processing as audio_processing
 import aifred.lib.settings as settings_module
-import aifred.lib.tts_client as tts_client
-import aifred.lib.tts_service as tts_service
+from aifred.lib import audio_processing, tts_client, tts_service
 from aifred.lib.tts_client import TTSClient
 
 

@@ -186,7 +186,7 @@ class VisionPlugin:
         return VISION_SETTINGS_PATH.exists()
 
     def get_prompt_instructions(
-        self, lang: str, granted_tools: "set[str] | None" = None
+        self, lang: str, granted_tools: set[str] | None = None
     ) -> str:
         # Kein Hardcoding — atomare Fragmente pro Tool in prompts/<de|en>/.
         from ....lib.plugin_base import load_plugin_instructions
@@ -469,7 +469,7 @@ class VisionPlugin:
                     # several MB each; a sync read would stall the worker.
                     import asyncio
                     data = await asyncio.to_thread(p.read_bytes)
-                except OSError as e:  # noqa: BLE001
+                except OSError as e:
                     return _err(f"cannot read image {u}: {e}")
                 frames.append(Frame(
                     source_id=source_id or "",
@@ -875,7 +875,7 @@ class VisionPlugin:
             def _sig(ev: dict[str, Any]) -> int:
                 return _SIG.get(str(ev.get("event_type") or ""), 0)
 
-            reps: "OrderedDict[str, dict[str, Any]]" = OrderedDict()
+            reps: OrderedDict[str, dict[str, Any]] = OrderedDict()
             solo: list[dict[str, Any]] = []
             member_count: dict[str, int] = {}
             for ev in raw:

@@ -26,8 +26,9 @@ from __future__ import annotations
 import asyncio
 import fcntl
 import os
+from collections.abc import Awaitable, Callable
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Optional
+from typing import Any
 
 from ..config import DATA_DIR
 from ..debug_bus import debug as debug_event
@@ -94,14 +95,14 @@ class FreeEcho2StreamError(RuntimeError):
     """mpv konnte nicht starten oder die IPC-Verbindung schlug fehl."""
 
 
-def _fmt_pos(sec: Optional[float]) -> str:
+def _fmt_pos(sec: float | None) -> str:
     """Format playback position as ``m:ss`` (or ``hh:mm:ss`` für Hörbücher)."""
     if sec is None:
         return "?"
     return format_clock(int(sec), pad_hours=True)
 
 
-def _fmt_state(pos: Optional[float], dur: Optional[float]) -> str:
+def _fmt_state(pos: float | None, dur: float | None) -> str:
     """Format ``pos / dur (XX,X%)`` — locale-aware via format_number.
 
     Beispiele (DE):
@@ -134,7 +135,7 @@ class FreeEcho2Stream:
         send_start: SendStart,
         send_chunk: SendChunk,
         send_end: SendEnd,
-        send_heartbeat: Optional[SendHeartbeat] = None,
+        send_heartbeat: SendHeartbeat | None = None,
     ) -> None:
         self.room = room
         # Target-ID-Prefix muss zum FreeEcho2Channel passen — Single-Source-of-Truth
@@ -152,10 +153,10 @@ class FreeEcho2Stream:
         self._socket_path = str(DATA_DIR / f"freeecho2_{safe_room}.sock")
 
         # Subprocess + Tasks + IPC
-        self._proc: Optional[asyncio.subprocess.Process] = None
-        self._fifo_pump_task: Optional[asyncio.Task[None]] = None
-        self._save_task: Optional[asyncio.Task[None]] = None
-        self._heartbeat_task: Optional[asyncio.Task[None]] = None
+        self._proc: asyncio.subprocess.Process | None = None
+        self._fifo_pump_task: asyncio.Task[None] | None = None
+        self._save_task: asyncio.Task[None] | None = None
+        self._heartbeat_task: asyncio.Task[None] | None = None
         self._ipc = MpvIpcClient(
             command_timeout_sec=COMMAND_TIMEOUT_SEC,
             error_factory=lambda msg: FreeEcho2StreamError(
@@ -168,8 +169,8 @@ class FreeEcho2Stream:
         self._lock = asyncio.Lock()
 
         # State
-        self._current_uri: Optional[str] = None
-        self._current_state_key: Optional[str] = None
+        self._current_uri: str | None = None
+        self._current_state_key: str | None = None
         # Track-Position bei der dieser Stream startete (= start_pos_sec
         # an mpv). Wird gebraucht um die Puck-``consumed_ms`` (zaehlt seit
         # current-stream-start) auf eine absolute Track-Position
@@ -178,20 +179,20 @@ class FreeEcho2Stream:
         self._save_interval: int = DEFAULT_SAVE_INTERVAL_SEC
         # Optional callback fired when mpv signals natural EOF (track ended).
         # Used by FreeEcho2Channel.play_queue() to advance to the next item.
-        self._on_eof_cb: Optional[Callable[[], Awaitable[None]]] = None
+        self._on_eof_cb: Callable[[], Awaitable[None]] | None = None
         # Optional callback fired when the WS-send-side fails (chunk timeout
         # oder error). Caller raeumt Stream sauber ab (mpv terminate +
         # send_audio_end), damit Server-State und Puck-State nicht
         # auseinanderlaufen. Anders als _on_eof_cb (natuerliches Ende):
         # hier ist die Source noch nicht durch, aber das Pumpen ist tot.
-        self._on_send_failed_cb: Optional[Callable[[], Awaitable[None]]] = None
+        self._on_send_failed_cb: Callable[[], Awaitable[None]] | None = None
         # Optional callback fired when the fifo_pump reaches NATURAL EOF
         # (mpv exited, FIFO drained — the track finished playing). Used by
         # FreeEcho2Channel.play() to run the terminal sequence (orc.stop →
         # audio_end + done) so a self-ended song closes the turn cleanly,
         # exactly like a user-stop. NOT fired on cancel (replace/stop) or
         # send-fail (those have their own paths).
-        self._on_natural_end_cb: Optional[Callable[[], Awaitable[None]]] = None
+        self._on_natural_end_cb: Callable[[], Awaitable[None]] | None = None
         self._stopping = False
 
         # Backpressure: Pump-Task wartet vor jedem Read auf dieses Event.
@@ -207,7 +208,7 @@ class FreeEcho2Stream:
         # self.stop() from the heartbeat) before it finishes → leaked mpv/FIFO.
         self._bg_tasks: set[asyncio.Task[None]] = set()
 
-    def _spawn_bg_task(self, coro: "Awaitable[Any]", name: str) -> None:
+    def _spawn_bg_task(self, coro: Awaitable[Any], name: str) -> None:
         """Fire-and-forget a coroutine while holding a strong reference to the
         task until it completes (see ``_bg_tasks``)."""
         task: asyncio.Task = asyncio.create_task(coro, name=name)  # type: ignore[arg-type]
@@ -238,10 +239,10 @@ class FreeEcho2Stream:
     async def start(
         self,
         uri: str,
-        state_key: Optional[str],
-        start_pos_sec: Optional[float],
+        state_key: str | None,
+        start_pos_sec: float | None,
         audio_type: str = "music",
-        audio_filters: Optional[list[str]] = None,
+        audio_filters: list[str] | None = None,
     ) -> dict[str, Any]:
         """Starte mpv für ``uri`` und beginne PCM-Pump zum FreeEcho.2.
 

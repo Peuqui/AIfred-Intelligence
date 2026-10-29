@@ -9,19 +9,19 @@ import io
 import logging
 import re
 import time
-import pymupdf
-import trafilatura
-from trafilatura.settings import DEFAULT_CONFIG
 from copy import deepcopy
-from typing import Dict
 from urllib.parse import urlparse, urlunparse
-import requests
-from requests.adapters import HTTPAdapter
 
-from .base import BaseTool
-from ..logging_utils import log_message
+import pymupdf
+import requests
+import trafilatura
+from requests.adapters import HTTPAdapter
+from trafilatura.settings import DEFAULT_CONFIG
+
 from ..config import PLAYWRIGHT_FALLBACK_THRESHOLD
+from ..logging_utils import log_message
 from ..security import UnsafeURLError, validate_external_url
+from .base import BaseTool
 
 # Logging Setup
 logger = logging.getLogger(__name__)
@@ -166,7 +166,7 @@ class WebScraperTool(BaseTool):
         resp._content = b"".join(chunks)
         resp._content_consumed = True  # type: ignore[attr-defined]
 
-    def execute(self, query: str, **kwargs) -> Dict:
+    def execute(self, query: str, **kwargs) -> dict:
         """
         Scrape a web page completely without length limit
 
@@ -238,7 +238,7 @@ class WebScraperTool(BaseTool):
 
         return result
 
-    def _scrape_with_trafilatura(self, url: str, retry_attempt: int = 1) -> Dict:
+    def _scrape_with_trafilatura(self, url: str, retry_attempt: int = 1) -> dict:
         """
         Scrape with trafilatura (cleanest content)
 
@@ -347,7 +347,7 @@ class WebScraperTool(BaseTool):
                 'retry_attempts': retry_attempt
             }
 
-    def _scrape_with_playwright(self, url: str) -> Dict:
+    def _scrape_with_playwright(self, url: str) -> dict:
         """Scrape with Playwright (slower, but JavaScript-capable)"""
         # Playwright sync API cannot run inside asyncio event loop.
         # When called from LLM tool execution (async), run in a thread.
@@ -362,7 +362,7 @@ class WebScraperTool(BaseTool):
             # No running loop — safe to call sync directly
             return self._playwright_sync(url)
 
-    def _playwright_sync(self, url: str) -> Dict:
+    def _playwright_sync(self, url: str) -> dict:
         """Actual Playwright scraping (must run outside asyncio loop)."""
         try:
             from playwright.sync_api import sync_playwright
@@ -501,7 +501,7 @@ class WebScraperTool(BaseTool):
             # On error: Assume not PDF (trafilatura will try)
             return False
 
-    def _scrape_pdf(self, url: str) -> Dict:
+    def _scrape_pdf(self, url: str) -> dict:
         """
         Extract text from PDF documents with PyMuPDF.
 

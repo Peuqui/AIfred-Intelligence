@@ -23,10 +23,11 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from collections.abc import Callable
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Callable
+from typing import TYPE_CHECKING, Any
 
-from .config import VISION_BURST_MIN_INTERVAL_SEC, VISION_BURST_MIN_DEADLINE_SEC
+from .config import VISION_BURST_MIN_DEADLINE_SEC, VISION_BURST_MIN_INTERVAL_SEC
 from .frame_sources.base import Frame
 from .logging_utils import log_message
 from .reolink_ai import ReolinkAIError
@@ -40,9 +41,9 @@ from .vision_store import VisionStore
 from .vision_watch_types import WatchConfig
 
 if TYPE_CHECKING:
+    from .face_crop_store import CropResult
     from .vision_filters.face_detect import FaceDetection
     from .vision_filters.face_recognize import FaceMatch
-    from .face_crop_store import CropResult
 
 logger = logging.getLogger(__name__)
 
@@ -72,7 +73,7 @@ class BurstRunner:
         self._output = output
         self._detect = detect
         self._recorder = recorder
-        self._tasks: dict[str, "asyncio.Task[None]"] = {}
+        self._tasks: dict[str, asyncio.Task[None]] = {}
         self._reports: dict[str, BurstReport] = {}
 
     # ── Zustand ───────────────────────────────────────────────────
@@ -115,7 +116,7 @@ class BurstRunner:
     # ── Schleife ──────────────────────────────────────────────────
 
     @staticmethod
-    def _log_send_result(task: "asyncio.Task[None]") -> None:
+    def _log_send_result(task: asyncio.Task[None]) -> None:
         if not task.cancelled() and task.exception() is not None:
             logger.warning("burst report send failed: %s", task.exception())
 
@@ -177,7 +178,7 @@ class BurstRunner:
                         )
                         n_face += kind == "face"
                         n_person += kind == "person"
-                    except Exception:  # noqa: BLE001
+                    except Exception:
                         logger.exception("burst tick failed for %s", source_id)
                     eval_times.append(time.monotonic() - snap_done)
                 # Bilanz fällig (Deadline erreicht) oder Neuigkeiten seit der
@@ -223,7 +224,7 @@ class BurstRunner:
         try:
             if report.pending_final():
                 await report.send()
-        except Exception:  # noqa: BLE001
+        except Exception:
             logger.exception("burst final report failed for %s", source_id)
         # Bilanz ins Debug-Log — im Journal ging die info-Zeile unter, und
         # genau diese Zahlen beantworten "warum nur N Bilder?".
@@ -328,7 +329,7 @@ class BurstRunner:
         # Event selbst hängt weiterhin am besten Gesicht (Band vor Konfidenz),
         # damit der Casus eine Zeile pro Tick behält.
         recognizer = self._detect.face_recognizer
-        scored: list[tuple["FaceDetection", "FaceMatch", "CropResult | None"]] = []
+        scored: list[tuple[FaceDetection, FaceMatch, CropResult | None]] = []
         best_key = (-1, -1.0)
         best_index = 0
         for index, candidate in enumerate(detections):

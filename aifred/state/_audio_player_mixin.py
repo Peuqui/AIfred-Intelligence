@@ -23,7 +23,6 @@ from typing import Any
 
 import reflex as rx
 
-
 # ── Runtime-only Player-Persistenz ──────────────────────────────────
 # Modul-globaler Dict, keyed by session_id. Snapshot der media_*-Vars
 # zwischen Tab-Reloads. Lebt im Server-Prozess — bei Service-Restart
@@ -181,11 +180,12 @@ class AudioPlayerMixin(rx.State, mixin=True):
 
     def _refresh_audio_sources_view(self) -> None:
         """Snapshot of all sources + per-source index stats for the UI."""
+        import json as _json
+        from pathlib import Path as _Path
+
         from ..lib.audio_index import audio_index
         from ..lib.audio_sources import build_source_map
         from ..lib.config import MEDIA_AUDIO_DIR
-        import json as _json
-        from pathlib import Path as _Path
 
         # Read http_stream entries from settings.json
         settings_path = (
@@ -254,6 +254,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
 
     def _write_audio_settings_json(self, cfg: dict[str, Any]) -> bool:
         import json as _json
+
         from ..lib.audio_player_settings import AUDIO_PLAYER_SETTINGS_PATH
         try:
             with open(AUDIO_PLAYER_SETTINGS_PATH, "w", encoding="utf-8") as f:
@@ -287,10 +288,11 @@ class AudioPlayerMixin(rx.State, mixin=True):
     @rx.event(background=True)  # type: ignore[operator]
     async def audio_index_rebuild_source(self, source: str, force: bool = False):
         """Trigger an index rebuild for one source (background, non-blocking)."""
+        import asyncio as _asyncio
+
         from ..lib.audio_index import audio_index
         from ..lib.audio_sources import build_source_map
         from ..lib.config import MEDIA_AUDIO_DIR
-        import asyncio as _asyncio
 
         async with self:
             self.audio_settings_busy = "indexing"
@@ -334,10 +336,11 @@ class AudioPlayerMixin(rx.State, mixin=True):
         """Delete a source = remove its symlink/folder under data/media/audio/.
         Plus clear the index entries.
         """
-        from ..lib.config import MEDIA_AUDIO_DIR
-        from ..lib.audio_index import audio_index
-        from pathlib import Path as _Path
         import shutil as _shutil
+        from pathlib import Path as _Path
+
+        from ..lib.audio_index import audio_index
+        from ..lib.config import MEDIA_AUDIO_DIR
 
         target = _Path(MEDIA_AUDIO_DIR) / source
         if not target.exists() and not target.is_symlink():
@@ -481,8 +484,9 @@ class AudioPlayerMixin(rx.State, mixin=True):
         root (read from settings.json). Reconstruct the absolute target
         path and create a symlink under data/media/audio/.
         """
-        from ..lib.config import MEDIA_AUDIO_DIR
         from pathlib import Path as _Path
+
+        from ..lib.config import MEDIA_AUDIO_DIR
 
         sandbox_root = self._audio_picker_root()
         if not rel_path:

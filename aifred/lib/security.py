@@ -331,7 +331,7 @@ def sanitize_inbound(text: str) -> str:
     - Strip HTML tags (keep visible text only)
 
     Invisible-char removal and normalization run BEFORE the HTML strip so a
-    tag smuggled with zero-width characters (e.g. ``<scr​ipt>``) cannot
+    tag smuggled with zero-width characters (e.g. ``<scr\u200bipt>``) cannot
     survive the parser and be reconstructed afterwards.
     """
     text = _INVISIBLE_CHARS.sub("", text)
@@ -811,6 +811,7 @@ def prune_audit_log(retention_days: int | None = None) -> int:
     Anzahl gelöschter Zeilen. Wird vom täglichen Cleanup-Slot aufgerufen
     (siehe ``cleanup_audit_log_task``)."""
     from datetime import datetime, timedelta
+
     from .config import SECURITY_AUDIT_RETENTION_DAYS
     days = SECURITY_AUDIT_RETENTION_DAYS if retention_days is None else retention_days
     # cutoff im selben lokalen ISO-Format wie die timestamp-Spalte —
@@ -838,8 +839,9 @@ async def cleanup_audit_log_task() -> None:
     (Vector-Cache, AudioState, Vision-Cleanup) — reiht sich also in die
     nächtliche Aufräumung ein, kein eigener Mechanismus."""
     import asyncio
-    from .config import GARBAGE_COLLECTION_HOUR, SECURITY_AUDIT_RETENTION_DAYS
+
     from .cleanup_utils import seconds_until_next_run
+    from .config import GARBAGE_COLLECTION_HOUR, SECURITY_AUDIT_RETENTION_DAYS
     from .logging_utils import log_message
 
     log_message(

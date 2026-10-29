@@ -14,8 +14,8 @@ import asyncio
 import sys
 import threading
 import time
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
-from typing import Callable, Coroutine
 
 from .logging_utils import log_message
 
@@ -294,8 +294,8 @@ def register_channel_workers(hub: MessageHub | None = None) -> None:
     """
     hub = hub or message_hub
 
-    from .settings import load_settings
     from .plugin_registry import all_channels
+    from .settings import load_settings
 
     settings = load_settings() or {}
     channel_toggles = settings.get("channel_toggles", {})

@@ -9,19 +9,19 @@ Handles:
 """
 
 import asyncio
-from typing import Dict, List, AsyncIterator
+from collections.abc import AsyncIterator
 
-from ..tools import scrape_webpage
 from ..formatting import format_number
 from ..logging_utils import log_message
+from ..tools import scrape_webpage
 
 
 async def orchestrate_scraping(
-    related_urls: List[str],
+    related_urls: list[str],
     llm_client,
     model_choice: str,
     preload_num_ctx: int,
-) -> AsyncIterator[Dict]:
+) -> AsyncIterator[dict]:
     """
     Orchestrate parallel web scraping
 
@@ -40,8 +40,8 @@ async def orchestrate_scraping(
     Returns (via last yield):
         Tuple[List[Dict], List[Dict]]: (scraped_results, tool_results)
     """
-    scraped_results: List[Dict] = []
-    tool_results: List[Dict] = []
+    scraped_results: list[dict] = []
+    tool_results: list[dict] = []
 
     if not related_urls:
         log_message("⚠️ No URLs found, only abstract")
@@ -86,9 +86,9 @@ async def orchestrate_scraping(
     yield {"type": "progress", "phase": "scraping", "current": 0, "total": len(urls_to_scrape), "failed": 0}
 
     # Parallel execution using asyncio.to_thread (non-blocking for event loop)
-    all_results: list[tuple[str, int, Dict]] = []  # Track all results for failed_sources
+    all_results: list[tuple[str, int, dict]] = []  # Track all results for failed_sources
 
-    async def _scrape_one(url: str, rank_idx: int) -> tuple[str, int, Dict]:
+    async def _scrape_one(url: str, rank_idx: int) -> tuple[str, int, dict]:
         """Run scrape_webpage in a thread and return result with metadata."""
         result = await asyncio.to_thread(scrape_webpage, url)
         result['rank_index'] = rank_idx

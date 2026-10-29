@@ -11,7 +11,6 @@ from ..lib.config import LLAMASWAP_BACKENDS
 import os
 import subprocess
 import uuid
-from typing import Dict, List
 
 import reflex as rx
 
@@ -50,7 +49,7 @@ class BackendMixin(rx.State, mixin=True):
     cloud_api_key_configured: bool = False
 
     # Backend ID/Label Mapping (static - all possible backends)
-    available_backends_dict: Dict[str, str] = {
+    available_backends_dict: dict[str, str] = {
         "ollama": "Ollama",
         "llamacpp": "llama.cpp",
         "vllm": "vLLM",
@@ -59,17 +58,17 @@ class BackendMixin(rx.State, mixin=True):
 
     # ── Model Settings ────────────────────────────────────────────
     # Per-agent model/model_id live in agent_tuning (AgentConfigMixin).
-    available_models: List[str] = []
-    available_models_dict: Dict[str, str] = {}
-    vision_models_cache: List[str] = []
-    available_vision_models_list: List[str] = []
+    available_models: list[str] = []
+    available_models_dict: dict[str, str] = {}
+    vision_models_cache: list[str] = []
+    available_vision_models_list: list[str] = []
     # Fertig gerenderte Vision-Modell-Zeilen fürs Dropdown: je ein Dict mit
     # ``name`` (Display-Name = Select-value), ``badge`` (⚡ No Swap / 🔄 Swap
     # / "") und ``color``. "No Swap" heißt: Bildanfrage läuft über den
     # Ollama-Side-Channel parallel, das Chat-Modell bleibt geladen; "Swap":
     # llama-swap verdrängt es. Einmal beim Discovery bestimmt (Ollama-VLM-
     # Liste wird dort ohnehin geholt) — kein API-Call im Render.
-    available_vision_models_rich: List[Dict[str, str]] = []
+    available_vision_models_rich: list[dict[str, str]] = []
 
     automatik_model: str = ""
     automatik_model_id: str = ""
@@ -90,14 +89,14 @@ class BackendMixin(rx.State, mixin=True):
     gpu_detected: bool = False
     gpu_name: str = ""
     gpu_compute_cap: float = 0.0
-    gpu_warnings: List[str] = []
+    gpu_warnings: list[str] = []
     gpu_count: int = 1
     gpu_vram_gb: float = 0
-    gpu_all_names: List[str] = []
-    available_backends: List[str] = [
+    gpu_all_names: list[str] = []
+    available_backends: list[str] = [
         "ollama", "llamacpp", "vllm", "cloud_api",
     ]
-    available_backends_list: List[str] = [
+    available_backends_list: list[str] = [
         "Ollama", "llama.cpp", "vLLM", "Cloud APIs",
     ]
 
@@ -309,7 +308,7 @@ class BackendMixin(rx.State, mixin=True):
     # ON_LOAD
     # ================================================================
 
-    async def on_load(self):  # noqa: C901
+    async def on_load(self):
         """Called when page loads - initialize backend and load models.
 
         Backend is initialized once globally at server startup.
@@ -729,7 +728,7 @@ class BackendMixin(rx.State, mixin=True):
     # INITIALIZE BACKEND
     # ================================================================
 
-    async def initialize_backend(self) -> bool:  # noqa: C901
+    async def initialize_backend(self) -> bool:
         """Initialize LLM backend.
 
         Uses global state to prevent re-initialization on page reload.
@@ -1062,7 +1061,7 @@ class BackendMixin(rx.State, mixin=True):
 
         except Exception as e:
             self.backend_healthy = False
-            self.backend_info = f"Error: {str(e)}"
+            self.backend_info = f"Error: {e!s}"
             self.add_debug(f"❌ Backend initialization failed: {e}")  # type: ignore[attr-defined, has-type]
             self.backend_initializing = False
             return False
@@ -1155,8 +1154,8 @@ class BackendMixin(rx.State, mixin=True):
         return self.available_models_dict
 
     def _build_vision_rich(
-        self, vision_model_ids: List[str]
-    ) -> List[Dict[str, str]]:
+        self, vision_model_ids: list[str]
+    ) -> list[dict[str, str]]:
         """Dropdown-Zeilen (Name + Swap-Badge + Farbe) für die Vision-Modelle.
 
         Gleiche Logik wie die Laufzeitwahl (``vision_routing``):
@@ -1178,7 +1177,7 @@ class BackendMixin(rx.State, mixin=True):
         aifred_base = self.agent_tuning["aifred"].model_id or ""
 
         catalog = self._vision_candidate_catalog()
-        rows: List[Dict[str, str]] = []
+        rows: list[dict[str, str]] = []
         for mid in vision_model_ids:
             if mid not in catalog:
                 continue
@@ -1211,7 +1210,7 @@ class BackendMixin(rx.State, mixin=True):
         candidates: dict[str, str] = self.available_models_dict
 
         if self.backend_type == "cloud_api":
-            for model_id in candidates.keys():
+            for model_id in candidates:
                 if is_vision_model_sync(model_id):
                     vision_model_ids.append(model_id)
         elif self.backend_type == "vllm":

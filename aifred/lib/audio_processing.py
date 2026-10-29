@@ -5,13 +5,15 @@ This module handles Text-to-Speech (Edge TTS, Piper TTS) and Speech-to-Text
 (Whisper) operations, including text cleanup for TTS.
 """
 
+import atexit
 import os
 import re
 import subprocess
-import atexit
 import time
-import httpx
 from pathlib import Path
+
+import httpx
+
 from .config import DATA_DIR, TTS_MEDIA_TYPE_EXTENSIONS
 from .i18n import t
 from .logging_utils import log_message
@@ -21,7 +23,11 @@ from .tts_text_filter import (
     PERFORMANCE_FOOTER,
     ROUND_LABEL,
     TIMING_PARENTHESES,
+)
+from .tts_text_filter import (
     collapsible_tags as _collapsible_tags,
+)
+from .tts_text_filter import (
     strip_collapsible_blocks as _strip_collapsible_blocks,
 )
 
@@ -609,9 +615,7 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
                     if remaining[i-2:i+1] == "...":
                         # Ellipsis at end of sentence IS a sentence end
                         # But only if followed by space+uppercase or end
-                        if after and after[0].isupper():
-                            is_sentence_end = True
-                        elif not after.strip():
+                        if after and after[0].isupper() or not after.strip():
                             is_sentence_end = True
                         is_abbreviation = True  # Don't double-check
 
@@ -1068,6 +1072,7 @@ def release_whisper_gpu(reason: str) -> bool:
     when the service is down or no GPU worker is running.
     """
     import time
+
     from .config import WHISPER_RELEASE_POLL_S, WHISPER_RELEASE_WAIT_MAX_S
     from .stt_client import STTBusyError, STTError, get_default_client
 

@@ -10,8 +10,8 @@ Security invariants:
 
 import pytest
 
-import aifred.lib.vision_utils as vu
 import aifred.lib.config as cfg
+import aifred.lib.vision_utils as vu
 
 
 @pytest.fixture

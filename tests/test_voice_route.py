@@ -12,7 +12,7 @@ import pytest
 from aiohttp import web
 
 import aifred.lib.message_processor as mp
-import aifred.plugins.channels.freeecho2_channel.pipeline as pipeline
+from aifred.plugins.channels.freeecho2_channel import pipeline
 from aifred.plugins.channels.freeecho2_channel import FreeEchoChannel
 from aifred.plugins.channels.freeecho2_channel.voice_routes import forward_voice, load_voice_routes
 

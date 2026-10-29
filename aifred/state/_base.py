@@ -5,14 +5,15 @@ Main state for chat, settings, and backend management
 """
 
 
-from ..lib.config import LLAMASWAP_BACKENDS
-import re
-import reflex as rx
-from typing import List, Any, Dict, TypedDict
-import os
 import asyncio
-from ..lib.logging_utils import CONSOLE_SEPARATOR, console_separator, log_message
+import os
+import re
+from typing import Any, TypedDict
 
+import reflex as rx
+
+from ..lib.config import LLAMASWAP_BACKENDS
+from ..lib.logging_utils import CONSOLE_SEPARATOR, console_separator, log_message
 
 # Pattern for structured data that STT likely transcribes incorrectly.
 # Whisper often transcribes "@" as "at" and "." as "punkt"/"dot".
@@ -48,11 +49,11 @@ class ChatMessage(TypedDict):
     agent: str          # "" | "aifred" | "sokrates" | "salomo"
     mode: str           # "" | "direct" | "synthesis" | "tribunal" | "refinement" | ...
     round_num: int | None  # None/0 = no round, 1+ = round number
-    metadata: Dict[str, Any]  # ttft, inference_time, tokens_per_sec, etc.
+    metadata: dict[str, Any]  # ttft, inference_time, tokens_per_sec, etc.
     timestamp: str      # ISO timestamp
     # Web research sources (top-level for Reflex UI access - also in metadata for export)
-    used_sources: List[Dict[str, Any]]    # [{"url": str, "word_count": int}]
-    failed_sources: List[Dict[str, Any]]  # [{"url": str, "error": str, "method": str}]
+    used_sources: list[dict[str, Any]]    # [{"url": str, "word_count": int}]
+    failed_sources: list[dict[str, Any]]  # [{"url": str, "error": str, "method": str}]
     # Audio replay (top-level for Reflex UI access)
     has_audio: bool  # True if audio_urls is non-empty
     audio_urls_json: str  # JSON string of audio URLs (for JS playback)
@@ -92,31 +93,32 @@ def track_orphan_task(task: "asyncio.Task[Any]") -> None:
     task.add_done_callback(_orphan_tasks.discard)
 
 # Mixins
-from ._auth_mixin import AuthMixin  # noqa: E402
-from ._image_mixin import ImageMixin  # noqa: E402
-from ._document_mixin import DocumentMixin  # noqa: E402
-from ._export_mixin import ExportMixin  # noqa: E402
-from ._session_mixin import SessionMixin  # noqa: E402
-from ._tts_config_mixin import TTSConfigMixin  # noqa: E402
-from ._tts_streaming_mixin import TTSStreamingMixin  # noqa: E402
-from ._audio_player_mixin import AudioPlayerMixin  # noqa: E402
-from ._vision_settings_mixin import VisionSettingsMixin  # noqa: E402
-from ._vision_preview_mixin import VisionPreviewMixin  # noqa: E402
-from ._personarium_mixin import PersonariumMixin  # noqa: E402
-from ._casus_mixin import CasusMixin  # noqa: E402
-from ._storage_mixin import StorageMixin  # noqa: E402
-from ._stt_settings_mixin import STTSettingsMixin  # noqa: E402
-from ._multipose_mixin import MultiposeMixin  # noqa: E402
-from ._vigilantia_feed_mixin import VigilantiaFeedMixin  # noqa: E402
-from ._file_picker_mixin import FilePickerMixin  # noqa: E402
-from ._agent_config_mixin import AgentConfigMixin  # noqa: E402
-from ._agent_editor_mixin import AgentEditorMixin  # noqa: E402
-from ._memory_browser_mixin import MemoryBrowserMixin  # noqa: E402
-from ._settings_mixin import SettingsMixin  # noqa: E402
-from ._calibration_mixin import CalibrationMixin  # noqa: E402
-from ._backend_mixin import BackendMixin  # noqa: E402
-from ._chat_mixin import ChatMixin  # noqa: E402
-from ._ui_config_mixin import UIConfigMixin  # noqa: E402
+from ._agent_config_mixin import AgentConfigMixin
+from ._agent_editor_mixin import AgentEditorMixin
+from ._audio_player_mixin import AudioPlayerMixin
+from ._auth_mixin import AuthMixin
+from ._backend_mixin import BackendMixin
+from ._calibration_mixin import CalibrationMixin
+from ._casus_mixin import CasusMixin
+from ._chat_mixin import ChatMixin
+from ._document_mixin import DocumentMixin
+from ._export_mixin import ExportMixin
+from ._file_picker_mixin import FilePickerMixin
+from ._image_mixin import ImageMixin
+from ._memory_browser_mixin import MemoryBrowserMixin
+from ._multipose_mixin import MultiposeMixin
+from ._personarium_mixin import PersonariumMixin
+from ._session_mixin import SessionMixin
+from ._settings_mixin import SettingsMixin
+from ._storage_mixin import StorageMixin
+from ._stt_settings_mixin import STTSettingsMixin
+from ._tts_config_mixin import TTSConfigMixin
+from ._tts_streaming_mixin import TTSStreamingMixin
+from ._ui_config_mixin import UIConfigMixin
+from ._vigilantia_feed_mixin import VigilantiaFeedMixin
+from ._vision_preview_mixin import VisionPreviewMixin
+from ._vision_settings_mixin import VisionSettingsMixin
+
 
 class AIState(  # type: ignore[misc]
     AuthMixin,
@@ -167,11 +169,11 @@ class AIState(  # type: ignore[misc]
     # NOTE: chat_history and llm_history live in ChatHistoryState (separate React context)
 
     # Web Research Sources State (for current request - shown in UI)
-    all_sources: List[Dict[str, Any]] = []
-    used_sources: List[Dict[str, Any]] = []
-    failed_sources: List[Dict[str, str]] = []
-    _pending_used_sources: List[Dict[str, Any]] = []
-    _pending_failed_sources: List[Dict[str, str]] = []
+    all_sources: list[dict[str, Any]] = []
+    used_sources: list[dict[str, Any]] = []
+    failed_sources: list[dict[str, str]] = []
+    _pending_used_sources: list[dict[str, Any]] = []
+    _pending_failed_sources: list[dict[str, str]] = []
 
     # Last detected language from Intent Detection (used across mixins)
     _last_detected_language: str = ""
@@ -185,8 +187,8 @@ class AIState(  # type: ignore[misc]
 
     def _log_history_utilization(self, effective_limit: int) -> None:
         """Log history token utilization and compression warning to debug console."""
-        from ..lib.context_manager import estimate_tokens_from_llm_history
         from ..lib.config import HISTORY_COMPRESSION_TRIGGER
+        from ..lib.context_manager import estimate_tokens_from_llm_history
         from ..lib.formatting import format_number
 
         _llm_hist = self._chat_sub().llm_history
@@ -244,6 +246,7 @@ class AIState(  # type: ignore[misc]
         # Check if settings.json was modified (mtime-based, multi-browser safe)
         # Each browser tracks its own last-seen mtime - no race conditions
         import os
+
         from ..lib.settings import SETTINGS_FILE
         try:
             current_mtime = os.path.getmtime(SETTINGS_FILE)
@@ -277,8 +280,8 @@ class AIState(  # type: ignore[misc]
                 return AIState.send_message
 
         # Check for global Message Hub notifications FIRST (toast should appear immediately)
-        from ..lib.message_processor import read_and_clear_hub_notification
         from ..lib.i18n import t as _t
+        from ..lib.message_processor import read_and_clear_hub_notification
         notification = read_and_clear_hub_notification()
         toast_events: list = []
         if notification:
@@ -368,8 +371,8 @@ class AIState(  # type: ignore[misc]
 
         # What a task outside any event wants to tell the user (the spoken reply: the TTS service
         # failed, the browser took over, the speech broke off) turns into toasts here.
-        from ._tts_streaming_mixin import take_tts_notices
         from ..lib.toast import toast
+        from ._tts_streaming_mixin import take_tts_notices
         toast_events.extend(toast(kind, message) for kind, message in take_tts_notices(self.session_id))
 
         # Toast without session change (notification for a different session)
@@ -409,18 +412,18 @@ class AIState(  # type: ignore[misc]
     _stt_pending_filename: str = ""
     _stt_pending_size: str = ""
 
-    async def handle_audio_upload(self, files: List[rx.UploadFile]):
+    async def handle_audio_upload(self, files: list[rx.UploadFile]):
         """Audio file upload (disc button) — transcript goes to a chat bubble."""
         async for event in self._handle_audio(files, source="file"):
             yield event
 
-    async def handle_audio_recording(self, files: List[rx.UploadFile]):
+    async def handle_audio_recording(self, files: list[rx.UploadFile]):
         """Mic recording (MediaRecorder) — transcript goes to the input
         field (edit toggle on) or straight to the AI (toggle off)."""
         async for event in self._handle_audio(files, source="mic"):
             yield event
 
-    async def _handle_audio(self, files: List[rx.UploadFile], source: str):
+    async def _handle_audio(self, files: list[rx.UploadFile], source: str):
         """Shared validation + device routing for both audio sources."""
         # POST /_upload reaches this handler with any client token, a fresh one gives a state
         # without login: nothing may touch the disk or start the STT service before this check.
@@ -624,6 +627,7 @@ class AIState(  # type: ignore[misc]
         if self.backend_type in LLAMASWAP_BACKENDS:
             # llama-swap: POST /unload stops all running instances (incl. vLLM)
             import requests
+
             from ..lib.config import BACKEND_URLS
             base = BACKEND_URLS["llamacpp"].removesuffix("/v1")
             loop = asyncio.get_running_loop()
@@ -752,6 +756,7 @@ class AIState(  # type: ignore[misc]
                 from ..lib.config import TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS
                 if len(user_text) > TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS:
                     from datetime import datetime
+
                     from ..lib import file_manager as fm
                     stem = re.sub(
                         r'[^A-Za-z0-9._-]+', '_',

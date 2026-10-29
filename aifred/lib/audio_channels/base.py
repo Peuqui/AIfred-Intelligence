@@ -67,7 +67,7 @@ class AudioOutputChannel(Protocol):
         """
         ...
 
-    def list_targets(self, ctx: "PluginContext") -> list[TargetInfo]:
+    def list_targets(self, ctx: PluginContext) -> list[TargetInfo]:
         """Live-Discovery konkreter Targets.
 
         Wird von ``audio_targets()``-Tool aufgerufen — Result fließt in die
@@ -78,10 +78,10 @@ class AudioOutputChannel(Protocol):
 
     async def play(
         self,
-        src: "ResolvedSource",
+        src: ResolvedSource,
         target_id: str,
         start_pos_sec: float | None,
-        ctx: "PluginContext",
+        ctx: PluginContext,
     ) -> dict[str, Any]:
         """Spielt ``src`` am gewünschten Target ab.
 
@@ -95,7 +95,7 @@ class AudioOutputChannel(Protocol):
         """
         ...
 
-    async def pause(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def pause(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         """Pausiere den Stream am Target. False wenn nichts läuft.
 
         ``ctx`` wird vom BrowserChannel benötigt um den Reflex-State zu
@@ -104,11 +104,11 @@ class AudioOutputChannel(Protocol):
         """
         ...
 
-    async def resume(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def resume(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         """Setze einen pausierten Stream am Target fort. False wenn nichts pausiert."""
         ...
 
-    async def stop(self, target_id: str, ctx: "PluginContext | None" = None) -> bool:
+    async def stop(self, target_id: str, ctx: PluginContext | None = None) -> bool:
         """Stoppe den Stream am Target. Position wird gespeichert.
 
         ``stop()`` ist immer sicher — auch wenn nichts läuft, gibt es
@@ -121,13 +121,13 @@ class AudioOutputChannel(Protocol):
         target_id: str,
         position_sec: float,
         relative: bool = False,
-        ctx: "PluginContext | None" = None,
+        ctx: PluginContext | None = None,
     ) -> bool:
         """Springe zur Position. ``relative=True`` heißt skip ±N Sekunden."""
         ...
 
     async def set_speed(
-        self, target_id: str, factor: float, ctx: "PluginContext | None" = None
+        self, target_id: str, factor: float, ctx: PluginContext | None = None
     ) -> bool:
         """Playback-Speed 0.25–4.0×. Channel kann das ignorieren wenn er
         keine Server-seitige Speed-Kontrolle hat."""
@@ -137,7 +137,7 @@ class AudioOutputChannel(Protocol):
         self,
         items: list[dict[str, str]],
         target_id: str,
-        ctx: "PluginContext",
+        ctx: PluginContext,
         audio_type: str = "music",
         shuffle: bool = False,
     ) -> dict[str, Any]:
@@ -152,7 +152,7 @@ class AudioOutputChannel(Protocol):
         """
         ...
 
-    async def status(self, target_id: str, ctx: "PluginContext | None" = None) -> dict[str, Any]:
+    async def status(self, target_id: str, ctx: PluginContext | None = None) -> dict[str, Any]:
         """Aktueller Wiedergabe-Status am Target.
 
         Schema: ``{"running": bool, "playing": bool, "paused": bool,
@@ -185,7 +185,7 @@ class AudioOutputChannel(Protocol):
         Default: No-Op. Push-Sinks überschreiben dies und steuern damit
         ihre interne Pump-Logik (z.B. Asyncio-Event clear/set).
         """
-        return None
+        return
 
     def get_stream_start_offset(self, target_id: str) -> float | None:
         """Track-Position, bei der der aktuelle Stream startete.

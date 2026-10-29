@@ -168,7 +168,7 @@ class ExportMixin(rx.State, mixin=True):
                 </div>
                 ''')
 
-    def _export_assistant_message(  # noqa: PLR0912, PLR0915
+    def _export_assistant_message(
         self,
         content: str,
         agent: str,
@@ -277,7 +277,7 @@ class ExportMixin(rx.State, mixin=True):
                     used_sources_data.clear()
                     used_sources_data.extend(embedded)
                 ai_msg = re.sub(used_pattern, '', ai_msg, count=1)
-            except json_mod.JSONDecodeError:  # noqa: BLE001
+            except json_mod.JSONDecodeError:
                 pass
 
         failed_pattern = r'<!--FAILED_SOURCES:(\[.*?\])-->\n?'
@@ -424,6 +424,7 @@ class ExportMixin(rx.State, mixin=True):
     def _embed_sandbox_html(html: str) -> str:
         """Replace sandbox iframe src URLs with inline srcdoc for portable export."""
         import html as html_mod
+
         from ..lib.config import SANDBOX_OUTPUT_DIR
 
         iframe_pattern = re.compile(
@@ -450,6 +451,7 @@ class ExportMixin(rx.State, mixin=True):
     def _embed_sandbox_images(html: str) -> str:
         """Replace sandbox image URLs with inline Base64 for portable export."""
         import base64
+
         from ..lib.config import SANDBOX_OUTPUT_DIR
 
         img_pattern = re.compile(

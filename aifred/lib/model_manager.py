@@ -10,12 +10,11 @@ Extracted from state.py (Phase 3.2 Refactoring):
 
 import logging
 import re
-from typing import Dict
 
 logger = logging.getLogger(__name__)
 
 
-def sort_models_grouped(models_dict: Dict[str, str]) -> Dict[str, str]:
+def sort_models_grouped(models_dict: dict[str, str]) -> dict[str, str]:
     """
     Sort models by model family (alphabetically) and then by size (ascending).
 

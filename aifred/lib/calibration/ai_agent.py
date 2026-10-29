@@ -20,9 +20,9 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from pathlib import Path
-from typing import AsyncIterator, Optional
 
 from ..config import LLAMACPP_CALIBRATION_PORT
 from .gpu import enumerate_gpus, find_min_gpus_for_weights
@@ -157,7 +157,7 @@ class _ProbeOutcome:
     detail: str
 
 
-def _parse_split(text: str, n_gpus: int) -> Optional[list[float]]:
+def _parse_split(text: str, n_gpus: int) -> list[float] | None:
     """Parse '20,21,10,11' → [20, 21, 10, 11]. Returns None on bad format."""
     try:
         parts = [float(x.strip()) for x in text.split(",") if x.strip()]
@@ -420,7 +420,7 @@ async def _do_probe(
     port: int,
     gpus: list[GPU],
     safety_margin_mb: int,
-    env: Optional[dict[str, str]],
+    env: dict[str, str] | None,
     reserve_mb: tuple[int, ...] = (),
 ) -> _ProbeOutcome:
     """Run a single physical probe and translate the result to a tool payload."""
@@ -465,10 +465,10 @@ def _payload_from_outcome(outcome: _ProbeOutcome) -> str:
 
 def _validate_finalize(
     ctx: int,
-    split: Optional[list[float]],
-    last_outcome: Optional[_ProbeOutcome],
+    split: list[float] | None,
+    last_outcome: _ProbeOutcome | None,
     safety_margin_mb: int,
-) -> Optional[str]:
+) -> str | None:
     """Return error message if finalize values are unfit, else None."""
     if ctx <= 0:
         return f"Invalid ctx: {ctx}"
@@ -496,18 +496,18 @@ async def calibrate_with_ai(
     model_id: str,
     full_cmd: str,
     safety_margin_mb: int,
-    gguf_path: Optional[Path] = None,
-    seed_split: Optional[list[float]] = None,
-    cloud_model: Optional[str] = None,
+    gguf_path: Path | None = None,
+    seed_split: list[float] | None = None,
+    cloud_model: str | None = None,
     port: int = LLAMACPP_CALIBRATION_PORT,
-    env: Optional[dict[str, str]] = None,
+    env: dict[str, str] | None = None,
     extra_constraints: str = "",
-    model_size_mb: Optional[float] = None,
-    native_ctx: Optional[int] = None,
-    total_layers: Optional[int] = None,
+    model_size_mb: float | None = None,
+    native_ctx: int | None = None,
+    total_layers: int | None = None,
     allow_hybrid: bool = False,
     reserve_mb: tuple[int, ...] = (),
-    gpus: Optional[list[GPU]] = None,
+    gpus: list[GPU] | None = None,
 ) -> AsyncIterator[str]:
     """AI-driven calibration loop. Yields progress strings.
 
@@ -523,8 +523,8 @@ async def calibrate_with_ai(
     the calibration_mode toggle picks one path, not a hybrid).
     """
     try:
-        from openai import AsyncOpenAI
         import openai as _openai
+        from openai import AsyncOpenAI
     except ImportError:
         yield "__AI_ERROR__:openai package not installed"
         return
@@ -535,8 +535,8 @@ async def calibrate_with_ai(
     # get_cloud_api_key — so any configured provider (qwen / deepseek / kimi
     # / …) works, not just DashScope. The model must support OpenAI-style
     # tool-calling (this loop drives estimate/probe/finalize via tools).
-    from ..config import CLOUD_API_PROVIDERS
     from ...backends.cloud_api import get_cloud_api_key
+    from ..config import CLOUD_API_PROVIDERS
 
     provider = "qwen"
     enable_thinking = False
@@ -692,9 +692,9 @@ async def calibrate_with_ai(
     ]
 
     client = AsyncOpenAI(api_key=api_key, base_url=base_url)
-    last_outcome: Optional[_ProbeOutcome] = None
-    last_ctx: Optional[int] = None
-    last_split: Optional[list[float]] = None
+    last_outcome: _ProbeOutcome | None = None
+    last_ctx: int | None = None
+    last_split: list[float] | None = None
     probe_count = 0
 
     for turn in range(MAX_TURNS):

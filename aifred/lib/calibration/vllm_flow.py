@@ -20,9 +20,9 @@ Messungen (die llama.cpp-Kalibration verifiziert genauso).
 
 import logging
 import subprocess
+from collections.abc import Callable, Iterable, Iterator
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Callable, Iterable, Iterator
 
 from ..config import (
     LLAMASWAP_CONFIG_PATH,
@@ -40,7 +40,6 @@ from .gpu import enumerate_gpus
 from .types import GPU
 from .vllm_model_meta import VllmModelMeta, analyze_checkpoint
 from .vllm_probe import (
-    probe_sampling,
     OOM_SIGNATURES,
     TemplateParsers,
     VllmBootError,
@@ -52,6 +51,7 @@ from .vllm_probe import (
     load_vllm_runtime,
     probe_coherence,
     probe_long_context,
+    probe_sampling,
     probe_throughput,
     prune_calibration_cache,
     template_parsers,

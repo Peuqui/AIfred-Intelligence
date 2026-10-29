@@ -44,7 +44,7 @@ class FakeWS:
         raise StopAsyncIteration
 
 
-def _register_msg(room: str, token: "str | None" = None) -> MagicMock:
+def _register_msg(room: str, token: str | None = None) -> MagicMock:
     payload = f'{{"type":"register","room":"{room}"'
     if token is not None:
         payload += f',"token":"{token}"'
@@ -58,7 +58,7 @@ def _register_msg(room: str, token: "str | None" = None) -> MagicMock:
 def _run_handshake(messages, configured_token: str, auth_required: str = ""):
     """_handle_ws mit gefaktem WS + Broker-Token durchspielen."""
     channel = FreeEchoChannel()
-    setattr(channel, "channel_log", MagicMock())
+    channel.channel_log = MagicMock()
     fake_ws = FakeWS(messages)
     request = MagicMock()
     request.remote = "203.0.113.7"

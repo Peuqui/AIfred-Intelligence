@@ -7,7 +7,7 @@ export/import.
 
 from __future__ import annotations
 
-from typing import Any, Dict, List
+from typing import Any
 
 import reflex as rx
 
@@ -20,7 +20,7 @@ def _meta_str(meta: Any, key: str, default: str = "") -> str:
     return value if isinstance(value, str) else default
 
 
-def _by_path(doc: Dict[str, Any]) -> str:
+def _by_path(doc: dict[str, Any]) -> str:
     """Sort key for index lists: the document path, case-insensitive."""
     return str(doc.get("filename", "")).casefold()
 
@@ -38,18 +38,18 @@ class MemoryBrowserMixin(rx.State, mixin=True):
     """Mixin for memory/database browsing and agent bundle export/import."""
 
     # Database tab: the document index, one entry per document (not per chunk)
-    db_documents: List[Dict[str, Any]] = []
+    db_documents: list[dict[str, Any]] = []
     db_clear_confirm: bool = False  # Confirmation state for clear-all
 
     # Orphan cleanup: indexed documents whose file is gone from disk
-    db_orphans: List[Dict[str, Any]] = []      # one entry per orphaned document (not per chunk)
+    db_orphans: list[dict[str, Any]] = []      # one entry per orphaned document (not per chunk)
     db_orphans_visible: bool = False           # toggles the orphan section
 
     # Memory browser state
     memory_browser_agent: str = ""  # Selected agent in memory browser ("" = overview)
     memory_browser_agent_display: str = ""  # Display name of selected agent
-    memory_browser_entries: List[Dict[str, str]] = []  # Entries for selected agent
-    memory_browser_collections: List[Dict[str, str]] = []  # Collection overview
+    memory_browser_entries: list[dict[str, str]] = []  # Entries for selected agent
+    memory_browser_collections: list[dict[str, str]] = []  # Collection overview
     memory_browser_filter: str = "all"  # "all", "session", "agent"
     # Entry being edited in the memory browser ("" = none) and its draft
     memory_edit_id: str = ""
@@ -59,14 +59,14 @@ class MemoryBrowserMixin(rx.State, mixin=True):
 
     # ── Agent Bundle Export/Import ──────────────────────────────
     bundle_export_open: bool = False
-    bundle_export_selected: List[str] = []
+    bundle_export_selected: list[str] = []
     # Snapshot of all agents for the export modal — refreshed when modal opens
-    bundle_all_agents: List[Dict[str, str]] = []
+    bundle_all_agents: list[dict[str, str]] = []
 
     bundle_import_open: bool = False
     bundle_import_uploaded_b64: str = ""  # base64-encoded ZIP, kept in state until confirm
-    bundle_import_agents: List[Dict[str, Any]] = []  # output of peek_bundle
-    bundle_import_selected: List[str] = []
+    bundle_import_agents: list[dict[str, Any]] = []  # output of peek_bundle
+    bundle_import_selected: list[str] = []
     bundle_import_conflict: str = "rename"  # abort | overwrite | rename
     bundle_import_error: str = ""
 
@@ -98,7 +98,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
 
 
     @rx.var(deps=["memory_browser_collections"], auto_deps=False)
-    def memory_agent_dropdown_options(self) -> List[str]:
+    def memory_agent_dropdown_options(self) -> list[str]:
         """Agent dropdown labels with memory count."""
         return [
             f"{col['display_name']} ({col['count']})"
@@ -106,7 +106,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         ]
 
     @rx.var(deps=["memory_browser_entries", "memory_browser_filter"], auto_deps=False)
-    def filtered_memory_entries(self) -> List[Dict[str, str]]:
+    def filtered_memory_entries(self) -> list[dict[str, str]]:
         """Memory entries filtered by type (all/session/agent)."""
         if self.memory_browser_filter == "all":
             return self.memory_browser_entries

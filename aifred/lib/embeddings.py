@@ -6,7 +6,6 @@ profile exists, embeddings run on llama-server --embedding (persistent embed
 group); otherwise via Ollama with a CPU/GPU mode.
 """
 
-from typing import Optional
 
 import numpy as np
 from chromadb.api.types import Documents, EmbeddingFunction, Embeddings
@@ -47,7 +46,7 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
         self,
         model_name: str = OLLAMA_EMBEDDING_MODEL,
         host: str = OLLAMA_HOST,
-        timeout: Optional[int] = None,  # None = use dynamic timeout per call
+        timeout: int | None = None,  # None = use dynamic timeout per call
         mode: str = "query",            # "index" → GPU + warm cache, "query" → CPU
     ):
         """
@@ -85,6 +84,7 @@ class OllamaEmbeddingFunction(EmbeddingFunction[Documents]):
             return self._embed_via_llamaswap(input)
 
         from ollama import Client
+
         from .config import EMBEDDING_USE_GPU
 
         # Index mode honours EMBEDDING_USE_GPU; query mode is always CPU.

@@ -11,8 +11,8 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-import aifred.lib.calibration.ai_agent as ai_agent
 import aifred.lib.calibration.projection as proj
+from aifred.lib.calibration import ai_agent
 from aifred.lib.calibration.types import GPU
 
 

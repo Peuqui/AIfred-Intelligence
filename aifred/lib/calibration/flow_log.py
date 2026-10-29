@@ -15,8 +15,9 @@ def _calib_file_log(line: str) -> None:
     (so überlebte der Reserve-Blindheits-Bug unentdeckt eine komplette
     Nacht). Diese Datei ist append-only und überlebt Neustarts."""
     try:
-        from ..config import DATA_DIR
         from datetime import datetime
+
+        from ..config import DATA_DIR
         path = DATA_DIR / "logs" / "calibration.log"
         path.parent.mkdir(parents=True, exist_ok=True)
         with open(path, "a", encoding="utf-8") as f:

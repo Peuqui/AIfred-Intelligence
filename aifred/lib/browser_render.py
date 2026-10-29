@@ -18,10 +18,9 @@ import shutil
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 
 from .logging_utils import log_message
-
 
 
 @dataclass
@@ -33,7 +32,7 @@ class RenderResult:
     timed_out: bool = False
 
 
-def resolve_sandbox_html_path(html_url: str, session_id: str) -> Optional[Path]:
+def resolve_sandbox_html_path(html_url: str, session_id: str) -> Path | None:
     """Map a render_html URL to its file on disk.
 
     Two accepted sources (path-traversal guarded each):
@@ -46,9 +45,11 @@ def resolve_sandbox_html_path(html_url: str, session_id: str) -> Optional[Path]:
 
     Accepts URLs with or without the scheme+host prefix.
     """
-    from .sandbox import SANDBOX_OUTPUT_NAME_RE, _safe_session_subdir
-
-    from .sandbox import documents_html_path
+    from .sandbox import (
+        SANDBOX_OUTPUT_NAME_RE,
+        _safe_session_subdir,
+        documents_html_path,
+    )
 
     documents_file = documents_html_path(html_url)
     if documents_file is not None:
@@ -107,8 +108,8 @@ async def _apply_action(page: Any, action: dict, index: int, result: RenderResul
 async def render_html_in_browser(
     html_url: str,
     session_id: str,
-    wait_ms: Optional[int] = None,
-    actions: Optional[list[dict]] = None,
+    wait_ms: int | None = None,
+    actions: list[dict] | None = None,
 ) -> RenderResult:
     """Render a sandbox HTML file in headless Chrome via Playwright.
 
@@ -124,7 +125,12 @@ async def render_html_in_browser(
         BROWSER_RENDER_TIMEOUT_SECONDS,
         BROWSER_RENDER_WINDOW_SIZE,
     )
-    from .sandbox import SCREENSHOT_STEM, _sandbox_url, _session_output_dir, output_filename
+    from .sandbox import (
+        SCREENSHOT_STEM,
+        _sandbox_url,
+        _session_output_dir,
+        output_filename,
+    )
 
     html_path = resolve_sandbox_html_path(html_url, session_id)
     if html_path is None:

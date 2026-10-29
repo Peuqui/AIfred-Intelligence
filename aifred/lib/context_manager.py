@@ -6,25 +6,27 @@ Handles token estimation and history compression for LLMs:
 - History compression (summarize_history_if_needed)
 """
 
+import asyncio
 import json
 import re
-import asyncio
-from .timer import Timer
-from typing import TYPE_CHECKING, Any, Dict, List, Optional, AsyncIterator
-from .logging_utils import log_message, log_raw_messages, console_separator
-from .prompt_loader import load_prompt
-from .formatting import format_number
+from collections.abc import AsyncIterator
+from typing import TYPE_CHECKING, Any
+
 from .config import (
     HISTORY_CHARS_PER_TOKEN,
-    HISTORY_COMPRESSION_TRIGGER,
     HISTORY_COMPRESSION_TARGET,
-    HISTORY_SUMMARY_RATIO,
-    HISTORY_SUMMARY_MIN_TOKENS,
-    HISTORY_SUMMARY_TOLERANCE,
+    HISTORY_COMPRESSION_TRIGGER,
     HISTORY_MAX_SUMMARIES,
     HISTORY_SUMMARY_MAX_RATIO,
+    HISTORY_SUMMARY_MIN_TOKENS,
+    HISTORY_SUMMARY_RATIO,
     HISTORY_SUMMARY_TEMPERATURE,
+    HISTORY_SUMMARY_TOLERANCE,
 )
+from .formatting import format_number
+from .logging_utils import console_separator, log_message, log_raw_messages
+from .prompt_loader import load_prompt
+from .timer import Timer
 
 if TYPE_CHECKING:
     from tokenizers import Tokenizer
@@ -148,9 +150,10 @@ def count_tokens_with_tokenizer(text: str) -> int:
     cache_key = "qwen3"  # Single tokenizer for all Qwen models
 
     if cache_key not in _tokenizer_cache:
-        from tokenizers import Tokenizer
-        import os
         import glob
+        import os
+
+        from tokenizers import Tokenizer
 
         # Find cached tokenizer.json from local HuggingFace cache
         cache_pattern = os.path.expanduser(
@@ -198,6 +201,7 @@ def strip_thinking_blocks(text: str) -> str:
     Tags vor dem Rendern.
     """
     import re
+
     from .config import get_xml_tag_config
     from .formatting import fix_orphan_closing_think_tag
     # Repair orphaned </think> (without <think>) before stripping
@@ -210,7 +214,7 @@ def strip_thinking_blocks(text: str) -> str:
     return text.strip()
 
 
-def estimate_tokens(messages: List[Dict], model_name: Optional[str] = None) -> int:
+def estimate_tokens(messages: list[dict], model_name: str | None = None) -> int:
     """
     Count tokens in messages using the local Qwen3 tokenizer.
 
@@ -259,7 +263,7 @@ def strip_non_llm_content(text: str) -> str:
     return text.strip()
 
 
-def estimate_toolkit_tokens(toolkit: Any, model_name: Optional[str] = None) -> int:
+def estimate_toolkit_tokens(toolkit: Any, model_name: str | None = None) -> int:
     """Tokens the tool schemas add to the prompt.
 
     The chat template renders every tool definition as JSON into the system
@@ -273,7 +277,7 @@ def estimate_toolkit_tokens(toolkit: Any, model_name: Optional[str] = None) -> i
     return estimate_tokens([{"content": rendered}], model_name=model_name)
 
 
-def estimate_tokens_from_history(history: List[Dict[str, Any]]) -> int:
+def estimate_tokens_from_history(history: list[dict[str, Any]]) -> int:
     """
     Estimate token count from chat history (dict-based format).
 
@@ -291,7 +295,7 @@ def estimate_tokens_from_history(history: List[Dict[str, Any]]) -> int:
     )
 
 
-def estimate_tokens_from_llm_history(llm_history: List[Dict[str, str]]) -> int:
+def estimate_tokens_from_llm_history(llm_history: list[dict[str, str]]) -> int:
     """
     Estimate token count from llm_history (dict format).
 
@@ -375,7 +379,7 @@ def calculate_max_summaries(context_limit: int, avg_summary_tokens: int = 500) -
     return min(max_summaries, HISTORY_MAX_SUMMARIES)
 
 
-def is_summary_message(msg: Dict[str, Any]) -> bool:
+def is_summary_message(msg: dict[str, Any]) -> bool:
     """
     Check if a chat history message is a summary.
 
@@ -408,22 +412,22 @@ def is_summary_message(msg: Dict[str, Any]) -> bool:
     return False
 
 
-def count_summaries(history: List[Dict[str, Any]]) -> int:
+def count_summaries(history: list[dict[str, Any]]) -> int:
     """Count the number of summary entries in chat history."""
     return sum(1 for msg in history if is_summary_message(msg))
 
 
 async def summarize_history_if_needed(
-    history: List[Dict[str, Any]],
+    history: list[dict[str, Any]],
     llm_client,
     model_name: str,
     context_limit: int,
     max_summaries: int | None = None,
-    llm_history: List[Dict[str, str]] | None = None,
+    llm_history: list[dict[str, str]] | None = None,
     system_prompt_tokens: int = 0,
     detected_language: str = "de",
     toolkit_tokens: int = 0,
-) -> AsyncIterator[Dict]:
+) -> AsyncIterator[dict]:
     """
     Compress chat history when context utilization reaches trigger threshold.
 
@@ -617,7 +621,11 @@ async def summarize_history_if_needed(
     # Get num_ctx from VRAM cache (calibrated value for compression model)
     # IMPORTANT: Always use VRAM cache value, NOT manual settings!
     # Manual num_ctx is for testing agents, not for compression.
-    from .model_vram_cache import get_ollama_calibrated_max_context, get_rope_factor_for_model, get_llamacpp_calibration
+    from .model_vram_cache import (
+        get_llamacpp_calibration,
+        get_ollama_calibrated_max_context,
+        get_rope_factor_for_model,
+    )
     # Try llama.cpp calibration first, then Ollama
     compression_num_ctx = get_llamacpp_calibration(model_name)
     if not compression_num_ctx:
@@ -759,7 +767,7 @@ async def summarize_history_if_needed(
             '</div>\n</details>'
         )
 
-        summary_entry: Dict[str, Any] = {
+        summary_entry: dict[str, Any] = {
             "role": "system",
             "content": summary_collapsible,
             "agent": "",
@@ -865,8 +873,8 @@ async def prepare_automatik_llm(
         dict: {"type": "debug", "message": "..."} for UI console
         dict: {"type": "result", "data": (success, load_time)} as last
     """
-    from .formatting import format_number
     from .config import AUTOMATIK_LLM_NUM_CTX
+    from .formatting import format_number
 
     preload_ctx = num_ctx or AUTOMATIK_LLM_NUM_CTX
 

@@ -6,8 +6,6 @@ import asyncio
 import json
 from types import SimpleNamespace
 
-from aifred.lib.perf_metrics import InferenceWork
-from aifred.lib.vision_analyzer import vlm_stats
 from aifred.lib.bubble import (
     KIND_COLLAPSIBLE,
     KIND_SANDBOX_HTML,
@@ -17,7 +15,9 @@ from aifred.lib.bubble import (
     render_bubble,
 )
 from aifred.lib.llm_pipeline import run_llm_stream
+from aifred.lib.perf_metrics import InferenceWork
 from aifred.lib.sandbox import SANDBOX_HTML_URL_MARKER
+from aifred.lib.vision_analyzer import vlm_stats
 
 BURST = ["/_upload/vigilantia/s/f1.jpg", "/_upload/vigilantia/s/f2.jpg"]
 PAGE = "/_upload/sandbox_output/s/page.html"

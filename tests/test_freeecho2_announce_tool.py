@@ -12,7 +12,7 @@ from aifred.lib.plugin_base import PluginContext
 
 @pytest.fixture
 def announced(monkeypatch: pytest.MonkeyPatch):
-    import aifred.lib.message_processor as message_processor
+    from aifred.lib import message_processor
 
     calls: list[tuple] = []
 

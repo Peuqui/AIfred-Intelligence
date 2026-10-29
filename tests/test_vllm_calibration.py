@@ -14,19 +14,17 @@ from pathlib import Path
 import pytest
 import yaml
 
-import aifred.lib.calibration.vllm_flow as vllm_flow
-import aifred.lib.calibration.vllm_probe as vllm_probe
-import aifred.lib.operating_points as operating_points
+from aifred.lib import operating_points
+from aifred.lib.calibration import vllm_flow, vllm_probe
 from aifred.lib.calibration.types import GPU
 from aifred.lib.calibration.vllm_model_meta import (
-    VllmModelMeta,
     MtpInfo,
+    VllmModelMeta,
     _component,
     _layer_index,
     analyze_checkpoint,
 )
 from aifred.lib.calibration.vllm_probe import VllmSpec
-
 
 # ---------------------------------------------------------------------------
 # Synthetischer Checkpoint (Safetensors-Header mit data_offsets, ohne GPU)
@@ -983,7 +981,7 @@ def _fake_full_run(monkeypatch, tmp_path: Path, mml_by_label: dict[str, int] | N
     """calibrate_vllm_checkpoint mit gefaelschten Messungen: gibt (result,
     gemessene Labels, persist-Aufrufe, Log, gesweepte Labels) zurueck.
     ``mml_by_label`` setzt je Sprosse den erreichten Kontext (Default: nativ)."""
-    import aifred.lib.process_utils as process_utils
+    from aifred.lib import process_utils
 
     gpus = [_gpu("g0", "RTX 8000", 7.5, 49152, 49000, 0),
             _gpu("g2", "RTX 8000", 7.5, 49152, 49000, 0)]

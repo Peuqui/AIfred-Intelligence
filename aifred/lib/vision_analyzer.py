@@ -42,10 +42,13 @@ logger = logging.getLogger(__name__)
 
 # Defaults — übersteuerbar pro Call oder via Plugin-Settings.
 DEFAULT_MODEL = "qwen2.5vl:7b-q8_0"
-from .config import (  # noqa: E402  SSOT für VLM-Context + Downscale-Ziel
-    VLM_NUM_CTX as DEFAULT_NUM_CTX,
+from .config import (
     VISION_VLM_MAX_PIXELS as DEFAULT_MAX_PIXELS,
 )
+from .config import (
+    VLM_NUM_CTX as DEFAULT_NUM_CTX,
+)
+
 DEFAULT_KEEP_ALIVE = "30m"
 
 
@@ -98,7 +101,7 @@ def downscale_for_vlm(image_bytes: bytes, max_pixels: int) -> bytes:
 
 
 async def analyze_sequence(
-    frames: list["Frame"],
+    frames: list[Frame],
     prompt: str,
     *,
     model: str = DEFAULT_MODEL,
@@ -242,7 +245,7 @@ async def _analyze_via_ollama(
             keep_alive=keep_alive,
             stream=False,
         )
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         # Ollama can raise ResponseError (model not found, OOM, etc.) or
         # connection errors — wir wrappen alles in RuntimeError damit
         # Caller einen einzigen Fehler-Typ behandeln muss.
@@ -361,7 +364,7 @@ async def _analyze_via_llamacpp(
             resp = await client.post(url, json=payload)
             resp.raise_for_status()
             data = resp.json()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:
         duration_ms = (time.perf_counter() - started) * 1000.0
         logger.warning(
             "VLM call failed (llamacpp): model=%s n_frames=%d duration=%.0fms error=%s",

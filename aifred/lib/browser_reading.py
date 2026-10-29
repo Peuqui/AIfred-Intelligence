@@ -43,10 +43,10 @@ from .logging_utils import log_message
 from .tts_client import TextStream, TTSSuiteError, get_tts_client, new_run_id
 from .tts_service import (
     browser_entry_unit,
-    request_engines_before_browser,
-    service_entries_before_browser,
     browser_note,
     escalation_report,
+    request_engines_before_browser,
+    service_entries_before_browser,
     spoken_note,
 )
 from .tts_text_filter import UiOnlyContentStream

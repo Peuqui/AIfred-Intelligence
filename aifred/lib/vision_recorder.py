@@ -54,7 +54,7 @@ class EventRecorder:
         # (Alert-Dedup, Query-Dedup).
         self._clusterer = IncrementalClusterer()
 
-    def cluster_id_for(self, frame: "Frame") -> str:
+    def cluster_id_for(self, frame: Frame) -> str:
         """Live-cluster_id für das (gestempelte) Frame eines Ereignisses —
         pHash aus dem Speicher, gefüttert in den Clusterer. Der Batch-Pfad
         liest dasselbe gespeicherte Frame von Platte, pHash und damit Cluster
@@ -81,7 +81,7 @@ class EventRecorder:
 
     def record_motion(
         self,
-        frame: "Frame",
+        frame: Frame,
         *,
         frame_path: str,
         area_ratio: float,

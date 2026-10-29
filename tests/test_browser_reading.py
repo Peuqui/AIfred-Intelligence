@@ -20,8 +20,7 @@ from fake_tts_service import (
     summary_frame,
 )
 
-import aifred.lib.tts_client as tts_client
-from aifred.lib import browser_reading
+from aifred.lib import browser_reading, tts_client
 from aifred.lib.browser_reading import BrowserReading
 
 CATALOG = [

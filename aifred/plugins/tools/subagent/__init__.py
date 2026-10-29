@@ -20,7 +20,8 @@ from __future__ import annotations
 import json
 import re
 from dataclasses import dataclass, replace
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, Optional
+from collections.abc import AsyncGenerator
 
 from ....lib.bubble import KIND_COLLAPSIBLE, KIND_SANDBOX_HTML, KIND_SANDBOX_IMAGE, BubbleArtifact
 from ....lib.formatting import performance_footer_text
@@ -99,7 +100,7 @@ class RunParams:
     browser path (multi_agent) and the hub path (message_processor) use."""
 
     backend_type: str
-    backend_url: Optional[str]
+    backend_url: str | None
     model: str
     num_ctx: int
     temperature: float
@@ -228,7 +229,7 @@ def resolve_run_params(agent_id: str, state: Any) -> RunParams:
     )
 
 
-_THINK_RE = re.compile(r"<think>(.*?)</think>", re.S)
+_THINK_RE = re.compile(r"<think>(.*?)</think>", re.DOTALL)
 _TITLE_LEN = 60
 
 
@@ -332,7 +333,7 @@ class SubAgentPlugin:
             del parameters["properties"]["agent"]
 
         async def _delegate(
-            task: str, expected_result: str, agent: Optional[str] = None,
+            task: str, expected_result: str, agent: str | None = None,
         ) -> AsyncGenerator[dict[str, Any], None]:
             async for event in run_subagent(
                 ctx, settings, depth, task, expected_result, agent, candidates,
@@ -361,7 +362,7 @@ class SubAgentPlugin:
             description += "\n\n" + load_tool_description(__file__, "delegate_task_read_only")
         return description
 
-    def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
+    def get_prompt_instructions(self, lang: str, granted_tools: set[str] | None = None) -> str:
         return load_plugin_instructions(self, lang, granted_tools)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
@@ -373,7 +374,7 @@ class SubAgentPlugin:
 
 async def build_subagent_toolkit(
     ctx: PluginContext, settings: SubAgentSettings, depth: int, target_agent: str, task: str,
-) -> Optional[ToolKit]:
+) -> ToolKit | None:
     """The sub-agent's toolkit: the target agent's normal kit (same source and
     tier ceiling as the caller, memory off, depth+1 so the recursion bound
     applies), reduced to the tiers the plugin setting allows."""
@@ -410,7 +411,7 @@ async def run_subagent(
     depth: int,
     task: str,
     expected_result: str,
-    agent: Optional[str],
+    agent: str | None,
     candidates: list[str],
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Executor body: yields ``progress`` events while the sub-agent works,

@@ -11,7 +11,6 @@ from aifred.plugins.channels.telegram_channel import (
     _owner_chat_id,
 )
 
-
 # ── User Whitelist ────────────────────────────────────────────
 
 class TestIsUserAllowed:

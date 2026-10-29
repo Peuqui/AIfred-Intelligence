@@ -5,43 +5,53 @@ Full Gradio-Style UI with Single Column Layout
 """
 
 import reflex as rx
-from .state import AIState, ChatHistoryState
-from .ui.service_status_bar import service_status_bar
-from .theme import COLORS, css_variables
+
 from .lib.config import (
     UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP,
     UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE,
+    UI_DEBUG_CONSOLE_MAX_HEIGHT,
+    UI_MOBILE_BREAKPOINT,
+    UI_SANDBOX_MAX_HEIGHT,
     UI_THINKING_MAX_HEIGHT_DESKTOP,
     UI_THINKING_MAX_HEIGHT_MOBILE,
-    UI_DEBUG_CONSOLE_MAX_HEIGHT,
-    UI_SANDBOX_MAX_HEIGHT,
-    UI_MOBILE_BREAKPOINT,
 )
+from .state import AIState, ChatHistoryState
+from .theme import COLORS, css_variables
+from .ui.agent_editor import agent_editor_page
+from .ui.audio_settings import audio_help_modal, audio_settings_page
+from .ui.casus import casus_help_modal, casus_modal
+from .ui.chat_display import (
+    chat_history_display,
+    session_list_display,
+)
+from .ui.file_picker import file_picker_modal
 
 # UI modules (extracted from this file)
-from .ui.helpers import t, left_column  # noqa: F401
-from .ui.modals import (  # noqa: F401
-    multi_agent_help_modal, reasoning_thinking_help_modal,
-    model_lifecycle_help_modal,
-    login_dialog, crop_modal, image_lightbox_modal,
-    document_manager_page, channel_credentials_page,
-    bundle_export_modal, bundle_import_modal,
-)
-from .ui.chat_display import (  # noqa: F401
-    session_list_display, chat_history_display,
-)
-from .ui.input_sections import debug_console  # noqa: F401
-from .ui.settings_accordion import settings_accordion  # noqa: F401
-from .ui.agent_editor import agent_editor_page  # noqa: F401
-from .ui.file_picker import file_picker_modal  # noqa: F401
-from .ui.audio_settings import audio_settings_page, audio_help_modal  # noqa: F401
-from .ui.vision_settings import vision_settings_modal  # noqa: F401
-from .ui.personarium import personarium_modal  # noqa: F401
-from .ui.casus import casus_modal, casus_help_modal  # noqa: F401
-from .ui.multipose import multipose_modal  # noqa: F401
-from .ui.vigilantia_feed import vigilantia_feed_popover, vigilantia_help_modal  # noqa: F401
+from .ui.helpers import left_column, t
+from .ui.input_sections import debug_console
 from .ui.lightbox import LIGHTBOX_JS
-from .ui.vision_preview import vision_preview_page  # noqa: F401
+from .ui.modals import (
+    bundle_export_modal,
+    bundle_import_modal,
+    channel_credentials_page,
+    crop_modal,
+    document_manager_page,
+    image_lightbox_modal,
+    login_dialog,
+    model_lifecycle_help_modal,
+    multi_agent_help_modal,
+    reasoning_thinking_help_modal,
+)
+from .ui.multipose import multipose_modal
+from .ui.personarium import personarium_modal
+from .ui.service_status_bar import service_status_bar
+from .ui.settings_accordion import settings_accordion
+from .ui.vigilantia_feed import (  # noqa: F401
+    vigilantia_feed_popover,
+    vigilantia_help_modal,
+)
+from .ui.vision_preview import vision_preview_page
+from .ui.vision_settings import vision_settings_modal
 
 
 def _audio_player_element() -> rx.Component:
@@ -1196,16 +1206,17 @@ app = rx.App(
 # Mount REST API routes directly on Reflex's backend
 # This avoids the "ASGI flow error: Connection already upgraded" bug
 # that occurs when using api_transformer with WebSocket connections
-from .lib.api import api_app  # noqa: E402
+from .lib.api import api_app
+
 assert app._api is not None
 app._api.mount("/api", api_app)
 
 # Mount static file directories from data/
 # All user data is stored in data/ which is excluded from hot-reload
-from starlette.staticfiles import StaticFiles  # noqa: E402
+from starlette.staticfiles import StaticFiles
 
-from .lib.authenticated_static import AuthenticatedStaticFiles  # noqa: E402
-from .lib.config import DATA_DIR  # noqa: E402
+from .lib.authenticated_static import AuthenticatedStaticFiles
+from .lib.config import DATA_DIR
 
 # Regel für /_upload/*: ALLE Mounts sind cookie-pflichtig
 # (AuthenticatedStaticFiles) — einzige Ausnahme ist html_preview, dessen
@@ -1293,7 +1304,7 @@ app._api.mount(
 # ---------------------------------------------------------------------------
 # Message Hub — background workers for channel listeners (email, discord, …)
 # ---------------------------------------------------------------------------
-import contextlib  # noqa: E402
+import contextlib
 
 
 @contextlib.asynccontextmanager
@@ -1303,9 +1314,9 @@ async def _message_hub_lifespan():
     This handles the initial start. on_load() provides a safety net
     for Granian worker respawns where the lifespan doesn't re-run.
     """
-    from .lib.config import MESSAGE_HUB_OWNER  # noqa: E402
-    from .lib.message_hub import message_hub, register_channel_workers  # noqa: E402
-    from .lib.scheduler import scheduler_loop  # noqa: E402
+    from .lib.config import MESSAGE_HUB_OWNER
+    from .lib.message_hub import message_hub, register_channel_workers
+    from .lib.scheduler import scheduler_loop
 
     if not MESSAGE_HUB_OWNER:
         raise RuntimeError(
@@ -1357,9 +1368,9 @@ async def _message_hub_lifespan():
 @contextlib.asynccontextmanager
 async def _service_status_lifespan():
     """Hold llama-swap's event stream and read STT/TTS state, for the page's status line."""
-    import asyncio  # noqa: E402
+    import asyncio
 
-    from .lib.service_status import get_monitor  # noqa: E402
+    from .lib.service_status import get_monitor
 
     task = asyncio.create_task(get_monitor().run())
     try:

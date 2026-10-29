@@ -12,13 +12,14 @@ sofort zurück, blockiert den Vision-Watcher nicht).
 from __future__ import annotations
 
 import asyncio
-from typing import Any, Coroutine
+from collections.abc import Coroutine
+from typing import Any
 
 from ....lib.audio_channels._audio_orchestrator import PCM_BYTES_PER_SEC, TTSBuffer
 from ....lib.config import FREEECHO2_PAUSE_ACK_TIMEOUT_SEC
 
 # Item: (audio_type, tts_pcm, start_tone, end_tone); die Töne gelten nur für notification
-_alert_queues: dict[str, "asyncio.Queue[tuple[str, bytes | TTSBuffer | None, bool, bool]]"] = {}
+_alert_queues: dict[str, asyncio.Queue[tuple[str, bytes | TTSBuffer | None, bool, bool]]] = {}
 _alert_workers: dict[str, asyncio.Task] = {}
 _playback_done: dict[str, asyncio.Event] = {}
 # Event-Loop des WebSocket-Servers (aiohttp). Der proaktive Emit-Pfad
@@ -27,7 +28,7 @@ _playback_done: dict[str, asyncio.Event] = {}
 # ws-Loop laufen, sonst sendet der Pump aus einem fremden Loop
 # (RuntimeError: "got Future attached to a different loop" → Pump-Abbruch
 # mitten in der Ansage). enqueue_alert marshallt deshalb auf diesen Loop.
-_ws_loop: "asyncio.AbstractEventLoop | None" = None
+_ws_loop: asyncio.AbstractEventLoop | None = None
 # Fallback-Marge für das _done-Warten: der Worker wartet content-abhängig
 # = tatsächliche Wiedergabe-Dauer (aus der PCM-Größe) + diese Marge (Chime +
 # Netz + Sicherheit). So wird eine lange Ansage NIE abgeschnitten (Timeout
@@ -36,7 +37,7 @@ _ws_loop: "asyncio.AbstractEventLoop | None" = None
 _PLAYBACK_DONE_MARGIN_SEC = 15.0
 
 
-async def run_on_ws_loop(coro: "Coroutine[Any, Any, Any]") -> Any:
+async def run_on_ws_loop(coro: Coroutine[Any, Any, Any]) -> Any:
     """Eine Coroutine auf dem WebSocket-Server-Loop ausführen, awaitbar aus
     JEDEM Loop. SSoT für proaktive Puck-Audio-Ausgabe.
 
@@ -48,7 +49,7 @@ async def run_on_ws_loop(coro: "Coroutine[Any, Any, Any]") -> Any:
     Stream-Arbeit wird hierüber auf den ws-Loop geschoben. Läuft der Aufrufer
     bereits im ws-Loop (reaktiver Puck-Request), wird direkt awaited."""
     try:
-        current: "asyncio.AbstractEventLoop | None" = asyncio.get_running_loop()
+        current: asyncio.AbstractEventLoop | None = asyncio.get_running_loop()
     except RuntimeError:
         current = None
     if _ws_loop is not None and _ws_loop is not current:
@@ -72,7 +73,7 @@ def signal_playback_done(room: str) -> None:
 
 
 async def _enqueue_on_ws_loop(
-    room: str, audio_type: str, tts_pcm: "bytes | TTSBuffer | None", start_tone: bool, end_tone: bool,
+    room: str, audio_type: str, tts_pcm: bytes | TTSBuffer | None, start_tone: bool, end_tone: bool,
 ) -> None:
     """Put + Worker-Sicherstellung — läuft IMMER im ws-Loop, damit Queue,
     Worker und das spätere ws.send_bytes loop-konsistent sind."""
@@ -89,7 +90,7 @@ async def _enqueue_on_ws_loop(
 
 
 async def enqueue_alert(
-    room: str, audio_type: str, tts_pcm: "bytes | TTSBuffer | None", *,
+    room: str, audio_type: str, tts_pcm: bytes | TTSBuffer | None, *,
     start_tone: bool, end_tone: bool,
 ) -> None:
     """Proaktiven Alarm in die room-Queue legen + Worker sicherstellen.

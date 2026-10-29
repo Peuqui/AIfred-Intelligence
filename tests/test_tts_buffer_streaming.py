@@ -8,7 +8,10 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from aifred.lib.audio_channels._audio_orchestrator import (
-    KEEPALIVE_SILENCE, AudioOrchestrator, TTSBuffer, silence_pcm,
+    KEEPALIVE_SILENCE,
+    AudioOrchestrator,
+    TTSBuffer,
+    silence_pcm,
 )
 
 
