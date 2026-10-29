@@ -49,28 +49,28 @@ def _frame_count(path: Path) -> int:
 
 
 def test_one_film_per_lens_in_time_order(store, tmp_path):
-    for index in range(4):
+    for index in range(6):
         _event(store, tmp_path, index, zoom=True)
     films = asyncio.run(vf.make_cluster_films(store, "c-1"))
     assert [vf.film_label(str(f)) for f in films] == ["Weitwinkel", "Zoom"]
     assert all(f.exists() and f.stat().st_size > 0 for f in films)
-    assert all(_frame_count(f) == 4 for f in films)
+    assert all(_frame_count(f) == 6 for f in films)
     assert films[0].parent.name == "2026-10-29"  # Tagesordner für die Aufbewahrungsfrist
 
 
-def test_a_lens_with_a_single_frame_makes_no_film(store, tmp_path):
-    for index in range(3):
-        _event(store, tmp_path, index, zoom=index == 0)  # nur ein Zoom-Bild
+def test_a_lens_with_too_few_frames_makes_no_film(store, tmp_path):
+    for index in range(6):
+        _event(store, tmp_path, index, zoom=index < 4)  # nur vier Zoom-Bilder, Minimum sind fünf
     films = asyncio.run(vf.make_cluster_films(store, "c-1"))
     assert [vf.film_label(str(f)) for f in films] == ["Weitwinkel"]
 
 
 def test_missing_files_are_skipped(store, tmp_path):
-    ids = [_event(store, tmp_path, index, zoom=False) for index in range(4)]
+    for index in range(7):
+        _event(store, tmp_path, index, zoom=False)
     (tmp_path / "wide1.jpg").unlink()
     films = asyncio.run(vf.make_cluster_films(store, "c-1"))
-    assert _frame_count(films[0]) == 3
-    assert ids
+    assert _frame_count(films[0]) == 6
 
 
 def test_unknown_cluster_has_no_films(store):

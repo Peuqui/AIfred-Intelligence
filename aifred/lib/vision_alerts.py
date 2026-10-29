@@ -136,16 +136,24 @@ def _others_suffix(names: list[str], person_count: int) -> str:
 YOLO_UNCONFIRMED_NOTE = "⚠️ Von der Kamera gemeldet, vom Bilderkenner (YOLO) nicht bestätigt."
 
 
-def _source_line(alias: str, ts: datetime) -> str:
+def _source_line(alias: str, ts: datetime, end: datetime | None = None) -> str:
     """Kopfzeile jeder Meldung: „Hauseingang · 25.09.2026 - 18:49". Mit
     Datum, weil eine Vigilantia-Session über Tage wächst und die Bubbles
-    sonst nicht mehr einzuordnen sind."""
-    return f"{alias} · {ts.strftime('%d.%m.%Y - %H:%M')}"
+    sonst nicht mehr einzuordnen sind. ``ts`` ist der Moment des Vorkommnisses
+    (nicht des Versands); mit ``end`` steht die Zeitspanne da: „… - 17:00 bis 17:06"
+    (an einem anderen Tag mit Datum)."""
+    line = f"{alias} · {ts.strftime('%d.%m.%Y - %H:%M')}"
+    if end is None or end.strftime("%d.%m.%Y %H:%M") == ts.strftime("%d.%m.%Y %H:%M"):
+        return line
+    if end.date() == ts.date():
+        return f"{line} bis {end.strftime('%H:%M')}"
+    return f"{line} bis {end.strftime('%d.%m.%Y - %H:%M')}"
 
 
 def _compose(
     event_type: str, alias: str, names: list[str], count: int, ts: datetime,
     similarities: list[float] | None = None, person_count: int = 0,
+    ts_end: datetime | None = None,
 ) -> tuple[str, str]:
     """User-facing alert text (German — goes to the user's phone).
 
@@ -182,7 +190,7 @@ def _compose(
     else:  # face_unknown
         title = (f"🚨 {count} unbekannte Personen erkannt" if count > 1
                  else "🚨 Unbekannte Person erkannt")
-    return title, _source_line(alias, ts)
+    return title, _source_line(alias, ts, ts_end)
 
 
 async def _emit(
@@ -311,6 +319,8 @@ async def emit_face_alert(
     shown_media: set[str] | None = None,
     describe: bool = True,
     media_album: list[str] | None = None,
+    timestamp_end: datetime | None = None,
+    summary: bool = False,
 ) -> None:
     """Emit an aggregated face-band detection as a proactive AlertEvent —
     one per band per happening, only while armed. ``names`` = alle erkannten
@@ -324,7 +334,9 @@ async def emit_face_alert(
     der letzten Bilanz dazugekommenen Events — nur DIESE beschreibt das VLM
     (Kapitel), und nur an diesen hängt die Beschreibung.
     ``describe=False``: kurzer Hinweis ohne VLM. ``media_album``: fertiges
-    Medienpaket (Burst-Filme) für Album-Kanäle."""
+    Medienpaket (Burst-Filme) für Album-Kanäle. ``timestamp`` ist der Beginn
+    des Vorkommnisses, ``timestamp_end`` sein Ende (Zeitspanne in der Kopfzeile);
+    ``summary``: Zusammenfassung am Burst-Ende (eigener, knapper VLM-Prompt)."""
     if event_type not in _ALERT_EVENT_TYPES:
         return
     if not _vigilantia_armed():
@@ -337,7 +349,7 @@ async def emit_face_alert(
     ts = timestamp or datetime.now()
     alias = _source_alias(source_id, store)
     title, body = _compose(
-        event_type, alias, names, count, ts, similarities, person_count,
+        event_type, alias, names, count, ts, similarities, person_count, timestamp_end,
     )
     severity = "warning" if event_type in ("face_unknown", "face_unsure") else "info"
     # Personalisierung: NUR beim sicheren Match (face_known) ALLE Namen
@@ -357,6 +369,8 @@ async def emit_face_alert(
         meta["person_count"] = person_count
     if segment_event_ids:
         meta["segment_event_ids"] = list(segment_event_ids)
+    if summary:
+        meta["summary"] = True
     await _emit(
         source_id=source_id,
         category=event_type,
@@ -396,6 +410,8 @@ async def emit_person_alert(
     yolo_unconfirmed: bool = False,
     describe: bool = True,
     media_album: list[str] | None = None,
+    timestamp_end: datetime | None = None,
+    summary: bool = False,
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
@@ -419,7 +435,9 @@ async def emit_person_alert(
         meta["person_count"] = count
     if segment_event_ids:
         meta["segment_event_ids"] = list(segment_event_ids)
-    body = _source_line(alias, ts)
+    if summary:
+        meta["summary"] = True
+    body = _source_line(alias, ts, timestamp_end)
     if yolo_unconfirmed:
         meta["yolo_unconfirmed"] = True
         body = f"{body}\n{YOLO_UNCONFIRMED_NOTE}"
@@ -709,6 +727,14 @@ class BurstReport:
         """Läuft gerade ein Versand (inkl. VLM-Beschreibung)?"""
         return self._sending
 
+    def _span(self) -> tuple[datetime, datetime] | None:
+        """Beginn und Ende des Vorkommnisses (erstes/letztes Ereignis im Cluster) —
+        die Kopfzeile nennt den Moment des Vorkommnisses, nicht den des Versands."""
+        if not self.cluster_id or self._store is None:
+            return None
+        span: tuple[datetime, datetime] | None = self._store.cluster_time_span(self.cluster_id)
+        return span
+
     async def send_final(self) -> None:
         """Zusammenfassung am Burst-Ende: VLM-Beschreibung des ganzen Vorkommnisses
         und je Linse (Weitwinkel, Zoom) ein Film aus allen Burst-Bildern — der
@@ -724,11 +750,11 @@ class BurstReport:
                 films = [str(path) for path in await make_cluster_films(self._store, self.cluster_id)]
             except Exception as e:  # noqa: BLE001
                 logger.warning("burst film for %s failed: %s", self.cluster_id, e)
-        await self._send_once(films=films)
+        await self._send_once(films=films, summary=True)
 
     async def _send_once(
         self, *, segment_ids: list[int] | None = None, news: bool = False,
-        films: list[str] | None = None,
+        films: list[str] | None = None, summary: bool = False,
     ) -> None:
         self._sent_messages += 1
         key = f"{self.cluster_id or self.source_id}:burst-report-{self._sent_messages}"
@@ -743,6 +769,10 @@ class BurstReport:
         sent_person_count = self._person_count_max
         # Ein Hinweis bei Neuigkeiten ist reiner Text: kein Bild, keine Galerie, kein VLM.
         show_media = not news
+        span = self._span()
+        started = span[0] if span else None
+        # Die Zusammenfassung nennt die Zeitspanne, Erstmeldung und Hinweise den Beginn.
+        ended = span[1] if span and summary else None
         if band:
             names = list(self.known_named)
             sims = (
@@ -769,6 +799,9 @@ class BurstReport:
                 shown_media=self._shown_media,
                 describe=show_media,
                 media_album=films,
+                timestamp=started,
+                timestamp_end=ended,
+                summary=summary,
             )
         else:
             frame_path, zoom_path = self._best_person_paths if show_media else ("", "")
@@ -786,6 +819,9 @@ class BurstReport:
                 yolo_unconfirmed=not self._person_confirmed,
                 describe=show_media,
                 media_album=films,
+                timestamp=started,
+                timestamp_end=ended,
+                summary=summary,
             )
         self._sent_band_rank = sent_band_rank
         self._sent_names = sent_names

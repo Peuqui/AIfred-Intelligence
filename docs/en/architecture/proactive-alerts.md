@@ -202,13 +202,15 @@ spanning the restart is split (rare, acceptable).
   are intended, but few: a first report (`burst_report_deadline_sec`) with a short
   VLM description and its keyframes, then only short text notes on real news (new
   name, band upgrade, more people; no VLM and no image, `AlertEvent.describe=False`)
-  and, when the burst ends, the summary: a VLM description of the whole occurrence
-  plus one film per lens (wide, zoom) made from all burst images including the
+  and, when the burst ends, the summary: a short VLM description of the whole
+  occurrence (`vision_event_summary`, no image numbers) plus one film per lens (wide,
+  zoom) with at least `VISION_FILM_MIN_FRAMES` images, made from all burst images including the
   pre-roll (`vision_film`, MP4 under `data/vigilantia/films/`,
   `AlertEvent.media_album`; Telegram as an album of up to 10 videos/photos, the
   browser session as links). The burst is thus the small film of the occurrence
   from the first to the last detection — the images show the progress, not a text
-  per intermediate state. Without a burst (single alert) `media`/`media_context`
+  per intermediate state. The header line names the moment of the occurrence (its
+  start, in the summary start to end), not the time of sending. Without a burst (single alert) `media`/`media_context`
   apply; an image the occurrence has already shown (`AlertEvent.media_is_new=False`)
   is not sent to the channels again.
 - Other producers would supply their own keys (scheduler → task ID,

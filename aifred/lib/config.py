@@ -887,6 +887,8 @@ VISION_FILM_FPS = 2
 VISION_FILM_WIDTH = 960
 VISION_FILM_HEIGHT = 540
 VISION_FILM_CRF = 28
+# * FILM_MIN_FRAMES — weniger Bilder je Linse ergeben keinen Film (5 Bilder = 2,5 s).
+VISION_FILM_MIN_FRAMES = 5
 
 # Schwellen der Gesichtserkennung (Cosine-Similarity): ab ``known`` ein
 # sicheres Match, zwischen ``unsure`` und ``known`` das unsichere Band.

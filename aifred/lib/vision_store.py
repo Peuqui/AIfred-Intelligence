@@ -833,6 +833,20 @@ class VisionStore:
             ).fetchall()
         return [str(r["name"]) for r in rows if r["name"]]
 
+    def cluster_time_span(self, cluster_id: str) -> tuple[datetime, datetime] | None:
+        """Beginn und Ende eines Vorkommnisses: Zeitstempel des ersten und des
+        letzten Ereignisses im Cluster (inkl. Vorlauf). ``None`` ohne Ereignisse."""
+        if not cluster_id:
+            return None
+        with self._conn() as conn:
+            row = conn.execute(
+                "SELECT MIN(timestamp), MAX(timestamp) FROM events WHERE cluster_id = ?",
+                (cluster_id,),
+            ).fetchone()
+        if not row or row[0] is None:
+            return None
+        return datetime.fromisoformat(row[0]), datetime.fromisoformat(row[1])
+
     def list_cluster_event_ids(self, cluster_id: str) -> list[int]:
         """Alle Event-IDs eines Vorkommnisses (Cluster), neueste zuerst —
         für die Film-Slideshow im Casus (Serie eines Vorbeigangs).

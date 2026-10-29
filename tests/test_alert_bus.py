@@ -238,3 +238,32 @@ class TestSinkMedia:
     def test_no_album_without_vlm_keyframes(self, monkeypatch):
         sent = self._deliver_once(monkeypatch, _ev(media="/x/zoom.jpg"))
         assert "media_album" not in sent["metadata"]
+
+
+class TestSummaryPrompt:
+    """Die Zusammenfassung am Burst-Ende nimmt den knappen Zusammenfassungs-Prompt
+    (ohne Bildnummern), jede andere Cluster-Beschreibung den Sequenz-Prompt."""
+
+    def _describe(self, monkeypatch, metadata: dict) -> dict[str, Any]:
+        import aifred.lib.alert_bus as ab
+        import aifred.lib.vision_event_analysis as vea
+
+        seen: dict[str, Any] = {}
+
+        async def fake_describe(cluster_id, *, headcount=0, prompt=None, **kw):
+            seen["prompt"] = prompt
+            return "Beschreibung"
+
+        monkeypatch.setattr(vea, "describe_cluster_by_id", fake_describe)
+        asyncio.run(ab._describe_media_via_vlm(_ev(metadata={"cluster_id": "c-1", **metadata})))
+        return seen
+
+    def test_summary_uses_the_summary_prompt(self, monkeypatch):
+        from aifred.lib.prompt_loader import get_vision_event_summary_prompt
+
+        seen = self._describe(monkeypatch, {"summary": True})
+        assert seen["prompt"] == get_vision_event_summary_prompt()
+        assert "Bildnummern" in seen["prompt"]
+
+    def test_other_cluster_descriptions_keep_the_default_prompt(self, monkeypatch):
+        assert self._describe(monkeypatch, {})["prompt"] is None

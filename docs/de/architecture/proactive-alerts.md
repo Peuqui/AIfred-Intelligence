@@ -201,12 +201,15 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   (`burst_report_deadline_sec`) mit kurzer VLM-Beschreibung und deren Keyframes,
   danach nur kurze Text-Hinweise bei echten Neuigkeiten (neuer Name, Band-Upgrade,
   mehr Personen; ohne VLM und Bild, `AlertEvent.describe=False`) und zum
-  Burst-Ende die Zusammenfassung: VLM-Beschreibung des ganzen Vorkommnisses plus
-  je Linse (Weitwinkel, Zoom) ein Film aus allen Burst-Bildern samt Vorlauf
+  Burst-Ende die Zusammenfassung: kurze VLM-Beschreibung des ganzen Vorkommnisses
+  (`vision_event_summary`, ohne Bildnummern) plus je Linse (Weitwinkel, Zoom) mit
+  mindestens `VISION_FILM_MIN_FRAMES` Bildern ein Film aus allen Burst-Bildern samt Vorlauf
   (`vision_film`, MP4 unter `data/vigilantia/films/`, `AlertEvent.media_album`;
   Telegram als Album aus bis zu 10 Videos/Fotos, Browser-Session als Links). Der
   Burst ist so der kleine Film des Vorkommnisses von der ersten bis zur letzten
   Detektion — den Verlauf zeigen die Bilder, nicht ein Text pro Zwischenstand.
+  Die Kopfzeile nennt den Moment des Vorkommnisses (Beginn, in der Zusammenfassung
+  Beginn bis Ende), nicht den des Versands.
   Ohne Burst (Einzel-Alert) gilt `media`/`media_context`; ein Bild, das das
   Vorkommnis schon gezeigt hat (`AlertEvent.media_is_new=False`), geht nicht noch
   einmal an die Kanäle.

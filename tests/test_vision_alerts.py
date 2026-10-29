@@ -212,6 +212,9 @@ class _StubStore:
     def list_cluster_event_ids(self, cluster_id):
         return []
 
+    def cluster_time_span(self, cluster_id):
+        return datetime(2026, 10, 29, 17, 0, 9), datetime(2026, 10, 29, 17, 6, 40)
+
 
 def _burst_report(monkeypatch, films=None) -> tuple[va.BurstReport, _FakeDispatcher]:
     disp = _dispatcher_with_urls(monkeypatch)
@@ -262,3 +265,28 @@ def test_burst_final_without_films_still_reports(monkeypatch):
     asyncio.run(report.send_final())  # kurzer Burst: nur die Zusammenfassung
     assert len(disp.events) == 1
     assert disp.events[0].media_album == []
+
+
+def test_burst_header_names_the_occurrence_not_the_send_time(monkeypatch):
+    report, disp = _burst_report(monkeypatch)
+    asyncio.run(report.send())
+    asyncio.run(report.send_final())
+    first, final = disp.events
+    # Erstmeldung: Beginn des Vorkommnisses; Zusammenfassung: Beginn bis Ende.
+    assert "29.10.2026 - 17:00" in first.body and "bis" not in first.body
+    assert "29.10.2026 - 17:00 bis 17:06" in final.body
+
+
+def test_only_the_final_report_is_a_summary(monkeypatch):
+    report, disp = _burst_report(monkeypatch)
+    asyncio.run(report.send())
+    asyncio.run(report.send_final())
+    first, final = disp.events
+    assert not first.metadata.get("summary")
+    assert final.metadata["summary"] is True
+
+
+def test_source_line_spans_midnight():
+    line = va._source_line("Tür", datetime(2026, 10, 29, 23, 58), datetime(2026, 10, 30, 0, 3))
+    assert line == "Tür · 29.10.2026 - 23:58 bis 30.10.2026 - 00:03"
+    assert va._source_line("Tür", datetime(2026, 10, 29, 9, 0), datetime(2026, 10, 29, 9, 0)) == "Tür · 29.10.2026 - 09:00"

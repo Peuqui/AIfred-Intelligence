@@ -639,6 +639,17 @@ def get_vision_event_sequence_prompt(lang: str | None = None) -> str:
         return f.read().strip()
 
 
+def get_vision_event_summary_prompt(lang: str | None = None) -> str:
+    """Prompt für die Zusammenfassung eines ganzen Vorkommnisses am Burst-Ende
+    (kurzer Ablauf ohne Bildnummern — die Bilder zeigt der Film). In
+    ``prompts/{lang}/vision/vision_event_summary.txt``."""
+    if lang is None:
+        lang = get_language()
+    prompt_file = PROMPTS_DIR / lang / "vision" / "vision_event_summary.txt"
+    with open(prompt_file, 'r', encoding='utf-8') as f:
+        return f.read().strip()
+
+
 # ============================================================
 # Sokrates Multi-Agent Prompts
 # ============================================================

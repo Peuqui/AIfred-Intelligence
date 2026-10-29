@@ -420,6 +420,7 @@ async def describe_cluster_by_id(
     store: VisionStore | None = None,
     headcount: int = 0,
     model: str | None = None,
+    prompt: str | None = None,
 ) -> str:
     """Vorkommnis über seine ``cluster_id`` als Bildfolge beschreiben —
     Einstieg für den Live-Alert-Pfad, der den Cluster kennt, aber keine
@@ -431,5 +432,5 @@ async def describe_cluster_by_id(
         raise ValueError(f"cluster {cluster_id} has no events with frames")
     return await analyze_cluster_with_vlm(
         event_ids, store=store, headcount=headcount, model=model,
-        explicit=False,
+        explicit=False, prompt=prompt,
     )

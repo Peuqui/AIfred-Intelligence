@@ -215,6 +215,7 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> tuple[str | None, list[str]
       zeitliche Keyframe-Sequenz (Einzel-Trigger ohne Burst).
     * sonst → die Bilder dieses einen Moments (Zoom + Weitwinkel-Kontext).
     """
+    from .prompt_loader import get_vision_event_summary_prompt
     from .vision_event_analysis import (
         analyze_cluster_with_frames,
         analyze_frames_with_vlm,
@@ -243,8 +244,9 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> tuple[str | None, list[str]
     cluster_id = str(ev.metadata.get("cluster_id") or "")
     if cluster_id:
         try:
+            summary_prompt = get_vision_event_summary_prompt() if ev.metadata.get("summary") else None
             return await describe_cluster_by_id(
-                cluster_id, headcount=headcount,
+                cluster_id, headcount=headcount, prompt=summary_prompt,
             ), []
         except Exception as e:  # noqa: BLE001
             logger.warning(

@@ -21,6 +21,7 @@ from .config import (
     VISION_FILM_CRF,
     VISION_FILM_FPS,
     VISION_FILM_HEIGHT,
+    VISION_FILM_MIN_FRAMES,
     VISION_FILM_WIDTH,
 )
 from .vision_store import VisionStore
@@ -31,8 +32,6 @@ logger = logging.getLogger(__name__)
 FILMS_DIR = VIGILANTIA_DIR / "films"
 # Linsen in Anzeigereihenfolge; Dateiname und Beschriftung (Anzeige für den User).
 LENS_LABELS = {"wide": "Weitwinkel", "zoom": "Zoom"}
-# Ein Film braucht mindestens zwei Bilder.
-_MIN_FRAMES = 2
 
 
 def film_label(path: str) -> str:
@@ -95,13 +94,13 @@ async def _encode(paths: list[str], out: Path) -> None:
 
 
 async def make_cluster_films(store: VisionStore, cluster_id: str) -> list[Path]:
-    """Je Linse mit mindestens zwei Bildern ein Film des Vorkommnisses.
-    Returnt die Dateipfade in Anzeigereihenfolge (Weitwinkel, Zoom); leer, wenn der
-    Cluster keine zwei Bilder je Linse hat. Wirft bei einem ffmpeg-Fehler."""
+    """Je Linse mit mindestens ``VISION_FILM_MIN_FRAMES`` Bildern ein Film des
+    Vorkommnisses. Returnt die Dateipfade in Anzeigereihenfolge (Weitwinkel, Zoom);
+    leer, wenn keine Linse genug Bilder hat. Wirft bei einem ffmpeg-Fehler."""
     source_id, day, frames = await asyncio.to_thread(_lens_frames, store, cluster_id)
     films: list[Path] = []
     for lens, paths in frames.items():
-        if len(paths) < _MIN_FRAMES:
+        if len(paths) < VISION_FILM_MIN_FRAMES:
             continue
         out = FILMS_DIR / source_id.replace("/", "_") / day / f"{cluster_id}_{lens}.mp4"
         await _encode(paths, out)
