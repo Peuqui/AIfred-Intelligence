@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import pathlib
 import threading
 from contextlib import ExitStack
@@ -38,7 +39,8 @@ _MAX_MESSAGE_LENGTH = 4096
 # restart doesn't orphan the log; a small lock guards the read-modify-write
 # because the PTB handler loop and the hub's send_reply run concurrently.
 _MSGLOG_CAP = 500  # per chat — older ids are past the 48h limit anyway
-_ALBUM_MAX_PHOTOS = 10  # Telegram: send_media_group nimmt 2 bis 10 Fotos
+_ALBUM_MAX_ITEMS = 10  # Telegram: send_media_group nimmt 2 bis 10 Fotos/Videos
+_VIDEO_MAX_BYTES = 50 * 1024 * 1024  # Bot-API-Limit für hochgeladene Dateien
 _msglog_lock = threading.Lock()
 _MSGLOG_FILE: pathlib.Path | None = None
 
@@ -295,7 +297,7 @@ class TelegramChannel(BaseChannel):
         EIN Album, Caption am ersten Bild; geht vor ``media``/``media_context``.
 
         Returns the ids of the sent messages."""
-        from ....lib.vision_utils import is_image_file
+        from ....lib.vision_utils import is_image_file, is_video_file
 
         from ....lib.vision_utils import local_media_path
         local = local_media_path(media)
@@ -316,31 +318,45 @@ class TelegramChannel(BaseChannel):
             )
         album_local = [
             path for path in (local_media_path(item) for item in (media_album or []))
-            if path and is_image_file(pathlib.Path(path))
-        ][:_ALBUM_MAX_PHOTOS]
-        if media_album and len(album_local) < len(media_album[:_ALBUM_MAX_PHOTOS]):
+            if path and (is_image_file(pathlib.Path(path)) or is_video_file(pathlib.Path(path)))
+        ][:_ALBUM_MAX_ITEMS]
+        oversized = [path for path in album_local if os.path.getsize(path) > _VIDEO_MAX_BYTES]
+        if oversized:
             self.channel_log(
-                f"Telegram Plugin: {len(media_album[:_ALBUM_MAX_PHOTOS]) - len(album_local)} "
-                "album image(s) missing — sending the rest",
+                f"Telegram Plugin: {len(oversized)} album file(s) over the 50 MB bot limit "
+                f"— not sent ({', '.join(pathlib.Path(p).name for p in oversized)})",
                 "warning",
             )
-        if len(album_local) == 1:
+            album_local = [path for path in album_local if path not in oversized]
+        if media_album and len(album_local) < len(media_album[:_ALBUM_MAX_ITEMS]) - len(oversized):
+            self.channel_log(
+                "Telegram Plugin: album file(s) missing — sending the rest",
+                "warning",
+            )
+        if len(album_local) == 1 and is_image_file(pathlib.Path(album_local[0])):
             local, ctx_local = album_local[0], None
         sent_ids: list[int] = []
         async with bot:
             if len(album_local) >= 2:
-                from telegram import InputMediaPhoto
+                from telegram import InputMediaPhoto, InputMediaVideo
                 caption, overflow = text[:1024], text[1024:]
                 with ExitStack() as stack:
-                    files = [stack.enter_context(open(path, "rb")) for path in album_local]
-                    msgs = await bot.send_media_group(
-                        chat_id=chat_id,
-                        media=[
-                            InputMediaPhoto(f, caption=caption if index == 0 else None)
-                            for index, f in enumerate(files)
-                        ],
-                    )
+                    items = []
+                    for index, path in enumerate(album_local):
+                        handle = stack.enter_context(open(path, "rb"))
+                        kind = InputMediaVideo if is_video_file(pathlib.Path(path)) else InputMediaPhoto
+                        items.append(kind(handle, caption=caption if index == 0 else None))
+                    msgs = await bot.send_media_group(chat_id=chat_id, media=items)
                 sent_ids.extend(m.message_id for m in msgs)
+                if overflow:
+                    for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
+                        m = await bot.send_message(chat_id=chat_id, text=chunk)
+                        sent_ids.append(m.message_id)
+            elif len(album_local) == 1 and is_video_file(pathlib.Path(album_local[0])):
+                caption, overflow = text[:1024], text[1024:]
+                with open(album_local[0], "rb") as fh:
+                    m = await bot.send_video(chat_id=chat_id, video=fh, caption=caption)
+                sent_ids.append(m.message_id)
                 if overflow:
                     for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
                         m = await bot.send_message(chat_id=chat_id, text=chunk)

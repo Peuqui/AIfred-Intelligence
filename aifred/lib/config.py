@@ -877,6 +877,17 @@ VISION_SAME_SCENE_MAX_HAMMING = 8
 VISION_BURST_MIN_INTERVAL_SEC = 0.2
 VISION_BURST_MIN_DEADLINE_SEC = 1.0
 
+# Burst-Film: am Burst-Ende entsteht je Linse (Weitwinkel, Zoom) ein kurzes Video aus allen
+# gespeicherten Burst-Bildern in Zeitfolge — der Verlauf des Vorkommnisses von der ersten
+# bis zur letzten Detektion. Wenige Bilder, deshalb langsam (FPS) und ohne Längenlimit.
+# * FILM_FPS — Bilder pro Sekunde im Film (2 = jedes Bild eine halbe Sekunde).
+# * FILM_WIDTH/HEIGHT — feste Leinwand; Bilder anderer Proportion bekommen Ränder.
+# * FILM_CRF — x264-Qualität (kleiner = besser/größer; 28 reicht für Überwachungsbilder).
+VISION_FILM_FPS = 2
+VISION_FILM_WIDTH = 960
+VISION_FILM_HEIGHT = 540
+VISION_FILM_CRF = 28
+
 # Schwellen der Gesichtserkennung (Cosine-Similarity): ab ``known`` ein
 # sicheres Match, zwischen ``unsure`` und ``known`` das unsichere Band.
 # In ``plugins/tools/vision/settings.json`` (``face_recognition``) überschreibbar.

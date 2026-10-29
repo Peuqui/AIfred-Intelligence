@@ -1035,6 +1035,12 @@ def is_image_file(path: Path) -> bool:
     return path.suffix.lower() in (".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp")
 
 
+def is_video_file(path: Path) -> bool:
+    """True if ``path`` looks like a video (by extension) — Album-Kanäle senden es als
+    Video statt als Foto (Burst-Filme)."""
+    return path.suffix.lower() in (".mp4", ".mov", ".mkv", ".webm")
+
+
 def resolve_outbound_attachment(
     attachment: str, session_id: str, source: str
 ) -> tuple[Path | None, str | None]:

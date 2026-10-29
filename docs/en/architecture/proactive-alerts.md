@@ -199,14 +199,18 @@ spanning the restart is split (rare, acceptable).
   fallback `source_id:category`. The burst report (`BurstReport`, on sources
   with a face-hunt burst) appends a
   running index (`…:burst-report-<n>`): there, several messages per happening
-  are intended — the burst is a small film of the occurrence from the first to
-  the last detection: each report describes the images added since the last
-  report as a chapter, and those keyframes (the very ones "Frame 3/6" in the
-  text refers to, in the same order) go out as one album
-  (`metadata.media_album`; Telegram, up to 10 photos). Without a burst chapter
-  (single alert) `media`/`media_context` apply; an image the occurrence has
-  already shown (`AlertEvent.media_is_new=False`) is not sent to the channels
-  again.
+  are intended, but few: a first report (`burst_report_deadline_sec`) with a short
+  VLM description and its keyframes, then only short text notes on real news (new
+  name, band upgrade, more people; no VLM and no image, `AlertEvent.describe=False`)
+  and, when the burst ends, the summary: a VLM description of the whole occurrence
+  plus one film per lens (wide, zoom) made from all burst images including the
+  pre-roll (`vision_film`, MP4 under `data/vigilantia/films/`,
+  `AlertEvent.media_album`; Telegram as an album of up to 10 videos/photos, the
+  browser session as links). The burst is thus the small film of the occurrence
+  from the first to the last detection — the images show the progress, not a text
+  per intermediate state. Without a burst (single alert) `media`/`media_context`
+  apply; an image the occurrence has already shown (`AlertEvent.media_is_new=False`)
+  is not sent to the channels again.
 - Other producers would supply their own keys (scheduler → task ID,
   system → metric name).
 - Per rule optional `quiet_hours`. In addition, the vision producer

@@ -49,6 +49,12 @@ class AlertEvent:
     # gezeigt (Burst-Bilanzen). Einzelbild-/Album-Kanäle (Telegram, E-Mail) senden dann nur Text;
     # das VLM bekommt sein Bild trotzdem — es braucht es zum Beschreiben.
     media_is_new: bool = True
+    # Fertiges Album/Film-Paket für Kanäle, die mehrere Medien können (Telegram): Dateipfade in
+    # Anzeigereihenfolge (Fotos oder MP4). Leer = der Alarmbus nimmt die Keyframes des
+    # Burst-Kapitels (VLM-Beschreibung), sonst ``media``/``media_context``.
+    media_album: list[str] = field(default_factory=list)
+    # False = keine VLM-Beschreibung holen (kurzer Hinweis bei Neuigkeiten im laufenden Burst).
+    describe: bool = True
     # Additional image URLs for the browser session (e.g. wide + zoom + crop).
     # ``media`` is the subject view; this is the full gallery shown in chat.
     media_gallery: list[str] = field(default_factory=list)
@@ -328,6 +334,23 @@ def _ensure_session_title(channel: str, channel_id: str, title: str) -> None:
         update_session_title(route.session_id, title)
 
 
+def _film_links(album_paths: list[str]) -> str:
+    """Markdown-Links auf die Burst-Filme (MP4) im Album — für die Browser-Session, die
+    keine Videos einbettet: ein Klick öffnet den Film im Player des Browsers. Leer, wenn
+    das Album keinen Film enthält."""
+    from pathlib import Path
+
+    from .vision_film import film_label
+    from .vision_utils import get_image_url
+
+    films = [path for path in album_paths if path.lower().endswith(".mp4")]
+    if not films:
+        return ""
+    return "".join(
+        f"\n\n🎬 [{film_label(path)}]({get_image_url(Path(path))})" for path in films
+    )
+
+
 async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     """SSoT-Zustellung: Text erzeugen (Template oder LLM), als normale
     Browser-Session sichtbar machen und an die Kanal-Sinks der Regel
@@ -348,9 +371,10 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     # "vlm+llm"). Läuft hier — NACH dem Dedup in emit() — also genau einmal
     # pro Vorkommnis, nicht pro Frame.
     vlm_desc: str | None = None
-    album_paths: list[str] = []
-    if "vlm" in mode:
-        vlm_desc, album_paths = await _describe_media_via_vlm(ev)
+    album_paths: list[str] = list(ev.media_album)
+    if "vlm" in mode and ev.describe:
+        vlm_desc, keyframes = await _describe_media_via_vlm(ev)
+        album_paths = album_paths or keyframes
         # Beschreibung in die Vision-Events des Clusters zurückschreiben:
         # der Alert hat das VLM ohnehin laufen lassen — so erscheint der
         # Text sofort im Casus-Log UND der nächtliche bulk-describe
@@ -412,8 +436,8 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         try:
             record_autonomous_turn(
                 ev.producer, ev.session_key or ev.source_id or ev.producer,
-                ev.title or ev.category, text, media=ev.media,
-                media_gallery=ev.media_gallery,
+                ev.title or ev.category, text + _film_links(album_paths),
+                media=ev.media, media_gallery=ev.media_gallery,
             )
             recorded = True
         except Exception as e:  # noqa: BLE001

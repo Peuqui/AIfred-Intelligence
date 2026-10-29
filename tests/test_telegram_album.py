@@ -16,6 +16,7 @@ class _FakeBot:
     def __init__(self) -> None:
         self.groups: list[list] = []
         self.photos: list[dict] = []
+        self.videos: list[dict] = []
         self.texts: list[str] = []
         self._next_id = 100
 
@@ -32,6 +33,10 @@ class _FakeBot:
     async def send_media_group(self, chat_id, media):
         self.groups.append(list(media))
         return [self._msg() for _ in media]
+
+    async def send_video(self, chat_id, video, caption):
+        self.videos.append({"caption": caption})
+        return self._msg()
 
     async def send_photo(self, chat_id, photo, caption):
         self.photos.append({"caption": caption})
@@ -102,3 +107,36 @@ class TestAlbum:
         bot = _FakeBot()
         _deliver(tmp_path, bot, "nur Text")
         assert bot.groups == [] and bot.photos == [] and bot.texts == ["nur Text"]
+
+
+def _films(tmp_path, count: int) -> list[str]:
+    paths = []
+    for index in range(count):
+        path = tmp_path / f"film{index}.mp4"
+        path.write_bytes(b"\x00\x00\x00\x18ftypmp42")
+        paths.append(str(path))
+    return paths
+
+
+class TestFilmAlbum:
+    def test_two_films_go_out_as_one_album_of_videos(self, tmp_path):
+        from telegram import InputMediaVideo
+
+        bot = _FakeBot()
+        _deliver(tmp_path, bot, "Zusammenfassung", media_album=_films(tmp_path, 2))
+        assert len(bot.groups) == 1
+        assert all(isinstance(item, InputMediaVideo) for item in bot.groups[0])
+        assert bot.groups[0][0].caption == "Zusammenfassung"
+
+    def test_a_single_film_is_sent_as_video(self, tmp_path):
+        bot = _FakeBot()
+        _deliver(tmp_path, bot, "Zusammenfassung", media_album=_films(tmp_path, 1))
+        assert bot.groups == [] and bot.videos == [{"caption": "Zusammenfassung"}]
+
+    def test_a_film_over_the_bot_limit_is_not_sent(self, tmp_path):
+        bot = _FakeBot()
+        films = _films(tmp_path, 2)
+        with patch.object(tg, "_VIDEO_MAX_BYTES", 5):
+            _deliver(tmp_path, bot, "Zusammenfassung", media_album=films)
+        assert bot.groups == [] and bot.videos == []
+        assert bot.texts == ["Zusammenfassung"]

@@ -198,3 +198,67 @@ def test_person_crops_are_cut_once_per_reference_tick(monkeypatch):
     third = report._person_crop_urls()
     assert third != first
     assert store.calls == 3
+
+
+# ── Burst-Report: Erstmeldung, Hinweis bei Neuigkeiten, Zusammenfassung mit Film ──
+
+
+class _StubStore:
+    """Nur das, was der Burst-Report vom Store braucht."""
+
+    def get_source(self, source_id):
+        return None
+
+    def list_cluster_event_ids(self, cluster_id):
+        return []
+
+
+def _burst_report(monkeypatch, films=None) -> tuple[va.BurstReport, _FakeDispatcher]:
+    disp = _dispatcher_with_urls(monkeypatch)
+
+    async def fake_films(store, cluster_id):
+        return films or []
+
+    import aifred.lib.vision_film as vf
+    monkeypatch.setattr(vf, "make_cluster_films", fake_films)
+    report = va.BurstReport("cam/door", "cluster-1", _StubStore())
+    report.observe_person(1, 0.9, "/x/wide.jpg", "/x/zoom.jpg")
+    return report, disp
+
+
+def test_burst_first_report_is_due_only_once(monkeypatch):
+    report, disp = _burst_report(monkeypatch)
+    assert report.due(0.0) is True
+    asyncio.run(report.send())
+    assert len(disp.events) == 1
+    assert disp.events[0].describe is True
+    # Danach nicht mehr im Takt — die Bilder zeigen den Verlauf (Film am Ende).
+    assert report.due(0.0) is False
+
+
+def test_burst_news_is_a_short_text_without_images_or_vlm(monkeypatch):
+    report, disp = _burst_report(monkeypatch)
+    asyncio.run(report.send())
+    report.observe_headcount(3)  # mehr Personen als gemeldet = Neuigkeit
+    assert report.has_news()
+    asyncio.run(report.send())
+    news = disp.events[1]
+    assert news.describe is False
+    assert news.media is None and news.media_gallery == []
+    assert "3 Personen" in news.title
+
+
+def test_burst_final_summary_carries_the_films(monkeypatch):
+    report, disp = _burst_report(monkeypatch, films=["/f/wide.mp4", "/f/zoom.mp4"])
+    asyncio.run(report.send())
+    asyncio.run(report.send_final())
+    final = disp.events[-1]
+    assert final.describe is True
+    assert final.media_album == ["/f/wide.mp4", "/f/zoom.mp4"]
+
+
+def test_burst_final_without_films_still_reports(monkeypatch):
+    report, disp = _burst_report(monkeypatch, films=[])
+    asyncio.run(report.send_final())  # kurzer Burst: nur die Zusammenfassung
+    assert len(disp.events) == 1
+    assert disp.events[0].media_album == []

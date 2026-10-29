@@ -12,6 +12,8 @@ Was wird aufgeräumt:
   Identitäts-Crops, gelöscht nur mit ihrem Embedding) bleibt unberührt.
 * **Motion-Frames** unter ``DATA_DIR/vigilantia/motion/<source>/<datum>/`` —
   selbes Schema, gleiches TTL.
+* **Burst-Filme** unter ``DATA_DIR/vigilantia/films/<source>/<datum>/`` —
+  selbes Schema, gleiches TTL.
 * **Vision-DB-Events** in ``vision_store.events`` mit ``timestamp``
   vor dem TTL-Cutoff (motion + face_known/unsure/unknown).
 
@@ -160,12 +162,16 @@ async def cleanup_vision_task() -> None:
             frames_removed = _cleanup_dated_subdirs(
                 DATA_DIR / "vigilantia" / "motion", cutoff
             )
+            films_removed = _cleanup_dated_subdirs(
+                DATA_DIR / "vigilantia" / "films", cutoff
+            )
             db_removed = _cleanup_vision_db_events(cutoff)
-            if crops_removed or frames_removed or db_removed:
+            if crops_removed or frames_removed or films_removed or db_removed:
                 log_message(
                     f"🗑️ Vision cleanup: "
                     f"{crops_removed} crop-Tagesordner, "
                     f"{frames_removed} motion-Tagesordner, "
+                    f"{films_removed} film-Tagesordner, "
                     f"{db_removed} DB-Events entfernt "
                     f"(TTL {ttl_days}d)"
                 )

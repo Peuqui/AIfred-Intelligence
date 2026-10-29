@@ -12,10 +12,10 @@ der etwas zeigt, wird als Ereignis im SELBEN Cluster gespeichert:
 
 So entsteht pro Vorbeigang eine durchblätterbare Bildserie („Film"), die der
 Casus über den Cluster zu EINER Zeile gruppiert. Gemeldet wird über den
-``BurstReport`` als BILANZ: beim Burst-Ende, spätestens aber nach
-``burst_report_deadline_sec`` — mit dem besten Bild und allen erkannten Namen.
-Danach Follow-ups nur bei echten Neuigkeiten (neuer Name, Band-Upgrade, mehr
-Personen) — kein Telegram-Spam.
+``BurstReport``: eine Erstmeldung nach ``burst_report_deadline_sec`` (kurze
+Beschreibung, wer da ist), danach nur kurze Hinweise bei echten Neuigkeiten
+(neuer Name, Band-Upgrade, mehr Personen) und zum Burst-Ende die Zusammenfassung
+mit je einem Film pro Linse (``vision_film``) — den Verlauf zeigen die Bilder.
 """
 
 from __future__ import annotations
@@ -181,12 +181,12 @@ class BurstRunner:
                     except Exception:
                         logger.exception("burst tick failed for %s", source_id)
                     eval_times.append(time.monotonic() - snap_done)
-                # Bilanz fällig (Deadline erreicht) oder Neuigkeiten seit der
+                # Erstmeldung fällig (Deadline erreicht) oder Neuigkeiten seit der
                 # letzten Meldung → melden, Burst läuft weiter.
                 #
-                # NICHT awaiten: eine Bilanz beschreibt die ganze Serie per
-                # VLM und dauert damit länger als das Bilanz-Intervall
-                # (gemessen 17,4 s bei 8 Keyframes / 15 s Deadline). Awaiten
+                # NICHT awaiten: die Erstmeldung beschreibt die bisherigen Bilder per
+                # VLM und dauert (gemessen 17,4 s bei 8 Keyframes / 15 s Deadline)
+                # mehrere Burst-Ticks. Awaiten
                 # hieße, den Burst genau währenddessen blind zu stellen — es
                 # gingen die Frames verloren, die das Ereignis dokumentieren.
                 # Überlappung verhindert der Report selbst (``is_sending``).
@@ -216,14 +216,13 @@ class BurstRunner:
             self._reports.pop(source_id, None)
         # Laufende Zwischen-Bilanz erst zu Ende bringen: sie hält die
         # Historie, an die die Abschluss-Bilanz anknüpft — und
-        # ``pending_final`` kann erst danach beurteilen, was noch offen ist.
+        # ``send_final`` kann erst danach beurteilen, was noch offen ist.
         if pending_sends:
             await asyncio.gather(*pending_sends, return_exceptions=True)
-        # Abschluss-Bilanz (nur normales Burst-Ende): noch nie gemeldet ODER
-        # Neuigkeiten seit der letzten Meldung → jetzt raus damit.
+        # Zusammenfassung (nur normales Burst-Ende): Beschreibung des ganzen
+        # Vorkommnisses plus je Linse ein Film aus allen Burst-Bildern.
         try:
-            if report.pending_final():
-                await report.send()
+            await report.send_final()
         except Exception:
             logger.exception("burst final report failed for %s", source_id)
         # Bilanz ins Debug-Log — im Journal ging die info-Zeile unter, und

@@ -201,6 +201,8 @@ async def _emit(
     metadata: dict[str, Any] | None = None,
     store: Any = None,
     shown_media: set[str] | None = None,
+    describe: bool = True,
+    media_album: list[str] | None = None,
 ) -> None:
     """Build + dispatch one AlertEvent. Best-effort — never raises into the
     watcher's hot path. The shared dispatcher's rules decide where it goes.
@@ -276,6 +278,8 @@ async def _emit(
             media=primary or None,
             media_context=context,
             media_is_new=media_is_new,
+            media_album=list(media_album or []),
+            describe=describe,
             media_gallery=gallery,
             timestamp=timestamp,
             metadata=metadata or {},
@@ -305,6 +309,8 @@ async def emit_face_alert(
     extra_crop_urls: list[str] | None = None,
     segment_event_ids: list[int] | None = None,
     shown_media: set[str] | None = None,
+    describe: bool = True,
+    media_album: list[str] | None = None,
 ) -> None:
     """Emit an aggregated face-band detection as a proactive AlertEvent —
     one per band per happening, only while armed. ``names`` = alle erkannten
@@ -316,7 +322,9 @@ async def emit_face_alert(
     ALLER im Vorkommnis gesehenen Personen für die Galerie.
     ``segment_event_ids``: die seit
     der letzten Bilanz dazugekommenen Events — nur DIESE beschreibt das VLM
-    (Kapitel), und nur an diesen hängt die Beschreibung."""
+    (Kapitel), und nur an diesen hängt die Beschreibung.
+    ``describe=False``: kurzer Hinweis ohne VLM. ``media_album``: fertiges
+    Medienpaket (Burst-Filme) für Album-Kanäle."""
     if event_type not in _ALERT_EVENT_TYPES:
         return
     if not _vigilantia_armed():
@@ -367,6 +375,8 @@ async def emit_face_alert(
         metadata=meta or None,
         store=store,
         shown_media=shown_media,
+        describe=describe,
+        media_album=media_album,
     )
 
 
@@ -384,6 +394,8 @@ async def emit_person_alert(
     extra_crop_urls: list[str] | None = None,
     shown_media: set[str] | None = None,
     yolo_unconfirmed: bool = False,
+    describe: bool = True,
+    media_album: list[str] | None = None,
 ) -> None:
     """Emit a YOLO person detection (whole body) as a proactive AlertEvent —
     but only while armed. Coarser than faces: "a person is present", even
@@ -426,6 +438,8 @@ async def emit_person_alert(
         metadata=meta or None,
         store=store,
         shown_media=shown_media,
+        describe=describe,
+        media_album=media_album,
     )
 
 
@@ -548,7 +562,6 @@ class BurstReport:
         self._sent_band_rank = -1
         self._sent_names: set[str] = set()
         self._sent_person_count = 0
-        self._last_sent_at: datetime | None = None
         # Läuft gerade ein Versand? Eine Bilanz umfasst die VLM-Beschreibung
         # der ganzen Serie und dauert damit länger als das Bilanz-Intervall
         # (gemessen 17,4 s bei 8 Keyframes auf dem 4B-Describer, Deadline
@@ -640,25 +653,16 @@ class BurstReport:
         return self._current_band_rank() >= 0
 
     def due(self, deadline_sec: float) -> bool:
-        """Bilanz fällig? Die erste nach ``deadline_sec`` ab Burst-Beginn,
-        danach fortlaufend im selben Takt, solange der Burst läuft — ein
-        langer Vorbeigang wird so als Serie von Zwischenständen
-        dokumentiert statt in einer Meldung am Ende."""
-        if not self.has_observations():
+        """Erstmeldung fällig? Einmal, ``deadline_sec`` nach Burst-Beginn. Danach
+        meldet der Burst nur noch Neuigkeiten (``has_news``) und zum Schluss die
+        Zusammenfassung mit dem Film (``send_final``): die Bilder selbst zeigen,
+        was die Personen tun."""
+        if self._sent_messages or not self.has_observations():
             return False
-        since = self._last_sent_at or self.started
-        return (datetime.now() - since).total_seconds() >= deadline_sec
-
-    def pending_final(self) -> bool:
-        """Beim Burst-Ende: muss noch eine (letzte) Meldung raus?
-        Ja, wenn nie gemeldet wurde oder seit der letzten Meldung
-        Neuigkeiten aufgelaufen sind."""
-        if not self.has_observations():
-            return False
-        return self._sent_messages == 0 or self.has_news()
+        return (datetime.now() - self.started).total_seconds() >= deadline_sec
 
     def has_news(self) -> bool:
-        """Follow-up nötig? Neuer Name, Band-Upgrade oder mehr Personen
+        """Hinweis nötig? Neuer Name, Band-Upgrade oder mehr Personen
         gleichzeitig als bisher gemeldet."""
         if not self._sent_messages:
             return False
@@ -671,12 +675,12 @@ class BurstReport:
     # ── Versand ──────────────────────────────────────────────────────
 
     async def send(self) -> None:
-        """Bilanz/Follow-up verschicken: bestes Bild + alle Namen. Der
-        dedup_key trägt einen Laufindex — mehrere Meldungen pro
-        Vorkommnis sind hier GEWOLLT (Bilanz + Neuigkeiten).
+        """Erstmeldung bzw. — bei Neuigkeiten — ein kurzer Hinweis.
 
-        Läuft bereits ein Versand, wird die Bilanz vorgemerkt und direkt
-        im Anschluss nachgeholt — nie verworfen."""
+        Die Erstmeldung beschreibt per VLM die bis dahin gesammelten Bilder und
+        zeigt deren Keyframes; der Hinweis ist reiner Text ohne VLM und Bild.
+        Läuft bereits ein Versand, wird die Meldung vorgemerkt und direkt im
+        Anschluss nachgeholt — nie verworfen."""
         if not self.has_observations():
             return
         if self._sending:
@@ -685,21 +689,15 @@ class BurstReport:
         self._sending = True
         try:
             while True:
-                # Takt ab VERSANDBEGINN: die Beschreibung dauert länger als
-                # das Intervall; ab Versandende gemessen käme die nächste
-                # Bilanz sofort.
-                self._last_sent_at = datetime.now()
-                # Kapitel-Grenze JETZT ziehen: was während der Beschreibung
-                # hereinkommt, gehört ins nächste Kapitel (keine doppelt
-                # beschriebenen Bilder).
-                segment_ids = self._next_segment_ids()
-                if segment_ids:
-                    self._described_up_to = max(segment_ids)
-                # Nach der ersten Bilanz ohne neue Bilder gibt es nichts zu
-                # melden — ohne diese Bremse würde die Bilanz stattdessen
-                # das ganze Vorkommnis noch einmal beschreiben.
-                if segment_ids or self._sent_messages == 0:
-                    await self._send_once(segment_ids)
+                if self._sent_messages == 0:
+                    # Kapitel-Grenze JETZT ziehen: was während der Beschreibung
+                    # hereinkommt, gehört ins nächste Kapitel.
+                    segment_ids = self._next_segment_ids()
+                    if segment_ids:
+                        self._described_up_to = max(segment_ids)
+                    await self._send_once(segment_ids=segment_ids)
+                elif self.has_news():
+                    await self._send_once(news=True)
                 if not self._catch_up:
                     break
                 self._catch_up = False
@@ -711,7 +709,27 @@ class BurstReport:
         """Läuft gerade ein Versand (inkl. VLM-Beschreibung)?"""
         return self._sending
 
-    async def _send_once(self, segment_ids: list[int]) -> None:
+    async def send_final(self) -> None:
+        """Zusammenfassung am Burst-Ende: VLM-Beschreibung des ganzen Vorkommnisses
+        und je Linse (Weitwinkel, Zoom) ein Film aus allen Burst-Bildern — der
+        Verlauf von der ersten bis zur letzten Detektion. Schlägt der Film fehl,
+        geht die Zusammenfassung ohne ihn raus (Warnung im Log)."""
+        if not self.has_observations():
+            return
+        from .vision_film import make_cluster_films
+
+        films: list[str] = []
+        if self.cluster_id and self._store is not None:
+            try:
+                films = [str(path) for path in await make_cluster_films(self._store, self.cluster_id)]
+            except Exception as e:  # noqa: BLE001
+                logger.warning("burst film for %s failed: %s", self.cluster_id, e)
+        await self._send_once(films=films)
+
+    async def _send_once(
+        self, *, segment_ids: list[int] | None = None, news: bool = False,
+        films: list[str] | None = None,
+    ) -> None:
         self._sent_messages += 1
         key = f"{self.cluster_id or self.source_id}:burst-report-{self._sent_messages}"
         band = self._best_face_band
@@ -723,12 +741,14 @@ class BurstReport:
         sent_band_rank = self._current_band_rank()
         sent_names = set(self.known_named)
         sent_person_count = self._person_count_max
+        # Ein Hinweis bei Neuigkeiten ist reiner Text: kein Bild, keine Galerie, kein VLM.
+        show_media = not news
         if band:
             names = list(self.known_named)
             sims = (
                 list(self.known_named.values()) if names else self._face_sims
             )
-            frame_path, zoom_path, crop_url = self._best_face_paths
+            frame_path, zoom_path, crop_url = self._best_face_paths if show_media else ("", "", "")
             await emit_face_alert(
                 source_id=self.source_id,
                 event_type="face_known" if names else band,
@@ -736,7 +756,7 @@ class BurstReport:
                 zoom_frame_path=zoom_path,
                 crop_url=crop_url,
                 extra_crop_urls=(
-                    self._identity_crop_urls() + self._person_crop_urls()
+                    self._identity_crop_urls() + self._person_crop_urls() if show_media else []
                 ),
                 cluster_id=self.cluster_id,
                 names=names,
@@ -747,14 +767,16 @@ class BurstReport:
                 store=self._store,
                 dedup_key=key,
                 shown_media=self._shown_media,
+                describe=show_media,
+                media_album=films,
             )
         else:
-            frame_path, zoom_path = self._best_person_paths
+            frame_path, zoom_path = self._best_person_paths if show_media else ("", "")
             await emit_person_alert(
                 source_id=self.source_id,
                 frame_path=frame_path,
                 zoom_frame_path=zoom_path,
-                extra_crop_urls=self._person_crop_urls(),
+                extra_crop_urls=self._person_crop_urls() if show_media else [],
                 cluster_id=self.cluster_id,
                 count=max(self._person_count_max, 1),
                 segment_event_ids=segment_ids,
@@ -762,6 +784,8 @@ class BurstReport:
                 dedup_key=key,
                 shown_media=self._shown_media,
                 yolo_unconfirmed=not self._person_confirmed,
+                describe=show_media,
+                media_album=films,
             )
         self._sent_band_rank = sent_band_rank
         self._sent_names = sent_names
