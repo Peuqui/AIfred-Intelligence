@@ -75,7 +75,7 @@ def render_user_message(msg: dict) -> rx.Component:
                     ),
                     font_weight="bold",
                     font_size="12px",
-                    color=COLORS["danger"],
+                    color=COLORS["user_name"],
                     margin_bottom="1",
                     text_align="right",
                 ),

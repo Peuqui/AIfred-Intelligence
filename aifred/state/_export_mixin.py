@@ -715,7 +715,7 @@ class ExportMixin(rx.State, mixin=True):
             margin-left: 10px;
         }}
         .user-message .message-header {{
-            color: var(--aifred-danger);
+            color: var(--aifred-user-name);
             text-align: right;
             margin-right: -70px;
         }}
