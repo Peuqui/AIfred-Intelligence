@@ -188,7 +188,7 @@ class TestSinkMedia:
     """Burst-Bilanzen: ein Bild, das das Vorkommnis schon gezeigt hat, geht an die
     Kanäle nicht noch einmal (Telegram sendete es sonst bei jeder Zwischenbilanz erneut)."""
 
-    def _deliver_once(self, monkeypatch, ev: AlertEvent) -> dict[str, Any]:
+    def _deliver_once(self, monkeypatch, ev: AlertEvent, compose: str = "") -> dict[str, Any]:
         import aifred.lib.message_processor as mp
         from aifred.lib.alert_bus import _default_deliver
         from aifred.lib.routing_table import routing_table
@@ -203,7 +203,7 @@ class TestSinkMedia:
         monkeypatch.setattr(mp, "resolve_announce_targets", lambda channel, target: ["1"])
         monkeypatch.setattr(mp, "record_autonomous_turn", lambda *a, **k: None)
         monkeypatch.setattr(routing_table, "get_route", lambda *a, **k: None)
-        rule = AlertRule(producer="vision", sinks=["telegram:1"], rule_id="r")
+        rule = AlertRule(producer="vision", sinks=["telegram:1"], rule_id="r", compose=compose)
         asyncio.run(_default_deliver(ev, rule))
         return sent
 
@@ -219,3 +219,22 @@ class TestSinkMedia:
         assert sent["media"] is None
         assert "media_context" not in sent["metadata"]
         assert ev.media == "/x/zoom.jpg"  # das VLM bekommt sein Bild weiterhin
+
+    def test_burst_chapter_frames_travel_as_album(self, monkeypatch):
+        """Die Keyframes, die die Beschreibung bespricht, gehen als Album mit (der
+        Verlauf der letzten Sekunden), nicht das eine beste Bild."""
+        import aifred.lib.alert_bus as ab
+
+        async def fake_describe(ev):
+            return "Beschreibung", ["/x/1.jpg", "/x/2.jpg", "/x/3.jpg"]
+
+        monkeypatch.setattr(ab, "_describe_media_via_vlm", fake_describe)
+        sent = self._deliver_once(
+            monkeypatch, _ev(media="/x/zoom.jpg", metadata={"segment_event_ids": [1, 2]}),
+            compose="vlm",
+        )
+        assert sent["metadata"]["media_album"] == ["/x/1.jpg", "/x/2.jpg", "/x/3.jpg"]
+
+    def test_no_album_without_vlm_keyframes(self, monkeypatch):
+        sent = self._deliver_once(monkeypatch, _ev(media="/x/zoom.jpg"))
+        assert "media_album" not in sent["metadata"]

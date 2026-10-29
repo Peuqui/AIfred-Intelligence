@@ -199,8 +199,14 @@ spanning the restart is split (rare, acceptable).
   fallback `source_id:category`. The burst report (`BurstReport`, on sources
   with a face-hunt burst) appends a
   running index (`…:burst-report-<n>`): there, several messages per happening
-  are intended — a summary with the best image and all names, then follow-ups
-  only on real news (new name, band upgrade, more people).
+  are intended — the burst is a small film of the occurrence from the first to
+  the last detection: each report describes the images added since the last
+  report as a chapter, and those keyframes (the very ones "Frame 3/6" in the
+  text refers to, in the same order) go out as one album
+  (`metadata.media_album`; Telegram, up to 10 photos). Without a burst chapter
+  (single alert) `media`/`media_context` apply; an image the occurrence has
+  already shown (`AlertEvent.media_is_new=False`) is not sent to the channels
+  again.
 - Other producers would supply their own keys (scheduler → task ID,
   system → metric name).
 - Per rule optional `quiet_hours`. In addition, the vision producer

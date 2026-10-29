@@ -188,10 +188,13 @@ def _format(ev: AlertEvent) -> str:
     return ev.title or ev.body
 
 
-async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
+async def _describe_media_via_vlm(ev: AlertEvent) -> tuple[str | None, list[str]]:
     """Beschreibt das Vorkommnis des Alerts mit dem aktiven VLM und returnt
-    die Szenenbeschreibung — oder ``None`` bei Fehlschlag (kein Frame,
-    Modell nicht geladen, leere Antwort).
+    ``(Szenenbeschreibung, Dateipfade der beschriebenen Keyframes)``. Die
+    Beschreibung ist ``None`` bei Fehlschlag (kein Frame, Modell nicht
+    geladen, leere Antwort). Die Pfade gibt es nur bei einem Burst-Kapitel
+    (``segment_event_ids``): die Bilder, auf die sich „Frame 3/6" im Text
+    bezieht, in derselben Reihenfolge — sonst ist die Liste leer.
 
     Zwei Fälle, beide über den geteilten Vigilantia-Beschreiber
     (``vision_event_analysis`` — SSoT für Prompt-Assemblierung, Keyframe-
@@ -207,7 +210,7 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
     * sonst → die Bilder dieses einen Moments (Zoom + Weitwinkel-Kontext).
     """
     from .vision_event_analysis import (
-        analyze_cluster_with_vlm,
+        analyze_cluster_with_frames,
         analyze_frames_with_vlm,
         describe_cluster_by_id,
     )
@@ -221,7 +224,7 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
     segment_ids = [int(i) for i in (ev.metadata.get("segment_event_ids") or [])]
     if segment_ids:
         try:
-            return await analyze_cluster_with_vlm(
+            return await analyze_cluster_with_frames(
                 segment_ids, headcount=headcount, explicit=False,
             )
         except Exception as e:  # noqa: BLE001
@@ -229,27 +232,27 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
                 "alert: segment VLM describe failed for %s (%d events): %s",
                 ev.source_id, len(segment_ids), e,
             )
-            return None
+            return None, []
 
     cluster_id = str(ev.metadata.get("cluster_id") or "")
     if cluster_id:
         try:
             return await describe_cluster_by_id(
                 cluster_id, headcount=headcount,
-            )
+            ), []
         except Exception as e:  # noqa: BLE001
             logger.warning(
                 "alert: cluster VLM describe failed for %s (%s): %s",
                 ev.source_id, cluster_id, e,
             )
-            return None
+            return None, []
 
     if not ev.media:
-        return None
+        return None, []
     from pathlib import Path
     frame_file = Path(ev.media)
     if not frame_file.exists():
-        return None
+        return None, []
     try:
         from datetime import datetime as _dt
 
@@ -276,10 +279,10 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> str | None:
             headcount=headcount,
             explicit=False,
         )
-        return description
+        return description, []
     except Exception as e:  # noqa: BLE001
         logger.warning("alert: VLM describe failed for %s: %s", ev.source_id, e)
-        return None
+        return None, []
 
 
 async def _compose_via_llm(ev: AlertEvent, extra_context: str = "") -> str | None:
@@ -345,8 +348,9 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     # "vlm+llm"). Läuft hier — NACH dem Dedup in emit() — also genau einmal
     # pro Vorkommnis, nicht pro Frame.
     vlm_desc: str | None = None
+    album_paths: list[str] = []
     if "vlm" in mode:
-        vlm_desc = await _describe_media_via_vlm(ev)
+        vlm_desc, album_paths = await _describe_media_via_vlm(ev)
         # Beschreibung in die Vision-Events des Clusters zurückschreiben:
         # der Alert hat das VLM ohnehin laufen lassen — so erscheint der
         # Text sofort im Casus-Log UND der nächtliche bulk-describe
@@ -435,7 +439,7 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     # den sanften notification-Sound. Andere Sinks (Telegram, Email, …)
     # ignorieren das Feld stillschweigend.
     audio_type = "alarm" if ev.severity in ("critical", "warning") else "notification"
-    sink_metadata = {
+    sink_metadata: dict[str, Any] = {
         "audio_type": audio_type,
         "severity": ev.severity,
         "category": ev.category,
@@ -446,6 +450,11 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
     sink_media = ev.media if ev.media_is_new else None
     if ev.media_context and ev.media_is_new:
         sink_metadata["media_context"] = ev.media_context
+    # Burst-Kapitel: die Keyframes, die die Beschreibung bespricht, als Album — der
+    # Verlauf der letzten Sekunden statt immer wieder des besten Bildes. Album-Kanäle
+    # (Telegram) bevorzugen es gegenüber media/media_context.
+    if album_paths:
+        sink_metadata["media_album"] = album_paths
 
     # Sink-Format: "channel" oder "channel:ziel". ziel ist kanalspezifisch —
     # fuer freeecho2 ein room, "@gruppe" oder "*" (Broadcast). Die Expansion

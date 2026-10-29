@@ -197,9 +197,14 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   verschiedene Personen kurz nacheinander = zwei Cluster = zwei Alerts),
   Fallback `source_id:category`. Die Burst-Bilanz (`BurstReport`, bei Quellen
   mit Face-Hunt-Burst) hängt einen Laufindex an (`…:burst-report-<n>`): Dort
-  sind mehrere Meldungen pro Vorkommnis gewollt — eine Bilanz mit bestem Bild
-  und allen Namen, danach Follow-ups nur bei echten Neuigkeiten (neuer Name,
-  Band-Upgrade, mehr Personen).
+  sind mehrere Meldungen pro Vorkommnis gewollt — der Burst ist ein kleiner
+  Film des Vorkommnisses von der ersten bis zur letzten Detektion: jede Bilanz
+  beschreibt die seit der letzten Bilanz dazugekommenen Bilder als Kapitel, und
+  diese Keyframes (dieselben, auf die sich „Frame 3/6" im Text bezieht, in
+  derselben Reihenfolge) gehen als ein Album mit (`metadata.media_album`;
+  Telegram, bis zu 10 Fotos). Ohne Burst-Kapitel (Einzel-Alert) gilt
+  `media`/`media_context`; ein Bild, das das Vorkommnis schon gezeigt hat
+  (`AlertEvent.media_is_new=False`), geht nicht noch einmal an die Kanäle.
 - Andere Producer würden eigene Keys liefern (Scheduler → Task-ID,
   System → Metrik-Name).
 - Pro Regel optionale `quiet_hours`. Zusätzlich filtert der Vision-Producer

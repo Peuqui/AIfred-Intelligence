@@ -277,6 +277,25 @@ async def analyze_cluster_with_vlm(
     max_frames: int | None = None,
     headcount: int = 0,
 ) -> str:
+    """Beschreibt ein Vorkommnis (Cluster) als zeitliche Bildfolge und liefert
+    die Beschreibung (siehe :func:`analyze_cluster_with_frames`)."""
+    description, _frame_paths = await analyze_cluster_with_frames(
+        event_ids, prompt=prompt, store=store, model=model, explicit=explicit,
+        max_frames=max_frames, headcount=headcount,
+    )
+    return description
+
+
+async def analyze_cluster_with_frames(
+    event_ids: list[int],
+    *,
+    prompt: str | None = None,
+    store: VisionStore | None = None,
+    model: str | None = None,
+    explicit: bool,
+    max_frames: int | None = None,
+    headcount: int = 0,
+) -> tuple[str, list[str]]:
     """Beschreibt ein Vorkommnis (Cluster) als zeitliche Bildfolge.
 
     Lädt die Frames der Cluster-Mitglieder, wählt pHash-basiert die
@@ -286,6 +305,11 @@ async def analyze_cluster_with_vlm(
     Einzelbild-Analyse. Persistiert die Beschreibung am Repräsentanten
     (``event_ids[0]``); der Bulk-Worker verteilt sie auf alle Mitglieder.
 
+    Liefert ``(Beschreibung, Dateipfade der Keyframes)``. Die Pfade stehen in
+    derselben Reihenfolge wie die Bilder, auf die sich die Beschreibung bezieht
+    („Frame 3/6") — wer die Bilder zur Beschreibung zeigt (Telegram-Album einer
+    Burst-Bilanz), zeigt damit genau diese.
+
     ``headcount``: von der Objekterkennung gezählte Personen (Alert-Pfad).
     """
     from .config import VISION_DESCRIBE_MAX_FRAMES
@@ -294,7 +318,7 @@ async def analyze_cluster_with_vlm(
     from .vision_prewarm import get_active_vlm_model
 
     if not event_ids:
-        raise ValueError("analyze_cluster_with_vlm requires at least one event")
+        raise ValueError("analyze_cluster_with_frames requires at least one event")
     store = store or VisionStore()
     cap = max_frames or VISION_DESCRIBE_MAX_FRAMES
 
@@ -302,7 +326,7 @@ async def analyze_cluster_with_vlm(
     # Weitwinkel. Die Keyframe-Auswahl läuft über die Zeitpunkte (pHash des
     # Weitwinkels), nicht über die Einzelbilder — sonst springt sie zwischen den
     # Linsen, und die „Zeitfolge" besteht aus Linsenwechseln statt aus Ablauf.
-    moments: list[tuple[datetime, int, list[tuple[bytes, str]], str]] = []
+    moments: list[tuple[datetime, int, list[tuple[bytes, str, str]], str]] = []
     identity_names: list[str] = []
     for eid in event_ids:
         ev = store.get_event(int(eid))
@@ -323,7 +347,7 @@ async def analyze_cluster_with_vlm(
         # und Alert-Pfad: das Tele zeigt die Person groß genug für Details,
         # das Weitwinkel liefert den Ablauf.
         cls = dict(ev.get("classification") or {})
-        images: list[tuple[bytes, str]] = []
+        images: list[tuple[bytes, str, str]] = []
         moment_phash: int | None = None
         for is_wide, fp in (
             (False, str(cls.get("zoom_frame_path") or "")),
@@ -336,7 +360,7 @@ async def analyze_cluster_with_vlm(
                 ph = phash_bytes(data)
             except Exception:  # noqa: BLE001
                 continue
-            images.append((data, str(ev["source_id"])))
+            images.append((data, str(ev["source_id"]), fp))
             if is_wide or moment_phash is None:
                 moment_phash = ph
         if moment_phash is not None:
@@ -352,7 +376,10 @@ async def analyze_cluster_with_vlm(
     frames = [
         Frame(source_id=src, timestamp=ts, image_bytes=data)
         for (ts, _ph, images, _src) in keyframes
-        for (data, src) in images
+        for (data, src, _path) in images
+    ]
+    frame_paths = [
+        path for (_ts, _ph, images, _src) in keyframes for (_data, _src_id, path) in images
     ]
 
     target_model = model or get_active_vlm_model()
@@ -381,10 +408,10 @@ async def analyze_cluster_with_vlm(
     _update_event_classification(store, repr_id, existing)
 
     logger.info(
-        "analyze_cluster_with_vlm: repr=%d members=%d keyframes=%d model=%s len=%d",
+        "analyze_cluster_with_frames: repr=%d members=%d keyframes=%d model=%s len=%d",
         repr_id, len(event_ids), len(frames), described_by, len(description),
     )
-    return description
+    return description, frame_paths
 
 
 async def describe_cluster_by_id(
