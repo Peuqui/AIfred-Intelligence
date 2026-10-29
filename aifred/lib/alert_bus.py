@@ -336,20 +336,22 @@ def _ensure_session_title(channel: str, channel_id: str, title: str) -> None:
         update_session_title(route.session_id, title)
 
 
-def _film_links(album_paths: list[str]) -> str:
-    """Markdown-Links auf die Burst-Filme (MP4) im Album — für die Browser-Session, die
-    keine Videos einbettet: ein Klick öffnet den Film im Player des Browsers. Leer, wenn
-    das Album keinen Film enthält."""
+def _film_players(album_paths: list[str]) -> str:
+    """Eingebettete Videoplayer für die Burst-Filme (MP4) im Album — für die
+    Browser-Session: Die Bubble rendert rohes HTML (``rehype-raw``), der Film
+    spielt direkt darin ab. Leer, wenn das Album keinen Film enthält."""
     from pathlib import Path
 
     from .vision_film import film_label
     from .vision_utils import get_image_url
 
     films = [path for path in album_paths if path.lower().endswith(".mp4")]
-    if not films:
-        return ""
     return "".join(
-        f"\n\n🎬 [{film_label(path)}]({get_image_url(Path(path))})" for path in films
+        f"\n\n🎬 {film_label(path)}\n\n"
+        f'<video controls preload="metadata" playsinline '
+        f'style="max-width:100%;border-radius:8px" '
+        f'src="{get_image_url(Path(path))}"></video>'
+        for path in films
     )
 
 
@@ -438,7 +440,7 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         try:
             record_autonomous_turn(
                 ev.producer, ev.session_key or ev.source_id or ev.producer,
-                ev.title or ev.category, text + _film_links(album_paths),
+                ev.title or ev.category, text + _film_players(album_paths),
                 media=ev.media, media_gallery=ev.media_gallery,
             )
             recorded = True

@@ -267,3 +267,20 @@ class TestSummaryPrompt:
 
     def test_other_cluster_descriptions_keep_the_default_prompt(self, monkeypatch):
         assert self._describe(monkeypatch, {})["prompt"] is None
+
+
+class TestFilmPlayers:
+    def test_films_become_inline_players_for_the_browser_session(self):
+        from aifred.lib.alert_bus import _film_players
+
+        html = _film_players([
+            "/x/c_wide.mp4", "/x/c_zoom.mp4", "/x/crop.jpg",
+        ])
+        assert html.count("<video controls") == 2
+        assert "Weitwinkel" in html and "Zoom" in html
+        assert "crop.jpg" not in html  # Fotos des Albums sind kein Film
+
+    def test_no_players_without_films(self):
+        from aifred.lib.alert_bus import _film_players
+
+        assert _film_players(["/x/1.jpg"]) == ""
