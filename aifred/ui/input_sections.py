@@ -8,11 +8,9 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS, DELEGATION_ICON
-from .helpers import t, clickable_tip, blue_action_button_style
-
-from .helpers import native_select_generic
-from .settings_accordion import llm_parameters_accordion
 from .chat_display import processing_progress_banner
+from .helpers import blue_action_button_style, clickable_tip, native_select_generic, t
+from .settings_accordion import llm_parameters_accordion
 from .vigilantia_feed import vigilantia_feed_popover
 
 
@@ -57,7 +55,7 @@ def _agent_toggle_button(agent: rx.Var) -> rx.Component:
             rx.cond(
                 is_symposion & is_selected_symposion,
                 rx.box(
-                    rx.text(symposion_position, font_size="9px", font_weight="bold", line_height="1", color=COLORS.get("primary", "#e67700")),
+                    rx.text(symposion_position, font_size="9px", font_weight="bold", line_height="1", color=COLORS.get("primary", COLORS["primary"])),
                     background_color="black",
                     border="1px solid #ffb300",
                     border_radius="3px",
@@ -142,8 +140,8 @@ def image_upload_section() -> rx.Component:
                 disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
                 style={
                     "background": "rgba(0, 80, 30, 0.4)",
-                    "color": "#3fb950",
-                    "border_color": "#3fb950",
+                    "color": COLORS["accent_success"],
+                    "border_color": COLORS["accent_success"],
                     "&:hover:not([disabled]):not(.recording)": {
                         "background": "rgba(0, 120, 50, 0.6) !important",
                     },
@@ -175,8 +173,8 @@ def image_upload_section() -> rx.Component:
                             on_click=AIState.on_camera_click,
                             style={
                                 "background": "rgba(100, 10, 0, 0.4)",
-                                "color": "#d98030",
-                                "border_color": "#d98030",
+                                "color": COLORS["primary"],
+                                "border_color": COLORS["primary"],
                                 "&:hover:not([disabled])": {
                                     "background": "rgba(150, 15, 0, 0.6) !important",
                                 },
@@ -210,8 +208,8 @@ def image_upload_section() -> rx.Component:
                         on_click=AIState.on_file_picker_click,
                         style={
                             "background": "rgba(100, 10, 0, 0.4)",
-                            "color": "#d98030",
-                            "border_color": "#d98030",
+                            "color": COLORS["primary"],
+                            "border_color": COLORS["primary"],
                             "&:hover:not([disabled])": {
                                 "background": "rgba(150, 15, 0, 0.6) !important",
                             },
@@ -248,8 +246,8 @@ def image_upload_section() -> rx.Component:
                     disabled=AIState.is_generating,
                     style={
                         "background": "rgba(100, 10, 0, 0.4)",
-                        "color": "#d98030",
-                        "border_color": "#d98030",
+                        "color": COLORS["primary"],
+                        "border_color": COLORS["primary"],
                         "&:hover:not([disabled])": {
                             "background": "rgba(150, 15, 0, 0.6) !important",
                         },
@@ -272,8 +270,8 @@ def image_upload_section() -> rx.Component:
                     disabled=AIState.is_generating | AIState.is_uploading_image | AIState.is_uploading_document,
                     style={
                         "background": "rgba(100, 70, 0, 0.4)",
-                        "color": "#d29922",
-                        "border_color": "#d29922",
+                        "color": COLORS["accent_warning"],
+                        "border_color": COLORS["accent_warning"],
                         "&:hover:not([disabled])": {
                             "background": "rgba(130, 90, 0, 0.6) !important",
                         },
@@ -313,7 +311,7 @@ def image_upload_section() -> rx.Component:
                 rx.icon(
                     "lightbulb",
                     size=16,
-                    color="#FFD700",
+                    color=COLORS["accent_gold"],
                     cursor="pointer",
                     style={
                         "transition": "transform 0.2s ease",
@@ -321,12 +319,12 @@ def image_upload_section() -> rx.Component:
                     },
                 ),
                 rx.vstack(
-                    rx.text("Eingabe-Optionen", font_size="13px", font_weight="bold", color="#FFD700"),
-                    rx.text("Aufnahme — Spracheingabe per Mikrofon", font_size="11px", color="#ccc"),
-                    rx.text("Kamera — Foto aufnehmen (Handy/Webcam)", font_size="11px", color="#ccc"),
-                    rx.text("Bild hochladen — Bilder per Drag & Drop", font_size="11px", color="#ccc"),
-                    rx.text("Dokument — Dateien verwalten, hochladen, indexieren", font_size="11px", color="#ccc"),
-                    rx.text("Audio — Audiodatei hochladen (WAV, MP3)", font_size="11px", color="#ccc"),
+                    rx.text("Eingabe-Optionen", font_size="13px", font_weight="bold", color=COLORS["accent_gold"]),
+                    rx.text("Aufnahme — Spracheingabe per Mikrofon", font_size="11px", color=COLORS["text_soft"]),
+                    rx.text("Kamera — Foto aufnehmen (Handy/Webcam)", font_size="11px", color=COLORS["text_soft"]),
+                    rx.text("Bild hochladen — Bilder per Drag & Drop", font_size="11px", color=COLORS["text_soft"]),
+                    rx.text("Dokument — Dateien verwalten, hochladen, indexieren", font_size="11px", color=COLORS["text_soft"]),
+                    rx.text("Audio — Audiodatei hochladen (WAV, MP3)", font_size="11px", color=COLORS["text_soft"]),
                     spacing="1",
                 ),
             ),
@@ -382,12 +380,12 @@ def image_upload_section() -> rx.Component:
                 font_size="10px",
                 color=rx.cond(
                     AIState.show_transcription,
-                    "#4CAF50",
-                    "#999"
+                    COLORS["accent_success"],
+                    COLORS["text_secondary"]
                 ),
             ),
             # Trenner
-            rx.text("·", font_size="11px", color="#666", margin_x="6px"),
+            rx.text("·", font_size="11px", color=COLORS["text_muted"], margin_x="6px"),
             # Enter-sendet ─────────────────────────────────
             rx.switch(
                 checked=AIState.enter_sends_message,
@@ -397,12 +395,12 @@ def image_upload_section() -> rx.Component:
             rx.text(
                 t("enter_sends"),
                 font_size="10px",
-                color=rx.cond(AIState.enter_sends_message, "#4CAF50", "#999"),
+                color=rx.cond(AIState.enter_sends_message, COLORS["accent_success"], COLORS["text_secondary"]),
             ),
             rx.text(
                 rx.cond(AIState.enter_sends_message, t("enter_sends_hint"), ""),
                 font_size="10px",
-                color="#777",
+                color=COLORS["text_muted"],
             ),
             spacing="2",
             align="center",
@@ -533,7 +531,7 @@ def text_input_section() -> rx.Component:
                 rx.icon(
                     "lightbulb",
                     size=16,
-                    color="#FFD700",
+                    color=COLORS["accent_gold"],
                     cursor="pointer",
                     on_click=AIState.open_multi_agent_help,
                     style={
@@ -570,8 +568,8 @@ def text_input_section() -> rx.Component:
                 rx.box(
                     rx.cond(
                         AIState.agent_memory_enabled,
-                        rx.icon("lock-open", size=18, cursor="pointer", color="#4CAF50"),
-                        rx.icon("lock", size=18, cursor="pointer", color="#888", opacity=0.7),
+                        rx.icon("lock-open", size=18, cursor="pointer", color=COLORS["accent_success"]),
+                        rx.icon("lock", size=18, cursor="pointer", color=COLORS["text_secondary"], opacity=0.7),
                     ),
                     on_click=AIState.toggle_agent_memory,
                 ),
@@ -699,8 +697,8 @@ def text_input_section() -> rx.Component:
                 flex="1",
                 style={
                     "background": "rgba(100, 10, 0, 0.4)",
-                    "color": "#d98030",
-                    "border_color": "#d98030",
+                    "color": COLORS["primary"],
+                    "border_color": COLORS["primary"],
                     "&:hover:not([disabled])": {
                         "background": "rgba(150, 15, 0, 0.6) !important",
                         "transform": "scale(1.02)",
@@ -724,8 +722,8 @@ def text_input_section() -> rx.Component:
                 flex="1",
                 style={
                     "background": "rgba(0, 80, 30, 0.4)",
-                    "color": "#3fb950",
-                    "border_color": "#3fb950",
+                    "color": COLORS["accent_success"],
+                    "border_color": COLORS["accent_success"],
                     "&:hover:not([disabled])": {
                         "background": "rgba(0, 120, 50, 0.6) !important",
                         "transform": "scale(1.02)",
@@ -792,7 +790,7 @@ def _debug_line(msg: Any) -> rx.Component:
     bubble, the rest in the line's own colour."""
     color = rx.cond(
         msg.contains("\u2717") | msg.contains("\u274c"),  # ✗ or ❌
-        "#ff6b6b",  # Rot für Fehler
+        COLORS["danger"],  # Rot für Fehler
         COLORS["debug_text"],  # Matrix Grün
     )
 

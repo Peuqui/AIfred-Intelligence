@@ -21,8 +21,9 @@ import reflex as rx
 
 from ..lib.config import VISION_PTZ_HEARTBEAT_MS, VISION_PTZ_SPEEDS
 from ..state import AIState
-from .lightbox import LIGHTBOX_JS
+from ..theme import COLORS
 from .helpers import t
+from .lightbox import LIGHTBOX_JS
 
 
 def _header_group(
@@ -193,14 +194,14 @@ def _header_row() -> rx.Component:
 # auf einzelnen Properties nicht zuverlässig.
 _WATCH_BTN_IDLE_STYLE = {
     "background": "rgba(0, 80, 30, 0.4)",
-    "color": "#3fb950",
-    "border_color": "#3fb950",
+    "color": COLORS["accent_success"],
+    "border_color": COLORS["accent_success"],
     "cursor": "pointer",
 }
 _WATCH_BTN_ACTIVE_STYLE = {
-    "background": "#dc2626",
+    "background": COLORS["danger"],
     "color": "white",
-    "border_color": "#dc2626",
+    "border_color": COLORS["danger"],
     "cursor": "pointer",
 }
 
@@ -286,6 +287,7 @@ def _source_row(source: rx.Var) -> rx.Component:
                     "white_space": "nowrap",
                 },
             ),
+            class_name="vlm-source-name",
             style={
                 "flex": "0 0 220px",
                 "min_width": "0",
@@ -313,26 +315,36 @@ def _source_row(source: rx.Var) -> rx.Component:
         spacing="3",
         align="center",
         width="100%",
+        class_name="vlm-source-row",
+        style={"flex": "1 1 0", "min_width": "0"},
+    )
+
+
+def _source_card(source: rx.Var, position: rx.Var) -> rx.Component:
+    """Eine Kamera: ihre Zeile und, bei PTZ-Kameras, daneben ihre Kopfsteuerung.
+    Auf dem Handy steht die Steuerung unter der Zeile und die Kachel der Kamera
+    direkt darunter (siehe custom.css; ``--vlm-order`` ordnet beide)."""
+    return rx.box(
+        _source_row(source),
+        _ptz_panel(source),
+        class_name="vlm-source-card",
+        style={
+            "--vlm-order": position.to(int) * 2 + 1,
+            "display": "flex",
+            "align_items": "flex-start",
+            "gap": "0.75em",
+            "width": "100%",
+        },
     )
 
 
 def _source_list() -> rx.Component:
-    """Kameraliste links, daneben (rechts) je PTZ-Kamera ein kleiner Rahmen mit
-    der Kopfsteuerung."""
-    return rx.hstack(
-        rx.vstack(
-            rx.foreach(AIState.vision_preview_sources, _source_row),
-            align="stretch",
-            spacing="2",
-            style={"flex": "1 1 0", "min_width": "0"},
-        ),
-        rx.vstack(
-            rx.foreach(AIState.vision_preview_sources, _ptz_panel),
-            spacing="2",
-            style={"flex_shrink": "0"},
-        ),
-        align="start",
-        spacing="3",
+    """Die Kameras untereinander, je Kamera Zeile + Kopfsteuerung."""
+    return rx.vstack(
+        rx.foreach(AIState.vision_preview_sources, _source_card),
+        class_name="vlm-source-list",
+        align="stretch",
+        spacing="2",
         width="100%",
     )
 
@@ -448,6 +460,7 @@ def _ptz_panel(source: rx.Var) -> rx.Component:
             ),
             spacing="2",
             align="center",
+            class_name="vlm-ptz-panel",
             style={
                 "padding": "4px 6px",
                 "border": "1px solid var(--gray-6)",
@@ -546,7 +559,7 @@ def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
         # ``pointer_events: none`` am Wrapper.
         rx.icon_button(
             # AIfred-Orange — gleiches Pattern wie im below-Header.
-            rx.icon("eraser", size=12, color="#e67700"),
+            rx.icon("eraser", size=12, color=COLORS["primary"]),
             on_click=AIState.clear_vlm_teleprompter(sid),
             size="1",
             variant="soft",
@@ -561,6 +574,7 @@ def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
                 "opacity": "0.85",
             },
         ),
+        class_name="vlm-teleprompter-overlay",
         style={
             "position": "absolute",
             "bottom": "0.5em",
@@ -589,7 +603,7 @@ def _teleprompter_below(entry: rx.Var) -> rx.Component:
                 # AIfred-Orange aus theme.py (primary #e67700) — der
                 # User-Brand-Akzent zieht den Klick-Punkt ins Auge,
                 # ohne den Button selbst voll-orange einzufärben.
-                rx.icon("eraser", size=12, color="#e67700"),
+                rx.icon("eraser", size=12, color=COLORS["primary"]),
                 on_click=AIState.clear_vlm_teleprompter(sid),
                 size="1",
                 variant="ghost",
@@ -622,6 +636,7 @@ def _teleprompter_below(entry: rx.Var) -> rx.Component:
                 "white_space": "pre-wrap",
             },
         ),
+        class_name="vlm-teleprompter-below",
         style={
             "width": "100%",
             "flex_shrink": "0",
@@ -674,6 +689,7 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                 # Klick auf ein Crop-Thumb legt das Bild hier groß über
                 # das Live-Video, weitere Klicks wechseln das Bild im
                 # selben Slot.
+                class_name="vlm-tile-image",
                 custom_attrs={"data-vlm-image-slot": entry["id"]},
                 style={
                     "position": "relative",
@@ -701,6 +717,7 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     # persistiert wie gehabt.
                     placeholder=t("vision_preview_briefing_placeholder"),
                     on_blur=lambda v: AIState.set_vision_preview_prompt_context(sid, v),
+                    class_name="vlm-briefing",
                     custom_attrs={"data-vlm-briefing-source": sid},
                     size="2",
                     resize="vertical",
@@ -760,6 +777,7 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                         "white_space": "pre-wrap",
                     },
                 ),
+                class_name="vlm-tile-side",
                 style={
                     "flex": "1 1 0",
                     "min_width": "180px",
@@ -767,6 +785,7 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                     "flex_direction": "column",
                 },
             )),
+            class_name="vlm-tile-row",
             style={
                 "display": "flex",
                 "flex_direction": "row",
@@ -778,7 +797,9 @@ def _image_tile(entry: rx.Var) -> rx.Component:
         ),
         # Row 2: teleprompter as a below-block (only in 'below' mode)
         rx.cond(overlay_mode, rx.fragment(), _teleprompter_below(entry)),
+        class_name="vlm-tile",
         style={
+            "--vlm-order": entry["position"].to(int) * 2 + 2,
             "display": "flex",
             "flex_direction": "column",
             "gap": "0.5em",
@@ -802,6 +823,7 @@ def _image_grid() -> rx.Component:
         AIState.vision_preview_has_visible,
         rx.box(
             rx.foreach(AIState.vision_preview_visible_entries, _image_tile),
+            class_name="vlm-preview-grid",
             style={
                 "display": "grid",
                 "grid_template_columns":
@@ -830,7 +852,7 @@ def _image_grid() -> rx.Component:
                 "width": "100%",
                 "flex": "1 1 auto",
                 "min_height": "0",
-                "background_color": "#1a1a1a",
+                "background_color": COLORS["panel_dark"],
                 "border_radius": "8px",
             },
         ),
@@ -876,6 +898,7 @@ def vision_preview_page() -> rx.Component:
             rx.text(t("vision_preview_sources_label"), size="2", weight="bold"),
             _source_list(),
             rx.divider(),
+            class_name="vlm-preview-head",
             style={
                 "display": "flex",
                 "flex_direction": "column",
@@ -890,6 +913,7 @@ def vision_preview_page() -> rx.Component:
                 rx.callout.icon(rx.icon("info")),
                 rx.callout.text(AIState.vision_preview_status),
                 color_scheme="amber",
+                class_name="vlm-preview-status",
             ),
         ),
         # ESC closes the popup window. This page is opened via
@@ -902,6 +926,7 @@ def vision_preview_page() -> rx.Component:
             "{e.preventDefault();window.close();}});"
         ),
         rx.script(LIGHTBOX_JS),
+        class_name="vlm-preview-page",
         style={
             "display": "flex",
             "flex_direction": "column",

@@ -6,7 +6,7 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import t, native_select_backend
+from ..helpers import native_select_backend, t
 from .calibration_picker import _calibration_picker_button, vllm_calibration_button
 
 
@@ -163,12 +163,12 @@ def _backend_row() -> rx.Component:
                                 rx.text(
                                     t("gpu_vllm_requires_compute"),
                                     font_size="10px",
-                                    color="#aaa",
+                                    color=COLORS["text_secondary"],
                                 ),
                                 rx.text(
                                     t("gpu_available_prefix") + AIState.gpu_compatible_text,
                                     font_size="10px",
-                                    color="#aaa",
+                                    color=COLORS["text_secondary"],
                                     margin_top="2px",
                                 ),
                                 rx.text(
@@ -197,7 +197,7 @@ def _backend_row() -> rx.Component:
             rx.icon(
                 "lightbulb",
                 size=14,
-                color="#FFD700",
+                color=COLORS["accent_gold"],
                 cursor="pointer",
                 on_click=AIState.open_model_lifecycle_help,
             ),
@@ -315,7 +315,7 @@ def _calibration_row() -> rx.Component:
                         t("calibration_hybrid_label"),
                         font_size="11px",
                         color=rx.cond(
-                            AIState.calibration_allow_hybrid, "#FFA85C", "#888",
+                            AIState.calibration_allow_hybrid, "#FFA85C", COLORS["text_secondary"],
                         ),
                     ),
                     rx.popover.root(
@@ -324,7 +324,7 @@ def _calibration_row() -> rx.Component:
                                 rx.icon(
                                     "lightbulb",
                                     size=14,
-                                    color="#FFD700",
+                                    color=COLORS["accent_gold"],
                                     cursor="pointer",
                                     style={
                                         "transition": "transform 0.2s ease",
@@ -338,7 +338,7 @@ def _calibration_row() -> rx.Component:
                             rx.text(
                                 t("calibration_hybrid_tooltip"),
                                 font_size="11px",
-                                color="#ddd",
+                                color=COLORS["tip_text"],
                                 line_height="1.5",
                             ),
                             max_width="320px",
@@ -402,8 +402,8 @@ def _yarn_section() -> rx.Component:
                     font_size="11px",
                     color=rx.cond(
                         AIState.enable_yarn,
-                        "#4CAF50",
-                        "#999"
+                        COLORS["accent_success"],
+                        COLORS["text_secondary"]
                     ),
                 ),
                 spacing="2",
@@ -431,7 +431,7 @@ def _yarn_section() -> rx.Component:
                                 t("yarn_autodetect_hint")
                             ),
                             font_size="10px",
-                            color="#999",
+                            color=COLORS["text_secondary"],
                         ),
                         rx.button(
                             t("yarn_apply_button"),
@@ -450,7 +450,7 @@ def _yarn_section() -> rx.Component:
                         rx.text(
                             "\U0001f4cf Maximum: ~" + AIState.yarn_max_factor.to(str) + "x",
                             font_size="10px",
-                            color="#ff9800",  # Orange for better visibility
+                            color=COLORS["accent_amber"],  # Orange for better visibility
                             font_weight="500",
                             margin_top="2px",
                         ),
@@ -458,7 +458,7 @@ def _yarn_section() -> rx.Component:
                         rx.text(
                             t("yarn_max_unknown"),
                             font_size="10px",
-                            color="#999",  # Gray for unknown
+                            color=COLORS["text_secondary"],  # Gray for unknown
                             font_weight="400",
                             margin_top="2px",
                         ),
@@ -472,13 +472,13 @@ def _yarn_section() -> rx.Component:
                 rx.text(
                     "\u2139\ufe0f " + (AIState.vllm_native_context / 1000).to(int).to(str) + "K nativ | HW: " + (AIState.vllm_max_tokens / 1000).to(int).to(str) + "K",
                     font_size="10px",
-                    color="#999",
+                    color=COLORS["text_secondary"],
                     line_height="1.3",
                 ),
                 rx.text(
                     t("yarn_context_info"),
                     font_size="10px",
-                    color="#999",
+                    color=COLORS["text_secondary"],
                     line_height="1.3",
                 ),
             ),

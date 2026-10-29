@@ -5,7 +5,8 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t, overlay_scaffold
+from ...theme import COLORS
+from ..helpers import overlay_scaffold, t
 
 
 def _bundle_export_row(agent: dict) -> rx.Component:
@@ -17,7 +18,7 @@ def _bundle_export_row(agent: dict) -> rx.Component:
         ),
         rx.text(agent["emoji"], font_size="14px"),
         rx.text(agent["display_name"], font_size="13px", color="white"),
-        rx.text(f"({agent['agent_id']})", font_size="11px", color="#888"),
+        rx.text(f"({agent['agent_id']})", font_size="11px", color=COLORS["text_secondary"]),
         spacing="2",
         align="center",
         padding="6px 8px",
@@ -33,7 +34,7 @@ def bundle_export_modal() -> rx.Component:
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.icon("package", size=18, color="#FFD700"),
+                    rx.icon("package", size=18, color=COLORS["accent_gold"]),
                     rx.text(t("bundle_export_title"), font_weight="bold", font_size="15px", color="white"),
                     rx.spacer(),
                     rx.icon_button(
@@ -44,7 +45,7 @@ def bundle_export_modal() -> rx.Component:
                     ),
                     align="center", width="100%",
                 ),
-                rx.text(t("bundle_export_desc"), font_size="11px", color="#aaa"),
+                rx.text(t("bundle_export_desc"), font_size="11px", color=COLORS["text_secondary"]),
                 rx.box(
                     rx.foreach(AIState.bundle_all_agents, _bundle_export_row),
                     max_height="50dvh",
@@ -72,7 +73,7 @@ def bundle_export_modal() -> rx.Component:
                 ),
                 spacing="3", width="100%",
             ),
-            background="#1a1a2e",
+            background=COLORS["panel_dark"],
             border_radius="12px",
             border="1px solid var(--gray-a6)",
             padding="16px",
@@ -95,13 +96,13 @@ def _bundle_import_row(agent: dict) -> rx.Component:
             on_change=lambda _: AIState.toggle_bundle_import_agent(agent["agent_id"]),
         ),
         rx.text(agent["display_name"], font_size="13px", color="white"),
-        rx.text(f"({agent['agent_id']})", font_size="11px", color="#888"),
+        rx.text(f"({agent['agent_id']})", font_size="11px", color=COLORS["text_secondary"]),
         rx.cond(
             agent["exists_locally"],
             rx.text(
                 t("bundle_exists_locally"),
                 font_size="10px",
-                color="#FFA500",
+                color=COLORS["accent_amber"],
                 font_style="italic",
             ),
         ),
@@ -135,10 +136,10 @@ def bundle_import_modal() -> rx.Component:
     upload_zone = rx.upload(
         rx.box(
             rx.vstack(
-                rx.icon("upload", size=22, color="#888"),
+                rx.icon("upload", size=22, color=COLORS["text_secondary"]),
                 rx.text(
                     t("bundle_import_drop"),
-                    font_size="12px", color="#888", text_align="center",
+                    font_size="12px", color=COLORS["text_secondary"], text_align="center",
                 ),
                 spacing="2", align="center",
             ),
@@ -146,7 +147,7 @@ def bundle_import_modal() -> rx.Component:
             border="1px dashed #555",
             border_radius="8px",
             width="100%",
-            _hover={"border_color": "#d29922"},
+            _hover={"border_color": COLORS["accent_warning"]},
         ),
         id="agent-bundle-upload",
         on_drop=AIState.handle_bundle_upload(rx.upload_files(upload_id="agent-bundle-upload")),  # type: ignore[arg-type]
@@ -158,7 +159,7 @@ def bundle_import_modal() -> rx.Component:
     agent_selection = rx.cond(
         AIState.bundle_import_agents.length() > 0,
         rx.vstack(
-            rx.text(t("bundle_import_desc"), font_size="11px", color="#aaa"),
+            rx.text(t("bundle_import_desc"), font_size="11px", color=COLORS["text_secondary"]),
             rx.box(
                 rx.foreach(AIState.bundle_import_agents, _bundle_import_row),
                 max_height="40dvh",
@@ -169,7 +170,7 @@ def bundle_import_modal() -> rx.Component:
                 padding="4px",
             ),
             rx.hstack(
-                rx.text(t("bundle_conflict_label"), font_size="11px", color="#aaa"),
+                rx.text(t("bundle_conflict_label"), font_size="11px", color=COLORS["text_secondary"]),
                 _bundle_conflict_select(),
                 spacing="2", align="center",
             ),
@@ -181,8 +182,8 @@ def bundle_import_modal() -> rx.Component:
         AIState.bundle_import_error != "",
         rx.box(
             rx.hstack(
-                rx.icon("circle-alert", size=14, color="#f88"),
-                rx.text(AIState.bundle_import_error, font_size="11px", color="#f88"),
+                rx.icon("circle-alert", size=14, color=COLORS["danger"]),
+                rx.text(AIState.bundle_import_error, font_size="11px", color=COLORS["danger"]),
                 spacing="2", align="center",
             ),
             padding="8px",
@@ -196,7 +197,7 @@ def bundle_import_modal() -> rx.Component:
         rx.box(
             rx.vstack(
                 rx.hstack(
-                    rx.icon("package-open", size=18, color="#FFD700"),
+                    rx.icon("package-open", size=18, color=COLORS["accent_gold"]),
                     rx.text(t("bundle_import_title"), font_weight="bold", font_size="15px", color="white"),
                     rx.spacer(),
                     rx.icon_button(
@@ -228,7 +229,7 @@ def bundle_import_modal() -> rx.Component:
                 ),
                 spacing="3", width="100%",
             ),
-            background="#1a1a2e",
+            background=COLORS["panel_dark"],
             border_radius="12px",
             border="1px solid var(--gray-a6)",
             padding="16px",

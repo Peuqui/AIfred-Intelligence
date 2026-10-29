@@ -8,6 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import bulk_delete_bar, t
 from .header import _editor_header
 
@@ -26,7 +27,7 @@ def _storage_entry_row(entry: rx.Var) -> rx.Component:
             ),
             rx.icon(
                 rx.cond(entry["kind"] == "export", "file-text", "code"),
-                size=16, color="#d98030", flex_shrink="0",
+                size=16, color=COLORS["primary"], flex_shrink="0",
             ),
             rx.vstack(
                 rx.text(
@@ -47,8 +48,8 @@ def _storage_entry_row(entry: rx.Var) -> rx.Component:
                         color_scheme=rx.cond(entry["kind"] == "export", "amber", "gray"),
                         size="1",
                     ),
-                    rx.text(entry["mtime"], font_size="11px", color="#888"),
-                    rx.text(entry["size_kb"].to_string() + " KB", font_size="11px", color="#888"),
+                    rx.text(entry["mtime"], font_size="11px", color=COLORS["text_secondary"]),
+                    rx.text(entry["size_kb"].to_string() + " KB", font_size="11px", color=COLORS["text_secondary"]),
                     spacing="2", align="center",
                 ),
                 spacing="1", align="start", flex_grow="1",
@@ -106,7 +107,7 @@ def _storage_entry_row(entry: rx.Var) -> rx.Component:
         padding="8px 10px",
         border="1px solid #333",
         border_radius="8px",
-        background_color="#222",
+        background_color=COLORS["panel_dark"],
         width="100%",
     )
 
@@ -122,7 +123,7 @@ def _storage_view() -> rx.Component:
                 rx.hstack(
                     rx.text(
                         t("storage_intro"),
-                        font_size="12px", color="#aaa", flex_grow="1",
+                        font_size="12px", color=COLORS["text_secondary"], flex_grow="1",
                     ),
                     rx.badge(
                         AIState.storage_files.length(),  # type: ignore[union-attr]
@@ -161,7 +162,7 @@ def _storage_view() -> rx.Component:
                     ),
                     rx.text(
                         t("storage_empty"),
-                        color="#888", font_size="13px",
+                        color=COLORS["text_secondary"], font_size="13px",
                         padding_top="20px", text_align="center",
                     ),
                 ),

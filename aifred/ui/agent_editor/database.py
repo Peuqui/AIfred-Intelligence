@@ -8,6 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import confirm_delete_all, t
 from .header import _editor_header
 
@@ -22,8 +23,8 @@ def _database_view() -> rx.Component:
             rx.vstack(
                 # Title + document count + clear-all
                 rx.hstack(
-                    rx.icon("file-text", size=14, color="#4da6ff"),
-                    rx.text(t("db_documents"), font_size="14px", font_weight="bold", color="#ddd"),
+                    rx.icon("file-text", size=14, color=COLORS["accent_blue"]),
+                    rx.text(t("db_documents"), font_size="14px", font_weight="bold", color=COLORS["text_soft"]),
                     rx.spacer(),
                     rx.badge(
                         AIState.db_documents.length(),  # type: ignore[union-attr]
@@ -51,16 +52,16 @@ def _database_view() -> rx.Component:
                     rx.vstack(
                         rx.foreach(
                             AIState.db_documents,
-                            lambda doc: _indexed_doc_row(doc, "file-text", "#4da6ff"),
+                            lambda doc: _indexed_doc_row(doc, "file-text", COLORS["accent_blue"]),
                         ),
                         spacing="0", width="100%",
-                        background="#161616",
+                        background=COLORS["panel_dark"],
                         border="1px solid #2a2a2a",
                         border_radius="6px",
                     ),
                     rx.text(
                         t("db_no_entries"),
-                        color="#888",
+                        color=COLORS["text_secondary"],
                         font_size="13px",
                     ),
                 ),
@@ -88,7 +89,7 @@ def _indexed_doc_row(doc: rx.Var, icon: str, icon_color: str) -> rx.Component:
             rx.text(doc["filename"], font_size="12px", color="white"),
             rx.text(
                 doc["total_chunks"].to(str) + t("db_chunks_suffix"),
-                font_size="10px", color="#888",
+                font_size="10px", color=COLORS["text_secondary"],
             ),
             spacing="0", align="start", flex="1",
         ),
@@ -120,10 +121,10 @@ def _db_orphan_section() -> rx.Component:
                 on_click=AIState.db_toggle_orphans,
                 cursor="pointer",
             ),
-            rx.icon("brush-cleaning", size=14, color="#d29922"),
+            rx.icon("brush-cleaning", size=14, color=COLORS["accent_warning"]),
             rx.text(
                 t("db_orphans_title"),
-                font_size="13px", font_weight="bold", color="#d29922",
+                font_size="13px", font_weight="bold", color=COLORS["accent_warning"],
                 cursor="pointer",
                 on_click=AIState.db_toggle_orphans,
             ),
@@ -147,7 +148,7 @@ def _db_orphan_section() -> rx.Component:
             ),
             spacing="2", align="center", width="100%",
             padding="6px 8px",
-            background="#161616",
+            background=COLORS["panel_dark"],
             border="1px solid #2a2a2a",
             border_radius="6px",
         ),
@@ -156,10 +157,10 @@ def _db_orphan_section() -> rx.Component:
             rx.cond(
                 AIState.db_orphans.length() > 0,
                 rx.vstack(
-                    rx.foreach(AIState.db_orphans, lambda doc: _indexed_doc_row(doc, "file-x-2", "#d29922")),
+                    rx.foreach(AIState.db_orphans, lambda doc: _indexed_doc_row(doc, "file-x-2", COLORS["accent_warning"])),
                     spacing="0", width="100%",
                     margin_top="4px",
-                    background="#161616",
+                    background=COLORS["panel_dark"],
                     border="1px solid #2a2a2a",
                     border_radius="6px",
                     max_height="240px",
@@ -167,10 +168,10 @@ def _db_orphan_section() -> rx.Component:
                 ),
                 rx.text(
                     t("db_orphans_none"),
-                    font_size="12px", color="#666",
+                    font_size="12px", color=COLORS["text_muted"],
                     padding="12px 8px",
                     margin_top="4px",
-                    background="#161616",
+                    background=COLORS["panel_dark"],
                     border="1px solid #2a2a2a",
                     border_radius="6px",
                 ),

@@ -8,7 +8,8 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t, clickable_tip
+from ...theme import COLORS
+from ..helpers import clickable_tip, t
 from .header import _editor_header
 
 
@@ -26,7 +27,7 @@ def _scheduler_job_row(job: rx.Var) -> rx.Component:
                 job["name"],
                 font_size="14px",
                 font_weight="500",
-                color=rx.cond(job["enabled"], "white", "#666"),
+                color=rx.cond(job["enabled"], "white", COLORS["text_muted"]),
                 flex="1",
                 min_width="0",
                 overflow="hidden",
@@ -57,68 +58,68 @@ def _scheduler_job_row(job: rx.Var) -> rx.Component:
         # Details — always shown
         rx.vstack(
             rx.hstack(
-                rx.text(t("sched_label_schedule"), ":", font_size="12px", color="#888", min_width="90px"),
-                rx.text(job["schedule_display"], font_size="12px", color="#ccc"),
+                rx.text(t("sched_label_schedule"), ":", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                rx.text(job["schedule_display"], font_size="12px", color=COLORS["text_soft"]),
                 spacing="2",
             ),
             rx.hstack(
-                rx.text("Agent:", font_size="12px", color="#888", min_width="90px"),
-                rx.text(job["agent_display"], font_size="12px", color="#ccc"),
+                rx.text("Agent:", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                rx.text(job["agent_display"], font_size="12px", color=COLORS["text_soft"]),
                 spacing="2",
             ),
             rx.hstack(
-                rx.text(t("sched_label_delivery"), ":", font_size="12px", color="#888", min_width="90px"),
-                rx.text(job["delivery_display"], font_size="12px", color="#ccc"),
+                rx.text(t("sched_label_delivery"), ":", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                rx.text(job["delivery_display"], font_size="12px", color=COLORS["text_soft"]),
                 spacing="2",
             ),
             rx.cond(
                 job["webhook_url"] != "",
                 rx.hstack(
-                    rx.text("Webhook:", font_size="12px", color="#888", min_width="90px"),
-                    rx.text(job["webhook_url"], font_size="12px", color="#ccc"),
+                    rx.text("Webhook:", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                    rx.text(job["webhook_url"], font_size="12px", color=COLORS["text_soft"]),
                     spacing="2",
                 ),
             ),
             rx.hstack(
-                rx.text(t("sched_label_tier"), ":", font_size="12px", color="#888", min_width="90px"),
-                rx.text(job["max_tier"], font_size="12px", color="#ccc"),
+                rx.text(t("sched_label_tier"), ":", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                rx.text(job["max_tier"], font_size="12px", color=COLORS["text_soft"]),
                 spacing="2",
             ),
             rx.cond(
                 job["next_run"] != "",
                 rx.hstack(
-                    rx.text(t("sched_next"), ":", font_size="12px", color="#888", min_width="90px"),
-                    rx.text(job["next_run"], font_size="12px", color="#ccc"),
+                    rx.text(t("sched_next"), ":", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                    rx.text(job["next_run"], font_size="12px", color=COLORS["text_soft"]),
                     spacing="2",
                 ),
             ),
             rx.cond(
                 job["last_run"] != "",
                 rx.hstack(
-                    rx.text(t("sched_last"), ":", font_size="12px", color="#888", min_width="90px"),
-                    rx.text(job["last_run"], font_size="12px", color="#ccc"),
+                    rx.text(t("sched_last"), ":", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                    rx.text(job["last_run"], font_size="12px", color=COLORS["text_soft"]),
                     spacing="2",
                 ),
             ),
             rx.hstack(
-                rx.text(t("sched_created"), ":", font_size="12px", color="#888", min_width="90px"),
-                rx.text(job["created_at"], font_size="12px", color="#ccc"),
+                rx.text(t("sched_created"), ":", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                rx.text(job["created_at"], font_size="12px", color=COLORS["text_soft"]),
                 spacing="2",
             ),
             rx.cond(
                 job["retry_count"] != "0",
                 rx.hstack(
-                    rx.text(t("sched_retries"), ":", font_size="12px", color="#888", min_width="90px"),
-                    rx.text(job["retry_count"], font_size="12px", color="#ff6600"),
+                    rx.text(t("sched_retries"), ":", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
+                    rx.text(job["retry_count"], font_size="12px", color=COLORS["primary"]),
                     spacing="2",
                 ),
             ),
             rx.hstack(
-                rx.text(t("sched_label_message"), ":", font_size="12px", color="#888", min_width="90px"),
+                rx.text(t("sched_label_message"), ":", font_size="12px", color=COLORS["text_secondary"], min_width="90px"),
                 rx.text(
                     job["message"],
                     font_size="12px",
-                    color="#aaa",
+                    color=COLORS["text_secondary"],
                     style={"white_space": "pre-wrap"},
                 ),
                 spacing="2",
@@ -143,7 +144,7 @@ def _cron_schedule_input() -> rx.Component:
     return rx.vstack(
         # Preset row
         rx.hstack(
-            rx.text(t("sched_cron_preset"), font_size="11px", color="#888"),
+            rx.text(t("sched_cron_preset"), font_size="11px", color=COLORS["text_secondary"]),
             rx.select(
                 AIState.sched_preset_options,
                 placeholder="—",
@@ -155,22 +156,22 @@ def _cron_schedule_input() -> rx.Component:
         # Cron fields: Stunde, Minute, Tag, Monat (dropdown), Wochentag (dropdown)
         rx.hstack(
             rx.vstack(
-                rx.text(t("sched_cron_hour"), font_size="10px", color="#666"),
+                rx.text(t("sched_cron_hour"), font_size="10px", color=COLORS["text_muted"]),
                 rx.input(value=AIState.scheduler_cron_hour, on_change=AIState.set_scheduler_cron_hour, **_small_input),
                 spacing="0",
             ),
             rx.vstack(
-                rx.text(t("sched_cron_minute"), font_size="10px", color="#666"),
+                rx.text(t("sched_cron_minute"), font_size="10px", color=COLORS["text_muted"]),
                 rx.input(value=AIState.scheduler_cron_min, on_change=AIState.set_scheduler_cron_min, **_small_input),
                 spacing="0",
             ),
             rx.vstack(
-                rx.text(t("sched_cron_dom"), font_size="10px", color="#666"),
+                rx.text(t("sched_cron_dom"), font_size="10px", color=COLORS["text_muted"]),
                 rx.input(value=AIState.scheduler_cron_dom, on_change=AIState.set_scheduler_cron_dom, **_small_input),
                 spacing="0",
             ),
             rx.vstack(
-                rx.text(t("sched_cron_month"), font_size="10px", color="#666"),
+                rx.text(t("sched_cron_month"), font_size="10px", color=COLORS["text_muted"]),
                 rx.select(
                     AIState.sched_month_options,
                     value=AIState.sched_month_display,
@@ -180,7 +181,7 @@ def _cron_schedule_input() -> rx.Component:
                 spacing="0",
             ),
             rx.vstack(
-                rx.text(t("sched_cron_dow"), font_size="10px", color="#666"),
+                rx.text(t("sched_cron_dow"), font_size="10px", color=COLORS["text_muted"]),
                 rx.select(
                     AIState.sched_dow_options,
                     value=AIState.sched_dow_display,
@@ -198,7 +199,7 @@ def _cron_schedule_input() -> rx.Component:
 def _interval_schedule_input() -> rx.Component:
     """Interval: number + unit dropdown."""
     return rx.hstack(
-        rx.text(t("sched_interval_every"), font_size="12px", color="#999"),
+        rx.text(t("sched_interval_every"), font_size="12px", color=COLORS["text_secondary"]),
         rx.input(
             value=AIState.scheduler_interval_value,
             on_change=AIState.set_scheduler_interval_value,
@@ -220,7 +221,7 @@ def _once_schedule_input() -> rx.Component:
     """Once: date + time pickers."""
     return rx.hstack(
         rx.vstack(
-            rx.text(t("sched_once_date"), font_size="10px", color="#666"),
+            rx.text(t("sched_once_date"), font_size="10px", color=COLORS["text_muted"]),
             rx.input(
                 value=AIState.scheduler_once_date,
                 on_change=AIState.set_scheduler_once_date,
@@ -230,7 +231,7 @@ def _once_schedule_input() -> rx.Component:
             spacing="0",
         ),
         rx.vstack(
-            rx.text(t("sched_once_time"), font_size="10px", color="#666"),
+            rx.text(t("sched_once_time"), font_size="10px", color=COLORS["text_muted"]),
             rx.input(
                 value=AIState.scheduler_once_time,
                 on_change=AIState.set_scheduler_once_time,
@@ -249,7 +250,7 @@ def _scheduler_edit_form() -> rx.Component:
         # Row 1: Name + Type
         rx.hstack(
             rx.vstack(
-                rx.text("Name", font_size="11px", color="#888"),
+                rx.text("Name", font_size="11px", color=COLORS["text_secondary"]),
                 rx.input(
                     value=AIState.scheduler_edit_name,
                     on_change=AIState.set_scheduler_edit_name,
@@ -260,11 +261,11 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text(t("sched_label_type"), font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#FFD700"), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text(t("sched_label_type"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
-                        rx.text(t("sched_tip_type_cron"), font_size="12px", color="#ddd"),
-                        rx.text(t("sched_tip_type_interval"), font_size="12px", color="#ddd"),
-                        rx.text(t("sched_tip_type_once"), font_size="12px", color="#ddd"),
+                        rx.text(t("sched_tip_type_cron"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_type_interval"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_type_once"), font_size="12px", color=COLORS["tip_text"]),
                         spacing="1",
                     ),
                 ),
@@ -279,7 +280,7 @@ def _scheduler_edit_form() -> rx.Component:
         ),
         # Row 2: Schedule input (type-dependent)
         rx.vstack(
-            rx.text(t("sched_label_schedule"), font_size="11px", color="#888"),
+            rx.text(t("sched_label_schedule"), font_size="11px", color=COLORS["text_secondary"]),
             rx.cond(
                 AIState.scheduler_edit_type == "cron",
                 _cron_schedule_input(),
@@ -294,7 +295,7 @@ def _scheduler_edit_form() -> rx.Component:
         # Row 3: Agent + Delivery + Channel + Tier
         rx.hstack(
             rx.vstack(
-                rx.text("Agent", font_size="11px", color="#888"),
+                rx.text("Agent", font_size="11px", color=COLORS["text_secondary"]),
                 rx.select(
                     AIState.scheduler_agent_options,
                     value=AIState.scheduler_edit_agent_display,
@@ -305,11 +306,11 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text(t("sched_label_delivery"), font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#FFD700"), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text(t("sched_label_delivery"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
-                        rx.text(t("sched_tip_delivery_review"), font_size="12px", color="#ddd"),
-                        rx.text(t("sched_tip_delivery_announce"), font_size="12px", color="#ddd"),
-                        rx.text(t("sched_tip_delivery_webhook"), font_size="12px", color="#ddd"),
+                        rx.text(t("sched_tip_delivery_review"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_delivery_announce"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_delivery_webhook"), font_size="12px", color=COLORS["tip_text"]),
                         spacing="1",
                     ),
                 ),
@@ -324,7 +325,7 @@ def _scheduler_edit_form() -> rx.Component:
             rx.cond(
                 AIState.scheduler_edit_delivery == "announce",
                 rx.vstack(
-                    rx.text(t("sched_label_channel"), font_size="11px", color="#888"),
+                    rx.text(t("sched_label_channel"), font_size="11px", color=COLORS["text_secondary"]),
                     rx.select(
                         ["telegram", "discord", "email"],
                         value=AIState.scheduler_edit_channel,
@@ -336,13 +337,13 @@ def _scheduler_edit_form() -> rx.Component:
             ),
             rx.vstack(
                 clickable_tip(
-                    rx.hstack(rx.text(t("sched_label_tier"), font_size="11px", color="#888"), rx.icon("lightbulb", size=12, color="#FFD700"), spacing="1", align="center", cursor="pointer"),
+                    rx.hstack(rx.text(t("sched_label_tier"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
-                        rx.text(t("sched_tip_tier_0"), font_size="12px", color="#ddd"),
-                        rx.text(t("sched_tip_tier_1"), font_size="12px", color="#ddd"),
-                        rx.text(t("sched_tip_tier_2"), font_size="12px", color="#ddd"),
-                        rx.text(t("sched_tip_tier_3"), font_size="12px", color="#ddd"),
-                        rx.text(t("sched_tip_tier_4"), font_size="12px", color="#ddd"),
+                        rx.text(t("sched_tip_tier_0"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_tier_1"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_tier_2"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_tier_3"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_tier_4"), font_size="12px", color=COLORS["tip_text"]),
                         spacing="1",
                     ),
                 ),
@@ -359,7 +360,7 @@ def _scheduler_edit_form() -> rx.Component:
         rx.cond(
             AIState.scheduler_edit_delivery == "announce",
             rx.vstack(
-                rx.text(t("sched_label_recipient"), font_size="11px", color="#888"),
+                rx.text(t("sched_label_recipient"), font_size="11px", color=COLORS["text_secondary"]),
                 rx.input(
                     value=AIState.scheduler_edit_recipient,
                     on_change=AIState.set_scheduler_edit_recipient,
@@ -374,7 +375,7 @@ def _scheduler_edit_form() -> rx.Component:
         rx.cond(
             AIState.scheduler_edit_delivery == "webhook",
             rx.vstack(
-                rx.text("Webhook URL", font_size="11px", color="#888"),
+                rx.text("Webhook URL", font_size="11px", color=COLORS["text_secondary"]),
                 rx.input(
                     value=AIState.scheduler_edit_webhook_url,
                     on_change=AIState.set_scheduler_edit_webhook_url,
@@ -387,7 +388,7 @@ def _scheduler_edit_form() -> rx.Component:
         ),
         # Message
         rx.vstack(
-            rx.text(t("sched_label_message"), font_size="11px", color="#888"),
+            rx.text(t("sched_label_message"), font_size="11px", color=COLORS["text_secondary"]),
             rx.text_area(
                 value=AIState.scheduler_edit_message,
                 on_change=AIState.set_scheduler_edit_message,
@@ -467,7 +468,7 @@ def _scheduler_view() -> rx.Component:
                     ),
                     rx.text(
                         t("scheduler_no_jobs"),
-                        color="#888",
+                        color=COLORS["text_secondary"],
                         font_size="13px",
                         padding_top="20px",
                         text_align="center",

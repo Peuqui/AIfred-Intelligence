@@ -8,6 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import t
 
 
@@ -15,7 +16,7 @@ def _editor_header() -> rx.Component:
     """Shared header with tab navigation for the settings modal."""
     return rx.vstack(
         rx.hstack(
-            rx.icon("settings", size=24, color="#FFD700"),
+            rx.icon("settings", size=24, color=COLORS["accent_gold"]),
             rx.text(
                 t("agent_editor_title"),
                 color="white",
@@ -178,7 +179,7 @@ def _editor_header() -> rx.Component:
         spacing="3",
         width="100%",
         flex_shrink="0",
-        background_color="#1a1a1a",
+        background_color=COLORS["panel_dark"],
         z_index="10",
         padding_bottom="8px",
         border_bottom="1px solid #333",

@@ -2,7 +2,13 @@
 
 from __future__ import annotations
 
+# Document Manager Header — gemeinsame Groessen fuer Icons + Buttons,
+# damit der Header als Ganzes skaliert (Radix hat keine Halbschritte
+# zwischen size="1" und size="2").
+from typing import Literal
+
 import reflex as rx
+
 # Rohes <a>-Element: rx.link und rx.el.a sind in Reflex 0.8 beide auf den
 # ReactRouterLink gemappt, der wurzel-relative hrefs um den frontend_path
 # ergänzt. Für Links auf die /_upload-Mounts (außerhalb der App-Routen)
@@ -10,13 +16,8 @@ import reflex as rx
 from reflex.components.el.elements.inline import A as _Anchor
 
 from ...state import AIState
-from ..helpers import t, overlay_scaffold
-
-
-# Document Manager Header — gemeinsame Groessen fuer Icons + Buttons,
-# damit der Header als Ganzes skaliert (Radix hat keine Halbschritte
-# zwischen size="1" und size="2").
-from typing import Literal
+from ...theme import COLORS
+from ..helpers import overlay_scaffold, t
 
 DOC_HEADER_ICON_SIZE = 16
 DOC_HEADER_BUTTON_SIZE: Literal["1", "2", "3", "4"] = "2"
@@ -53,9 +54,9 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
         # Icon: folder or file with index indicator
         rx.cond(
             is_folder,
-            rx.icon("folder", size=16, color="#d29922", cursor="pointer",
+            rx.icon("folder", size=16, color=COLORS["accent_warning"], cursor="pointer",
                      on_click=AIState.doc_navigate_folder(name)),
-            rx.icon("file-text", size=16, color=rx.cond(is_indexed, "#4CAF50", "#888")),
+            rx.icon("file-text", size=16, color=rx.cond(is_indexed, COLORS["accent_success"], COLORS["text_secondary"])),
         ),
         # Name — inline rename input or clickable text
         rx.cond(
@@ -89,7 +90,7 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
             rx.text(
                 name,
                 font_size="12px",
-                color=rx.cond(is_folder, "#d29922", "white"),
+                color=rx.cond(is_folder, COLORS["accent_warning"], "white"),
                 cursor="pointer",
                 _hover={"text_decoration": "underline"},
                 word_break="break-all",
@@ -107,12 +108,12 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
         # filename otherwise wraps to one character per line on a phone.
         rx.cond(
             ~is_folder,
-            rx.text(item["size"].to(str), font_size="10px", color="#666",
+            rx.text(item["size"].to(str), font_size="10px", color=COLORS["text_muted"],
                     min_width="60px", display=["none", "none", "block"]),
             rx.text(
                 _file_count_label(item["file_count"].to(int)),
                 font_size="10px",
-                color=rx.cond(item["file_count"].to(int) == 0, "#555", "#888"),
+                color=rx.cond(item["file_count"].to(int) == 0, COLORS["text_muted"], COLORS["text_secondary"]),
                 min_width="60px",
             ),
         ),
@@ -122,8 +123,8 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
         # Hidden on narrow screens like the size column.
         rx.tooltip(
             rx.vstack(
-                rx.text(item["created"].to(str), font_size="9px", color="#666"),
-                rx.text(item["modified"].to(str), font_size="9px", color="#999"),
+                rx.text(item["created"].to(str), font_size="9px", color=COLORS["text_muted"]),
+                rx.text(item["modified"].to(str), font_size="9px", color=COLORS["text_secondary"]),
                 spacing="0",
                 align_items="flex-end",
                 min_width="95px",
@@ -136,9 +137,9 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
             ~is_folder,
             rx.cond(
                 is_indexed,
-                rx.text(chunks.to(str) + " chunks", font_size="10px", color="#4CAF50",
+                rx.text(chunks.to(str) + " chunks", font_size="10px", color=COLORS["accent_success"],
                         min_width="60px", display=["none", "none", "block"]),
-                rx.text("—", font_size="10px", color="#555",
+                rx.text("—", font_size="10px", color=COLORS["text_muted"],
                         min_width="60px", display=["none", "none", "block"]),
             ),
         ),
@@ -276,13 +277,13 @@ def _doc_remote_row(item: rx.Var) -> rx.Component:
     return rx.hstack(
         rx.cond(
             is_folder,
-            rx.icon("folder", size=16, color="#d29922"),
-            rx.icon("file", size=16, color="#888"),
+            rx.icon("folder", size=16, color=COLORS["accent_warning"]),
+            rx.icon("file", size=16, color=COLORS["text_secondary"]),
         ),
         rx.text(
             name,
             font_size="12px",
-            color=rx.cond(is_folder, "#d29922", "white"),
+            color=rx.cond(is_folder, COLORS["accent_warning"], "white"),
             cursor=rx.cond(is_folder, "pointer", "default"),
             _hover=rx.cond(is_folder, {"text_decoration": "underline"}, {}),
             word_break="break-all",
@@ -294,9 +295,9 @@ def _doc_remote_row(item: rx.Var) -> rx.Component:
             ),
         ),
         rx.spacer(),
-        rx.text(item["size"].to(str), font_size="10px", color="#666",
+        rx.text(item["size"].to(str), font_size="10px", color=COLORS["text_muted"],
                 min_width="60px", display=["none", "none", "block"]),
-        rx.text(item["modified"].to(str), font_size="9px", color="#999",
+        rx.text(item["modified"].to(str), font_size="9px", color=COLORS["text_secondary"],
                 min_width="95px", display=["none", "none", "block"]),
         rx.cond(
             ~is_folder,
@@ -392,7 +393,7 @@ def _doc_remote_toolbar() -> rx.Component:
                 t("doc_remote_search_hits") + " „" + AIState.doc_remote_query + "“",
                 rx.cond(AIState.doc_remote_path_text != "", "/ " + AIState.doc_remote_path_text, ""),
             ),
-            font_size="12px", color="#888",
+            font_size="12px", color=COLORS["text_secondary"],
         ),
         rx.spacer(),
         spacing="2", align="center", width="100%",
@@ -424,7 +425,7 @@ def _doc_delete_dialog() -> rx.Component:
                         rx.foreach(
                             AIState.doc_selected_files,
                             lambda fn: rx.text(
-                                fn, font_size="11px", color="#d29922",
+                                fn, font_size="11px", color=COLORS["accent_warning"],
                                 word_break="break-all",
                             ),
                         ),
@@ -432,7 +433,7 @@ def _doc_delete_dialog() -> rx.Component:
                     ),
                     rx.text(
                         AIState.doc_delete_target,
-                        font_size="12px", color="#d29922", font_weight="bold",
+                        font_size="12px", color=COLORS["accent_warning"], font_weight="bold",
                     ),
                 ),
                 rx.vstack(
@@ -471,7 +472,7 @@ def _doc_delete_dialog() -> rx.Component:
                 ),
                 spacing="3",
                 padding="16px",
-                background="#1a1a1a",
+                background=COLORS["panel_dark"],
                 border_radius="8px",
                 border="1px solid #c0392b",
                 box_shadow="0 -4px 20px rgba(0, 0, 0, 0.8)",
@@ -492,7 +493,7 @@ def document_manager_page() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("folder-open", size=24, color="#d29922"),
+                rx.icon("folder-open", size=24, color=COLORS["accent_warning"]),
                 rx.text(t("doc_manager_title"), color="white",
                         font_weight="bold", font_size="18px"),
                 _doc_source_switch(),
@@ -597,7 +598,7 @@ def document_manager_page() -> rx.Component:
                     AIState.doc_current_folder != "",
                     rx.text(
                         "/ " + AIState.doc_current_folder,
-                        font_size="12px", color="#888",
+                        font_size="12px", color=COLORS["text_secondary"],
                     ),
                 ),
                 rx.spacer(),
@@ -613,15 +614,15 @@ def document_manager_page() -> rx.Component:
                         AIState.doc_source_writable,
                         rx.upload(
                             rx.hstack(
-                                rx.icon("upload", size=14, color="#888"),
+                                rx.icon("upload", size=14, color=COLORS["text_secondary"]),
                                 rx.text(
                                     t("doc_drop_files"),
-                                    font_size="11px", color="#888",
+                                    font_size="11px", color=COLORS["text_secondary"],
                                 ),
                                 spacing="2", align="center", justify="center",
                                 width="100%", padding="8px",
                                 border="1px dashed #444", border_radius="6px",
-                                _hover={"border_color": "#d29922", "color": "#d29922"},
+                                _hover={"border_color": COLORS["accent_warning"], "color": COLORS["accent_warning"]},
                             ),
                             id="doc-explorer-upload",
                             on_drop=AIState.handle_document_upload,
@@ -645,7 +646,7 @@ def document_manager_page() -> rx.Component:
                                 rx.hstack(
                                     rx.text(
                                         AIState.doc_selection_count.to(str) + t("doc_selected_suffix"),
-                                        font_size="11px", color="#d29922", font_weight="bold",
+                                        font_size="11px", color=COLORS["accent_warning"], font_weight="bold",
                                     ),
                                     rx.spacer(),
                                     rx.button(
@@ -684,13 +685,13 @@ def document_manager_page() -> rx.Component:
                                 # File count
                                 rx.text(
                                     _file_count_label(AIState.doc_file_list.length()),
-                                    font_size="10px", color="#555", padding="4px 0",
+                                    font_size="10px", color=COLORS["text_muted"], padding="4px 0",
                                 ),
                                 spacing="0", width="100%",
                             ),
                             rx.text(
                                 t("doc_folder_empty"),
-                                color="#666", font_size="13px", padding="20px 0",
+                                color=COLORS["text_muted"], font_size="13px", padding="20px 0",
                             ),
                         ),
                         flex="1",
@@ -703,7 +704,7 @@ def document_manager_page() -> rx.Component:
                     rx.cond(
                         AIState.document_upload_status != "",
                         rx.text(AIState.document_upload_status,
-                                font_size="12px", color="#aaa"),
+                                font_size="12px", color=COLORS["text_secondary"]),
                     ),
 
                     # Delete confirmation dialog (absolute overlay)
@@ -714,7 +715,7 @@ def document_manager_page() -> rx.Component:
                         left="0",
                         right="0",
                         z_index="10",
-                        background="#1a1a1a",
+                        background=COLORS["panel_dark"],
                     ),
 
                     position="relative",
@@ -733,9 +734,9 @@ def document_manager_page() -> rx.Component:
                         AIState.document_preview_filename != "",
                         rx.vstack(
                             rx.hstack(
-                                rx.icon("eye", size=16, color="#58a6ff"),
+                                rx.icon("eye", size=16, color=COLORS["accent_blue"]),
                                 rx.text(AIState.document_preview_filename,
-                                        color="#58a6ff", font_weight="bold", font_size="14px"),
+                                        color=COLORS["accent_blue"], font_weight="bold", font_size="14px"),
                                 rx.spacer(),
                                 rx.icon_button(
                                     rx.icon("x", size=14), size="1",
@@ -748,7 +749,7 @@ def document_manager_page() -> rx.Component:
                             rx.box(
                                 rx.text(AIState.document_preview_content,
                                         white_space="pre-wrap", font_size="12px",
-                                        color="#ccc", font_family="monospace"),
+                                        color=COLORS["text_soft"], font_family="monospace"),
                                 flex="1", min_height="0",
                                 overflow_y="auto", width="100%",
                                 padding="10px", background_color="rgba(0, 0, 0, 0.3)",
@@ -758,10 +759,10 @@ def document_manager_page() -> rx.Component:
                             height="100%",
                         ),
                         rx.vstack(
-                            rx.icon("eye-off", size=32, color="#444"),
+                            rx.icon("eye-off", size=32, color=COLORS["text_muted"]),
                             rx.text(
                                 t("doc_preview_hint"),
-                                color="#666", font_size="13px",
+                                color=COLORS["text_muted"], font_size="13px",
                             ),
                             align="center", justify="center", height="100%", spacing="3",
                         ),
@@ -782,7 +783,7 @@ def document_manager_page() -> rx.Component:
 
             spacing="3",
             padding="25px",
-            background_color="#1a1a1a",
+            background_color=COLORS["panel_dark"],
             border_radius="12px",
             # Breakpoints: initial/sm bleiben bei 95vw (Mobil unverändert),
             # ab md wird der vorhandene Platz genutzt statt ihn zu verschenken.

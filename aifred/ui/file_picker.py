@@ -11,6 +11,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
+from ..theme import COLORS
 from .helpers import overlay_scaffold
 
 
@@ -19,12 +20,12 @@ def _icon_for(entry_is_dir: rx.Var, entry_is_symlink: rx.Var) -> rx.Component:  
     return rx.hstack(
         rx.cond(
             entry_is_dir,
-            rx.icon("folder", size=18, color="#4287f5"),
-            rx.icon("file", size=18, color="#888"),
+            rx.icon("folder", size=18, color=COLORS["accent_blue"]),
+            rx.icon("file", size=18, color=COLORS["text_secondary"]),
         ),
         rx.cond(
             entry_is_symlink,
-            rx.icon("link", size=11, color="#aaa", margin_left="-6px", margin_top="6px"),
+            rx.icon("link", size=11, color=COLORS["text_secondary"], margin_left="-6px", margin_top="6px"),
             rx.fragment(),
         ),
         spacing="0",
@@ -47,7 +48,7 @@ def _entry_row(entry: rx.Var) -> rx.Component:  # type: ignore[type-arg]
         rx.cond(
             entry["error"] != "",
             rx.tooltip(
-                rx.icon("triangle-alert", size=14, color="#f87171"),
+                rx.icon("triangle-alert", size=14, color=COLORS["danger"]),
                 content=entry["error"],
             ),
             rx.fragment(),
@@ -139,8 +140,8 @@ def _toolbar() -> rx.Component:
         rx.cond(
             ~AIState.picker_writable,
             rx.hstack(
-                rx.icon("lock", size=12, color="#888"),
-                rx.text("read-only", font_size="11px", color="#888"),
+                rx.icon("lock", size=12, color=COLORS["text_secondary"]),
+                rx.text("read-only", font_size="11px", color=COLORS["text_secondary"]),
                 spacing="1",
                 align="center",
             ),
@@ -261,7 +262,7 @@ def file_picker_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("folder", size=20, color="#4287f5"),
+                rx.icon("folder", size=20, color=COLORS["accent_blue"]),
                 rx.text(AIState.picker_title, font_weight="bold", font_size="15px"),
                 rx.spacer(),
                 rx.button(
@@ -282,7 +283,7 @@ def file_picker_modal() -> rx.Component:
             rx.text(
                 "Sandbox: ", AIState.picker_root,
                 font_size="11px",
-                color="#888",
+                color=COLORS["text_secondary"],
                 font_family="monospace",
             ),
             # Breadcrumbs
@@ -311,7 +312,7 @@ def file_picker_modal() -> rx.Component:
                     rx.cond(
                         AIState.picker_filtered_entries.length() == 0,
                         rx.center(
-                            rx.text("(Ordner leer oder kein Treffer)", color="#888", font_size="13px"),
+                            rx.text("(Ordner leer oder kein Treffer)", color=COLORS["text_secondary"], font_size="13px"),
                             padding="20px",
                         ),
                         rx.vstack(
@@ -360,7 +361,7 @@ def file_picker_modal() -> rx.Component:
             width="min(900px, 95vw)",
             height="min(720px, 90vh)",
             padding="20px",
-            background_color="#1f1f1f",
+            background_color=COLORS["panel_dark"],
             border_radius="8px",
             border="1px solid #444",
             box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",

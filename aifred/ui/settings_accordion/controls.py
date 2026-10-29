@@ -6,7 +6,7 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import t, agent_emoji
+from ..helpers import agent_emoji, t
 
 
 def _ctx_column(
@@ -127,7 +127,7 @@ def _lightbulb_icon() -> rx.Component:
         rx.icon(
             "lightbulb",
             size=14,
-            color="#FFD700",
+            color=COLORS["accent_gold"],
             cursor="pointer",
             on_click=AIState.open_reasoning_thinking_help,
             style={
@@ -160,13 +160,13 @@ def _speed_toggle(
                 rx.text(
                     "Ctx",
                     font_size="10px",
-                    color=rx.cond(speed_mode_var, "#666", "#4CAF50"),
+                    color=rx.cond(speed_mode_var, COLORS["text_muted"], COLORS["accent_success"]),
                 ),
                 rx.switch(**switch_kwargs),
                 rx.text(
                     "\u26a1",
                     font_size="10px",
-                    color=rx.cond(speed_mode_var, "#FFA500", "#666"),
+                    color=rx.cond(speed_mode_var, COLORS["accent_amber"], COLORS["text_muted"]),
                 ),
                 spacing="1",
                 align="center",

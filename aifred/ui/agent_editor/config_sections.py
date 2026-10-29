@@ -8,6 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import t
 from .tool_pills import _tier_help_content, _tool_groups
 
@@ -52,7 +53,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             rx.hstack(
                 rx.text(
                     "\U0001f50a ", t("agent_editor_tts_title"),
-                    color="#FFD700",
+                    color=COLORS["accent_gold"],
                     font_weight="bold",
                     font_size="14px",
                 ),
@@ -62,7 +63,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             ),
             # Backend + Voice
             rx.hstack(
-                rx.text(t("agent_editor_tts_backend"), font_size="11px", color="#aaa", flex_shrink="0"),
+                rx.text(t("agent_editor_tts_backend"), font_size="11px", color=COLORS["text_secondary"], flex_shrink="0"),
                 rx.box(
                     rx.select(
                         AIState.tts_editor_engine_options,
@@ -74,7 +75,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
                     flex="1",
                     min_width="0",
                 ),
-                rx.text(t("agent_editor_tts_voice"), font_size="11px", color="#aaa", flex_shrink="0"),
+                rx.text(t("agent_editor_tts_voice"), font_size="11px", color=COLORS["text_secondary"], flex_shrink="0"),
                 rx.box(
                     rx.select(
                         AIState.editor_tts_available_voices,
@@ -93,7 +94,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             ),
             # Speed + Pitch
             rx.hstack(
-                rx.text(t("agent_editor_tts_speed"), font_size="11px", color="#aaa", width="55px"),
+                rx.text(t("agent_editor_tts_speed"), font_size="11px", color=COLORS["text_secondary"], width="55px"),
                 rx.select(
                     # 0.05 steps in the speech-natural range so
                     # there's a value between 0.8 and 0.9 (0.85);
@@ -111,7 +112,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
                     size="1",
                     width="90px",
                 ),
-                rx.text(t("agent_editor_tts_pitch"), font_size="11px", color="#aaa", width="55px"),
+                rx.text(t("agent_editor_tts_pitch"), font_size="11px", color=COLORS["text_secondary"], width="55px"),
                 rx.select(
                     ["0.8", "0.85", "0.9", "0.95", "1.0", "1.05", "1.1", "1.15", "1.2"],
                     value=AIState.editor_agent_tts_pitch,
@@ -125,7 +126,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             ),
             # Language override (Auto = detected language / UI fallback).
             rx.hstack(
-                rx.text(t("agent_editor_tts_language"), font_size="11px", color="#aaa", width="55px"),
+                rx.text(t("agent_editor_tts_language"), font_size="11px", color=COLORS["text_secondary"], width="55px"),
                 rx.box(
                     rx.select(
                         AIState.tts_language_labels,
@@ -144,7 +145,7 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             spacing="2",
             width="100%",
             padding="10px",
-            background_color="#222",
+            background_color=COLORS["panel_dark"],
             border_radius="8px",
             border="1px solid #333",
             overflow="hidden",
@@ -160,19 +161,19 @@ def _tools_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> r
             rx.hstack(
                 rx.text(
                     "Tools",
-                    color="#FFD700",
+                    color=COLORS["accent_gold"],
                     font_weight="bold",
                     font_size="14px",
                 ),
                 rx.spacer(),
                 rx.popover.root(
                     rx.popover.trigger(
-                        rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer"),
+                        rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
                     ),
                     rx.popover.content(
                         _tier_help_content(),
                         side="left",
-                        style={"background": "#2a2a3e", "border": "1px solid #555", "border-radius": "8px"},
+                        style={"background": COLORS["panel_raised"], "border": "1px solid #555", "border-radius": "8px"},
                     ),
                 ),
                 rx.button(
@@ -217,7 +218,7 @@ def _prompts_section(is_new: rx.Var) -> rx.Component:
             rx.hstack(
                 rx.text(
                     t("agent_editor_prompts"),
-                    color="#FFD700",
+                    color=COLORS["accent_gold"],
                     font_weight="bold",
                     font_size="14px",
                 ),
@@ -257,7 +258,7 @@ def _prompts_section(is_new: rx.Var) -> rx.Component:
                 width="100%",
                 min_height="200px",
                 color="white",
-                background_color="#1a1a1a",
+                background_color=COLORS["panel_dark"],
                 border="1px solid #444",
                 font_family="monospace",
                 font_size="13px",
@@ -280,11 +281,11 @@ def _dirty_warning() -> rx.Component:
         AIState.editor_dirty_confirm,
         rx.vstack(
             rx.hstack(
-                rx.icon("triangle-alert", size=16, color="#ff6600"),
+                rx.icon("triangle-alert", size=16, color=COLORS["primary"]),
                 rx.text(
                     t("agent_editor_unsaved_warning"),
                     font_size="13px",
-                    color="#ff6600",
+                    color=COLORS["primary"],
                 ),
                 spacing="2",
                 align="center",

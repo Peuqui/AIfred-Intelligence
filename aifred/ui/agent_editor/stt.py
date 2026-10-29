@@ -8,6 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import t
 from .header import _editor_header
 
@@ -27,7 +28,7 @@ def _stt_row(label, control: rx.Component, hint=None) -> rx.Component:
             # Zeile breiter werden zu lassen — sonst schiebt die Summe aus
             # Label- und Control-Breite den Tab in einen H-Scrollbalken.
             rx.text(
-                label, font_size="13px", color="#ccc",
+                label, font_size="13px", color=COLORS["text_soft"],
                 flex_grow="1", min_width="0",
             ),
             rx.box(control, flex_shrink="0"),
@@ -37,7 +38,7 @@ def _stt_row(label, control: rx.Component, hint=None) -> rx.Component:
         ),
     ]
     if hint is not None:
-        rows.append(rx.text(hint, font_size="11px", color="#777", width="100%"))
+        rows.append(rx.text(hint, font_size="11px", color=COLORS["text_muted"], width="100%"))
     return rx.vstack(
         *rows,
         spacing="1",
@@ -71,7 +72,7 @@ def _stt_view() -> rx.Component:
                     ),
                     t("stt_device_hint"),
                 ),
-                rx.text(t("stt_suite_hint"), font_size="12px", color="#aaa", width="100%"),
+                rx.text(t("stt_suite_hint"), font_size="12px", color=COLORS["text_secondary"], width="100%"),
                 spacing="3",
                 width="100%",
                 min_width="0",

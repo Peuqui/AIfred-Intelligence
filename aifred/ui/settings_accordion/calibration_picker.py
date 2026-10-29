@@ -6,6 +6,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import t
 
 
@@ -98,10 +99,10 @@ def _matrix_row(row) -> rx.Component:
                             border_radius="50%",
                             background=rx.cond(
                                 cell["calibration_failed"].to(bool),
-                                "#ef4444",
+                                COLORS["danger"],
                                 rx.cond(
                                     cell["already_calibrated"].to(bool),
-                                    "#22c55e",
+                                    COLORS["accent_success"],
                                     "transparent",
                                 ),
                             ),
@@ -313,7 +314,7 @@ def _vllm_calibration_popover() -> rx.Component:
                             border_radius="50%",
                             background=rx.cond(
                                 AIState.vllm_model_calibrated,
-                                "#22c55e",
+                                COLORS["accent_success"],
                                 "#4b5563",
                             ),
                             flex_shrink="0",
@@ -349,7 +350,7 @@ def _vllm_calibration_popover() -> rx.Component:
                         border_radius="50%",
                         background=rx.cond(
                             AIState.vllm_model_calibrated,
-                            "#22c55e",
+                            COLORS["accent_success"],
                             "#4b5563",
                         ),
                         flex_shrink="0",

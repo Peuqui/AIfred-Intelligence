@@ -8,8 +8,8 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import t
-from .header import _editor_header
 from .config_sections import (
     _action_buttons,
     _dirty_warning,
@@ -17,13 +17,13 @@ from .config_sections import (
     _tools_section,
     _tts_section,
 )
-
+from .header import _editor_header
 
 # Shared style for DOM-only input fields
 _INPUT_STYLE = {
     "width": "100%",
     "color": "white",
-    "background_color": "#333",
+    "background_color": COLORS["panel_raised"],
     "border": "1px solid #555",
     "border_radius": "6px",
     "padding": "6px 10px",
@@ -32,8 +32,8 @@ _INPUT_STYLE = {
 
 _ID_INPUT_STYLE = {
     "width": "100%",
-    "color": "#bbb",
-    "background_color": "#2a2a2a",
+    "color": COLORS["text_soft"],
+    "background_color": COLORS["panel_raised"],
     "border": "1px solid #444",
     "border_radius": "6px",
     "padding": "6px 10px",
@@ -169,7 +169,7 @@ def _metadata_row(is_new: rx.Var, is_automatik: rx.Var) -> rx.Component:
         rx.cond(
             ~is_new,
             rx.vstack(
-                rx.text(t("agent_editor_agent_id"), color="#aaa", font_size="12px"),
+                rx.text(t("agent_editor_agent_id"), color=COLORS["text_secondary"], font_size="12px"),
                 rx.el.input(
                     value=AIState.editor_agent_id,
                     read_only=True,
@@ -183,7 +183,7 @@ def _metadata_row(is_new: rx.Var, is_automatik: rx.Var) -> rx.Component:
         ),
         # Name
         rx.vstack(
-            rx.text(t("agent_editor_name"), color="#aaa", font_size="12px"),
+            rx.text(t("agent_editor_name"), color=COLORS["text_secondary"], font_size="12px"),
             rx.el.input(
                 id="editor-name",
                 auto_complete="off",
@@ -196,7 +196,7 @@ def _metadata_row(is_new: rx.Var, is_automatik: rx.Var) -> rx.Component:
         ),
         # Emoji with picker
         rx.vstack(
-            rx.text(t("agent_editor_emoji"), color="#aaa", font_size="12px"),
+            rx.text(t("agent_editor_emoji"), color=COLORS["text_secondary"], font_size="12px"),
             rx.box(
                 rx.button(
                     AIState.editor_emoji,
@@ -207,7 +207,7 @@ def _metadata_row(is_new: rx.Var, is_automatik: rx.Var) -> rx.Component:
                     variant="outline",
                     color_scheme="gray",
                     cursor="pointer",
-                    background_color="#333",
+                    background_color=COLORS["panel_raised"],
                 ),
                 rx.cond(
                     AIState.editor_emoji_picker_open,
@@ -248,7 +248,7 @@ def _metadata_row(is_new: rx.Var, is_automatik: rx.Var) -> rx.Component:
                         top="100%",
                         left="0",
                         z_index="100",
-                        background_color="#2a2a2a",
+                        background_color=COLORS["panel_raised"],
                         border="1px solid #555",
                         border_radius="8px",
                         padding="8px",
@@ -274,7 +274,7 @@ def _system_model_section(is_system: rx.Var) -> rx.Component:
             # Radix select) → fetch the live model list as soon as
             # the system-agent block is shown.
             rx.hstack(
-                rx.text(t("agent_editor_cloud_provider"), color="#aaa", font_size="12px"),
+                rx.text(t("agent_editor_cloud_provider"), color=COLORS["text_secondary"], font_size="12px"),
                 rx.select(
                     AIState.editor_cloud_provider_options,
                     value=AIState.editor_cloud_provider_label,
@@ -282,7 +282,7 @@ def _system_model_section(is_system: rx.Var) -> rx.Component:
                     size="2",
                     width="170px",
                 ),
-                rx.text(t("agent_editor_cloud_model"), color="#aaa", font_size="12px"),
+                rx.text(t("agent_editor_cloud_model"), color=COLORS["text_secondary"], font_size="12px"),
                 rx.select(
                     AIState.editor_cloud_model_options,
                     value=AIState.editor_model,
@@ -293,14 +293,14 @@ def _system_model_section(is_system: rx.Var) -> rx.Component:
                 rx.tooltip(
                     rx.hstack(
                         rx.icon("brain", size=14, color=rx.cond(
-                            AIState.editor_system_reasoning, "#FFD700", "#666",
+                            AIState.editor_system_reasoning, COLORS["accent_gold"], COLORS["text_muted"],
                         )),
                         rx.switch(
                             checked=AIState.editor_system_reasoning,
                             on_change=AIState.toggle_editor_system_reasoning,
                             size="1",
                         ),
-                        rx.text(t("agent_editor_reasoning_toggle"), font_size="12px", color="#aaa"),
+                        rx.text(t("agent_editor_reasoning_toggle"), font_size="12px", color=COLORS["text_secondary"]),
                         spacing="2",
                         align="center",
                     ),
@@ -312,7 +312,7 @@ def _system_model_section(is_system: rx.Var) -> rx.Component:
             rx.box(
                 rx.text(
                     t("agent_editor_cloud_model_hint"),
-                    color="#888",
+                    color=COLORS["text_secondary"],
                     font_size="11px",
                     line_height="1.5",
                 ),
@@ -334,7 +334,7 @@ def _role_description_row(is_automatik: rx.Var, is_system: rx.Var) -> rx.Compone
     # Role + Description (hidden for Automatik and system agents)
     return rx.cond(~is_automatik & ~is_system, rx.hstack(
         rx.vstack(
-            rx.text(t("agent_editor_role"), color="#aaa", font_size="12px"),
+            rx.text(t("agent_editor_role"), color=COLORS["text_secondary"], font_size="12px"),
             rx.select(
                 ["main", "critic", "judge", "custom"],
                 value=AIState.editor_role,
@@ -345,7 +345,7 @@ def _role_description_row(is_automatik: rx.Var, is_system: rx.Var) -> rx.Compone
             spacing="1",
         ),
         rx.vstack(
-            rx.text(t("agent_editor_description"), color="#aaa", font_size="12px"),
+            rx.text(t("agent_editor_description"), color=COLORS["text_secondary"], font_size="12px"),
             rx.el.input(
                 id="editor-description",
                 auto_complete="off",

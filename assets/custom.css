@@ -10,17 +10,17 @@ html, body, #root, .radix-themes {
 :root,
 [data-is-root-theme="true"] {
     /* Gray Scale 1-12: Von dunkelsten zu hellsten Grautönen */
-    --gray-1: #0d1117 !important;    /* Darkest - Page background */
-    --gray-2: #161b22 !important;    /* Dark - Card background (für Accordion!) */
-    --gray-3: #21262d !important;    /* Medium dark - Input background */
-    --gray-4: #30363d !important;    /* Border color */
-    --gray-5: #484f58 !important;    /* Border light */
-    --gray-6: #30363d !important;    /* Border (für Accordion border!) */
+    --gray-1: var(--aifred-page-bg) !important;    /* Darkest - Page background */
+    --gray-2: var(--aifred-card-bg) !important;    /* Dark - Card background (für Accordion!) */
+    --gray-3: var(--aifred-input-bg) !important;    /* Medium dark - Input background */
+    --gray-4: var(--aifred-border) !important;    /* Border color */
+    --gray-5: var(--aifred-border-light) !important;    /* Border light */
+    --gray-6: var(--aifred-border) !important;    /* Border (für Accordion border!) */
     --gray-7: #6e7681 !important;    /* Text muted */
-    --gray-8: #7d8590 !important;    /* Text secondary */
+    --gray-8: var(--aifred-text-muted) !important;    /* Text secondary */
     --gray-9: #9198a1 !important;    /* Text secondary lighter */
     --gray-10: #b1bac4 !important;   /* Text primary dimmed */
-    --gray-11: #e6edf3 !important;   /* Text primary */
+    --gray-11: var(--aifred-text-primary) !important;   /* Text primary */
     --gray-12: #f0f6fc !important;   /* Text high contrast */
 
     /* Alpha variants (transparent) */
@@ -38,23 +38,23 @@ html, body, #root, .radix-themes {
     --gray-a12: rgba(240, 246, 252, 0.9) !important;
 
     /* Radix Accent Color (Default) - auch dunkel überschreiben */
-    --accent-1: #0d1117 !important;
-    --accent-2: #161b22 !important;
-    --accent-3: #21262d !important;
-    --accent-4: #30363d !important;
-    --accent-5: #484f58 !important;
-    --accent-6: #30363d !important;
+    --accent-1: var(--aifred-page-bg) !important;
+    --accent-2: var(--aifred-card-bg) !important;
+    --accent-3: var(--aifred-input-bg) !important;
+    --accent-4: var(--aifred-border) !important;
+    --accent-5: var(--aifred-border-light) !important;
+    --accent-6: var(--aifred-border) !important;
     --accent-7: #6e7681 !important;
-    --accent-8: #7d8590 !important;
-    --accent-9: #e67700 !important;   /* Orange Accent */
-    --accent-10: #ff9500 !important;
-    --accent-11: #e67700 !important;
-    --accent-12: #e67700 !important;
+    --accent-8: var(--aifred-text-muted) !important;
+    --accent-9: var(--aifred-primary) !important;   /* Orange Accent */
+    --accent-10: var(--aifred-primary-hover) !important;
+    --accent-11: var(--aifred-primary) !important;
+    --accent-12: var(--aifred-primary) !important;
 
     /* Color Background - für alle Komponenten */
-    --color-background: #0d1117 !important;
-    --color-panel: #161b22 !important;
-    --color-surface: #21262d !important;
+    --color-background: var(--aifred-page-bg) !important;
+    --color-panel: var(--aifred-card-bg) !important;
+    --color-surface: var(--aifred-input-bg) !important;
 }
 
 /* Radix UI Custom Orange Color Scale Override */
@@ -77,7 +77,7 @@ html, body, #root, .radix-themes {
 .rt-SwitchRoot[data-state="unchecked"],
 .rt-SwitchRoot[data-state="unchecked"] > span,
 .rt-SwitchRoot[data-state="unchecked"]::before {
-    background-color: #30363d !important;  /* UNCHECKED: Grau (deutlich unterscheidbar) */
+    background-color: var(--aifred-border) !important;  /* UNCHECKED: Grau (deutlich unterscheidbar) */
     border-radius: 9999px !important;      /* Volle Rundung */
 }
 
@@ -101,7 +101,7 @@ html, body, #root, .radix-themes {
 
 /* Entferne Test-Grün von TextAreas */
 .rt-TextAreaRoot {
-    border-color: #30363d !important;  /* Grau wie im Theme */
+    border-color: var(--aifred-border) !important;  /* Grau wie im Theme */
 }
 
 /* Verhindere orange Borders auf allen Boxen */
@@ -130,7 +130,7 @@ html, body, #root, .radix-themes {
 .rt-Box {
     accent-color: transparent !important;
     outline-color: transparent !important;
-    border-color: #30363d !important;
+    border-color: var(--aifred-border) !important;
 }
 
 /* Force dark backgrounds on all card/container components */
@@ -147,7 +147,7 @@ html, body, #root, .radix-themes {
 .rt-Label,
 .rt-VStack,
 .rt-HStack {
-    background-color: transparent !important;  /* Transparent statt #161b22 für innere Elemente */
+    background-color: transparent !important;  /* Transparent statt card_bg für innere Elemente */
 }
 
 /* Nur Top-Level Container bekommen Farbe */
@@ -168,9 +168,9 @@ body > .rt-Flex,
 textarea,
 input[type="text"],
 input[type="search"] {
-    background-color: #21262d !important;
-    color: #e6edf3 !important;
-    border-color: #30363d !important;
+    background-color: var(--aifred-input-bg) !important;
+    color: var(--aifred-text-primary) !important;
+    border-color: var(--aifred-border) !important;
 }
 
 /* Auch für Focus-State */
@@ -178,21 +178,21 @@ input[type="search"] {
 .rt-TextAreaRoot:focus-within,
 .rt-TextAreaRoot textarea:focus,
 textarea:focus {
-    background-color: #21262d !important;
-    color: #e6edf3 !important;
+    background-color: var(--aifred-input-bg) !important;
+    color: var(--aifred-text-primary) !important;
 }
 
 /* Select dropdown content dark background */
 .rt-SelectContent,
 .rt-SelectViewport {
-    background-color: #161b22 !important;
-    color: #e6edf3 !important;
+    background-color: var(--aifred-card-bg) !important;
+    color: var(--aifred-text-primary) !important;
 }
 
 /* Select items dark background */
 .rt-SelectItem {
-    background-color: #161b22 !important;
-    color: #e6edf3 !important;
+    background-color: var(--aifred-card-bg) !important;
+    color: var(--aifred-text-primary) !important;
 }
 
 .rt-SelectItem[data-highlighted] {
@@ -219,11 +219,11 @@ details[data-sandbox] {
 details summary {
     cursor: pointer !important;
     font-weight: bold !important;
-    color: #aaa !important;  /* Gleiche Farbe wie "Denkprozess (model)" */
+    color: var(--aifred-text-secondary) !important;  /* Gleiche Farbe wie "Denkprozess (model)" */
 }
 
 .thinking-compact {
-    color: #ccc !important;  /* Heller als Summary, naeher am normalen Text */
+    color: var(--aifred-text-soft) !important;  /* Heller als Summary, naeher am normalen Text */
     background-color: transparent !important;
     padding: 0.5em !important;
     /* KEIN white-space: pre-wrap! rx.markdown() rendert HTML (p, ol, li) mit eigenen Margins.
@@ -235,7 +235,7 @@ details summary {
 .thinking-compact p {
     margin-top: 0.4em !important;
     margin-bottom: 0.4em !important;
-    color: #ccc !important;  /* Heller als Summary, naeher am normalen Text */
+    color: var(--aifred-text-soft) !important;  /* Heller als Summary, naeher am normalen Text */
 }
 
 .thinking-compact ol, .thinking-compact ul {
@@ -359,7 +359,7 @@ p:last-child > em:only-child {
 /* Crop Box - der selektierte Bereich */
 .crop-box {
     position: absolute;
-    border: 2px dashed #4CAF50;
+    border: 2px dashed var(--aifred-accent-success);
     background: rgba(76, 175, 80, 0.1);
     cursor: move;
     pointer-events: auto;
@@ -374,7 +374,7 @@ p:last-child > em:only-child {
 /* Alle Handles (Ecken und Kanten) */
 .crop-handle {
     position: absolute;
-    background: #4CAF50;
+    background: var(--aifred-accent-success);
     pointer-events: auto;
 }
 
@@ -704,7 +704,7 @@ table {
 
 /* Table cells - proper borders and padding */
 th, td {
-    border: 1px solid #30363d !important;
+    border: 1px solid var(--aifred-border) !important;
     padding: 10px 14px !important;
     text-align: left !important;
     vertical-align: top !important;
@@ -712,9 +712,9 @@ th, td {
 
 /* Header row styling */
 th {
-    background-color: #21262d !important;
+    background-color: var(--aifred-input-bg) !important;
     font-weight: bold !important;
-    color: #e6edf3 !important;
+    color: var(--aifred-text-primary) !important;
     white-space: nowrap !important;  /* Headers don't wrap */
 }
 
@@ -745,31 +745,39 @@ tr:hover {
 [role="tooltip"],
 [data-state="delayed-open"][data-side],
 [data-state="instant-open"][data-side] {
-    background-color: #161b22 !important;
-    color: #cc8800 !important;
-    border: 1px solid #30363d !important;
+    background-color: var(--aifred-tip-bg) !important;
+    color: var(--aifred-tip-text) !important;
+    border: 1px solid var(--aifred-tip-border) !important;
     border-radius: 6px !important;
     padding: 8px 12px !important;
     font-size: 13px !important;
     max-width: 300px !important;
     z-index: 9999 !important;
-    --tooltip-bg: #161b22 !important;
-    --tooltip-content-color: #cc8800 !important;
+    --tooltip-bg: var(--aifred-tip-bg) !important;
+    --tooltip-content-color: var(--aifred-tip-text) !important;
 }
 
 /* Force text color on all child elements */
 .rt-TooltipContent *,
 [data-radix-tooltip-content] *,
 [role="tooltip"] * {
-    color: #cc8800 !important;
+    color: var(--aifred-tip-text) !important;
+}
+
+/* Klick-Popups der Glühbirnen (clickable_tip, Plugin-Liste). Die Regel für .radix-themes
+   oben (html, body, #root, .radix-themes) färbt sonst auch das Popup ein. */
+.tip-popup {
+    background-color: var(--aifred-tip-bg) !important;
+    border: 1px solid var(--aifred-tip-border) !important;
+    border-radius: 8px !important;
 }
 
 /* Tooltip arrow - match background */
 .rt-TooltipArrow,
 [data-radix-tooltip-arrow],
 .rt-TooltipContent svg {
-    fill: #161b22 !important;
-    color: #161b22 !important;
+    fill: var(--aifred-tip-bg) !important;
+    color: var(--aifred-tip-bg) !important;
 }
 
 /* ============================================================
@@ -834,7 +842,7 @@ tr:hover {
 /* Base styling for segmented control items */
 .rt-SegmentedControlItem {
     background-color: transparent !important;
-    color: #7d8590 !important;  /* Muted text for unselected */
+    color: var(--aifred-text-muted) !important;  /* Muted text for unselected */
     transition: all 0.15s ease !important;
 }
 
@@ -855,7 +863,7 @@ tr:hover {
 /* Bubble audio button playing state */
 .bubble-audio-btn.bubble-audio-playing {
     opacity: 1 !important;
-    color: #22c55e !important;
+    color: var(--aifred-accent-success) !important;
     animation: pulse-audio 1.5s ease-in-out infinite;
 }
 @keyframes pulse-audio {
@@ -869,7 +877,7 @@ tr:hover {
    zusätzliche Zeilenhöhe (border-bottom auf das Block-Element).
    ============================================================ */
 .vlm-event-target .vlm-line {
-    /* AIfred-Orange (theme.py: primary = #e67700), halbtransparent
+    /* AIfred-Orange (theme.py: primary), halbtransparent
        für dezente aber sichtbare Trenner. */
     border-bottom: 1px solid rgba(230, 119, 0, 0.55);
     padding: 0;
@@ -915,7 +923,7 @@ tr:hover {
     cursor: pointer;
 }
 .vlm-face-thumb:hover {
-    border-color: #e67700;
+    border-color: var(--aifred-primary);
 }
 .vlm-face-discard-btn {
     flex-shrink: 0;
@@ -968,9 +976,9 @@ tr:hover {
     flex-shrink: 0;
     padding: 0.2em 0.6em;
     border-radius: 4px;
-    border: 1px solid #e67700;
+    border: 1px solid var(--aifred-primary);
     background-color: rgba(230, 119, 0, 0.15);
-    color: #e67700;
+    color: var(--aifred-primary);
     font-size: 0.85em;
     cursor: pointer;
     font-weight: 500;
@@ -1014,14 +1022,14 @@ tr:hover {
 /* Status bar: model, describer, STT, TTS (custom.js, kind "service_status") */
 .service-status-dots { display: flex; align-items: center; gap: 4px 18px; flex-wrap: wrap; }
 .service-status-dots, .service-status-list { --ss-color: #6e7681; }  /* grey; the modifiers below set it per badge */
-.ss-green { --ss-color: #3fb950; }
-.ss-yellow { --ss-color: #d29922; }
-.ss-red { --ss-color: #f85149; }
+.ss-green { --ss-color: var(--aifred-accent-success); }
+.ss-yellow { --ss-color: var(--aifred-accent-warning); }
+.ss-red { --ss-color: var(--aifred-danger); }
 .ss-badge { position: relative; display: inline-flex; flex: none; }
 .ss-icon { width: 24px; height: 24px; border-radius: 6px; object-fit: contain; display: block; }
 .ss-dot {
     position: absolute; right: -3px; bottom: -3px; width: 10px; height: 10px; border-radius: 50%;
-    background: var(--ss-color); border: 2px solid var(--ss-ring, #161b22);
+    background: var(--ss-color); border: 2px solid var(--ss-ring, var(--aifred-card-bg));
 }
 /* Breathing: in and out equally slow (alternate), darker and smaller when breathing out.
    Loaded breathes a full cycle in 10 s, loading in 6 s. */
@@ -1065,8 +1073,38 @@ tr:hover {
 .chat-font-controls { margin-right: 18px; }  /* air between the buttons and the chevron */
 .chat-font-btn {
     cursor: pointer; user-select: none; padding: 0 8px; font-size: 12px; line-height: 22px;
-    border: 1px solid #30363d; border-radius: 6px; color: #e2e8f0;
+    border: 1px solid var(--aifred-border); border-radius: 6px; color: #e2e8f0;
 }
 .chat-font-btn:hover { background: rgba(255, 255, 255, 0.08); }
 .chat-font-percent::after { content: var(--chat-zoom-label, "100 %"); font-size: 11px; opacity: 0.7; font-variant-numeric: tabular-nums; }
 @media (max-width: 640px) { .chat-font-percent { display: none; } }  /* narrow: just A- and A+ beside the chevron */
+
+/* Vigilantia-Live-Vorschau (/vision-preview-popup) auf dem Handy: alles pro Kamera untereinander,
+   die Seite scrollt (am Desktop ist sie ein 100vh-Popup ohne Scrollbalken). Inline-Styles der
+   Komponenten brauchen !important. */
+@media (max-width: 768px) {
+    .vlm-preview-page { height: auto !important; overflow: visible !important; }
+    /* Kopfblock, Kameraliste und Raster lösen sich auf: Kamerakarten und Kacheln werden
+       Geschwister der Seite und stehen per --vlm-order (Karte 2i+1, Kachel 2i+2) je Kamera
+       zusammen. Alles andere behält order 0 und bleibt oben. */
+    .vlm-preview-head, .vlm-source-list, .vlm-preview-grid { display: contents !important; }
+    .vlm-source-card, .vlm-tile { order: var(--vlm-order); }
+    .vlm-preview-status { order: 9999; }
+
+    .vlm-source-card { flex-direction: column !important; align-items: stretch !important; border-top: 1px solid var(--gray-6); padding-top: 0.5em; }
+    .vlm-source-row { flex-wrap: wrap !important; }
+    .vlm-source-name { flex: 1 1 calc(100% - 3.5rem) !important; }
+    .vlm-source-row .rt-SelectTrigger { flex: 1 1 140px !important; min-width: 0 !important; }
+    .vlm-ptz-panel { zoom: 1.4; align-self: center !important; }
+
+    .vlm-tile { height: auto !important; flex: none !important; }
+    .vlm-tile-row { display: contents !important; }
+    .vlm-tile-image { order: 1; display: block !important; width: 100% !important; flex: none !important; }
+    .vlm-tile-image img { height: auto !important; max-height: 60vh !important; }
+    .vlm-teleprompter-overlay { position: relative !important; left: auto !important; right: auto !important; bottom: auto !important; margin-top: 0.5em; }
+    .vlm-teleprompter-below { order: 2; }
+    .vlm-tile-side { order: 3; min-width: 0 !important; flex: none !important; }
+    .vlm-briefing { min-height: 6em !important; flex: none !important; }
+    .vlm-face-target { flex: none !important; min-height: 120px !important; max-height: 40vh !important; }
+    .vlm-event-overlay { height: 10em !important; }
+}

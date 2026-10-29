@@ -16,13 +16,14 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import t, overlay_scaffold
+from ..theme import COLORS
+from .helpers import overlay_scaffold, t
 
 
 def _help_bullet(label: str, text: str) -> rx.Component:
     return rx.hstack(
-        rx.text(label, font_weight="bold", min_width="180px", color="#ffd166"),
-        rx.text(text, font_size="12px", color="#ddd", flex="1"),
+        rx.text(label, font_weight="bold", min_width="180px", color=COLORS["accent_gold"]),
+        rx.text(text, font_size="12px", color=COLORS["text_soft"], flex="1"),
         spacing="2",
         align="start",
         width="100%",
@@ -39,7 +40,7 @@ def audio_help_modal() -> rx.Component:
     return overlay_scaffold(
         rx.vstack(
             rx.hstack(
-                rx.icon("lightbulb", size=20, color="#ffd166"),
+                rx.icon("lightbulb", size=20, color=COLORS["accent_gold"]),
                 rx.text(
                     "Hilfe — Audio Player Sources & Index",
                     font_weight="bold", font_size="15px",
@@ -68,7 +69,7 @@ def audio_help_modal() -> rx.Component:
                 rx.text(
                     t("audio_help_lifecycle_link"),
                     size="2",
-                    color="#FFA500",
+                    color=COLORS["accent_amber"],
                     cursor="pointer",
                     on_click=[
                         AIState.toggle_audio_settings_help,
@@ -91,7 +92,7 @@ def audio_help_modal() -> rx.Component:
             width="min(820px, 95vw)",
             height="min(640px, 90vh)",
             padding="20px",
-            background_color="#1f1f1f",
+            background_color=COLORS["panel_dark"],
             border_radius="8px",
             border="1px solid rgba(255, 209, 102, 0.4)",
             box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
@@ -114,7 +115,7 @@ def _help_content() -> rx.Component:
                 "💡 Workflow + Buttons im Überblick",
                 font_weight="bold",
                 font_size="13px",
-                color="#ffd166",
+                color=COLORS["accent_gold"],
             ),
             rx.divider(margin="4px 0"),
             rx.text(
@@ -123,7 +124,7 @@ def _help_content() -> rx.Component:
                 ". Symlinks zeigen NAS-Inhalt transparent. "
                 "HTTP-Streams werden in der settings.json verwaltet.",
                 font_size="12px",
-                color="#bbb",
+                color=COLORS["text_soft"],
                 line_height="1.5",
             ),
             _help_bullet(
@@ -222,11 +223,11 @@ def _help_content() -> rx.Component:
 def _sandbox_root_editor() -> rx.Component:
     """Inline editor for picker.root in plugin settings.json."""
     return rx.hstack(
-        rx.icon("shield", size=14, color="#888"),
+        rx.icon("shield", size=14, color=COLORS["text_secondary"]),
         rx.text(
             "Sandbox-Root",
             font_size="12px",
-            color="#aaa",
+            color=COLORS["text_secondary"],
             min_width="100px",
         ),
         rx.input(
@@ -254,14 +255,14 @@ def _sandbox_root_editor() -> rx.Component:
 def _tts_list_threshold_editor() -> rx.Component:
     """Inline editor for tts_list.full_max_items (TTS list filter threshold)."""
     return rx.hstack(
-        rx.icon("megaphone-off", size=14, color="#888"),
+        rx.icon("megaphone-off", size=14, color=COLORS["text_secondary"]),
         rx.text(
             "TTS-Listen-Filter",
             font_size="12px",
-            color="#aaa",
+            color=COLORS["text_secondary"],
             min_width="100px",
         ),
-        rx.text("ab:", font_size="11px", color="#666"),
+        rx.text("ab:", font_size="11px", color=COLORS["text_muted"]),
         rx.input(
             value=AIState.audio_tts_list_max_input,
             on_change=AIState.audio_set_tts_list_max_input,
@@ -273,7 +274,7 @@ def _tts_list_threshold_editor() -> rx.Component:
         rx.text(
             "Einträgen wird nicht vorgelesen",
             font_size="11px",
-            color="#666",
+            color=COLORS["text_muted"],
         ),
         rx.spacer(),
         rx.button(
@@ -307,8 +308,8 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                 rx.icon("radio", size=16, color="#a78bfa"),
                 rx.cond(
                     src["is_symlink"],
-                    rx.icon("link", size=16, color="#4287f5"),
-                    rx.icon("folder", size=16, color="#4287f5"),
+                    rx.icon("link", size=16, color=COLORS["accent_blue"]),
+                    rx.icon("folder", size=16, color=COLORS["accent_blue"]),
                 ),
             ),
             # Label
@@ -324,7 +325,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                 rx.text(
                     src["target"],
                     font_size="11px",
-                    color="#888",
+                    color=COLORS["text_secondary"],
                     font_family="monospace",
                     overflow="hidden",
                     text_overflow="ellipsis",
@@ -333,11 +334,11 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
                 ),
                 rx.cond(
                     src["is_stream"],
-                    rx.text("Stream — kein Index", font_size="10px", color="#666"),
+                    rx.text("Stream — kein Index", font_size="10px", color=COLORS["text_muted"]),
                     rx.text(
                         src["indexed"].to(str), " Dateien indexiert",
                         font_size="10px",
-                        color="#666",
+                        color=COLORS["text_muted"],
                     ),
                 ),
                 spacing="0",
@@ -428,7 +429,7 @@ def audio_settings_page() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("music", size=20, color="#4287f5"),
+                rx.icon("music", size=20, color=COLORS["accent_blue"]),
                 rx.text("Audio Player — Sources & Index", font_weight="bold", font_size="15px"),
                 rx.spacer(),
                 # Help / lightbulb
@@ -467,7 +468,7 @@ def audio_settings_page() -> rx.Component:
                 ". Symlinks zeigen NAS-Inhalt transparent. "
                 "HTTP-Streams werden in der settings.json verwaltet.",
                 font_size="12px",
-                color="#888",
+                color=COLORS["text_secondary"],
                 line_height="1.5",
             ),
             # Source list — flex=1 keeps the modal at a fixed size
@@ -489,7 +490,7 @@ def audio_settings_page() -> rx.Component:
                 rx.text(
                     AIState.audio_settings_status,
                     font_size="12px",
-                    color="#aaa",
+                    color=COLORS["text_secondary"],
                     font_family="monospace",
                     padding="6px 10px",
                     background_color="rgba(0, 0, 0, 0.3)",
@@ -528,7 +529,7 @@ def audio_settings_page() -> rx.Component:
             width="min(1000px, 95vw)",
             height="min(680px, 90vh)",
             padding="20px",
-            background_color="#1f1f1f",
+            background_color=COLORS["panel_dark"],
             border_radius="8px",
             border="1px solid #444",
             box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",

@@ -9,6 +9,7 @@ import reflex as rx
 
 from ...lib.config import AGENT_MEMORY_SUMMARY_MAX_CHARS
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import confirm_delete_all, t
 from .header import _editor_header
 
@@ -19,7 +20,7 @@ def _memory_entry_text(entry: rx.Var) -> rx.Component:
         rx.text(
             entry["summary"],
             font_size="15px",
-            color="#ddd",
+            color=COLORS["text_soft"],
             font_weight="500",
             padding_top="4px",
         ),
@@ -28,7 +29,7 @@ def _memory_entry_text(entry: rx.Var) -> rx.Component:
             rx.text(
                 entry["content"],
                 font_size="14px",
-                color="#aaa",
+                color=COLORS["text_secondary"],
                 padding_top="4px",
                 style={"white_space": "pre-wrap"},
             ),
@@ -97,7 +98,7 @@ def _memory_entry_row(entry: rx.Var) -> rx.Component:
                 ),
                 font_size="10px",
             ),
-            rx.text(entry["date"], font_size="11px", color="#888"),
+            rx.text(entry["date"], font_size="11px", color=COLORS["text_secondary"]),
             rx.spacer(),
             rx.icon_button(
                 rx.icon("pencil", size=12),
@@ -209,7 +210,7 @@ def _memory_view() -> rx.Component:
                     AIState.memory_browser_agent == "",
                     rx.text(
                         t("memory_select_hint"),
-                        color="#888",
+                        color=COLORS["text_secondary"],
                         font_size="13px",
                         padding_top="20px",
                         text_align="center",
@@ -226,7 +227,7 @@ def _memory_view() -> rx.Component:
                         ),
                         rx.text(
                             t("memory_no_entries"),
-                            color="#888",
+                            color=COLORS["text_secondary"],
                             font_size="13px",
                         ),
                     ),

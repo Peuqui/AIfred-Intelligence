@@ -5,6 +5,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import agent_emoji, overlay_scaffold
 
 
@@ -105,7 +106,7 @@ def login_dialog() -> rx.Component:
                         spacing="4",
                         width="100%",
                     ),
-                    background_color="#1a1a1a",
+                    background_color=COLORS["panel_dark"],
                     border_radius="12px",
                     padding="24px",
                     width="320px",

@@ -9,6 +9,7 @@ import reflex as rx
 
 from ...lib.plugin_base import plugin_description, plugin_display_name
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import plugin_text, t
 from .header import _editor_header
 from .tool_pills import _tier_help_content
@@ -24,21 +25,21 @@ def _plugin_description_popover(plugin: object | None) -> rx.Component:
     description = plugin_text(plugin_description, plugin)
     return rx.popover.root(
         rx.popover.trigger(
-            rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer"),
+            rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
         ),
         rx.popover.content(
-            rx.text(description, font_size="11px", color="white", padding="8px", max_width="320px"),
+            rx.text(description, font_size="11px", color=COLORS["tip_text"], padding="8px", max_width="320px"),
             side="right",
-            style={"background": "#2a2a3e", "border": "1px solid #555", "border-radius": "8px"},
+            class_name="tip-popup",
         ),
     )
 
 
 def _plugins_view() -> rx.Component:
     """Plugins tab: channel and tool plugin management."""
+    from ...lib.i18n import TranslationManager as _TM
     from ...lib.plugin_registry import all_channels
     from ...lib.security import TIER_I18N_KEYS
-    from ...lib.i18n import TranslationManager as _TM
     # Build tier dropdown options per language (select needs static lists)
     _tier_opts = {
         lang: [f"T{tier} — {_TM.get_text(lk, lang)}" for tier, lk, _dk in TIER_I18N_KEYS]
@@ -50,7 +51,7 @@ def _plugins_view() -> rx.Component:
     # list_all_plugins() (not discover_tools) so DISABLED plugins still show up and
     # can be re-enabled. get_tool_plugin() is None for a disabled plugin — then
     # we render a minimal row (name + toggle), without description/settings.
-    from ...lib.plugin_registry import list_all_plugins, get_tool_plugin
+    from ...lib.plugin_registry import get_tool_plugin, list_all_plugins
     tool_rows: list[rx.Component] = []
     for _pmeta in list_all_plugins():
         if _pmeta["type"] != "tool":
@@ -64,8 +65,8 @@ def _plugins_view() -> rx.Component:
         row_children: list[rx.Component] = [
             # Name column — fixed width keeps lightbulb column aligned across rows
             rx.hstack(
-                rx.icon("puzzle", size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
-                rx.text(display_name, font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+                rx.icon("puzzle", size=14, color=rx.cond(enabled_var, COLORS["accent_success"], COLORS["text_muted"])),
+                rx.text(display_name, font_size="14px", color=rx.cond(enabled_var, "white", COLORS["text_secondary"])),
                 spacing="2", align="center", min_width="220px",
             ),
             _plugin_description_popover(plugin),
@@ -112,7 +113,7 @@ def _plugins_view() -> rx.Component:
             rx.text(
                 rx.cond(enabled_var, "ON", "OFF"),
                 font_size="11px",
-                color=rx.cond(enabled_var, "#4CAF50", "#999"),
+                color=rx.cond(enabled_var, COLORS["accent_success"], COLORS["text_secondary"]),
                 min_width="24px",
             ),
         ])
@@ -156,8 +157,8 @@ def _plugins_view() -> rx.Component:
         header = rx.hstack(
             # Col 1: Icon + Name (fixed width for alignment)
             rx.hstack(
-                rx.icon(channel_plugin.icon, size=14, color=rx.cond(enabled_var, "#4CAF50", "#666")),
-                rx.text(plugin_text(plugin_display_name, channel_plugin), font_size="14px", color=rx.cond(enabled_var, "white", "#999")),
+                rx.icon(channel_plugin.icon, size=14, color=rx.cond(enabled_var, COLORS["accent_success"], COLORS["text_muted"])),
+                rx.text(plugin_text(plugin_display_name, channel_plugin), font_size="14px", color=rx.cond(enabled_var, "white", COLORS["text_secondary"])),
                 spacing="2", align="center", min_width="220px",
             ),
             # Col 1b: lightbulb description popover (aligned across rows)
@@ -182,7 +183,7 @@ def _plugins_view() -> rx.Component:
             rx.text(
                 rx.cond(enabled_var, "ON", "OFF"),
                 font_size="11px",
-                color=rx.cond(enabled_var, "#4CAF50", "#999"),
+                color=rx.cond(enabled_var, COLORS["accent_success"], COLORS["text_secondary"]),
                 min_width="24px",
             ),
             spacing="2",
@@ -201,14 +202,14 @@ def _plugins_view() -> rx.Component:
                     enabled_var,
                     rx.hstack(
                         rx.box(width="14px"),
-                        rx.text("Monitor", font_size="11px", color="#999"),
+                        rx.text("Monitor", font_size="11px", color=COLORS["text_secondary"]),
                         rx.spacer(),
                         rx.switch(
                             checked=monitor_var,
                             on_change=lambda val, ch=name: AIState.toggle_channel_listener([ch, val]),
                             size="1",
                         ),
-                        rx.text(rx.cond(monitor_var, "ON", "OFF"), font_size="11px", color=rx.cond(monitor_var, "#4CAF50", "#999"), min_width="24px"),
+                        rx.text(rx.cond(monitor_var, "ON", "OFF"), font_size="11px", color=rx.cond(monitor_var, COLORS["accent_success"], COLORS["text_secondary"]), min_width="24px"),
                         spacing="2", align="center", width="100%",
                     ),
                 )
@@ -218,14 +219,14 @@ def _plugins_view() -> rx.Component:
                     enabled_var & monitor_var,
                     rx.hstack(
                         rx.box(width="14px"),
-                        rx.text(t("auto_reply"), font_size="11px", color="#999"),
+                        rx.text(t("auto_reply"), font_size="11px", color=COLORS["text_secondary"]),
                         rx.spacer(),
                         rx.switch(
                             checked=auto_reply_var,
                             on_change=lambda val, ch=name: AIState.toggle_channel_auto_reply([ch, val]),
                             size="1",
                         ),
-                        rx.text(rx.cond(auto_reply_var, "ON", "OFF"), font_size="11px", color=rx.cond(auto_reply_var, "#4CAF50", "#999"), min_width="24px"),
+                        rx.text(rx.cond(auto_reply_var, "ON", "OFF"), font_size="11px", color=rx.cond(auto_reply_var, COLORS["accent_success"], COLORS["text_secondary"]), min_width="24px"),
                         spacing="2", align="center", width="100%",
                     ),
                 )
@@ -239,10 +240,10 @@ def _plugins_view() -> rx.Component:
                     enabled_var,
                     rx.hstack(
                         rx.box(width="14px"),
-                        rx.icon("shield", size=12, color="#666"),
+                        rx.icon("shield", size=12, color=COLORS["text_muted"]),
                         rx.text(
                             AIState.channel_allowlists[name],
-                            font_size="10px", color="#888",
+                            font_size="10px", color=COLORS["text_secondary"],
                             overflow="hidden", text_overflow="ellipsis",
                             white_space="nowrap",
                         ),
@@ -259,17 +260,17 @@ def _plugins_view() -> rx.Component:
             rx.vstack(
                 # Channels
                 rx.hstack(
-                    rx.text(t("plugin_channels"), font_size="14px", font_weight="bold", color="#999", min_width="220px"),
+                    rx.text(t("plugin_channels"), font_size="14px", font_weight="bold", color=COLORS["text_secondary"], min_width="220px"),
                     rx.hstack(
-                        rx.text(t("security_tiers_title"), font_size="11px", color="#666"),
+                        rx.text(t("security_tiers_title"), font_size="11px", color=COLORS["text_muted"]),
                         rx.popover.root(
                             rx.popover.trigger(
-                                rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer"),
+                                rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
                             ),
                             rx.popover.content(
                                 _tier_help_content(),
                                 side="right",
-                                style={"background": "#2a2a3e", "border": "1px solid #555", "border-radius": "8px"},
+                                class_name="tip-popup",
                             ),
                         ),
                         spacing="1", align="center", width="190px",
@@ -281,7 +282,7 @@ def _plugins_view() -> rx.Component:
                 rx.vstack(*channel_rows, spacing="2", width="100%"),
                 rx.divider(),
                 # Tool Plugins
-                rx.text(t("plugin_tools"), font_size="14px", font_weight="bold", color="#999"),
+                rx.text(t("plugin_tools"), font_size="14px", font_weight="bold", color=COLORS["text_secondary"]),
                 rx.vstack(
                     *tool_rows,
                     spacing="2",

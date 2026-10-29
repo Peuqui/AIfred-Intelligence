@@ -10,7 +10,7 @@ import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import t, agent_emoji_var, clickable_tip
+from ..helpers import agent_emoji_var, clickable_tip, t
 
 
 def _sampling_input(row: rx.Var, param: str, value: rx.Var, width: str = "55px") -> rx.Component:
@@ -97,14 +97,14 @@ def sampling_control_section() -> rx.Component:
                     rx.icon(
                         "lightbulb",
                         size=14,
-                        color="#FFD700",
+                        color=COLORS["accent_gold"],
                         cursor="pointer",
                         style={
                             "transition": "transform 0.2s ease",
                             "&:hover": {"transform": "scale(1.15)"},
                         },
                     ),
-                    rx.text(t("sampling_temp_toggle_tooltip"), font_size="12px", color="#ddd"),
+                    rx.text(t("sampling_temp_toggle_tooltip"), font_size="12px", color=COLORS["tip_text"]),
                 ),
                 spacing="1",
                 align="center",

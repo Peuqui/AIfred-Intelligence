@@ -8,6 +8,7 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import overlay_scaffold
 from .audit import _audit_view
 from .config_view import _config_view
@@ -52,7 +53,7 @@ def agent_editor_page() -> rx.Component:
                 _config_view(),  # default
             ),
             padding="25px",
-            background_color="#1a1a1a",
+            background_color=COLORS["panel_dark"],
             border_radius="12px",
             max_width="95vw",
             width="750px",

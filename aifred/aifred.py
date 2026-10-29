@@ -7,7 +7,7 @@ Full Gradio-Style UI with Single Column Layout
 import reflex as rx
 from .state import AIState, ChatHistoryState
 from .ui.service_status_bar import service_status_bar
-from .theme import COLORS
+from .theme import COLORS, css_variables
 from .lib.config import (
     UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP,
     UI_CHAT_HISTORY_MAX_HEIGHT_MOBILE,
@@ -907,12 +907,12 @@ console.log('✂️ Crop handler loaded');
                             rx.icon(
                                 "menu",
                                 size=18,
-                                color="#d98030",
+                                color=COLORS["primary"],
                                 cursor="pointer",
                                 on_click=AIState.open_agent_editor,
                                 style={
                                     "transition": "color 0.2s ease",
-                                    "&:hover": {"color": "#FFD700"},
+                                    "&:hover": {"color": COLORS["accent_gold"]},
                                 },
                             ),
                             content=t("settings_menu_title"),
@@ -1015,7 +1015,7 @@ console.log('✂️ Crop handler loaded');
                     rx.text(
                         t("tts_regenerate_hint"),
                         font_size="11px",
-                        color="#888",
+                        color=COLORS["text_secondary"],
                         margin_top="8px",
                         font_style="italic",
                         display=rx.cond(
@@ -1178,6 +1178,7 @@ app = rx.App(
         # SVG Favicon - uses system emoji font for consistent 🎩 display
         rx.el.link(rel="icon", type="image/svg+xml", href=rx.asset("favicon.svg")),
         # CSS Custom Properties - inject UI layout constants from config.py
+        rx.el.style(css_variables()),
         rx.el.style(f"""
             :root {{
                 --chat-max-height-desktop: {UI_CHAT_HISTORY_MAX_HEIGHT_DESKTOP};

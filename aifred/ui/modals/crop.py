@@ -5,7 +5,8 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t, overlay_scaffold
+from ...theme import COLORS
+from ..helpers import overlay_scaffold, t
 
 
 def crop_modal() -> rx.Component:
@@ -64,7 +65,7 @@ def crop_modal() -> rx.Component:
             rx.text(
                 t("crop_modal_hint"),
                 font_size="12px",
-                color="#888",
+                color=COLORS["text_secondary"],
                 text_align="center",
             ),
 
@@ -124,7 +125,7 @@ def crop_modal() -> rx.Component:
             spacing="4",
             align="center",
             padding="20px",
-            background_color="#1a1a1a",
+            background_color=COLORS["panel_dark"],
             border_radius="12px",
             max_width="95vw",
             max_height="90dvh",

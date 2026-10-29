@@ -20,6 +20,7 @@ from typing import Any
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import _NATIVE_SELECT_STYLE_COMPACT, t
 from .header import _editor_header
 
@@ -64,7 +65,7 @@ def _entry_row(row: rx.Var) -> rx.Component:
         rx.text(
             row["label"].to(str),
             font_size="12px",
-            color=rx.cond(row["enabled"].to(bool), "#ddd", "#666"),
+            color=rx.cond(row["enabled"].to(bool), COLORS["text_soft"], COLORS["text_muted"]),
             flex="1",
             min_width="0",
             white_space="nowrap",
@@ -92,7 +93,7 @@ def _entry_row(row: rx.Var) -> rx.Component:
             rx.badge(row["note"].to(str), color_scheme="red", size="1"),
             rx.fragment(),
         ),
-        rx.text(row["status"].to(str), font_size="11px", color="#888", white_space="nowrap"),
+        rx.text(row["status"].to(str), font_size="11px", color=COLORS["text_secondary"], white_space="nowrap"),
         rx.el.select(
             rx.el.option(t("tts_unit_sentence"), value="sentence"),
             rx.el.option(t("tts_unit_paragraph"), value="paragraph"),
@@ -113,9 +114,9 @@ def _list_section() -> rx.Component:
         _section_heading(
             "tts_list_heading",
             rx.popover.root(
-                rx.popover.trigger(rx.icon("lightbulb", size=14, color="#FFD700", cursor="pointer")),
+                rx.popover.trigger(rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer")),
                 rx.popover.content(
-                    rx.text(t("tts_list_tooltip"), font_size="11px", color="#ddd", line_height="1.5"),
+                    rx.text(t("tts_list_tooltip"), font_size="11px", color=COLORS["tip_text"], line_height="1.5"),
                     max_width="340px",
                     padding="10px",
                 ),
@@ -133,7 +134,7 @@ def _list_section() -> rx.Component:
         ),
         rx.cond(
             AIState.tts_service_error != "",
-            rx.text(AIState.tts_service_error, font_size="12px", color="#e5484d"),
+            rx.text(AIState.tts_service_error, font_size="12px", color=COLORS["danger"]),
             rx.fragment(),
         ),
         rx.foreach(AIState.tts_escalation_rows, _entry_row),

@@ -10,11 +10,11 @@ import json
 import reflex as rx
 
 from ...state import AIState
+from ...theme import COLORS
 from ..helpers import plugin_text, t
 
-
 # Tier badge colors: 0=green, 1=blue, 2=orange, 3=red, 4=purple
-_TIER_COLORS = {0: "#4CAF50", 1: "#2196F3", 2: "#FF9800", 3: "#f44336", 4: "#9C27B0"}
+_TIER_COLORS = {0: COLORS["accent_success"], 1: "#2196F3", 2: COLORS["accent_amber"], 3: COLORS["danger"], 4: "#9C27B0"}
 
 def _tier_help_content() -> rx.Component:
     """Shared popover content explaining security tiers with colored badges (i18n)."""
@@ -25,7 +25,7 @@ def _tier_help_content() -> rx.Component:
             rx.hstack(
                 rx.text(f"T{tier}", color=_TIER_COLORS[tier], font_weight="bold", font_size="11px", min_width="22px"),
                 rx.text(t(label_key), font_size="11px", color="white", font_weight="bold"),
-                rx.text(t(desc_key), font_size="11px", color="#ccc"),
+                rx.text(t(desc_key), font_size="11px", color=COLORS["text_soft"]),
                 spacing="2", align="center",
             )
             for tier, label_key, desc_key in TIER_I18N_KEYS
@@ -38,7 +38,7 @@ def _tier_help_content() -> rx.Component:
 def _build_tool_pill(tool_name: str, tier: int = 0) -> rx.Component:
     """Render a single tool as a clickable pill toggle with tier badge."""
     is_enabled = AIState.editor_tools[tool_name].to(bool)
-    color = _TIER_COLORS.get(tier, "#666")
+    color = _TIER_COLORS.get(tier, COLORS["text_muted"])
     return rx.hstack(
         rx.button(
             tool_name,
@@ -82,7 +82,7 @@ def _group_header(name: str | rx.Var, tool_names: list[str]) -> rx.Component:
         f"{json.dumps(tool_names)}.every((n) => {AIState.editor_tools}[n])"
     ).to(bool)
     return rx.hstack(
-        rx.text(name, font_size="10px", color="#888"),
+        rx.text(name, font_size="10px", color=COLORS["text_secondary"]),
         rx.switch(
             checked=all_on,
             on_change=lambda v: AIState.set_editor_tool_group(tool_names, v),  # type: ignore[arg-type]
@@ -97,8 +97,8 @@ def _group_header(name: str | rx.Var, tool_names: list[str]) -> rx.Component:
 
 def _build_tool_groups() -> list[rx.Component]:
     """Build tool pill groups at build-time, grouped by plugin."""
-    from ...lib.plugin_registry import discover_tools, all_channels
     from ...lib.plugin_base import PluginContext, plugin_display_name
+    from ...lib.plugin_registry import all_channels, discover_tools
 
     ctx = PluginContext(agent_id="__build__", lang="de", session_id="", llm_history=[])
     groups: list[rx.Component] = []

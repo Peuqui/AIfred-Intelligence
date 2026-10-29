@@ -233,8 +233,10 @@ class VisionPreviewMixin(rx.State, mixin=True):
 
     @rx.var
     def vision_preview_visible_entries(self) -> list[dict[str, Any]]:
-        """List of {id, label, image_url, ptz} for each visible source
-        (``ptz``: Kopfsteuerung verfügbar).
+        """List of {id, label, image_url, ptz, position} for each visible source
+        (``ptz``: Kopfsteuerung verfügbar, ``position``: Index in
+        ``vision_preview_sources`` — die Handy-Ansicht reiht damit die Kachel
+        unter die Zeile ihrer Kamera).
 
         ``image_url`` includes fps, cache-buster, and per-source resolution
         as query parameters so the browser issues the right request.
@@ -251,6 +253,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         fps = self.vision_preview_fps
         cb = self.vision_preview_cache_buster
         all_sources = {s["id"]: s for s in self.vision_preview_sources}
+        positions = {s["id"]: index for index, s in enumerate(self.vision_preview_sources)}
         # Fokus: nur die gewählte Quelle (sofern sichtbar), sonst alle.
         focus = (
             self.vision_preview_focus
@@ -280,6 +283,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 "ptz": bool(meta.get("ptz", False)),
                 "photos": self.vision_preview_photos.get(sid, []),
                 "focused": sid == focus,
+                "position": positions.get(sid, 0),
             })
         return entries
 

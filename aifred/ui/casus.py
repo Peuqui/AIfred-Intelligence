@@ -14,7 +14,8 @@ from __future__ import annotations
 import reflex as rx
 
 from ..state import AIState
-from .helpers import confirm_delete_all, t, overlay_modal
+from ..theme import COLORS
+from .helpers import confirm_delete_all, overlay_modal, t
 
 
 def _event_type_badge(event: rx.Var) -> rx.Component:
@@ -398,7 +399,7 @@ def _bulk_bar() -> rx.Component:
                 rx.icon(
                     "lightbulb",
                     size=14,
-                    color="#FFD700",
+                    color=COLORS["accent_gold"],
                     cursor="pointer",
                     on_click=AIState.open_casus_help,
                     style={
@@ -445,7 +446,7 @@ def casus_help_modal() -> rx.Component:
         AIState.casus_help_open,
         rx.vstack(
             rx.hstack(
-                rx.icon("lightbulb", size=20, color="#FFD700"),
+                rx.icon("lightbulb", size=20, color=COLORS["accent_gold"]),
                 rx.text(
                     t("casus_help_title"),
                     font_weight="bold", size="4",

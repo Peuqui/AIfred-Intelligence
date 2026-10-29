@@ -34,7 +34,7 @@ def _tts_section() -> rx.Component:
             rx.text(
                 rx.cond(AIState.enable_tts, "ON", "OFF"),
                 font_size="10px",
-                color=rx.cond(AIState.enable_tts, "#d4a14a", "#666"),
+                color=rx.cond(AIState.enable_tts, "#d4a14a", COLORS["text_muted"]),
             ),
             rx.text(t("tts_autoplay_label"), font_size="11px", color="#d4a14a"),
             rx.switch(

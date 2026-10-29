@@ -13,7 +13,7 @@ import reflex as rx
 
 from ..state import AIState
 from ..theme import COLORS
-from .helpers import t, overlay_modal
+from .helpers import overlay_modal, t
 
 
 def _mode_section() -> rx.Component:
@@ -520,7 +520,7 @@ def _orange_sep() -> rx.Component:
     return rx.box(
         style={
             "height": "1px",
-            "background": COLORS.get("primary", "#e67700"),
+            "background": COLORS.get("primary", COLORS["primary"]),
             "opacity": "0.45",
             "width": "100%",
         },

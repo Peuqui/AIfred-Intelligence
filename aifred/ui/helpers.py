@@ -2,14 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 import reflex as rx
 
+from ..lib.i18n import TranslationManager
 from ..state import AIState
 from ..theme import COLORS
-from ..lib.i18n import TranslationManager
-
 
 # ============================================================
 # MARKDOWN CONFIGURATION
@@ -201,14 +201,14 @@ def overlay_scaffold(
     ``flex_center`` zentriert per Flexbox; ohne ``open_var`` wird das
     Overlay unbedingt gerendert (Vollbild-Pages mit eigener Route).
     """
-    outer: dict[str, Any] = dict(
-        position="fixed",
-        top="0",
-        left="0",
-        width="100vw",
-        height="100dvh",
-        z_index=z_index,
-    )
+    outer: dict[str, Any] = {
+        "position": "fixed",
+        "top": "0",
+        "left": "0",
+        "width": "100vw",
+        "height": "100dvh",
+        "z_index": z_index,
+    }
     if flex_center:
         outer.update(display="flex", justify_content="center", align_items="center")
     if touch_action_none:
@@ -385,8 +385,8 @@ def blue_action_button_style(press_effect: bool = True) -> dict[str, Any]:
     """
     style: dict[str, Any] = {
         "background": "rgba(0, 50, 100, 0.4)",
-        "color": "#58a6ff",
-        "border_color": "#58a6ff",
+        "color": COLORS["accent_blue"],
+        "border_color": COLORS["accent_blue"],
         "&:hover:not([disabled])": {
             "background": "rgba(0, 80, 150, 0.6) !important",
         },
@@ -419,7 +419,7 @@ def clickable_tip(trigger: rx.Component, content: str | rx.Component) -> rx.Comp
     """
     body: rx.Component
     if isinstance(content, str):
-        body = rx.text(content, font_size="12px", color="#ddd")
+        body = rx.text(content, font_size="12px", color=COLORS["tip_text"])
     else:
         body = content
 
@@ -427,10 +427,8 @@ def clickable_tip(trigger: rx.Component, content: str | rx.Component) -> rx.Comp
         rx.popover.trigger(trigger),
         rx.popover.content(
             body,
+            class_name="tip-popup",
             style={
-                "background": "#222",
-                "border": "1px solid #555",
-                "border_radius": "8px",
                 "padding": "8px 12px",
                 "max_width": "300px",
                 "z_index": "9999",

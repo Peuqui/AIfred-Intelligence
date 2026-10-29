@@ -5,7 +5,8 @@ from __future__ import annotations
 import reflex as rx
 
 from ...state import AIState
-from ..helpers import t, agent_emoji, overlay_scaffold
+from ...theme import COLORS
+from ..helpers import agent_emoji, overlay_scaffold, t
 
 
 def multi_agent_help_modal() -> rx.Component:
@@ -18,7 +19,7 @@ def multi_agent_help_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("lightbulb", size=24, color="#FFD700"),
+                rx.icon("lightbulb", size=24, color=COLORS["accent_gold"]),
                 rx.text(t("multi_agent_help_title"), color="white", font_weight="bold", font_size="18px"),
                 spacing="3",
                 align="center",
@@ -29,9 +30,9 @@ def multi_agent_help_modal() -> rx.Component:
                 rx.table.root(
                     rx.table.header(
                         rx.table.row(
-                            rx.table.column_header_cell(t("multi_agent_help_mode"), style={"color": "#FFD700", "font_weight": "bold"}),
-                            rx.table.column_header_cell(t("multi_agent_help_flow"), style={"color": "#FFD700", "font_weight": "bold"}),
-                            rx.table.column_header_cell(t("multi_agent_help_decision"), style={"color": "#FFD700", "font_weight": "bold"}),
+                            rx.table.column_header_cell(t("multi_agent_help_mode"), style={"color": COLORS["accent_gold"], "font_weight": "bold"}),
+                            rx.table.column_header_cell(t("multi_agent_help_flow"), style={"color": COLORS["accent_gold"], "font_weight": "bold"}),
+                            rx.table.column_header_cell(t("multi_agent_help_decision"), style={"color": COLORS["accent_gold"], "font_weight": "bold"}),
                         ),
                     ),
                     rx.table.body(
@@ -81,24 +82,24 @@ def multi_agent_help_modal() -> rx.Component:
             ),
 
             # Agenten-Beschreibungen
-            rx.divider(color="#444", margin_y="15px"),
-            rx.text(t("multi_agent_help_agents_title"), color="#FFD700", font_weight="bold", font_size="14px"),
+            rx.divider(color=COLORS["text_muted"], margin_y="15px"),
+            rx.text(t("multi_agent_help_agents_title"), color=COLORS["accent_gold"], font_weight="bold", font_size="14px"),
             rx.vstack(
                 rx.hstack(
                     rx.hstack(agent_emoji("\U0001f3a9", size="18px"), rx.text("AIfred:", font_weight="bold"), spacing="1", align="center", color="white", min_width="120px"),
-                    rx.text(t("multi_agent_help_aifred_desc"), color="#ccc"),
+                    rx.text(t("multi_agent_help_aifred_desc"), color=COLORS["text_soft"]),
                     spacing="2",
                     align="start",
                 ),
                 rx.hstack(
                     rx.text("🏛️ Sokrates:", color="white", font_weight="bold", min_width="120px"),
-                    rx.text(t("multi_agent_help_sokrates_desc"), color="#ccc"),
+                    rx.text(t("multi_agent_help_sokrates_desc"), color=COLORS["text_soft"]),
                     spacing="2",
                     align="start",
                 ),
                 rx.hstack(
                     rx.text("👑 Salomo:", color="white", font_weight="bold", min_width="120px"),
-                    rx.text(t("multi_agent_help_salomo_desc"), color="#ccc"),
+                    rx.text(t("multi_agent_help_salomo_desc"), color=COLORS["text_soft"]),
                     spacing="2",
                     align="start",
                 ),
@@ -121,7 +122,7 @@ def multi_agent_help_modal() -> rx.Component:
             spacing="4",
             align="center",
             padding="25px",
-            background_color="#1a1a1a",
+            background_color=COLORS["panel_dark"],
             border_radius="12px",
             max_width="95vw",
             width="600px",
@@ -146,7 +147,7 @@ def reasoning_thinking_help_modal() -> rx.Component:
         rx.vstack(
             # Header
             rx.hstack(
-                rx.icon("lightbulb", size=24, color="#FFD700"),
+                rx.icon("lightbulb", size=24, color=COLORS["accent_gold"]),
                 rx.text(t("reasoning_thinking_help_title"), color="white", font_weight="bold", font_size="20px"),
                 spacing="3",
                 align="center",
@@ -154,54 +155,54 @@ def reasoning_thinking_help_modal() -> rx.Component:
 
             # Reasoning Section
             rx.vstack(
-                rx.text(t("reasoning_thinking_help_reasoning_title"), color="#FFA500", font_weight="bold", font_size="17px"),
-                rx.text(t("reasoning_thinking_help_reasoning_desc"), color="#ccc", font_size="15px"),
-                rx.text(t("reasoning_thinking_help_reasoning_effect"), color="#aaa", font_size="14px", font_style="italic"),
+                rx.text(t("reasoning_thinking_help_reasoning_title"), color=COLORS["accent_amber"], font_weight="bold", font_size="17px"),
+                rx.text(t("reasoning_thinking_help_reasoning_desc"), color=COLORS["text_soft"], font_size="15px"),
+                rx.text(t("reasoning_thinking_help_reasoning_effect"), color=COLORS["text_secondary"], font_size="14px", font_style="italic"),
                 spacing="2",
                 width="100%",
                 padding="12px",
-                background_color="#2a2a2a",
+                background_color=COLORS["panel_raised"],
                 border_radius="8px",
             ),
 
             # Thinking Section
             rx.vstack(
                 rx.text(t("reasoning_thinking_help_thinking_title"), color="#4FC3F7", font_weight="bold", font_size="17px"),
-                rx.text(t("reasoning_thinking_help_thinking_desc"), color="#ccc", font_size="15px"),
-                rx.text(t("reasoning_thinking_help_thinking_levels"), color="#ccc", font_size="15px"),
-                rx.text(t("reasoning_thinking_help_thinking_effect"), color="#aaa", font_size="14px", font_style="italic"),
+                rx.text(t("reasoning_thinking_help_thinking_desc"), color=COLORS["text_soft"], font_size="15px"),
+                rx.text(t("reasoning_thinking_help_thinking_levels"), color=COLORS["text_soft"], font_size="15px"),
+                rx.text(t("reasoning_thinking_help_thinking_effect"), color=COLORS["text_secondary"], font_size="14px", font_style="italic"),
                 spacing="2",
                 width="100%",
                 padding="12px",
-                background_color="#2a2a2a",
+                background_color=COLORS["panel_raised"],
                 border_radius="8px",
             ),
 
             # Combinations Section
-            rx.divider(color="#444", margin_y="10px"),
-            rx.text(t("reasoning_thinking_help_combinations_title"), color="#FFD700", font_weight="bold", font_size="16px"),
+            rx.divider(color=COLORS["text_muted"], margin_y="10px"),
+            rx.text(t("reasoning_thinking_help_combinations_title"), color=COLORS["accent_gold"], font_weight="bold", font_size="16px"),
             rx.vstack(
                 rx.hstack(
                     rx.text("💭+🧠", min_width="60px", font_size="16px"),
-                    rx.text(t("reasoning_thinking_help_both_on"), color="#ccc", font_size="15px"),
+                    rx.text(t("reasoning_thinking_help_both_on"), color=COLORS["text_soft"], font_size="15px"),
                     spacing="2",
                     align="center",
                 ),
                 rx.hstack(
                     rx.text("💭", min_width="60px", font_size="16px"),
-                    rx.text(t("reasoning_thinking_help_reasoning_only"), color="#ccc", font_size="15px"),
+                    rx.text(t("reasoning_thinking_help_reasoning_only"), color=COLORS["text_soft"], font_size="15px"),
                     spacing="2",
                     align="center",
                 ),
                 rx.hstack(
                     rx.text("🧠", min_width="60px", font_size="16px"),
-                    rx.text(t("reasoning_thinking_help_thinking_only"), color="#ccc", font_size="15px"),
+                    rx.text(t("reasoning_thinking_help_thinking_only"), color=COLORS["text_soft"], font_size="15px"),
                     spacing="2",
                     align="center",
                 ),
                 rx.hstack(
-                    rx.text("—", min_width="60px", font_size="16px", color="#666"),
-                    rx.text(t("reasoning_thinking_help_both_off"), color="#ccc", font_size="15px"),
+                    rx.text("—", min_width="60px", font_size="16px", color=COLORS["text_muted"]),
+                    rx.text(t("reasoning_thinking_help_both_off"), color=COLORS["text_soft"], font_size="15px"),
                     spacing="2",
                     align="center",
                 ),
@@ -223,7 +224,7 @@ def reasoning_thinking_help_modal() -> rx.Component:
             spacing="4",
             align="center",
             padding="25px",
-            background_color="#1a1a1a",
+            background_color=COLORS["panel_dark"],
             border_radius="12px",
             max_width="95vw",
             width="550px",
@@ -247,15 +248,15 @@ def _lifecycle_section(
     """One model-family block in the lifecycle modal. Title (bold) +
     size/provider one-liner (monospace, dim) + main body + triggers."""
     return rx.vstack(
-        rx.text(t(title_key), font_weight="bold", font_size="14px", color="#FFD700"),
+        rx.text(t(title_key), font_weight="bold", font_size="14px", color=COLORS["accent_gold"]),
         rx.text(
             t(size_key),
             font_size="11px",
-            color="#aaa",
+            color=COLORS["text_secondary"],
             style={"font_family": "monospace"},
         ),
         rx.text(t(body_key), font_size="12px", color="white", style={"line_height": "1.5"}),
-        rx.text(t(triggers_key), font_size="12px", color="#ccc", style={"line_height": "1.5"}),
+        rx.text(t(triggers_key), font_size="12px", color=COLORS["text_soft"], style={"line_height": "1.5"}),
         spacing="1",
         align="start",
         width="100%",
@@ -271,7 +272,7 @@ def model_lifecycle_help_modal() -> rx.Component:
     return overlay_scaffold(
         rx.vstack(
             rx.hstack(
-                rx.icon("lightbulb", size=24, color="#FFD700"),
+                rx.icon("lightbulb", size=24, color=COLORS["accent_gold"]),
                 rx.text(
                     t("model_lifecycle_help_title"),
                     color="white",
@@ -283,7 +284,7 @@ def model_lifecycle_help_modal() -> rx.Component:
             ),
             rx.text(
                 t("model_lifecycle_help_intro"),
-                color="#ccc",
+                color=COLORS["text_soft"],
                 font_size="12px",
                 style={"line_height": "1.5"},
             ),
@@ -321,7 +322,7 @@ def model_lifecycle_help_modal() -> rx.Component:
                     t("model_lifecycle_help_vram_title"),
                     font_weight="bold",
                     font_size="14px",
-                    color="#FFD700",
+                    color=COLORS["accent_gold"],
                 ),
                 rx.text(
                     t("model_lifecycle_help_vram_body"),
@@ -339,7 +340,7 @@ def model_lifecycle_help_modal() -> rx.Component:
                     t("model_lifecycle_help_calibration_title"),
                     font_weight="bold",
                     font_size="14px",
-                    color="#FFD700",
+                    color=COLORS["accent_gold"],
                 ),
                 rx.text(
                     t("model_lifecycle_help_calibration_body"),
@@ -369,7 +370,7 @@ def model_lifecycle_help_modal() -> rx.Component:
             spacing="3",
             align="stretch",
             padding="25px",
-            background_color="#1a1a1a",
+            background_color=COLORS["panel_dark"],
             border_radius="12px",
             max_width="95vw",
             width="720px",

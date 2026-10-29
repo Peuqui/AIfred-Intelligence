@@ -11,7 +11,6 @@ from .helpers import (
     t,
 )
 
-
 # ============================================================
 # IMAGE THUMBNAILS
 # ============================================================
@@ -168,7 +167,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
         # written by both showed up twice.
         rx.el.span(
             class_name="bubble-tts-note",
-            style={"font_size": "10px", "color": "#888"},
+            style={"font_size": "10px", "color": COLORS["text_secondary"]},
             **{"data-note": msg["tts_note"].to(str)},
         ),
         spacing="1",

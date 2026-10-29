@@ -19,7 +19,7 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
 
     # Password field with eye toggle
     password_input = rx.vstack(
-        rx.text(field["label_key"].to(str), font_size="11px", color="#999"),
+        rx.text(field["label_key"].to(str), font_size="11px", color=COLORS["text_secondary"]),
         rx.box(
             rx.cond(
                 AIState.channel_cred_show_password,
@@ -70,13 +70,13 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         field["tooltip"].to(str) != "",
         clickable_tip(
             rx.hstack(
-                rx.text(field["label_key"].to(str), font_size="11px", color="#999"),
-                rx.icon("lightbulb", size=12, color="#FFD700"),
+                rx.text(field["label_key"].to(str), font_size="11px", color=COLORS["text_secondary"]),
+                rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]),
                 spacing="1", align="center", cursor="pointer",
             ),
-            rx.text(field["tooltip"].to(str), font_size="12px", color="#ddd", white_space="pre-line"),
+            rx.text(field["tooltip"].to(str), font_size="12px", color=COLORS["tip_text"], white_space="pre-line"),
         ),
-        rx.text(field["label_key"].to(str), font_size="11px", color="#999"),
+        rx.text(field["label_key"].to(str), font_size="11px", color=COLORS["text_secondary"]),
     )
     # Dropdown input (when options are provided)
     # UI shows labels from channel_credential_values (pre-mapped in State)
@@ -286,7 +286,7 @@ def channel_credentials_page() -> rx.Component:
                         rx.text(
                             t("oauth_connect_hint"),
                             font_size="10px",
-                            color="#888",
+                            color=COLORS["text_secondary"],
                         ),
                         spacing="2",
                         width="100%",
@@ -318,7 +318,7 @@ def channel_credentials_page() -> rx.Component:
 
                 spacing="3",
                 padding="24px",
-                background="#1a1a2e",
+                background=COLORS["panel_dark"],
                 border_radius="12px",
                 border="1px solid var(--gray-a6)",
                 width="500px",
