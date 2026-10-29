@@ -264,10 +264,23 @@ and whether a class is active right now (the burst runs while the person is
 reported). The camera ends the person report after roughly 10 s of standing
 still, which is why the burst linger is 20 s (`burst_linger_sec`).
 
+**Reaction** (`EDGE_AI_REACT` in `config.py`, per class): which camera classes
+trigger anything at AIfred at all? A class set to `False` is dropped before the
+flow begins: no snap, no YOLO check, no event, no alert.
+
+| Class | Default | Meaning |
+|-------|---------|---------|
+| `person` | `True` | AIfred reacts |
+| `vehicle` | `False` | AIfred does not react: YOLO hardly confirmed the camera's vehicle reports any more (distant/small cars). The image describer still describes vehicles when it finds some in a picture. |
+| `animal` | `True` | AIfred reacts |
+
+With `vehicle: True` the vehicle report goes through the flow described below again.
+
 **Trigger, finding and report:** The on-device AI fires generously (it hallucinates
 people from a chair/laundry/shadows, especially in IR night mode), and YOLO in turn
-misses dark, blurred or distant people. Both are uncertain, so AIfred **no longer
-discards a camera report**: a camera trigger is always an event with an alert.
+misses dark, blurred or distant people. Both are uncertain, so AIfred **does not
+discard a camera report of a class it reacts to**: such a camera trigger is always
+an event with an alert.
 AIfred's own detector supplies the **finding** that goes along with the report to
 the evaluation (the image describer and Alfred check the picture). Unconfirmed
 triggers appear with `detector: edge_ai_unconfirmed` in the chronicle, in the alert
@@ -280,7 +293,7 @@ our YOLO checks the class:
 | Class | Default | Meaning |
 |-------|---------|---------|
 | `person` | `True` (check) | YOLO counts the class; without a hit the report goes on as "unconfirmed" |
-| `vehicle` | `True` (check) | ditto (YOLO is strong on large objects) |
+| `vehicle` | `True` (check) | ditto; only takes effect when `EDGE_AI_REACT["vehicle"]` is on |
 | `animal` | `False` (trust) | believe the camera — nano-YOLO is weak on small/distant animals; no check, no note in the text |
 
 When `True`, ONE multi-class YOLO inference runs per image (`detect_category_counts`,

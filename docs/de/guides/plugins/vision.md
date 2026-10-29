@@ -274,11 +274,24 @@ Klasse und die Auskunft, ob eine Klasse gerade aktiv ist (der Burst läuft, sola
 die Person gemeldet wird). Die Kamera beendet die Personenmeldung nach etwa
 10 s Stillstand, deshalb ist der Burst-Nachlauf 20 s (`burst_linger_sec`).
 
+**Reaktion** (`EDGE_AI_REACT` in `config.py`, pro Klasse): Welche Kamera-Klassen
+lösen bei AIfred überhaupt etwas aus? Eine Klasse mit `False` wird verworfen,
+bevor der Ablauf beginnt: kein Snap, keine YOLO-Prüfung, kein Ereignis, kein Alarm.
+
+| Klasse | Default | Bedeutung |
+|--------|---------|-----------|
+| `person` | `True` | AIfred reagiert |
+| `vehicle` | `False` | AIfred reagiert nicht: YOLO bestätigte Fahrzeuge der Kamera-Meldung kaum noch (ferne/kleine Autos). Der Bildbeschreiber beschreibt Fahrzeuge weiterhin, wenn er auf einem Bild welche findet. |
+| `animal` | `True` | AIfred reagiert |
+
+Mit `vehicle: True` läuft die Fahrzeug-Meldung wieder durch den unten beschriebenen
+Ablauf.
+
 **Trigger, Befund und Meldung:** Die On-Device-KI feuert großzügig (besonders im
 IR-Nachtbild halluziniert sie Personen aus Stuhl/Wäsche/Schatten), YOLO wiederum
 übersieht dunkle, verwackelte oder ferne Personen. Beides ist unsicher, deshalb
-**verwirft AIfred keine Kamera-Meldung mehr**: Ein Kamera-Trigger ist immer ein
-Ereignis mit Alarm. AIfreds eigener Detektor liefert den **Befund** dazu, der mit
+**verwirft AIfred keine Kamera-Meldung einer Klasse, auf die er reagiert**: Ein
+Kamera-Trigger ist dann immer ein Ereignis mit Alarm. AIfreds eigener Detektor liefert den **Befund** dazu, der mit
 der Meldung zur Auswertung geht (Bildbeschreiber und Alfred prüfen das Bild).
 Nicht bestätigte Trigger stehen mit `detector: edge_ai_unconfirmed` in der
 Chronik, im Alarmtext („Von der Kamera gemeldet, vom Bilderkenner (YOLO) nicht
@@ -290,7 +303,7 @@ unser YOLO die Klasse prüft:
 | Klasse | Default | Bedeutung |
 |--------|---------|-----------|
 | `person` | `True` (prüfen) | YOLO zählt die Klasse; ohne Treffer läuft die Meldung als „unbestätigt" weiter |
-| `vehicle` | `True` (prüfen) | dito (YOLO ist bei großen Objekten stark) |
+| `vehicle` | `True` (prüfen) | dito; wirkt nur, wenn `EDGE_AI_REACT["vehicle"]` an ist |
 | `animal` | `False` (vertrauen) | der Kamera glauben — Nano-YOLO ist bei kleinen/fernen Tieren schwach; keine Prüfung, kein Zusatz im Text |
 
 Bei `True` läuft pro Bild EINE multi-class YOLO-Inferenz (`detect_category_counts`,

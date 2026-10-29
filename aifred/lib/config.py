@@ -649,6 +649,18 @@ PERSON_DETECT_NMS_IOU = 0.45
 # GPU analog zu FACE_DETECT — Default CPU, GPU bleibt frei für LLM/VLM/TTS.
 PERSON_DETECT_USE_GPU = False
 
+# ── Edge-AI-Reaktion ──────────────────────────────────────────────────
+# Pro Kamera-Klasse: reagiert AIfred überhaupt auf die Meldung der Kamera?
+#   True  = ja    — Snap, YOLO-Prüfung (siehe EDGE_AI_CONFIRM), Ereignis, Alarm.
+#   False = nein  — die Meldung wird verworfen, ohne Snap, YOLO, Ereignis oder Alarm.
+# vehicle=False: YOLO bestätigt Fahrzeuge der Kamera-Meldung kaum noch (ferne/kleine Autos);
+# der Beschreiber beschreibt Fahrzeuge weiterhin, wenn er welche auf einem Bild findet.
+EDGE_AI_REACT = {
+    "person": True,
+    "vehicle": False,
+    "animal": True,
+}
+
 # ── Edge-AI-Confirmation-Policy ───────────────────────────────────────
 # Pro Edge-AI-Klasse: prüft UNSER YOLO den Kamera-Trigger? Eine Kamera-Meldung wird nie
 # verworfen: Die On-Device-KI der Reolink feuert im IR-Nachtbild falsch-positive Personen,

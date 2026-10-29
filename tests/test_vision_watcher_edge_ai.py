@@ -632,6 +632,15 @@ class TestFrozenStream:
 
 
 class TestObjectClasses:
+    @pytest.fixture(autouse=True)
+    def _vehicle_reacts(self, monkeypatch):
+        """AIfred ignoriert Fahrzeug-Meldungen standardmäßig (EDGE_AI_REACT); die
+        Bestätigungs- und Unterdrückungslogik für Fahrzeuge bleibt über den Schalter
+        erreichbar und wird hier mit eingeschalteter Reaktion geprüft."""
+        from aifred.lib.config import EDGE_AI_REACT
+
+        monkeypatch.setitem(EDGE_AI_REACT, "vehicle", True)
+
     def test_confirm_policy_in_config(self):
         """Die Tests unten setzen diese Policy voraus."""
         from aifred.lib.config import EDGE_AI_CONFIRM
@@ -778,3 +787,49 @@ class TestObjectClasses:
         assert len(_events(store, src, "animal")) == 1
         # Nur die zu bestätigende Klasse geht in die YOLO-Inferenz.
         assert detector.category_calls == [{"person"}]
+
+# ── 8. Ignorierte Klassen (EDGE_AI_REACT) ─────────────────────────────
+
+
+class TestIgnoredClasses:
+    def test_react_policy_in_config(self):
+        """Fahrzeug-Meldungen der Kamera lösen bei AIfred nichts aus."""
+        from aifred.lib.config import EDGE_AI_REACT
+
+        assert EDGE_AI_REACT == {"person": True, "vehicle": False, "animal": True}
+
+    def test_vehicle_report_triggers_nothing(
+        self, store, frames_dir, ai_client, _stub_alerts,
+    ):
+        src = "cam/edge-vehicle-ignored"
+        detector = ScriptedPersonDetector({"vehicle": 2})
+
+        async def scenario(w: VisionWatcher) -> None:
+            ai_client.state["vehicle"] = True
+            await _wait_polls(ai_client, 6)
+
+        _run_edge(store, frames_dir, src, _edge_config(), scenario, person_detector=detector)
+
+        assert _events(store, src, "vehicle") == []
+        assert ai_client.snap_calls == 0  # nicht einmal ein Snap
+        assert detector.category_calls == []  # YOLO wurde nicht gefragt
+        assert _stub_alerts["object"] == []
+
+    def test_person_alongside_a_vehicle_report_is_still_handled_alone(
+        self, store, frames_dir, ai_client, _stub_alerts,
+    ):
+        src = "cam/edge-person-and-vehicle"
+        detector = ScriptedPersonDetector({"person": 1, "vehicle": 2})
+
+        async def scenario(w: VisionWatcher) -> None:
+            ai_client.state["person"] = True
+            ai_client.state["vehicle"] = True
+            await _wait_for(lambda: _events(store, src, "person"), what="Person-Event")
+            await _wait_polls(ai_client, 3)
+
+        _run_edge(store, frames_dir, src, _edge_config(), scenario, person_detector=detector)
+
+        assert len(_events(store, src, "person")) == 1
+        assert _events(store, src, "vehicle") == []
+        assert detector.category_calls == [{"person"}]  # Fahrzeug nicht in der YOLO-Inferenz
+        assert _stub_alerts["object"] == []

@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING, Any
 from . import vision_alerts
 from .config import (
     EDGE_AI_CONFIRM,
+    EDGE_AI_REACT,
     VISION_OVERLAY_SUFFIX_PREROLL,
     VISION_SAME_SCENE_MAX_HAMMING,
 )
@@ -305,7 +306,11 @@ async def run_edge_ai_cycle(
     # speichern + Fehlalarme feuern.
     last_fired_ts: datetime | None = None
     while True:
-        rising = await events.wait_rising()
+        # Klassen, auf die AIfred nicht reagiert (EDGE_AI_REACT), fallen vor Drossel,
+        # Settle und Snap heraus — die Kamera-Meldung löst dann nichts aus.
+        rising = [cls for cls in await events.wait_rising() if EDGE_AI_REACT[cls]]
+        if not rising:
+            continue
         if recorder.is_throttled(source_id, config.min_event_interval_sec):
             continue
         # Vorlauf VOR dem Settle einfrieren — danach ist er schon um die
