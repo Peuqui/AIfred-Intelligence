@@ -42,7 +42,7 @@ COLORS = {
     "accent_warning": "#d29922", # Warnung, gedämpftes Gold
     "accent_gold": "#FFD700",    # Glühbirnen und Überschriften der Hilfe-Texte
     "accent_amber": "#FFA500",   # Speed-/Aktiv-Markierung
-    "danger": "#f85149",         # Fehler, Löschen
+    "danger": "#ef1c3f",         # Fehler, Löschen (Karminrot wie Agent-Orc; 4,0:1 auf card_bg)
     "user_name": "#c06050",      # Name des Users im Chat (gedämpftes Rostrot, bewusst nicht danger)
 
     # === WARNUNGS-FLÄCHEN (braun, 3 Stufen: Grund, Schalter, Hover) ===
