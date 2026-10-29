@@ -341,11 +341,16 @@ class TelegramChannel(BaseChannel):
                 from telegram import InputMediaPhoto, InputMediaVideo
                 caption, overflow = text[:1024], text[1024:]
                 with ExitStack() as stack:
-                    items = []
+                    items: list[InputMediaPhoto | InputMediaVideo] = []
                     for index, path in enumerate(album_local):
                         handle = stack.enter_context(open(path, "rb"))
-                        kind = InputMediaVideo if is_video_file(pathlib.Path(path)) else InputMediaPhoto
-                        items.append(kind(handle, caption=caption if index == 0 else None))
+                        if is_video_file(pathlib.Path(path)):
+                            items.append(InputMediaVideo(
+                                handle, caption=caption if index == 0 else None,
+                                supports_streaming=True,
+                            ))
+                        else:
+                            items.append(InputMediaPhoto(handle, caption=caption if index == 0 else None))
                     msgs = await bot.send_media_group(chat_id=chat_id, media=items)
                 sent_ids.extend(m.message_id for m in msgs)
                 if overflow:
@@ -355,7 +360,9 @@ class TelegramChannel(BaseChannel):
             elif len(album_local) == 1 and is_video_file(pathlib.Path(album_local[0])):
                 caption, overflow = text[:1024], text[1024:]
                 with open(album_local[0], "rb") as fh:
-                    m = await bot.send_video(chat_id=chat_id, video=fh, caption=caption)
+                    m = await bot.send_video(
+                        chat_id=chat_id, video=fh, caption=caption, supports_streaming=True,
+                    )
                 sent_ids.append(m.message_id)
                 if overflow:
                     for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):

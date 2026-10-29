@@ -229,6 +229,32 @@ class EventRecorder:
         )
         return float(max_score)
 
+    def record_burst_frame(
+        self,
+        *,
+        source_id: str,
+        timestamp: datetime,
+        frame_path: str,
+        zoom_frame_path: str | None,
+        cluster_id: str,
+    ) -> None:
+        """Burst-Tick ohne Gesicht und ohne erkannte Person als Film-Bild des
+        Vorkommnisses (``motion``-Ereignis ohne Auswertung, wie der Vorlauf).
+        Ohne diese Bilder hätte der Film Lücken genau dort, wo die Person dem
+        kleinen Detektor entgeht (weit weg, klein, abgewandt)."""
+        classification: dict[str, object] = {}
+        if zoom_frame_path is not None:
+            classification["zoom_frame_path"] = zoom_frame_path
+        self._store.add_event(
+            source_id=source_id,
+            event_type="motion",
+            timestamp=timestamp,
+            frame_path=frame_path,
+            classification=classification,
+            metadata={"trigger": "edge_ai_burst_frame"},
+            cluster_id=cluster_id,
+        )
+
     def record_edge_class(
         self,
         event_type: str,

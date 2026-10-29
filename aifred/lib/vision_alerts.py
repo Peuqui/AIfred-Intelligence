@@ -580,6 +580,8 @@ class BurstReport:
         self._sent_band_rank = -1
         self._sent_names: set[str] = set()
         self._sent_person_count = 0
+        # Seit wann liegen unberichtete Neuigkeiten vor? (siehe ``news_due``)
+        self._news_since: datetime | None = None
         # Läuft gerade ein Versand? Eine Bilanz umfasst die VLM-Beschreibung
         # der ganzen Serie und dauert damit länger als das Bilanz-Intervall
         # (gemessen 17,4 s bei 8 Keyframes auf dem 4B-Describer, Deadline
@@ -678,6 +680,17 @@ class BurstReport:
         if self._sent_messages or not self.has_observations():
             return False
         return (datetime.now() - self.started).total_seconds() >= deadline_sec
+
+    def news_due(self, settle_sec: float) -> bool:
+        """Hinweis fällig? Neuigkeiten gelten erst als meldereif, wenn sie ``settle_sec``
+        vorlagen — mehrere Erkennungen kurz nacheinander ergeben so eine Nachricht mit dem
+        neuesten Stand statt einer Kette von Zwischenständen."""
+        if not self.has_news():
+            self._news_since = None
+            return False
+        if self._news_since is None:
+            self._news_since = datetime.now()
+        return (datetime.now() - self._news_since).total_seconds() >= settle_sec
 
     def has_news(self) -> bool:
         """Hinweis nötig? Neuer Name, Band-Upgrade oder mehr Personen
@@ -826,6 +839,7 @@ class BurstReport:
         self._sent_band_rank = sent_band_rank
         self._sent_names = sent_names
         self._sent_person_count = sent_person_count
+        self._news_since = None
 
     def _next_segment_ids(self) -> list[int]:
         """Die seit der letzten Bilanz dazugekommenen Events dieses

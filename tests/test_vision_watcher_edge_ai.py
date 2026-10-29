@@ -493,7 +493,7 @@ class TestBurst:
         # Zweiter Blick: ohne Gesicht wurde auf der Personenbox gesucht.
         assert face_detector.roi_calls
 
-    def test_burst_tick_without_face_and_person_is_discarded(
+    def test_burst_tick_without_face_and_person_is_kept_as_film_frame(
         self, store, frames_dir, ai_client,
     ):
         src = "cam/edge-burst-empty"
@@ -506,12 +506,22 @@ class TestBurst:
             ai_client.state["person"] = True
             # 1 Snap für den Trigger, danach tickt der Burst.
             await _wait_for(lambda: ai_client.snap_calls >= 4, what="Burst-Snaps")
+            await _wait_for(
+                lambda: _events(store, src, trigger="edge_ai_burst_frame"),
+                what="Film-Bild des leeren Ticks",
+            )
 
         _run_edge(
-            store, frames_dir, src, _burst_config(), scenario,
+            store, frames_dir, src, _burst_config(save_event_frames=True), scenario,
             person_detector=person_detector, face_detector=face_detector,
         )
+        # Keine Auswertung, kein Alarm — aber das Bild bleibt als Film-Bild des
+        # Vorkommnisses: ohne es hätte der Film Lücken, wo die Person dem Detektor entgeht.
         assert _events(store, src, trigger="edge_ai_burst") == []
+        frames = _events(store, src, trigger="edge_ai_burst_frame")
+        assert frames
+        assert all(f["event_type"] == "motion" and f["frame_path"] for f in frames)
+        assert all(f["cluster_id"] for f in frames)
 
     def test_only_one_burst_per_source_at_a_time(self, store, frames_dir, ai_client):
         src = "cam/edge-burst-single"

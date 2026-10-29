@@ -27,7 +27,11 @@ from collections.abc import Callable
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from .config import VISION_BURST_MIN_DEADLINE_SEC, VISION_BURST_MIN_INTERVAL_SEC
+from .config import (
+    VISION_BURST_MIN_DEADLINE_SEC,
+    VISION_BURST_MIN_INTERVAL_SEC,
+    VISION_BURST_NEWS_SETTLE_SEC,
+)
 from .frame_sources.base import Frame
 from .logging_utils import log_message
 from .reolink_ai import ReolinkAIError
@@ -136,10 +140,11 @@ class BurstRunner:
         interval = max(VISION_BURST_MIN_INTERVAL_SEC, float(config.burst_interval_sec))
         linger = max(0.0, float(config.burst_linger_sec))
         deadline = max(VISION_BURST_MIN_DEADLINE_SEC, float(config.burst_report_deadline_sec))
+        news_settle = VISION_BURST_NEWS_SETTLE_SEC
 
         started = datetime.now()
         last_active = started
-        ticks = n_face = n_person = 0
+        ticks = n_face = n_person = n_frame = 0
         # Messung je Tick (Sekunden): Snap, Auswertung, Abstand zum vorigen Tick.
         snap_times: list[float] = []
         eval_times: list[float] = []
@@ -178,6 +183,7 @@ class BurstRunner:
                         )
                         n_face += kind == "face"
                         n_person += kind == "person"
+                        n_frame += kind == "frame"
                     except Exception:
                         logger.exception("burst tick failed for %s", source_id)
                     eval_times.append(time.monotonic() - snap_done)
@@ -190,7 +196,7 @@ class BurstRunner:
                 # hieße, den Burst genau währenddessen blind zu stellen — es
                 # gingen die Frames verloren, die das Ereignis dokumentieren.
                 # Überlappung verhindert der Report selbst (``is_sending``).
-                if report.due(deadline) or report.has_news():
+                if report.due(deadline) or report.news_due(news_settle):
                     send_task = asyncio.create_task(report.send())
                     send_task.add_done_callback(self._log_send_result)
                     pending_sends.add(send_task)
@@ -230,7 +236,7 @@ class BurstRunner:
         duration = (datetime.now() - started).total_seconds()
         log_message(
             f"🎬 burst {source_id}: {ticks} ticks → {n_face} face, "
-            f"{n_person} person, {ticks - n_face - n_person} empty "
+            f"{n_person} person, {n_frame} frame-only "
             f"({duration:.0f}s)"
         )
         log_message(
@@ -253,8 +259,9 @@ class BurstRunner:
         """Einen Burst-Tick auswerten und — wenn er etwas zeigt — persistieren
         (Bildpaar über die Ausgabekette, Event im Burst-Cluster, bei Gesicht
         zusätzlich Crop + Live-Publish). Beobachtungen fließen in den
-        ``report``. Returnt die Art des Ticks: ``face``, ``person`` oder ``""``
-        (verworfen)."""
+        ``report``. Returnt die Art des Ticks: ``face``, ``person`` oder
+        ``frame`` (nichts erkannt — das Bild bleibt als Film-Bild des
+        Vorkommnisses erhalten, ohne Beobachtung für den Report)."""
         detections = await self._detect.detect_faces(face_frame)
 
         # Personen zählen — in JEDEM Tick, auch wenn Gesichter gefunden
@@ -303,9 +310,23 @@ class BurstRunner:
 
         if not detections:
             # Kein Gesicht — zeigt der Tick wenigstens eine Person (auch
-            # abgewandt)? Dann als "Film-Frame" sichern, sonst verwerfen.
+            # abgewandt)? Dann als Personen-Ereignis sichern. Sonst bleibt das
+            # Bild trotzdem als Film-Bild erhalten: der Burst ist der Film des
+            # Vorkommnisses, und gerade ferne/kleine Personen entgehen dem
+            # Detektor.
             if not persons:
-                return ""
+                film_pair = await self._output.finalize_pair(
+                    wide_frame, face_frame, save=config.save_event_frames,
+                )
+                if film_pair.wide.path:
+                    self._recorder.record_burst_frame(
+                        source_id=source_id,
+                        timestamp=wide_frame.timestamp,
+                        frame_path=film_pair.wide.path,
+                        zoom_frame_path=film_pair.zoom_path,
+                        cluster_id=cluster_id,
+                    )
+                return "frame"
             pair = await self._output.finalize_pair(
                 wide_frame, face_frame, save=config.save_event_frames,
             )

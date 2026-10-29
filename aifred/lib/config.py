@@ -876,6 +876,10 @@ VISION_BURST_REPORT_DEADLINE_SEC = 15.0
 VISION_SAME_SCENE_MAX_HAMMING = 8
 VISION_BURST_MIN_INTERVAL_SEC = 0.2
 VISION_BURST_MIN_DEADLINE_SEC = 1.0
+# Ein Hinweis bei Neuigkeiten (neuer Name, Band-Upgrade, mehr Personen) wartet so lange, bis
+# sich der Stand beruhigt hat — Erkennungen kommen oft im Sekundentakt nacheinander
+# („Unbekannte Person", gleich darauf „Lord Helmchen") und sollen EINE Nachricht ergeben.
+VISION_BURST_NEWS_SETTLE_SEC = 5.0
 
 # Burst-Film: am Burst-Ende entsteht je Linse (Weitwinkel, Zoom) ein kurzes Video aus allen
 # gespeicherten Burst-Bildern in Zeitfolge — der Verlauf des Vorkommnisses von der ersten

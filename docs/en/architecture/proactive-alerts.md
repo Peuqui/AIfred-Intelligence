@@ -201,10 +201,13 @@ spanning the restart is split (rare, acceptable).
   running index (`…:burst-report-<n>`): there, several messages per happening
   are intended, but few: a first report (`burst_report_deadline_sec`) with a short
   VLM description and its keyframes, then only short text notes on real news (new
-  name, band upgrade, more people; no VLM and no image, `AlertEvent.describe=False`)
+  name, band upgrade, more people; no VLM and no image, `AlertEvent.describe=False`;
+  a note waits `VISION_BURST_NEWS_SETTLE_SEC` until the state has settled, so detections
+  in quick succession give ONE message)
   and, when the burst ends, the summary: a short VLM description of the whole
   occurrence (`vision_event_summary`, no image numbers) plus one film per lens (wide,
-  zoom) with at least `VISION_FILM_MIN_FRAMES` images, made from all burst images including the
+  zoom) with at least `VISION_FILM_MIN_FRAMES` images, made from all burst images (including those where nothing was detected — kept as
+  `edge_ai_burst_frame` film images) including the
   pre-roll (`vision_film`, MP4 under `data/vigilantia/films/`,
   `AlertEvent.media_album`; Telegram as an album of up to 10 videos/photos, the
   browser session as links). The burst is thus the small film of the occurrence

@@ -200,10 +200,12 @@ Restrisiko: Watcher-Neustart setzt offene Cluster zurück → ein Vorkommnis
   sind mehrere Meldungen pro Vorkommnis gewollt, aber wenige: eine Erstmeldung
   (`burst_report_deadline_sec`) mit kurzer VLM-Beschreibung und deren Keyframes,
   danach nur kurze Text-Hinweise bei echten Neuigkeiten (neuer Name, Band-Upgrade,
-  mehr Personen; ohne VLM und Bild, `AlertEvent.describe=False`) und zum
+  mehr Personen; ohne VLM und Bild, `AlertEvent.describe=False`; ein Hinweis wartet
+  `VISION_BURST_NEWS_SETTLE_SEC`, bis sich der Stand beruhigt hat, damit schnell
+  aufeinanderfolgende Erkennungen EINE Nachricht ergeben) und zum
   Burst-Ende die Zusammenfassung: kurze VLM-Beschreibung des ganzen Vorkommnisses
   (`vision_event_summary`, ohne Bildnummern) plus je Linse (Weitwinkel, Zoom) mit
-  mindestens `VISION_FILM_MIN_FRAMES` Bildern ein Film aus allen Burst-Bildern samt Vorlauf
+  mindestens `VISION_FILM_MIN_FRAMES` Bildern ein Film aus allen Burst-Bildern (auch denen, auf denen nichts erkannt wurde — sie bleiben als `edge_ai_burst_frame`-Film-Bilder erhalten) samt Vorlauf
   (`vision_film`, MP4 unter `data/vigilantia/films/`, `AlertEvent.media_album`;
   Telegram als Album aus bis zu 10 Videos/Fotos, Browser-Session als Links). Der
   Burst ist so der kleine Film des Vorkommnisses von der ersten bis zur letzten

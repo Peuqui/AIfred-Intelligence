@@ -34,8 +34,8 @@ class _FakeBot:
         self.groups.append(list(media))
         return [self._msg() for _ in media]
 
-    async def send_video(self, chat_id, video, caption):
-        self.videos.append({"caption": caption})
+    async def send_video(self, chat_id, video, caption, supports_streaming=False):
+        self.videos.append({"caption": caption, "streaming": supports_streaming})
         return self._msg()
 
     async def send_photo(self, chat_id, photo, caption):
@@ -127,11 +127,12 @@ class TestFilmAlbum:
         assert len(bot.groups) == 1
         assert all(isinstance(item, InputMediaVideo) for item in bot.groups[0])
         assert bot.groups[0][0].caption == "Zusammenfassung"
+        assert all(item.supports_streaming for item in bot.groups[0])  # spielt im Chat ab
 
     def test_a_single_film_is_sent_as_video(self, tmp_path):
         bot = _FakeBot()
         _deliver(tmp_path, bot, "Zusammenfassung", media_album=_films(tmp_path, 1))
-        assert bot.groups == [] and bot.videos == [{"caption": "Zusammenfassung"}]
+        assert bot.groups == [] and bot.videos == [{"caption": "Zusammenfassung", "streaming": True}]
 
     def test_a_film_over_the_bot_limit_is_not_sent(self, tmp_path):
         bot = _FakeBot()

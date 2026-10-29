@@ -290,3 +290,19 @@ def test_source_line_spans_midnight():
     line = va._source_line("Tür", datetime(2026, 10, 29, 23, 58), datetime(2026, 10, 30, 0, 3))
     assert line == "Tür · 29.10.2026 - 23:58 bis 30.10.2026 - 00:03"
     assert va._source_line("Tür", datetime(2026, 10, 29, 9, 0), datetime(2026, 10, 29, 9, 0)) == "Tür · 29.10.2026 - 09:00"
+
+
+def test_news_waits_until_the_state_has_settled(monkeypatch):
+    """Zwei Erkennungen kurz nacheinander („Unbekannte", dann der Name) ergeben EINEN Hinweis."""
+    from datetime import timedelta
+
+    report, _disp = _burst_report(monkeypatch)
+    asyncio.run(report.send())
+    assert report.news_due(5.0) is False           # nichts Neues
+    report.observe_headcount(3)
+    assert report.has_news()
+    assert report.news_due(5.0) is False           # gerade erst aufgekommen: warten
+    report._news_since = datetime.now() - timedelta(seconds=6)
+    assert report.news_due(5.0) is True            # beruhigt: melden
+    asyncio.run(report.send())
+    assert report.news_due(5.0) is False           # gemeldet, nichts mehr offen
