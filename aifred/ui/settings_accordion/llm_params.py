@@ -45,7 +45,7 @@ def llm_parameters_accordion() -> rx.Component:
                         rx.text(
                             t("context_window_fixed_hint"),
                             font_size="10px",
-                            color=COLORS["warning_text"],
+                            color=COLORS["accent_warning"],
                             font_style="italic",
                         ),
                     ),
@@ -79,13 +79,13 @@ def llm_parameters_accordion() -> rx.Component:
                         variant="solid",
                         margin_top="8px",
                         style={
-                            "background": "#3d2a00 !important",
+                            "background": "var(--aifred-warning-bg-mid) !important",
                             "color": COLORS["accent_warning"] + " !important",
                             "border": f"1px solid {COLORS['accent_warning']}",
                             "font_weight": "600",
                             "&:hover": {
-                                "background": "#4d3500 !important",
-                                "color": "#ffb84d !important",
+                                "background": "var(--aifred-warning-bg-hover) !important",
+                                "color": "var(--aifred-accent-amber) !important",
                             },
                         },
                     ),
@@ -95,7 +95,7 @@ def llm_parameters_accordion() -> rx.Component:
                     rx.text(
                         t("context_window_persist_hint"),
                         font_size="11px",
-                        color=COLORS["warning_text"],
+                        color=COLORS["accent_warning"],
                         font_style="italic",
                     ),
 

@@ -264,7 +264,7 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
         width="100%",
         padding="5px 8px",
         align="center",
-        border_bottom="1px solid #2a2a2a",
+        border_bottom="1px solid var(--aifred-input-bg)",
         _hover={"background_color": "rgba(255, 255, 255, 0.05)"},
     )
 
@@ -320,7 +320,7 @@ def _doc_remote_row(item: rx.Var) -> rx.Component:
         width="100%",
         padding="5px 8px",
         align="center",
-        border_bottom="1px solid #2a2a2a",
+        border_bottom="1px solid var(--aifred-input-bg)",
         _hover={"background_color": "rgba(255, 255, 255, 0.05)"},
     )
 
@@ -472,9 +472,9 @@ def _doc_delete_dialog() -> rx.Component:
                 ),
                 spacing="3",
                 padding="16px",
-                background=COLORS["panel_dark"],
+                background=COLORS["card_bg"],
                 border_radius="8px",
-                border="1px solid #c0392b",
+                border="1px solid var(--aifred-danger)",
                 box_shadow="0 -4px 20px rgba(0, 0, 0, 0.8)",
                 width="100%",
             ),
@@ -621,7 +621,7 @@ def document_manager_page() -> rx.Component:
                                 ),
                                 spacing="2", align="center", justify="center",
                                 width="100%", padding="8px",
-                                border="1px dashed #444", border_radius="6px",
+                                border="1px dashed var(--aifred-border-light)", border_radius="6px",
                                 _hover={"border_color": COLORS["accent_warning"], "color": COLORS["accent_warning"]},
                             ),
                             id="doc-explorer-upload",
@@ -668,7 +668,7 @@ def document_manager_page() -> rx.Component:
                             ),
                             spacing="3", align="center", width="100%",
                             padding="4px 8px",
-                            border_bottom="1px solid #2a2a2a",
+                            border_bottom="1px solid var(--aifred-input-bg)",
                         ),
                     ),
 
@@ -715,7 +715,7 @@ def document_manager_page() -> rx.Component:
                         left="0",
                         right="0",
                         z_index="10",
-                        background=COLORS["panel_dark"],
+                        background=COLORS["card_bg"],
                     ),
 
                     position="relative",
@@ -724,7 +724,7 @@ def document_manager_page() -> rx.Component:
                     min_height="0",
                     overflow="hidden",
                     padding_right=["0", "0", "15px"],
-                    border_right=["none", "none", "1px solid #333"],
+                    border_right=["none", "none", "1px solid var(--aifred-border)"],
                     spacing="2",
                 ),
 
@@ -753,7 +753,7 @@ def document_manager_page() -> rx.Component:
                                 flex="1", min_height="0",
                                 overflow_y="auto", width="100%",
                                 padding="10px", background_color="rgba(0, 0, 0, 0.3)",
-                                border_radius="6px", border="1px solid #333",
+                                border_radius="6px", border="1px solid var(--aifred-border)",
                             ),
                             spacing="2", width="100%",
                             height="100%",
@@ -783,7 +783,7 @@ def document_manager_page() -> rx.Component:
 
             spacing="3",
             padding="25px",
-            background_color=COLORS["panel_dark"],
+            background_color=COLORS["card_bg"],
             border_radius="12px",
             # Breakpoints: initial/sm bleiben bei 95vw (Mobil unverändert),
             # ab md wird der vorhandene Platz genutzt statt ihn zu verschenken.
@@ -798,5 +798,5 @@ def document_manager_page() -> rx.Component:
             z_index="1001",
             color="white",
         ),
-        backdrop_color="#000000",
+        backdrop_color=COLORS["media_bg"],
     )

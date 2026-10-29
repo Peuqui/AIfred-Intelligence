@@ -75,16 +75,16 @@ def render_user_message(msg: dict) -> rx.Component:
                     ),
                     font_weight="bold",
                     font_size="12px",
-                    color="#c06050",
+                    color=COLORS["danger"],
                     margin_bottom="1",
                     text_align="right",
                 ),
                 # Content (text message)
-                rx.markdown(msg["content"], color=COLORS["user_text"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP, overflow_x="auto"),
+                rx.markdown(msg["content"], color=COLORS["text_soft"], font_size="13px", component_map=MARKDOWN_COMPONENT_MAP, overflow_x="auto"),
                 padding="12px 16px 12px 12px",
                 border_radius="6px",
                 max_width="70%",
-                background_color=COLORS["user_msg"],
+                background_color=COLORS["input_bg"],
             ),
             rx.text("\U0001f64b", font_size="13px"),
             spacing="2",
@@ -202,7 +202,7 @@ def _agent_bubble(
                 ),
                 rx.markdown(
                     msg["content"],
-                    color=COLORS["ai_text"],
+                    color=COLORS["text_primary"],
                     font_size="13px",
                     component_map=MARKDOWN_COMPONENT_MAP,
                     overflow_x="auto",
@@ -241,19 +241,19 @@ def render_assistant_message(msg: dict) -> rx.Component:
     return rx.cond(
         msg["agent"] == "sokrates",
         _agent_bubble(
-            msg, msg["agent_emoji"], msg["agent_display_name"], "#cd7f32",
+            msg, msg["agent_emoji"], msg["agent_display_name"], COLORS["primary"],
             "rgba(205, 127, 50, 0.08)", "rgba(205, 127, 50, 0.03)", "rgba(205, 127, 50, 0.3)",
         ),
         rx.cond(
             msg["agent"] == "salomo",
             _agent_bubble(
-                msg, msg["agent_emoji"], msg["agent_display_name"], "#daa520",
+                msg, msg["agent_emoji"], msg["agent_display_name"], COLORS["accent_warning"],
                 "rgba(218, 165, 32, 0.08)", "rgba(218, 165, 32, 0.03)", "rgba(218, 165, 32, 0.3)",
             ),
             _agent_bubble(
                 msg, msg["agent_emoji"], msg["agent_display_name"],
                 COLORS["primary"],
-                COLORS["ai_msg"], "rgba(255, 255, 255, 0.03)", "rgba(255, 255, 255, 0.1)",
+                COLORS["card_bg"], "rgba(255, 255, 255, 0.03)", "rgba(255, 255, 255, 0.1)",
             ),
         ),
     )

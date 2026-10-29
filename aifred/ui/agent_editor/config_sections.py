@@ -145,9 +145,9 @@ def _tts_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> rx.
             spacing="2",
             width="100%",
             padding="10px",
-            background_color=COLORS["panel_dark"],
+            background_color=COLORS["card_bg"],
             border_radius="8px",
-            border="1px solid #333",
+            border="1px solid var(--aifred-border)",
             overflow="hidden",
         ),
     )
@@ -173,7 +173,7 @@ def _tools_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> r
                     rx.popover.content(
                         _tier_help_content(),
                         side="left",
-                        style={"background": COLORS["panel_raised"], "border": "1px solid #555", "border-radius": "8px"},
+                        style={"background": COLORS["input_bg"], "border": "1px solid var(--aifred-border-light)", "border-radius": "8px"},
                     ),
                 ),
                 rx.button(
@@ -258,8 +258,8 @@ def _prompts_section(is_new: rx.Var) -> rx.Component:
                 width="100%",
                 min_height="200px",
                 color="white",
-                background_color=COLORS["panel_dark"],
-                border="1px solid #444",
+                background_color=COLORS["card_bg"],
+                border="1px solid var(--aifred-border-light)",
                 font_family="monospace",
                 font_size="13px",
                 padding="12px",
@@ -306,7 +306,7 @@ def _dirty_warning() -> rx.Component:
             width="100%",
             padding="10px 12px",
             background="rgba(255, 100, 0, 0.1)",
-            border="1px solid #ff6600",
+            border="1px solid var(--aifred-primary)",
             border_radius="6px",
         ),
     )

@@ -179,8 +179,8 @@ def _editor_header() -> rx.Component:
         spacing="3",
         width="100%",
         flex_shrink="0",
-        background_color=COLORS["panel_dark"],
+        background_color=COLORS["card_bg"],
         z_index="10",
         padding_bottom="8px",
-        border_bottom="1px solid #333",
+        border_bottom="1px solid var(--aifred-border)",
     )

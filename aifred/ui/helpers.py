@@ -419,7 +419,7 @@ def clickable_tip(trigger: rx.Component, content: str | rx.Component) -> rx.Comp
     """
     body: rx.Component
     if isinstance(content, str):
-        body = rx.text(content, font_size="12px", color=COLORS["tip_text"])
+        body = rx.text(content, font_size="12px", color=COLORS["text_primary"])
     else:
         body = content
 

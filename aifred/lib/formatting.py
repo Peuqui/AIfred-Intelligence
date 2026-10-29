@@ -791,7 +791,7 @@ def extract_html_previews(text: str, lang: str | None = None) -> tuple[list[str]
         preview_url = _save_html_to_assets(html_code)
 
         collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">🌐 HTML Preview — <a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="color: #58a6ff; text-decoration: none;">Open in Browser</a></summary>
+<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); position: sticky; top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">🌐 HTML Preview — <a href="{preview_url}" target="_blank" rel="noopener noreferrer" style="color: var(--aifred-accent-blue); text-decoration: none;">Open in Browser</a></summary>
 <div style="max-height: 60vh; overflow-y: auto; padding: 0.5em;">
 
 ```html
@@ -1048,7 +1048,7 @@ def format_thinking_process(
 
         # Build collapsible HTML
         collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{summary_text}</summary>
+<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); position: sticky; top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">{summary_text}</summary>
 <div class="{css_class}">
 {content}
 </div>
@@ -1104,16 +1104,16 @@ def build_sandbox_iframe(url: str) -> str:
     from .config import SANDBOX_IFRAME_HEIGHT
     return (
         f'<details data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
-        f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; '
-        f'position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">'
+        f'<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); '
+        f'position: sticky; top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">'
         f'📊 Interaktive Visualisierung — '
         f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
-        f'style="color: #58a6ff; text-decoration: none;" '
+        f'style="color: var(--aifred-accent-blue); text-decoration: none;" '
         f'>Im Browser öffnen</a></summary>'
         f'<iframe src="{url}" '
         f'style="width: 100%; height: {SANDBOX_IFRAME_HEIGHT}; '
-        f'border: 1px solid #444; border-radius: 8px; '
-        f'background: #000; margin-top: 0.4em;" '
+        f'border: 1px solid var(--aifred-border-light); border-radius: 8px; '
+        f'background: var(--aifred-media-bg); margin-top: 0.4em;" '
         f'sandbox="allow-scripts" '
         f'scrolling="no" '
         f'loading="lazy"></iframe>'
@@ -1148,13 +1148,13 @@ def build_sandbox_image(url: str) -> str:
     """Build a collapsible with embedded image for sandbox plot output."""
     return (
         f'<details data-sandbox style="font-size: 0.9em; margin-bottom: 0.5em;">'
-        f'<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
+        f'<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary);">'
         f'📊 Plot — '
         f'<a href="{url}" target="_blank" rel="noopener noreferrer" '
-        f'style="color: #58a6ff; text-decoration: none;" '
+        f'style="color: var(--aifred-accent-blue); text-decoration: none;" '
         f'>Vollbild</a></summary>'
         f'<img src="{url}" style="max-width: 100%; max-height: 480px; '
-        f'border-radius: 8px; border: 1px solid #444; margin-top: 0.4em;" '
+        f'border-radius: 8px; border: 1px solid var(--aifred-border-light); margin-top: 0.4em;" '
         f'alt="Plot" />'
         f'</details>'
     )
@@ -1235,11 +1235,11 @@ def build_sources_collapsible(used_sources: list, failed_sources: list, lang: st
             word_count = src["word_count"]
             source_lines.append(
                 f'<div style="display: flex; align-items: baseline; gap: 0.8em;">'
-                f'<span style="color: #7d8590; flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
-                f'<span style="color: #4ade80; flex-shrink: 0;">✓</span>'
+                f'<span style="color: var(--aifred-text-muted); flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
+                f'<span style="color: var(--aifred-accent-success); flex-shrink: 0;">✓</span>'
                 f'<a href="{url}" target="_blank" rel="noopener" '
                 f'style="flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</a>'
-                f'<span style="color: #7d8590; flex-shrink: 0; white-space: nowrap;">({word_count} {words_label})</span>'
+                f'<span style="color: var(--aifred-text-muted); flex-shrink: 0; white-space: nowrap;">({word_count} {words_label})</span>'
                 f'</div>'
             )
         else:
@@ -1247,11 +1247,11 @@ def build_sources_collapsible(used_sources: list, failed_sources: list, lang: st
             error = src["error"]
             source_lines.append(
                 f'<div style="display: flex; align-items: baseline; gap: 0.8em;">'
-                f'<span style="color: #7d8590; flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
-                f'<span style="color: #cc6a00; flex-shrink: 0;">✗</span>'
+                f'<span style="color: var(--aifred-text-muted); flex-shrink: 0; min-width: 1.5em;">{i}.</span>'
+                f'<span style="color: var(--aifred-primary-active); flex-shrink: 0;">✗</span>'
                 f'<a href="{url}" target="_blank" rel="noopener" '
                 f'style="flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">{url}</a>'
-                f'<span style="color: #7d8590; font-style: italic; flex-shrink: 0; white-space: nowrap;">({error})</span>'
+                f'<span style="color: var(--aifred-text-muted); font-style: italic; flex-shrink: 0; white-space: nowrap;">({error})</span>'
                 f'</div>'
             )
 
@@ -1259,12 +1259,12 @@ def build_sources_collapsible(used_sources: list, failed_sources: list, lang: st
 
     # Build complete collapsible (matching Denkprozess styling exactly)
     collapsible = f"""<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">
-<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{summary_text}</summary>
+<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); position: sticky; top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">{summary_text}</summary>
 <div style="max-height: 60vh; overflow-y: auto; padding-left: 1em; padding-top: 0.3em; line-height: 1.6;">
 
 {sources_html}
 
-<div style="font-size: 0.9em; font-style: italic; color: #7d8590; margin-top: 0.3em;">{sorted_label}</div>
+<div style="font-size: 0.9em; font-style: italic; color: var(--aifred-text-muted); margin-top: 0.3em;">{sorted_label}</div>
 </div>
 </details>"""
 
@@ -1306,8 +1306,8 @@ def build_tool_collapsible(block: dict[str, Any]) -> str:
     )
     return (
         f'<details style="font-size: 0.9em; margin-bottom: 0.5em; margin-top: 0.5em;">\n'
-        f'<summary style="cursor: pointer; font-weight: bold; color: #aaa; position: sticky; '
-        f'top: 0; z-index: 2; background: #252c35; padding: 4px 0;">{title}</summary>\n'
+        f'<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); position: sticky; '
+        f'top: 0; z-index: 2; background: var(--aifred-input-bg); padding: 4px 0;">{title}</summary>\n'
         f'<div style="padding: 0.3em 0 0 1em; line-height: 1.5; white-space: pre-wrap; '
         f'word-break: break-word; font-family: monospace; font-size: 0.95em;">{content}</div>\n'
         f'{footer}</details>'

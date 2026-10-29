@@ -14,7 +14,7 @@ from ...theme import COLORS
 from ..helpers import plugin_text, t
 
 # Tier badge colors: 0=green, 1=blue, 2=orange, 3=red, 4=purple
-_TIER_COLORS = {0: COLORS["accent_success"], 1: "#2196F3", 2: COLORS["accent_amber"], 3: COLORS["danger"], 4: "#9C27B0"}
+_TIER_COLORS = {0: COLORS["accent_success"], 1: COLORS["accent_blue"], 2: COLORS["accent_amber"], 3: COLORS["danger"], 4: COLORS["accent_purple"]}
 
 def _tier_help_content() -> rx.Component:
     """Shared popover content explaining security tiers with colored badges (i18n)."""

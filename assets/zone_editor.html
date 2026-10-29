@@ -6,7 +6,7 @@
 <title>Vigilantia</title>
 <!--I18N-->
 <style>
-  :root { --bg:#0f1115; --panel:#171a21; --border:#2a2f3a; --accent:#FFA500; --text:#e6e6e6; --muted:#9aa3b2; }
+  :root { --bg:var(--aifred-page-bg); --panel:var(--aifred-card-bg); --border:var(--aifred-input-bg); --accent:var(--aifred-accent-amber); --text:var(--aifred-text-primary); --muted:var(--aifred-text-secondary); }
   * { box-sizing: border-box; }
   body { margin:0; background:var(--bg); color:var(--text); font-family: system-ui, sans-serif; }
   header { padding:10px 16px; background:var(--panel); border-bottom:1px solid var(--border); display:flex; align-items:center; gap:12px; flex-wrap:wrap; }
@@ -18,9 +18,9 @@
   .controls input[type=range] { accent-color: var(--accent); }
   .controls input[type=checkbox] { accent-color: var(--accent); width:16px; height:16px; }
   .controls .seg { display:flex; gap:8px; }
-  button { background:#23272f; color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; }
+  button { background:var(--aifred-input-bg); color:var(--text); border:1px solid var(--border); border-radius:6px; padding:7px 14px; font-size:13px; cursor:pointer; }
   button:hover { border-color:var(--accent); }
-  button.primary { background:#3d2a00; color:var(--accent); border-color:var(--accent); font-weight:600; }
+  button.primary { background:var(--aifred-warning-bg-mid); color:var(--accent); border-color:var(--accent); font-weight:600; }
   .hint { font-size:12px; color:var(--muted); margin-top:4px; }
   #ai-cam-hint { display:none; font-size:12px; color:var(--accent); margin-top:6px;
                  background:#3d2a0033; border:1px solid var(--accent); border-radius:6px;
@@ -31,27 +31,27 @@
      Seitenverhältnis. Die interne Canvas-Auflösung bleibt fix; evtPos() rechnet
      die Mauskoordinaten über getBoundingClientRect um, das Malen bleibt also
      bei jeder Anzeigegröße exakt. */
-  #stage { position:relative; display:block; width:100%; border:1px solid var(--border); border-radius:8px; overflow:hidden; line-height:0; background:#000; }
+  #stage { position:relative; display:block; width:100%; border:1px solid var(--border); border-radius:8px; overflow:hidden; line-height:0; background:var(--aifred-media-bg); }
   #live { display:block; width:100%; height:auto; }
   #cv { position:absolute; top:0; left:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
   #status { margin-top:10px; font-size:13px; min-height:18px; }
   /* Toaster — 1:1 die Werte des Sonner-Toasts, den Reflex im Hauptfenster
-     benutzt (styles.css: bg #000, border hsl(0,0%,20%), radius 8px, 13px,
+     benutzt (styles.css: bg var(--aifred-media-bg), border hsl(0,0%,20%), radius 8px, 13px,
      356px breit, 24px Offset, 400ms Slide). Das Editor-Fenster ist reines
      HTML ohne Reflex, deshalb nachgebaut statt importiert. */
   #toaster { position:fixed; right:24px; bottom:24px; width:356px; z-index:999999999;
              display:flex; flex-direction:column; gap:14px; pointer-events:none; }
   #toaster .toast { display:flex; align-items:center; gap:6px; padding:16px;
-                    background:#000; border:1px solid hsl(0,0%,20%); color:hsl(0,0%,99%);
+                    background:var(--aifred-media-bg); border:1px solid hsl(0,0%,20%); color:hsl(0,0%,99%);
                     border-radius:8px; box-shadow:0 4px 12px rgba(0,0,0,0.1);
                     font-size:13px; font-weight:500; line-height:1.5;
                     opacity:0; transform:translateY(100%);
                     transition:transform 400ms, opacity 400ms; }
   #toaster .toast.show { opacity:1; transform:translateY(0); }
   #toaster .toast svg { flex-shrink:0; }
-  #toaster .toast.err svg { color:#ff6b6b; }
-  #status.ok { color:#4caf50; } #status.err { color:#ff6b6b; }
-  kbd { background:#23272f; border:1px solid var(--border); border-radius:3px; padding:1px 5px; font-size:11px; }
+  #toaster .toast.err svg { color:var(--aifred-danger); }
+  #status.ok { color:var(--aifred-accent-success); } #status.err { color:var(--aifred-danger); }
+  kbd { background:var(--aifred-input-bg); border:1px solid var(--border); border-radius:3px; padding:1px 5px; font-size:11px; }
   #help-btn { background:none; border:none; cursor:pointer; padding:4px; margin-left:auto; line-height:0; }
   #help-btn svg { transition:transform 0.15s ease; }
   #help-btn:hover svg { transform:scale(1.15); }
@@ -86,7 +86,7 @@
       <label><input type="radio" name="brush" value="3"> <span data-i18n="zone_editor_mode_roi"></span></label>
     </div>
     <label><input type="checkbox" id="active" checked> <span data-i18n="zone_editor_active"></span></label>
-    <button id="help-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#FFA500" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg></button>
+    <button id="help-btn"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--aifred-accent-amber)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 14c.2-1 .7-1.7 1.5-2.5 1-.9 1.5-2.2 1.5-3.5A6 6 0 0 0 6 8c0 1 .2 2.2 1.5 3.5.7.7 1.3 1.5 1.5 2.5"/><path d="M9 18h6"/><path d="M10 22h4"/></svg></button>
     <label><span data-i18n="zone_editor_brush"></span> <input type="range" id="brush" min="1" max="10" value="3"> <span id="brushVal">3</span></label>
     <label><span data-i18n="zone_editor_grid"></span> <input type="range" id="grid" min="16" max="96" step="8" value="48"> <span id="gridVal"></span></label>
     <button id="reload" data-i18n="zone_editor_reload"></button>
@@ -508,7 +508,7 @@
     const pct = observed > 0 ? (moving / observed) * 100 : 0;
     motionCurEl.textContent = fmtPct(pct);
     motionCurEl.style.color =
-      pct >= parseFloat(motionMinEl.value) ? "#ff6b6b" : "#4caf50";
+      pct >= parseFloat(motionMinEl.value) ? "var(--aifred-danger)" : "var(--aifred-accent-success)";
   }
   setInterval(measureMotion, 300);
 

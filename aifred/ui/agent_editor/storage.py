@@ -105,9 +105,9 @@ def _storage_entry_row(entry: rx.Var) -> rx.Component:
             width="100%", align="center", spacing="2",
         ),
         padding="8px 10px",
-        border="1px solid #333",
+        border="1px solid var(--aifred-border)",
         border_radius="8px",
-        background_color=COLORS["panel_dark"],
+        background_color=COLORS["card_bg"],
         width="100%",
     )
 

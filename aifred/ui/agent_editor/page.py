@@ -53,7 +53,7 @@ def agent_editor_page() -> rx.Component:
                 _config_view(),  # default
             ),
             padding="25px",
-            background_color=COLORS["panel_dark"],
+            background_color=COLORS["card_bg"],
             border_radius="12px",
             max_width="95vw",
             width="750px",

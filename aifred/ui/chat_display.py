@@ -289,13 +289,13 @@ def session_list_display() -> rx.Component:
                 on_click=AIState.new_session,
                 flex="1",
                 style={
-                    "background": "#3d2a00",
+                    "background": COLORS["warning_bg_mid"],
                     "color": COLORS["accent_warning"],
                     "border": f"1px solid {COLORS['accent_warning']}",
                     "font_weight": "600",
                     "&:hover": {
-                        "background": "#4d3500",
-                        "color": "#ffb84d",
+                        "background": COLORS["warning_bg_hover"],
+                        "color": COLORS["accent_amber"],
                     },
                 },
             ),
@@ -312,7 +312,7 @@ def session_list_display() -> rx.Component:
                     "minWidth": "42px",
                     "&:hover": {
                         "background": "rgba(200, 70, 70, 0.4)",
-                        "color": "#ffb84d",
+                        "color": COLORS["accent_amber"],
                     },
                 },
             ),
@@ -461,7 +461,7 @@ def chat_history_display() -> rx.Component:
         width="100%",
         min_height="360px",
         padding="4",
-        background_color=COLORS["readonly_bg"],
+        background_color=COLORS["card_bg"],
         border_radius="8px",
         border=f"1px solid {COLORS['border']}",
     )
@@ -470,7 +470,7 @@ def chat_history_display() -> rx.Component:
     # rx.auto_scroll ignoriert den Toggle während der Inferenz, daher JavaScript-Lösung
     # StreamingText uses useEffect + DOM append for O(1) updates per state delta.
 
-    _stream_text_style: dict = {"white_space": "pre-wrap", "word_break": "break-word", "color": COLORS["ai_text"], "font_size": "13px", "line_height": "1.35"}
+    _stream_text_style: dict = {"white_space": "pre-wrap", "word_break": "break-word", "color": COLORS["text_primary"], "font_size": "13px", "line_height": "1.35"}
 
     # Single streaming box — NO rx.cond switching between different streaming_text instances.
     # This prevents React "removeChild" crashes when current_agent changes mid-stream.
@@ -503,7 +503,7 @@ def chat_history_display() -> rx.Component:
                             ),
                         ),
                         streaming_text(text=StreamingState.current_ai_response, id="st-main", style=_stream_text_style),
-                        background_color=COLORS["ai_msg"], padding="3", border_radius="6px", width="100%",
+                        background_color=COLORS["card_bg"], padding="3", border_radius="6px", width="100%",
                     ),
                     spacing="2", align="start", width="100%",
                 ),
@@ -536,7 +536,7 @@ def chat_history_display() -> rx.Component:
         max_height="2400px",
         overflow_y="auto",
         padding="4",
-        background_color=COLORS["readonly_bg"],
+        background_color=COLORS["card_bg"],
         border_radius="8px",
         border=f"1px solid {COLORS['border']}",
         style={

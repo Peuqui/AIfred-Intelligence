@@ -40,7 +40,7 @@ def _icon_action(icon: str, on_click: Any, tooltip_key: str) -> rx.Component:
 
 def _section_heading(key: str, *extra: rx.Component) -> rx.Component:
     return rx.hstack(
-        rx.text(t(key), font_size="12px", font_weight="bold", color="#d4a14a"),
+        rx.text(t(key), font_size="12px", font_weight="bold", color=COLORS["accent_warning"]),
         *extra,
         spacing="2",
         align="center",
@@ -83,7 +83,7 @@ def _entry_row(row: rx.Var) -> rx.Component:
         rx.cond(
             row["warn"].to(bool),
             rx.tooltip(
-                rx.icon("triangle-alert", size=14, color="#f5a524"),
+                rx.icon("triangle-alert", size=14, color=COLORS["accent_warning"]),
                 content=t("tts_entry_unreachable_warning"),
             ),
             rx.fragment(),
@@ -116,7 +116,7 @@ def _list_section() -> rx.Component:
             rx.popover.root(
                 rx.popover.trigger(rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer")),
                 rx.popover.content(
-                    rx.text(t("tts_list_tooltip"), font_size="11px", color=COLORS["tip_text"], line_height="1.5"),
+                    rx.text(t("tts_list_tooltip"), font_size="11px", color=COLORS["text_primary"], line_height="1.5"),
                     max_width="340px",
                     padding="10px",
                 ),

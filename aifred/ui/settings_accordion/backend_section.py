@@ -48,7 +48,7 @@ def _language_user_row() -> rx.Component:
         ),
         # User Name Input + Gender Toggle (Subtle Orange style)
         rx.box(
-            rx.icon("user", size=16, color="#B8860B"),
+            rx.icon("user", size=16, color=COLORS["accent_warning"]),
             rx.input(
                 placeholder=t("your_name"),
                 value=AIState.user_name,
@@ -145,7 +145,7 @@ def _backend_row() -> rx.Component:
                             t("gpu_details"),
                             font_size="11px",
                             font_weight="500",
-                            color="#2a9d8f",
+                            color=COLORS["accent_cyan"],
                         ),
                         padding_y="2",
                     ),
@@ -154,7 +154,7 @@ def _backend_row() -> rx.Component:
                         rx.text(
                             f"\U0001f3ae {AIState.gpu_display_text}",
                             font_size="10px",
-                            color="#2a9d8f",
+                            color=COLORS["accent_cyan"],
                         ),
                         # Backend Compatibility (only if Compute < 7.0)
                         rx.cond(
@@ -174,7 +174,7 @@ def _backend_row() -> rx.Component:
                                 rx.text(
                                     t("gpu_gguf_hint"),
                                     font_size="10px",
-                                    color="#2a9d8f",
+                                    color=COLORS["accent_cyan"],
                                     margin_top="4px",
                                     font_style="italic",
                                 ),
@@ -315,7 +315,7 @@ def _calibration_row() -> rx.Component:
                         t("calibration_hybrid_label"),
                         font_size="11px",
                         color=rx.cond(
-                            AIState.calibration_allow_hybrid, "#FFA85C", COLORS["text_secondary"],
+                            AIState.calibration_allow_hybrid, COLORS["accent_amber"], COLORS["text_secondary"],
                         ),
                     ),
                     rx.popover.root(
@@ -338,7 +338,7 @@ def _calibration_row() -> rx.Component:
                             rx.text(
                                 t("calibration_hybrid_tooltip"),
                                 font_size="11px",
-                                color=COLORS["tip_text"],
+                                color=COLORS["text_primary"],
                                 line_height="1.5",
                             ),
                             max_width="320px",

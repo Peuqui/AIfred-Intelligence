@@ -55,8 +55,8 @@ def _database_view() -> rx.Component:
                             lambda doc: _indexed_doc_row(doc, "file-text", COLORS["accent_blue"]),
                         ),
                         spacing="0", width="100%",
-                        background=COLORS["panel_dark"],
-                        border="1px solid #2a2a2a",
+                        background=COLORS["card_bg"],
+                        border="1px solid var(--aifred-input-bg)",
                         border_radius="6px",
                     ),
                     rx.text(
@@ -104,7 +104,7 @@ def _indexed_doc_row(doc: rx.Var, icon: str, icon_color: str) -> rx.Component:
         ),
         spacing="2", align="center", width="100%",
         padding="6px 8px",
-        border_bottom="1px solid #2a2a2a",
+        border_bottom="1px solid var(--aifred-input-bg)",
     )
 
 
@@ -148,8 +148,8 @@ def _db_orphan_section() -> rx.Component:
             ),
             spacing="2", align="center", width="100%",
             padding="6px 8px",
-            background=COLORS["panel_dark"],
-            border="1px solid #2a2a2a",
+            background=COLORS["card_bg"],
+            border="1px solid var(--aifred-input-bg)",
             border_radius="6px",
         ),
         rx.cond(
@@ -160,8 +160,8 @@ def _db_orphan_section() -> rx.Component:
                     rx.foreach(AIState.db_orphans, lambda doc: _indexed_doc_row(doc, "file-x-2", COLORS["accent_warning"])),
                     spacing="0", width="100%",
                     margin_top="4px",
-                    background=COLORS["panel_dark"],
-                    border="1px solid #2a2a2a",
+                    background=COLORS["card_bg"],
+                    border="1px solid var(--aifred-input-bg)",
                     border_radius="6px",
                     max_height="240px",
                     overflow_y="auto",
@@ -171,8 +171,8 @@ def _db_orphan_section() -> rx.Component:
                     font_size="12px", color=COLORS["text_muted"],
                     padding="12px 8px",
                     margin_top="4px",
-                    background=COLORS["panel_dark"],
-                    border="1px solid #2a2a2a",
+                    background=COLORS["card_bg"],
+                    border="1px solid var(--aifred-input-bg)",
                     border_radius="6px",
                 ),
             ),

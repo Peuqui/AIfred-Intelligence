@@ -28,7 +28,7 @@ def _plugin_description_popover(plugin: object | None) -> rx.Component:
             rx.icon("lightbulb", size=14, color=COLORS["accent_gold"], cursor="pointer"),
         ),
         rx.popover.content(
-            rx.text(description, font_size="11px", color=COLORS["tip_text"], padding="8px", max_width="320px"),
+            rx.text(description, font_size="11px", color=COLORS["text_primary"], padding="8px", max_width="320px"),
             side="right",
             class_name="tip-popup",
         ),

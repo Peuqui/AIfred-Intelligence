@@ -740,7 +740,7 @@ async def summarize_history_if_needed(
             clean_thinking = neutralize_markdown_fences(clean_thinking)
             inner_html += (
                 '<details style="font-size: 0.9em; margin-bottom: 0.5em;">\n'
-                '<summary style="cursor: pointer; font-weight: bold; color: #aaa;">'
+                '<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary);">'
                 f'{thinking_label}</summary>\n'
                 '<div class="thinking-compact" style="max-height: 60vh; overflow-y: auto;">\n'
                 f'{clean_thinking}\n'
@@ -751,7 +751,7 @@ async def summarize_history_if_needed(
         summary_header = f"\U0001f4ca {summary_label} #{summary_number} | {non_summary_compressed} {messages_label} | {timestamp}"
         summary_collapsible = (
             '<details style="font-size: 0.9em; margin-bottom: 1em;">\n'
-            '<summary style="cursor: pointer; font-weight: bold; color: #aaa; '
+            '<summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary); '
             'position: sticky; top: 0; z-index: 1; background: inherit; padding: 2px 0;">'
             f'{summary_header}</summary>\n'
             '<div style="max-height: 60vh; overflow-y: auto; padding: 0.5em;">\n'

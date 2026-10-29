@@ -133,7 +133,7 @@ def _scheduler_job_row(job: rx.Var) -> rx.Component:
         padding="10px 12px",
         background="rgba(255,255,255,0.03)",
         border_radius="6px",
-        border="1px solid #333",
+        border="1px solid var(--aifred-border)",
         width="100%",
     )
 
@@ -263,9 +263,9 @@ def _scheduler_edit_form() -> rx.Component:
                 clickable_tip(
                     rx.hstack(rx.text(t("sched_label_type"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
-                        rx.text(t("sched_tip_type_cron"), font_size="12px", color=COLORS["tip_text"]),
-                        rx.text(t("sched_tip_type_interval"), font_size="12px", color=COLORS["tip_text"]),
-                        rx.text(t("sched_tip_type_once"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_type_cron"), font_size="12px", color=COLORS["text_primary"]),
+                        rx.text(t("sched_tip_type_interval"), font_size="12px", color=COLORS["text_primary"]),
+                        rx.text(t("sched_tip_type_once"), font_size="12px", color=COLORS["text_primary"]),
                         spacing="1",
                     ),
                 ),
@@ -308,9 +308,9 @@ def _scheduler_edit_form() -> rx.Component:
                 clickable_tip(
                     rx.hstack(rx.text(t("sched_label_delivery"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
-                        rx.text(t("sched_tip_delivery_review"), font_size="12px", color=COLORS["tip_text"]),
-                        rx.text(t("sched_tip_delivery_announce"), font_size="12px", color=COLORS["tip_text"]),
-                        rx.text(t("sched_tip_delivery_webhook"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_delivery_review"), font_size="12px", color=COLORS["text_primary"]),
+                        rx.text(t("sched_tip_delivery_announce"), font_size="12px", color=COLORS["text_primary"]),
+                        rx.text(t("sched_tip_delivery_webhook"), font_size="12px", color=COLORS["text_primary"]),
                         spacing="1",
                     ),
                 ),
@@ -339,11 +339,11 @@ def _scheduler_edit_form() -> rx.Component:
                 clickable_tip(
                     rx.hstack(rx.text(t("sched_label_tier"), font_size="11px", color=COLORS["text_secondary"]), rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]), spacing="1", align="center", cursor="pointer"),
                     rx.vstack(
-                        rx.text(t("sched_tip_tier_0"), font_size="12px", color=COLORS["tip_text"]),
-                        rx.text(t("sched_tip_tier_1"), font_size="12px", color=COLORS["tip_text"]),
-                        rx.text(t("sched_tip_tier_2"), font_size="12px", color=COLORS["tip_text"]),
-                        rx.text(t("sched_tip_tier_3"), font_size="12px", color=COLORS["tip_text"]),
-                        rx.text(t("sched_tip_tier_4"), font_size="12px", color=COLORS["tip_text"]),
+                        rx.text(t("sched_tip_tier_0"), font_size="12px", color=COLORS["text_primary"]),
+                        rx.text(t("sched_tip_tier_1"), font_size="12px", color=COLORS["text_primary"]),
+                        rx.text(t("sched_tip_tier_2"), font_size="12px", color=COLORS["text_primary"]),
+                        rx.text(t("sched_tip_tier_3"), font_size="12px", color=COLORS["text_primary"]),
+                        rx.text(t("sched_tip_tier_4"), font_size="12px", color=COLORS["text_primary"]),
                         spacing="1",
                     ),
                 ),
@@ -422,7 +422,7 @@ def _scheduler_edit_form() -> rx.Component:
         width="100%",
         padding="14px 12px",
         background="rgba(217, 128, 48, 0.1)",
-        border="1px solid #d98030",
+        border="1px solid var(--aifred-primary)",
         border_radius="8px",
         overflow="visible",
     )

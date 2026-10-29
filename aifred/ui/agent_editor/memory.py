@@ -127,7 +127,7 @@ def _memory_entry_row(entry: rx.Var) -> rx.Component:
         padding="10px 12px",
         background="rgba(255,255,255,0.03)",
         border_radius="6px",
-        border="1px solid #333",
+        border="1px solid var(--aifred-border)",
         width="100%",
     )
 

@@ -277,7 +277,7 @@ def file_picker_modal() -> rx.Component:
                 align="center",
                 width="100%",
                 padding_bottom="8px",
-                border_bottom="1px solid #333",
+                border_bottom="1px solid var(--aifred-border)",
             ),
             # Sandbox-Hint (zeigt root)
             rx.text(
@@ -351,7 +351,7 @@ def file_picker_modal() -> rx.Component:
                 spacing="2",
                 width="100%",
                 padding_top="10px",
-                border_top="1px solid #333",
+                border_top="1px solid var(--aifred-border)",
             ),
             # Don't let inner clicks bubble to the backdrop
             on_click=rx.stop_propagation,
@@ -361,9 +361,9 @@ def file_picker_modal() -> rx.Component:
             width="min(900px, 95vw)",
             height="min(720px, 90vh)",
             padding="20px",
-            background_color=COLORS["panel_dark"],
+            background_color=COLORS["card_bg"],
             border_radius="8px",
-            border="1px solid #444",
+            border="1px solid var(--aifred-border-light)",
             box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
             position="relative",
             z_index="1301",

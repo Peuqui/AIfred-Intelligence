@@ -8,6 +8,7 @@ from fastapi import HTTPException, Request
 from fastapi.responses import HTMLResponse
 from pydantic import BaseModel
 
+from ...theme import css_variables
 from .app import api_app
 
 # In-memory map: session_id -> last requested state_key (for re-resolve from JS)
@@ -181,16 +182,17 @@ async def audio_test_page(key: str = "music/05-Ausgefressen.mp3"):
     audio_src = f"/api/audio/file?key={quote(key)}"
     return f"""<!doctype html>
 <html><head><meta charset="utf-8"><title>AIfred Audio Test</title>
-<style>body{{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 16px;background:#1a1a1a;color:#ddd}}
-h1{{font-size:18px;color:#4287f5}} code{{background:#333;padding:2px 6px;border-radius:3px}}
-audio{{width:100%;margin:16px 0}} .ok{{color:#4ade80}} .err{{color:#f87171}}</style>
+<style>{css_variables()}
+body{{font-family:system-ui;max-width:720px;margin:40px auto;padding:0 16px;background:var(--aifred-card-bg);color:var(--aifred-text-soft)}}
+h1{{font-size:18px;color:var(--aifred-accent-blue)}} code{{background:var(--aifred-border);padding:2px 6px;border-radius:3px}}
+audio{{width:100%;margin:16px 0}} .ok{{color:var(--aifred-accent-success)}} .err{{color:var(--aifred-danger)}}</style>
 </head><body>
 <h1>Audio-Endpoint Test</h1>
 <p>State-Key: <code>{safe_key}</code></p>
 <p>Source URL: <code>{audio_src}</code></p>
 <audio id="testplayer" controls preload="metadata" src="{audio_src}"></audio>
 <p>Status: <span id="status">loading…</span></p>
-<pre id="log" style="background:#222;padding:10px;border-radius:4px;font-size:12px;max-height:300px;overflow:auto"></pre>
+<pre id="log" style="background:var(--aifred-input-bg);padding:10px;border-radius:4px;font-size:12px;max-height:300px;overflow:auto"></pre>
 <script>
 const a = document.getElementById('testplayer');
 const s = document.getElementById('status');

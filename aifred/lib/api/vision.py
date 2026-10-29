@@ -633,6 +633,7 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
     damit er unabhängig vom frontend_path-Prefix erreichbar ist; die
     source_id kommt als Query-Param (das JS liest sie aus location.search)."""
     import json
+    from ...theme import css_variables
     from ..formatting import format_number
     from ..i18n import TranslationManager, t
     editor = (
@@ -681,6 +682,7 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
         except Exception:  # noqa: BLE001
             ai_cam = False
     inject = (
+        f"<style>{css_variables()}</style>"
         "<script>window.T="
         + json.dumps({k: t(k) for k in keys}, ensure_ascii=False)
         + ";window.DEC="

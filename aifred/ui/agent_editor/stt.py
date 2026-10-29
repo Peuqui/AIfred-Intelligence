@@ -45,7 +45,7 @@ def _stt_row(label, control: rx.Component, hint=None) -> rx.Component:
         width="100%",
         min_width="0",
         padding_y="6px",
-        border_bottom="1px solid #2a2a2a",
+        border_bottom="1px solid var(--aifred-input-bg)",
     )
 
 

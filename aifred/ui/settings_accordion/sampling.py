@@ -104,7 +104,7 @@ def sampling_control_section() -> rx.Component:
                             "&:hover": {"transform": "scale(1.15)"},
                         },
                     ),
-                    rx.text(t("sampling_temp_toggle_tooltip"), font_size="12px", color=COLORS["tip_text"]),
+                    rx.text(t("sampling_temp_toggle_tooltip"), font_size="12px", color=COLORS["text_primary"]),
                 ),
                 spacing="1",
                 align="center",

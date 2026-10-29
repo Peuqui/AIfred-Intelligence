@@ -549,12 +549,8 @@ async def run_llm_stream(
             shown_urls = [
                 u for _alt, u in re.findall(r"!\[([^\]]*)\]\(([^)]+)\)", full_response)
             ]
-            # Akzent-Orange aus dem Theme (SSoT), nicht hardcoden.
-            try:
-                from ..theme import COLORS
-                _orange = COLORS.get("primary", "#e67700")
-            except Exception:  # noqa: BLE001
-                _orange = "#e67700"
+            # Akzent-Orange aus dem Theme (SSoT, CSS-Variable aus theme.css_variables()).
+            _orange = "var(--aifred-primary)"
             # Trennlinie zwischen den Einträgen im Lieblingsorange.
             sep = (
                 f'<hr style="border:none;border-top:1px solid {_orange};'

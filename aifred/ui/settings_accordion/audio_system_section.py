@@ -34,9 +34,9 @@ def _tts_section() -> rx.Component:
             rx.text(
                 rx.cond(AIState.enable_tts, "ON", "OFF"),
                 font_size="10px",
-                color=rx.cond(AIState.enable_tts, "#d4a14a", COLORS["text_muted"]),
+                color=rx.cond(AIState.enable_tts, COLORS["accent_warning"], COLORS["text_muted"]),
             ),
-            rx.text(t("tts_autoplay_label"), font_size="11px", color="#d4a14a"),
+            rx.text(t("tts_autoplay_label"), font_size="11px", color=COLORS["accent_warning"]),
             rx.switch(
                 checked=AIState.tts_autoplay,
                 on_change=AIState.toggle_tts_autoplay,

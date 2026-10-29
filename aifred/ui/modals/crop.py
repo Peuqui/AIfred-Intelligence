@@ -125,7 +125,7 @@ def crop_modal() -> rx.Component:
             spacing="4",
             align="center",
             padding="20px",
-            background_color=COLORS["panel_dark"],
+            background_color=COLORS["card_bg"],
             border_radius="12px",
             max_width="95vw",
             max_height="90dvh",

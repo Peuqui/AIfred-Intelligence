@@ -74,7 +74,7 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
                 rx.icon("lightbulb", size=12, color=COLORS["accent_gold"]),
                 spacing="1", align="center", cursor="pointer",
             ),
-            rx.text(field["tooltip"].to(str), font_size="12px", color=COLORS["tip_text"], white_space="pre-line"),
+            rx.text(field["tooltip"].to(str), font_size="12px", color=COLORS["text_primary"], white_space="pre-line"),
         ),
         rx.text(field["label_key"].to(str), font_size="11px", color=COLORS["text_secondary"]),
     )
@@ -280,7 +280,7 @@ def channel_credentials_page() -> rx.Component:
                             rx.text(
                                 t("oauth_connect_rights_missing"),
                                 font_size="12px",
-                                color=COLORS["warning_text"],
+                                color=COLORS["accent_warning"],
                             ),
                         ),
                         rx.text(
@@ -318,7 +318,7 @@ def channel_credentials_page() -> rx.Component:
 
                 spacing="3",
                 padding="24px",
-                background=COLORS["panel_dark"],
+                background=COLORS["card_bg"],
                 border_radius="12px",
                 border="1px solid var(--gray-a6)",
                 width="500px",

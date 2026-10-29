@@ -55,7 +55,7 @@ def audio_help_modal() -> rx.Component:
                 ),
                 spacing="2", align="center", width="100%",
                 padding_bottom="8px",
-                border_bottom="1px solid #333",
+                border_bottom="1px solid var(--aifred-border)",
             ),
             rx.box(
                 _help_content(),
@@ -85,14 +85,14 @@ def audio_help_modal() -> rx.Component:
                 ),
                 width="100%",
                 padding_top="10px",
-                border_top="1px solid #333",
+                border_top="1px solid var(--aifred-border)",
             ),
             on_click=rx.stop_propagation,
             spacing="3",
             width="min(820px, 95vw)",
             height="min(640px, 90vh)",
             padding="20px",
-            background_color=COLORS["panel_dark"],
+            background_color=COLORS["card_bg"],
             border_radius="8px",
             border="1px solid rgba(255, 209, 102, 0.4)",
             box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
@@ -305,7 +305,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
             # Type icon
             rx.cond(
                 src["is_stream"],
-                rx.icon("radio", size=16, color="#a78bfa"),
+                rx.icon("radio", size=16, color=COLORS["accent_purple"]),
                 rx.cond(
                     src["is_symlink"],
                     rx.icon("link", size=16, color=COLORS["accent_blue"]),
@@ -410,7 +410,7 @@ def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
         ),
         padding="10px 12px",
         background_color="rgba(40, 40, 40, 0.6)",
-        border="1px solid #333",
+        border="1px solid var(--aifred-border)",
         border_radius="6px",
         margin_bottom="6px",
         width="100%",
@@ -454,7 +454,7 @@ def audio_settings_page() -> rx.Component:
                 align="center",
                 width="100%",
                 padding_bottom="8px",
-                border_bottom="1px solid #333",
+                border_bottom="1px solid var(--aifred-border)",
             ),
             # (Help is rendered as separate modal via audio_help_modal)
             # Sandbox-Root editor (for the source picker)
@@ -519,7 +519,7 @@ def audio_settings_page() -> rx.Component:
                 spacing="2",
                 width="100%",
                 padding_top="10px",
-                border_top="1px solid #333",
+                border_top="1px solid var(--aifred-border)",
             ),
             # Modal content — stop click bubbling so clicks inside don't
             # close the modal (only the backdrop click does)
@@ -529,9 +529,9 @@ def audio_settings_page() -> rx.Component:
             width="min(1000px, 95vw)",
             height="min(680px, 90vh)",
             padding="20px",
-            background_color=COLORS["panel_dark"],
+            background_color=COLORS["card_bg"],
             border_radius="8px",
-            border="1px solid #444",
+            border="1px solid var(--aifred-border-light)",
             box_shadow="0 8px 32px rgba(0, 0, 0, 0.5)",
             position="relative",
             z_index="1201",

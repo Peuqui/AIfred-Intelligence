@@ -6,6 +6,8 @@ import re
 
 import reflex as rx
 
+from ..theme import css_variables
+
 
 class ExportMixin(rx.State, mixin=True):
     """Handles exporting the chat history as a standalone HTML file."""
@@ -356,11 +358,11 @@ class ExportMixin(rx.State, mixin=True):
 
         return f'''
                     <details class="sources-collapsible" style="font-size: 0.9em; margin-bottom: 1em; margin-top: 0.2em;">
-                        <summary style="cursor: pointer; font-weight: bold; color: #aaa;">🔗 {summary_text}</summary>
+                        <summary style="cursor: pointer; font-weight: bold; color: var(--aifred-text-secondary);">🔗 {summary_text}</summary>
                         <ul class="sources-list">
                             {"".join(sources_list)}
                         </ul>
-                        <p style="font-size: 11px; font-style: italic; color: #7d8590; margin-top: 6px;">{sorted_label}</p>
+                        <p style="font-size: 11px; font-style: italic; color: var(--aifred-text-muted); margin-top: 6px;">{sorted_label}</p>
                     </details>
                     '''
 
@@ -593,6 +595,7 @@ class ExportMixin(rx.State, mixin=True):
         }});
     </script>
     <style>
+{css_variables()}
         * {{
             box-sizing: border-box;
             margin: 0;
@@ -600,8 +603,8 @@ class ExportMixin(rx.State, mixin=True):
         }}
         body {{
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-            background-color: #0d1117;
-            color: #e6edf3;
+            background-color: var(--aifred-page-bg);
+            color: var(--aifred-text-primary);
             line-height: 1.4;
             padding: 20px;
             max-width: 1000px;
@@ -610,16 +613,16 @@ class ExportMixin(rx.State, mixin=True):
         .header {{
             text-align: center;
             padding: 20px;
-            border-bottom: 1px solid #30363d;
+            border-bottom: 1px solid var(--aifred-border);
             margin-bottom: 20px;
         }}
         .header h1 {{
-            color: #e67700;
+            color: var(--aifred-primary);
             font-size: 1.8em;
             margin-bottom: 5px;
         }}
         .header .timestamp {{
-            color: #7d8590;
+            color: var(--aifred-text-muted);
             font-size: 0.9em;
         }}
         .message {{
@@ -649,11 +652,11 @@ class ExportMixin(rx.State, mixin=True):
         .message-content h3,
         .message-content h4 {{
             margin: 0.9em 0 0.3em 0;
-            color: #e6edf3;
+            color: var(--aifred-text-primary);
         }}
         .message-content h2 {{
             font-size: 1.3em;
-            border-bottom: 1px solid #30363d;
+            border-bottom: 1px solid var(--aifred-border);
             padding-bottom: 0.1em;
         }}
         .message-content h3 {{
@@ -673,14 +676,14 @@ class ExportMixin(rx.State, mixin=True):
         }}
         .message-content table th,
         .message-content table td {{
-            border: 1px solid #30363d;
+            border: 1px solid var(--aifred-border);
             padding: 8px 12px;
             text-align: left;
         }}
         .message-content table th {{
-            background-color: #21262d;
+            background-color: var(--aifred-input-bg);
             font-weight: bold;
-            color: #e6edf3;
+            color: var(--aifred-text-primary);
         }}
         .message-content table tr:nth-child(even) {{
             background-color: rgba(48, 54, 61, 0.3);
@@ -699,8 +702,8 @@ class ExportMixin(rx.State, mixin=True):
         }}
         /* User: box with border */
         .user-message {{
-            background-color: #21262d;
-            border: 1px solid #30363d;
+            background-color: var(--aifred-input-bg);
+            border: 1px solid var(--aifred-border);
             text-align: right;
             padding-right: 85px;
         }}
@@ -710,49 +713,49 @@ class ExportMixin(rx.State, mixin=True):
             margin-left: 10px;
         }}
         .user-message .message-header {{
-            color: #c06050;
+            color: var(--aifred-danger);
             text-align: right;
             margin-right: -70px;
         }}
         /* AIfred: box with border + left accent */
         .aifred-message {{
-            background-color: #161b22;
-            border: 1px solid #30363d;
-            border-left: 3px solid #e67700;
+            background-color: var(--aifred-card-bg);
+            border: 1px solid var(--aifred-border);
+            border-left: 3px solid var(--aifred-primary);
         }}
         .aifred-message .message-header {{
-            color: #e67700;
+            color: var(--aifred-primary);
         }}
         /* Sokrates: full box with border */
         .sokrates-message {{
-            background-color: #161b22;
-            border: 1px solid #30363d;
-            border-left: 3px solid #a371f7;
+            background-color: var(--aifred-card-bg);
+            border: 1px solid var(--aifred-border);
+            border-left: 3px solid var(--aifred-accent-purple);
         }}
         .sokrates-message .message-header {{
-            color: #a371f7;
+            color: var(--aifred-accent-purple);
         }}
         /* Salomo: full box with border */
         .salomo-message {{
-            background-color: #161b22;
-            border: 1px solid #30363d;
-            border-left: 3px solid #d29922;
+            background-color: var(--aifred-card-bg);
+            border: 1px solid var(--aifred-border);
+            border-left: 3px solid var(--aifred-accent-warning);
         }}
         .salomo-message .message-header {{
-            color: #d29922;
+            color: var(--aifred-accent-warning);
         }}
         .summary-message {{
-            background-color: #1c1c1c;
-            border-left: 3px solid #7d8590;
+            background-color: var(--aifred-card-bg);
+            border-left: 3px solid var(--aifred-text-muted);
         }}
         .summary-message .message-header {{
-            color: #7d8590;
+            color: var(--aifred-text-muted);
         }}
         /* Audio player styling */
         .message-audio {{
             margin-top: 12px;
             padding-top: 10px;
-            border-top: 1px solid #30363d;
+            border-top: 1px solid var(--aifred-border);
         }}
         .message-audio audio {{
             width: 100%;
@@ -762,30 +765,30 @@ class ExportMixin(rx.State, mixin=True):
         }}
         /* Collapsible details styling */
         details {{
-            border: 1px solid #30363d;
+            border: 1px solid var(--aifred-border);
             border-radius: 6px;
-            background-color: #0d1117;
+            background-color: var(--aifred-page-bg);
         }}
         summary {{
             cursor: pointer;
             padding: 8px;
             font-weight: bold;
-            color: #7d8590;
-            background-color: #161b22;
+            color: var(--aifred-text-muted);
+            background-color: var(--aifred-card-bg);
             border-radius: 6px 6px 0 0;
         }}
         summary:hover {{
-            background-color: #21262d;
+            background-color: var(--aifred-input-bg);
         }}
         details[open] summary {{
-            border-bottom: 1px solid #30363d;
+            border-bottom: 1px solid var(--aifred-border);
             border-radius: 6px 6px 0 0;
         }}
         details > div {{
             padding: 8px;
         }}
         .thinking-compact {{
-            color: #aaa;
+            color: var(--aifred-text-secondary);
             font-size: 0.9em;
             line-height: 1.3;
         }}
@@ -795,11 +798,11 @@ class ExportMixin(rx.State, mixin=True):
         /* Web Sources Collapsible */
         .sources-collapsible {{
             margin-bottom: 12px;
-            border: 1px solid #30363d;
+            border: 1px solid var(--aifred-border);
             border-radius: 6px;
         }}
         .sources-collapsible summary {{
-            color: #8b949e;
+            color: var(--aifred-text-secondary);
             background-color: rgba(139, 148, 158, 0.1);
             padding: 8px 12px;
             cursor: pointer;
@@ -815,7 +818,7 @@ class ExportMixin(rx.State, mixin=True):
         }}
         .sources-list li {{
             padding: 4px 0;
-            border-bottom: 1px solid #30363d;
+            border-bottom: 1px solid var(--aifred-border);
             display: flex;
             align-items: center;
             gap: 8px;
@@ -829,25 +832,25 @@ class ExportMixin(rx.State, mixin=True):
             text-align: center;
         }}
         .sources-list .used-source .source-icon {{
-            color: #4ade80;
+            color: var(--aifred-accent-success);
         }}
         .sources-list .failed-source .source-icon {{
-            color: #d29922;
+            color: var(--aifred-accent-warning);
         }}
         .sources-list a {{
-            color: #56d4dd;
+            color: var(--aifred-accent-cyan);
             text-decoration: underline;
             word-break: break-all;
         }}
         .sources-list a:hover {{
-            color: #a0f0ff;
+            color: var(--aifred-accent-cyan);
         }}
         .source-info {{
-            color: #7d8590;
+            color: var(--aifred-text-muted);
             font-size: 0.85em;
         }}
         .failed-error {{
-            color: #7d8590;
+            color: var(--aifred-text-muted);
             font-size: 0.85em;
             font-style: italic;
         }}
@@ -855,25 +858,25 @@ class ExportMixin(rx.State, mixin=True):
         .footer {{
             text-align: center;
             padding: 20px;
-            border-top: 1px solid #30363d;
+            border-top: 1px solid var(--aifred-border);
             margin-top: 20px;
-            color: #7d8590;
+            color: var(--aifred-text-muted);
             font-size: 0.85em;
         }}
         .footer a {{
-            color: #56d4dd;
+            color: var(--aifred-accent-cyan);
             text-decoration: underline;
         }}
         .footer a:hover {{
-            color: #a0f0ff;
+            color: var(--aifred-accent-cyan);
         }}
         /* Global link styling (for embedded content) */
         a {{
-            color: #56d4dd;
+            color: var(--aifred-accent-cyan);
             text-decoration: underline;
         }}
         a:hover {{
-            color: #a0f0ff;
+            color: var(--aifred-accent-cyan);
         }}
         /* Italic text (normal markdown *text*) */
         em {{
@@ -882,7 +885,7 @@ class ExportMixin(rx.State, mixin=True):
         }}
         /* Metrics styling (wrapped in .metrics class) */
         .metrics {{
-            color: #7d8590;
+            color: var(--aifred-text-muted);
             font-style: normal;
             font-size: 0.85em;
             display: block;
@@ -890,7 +893,7 @@ class ExportMixin(rx.State, mixin=True):
         }}
         /* Code blocks */
         pre, code {{
-            background-color: #161b22;
+            background-color: var(--aifred-card-bg);
             border-radius: 4px;
             font-family: 'Courier New', Consolas, monospace;
         }}
@@ -904,24 +907,24 @@ class ExportMixin(rx.State, mixin=True):
         }}
         /* Tables (from markdown) */
         th, td {{
-            border: 1px solid #30363d;
+            border: 1px solid var(--aifred-border);
             padding: 6px 10px;
             text-align: left;
         }}
         th {{
-            background-color: #21262d;
+            background-color: var(--aifred-input-bg);
             font-weight: bold;
-            color: #e6edf3;
+            color: var(--aifred-text-primary);
         }}
         tr:nth-child(even) {{
-            background-color: #161b22;
+            background-color: var(--aifred-card-bg);
         }}
         tr:hover {{
-            background-color: #21262d;
+            background-color: var(--aifred-input-bg);
         }}
         /* Bold and italic */
         strong {{
-            color: #f0f6fc;
+            color: var(--aifred-text-primary);
         }}
         /* KaTeX Block-Formeln zentrieren */
         .katex-display {{
@@ -935,9 +938,9 @@ class ExportMixin(rx.State, mixin=True):
             margin-bottom: 16px;
         }}
         .export-toolbar button {{
-            background: #21262d;
-            color: #58a6ff;
-            border: 1px solid #30363d;
+            background: var(--aifred-input-bg);
+            color: var(--aifred-accent-blue);
+            border: 1px solid var(--aifred-border);
             border-radius: 6px;
             padding: 8px 14px;
             margin: 0 4px;
@@ -945,7 +948,7 @@ class ExportMixin(rx.State, mixin=True):
             font-size: 0.9em;
         }}
         .export-toolbar button:hover {{
-            background: #30363d;
+            background: var(--aifred-border);
         }}
         /* Print / PDF: light background (saves ink + readable on paper) and —
            crucially — expand every <details> so the web-source URLs and
@@ -953,31 +956,31 @@ class ExportMixin(rx.State, mixin=True):
            <details> is otherwise omitted from print. The toolbar is dropped. */
         @media print {{
             body {{
-                background: #fff;
-                color: #111;
+                background: var(--aifred-text-on-accent);
+                color: var(--aifred-page-bg);
             }}
             .header, .footer {{
-                border-color: #ccc;
+                border-color: var(--aifred-text-soft);
             }}
             .header h1 {{
-                color: #b45309;
+                color: var(--aifred-primary);
             }}
             .message,
             .aifred-message, .sokrates-message, .salomo-message,
             .user-message, .summary-message {{
-                background: #fff !important;
-                border: 1px solid #ccc !important;
+                background: var(--aifred-text-on-accent) !important;
+                border: 1px solid var(--aifred-text-soft) !important;
             }}
             details, summary,
             .sources-collapsible, .sources-collapsible summary {{
-                background: #fff !important;
-                color: #333 !important;
+                background: var(--aifred-text-on-accent) !important;
+                color: var(--aifred-border) !important;
             }}
             details > *:not(summary) {{
                 display: block !important;
             }}
             a, .sources-list a {{
-                color: #0a58ca !important;
+                color: var(--aifred-accent-blue) !important;
             }}
             .export-toolbar {{
                 display: none !important;

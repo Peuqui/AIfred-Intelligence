@@ -315,7 +315,7 @@ def _vllm_calibration_popover() -> rx.Component:
                             background=rx.cond(
                                 AIState.vllm_model_calibrated,
                                 COLORS["accent_success"],
-                                "#4b5563",
+                                COLORS["border_light"],
                             ),
                             flex_shrink="0",
                         ),
@@ -351,7 +351,7 @@ def _vllm_calibration_popover() -> rx.Component:
                         background=rx.cond(
                             AIState.vllm_model_calibrated,
                             COLORS["accent_success"],
-                            "#4b5563",
+                            COLORS["border_light"],
                         ),
                         flex_shrink="0",
                     ),

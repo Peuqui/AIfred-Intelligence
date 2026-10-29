@@ -359,7 +359,7 @@ def _alias_overlay(entry: rx.Var) -> rx.Component:
             "left": "0.5em",
             "padding": "2px 8px",
             "background_color": "rgba(0, 0, 0, 0.65)",
-            "color": "#fff",
+            "color": COLORS["text_on_accent"],
             "font_size": "0.85em",
             "font_weight": "bold",
             "border_radius": "4px",
@@ -600,7 +600,7 @@ def _teleprompter_below(entry: rx.Var) -> rx.Component:
             ),
             rx.spacer(),
             rx.icon_button(
-                # AIfred-Orange aus theme.py (primary #e67700) — der
+                # AIfred-Orange aus theme.py (primary var(--aifred-primary)) — der
                 # User-Brand-Akzent zieht den Klick-Punkt ins Auge,
                 # ohne den Button selbst voll-orange einzufärben.
                 rx.icon("eraser", size=12, color=COLORS["primary"]),
@@ -669,7 +669,7 @@ def _image_tile(entry: rx.Var) -> rx.Component:
                         t("vision_preview_focus_enlarge"),
                     ),
                     border_radius="8px",
-                    background_color="#111",
+                    background_color=COLORS["page_bg"],
                     # Immer auf Container-Größe skalieren — sowohl 320×240
                     # als auch 4K bekommen die volle verfügbare Fläche.
                     # ``object_fit: contain`` erhält das Seitenverhältnis,
@@ -852,7 +852,7 @@ def _image_grid() -> rx.Component:
                 "width": "100%",
                 "flex": "1 1 auto",
                 "min_height": "0",
-                "background_color": COLORS["panel_dark"],
+                "background_color": COLORS["card_bg"],
                 "border_radius": "8px",
             },
         ),

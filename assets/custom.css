@@ -1,7 +1,7 @@
 /* Force Dark Theme - Override Browser Light/Dark Mode */
 html, body, #root, .radix-themes {
-    background-color: #0b0f19 !important;
-    color: #e2e8f0 !important;
+    background-color: var(--aifred-page-bg) !important;
+    color: var(--aifred-text-primary) !important;
     color-scheme: dark !important;  /* Force dark mode detection */
 }
 
@@ -16,12 +16,12 @@ html, body, #root, .radix-themes {
     --gray-4: var(--aifred-border) !important;    /* Border color */
     --gray-5: var(--aifred-border-light) !important;    /* Border light */
     --gray-6: var(--aifred-border) !important;    /* Border (für Accordion border!) */
-    --gray-7: #6e7681 !important;    /* Text muted */
+    --gray-7: var(--aifred-text-muted) !important;    /* Text muted */
     --gray-8: var(--aifred-text-muted) !important;    /* Text secondary */
-    --gray-9: #9198a1 !important;    /* Text secondary lighter */
-    --gray-10: #b1bac4 !important;   /* Text primary dimmed */
+    --gray-9: var(--aifred-text-secondary) !important;    /* Text secondary lighter */
+    --gray-10: var(--aifred-text-secondary) !important;   /* Text primary dimmed */
     --gray-11: var(--aifred-text-primary) !important;   /* Text primary */
-    --gray-12: #f0f6fc !important;   /* Text high contrast */
+    --gray-12: var(--aifred-text-primary) !important;   /* Text high contrast */
 
     /* Alpha variants (transparent) */
     --gray-a1: rgba(13, 17, 23, 0.9) !important;
@@ -44,7 +44,7 @@ html, body, #root, .radix-themes {
     --accent-4: var(--aifred-border) !important;
     --accent-5: var(--aifred-border-light) !important;
     --accent-6: var(--aifred-border) !important;
-    --accent-7: #6e7681 !important;
+    --accent-7: var(--aifred-text-muted) !important;
     --accent-8: var(--aifred-text-muted) !important;
     --accent-9: var(--aifred-primary) !important;   /* Orange Accent */
     --accent-10: var(--aifred-primary-hover) !important;
@@ -60,17 +60,17 @@ html, body, #root, .radix-themes {
 /* Radix UI Custom Orange Color Scale Override */
 .radix-themes {
     /* Override Orange Scale mit Warning Colors */
-    --orange-9: #3d2a00 !important;   /* CHECKED: Helleres Orange Hintergrund */
-    --orange-a9: #3d2a00 !important;
-    --orange-10: #4d3500 !important;  /* Hover State */
-    --orange-a10: #4d3500 !important;
-    --orange-11: #cc8800 !important;  /* THUMB: Mittleres Orange (gut sichtbar) */
-    --orange-a11: #cc8800 !important;
-    --orange-12: #cc8800 !important;  /* High-contrast (für high_contrast=True) */
-    --orange-a12: #cc8800 !important;
+    --orange-9: var(--aifred-warning-bg-mid) !important;   /* CHECKED: Helleres Orange Hintergrund */
+    --orange-a9: var(--aifred-warning-bg-mid) !important;
+    --orange-10: var(--aifred-warning-bg-hover) !important;  /* Hover State */
+    --orange-a10: var(--aifred-warning-bg-hover) !important;
+    --orange-11: var(--aifred-primary) !important;  /* THUMB: Mittleres Orange (gut sichtbar) */
+    --orange-a11: var(--aifred-primary) !important;
+    --orange-12: var(--aifred-primary) !important;  /* High-contrast (für high_contrast=True) */
+    --orange-a12: var(--aifred-primary) !important;
 
     /* Contrast color for Switch Thumb - immer sichtbar */
-    --orange-contrast: #cc8800 !important;
+    --orange-contrast: var(--aifred-primary) !important;
 }
 
 /* Direct CSS Override für Switch - alle Child-Elemente */
@@ -84,19 +84,19 @@ html, body, #root, .radix-themes {
 .rt-SwitchRoot[data-state="checked"],
 .rt-SwitchRoot[data-state="checked"] > span,
 .rt-SwitchRoot[data-state="checked"]::before {
-    background-color: #5d4200 !important;  /* CHECKED: Deutlich helleres Orange */
+    background-color: var(--aifred-warning-bg-hover) !important;  /* CHECKED: Deutlich helleres Orange */
     border-radius: 9999px !important;      /* Volle Rundung */
 }
 
 .rt-SwitchThumb {
-    background-color: #cc8800 !important;  /* THUMB: Mittleres Orange - IMMER gut sichtbar */
+    background-color: var(--aifred-primary) !important;  /* THUMB: Mittleres Orange - IMMER gut sichtbar */
     border-radius: 9999px !important;      /* Runder Knopf */
 }
 
 /* Thumb sollte in BEIDEN Zuständen gleich aussehen */
 .rt-SwitchRoot[data-state="unchecked"] .rt-SwitchThumb,
 .rt-SwitchRoot[data-state="checked"] .rt-SwitchThumb {
-    background-color: #cc8800 !important;  /* Gleiches Orange in beiden Zuständen */
+    background-color: var(--aifred-primary) !important;  /* Gleiches Orange in beiden Zuständen */
 }
 
 /* Entferne Test-Grün von TextAreas */
@@ -156,7 +156,7 @@ body > .rt-Container,
 body > .rt-Flex,
 #root > .rt-Box,
 #root > .rt-Container {
-    background-color: #0b0f19 !important;
+    background-color: var(--aifred-page-bg) !important;
 }
 
 /* Input/Textarea dark backgrounds - alle möglichen Selektoren */
@@ -201,7 +201,7 @@ textarea:focus {
 
 /* Thinking Process Collapsible - HÖCHSTE PRIORITÄT */
 details {
-    background-color: #252c35 !important;  /* Deutlich helleres Grau */
+    background-color: var(--aifred-input-bg) !important;  /* Deutlich helleres Grau */
     border-radius: 4px !important;
     padding: 0.5em !important;
     margin-bottom: 1em !important;
@@ -266,7 +266,7 @@ p a,
 div a,
 li a,
 .radix-themes a {
-    color: #56d4dd !important;  /* Cyan-Türkis */
+    color: var(--aifred-accent-cyan) !important;  /* Cyan-Türkis */
     text-decoration: underline !important;
 }
 
@@ -277,18 +277,18 @@ p a:hover,
 div a:hover,
 li a:hover,
 .radix-themes a:hover {
-    color: #a0f0ff !important;  /* Helleres Cyan beim Hover */
+    color: var(--aifred-accent-cyan) !important;  /* Helleres Cyan beim Hover */
 }
 
 /* Web-Quellen Collapsible: URLs in Cyan (gleiche Farbe wie globale Links) */
 details a[href],
 details a:link,
 details a:visited {
-    color: #56d4dd !important;  /* Cyan-Türkis */
+    color: var(--aifred-accent-cyan) !important;  /* Cyan-Türkis */
 }
 
 details a[href]:hover {
-    color: #a0f0ff !important;  /* Helleres Cyan beim Hover */
+    color: var(--aifred-accent-cyan) !important;  /* Helleres Cyan beim Hover */
 }
 
 /* Chat-Box: Kein horizontaler Overflow */
@@ -324,7 +324,7 @@ em,
 .rt-Box em,
 p em,
 div em {
-    color: #e2e8f0 !important;
+    color: var(--aifred-text-primary) !important;
     font-style: italic !important;
 }
 
@@ -454,7 +454,7 @@ p:last-child > em:only-child {
 
 /* Hover-Effekt für Handles */
 .crop-handle:hover {
-    background: #66BB6A;
+    background: var(--aifred-accent-success);
     transform-origin: center;
 }
 
@@ -680,7 +680,7 @@ p:last-child > em:only-child {
 }
 .username-input-subtle input {
     text-align: left !important;
-    color: #B8860B !important;
+    color: var(--aifred-accent-warning) !important;
     font-weight: 500 !important;
     padding-left: 0 !important;
     padding-right: 8px !important;
@@ -745,30 +745,30 @@ tr:hover {
 [role="tooltip"],
 [data-state="delayed-open"][data-side],
 [data-state="instant-open"][data-side] {
-    background-color: var(--aifred-tip-bg) !important;
-    color: var(--aifred-tip-text) !important;
-    border: 1px solid var(--aifred-tip-border) !important;
+    background-color: var(--aifred-card-bg) !important;
+    color: var(--aifred-text-primary) !important;
+    border: 1px solid var(--aifred-border-light) !important;
     border-radius: 6px !important;
     padding: 8px 12px !important;
     font-size: 13px !important;
     max-width: 300px !important;
     z-index: 9999 !important;
-    --tooltip-bg: var(--aifred-tip-bg) !important;
-    --tooltip-content-color: var(--aifred-tip-text) !important;
+    --tooltip-bg: var(--aifred-card-bg) !important;
+    --tooltip-content-color: var(--aifred-text-primary) !important;
 }
 
 /* Force text color on all child elements */
 .rt-TooltipContent *,
 [data-radix-tooltip-content] *,
 [role="tooltip"] * {
-    color: var(--aifred-tip-text) !important;
+    color: var(--aifred-text-primary) !important;
 }
 
 /* Klick-Popups der Glühbirnen (clickable_tip, Plugin-Liste). Die Regel für .radix-themes
    oben (html, body, #root, .radix-themes) färbt sonst auch das Popup ein. */
 .tip-popup {
-    background-color: var(--aifred-tip-bg) !important;
-    border: 1px solid var(--aifred-tip-border) !important;
+    background-color: var(--aifred-card-bg) !important;
+    border: 1px solid var(--aifred-border-light) !important;
     border-radius: 8px !important;
 }
 
@@ -776,8 +776,8 @@ tr:hover {
 .rt-TooltipArrow,
 [data-radix-tooltip-arrow],
 .rt-TooltipContent svg {
-    fill: var(--aifred-tip-bg) !important;
-    color: var(--aifred-tip-bg) !important;
+    fill: var(--aifred-card-bg) !important;
+    color: var(--aifred-card-bg) !important;
 }
 
 /* ============================================================
@@ -851,13 +851,13 @@ tr:hover {
 .rt-SegmentedControlItem[data-state="active"],
 .rt-SegmentedControlItem:has(input:checked) {
     background-color: rgba(204, 136, 0, 0.4) !important;  /* Bright orange background */
-    color: #ffc107 !important;  /* Bright yellow-orange text */
+    color: var(--aifred-accent-amber) !important;  /* Bright yellow-orange text */
 }
 
 /* Hover state for better UX */
 .rt-SegmentedControlItem:hover:not([data-state="on"]):not([data-state="active"]) {
     background-color: rgba(204, 136, 0, 0.15) !important;
-    color: #b1bac4 !important;
+    color: var(--aifred-text-secondary) !important;
 }
 
 /* Bubble audio button playing state */
@@ -937,8 +937,8 @@ tr:hover {
     line-height: 1;
 }
 .vlm-face-discard-btn:hover {
-    border-color: #ef4444;
-    color: #ef4444;
+    border-color: var(--aifred-danger);
+    color: var(--aifred-danger);
 }
 /* „Light-Table"-Overlay innerhalb des Live-Video-Containers.
    ``position: absolute`` füllt den image-slot, klickt auf weitere
@@ -1021,7 +1021,7 @@ tr:hover {
 
 /* Status bar: model, describer, STT, TTS (custom.js, kind "service_status") */
 .service-status-dots { display: flex; align-items: center; gap: 4px 18px; flex-wrap: wrap; }
-.service-status-dots, .service-status-list { --ss-color: #6e7681; }  /* grey; the modifiers below set it per badge */
+.service-status-dots, .service-status-list { --ss-color: var(--aifred-text-muted); }  /* grey; the modifiers below set it per badge */
 .ss-green { --ss-color: var(--aifred-accent-success); }
 .ss-yellow { --ss-color: var(--aifred-accent-warning); }
 .ss-red { --ss-color: var(--aifred-danger); }
@@ -1073,7 +1073,7 @@ tr:hover {
 .chat-font-controls { margin-right: 18px; }  /* air between the buttons and the chevron */
 .chat-font-btn {
     cursor: pointer; user-select: none; padding: 0 8px; font-size: 12px; line-height: 22px;
-    border: 1px solid var(--aifred-border); border-radius: 6px; color: #e2e8f0;
+    border: 1px solid var(--aifred-border); border-radius: 6px; color: var(--aifred-text-primary);
 }
 .chat-font-btn:hover { background: rgba(255, 255, 255, 0.08); }
 .chat-font-percent::after { content: var(--chat-zoom-label, "100 %"); font-size: 11px; opacity: 0.7; font-variant-numeric: tabular-nums; }

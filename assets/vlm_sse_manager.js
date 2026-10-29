@@ -96,9 +96,9 @@ console.log('[AIfred-VLM] script file fetched + parsed');
         // nutzt, um den richtigen Eintrag aus ``faceLines[sid]`` zu
         // entfernen.
         var html = items.map(function (item) {
-          var dotColor = item.band === 'known' ? '#22c55e'
-                       : item.band === 'unsure' ? '#eab308'
-                       : '#ef4444';
+          var dotColor = item.band === 'known' ? 'var(--aifred-accent-success)'
+                       : item.band === 'unsure' ? 'var(--aifred-accent-warning)'
+                       : 'var(--aifred-danger)';
           var dot = '<span class="vlm-face-dot" style="background:' +
                     dotColor + '"></span>';
           var thumb = item.crop_url
