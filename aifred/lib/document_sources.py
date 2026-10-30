@@ -6,6 +6,10 @@ A tool plugin offers one through an optional attribute ``document_source``
 The core discovers it among the enabled plugins and never imports a plugin:
 a disabled plugin simply offers no source. Folders are addressed by id (""
 = the source's root), since a remote store need not have paths.
+
+A source's file can join the document index (``file_manager.index_source_file``):
+the user decides per file or folder, as with local documents. The file stays at
+the source; the index keeps its text under :func:`source_index_name`.
 """
 from __future__ import annotations
 
@@ -54,6 +58,23 @@ class DocumentSource(Protocol):
     async def download(self, file_id: str) -> SourceDownload: ...
 
     async def upload(self, folder_id: str, name: str, data: bytes, mime: str) -> SourceEntry: ...
+
+
+def source_index_name(source_key: str, file_id: str) -> str:
+    """A source's file in the document index. The index derives its folders from
+    this name, so the folder ``<key>:`` covers everything from one source."""
+    return f"{source_key}:/{file_id}"
+
+
+async def files_below(source: DocumentSource, folder_id: str) -> list[SourceEntry]:
+    """Every file in the folder and its subfolders."""
+    files: list[SourceEntry] = []
+    for entry in await source.list_folder(folder_id):
+        if entry.is_folder:
+            files += await files_below(source, entry.id)
+        else:
+            files.append(entry)
+    return files
 
 
 def document_sources() -> dict[str, DocumentSource]:

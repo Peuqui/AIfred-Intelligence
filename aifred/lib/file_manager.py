@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import shutil
+import tempfile
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -106,6 +107,21 @@ def format_stamp(epoch: float) -> str:
     return datetime.fromtimestamp(epoch).strftime("%d.%m.%Y %H:%M")
 
 
+def chunks_per_document() -> dict[str, int]:
+    """Chunk count of every indexed document; empty while ChromaDB is unavailable,
+    so a file listing still works without the index."""
+    chunks: dict[str, int] = {}
+    try:
+        from .document_store import get_document_store
+        store = get_document_store()
+        if store:
+            for doc in store.list_documents():
+                chunks[doc["filename"]] = doc.get("total_chunks", 0)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"chunks_per_document: ChromaDB unavailable, skipping index lookup: {exc}")
+    return chunks
+
+
 def list_directory(folder_rel: str = "") -> FileOpResult:
     """List files + subfolders of ``folder_rel`` (relative to documents/).
 
@@ -122,15 +138,7 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
     if not folder.is_dir():
         return FileOpResult(False, f"Not a folder: {folder_rel}", {"items": []})
 
-    indexed_chunks: dict[str, int] = {}
-    try:
-        from .document_store import get_document_store
-        store = get_document_store()
-        if store:
-            for doc in store.list_documents():
-                indexed_chunks[doc["filename"]] = doc.get("total_chunks", 0)
-    except Exception as exc:
-        logger.warning(f"list_directory: ChromaDB unavailable, skipping index lookup: {exc}")
+    indexed_chunks = chunks_per_document()
 
     dirs = sorted(
         [d for d in folder.iterdir() if d.is_dir() and not d.name.startswith(".")],
@@ -547,6 +555,34 @@ async def index_file(rel_path: str) -> FileOpResult:
     return FileOpResult(True, detail, {"chunks": chunks, "rel_path": rel_path})
 
 
+async def index_source_file(source_key: str, file_id: str, name: str) -> FileOpResult:
+    """Index a file of a further document source. It stays there: only a
+    temporary copy is parsed, the index keeps the text. The result reports a
+    failure instead of raising, a bad file must not end a run over a folder."""
+    from .document_sources import get_document_source, source_index_name
+    from .document_store import PARSERS, get_document_store
+    store = get_document_store()
+    if not store:
+        return FileOpResult(False, "Document store not available")
+    if Path(name).suffix.lower() not in PARSERS:
+        return FileOpResult(False, f"Unsupported file type: {name}")
+
+    try:
+        download = await get_document_source(source_key).download(file_id)
+        with tempfile.TemporaryDirectory(prefix="aifred-index-") as folder:
+            copy = Path(folder) / Path(name).name
+            with copy.open("wb") as target:
+                async for chunk in download.chunks:
+                    target.write(chunk)
+            chunks = await store.index_document(copy, source_index_name(source_key, file_id), source=source_key)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(f"index_source_file: {source_key} {name}: {exc}")
+        return FileOpResult(False, f"{name}: {exc}")
+    detail = f"Indexed {name} from {source_key}: {chunks} chunks"
+    logger.info(detail)
+    return FileOpResult(True, detail, {"chunks": chunks})
+
+
 async def deindex_file(rel_path: str, fallback_filename: str = "") -> FileOpResult:
     """Remove a file from ChromaDB index without touching disk."""
     from .document_store import get_document_store
@@ -618,7 +654,8 @@ def list_orphaned() -> FileOpResult:
 
     The result groups by filename (one entry per orphaned document, not per
     chunk) so the caller can review and bulk-delete entire documents
-    without scrolling through individual chunks.
+    without scrolling through individual chunks. Files of a further document
+    source never lie on disk, so they are no orphans.
     """
     from .document_store import get_document_store
     store = get_document_store()
@@ -629,7 +666,7 @@ def list_orphaned() -> FileOpResult:
     docs_root = DOCUMENTS_DIR.resolve()
     orphans = [
         d for d in docs
-        if not (docs_root / d["filename"]).exists()
+        if not d["source"] and not (docs_root / d["filename"]).exists()
     ]
     return FileOpResult(
         True,

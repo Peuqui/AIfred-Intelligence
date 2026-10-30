@@ -47,10 +47,11 @@ The Workspace Plugin provides the LLM with direct file access to the documents d
 - **Chunking:** Automatic ~800-token chunks with overlap
 - **Semantic search:** Embedding-based across all indexed documents
 - **Folder filter:** `search_documents(folder="bibel")` restricts the search and automatically includes all nested sub-folders
+- **Further sources:** The user indexes files of a document source (e.g. Nextcloud) in the document window, per file or whole folder. The file stays there; the index keeps its text under `<source>:/<id>`, e.g. `nextcloud_files:/reports/x.pdf`. `read_file` does not reach it; `folder="nextcloud_files:"` covers the whole source. When the file changes, the same as for local files applies: index it again. Agents can only index local files
 - **Relevance labels:** Each hit is tagged `high` / `medium` (similarity) or `context` (neighbour chunks added around a hit)
 - **MMR diversification:** Results are spread across files/vector regions instead of returning many near-duplicate chunks
 - **Pagination:** Re-run the same query with `page=2`, `page=3`, … — the response carries `has_more` plus a `next_page_hint` or `pagination_note` telling you whether deeper pages are worthwhile
-- **Orphan cleanup:** `list_orphaned` finds index entries whose source file was deleted on disk
+- **Orphan cleanup:** `list_orphaned` finds index entries whose source file was deleted on disk. Entries from further sources do not count, even if the file was deleted there
 - **Central management:** `chromadb_stats` shows Documents and all Agent Memory collections at a glance
 
 ## Security
@@ -59,3 +60,4 @@ The Workspace Plugin provides the LLM with direct file access to the documents d
 - Path traversal attempts (e.g. `../../etc/passwd`) are blocked
 - Delete operations require WRITE_SYSTEM tier (highest before ADMIN)
 - ChromaDB clear also requires WRITE_SYSTEM
+- `search_documents` is READONLY: what the user indexes from a source can be found by agents on every channel, even if the source itself demands a higher tier. Indexing is therefore the user's deliberate decision and only possible in the document window

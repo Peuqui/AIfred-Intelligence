@@ -5,7 +5,7 @@ from __future__ import annotations
 # Document Manager Header — gemeinsame Groessen fuer Icons + Buttons,
 # damit der Header als Ganzes skaliert (Radix hat keine Halbschritte
 # zwischen size="1" und size="2").
-from typing import Literal
+from typing import Any, Literal
 
 import reflex as rx
 
@@ -26,6 +26,39 @@ DOC_HEADER_BUTTON_SIZE: Literal["1", "2", "3", "4"] = "2"
 def _file_count_label(count: rx.Var) -> rx.Var:
     """"1 Datei" / "n Dateien" — one wording for every count in the window."""
     return count.to(str) + rx.cond(count == 1, t("doc_file_suffix_one"), t("doc_files_suffix"))
+
+
+def _doc_chunks_badge(is_indexed: rx.Var, chunks: rx.Var) -> rx.Component:
+    """Index status of a file, hidden on narrow screens like the size column."""
+    return rx.cond(
+        is_indexed,
+        rx.text(chunks.to(str) + " chunks", font_size="10px", color=COLORS["accent_success"],
+                min_width="60px", display=["none", "none", "block"]),
+        rx.text("—", font_size="10px", color=COLORS["text_muted"],
+                min_width="60px", display=["none", "none", "block"]),
+    )
+
+
+def _doc_index_toggle(is_indexed: rx.Var, on_index: Any, on_deindex: Any) -> rx.Component:
+    return rx.cond(
+        is_indexed,
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("database-zap", size=14),
+                size="1", variant="ghost", color_scheme="orange",
+                on_click=on_deindex, cursor="pointer",
+            ),
+            content=t("doc_deindex"),
+        ),
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("database", size=14),
+                size="1", variant="ghost", color_scheme="gray",
+                on_click=on_index, cursor="pointer",
+            ),
+            content=t("doc_index"),
+        ),
+    )
 
 
 def _doc_file_row(item: rx.Var) -> rx.Component:
@@ -132,41 +165,13 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
             ),
             content=t("doc_dates_hint"),
         ),
-        # Index status badge — same reasoning as the size column
-        rx.cond(
-            ~is_folder,
-            rx.cond(
-                is_indexed,
-                rx.text(chunks.to(str) + " chunks", font_size="10px", color=COLORS["accent_success"],
-                        min_width="60px", display=["none", "none", "block"]),
-                rx.text("—", font_size="10px", color=COLORS["text_muted"],
-                        min_width="60px", display=["none", "none", "block"]),
-            ),
-        ),
+        # Index status badge
+        rx.cond(~is_folder, _doc_chunks_badge(is_indexed, chunks)),
         # Actions (files only)
         rx.cond(
             ~is_folder,
             rx.hstack(
-                # Index / Deindex toggle
-                rx.cond(
-                    is_indexed,
-                    rx.tooltip(
-                        rx.icon_button(
-                            rx.icon("database-zap", size=14),
-                            size="1", variant="ghost", color_scheme="orange",
-                            on_click=AIState.doc_deindex_file(name), cursor="pointer",
-                        ),
-                        content=t("doc_deindex"),
-                    ),
-                    rx.tooltip(
-                        rx.icon_button(
-                            rx.icon("database", size=14),
-                            size="1", variant="ghost", color_scheme="gray",
-                            on_click=AIState.doc_index_file(name), cursor="pointer",
-                        ),
-                        content=t("doc_index"),
-                    ),
-                ),
+                _doc_index_toggle(is_indexed, AIState.doc_index_file(name), AIState.doc_deindex_file(name)),
                 # Rename
                 rx.tooltip(
                     rx.icon_button(
@@ -270,15 +275,18 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
 
 
 def _doc_remote_row(item: rx.Var) -> rx.Component:
-    """Row of a further source (e.g. Google Drive): open folders, download
-    files — index, rename, delete and preview stay with the local folder."""
+    """Row of a further source (e.g. Nextcloud): open folders, download and
+    index files — rename, delete and preview stay with the local folder."""
     name = item["name"].to(str)
+    file_id = item["id"].to(str)
     is_folder = item["type"].to(str) == "folder"
+    indexable = item["indexable"].to(bool)
+    is_indexed = item["indexed"].to(bool)
     return rx.hstack(
         rx.cond(
             is_folder,
             rx.icon("folder", size=16, color=COLORS["accent_warning"]),
-            rx.icon("file", size=16, color=COLORS["text_secondary"]),
+            rx.icon("file", size=16, color=rx.cond(is_indexed, COLORS["accent_success"], COLORS["text_secondary"])),
         ),
         rx.text(
             name,
@@ -290,7 +298,7 @@ def _doc_remote_row(item: rx.Var) -> rx.Component:
             min_width="0",
             on_click=rx.cond(
                 is_folder,
-                AIState.doc_open_remote_folder(item["id"].to(str), name),
+                AIState.doc_open_remote_folder(file_id, name),
                 rx.noop(),  # type: ignore[arg-type]
             ),
         ),
@@ -299,6 +307,17 @@ def _doc_remote_row(item: rx.Var) -> rx.Component:
                 min_width="60px", display=["none", "none", "block"]),
         rx.text(item["modified"].to(str), font_size="9px", color=COLORS["text_secondary"],
                 min_width="95px", display=["none", "none", "block"]),
+        rx.cond(
+            indexable,
+            _doc_chunks_badge(is_indexed, item["chunks"].to(int)),
+            rx.box(min_width="60px", display=["none", "none", "block"]),
+        ),
+        rx.cond(
+            indexable,
+            _doc_index_toggle(is_indexed, AIState.doc_index_remote_file(file_id, name),
+                              AIState.doc_deindex_remote_file(file_id, name)),
+            rx.box(width="24px"),
+        ),
         rx.cond(
             ~is_folder,
             # Raw anchor like the local download (see _doc_file_row): the API
@@ -386,6 +405,14 @@ def _doc_remote_toolbar() -> rx.Component:
                 on_click=AIState.doc_remote_refresh, cursor="pointer",
             ),
             content=t("doc_refresh"),
+        ),
+        rx.tooltip(
+            rx.icon_button(
+                rx.icon("database", size=DOC_HEADER_ICON_SIZE), size=DOC_HEADER_BUTTON_SIZE,
+                variant="ghost", color_scheme="green",
+                on_click=AIState.doc_index_remote_folder, cursor="pointer",
+            ),
+            content=t("doc_index_folder_recursive"),
         ),
         rx.text(
             rx.cond(
