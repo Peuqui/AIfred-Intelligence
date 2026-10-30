@@ -895,6 +895,15 @@ algorithmischen Pfad in `flow.py`. Cloud-API, kein lokaler VRAM-Verbrauch
   Live-Anzeige des gemessenen Ego-Motion-Shifts + Slider für
   `watch.motion_ego_shift_px` im Zonen-Editor (Kalibrierung am Bild,
   analog zur Auslöse-Schwelle).
+- [ ] **Vigilantia: Live-Kamera mit Ton** (Wunsch 2026-10-30, umsetzen nach
+  16 Uhr, wenn das Kontingent wieder freigeschaltet ist). Der Ton der Kamera
+  muss zum Browser übertragen werden und sich ein- und ausschalten lassen.
+  Ausgangslage: Die RTSP-Quelle (`frame_sources/rtsp_source.py`) liest über
+  `cv2.VideoCapture` nur Video, die Tonspur wird nie gelesen; die Burst-Filme
+  (`vision_film.py`) entstehen aus Standbildern und haben keine Tonspur.
+  Nötig: Ton aus dem RTSP-Strom (ffmpeg/PyAV statt OpenCV oder zusätzlicher
+  Audio-Zweig), Auslieferung an die Live-Vorschau, Schalter im UI. Offen:
+  Ton in den Burst-Filmen und als Auslöser (nicht gewünscht, nicht besprochen).
 - [ ] Multi-Email-Konto Support (mehrere IMAP/SMTP Accounts, Rechte pro Konto)
 - [ ] Kanalübergreifendes Routing (eine Session über mehrere Kanäle — Telegram/Discord/Email/Browser)
       — wird trivial nach dem SSOT-Refactor (siehe oben)
