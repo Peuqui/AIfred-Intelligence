@@ -193,7 +193,7 @@ echo "  • python3 (>=3.10), python3-venv, python3-pip — Python runtime + ven
 echo "  • poppler-utils — pdftotext for clean PDF indexing"
 echo "  • ffmpeg        — audio concat (TTS replay, narrator)"
 echo "  • bubblewrap    — sandbox for the 'execute_python' tool"
-echo "  • polkit        — restart the TTS-Suite unit without a password"
+echo "  • polkit        — restart the TTS-Suite and GPU-Orc units without a password"
 echo "  • docker + docker compose plugin — ChromaDB vector cache + Whisper STT"
 echo ""
 
@@ -289,9 +289,9 @@ install_one "ffmpeg" "command -v ffmpeg" \
     apt:ffmpeg dnf:ffmpeg pacman:ffmpeg brew:ffmpeg
 install_one "bubblewrap (bwrap)" "command -v bwrap" \
     apt:bubblewrap dnf:bubblewrap pacman:bubblewrap brew:bubblewrap
-# polkit: the system unit of the TTS-Suite comes with a polkit rule, so this user restarts it (and
-# AIfred starts it) without a password. A fresh Ubuntu 24.04 container does not ship it, and the switch
-# script stops without /etc/polkit-1/rules.d. macOS has no systemd units.
+# polkit: the system units of the TTS-Suite and GPU-Orc come with a polkit rule, so this user restarts
+# them (and AIfred starts the TTS-Suite) without a password. A fresh Ubuntu 24.04 container does not
+# ship it, and their switch scripts stop without /etc/polkit-1/rules.d. macOS has no systemd units.
 if [ "$PKG" != "brew" ]; then
     install_one "polkit (units restartable without a password)" "[ -d /etc/polkit-1/rules.d ]" \
         apt:polkitd dnf:polkit pacman:polkit
@@ -1205,6 +1205,108 @@ fi
 step_summary "2f — SearXNG"
 echo ""
 sleep 1
+
+# ============================================================
+# STEP 2g: GPU-Orc (clears the cards before a model loads — its own service, its own repo)
+# ============================================================
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo -e "${BLUE}  Step 2g: GPU-Orc (frees the GPUs before a load)${NC}"
+echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+echo ""
+echo "Before a model or the image describer loads, AIfred asks GPU-Orc to clear its cards:"
+echo "GPU-Orc asks the STT-Suite, the TTS-Suite and llama-swap to let go of what they hold there."
+echo "A separate service on 127.0.0.1:5070 with its own repo:"
+echo "https://github.com/Peuqui/GPU-Orc"
+echo "Without it every load says so in the log, and the describer finds no room next to the model."
+echo ""
+
+GPU_ORC_REPO_URL="https://github.com/Peuqui/GPU-Orc.git"
+# Next to AIfred, like the STT-Suite and the TTS-Suite.
+GPU_ORC_DIR="$(dirname "$PROJECT_DIR")/GPU-Orc"
+GPU_ORC_DIR_FROM_ENV=$(grep -E "^GPU_ORC_DIR=" "$PROJECT_DIR/.env" 2>/dev/null | tail -1 | cut -d= -f2-)
+if [ -n "$GPU_ORC_DIR_FROM_ENV" ]; then
+    GPU_ORC_DIR="$GPU_ORC_DIR_FROM_ENV"
+fi
+
+GPU_ORC_INSTALLED=0
+GPU_ORC_CHECKOUT_OK=0
+if [ -d "$GPU_ORC_DIR/.git" ]; then
+    echo "   Updating GPU-Orc in $GPU_ORC_DIR ..."
+    if ! git -C "$GPU_ORC_DIR" pull --ff-only; then
+        echo -e "${YELLOW}⚠️  git pull failed — installing from the current checkout.${NC}"
+        STEP_WARNINGS+=("GPU-Orc not updated (git pull failed in $GPU_ORC_DIR)")
+    fi
+    GPU_ORC_CHECKOUT_OK=1
+else
+    echo "   Cloning GPU-Orc into $GPU_ORC_DIR ..."
+    if git clone "$GPU_ORC_REPO_URL" "$GPU_ORC_DIR"; then
+        GPU_ORC_CHECKOUT_OK=1
+    else
+        echo -e "${YELLOW}⚠️  git clone of $GPU_ORC_REPO_URL failed.${NC}"
+    fi
+fi
+
+if [ "$GPU_ORC_CHECKOUT_OK" = "1" ]; then
+    # venv, command, user unit and first configuration (STT-Suite, TTS-Suite, llama-swap at the
+    # addresses AIfred uses; an existing configuration is kept)
+    if bash "$GPU_ORC_DIR/deploy/install.sh"; then
+        GPU_ORC_INSTALLED=1
+    else
+        echo -e "${YELLOW}⚠️  deploy/install.sh of GPU-Orc failed.${NC}"
+    fi
+fi
+
+if [ "$GPU_ORC_INSTALLED" = "1" ]; then
+    echo ""
+    # System and user unit share port 5070: once the system unit is set up, never enable the user unit.
+    if systemctl is-enabled --quiet "gpu-orc@$USER" 2>/dev/null; then
+        echo "   GPU-Orc runs as system service gpu-orc@$USER — restarting it with the new code ..."
+        if systemctl restart "gpu-orc@$USER"; then
+            echo -e "${GREEN}✅ gpu-orc@$USER restarted${NC}"
+        else
+            STEP_WARNINGS+=("gpu-orc@$USER not restarted (no polkit rule yet?) — sudo bash $GPU_ORC_DIR/deploy/switch-to-system-unit.sh $USER")
+        fi
+    else
+        echo "GPU-Orc has to run whenever AIfred loads a model. The system unit gpu-orc@$USER starts it"
+        echo "at boot without a login and comes with a polkit rule to restart it (one sudo step);"
+        echo "without it the service runs as a user service of your login."
+        ask AIFRED_INSTALL_GPU_ORC_SYSTEMD "Install GPU-Orc as system service gpu-orc@$USER? Needs sudo. (Y/n): "
+        if [[ ! $REPLY =~ ^[Nn]$ ]]; then
+            if ! sudo bash "$GPU_ORC_DIR/deploy/switch-to-system-unit.sh" "$USER"; then
+                echo -e "${YELLOW}⚠️  switch-to-system-unit.sh failed.${NC}"
+                STEP_WARNINGS+=("GPU-Orc system unit not installed — sudo bash $GPU_ORC_DIR/deploy/switch-to-system-unit.sh $USER")
+            fi
+        elif command -v systemctl &>/dev/null && systemctl --user enable gpu-orc && systemctl --user restart gpu-orc; then
+            echo -e "${GREEN}✅ GPU-Orc runs as user service${NC}"
+        else
+            STEP_WARNINGS+=("GPU-Orc not started — systemctl --user enable --now gpu-orc")
+        fi
+    fi
+fi
+
+# Verification — the service answers on port 5070.
+echo ""
+echo -e "${BLUE}🔎 Verifying GPU-Orc...${NC}"
+if [ "$GPU_ORC_INSTALLED" = "1" ]; then
+    gpu_orc_ok=0
+    for _ in $(seq 1 15); do
+        if curl -sf --max-time 3 http://127.0.0.1:5070/health -o /dev/null 2>/dev/null; then
+            gpu_orc_ok=1
+            break
+        fi
+        sleep 2
+    done
+    if [ "$gpu_orc_ok" = "1" ]; then
+        echo -e "   ${GREEN}✅ verified:${NC} GPU-Orc /health responds (port 5070)"
+    else
+        echo -e "   ${YELLOW}⚠️  GPU-Orc /health not ready after 30s${NC}"
+        STEP_WARNINGS+=("GPU-Orc not answering on port 5070 — systemctl status gpu-orc@$USER (or --user gpu-orc)")
+    fi
+else
+    STEP_WARNINGS+=("GPU-Orc not installed — AIfred loads models without clearing the cards (see $GPU_ORC_REPO_URL)")
+fi
+step_summary "2g — GPU-Orc"
+echo ""
 
 fi  # end of "if [ "$DRY_RUN" = "1" ] / else" — steps 1-2g
 

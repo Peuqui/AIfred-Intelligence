@@ -1,8 +1,9 @@
 """Regel A (chat_describer) und Regel B (camera_describer) aus vision_routing."""
 
 import pytest
+from fake_gpu_orc import FakeGpuOrc, install_fake_gpu_orc
 
-from aifred.lib import config, service_status, vision_routing, vision_utils, vision_vram_check
+from aifred.lib import config, gpu_orc_client, vision_routing, vision_utils, vision_vram_check
 from aifred.lib.calibration import llamaswap_io
 from aifred.lib.vision_routing import (
     NoVisionModelError,
@@ -42,7 +43,8 @@ def world(monkeypatch):
             ),
         )
         monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: loaded or [])
-        monkeypatch.setattr(vision_routing, "loading_main_model", lambda: loading)
+        monkeypatch.setattr(vision_routing, "load_in_progress",
+                            lambda: f"'{loading}' lädt gerade" if loading else None)
         monkeypatch.setattr(vision_routing, "_settings_model",
                             lambda role: vision_llm if role == "vision" else MAIN)
         monkeypatch.setattr(config, "get_effective_model_from_settings",
@@ -181,20 +183,14 @@ def test_chat_image_does_not_evict_a_loading_model(world):
         chat_describer(MAIN)
 
 
-@pytest.mark.parametrize("name, state, expected", [
-    (MAIN, "starting", MAIN),
-    (MAIN, "ready", None),
-    (VISIOND, "starting", None),
-    ("bge-m3-Q8_0-embed", "starting", None),
-])
-def test_loading_main_model_is_a_language_model_in_starting(monkeypatch, name, state, expected):
-    monkeypatch.setattr(service_status, "running_models",
-                        lambda: [service_status.LoadedModel(name, state, 0)])
-    assert vision_routing.loading_main_model() == expected
+def test_the_traffic_light_is_gpu_orcs(monkeypatch) -> None:
+    fake = FakeGpuOrc()
+    install_fake_gpu_orc(monkeypatch, fake)
+    assert vision_routing.load_in_progress() is None
+    fake.loading = [MAIN]
+    assert vision_routing.load_in_progress() == f"'{MAIN}' lädt gerade"
 
 
-def test_unreachable_llamaswap_loads_nothing(monkeypatch):
-    def unreachable():
-        raise service_status.LlamaSwapError("down")
-    monkeypatch.setattr(service_status, "running_models", unreachable)
-    assert vision_routing.loading_main_model() is None
+def test_a_gpu_orc_that_says_nothing_is_no_green_light(monkeypatch) -> None:
+    monkeypatch.setattr(gpu_orc_client, "_default_client", gpu_orc_client.GpuOrcClient("http://127.0.0.1:9"))
+    assert "GPU-Orc gibt keine Auskunft" in vision_routing.load_in_progress()

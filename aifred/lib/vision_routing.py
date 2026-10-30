@@ -105,8 +105,8 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
 
     Kandidaten sind das Heimat-Profil ``<base>-visiond`` und seine
     Platzierungs-Varianten ``-visiond-gpu<N>`` (Autoscan). Reihenfolge:
-    eine schon geladene Platzierung; sonst nichts, solange ein Sprachmodell
-    lädt (:func:`loading_main_model`); sonst die Heimat (die Side-Channel-
+    eine schon geladene Platzierung; sonst nichts, solange ein großes Modell
+    lädt (:func:`load_in_progress`); sonst die Heimat (die Side-Channel-
     Karte, dort liegt der Describer allein), wenn sie passt; sonst die
     passende Variante mit dem meisten freien VRAM. Rückgabe ``(profil,
     prüfergebnis)`` — ``(None, prüfergebnis der heimat)``, wenn keine passt,
@@ -128,11 +128,11 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     for profile in placements:
         if profile in loaded:
             return profile, check_visiond_fits(profile)
-    loading = loading_main_model()
-    if loading is not None:
+    blocked = load_in_progress()
+    if blocked is not None:
         return None, VRAMCheckResult(
             fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
-            message=f"'{loading}' lädt gerade — ein Describer kommt erst danach dazu.",
+            message=f"{blocked} — ein Describer kommt erst danach dazu.",
         )
     checks = [(profile, check_visiond_fits(profile)) for profile in placements]
     home_check = checks[0][1]
@@ -144,44 +144,16 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     return max(fitting, key=lambda item: item[1].free_mb)
 
 
-def release_side_channels_for_describer(profile: str) -> bool:
-    """TTS-Container und Whisper-GPU-Worker freigeben, wenn sie auf der Karte
-    des Describer-Profils sitzen, das gleich lädt (Rangfolge: Hauptmodell >
-    Describer > TTS > STT; die Platzprüfung hat ihren VRAM schon als frei
-    gezählt). Die TTS-Container stoppt der TTS-Dienst auf AIfreds Anfrage
-    (``release_gpu_engines``; läuft gerade eine Ansage, lehnt er ab und das
-    Log sagt es); eine laufende Ansage wechselt danach zum nächsten Eintrag
-    der Eskalationsliste. Blockiert bis zur Gnadenfrist einer laufenden
-    Transkription — aus async-Code per ``asyncio.to_thread`` rufen. True, wenn
-    etwas freigegeben wurde."""
-    from .audio_processing import release_whisper_gpu, whisper_gpu_footprint
-    from .calibration.llamaswap_io import parse_llamaswap_config
-    from .config import LLAMASWAP_CONFIG_PATH
-    from .tts_client import TTSSuiteError
-    from .tts_service import TTSVramUnknown, release_gpu_engines
+def release_side_channels_for_describer(profile: str) -> None:
+    """Die Karten des Describer-Profils, das gleich lädt, von GPU-Orc freiräumen lassen (Rangfolge:
+    Hauptmodell > Describer > TTS > STT; die Platzprüfung hat den VRAM von TTS und STT schon als frei
+    gezählt). Dieselbe Modell-Form wie vor jedem Laden eines Chat-Modells: GPU-Orc gibt STT- und
+    TTS-Worker auf den Karten des Profils frei, die dauerhaften Modelle von llama-swap (das Profil
+    gehört selbst zu ihnen) und die Chat-Modelle bleiben. Blockiert, bis GPU-Orc fertig ist — aus
+    async-Code per ``asyncio.to_thread`` rufen."""
+    from .gpu_orc_client import clear_cards_for
 
-    if profile in loaded_llamaswap_profiles():
-        return False
-    entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(profile) or {}
-    pinned = {
-        u.strip() for u in str((entry.get("env") or {}).get("CUDA_VISIBLE_DEVICES", "")).split(",")
-        if u.strip()
-    }
-
-    def on_target_card(held: set[str]) -> bool:
-        return bool(held) and (not pinned or bool(pinned & held))
-
-    released = False
-    try:
-        # No pin = the describer may land on any card: every running TTS container is in the way.
-        stopped = release_gpu_engines(pinned or None, reason=f"describer {profile}")
-        released = any(result.outcome == "released" for result in stopped)
-    except (TTSSuiteError, TTSVramUnknown) as error:
-        logger.warning("TTS release for describer %s failed: %s: %s", profile, type(error).__name__, error)
-    if on_target_card(set(whisper_gpu_footprint())) and release_whisper_gpu(f"describer {profile}"):
-        logger.info("Whisper GPU worker released for describer %s", profile)
-        released = True
-    return released
+    clear_cards_for(profile, reason=f"AIfred: describer {profile}")
 
 
 class NoVisionModelError(RuntimeError):
@@ -239,9 +211,9 @@ def _vision_llm_describer(reason: str) -> Describer:
     visiond, _ = fitting_visiond(vision)
     if visiond is not None:
         return Describer(visiond, evicts_chat_model=False)
-    loading = loading_main_model()
-    if loading is not None:
-        raise NoVisionModelError(f"{reason}; '{loading}' is loading and must not be evicted")
+    blocked = load_in_progress()
+    if blocked is not None:
+        raise NoVisionModelError(f"{reason}; {blocked}, nothing is evicted now")
     return Describer(
         get_effective_model_from_settings("vision"), evicts_chat_model=True,
     )
@@ -334,22 +306,21 @@ def loaded_llamaswap_profiles() -> list[str]:
     ]
 
 
-def loading_main_model() -> str | None:
-    """Sprachmodell, das llama-swap gerade lädt, sonst ``None``.
+def load_in_progress() -> str | None:
+    """Warum gerade nichts Neues auf die Karten darf, ``None`` wenn doch (GPU-Orcs Ampel).
 
-    Solange es lädt, zeigt nvidia-smi Karten, die gleich voll sind: Ein
+    Solange ein großes Modell lädt, zeigt nvidia-smi Karten, die gleich voll sind: Ein
     Describer, der jetzt nach dem freien Speicher geht, nimmt dem Modell den
     Platz, und es stirbt mit OOM (30.10.2026, zwei Ladeversuche von DeepSeek).
-    Describer und Embedder zählen nicht, die laden nur auf ihren Platz.
-    Ist llama-swap nicht erreichbar, lädt auch nichts.
+    Gibt GPU-Orc keine Auskunft, ist das keine grüne Ampel.
     """
-    from .service_status import ROLE_LLM, LlamaSwapError, model_role, running_models
+    from .gpu_orc_client import GpuOrcError, get_gpu_orc_client
     try:
-        models = running_models()
-    except LlamaSwapError as error:
-        logger.warning("llama-swap load state unreadable: %s", error)
-        return None
-    return next((m.name for m in models if m.state == "starting" and model_role(m.name) == ROLE_LLM), None)
+        loading = get_gpu_orc_client().loading()
+    except GpuOrcError as error:
+        logger.warning("GPU-Orc says nothing about loading models: %s", error)
+        return f"GPU-Orc gibt keine Auskunft: {error}"
+    return f"'{', '.join(loading)}' lädt gerade" if loading else None
 
 
 # Local on-prem backends where the optional Ollama side-channel makes sense.

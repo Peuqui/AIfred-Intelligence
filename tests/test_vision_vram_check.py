@@ -1,10 +1,10 @@
 """check_visiond_fits: Burn-in-Peak + Reserve gegen den freien VRAM der Karten des -visiond-Profils."""
 
 import pytest
+from fake_gpu_orc import FakeGpuOrc, install_fake_gpu_orc
 
 from aifred.lib import (
     nvidia_smi,
-    tts_service,
     vision_routing,
     vision_vram_check,
     vlm_vram_cache,
@@ -32,7 +32,7 @@ def setup(monkeypatch):
             ],
         )
         monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: loaded or [])
-        monkeypatch.setattr(tts_service, "running_gpu_footprint", dict)
+        install_fake_gpu_orc(monkeypatch, FakeGpuOrc())
     return configure
 
 
@@ -58,21 +58,6 @@ def test_does_not_fit_when_pinned_gpu_is_missing(setup):
 def test_unmeasured_model_does_not_fit(setup):
     setup(env={"CUDA_VISIBLE_DEVICES": PINNED}, peak=None, free={PINNED: 32000})
     assert not vision_vram_check.check_visiond_fits(PROFILE).fits
-
-
-def test_a_service_that_does_not_answer_gives_no_placement_and_no_exception(setup, monkeypatch):
-    """The page asks this on every load: a dead TTS service means 'room unknown' with the reason, not an error."""
-    from aifred.lib.tts_client import TTSSuiteUnreachable
-
-    setup(env={"CUDA_VISIBLE_DEVICES": PINNED}, peak=8988, free={PINNED: 32000})
-
-    def unreachable():
-        raise TTSSuiteUnreachable("TTS service not reachable")
-
-    monkeypatch.setattr(tts_service, "running_gpu_footprint", unreachable)
-    result = vision_vram_check.check_visiond_fits(PROFILE)
-    assert not result.fits and result.gpu_index == -1
-    assert "unbekannt" in result.message
 
 
 def test_unpinned_profile_sums_all_gpus(setup):

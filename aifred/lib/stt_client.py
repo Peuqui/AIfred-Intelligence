@@ -48,10 +48,6 @@ class STTGPUUnavailableError(STTError):
     """HTTP 503: keine GPU mit genug freiem VRAM — der Aufrufer darf auf die CPU ausweichen."""
 
 
-class STTBusyError(STTError):
-    """HTTP 409: eine Transkription läuft gerade."""
-
-
 class STTClient:
     def __init__(self, base_url: str, compose_path: str) -> None:
         self.base_url = base_url
@@ -91,8 +87,6 @@ class STTClient:
         message = f"{error_label}: {reason}" if error_label else f"{resp.status_code} {reason}"
         if resp.status_code == 503:
             raise STTGPUUnavailableError(message)
-        if resp.status_code == 409:
-            raise STTBusyError(message)
         raise STTError(message)
 
     # ---- Schnittstelle des Dienstes -------------------------------------
@@ -116,15 +110,6 @@ class STTClient:
     def set_config(self, payload: dict[str, Any]) -> None:
         """Konfiguration der Engines schreiben; gelesen wird sie über ``status()``."""
         self._call("POST", "/config", WHISPER_CONTROL_TIMEOUT_S, json=payload)
-
-    def gpu_release(self, *, force: bool, reason: str) -> list[str]:
-        """Die GPU-Worker beenden (Transkription und Sprechertrennung; das CPU-Modell bleibt), über die
-        gemeinsame Freigabe-Schnittstelle der Suiten. Liefert die Worker, die liefen und nachweislich
-        beendet sind (``gpu-worker``, ``diarize-worker``). Eine laufende Transkription wird mit
-        STTBusyError gemeldet, bis ``force`` sie beendet; sie erfährt ``reason``."""
-        body = {"items": "all", "force": force, "reason": reason}
-        data = self._call("POST", "/gpu/release", WHISPER_CONTROL_TIMEOUT_S, json=body)
-        return [result["item"] for result in data["results"] if result["outcome"] == "released"]
 
     def transcribe(
         self, audio_path: str, language: str, device: str, diarize: bool,

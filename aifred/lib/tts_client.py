@@ -10,9 +10,9 @@ AIfred only reads, speaks and asks: the client has no call that writes to the se
 configuration, no start or stop of an engine, no voice sync, no token). Hosts, defaults and
 the life of the engine containers are set in the service's own web interface; the service
 starts and stops the containers itself when a request reaches it. The one request that is
-not a reading is ``gpu_release``: AIfred ASKS the service to take its local GPU engines off
-the cards (to make room for a language model); the service decides per engine and, without
-force, never stops a container a reading holds.
+not a reading is ``gpu_release``: the TTS burn-in ASKS the service to take its container off the
+card; the service decides and leaves a container a reading holds. Room for a language model is
+GPU-Orc's to make (``gpu_orc_client``), which uses the same interface of the service.
 
 Read calls (``engines``, ``voices``), ``gpu_release`` and ``ensure_ready`` are
 synchronous (short calls, usable from threads and plain code; async callers wrap them in
@@ -135,6 +135,14 @@ class TextTooLong(TTSSuiteError):
     status = 413
 
 
+class ReadingAborted(TTSSuiteError):
+    """A forced GPU release (GPU-Orc, before a model loads) ended the reading: its card is needed. The
+    reading moves on to no other engine; the text can be read again later."""
+
+    code = "reading_aborted"
+    status = 503
+
+
 class Unauthorized(TTSSuiteError):
     """The service demands a token (it listens beyond localhost); AIfred sends none."""
 
@@ -183,6 +191,7 @@ ERROR_CLASSES: dict[str, type[TTSSuiteError]] = {
         InvalidRequest,
         UnsupportedLanguage,
         TextTooLong,
+        ReadingAborted,
         Unauthorized,
         BadRequest,
     )

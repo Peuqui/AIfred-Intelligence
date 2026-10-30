@@ -40,11 +40,18 @@ from .audio_processing import (
 from .config import BROWSER_PARAGRAPH_PAUSE_MS, TTS_BROWSER_ENGINE_KEY
 from .i18n import t
 from .logging_utils import log_message
-from .tts_client import TextStream, TTSSuiteError, get_tts_client, new_run_id
+from .tts_client import (
+    ReadingAborted,
+    TextStream,
+    TTSSuiteError,
+    get_tts_client,
+    new_run_id,
+)
 from .tts_service import (
     browser_entry_unit,
     browser_note,
     escalation_report,
+    reading_failure_text,
     request_engines_before_browser,
     service_entries_before_browser,
     spoken_note,
@@ -179,6 +186,13 @@ class BrowserReading:
     def _handle_service_failure(self, error: TTSSuiteError, browser_unit: str | None) -> bool:
         """Say what happened; ``True`` = the browser takes over."""
         reason = f"{type(error).__name__}: {error}"
+        if isinstance(error, ReadingAborted):
+            # The card was needed (GPU-Orc before a load): the reading ends with its reason, it moves on to
+            # no other entry, also not the browser — as in the service itself.
+            log_message(f"⚠️ [Browser {self.agent_label}] TTS reading aborted: {reason}", "warning")
+            self._report(f"⚠️ [Browser {self.agent_label}] TTS reading aborted: {reason}")
+            self._notify("warning", reading_failure_text(error, self._ui_language))
+            return False
         if self._first_tone:
             self.broke_off = True
             log_message(f"❌ [Browser {self.agent_label}] TTS service broke off after the first sound: {reason}", "error")

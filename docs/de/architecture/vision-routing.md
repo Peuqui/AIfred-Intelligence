@@ -92,9 +92,9 @@ gegen den freien VRAM der Karten, auf die das Profil per
 `CUDA_VISIBLE_DEVICES` gepinnt ist (ungepinnt: Summe aller Karten). Fehlt
 die Messung oder die Karte, passt es nicht.
 
-**Solange ein Sprachmodell lädt, kommt kein Describer dazu.** `loading_main_model`
-([`aifred/lib/vision_routing.py`](../../../aifred/lib/vision_routing.py)) liest den Zustand
-`starting` aus llama-swaps `/running`. Während des Ladens zeigt nvidia-smi Karten, die gleich
+**Solange ein großes Modell lädt, kommt kein Describer dazu.** `load_in_progress`
+([`aifred/lib/vision_routing.py`](../../../aifred/lib/vision_routing.py)) fragt die Ampel von
+GPU-Orc (`GET /loading`). Während des Ladens zeigt nvidia-smi Karten, die gleich
 voll sind; ein Describer, der nach dem freien Speicher geht, nähme dem Modell den Platz, und es
 stürbe mit OOM. Ein schon geladener Describer arbeitet weiter. Sonst gibt es keinen: Automatische
 Pfade schicken das Bild ohne Beschreibung, die sich nachträglich erzeugen lässt, und auch ein
@@ -146,23 +146,23 @@ wird nur per `ttl` des Profils** (z.B. 900 s idle bei
 `ttl_for_model_size`).
 
 Den Konflikt-Fall — ein Hauptmodell will eine Karte, die ein Beiwagen belegt —
-räumt AIfred selbst: `_free_gpus_for_load`
-([`aifred/backends/base.py`](../../../aifred/backends/base.py))
+räumt [GPU-Orc](https://github.com/Peuqui/GPU-Orc), ein eigener Dienst je Rechner:
+`_free_gpus_for_load` ([`aifred/backends/base.py`](../../../aifred/backends/base.py))
 läuft im `_pre_request_check` der llama.cpp- und vLLM-Backends bei jeder
 Anfrage und liest llama-swaps `/running`. Läuft das Ziel-Modell bereits, wird
 nichts angerührt. Sonst löst die Anfrage einen Load aus (auch das Neuladen
-desselben Modells nach seiner ttl), und der Guard gibt zuerst Whispers
-GPU-Worker frei (`release_whisper_gpu`; eine laufende Transkription bekommt eine
-Gnadenfrist), dann kümmert er sich um die Beiwagen. Profile mit `-vlm-`-Marker
-(Reserve per Kalibrierung) und die Beiwagen selbst räumen keine Beiwagen; ist
-kein Beiwagen (`-visiond`, `-embed`) geladen, ist nichts weiter zu tun. Danach
-vergleicht er die GPUs des Ziel-Eintrags und jedes laufenden Beiwagens
-(`CUDA_VISIBLE_DEVICES` aus der llama-swap-config, `entry_gpu_uuids`) und
-entlädt jeden Beiwagen mit gemeinsamer GPU via
-`POST /api/models/unload/<beiwagen>`, bevor der Load startet. Lassen sich die
-GPUs nicht bestimmen, entlädt er alle Beiwagen. llama-swap kennt keine
-VRAM-/Profil-Semantik — die Entscheidung trifft die Instanz, die die Profile
-versteht.
+desselben Modells nach seiner ttl), und AIfred bittet GPU-Orc vorher, die Karten
+des Modells freizuräumen (`POST /free {"model": …}`, `aifred/lib/gpu_orc_client.py`).
+GPU-Orc liest die Karten des Eintrags aus der llama-swap-config, gibt dort die
+GPU-Worker von STT- und TTS-Suite frei und entlädt die dauerhaften Modelle der
+Gruppen mit `persistent: true` (Beiwagen `-visiond`, `-embed`). Profile mit
+`-vlm-`-Marker (Reserve per Kalibrierung) und die Beiwagen selbst verdrängen
+keine Beiwagen (`no_eviction_models` in GPU-Orcs Config). Was GPU-Orc nicht
+freibekommt oder ob er gar nicht antwortet, steht laut im Log; geladen wird
+trotzdem. Den Describer räumt derselbe Aufruf mit dem `-visiond`-Profil frei
+(`release_side_channels_for_describer`), und die Platzprüfung
+(`check_visiond_fits`) zählt, was GPU-Orcs `GET /status` an gemessenem Speicher
+von STT und TTS auf der Karte meldet, als frei.
 
 ## Badge-Logik
 

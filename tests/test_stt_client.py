@@ -7,7 +7,6 @@ import requests
 
 from aifred.lib import stt_client
 from aifred.lib.stt_client import (
-    STTBusyError,
     STTClient,
     STTError,
     STTGPUUnavailableError,
@@ -56,7 +55,7 @@ def test_health_and_is_ready(client, calls):
 
 
 def test_an_idle_service_is_ready_it_loads_on_the_first_request(client, calls):
-    """After /unload?device=all the service has no model but answers: waiting for one froze the microphone."""
+    """After /unload the service has no model but answers: waiting for one froze the microphone."""
     calls.answer = _response(200, {"status": "idle", "model_loaded": False})
     assert client.is_ready()
 
@@ -125,25 +124,6 @@ def test_invalid_json_is_an_stt_error(client, calls):
     calls.answer = _response(200, b"<html>")
     with pytest.raises(STTError, match="invalid JSON"):
         client.status()
-
-
-def test_gpu_release_returns_the_ended_workers_and_passes_force_and_reason(client, calls):
-    calls.answer = _response(200, {"results": [
-        {"item": "gpu-worker", "outcome": "released", "detail": "PID 7 ended"},
-        {"item": "diarize-worker", "outcome": "not_running", "detail": "nothing runs"},
-    ]})
-    assert client.gpu_release(force=False, reason="loading 'm'") == ["gpu-worker"]
-    method, url, kwargs = calls.sent[0]
-    assert (method, url.rsplit("/", 2)[-2:]) == ("POST", ["gpu", "release"])
-    assert kwargs["json"] == {"items": "all", "force": False, "reason": "loading 'm'"}
-    client.gpu_release(force=True, reason="loading 'm'")
-    assert calls.sent[1][2]["json"]["force"] is True
-
-
-def test_gpu_release_409_is_busy(client, calls):
-    calls.answer = _response(409, {"results": [{"item": "gpu-worker", "outcome": "busy", "detail": "a job is running on it"}]})
-    with pytest.raises(STTBusyError):
-        client.gpu_release(force=False, reason="loading 'm'")
 
 
 def test_ensure_ready_does_nothing_when_ready(client, calls, monkeypatch):
