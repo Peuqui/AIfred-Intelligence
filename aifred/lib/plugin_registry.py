@@ -17,9 +17,15 @@ import pkgutil
 import shutil
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
-from .plugin_base import PLUGIN_DISPLAY_NAME_KEY, BaseChannel, ToolPlugin, plugin_i18n_text
+from .plugin_base import (
+    PLUGIN_DISPLAY_NAME_KEY,
+    BaseChannel,
+    ToolPlugin,
+    plugin_display_name,
+    plugin_i18n_text,
+)
 
 if TYPE_CHECKING:
     from .function_calling import Tool
@@ -163,6 +169,29 @@ def collect_plugin_tools(ctx: PluginContext) -> list[tuple[ToolPlugin | BaseChan
         if channel.is_configured():
             collected.append((channel, channel.get_tools(ctx)))
     return [(owner, tools) for owner, tools in collected if tools]
+
+
+def tool_groups_on_offer(ctx: PluginContext) -> list[dict[str, Any]]:
+    """What an agent can be granted right now, for the agent editor: memory first,
+    one group per plugin, the channels together at the end. A plugin switched off
+    or not connected offers nothing, so it has no group."""
+    from .agent_memory import MEMORY_TOOL_TIERS
+
+    def group(name_de: str, name_en: str, tools: list[tuple[str, int]]) -> dict[str, Any]:
+        return {"name_de": name_de, "name_en": name_en, "names": [name for name, _ in tools],
+                "tools": [{"name": name, "tier": tier} for name, tier in tools]}
+
+    groups = [group("Memory", "Memory", list(MEMORY_TOOL_TIERS.items()))]
+    channel_tools: list[tuple[str, int]] = []
+    for owner, tools in collect_plugin_tools(ctx):
+        rows = [(tool.name, tool.tier) for tool in tools]
+        if isinstance(owner, BaseChannel):
+            channel_tools += rows
+        else:
+            groups.append(group(plugin_display_name(owner, "de"), plugin_display_name(owner, "en"), rows))
+    if channel_tools:
+        groups.append(group("Channels", "Channels", channel_tools))
+    return groups
 
 
 # ============================================================

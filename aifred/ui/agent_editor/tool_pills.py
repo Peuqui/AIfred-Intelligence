@@ -1,17 +1,18 @@
-"""Agent-Editor: Tool-Pills, gruppiert nach Plugin (statisch gebaut)."""
+"""Agent-Editor: Tool-Pills, gruppiert nach Plugin. Sie kommen zur Laufzeit aus dem
+State: Plugins werden im laufenden Dienst an- und abgeschaltet."""
 # mypy: disable-error-code="index, operator, call-arg, func-returns-value, arg-type"
 # Reflex UI code: Var indexing, rx.icon module callable, event handler binding
 # are all runtime-correct but not statically typeable.
 
 from __future__ import annotations
 
-import json
+from typing import Any
 
 import reflex as rx
 
 from ...state import AIState
 from ...theme import COLORS
-from ..helpers import plugin_text, t
+from ..helpers import t
 
 # Tier badge colors: 0=green, 1=blue, 2=orange, 3=red, 4=purple
 _TIER_COLORS = {0: COLORS["accent_success"], 1: COLORS["accent_blue"], 2: COLORS["accent_amber"], 3: COLORS["danger"], 4: COLORS["accent_purple"]}
@@ -35,14 +36,15 @@ def _tier_help_content() -> rx.Component:
     )
 
 
-def _build_tool_pill(tool_name: str, tier: int = 0) -> rx.Component:
+def _tool_pill(tool: rx.Var) -> rx.Component:
     """Render a single tool as a clickable pill toggle with tier badge."""
-    is_enabled = AIState.editor_tools[tool_name].to(bool)
-    color = _TIER_COLORS.get(tier, COLORS["text_muted"])
+    name = tool["name"].to(str)
+    tier = tool["tier"].to(int)
+    is_enabled = AIState.editor_tools[name].to(bool)
     return rx.hstack(
         rx.button(
-            tool_name,
-            on_click=AIState.toggle_editor_tool(tool_name),
+            name,
+            on_click=AIState.toggle_editor_tool(name),
             size="1",
             variant=rx.cond(is_enabled, "solid", "soft"),
             color_scheme=rx.cond(is_enabled, "orange", "gray"),
@@ -52,9 +54,9 @@ def _build_tool_pill(tool_name: str, tier: int = 0) -> rx.Component:
             height="26px",
         ),
         rx.text(
-            f"T{tier}",
+            "T" + tier.to(str),
             font_size="9px",
-            color=color,
+            color=rx.match(tier, *_TIER_COLORS.items(), COLORS["text_muted"]),
             font_weight="bold",
             min_width="18px",
         ),
@@ -63,98 +65,35 @@ def _build_tool_pill(tool_name: str, tier: int = 0) -> rx.Component:
     )
 
 
-def _group_header(name: str | rx.Var, tool_names: list[str]) -> rx.Component:
-    """Group heading with a switch that toggles every tool in the group at once.
+def _tool_group(group: rx.Var) -> rx.Component:
+    """One plugin's pills under a heading with a switch that toggles every tool of
+    the group at once.
 
     The switch is ON only when *all* tools of the group are granted; flipping it
     grants/revokes the whole group (a partial selection reads as OFF, so one flip
     grants all). Saves the per-tool click-orgy for big groups like Google Suite.
     """
-    # Chaining the per-tool Vars with `&` (functools.reduce) blows up
-    # exponentially: Reflex' boolean `&` repeats its left operand in the
-    # generated JS, so every extra tool roughly doubles the expression tree.
-    # Measured: 12 tools 0.01s, 20 tools 0.98s, 26 tools (Google Suite) 58s —
-    # paid at import time, which is what pushed AIfred's startup to 3.5 min.
-    # Referencing the dict Var ONCE and testing the keys in JS is O(n):
-    # 0.001s, a 5x smaller expression, same state binding (so it stays
-    # reactive).
-    all_on = rx.Var(
-        f"{json.dumps(tool_names)}.every((n) => {AIState.editor_tools}[n])"
-    ).to(bool)
-    return rx.hstack(
-        rx.text(name, font_size="10px", color=COLORS["text_secondary"]),
-        rx.switch(
-            checked=all_on,
-            on_change=lambda v: AIState.set_editor_tool_group(tool_names, v),  # type: ignore[arg-type]
-            color_scheme="orange",
-            size="1",
-            transform="scale(0.85)",
-        ),
-        spacing="2",
-        align="center",
-    )
-
-
-def _build_tool_groups() -> list[rx.Component]:
-    """Build tool pill groups at build-time, grouped by plugin."""
-    from ...lib.plugin_base import PluginContext, plugin_display_name
-    from ...lib.plugin_registry import all_channels, discover_tools
-
-    ctx = PluginContext(agent_id="__build__", lang="de", session_id="", llm_history=[])
-    groups: list[rx.Component] = []
-
-    from ...lib.agent_memory import MEMORY_TOOL_TIERS
-
-    # Memory (always first)
-    groups.append(
-        rx.vstack(
-            _group_header("Memory", list(MEMORY_TOOL_TIERS)),
-            rx.flex(
-                *[_build_tool_pill(name, tier=tier) for name, tier in MEMORY_TOOL_TIERS.items()],
-                wrap="wrap", gap="4px",
+    names = group["names"].to(list[str])
+    all_on = rx.Var(f"{names}.every((n) => {AIState.editor_tools}[n])").to(bool)
+    return rx.vstack(
+        rx.hstack(
+            rx.text(
+                rx.cond(AIState.ui_language == "de", group["name_de"].to(str), group["name_en"].to(str)),
+                font_size="10px", color=COLORS["text_secondary"],
             ),
-            spacing="1", width="100%",
-        )
+            rx.switch(
+                checked=all_on,
+                on_change=lambda v: AIState.set_editor_tool_group(names, v),  # type: ignore[arg-type]
+                color_scheme="orange",
+                size="1",
+                transform="scale(0.85)",
+            ),
+            spacing="2",
+            align="center",
+        ),
+        rx.flex(
+            rx.foreach(group["tools"].to(list[dict[str, Any]]), _tool_pill),
+            wrap="wrap", gap="4px",
+        ),
+        spacing="1", width="100%",
     )
-
-    # Tool plugins
-    for plugin in discover_tools():
-        if not plugin.is_available():
-            continue
-        tools = plugin.get_tools(ctx)
-        if not tools:
-            continue
-        groups.append(
-            rx.vstack(
-                _group_header(plugin_text(plugin_display_name, plugin), [t.name for t in tools]),
-                rx.flex(
-                    *[_build_tool_pill(t.name, tier=t.tier) for t in tools],
-                    wrap="wrap", gap="4px",
-                ),
-                spacing="1", width="100%",
-            )
-        )
-
-    # Channel tools
-    channel_pills: list[rx.Component] = []
-    channel_names: list[str] = []
-    for ch in all_channels().values():
-        if not ch.is_configured():
-            continue
-        for tool in ch.get_tools(ctx):
-            channel_pills.append(_build_tool_pill(tool.name, tier=tool.tier))
-            channel_names.append(tool.name)
-    if channel_pills:
-        groups.append(
-            rx.vstack(
-                _group_header("Channels", channel_names),
-                rx.flex(*channel_pills, wrap="wrap", gap="4px"),
-                spacing="1", width="100%",
-            )
-        )
-
-    return groups
-
-
-# Pre-build tool groups at import time
-_tool_groups = _build_tool_groups()
