@@ -34,6 +34,7 @@ from ..config import (
     VLLM_CALIBRATION_K_EXHAUSTIVE,
     VLLM_CALIBRATION_SHORT_PROBE,
     VLLM_CALIBRATION_WORKLOAD_CONTEXT_TOKENS,
+    VLLM_HEADROOM_MIB,
 )
 from ..formatting import format_number
 from .gpu import enumerate_gpus
@@ -59,15 +60,12 @@ from .vllm_probe import (
 
 logger = logging.getLogger(__name__)
 
-# Feste MB-Reserve je Karte (Analogon zu LLAMACPP_VRAM_SAFETY_MARGIN):
-# CUDA-Kernels/Fragmentierung. Der GMU-Wert entsteht daraus deterministisch.
-VLLM_VRAM_RESERVE_MB = 1024
 # OOM-Retry: Inductor/Compile braucht Workspace auf der per GMU absichtlich
 # vollen Karte (vLLM fuellt den KV-Pool IMMER bis zum Budget, unabhaengig vom
 # Kontext). Erst die Reserve erhoehen (kostet Pool-Bloecke, KEIN Kontext-
 # Token — Kontext-Vorrang), erst danach den Kontext halbieren.
-OOM_RESERVE_STEP_MB = 1024
-OOM_MAX_RESERVE_STEPS = 2
+OOM_HEADROOM_STEP_MIB = 1024
+OOM_MAX_HEADROOM_STEPS = 2
 
 # Default-Workspace-Faktor fuers Weight-Processing; Stack-spezifisch
 # ueberschreibbar in data/vllm_runtime.yaml (weight_processing_factor).
@@ -214,7 +212,7 @@ def topology_ladder(
     #    derselben Klasse liefern identische Messwerte, eine reicht)
     for cls in classes:
         g = max(cls, key=lambda g: g.free_mb)
-        if g.free_mb - VLLM_VRAM_RESERVE_MB >= need_mb:
+        if g.free_mb - VLLM_HEADROOM_MIB >= need_mb:
             yield TopologyCandidate([smi[g.uuid]], 1, 1, None, f"TP1 on {g.name}")
 
     # 2) TP innerhalb einer Klasse — groesstes TP, das das Modell zulaesst
@@ -231,7 +229,7 @@ def topology_ladder(
         # Karten mit dem Messrauschen des freien Speichers — und die
         # Karten sind NICHT austauschbar (eine V100 haengt am USB4-Tunnel).
         members = sorted(cls, key=lambda g: (-g.free_mb, smi[g.uuid]))[:tp]
-        budget = sum(g.free_mb - VLLM_VRAM_RESERVE_MB for g in members)
+        budget = sum(g.free_mb - VLLM_HEADROOM_MIB for g in members)
         if budget >= need_mb:
             ids = [smi[g.uuid] for g in members]
             yield TopologyCandidate(ids, tp, 1, None,
@@ -343,9 +341,9 @@ def _seed_partition(meta: VllmModelMeta, stage_gpus: list[list[GPU]]) -> str | N
     return ",".join(str(n) for n in layers)
 
 
-def _gmu_for(gpus_in_use: list[GPU], reserve_mb: int = VLLM_VRAM_RESERVE_MB) -> float:
-    """GMU aus fester MB-Reserve: min ueber (Kapazitaet−Reserve)/Kapazitaet."""
-    return round(min((g.total_mb - reserve_mb) / g.total_mb
+def _gmu_for(gpus_in_use: list[GPU], headroom_mib: int = VLLM_HEADROOM_MIB) -> float:
+    """GMU aus dem festen Aufschlag: min ueber (Kapazitaet−Aufschlag)/Kapazitaet."""
+    return round(min((g.total_mb - headroom_mib) / g.total_mb
                      for g in gpus_in_use), 2)
 
 
@@ -564,22 +562,22 @@ def _speed_min_gain(runtime: dict) -> float:
 
 
 def _oom_step(
-    reserve_mb: int, mml: int, cand_gpus: list[GPU],
+    headroom_mib: int, mml: int, cand_gpus: list[GPU],
 ) -> tuple[int, int, str] | None:
-    """Naechste Stufe der OOM-Leiter: (reserve_mb, mml, Meldung), None = ausgeschoepft.
+    """Naechste Stufe der OOM-Leiter: (headroom_mib, mml, Meldung), None = ausgeschoepft.
 
     Kontext-Vorrang: erst die per-GPU-Reserve erhoehen (kostet nur
     Pool-Bloecke), erst danach den Kontext halbieren. Gilt fuer Boot-OOM
     und fuer OOM in einer Sonde gleichermassen.
     """
-    if reserve_mb < VLLM_VRAM_RESERVE_MB + OOM_MAX_RESERVE_STEPS * OOM_RESERVE_STEP_MB:
-        reserve_mb += OOM_RESERVE_STEP_MB
-        return reserve_mb, mml, (
-            f"raising per-GPU reserve to {format_number(reserve_mb)} MB "
-            f"(GMU {_gmu_for(cand_gpus, reserve_mb)}), ctx kept"
+    if headroom_mib < VLLM_HEADROOM_MIB + OOM_MAX_HEADROOM_STEPS * OOM_HEADROOM_STEP_MIB:
+        headroom_mib += OOM_HEADROOM_STEP_MIB
+        return headroom_mib, mml, (
+            f"raising per-GPU headroom to {format_number(headroom_mib)} MB "
+            f"(GMU {_gmu_for(cand_gpus, headroom_mib)}), ctx kept"
         )
     if mml // 2 >= MIN_USEFUL_CONTEXT:
-        return reserve_mb, mml // 2, f"retry with ctx {format_number(mml // 2)}"
+        return headroom_mib, mml // 2, f"retry with ctx {format_number(mml // 2)}"
     return None
 
 
@@ -619,7 +617,7 @@ def _measure_topology(
     So tritt jede Sprosse mit ihrem maximal tragbaren Kontext an.
     """
     cand_gpus = [g for g in gpus if smi[g.uuid] in cand.gpu_ids]
-    reserve_mb = VLLM_VRAM_RESERVE_MB
+    headroom_mib = VLLM_HEADROOM_MIB
     native = meta.native_context or 32768
     mml = native
     progress(f"🚀 Trying {cand.label} (GPUs {cand.gpu_ids}, GMU {_gmu_for(cand_gpus)})...")
@@ -636,7 +634,7 @@ def _measure_topology(
         spec = VllmSpec(
             checkpoint=meta.checkpoint, served_name=entry_name,
             gpu_ids=cand.gpu_ids, tp=cand.tp, pp=cand.pp,
-            gmu=_gmu_for(cand_gpus, reserve_mb), mml=mml, k=0,
+            gmu=_gmu_for(cand_gpus, headroom_mib), mml=mml, k=0,
             block_size=meta.boot_block_size(0),
             pp_partition=cand.pp_partition,
             max_batched_tokens=mbt,
@@ -672,9 +670,9 @@ def _measure_topology(
                 mml = e.parsed_max_len
                 progress(f"   ↳ context capped by vLLM: retry with {format_number(mml)}")
                 continue
-            step = _oom_step(reserve_mb, mml, cand_gpus) if (retries_left and e.oom) else None
+            step = _oom_step(headroom_mib, mml, cand_gpus) if (retries_left and e.oom) else None
             if step:
-                reserve_mb, mml, note = step
+                headroom_mib, mml, note = step
                 progress(f"   ↳ OOM: {note}")
                 continue
             progress(f"   ↳ boot failed: {e.reason}")
@@ -695,9 +693,9 @@ def _measure_topology(
             probe_oom = any(sig in server.log_tail(1_000_000) for sig in OOM_SIGNATURES)
             server.shutdown()
             server = None
-            step = _oom_step(reserve_mb, mml, cand_gpus) if (retries_left and probe_oom) else None
+            step = _oom_step(headroom_mib, mml, cand_gpus) if (retries_left and probe_oom) else None
             if step:
-                reserve_mb, mml, note = step
+                headroom_mib, mml, note = step
                 progress(f"   ↳ probe hit OOM: {note}")
                 continue
             progress(f"   ↳ probe crashed ({type(probe_err).__name__}) — rung rejected")

@@ -157,7 +157,7 @@ def _max_layers_on_gpu(
 
         free - (base + extra_handicap) - layers*(mb_per_layer +
                                                 slope*target_context)
-            >= safety_margin
+            >= headroom_mib
 
     for layers.  ``extra_handicap_mb`` is the first-in-class floor — a
     small conservative reserve for systems where fit-params cannot see
@@ -168,7 +168,7 @@ def _max_layers_on_gpu(
         budget.per_gpu_free[gpu_idx]
         - base_overhead_mb
         - extra_handicap_mb
-        - budget.safety_margin
+        - budget.headroom_mib
     )
     if allowance <= 0:
         return 0
@@ -220,7 +220,7 @@ def _context_ceiling_for_split(
             - base_overhead_mb[i]
             - li * mb_per_layer
             - extra_handicap_mb[i]
-            - budget.safety_margin
+            - budget.headroom_mib
         )
         if allowance <= 0:
             limits.append(0.0)

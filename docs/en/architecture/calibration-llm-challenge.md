@@ -75,7 +75,7 @@ Before the comparison starts:
    test model (or pick a model that has never been calibrated).
 2. **Burn-in caches may be used** — `data/vlm_vram_cache.json`
    is a lookup table with empirically measured reserves for VLMs;
-   the TTS reserve is named by the TTS suite (`reserve_mib`). Both paths (algorithm and
+   the TTS reserve is named by the TTS suite (`needed_mib`). Both paths (algorithm and
    LLM) use them as input, fair for the comparison.
 3. **Test at least 2-3 models of different sizes**, so that the
    comparison doesn't hinge on a special case. Suggestion:

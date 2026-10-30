@@ -313,7 +313,7 @@ async def resolve_vlm_reserve(
     Resolution order — hardware-agnostic, no hand-pinned tables:
 
     1. **JSON cache** :mod:`vlm_vram_cache` — previous stress-prewarm runs.
-       Adds :data:`config.LLAMACPP_VLM_HEADROOM_MB` on top.
+       Adds :data:`config.VLM_HEADROOM_MIB` on top.
     2. **Stress prewarm** (cold path) — fires a worst-case inference, writes
        the peak to the cache, returns ``peak + headroom``.
 
@@ -346,15 +346,15 @@ async def resolve_vlm_reserve(
 
     # 3. Resolve reserve_mb — agnostic, cache + stress prewarm only.
     from . import vlm_vram_cache
-    from .config import LLAMACPP_VLM_HEADROOM_MB
+    from .config import VLM_HEADROOM_MIB
 
     # 3a. Cache hit — stress-measured peak + runtime headroom.
     cached = vlm_vram_cache.get(model_id, num_ctx)
     if cached:
-        reserve = cached + LLAMACPP_VLM_HEADROOM_MB
+        reserve = cached + VLM_HEADROOM_MIB
         logger.info(
             "vlm reserve: cache hit for %s (num_ctx=%d) → %d + %d MiB headroom = %d",
-            model_id, num_ctx, cached, LLAMACPP_VLM_HEADROOM_MB, reserve,
+            model_id, num_ctx, cached, VLM_HEADROOM_MIB, reserve,
         )
         return uuid, reserve
 
@@ -371,9 +371,9 @@ async def resolve_vlm_reserve(
         )
         return uuid, 0
     vlm_vram_cache.put(model_id, num_ctx, peak)
-    reserve = peak + LLAMACPP_VLM_HEADROOM_MB
+    reserve = peak + VLM_HEADROOM_MIB
     logger.info(
         "vlm reserve: stress-measured %s peak=%d MiB + headroom %d = %d",
-        model_id, peak, LLAMACPP_VLM_HEADROOM_MB, reserve,
+        model_id, peak, VLM_HEADROOM_MIB, reserve,
     )
     return uuid, reserve

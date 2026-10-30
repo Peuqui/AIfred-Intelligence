@@ -132,12 +132,27 @@ adjusted by hand.
 
 In this order:
 
+**Terms for memory** (the same in all suites, everything in MiB; free memory comes from `nvidia-smi`
+only):
+
+| Term | Meaning |
+|---|---|
+| `budget` | what something takes on the card, measured or a default |
+| `headroom` | the margin on top, exactly one per backend or suite |
+| `needed` | `budget` + `headroom`: what a card must have free |
+| `reserve` | what stays free on a card for something else |
+
+AIfred's margins stand in one block in [`config.py`](../../../aifred/lib/config.py)
+(`OLLAMA_HEADROOM_MIB`, `VLLM_HEADROOM_MIB`, `LLAMACPP_HEADROOM_MIB`, `VLM_HEADROOM_MIB`), those of the
+TTS and STT suites in their config (`headroom_mib`). vLLM only knows a share of the card
+(`--gpu-memory-utilization`); the calibration converts `VLLM_HEADROOM_MIB` into it, `_gmu_for`.
+
 1. **Lowest GPU count** — less inter-GPU sync = faster. If
    `[a,b,c,0]` reaches native context across 3 GPUs, NEVER prefer `[w,x,y,z]` across
    4 GPUs.
 2. **Fill the fastest GPU class first** — layers land primarily on the RTX
    8000s, P40s only as spillover.
-3. **Packed full up to the safety margin** ([`LLAMACPP_VRAM_SAFETY_MARGIN`](../../../aifred/lib/config.py),
+3. **Packed full up to the headroom** ([`LLAMACPP_HEADROOM_MIB`](../../../aifred/lib/config.py),
    192 MB Linux, 1536 MB under WDDM, i.e. WSL2/Windows) — NO spreading of headroom. A GPU with 2 GB
    free is fine; one with 20 GB free is waste if we would have to add inactive
    GPUs.
@@ -198,7 +213,7 @@ Visible in the log as the line
 
 **Practical effect:** In the split `[27, 29, 19, 14, 5]` for a 5-GPU 235B
 model, GPU1 has two layers more than GPU0 — precisely because GPU0 got the
-handicap and both end up **equally tight** against the safety margin.
+handicap and both end up **equally tight** against the headroom.
 
 ## Algorithm
 
@@ -346,7 +361,7 @@ distribution can usually fix OOM without sacrificing ctx.
 `current_ctx < native_context` (for variants: `< ctx_ceiling`, e.g.
 the base ctx) and a steady-state measurement is available → binary search
 ctx upward. Probe-first since 2026-07-07: there is **no** headroom gate
-anymore (previously only with `> 2 × safety_margin` free on the tightest
+anymore (previously only with `> 2 × headroom_mib` free on the tightest
 GPU, which pinned the 397B to 89k although ~171k ran). The math
 projection is conservative; real-world probe headroom can
 carry more ctx. On an OOM during the push, `_context_refine_swap()`
@@ -416,8 +431,8 @@ XTTS, Qwen3-TTS, as far as the TTS-Suite lists them as installed) whose `|<engin
    `-speed`) — no projection, no probe. If every candidate is covered
    this way, the engine is done.
 2. Otherwise: start the TTS container → occupies VRAM on the TTS card. The
-   **TTS reserve** comes from `gpu_engine_reserves()`
-   ([`tts_service.py`](../../../aifred/lib/tts_service.py)): the `reserve_mib` figure
+   **TTS reserve** comes from `gpu_engine_needs()`
+   ([`tts_service.py`](../../../aifred/lib/tts_service.py)): the `needed_mib` figure
    of the TTS-Suite's catalog (the engine's budget + `headroom_mib` of its
    configuration). Budget and margin live only there; AIfred keeps neither a
    cache nor a margin.
@@ -495,7 +510,7 @@ algorithm is not careful, it creeps along this gap in 256-token steps
 (each iteration → ~4 MB more free, i.e. 25+ probes for a
 100 MB correction, slower than a plain binary search). Solution: after
 each failed probe, `bias = predicted_min_free − measured_min_free` is
-determined and passed on as `extra_safety_margin` to the next math search.
+determined and passed on as `extra_headroom_mib` to the next math search.
 The math thus directly picks a realistic ctx further
 down (only 3–5 probes instead of 25+). The bias is tracked bidirectionally
 (positive = math too optimistic, negative = too pessimistic; `_learn_bias()`

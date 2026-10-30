@@ -67,7 +67,7 @@ def test_passed_gpus_skip_enumerate(monkeypatch):
     _common_mocks(monkeypatch, marker)
     pinned = [_gpu("GPU-pinned", "V100", 7.0, 32768)]
     _drain(ai_agent.calibrate_with_ai(
-        model_id="m", full_cmd="--model x --port 1", safety_margin_mb=192,
+        model_id="m", full_cmd="--model x --port 1", headroom_mib=192,
         gpus=pinned,
     ))
     assert marker["called"] is False  # caller's list used, no re-enumerate
@@ -77,6 +77,6 @@ def test_no_gpus_enumerates(monkeypatch):
     marker = {"called": False}
     _common_mocks(monkeypatch, marker)
     _drain(ai_agent.calibrate_with_ai(
-        model_id="m", full_cmd="--model x --port 1", safety_margin_mb=192,
+        model_id="m", full_cmd="--model x --port 1", headroom_mib=192,
     ))
     assert marker["called"] is True  # default path enumerates as before

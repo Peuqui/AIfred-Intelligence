@@ -457,7 +457,7 @@ async def verify(
     context: int,
     port: int,
     gpus: list[GPU],
-    safety_margin_mb: int,
+    headroom_mib: int,
     ngl: int | None = None,
     env: dict[str, str] | None = None,
     probe_thinking: bool = False,
@@ -468,8 +468,8 @@ async def verify(
 
     ``fits`` is True iff the server got ready, answered a real inference
     (for --mmproj models including a 4K image analysis) and every GPU
-    kept >= ``safety_margin_mb`` free after the side-channel reserve.
-    Callers pass the plain LLAMACPP_VRAM_SAFETY_MARGIN here — the former
+    kept >= ``headroom_mib`` free after the side-channel reserve.
+    Callers pass the plain LLAMACPP_HEADROOM_MIB here — the former
     vision surcharge is replaced by the real image probe (probe-first
     policy, 2026-07-07).
     ``health_timeout`` overrides the default health-check window — hybrid-mode
@@ -659,14 +659,14 @@ async def verify(
             # Probe-first (Entscheidung 2026-07-07): die Probe ist die
             # Wahrheit. Der Server wurde ready UND hat echte Inferenz
             # (bei Vision-Modellen inkl. 4K-Bildanalyse) beantwortet.
-            # ``safety_margin_mb`` ist überall nur noch die nackte
-            # Betriebsreserve (LLAMACPP_VRAM_SAFETY_MARGIN, 192 MB) —
+            # ``headroom_mib`` ist überall nur noch die nackte
+            # Betriebsreserve (LLAMACPP_HEADROOM_MIB, 192 MB) —
             # der frühere Vision-Zuschlag ist durch die Bild-Probe
             # ersetzt. Hart bleibt zusätzlich die Side-Channel-Reserve
             # (oben bereits abgezogen): TTS/VLM fordern diesen Platz im
             # Betrieb physisch zurück.
             min_free = min(measured)
-            fits = min_free >= safety_margin_mb
+            fits = min_free >= headroom_mib
             detail = ", ".join(
                 f"{g.name}: {measured[i]} MB"
                 for i, g in enumerate(gpus) if i < len(measured)

@@ -245,7 +245,7 @@ class EngineInfo:
     vram_mib: Mapping[str, int] | None  # {gpu_uuid: MiB}; {} = none; None = measurement failed
     idle_remaining_s: float | None  # seconds until a running container ends itself for being idle; None = not running, no container, or auto-shutdown off
     default_vram_mib: int | None  # what the engine takes when the config sets no budget; None = no budget
-    reserve_mib: int | None  # what a start needs free on a card (budget + the service's headroom); None = no local GPU engine
+    needed_mib: int | None  # what a start needs free on a card (budget + the service's headroom); None = no local GPU engine
     default_max_parallel: int
     default_max_queue: int
 

@@ -94,7 +94,7 @@ def test_transcribe_success_sends_all_parameters(client, calls, tmp_path):
 def test_transcribe_503_means_gpu_unavailable_with_service_reason(client, calls, tmp_path):
     audio = tmp_path / "clip.wav"
     audio.write_bytes(b"RIFF")
-    calls.answer = _response(503, {"error": "no GPU with enough VRAM"})
+    calls.answer = _response(503, {"error": "gpu_unavailable", "detail": "no GPU with enough VRAM"})
     with pytest.raises(STTGPUUnavailableError, match="no GPU with enough VRAM"):
         client.transcribe(str(audio), "de", "cuda", False)
 

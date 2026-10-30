@@ -140,7 +140,7 @@ def _weights_fit(
     model: Model,
 ) -> tuple[bool, str]:
     """True wenn die reinen Layer-GEWICHTE des Splits auf jede aktive GPU
-    passen (free − Gewichtsanteil − safety_margin − Handicap ≥ 0).
+    passen (free − Gewichtsanteil − headroom_mib − Handicap ≥ 0).
 
     Prüft NUR die Gewichte, nicht den KV-Cache: der KV skaliert mit dem
     Kontext und wird vom ctx-shrink im Verify behandelt. Das trennt zwei
@@ -153,7 +153,7 @@ def _weights_fit(
     - Gewichte passen, nur der KV bei der (von der Basis geerbten) hohen
       ctx sprengt → der Split ist gültig, die Probe muss laufen; der
       ctx-shrink senkt die ctx bis es passt, der Upward-Push maximiert
-      danach zurück ans safety_margin-Limit.
+      danach zurück ans headroom_mib-Limit.
 
     Der first-in-class-Handicap fließt ein, damit der Load-Peak der ersten
     Karte (Output/Logits, Compute-Workspace) mit abgedeckt ist.
@@ -165,7 +165,7 @@ def _weights_fit(
         weight = (layers / total) * model.size_mb
         handicap = budget.first_gpu_handicap if gpus[i].first_in_class else 0
         free_after = (
-            budget.per_gpu_free[i] - weight - budget.safety_margin - handicap
+            budget.per_gpu_free[i] - weight - budget.headroom_mib - handicap
         )
         if free_after < 0:
             return False, (
@@ -434,7 +434,7 @@ class _BiasState:
     downward binary search and the upward push).
 
     ``applied`` is fed into :func:`_math_predicts_fit` as
-    ``extra_safety_margin``: positive shrinks the trusted window (math too
+    ``extra_headroom_mib``: positive shrinks the trusted window (math too
     optimistic), negative widens it (math too pessimistic). ``oom_floor``
     is the hardest bias measured at a NON-fitting probe — ``applied`` never
     drops below it, so a too-optimistic slope cannot re-trigger a proven
@@ -472,7 +472,7 @@ def _math_predicts_fit(
     model: Model,
     gpus: list[GPU],
     budget: Budget,
-    extra_safety_margin: int = 0,
+    extra_headroom_mib: int = 0,
 ) -> tuple[bool, int]:
     """Math-only prediction whether ``(split, ctx)`` would fit.
 
@@ -481,11 +481,11 @@ def _math_predicts_fit(
     saves real probes during binary search by filtering hopeless ctx
     values before they cost 30-90 s each.
 
-    ``extra_safety_margin`` adds an empirical safety buffer on top of
-    ``budget.safety_margin`` — the observed math-vs-real bias
+    ``extra_headroom_mib`` adds an empirical safety buffer on top of
+    ``budget.headroom_mib`` — the observed math-vs-real bias
     (predicted_free − measured_free) from previous probes. May be NEGATIVE
     when the cost model under-predicts free VRAM (fit-params overstating
-    compute buffers): the threshold then drops below the safety margin,
+    compute buffers): the threshold then drops below the headroom,
     which is sound because the REAL free will exceed the prediction by
     exactly that bias.
     """
@@ -493,7 +493,7 @@ def _math_predicts_fit(
         # No VRAM model available (e.g. VLM-only candidate derived from
         # base_split without a fresh fit-params run).  Math prediction is
         # impossible — optimistically assume fit; the real probe decides.
-        return (True, budget.safety_margin)
+        return (True, budget.headroom_mib)
     from .optimizer import (
         _per_gpu_coefficients,
         _predicted_free,
@@ -524,7 +524,7 @@ def _math_predicts_fit(
     if not active_free:
         return False, 0
     min_free = min(active_free)
-    threshold = budget.safety_margin + extra_safety_margin
+    threshold = budget.headroom_mib + extra_headroom_mib
     return (min_free >= threshold, min_free)
 
 
@@ -536,7 +536,7 @@ def _math_max_fitting_ctx(
     model: Model,
     gpus: list[GPU],
     budget: Budget,
-    extra_safety_margin: int = 0,
+    extra_headroom_mib: int = 0,
 ) -> tuple[int, int]:
     """Math-only binary search for the highest ctx that fit-params predicts
     fits with ``split``, in the range ``[lo, hi]``.
@@ -547,17 +547,17 @@ def _math_max_fitting_ctx(
     if the probe fails (math is sometimes too optimistic on MoE runtime
     activation memory).
 
-    ``extra_safety_margin`` is forwarded to :func:`_math_predicts_fit` —
+    ``extra_headroom_mib`` is forwarded to :func:`_math_predicts_fit` —
     pass the observed math-vs-real bias to make math conservative.
     """
     # Quick exits
     lo_ok, _ = _math_predicts_fit(
-        split, lo, candidate, model, gpus, budget, extra_safety_margin,
+        split, lo, candidate, model, gpus, budget, extra_headroom_mib,
     )
     if not lo_ok:
         return 0, 0
     hi_ok, hi_free = _math_predicts_fit(
-        split, hi, candidate, model, gpus, budget, extra_safety_margin,
+        split, hi, candidate, model, gpus, budget, extra_headroom_mib,
     )
     if hi_ok:
         return hi, hi_free
@@ -565,14 +565,14 @@ def _math_max_fitting_ctx(
     # Bisect down from hi
     best_ctx = lo
     _, best_free = _math_predicts_fit(
-        split, lo, candidate, model, gpus, budget, extra_safety_margin,
+        split, lo, candidate, model, gpus, budget, extra_headroom_mib,
     )
     while hi - lo > LLAMACPP_CALIBRATION_PRECISION:
         mid = ((lo + hi) // 2 // LLAMACPP_CALIBRATION_PRECISION) * LLAMACPP_CALIBRATION_PRECISION
         if mid <= lo or mid >= hi:
             break
         ok, free = _math_predicts_fit(
-            split, mid, candidate, model, gpus, budget, extra_safety_margin,
+            split, mid, candidate, model, gpus, budget, extra_headroom_mib,
         )
         if ok:
             best_ctx = mid

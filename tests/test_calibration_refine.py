@@ -75,7 +75,7 @@ def _gpus_5():
 def _budget(free_5):
     return Budget(
         per_gpu_free=tuple(free_5), first_gpu_handicap=500,
-        safety_margin=192, gpu_reserve_mb=(),
+        headroom_mib=192, gpu_reserve_mb=(),
     )
 
 
@@ -155,7 +155,7 @@ def test_cascade_upstream_respects_blocked_dest():
                      thinks=None, detail="")
     budget = Budget(
         per_gpu_free=(20000, 20000, 18000, 14000, 14000),
-        first_gpu_handicap=500, safety_margin=192,
+        first_gpu_handicap=500, headroom_mib=192,
         gpu_reserve_mb=(0, 0, 4000, 0, 0),  # GPU2 = VLM side-channel
     )
     out, _reason = _refine_split_from_measurement(

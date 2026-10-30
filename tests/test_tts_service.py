@@ -29,7 +29,7 @@ def row(engine: str = "xtts", host: str | None = None, **fields: Any) -> dict[st
         "label_short": {"de": engine.upper(), "en": engine.upper()},
         "status": "stopped", "unit_default": "sentence", "needs_gpu": True,
         "cloud": False, "browser": False, "installed": True, "start_hint": None, "vram_mib": {}, "idle_remaining_s": None,
-        "default_vram_mib": None, "reserve_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
+        "default_vram_mib": None, "needed_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
     }
     return {**base, **fields}
 
@@ -136,10 +136,10 @@ def test_label_of_an_entry_the_service_does_not_offer_names_key_and_host() -> No
 
 def test_the_reserves_are_the_figures_the_service_names_for_its_local_gpu_engines(service) -> None:
     service(
-        row("xtts", reserve_mib=3936), row("qwen3local", reserve_mib=6280),
+        row("xtts", needed_mib=3936), row("qwen3local", needed_mib=6280),
         row("qwen3local", "Box"), row("piper", needs_gpu=False), row("kokoro"),   # other machine, no GPU, no budget
     )
-    assert tts_service.gpu_engine_reserves() == {"xtts": 3936, "qwen3local": 6280}
+    assert tts_service.gpu_engine_needs() == {"xtts": 3936, "qwen3local": 6280}
 
 
 OLLAMA_CONTEXT = 100_000
@@ -154,7 +154,7 @@ def ollama_state(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
 
 
 def test_the_ollama_context_reserves_for_the_first_switched_on_local_gpu_engine(service, ollama_state) -> None:
-    service(row("piper", needs_gpu=False), row("xtts", reserve_mib=3936), row("qwen3local", reserve_mib=6280))
+    service(row("piper", needs_gpu=False), row("xtts", needed_mib=3936), row("qwen3local", needed_mib=6280))
     num_ctx, source = context_utils.get_agent_num_ctx("aifred", ollama_state, "model")
     assert num_ctx == OLLAMA_CONTEXT - int(3936 / VRAM_CONTEXT_RATIO_DENSE)   # piper comes first and holds no card
     assert "XTTS" in source

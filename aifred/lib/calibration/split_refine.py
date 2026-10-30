@@ -137,9 +137,9 @@ def _refine_split_from_measurement(
     within the reserve; ``reason`` is a short human string the caller logs.
 
     Läuft, wenn der Server LÄDT, aber die knappste Karte < ``2 ×
-    safety_margin`` frei hat. Die Zielwahl nutzt DIESELBE Glas-Kaskade wie
+    headroom_mib`` frei hat. Die Zielwahl nutzt DIESELBE Glas-Kaskade wie
     der Blind-Shift (``_cascade_destination``, SSOT) — die nächste Karte
-    nach dem Engpass, die den Layer samt KV noch ≥ ``safety_margin`` frei
+    nach dem Engpass, die den Layer samt KV noch ≥ ``headroom_mib`` frei
     hält, sonst die übernächste bis ans Ende. FRÜHER wählte dieser Pfad
     statt der Kaskade das Ziel mit der "besten Balance" (höchstes Minimum
     über alle Karten) — eine zweite, widersprüchliche Verteil-Strategie im
@@ -165,7 +165,7 @@ def _refine_split_from_measurement(
     active_free.sort(key=lambda t: t[1])
     bottleneck, b_free = active_free[0]
 
-    if b_free >= 2 * budget.safety_margin:
+    if b_free >= 2 * budget.headroom_mib:
         return None, (
             f"tightest GPU CUDA{bottleneck} has {b_free} MB free — "
             f"no OOM danger"
@@ -183,7 +183,7 @@ def _refine_split_from_measurement(
     # bleibt das LETZTE Mittel.
     import math as _math
     save_per_layer = mb_per_layer + slope_per_layer[bottleneck] * current_context
-    deficit = 2 * budget.safety_margin - b_free
+    deficit = 2 * budget.headroom_mib - b_free
     if save_per_layer > 0:
         step = max(1.0, float(_math.ceil(deficit / save_per_layer)))
     else:
@@ -196,7 +196,7 @@ def _refine_split_from_measurement(
 
     # Zielwahl über die gemeinsame Glas-Kaskade (SSOT, identisch zum
     # Blind-Shift): nächste Karte nach dem Engpass, die den/die Layer samt
-    # KV noch ≥ safety_margin frei hält. measured_free_mb ist in verify()
+    # KV noch ≥ headroom_mib frei hält. measured_free_mb ist in verify()
     # bereits reserve-bereinigt; die Layer-Kosten enthalten Gewicht + KV
     # bei diesem ctx (per-Karte-Slope aus dem vram_model).
     layer_cost = tuple(
@@ -208,7 +208,7 @@ def _refine_split_from_measurement(
     )
     dest = _cascade_destination(
         bottleneck, list(current_split), verify_r.measured_free_mb,
-        layer_cost, budget.safety_margin, step, keep_active_set, _blocked,
+        layer_cost, budget.headroom_mib, step, keep_active_set, _blocked,
     )
     if dest is None:
         return None, (
@@ -230,7 +230,7 @@ def _measured_split_ceiling(
     free: list[float],
     slope_per_layer: Sequence[float],
     current_context: int,
-    safety_margin: int,
+    headroom_mib: int,
 ) -> float:
     """Analytical ctx ceiling of a split, anchored to MEASURED free VRAM.
 
@@ -246,7 +246,7 @@ def _measured_split_ceiling(
         kv_slope = layers[i] * slope_per_layer[i]
         if layers[i] <= 0 or kv_slope <= 0:
             return float("inf")
-        return current_context + (free[i] - safety_margin) / kv_slope
+        return current_context + (free[i] - headroom_mib) / kv_slope
 
     return min(
         (_card(i) for i in range(len(layers)) if layers[i] > 0),
@@ -308,7 +308,7 @@ def _context_refine_swap(
     )
     mb_per_layer = model_size_mb / total_layers if total_layers else 0.0
     measured = verify_r.measured_free_mb
-    sm = budget.safety_margin
+    sm = budget.headroom_mib
 
     def _free(i: int) -> float:
         return float(measured[i]) if i < len(measured) else 0.0

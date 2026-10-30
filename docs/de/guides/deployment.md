@@ -642,7 +642,7 @@ Was im Hintergrund abläuft:
 - **Stress-Burn-in** bei der ersten TTS/VLM-Nutzung: Eine zweisprachige TTS-Synthese-Schleife im Worst-Case-Szenario
   und eine VLM-Kontext-Füllung zum Vorwärmen messen den Spitzen-VRAM-Verbrauch unter
   Last. Das VLM-Ergebnis wird in
-  `data/vlm_vram_cache.json` zwischengespeichert; die TTS-Reserve nennt die TTS-Suite (`reserve_mib`) – nachfolgende Kalibrierungen nutzen die Messwerte wieder
+  `data/vlm_vram_cache.json` zwischengespeichert; die TTS-Reserve nennt die TTS-Suite (`needed_mib`) – nachfolgende Kalibrierungen nutzen die Messwerte wieder
 - **Side-Channel-Kapazitätsüberwachung**: Bevor ein `tts-engine + vlm`-
   Kombinationsprofil geschrieben wird, prüft der Kalibrator, ob beide Reserven auf die
   gemeinsam genutzte Side-Channel-GPU passen. Kombinationen, die zur Laufzeit einen OOM auslösen würden, werden

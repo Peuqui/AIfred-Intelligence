@@ -15,8 +15,8 @@ from pathlib import Path
 from ..config import (
     CALIBRATION_MIN_CONTEXT,
     LLAMACPP_CALIBRATION_PORT,
+    LLAMACPP_HEADROOM_MIB,
     LLAMACPP_HYBRID_HEALTH_TIMEOUT,
-    LLAMACPP_VRAM_SAFETY_MARGIN,
     MIN_FREE_RAM_MB,
     MIN_USEFUL_CONTEXT_TOKENS,
 )
@@ -170,7 +170,7 @@ async def calibrate_llamacpp_model(
     # Probe-first (2026-07-07): kein Vision-Zuschlag mehr auf die Margin.
     # Der CLIP-/mmproj-Bedarf wird von der 4K-Bild-Probe im Verifier real
     # alloziert und gemessen statt pauschal reserviert.
-    safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN
+    headroom_mib = LLAMACPP_HEADROOM_MIB
     if _is_vision_model(full_cmd):
         yield "Vision model detected — probe includes 4K image analysis"
     # Draft-Sidecar-Profile (--model-draft) zahlen extra Marge: Spec-Decode-
@@ -178,15 +178,15 @@ async def calibrate_llamacpp_model(
     # behalten die knappe Marge und damit ihren Kontext.
     from .projection import draft_gguf_path
     if draft_gguf_path(full_cmd) is not None:
-        from ..config import LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB
-        safety_margin += LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB
+        from ..config import LLAMACPP_DRAFT_HEADROOM_EXTRA_MIB
+        headroom_mib += LLAMACPP_DRAFT_HEADROOM_EXTRA_MIB
         yield (
-            f"Draft sidecar detected — safety margin "
-            f"{LLAMACPP_VRAM_SAFETY_MARGIN} + "
-            f"{LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB} MB"
+            f"Draft sidecar detected — headroom "
+            f"{LLAMACPP_HEADROOM_MIB} + "
+            f"{LLAMACPP_DRAFT_HEADROOM_EXTRA_MIB} MB"
         )
 
-    budget = build_budget(gpus, safety_margin=safety_margin)
+    budget = build_budget(gpus, headroom_mib=headroom_mib)
     if any(reserve_vec):
         from dataclasses import replace as _replace
         budget = _replace(budget, gpu_reserve_mb=tuple(reserve_vec))
@@ -219,7 +219,7 @@ async def calibrate_llamacpp_model(
             model_id=model_id,
             full_cmd=full_cmd,
             gguf_path=gguf_path,
-            safety_margin=safety_margin,
+            headroom_mib=headroom_mib,
             port=port,
             env=env,
             model_size_mb=model.size_mb,
@@ -745,7 +745,7 @@ async def _project_cell(
         )
         if reduced is None or reduced.context < CALIBRATION_MIN_CONTEXT:
             # Probe-first (2026-07-07): bevor die Zelle mathematisch
-            # stirbt, einmal OHNE safety_margin rechnen. Damit fällt nur
+            # stirbt, einmal OHNE headroom_mib rechnen. Damit fällt nur
             # der künstliche Puffer weg — base_overhead, Handicap und
             # KV-Slope (gemessene Physik aus fit-params) bleiben in der
             # Rechnung. Jeder Caller PROBT einen Kandidaten real (Load +
@@ -754,7 +754,7 @@ async def _project_cell(
             # Profile (397B: 141 MB frei) liegen bewusst unter der
             # Margin — die margin-behaftete Mathe kann sie nie finden.
             from dataclasses import replace as _budget_replace
-            budget0 = _budget_replace(budget, safety_margin=0)
+            budget0 = _budget_replace(budget, headroom_mib=0)
             zero = _max_ctx_where_all_layers_fit(
                 vmodel=vmodel, budget=budget0, gpus=gpus, active=active,
                 total_layers=model.total_layers,
@@ -852,7 +852,7 @@ async def _try_ai_calibration(
     model_id: str,
     full_cmd: str,
     gguf_path: Path,
-    safety_margin: int,
+    headroom_mib: int,
     port: int,
     env: dict[str, str] | None,
     model_size_mb: float,
@@ -885,7 +885,7 @@ async def _try_ai_calibration(
         model_id=model_id,
         full_cmd=full_cmd,
         gguf_path=gguf_path,
-        safety_margin_mb=safety_margin,
+        headroom_mib=headroom_mib,
         seed_split=seed_split if seed_split else None,
         cloud_model=None,
         port=port,
@@ -954,7 +954,7 @@ async def _try_ai_calibration(
         model_meta = _load_model_meta(model_id, gguf_path)
         if model_meta is not None:
             from dataclasses import replace as _replace
-            speed_budget = build_budget(gpus, safety_margin=safety_margin)
+            speed_budget = build_budget(gpus, headroom_mib=headroom_mib)
             if reserve_mb and any(reserve_mb):
                 speed_budget = _replace(speed_budget, gpu_reserve_mb=reserve_mb)
             speed_pick = await _find_speed_candidate(
@@ -1053,7 +1053,7 @@ async def _calibrate_hybrid(
             continue
 
         overrun = sum(
-            max(0, used - (g.total_mb - budget.safety_margin))
+            max(0, used - (g.total_mb - budget.headroom_mib))
             for used, g in zip(point.per_gpu_used_mb, gpus)
         )
         if overrun == 0:
@@ -1092,7 +1092,7 @@ async def _calibrate_hybrid(
             context=target,
             port=port,
             gpus=gpus,
-            safety_margin_mb=budget.safety_margin,
+            headroom_mib=budget.headroom_mib,
             reserve_mb=budget.gpu_reserve_mb,
             ngl=ngl,
             env=env,
@@ -1249,18 +1249,18 @@ async def calibrate_tts_variant_from_base(
     # Probe-first: gleiche nackte Margin wie im Basis-Pfad — der
     # Vision-Bedarf kommt aus der 4K-Bild-Probe des Verifiers, nicht
     # aus einem Zuschlag.
-    safety_margin = LLAMACPP_VRAM_SAFETY_MARGIN
+    headroom_mib = LLAMACPP_HEADROOM_MIB
     # Draft-Sidecar-Profile zahlen extra Marge (siehe Basis-Pfad).
     from .projection import draft_gguf_path
     if draft_gguf_path(full_cmd) is not None:
-        from ..config import LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB
-        safety_margin += LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB
+        from ..config import LLAMACPP_DRAFT_HEADROOM_EXTRA_MIB
+        headroom_mib += LLAMACPP_DRAFT_HEADROOM_EXTRA_MIB
         yield (
-            f"Draft sidecar detected — safety margin "
-            f"{LLAMACPP_VRAM_SAFETY_MARGIN} + "
-            f"{LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB} MB"
+            f"Draft sidecar detected — headroom "
+            f"{LLAMACPP_HEADROOM_MIB} + "
+            f"{LLAMACPP_DRAFT_HEADROOM_EXTRA_MIB} MB"
         )
-    budget = build_budget(gpus, safety_margin=safety_margin)
+    budget = build_budget(gpus, headroom_mib=headroom_mib)
     if any(reserve_vec):
         from dataclasses import replace as _replace
         budget = _replace(budget, gpu_reserve_mb=tuple(reserve_vec))
@@ -1317,7 +1317,7 @@ async def calibrate_tts_variant_from_base(
     # ── VLM/TTS variant: proportional derivation from base_split ─────────
     # _project_cell fails when an artificial side-channel reserve reduces a
     # reserved GPU's budget below the next integer-layer boundary.  The
-    # conservative optimizer (safety_margin + first_gpu_handicap) then
+    # conservative optimizer (headroom_mib + first_gpu_handicap) then
     # assigns one fewer layer than the model can actually hold, leaving 2-4
     # layers unplaced at every context.  The binary search converges on an
     # overshoot result with context=0 and reports "no split leaves room for
@@ -1405,7 +1405,7 @@ async def calibrate_tts_variant_from_base(
                 )
                 _fit_ctx, _pred_min = proj.max_context_for_budget(
                     _vm, _gpu_total, _baseline, _handi,
-                    budget.safety_margin, ceiling=base_ctx,
+                    budget.headroom_mib, ceiling=base_ctx,
                 )
                 if _fit_ctx < CALIBRATION_MIN_CONTEXT:
                     yield (
@@ -1622,7 +1622,7 @@ async def _ai_variant_from_base(
     async for line in calibrate_with_ai(
         model_id=model.model_id,
         full_cmd=full_cmd,
-        safety_margin_mb=budget.safety_margin,
+        headroom_mib=budget.headroom_mib,
         gguf_path=gguf_path,
         seed_split=seed_active,
         port=port,

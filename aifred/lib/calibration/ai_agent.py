@@ -66,7 +66,7 @@ CALIBRATION_TOOLS = [
                 "and narrow down candidates before spending a slow probe. "
                 "Returns "
                 '{"used_mb": [c0,c1,c2,c3], "free_mb": [c0,c1,c2,c3], '
-                '"fits_safety_margin": bool}. Math projection only — '
+                '"fits_headroom": bool}. Math projection only — '
                 "doesn't account for CUDA kernel reservations and inference "
                 "activations; verify the final candidate with probe_config."
             ),
@@ -121,7 +121,7 @@ CALIBRATION_TOOLS = [
             "description": (
                 "Finalize the calibration with the chosen ctx and tensor_split. "
                 "Only call this when you've verified via probe_config that the "
-                "configuration meets the safety-margin constraint on every GPU. "
+                "configuration meets the headroom constraint on every GPU. "
                 "After finalize, the loop terminates and the values are written "
                 "to llama-swap config.yaml."
             ),
@@ -222,7 +222,7 @@ def _build_system_prompt(
     native_ctx: int,
     total_layers: int,
     gpus: list[GPU],
-    safety_margin_mb: int,
+    headroom_mib: int,
     extra_constraints: str = "",
     reserve_mb: tuple[int, ...] = (),
 ) -> str:
@@ -253,7 +253,7 @@ def _build_system_prompt(
     return load_prompt(
         prompt_name,
         lang="en",
-        safety_margin_mb=safety_margin_mb,
+        headroom_mib=headroom_mib,
         model_id=model_id,
         model_size_gb=f"{model_size_gb:.1f}",
         total_layers=total_layers,
@@ -278,7 +278,7 @@ async def _pre_search_max_ctx(
     full_cmd: str,
     gguf_path: Path,
     gpus: list[GPU],
-    safety_margin_mb: int,
+    headroom_mib: int,
     native_ctx: int,
     initial_split: list[float],
     reserve_mb: tuple[int, ...] = (),
@@ -321,7 +321,7 @@ async def _pre_search_max_ctx(
             gpu_total_mb=gpu_total_mb,
         )
         free = _apply_reserve(list(point.per_gpu_free_mb), reserve_mb)
-        if free and min(free) >= safety_margin_mb:
+        if free and min(free) >= headroom_mib:
             return (native_ctx, initial_split,
                     f"native ctx={native_ctx} already fits (min free={min(free)} MB)")
     except Exception as exc:
@@ -345,7 +345,7 @@ async def _pre_search_max_ctx(
         except Exception:
             free = []
 
-        if free and min(free) >= safety_margin_mb:
+        if free and min(free) >= headroom_mib:
             best_ctx = mid
             lo = mid
         else:
@@ -365,7 +365,7 @@ async def _do_estimate(
     ctx: int,
     tensor_split: list[float],
     gpus: list[GPU],
-    safety_margin_mb: int,
+    headroom_mib: int,
     reserve_mb: tuple[int, ...] = (),
 ) -> _ProbeOutcome:
     """Fast math projection via llama-fit-params (no model load).
@@ -402,7 +402,7 @@ async def _do_estimate(
     min_free = min(free_list)
     if min_free < 0:
         status = "estimate_oom"
-    elif min_free < safety_margin_mb:
+    elif min_free < headroom_mib:
         status = "estimate_tight"
     else:
         status = "estimate_ok"
@@ -419,7 +419,7 @@ async def _do_probe(
     tensor_split: list[float],
     port: int,
     gpus: list[GPU],
-    safety_margin_mb: int,
+    headroom_mib: int,
     env: dict[str, str] | None,
     reserve_mb: tuple[int, ...] = (),
 ) -> _ProbeOutcome:
@@ -431,7 +431,7 @@ async def _do_probe(
             context=ctx,
             port=port,
             gpus=gpus,
-            safety_margin_mb=safety_margin_mb,
+            headroom_mib=headroom_mib,
             reserve_mb=reserve_mb,
             env=env,
             health_timeout=DEFAULT_HEALTH_TIMEOUT,
@@ -445,7 +445,7 @@ async def _do_probe(
         return _ProbeOutcome(status="oom", free_mb=[], detail=result.detail)
 
     # Soft case: server loaded and inference ran, but the tightest GPU is
-    # below the configured safety margin. The AI gets the real numbers
+    # below the configured headroom. The AI gets the real numbers
     # and can decide whether to back off ctx slightly or rebalance.
     return _ProbeOutcome(
         status="ok" if result.fits else "tight",
@@ -467,7 +467,7 @@ def _validate_finalize(
     ctx: int,
     split: list[float] | None,
     last_outcome: _ProbeOutcome | None,
-    safety_margin_mb: int,
+    headroom_mib: int,
 ) -> str | None:
     """Return error message if finalize values are unfit, else None."""
     if ctx <= 0:
@@ -479,10 +479,10 @@ def _validate_finalize(
     if not last_outcome.free_mb:
         return "Last probe has no VRAM measurement"
     min_free = min(last_outcome.free_mb)
-    if min_free < safety_margin_mb:
+    if min_free < headroom_mib:
         return (
-            f"Finalized config violates safety margin: "
-            f"min_free={min_free} MB < {safety_margin_mb} MB"
+            f"Finalized config violates headroom: "
+            f"min_free={min_free} MB < {headroom_mib} MB"
         )
     return None
 
@@ -495,7 +495,7 @@ def _validate_finalize(
 async def calibrate_with_ai(
     model_id: str,
     full_cmd: str,
-    safety_margin_mb: int,
+    headroom_mib: int,
     gguf_path: Path | None = None,
     seed_split: list[float] | None = None,
     cloud_model: str | None = None,
@@ -582,7 +582,7 @@ async def calibrate_with_ai(
 
     yield (
         f"🤖 AI calibration with {cloud_model} via {provider_cfg['name']} "
-        f"(max {MAX_PROBES} probes, safety margin {safety_margin_mb} MB)"
+        f"(max {MAX_PROBES} probes, headroom {headroom_mib} MB)"
     )
 
     # ─────────────────────────────────────────────────────────────────
@@ -597,7 +597,7 @@ async def calibrate_with_ai(
             full_cmd=full_cmd,
             gguf_path=gguf_path,
             gpus=gpus,
-            safety_margin_mb=safety_margin_mb,
+            headroom_mib=headroom_mib,
             reserve_mb=reserve_mb,
             native_ctx=native_ctx,
             initial_split=seed_split,
@@ -681,7 +681,7 @@ async def calibrate_with_ai(
         native_ctx=native_ctx or 0,
         total_layers=total_layers or 0,
         gpus=gpus,
-        safety_margin_mb=safety_margin_mb,
+        headroom_mib=headroom_mib,
         extra_constraints=extra_constraints + pre_search_block + hybrid_constraint,
         reserve_mb=reserve_mb,
     )
@@ -786,7 +786,7 @@ async def calibrate_with_ai(
 
                 yield f"🧮 Estimate: ctx={ctx}, split={_format_split(split)}"
                 est = await _do_estimate(
-                    full_cmd, gguf_path, ctx, split, gpus, safety_margin_mb,
+                    full_cmd, gguf_path, ctx, split, gpus, headroom_mib,
                     reserve_mb=reserve_mb,
                 )
                 yield f"   -> {est.status}: {est.detail}"
@@ -826,7 +826,7 @@ async def calibrate_with_ai(
                 yield f"🔬 Probe #{probe_count}: ctx={ctx}, split={_format_split(split)}"
 
                 outcome = await _do_probe(
-                    full_cmd, ctx, split, port, gpus, safety_margin_mb, env,
+                    full_cmd, ctx, split, port, gpus, headroom_mib, env,
                     reserve_mb=reserve_mb,
                 )
                 last_outcome = outcome
@@ -860,7 +860,7 @@ async def calibrate_with_ai(
                     if ctx > 0 and split is not None and probe_count < MAX_PROBES:
                         probe_count += 1
                         outcome = await _do_probe(
-                            full_cmd, ctx, split, port, gpus, safety_margin_mb, env,
+                            full_cmd, ctx, split, port, gpus, headroom_mib, env,
                             reserve_mb=reserve_mb,
                         )
                         last_outcome = outcome
@@ -871,7 +871,7 @@ async def calibrate_with_ai(
                         yield "__AI_ERROR__:finalize without a verified probe"
                         return
 
-                err = _validate_finalize(ctx, split, last_outcome, safety_margin_mb)
+                err = _validate_finalize(ctx, split, last_outcome, headroom_mib)
                 if err:
                     yield f"⚠️ Finalize validation: {err}"
                     messages.append({

@@ -28,7 +28,7 @@ def _model(size_mb: float) -> Model:
 
 def _budget(reserve: tuple[int, ...]) -> Budget:
     return Budget(per_gpu_free=(0,) * len(reserve), first_gpu_handicap=0,
-                  safety_margin=192, gpu_reserve_mb=reserve)
+                  headroom_mib=192, gpu_reserve_mb=reserve)
 
 
 def _drain(gen) -> list[str]:

@@ -27,7 +27,7 @@ def _set_calibration(monkeypatch, **cfg) -> None:
 
 def _run() -> list[str]:
     return _drain(ai_agent.calibrate_with_ai(
-        model_id="m", full_cmd="--model x --port 1", safety_margin_mb=192,
+        model_id="m", full_cmd="--model x --port 1", headroom_mib=192,
     ))
 
 
@@ -73,7 +73,7 @@ def test_provider_drives_endpoint(monkeypatch):
         try:
             async for _ in ai_agent.calibrate_with_ai(
                 model_id="m", full_cmd="--model x --port 1",
-                safety_margin_mb=192,
+                headroom_mib=192,
             ):
                 pass
         except Exception:  # noqa: BLE001 — _CaptureClient stops the loop

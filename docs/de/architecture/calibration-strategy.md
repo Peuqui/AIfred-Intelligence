@@ -134,12 +134,27 @@ du den VLM-Pin von Hand nachziehen.
 
 In dieser Reihenfolge:
 
+**Begriffe für den Speicher** (in allen Suiten gleich, alles in MiB; freier Speicher kommt nur von
+`nvidia-smi`):
+
+| Begriff | Bedeutung |
+|---|---|
+| `budget` | was etwas auf der Karte belegt, gemessen oder als Vorgabe |
+| `headroom` | Aufschlag obendrauf, je Backend bzw. Suite genau einer |
+| `needed` | `budget` + `headroom`: was eine Karte frei haben muss |
+| `reserve` | was auf einer Karte für etwas anderes frei bleibt |
+
+Die Aufschläge von AIfred stehen in einem Block in [`config.py`](../../../aifred/lib/config.py)
+(`OLLAMA_HEADROOM_MIB`, `VLLM_HEADROOM_MIB`, `LLAMACPP_HEADROOM_MIB`, `VLM_HEADROOM_MIB`), die von
+TTS- und STT-Suite in deren Config (`headroom_mib`). vLLM kennt nur einen Anteil an der Karte
+(`--gpu-memory-utilization`); die Kalibrierung rechnet `VLLM_HEADROOM_MIB` dorthin um, `_gmu_for`.
+
 1. **Geringste GPU-Anzahl** — weniger Inter-GPU-Sync = schneller. Wenn
    `[a,b,c,0]` über 3 GPUs nativen Kontext schafft, NIEMALS `[w,x,y,z]` über
    4 GPUs vorziehen.
 2. **Schnellste GPU-Klasse zuerst füllen** — Layer landen primär auf RTX
    8000s, P40s nur als Spillover.
-3. **Knallvoll bis Safety-Margin** ([`LLAMACPP_VRAM_SAFETY_MARGIN`](../../../aifred/lib/config.py),
+3. **Knallvoll bis Headroom** ([`LLAMACPP_HEADROOM_MIB`](../../../aifred/lib/config.py),
    192 MB Linux, 1536 MB unter WDDM, also WSL2/Windows) — KEIN Headroom-Verteilen. Eine GPU mit 2 GB
    free ist ok, eine mit 20 GB free ist Verschwendung wenn wir nicht-aktive
    GPUs hinzunehmen müssten.
@@ -201,7 +216,7 @@ Im Log sichtbar als Zeile
 
 **Praktischer Effekt:** Im Split `[27, 29, 19, 14, 5]` für ein 5-GPU-235B-
 Modell hat GPU1 zwei Layer mehr als GPU0 — genau weil GPU0 den Handicap
-bekam und sich beide am Ende **gleich knapp** an der Safety-Margin treffen.
+bekam und sich beide am Ende **gleich knapp** an der Headroom treffen.
 
 ## Algorithmus
 
@@ -350,7 +365,7 @@ Verteilung kann meist OOM beheben ohne ctx zu opfern.
 `current_ctx < native_context` (bei Varianten: `< ctx_ceiling`, z.B. der
 Base-ctx) und eine Steady-State-Messung vorliegt → binary search ctx
 aufwärts. Probe-first seit 2026-07-07: es gibt **kein** Headroom-Gate mehr
-(früher nur bei `> 2 × safety_margin` free auf der engsten GPU — das
+(früher nur bei `> 2 × headroom_mib` free auf der engsten GPU — das
 nagelte das 397B auf 89k fest, obwohl real ~171k liefen). Math-Projektion
 ist konservativ; real-world Probe-Headroom kann mehr ctx tragen. Bei einem
 OOM während des Pushs entlastet `_context_refine_swap()` die
@@ -421,8 +436,8 @@ existiert), deren `|<engine>`-Zelle im Calibration-Picker angehakt ist
    kopiert — keine Projektion, kein Probe. Sind so alle Kandidaten
    abgedeckt, ist die Engine fertig.
 2. Sonst: TTS-Container starten → belegt VRAM auf der TTS-Karte. Die
-   **TTS-Reserve** kommt aus `gpu_engine_reserves()`
-   ([`tts_service.py`](../../../aifred/lib/tts_service.py)): die Zahl `reserve_mib`
+   **TTS-Reserve** kommt aus `gpu_engine_needs()`
+   ([`tts_service.py`](../../../aifred/lib/tts_service.py)): die Zahl `needed_mib`
    aus dem Katalog der TTS-Suite (Budget der Engine + `headroom_mib` ihrer
    Konfiguration). Budget und Aufschlag stehen nur dort; AIfred hält weder
    Cache noch Aufschlag.
@@ -500,7 +515,7 @@ Algorithmus nicht aufpasst, läuft er in 256-Token-Schritten an dieser
 Lücke entlang (jede Iteration → ~4 MB mehr free, also 25+ Probes für
 100 MB-Korrektur, langsamer als plain Binary Search). Lösung: nach
 jedem failed Probe wird `bias = predicted_min_free − measured_min_free`
-ermittelt und als `extra_safety_margin` für die nächste Math-Suche
+ermittelt und als `extra_headroom_mib` für die nächste Math-Suche
 durchgereicht. Math wählt damit direkt einen realistischen ctx weiter
 unten (nur 3–5 Probes statt 25+). Der Bias wird bidirektional geführt
 (positiv = Math zu optimistisch, negativ = zu pessimistisch; `_learn_bias()`
