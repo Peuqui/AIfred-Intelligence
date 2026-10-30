@@ -11,8 +11,12 @@
     },
     "data": {
       "type": "object",
-      "description": "Only the fields that change; null clears a field. event: {title, start, end, all_day, location, description}. task: {title, due, done, priority, description}. contact: {name, first_name, last_name, organization, title, birthday, note, phones: {mobile, home, work}, emails: {home, work}, addresses: {home|work: {...}}}. Dates as in nextcloud_create."
+      "description": "Only the fields that change; null clears a field. event: {title, start, end, all_day, location, description}. task: {title, due, done, priority, description}. contact: {name, first_name, last_name, organization, title, birthday, note, phones: {mobile, home, work}, emails: {home, work}, addresses: {home|work: {...}}}. Dates as in nextcloud_create. note: {title, content, category}."
     }
   },
-  "required": ["entity_type", "entity_id", "data"]
+  "required": [
+    "entity_type",
+    "entity_id",
+    "data"
+  ]
 }

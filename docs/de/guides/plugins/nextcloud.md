@@ -4,17 +4,17 @@
 
 **Datei:** `aifred/plugins/tools/nextcloud/`
 
-Termine, Aufgaben, Kontakte und Dateien aus Nextcloud über CalDAV, CardDAV und WebDAV. Das Plugin ist eigenständig — es kennt kein anderes Plugin, und ein anderes Plugin kennt es nicht.
+Termine, Aufgaben, Kontakte, Notizen und Dateien aus Nextcloud über CalDAV, CardDAV und WebDAV. Das Plugin ist eigenständig — es kennt kein anderes Plugin, und ein anderes Plugin kennt es nicht.
 
 ## Tools
 
 | Tool | Beschreibung | Tier | Angeboten |
 |------|-------------|------|-----------|
 | `nextcloud_search` | Termine im Zeitraum (Standard: die nächsten 30 Tage), Aufgaben, Kontakte; Listen der Kalender, Aufgabenlisten, Adressbücher | WRITE_DATA | für lesbare Module |
-| `nextcloud_get` | Einen Termin, eine Aufgabe oder einen Kontakt mit allen Details | WRITE_DATA | für lesbare Module |
-| `nextcloud_create` | Termin, Aufgabe oder Kontakt anlegen | WRITE_DATA | für beschreibbare Module |
-| `nextcloud_update` | Termin, Aufgabe oder Kontakt ändern | WRITE_DATA | für beschreibbare Module |
-| `nextcloud_delete` | Termin, Aufgabe oder Kontakt löschen | WRITE_SYSTEM | für beschreibbare Module |
+| `nextcloud_get` | Einen Termin, eine Aufgabe, einen Kontakt oder eine Notiz mit allen Details | WRITE_DATA | für lesbare Module |
+| `nextcloud_create` | Termin, Aufgabe, Kontakt oder Notiz anlegen | WRITE_DATA | für beschreibbare Module |
+| `nextcloud_update` | Termin, Aufgabe, Kontakt oder Notiz ändern | WRITE_DATA | für beschreibbare Module |
+| `nextcloud_delete` | Termin, Aufgabe, Kontakt oder Notiz löschen | WRITE_SYSTEM | für beschreibbare Module |
 
 | `nextcloud_file_list` | Agentenordner oder Unterordner auflisten, oder darin nach Namen suchen | WRITE_DATA | Modul Dateien lesbar |
 | `nextcloud_file_read` | Textdatei lesen, auch abschnittsweise nach Zeilen | WRITE_DATA | Modul Dateien lesbar |
@@ -30,7 +30,7 @@ Die Datei-Werkzeuge stehen bewusst für sich: Dateien lassen sich einem Agenten 
 
 ## Module und Rechte
 
-Jedes Modul — **Termine**, **Aufgaben**, **Kontakte**, **Dateien** — steht in den Plugin-Einstellungen auf **Aus**, **Lesen** (Standard) oder **Lesen und Schreiben**. Werkzeuge, Entitätstypen und Anleitung enthalten nur die freigegebenen Module; die Dienstschicht prüft das bei jedem Aufruf noch einmal.
+Jedes Modul — **Termine**, **Aufgaben**, **Kontakte**, **Notizen**, **Dateien** — steht in den Plugin-Einstellungen auf **Aus**, **Lesen** (Standard) oder **Lesen und Schreiben**. Werkzeuge, Entitätstypen und Anleitung enthalten nur die freigegebenen Module; die Dienstschicht prüft das bei jedem Aufruf noch einmal.
 
 Geschrieben wird nur, wo **zusätzlich** Nextcloud dem eingetragenen Benutzer das Schreibrecht auf die Sammlung gibt. Empfohlen ist ein eigener Nextcloud-Benutzer für AIfred, dem man die eigenen Kalender und Adressbücher freigibt — eine nur lesende Freigabe setzt Nextcloud selbst durch, unabhängig von AIfred.
 
@@ -53,12 +53,22 @@ Geschrieben wird nur, wo **zusätzlich** Nextcloud dem eingetragenen Benutzer da
 - **Suchen:** nach dem Dateinamen, nicht im Inhalt.
 - **Löschen:** Nextcloud legt die Datei in den Papierkorb des Benutzers.
 
+## Notizen
+
+Die Notizen-App speichert jede Notiz als Textdatei: Der Titel ist der Dateiname, die Kategorie der Unterordner. Agenten arbeiten über `nextcloud_search`, `nextcloud_get`, `nextcloud_create`, `nextcloud_update` und `nextcloud_delete` mit dem Typ `note` nur in `NEXTCLOUD_NOTES_FOLDER`, App und Agenten sehen denselben Stand.
+
+- **Freigabe:** Die Notizen des Benutzers liegen in dessen Konto. Der Ordner `Notes` muss mit dem Nextcloud-Benutzer von AIfred geteilt sein, zum Schreiben mit Schreibrecht. Fehlt er, wird das Anlegen abgelehnt, statt einen unsichtbaren eigenen Ordner zu erzeugen.
+- **Suchen:** nach dem Titel, nicht im Text.
+- **Ändern:** `content` ersetzt den ganzen Text. Ein neuer Titel oder eine neue Kategorie verschiebt die Datei, das Ergebnis nennt die neue ID.
+- **Löschen:** Die Notiz kommt in den Papierkorb.
+
 ## Konfiguration
 
 | Feld | Speicherort | Bedeutung |
 |------|------------|-----------|
 | `NEXTCLOUD_URL` | Plugin-`settings.json` | Adresse, z. B. `https://cloud.example.org` oder `https://example.org/nextcloud` |
 | `NEXTCLOUD_USER` | Plugin-`settings.json` | Benutzer (empfohlen: eigener Benutzer für AIfred) |
+| `NEXTCLOUD_NOTES_FOLDER` | Plugin-`settings.json` | Ordner der Notizen-App (Standard `Notes`) |
 | `NEXTCLOUD_APP_PASSWORD` | `.env` (Geheimnis, über den Credential-Broker) | App-Passwort aus Nextcloud → Einstellungen → Sicherheit |
 | `NEXTCLOUD_MODULE_CALENDAR`, `_TASKS`, `_CONTACTS`, `_FILES` | Plugin-`settings.json` | `off`, `read` (Standard) oder `write` |
 | `NEXTCLOUD_AGENT_FOLDER` | Plugin-`settings.json` | Der Ordner, in dem Agenten arbeiten (Standard `AIfred-Intelligence`) |

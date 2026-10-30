@@ -15,7 +15,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
-from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
 from ....lib.tool_args import (
     InvalidValue,
     parse_bool,
@@ -32,18 +32,20 @@ from .ical import PRIORITY_VALUES
 from .store import NextcloudStore
 from .vcard import ADDRESS_PARTS, EMAIL_KINDS, PHONE_KINDS
 
-SEARCH_TYPES = ["events", "tasks", "contacts", "calendars", "tasklists", "addressbooks"]
-ITEM_TYPES = ["event", "task", "contact"]
+SEARCH_TYPES = ["events", "tasks", "contacts", "notes", "calendars", "tasklists", "addressbooks"]
+ITEM_TYPES = ["event", "task", "contact", "note"]
 DEFAULT_LIMIT = 20
 EVENT_WINDOW_DAYS = 30
 
 _MODULE = {"events": "calendar", "event": "calendar", "calendars": "calendar",
            "tasks": "tasks", "task": "tasks", "tasklists": "tasks",
-           "contacts": "contacts", "contact": "contacts", "addressbooks": "contacts"}
+           "contacts": "contacts", "contact": "contacts", "addressbooks": "contacts",
+           "notes": "notes", "note": "notes"}
 _EVENT_KEYS = {"title", "start", "end", "all_day", "location", "description", "calendar"}
 _TASK_KEYS = {"title", "due", "done", "priority", "description", "list"}
 _CONTACT_KEYS = {"name", "first_name", "last_name", "organization", "title", "birthday", "note",
                  "phones", "emails", "addresses", "addressbook"}
+_NOTE_KEYS = {"title", "content", "category"}
 _EXPECTED_ERRORS = (InvalidValue, NextcloudRefused, NextcloudDisabled)
 _DATE_LEN = len("YYYY-MM-DD")
 
@@ -204,6 +206,25 @@ def _contact_update(store: NextcloudStore, object_id: str, data: dict) -> None:
     store.update_contact(object_id, _contact_changes(data))
 
 
+def _note_create(store: NextcloudStore, data: dict) -> str:
+    reject_unknown(data, _NOTE_KEYS, "note")
+    return store.create_note(title=parse_text(_require(data, "title", "note"), "title"),
+                             content=parse_optional_text(data.get("content"), "content") or "",
+                             category=parse_optional_text(data.get("category"), "category"))
+
+
+def _note_update(store: NextcloudStore, object_id: str, data: dict) -> str:
+    reject_unknown(data, _NOTE_KEYS, "note")
+    changes: dict[str, Any] = {}
+    if "title" in data:
+        changes["title"] = parse_text(data["title"], "title")
+    if "content" in data:
+        changes["content"] = parse_optional_text(data["content"], "content") or ""
+    if "category" in data:
+        changes["category"] = parse_optional_text(data["category"], "category")
+    return store.update_note(object_id, changes)
+
+
 def _search(store: NextcloudStore, entity_type: str, query: str | None, date_from: str | None,
             date_to: str | None, completed: object, limit: int) -> list[dict[str, Any]]:
     query = query or None
@@ -215,6 +236,8 @@ def _search(store: NextcloudStore, entity_type: str, query: str | None, date_fro
         return store.tasks(query, None if completed is None else parse_bool(completed, "completed"), limit)
     if entity_type == "contacts":
         return store.contacts(query, limit)
+    if entity_type == "notes":
+        return store.notes(query, limit)
     return store.collections(entity_type)
 
 
@@ -239,17 +262,20 @@ def get_nextcloud_tools(store: NextcloudStore) -> list[Tool]:
         return _dump({"total_count": len(results), "results": results})
 
     async def nextcloud_get(entity_type: str, entity_id: str) -> str:
-        getters = {"event": store.get_event, "task": store.get_task, "contact": store.get_contact}
+        getters = {"event": store.get_event, "task": store.get_task, "contact": store.get_contact,
+                   "note": store.get_note}
         try:
             if entity_type not in get_types:
                 raise InvalidValue(f"entity_type must be one of {', '.join(get_types)}")
             result = await run(getters[entity_type], parse_text(entity_id, "entity_id"))
         except _EXPECTED_ERRORS as exc:
             return _error(str(exc))
-        return _dump({"result": result})
+        # A note can hold anything pasted into it, so its text is fenced as data.
+        return wrap_untrusted_data(_dump({"result": result}), "nextcloud") if entity_type == "note" \
+            else _dump({"result": result})
 
     async def nextcloud_create(entity_type: str, data: dict) -> str:
-        creators = {"event": _event_create, "task": _task_create, "contact": _contact_create}
+        creators = {"event": _event_create, "task": _task_create, "contact": _contact_create, "note": _note_create}
         try:
             if entity_type not in write_types:
                 raise InvalidValue(f"entity_type must be one of {', '.join(write_types)}")
@@ -261,20 +287,21 @@ def get_nextcloud_tools(store: NextcloudStore) -> list[Tool]:
         return _dump({"success": True, "id": new_id})
 
     async def nextcloud_update(entity_type: str, entity_id: str, data: dict) -> str:
-        updaters = {"event": _event_update, "task": _task_update, "contact": _contact_update}
+        updaters = {"event": _event_update, "task": _task_update, "contact": _contact_update, "note": _note_update}
         try:
             if entity_type not in write_types:
                 raise InvalidValue(f"entity_type must be one of {', '.join(write_types)}")
             if not isinstance(data, dict):
                 raise InvalidValue("data must be an object")
             object_id = parse_text(entity_id, "entity_id")
-            await run(updaters[entity_type], store, object_id, data)
+            new_id = await run(updaters[entity_type], store, object_id, data)  # a note's id follows its title
         except _EXPECTED_ERRORS as exc:
             return _error(str(exc))
-        return _dump({"success": True, "id": object_id})
+        return _dump({"success": True, "id": new_id or object_id})
 
     async def nextcloud_delete(entity_type: str, entity_id: str) -> str:
-        deleters = {"event": store.delete_event, "task": store.delete_task, "contact": store.delete_contact}
+        deleters = {"event": store.delete_event, "task": store.delete_task, "contact": store.delete_contact,
+                    "note": store.delete_note}
         try:
             if entity_type not in write_types:
                 raise InvalidValue(f"entity_type must be one of {', '.join(write_types)}")

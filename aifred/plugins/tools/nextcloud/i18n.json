@@ -4,8 +4,8 @@
     "en": "Nextcloud"
   },
   "plugin_description": {
-    "de": "Kalender, Aufgaben, Kontakte und Dateien aus Nextcloud über CalDAV, CardDAV und WebDAV. Jedes Modul einzeln aus, lesbar oder beschreibbar; Schreiben nur, wo Nextcloud es dem AIfred-Benutzer erlaubt.",
-    "en": "Calendars, tasks, contacts and files from Nextcloud via CalDAV, CardDAV and WebDAV. Each module off, readable or writable on its own; writing only where Nextcloud grants it to the AIfred user."
+    "de": "Kalender, Aufgaben, Kontakte, Notizen und Dateien aus Nextcloud über CalDAV, CardDAV und WebDAV. Jedes Modul einzeln aus, lesbar oder beschreibbar; Schreiben nur, wo Nextcloud es dem AIfred-Benutzer erlaubt.",
+    "en": "Calendars, tasks, contacts, notes and files from Nextcloud via CalDAV, CardDAV and WebDAV. Each module off, readable or writable on its own; writing only where Nextcloud grants it to the AIfred user."
   },
   "module_access_off": {
     "de": "Aus",
@@ -114,5 +114,17 @@
   "tool_nextcloud_file_delete": {
     "de": "☁️ Lösche {path}...",
     "en": "☁️ Deleting {path}..."
+  },
+  "nextcloud_cred_module_notes": {
+    "de": "Notizen",
+    "en": "Notes"
+  },
+  "nextcloud_cred_notes_folder": {
+    "de": "Notizenordner",
+    "en": "Notes folder"
+  },
+  "nextcloud_cred_notes_folder_tooltip": {
+    "de": "Der Ordner der Notizen-App. Liegt er im Konto eines anderen Benutzers, muss er mit dem Nextcloud-Benutzer von AIfred geteilt sein.",
+    "en": "The folder of the Notes app. If it lies in another user's account, it has to be shared with AIfred's Nextcloud user."
   }
 }

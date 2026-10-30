@@ -1,1 +1,1 @@
-Delete a Nextcloud appointment, task or contact.
+Delete a Nextcloud appointment, task, contact or note.

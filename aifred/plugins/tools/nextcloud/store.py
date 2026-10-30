@@ -17,6 +17,7 @@ from . import ical, vcard
 from .dav import ADDRESSBOOK, CALENDAR, DavClient, DavCollection, DavConflict, DavObject
 from .errors import NextcloudDisabled, NextcloudRefused
 from .files import AgentFiles
+from .notes import Notes
 from .settings import (
     CREDENTIAL_SERVICE,
     REQUEST_TIMEOUT_SEC,
@@ -75,6 +76,10 @@ class NextcloudStore:
     @property
     def agent_files(self) -> AgentFiles:
         return AgentFiles(self._client, self._settings.agent_folder)
+
+    @property
+    def _notes(self) -> Notes:
+        return Notes(AgentFiles(self._client, self._settings.notes_folder))
 
     def close(self) -> None:
         self._client.close()
@@ -251,6 +256,28 @@ class NextcloudStore:
         self._allow("tasks", write=True)
         _, obj = self._resolve(_TASK, object_id, write=True)
         self._client.delete(obj)
+
+    # ── notes ─────────────────────────────────────────────────────
+
+    def notes(self, query: str | None, limit: int) -> list[dict[str, Any]]:
+        self._allow("notes", write=False)
+        return self._notes.search(query, _clamp(limit))
+
+    def get_note(self, note_id: str) -> dict[str, Any]:
+        self._allow("notes", write=False)
+        return self._notes.get(note_id)
+
+    def create_note(self, *, title: str, content: str, category: str | None) -> str:
+        self._allow("notes", write=True)
+        return self._notes.create(title, content, category)
+
+    def update_note(self, note_id: str, changes: dict[str, Any]) -> str:
+        self._allow("notes", write=True)
+        return self._notes.update(note_id, changes)
+
+    def delete_note(self, note_id: str) -> None:
+        self._allow("notes", write=True)
+        self._notes.delete(note_id)
 
     # ── contacts ──────────────────────────────────────────────────
 

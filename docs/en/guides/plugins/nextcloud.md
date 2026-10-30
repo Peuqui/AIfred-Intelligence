@@ -4,17 +4,17 @@
 
 **File:** `aifred/plugins/tools/nextcloud/`
 
-Appointments, tasks, contacts and files from Nextcloud via CalDAV, CardDAV and WebDAV. The plugin stands on its own — it knows no other plugin, and no other plugin knows it.
+Appointments, tasks, contacts, notes and files from Nextcloud via CalDAV, CardDAV and WebDAV. The plugin stands on its own — it knows no other plugin, and no other plugin knows it.
 
 ## Tools
 
 | Tool | Description | Tier | Offered |
 |------|-------------|------|---------|
 | `nextcloud_search` | Appointments in a date window (default: the next 30 days), tasks, contacts; lists of calendars, task lists, address books | WRITE_DATA | for readable modules |
-| `nextcloud_get` | One appointment, task or contact with all details | WRITE_DATA | for readable modules |
-| `nextcloud_create` | Create an appointment, task or contact | WRITE_DATA | for writable modules |
-| `nextcloud_update` | Change an appointment, task or contact | WRITE_DATA | for writable modules |
-| `nextcloud_delete` | Delete an appointment, task or contact | WRITE_SYSTEM | for writable modules |
+| `nextcloud_get` | One appointment, task, contact or note with all details | WRITE_DATA | for readable modules |
+| `nextcloud_create` | Create an appointment, task, contact or note | WRITE_DATA | for writable modules |
+| `nextcloud_update` | Change an appointment, task, contact or note | WRITE_DATA | for writable modules |
+| `nextcloud_delete` | Delete an appointment, task, contact or note | WRITE_SYSTEM | for writable modules |
 
 | `nextcloud_file_list` | List the agent folder or a subfolder, or search it by name | WRITE_DATA | files module readable |
 | `nextcloud_file_read` | Read a text file, also in portions by line | WRITE_DATA | files module readable |
@@ -30,7 +30,7 @@ The file tools stand on their own on purpose: an agent can be given files separa
 
 ## Modules and rights
 
-Each module — **Appointments**, **Tasks**, **Contacts**, **Files** — is **Off**, **Read** (default) or **Read and write** in the plugin settings. Tools, entity types and instructions contain only the enabled modules; the service layer checks again on every call.
+Each module — **Appointments**, **Tasks**, **Contacts**, **Notes**, **Files** — is **Off**, **Read** (default) or **Read and write** in the plugin settings. Tools, entity types and instructions contain only the enabled modules; the service layer checks again on every call.
 
 Writing happens only where Nextcloud **also** grants the configured user the write right on the collection. A Nextcloud user of AIfred's own is recommended, with your calendars and address books shared to it — a read-only share is enforced by Nextcloud itself, independent of AIfred.
 
@@ -53,12 +53,22 @@ Writing happens only where Nextcloud **also** grants the configured user the wri
 - **Searching:** by file name, not by content.
 - **Deleting:** Nextcloud puts the file into the user's trash bin.
 
+## Notes
+
+The Notes app stores every note as a text file: the title is the file name, the category the subfolder. Agents work through `nextcloud_search`, `nextcloud_get`, `nextcloud_create`, `nextcloud_update` and `nextcloud_delete` with the type `note`, only inside `NEXTCLOUD_NOTES_FOLDER`; app and agents see the same state.
+
+- **Sharing:** The user's notes lie in that user's account. The `Notes` folder has to be shared with AIfred's Nextcloud user, with write access for writing. If it is missing, creating a note is refused instead of producing an invisible folder of its own.
+- **Searching:** by title, not in the text.
+- **Changing:** `content` replaces the whole text. A new title or category moves the file; the result names the new ID.
+- **Deleting:** The note goes into the trash bin.
+
 ## Configuration
 
 | Field | Stored in | Meaning |
 |-------|-----------|---------|
 | `NEXTCLOUD_URL` | plugin `settings.json` | Address, e.g. `https://cloud.example.org` or `https://example.org/nextcloud` |
 | `NEXTCLOUD_USER` | plugin `settings.json` | User (recommended: a user of AIfred's own) |
+| `NEXTCLOUD_NOTES_FOLDER` | Plugin `settings.json` | Folder of the Notes app (default `Notes`) |
 | `NEXTCLOUD_APP_PASSWORD` | `.env` (secret, via the credential broker) | App password from Nextcloud → Settings → Security |
 | `NEXTCLOUD_MODULE_CALENDAR`, `_TASKS`, `_CONTACTS`, `_FILES` | plugin `settings.json` | `off`, `read` (default) or `write` |
 | `NEXTCLOUD_AGENT_FOLDER` | plugin `settings.json` | The folder agents work in (default `AIfred-Intelligence`) |

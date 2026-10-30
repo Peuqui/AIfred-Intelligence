@@ -1,1 +1,1 @@
-Create a Nextcloud appointment, task or contact.
+Create a Nextcloud appointment, task, contact or note.

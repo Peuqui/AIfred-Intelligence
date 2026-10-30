@@ -1,1 +1,1 @@
-Change a Nextcloud appointment, task or contact: move or rename an appointment, mark a task done, edit a contact's phone numbers or addresses.
+Change a Nextcloud appointment, task, contact or note: move or rename an appointment, mark a task done, edit a contact's phone numbers or addresses.

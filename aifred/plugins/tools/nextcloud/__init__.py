@@ -1,4 +1,4 @@
-"""Nextcloud plugin (CalDAV/CardDAV/WebDAV): appointments, tasks, contacts and files.
+"""Nextcloud plugin (CalDAV/CardDAV/WebDAV): appointments, tasks, contacts, notes and files.
 Independent of every other plugin; each module is switched off, readable or
 writable on its own, and writing also needs Nextcloud's own write right."""
 
@@ -19,6 +19,8 @@ from .settings import (
     AGENT_FOLDER_KEY,
     APP_PASSWORD_KEY,
     MODULE_DEFAULTS,
+    NOTES_FOLDER_DEFAULT,
+    NOTES_FOLDER_KEY,
     SETTINGS_PREFIX,
     URL_KEY,
     USER_KEY,
@@ -47,6 +49,8 @@ class NextcloudPlugin:
             *module_credential_fields(SETTINGS_PREFIX, MODULE_DEFAULTS, "nextcloud_cred_module_{module}"),
             CredentialField(env_key=AGENT_FOLDER_KEY, label_key="nextcloud_cred_agent_folder",
                             default=AGENT_FOLDER_DEFAULT),
+            CredentialField(env_key=NOTES_FOLDER_KEY, label_key="nextcloud_cred_notes_folder",
+                            default=NOTES_FOLDER_DEFAULT),
         ]
 
     def _load_settings(self) -> dict[str, str]:

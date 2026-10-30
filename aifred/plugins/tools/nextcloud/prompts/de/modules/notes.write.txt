@@ -1,0 +1,1 @@
+NOTIZEN ÄNDERN: Eine neue Notiz braucht title, content ist der ganze Text. nextcloud_update mit content ersetzt den ganzen Text, also vorher lesen. Ein neuer Titel oder eine neue Kategorie ändert die ID: danach die ID aus dem Ergebnis verwenden. Löschen legt die Notiz in den Papierkorb.
