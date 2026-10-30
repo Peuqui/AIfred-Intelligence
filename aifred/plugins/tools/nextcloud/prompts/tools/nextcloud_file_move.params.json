@@ -1,0 +1,17 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Path relative to the agent folder '{agent_folder}', e.g. reports/october.md"
+    },
+    "target": {
+      "type": "string",
+      "description": "New path relative to the agent folder '{agent_folder}'"
+    }
+  },
+  "required": [
+    "path",
+    "target"
+  ]
+}

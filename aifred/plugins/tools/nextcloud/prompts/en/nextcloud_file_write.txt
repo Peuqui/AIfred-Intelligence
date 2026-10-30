@@ -1,0 +1,1 @@
+Writing a file: Confirm only after the tool result. If the tool says "exists already", read the file and ask before overwriting.

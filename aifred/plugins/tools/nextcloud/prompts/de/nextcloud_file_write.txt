@@ -1,0 +1,1 @@
+Datei schreiben: Erst nach dem Tool-Ergebnis bestätigen. Meldet das Tool "exists already", lies die Datei und frag nach, bevor du überschreibst.

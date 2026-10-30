@@ -1,0 +1,1 @@
+Delete a file or folder inside the agent folder in the user's Nextcloud. It goes to the trash bin.

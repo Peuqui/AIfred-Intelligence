@@ -1,0 +1,18 @@
+{
+  "type": "object",
+  "properties": {
+    "folder": {
+      "type": "string",
+      "description": "Subfolder relative to the agent folder '{agent_folder}'. Omit for the agent folder itself."
+    },
+    "query": {
+      "type": "string",
+      "description": "Part of a file or folder name: searches the whole agent folder instead of listing one folder."
+    },
+    "limit": {
+      "type": "integer",
+      "description": "Maximum number of search results (default 20)"
+    }
+  },
+  "required": []
+}

@@ -24,8 +24,10 @@ from ....lib.tool_args import (
     parse_when,
     reject_unknown,
 )
+from .errors import NextcloudDisabled, NextcloudRefused
+from .file_tools import get_nextcloud_file_tools
 from .ical import PRIORITY_VALUES
-from .store import NextcloudDisabled, NextcloudRefused, NextcloudStore
+from .store import NextcloudStore
 from .vcard import ADDRESS_PARTS, EMAIL_KINDS, PHONE_KINDS
 
 SEARCH_TYPES = ["events", "tasks", "contacts", "calendars", "tasklists", "addressbooks"]
@@ -292,4 +294,5 @@ def get_nextcloud_tools(store: NextcloudStore) -> list[Tool]:
         ("nextcloud_update", TIER_WRITE_DATA, nextcloud_update, write_types),
         ("nextcloud_delete", TIER_WRITE_SYSTEM, nextcloud_delete, write_types),
     )
-    return [tool(name, tier, executor, types) for name, tier, executor, types in candidates if types]
+    return [*(tool(name, tier, executor, types) for name, tier, executor, types in candidates if types),
+            *get_nextcloud_file_tools(store)]

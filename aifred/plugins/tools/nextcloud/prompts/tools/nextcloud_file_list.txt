@@ -1,0 +1,1 @@
+List the agent folder in the user's Nextcloud (or a subfolder), or find files and folders in it by name.

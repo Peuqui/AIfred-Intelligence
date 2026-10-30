@@ -1,0 +1,1 @@
+Read a text file from the agent folder in the user's Nextcloud. Returns its content and the etag needed to overwrite it.

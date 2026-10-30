@@ -1,0 +1,1 @@
+Files: For every question about files call nextcloud_file_list first, never answer from memory. Paths are always relative to the agent folder. The user sees the same folder in the document window.

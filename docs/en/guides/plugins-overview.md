@@ -83,6 +83,9 @@ Appointments, tasks and contacts from Nextcloud via CalDAV and CardDAV. Each mod
 | `nextcloud_create` | Create an appointment, task or contact | WRITE_DATA |
 | `nextcloud_update` | Change an appointment, task or contact | WRITE_DATA |
 | `nextcloud_delete` | Delete an appointment, task or contact | WRITE_SYSTEM |
+| `nextcloud_file_list`, `_read` | List, search and read files in the agent folder | WRITE_DATA |
+| `nextcloud_file_write`, `_move` | Write and move files in the agent folder | WRITE_DATA |
+| `nextcloud_file_delete` | Put a file into the trash bin | WRITE_SYSTEM |
 
 > **Details:** [Nextcloud Plugin](plugins/nextcloud.md)
 

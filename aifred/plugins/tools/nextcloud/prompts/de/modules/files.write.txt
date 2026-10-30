@@ -1,0 +1,1 @@
+DATEIEN ÄNDERN: Eine neue Datei braucht kein etag. Zum Überschreiben erst nextcloud_file_read, dann nextcloud_file_write mit dessen etag. Löschen legt die Datei in den Papierkorb.

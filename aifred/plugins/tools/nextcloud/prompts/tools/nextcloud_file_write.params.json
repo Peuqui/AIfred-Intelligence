@@ -1,0 +1,21 @@
+{
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "Path relative to the agent folder '{agent_folder}', e.g. reports/october.md"
+    },
+    "content": {
+      "type": "string",
+      "description": "The whole text of the file"
+    },
+    "etag": {
+      "type": "string",
+      "description": "From nextcloud_file_read; only to overwrite an existing file"
+    }
+  },
+  "required": [
+    "path",
+    "content"
+  ]
+}

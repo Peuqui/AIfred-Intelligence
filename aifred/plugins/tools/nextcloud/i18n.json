@@ -4,8 +4,8 @@
     "en": "Nextcloud"
   },
   "plugin_description": {
-    "de": "Kalender, Aufgaben und Kontakte aus Nextcloud über CalDAV und CardDAV. Jedes Modul einzeln aus, lesbar oder beschreibbar; Schreiben nur, wo Nextcloud es dem AIfred-Benutzer erlaubt.",
-    "en": "Calendars, tasks and contacts from Nextcloud via CalDAV and CardDAV. Each module off, readable or writable on its own; writing only where Nextcloud grants it to the AIfred user."
+    "de": "Kalender, Aufgaben, Kontakte und Dateien aus Nextcloud über CalDAV, CardDAV und WebDAV. Jedes Modul einzeln aus, lesbar oder beschreibbar; Schreiben nur, wo Nextcloud es dem AIfred-Benutzer erlaubt.",
+    "en": "Calendars, tasks, contacts and files from Nextcloud via CalDAV, CardDAV and WebDAV. Each module off, readable or writable on its own; writing only where Nextcloud grants it to the AIfred user."
   },
   "module_access_off": {
     "de": "Aus",
@@ -78,5 +78,41 @@
   "tool_nextcloud_delete": {
     "de": "☁️ Lösche {entity}...",
     "en": "☁️ Deleting {entity}..."
+  },
+  "nextcloud_cred_module_files": {
+    "de": "Dateien",
+    "en": "Files"
+  },
+  "nextcloud_cred_agent_folder": {
+    "de": "Agentenordner",
+    "en": "Agent folder"
+  },
+  "nextcloud_cred_agent_folder_tooltip": {
+    "de": "Der eine Ordner, in dem Agenten arbeiten dürfen. Fehlt er, legt der erste Schreibvorgang ihn an.",
+    "en": "The one folder agents may work in. If it is missing, the first write creates it."
+  },
+  "doc_source_nextcloud": {
+    "de": "Nextcloud",
+    "en": "Nextcloud"
+  },
+  "tool_nextcloud_file_list": {
+    "de": "☁️ Nextcloud-Dateien {path}",
+    "en": "☁️ Nextcloud files {path}"
+  },
+  "tool_nextcloud_file_read": {
+    "de": "☁️ Lese {path}...",
+    "en": "☁️ Reading {path}..."
+  },
+  "tool_nextcloud_file_write": {
+    "de": "☁️ Schreibe {path}...",
+    "en": "☁️ Writing {path}..."
+  },
+  "tool_nextcloud_file_move": {
+    "de": "☁️ Verschiebe {path}...",
+    "en": "☁️ Moving {path}..."
+  },
+  "tool_nextcloud_file_delete": {
+    "de": "☁️ Lösche {path}...",
+    "en": "☁️ Deleting {path}..."
   }
 }

@@ -11,14 +11,19 @@ URL_KEY = "NEXTCLOUD_URL"
 USER_KEY = "NEXTCLOUD_USER"
 APP_PASSWORD_KEY = "NEXTCLOUD_APP_PASSWORD"
 CREDENTIAL_SERVICE = "nextcloud"
+AGENT_FOLDER_KEY = "NEXTCLOUD_AGENT_FOLDER"
+AGENT_FOLDER_DEFAULT = "AIfred-Intelligence"
 SETTINGS_PREFIX = "NEXTCLOUD"
 REQUEST_TIMEOUT_SEC = 20.0
+# What an agent reads goes 1:1 into the model's context; more than a few MB of text never helps.
+FILE_READ_LIMIT_BYTES = 5 * 1024 * 1024
 
-# calendar = events (VEVENT), tasks = todos (VTODO), contacts = address books.
+# calendar = events (VEVENT), tasks = todos (VTODO), contacts = address books, files = the WebDAV files.
 MODULE_DEFAULTS: dict[str, str] = {
     "calendar": READ,
     "tasks": READ,
     "contacts": READ,
+    "files": READ,
 }
 
 
@@ -27,6 +32,7 @@ class NextcloudSettings:
     url: str
     user: str
     modules: ModuleAccess = field(default_factory=lambda: ModuleAccess(dict(MODULE_DEFAULTS)))
+    agent_folder: str = AGENT_FOLDER_DEFAULT
 
 
 def load_raw_settings() -> dict[str, str]:
@@ -42,6 +48,7 @@ def parse_settings(raw: dict[str, str]) -> NextcloudSettings:
         url=raw.get(URL_KEY, "").strip().rstrip("/"),
         user=raw.get(USER_KEY, "").strip(),
         modules=ModuleAccess.parse(raw, SETTINGS_PREFIX, MODULE_DEFAULTS),
+        agent_folder=raw.get(AGENT_FOLDER_KEY, "").strip().strip("/") or AGENT_FOLDER_DEFAULT,
     )
 
 
