@@ -1243,7 +1243,7 @@ TTS_SUITE_CONNECT_TIMEOUT_S = 5       # service not reachable -> fail fast
 # to 240 s before the first frame; afterwards keep-alive markers arrive every few seconds.
 TTS_SUITE_STREAM_READ_TIMEOUT_S = 240
 TTS_SUITE_CONTROL_TIMEOUT_S = 60      # config, engines, voices (read calls)
-# A release request (POST /release) waits while the service takes the containers down.
+# A release request (POST /gpu/release) waits while the service takes the containers down.
 TTS_SUITE_RELEASE_TIMEOUT_S = 120
 # On-demand start of the service (system unit template, ``{user}`` = the user AIfred runs as; Polkit lets
 # that user start it): name of the unit, how long to wait for /health
@@ -1261,6 +1261,17 @@ TTS_SUITE_CACHE_TTL_S = 2.0
 # File ending of the audio the service delivers, by media type (the audio of a spoken
 # reply is kept as files: bubble replay, narrator). An unknown type is an error.
 TTS_MEDIA_TYPE_EXTENSIONS = {"audio/wav": "wav", "audio/ogg": "ogg", "audio/mpeg": "mp3"}
+
+# GPU-Orc (own repo github.com/Peuqui/GPU-Orc, one service per machine): clears the cards before a
+# model or describer loads and says who holds what (STT and TTS workers, the model server's persistent
+# models). AIfred releases no GPU worker of another service itself, it asks GPU-Orc; when GPU-Orc does
+# not answer, the load goes on and the log says so loudly.
+GPU_ORC_URL = os.environ.get("GPU_ORC_URL", "http://127.0.0.1:5070")
+# Name of the llama-swap consumer in GPU-Orc's config: the model server AIfred's models load on.
+GPU_ORC_MODEL_SERVER = os.environ.get("GPU_ORC_MODEL_SERVER", "llama-swap")
+# /health and /status: GPU-Orc runs nvidia-smi and asks every consumer, all in parallel. A /free takes
+# as long as GPU-Orc's own limit; /health reports the caller timeout that fits it.
+GPU_ORC_STATUS_TIMEOUT_S = 15
 # The narrator chunks its text itself (NARRATE_CHUNK_LIMIT_CHARS), so the service gets each
 # chunk whole: one audio per chunk, as the engine takes it.
 NARRATE_SPEECH_UNIT = "whole"
@@ -1314,19 +1325,10 @@ WHISPER_RTF_GPU = 0.07   # medium float16 ≈ 15-20x realtime
 # rejected outright — they cannot succeed).
 WHISPER_CONFIRM_THRESHOLD_S = 180
 
-# Before an LLM cold start, a RUNNING GPU transcription is granted this much
-# time to finish (polling); afterwards the worker is force-killed — the
-# interactive chat must not stall behind a stuck transcription forever.
-WHISPER_RELEASE_WAIT_MAX_S = 600
-
-# Pause between two /gpu/release attempts while the service still answers 409
-# (transcription running).
-WHISPER_RELEASE_POLL_S = 2
-
 # HTTP timeouts of the STT client (aifred/lib/stt_client.py) for the short
 # control calls; transcriptions use WHISPER_TRANSCRIBE_TIMEOUT_S.
 WHISPER_HEALTH_TIMEOUT_S = 2
-WHISPER_CONTROL_TIMEOUT_S = 5   # /status, /config, /gpu/release
+WHISPER_CONTROL_TIMEOUT_S = 5   # /status, /config
 
 # On-demand container start: how long to wait for the model to load, and how
 # often to ask /health meanwhile.

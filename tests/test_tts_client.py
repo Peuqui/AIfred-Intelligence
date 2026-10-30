@@ -26,6 +26,7 @@ from aifred.lib.tts_client import (
     InvalidRequest,
     NoEngineAvailable,
     Overloaded,
+    ReadingAborted,
     StreamBroken,
     TextStream,
     TextTooLong,
@@ -297,6 +298,20 @@ def test_connection_lost_during_reading() -> None:
         asyncio.run(collect(make_client(lambda _: httpx.Response(200, content=broken()))))
 
 
+def test_a_forced_gpu_release_ends_the_reading_with_its_reason() -> None:
+    data = audio(b"first") + error_frame("reading_aborted", "reading aborted, the GPU is needed: loading 'm'")
+    received: list[bytes] = []
+
+    async def run_collecting() -> None:
+        stream = await make_client(lambda _: frames_response(data)).speak("Hallo", language="de", engines=LIST, paragraph_pause_ms=0, run="r")
+        async for segment in stream:
+            received.append(segment.audio)
+
+    with pytest.raises(ReadingAborted, match="loading 'm'"):
+        asyncio.run(run_collecting())
+    assert received == [b"first"]
+
+
 def test_frame_decoder_pending_bytes() -> None:
     decoder = FrameDecoder()
     assert decoder.feed(audio(b"abc")[:5]) == []
@@ -315,6 +330,7 @@ ERROR_CASES = [
     ("invalid_request", 422, InvalidRequest),
     ("unsupported_language", 422, UnsupportedLanguage),
     ("text_too_long", 413, TextTooLong),
+    ("reading_aborted", 503, ReadingAborted),
     ("unauthorized", 401, Unauthorized),
     ("bad_request", 400, BadRequest),
 ]

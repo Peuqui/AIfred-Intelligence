@@ -670,8 +670,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Lese-/Schreib-Phasen, Synthesen lock-frei, Fortschritt pro Bubble
         fließt live in die Debug-Messages). Ein Fehler des Dienstes bricht den
         Durchlauf ab (jede weitere Bubble scheiterte genauso)."""
-        from ..lib.i18n import t
         from ..lib.toast import toast
+        from ..lib.tts_service import reading_failure_text
 
         assistant_indices: list[int] = []
         async with self:
@@ -736,7 +736,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             async with self:
                 self._save_current_session()  # type: ignore[attr-defined]  # what was regenerated so far stays
                 self.add_debug(f"❌ TTS Error: {type(error).__name__}: {error}")  # type: ignore[attr-defined]
-                yield toast("error", t("tts_reading_service_failed_silent", lang=_lang(self), reason=str(error)))
+                yield toast("error", reading_failure_text(error, _lang(self)))
         except (FileNotFoundError, ValueError, RuntimeError) as e:
             async with self:
                 self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]

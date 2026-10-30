@@ -16,6 +16,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 import pytest
+from fake_gpu_orc import FakeGpuOrc, install_fake_gpu_orc
 from fake_tts_service import FakeTTSService, catalog_row, install_fake_service
 
 from aifred.lib.frame_sources import (
@@ -140,6 +141,7 @@ def patched_plugin(monkeypatch, store: VisionStore, tmp_path: Path):
     mmproj-Hauptmodell nähmen die analyze-Tests den llamacpp-Pfad statt
     des gemockten Ollama-Pfads (Test-Isolation).
     """
+    install_fake_gpu_orc(monkeypatch, FakeGpuOrc())
     watcher = VisionWatcher(store, frames_dir=tmp_path / "frames")
     monkeypatch.setattr(vp, "_store", lambda: store)
     monkeypatch.setattr(vp, "_watcher", lambda store=None: watcher)
