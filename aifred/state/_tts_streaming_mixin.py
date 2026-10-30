@@ -495,15 +495,51 @@ class TTSStreamingMixin(rx.State, mixin=True):
         return session_audio_url, note
 
 
+    @staticmethod
+    def _read_bubble_aloud(request: dict[str, Any]) -> BrowserReading:
+        """Phase 2 des Einzel-Knopfs: Die Blase wird gelesen wie eine Antwort, die auf einmal fertig
+        ist. Jeder Abschnitt geht auf die Playlist, sobald der Dienst ihn liefert. Läuft ohne
+        State-Lock, darum melden Bericht und erste Ausgabe nichts in den State."""
+        from ..lib.api import browser_push
+
+        tts_state = get_tts_backend_state(request["session_id"])
+        if tts_state.reading is not None:
+            tts_state.reading.abort()  # the playlist of the session is the one this reading goes on
+        reading = BrowserReading(
+            session_id=request["session_id"], agent=request["agent"], language=request["language"],
+            ui_language=request["ui_language"], push=browser_push, report=log_message,
+            notify=lambda kind, message: tts_state.notices.append((kind, message)),
+            on_first_output=lambda: None,
+        )
+        tts_state.reading = reading
+        reading.start()
+        reading.feed(request["text"])
+        reading.finish()
+        return reading
+
+    @staticmethod
+    async def _keep_bubble_reading(reading: BrowserReading) -> str | None:
+        """Wartet das Ende der Lesung ab und legt den Ton in der Session ab. Liefert die URL, ``""``
+        wenn nur der Browser gesprochen hat, ``None`` wenn nichts bleibt. Eine abgebrochene Lesung ist
+        nicht der ganze Text: Sie ersetzt keinen Ton, den die Blase schon hat."""
+        from ..lib.audio_processing import save_audio_to_session
+
+        await reading.wait()
+        if reading.aborted or reading.broke_off:
+            return None
+        if not reading.audio_urls:
+            return "" if reading.browser_speech else None
+        return await asyncio.to_thread(save_audio_to_session, list(reading.audio_urls), reading.session_id)
+
     def _apply_bubble_audio(
         self, bubble_index: int, timestamp: str, session_audio_url: str,
-        tts_note: str, save_session: bool,
+        tts_note: str, save_session: bool, browser_speech: list[dict[str, Any]] | None = None,
     ) -> bool:
         """Phase 3 (State-WRITE — nur unter ``async with self``): URL an die
         Bubble patchen. Deep-rebuild, damit Reflex die Änderung auf
         Listen-Ebene registriert. Verifiziert den Index per Timestamp —
         die History kann sich während der lock-freien Synthese verschoben
-        haben."""
+        haben. ``session_audio_url`` ist leer, wenn nur der Browser gesprochen hat."""
         _ch = self._chat_sub()
         new_history = list(_ch.chat_history)
 
@@ -526,15 +562,17 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
         prev = new_history[bubble_index]
         new_metadata = dict(prev.get("metadata") or {})
-        new_metadata["audio_urls"] = [session_audio_url]
-        new_metadata["browser_speech"] = []  # the new audio replaces what the browser spoke
+        audio_urls = [session_audio_url] if session_audio_url else []
+        spoken = browser_speech or []  # the new reading replaces what the browser spoke
+        new_metadata["audio_urls"] = audio_urls
+        new_metadata["browser_speech"] = spoken
         new_metadata["tts_note"] = tts_note
         new_history[bubble_index] = {
             **prev,
             "metadata": new_metadata,
             "has_audio": True,
-            "audio_urls_json": json.dumps([session_audio_url]),
-            "browser_speech_json": "[]",
+            "audio_urls_json": json.dumps(audio_urls),
+            "browser_speech_json": json.dumps(spoken, ensure_ascii=False),
             "tts_note": tts_note,
         }
         _ch.chat_history = new_history
@@ -546,9 +584,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
     @rx.event(background=True)  # type: ignore[operator]
     async def resynthesize_bubble_tts(self, timestamp: str):
-        """Re-synthesize TTS for a specific chat bubble (background event).
+        """Read one chat bubble aloud, section by section, and keep the audio (background event).
 
-        Als normaler Handler hielt das den State-Lock über die GESAMTE
+        Der erste Satz spielt, sobald der Dienst ihn liefert; am Ende hängt der ganze Ton an der
+        Blase. Als normaler Handler hielt das den State-Lock über die GESAMTE
         Synthese (Minuten bei langen Bubbles) — die UI fror ein, und starb
         währenddessen die Verbindung, ging das finale Delta verloren (Audio
         erst nach F5 sichtbar). Jetzt: Lock nur für kurze Lese-/Schreib-Phasen,
@@ -558,10 +597,8 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Args:
             timestamp: Timestamp of the message to regenerate
         """
-        from ..lib.i18n import t
-        from ..lib.toast import toast
-
         target_index = -1
+        reading: BrowserReading | None = None
         async with self:
             if self.tts_regenerating:
                 return
@@ -591,29 +628,30 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 request = self._extract_bubble_tts_request(target_index)
                 if request is not None:
                     self.add_debug(  # type: ignore[attr-defined]
-                        f"🔄 TTS Re-Synth: Regenerating bubble {target_index} ({request['agent']})..."
+                        f"🔄 TTS: Reading bubble {target_index} aloud ({request['agent']})..."
                     )
+                    # Here, under the lock: the reading itself may not write state. The finalize of
+                    # a reply is claimed so that it does not take this audio for the reply's.
+                    self._pause_media_for_tts()
+                    self._tts_streaming_active = True
+                    self._tts_finalize_spawned = True
 
             success = False
             if request is not None:
-                synthesized = await self._synthesize_bubble_audio(request)
+                reading = self._read_bubble_aloud(request)
+                kept = await self._keep_bubble_reading(reading)
                 async with self:
-                    if synthesized:
+                    if kept is not None:
                         success = self._apply_bubble_audio(
-                            target_index, request["timestamp"],
-                            *synthesized, save_session=True,
+                            target_index, request["timestamp"], kept, reading.note,
+                            save_session=True, browser_speech=reading.browser_speech,
                         )
 
             async with self:
                 if success:
-                    self.add_debug(f"✅ TTS: Bubble {target_index} regenerated")  # type: ignore[attr-defined]
+                    self.add_debug(f"✅ TTS: Bubble {target_index} read aloud")  # type: ignore[attr-defined]
                 else:
-                    self.add_debug(f"⚠️ TTS: Bubble {target_index} regeneration failed")  # type: ignore[attr-defined]
-        except TTSSuiteError as error:
-            log_message(f"❌ TTS regeneration: service error: {error}", "error")
-            async with self:
-                self.add_debug(f"❌ TTS Error: {type(error).__name__}: {error}")  # type: ignore[attr-defined]
-                yield toast("error", t("tts_reading_service_failed_silent", lang=_lang(self), reason=str(error)))
+                    self.add_debug(f"⚠️ TTS: Bubble {target_index} got no audio")  # type: ignore[attr-defined]
         except (FileNotFoundError, ValueError, RuntimeError) as e:
             async with self:
                 self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
@@ -621,6 +659,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
         finally:
             async with self:
                 self.tts_regenerating = False
+                # A new reply's reading may have taken over meanwhile; its flag stays.
+                if reading is None or get_tts_backend_state(reading.session_id).reading is reading:
+                    self._tts_streaming_active = False
 
     @rx.event(background=True)  # type: ignore[operator]
     async def resynthesize_all_tts(self):

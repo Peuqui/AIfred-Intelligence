@@ -119,6 +119,10 @@ Wie viel Text auf einmal an die Engine geht, ist **eine Einstellung pro TTS-Engi
   (`_stream_agent_to_history` je Agent, `_process_vision_request` für VL Direct); eine noch offene
   Lesung wird beendet, wenn eine neue beginnt. Danach werden die Segmente zum Audio der Sitzung
   zusammengefügt und mit dem Hinweis an die Blase gehängt (Wiedergabe, Export).
+  Der Knopf an einer Blase nimmt denselben Weg, auch ohne Auto-Play: Jeder Abschnitt spielt, sobald
+  der Dienst ihn liefert (`_read_bubble_aloud`), am Ende hängt der ganze Ton an der Blase. Eine
+  abgebrochene Lesung ersetzt keinen Ton, den die Blase schon hat. „Alle neu erzeugen“ schreibt
+  dagegen nur Dateien (`speak_to_files`).
 - **Browser-Stimme** (`browser`, Web Speech API): ein Eintrag der Liste, der keine Datei erzeugt.
   Der Dienst spricht nie mit ihm; die Einträge **über** ihm gehen an den Dienst, die eigene
   Stimme des Browsers spricht, wenn keiner von ihnen kann (oder er der oberste Eintrag ist). Ein
