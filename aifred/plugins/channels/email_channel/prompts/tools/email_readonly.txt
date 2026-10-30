@@ -1,0 +1,5 @@
+Read the user's private mailbox. Strictly read-only: actions are check (list recent mails), read (full email by msg_id) and search (by subject/sender). Mails stay unread and the mailbox stays exactly as it was.
+
+This is NOT the mailbox of the email tool, which is AIfred's own: a msg_id from one tool means nothing in the other. Nothing can be sent, answered, deleted, moved or marked from here; if the user asks for that, say so.
+
+CRITICAL: looking into the mailbox needs a tool call. NEVER describe a mail unless a tool_result shows it.

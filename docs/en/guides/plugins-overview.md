@@ -359,6 +359,7 @@ IMAP IDLE push-based email monitor with SMTP auto-reply.
 - Folder management (move, create, list)
 - Flag management (read/unread/flagged)
 - Auto-reply configurable per channel
+- Optionally a second mailbox that agents can only read through `email_readonly` (tier WRITE_DATA)
 
 > **Details:** [Email Plugin](plugins/email.md)
 

@@ -1,0 +1,1 @@
+Fehler: Dieses Postfach ist nur lesbar. Es gibt hier nur {actions}; senden, ändern, verschieben oder löschen geht nicht.

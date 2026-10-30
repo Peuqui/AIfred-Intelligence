@@ -4,8 +4,8 @@
     "en": "Email"
   },
   "plugin_description": {
-    "de": "IMAP-IDLE-Listener für E-Mail-Eingang plus optionaler Auto-Reply per SMTP.",
-    "en": "IMAP IDLE listener for incoming email plus optional auto-reply via SMTP."
+    "de": "IMAP-IDLE-Listener für E-Mail-Eingang plus optionaler Auto-Reply per SMTP. Optional ein zweites Postfach, das Agenten nur lesen.",
+    "en": "IMAP IDLE listener for incoming email plus optional auto-reply via SMTP. Optionally a second mailbox that agents can only read."
   },
   "email_cred_imap_host": {
     "de": "IMAP Host",
@@ -50,5 +50,25 @@
   "email_cred_sent_folder_tooltip": {
     "de": "IMAP-Ordnername, in den gesendete Mails kopiert werden.\nProvider-abhängig: GMX = 'Gesendet', viele andere = 'Sent'.\nAlle Ordner anzeigen: email-Tool mit action='list_folders'.",
     "en": "IMAP folder name where sent mails are copied.\nProvider-specific: GMX = 'Gesendet', many others = 'Sent'.\nList all folders: email tool with action='list_folders'."
+  },
+  "email_cred_readonly_imap_host": {
+    "de": "Lese-Postfach: IMAP Host",
+    "en": "Read-only mailbox: IMAP Host"
+  },
+  "email_cred_readonly_imap_host_tooltip": {
+    "de": "Zweites Postfach, das Agenten nur lesen: Es wird dort nie gesendet, gelöscht oder verschoben, und Mails bleiben ungelesen.\nVorgabe ist der Server von mail.de.\nOhne Host, Benutzer und Passwort gibt es das Werkzeug email_readonly nicht.",
+    "en": "Second mailbox that agents can only read: nothing is ever sent, deleted or moved there, and mails stay unread.\nThe default is the mail.de server.\nWithout host, user and password the email_readonly tool does not exist."
+  },
+  "email_cred_readonly_imap_port": {
+    "de": "Lese-Postfach: IMAP Port",
+    "en": "Read-only mailbox: IMAP Port"
+  },
+  "email_cred_readonly_user": {
+    "de": "Lese-Postfach: Benutzername / E-Mail",
+    "en": "Read-only mailbox: Username / Email"
+  },
+  "email_cred_readonly_password": {
+    "de": "Lese-Postfach: Passwort",
+    "en": "Read-only mailbox: Password"
   }
 }

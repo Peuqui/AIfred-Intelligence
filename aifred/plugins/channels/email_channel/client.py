@@ -4,6 +4,12 @@ All operations are synchronous (imaplib/smtplib) — wrapped in
 asyncio.to_thread() by the tool executors.
 
 Credentials are accessed exclusively through the CredentialBroker.
+
+Two mailboxes: AIfred's own (service ``email``) and a read-only second one
+(service ``email_readonly``). check_inbox, read_email and search_emails take the
+account as a required argument and work through _ReadOnlyMailbox; everything
+that sends or changes mail has no account parameter and reaches only AIfred's own
+mailbox through _imap_connect.
 """
 
 import base64
@@ -14,6 +20,8 @@ import imaplib
 import quopri
 import smtplib
 import ssl
+from collections.abc import Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -22,7 +30,12 @@ from pathlib import Path
 
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
-from .config import EMAIL_MAX_BODY_CHARS, EMAIL_MAX_FETCH, EMAIL_SENT_FOLDER_DEFAULT
+from .config import (
+    EMAIL_IMAP_PORT_DEFAULT,
+    EMAIL_MAX_BODY_CHARS,
+    EMAIL_MAX_FETCH,
+    EMAIL_SENT_FOLDER_DEFAULT,
+)
 
 
 @dataclass
@@ -50,6 +63,28 @@ class EmailMessage:
     auth_results: str  # SPF/DKIM/DMARC verdict: pass / fail / none
     attachments: list[str] = field(default_factory=list)  # Attachment filenames
 
+
+@dataclass(frozen=True)
+class ImapAccount:
+    """Where and as whom to log in."""
+
+    host: str
+    port: int
+    user: str
+    password: str = field(repr=False)
+
+
+# Broker service of the read-only second mailbox
+_READONLY_SERVICE = "email_readonly"
+
+# Fields the read-only mailbox cannot work without; the port has a default.
+_READONLY_REQUIRED_KEYS = ("imap_host", "user", "password")
+
+# PEEK leaves \Seen alone, so reading never marks a mail as read. These are the
+# only FETCH forms of the read functions (see _ReadOnlyMailbox).
+_FETCH_SUMMARY = "(FLAGS BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.400>)"
+_FETCH_HEADERS = "(FLAGS BODY.PEEK[HEADER])"
+_FETCH_MESSAGE = "(BODY.PEEK[])"
 
 # IMAP socket timeout (seconds) for tool operations. Without it a hung/slow
 # server blocks a to_thread worker indefinitely and can exhaust the pool.
@@ -170,21 +205,102 @@ def _decode_preview(preview_raw: bytes, msg: email.message.Message) -> str:
     return preview_raw.decode("utf-8", errors="replace")
 
 
+def _broker_account(service: str) -> ImapAccount:
+    """The account stored under one broker service."""
+    return ImapAccount(
+        host=broker.get(service, "imap_host"),
+        port=int(broker.get(service, "imap_port") or EMAIL_IMAP_PORT_DEFAULT),
+        user=broker.get(service, "user"),
+        password=broker.get(service, "password"),
+    )
+
+
+def agent_mailbox_account() -> ImapAccount:
+    """AIfred's own mailbox."""
+    return _broker_account("email")
+
+
+def readonly_mailbox_configured() -> bool:
+    """Whether the second mailbox has its own credentials. Only its own fields
+    count: the fields of AIfred's mailbox never stand in for missing ones."""
+    return all(broker.is_set(_READONLY_SERVICE, key) for key in _READONLY_REQUIRED_KEYS)
+
+
+def readonly_mailbox_account() -> ImapAccount:
+    """The read-only second mailbox."""
+    return _broker_account(_READONLY_SERVICE)
+
+
+def _open_imap(account: ImapAccount, timeout: float = _IMAP_TIMEOUT_SECONDS) -> imaplib.IMAP4_SSL:
+    """Authenticated TLS connection to ``account``."""
+    ctx = ssl.create_default_context()
+    imap = imaplib.IMAP4_SSL(account.host, account.port, ssl_context=ctx, timeout=timeout)
+    imap.login(account.user, account.password)
+    return imap
+
+
 def _imap_connect(timeout: float = _IMAP_TIMEOUT_SECONDS) -> imaplib.IMAP4_SSL:
-    """Create authenticated IMAP connection via broker.
+    """Connection to AIfred's own mailbox, the only one that may be changed:
+    listener and every writing function. It takes no account on purpose.
 
     ``timeout``: Tools nutzen den 30-s-Default; der IDLE-Listener übergibt
     sein längeres Fenster (IDLE-Phase ist legitim minutenlang still).
     """
-    ctx = ssl.create_default_context()
-    host = broker.get("email", "imap_host")
-    port = int(broker.get("email", "imap_port") or "993")
-    imap = imaplib.IMAP4_SSL(host, port, ssl_context=ctx, timeout=timeout)
-    imap.login(broker.get("email", "user"), broker.get("email", "password"))
-    return imap
+    return _open_imap(agent_mailbox_account(), timeout)
 
 
-def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSummary]:
+class _ReadOnlyMailbox:
+    """A folder opened with EXAMINE, the whole IMAP surface of the read functions.
+
+    They hold this object, never the connection: STORE, COPY, APPEND, EXPUNGE and
+    a FETCH without PEEK do not exist for them, on any account. EXAMINE lets the
+    server refuse flag changes on top, but it would still allow COPY and APPEND,
+    so it cannot carry the guarantee alone.
+    """
+
+    def __init__(self, imap: imaplib.IMAP4_SSL, folder: str) -> None:
+        status, detail = imap.select(folder, readonly=True)
+        # Refused, imaplib stays connected but unselected: without this check the
+        # next command would fail with a state error that hides the real reason.
+        if status != "OK":
+            raise ValueError(f"Cannot open IMAP folder {folder!r}: {detail}")
+        self._imap = imap
+
+    def search(self, criteria: str) -> list[bytes]:
+        """UIDs matching ASCII search criteria, ascending."""
+        _, data = self._imap.uid("SEARCH", None, criteria)  # type: ignore[arg-type]
+        return data[0].split() if data and data[0] else []
+
+    def search_header(self, header: str, text: str) -> list[bytes]:
+        """UIDs whose ``header`` contains non-ASCII ``text``. imaplib encodes
+        command args as ASCII, so the text travels as an IMAP literal (length-
+        prefixed, no escaping needed) with CHARSET UTF-8; imaplib supports only
+        one literal per command, hence one header per call."""
+        self._imap.literal = text.encode("utf-8")  # type: ignore[assignment]
+        _, data = self._imap.uid("SEARCH", "CHARSET", "UTF-8", header)
+        return data[0].split() if data and data[0] else []
+
+    def fetch_summary(self, uid: str) -> list:
+        """Flags, headers and the start of the body."""
+        return self._imap.uid("FETCH", uid, _FETCH_SUMMARY)[1]
+
+    def fetch_headers(self, uid: str) -> list:
+        """Flags and headers."""
+        return self._imap.uid("FETCH", uid, _FETCH_HEADERS)[1]
+
+    def fetch_message(self, uid: str) -> list:
+        """The complete message."""
+        return self._imap.uid("FETCH", uid, _FETCH_MESSAGE)[1]
+
+
+@contextmanager
+def _examine(account: ImapAccount, folder: str) -> Iterator[_ReadOnlyMailbox]:
+    """Open ``folder`` of ``account`` for reading, for the length of the block."""
+    with _open_imap(account) as imap:
+        yield _ReadOnlyMailbox(imap, folder)
+
+
+def check_inbox(account: ImapAccount, n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSummary]:
     """Fetch the N most recent emails from IMAP inbox.
 
     Returned ``msg_id`` values are IMAP UIDs — stable across connections
@@ -196,16 +312,13 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
     n = max(1, n)
     results: list[EmailSummary] = []
 
-    with _imap_connect() as imap:
-        imap.select(folder, readonly=True)
-
-        _, data = imap.uid("SEARCH", None, "ALL")  # type: ignore[arg-type]
-        msg_ids = [u.decode() for u in data[0].split()]
+    with _examine(account, folder) as mailbox:
+        msg_ids = [u.decode() for u in mailbox.search("ALL")]
         recent_ids = msg_ids[-n:]
         recent_ids.reverse()  # Newest first
 
         for msg_id in recent_ids:
-            _, msg_data = imap.uid("FETCH", msg_id, "(FLAGS RFC822.HEADER BODY.PEEK[TEXT]<0.400>)")
+            msg_data = mailbox.fetch_summary(msg_id)
             if not msg_data or not msg_data[0]:
                 continue
 
@@ -219,9 +332,9 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
                     desc = part[0].decode("utf-8", errors="replace") if isinstance(part[0], bytes) else str(part[0])
                     if "FLAGS" in desc:
                         flags_raw = desc
-                    if "HEADER" in desc:
+                    if "BODY[HEADER]" in desc:
                         header_raw = part[1] if len(part) > 1 else b""
-                    if "TEXT" in desc or "BODY" in desc:
+                    if "BODY[TEXT]" in desc:
                         preview_raw = part[1] if len(part) > 1 else b""
 
             is_read = "\\Seen" in flags_raw
@@ -250,14 +363,12 @@ def check_inbox(n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSu
     return results
 
 
-def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
+def read_email(account: ImapAccount, msg_id: str, folder: str = "INBOX") -> EmailMessage:
     """Read full email by UID (as returned by check_inbox/search_emails)."""
     _reject_imap_arg(msg_id, "msg_id")
     _reject_imap_arg(folder, "folder")
-    with _imap_connect() as imap:
-        imap.select(folder, readonly=True)
-
-        _, msg_data = imap.uid("FETCH", msg_id, "(RFC822)")
+    with _examine(account, folder) as mailbox:
+        msg_data = mailbox.fetch_message(msg_id)
         if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
             raise ValueError(f"Email {msg_id} not found")
 
@@ -284,7 +395,9 @@ def read_email(msg_id: str, folder: str = "INBOX") -> EmailMessage:
         )
 
 
-def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -> list[EmailSummary]:
+def search_emails(
+    account: ImapAccount, query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH
+) -> list[EmailSummary]:
     """Search emails via IMAP SEARCH. Returned ``msg_id`` values are UIDs."""
     _reject_imap_arg(query, "query")
     _reject_imap_arg(folder, "folder")
@@ -292,35 +405,23 @@ def search_emails(query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH) -
     n = max(1, n)
     results: list[EmailSummary] = []
 
-    with _imap_connect() as imap:
-        imap.select(folder, readonly=True)
-
+    with _examine(account, folder) as mailbox:
         # IMAP SEARCH: search in subject and from. Escape backslash/quote so a
         # crafted query (LLM tool arg) cannot break out of the quoted string and
         # rewrite the search semantics. CRLF is rejected above (would inject a
         # raw command since imaplib does not escape it).
         if query.isascii():
             safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
-            search_criteria = f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'
-            _, data = imap.uid("SEARCH", None, search_criteria)  # type: ignore[arg-type]
-            uids = set(data[0].split()) if data and data[0] else set()
+            uids = set(mailbox.search(f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'))
         else:
-            # Non-ASCII ("Müller"): imaplib encodes command args as ASCII and
-            # would raise UnicodeEncodeError. IMAP literals (length-prefixed,
-            # no escaping needed) + CHARSET UTF-8 handle that — but imaplib
-            # supports only ONE literal per command, so SUBJECT and FROM are
-            # searched separately and the UID sets are merged.
-            uids = set()
-            for field in ("SUBJECT", "FROM"):
-                imap.literal = query.encode("utf-8")  # type: ignore[assignment]
-                _, data = imap.uid("SEARCH", "CHARSET", "UTF-8", field)
-                if data and data[0]:
-                    uids |= set(data[0].split())
+            # Non-ASCII ("Müller"): SUBJECT and FROM are searched separately
+            # (see search_header) and the UID sets are merged.
+            uids = set(mailbox.search_header("SUBJECT", query)) | set(mailbox.search_header("FROM", query))
         msg_ids = sorted((u.decode() for u in uids), key=int)[-n:]
         msg_ids.reverse()
 
         for msg_id in msg_ids:
-            _, msg_data = imap.uid("FETCH", msg_id, "(FLAGS RFC822.HEADER)")
+            msg_data = mailbox.fetch_headers(msg_id)
             if not msg_data or not msg_data[0]:
                 continue
 

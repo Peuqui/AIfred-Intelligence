@@ -10,10 +10,12 @@ Channel plugin for email communication via IMAP IDLE and SMTP.
 
 | Tool | Description | Tier |
 |------|------------|------|
-| `email` | Fetch, read, search, send, move, delete, and mark emails | COMMUNICATE |
+| `email` | Fetch, read, search, send and mark emails, list folders | COMMUNICATE |
+| `email_manage` | Delete and move emails, create folders; web UI only | WRITE_SYSTEM |
+| `email_readonly` | Fetch, read and search a second mailbox (see [below](#second-mailbox-read-only)) | WRITE_DATA |
 
-The `email` tool dispatches by an `action` parameter:
-`check`, `read`, `search`, `delete`, `send`, `move`, `list_folders`, `create_folder`, `mark`.
+`email` dispatches by an `action` parameter: `check`, `read`, `search`, `send`,
+`list_folders`, `mark`. So does `email_manage`: `delete`, `move`, `create_folder`.
 
 | Action | Required parameters | Notes |
 |--------|--------------------|-------|
@@ -73,6 +75,42 @@ External → Reply: "Yes"          (lands in the same session via In-Reply-To)
 AIfred   → Executes the action, auto-reply: "Done."
 ```
 
+## Second Mailbox (read-only)
+
+Besides AIfred's own mailbox a second account can be stored, for example a private mail.de
+mailbox. Agents read it on request through `email_readonly`, with the actions `check`, `read` and
+`search` and the same parameters as the `email` tool. Sending, deleting, moving and marking do
+not exist there.
+
+**Read-only is enforced technically:**
+
+- `check_inbox`, `read_email` and `search_emails` work on `_ReadOnlyMailbox` and never see the
+  IMAP connection. That class knows only EXAMINE, `UID SEARCH` and `UID FETCH` with `BODY.PEEK`;
+  STORE, COPY, APPEND and EXPUNGE cannot be reached from there.
+- EXAMINE (`select(..., readonly=True)`) opens the folder read-only, BODY.PEEK leaves `\Seen`
+  alone: mails stay unread.
+- The three functions require the account as an argument. Everything that sends or changes mail
+  has no account parameter and reaches only AIfred's own mailbox.
+
+**No fallback to AIfred's account:** the tool exists only when host, user and password of the
+second mailbox are set. The fields of AIfred's account never stand in.
+
+**No listener:** no IMAP IDLE runs for this mailbox. It triggers no agents and is fetched only
+when an agent calls the tool.
+
+**Tier:** `email_readonly` changes nothing, yet carries `WRITE_DATA` like the reading Nextcloud
+tools: the mailbox is private and must not leak through external channels. A scheduled job needs
+`max_tier` 2 for it.
+
+**Trust:** content always reaches the model as `trust="external"`, even for a mail from the
+owner. The owner verdict rests on the `Authentication-Results` header, and whether this provider
+stamps it reliably has not been verified.
+
+**Prerequisite:** channels offer tools only when they are configured themselves, so without
+AIfred's own account there is no `email_readonly` either. The credentials dialog is the same one:
+saving switches the email channel on as always (`EMAIL_ENABLED`, monitoring and the listener of
+AIfred's mailbox).
+
 ## Images and Attachments
 
 The mail text is Markdown and goes out as HTML plus a plain-text alternative. Files from the caller's own conversation (upload, sandbox output such as a chart) are addressed by their `/_upload/…` URL:
@@ -116,6 +154,19 @@ Credentials are entered via `.env` or the UI modal (managed by the credential br
 
 The plugin counts as configured when `enabled = true` and IMAP host, user, and
 password are set.
+
+Second mailbox (read-only), in the same dialog:
+
+| Field | Default | Purpose |
+|-------|---------|---------|
+| `EMAIL_READONLY_IMAP_HOST` | `imap.mail.de` | IMAP server |
+| `EMAIL_READONLY_IMAP_PORT` | `993` | IMAP port (SSL) |
+| `EMAIL_READONLY_USER` | – | Account login, for mail.de the address or login (stored in `.env`) |
+| `EMAIL_READONLY_PASSWORD` | – | Account password (secret, stored in `.env`) |
+
+The host and port defaults come from the
+[mail.de help](https://mail.de/en/help/messages/external_e-mail_clients/pop3-imap-smtp_settings);
+for another provider simply overwrite them.
 
 ### Allowlist Semantics (`EMAIL_ALLOWED_SENDERS`)
 

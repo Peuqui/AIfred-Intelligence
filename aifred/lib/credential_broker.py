@@ -74,6 +74,11 @@ _CREDENTIAL_MAP: dict[tuple[str, str], str] = {
     ("email", "from"): "EMAIL_FROM",
     ("email", "enabled"): "EMAIL_ENABLED",
     ("email", "allowed_senders"): "EMAIL_ALLOWED_SENDERS",
+    # Second mailbox, read-only: its own keys, it never shares an entry with ("email", …)
+    ("email_readonly", "imap_host"): "EMAIL_READONLY_IMAP_HOST",
+    ("email_readonly", "imap_port"): "EMAIL_READONLY_IMAP_PORT",
+    ("email_readonly", "user"): "EMAIL_READONLY_USER",
+    ("email_readonly", "password"): "EMAIL_READONLY_PASSWORD",
     # Discord
     ("discord", "bot_token"): "DISCORD_BOT_TOKEN",
     ("discord", "channel_ids"): "DISCORD_CHANNEL_IDS",

@@ -247,7 +247,9 @@ defused. The notice lives in `prompts/<lang>/shared/retrieved_data_<trust>.txt`:
   reliable, but still not a command.
 
 Used by `web_search`/page fetch, `email` (check, read, search; `read` with the
-owner verdict), `google_drive_search`, `google_drive_get_file` and
+owner verdict), `email_readonly` (check, read, search; always `external`, see
+[Second Mailbox](../guides/plugins/email.md#second-mailbox-read-only)),
+`google_drive_search`, `google_drive_get_file` and
 `google_calendar_list_events`. `search_documents` returns JSON that the output
 cap trims by its `results` list; there the same notice
 (`retrieved_data_notice()`) sits in the `data_notice` field.

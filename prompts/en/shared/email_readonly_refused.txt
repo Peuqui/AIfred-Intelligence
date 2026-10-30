@@ -1,0 +1,1 @@
+Error: this mailbox is read-only. Only {actions} exist here; nothing can be sent, changed, moved or deleted.

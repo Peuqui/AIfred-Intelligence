@@ -1,33 +1,103 @@
 """E-Mail tools for LLM function calling.
 
-Two tools, split by risk so the tier system can gate them independently:
-- ``email``        (TIER_COMMUNICATE): check / read / search / send / list_folders / mark
-- ``email_manage`` (TIER_WRITE_SYSTEM): delete / move / create_folder
+Split by risk so the tier system can gate them independently:
+- ``email``          (TIER_COMMUNICATE): check / read / search / send / list_folders / mark
+- ``email_manage``   (TIER_WRITE_SYSTEM): delete / move / create_folder
+- ``email_readonly`` (TIER_WRITE_DATA): check / read / search on the second mailbox
 
 Destructive actions live in the higher-tier tool so an inbound (untrusted)
 message can never reach them — only the browser (user present) can delete/move
-mail. All IMAP/SMTP operations run in asyncio.to_thread() (blocking I/O).
+mail. ``email_readonly`` changes nothing, yet carries TIER_WRITE_DATA: the mailbox
+is private, and the tiers keep it away from external channels. All IMAP/SMTP
+operations run in asyncio.to_thread() (blocking I/O).
 """
 
 import asyncio
+from collections.abc import Awaitable, Callable
+from functools import partial
 from pathlib import Path
 
+from ....lib.formatting import format_number
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
 from ....lib.security import (
     TIER_COMMUNICATE,
+    TIER_WRITE_DATA,
     TIER_WRITE_SYSTEM,
     may_send_outbound,
     resolve_trust_label,
     sanitize_outbound,
     wrap_untrusted_data,
 )
+from .client import (
+    ImapAccount,
+    agent_mailbox_account,
+    check_inbox,
+    read_email,
+    readonly_mailbox_account,
+    readonly_mailbox_configured,
+    search_emails,
+)
+from .config import EMAIL_MAX_FETCH
 
 # Actions offered by the safe (COMMUNICATE) tool vs. the destructive one.
 # Each tool enforces its own set so the model cannot smuggle a delete through
 # the low-tier ``email`` tool.
 _SAFE_ACTIONS = {"check", "read", "search", "send", "list_folders", "mark"}
 _MANAGE_ACTIONS = {"delete", "move", "create_folder"}
+
+
+async def _check(account: ImapAccount, kwargs: dict[str, str]) -> str:
+    n = int(kwargs.get("n", "10"))
+    folder = kwargs.get("folder", "INBOX")
+    emails = await asyncio.to_thread(
+        check_inbox, account, n=max(1, min(n, EMAIL_MAX_FETCH)), folder=folder
+    )
+    if not emails:
+        return "No emails found (0 messages)."
+    lines = [f"Total: {format_number(len(emails))} emails"]
+    for e in emails:
+        status = "📩" if not e.is_read else "📧"
+        lines.append(f"{status} [{e.msg_id}] {e.date} — {e.sender}\n   {e.subject}\n   {e.preview}")
+    return wrap_untrusted_data("\n\n".join(lines), "email")
+
+
+async def _read(account: ImapAccount, kwargs: dict[str, str], *, owner_verdict: bool) -> str:
+    """``owner_verdict``: may a mail earn the "owner" label? Off, it stays "external"."""
+    msg_id = kwargs.get("msg_id", "")
+    if not msg_id:
+        return "Error: msg_id required"
+    folder = kwargs.get("folder", "INBOX")
+    msg = await asyncio.to_thread(read_email, account, msg_id=msg_id, folder=folder)
+    parts = [
+        f"From: {msg.sender}",
+        f"To: {msg.to}",
+        f"Date: {msg.date}",
+        f"Subject: {msg.subject}",
+    ]
+    if msg.attachments:
+        parts.append(f"Attachments: {', '.join(msg.attachments)}")
+    parts.append(f"\n{msg.body}")
+    # Same owner verdict as for inbound mail (From + SPF/DKIM/DMARC pass).
+    trust = (
+        resolve_trust_label("email", msg.sender, {"auth_results": msg.auth_results})
+        if owner_verdict else "external"
+    )
+    return wrap_untrusted_data("\n".join(parts), "email", trust)
+
+
+async def _search(account: ImapAccount, kwargs: dict[str, str]) -> str:
+    query = kwargs.get("query", "")
+    if not query:
+        return "Error: query required"
+    folder = kwargs.get("folder", "INBOX")
+    emails = await asyncio.to_thread(search_emails, account, query=query, folder=folder)
+    if not emails:
+        return f"No emails found for '{query}'."
+    lines = []
+    for e in emails:
+        lines.append(f"[{e.msg_id}] {e.date} — {e.sender}: {e.subject}")
+    return wrap_untrusted_data("\n".join(lines), "email")
 
 
 def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "de") -> list[Tool]:
@@ -45,54 +115,13 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
         action = action.lower().strip()
 
         if action == "check":
-            from .client import check_inbox
-            from .config import EMAIL_MAX_FETCH
-            n = int(kwargs.get("n", "10"))
-            folder = kwargs.get("folder", "INBOX")
-            emails = await asyncio.to_thread(
-                check_inbox, n=max(1, min(n, EMAIL_MAX_FETCH)), folder=folder
-            )
-            if not emails:
-                return "No emails found (0 messages)."
-            lines = [f"Total: {len(emails)} emails"]
-            for e in emails:
-                status = "📩" if not e.is_read else "📧"
-                lines.append(f"{status} [{e.msg_id}] {e.date} — {e.sender}\n   {e.subject}\n   {e.preview}")
-            return wrap_untrusted_data("\n\n".join(lines), "email")
+            return await _check(agent_mailbox_account(), kwargs)
 
         elif action == "read":
-            from .client import read_email
-            msg_id = kwargs.get("msg_id", "")
-            if not msg_id:
-                return "Error: msg_id required"
-            folder = kwargs.get("folder", "INBOX")
-            msg = await asyncio.to_thread(read_email, msg_id=msg_id, folder=folder)
-            parts = [
-                f"From: {msg.sender}",
-                f"To: {msg.to}",
-                f"Date: {msg.date}",
-                f"Subject: {msg.subject}",
-            ]
-            if msg.attachments:
-                parts.append(f"Attachments: {', '.join(msg.attachments)}")
-            parts.append(f"\n{msg.body}")
-            # Same owner verdict as for inbound mail (From + SPF/DKIM/DMARC pass).
-            trust = resolve_trust_label("email", msg.sender, {"auth_results": msg.auth_results})
-            return wrap_untrusted_data("\n".join(parts), "email", trust)
+            return await _read(agent_mailbox_account(), kwargs, owner_verdict=True)
 
         elif action == "search":
-            from .client import search_emails
-            query = kwargs.get("query", "")
-            if not query:
-                return "Error: query required"
-            folder = kwargs.get("folder", "INBOX")
-            emails = await asyncio.to_thread(search_emails, query=query, folder=folder)
-            if not emails:
-                return f"No emails found for '{query}'."
-            lines = []
-            for e in emails:
-                lines.append(f"[{e.msg_id}] {e.date} — {e.sender}: {e.subject}")
-            return wrap_untrusted_data("\n".join(lines), "email")
+            return await _search(agent_mailbox_account(), kwargs)
 
         elif action == "delete":
             from .client import delete_email
@@ -226,5 +255,40 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
             description=load_tool_description(__file__, "email_manage"),
             parameters=load_tool_parameters(__file__, "email_manage", enums={"action": sorted(_MANAGE_ACTIONS)}),
             executor=_email_manage,
+        ),
+    ]
+
+
+def get_readonly_mailbox_tools(lang: str = "de") -> list[Tool]:
+    """The tool of the read-only second mailbox; none while its credentials are missing.
+
+    A separate function, no action of ``email``: its handlers are all it can do, and
+    ``send``, ``delete`` and the rest do not exist here. Its mails never earn the
+    "owner" label: that verdict rests on the Authentication-Results header, and this
+    mailbox holds mail from anyone at a provider whose stamping was never checked.
+    """
+    if not readonly_mailbox_configured():
+        return []
+
+    handlers: dict[str, Callable[[ImapAccount, dict[str, str]], Awaitable[str]]] = {
+        "check": _check,
+        "read": partial(_read, owner_verdict=False),
+        "search": _search,
+    }
+
+    async def _email_readonly(action: str, **kwargs: str) -> str:
+        handler = handlers.get(action.lower().strip())
+        if handler is None:
+            from ....lib.prompt_loader import load_prompt
+            return load_prompt("shared/email_readonly_refused", lang=lang, actions=", ".join(sorted(handlers))).strip()
+        return await handler(readonly_mailbox_account(), kwargs)
+
+    return [
+        Tool(
+            name="email_readonly",
+            tier=TIER_WRITE_DATA,
+            description=load_tool_description(__file__, "email_readonly"),
+            parameters=load_tool_parameters(__file__, "email_readonly", enums={"action": sorted(handlers)}),
+            executor=_email_readonly,
         ),
     ]

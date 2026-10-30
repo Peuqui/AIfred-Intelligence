@@ -249,7 +249,9 @@ entschärft. Der Hinweistext steht in
   verlässlich, aber trotzdem kein Befehl.
 
 Genutzt von `web_search`/Webseiten-Abruf, `email` (check, read, search; `read`
-mit Owner-Verdict), `google_drive_search`, `google_drive_get_file` und
+mit Owner-Verdict), `email_readonly` (check, read, search; immer `external`,
+siehe [Zweites Postfach](../guides/plugins/email.md#zweites-postfach-nur-lesend)),
+`google_drive_search`, `google_drive_get_file` und
 `google_calendar_list_events`. `search_documents` liefert JSON, das der
 Output-Cap an der `results`-Liste kürzt; dort steht derselbe Hinweis
 (`retrieved_data_notice()`) im Feld `data_notice`.

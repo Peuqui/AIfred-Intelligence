@@ -2,6 +2,9 @@
 
 Drop-in plugin for the Message Hub channel system.
 Monitors an IMAP inbox via IDLE and sends replies via SMTP.
+
+A second mailbox can be read on an agent's request (tool ``email_readonly``).
+It has no listener and triggers nothing; the channel is AIfred's own mailbox.
 """
 
 from __future__ import annotations
@@ -15,7 +18,11 @@ import re
 from datetime import datetime, timezone, UTC
 from typing import TYPE_CHECKING
 
-from .config import EMAIL_SENT_FOLDER_DEFAULT
+from .config import (
+    EMAIL_IMAP_PORT_DEFAULT,
+    EMAIL_READONLY_IMAP_HOST_DEFAULT,
+    EMAIL_SENT_FOLDER_DEFAULT,
+)
 from ....lib.plugin_base import BaseChannel, CredentialField
 from ....lib.logging_utils import log_message
 
@@ -112,7 +119,7 @@ class EmailChannel(BaseChannel):
             CredentialField(
                 env_key="EMAIL_IMAP_PORT",
                 label_key="email_cred_imap_port",
-                default="993",
+                default=EMAIL_IMAP_PORT_DEFAULT,
                 group="imap",
                 width_ratio=1,
             ),
@@ -155,6 +162,32 @@ class EmailChannel(BaseChannel):
                 label_key="email_cred_sent_folder",
                 default=EMAIL_SENT_FOLDER_DEFAULT,
             ),
+            CredentialField(
+                env_key="EMAIL_READONLY_IMAP_HOST",
+                label_key="email_cred_readonly_imap_host",
+                default=EMAIL_READONLY_IMAP_HOST_DEFAULT,
+                group="imap_readonly",
+                width_ratio=3,
+            ),
+            CredentialField(
+                env_key="EMAIL_READONLY_IMAP_PORT",
+                label_key="email_cred_readonly_imap_port",
+                default=EMAIL_IMAP_PORT_DEFAULT,
+                group="imap_readonly",
+                width_ratio=1,
+            ),
+            # No placeholder: it would become the default and be saved as a value.
+            # The login is a private address, so it goes to .env with the password.
+            CredentialField(
+                env_key="EMAIL_READONLY_USER",
+                label_key="email_cred_readonly_user",
+                is_secret=True,
+            ),
+            CredentialField(
+                env_key="EMAIL_READONLY_PASSWORD",
+                label_key="email_cred_readonly_password",
+                is_password=True,  # is_secret=True implied by is_password
+            ),
         ]
 
     def is_configured(self) -> bool:
@@ -183,6 +216,10 @@ class EmailChannel(BaseChannel):
             "EMAIL_FROM": ("email", "from"),
             "EMAIL_SENT_FOLDER": ("email", "sent_folder"),
             "EMAIL_ALLOWED_SENDERS": ("email", "allowed_senders"),
+            "EMAIL_READONLY_IMAP_HOST": ("email_readonly", "imap_host"),
+            "EMAIL_READONLY_IMAP_PORT": ("email_readonly", "imap_port"),
+            "EMAIL_READONLY_USER": ("email_readonly", "user"),
+            "EMAIL_READONLY_PASSWORD": ("email_readonly", "password"),
         }
         for env_key, (service, key) in _field_to_broker.items():
             val = values.get(env_key, "")
@@ -211,7 +248,7 @@ class EmailChannel(BaseChannel):
                 imap, uidvalidity = await asyncio.to_thread(
                     _connect_imap,
                     broker.get("email", "imap_host"),
-                    int(broker.get("email", "imap_port") or "993"),
+                    int(broker.get("email", "imap_port") or EMAIL_IMAP_PORT_DEFAULT),
                     broker.get("email", "user"),
                     broker.get("email", "password"),
                 )
@@ -513,8 +550,11 @@ class EmailChannel(BaseChannel):
 
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         """Email tools for LLM function calling."""
-        from .tools import get_email_tools
-        return get_email_tools(session_id=ctx.session_id, source=ctx.source, lang=ctx.lang)
+        from .tools import get_email_tools, get_readonly_mailbox_tools
+        return [
+            *get_email_tools(session_id=ctx.session_id, source=ctx.source, lang=ctx.lang),
+            *get_readonly_mailbox_tools(lang=ctx.lang),
+        ]
 
     def build_reply_metadata(self, message: InboundMessage) -> dict:
         """Build email-specific reply headers (In-Reply-To, References)."""

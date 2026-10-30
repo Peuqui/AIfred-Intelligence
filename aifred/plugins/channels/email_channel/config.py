@@ -10,6 +10,13 @@ from __future__ import annotations
 
 import os
 
+# IMAP over TLS, for a mailbox without a configured port
+EMAIL_IMAP_PORT_DEFAULT = "993"
+
+# Proposed host of the read-only second mailbox, from mail.de's own help page
+# (external e-mail clients: POP3, IMAP & SMTP settings). The port is the one above.
+EMAIL_READONLY_IMAP_HOST_DEFAULT = "imap.mail.de"
+
 # Max emails per inbox check
 EMAIL_MAX_FETCH = 20
 
