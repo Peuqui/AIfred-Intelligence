@@ -17,7 +17,6 @@ from aifred.lib.document_sources import DocumentSourceError
 from aifred.lib.plugin_modules import ModuleAccess
 from aifred.lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from aifred.plugins.tools import nextcloud
-from aifred.plugins.tools.nextcloud import files as files_module
 from aifred.plugins.tools.nextcloud.dav import DavClient, DavConflict, DavError
 from aifred.plugins.tools.nextcloud.errors import NextcloudRefused
 from aifred.plugins.tools.nextcloud.file_tools import get_nextcloud_file_tools
@@ -201,16 +200,19 @@ def test_a_move_does_not_overwrite_and_a_missing_file_is_named(client, folder) -
 
 
 @live
-def test_binary_and_oversized_files_are_refused_with_the_reason(client, folder, monkeypatch) -> None:
+def test_a_binary_file_is_refused_with_the_reason(client, folder) -> None:
     client.make_folder(folder)
     client.write_file(f"{folder}/bild.png", b"\x89PNG\xff\xfe", "image/png", None)
-    files = AgentFiles(client, folder)
     with pytest.raises(NextcloudRefused, match="no text file"):
-        files.read("bild.png")
-    monkeypatch.setattr(files_module, "FILE_READ_LIMIT_BYTES", 1024 * 1024)
-    client.write_file(f"{folder}/gross.txt", b"x" * (2 * 1024 * 1024), "text/plain", None)
-    with pytest.raises(NextcloudRefused, match="larger than"):
-        files.read("gross.txt")
+        AgentFiles(client, folder).read("bild.png")
+
+
+@live
+def test_a_large_text_file_is_read_whole(client, folder) -> None:
+    client.make_folder(folder)
+    size = 8 * 1024 * 1024
+    client.write_file(f"{folder}/gross.txt", b"x" * size, "text/plain", None)
+    assert len(AgentFiles(client, folder).read("gross.txt")["content"]) == size
 
 
 @live

@@ -78,8 +78,8 @@ Appointments, tasks and contacts from Nextcloud via CalDAV and CardDAV. Each mod
 
 | Tool | Description | Tier |
 |------|-------------|------|
-| `nextcloud_search` | Appointments in a date window, tasks, contacts; calendars, task lists, address books | READONLY |
-| `nextcloud_get` | Read one entry with all details | READONLY |
+| `nextcloud_search` | Appointments in a date window, tasks, contacts; calendars, task lists, address books | WRITE_DATA |
+| `nextcloud_get` | Read one entry with all details | WRITE_DATA |
 | `nextcloud_create` | Create an appointment, task or contact | WRITE_DATA |
 | `nextcloud_update` | Change an appointment, task or contact | WRITE_DATA |
 | `nextcloud_delete` | Delete an appointment, task or contact | WRITE_SYSTEM |
