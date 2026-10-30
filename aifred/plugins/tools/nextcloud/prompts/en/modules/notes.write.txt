@@ -1,0 +1,1 @@
+CHANGING NOTES: A new note needs a title, content is the whole text. nextcloud_update with content replaces the whole text, so read it first. A new title or category changes the ID: use the ID from the result afterwards. Deleting puts the note in the trash bin.

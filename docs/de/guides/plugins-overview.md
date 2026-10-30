@@ -78,11 +78,11 @@ Termine, Aufgaben und Kontakte aus Nextcloud über CalDAV und CardDAV. Jedes Mod
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `nextcloud_search` | Termine im Zeitraum, Aufgaben, Kontakte; Kalender, Aufgabenlisten, Adressbücher | WRITE_DATA |
+| `nextcloud_search` | Termine im Zeitraum, Aufgaben, Kontakte, Notizen; Kalender, Aufgabenlisten, Adressbücher | WRITE_DATA |
 | `nextcloud_get` | Einen Eintrag mit allen Details lesen | WRITE_DATA |
-| `nextcloud_create` | Termin, Aufgabe oder Kontakt anlegen | WRITE_DATA |
-| `nextcloud_update` | Termin, Aufgabe oder Kontakt ändern | WRITE_DATA |
-| `nextcloud_delete` | Termin, Aufgabe oder Kontakt löschen | WRITE_SYSTEM |
+| `nextcloud_create` | Termin, Aufgabe, Kontakt oder Notiz anlegen | WRITE_DATA |
+| `nextcloud_update` | Termin, Aufgabe, Kontakt oder Notiz ändern | WRITE_DATA |
+| `nextcloud_delete` | Termin, Aufgabe, Kontakt oder Notiz löschen | WRITE_SYSTEM |
 | `nextcloud_file_list`, `_read` | Dateien im Agentenordner auflisten, suchen, lesen | WRITE_DATA |
 | `nextcloud_file_write`, `_move` | Dateien im Agentenordner schreiben, verschieben | WRITE_DATA |
 | `nextcloud_file_delete` | Datei in den Papierkorb legen | WRITE_SYSTEM |

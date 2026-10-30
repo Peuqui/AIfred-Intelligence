@@ -1,1 +1,1 @@
-Search the user's Nextcloud: appointments in a date window, tasks, contacts, and the lists of calendars, task lists and address books. Call it for every such question.
+Search the user's Nextcloud: appointments in a date window, tasks, contacts, notes, and the lists of calendars, task lists and address books. Call it for every such question.

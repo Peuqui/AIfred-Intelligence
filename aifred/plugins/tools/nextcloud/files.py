@@ -62,6 +62,15 @@ class AgentFiles:
         for depth in range(1, len(parts) + 1):
             self._client.make_folder("/".join(parts[:depth]))
 
+    def folder_exists(self) -> bool:
+        try:
+            self._client.list_files(self._folder)
+        except DavError as exc:
+            if exc.status != _NOT_FOUND:
+                raise
+            return False
+        return True
+
     def listing(self, folder: str) -> list[dict[str, Any]]:
         """A folder's content; the agent folder is empty until something is written there."""
         path = clean_path(folder)

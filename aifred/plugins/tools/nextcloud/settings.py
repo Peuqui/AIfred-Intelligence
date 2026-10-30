@@ -13,14 +13,18 @@ APP_PASSWORD_KEY = "NEXTCLOUD_APP_PASSWORD"
 CREDENTIAL_SERVICE = "nextcloud"
 AGENT_FOLDER_KEY = "NEXTCLOUD_AGENT_FOLDER"
 AGENT_FOLDER_DEFAULT = "AIfred-Intelligence"
+NOTES_FOLDER_KEY = "NEXTCLOUD_NOTES_FOLDER"
+NOTES_FOLDER_DEFAULT = "Notes"
 SETTINGS_PREFIX = "NEXTCLOUD"
 REQUEST_TIMEOUT_SEC = 20.0
 
-# calendar = events (VEVENT), tasks = todos (VTODO), contacts = address books, files = the WebDAV files.
+# calendar = events (VEVENT), tasks = todos (VTODO), contacts = address books, notes = the Notes app,
+# files = the WebDAV files.
 MODULE_DEFAULTS: dict[str, str] = {
     "calendar": READ,
     "tasks": READ,
     "contacts": READ,
+    "notes": READ,
     "files": READ,
 }
 
@@ -31,6 +35,7 @@ class NextcloudSettings:
     user: str
     modules: ModuleAccess = field(default_factory=lambda: ModuleAccess(dict(MODULE_DEFAULTS)))
     agent_folder: str = AGENT_FOLDER_DEFAULT
+    notes_folder: str = NOTES_FOLDER_DEFAULT
 
 
 def load_raw_settings() -> dict[str, str]:
@@ -47,6 +52,7 @@ def parse_settings(raw: dict[str, str]) -> NextcloudSettings:
         user=raw.get(USER_KEY, "").strip(),
         modules=ModuleAccess.parse(raw, SETTINGS_PREFIX, MODULE_DEFAULTS),
         agent_folder=raw.get(AGENT_FOLDER_KEY, "").strip().strip("/") or AGENT_FOLDER_DEFAULT,
+        notes_folder=raw.get(NOTES_FOLDER_KEY, "").strip().strip("/") or NOTES_FOLDER_DEFAULT,
     )
 
 
