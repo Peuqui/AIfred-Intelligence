@@ -10,7 +10,7 @@ import reflex as rx
 from ...state import AIState
 from ...theme import COLORS
 from ..helpers import t
-from .tool_pills import _tier_help_content, _tool_groups
+from .tool_pills import _tier_help_content, _tool_group
 
 
 def _prompt_tab_button(key: rx.Var) -> rx.Component:
@@ -196,7 +196,7 @@ def _tools_section(is_new: rx.Var, is_automatik: rx.Var, is_system: rx.Var) -> r
                 align="center",
             ),
             rx.box(
-                *_tool_groups,
+                rx.foreach(AIState.editor_tool_groups, _tool_group),
                 style={
                     "columns": ["1", "1", "2"],
                     "column-gap": "16px",

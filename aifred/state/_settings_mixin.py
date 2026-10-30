@@ -947,6 +947,7 @@ class SettingsMixin(rx.State, mixin=True):
 
         toggles[plugin_name] = "1" if new_enabled else ""
         self.tool_plugin_toggles = toggles
+        self._refresh_editor_tools()  # type: ignore[attr-defined]
 
     # ================================================================
     # TRANSLATION HELPER

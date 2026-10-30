@@ -7,6 +7,8 @@ and the scheduler job editor.
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
 from reflex.event import EventSpec
 
@@ -88,8 +90,11 @@ class AgentEditorMixin(rx.State, mixin=True):
     # Emoji picker visibility
     editor_emoji_picker_open: bool = False
 
-    # Tool whitelist editor — list of all tool names with enabled/disabled state
+    # Tool whitelist editor: the tools on offer with enabled/disabled state, and
+    # the same tools per plugin for the page. Built on every load, not at startup:
+    # plugins are switched on and off while the service runs.
     editor_tools: dict[str, bool] = {}
+    editor_tool_groups: list[dict[str, Any]] = []  # see plugin_registry.tool_groups_on_offer
 
 
     @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
@@ -1004,32 +1009,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             else (self.editor_prompt_keys[0] if self.editor_prompt_keys else "identity")
         )
 
-        # Load tool whitelist — None means all tools allowed
-        from ..lib.plugin_base import PluginContext
-        from ..lib.plugin_registry import discover_tools
-        # Collect all available tool names
-        all_tool_names: list[str] = []
-        ctx = PluginContext(agent_id=agent_id, lang="de", session_id="", llm_history=[])
-        for p in discover_tools():
-            if p.is_available():
-                for t in p.get_tools(ctx):
-                    all_tool_names.append(t.name)
-        # Memory tools
-        from ..lib.agent_memory import MEMORY_TOOL_TIERS
-        all_tool_names.extend(MEMORY_TOOL_TIERS)
-        # Channel tools
-        from ..lib.plugin_registry import all_channels
-        for ch in all_channels().values():
-            if ch.is_configured():
-                for t in ch.get_tools(ctx):
-                    all_tool_names.append(t.name)
-
-        if config.tools is None:
-            # None = all allowed
-            self.editor_tools = {name: True for name in all_tool_names}
-        else:
-            allowed = set(config.tools)
-            self.editor_tools = {name: name in allowed for name in all_tool_names}
+        self._offer_editor_tools(agent_id, config.tools)
 
         # Load TTS settings for this agent — start with the topmost enabled
         # engine of the escalation list (the one most likely to speak).
@@ -1038,6 +1018,30 @@ class AgentEditorMixin(rx.State, mixin=True):
         self._load_editor_tts_settings()  # type: ignore[attr-defined]
 
         self._load_editor_prompt(self.editor_prompt_tab)
+
+    def _offer_editor_tools(self, agent_id: str, allowed: list[str] | None) -> None:
+        """The tools on offer right now, enabled as in the whitelist (None = all)."""
+        from ..lib.plugin_base import PluginContext
+        from ..lib.plugin_registry import tool_groups_on_offer
+
+        ctx = PluginContext(agent_id=agent_id, lang="de", session_id="", llm_history=[])
+        self.editor_tool_groups = tool_groups_on_offer(ctx)
+        self.editor_tools = {
+            name: allowed is None or name in allowed
+            for group in self.editor_tool_groups for name in group["names"]
+        }
+
+    def _refresh_editor_tools(self) -> None:
+        """A plugin was switched while the editor is open: the offer follows, the
+        choices not saved yet stay."""
+        from ..lib.agent_config import get_agent_config
+
+        config = get_agent_config(self.editor_agent_id) if self.editor_agent_id else None
+        if config is None:
+            return
+        chosen = self.editor_tools
+        self._offer_editor_tools(self.editor_agent_id, config.tools)
+        self.editor_tools = {name: chosen.get(name, granted) for name, granted in self.editor_tools.items()}
 
     def _load_automatik_into_state(self) -> None:
         """Load Automatik-LLM pseudo-agent into editor (prompts only)."""
@@ -1049,6 +1053,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self._editor_description = "Intent Detection, Routing, Research Decisions"
         self.editor_role = "system"
         self.editor_tools = {}
+        self.editor_tool_groups = []
 
         # Discover prompt files from both language directories
         prompt_keys: list[str] = []
