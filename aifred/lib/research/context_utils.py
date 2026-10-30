@@ -210,16 +210,20 @@ def get_agent_num_ctx(
     # For vLLM/cloud: context is fixed at server startup.
     if getattr(state, 'enable_tts', False) and backend_type == "ollama":
         # The first enabled local GPU entry of the escalation list is the TTS
-        # engine expected to share the card — reserve its measured burn-in peak.
-        from .. import tts_vram_cache
-        from ..tts_service import active_local_keys, engine_label_short
-        engine_keys = active_local_keys()
-        engine_key = engine_keys[0] if engine_keys else None
-        peak = tts_vram_cache.get(engine_key) if engine_key is not None else None
-        if engine_key is not None and peak is not None:
+        # engine expected to share the card — reserve what the TTS-Suite says it needs.
+        # A service that does not answer starts no engine: there is nothing to reserve.
+        from ..tts_client import TTSSuiteUnreachable
+        from ..tts_service import active_local_keys, engine_label_short, gpu_engine_reserves
+        try:
+            reserves = gpu_engine_reserves()
+        except TTSSuiteUnreachable as unreachable:
+            log_message(f"⚠️ TTS: no reserve, the service does not answer: {unreachable}")
+            reserves = {}
+        engine_key = next((key for key in active_local_keys() if key in reserves), None)
+        if engine_key is not None:
             engine_label = engine_label_short(engine_key)
             vram_ratio = VRAM_CONTEXT_RATIO_MOE if is_moe_model(model_id) else VRAM_CONTEXT_RATIO_DENSE
-            token_reserve = int(peak / vram_ratio)
+            token_reserve = int(reserves[engine_key] / vram_ratio)
             original_ctx = num_ctx
             num_ctx = max(2048, num_ctx - token_reserve)
             source = f"{source} ({engine_label}: -{format_number(token_reserve)} tok)"

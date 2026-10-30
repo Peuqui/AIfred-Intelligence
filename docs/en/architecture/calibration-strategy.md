@@ -416,11 +416,11 @@ XTTS, Qwen3-TTS, as far as the TTS-Suite lists them as installed) whose `|<engin
    `-speed`) — no projection, no probe. If every candidate is covered
    this way, the engine is done.
 2. Otherwise: start the TTS container → occupies VRAM on the TTS card. The
-   **TTS reserve** comes from `resolve_tts_reserve()`
-   ([`tts_stress_burnin.py`](../../../aifred/lib/tts_stress_burnin.py)):
-   measured peak from `data/tts_vram_cache.json` +
-   `LLAMACPP_TTS_BURNIN_HEADROOM_MB` (512 MB); on a cache miss the stress
-   burn-in runs first.
+   **TTS reserve** comes from `gpu_engine_reserves()`
+   ([`tts_service.py`](../../../aifred/lib/tts_service.py)): the `reserve_mib` figure
+   of the TTS-Suite's catalog (the engine's budget + `headroom_mib` of its
+   configuration). Budget and margin live only there; AIfred keeps neither a
+   cache nor a margin.
 3. **Fast path:** [`calibrate_tts_variant_from_base()`](../../../aifred/lib/calibration/flow.py)
    re-projects the **same active GPU set** as BASE under the TTS-aware free
    VRAM (`enumerate_gpus()` live + reserve) and runs `_verify_and_refine()`;

@@ -147,8 +147,9 @@ Wie viel Text auf einmal an die Engine geht, ist **eine Einstellung pro TTS-Engi
   Platz. Nach dem Laden startet die nächste Lesung eine Engine wieder auf einer Karte mit Platz
   (Qwen3 rund 18 s, XTTS rund 33 s bis zum ersten Ton).
 - **Burn-in** (`tts_stress_burnin.py`): Die Kalibrierung lässt den Dienst einen Worst-Case-Text
-  auf der Engine lesen und nimmt die Spitze des VRAMs, den der Katalog meldet; das Ergebnis liegt
-  in `data/tts_vram_cache.json`.
+  auf der Engine lesen und nimmt die Spitze des VRAMs, den der Katalog meldet. Das Ergebnis wird
+  nicht gespeichert: Budget und Aufschlag einer Engine stehen in der Konfiguration der Suite, die Kalibrierung
+  liest sie als `reserve_mib` des Katalogs. Der Burn-in dient der Seitenkanal-Messung und der Prüfung eines Budgets.
 
 ## Wenn der Dienst nicht erreichbar ist
 

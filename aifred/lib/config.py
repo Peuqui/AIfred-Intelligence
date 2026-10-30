@@ -1133,16 +1133,10 @@ LLAMACPP_VISION_PROBE_RESOLUTION = (3840, 2160)
 # die Peaks können sich versionsbedingt verschieben.
 LLAMACPP_VLM_HEADROOM_MB = 500
 
-# Extra headroom added on top of the stress-burn-in-measured TTS peak
-# before subtracting from the LLM's VRAM budget on the TTS GPU. 512 MB
-# covers minor run-to-run drift between the burn-in and production
-# inference, plus container restart overhead.
-LLAMACPP_TTS_BURNIN_HEADROOM_MB = 512
-
 # Number of stress syntheses per TTS-engine burn-in. Real-world data
 # (Qwen3-TTS, XTTS) shows the VRAM peak is reached by
 # synthesis 1 with at most +10 MiB drift on synthesis 2 — fully covered
-# by the headroom above. Default 2 = DE + EN; one warm-up, one
+# by the budget's headroom. Default 2 = DE + EN; one warm-up, one
 # steady-state. Raise this if a new engine shows late-arriving peaks.
 LLAMACPP_TTS_BURNIN_ITERATIONS = 2
 

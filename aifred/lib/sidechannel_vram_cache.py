@@ -1,6 +1,6 @@
 """Gemessene GEMEINSAME VRAM-Spitzen von VLM- und TTS-Paaren.
 
-Eigener Speicher neben ``vlm_vram_cache`` und ``tts_vram_cache``, weil er
+Eigener Speicher neben ``vlm_vram_cache``, weil er
 eine andere Frage beantwortet: Jene halten fest, was ein Dienst ALLEIN
 braucht; hier steht, was ein Paar ZUSAMMEN auf einer Karte zieht. Die
 Summe der Einzelwerte ist dafuer keine Antwort — beide Dienste halten

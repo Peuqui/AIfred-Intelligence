@@ -346,12 +346,13 @@ class CalibrationMixin(rx.State, mixin=True):
         """
         if self.backend_id != "vllm":  # type: ignore[attr-defined]
             return []
-        from aifred.lib import tts_vram_cache, vlm_vram_cache
+        from aifred.lib import vlm_vram_cache
         from aifred.lib.formatting import format_number
         from aifred.lib.i18n import t as _t
         from aifred.lib.tts_client import TTSSuiteUnreachable
         from aifred.lib.tts_service import (
             engine_label_short,
+            gpu_engine_reserves,
             installed_gpu_engine_keys,
             unreachable_text,
         )
@@ -373,12 +374,13 @@ class CalibrationMixin(rx.State, mixin=True):
         try:
             engine_keys = installed_gpu_engine_keys()
             labels = {key: engine_label_short(key) for key in engine_keys}
+            reserves = gpu_engine_reserves()
         except TTSSuiteUnreachable as unreachable:
             lines.append(f"TTS: {unreachable_text(unreachable)}")
             return lines
         for engine_key in engine_keys:
-            tts_peak = tts_vram_cache.get(engine_key)
-            measured = (f"{format_number(tts_peak)} MiB" if tts_peak
+            reserve = reserves.get(engine_key)
+            measured = (f"{format_number(reserve)} MiB" if reserve is not None
                         else _t("calibration_not_measured"))
             lines.append(f"TTS: {labels[engine_key]} — {measured}")
         return lines
@@ -558,17 +560,6 @@ class CalibrationMixin(rx.State, mixin=True):
         self.add_debug(  # type: ignore[attr-defined]
             f"🧹 VLM VRAM cache cleared ({count} entries) — "
             f"next calibration will re-measure via stress-prewarm"
-        )
-
-    def reset_tts_vram_cache(self) -> None:
-        """Drop all stress-burn-in-measured TTS peak values. The next
-        calibration that needs a TTS reserve will re-run the burn-in
-        and repopulate the cache. Useful after a TTS container update."""
-        from ..lib import tts_vram_cache
-        count = tts_vram_cache.clear()
-        self.add_debug(  # type: ignore[attr-defined]
-            f"🧹 TTS VRAM cache cleared ({count} entries) — "
-            f"next calibration will re-measure via stress-burn-in"
         )
 
     def _persist_calibration_progress(self) -> None:
@@ -1608,26 +1599,16 @@ class CalibrationMixin(rx.State, mixin=True):
             from ..lib.vision_routing import vlm_calibration_choices
             vlm_choices = vlm_calibration_choices()
 
-            # Step 1c: Pre-burn-in for any TTS engine or VLM model that
-            # appears in an active matrix cell but has no entry in its
-            # VRAM cache yet. Doing this *before* the LLM calibration
-            # guarantees the values are available when the variant loops
-            # need them — also covers the isolated-mode shortcut path,
-            # which writes TTS variants without ever calling
-            # ``resolve_tts_reserve`` and would otherwise leave caches
-            # permanently empty.
-            from ..lib import tts_vram_cache, vlm_vram_cache
+            # Step 1c: Pre-burn-in for any VLM model that appears in an
+            # active matrix cell but has no entry in its VRAM cache yet.
+            # Doing this *before* the LLM calibration guarantees the values
+            # are available when the variant loops need them. (The TTS
+            # reserve needs no burn-in: the TTS-Suite names it.)
+            from ..lib import vlm_vram_cache
             from ..lib.tts_service import installed_gpu_engine_keys
 
-            # Which engines / VLMs does the user's matrix selection reach?
+            # Which VLMs does the user's matrix selection reach?
             _engine_list = installed_gpu_engine_keys()
-            _needed_tts: set[str] = set()
-            for _ek in _engine_list:
-                if self.calibration_matrix.get(f"|{_ek}", False):
-                    _needed_tts.add(_ek)
-                for _vc in vlm_choices:
-                    if self.calibration_matrix.get(f"{_vc['key']}|{_ek}", False):
-                        _needed_tts.add(_ek)
             _needed_vlms: list[dict[str, str]] = []
             _all_tts_slots = ["", *_engine_list]
             for _vc in vlm_choices:
@@ -1637,13 +1618,6 @@ class CalibrationMixin(rx.State, mixin=True):
                 ):
                     _needed_vlms.append(_vc)
 
-            # TTS burn-ins for missing cache entries. Failures are fatal:
-            # a burn-in that can't actually do real synthesis would write
-            # only the container's idle footprint, misleading the LLM
-            # calibration into reserving too little VRAM on the TTS GPU.
-            # Better to abort here than silently calibrate a profile that
-            # OOMs on the first production call.
-            #
             # Progress-Callbacks laufen über ``self._cal_debug`` (Logfile +
             # Puffer, KEIN State-Zugriff) — der Background-Wrapper drainiert
             # den Puffer unter Lock in die Konsole. ``self.add_debug`` als
@@ -1654,68 +1628,6 @@ class CalibrationMixin(rx.State, mixin=True):
             from ..lib.debug_bus import session_scope as _debug_session_scope
             _session_id = getattr(self, "session_id", "") or ""
             _burnin_failures: list[str] = []
-            if _needed_tts:
-                from ..lib.tts_stress_burnin import stress_burnin_tts
-                missing_tts = [k for k in sorted(_needed_tts)
-                               if tts_vram_cache.get(k) is None]
-                if missing_tts:
-                    self._cal_debug(  # type: ignore[attr-defined]
-                        f"🔥 Pre-burn-in TTS (missing cache: {', '.join(missing_tts)})"
-                    )
-                    yield
-                    for _ek in missing_tts:
-                        # Same pattern as the channels: bus_debug writes
-                        # to the session file (live via mtime-watcher),
-                        # asyncio.create_task keeps the work off the
-                        # main coroutine so periodic yields can push
-                        # any state-bound updates concurrently.
-                        with _debug_session_scope(_session_id):
-                            # _cal_debug: Logfile + Puffer (kein State-Zugriff)
-                            # — der Wrapper flusht den Puffer beim nächsten
-                            # yield unter Lock in die Konsole.
-                            _t_task = asyncio.create_task(
-                                stress_burnin_tts(_ek, debug=self._cal_debug)  # type: ignore[attr-defined]
-                            )
-                            try:
-                                while not _t_task.done():
-                                    yield
-                                    await asyncio.sleep(0.3)
-                                _peak = await _t_task
-                            except Exception as _e:  # noqa: BLE001
-                                self._cal_debug(  # type: ignore[attr-defined]
-                                    f"   ❌ {_ek} burn-in error: {_e}"
-                                )
-                                _burnin_failures.append(f"TTS {_ek}: {_e}")
-                            else:
-                                if _peak is not None and _peak > 0:
-                                    tts_vram_cache.put(_ek, _peak)
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ✅ {_ek}: peak {_peak} MiB cached"
-                                    )
-                                elif _peak is None:
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ❌ {_ek}: burn-in failed — see error above"
-                                    )
-                                    _burnin_failures.append(
-                                        f"TTS {_ek}: stress synthesis failed"
-                                    )
-                                else:
-                                    self._cal_debug(  # type: ignore[attr-defined]
-                                        f"   ⚠️ {_ek}: burn-in returned 0 MiB"
-                                    )
-                                    _burnin_failures.append(
-                                        f"TTS {_ek}: zero-peak measurement"
-                                    )
-                            finally:
-                                # User-Cancel trifft als GeneratorExit das
-                                # yield in der Poll-Schleife (kein Exception-
-                                # Subtyp) — ohne Cancel liefe der Burn-in
-                                # weiter, während das Teardown llama-swap
-                                # schon wieder hochfährt.
-                                if not _t_task.done():
-                                    _t_task.cancel()
-                        yield
-
             # VLM burn-ins for missing cache entries
             if _needed_vlms:
                 from ..lib.vlm_stress_prewarm import stress_prewarm_vlm
@@ -1779,9 +1691,8 @@ class CalibrationMixin(rx.State, mixin=True):
                                             f"VLM {_vc['label']}: prewarm failed"
                                         )
                                 finally:
-                                    # Wie beim TTS-Burn-in: GeneratorExit am
-                                    # Poll-yield darf den Prewarm-Task nicht
-                                    # verwaisen lassen.
+                                    # GeneratorExit am Poll-yield darf den
+                                    # Prewarm-Task nicht verwaisen lassen.
                                     if not _v_task.done():
                                         _v_task.cancel()
                             yield
@@ -1789,7 +1700,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # Wait for VRAM to settle after burn-ins so the LLM
             # calibration's nvidia-smi probe sees free memory, not
             # leftover container allocations.
-            if _needed_tts or _needed_vlms:
+            if _needed_vlms:
                 from ..backends.ollama import wait_for_vram_stable
                 await wait_for_vram_stable(max_wait_seconds=15.0)
 
@@ -2067,8 +1978,8 @@ class CalibrationMixin(rx.State, mixin=True):
                 yield
 
             # Step 5: TTS variant calibration. No TTS container is loaded: the
-            # calibration reserves the burn-in peak of each engine (cache or
-            # burn-in via ``resolve_tts_reserve``) while the engines stay cold.
+            # calibration reserves what the TTS-Suite names for each
+            # engine (``reserve_mib``) while the engines stay cold.
             #
             # Two filters apply:
             #  • ``installed_gpu_engine_keys`` — the engines the TTS service
@@ -2262,20 +2173,10 @@ class CalibrationMixin(rx.State, mixin=True):
                                 f"from base (skip Phase-1 search)..."
                             )
                             yield
-                            # Stress-burn-in resolver: returns the cached
-                            # peak measurement plus 512 MB headroom. On
-                            # cache miss the burn-in runs first (starts
-                            # the container, fires a worst-case bilingual
-                            # synthesis loop, polls peak VRAM, writes the
-                            # value to data/tts_vram_cache.json), so the
-                            # next call is fast. Hardware-agnostic — no
-                            # hand-pinned per-engine reserves.
-                            from ..lib.tts_stress_burnin import (
-                                resolve_tts_reserve,
-                            )
-                            _tts_extra_reserve_mb = await resolve_tts_reserve(
-                                tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
-                            )
+                            # The reserve is the TTS-Suite's own figure (budget +
+                            # headroom of its configuration), asked per API.
+                            from ..lib.tts_service import gpu_engine_reserves
+                            _tts_extra_reserve_mb = gpu_engine_reserves()[tts_backend]
                             async for _msg in calibrate_tts_variant_from_base(
                                 model_id=calibration_model_id,
                                 gguf_path=_gguf_path,
@@ -2475,10 +2376,8 @@ class CalibrationMixin(rx.State, mixin=True):
                     # real TTS container is up.
                     from ..lib.process_utils import get_tts_gpu_uuid as _get_tts_uuid
                     _fallback_tts_uuid = _get_tts_uuid()
-                    from ..lib.tts_stress_burnin import resolve_tts_reserve
-                    _fallback_reserve_mb = await resolve_tts_reserve(
-                        tts_backend, debug=self._cal_debug,  # type: ignore[attr-defined]
-                    )
+                    from ..lib.tts_service import gpu_engine_reserves
+                    _fallback_reserve_mb = gpu_engine_reserves()[tts_backend]
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
                         known_thinking=known_thinking,
@@ -2977,10 +2876,8 @@ class CalibrationMixin(rx.State, mixin=True):
                     ):
                         continue
                     tts_label_c = engine_label_short(tts_backend_c)
-                    from ..lib.tts_stress_burnin import resolve_tts_reserve
-                    tts_reserve_c = await resolve_tts_reserve(
-                        tts_backend_c, debug=self._cal_debug,  # type: ignore[attr-defined]
-                    )
+                    from ..lib.tts_service import gpu_engine_reserves
+                    tts_reserve_c = gpu_engine_reserves()[tts_backend_c]
                     _tts_uuid_c = get_tts_gpu_uuid()
 
                     for vlm_choice_c in vlm_choices:

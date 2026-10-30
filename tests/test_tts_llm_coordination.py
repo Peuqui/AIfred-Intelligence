@@ -18,7 +18,7 @@ def row(engine: str, **fields: Any) -> dict[str, Any]:
         "engine": engine, "host": None, "label": {"de": engine, "en": engine}, "label_short": {"de": engine, "en": engine},
         "status": "running", "unit_default": "sentence", "needs_gpu": True, "cloud": False, "browser": False,
         "installed": True, "start_hint": None, "vram_mib": {}, "idle_remaining_s": None,
-        "default_vram_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
+        "default_vram_mib": None, "reserve_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
     }
     return {**base, **fields}
 
