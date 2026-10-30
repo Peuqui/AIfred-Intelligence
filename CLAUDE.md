@@ -24,7 +24,7 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 ## Bereits integrierte Features (NICHT vergessen!)
 
 - **ChromaDB** (Docker, Daten in `data/chromadb/`) - Dokumente (`aifred_documents`) + Agent-Memory (`agent_memory_*`). KEIN Web-Research-Cache — bewusst entfernt, jede Recherche läuft frisch
-- **RAG über Dokumente** - agentengetrieben per `search_documents`-Tool (kein Auto-Inject)
+- **RAG über Dokumente** - agentengetrieben per `search_documents`-Tool (kein Auto-Inject); indexiert sind lokale Dateien und, was der Benutzer im Dokumentenfenster aus einer Quelle wie Nextcloud indexiert
 - **History Compression** - Automatische Kompression (siehe unten)
 - **Multi-Backend Support** - llama.cpp und vLLM (beide via llama-swap), Ollama, Cloud-APIs
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle

@@ -994,11 +994,13 @@ class OpenAICompatibleBackend(LLMBackend):
                                 result = item.get("result", "") or ""
                         # Cap the tool result against the active model's
                         # context budget — large results would otherwise
-                        # crowd out the model's answer space.
+                        # crowd out the model's answer space. On a thread:
+                        # counting the tokens of a large result takes about
+                        # a second per MB, which would stop the whole backend.
                         from ..lib.tool_output_cap import budget_var, cap_tool_output
                         budget = budget_var.get()
                         if budget > 0:
-                            result = cap_tool_output(result, budget)
+                            result = await asyncio.to_thread(cap_tool_output, result, budget)
                         # Sandbox screenshots/plots are invisible to a
                         # text-only model — append a VLM text description
                         # (SSOT describe_sandbox_screenshots; runs after the

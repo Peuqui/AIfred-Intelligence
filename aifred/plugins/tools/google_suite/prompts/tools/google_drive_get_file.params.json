@@ -4,6 +4,16 @@
     "file_id": {
       "type": "string",
       "description": "ID of the file"
+    },
+    "line_start": {
+      "type": "integer",
+      "description": "First line to read (1-based). Use with line_end for long files.",
+      "default": 0
+    },
+    "line_end": {
+      "type": "integer",
+      "description": "Last line to read (inclusive). 0 = until end of file.",
+      "default": 0
     }
   },
   "required": [

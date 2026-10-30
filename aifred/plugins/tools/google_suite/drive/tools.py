@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 import uuid
 from typing import Any
@@ -12,6 +11,7 @@ from typing import Any
 import httpx
 
 from .....lib.function_calling import Tool
+from .....lib.line_window import LineWindow
 from .....lib.plugin_base import load_tool_description, load_tool_parameters
 from .....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
 from .._common import PLUGIN_DIR, _get_token, _google_request
@@ -27,31 +27,10 @@ _GOOGLE_EXPORT_MIME: dict[str, str] = {
 
 _FILE_FIELDS = "id,name,mimeType,modifiedTime,size,parents,webViewLink"
 
-# Download-Cap für get_file: Der Inhalt geht 1:1 in den LLM-Kontext — mehr
-# als ein paar MB Text sind nie sinnvoll, und ohne Cap zieht ein grosses
-# Drive-File den ganzen Prozess in den OOM.
-DRIVE_MAX_DOWNLOAD_BYTES = int(os.environ.get("DRIVE_MAX_DOWNLOAD_BYTES", str(5 * 1024 * 1024)))
-
 # Erkennt eine rohe Drive-Query (Operator-Syntax) — als WORT, nicht als
 # Substring: das frühere `"in" in query` hielt jede Suche nach z.B.
 # "Einladung" für eine Drive-Query und schickte sie unescaped an die API.
 _DRIVE_QUERY_OPERATOR = re.compile(r"=|\bcontains\b|\bin\s+parents\b")
-
-
-async def _read_capped(response: httpx.Response) -> str:
-    """Read a streamed download, aborting past DRIVE_MAX_DOWNLOAD_BYTES."""
-    chunks: list[bytes] = []
-    total = 0
-    async for chunk in response.aiter_bytes(64 * 1024):
-        total += len(chunk)
-        if total > DRIVE_MAX_DOWNLOAD_BYTES:
-            raise RuntimeError(
-                f"File larger than {DRIVE_MAX_DOWNLOAD_BYTES // (1024 * 1024)} MB "
-                "— download aborted (DRIVE_MAX_DOWNLOAD_BYTES)."
-            )
-        chunks.append(chunk)
-    encoding = response.charset_encoding or "utf-8"
-    return b"".join(chunks).decode(encoding, errors="replace")
 
 
 # The tools that only read — offered alone when the service is set to read.
@@ -136,8 +115,9 @@ def get_drive_tools(agent_folder_name: str) -> list[Tool]:
         ]
         return wrap_untrusted_data(json.dumps(result, ensure_ascii=False), "google_drive")
 
-    async def get_file(file_id: str) -> str:
-        """Dateiinhalt lesen. Google Docs/Sheets werden als Text exportiert."""
+    async def get_file(file_id: str, line_start: int | str = 0, line_end: int | str = 0) -> str:
+        """Dateiinhalt lesen, auf Wunsch nur einen Zeilenbereich. Google
+        Docs/Sheets werden als Text exportiert."""
         await folder.require_inside(file_id)
         # Metadaten abrufen um MIME-Typ zu kennen
         meta = await _google_request(
@@ -158,8 +138,8 @@ def get_drive_tools(agent_folder_name: str) -> list[Tool]:
             download_url = f"{DRIVE_API}/files/{file_id}"
             params = {"alt": "media"}
 
-        # Gestreamt + Byte-Cap: der Inhalt landet im LLM-Kontext, ein
-        # unbegrenztes r.text auf einem grossen Drive-File waere ein OOM.
+        # Gestreamt durch das Zeilenfenster: im Speicher bleibt nur der Bereich,
+        # ein r.text auf einem grossen Drive-File waere ein OOM.
         # (Bewusst NICHT über _google_request — Streaming braucht den
         # client.stream-Kontext.)
         token = await _get_token()
@@ -169,10 +149,17 @@ def get_drive_tools(agent_folder_name: str) -> list[Tool]:
             params=params, timeout=30,
         ) as r:
             r.raise_for_status()
-            content = await _read_capped(r)
+            window = LineWindow(int(line_start), int(line_end), r.charset_encoding or "utf-8")
+            try:
+                async for chunk in r.aiter_bytes(64 * 1024):
+                    window.feed(chunk)
+                content, total_lines, range_info = window.result()
+            except UnicodeDecodeError:
+                return json.dumps({"error": f"{name} is no text file ({mime})"}, ensure_ascii=False)
 
         return wrap_untrusted_data(
-            json.dumps({"id": file_id, "name": name, "content": content}, ensure_ascii=False),
+            json.dumps({"id": file_id, "name": name, "total_lines": total_lines, "range": range_info,
+                        "content": content}, ensure_ascii=False),
             "google_drive",
         )
 

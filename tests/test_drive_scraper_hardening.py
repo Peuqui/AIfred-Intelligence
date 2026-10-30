@@ -1,17 +1,10 @@
-"""google_drive-Härtung (Query-Escape + Size-Cap) und Scraper-DNS-Rebind-Pin."""
+"""google_drive-Härtung (Query-Escape) und Scraper-DNS-Rebind-Pin."""
 
-import asyncio
 from types import SimpleNamespace
-
-import httpx
-import pytest
 
 from aifred.lib.tools.scraper_tool import WebScraperTool
 from aifred.plugins.tools.google_suite.drive._api import escape_drive_term
-from aifred.plugins.tools.google_suite.drive.tools import (
-    _DRIVE_QUERY_OPERATOR,
-    _read_capped,
-)
+from aifred.plugins.tools.google_suite.drive.tools import _DRIVE_QUERY_OPERATOR
 
 # ── Drive: Query-Escape ───────────────────────────────────────
 
@@ -30,21 +23,6 @@ class TestDriveQueryEscape:
             assert not _DRIVE_QUERY_OPERATOR.search(plain), plain
         for raw in ("name = 'x'", "fullText contains 'x'", "'abc' in parents"):
             assert _DRIVE_QUERY_OPERATOR.search(raw), raw
-
-
-# ── Drive: Download-Cap ───────────────────────────────────────
-
-class TestDriveDownloadCap:
-    def test_small_body_passes(self):
-        resp = httpx.Response(200, content="hallo wölt".encode())
-        assert asyncio.run(_read_capped(resp)) == "hallo wölt"
-
-    def test_oversized_body_aborts(self, monkeypatch):
-        import aifred.plugins.tools.google_suite.drive.tools as drive_tools
-        monkeypatch.setattr(drive_tools, "DRIVE_MAX_DOWNLOAD_BYTES", 10)
-        resp = httpx.Response(200, content=b"x" * 11)
-        with pytest.raises(RuntimeError, match="download aborted"):
-            asyncio.run(_read_capped(resp))
 
 
 # ── Scraper: DNS-Rebind-Pin ───────────────────────────────────

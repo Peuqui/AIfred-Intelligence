@@ -47,10 +47,11 @@ Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Ver
 - **Chunking:** Automatisch in ~800-Token-Abschnitte mit Overlap
 - **Semantische Suche:** Embedding-basiert über alle indexierten Dokumente
 - **Ordner-Filter:** `search_documents(folder="bibel")` schränkt die Suche ein und schließt alle verschachtelten Unterordner automatisch mit ein
+- **Weitere Quellen:** Dateien einer Dokumentenquelle (z. B. Nextcloud) indexiert der Benutzer im Dokumentenfenster, je Datei oder ganzen Ordner. Die Datei bleibt dort, der Index hält ihren Text unter `<quelle>:/<id>`, z. B. `nextcloud_files:/berichte/x.pdf`. `read_file` erreicht sie nicht; `folder="nextcloud_files:"` deckt die ganze Quelle ab. Ändert sich die Datei, gilt wie bei lokalen Dateien: neu indexieren. Agenten können nur lokale Dateien indexieren
 - **Relevanz-Labels:** Jeder Treffer wird mit `high` / `medium` (Ähnlichkeit) oder `context` (Nachbar-Chunks rund um einen Treffer) markiert
 - **MMR-Diversifizierung:** Ergebnisse werden über Dateien/Vektor-Regionen verteilt, statt viele fast identische Chunks zurückzugeben
 - **Pagination:** Dieselbe Query mit `page=2`, `page=3`, … erneut aufrufen — die Antwort liefert `has_more` plus `next_page_hint` oder `pagination_note`, ob tiefere Seiten lohnen
-- **Orphan-Bereinigung:** `list_orphaned` findet Index-Einträge, deren Quelldatei auf der Platte gelöscht wurde
+- **Orphan-Bereinigung:** `list_orphaned` findet Index-Einträge, deren Quelldatei auf der Platte gelöscht wurde. Einträge aus weiteren Quellen zählen nicht dazu, auch wenn die Datei dort gelöscht wurde
 - **Zentrale Verwaltung:** `chromadb_stats` zeigt Documents und alle Agent-Memory-Collections auf einen Blick
 
 ## Sicherheit
@@ -59,3 +60,4 @@ Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Ver
 - Path-Traversal-Versuche (z.B. `../../etc/passwd`) werden blockiert
 - Löschen erfordert WRITE_SYSTEM Tier (höchste Stufe vor ADMIN)
 - ChromaDB-Clear erfordert ebenfalls WRITE_SYSTEM
+- `search_documents` ist READONLY: Was der Benutzer aus einer Quelle indexiert, finden Agenten auf jedem Kanal, auch wenn die Quelle selbst eine höhere Stufe verlangt. Indexieren ist deshalb eine bewusste Entscheidung des Benutzers und nur im Dokumentenfenster möglich

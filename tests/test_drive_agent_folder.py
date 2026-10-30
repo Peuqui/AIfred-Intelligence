@@ -6,6 +6,7 @@ import re
 from types import SimpleNamespace
 from typing import Any
 
+import httpx
 import pytest
 
 from aifred.plugins.tools.google_suite.drive import agent_folder as agent_folder_module
@@ -92,6 +93,46 @@ def _run(coroutine: Any) -> Any:
 def _ids(result: str) -> set[str]:
     start, end = result.index("["), result.rindex("]") + 1
     return {entry["id"] for entry in json.loads(result[start:end])}
+
+
+@pytest.fixture
+def download(drive: FakeDrive, monkeypatch: pytest.MonkeyPatch) -> dict[str, bytes]:
+    """What Drive delivers for a file: the stream runs through httpx, only the network is replaced."""
+    body = {"content": b""}
+    transport = httpx.MockTransport(lambda request: httpx.Response(
+        200, content=body["content"], headers={"Content-Type": "text/plain; charset=utf-8"}))
+    real_client = httpx.AsyncClient
+
+    async def token() -> str:
+        return "token"
+
+    monkeypatch.setattr(tools_module, "_get_token", token)
+    monkeypatch.setattr(httpx, "AsyncClient", lambda: real_client(transport=transport))
+    return body
+
+
+def _content(answer: str) -> dict[str, Any]:
+    result: dict[str, Any] = json.loads(answer[answer.index('{"id"'):answer.rindex("}") + 1])
+    return result
+
+
+def test_a_drive_file_comes_in_the_asked_lines(download: dict[str, bytes]) -> None:
+    download["content"] = b"eins\nzwei\ndrei\nvier"
+    part = _content(_run(_tools()["google_drive_get_file"](file_id="inside", line_start=2, line_end=3)))
+    assert (part["content"], part["total_lines"], part["range"]) == ("zwei\ndrei", 4, "lines 2-3 of 4")
+    assert _content(_run(_tools()["google_drive_get_file"](file_id="inside")))["content"].endswith("vier")
+
+
+def test_a_drive_file_has_no_size_limit(download: dict[str, bytes]) -> None:
+    download["content"] = b"x\n" * (3 * 1024 * 1024)  # 6 MB, past the old cap of 5
+    part = _content(_run(_tools()["google_drive_get_file"](file_id="inside", line_start=3_000_000, line_end=3_000_000)))
+    assert (part["content"], part["total_lines"]) == ("x", 3 * 1024 * 1024 + 1)
+
+
+def test_a_binary_drive_file_is_refused_with_the_reason(download: dict[str, bytes]) -> None:
+    download["content"] = b"\x89PNG\xff\xfe"
+    answer = json.loads(_run(_tools()["google_drive_get_file"](file_id="inside")))
+    assert answer == {"error": "plan.txt is no text file (text/plain)"}
 
 
 def test_list_without_folder_shows_the_agent_folder(drive: FakeDrive) -> None:

@@ -4,7 +4,7 @@ Document Mixin – file explorer, upload, indexing and management.
 Part of the AIfred State refactoring (aifred/state/ package).
 """
 
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from typing import Any
 
 import reflex as rx
@@ -168,8 +168,8 @@ class DocumentMixin(rx.State, mixin=True):
     # FURTHER SOURCES (lib.document_sources — e.g. Google Drive)
     # ================================================================
     # The local folder is the source "local"; others come from enabled
-    # plugins and are addressed by folder id. Their rows carry id and
-    # download_url instead of the local index/rename/delete fields.
+    # plugins and are addressed by folder id. Their rows carry id, download_url
+    # and the index state instead of the local rename/delete fields.
 
     doc_source: str = "local"
     doc_source_options: list[dict[str, str]] = []  # [{key, label}], local first
@@ -195,15 +195,21 @@ class DocumentMixin(rx.State, mixin=True):
             {"key": key, "label": source.label(lang)} for key, source in document_sources().items()
         ]
 
+    def _open_remote_folder_id(self) -> str:
+        return self.doc_remote_trail[-1]["id"] if self.doc_remote_trail else ""
+
     async def _refresh_remote_list(self) -> EventSpec | None:
         """List the open folder (or the search hits) of the current source."""
+        import asyncio
         from datetime import datetime
+        from pathlib import Path
 
-        from ..lib.document_sources import DocumentSourceError, get_document_source
-        from ..lib.file_manager import format_size, format_stamp
+        from ..lib.document_sources import DocumentSourceError, get_document_source, source_index_name
+        from ..lib.document_store import PARSERS
+        from ..lib.file_manager import chunks_per_document, format_size, format_stamp
         from ..lib.i18n import t
 
-        folder_id = self.doc_remote_trail[-1]["id"] if self.doc_remote_trail else ""
+        folder_id = self._open_remote_folder_id()
         try:
             source = get_document_source(self.doc_source)
             self.doc_source_writable = source.writable
@@ -216,6 +222,7 @@ class DocumentMixin(rx.State, mixin=True):
                 t("doc_source_failed", lang=self.ui_language, error=str(failed)),  # type: ignore[attr-defined]
                 duration=6000, position="top-center",
             )
+        indexed = await asyncio.to_thread(chunks_per_document)
         self.doc_file_list = [
             {
                 "id": entry.id,
@@ -224,11 +231,20 @@ class DocumentMixin(rx.State, mixin=True):
                 "size": format_size(entry.size_bytes) if entry.size_bytes is not None else "",
                 "modified": format_stamp(datetime.fromisoformat(entry.modified).timestamp()) if entry.modified else "",
                 "download_url": f"/api/documents/source/{self.doc_source}/file/{entry.id}",
+                "indexable": not entry.is_folder and Path(entry.name).suffix.lower() in PARSERS,
+                "indexed": source_index_name(self.doc_source, entry.id) in indexed,
+                "chunks": indexed.get(source_index_name(self.doc_source, entry.id), 0),
             }
             for entry in entries
         ]
         self.doc_selected_files = []
         return None
+
+    async def _refresh_open_source(self) -> EventSpec | None:
+        if self.doc_source == "local":
+            self._refresh_file_list()
+            return None
+        return await self._refresh_remote_list()
 
     async def set_doc_source(self, key: str | list[str]) -> EventSpec | None:
         """Switch between the local folder and a further source (the segmented
@@ -242,10 +258,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.doc_remote_query_input = ""
         self.document_preview_filename = ""
         self.document_preview_content = ""
-        if key == "local":
-            self._refresh_file_list()
-            return None
-        return await self._refresh_remote_list()
+        return await self._refresh_open_source()
 
     async def doc_open_remote_folder(self, folder_id: str, name: str) -> EventSpec | None:
         self.doc_remote_trail = [*self.doc_remote_trail, {"id": folder_id, "name": name}]
@@ -416,9 +429,8 @@ class DocumentMixin(rx.State, mixin=True):
                     import mimetypes
 
                     from ..lib.document_sources import get_document_source
-                    folder_id = self.doc_remote_trail[-1]["id"] if self.doc_remote_trail else ""
                     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
-                    await get_document_source(self.doc_source).upload(folder_id, filename, content, mime)
+                    await get_document_source(self.doc_source).upload(self._open_remote_folder_id(), filename, content, mime)
                     self.document_upload_status = t(
                         "doc_upload_saved", lang=self.ui_language,  # type: ignore[attr-defined]
                         filename=filename,
@@ -446,10 +458,7 @@ class DocumentMixin(rx.State, mixin=True):
                 yield  # type: ignore[misc]
 
             # Refresh file list
-            if self.doc_source == "local":
-                self._refresh_file_list()
-            else:
-                yield await self._refresh_remote_list()  # type: ignore[misc]
+            yield await self._refresh_open_source()  # type: ignore[misc]
 
         except Exception as e:
             self.document_upload_status = f"\u274c {e}"
@@ -469,14 +478,66 @@ class DocumentMixin(rx.State, mixin=True):
     # INDEX / DEINDEX
     # ================================================================
 
-    async def doc_index_folder(self):
-        """Bulk-index every file under the current folder (recursive).
-
-        Walks ``doc_current_folder`` and all sub-folders, indexes each
-        file via ``fm.index_file`` sequentially, reports progress in the
-        upload-status line. Files that are already indexed get re-indexed
-        — ChromaDB's upsert makes that idempotent (same chunk-IDs).
+    async def _index_files(
+        self, files: Sequence[tuple[str, Callable[[], Awaitable[Any]]]], where: str,
+    ) -> AsyncGenerator[EventSpec | None, None]:
+        """Index one file after the other, with progress in the upload-status
+        line. ``files`` pairs each name with the call that indexes it. Files
+        that are already indexed get re-indexed — the store replaces their chunks.
         """
+        from ..lib.i18n import t
+
+        total = len(files)
+        indexed = 0
+        failed = 0
+        chunks_total = 0
+
+        for i, (name, index_file) in enumerate(files, 1):
+            self.document_upload_status = t(
+                "doc_index_folder_progress", lang=self.ui_language,  # type: ignore[attr-defined]
+                current=i, total=total, name=name,
+            )
+            yield None
+
+            result = await index_file()
+            if result.success:
+                indexed += 1
+                chunks_total += int(result.metadata.get("chunks", 0) or 0)
+            else:
+                failed += 1
+                self.add_debug(f"⚠️ index: {name}: {result.detail}")  # type: ignore[attr-defined]
+
+        final_msg = t(
+            "doc_index_folder_done", lang=self.ui_language,  # type: ignore[attr-defined]
+            indexed=indexed, total=total, chunks=chunks_total,
+        )
+        if failed:
+            final_msg += t("doc_index_folder_failed_suffix", lang=self.ui_language, failed=failed)  # type: ignore[attr-defined]
+        self.add_debug(f"📚 Bulk-Index '{where}': {indexed}/{total} files, {chunks_total} chunks")  # type: ignore[attr-defined]
+        self.document_upload_status = ""
+        yield await self._refresh_open_source()
+        yield rx.toast.success(final_msg, duration=7000, position="top-center")
+
+    def _index_toast(self, result: Any, filename: str) -> EventSpec:
+        """The outcome of indexing one file."""
+        from ..lib.i18n import t
+
+        if result.success:
+            self.add_debug(f"✅ Indexed: {filename} ({result.metadata.get('chunks', 0)} chunks)")  # type: ignore[attr-defined]
+            msg = t(
+                "doc_upload_success", lang=self.ui_language,  # type: ignore[attr-defined]
+                filename=filename, chunks=result.metadata.get("chunks", 0),
+            )
+            return rx.toast.success(msg, duration=5000, position="top-center")
+        self.add_debug(f"⚠️ index: {result.detail}")  # type: ignore[attr-defined]
+        return rx.toast.error(result.detail, duration=5000, position="top-center")
+
+    async def doc_index_folder(self):
+        """Bulk-index every file under the current folder (recursive):
+        ``doc_current_folder`` and all sub-folders, via ``fm.index_file``.
+        """
+        from functools import partial
+
         from ..lib import file_manager as fm
         from ..lib.config import DOCUMENTS_DIR
         from ..lib.i18n import t
@@ -494,41 +555,41 @@ class DocumentMixin(rx.State, mixin=True):
             yield
             return
 
-        total = len(files)
-        indexed = 0
-        failed = 0
-        chunks_total = 0
+        indexing = [(path.name, partial(fm.index_file, str(path.relative_to(DOCUMENTS_DIR)))) for path in files]
+        async for event in self._index_files(indexing, self.doc_current_folder or "/"):
+            yield event
 
-        for i, file_path in enumerate(files, 1):
-            rel_path = str(file_path.relative_to(DOCUMENTS_DIR))
-            short = file_path.name
-            self.document_upload_status = t(
-                "doc_index_folder_progress", lang=self.ui_language,  # type: ignore[attr-defined]
-                current=i, total=total, name=short,
+    async def doc_index_remote_folder(self) -> AsyncGenerator[EventSpec | None, None]:
+        """Bulk-index every indexable file below the open folder of a further source."""
+        from functools import partial
+        from pathlib import Path
+
+        from ..lib import file_manager as fm
+        from ..lib.document_sources import DocumentSourceError, files_below, get_document_source
+        from ..lib.document_store import PARSERS
+        from ..lib.i18n import t
+
+        try:
+            entries = await files_below(get_document_source(self.doc_source), self._open_remote_folder_id())
+        except (LookupError, DocumentSourceError) as failed:
+            yield rx.toast.error(
+                t("doc_source_failed", lang=self.ui_language, error=str(failed)),  # type: ignore[attr-defined]
+                duration=6000, position="top-center",
             )
-            yield
+            return
 
-            result = await fm.index_file(rel_path)
-            if result.success:
-                indexed += 1
-                chunks_total += int(result.metadata.get("chunks", 0) or 0)
-            else:
-                failed += 1
-                self.add_debug(f"⚠️ index: {rel_path}: {result.detail}")  # type: ignore[attr-defined]
-
-        final_msg = t(
-            "doc_index_folder_done", lang=self.ui_language,  # type: ignore[attr-defined]
-            indexed=indexed, total=total, chunks=chunks_total,
-        )
-        if failed:
-            final_msg += t("doc_index_folder_failed_suffix", lang=self.ui_language, failed=failed)  # type: ignore[attr-defined]
-        self.add_debug(  # type: ignore[attr-defined]
-            f"📚 Bulk-Index '{self.doc_current_folder or '/'}': "
-            f"{indexed}/{total} files, {chunks_total} chunks"
-        )
-        self.document_upload_status = ""
-        self._refresh_file_list()
-        yield rx.toast.success(final_msg, duration=7000, position="top-center")
+        indexing = [
+            (entry.name, partial(fm.index_source_file, self.doc_source, entry.id, entry.name))
+            for entry in entries if Path(entry.name).suffix.lower() in PARSERS
+        ]
+        if not indexing:
+            yield rx.toast.warning(
+                t("doc_index_folder_empty", lang=self.ui_language),  # type: ignore[attr-defined]
+                duration=5000, position="top-center",
+            )
+            return
+        async for event in self._index_files(indexing, f"{self.doc_source}:/{self.doc_remote_path_text}"):
+            yield event
 
     async def doc_index_file(self, filename: str) -> AsyncGenerator[EventSpec | None, None]:
         """Index a file into ChromaDB."""
@@ -543,28 +604,45 @@ class DocumentMixin(rx.State, mixin=True):
         yield  # type: ignore[misc]
 
         result = await fm.index_file(rel_path)
-        chunks = result.metadata.get("chunks", 0)
-
-        if result.success:
-            msg = t(
-                "doc_upload_success", lang=self.ui_language,  # type: ignore[attr-defined]
-                filename=filename, chunks=chunks,
-            )
-            self.add_debug(f"\u2705 Indexed: {rel_path} ({chunks} chunks)")  # type: ignore[attr-defined]
-            toast_kind = "success"
-        else:
-            msg = result.detail
-            self.add_debug(f"\u26a0\ufe0f index: {result.detail}")  # type: ignore[attr-defined]
-            toast_kind = "error"
-
         self.document_upload_status = ""
         self._refresh_file_list()
-        yield getattr(rx.toast, toast_kind)(msg, duration=5000, position="top-center")
+        yield self._index_toast(result, filename)
 
         import asyncio
         await asyncio.sleep(4)
         self.document_upload_status = ""
         yield  # type: ignore[misc]
+
+    async def doc_index_remote_file(self, file_id: str, name: str) -> AsyncGenerator[EventSpec | None, None]:
+        """Index a file of the open source; the file itself stays there."""
+        from ..lib import file_manager as fm
+        from ..lib.i18n import t
+
+        self.document_upload_status = t(
+            "doc_upload_indexing", lang=self.ui_language,  # type: ignore[attr-defined]
+            filename=name,
+        )
+        yield None
+
+        result = await fm.index_source_file(self.doc_source, file_id, name)
+        self.document_upload_status = ""
+        yield await self._refresh_remote_list()
+        yield self._index_toast(result, name)
+
+    async def doc_deindex_remote_file(self, file_id: str, name: str) -> AsyncGenerator[EventSpec | None, None]:
+        """Remove a file of the open source from the index; it stays at the source."""
+        from ..lib import file_manager as fm
+        from ..lib.document_sources import source_index_name
+        from ..lib.i18n import t
+
+        result = await fm.deindex_file(source_index_name(self.doc_source, file_id))
+        self.add_debug(f"\U0001f4e4 Deindexed: {name}")  # type: ignore[attr-defined]
+        yield await self._refresh_remote_list()
+        yield rx.toast.success(
+            t("doc_deindex_success", lang=self.ui_language,  # type: ignore[attr-defined]
+              filename=name, chunks=result.metadata.get("chunks_removed", 0)),
+            duration=5000, position="top-center",
+        )
 
     async def doc_deindex_file(self, filename: str) -> AsyncGenerator[EventSpec | None, None]:
         """Remove a file from ChromaDB index (file stays on disk)."""

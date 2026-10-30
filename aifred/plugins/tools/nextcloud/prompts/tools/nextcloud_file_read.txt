@@ -1,1 +1,1 @@
-Read a text file from the agent folder in the user's Nextcloud. Returns its content and the etag needed to overwrite it.
+Read a text file from the agent folder in the user's Nextcloud. Returns its content, its total_lines and the etag needed to overwrite it. Output that does not fit is cut off at the end: read a long file in portions with line_start/line_end. The etag belongs to the whole file, and overwriting replaces the whole file, so read all of it before overwriting.

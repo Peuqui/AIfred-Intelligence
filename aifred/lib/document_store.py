@@ -525,8 +525,11 @@ class DocumentStore:
             if f == folder or f.startswith(prefix)
         ]
 
-    async def index_document(self, file_path: Path, filename: str) -> int:
+    async def index_document(self, file_path: Path, filename: str, source: str = "") -> int:
         """Parse, chunk and embed a document. Returns number of chunks created.
+
+        ``source`` is the key of a further document source the file lives in;
+        empty for the local documents folder.
 
         All blocking calls (parser, embed, Chroma RPC) run on a thread so
         the asyncio event loop stays free for WebSocket heartbeats — large
@@ -558,7 +561,9 @@ class DocumentStore:
                 "chunk_index": i,
                 "total_chunks": len(chunks),
                 "upload_date": now,
-                "source_trust": "trusted",  # Documents uploaded via UI are trusted
+                "source": source,
+                # Documents uploaded via UI are trusted; a source's files can change there.
+                "source_trust": "external" if source else "trusted",
             }
             for i in range(len(chunks))
         ]
@@ -811,6 +816,7 @@ class DocumentStore:
                         "filename": fname,
                         "total_chunks": meta.get("total_chunks", 0),
                         "upload_date": meta.get("upload_date", ""),
+                        "source": meta.get("source", ""),
                     }
             if len(metas) < page_size:
                 break

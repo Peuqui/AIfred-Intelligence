@@ -1,12 +1,15 @@
-"""Further document sources: discovery among the enabled plugins, download route."""
+"""Further document sources: discovery among the enabled plugins, download route, the document index."""
 from __future__ import annotations
 
+import asyncio
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
 from starlette.testclient import TestClient
 
 from aifred.lib import document_sources as ds
+from aifred.lib import file_manager as fm
 from aifred.lib.api.app import api_app
 from aifred.lib.document_sources import (
     DocumentSource,
@@ -99,3 +102,85 @@ def test_unknown_source_and_failed_download(client: TestClient, path: str, statu
 def test_the_login_cookie_is_required(client: TestClient) -> None:
     client.cookies.clear()
     assert client.get("/documents/source/fake_drive/file/abc").status_code == 403
+
+
+# ── a source's files in the document index ─────────────────────────
+
+class FakeStore:
+    def __init__(self) -> None:
+        self.indexed: list[tuple[Path, bytes, str, str]] = []
+        self.documents: list[dict] = []
+        self.failure: Exception | None = None
+
+    async def index_document(self, file_path: Path, filename: str, source: str = "") -> int:
+        if self.failure:
+            raise self.failure
+        self.indexed.append((file_path, file_path.read_bytes(), filename, source))
+        return 3
+
+    def list_documents(self) -> list[dict]:
+        if self.failure:
+            raise self.failure
+        return self.documents
+
+
+@pytest.fixture
+def store(plugins, monkeypatch: pytest.MonkeyPatch) -> FakeStore:
+    plugins.append(_plugin(FakeSource()))
+    fake = FakeStore()
+    monkeypatch.setattr("aifred.lib.document_store.get_document_store", lambda: fake)
+    return fake
+
+
+def test_a_source_file_is_indexed_from_a_temporary_copy(store: FakeStore) -> None:
+    result = asyncio.run(fm.index_source_file("fake_drive", "ordner/bericht.txt", "Heizöl Bericht.txt"))
+    assert (result.success, result.metadata["chunks"]) == (True, 3)
+    copy, data, filename, source = store.indexed[0]
+    assert (data, filename, source) == ("Heizöl".encode(), "fake_drive:/ordner/bericht.txt", "fake_drive")
+    assert copy.suffix == ".txt"  # the parser goes by it
+    assert not copy.exists()
+
+
+def test_a_type_without_parser_is_refused_before_any_download(store: FakeStore) -> None:
+    result = asyncio.run(fm.index_source_file("fake_drive", "broken", "bild.png"))
+    assert (result.success, result.detail) == (False, "Unsupported file type: bild.png")
+
+
+@pytest.mark.parametrize(("source_key", "file_id"), [("fake_drive", "broken"), ("nope", "abc")])
+def test_a_file_that_cannot_be_fetched_is_reported(store: FakeStore, source_key: str, file_id: str) -> None:
+    assert not asyncio.run(fm.index_source_file(source_key, file_id, "a.txt")).success
+    assert store.indexed == []
+
+
+def test_a_bad_file_is_reported_and_does_not_end_a_run(store: FakeStore) -> None:
+    store.failure = ValueError("Document is empty: a.txt")
+    result = asyncio.run(fm.index_source_file("fake_drive", "abc", "a.txt"))
+    assert (result.success, result.detail) == (False, "a.txt: Document is empty: a.txt")
+
+
+def test_files_below_walks_the_subfolders() -> None:
+    tree = {
+        "": [SourceEntry("sub", "sub", True, None, "", "folder"), SourceEntry("a.txt", "a.txt", False, 1, "", "text/plain")],
+        "sub": [SourceEntry("sub/b.txt", "b.txt", False, 1, "", "text/plain")],
+    }
+
+    class Tree(FakeSource):
+        async def list_folder(self, folder_id: str) -> list[SourceEntry]:
+            return tree[folder_id]
+
+    assert [entry.id for entry in asyncio.run(ds.files_below(Tree(), ""))] == ["sub/b.txt", "a.txt"]
+
+
+def test_a_source_document_is_no_orphan(store: FakeStore) -> None:
+    store.documents = [
+        {"filename": "fake_drive:/a.txt", "total_chunks": 1, "upload_date": "", "source": "fake_drive"},
+        {"filename": "gibt-es-nicht.txt", "total_chunks": 1, "upload_date": "", "source": ""},
+    ]
+    assert [doc["filename"] for doc in fm.list_orphaned().metadata["orphans"]] == ["gibt-es-nicht.txt"]
+
+
+def test_a_listing_works_without_the_index(store: FakeStore) -> None:
+    store.documents = [{"filename": "a.txt", "total_chunks": 7, "upload_date": "", "source": ""}]
+    assert fm.chunks_per_document() == {"a.txt": 7}
+    store.failure = ConnectionError("ChromaDB is down")
+    assert fm.chunks_per_document() == {}

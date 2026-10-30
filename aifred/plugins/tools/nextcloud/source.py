@@ -2,8 +2,8 @@
 
 Satisfies ``lib.document_sources.DocumentSource``: browse folders, search,
 download as a stream, upload. Separate from the file tools, which serve the
-model (text only, capped, only the agent folder): here the user sees the whole
-account of the plugin's user, and files go to and from the user as they are.
+model (text only, only the agent folder): here the user sees the whole account
+of the plugin's user, and files go to and from the user as they are.
 """
 
 import asyncio

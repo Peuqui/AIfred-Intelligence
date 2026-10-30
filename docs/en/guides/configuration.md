@@ -240,7 +240,6 @@ Additional `.env` keys read by the code (names and meaning only):
 | `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | How long to wait for the puck's confirmation after pausing a running stream before an announcement; otherwise the announcement is dropped |
 | `TTS_CONTROL_API_TOKEN` | Bearer token of the TTS start/stop API used by the service control page |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Largest file a channel send tool may attach |
-| `DRIVE_MAX_DOWNLOAD_BYTES` | Largest Drive file the agents' Drive tool downloads |
 
 Plugin settings worth knowing:
 

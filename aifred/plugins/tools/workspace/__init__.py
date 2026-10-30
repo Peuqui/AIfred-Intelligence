@@ -19,6 +19,7 @@ from ....lib.config import (
 )
 from ....lib import file_manager as fm
 from ....lib.bubble import KIND_DOCUMENT_PAGES, BubbleArtifact
+from ....lib.line_window import line_range
 from ....lib.message_builder import image_marker
 from ....lib.vision_utils import is_image_file
 from ....lib.function_calling import Tool
@@ -245,20 +246,7 @@ class WorkspacePlugin:
                             detected = chardet.detect(raw)
                             all_text = raw.decode(str(detected.get("encoding") or "utf-8"), errors="replace")
 
-                    lines = all_text.split("\n")
-                    total_lines = len(lines)
-
-                    # Apply line range if specified
-                    ls = int(line_start)
-                    le = int(line_end)
-                    if ls > 0 or le > 0:
-                        start_idx = max(0, ls - 1)  # 1-based to 0-based
-                        end_idx = le if le > 0 else total_lines
-                        text = "\n".join(lines[start_idx:end_idx])
-                        range_info = f"lines {start_idx + 1}-{min(end_idx, total_lines)} of {total_lines}"
-                    else:
-                        text = all_text
-                        range_info = f"all {total_lines} lines"
+                    text, total_lines, range_info = line_range(all_text, int(line_start), int(line_end))
 
                     log_message(f"  read_file: {file_path.name} ({range_info}, {len(text)} chars)")
                     result = {

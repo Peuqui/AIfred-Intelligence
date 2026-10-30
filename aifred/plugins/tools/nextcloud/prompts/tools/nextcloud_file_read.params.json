@@ -4,6 +4,16 @@
     "path": {
       "type": "string",
       "description": "Path relative to the agent folder '{agent_folder}', e.g. reports/october.md"
+    },
+    "line_start": {
+      "type": "integer",
+      "description": "First line to read (1-based). Use with line_end for long files.",
+      "default": 0
+    },
+    "line_end": {
+      "type": "integer",
+      "description": "Last line to read (inclusive). 0 = until end of file.",
+      "default": 0
     }
   },
   "required": [

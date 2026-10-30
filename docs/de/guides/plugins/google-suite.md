@@ -201,7 +201,7 @@ AIfred ruft `google_drive_search(query="Projektplan")` auf.
 |------|-------------|------|
 | `google_drive_list_files` | Inhalt eines Ordners im Agenten-Ordner auflisten (ohne `folder_id`: der Agenten-Ordner selbst) | WRITE_DATA |
 | `google_drive_search` | Volltextsuche im Agenten-Ordner | WRITE_DATA |
-| `google_drive_get_file` | Dateiinhalt lesen (Google Docs → Klartext, Sheets → CSV; Obergrenze 5 MB) | WRITE_DATA |
+| `google_drive_get_file` | Textdatei lesen, auch abschnittsweise nach Zeilen (Google Docs → Klartext, Sheets → CSV) | WRITE_DATA |
 | `google_drive_create_file` | Neue Textdatei erstellen und befüllen | WRITE_DATA |
 | `google_drive_update_file` | Dateiinhalt überschreiben | WRITE_DATA |
 | `google_drive_delete_file` | Datei dauerhaft löschen (kein Papierkorb) | WRITE_SYSTEM |
@@ -211,9 +211,9 @@ AIfred ruft `google_drive_search(query="Projektplan")` auf.
 Die Lese-Tools sind bewusst `WRITE_DATA`: Sie legen private Drive-Inhalte offen und
 bleiben damit für externe Kanäle (E-Mail, Discord, Telegram) gesperrt. Welche Werkzeuge
 bei der Stufe „Lesen“ angeboten werden, entscheidet deshalb nicht der Tier, sondern
-`READ_TOOL_NAMES`. Die Obergrenze
-für `google_drive_get_file` ist `DRIVE_MAX_DOWNLOAD_BYTES` (Umgebungsvariable,
-Standard 5 MiB).
+`READ_TOOL_NAMES`. `google_drive_get_file` hat keine Größengrenze: Die Datei läuft als
+Strom durch, im Speicher bleibt nur der gewählte Zeilenbereich (`lib/line_window.py`).
+Binärdateien werden abgelehnt.
 
 ## Agenten-Ordner
 
