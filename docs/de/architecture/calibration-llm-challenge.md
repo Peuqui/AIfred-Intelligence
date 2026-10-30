@@ -76,8 +76,8 @@ Bevor der Vergleich startet:
    Testmodell entfernen (oder ein Modell wählen das noch nie kalibriert
    wurde).
 2. **Burn-In-Caches dürfen verwendet werden** — `data/vlm_vram_cache.json`
-   und `data/tts_vram_cache.json` sind Lookup-Tabellen mit empirisch
-   gemessenen Reserven für VLMs und TTSen. Beide Pfade (Algorithmus und
+   ist eine Lookup-Tabelle mit empirisch gemessenen Reserven für VLMs;
+   die TTS-Reserve nennt die TTS-Suite (`reserve_mib`). Beide Pfade (Algorithmus und
    LLM) nutzen sie als Input, fair für den Vergleich.
 3. **Mindestens 2-3 Modelle unterschiedlicher Größe** testen, damit der
    Vergleich nicht auf einem Spezialfall hängt. Vorschlag:
@@ -216,7 +216,6 @@ Wenn der AI-Pfad ausgebaut wird, neues Prompt-Layout:
   `fill_fastest_first`
 - [prompts/en/calibration/system.txt](../../../prompts/en/calibration/system.txt) —
   aktueller LLM-System-Prompt (`ai_agent.py` lädt ihn immer mit `lang="en"`)
-- [data/vlm_vram_cache.json](../../../data/vlm_vram_cache.json),
-  [data/tts_vram_cache.json](../../../data/tts_vram_cache.json) — Burn-In-Lookups
+- [data/vlm_vram_cache.json](../../../data/vlm_vram_cache.json) — Burn-In-Lookup
 - [data/model_vram_cache.json](../../../data/model_vram_cache.json) — Calibration-Cache
   (vor Vergleich für Testmodell leeren)

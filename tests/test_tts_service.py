@@ -3,13 +3,15 @@ Dienstes, Einheit, request_engines, Zwischenspeicher des Katalogs, Dienst nicht 
 Der Dienst ist ein httpx.MockTransport; der echte wird nie getroffen (conftest). AIfred schreibt nichts hinein."""
 
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 import httpx
 import pytest
 
 from aifred.lib import tts_service
-from aifred.lib.config import DEFAULT_TTS_ESCALATION, TTS_SUITE_CACHE_TTL_S
+from aifred.lib.config import DEFAULT_TTS_ESCALATION, TTS_SUITE_CACHE_TTL_S, VRAM_CONTEXT_RATIO_DENSE
+from aifred.lib.research import context_utils
 from aifred.lib.tts_client import (
     EngineInfo,
     EngineRef,
@@ -27,7 +29,7 @@ def row(engine: str = "xtts", host: str | None = None, **fields: Any) -> dict[st
         "label_short": {"de": engine.upper(), "en": engine.upper()},
         "status": "stopped", "unit_default": "sentence", "needs_gpu": True,
         "cloud": False, "browser": False, "installed": True, "start_hint": None, "vram_mib": {}, "idle_remaining_s": None,
-        "default_vram_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
+        "default_vram_mib": None, "reserve_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
     }
     return {**base, **fields}
 
@@ -130,6 +132,43 @@ def test_location_and_labels(fields: dict[str, Any], place: str) -> None:
 def test_label_of_an_entry_the_service_does_not_offer_names_key_and_host() -> None:
     assert tts_service.entry_label(tts_service.ListEntry("gone", None, True, "", None), "de") == "gone · Dieser Rechner"
     assert tts_service.entry_label(tts_service.ListEntry("gone", "Box", True, "", None), "de") == "gone · Box"
+
+
+def test_the_reserves_are_the_figures_the_service_names_for_its_local_gpu_engines(service) -> None:
+    service(
+        row("xtts", reserve_mib=3936), row("qwen3local", reserve_mib=6280),
+        row("qwen3local", "Box"), row("piper", needs_gpu=False), row("kokoro"),   # other machine, no GPU, no budget
+    )
+    assert tts_service.gpu_engine_reserves() == {"xtts": 3936, "qwen3local": 6280}
+
+
+OLLAMA_CONTEXT = 100_000
+
+
+@pytest.fixture
+def ollama_state(monkeypatch: pytest.MonkeyPatch) -> SimpleNamespace:
+    monkeypatch.setattr(context_utils, "get_ollama_calibrated_max_context", lambda *_: OLLAMA_CONTEXT)
+    monkeypatch.setattr(context_utils, "get_rope_factor_for_model", lambda _: 1.0)
+    monkeypatch.setattr(context_utils, "is_moe_model", lambda _: False)
+    return SimpleNamespace(enable_tts=True, backend_type="ollama", agent_tuning={})
+
+
+def test_the_ollama_context_reserves_for_the_first_switched_on_local_gpu_engine(service, ollama_state) -> None:
+    service(row("piper", needs_gpu=False), row("xtts", reserve_mib=3936), row("qwen3local", reserve_mib=6280))
+    num_ctx, source = context_utils.get_agent_num_ctx("aifred", ollama_state, "model")
+    assert num_ctx == OLLAMA_CONTEXT - int(3936 / VRAM_CONTEXT_RATIO_DENSE)   # piper comes first and holds no card
+    assert "XTTS" in source
+
+
+def test_the_ollama_context_reserves_nothing_for_a_list_without_a_local_gpu_engine(service, ollama_state) -> None:
+    service(row("piper", needs_gpu=False))
+    assert context_utils.get_agent_num_ctx("aifred", ollama_state, "model")[0] == OLLAMA_CONTEXT
+
+
+def test_a_service_that_does_not_answer_costs_the_ollama_chat_nothing(settings, ollama_state) -> None:
+    settings.data["tts_escalation"] = [stored("xtts")]
+    tts_service.reset_cache()                                     # conftest: dead service
+    assert context_utils.get_agent_num_ctx("aifred", ollama_state, "model")[0] == OLLAMA_CONTEXT
 
 
 # ---- The list: settings + catalog ----------------------------------------------------------

@@ -142,8 +142,9 @@ How much text goes to the engine at once is **one setting per TTS engine**, syst
   which is logged, and the load goes on as with too little room. After the load the next reading
   starts an engine again on a card with room (Qwen3 about 18 s, XTTS about 33 s to the first sound).
 - **Burn-in** (`tts_stress_burnin.py`): the calibration has the service read a worst-case text
-  on the engine and takes the peak of the VRAM the catalog reports; the result is cached in
-  `data/tts_vram_cache.json`.
+  on the engine and takes the peak of the VRAM the catalog reports. The result is not stored:
+  an engine's budget and margin live in the suite's configuration, the calibration reads them as the
+  catalog's `reserve_mib`. The burn-in serves the side-channel measurement and checking a budget.
 
 ## When the Service Is Not Reachable
 

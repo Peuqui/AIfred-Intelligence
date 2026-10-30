@@ -60,7 +60,7 @@ def catalog_row(engine: str, host: str | None = None, **fields: Any) -> dict[str
         "label_short": {"de": engine.upper(), "en": engine.upper()},
         "status": "running", "unit_default": "sentence", "needs_gpu": True,
         "cloud": False, "browser": False, "installed": True, "start_hint": None, "vram_mib": {}, "idle_remaining_s": None,
-        "default_vram_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
+        "default_vram_mib": None, "reserve_mib": None, "default_max_parallel": 1, "default_max_queue": 4,
     }
     return {**base, **fields}
 

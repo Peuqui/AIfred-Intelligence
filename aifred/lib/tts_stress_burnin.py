@@ -2,27 +2,17 @@
 
 For each installed local GPU TTS engine, this helper has the TTS-Suite service read a
 deliberately heavy workload (long bilingual text, several back-to-back requests so the
-decoder reaches its peak buffer allocation), watches the engine's VRAM in the service's
-catalog while it reads, then writes the observed peak into :mod:`tts_vram_cache`.
+decoder reaches its peak buffer allocation) and watches the engine's VRAM in the service's
+catalog while it reads. It returns the observed peak.
 
 AIfred only asks: the service starts the engine container itself when the reading reaches
 it and picks the card; afterwards AIfred asks the service to release the container. AIfred
-writes nothing into the service. The VRAM *budget* of an engine in the service (what the
-service may place on a card) is kept by hand in the suite's own web interface; the burn-in
-measures what the engine really takes, for the calibration's reserve.
+writes nothing into the service. The VRAM *budget* of an engine, and the headroom on top of
+it, live in the TTS-Suite (its configuration); the calibration reads the result as the
+catalog's ``reserve_mib`` (:func:`aifred.lib.tts_service.gpu_engine_reserves`). This measurement
+serves the joint side-channel burn-in and ad-hoc checks of a budget.
 
-The calibration consumes the cached value plus a fixed headroom (see
-:data:`LLAMACPP_TTS_BURNIN_HEADROOM_MB` in config.py). No more
-hand-measured reserve per engine — the burn-in is the source of truth.
-
-Triggers:
-
-* **Lazy** — when the calibration starts a TTS variant and finds the
-  cache empty for that engine.
-* **Manual** — via the "Reset TTS VRAM cache" button in the UI, which
-  clears the cache and lets the next calibration re-measure.
-* **CLI** — ``python -m aifred.lib.tts_stress_burnin <engine_key>``
-  for ad-hoc re-runs without touching the UI.
+* **CLI** — ``python -m aifred.lib.tts_stress_burnin <engine_key>`` prints the peak.
 """
 
 from __future__ import annotations
@@ -313,40 +303,6 @@ async def _measure(engine_key: str, iterations: int, log: Any) -> tuple[int, int
     return monitor.peak_mb, successes
 
 
-async def resolve_tts_reserve(
-    engine_key: str,
-    *,
-    debug: Any = None,
-) -> int:
-    """Return the calibration reserve (MiB) for ``engine_key``.
-
-    Resolution order:
-
-    1. JSON cache hit (:mod:`tts_vram_cache`) → cached peak +
-       :data:`LLAMACPP_TTS_BURNIN_HEADROOM_MB`.
-    2. Cold path: run :func:`stress_burnin_tts`, write the peak to the
-       cache, return peak + headroom.
-    3. On burn-in failure: 0 (caller should warn but not crash —
-       subtracting 0 means the calibration plans the TTS GPU as fully
-       available).
-
-    Engines that don't allocate persistent GPU memory (CPU/Cloud engines
-    with ``needs_gpu=False``) always return 0.
-    """
-    from . import tts_vram_cache
-    from .config import LLAMACPP_TTS_BURNIN_HEADROOM_MB
-
-    cached = tts_vram_cache.get(engine_key)
-    if cached:
-        return cached + LLAMACPP_TTS_BURNIN_HEADROOM_MB
-
-    peak = await stress_burnin_tts(engine_key, debug=debug)
-    if peak is None or peak <= 0:
-        return 0
-    tts_vram_cache.put(engine_key, peak)
-    return peak + LLAMACPP_TTS_BURNIN_HEADROOM_MB
-
-
 if __name__ == "__main__":  # pragma: no cover
     import sys
     if len(sys.argv) != 2:
@@ -358,6 +314,4 @@ if __name__ == "__main__":  # pragma: no cover
     if peak is None:
         print(f"Burn-in failed for {key}")
         sys.exit(1)
-    from . import tts_vram_cache
-    tts_vram_cache.put(key, peak)
-    print(f"OK — {key} peak = {peak} MiB written to cache")
+    print(f"OK — {key} peak = {peak} MiB (set it as the engine's budget in the TTS-Suite)")

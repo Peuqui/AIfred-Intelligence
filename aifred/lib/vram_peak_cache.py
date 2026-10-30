@@ -1,7 +1,7 @@
-"""Shared core for the peak-VRAM JSON caches (VLM + TTS).
+"""Shared core for the peak-VRAM JSON caches (VLM, sidechannel).
 
 Thread-safe, mtime-invalidated JSON store. The concrete caches
-(:mod:`vlm_vram_cache`, :mod:`tts_vram_cache`) define their own entry
+(:mod:`vlm_vram_cache`) define their own entry
 schema and public API on top of this class — this module only owns the
 load/save/locking mechanics so the pattern exists exactly once.
 """

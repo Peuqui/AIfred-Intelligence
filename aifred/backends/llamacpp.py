@@ -338,28 +338,12 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
         # Replace tensor-split with proportional default based on per-GPU
         # *free* VRAM, in AIfred's compute-DESC order (matches the UUID
-        # order pinned in env). Free instead of total so TTS-variant
-        # calibrations account for the TTS model already in VRAM.
+        # order pinned in env). The TTS reserve is the calibration's own
+        # business (``tts_gpu_extra_reserve_mb``), not this seed's.
         import re
         cal_cmd = model_info["full_cmd"]
         if cal_gpus and len(cal_gpus) > 1:
-            from ..lib.config import LLAMACPP_TTS_VRAM_RESERVE
             per_gpu_free = [g.free_mb for g in cal_gpus]
-
-            # TTS variant: subtract reserve from the GPU with the most
-            # used VRAM (= the TTS-container GPU) so it doesn't get
-            # over-allocated when TTS spikes.
-            if dry_run:
-                max_usage = 0
-                tts_gpu_idx = -1
-                for i, g in enumerate(cal_gpus):
-                    usage = g.total_mb - g.free_mb
-                    if usage > max_usage:
-                        max_usage = usage
-                        tts_gpu_idx = i
-                if tts_gpu_idx >= 0 and max_usage > LLAMACPP_TTS_VRAM_RESERVE:
-                    per_gpu_free[tts_gpu_idx] -= LLAMACPP_TTS_VRAM_RESERVE
-
             default_ts = ",".join(str(r) for r in per_gpu_free)
             if re.search(r'(-ts|--tensor-split)\s+[\d.,]+', cal_cmd):
                 cal_cmd = re.sub(r'(-ts|--tensor-split)\s+[\d.,]+', f'-ts {default_ts}', cal_cmd)

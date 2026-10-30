@@ -28,7 +28,7 @@ AIfred-Intelligence/
 │   │   ├── calibration/           # Kontext-Kalibrierung (llama.cpp-Ablauf, vLLM-Ablauf)
 │   │   ├── vision_*.py · frame_sources/ · frame_hub.py   # Vision + Vigilantia
 │   │   ├── tts_client.py · tts_service.py · tts_voices.py   # Client der TTS-Suite: HTTP/WebSocket, Katalog ↔ AIfreds Liste, Stimmen
-│   │   ├── tts_llm_coordination.py · tts_stress_burnin.py · tts_vram_cache.py   # Plan des LLM-Profils, Freigabe vor dem Laden, gemessene VRAM-Spitzen
+│   │   ├── tts_llm_coordination.py · tts_stress_burnin.py   # Plan des LLM-Profils, Freigabe vor dem Laden, Burn-in-Messung der TTS
 │   │   ├── speech_synthesis.py · audio_*.py · audio_channels/   # Synthese, STT, Ausgabewege (Browser, FreeEcho.2, lokal)
 │   │   ├── api/                   # REST API (FastAPI, unter /api gemountet): chat, agents, audio, announce, tts, documents, vision, …
 │   │   ├── i18n/                  # UI-Übersetzungen (de.json, en.json)

@@ -155,6 +155,17 @@ def gpu_engine_keys() -> set[str]:
     return {info.engine for info in catalog() if _is_local_gpu(info)}
 
 
+def gpu_engine_reserves() -> dict[str, int]:
+    """What a start of each local GPU engine needs free on a card, as the service says: its budget
+    plus the service's headroom (``reserve_mib`` of the catalog). The one figure AIfred plans with;
+    it keeps none of its own. An engine without a budget is missing: the service does not start it either.
+
+    Raises:
+        TTSSuiteUnreachable: the service does not answer.
+    """
+    return {info.engine: info.reserve_mib for info in catalog() if _is_local_gpu(info) and info.reserve_mib is not None}
+
+
 def installed_gpu_engine_keys() -> list[str]:
     """Local GPU engines whose image is built: the ones one can calibrate against."""
     return _unique([info.engine for info in catalog() if _is_local_gpu(info) and info.installed])
