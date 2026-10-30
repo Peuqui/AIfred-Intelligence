@@ -36,10 +36,6 @@ class DavConflict(DavError):
     """The object changed on the server since it was read (HTTP 412)."""
 
 
-class DavTooLarge(RuntimeError):
-    """A file is larger than the caller is willing to read."""
-
-
 @dataclass(frozen=True)
 class DavCollection:
     href: str
@@ -288,18 +284,9 @@ class DavClient:
                 '</d:basicsearch></d:searchrequest>')
         return [self._file(href, prop) for href, prop in self._multistatus("SEARCH", self._root, "0", body)]
 
-    def read_file(self, path: str, max_bytes: int) -> DavContent:
-        """The file's content; :class:`DavTooLarge` past ``max_bytes``, without fetching the rest."""
-        href = self._file_href(path)
-        with self._client.stream("GET", self._origin + href) as response:
-            if response.status_code != 200:
-                raise DavError(response.status_code, f"GET {href}")
-            data = bytearray()
-            for chunk in response.iter_bytes():
-                data += chunk
-                if len(data) > max_bytes:
-                    raise DavTooLarge(f"{path} is larger than {max_bytes // (1024 * 1024)} MB")
-            return DavContent(bytes(data), response.headers.get("Content-Type", ""), response.headers.get("ETag", ""))
+    def read_file(self, path: str) -> DavContent:
+        response = self._request("GET", self._file_href(path), expect=(200,))
+        return DavContent(response.content, response.headers.get("Content-Type", ""), response.headers.get("ETag", ""))
 
     def write_file(self, path: str, data: bytes, content_type: str, etag: str | None) -> str:
         """Create ``path``, or with ``etag`` overwrite it if it is unchanged. Returns the new ETag."""

@@ -10,21 +10,23 @@ Termine, Aufgaben, Kontakte und Dateien aus Nextcloud über CalDAV, CardDAV und 
 
 | Tool | Beschreibung | Tier | Angeboten |
 |------|-------------|------|-----------|
-| `nextcloud_search` | Termine im Zeitraum (Standard: die nächsten 30 Tage), Aufgaben, Kontakte; Listen der Kalender, Aufgabenlisten, Adressbücher | READONLY | für lesbare Module |
-| `nextcloud_get` | Einen Termin, eine Aufgabe oder einen Kontakt mit allen Details | READONLY | für lesbare Module |
+| `nextcloud_search` | Termine im Zeitraum (Standard: die nächsten 30 Tage), Aufgaben, Kontakte; Listen der Kalender, Aufgabenlisten, Adressbücher | WRITE_DATA | für lesbare Module |
+| `nextcloud_get` | Einen Termin, eine Aufgabe oder einen Kontakt mit allen Details | WRITE_DATA | für lesbare Module |
 | `nextcloud_create` | Termin, Aufgabe oder Kontakt anlegen | WRITE_DATA | für beschreibbare Module |
 | `nextcloud_update` | Termin, Aufgabe oder Kontakt ändern | WRITE_DATA | für beschreibbare Module |
 | `nextcloud_delete` | Termin, Aufgabe oder Kontakt löschen | WRITE_SYSTEM | für beschreibbare Module |
 
 | `nextcloud_file_list` | Agentenordner oder Unterordner auflisten, oder darin nach Namen suchen | WRITE_DATA | Modul Dateien lesbar |
-| `nextcloud_file_read` | Textdatei lesen, bis 5 MB | WRITE_DATA | Modul Dateien lesbar |
+| `nextcloud_file_read` | Textdatei lesen | WRITE_DATA | Modul Dateien lesbar |
 | `nextcloud_file_write` | Textdatei anlegen oder mit ihrer ETag überschreiben | WRITE_DATA | Modul Dateien beschreibbar |
 | `nextcloud_file_move` | Verschieben oder umbenennen, ohne etwas zu überschreiben | WRITE_DATA | Modul Dateien beschreibbar |
 | `nextcloud_file_delete` | In den Papierkorb legen | WRITE_SYSTEM | Modul Dateien beschreibbar |
 
 Die ID eines Eintrags ist `<sammlung>/<datei>` und stammt aus `nextcloud_search`.
 
-Die Datei-Werkzeuge stehen bewusst für sich: Lesen trägt `WRITE_DATA` wie bei Google Drive, damit private Dateien nicht über externe Kanäle abfließen, und Dateien lassen sich einem Agenten getrennt von Kalender und Kontakten geben.
+Auch Lesen trägt `WRITE_DATA`: Termine, Kontakte und Dateien sind privat und sollen nicht über externe Kanäle abfließen. Auf einem Kanal unterhalb dieser Stufe und in geplanten Jobs mit `max_tier` 1 steht also auch das Lesen nicht zur Verfügung.
+
+Die Datei-Werkzeuge stehen bewusst für sich: Dateien lassen sich einem Agenten getrennt von Kalender und Kontakten geben.
 
 ## Module und Rechte
 
@@ -47,7 +49,7 @@ Geschrieben wird nur, wo **zusätzlich** Nextcloud dem eingetragenen Benutzer da
 - **Agentenordner:** Agenten arbeiten nur in `NEXTCLOUD_AGENT_FOLDER`. Sie nennen Pfade relativ dazu, `..` und ähnliche Wege nach außen werden abgelehnt, bevor etwas den Server erreicht. Den Ordner selbst können sie füllen, aber weder verschieben noch löschen. Fehlt er, legt ihn der erste Schreibvorgang an.
 - **Dokumentenfenster:** Nextcloud erscheint als weitere Quelle, solange das Modul Dateien nicht aus ist, live und ohne Spiegel. Dort sieht der Benutzer das ganze Konto des eingetragenen Benutzers samt Freigaben, nicht nur den Agentenordner. Hochladen geht nur auf Stufe Schreiben.
 - **Überschreiben:** Eine neue Datei scheitert, wenn es sie schon gibt. Überschreiben braucht die ETag aus dem Lesen; hat jemand die Datei inzwischen geändert, schlägt es fehl. Die eine Lücke liegt beim Server: Eine Änderung in derselben Sekunde wie die vorige lässt die ETag gleich.
-- **Lesen:** Nur UTF-8-Text bis 5 MB, der Inhalt geht in den Kontext des Modells und kommt als Daten gekennzeichnet zurück. Andere Dateien gibt es über das Dokumentenfenster.
+- **Lesen:** Nur UTF-8-Text, ohne eigene Größengrenze. Der Inhalt geht in den Kontext des Modells und kommt als Daten gekennzeichnet zurück; was nicht hineinpasst, kürzt die allgemeine Begrenzung der Werkzeug-Ausgaben. Andere Dateien gibt es über das Dokumentenfenster.
 - **Suchen:** nach dem Dateinamen, nicht im Inhalt.
 - **Löschen:** Nextcloud legt die Datei in den Papierkorb des Benutzers.
 

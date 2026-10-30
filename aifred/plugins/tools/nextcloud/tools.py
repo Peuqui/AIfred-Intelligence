@@ -1,9 +1,11 @@
 """Nextcloud tools for LLM function calling.
 
 ``nextcloud_search`` and ``nextcloud_get`` read; ``nextcloud_create``,
-``nextcloud_update`` and ``nextcloud_delete`` write. Tools and entity types
-exist only for the modules the plugin settings allow; arguments are parsed
-strictly; the server work runs in a worker thread.
+``nextcloud_update`` and ``nextcloud_delete`` write. Reading carries
+TIER_WRITE_DATA too: appointments and contacts are private, and the tiers keep
+them away from external channels. Tools and entity types exist only for the
+modules the plugin settings allow; arguments are parsed strictly; the server
+work runs in a worker thread.
 """
 
 import asyncio
@@ -13,7 +15,7 @@ from typing import Any
 
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
-from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from ....lib.tool_args import (
     InvalidValue,
     parse_bool,
@@ -288,8 +290,8 @@ def get_nextcloud_tools(store: NextcloudStore) -> list[Tool]:
                     parameters=load_tool_parameters(__file__, name, enums={"entity_type": types}))
 
     candidates = (
-        ("nextcloud_search", TIER_READONLY, nextcloud_search, search_types),
-        ("nextcloud_get", TIER_READONLY, nextcloud_get, get_types),
+        ("nextcloud_search", TIER_WRITE_DATA, nextcloud_search, search_types),
+        ("nextcloud_get", TIER_WRITE_DATA, nextcloud_get, get_types),
         ("nextcloud_create", TIER_WRITE_DATA, nextcloud_create, write_types),
         ("nextcloud_update", TIER_WRITE_DATA, nextcloud_update, write_types),
         ("nextcloud_delete", TIER_WRITE_SYSTEM, nextcloud_delete, write_types),

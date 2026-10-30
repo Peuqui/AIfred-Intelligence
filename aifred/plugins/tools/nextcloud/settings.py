@@ -15,8 +15,6 @@ AGENT_FOLDER_KEY = "NEXTCLOUD_AGENT_FOLDER"
 AGENT_FOLDER_DEFAULT = "AIfred-Intelligence"
 SETTINGS_PREFIX = "NEXTCLOUD"
 REQUEST_TIMEOUT_SEC = 20.0
-# What an agent reads goes 1:1 into the model's context; more than a few MB of text never helps.
-FILE_READ_LIMIT_BYTES = 5 * 1024 * 1024
 
 # calendar = events (VEVENT), tasks = todos (VTODO), contacts = address books, files = the WebDAV files.
 MODULE_DEFAULTS: dict[str, str] = {

@@ -10,21 +10,23 @@ Appointments, tasks, contacts and files from Nextcloud via CalDAV, CardDAV and W
 
 | Tool | Description | Tier | Offered |
 |------|-------------|------|---------|
-| `nextcloud_search` | Appointments in a date window (default: the next 30 days), tasks, contacts; lists of calendars, task lists, address books | READONLY | for readable modules |
-| `nextcloud_get` | One appointment, task or contact with all details | READONLY | for readable modules |
+| `nextcloud_search` | Appointments in a date window (default: the next 30 days), tasks, contacts; lists of calendars, task lists, address books | WRITE_DATA | for readable modules |
+| `nextcloud_get` | One appointment, task or contact with all details | WRITE_DATA | for readable modules |
 | `nextcloud_create` | Create an appointment, task or contact | WRITE_DATA | for writable modules |
 | `nextcloud_update` | Change an appointment, task or contact | WRITE_DATA | for writable modules |
 | `nextcloud_delete` | Delete an appointment, task or contact | WRITE_SYSTEM | for writable modules |
 
 | `nextcloud_file_list` | List the agent folder or a subfolder, or search it by name | WRITE_DATA | files module readable |
-| `nextcloud_file_read` | Read a text file, up to 5 MB | WRITE_DATA | files module readable |
+| `nextcloud_file_read` | Read a text file | WRITE_DATA | files module readable |
 | `nextcloud_file_write` | Create a text file, or overwrite it with its ETag | WRITE_DATA | files module writable |
 | `nextcloud_file_move` | Move or rename, overwriting nothing | WRITE_DATA | files module writable |
 | `nextcloud_file_delete` | Put into the trash bin | WRITE_SYSTEM | files module writable |
 
 An entry's ID is `<collection>/<file>` and comes from `nextcloud_search`.
 
-The file tools stand on their own on purpose: reading carries `WRITE_DATA` like Google Drive, so private files do not leak through external channels, and an agent can be given files separately from calendars and contacts.
+Reading carries `WRITE_DATA` too: appointments, contacts and files are private and must not leak through external channels. On a channel below this tier and in scheduled jobs with `max_tier` 1, reading is therefore not available either.
+
+The file tools stand on their own on purpose: an agent can be given files separately from calendars and contacts.
 
 ## Modules and rights
 
@@ -47,7 +49,7 @@ Writing happens only where Nextcloud **also** grants the configured user the wri
 - **Agent folder:** Agents work only in `NEXTCLOUD_AGENT_FOLDER`. They name paths relative to it; `..` and similar ways out are refused before anything reaches the server. They can fill the folder itself but neither move nor delete it. If it is missing, the first write creates it.
 - **Document window:** Nextcloud shows up as a further source while the files module is not off, live and without a mirror. There the user sees the whole account of the configured user with its shares, not only the agent folder. Uploading needs the write level.
 - **Overwriting:** Creating a file fails if it exists. Overwriting needs the ETag from reading it; if someone changed the file meanwhile, it fails. The one gap lies with the server: a change in the same second as the one before leaves the ETag as it is.
-- **Reading:** UTF-8 text up to 5 MB only; the content goes into the model's context and comes back marked as data. Other files are available through the document window.
+- **Reading:** UTF-8 text only, without a size limit of its own. The content goes into the model's context and comes back marked as data; what does not fit is cut by the general limit on tool output. Other files are available through the document window.
 - **Searching:** by file name, not by content.
 - **Deleting:** Nextcloud puts the file into the user's trash bin.
 

@@ -10,9 +10,8 @@ boundary: they may fill it but not delete or move it. The document manager
 import mimetypes
 from typing import Any
 
-from .dav import DavClient, DavConflict, DavError, DavFile, DavTooLarge
+from .dav import DavClient, DavConflict, DavError, DavFile
 from .errors import NextcloudRefused
-from .settings import FILE_READ_LIMIT_BYTES
 
 _NOT_FOUND = 404
 _TEXT = "text/plain"
@@ -88,9 +87,7 @@ class AgentFiles:
     def read(self, path: str) -> dict[str, Any]:
         cleaned = clean_path(path)
         try:
-            content = self._client.read_file(self._item(cleaned), FILE_READ_LIMIT_BYTES)
-        except DavTooLarge as exc:
-            raise NextcloudRefused(str(exc)) from exc
+            content = self._client.read_file(self._item(cleaned))
         except DavError as exc:
             if exc.status != _NOT_FOUND:
                 raise

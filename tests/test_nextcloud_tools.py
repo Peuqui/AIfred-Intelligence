@@ -9,6 +9,7 @@ import pytest
 from test_nextcloud_dav import CREDENTIALS, _credentials
 
 from aifred.lib.plugin_modules import ModuleAccess
+from aifred.lib.security import TIER_WRITE_DATA
 from aifred.plugins.tools import nextcloud as nextcloud_plugin
 from aifred.plugins.tools.nextcloud import store as store_module
 from aifred.plugins.tools.nextcloud.settings import NextcloudSettings
@@ -101,5 +102,7 @@ def test_modules_shape_tools_and_instructions(monkeypatch):
 
 def test_read_only_modules_offer_no_write_tools():
     store = _store(ModuleAccess({"calendar": "read", "tasks": "read", "contacts": "read", "files": "off"}))
-    assert {t.name for t in get_nextcloud_tools(store)} == {"nextcloud_search", "nextcloud_get"}
+    tools = get_nextcloud_tools(store)
+    assert {t.name for t in tools} == {"nextcloud_search", "nextcloud_get"}
+    assert {t.tier for t in tools} == {TIER_WRITE_DATA}  # private data stays away from external channels
     store.close()
