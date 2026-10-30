@@ -359,6 +359,7 @@ IMAP IDLE Push-basierter E-Mail-Monitor mit SMTP Auto-Reply.
 - Ordner-Management (verschieben, erstellen, auflisten)
 - Markieren (gelesen/ungelesen/markiert)
 - Auto-Reply pro Kanal konfigurierbar
+- Optional ein zweites Postfach, das Agenten über `email_readonly` nur lesen (Tier WRITE_DATA)
 
 > **Details:** [Email Plugin](plugins/email.md)
 

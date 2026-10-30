@@ -1,0 +1,29 @@
+{
+  "type": "object",
+  "properties": {
+    "action": {
+      "type": "string",
+      "enum": [],
+      "description": "Action to perform"
+    },
+    "msg_id": {
+      "type": "string",
+      "description": "Message ID from check or search (for read)"
+    },
+    "query": {
+      "type": "string",
+      "description": "Search term, matched against subject and sender (for search)"
+    },
+    "n": {
+      "type": "string",
+      "description": "Number of emails to fetch (for check, default 10)"
+    },
+    "folder": {
+      "type": "string",
+      "description": "IMAP folder (default INBOX)"
+    }
+  },
+  "required": [
+    "action"
+  ]
+}

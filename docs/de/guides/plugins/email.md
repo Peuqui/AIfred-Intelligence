@@ -10,10 +10,12 @@ Channel-Plugin für E-Mail-Kommunikation via IMAP IDLE und SMTP.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
-| `email` | E-Mails abrufen, lesen, suchen, senden, verschieben, löschen, markieren | COMMUNICATE |
+| `email` | E-Mails abrufen, lesen, suchen, senden, markieren, Ordner auflisten | COMMUNICATE |
+| `email_manage` | E-Mails löschen und verschieben, Ordner anlegen; nur im Browser | WRITE_SYSTEM |
+| `email_readonly` | Zweites Postfach abrufen, lesen, durchsuchen (siehe [unten](#zweites-postfach-nur-lesend)) | WRITE_DATA |
 
-Das `email`-Tool dispatcht über einen `action`-Parameter:
-`check`, `read`, `search`, `delete`, `send`, `move`, `list_folders`, `create_folder`, `mark`.
+`email` dispatcht über einen `action`-Parameter: `check`, `read`, `search`, `send`,
+`list_folders`, `mark`. `email_manage` ebenso: `delete`, `move`, `create_folder`.
 
 | Action | Pflicht-Parameter | Hinweise |
 |--------|-------------------|----------|
@@ -72,6 +74,42 @@ Externer → Reply: "Ja"          (landet in gleicher Session via In-Reply-To)
 AIfred   → Führt Aktion aus, Auto-Reply: "Erledigt."
 ```
 
+## Zweites Postfach (nur lesend)
+
+Neben AIfreds eigenem Briefkasten kann ein zweites Konto hinterlegt werden, zum Beispiel ein
+privates mail.de-Postfach. Agenten lesen es auf Anfrage über `email_readonly`, mit den Aktionen
+`check`, `read` und `search` und denselben Parametern wie beim `email`-Tool. Senden, Löschen,
+Verschieben und Markieren gibt es dort nicht.
+
+**Nur lesend ist technisch erzwungen:**
+
+- `check_inbox`, `read_email` und `search_emails` arbeiten auf `_ReadOnlyMailbox` und sehen die
+  IMAP-Verbindung nicht. Diese Klasse kennt nur EXAMINE, `UID SEARCH` und `UID FETCH` mit
+  `BODY.PEEK`; STORE, COPY, APPEND und EXPUNGE sind von dort nicht erreichbar.
+- EXAMINE (`select(..., readonly=True)`) öffnet den Ordner schreibgeschützt, BODY.PEEK lässt
+  `\Seen` unangetastet: Mails bleiben ungelesen.
+- Die drei Funktionen verlangen das Konto als Argument. Alles, was sendet oder ändert, hat
+  keinen Konto-Parameter und erreicht nur AIfreds eigenes Postfach.
+
+**Kein Rückgriff auf AIfreds Konto:** Das Werkzeug gibt es nur, wenn Host, Benutzer und Passwort
+des zweiten Postfachs gesetzt sind. Die Felder von AIfreds Konto springen nie ein.
+
+**Kein Listener:** Für dieses Postfach läuft kein IMAP IDLE. Es löst keine Agenten aus und wird
+nur abgerufen, wenn ein Agent das Werkzeug ruft.
+
+**Stufe:** `email_readonly` ändert nichts, trägt aber `WRITE_DATA` wie die lesenden
+Nextcloud-Werkzeuge: Das Postfach ist privat und soll nicht über externe Kanäle abfließen. Ein
+geplanter Job braucht dafür `max_tier` 2.
+
+**Vertrauen:** Inhalte kommen immer als `trust="external"` zum Modell, auch wenn eine Mail vom
+Owner stammt. Das Owner-Urteil beruht auf dem `Authentication-Results`-Header, und ob dieser
+Provider ihn zuverlässig stempelt, ist nicht geprüft.
+
+**Voraussetzung:** Kanäle bieten nur Werkzeuge an, wenn sie selbst konfiguriert sind. Ohne
+AIfreds eigenes Konto gibt es also auch `email_readonly` nicht. Der Zugangsdialog ist derselbe:
+Speichern schaltet wie immer den E-Mail-Kanal ein (`EMAIL_ENABLED`, Überwachung und Listener von
+AIfreds Postfach).
+
 ## Bilder und Anhänge
 
 Der Mail-Text ist Markdown und geht als HTML plus Klartext-Alternative raus. Dateien aus der eigenen Konversation (Upload, Sandbox-Ausgabe wie ein Diagramm) werden über ihre `/_upload/…`-URL angesprochen:
@@ -115,6 +153,19 @@ Credentials werden über `.env` oder das UI-Modal eingegeben (verwaltet vom Cred
 
 Das Plugin gilt als konfiguriert, wenn `enabled = true` ist und IMAP-Host, User
 und Passwort gesetzt sind.
+
+Zweites Postfach (nur lesend), im selben Dialog:
+
+| Feld | Default | Zweck |
+|------|---------|-------|
+| `EMAIL_READONLY_IMAP_HOST` | `imap.mail.de` | IMAP-Server |
+| `EMAIL_READONLY_IMAP_PORT` | `993` | IMAP-Port (SSL) |
+| `EMAIL_READONLY_USER` | – | Account-Login, bei mail.de die Adresse oder der Login (liegt in `.env`) |
+| `EMAIL_READONLY_PASSWORD` | – | Account-Passwort (geheim, liegt in `.env`) |
+
+Die Vorgaben für Host und Port stehen in der
+[mail.de-Hilfe](https://mail.de/en/help/messages/external_e-mail_clients/pop3-imap-smtp_settings);
+für einen anderen Anbieter werden sie einfach überschrieben.
 
 ### Allowlist-Semantik (`EMAIL_ALLOWED_SENDERS`)
 
