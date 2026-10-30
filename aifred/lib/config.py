@@ -1162,11 +1162,6 @@ TTS_BURNIN_VRAM_POLL_S = 0.3
 # before the CUDA context teardown finishes, which lags a few seconds.
 LLAMACPP_CALIBRATION_DRAIN_TIMEOUT_S = 30.0
 
-# TTS VRAM reserve for tensor-split calculation (MB).
-# TTS models can spike during inference (e.g. ~350 MB peak above idle).
-# Subtracted from the TTS GPU's free VRAM before computing tensor-split ratios.
-LLAMACPP_TTS_VRAM_RESERVE = 512  # MB (peak spike + safety buffer)
-
 def get_effective_model_from_settings(agent: str = "aifred") -> str:
     """Resolve effective model ID from settings.json (no Reflex state needed).
 
