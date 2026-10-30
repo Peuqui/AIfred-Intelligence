@@ -144,7 +144,7 @@ How much text goes to the engine at once is **one setting per TTS engine**, syst
 - **Burn-in** (`tts_stress_burnin.py`): the calibration has the service read a worst-case text
   on the engine and takes the peak of the VRAM the catalog reports. The result is not stored:
   an engine's budget and margin live in the suite's configuration, the calibration reads them as the
-  catalog's `reserve_mib`. The burn-in serves the side-channel measurement and checking a budget.
+  catalog's `needed_mib`. The burn-in serves the side-channel measurement and checking a budget.
 
 ## When the Service Is Not Reachable
 

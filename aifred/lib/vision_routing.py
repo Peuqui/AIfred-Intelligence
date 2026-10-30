@@ -105,7 +105,8 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
 
     Kandidaten sind das Heimat-Profil ``<base>-visiond`` und seine
     Platzierungs-Varianten ``-visiond-gpu<N>`` (Autoscan). Reihenfolge:
-    eine schon geladene Platzierung; sonst die Heimat (die Side-Channel-
+    eine schon geladene Platzierung; sonst nichts, solange ein Sprachmodell
+    lädt (:func:`loading_main_model`); sonst die Heimat (die Side-Channel-
     Karte, dort liegt der Describer allein), wenn sie passt; sonst die
     passende Variante mit dem meisten freien VRAM. Rückgabe ``(profil,
     prüfergebnis)`` — ``(None, prüfergebnis der heimat)``, wenn keine passt,
@@ -113,7 +114,7 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     """
     from .calibration.llamaswap_io import parse_llamaswap_config
     from .config import LLAMASWAP_CONFIG_PATH
-    from .vision_vram_check import check_visiond_fits
+    from .vision_vram_check import VRAMCheckResult, check_visiond_fits
     from .vlm_naming import visiond_home
 
     home = visiond_profile_for(name)
@@ -127,6 +128,12 @@ def fitting_visiond(name: str) -> tuple[str | None, VRAMCheckResult | None]:
     for profile in placements:
         if profile in loaded:
             return profile, check_visiond_fits(profile)
+    loading = loading_main_model()
+    if loading is not None:
+        return None, VRAMCheckResult(
+            fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
+            message=f"'{loading}' lädt gerade — ein Describer kommt erst danach dazu.",
+        )
     checks = [(profile, check_visiond_fits(profile)) for profile in placements]
     home_check = checks[0][1]
     if home_check.fits:
@@ -232,6 +239,9 @@ def _vision_llm_describer(reason: str) -> Describer:
     visiond, _ = fitting_visiond(vision)
     if visiond is not None:
         return Describer(visiond, evicts_chat_model=False)
+    loading = loading_main_model()
+    if loading is not None:
+        raise NoVisionModelError(f"{reason}; '{loading}' is loading and must not be evicted")
     return Describer(
         get_effective_model_from_settings("vision"), evicts_chat_model=True,
     )
@@ -322,6 +332,24 @@ def loaded_llamaswap_profiles() -> list[str]:
         for e in entries
         if str((e.get("status") or {}).get("value") or "") != "unloaded"
     ]
+
+
+def loading_main_model() -> str | None:
+    """Sprachmodell, das llama-swap gerade lädt, sonst ``None``.
+
+    Solange es lädt, zeigt nvidia-smi Karten, die gleich voll sind: Ein
+    Describer, der jetzt nach dem freien Speicher geht, nimmt dem Modell den
+    Platz, und es stirbt mit OOM (30.10.2026, zwei Ladeversuche von DeepSeek).
+    Describer und Embedder zählen nicht, die laden nur auf ihren Platz.
+    Ist llama-swap nicht erreichbar, lädt auch nichts.
+    """
+    from .service_status import ROLE_LLM, LlamaSwapError, model_role, running_models
+    try:
+        models = running_models()
+    except LlamaSwapError as error:
+        logger.warning("llama-swap load state unreadable: %s", error)
+        return None
+    return next((m.name for m in models if m.state == "starting" and model_role(m.name) == ROLE_LLM), None)
 
 
 # Local on-prem backends where the optional Ollama side-channel makes sense.

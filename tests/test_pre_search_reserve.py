@@ -37,7 +37,7 @@ def _run(reserve):
     async def go():
         return await ai_agent._pre_search_max_ctx(
             full_cmd="--model x --port 1", gguf_path=Path("/x.gguf"),
-            gpus=gpus, safety_margin_mb=192, native_ctx=262144,
+            gpus=gpus, headroom_mib=192, native_ctx=262144,
             initial_split=[49152.0, 49152.0, 32768.0], reserve_mb=reserve,
         )
 

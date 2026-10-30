@@ -271,12 +271,12 @@ def measure_first_gpu_handicap(gpus: list[GPU]) -> int:
     return max(measured, _MIN_FIRST_GPU_HANDICAP_MB)
 
 
-def build_budget(gpus: list[GPU], safety_margin: int) -> Budget:
+def build_budget(gpus: list[GPU], headroom_mib: int) -> Budget:
     """Assemble the per-GPU VRAM budget used by the optimizer."""
     return Budget(
         per_gpu_free=tuple(g.free_mb for g in gpus),
         first_gpu_handicap=measure_first_gpu_handicap(gpus),
-        safety_margin=safety_margin,
+        headroom_mib=headroom_mib,
     )
 
 

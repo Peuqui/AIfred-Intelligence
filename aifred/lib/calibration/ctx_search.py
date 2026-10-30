@@ -103,7 +103,7 @@ async def _load_and_cache(
             full_cmd, split, candidate.kv_quant,
         ),
         context=ctx, port=port, gpus=gpus,
-        safety_margin_mb=budget.safety_margin,
+        headroom_mib=budget.headroom_mib,
         reserve_mb=budget.gpu_reserve_mb,
         ngl=candidate.ngl, env=env, probe_thinking=probe_thinking,
     )
@@ -212,16 +212,16 @@ def _pick_next_ctx(
         lo + LLAMACPP_CALIBRATION_PRECISION,
         hi - LLAMACPP_CALIBRATION_PRECISION,
         candidate, model, gpus, budget,
-        extra_safety_margin=math_bias_mb,
+        extra_headroom_mib=math_bias_mb,
     )
     # Pre-measurement trust floor: BEFORE we have any measured/seeded bias,
     # don't trust a math prediction whose raw free is below this — a high-bias
-    # model would OOM on the first over-jump. Tied to the config safety margin,
+    # model would OOM on the first over-jump. Tied to the config headroom,
     # NOT a magic constant. Once the bias IS known, ``predicted_min`` already
-    # carries it (via extra_safety_margin) and we trust it down to the margin;
+    # carries it (via extra_headroom_mib) and we trust it down to the margin;
     # the old fixed 512-MB floor made the search bisect the whole way in the
     # tight TTS regime even after the bias was learned.
-    unmeasured_trust_floor = 2 * budget.safety_margin
+    unmeasured_trust_floor = 2 * budget.headroom_mib
     math_too_tight = (
         not bias_measured
         and math_max > lo
@@ -466,7 +466,7 @@ async def _verify_and_refine(
             full_cmd, current_split, candidate.kv_quant,
         ),
         context=current_ctx, port=port, gpus=gpus,
-        safety_margin_mb=budget.safety_margin,
+        headroom_mib=budget.headroom_mib,
         reserve_mb=budget.gpu_reserve_mb,
         ngl=candidate.ngl, env=env, probe_thinking=probe_thinking,
     )
@@ -523,7 +523,7 @@ async def _verify_and_refine(
                     f"(last identified OOM source)"
                 )
             # Smart shift if we have measurement data (server lived through
-            # probe but tightest GPU fell below safety margin). Falls back to
+            # probe but tightest GPU fell below headroom). Falls back to
             # blind shift when measurement is empty (server died at load —
             # that's a real OOM with no per-GPU info).
             shifted: tuple[float, ...] | None = None
@@ -590,11 +590,11 @@ async def _verify_and_refine(
                     keep_active_set=lock_active_gpus or lock_split,
                     # Reserve-bereinigte Load-Messwerte + config-Mindest-
                     # reserve als Untergrenze: Der Layer geht auf die nächste
-                    # Karte, die danach noch ≥ safety_margin frei hat — sonst
+                    # Karte, die danach noch ≥ headroom_mib frei hat — sonst
                     # die übernächste, bis ans Ende (Glas voll bis zur
                     # Reserve, nicht mehr).
                     free_estimate=_adj_free,
-                    min_free_mb=budget.safety_margin,
+                    min_free_mb=budget.headroom_mib,
                     layer_cost_per_gpu=_layer_cost,
                     blocked_dest=_blocked_dest,
                 )
@@ -606,7 +606,7 @@ async def _verify_and_refine(
                     )
                 elif r.oom_cuda_id is None and r.measured_free_mb:
                     # "eff."-Pfad: der Server lief, unterschritt aber die
-                    # Safety-Margin — die enge Karte IST aus den Messwerten
+                    # Headroom — die enge Karte IST aus den Messwerten
                     # bekannt (nur nicht als geparste stderr-OOM-Zeile). Der
                     # measurement-basierte Refine (oben) hat bereits mit voller
                     # Info kein Ziel gefunden; "not identifiable" wäre hier
@@ -811,7 +811,7 @@ async def _verify_and_refine(
             if i < len(current_split) and current_split[i] > 0
         ]
         # Probe-first (2026-07-07): kein Headroom-Gate mehr. Früher lief
-        # der Upward-Push nur bei > 2×safety_margin Luft auf der engsten
+        # der Upward-Push nur bei > 2×headroom_mib Luft auf der engsten
         # GPU — das nagelte das 397B auf 89k fest (CUDA1: 1833 MB), obwohl
         # real ~171k laufen. Die Binary-Search probt jetzt immer; die
         # Probes selbst sind die Kostenbremse und die Wahrheit.
@@ -1093,7 +1093,7 @@ async def _verify_and_refine(
                                 _ceiling = _measured_split_ceiling(
                                     [int(x) for x in current_split],
                                     [float(f) for f in lg_r.measured_free_mb],
-                                    _slope, lg_ctx, budget.safety_margin,
+                                    _slope, lg_ctx, budget.headroom_mib,
                                 )
                                 if _ceiling != float("inf"):
                                     rescue_ctx = (

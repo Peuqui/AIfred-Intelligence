@@ -12,7 +12,7 @@ GPU::
         used_mb(ctx) = intercept + slope * ctx
 
 From that model, ``max_context_for_budget`` solves analytically for the
-largest context that keeps every active GPU above the safety margin.
+largest context that keeps every active GPU above the headroom.
 """
 
 from __future__ import annotations
@@ -253,11 +253,11 @@ def _draft_extra_mb(full_cmd: str) -> int:
     to create llama_context", verifiziert am DSpark-Sidecar 2026-08-03).
     Gleiche Mechanik wie :func:`_mmproj_extra_mb`: Dateigröße (exakt)
     plus konservativer Headroom für Draft-KV + Compute-Puffer
-    (``LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB``); den Restfehler fängt der
+    (``LLAMACPP_DRAFT_SIDECAR_BUDGET_MIB``); den Restfehler fängt der
     adaptive Bias über die realen Verify-Proben, die das Draft im
     selben Prozess ohnehin mitmessen. 0 wenn kein Draft im cmd oder
     die Datei fehlt."""
-    from ..config import LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB
+    from ..config import LLAMACPP_DRAFT_SIDECAR_BUDGET_MIB
 
     draft = draft_gguf_path(full_cmd)
     if draft is None:
@@ -267,7 +267,7 @@ def _draft_extra_mb(full_cmd: str) -> int:
     except OSError:
         log_message(f"⚠️ draft projection: file missing: {draft}", category="stats")
         return 0
-    return weights_mb + LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB
+    return weights_mb + LLAMACPP_DRAFT_SIDECAR_BUDGET_MIB
 
 
 async def project(
@@ -374,7 +374,7 @@ def max_context_for_budget(
     gpu_total_mb: tuple[int, ...],
     baseline_used_mb: tuple[int, ...],
     per_gpu_handicap_mb: tuple[int, ...],
-    safety_margin_mb: int,
+    headroom_mib: int,
     ceiling: int,
     precision: int = 256,
 ) -> tuple[int, int]:
@@ -383,7 +383,7 @@ def max_context_for_budget(
     For every GPU ``i`` with slope > 0 and an active split share we need::
 
         baseline_used[i] + intercept[i] + slope[i]*ctx
-            <= gpu_total_mb[i] - safety_margin - handicap[i]
+            <= gpu_total_mb[i] - headroom_mib - handicap[i]
 
     The minimum of the per-GPU ``ctx`` limits is the answer, rounded
     down to ``precision`` tokens (matches llama.cpp's internal rounding).
@@ -399,7 +399,7 @@ def max_context_for_budget(
             gpu_total_mb[i]
             - baseline_used_mb[i]
             - model.intercept_mb[i]
-            - safety_margin_mb
+            - headroom_mib
             - per_gpu_handicap_mb[i]
         )
         if allowance <= 0:

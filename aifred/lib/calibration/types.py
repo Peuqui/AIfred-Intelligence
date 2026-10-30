@@ -81,12 +81,12 @@ class Budget:
     first_gpu_handicap: MiB subtracted from CUDA0 in its speed class.
                        Covers display/system overhead that makes CUDA0
                        hold less than an identically-named sibling.
-    safety_margin: MiB kept reserved on every GPU for CUDA kernels and
+    headroom_mib: MiB kept reserved on every GPU for CUDA kernels and
                    KV fragmentation — never consumed by the optimizer.
     """
     per_gpu_free: tuple[int, ...]
     first_gpu_handicap: int
-    safety_margin: int
+    headroom_mib: int
     # Side-Channel-Reserven (TTS/VLM) pro GPU in MiB, GPU-Reihenfolge wie
     # ``per_gpu_free``. Bei der PLANUNG sind sie bereits aus dem freien
     # VRAM herausgerechnet (gpus.free_mb wurde vor build_budget reduziert)
@@ -133,7 +133,7 @@ class Candidate:
     """A math-derived calibration candidate — not yet physically verified.
 
     ``max_context`` is the largest ctx at which every active GPU keeps
-    ``>= safety_margin`` MiB free given the VRAM model and budget.
+    ``>= headroom_mib`` MiB free given the VRAM model and budget.
     ``predicted_free_mb`` holds the predicted headroom per GPU at that
     ``max_context`` — used for the per-GPU debug output (not just the
     min).  GPUs with no layers in this candidate appear as 0.

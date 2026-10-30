@@ -642,7 +642,7 @@ What runs under the hood:
 - **Stress burn-in** on first TTS/VLM use: a worst-case bilingual TTS
   synthesis loop and a VLM context-fill prewarm measure peak VRAM under
   load. The VLM result is cached in
-  `data/vlm_vram_cache.json`; the TTS suite names the TTS reserve (`reserve_mib`) — next calibrations reuse the measurement
+  `data/vlm_vram_cache.json`; the TTS suite names the TTS reserve (`needed_mib`) — next calibrations reuse the measurement
 - **Side-channel capacity guard**: before writing a `tts-engine + vlm`
   combo profile, the calibrator checks whether both reserves fit on the
   shared side-channel GPU. Combos that would OOM at runtime are

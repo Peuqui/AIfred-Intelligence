@@ -87,7 +87,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     geladen ist?
 
     Bedarf = Burn-in-Peak aus ``vlm_vram_cache`` beim Kontext des Profils
-    plus ``LLAMACPP_VLM_HEADROOM_MB`` (dieselbe Reserve wie in der
+    plus ``VLM_HEADROOM_MIB`` (dieselbe Reserve wie in der
     Kalibrierung). Verglichen wird mit dem freien VRAM der Karte(n), auf
     die das Profil per ``CUDA_VISIBLE_DEVICES`` gepinnt ist (ohne Pin: alle
     Karten), plus dem, was TTS-Container und Whisper-GPU-Worker dort belegen —
@@ -96,7 +96,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
     """
     from . import vlm_vram_cache
     from .calibration.llamaswap_io import parse_llamaswap_config
-    from .config import LLAMACPP_VLM_HEADROOM_MB, LLAMASWAP_CONFIG_PATH
+    from .config import LLAMASWAP_CONFIG_PATH, VLM_HEADROOM_MIB
     from .nvidia_smi import query
     from .vision_routing import loaded_llamaswap_profiles
 
@@ -120,7 +120,7 @@ def check_visiond_fits(profile: str) -> VRAMCheckResult:
                 "(Burn-in fehlt) — Platzbedarf unbekannt."
             ),
         )
-    needed_mb = peak_mb + LLAMACPP_VLM_HEADROOM_MB
+    needed_mb = peak_mb + VLM_HEADROOM_MIB
 
     # TTS-Container und Whisper-GPU-Worker stehen unter dem Describer (Rangfolge Hauptmodell >
     # Describer > TTS > STT): ihr VRAM zählt als frei, denn das Laden gibt sie vorher frei
@@ -239,8 +239,8 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
 
     # Plus Reserve fürs KV-Cache + Workspace (über die gemessenen Werte
     # hinaus, falls Context höher als üblich) — dieselbe wie in der Kalibrierung.
-    from .config import LLAMACPP_VLM_HEADROOM_MB
-    headroom_mb = max(needed_mb + LLAMACPP_VLM_HEADROOM_MB, 1000)
+    from .config import VLM_HEADROOM_MIB
+    headroom_mb = max(needed_mb + VLM_HEADROOM_MIB, 1000)
 
     # Laufende Modelle einmal holen — für den "schon geladen"-Check UND
     # später die Blocker-Liste.

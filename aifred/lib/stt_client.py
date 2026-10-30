@@ -83,9 +83,9 @@ class STTClient:
 
     @staticmethod
     def _raise_service_error(resp: requests.Response, error_label: str) -> None:
-        """Den vom Dienst gemeldeten Grund (``error``) in die passende Ausnahme legen."""
+        """Den vom Dienst gemeldeten Grund (``detail``) in die passende Ausnahme legen."""
         try:
-            reason = resp.json().get("error", resp.text[:200])
+            reason = resp.json().get("detail", resp.text[:200])
         except ValueError:
             reason = resp.text[:200]
         message = f"{error_label}: {reason}" if error_label else f"{resp.status_code} {reason}"

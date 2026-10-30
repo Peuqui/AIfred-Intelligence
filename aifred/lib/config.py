@@ -1076,18 +1076,28 @@ LOUDNESS_FADE_OUT_SEC = 1.0
 # When disabled, uses model's architectural limit only
 ENABLE_VRAM_CONTEXT_CALCULATION = True
 
-# Safety margin reserved for OS and other GPU processes (MB)
-# General VRAM safety margin (vLLM, gpu_utils)
-VRAM_SAFETY_MARGIN = 512  # MB
+# VRAM-Begriffe, in allen Suiten gleich (alles in MiB, freier Speicher kommt nur von nvidia-smi):
+#   budget   = was etwas auf der Karte belegt (gemessen oder Vorgabe)
+#   headroom = Aufschlag obendrauf, je Backend bzw. Suite genau einer
+#   needed   = budget + headroom: was eine Karte frei haben muss
+#   reserve  = was auf einer Karte für etwas anderes frei bleibt
+# Die Aufschläge von TTS und STT stehen in deren Config, die Bedarfe nennen ihre Kataloge.
 
-# llama.cpp VRAM safety margin — platform-dependent.
+# Ollama: bleibt für OS und andere GPU-Prozesse frei
+OLLAMA_HEADROOM_MIB = 512
+
+# vLLM: je Karte frei für CUDA-Kernels und Fragmentierung. vLLM kennt nur einen Anteil an der Karte
+# (--gpu-memory-utilization); die Kalibrierung rechnet diesen Wert dorthin um (_gmu_for).
+VLLM_HEADROOM_MIB = 1024
+
+# llama.cpp VRAM headroom — platform-dependent.
 # On WSL2/Windows: WDDM silently swaps VRAM to system RAM instead of OOM → 7x slowdown.
 # On native Linux: cudaMalloc returns OOM, no silent swapping — small margin sufficient.
 # 64 MB covers runtime allocations (scratch buffers, cuBLAS workspace) that fit-params
 # and server startup don't account for.
 # Measured on WSL2: 512 → 70 tok/s (VMM), 1024 → marginal, 1536 → 137 tok/s (full speed)
 _is_wddm = "microsoft" in platform.release().lower() or os.name == "nt"
-LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 192  # MB
+LLAMACPP_HEADROOM_MIB = 1536 if _is_wddm else 192
 
 # Extra margin for draft-sidecar profiles (--model-draft, e.g. DSpark):
 # production OOM'd 2026-08-03 ~15 min into real chat on a profile that had
@@ -1098,7 +1108,7 @@ LLAMACPP_VRAM_SAFETY_MARGIN = 1536 if _is_wddm else 192  # MB
 # figure token count of calibrated context — the opposite trade-off of
 # dense-KV models. Only --model-draft profiles pay this; plain/MTP
 # profiles keep the base margin.
-LLAMACPP_DRAFT_SAFETY_MARGIN_EXTRA_MB = 64
+LLAMACPP_DRAFT_HEADROOM_EXTRA_MIB = 64
 LLAMACPP_CALIBRATION_PRECISION = 256  # Token step size for context binary search
 
 # MAX_TOOL_ROUNDS ist als SSOT vom Call-Budget abgeleitet und lebt
@@ -1131,7 +1141,7 @@ LLAMACPP_VISION_PROBE_RESOLUTION = (3840, 2160)
 # wäre dauerhaft verlorenes Kontextfenster. Nach einem Ollama-Upgrade
 # den Stress-Prewarm neu messen lassen (vlm_vram_cache.json löschen),
 # die Peaks können sich versionsbedingt verschieben.
-LLAMACPP_VLM_HEADROOM_MB = 500
+VLM_HEADROOM_MIB = 500
 
 # Number of stress syntheses per TTS-engine burn-in. Real-world data
 # (Qwen3-TTS, XTTS) shows the VRAM peak is reached by
@@ -1336,7 +1346,7 @@ TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS = 4000
 # create llama_context"), so a parametric projection is not possible —
 # the real verify probes measure the true footprint and the adaptive
 # bias corrects any residual error.
-LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB = 2048
+LLAMACPP_DRAFT_SIDECAR_BUDGET_MIB = 2048
 
 # Empirical ratio: MB of VRAM per context token
 # Based on KV cache measurements and research:
@@ -1348,16 +1358,6 @@ LLAMACPP_DRAFT_SIDECAR_HEADROOM_MB = 2048
 # - MoE models: Only activate subset of experts → lower KV cache overhead → 0.10 MB/token
 VRAM_CONTEXT_RATIO_DENSE = 0.15  # ~150KB per token (Dense models)
 VRAM_CONTEXT_RATIO_MOE = 0.10    # ~100KB per token (MoE models, 48% more context!)
-
-# vLLM Context Calibration Safety Buffer (Tokens)
-# Fixed token buffer applied when parsing vLLM error messages
-# Compensates for constant VRAM overhead (~100 tokens) between startup attempts:
-# - CUDA context switches (~50MB)
-# - GPU memory fragmentation (~30MB)
-# - PyTorch cache residue (~20MB)
-# - vLLM's VRAM estimates have ~2-3% variance between startup attempts
-# Using percentage-based buffer to scale with context size (2% of vLLM's reported max)
-VLLM_CONTEXT_SAFETY_PERCENT = 0.02  # 2% safety buffer (iteratively applied to each vLLM-reported max)
 
 # vLLM Idle Shutdown (TTL)
 # Auto-stop vLLM server after this many seconds of inactivity to free VRAM.

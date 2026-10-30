@@ -81,7 +81,7 @@ profile choice itself (two-profile pattern: `Model` vs. `Model-rpc`).
    (compute 8.6), but sits behind the network. Following speed-class logic
    it would be filled first — last probably makes more sense.
    Decide with measurements from real operation.
-2. **Remote safety margin**: assumption "worker is dedicated, card empty"
+2. **Remote headroom**: assumption "worker is dedicated, card empty"
    plus which buffer? (Windows/desktop on Aragon occupies VRAM.)
 3. **Verifier**: accept the remote card as "unverifiable" or
    include load-log parsing (sub-step 5, upgrade) right away?

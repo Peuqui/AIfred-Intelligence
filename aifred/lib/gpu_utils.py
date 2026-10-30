@@ -15,9 +15,9 @@ from . import nvidia_smi
 from .config import (
     DEFAULT_OLLAMA_URL,
     ENABLE_VRAM_CONTEXT_CALCULATION,
+    OLLAMA_HEADROOM_MIB,
     VRAM_CONTEXT_RATIO_DENSE,
     VRAM_CONTEXT_RATIO_MOE,
-    VRAM_SAFETY_MARGIN,
 )
 from .formatting import format_number
 
@@ -233,7 +233,7 @@ def calculate_context_from_memory(
 
     Args:
         available_mb: Available memory in MB (from get_free_vram_mb or get_free_ram_mb)
-        reserve_mb: Memory to keep free in MB (safety margin)
+        reserve_mb: Memory to keep free in MB (headroom)
         ratio_mb_per_token: MB per token (0.10 for MoE, 0.15 for Dense models)
         max_context: Optional upper limit (e.g., native context limit)
 
@@ -490,7 +490,7 @@ async def calculate_vram_based_context(
     model_size_bytes: int,
     model_context_limit: int,
     vram_context_ratio: float | None = None,
-    safety_margin_mb: int = VRAM_SAFETY_MARGIN,
+    headroom_mib: int = OLLAMA_HEADROOM_MIB,
     model_is_loaded: bool = False,
     backend_type: str = "ollama",
     backend = None  # Backend instance for unloading models (Ollama only)
@@ -507,7 +507,7 @@ async def calculate_vram_based_context(
         model_size_bytes: Model size in bytes (from HF cache or Ollama blobs)
         model_context_limit: Model's architectural context limit (from config.json)
         vram_context_ratio: MB of VRAM per context token (default: auto-detect via MoE)
-        safety_margin_mb: MB to reserve for system (default: 512 MB from config)
+        headroom_mib: MB to reserve for system (default: 512 MB from config)
         model_is_loaded: Whether model is already loaded in VRAM (affects calculation)
         backend_type: Backend type ("ollama", "vllm") for MoE detection
 
@@ -518,7 +518,7 @@ async def calculate_vram_based_context(
 
     Process:
         1. Query free VRAM from nvidia-smi
-        2. Subtract safety margin (OS, Xorg, Whisper)
+        2. Subtract headroom (OS, Xorg, Whisper)
         3. If model NOT loaded: Subtract model size from free VRAM
         4. If model IS loaded: Free VRAM already accounts for it
         5. Calculate: max_tokens = vram_for_context / vram_context_ratio
@@ -601,8 +601,8 @@ async def calculate_vram_based_context(
         debug_msgs.append(msg)
         return model_context_limit, debug_msgs
 
-    # Calculate usable VRAM (after safety margin)
-    usable_vram = free_vram_mb - safety_margin_mb
+    # Calculate usable VRAM (after headroom)
+    usable_vram = free_vram_mb - headroom_mib
 
     # Convert model size to MB for calculations
     model_size_mb = model_size_bytes / (1024**2) if model_size_bytes > 0 else 0
@@ -615,7 +615,7 @@ async def calculate_vram_based_context(
         # Model already in VRAM - free_vram_mb already accounts for it
         vram_for_context = usable_vram
         msg1 = f"💾 Model loaded → {format_number(vram_for_context, 0)} MB for context"
-        msg2 = f"   ({format_number(free_vram_mb)} MB free - {format_number(safety_margin_mb)} MB margin)"
+        msg2 = f"   ({format_number(free_vram_mb)} MB free - {format_number(headroom_mib)} MB margin)"
         debug_msgs.append(msg1)
         debug_msgs.append(msg2)
     else:
@@ -632,7 +632,7 @@ async def calculate_vram_based_context(
             debug_msgs.append(msg)
         else:
             msg1 = f"💾 Model NOT loaded → {format_number(vram_for_context, 0)} MB for context"
-            msg2 = f"   ({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(safety_margin_mb)} MB margin)"
+            msg2 = f"   ({format_number(free_vram_mb)} MB - {format_number(model_size_mb, 0)} MB model - {format_number(headroom_mib)} MB margin)"
             debug_msgs.append(msg1)
             debug_msgs.append(msg2)
 

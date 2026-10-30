@@ -2,7 +2,7 @@
 
 import pytest
 
-from aifred.lib import config, vision_routing, vision_utils, vision_vram_check
+from aifred.lib import config, service_status, vision_routing, vision_utils, vision_vram_check
 from aifred.lib.calibration import llamaswap_io
 from aifred.lib.vision_routing import (
     NoVisionModelError,
@@ -22,7 +22,8 @@ VISION_LLM = "Chat-VL-8B"
 def world(monkeypatch):
     def configure(*, fits: bool | dict = True, loaded: list[str] | None = None,
                   vision_llm: str = VISION_LLM, visiond_for: dict | None = None,
-                  placements: list[str] | None = None, free: dict | None = None):
+                  placements: list[str] | None = None, free: dict | None = None,
+                  loading: str | None = None):
         seeing = {MAIN_SEEING, VISIOND, f"{VISION_LLM}-visiond", VLM}
         monkeypatch.setattr(vision_utils, "is_vision_model_sync", lambda m: m in seeing)
         monkeypatch.setattr(vision_utils, "has_native_vision", lambda m: m in seeing)
@@ -41,6 +42,7 @@ def world(monkeypatch):
             ),
         )
         monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: loaded or [])
+        monkeypatch.setattr(vision_routing, "loading_main_model", lambda: loading)
         monkeypatch.setattr(vision_routing, "_settings_model",
                             lambda role: vision_llm if role == "vision" else MAIN)
         monkeypatch.setattr(config, "get_effective_model_from_settings",
@@ -145,3 +147,54 @@ def test_camera_llamaswap_model_without_visiond_never_evicts_automatically(world
     world(visiond_for={}, loaded=[MAIN])
     with pytest.raises(NoVisionModelError):
         camera_describer(VLM, explicit=False)
+
+
+# ── Ein Sprachmodell lädt ────────────────────────────────────────────
+
+def test_no_describer_is_loaded_while_a_main_model_loads(world):
+    world(fits=True, loading=MAIN)
+    visiond, fit = vision_routing.fitting_visiond(VLM)
+    assert visiond is None
+    assert MAIN in fit.message
+
+
+def test_loaded_describer_keeps_working_while_a_main_model_loads(world):
+    world(fits=True, loaded=[VISIOND, MAIN], loading=MAIN)
+    assert camera_describer(VLM, explicit=False).model == VISIOND
+
+
+def test_automatic_camera_path_names_the_loading_model(world):
+    world(fits=True, loading=MAIN)
+    with pytest.raises(NoVisionModelError, match=MAIN):
+        camera_describer(VLM, explicit=False)
+
+
+def test_explicit_request_does_not_evict_a_loading_model(world):
+    world(fits=True, loading=MAIN)
+    with pytest.raises(NoVisionModelError, match=MAIN):
+        camera_describer(VLM, explicit=True)
+
+
+def test_chat_image_does_not_evict_a_loading_model(world):
+    world(fits=True, loading=MAIN)
+    with pytest.raises(NoVisionModelError, match=MAIN):
+        chat_describer(MAIN)
+
+
+@pytest.mark.parametrize("name, state, expected", [
+    (MAIN, "starting", MAIN),
+    (MAIN, "ready", None),
+    (VISIOND, "starting", None),
+    ("bge-m3-Q8_0-embed", "starting", None),
+])
+def test_loading_main_model_is_a_language_model_in_starting(monkeypatch, name, state, expected):
+    monkeypatch.setattr(service_status, "running_models",
+                        lambda: [service_status.LoadedModel(name, state, 0)])
+    assert vision_routing.loading_main_model() == expected
+
+
+def test_unreachable_llamaswap_loads_nothing(monkeypatch):
+    def unreachable():
+        raise service_status.LlamaSwapError("down")
+    monkeypatch.setattr(service_status, "running_models", unreachable)
+    assert vision_routing.loading_main_model() is None

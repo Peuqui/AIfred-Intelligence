@@ -77,7 +77,7 @@ Bevor der Vergleich startet:
    wurde).
 2. **Burn-In-Caches dürfen verwendet werden** — `data/vlm_vram_cache.json`
    ist eine Lookup-Tabelle mit empirisch gemessenen Reserven für VLMs;
-   die TTS-Reserve nennt die TTS-Suite (`reserve_mib`). Beide Pfade (Algorithmus und
+   die TTS-Reserve nennt die TTS-Suite (`needed_mib`). Beide Pfade (Algorithmus und
    LLM) nutzen sie als Input, fair für den Vergleich.
 3. **Mindestens 2-3 Modelle unterschiedlicher Größe** testen, damit der
    Vergleich nicht auf einem Spezialfall hängt. Vorschlag:

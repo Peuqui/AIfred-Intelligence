@@ -87,10 +87,18 @@ noch per Dispatch: `has_native_vision` → llama-swap, sonst Ollama.
 **Passt das daneben?** `check_visiond_fits`
 ([`aifred/lib/vision_vram_check.py`](../../../aifred/lib/vision_vram_check.py)):
 ein schon geladenes Profil passt immer; sonst der Burn-in-Peak aus
-`data/vlm_vram_cache.json` (Modell × Kontext) plus `LLAMACPP_VLM_HEADROOM_MB`
+`data/vlm_vram_cache.json` (Modell × Kontext) plus `VLM_HEADROOM_MIB`
 gegen den freien VRAM der Karten, auf die das Profil per
 `CUDA_VISIBLE_DEVICES` gepinnt ist (ungepinnt: Summe aller Karten). Fehlt
 die Messung oder die Karte, passt es nicht.
+
+**Solange ein Sprachmodell lädt, kommt kein Describer dazu.** `loading_main_model`
+([`aifred/lib/vision_routing.py`](../../../aifred/lib/vision_routing.py)) liest den Zustand
+`starting` aus llama-swaps `/running`. Während des Ladens zeigt nvidia-smi Karten, die gleich
+voll sind; ein Describer, der nach dem freien Speicher geht, nähme dem Modell den Platz, und es
+stürbe mit OOM. Ein schon geladener Describer arbeitet weiter. Sonst gibt es keinen: Automatische
+Pfade schicken das Bild ohne Beschreibung, die sich nachträglich erzeugen lässt, und auch ein
+ausdrücklicher Auftrag verdrängt kein ladendes Modell (`NoVisionModelError`).
 
 ### Chat-Bilder: VL Direct oder zwei Schritte
 

@@ -162,11 +162,12 @@ DEFAULT_FLAGS_BASE = "--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --n
 DEFAULT_CONTEXT = 32768  # Fallback if GGUF metadata unreadable
 FALLBACK_CONTEXT = 32768  # Reduced context when native context doesn't fit
 
-# If GGUF file size exceeds this fraction of the largest GPU's VRAM → use tensor-split
-MULTI_GPU_VRAM_THRESHOLD = 0.80
+# A model stays on one GPU when the largest one keeps at least this much (MiB) next to its weights for
+# the KV cache; below that it is split over the GPUs
+SINGLE_GPU_KV_ROOM_MIB = 9680
 
 # Minimum free VRAM per GPU after model load (MiB) — must cover KV cache allocation blocks
-VRAM_SAFETY_MARGIN_MB = 1024
+AUTOSCAN_HEADROOM_MIB = 1024
 
 # No size filter - even tiny LLMs (135M edge models) should be loadable
 
@@ -245,10 +246,10 @@ def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
 
     largest_gpu_mb = per_gpu_vram[0]
     gguf_size_mb = get_gguf_total_size(gguf_path) / (1024 * 1024)
-    ratio = gguf_size_mb / largest_gpu_mb
+    kv_room_mib = largest_gpu_mb - gguf_size_mb
 
-    if ratio <= MULTI_GPU_VRAM_THRESHOLD:
-        print(f"    GPU: single (model {gguf_size_mb:.0f} MB = {ratio:.0%} of largest GPU {largest_gpu_mb} MB)")
+    if kv_room_mib >= SINGLE_GPU_KV_ROOM_MIB:
+        print(f"    GPU: single (model {gguf_size_mb:.0f} MiB leaves {kv_room_mib:.0f} MiB on the largest GPU, {largest_gpu_mb} MiB)")
         return ""
 
     # Model needs multiple GPUs — calculate tensor-split from VRAM proportions
@@ -259,8 +260,8 @@ def build_gpu_flags(gguf_path: Path, per_gpu_vram: list[int]) -> str:
     total_vram_mb = sum(per_gpu_vram)
     print(
         f"    GPU: tensor-split {split_str} "
-        f"(model {gguf_size_mb:.0f} MB = {ratio:.0%} of largest {largest_gpu_mb} MB, "
-        f"total {total_vram_mb} MB)"
+        f"(model {gguf_size_mb:.0f} MiB leaves {kv_room_mib:.0f} MiB on the largest GPU, {largest_gpu_mb} MiB, "
+        f"total {total_vram_mb} MiB)"
     )
     return f"-sm layer --tensor-split {split_str} -fit off -b 512 -ub 512"
 
@@ -508,7 +509,7 @@ def build_gpu_flags_silent(gguf_path: Path, per_gpu_vram: list[int]) -> str:
     except Exception:
         return ""
 
-    if gguf_size_mb / largest_gpu_mb <= MULTI_GPU_VRAM_THRESHOLD:
+    if largest_gpu_mb - gguf_size_mb >= SINGLE_GPU_KV_ROOM_MIB:
         return ""
 
     min_vram = min(per_gpu_vram)
@@ -637,7 +638,7 @@ def _find_best_ngl(
     gpu_total_mb: Optional[list[int]] = None,
 ) -> tuple[int, dict[str, dict[str, int]]]:
     """
-    Binary search for the highest NGL where all GPUs have free >= safety margin.
+    Binary search for the highest NGL where all GPUs have free >= headroom.
 
     Returns (best_ngl, gpu_projections). Returns (0, {}) if no NGL works.
     """
@@ -656,7 +657,7 @@ def _find_best_ngl(
             ngl_high = ngl_mid - 1
             continue
         min_free = min(g["free"] for g in gpus.values())
-        if min_free >= VRAM_SAFETY_MARGIN_MB:
+        if min_free >= AUTOSCAN_HEADROOM_MIB:
             best_ngl = ngl_mid
             best_gpus = gpus
             ngl_low = ngl_mid + 1
@@ -721,7 +722,7 @@ def calibrate_model_fit_params(
             )
             if gpus:
                 min_free = min(g["free"] for g in gpus.values())
-                fits = min_free >= VRAM_SAFETY_MARGIN_MB
+                fits = min_free >= AUTOSCAN_HEADROOM_MIB
             else:
                 fits = False
 

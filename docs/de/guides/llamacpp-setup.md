@@ -400,8 +400,8 @@ split_parts = [2, 2, 1, 1, 1]                        # round(49152 / 32768) = 2
 ```
 
 **Regeln:**
-- Modelldatei ≤ 80 % des VRAMs der größten GPU (`MULTI_GPU_VRAM_THRESHOLD`) →
-  gar keine GPU-Flags (kein Tensor-Split)
+- Neben der Modelldatei bleiben auf der größten GPU mindestens 9.680 MiB für den KV-Cache frei
+  (`SINGLE_GPU_KV_ROOM_MIB`) → gar keine GPU-Flags (kein Tensor-Split)
 - Größeres Modell → neue Einträge bekommen `-sm layer --tensor-split X,Y[,Z...] -fit off -b 512 -ub 512`
 - Bei einer Hardware-Änderung wird in bestehenden Einträgen der `--tensor-split`-Wert
   ersetzt, `-sm layer --tensor-split … -fit off` eingefügt (ein Single-GPU-`-dev …`
@@ -669,7 +669,7 @@ und konfiguriert sie für llama-swap. Es läuft als `ExecStartPre` vor jedem lla
    - Prozess endet innerhalb von 6 s mit einem Fehler → inkompatible Architektur erkannt (z. B. `deepseekocr`) → Modell wird **nicht** in die Config aufgenommen
    - Prozess läuft nach 6 s noch → Server ist oben, Architektur OK → Modell wird normal aufgenommen
    - Inkompatible Modelle werden in `autoscan-skip.json` gespeichert und bei späteren Starts **nicht erneut getestet**
-6. **Erste Anpassung mit `llama-fit-params`** — pro neuem Modell und KV-Stufe (f16 → q8_0 → q4_0): Binärsuche nach dem größten Context bei `-ngl 99`; passt nicht einmal die Untergrenze (32768 oder der native Context, je nachdem was kleiner ist), folgt eine Binärsuche nach dem besten `-ngl` (Hybrid). Die erste KV-Stufe, die passt, gewinnt. Jede GPU muss `VRAM_SAFETY_MARGIN_MB` (1024 MiB) frei behalten. Liegt kein `llama-fit-params` neben `llama-server`, gelten sichere Defaults (Context ≤ 32768, q4_0-KV)
+6. **Erste Anpassung mit `llama-fit-params`** — pro neuem Modell und KV-Stufe (f16 → q8_0 → q4_0): Binärsuche nach dem größten Context bei `-ngl 99`; passt nicht einmal die Untergrenze (32768 oder der native Context, je nachdem was kleiner ist), folgt eine Binärsuche nach dem besten `-ngl` (Hybrid). Die erste KV-Stufe, die passt, gewinnt. Jede GPU muss `AUTOSCAN_HEADROOM_MIB` (1024 MiB) frei behalten. Liegt kein `llama-fit-params` neben `llama-server`, gelten sichere Defaults (Context ≤ 32768, q4_0-KV)
 7. **llama-swap-Config erweitern** — für jedes angepasste Modell wird ein mit `# [autoscan]` markierter YAML-Block angehängt: `-ngl`, `-c`, GPU-Flags, `-ctk/-ctv` (nur bei quantisiertem KV), `DEFAULT_FLAGS_BASE` und die Sampling-Parameter aus den GGUF-Metadaten; `ttl` nach Modellgröße (siehe Konstanten)
    - VL-Modelle (mit passender `mmproj-*.gguf`) bekommen automatisch ein `--mmproj`-Argument
    - Existiert die Config-Datei noch nicht, wird sie neu angelegt
@@ -751,8 +751,8 @@ Done. 1 added, 1 VRAM cache entries added.
 | `DEFAULT_NGL` | 99 | GPU-Layer für neue Einträge |
 | `DEFAULT_FLAGS_BASE` | `--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift` | Default-Flags für llama-server; `-ctk <q> -ctv <q>` wird nur vorangestellt, wenn die Anpassung einen quantisierten KV-Cache gewählt hat |
 | `DEFAULT_CONTEXT` / `FALLBACK_CONTEXT` | 32768 | Context bei unlesbaren GGUF-Metadaten / Untergrenze der Context-Suche |
-| `MULTI_GPU_VRAM_THRESHOLD` | 0.80 | Modelldatei > 80 % des VRAMs der größten GPU → Tensor-Split |
-| `VRAM_SAFETY_MARGIN_MB` | 1024 | Minimal freier VRAM pro GPU in der `llama-fit-params`-Projektion |
+| `SINGLE_GPU_KV_ROOM_MIB` | 9680 | Bleibt neben der Modelldatei auf der größten GPU weniger frei → Tensor-Split |
+| `AUTOSCAN_HEADROOM_MIB` | 1024 | Minimal freier VRAM pro GPU in der `llama-fit-params`-Projektion |
 | `AUTOSCAN_SKIP_FILE` | `autoscan-skip.json` neben `LLAMASWAP_CONFIG` | Persistente Liste inkompatibler Modelle |
 | `COMPAT_TEST_TIMEOUT` | 6 | Wartezeit in Sekunden beim Kompatibilitätstest |
 

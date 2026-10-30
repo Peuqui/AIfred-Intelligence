@@ -9,7 +9,7 @@ AIfred only asks: the service starts the engine container itself when the readin
 it and picks the card; afterwards AIfred asks the service to release the container. AIfred
 writes nothing into the service. The VRAM *budget* of an engine, and the headroom on top of
 it, live in the TTS-Suite (its configuration); the calibration reads the result as the
-catalog's ``reserve_mib`` (:func:`aifred.lib.tts_service.gpu_engine_reserves`). This measurement
+catalog's ``needed_mib`` (:func:`aifred.lib.tts_service.gpu_engine_needs`). This measurement
 serves the joint side-channel burn-in and ad-hoc checks of a budget.
 
 * **CLI** — ``python -m aifred.lib.tts_stress_burnin <engine_key>`` prints the peak.

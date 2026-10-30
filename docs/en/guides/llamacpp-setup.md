@@ -401,8 +401,8 @@ split_parts = [2, 2, 1, 1, 1]                        # round(49152 / 32768) = 2
 ```
 
 **Rules:**
-- Model file ≤ 80 % of the largest GPU's VRAM (`MULTI_GPU_VRAM_THRESHOLD`) →
-  no GPU flags at all (no tensor split)
+- The largest GPU keeps at least 9,680 MiB next to the model file for the KV cache
+  (`SINGLE_GPU_KV_ROOM_MIB`) → no GPU flags at all (no tensor split)
 - Larger model → new entries get `-sm layer --tensor-split X,Y[,Z...] -fit off -b 512 -ub 512`
 - On a hardware change existing entries get their `--tensor-split` value
   replaced, `-sm layer --tensor-split … -fit off` inserted (a single-GPU
@@ -415,7 +415,7 @@ split_parts = [2, 2, 1, 1, 1]                        # round(49152 / 32768) = 2
 (algorithm mode, `aifred/lib/calibration/flow.py`):
 
 1. **Phase A: metadata + budget** — reads the GGUF metadata, waits for stable
-   VRAM and builds the VRAM budget per GPU (safety margin, extra margin for
+   VRAM and builds the VRAM budget per GPU (headroom, extra margin for
    draft-sidecar profiles, reserves for a TTS engine or the VLM on the
    side-channel GPU)
 2. **Phase 1: base configuration** — walks the cells (KV quality × GPU set),
@@ -673,7 +673,7 @@ and configures them for llama-swap. It runs as `ExecStartPre` before every llama
    - Process exits within 6s with an error → incompatible architecture detected (e.g. `deepseekocr`) → model is **not** added to the config
    - Process still running after 6s → server is up, architecture OK → model is added normally
    - Incompatible models are saved to `autoscan-skip.json` and **not re-tested** on subsequent starts
-6. **First fit with `llama-fit-params`** — per new model and KV level (f16 → q8_0 → q4_0): binary search for the largest context at `-ngl 99`; if not even the lower bound (32768 or the native context, whichever is smaller) fits, a binary search for the best `-ngl` (hybrid). The first KV level that fits wins. Every GPU must keep `VRAM_SAFETY_MARGIN_MB` (1024 MiB) free. Without `llama-fit-params` next to `llama-server` the safe defaults apply (context ≤ 32768, q4_0 KV)
+6. **First fit with `llama-fit-params`** — per new model and KV level (f16 → q8_0 → q4_0): binary search for the largest context at `-ngl 99`; if not even the lower bound (32768 or the native context, whichever is smaller) fits, a binary search for the best `-ngl` (hybrid). The first KV level that fits wins. Every GPU must keep `AUTOSCAN_HEADROOM_MIB` (1024 MiB) free. Without `llama-fit-params` next to `llama-server` the safe defaults apply (context ≤ 32768, q4_0 KV)
 7. **Extend llama-swap config** — for each fitted model a YAML block marked `# [autoscan]` is appended: `-ngl`, `-c`, GPU flags, `-ctk/-ctv` (only for quantized KV), `DEFAULT_FLAGS_BASE` and the sampling parameters from the GGUF metadata; `ttl` by model size (see constants)
    - VL models (with a matching `mmproj-*.gguf`) automatically get a `--mmproj` argument
    - The config file is created from scratch if it does not exist yet
@@ -755,8 +755,8 @@ Done. 1 added, 1 VRAM cache entries added.
 | `DEFAULT_NGL` | 99 | GPU layers for new entries |
 | `DEFAULT_FLAGS_BASE` | `--flash-attn on -np 1 -t 4 --mlock --direct-io --jinja --no-context-shift` | Default llama-server flags; `-ctk <q> -ctv <q>` is prepended only when the fit picked a quantized KV cache |
 | `DEFAULT_CONTEXT` / `FALLBACK_CONTEXT` | 32768 | Context when the GGUF metadata is unreadable / lower bound of the context search |
-| `MULTI_GPU_VRAM_THRESHOLD` | 0.80 | Model file > 80 % of the largest GPU's VRAM → tensor split |
-| `VRAM_SAFETY_MARGIN_MB` | 1024 | Minimum free VRAM per GPU in the `llama-fit-params` projection |
+| `SINGLE_GPU_KV_ROOM_MIB` | 9680 | Less than this left next to the model file on the largest GPU → tensor split |
+| `AUTOSCAN_HEADROOM_MIB` | 1024 | Minimum free VRAM per GPU in the `llama-fit-params` projection |
 | `AUTOSCAN_SKIP_FILE` | `autoscan-skip.json` next to `LLAMASWAP_CONFIG` | Persistent list of incompatible models |
 | `COMPAT_TEST_TIMEOUT` | 6 | Seconds to wait during compatibility test |
 

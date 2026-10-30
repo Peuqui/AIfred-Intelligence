@@ -352,7 +352,7 @@ class CalibrationMixin(rx.State, mixin=True):
         from aifred.lib.tts_client import TTSSuiteUnreachable
         from aifred.lib.tts_service import (
             engine_label_short,
-            gpu_engine_reserves,
+            gpu_engine_needs,
             installed_gpu_engine_keys,
             unreachable_text,
         )
@@ -374,7 +374,7 @@ class CalibrationMixin(rx.State, mixin=True):
         try:
             engine_keys = installed_gpu_engine_keys()
             labels = {key: engine_label_short(key) for key in engine_keys}
-            reserves = gpu_engine_reserves()
+            reserves = gpu_engine_needs()
         except TTSSuiteUnreachable as unreachable:
             lines.append(f"TTS: {unreachable_text(unreachable)}")
             return lines
@@ -1979,7 +1979,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
             # Step 5: TTS variant calibration. No TTS container is loaded: the
             # calibration reserves what the TTS-Suite names for each
-            # engine (``reserve_mib``) while the engines stay cold.
+            # engine (``needed_mib``) while the engines stay cold.
             #
             # Two filters apply:
             #  • ``installed_gpu_engine_keys`` — the engines the TTS service
@@ -2175,8 +2175,8 @@ class CalibrationMixin(rx.State, mixin=True):
                             yield
                             # The reserve is the TTS-Suite's own figure (budget +
                             # headroom of its configuration), asked per API.
-                            from ..lib.tts_service import gpu_engine_reserves
-                            _tts_extra_reserve_mb = gpu_engine_reserves()[tts_backend]
+                            from ..lib.tts_service import gpu_engine_needs
+                            _tts_extra_reserve_mb = gpu_engine_needs()[tts_backend]
                             async for _msg in calibrate_tts_variant_from_base(
                                 model_id=calibration_model_id,
                                 gguf_path=_gguf_path,
@@ -2376,8 +2376,8 @@ class CalibrationMixin(rx.State, mixin=True):
                     # real TTS container is up.
                     from ..lib.process_utils import get_tts_gpu_uuid as _get_tts_uuid
                     _fallback_tts_uuid = _get_tts_uuid()
-                    from ..lib.tts_service import gpu_engine_reserves
-                    _fallback_reserve_mb = gpu_engine_reserves()[tts_backend]
+                    from ..lib.tts_service import gpu_engine_needs
+                    _fallback_reserve_mb = gpu_engine_needs()[tts_backend]
                     async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
                         known_thinking=known_thinking,
@@ -2876,8 +2876,8 @@ class CalibrationMixin(rx.State, mixin=True):
                     ):
                         continue
                     tts_label_c = engine_label_short(tts_backend_c)
-                    from ..lib.tts_service import gpu_engine_reserves
-                    tts_reserve_c = gpu_engine_reserves()[tts_backend_c]
+                    from ..lib.tts_service import gpu_engine_needs
+                    tts_reserve_c = gpu_engine_needs()[tts_backend_c]
                     _tts_uuid_c = get_tts_gpu_uuid()
 
                     for vlm_choice_c in vlm_choices:

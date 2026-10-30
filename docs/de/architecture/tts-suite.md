@@ -149,7 +149,7 @@ Wie viel Text auf einmal an die Engine geht, ist **eine Einstellung pro TTS-Engi
 - **Burn-in** (`tts_stress_burnin.py`): Die Kalibrierung lässt den Dienst einen Worst-Case-Text
   auf der Engine lesen und nimmt die Spitze des VRAMs, den der Katalog meldet. Das Ergebnis wird
   nicht gespeichert: Budget und Aufschlag einer Engine stehen in der Konfiguration der Suite, die Kalibrierung
-  liest sie als `reserve_mib` des Katalogs. Der Burn-in dient der Seitenkanal-Messung und der Prüfung eines Budgets.
+  liest sie als `needed_mib` des Katalogs. Der Burn-in dient der Seitenkanal-Messung und der Prüfung eines Budgets.
 
 ## Wenn der Dienst nicht erreichbar ist
 
