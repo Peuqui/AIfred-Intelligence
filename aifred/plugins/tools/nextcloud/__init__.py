@@ -1,4 +1,4 @@
-"""Nextcloud plugin (CalDAV/CardDAV): appointments, tasks and contacts.
+"""Nextcloud plugin (CalDAV/CardDAV/WebDAV): appointments, tasks, contacts and files.
 Independent of every other plugin; each module is switched off, readable or
 writable on its own, and writing also needs Nextcloud's own write right."""
 
@@ -15,6 +15,8 @@ from ....lib.plugin_base import (
 )
 from ....lib.plugin_modules import module_credential_fields, module_instructions
 from .settings import (
+    AGENT_FOLDER_DEFAULT,
+    AGENT_FOLDER_KEY,
     APP_PASSWORD_KEY,
     MODULE_DEFAULTS,
     SETTINGS_PREFIX,
@@ -26,7 +28,9 @@ from .settings import (
 )
 
 _TOOLS = ("nextcloud_search", "nextcloud_get", "nextcloud_create", "nextcloud_update", "nextcloud_delete")
-_WRITE_TOOLS = frozenset(_TOOLS[2:])
+_FILE_TOOLS = ("nextcloud_file_list", "nextcloud_file_read", "nextcloud_file_write", "nextcloud_file_move",
+               "nextcloud_file_delete")
+_WRITE_TOOLS = frozenset({*_TOOLS[2:], *_FILE_TOOLS[2:]})
 
 
 @dataclass
@@ -41,6 +45,8 @@ class NextcloudPlugin:
             CredentialField(env_key=USER_KEY, label_key="nextcloud_cred_user", placeholder="aifred"),
             CredentialField(env_key=APP_PASSWORD_KEY, label_key="nextcloud_cred_app_password", is_password=True),
             *module_credential_fields(SETTINGS_PREFIX, MODULE_DEFAULTS, "nextcloud_cred_module_{module}"),
+            CredentialField(env_key=AGENT_FOLDER_KEY, label_key="nextcloud_cred_agent_folder",
+                            default=AGENT_FOLDER_DEFAULT),
         ]
 
     def _load_settings(self) -> dict[str, str]:
@@ -61,6 +67,17 @@ class NextcloudPlugin:
         from .tools import get_nextcloud_tools
         store = get_store()
         return [] if store is None else get_nextcloud_tools(store)
+
+    @property
+    def document_source(self) -> Any:
+        """The files as a source of the document manager (lib.document_sources), while the
+        module is on; writable only at write level."""
+        from .source import NextcloudDocumentSource
+        from .store import get_store
+        store = get_store()
+        if store is None or not store.modules.can_read("files"):
+            return None
+        return NextcloudDocumentSource(store.client, writable=store.modules.can_write("files"))
 
     def get_prompt_instructions(self, lang: str, granted_tools: "set[str] | None" = None) -> str:
         """Tool fragments for the offered and granted tools, then the
@@ -83,9 +100,12 @@ class NextcloudPlugin:
         return render_standard_placeholders("\n\n".join(parts), lang_code)
 
     def get_ui_status(self, tool_name: str, tool_args: dict[str, Any], lang: str) -> str:
+        lang_code = "de" if str(lang).startswith("de") else "en"
+        if tool_name in _FILE_TOOLS:
+            path = str(tool_args.get("path") or tool_args.get("query") or tool_args.get("folder") or "")
+            return plugin_i18n_text(plugin_dir_of(self), f"tool_{tool_name}", lang_code).format(path=path[:60])
         if tool_name not in _TOOLS:
             return ""
-        lang_code = "de" if str(lang).startswith("de") else "en"
         entity = str(tool_args.get("entity_type", ""))
         query = str(tool_args.get("query") or "") if tool_name == "nextcloud_search" else ""
         key = "tool_nextcloud_search_bare" if tool_name == "nextcloud_search" and not query else f"tool_{tool_name}"

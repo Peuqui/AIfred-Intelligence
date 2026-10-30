@@ -1,5 +1,5 @@
 """WebDAV access to Nextcloud: discovery, collections and their rights,
-calendar and address book queries, conditional writes, change tracking.
+calendar and address book queries, conditional writes, change tracking, files.
 
 Synchronous httpx; the tool layer runs it in a worker thread. Every write is
 conditional — If-Match with the object's ETag, If-None-Match for a new one —
@@ -9,7 +9,9 @@ instead of being overwritten.
 
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from urllib.parse import urlsplit
+from email.utils import parsedate_to_datetime
+from urllib.parse import quote, unquote, urlsplit
+from xml.sax.saxutils import escape
 
 import httpx
 from lxml import etree
@@ -21,6 +23,7 @@ NS = {
 }
 CALENDAR, ADDRESSBOOK = "calendar", "addressbook"
 _XML = {"Content-Type": "application/xml; charset=utf-8"}
+_FILE_PROPS = "<d:resourcetype/><d:getcontentlength/><d:getlastmodified/><d:getcontenttype/><d:getetag/>"
 
 
 class DavError(RuntimeError):
@@ -31,6 +34,10 @@ class DavError(RuntimeError):
 
 class DavConflict(DavError):
     """The object changed on the server since it was read (HTTP 412)."""
+
+
+class DavTooLarge(RuntimeError):
+    """A file is larger than the caller is willing to read."""
 
 
 @dataclass(frozen=True)
@@ -50,6 +57,27 @@ class DavObject:
     href: str
     etag: str
     data: str
+
+
+@dataclass(frozen=True)
+class DavFile:
+    path: str  # below the user's files, without a leading slash
+    is_folder: bool
+    size: int | None
+    modified: str  # ISO timestamp, "" when the server names none
+    mime: str
+    etag: str
+
+    @property
+    def name(self) -> str:
+        return self.path.rsplit("/", 1)[-1]
+
+
+@dataclass(frozen=True)
+class DavContent:
+    data: bytes
+    mime: str
+    etag: str
 
 
 @dataclass(frozen=True)
@@ -73,15 +101,18 @@ class DavClient:
         parts = urlsplit(base_url)
         self._origin = f"{parts.scheme}://{parts.netloc}"
         self._root = f"{parts.path.rstrip('/')}/remote.php/dav/"
-        self._client = httpx.Client(auth=(user, password), timeout=timeout,
-                                    headers={"User-Agent": "AIfred"})
+        self._user = user
+        self._files_root = f"{self._root}files/{quote(user, safe='')}/"
+        self._auth = (user, password)
+        self._timeout = timeout
+        self._client = httpx.Client(auth=self._auth, timeout=timeout, headers={"User-Agent": "AIfred"})
 
     def close(self) -> None:
         self._client.close()
 
     # ── transport ─────────────────────────────────────────────────
 
-    def _request(self, method: str, href: str, *, expect: tuple[int, ...], body: str | None = None,
+    def _request(self, method: str, href: str, *, expect: tuple[int, ...], body: str | bytes | None = None,
                  headers: dict[str, str] | None = None) -> httpx.Response:
         response = self._client.request(method, self._origin + href, content=body, headers=headers)
         if response.status_code == 412:
@@ -220,3 +251,89 @@ class DavClient:
 
     def delete(self, obj: DavObject) -> None:
         self._request("DELETE", obj.href, expect=(204,), headers={"If-Match": obj.etag})
+
+    # ── files ─────────────────────────────────────────────────────
+
+    def _file_href(self, path: str) -> str:
+        return self._files_root + quote(path)
+
+    def _file(self, href: str, prop: "etree._Element") -> DavFile:
+        types = prop.find("d:resourcetype", NS)
+        size = _text(prop.find("d:getcontentlength", NS))
+        modified = _text(prop.find("d:getlastmodified", NS))
+        return DavFile(
+            path=unquote(href).removeprefix(unquote(self._files_root)).strip("/"),
+            is_folder=types is not None and types.find("d:collection", NS) is not None,
+            size=int(size) if size is not None else None,
+            modified=parsedate_to_datetime(modified).isoformat() if modified else "",
+            mime=_text(prop.find("d:getcontenttype", NS)) or "",
+            etag=_text(prop.find("d:getetag", NS)) or "",
+        )
+
+    def list_files(self, path: str) -> list[DavFile]:
+        """What lies directly in the folder ``path`` ("" = the user's top level)."""
+        body = f'<d:propfind xmlns:d="DAV:"><d:prop>{_FILE_PROPS}</d:prop></d:propfind>'
+        found = [self._file(href, prop) for href, prop in self._multistatus("PROPFIND", self._file_href(path), "1", body)]
+        return [entry for entry in found if entry.path != path.strip("/")]
+
+    def search_files(self, folder: str, term: str, limit: int) -> list[DavFile]:
+        """Files and folders below ``folder`` with ``term`` in their name, newest first."""
+        scope = f"/files/{self._user}/{folder}".rstrip("/")
+        body = ('<d:searchrequest xmlns:d="DAV:"><d:basicsearch>'
+                f'<d:select><d:prop>{_FILE_PROPS}</d:prop></d:select>'
+                f'<d:from><d:scope><d:href>{escape(scope)}</d:href><d:depth>infinity</d:depth></d:scope></d:from>'
+                f'<d:where><d:like><d:prop><d:displayname/></d:prop><d:literal>%{escape(term)}%</d:literal></d:like></d:where>'
+                '<d:orderby><d:order><d:prop><d:getlastmodified/></d:prop><d:descending/></d:order></d:orderby>'
+                f'<d:limit><d:nresults>{limit}</d:nresults></d:limit>'
+                '</d:basicsearch></d:searchrequest>')
+        return [self._file(href, prop) for href, prop in self._multistatus("SEARCH", self._root, "0", body)]
+
+    def read_file(self, path: str, max_bytes: int) -> DavContent:
+        """The file's content; :class:`DavTooLarge` past ``max_bytes``, without fetching the rest."""
+        href = self._file_href(path)
+        with self._client.stream("GET", self._origin + href) as response:
+            if response.status_code != 200:
+                raise DavError(response.status_code, f"GET {href}")
+            data = bytearray()
+            for chunk in response.iter_bytes():
+                data += chunk
+                if len(data) > max_bytes:
+                    raise DavTooLarge(f"{path} is larger than {max_bytes // (1024 * 1024)} MB")
+            return DavContent(bytes(data), response.headers.get("Content-Type", ""), response.headers.get("ETag", ""))
+
+    def write_file(self, path: str, data: bytes, content_type: str, etag: str | None) -> str:
+        """Create ``path``, or with ``etag`` overwrite it if it is unchanged. Returns the new ETag."""
+        condition = {"If-Match": etag} if etag else {"If-None-Match": "*"}
+        response = self._request("PUT", self._file_href(path), expect=(201, 204), body=data,
+                                 headers={"Content-Type": content_type, **condition})
+        return str(response.headers.get("ETag", ""))
+
+    def make_folder(self, path: str) -> None:
+        """Create the folder; one that exists already is fine (405)."""
+        self._request("MKCOL", self._file_href(path), expect=(201, 405))
+
+    def move_file(self, path: str, target: str) -> None:
+        """Move or rename; refused when ``target`` exists (412, :class:`DavConflict`)."""
+        self._request("MOVE", self._file_href(path), expect=(201,),
+                      headers={"Destination": self._origin + self._file_href(target), "Overwrite": "F"})
+
+    def delete_file(self, path: str) -> None:
+        """Nextcloud keeps it in the user's trash bin."""
+        self._request("DELETE", self._file_href(path), expect=(204,))
+
+    async def open_download(self, path: str) -> tuple[httpx.AsyncClient, httpx.Response]:
+        """A client and a streaming response of the file, both for the caller to close: errors show
+        before the first byte goes out."""
+        client = httpx.AsyncClient(auth=self._auth, timeout=self._timeout, headers={"User-Agent": "AIfred"})
+        request = client.build_request("GET", self._origin + self._file_href(path))
+        try:
+            response = await client.send(request, stream=True)
+        except httpx.HTTPError:
+            await client.aclose()
+            raise
+        if response.status_code != 200:
+            await response.aclose()
+            await client.aclose()
+            raise DavError(response.status_code, f"GET {path}")
+        return client, response
+

@@ -1,0 +1,1 @@
+Dateien: Für jede Frage nach Dateien erst nextcloud_file_list, nie aus dem Gedächtnis. Pfade immer relativ zum Agentenordner. Der Benutzer sieht denselben Ordner im Dokumentenfenster.

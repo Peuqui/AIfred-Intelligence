@@ -16,7 +16,7 @@ from aifred.plugins.tools.nextcloud.store import NextcloudStore
 from aifred.plugins.tools.nextcloud.tools import get_nextcloud_tools
 
 pytestmark = pytest.mark.skipif(not CREDENTIALS.exists(), reason=f"no Nextcloud test credentials ({CREDENTIALS})")
-ALL_WRITE = ModuleAccess({"calendar": "write", "tasks": "write", "contacts": "write"})
+ALL_WRITE = ModuleAccess({"calendar": "write", "tasks": "write", "contacts": "write", "files": "off"})
 
 
 def _store(modules: ModuleAccess) -> NextcloudStore:
@@ -85,7 +85,7 @@ def test_task_and_contact_through_the_tools(tools):
 
 
 def test_modules_shape_tools_and_instructions(monkeypatch):
-    store = _store(ModuleAccess({"calendar": "write", "tasks": "off", "contacts": "read"}))
+    store = _store(ModuleAccess({"calendar": "write", "tasks": "off", "contacts": "read", "files": "off"}))
     tools = {t.name: t for t in get_nextcloud_tools(store)}
     assert tools["nextcloud_search"].parameters["properties"]["entity_type"]["enum"] == [
         "events", "contacts", "calendars", "addressbooks"]
@@ -100,6 +100,6 @@ def test_modules_shape_tools_and_instructions(monkeypatch):
 
 
 def test_read_only_modules_offer_no_write_tools():
-    store = _store(ModuleAccess({"calendar": "read", "tasks": "read", "contacts": "read"}))
+    store = _store(ModuleAccess({"calendar": "read", "tasks": "read", "contacts": "read", "files": "off"}))
     assert {t.name for t in get_nextcloud_tools(store)} == {"nextcloud_search", "nextcloud_get"}
     store.close()

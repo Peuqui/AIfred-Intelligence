@@ -1,0 +1,1 @@
+CHANGING FILES: A new file needs no etag. To overwrite, first nextcloud_file_read, then nextcloud_file_write with its etag. Deleting puts the file in the trash bin.

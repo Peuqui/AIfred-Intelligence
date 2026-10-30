@@ -15,6 +15,8 @@ from ....lib.credential_broker import broker
 from ....lib.plugin_modules import ModuleAccess
 from . import ical, vcard
 from .dav import ADDRESSBOOK, CALENDAR, DavClient, DavCollection, DavConflict, DavObject
+from .errors import NextcloudDisabled, NextcloudRefused
+from .files import AgentFiles
 from .settings import (
     CREDENTIAL_SERVICE,
     REQUEST_TIMEOUT_SEC,
@@ -27,14 +29,6 @@ LIMIT_MAX = 500
 _EVENT = ("calendar", CALENDAR, "VEVENT")
 _TASK = ("tasks", CALENDAR, "VTODO")
 _CONTACT = ("contacts", ADDRESSBOOK, "")
-
-
-class NextcloudDisabled(PermissionError):
-    """The module is switched off or not writable in the plugin settings."""
-
-
-class NextcloudRefused(ValueError):
-    """The request cannot be carried out as asked."""
 
 
 def _uri(collection: DavCollection) -> str:
@@ -73,6 +67,14 @@ class NextcloudStore:
     @property
     def modules(self) -> ModuleAccess:
         return self._settings.modules
+
+    @property
+    def client(self) -> DavClient:
+        return self._client
+
+    @property
+    def agent_files(self) -> AgentFiles:
+        return AgentFiles(self._client, self._settings.agent_folder)
 
     def close(self) -> None:
         self._client.close()

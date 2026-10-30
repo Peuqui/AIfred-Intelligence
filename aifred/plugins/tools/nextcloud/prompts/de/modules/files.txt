@@ -1,0 +1,1 @@
+DATEIEN: Sie liegen in Nextcloud. Agenten arbeiten nur in ihrem Agentenordner; der Benutzer sieht die Dateien im Dokumentenfenster.

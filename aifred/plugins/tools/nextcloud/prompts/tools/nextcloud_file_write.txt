@@ -1,0 +1,1 @@
+Write a text file in the agent folder in the user's Nextcloud. Missing folders are created. A new file needs no etag; overwriting needs the etag from nextcloud_file_read.

@@ -1,0 +1,1 @@
+FILES: They live in Nextcloud. Agents work only in their agent folder; the user sees the files in the document window.

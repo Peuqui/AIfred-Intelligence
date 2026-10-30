@@ -1,4 +1,4 @@
-NEXTCLOUD — THE USER'S CALENDARS, TASKS AND CONTACTS
+NEXTCLOUD — THE USER'S DATA
 
 - ALWAYS answer questions about this data with nextcloud_search, never from memory. Search again for follow-up questions.
 - Never invent entries. Empty result → say so honestly: "No entries found".
