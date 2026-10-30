@@ -366,6 +366,7 @@ def retrieved_data_notice(trust: str = "external") -> str:
 
 
 _UNTRUSTED_CLOSE_TAG = re.compile(r"</\s*untrusted_data", re.IGNORECASE)
+UNTRUSTED_DATA_END = "</untrusted_data>"
 
 
 def wrap_untrusted_data(text: str, source: str = "web", trust: str = "external") -> str:
@@ -387,7 +388,7 @@ def wrap_untrusted_data(text: str, source: str = "web", trust: str = "external")
         f'<untrusted_data source="{safe_source}" trust="{trust}">\n'
         f"{retrieved_data_notice(trust)}\n"
         f"{safe_text}\n"
-        "</untrusted_data>"
+        f"{UNTRUSTED_DATA_END}"
     )
 
 

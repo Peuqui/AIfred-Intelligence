@@ -7,6 +7,7 @@ so a change made elsewhere in the meantime makes the write fail loudly
 instead of being overwritten.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -67,13 +68,6 @@ class DavFile:
     @property
     def name(self) -> str:
         return self.path.rsplit("/", 1)[-1]
-
-
-@dataclass(frozen=True)
-class DavContent:
-    data: bytes
-    mime: str
-    etag: str
 
 
 @dataclass(frozen=True)
@@ -284,9 +278,16 @@ class DavClient:
                 '</d:basicsearch></d:searchrequest>')
         return [self._file(href, prop) for href, prop in self._multistatus("SEARCH", self._root, "0", body)]
 
-    def read_file(self, path: str) -> DavContent:
-        response = self._request("GET", self._file_href(path), expect=(200,))
-        return DavContent(response.content, response.headers.get("Content-Type", ""), response.headers.get("ETag", ""))
+    def read_file(self, path: str, receive: Callable[[bytes], None]) -> str:
+        """Stream the file into ``receive``, which ends it by raising; nothing stays
+        here, so the file may be any size. Returns its ETag."""
+        href = self._file_href(path)
+        with self._client.stream("GET", self._origin + href) as response:
+            if response.status_code != 200:
+                raise DavError(response.status_code, f"GET {href}")
+            for chunk in response.iter_bytes():
+                receive(chunk)
+            return str(response.headers.get("ETag", ""))
 
     def write_file(self, path: str, data: bytes, content_type: str, etag: str | None) -> str:
         """Create ``path``, or with ``etag`` overwrite it if it is unchanged. Returns the new ETag."""

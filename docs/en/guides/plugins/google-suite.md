@@ -201,7 +201,7 @@ AIfred calls `google_drive_search(query="project plan")`.
 |------|-------------|------|
 | `google_drive_list_files` | List the contents of a folder inside the agent folder (without `folder_id`: the agent folder itself) | WRITE_DATA |
 | `google_drive_search` | Full-text search inside the agent folder | WRITE_DATA |
-| `google_drive_get_file` | Read file content (Google Docs → plain text, Sheets → CSV; capped at 5 MB) | WRITE_DATA |
+| `google_drive_get_file` | Read a text file, also in portions by line (Google Docs → plain text, Sheets → CSV) | WRITE_DATA |
 | `google_drive_create_file` | Create a new text file with content | WRITE_DATA |
 | `google_drive_update_file` | Overwrite file content | WRITE_DATA |
 | `google_drive_delete_file` | Permanently delete a file (no trash) | WRITE_SYSTEM |
@@ -210,9 +210,9 @@ AIfred calls `google_drive_search(query="project plan")`.
 
 The read tools are deliberately `WRITE_DATA`: they expose private Drive content and
 therefore stay blocked for external channels (email, Discord, Telegram). Which tools the
-"Read" level offers is therefore decided by `READ_TOOL_NAMES`, not by the tier. The cap for
-`google_drive_get_file` is `DRIVE_MAX_DOWNLOAD_BYTES` (environment variable, default
-5 MiB).
+"Read" level offers is therefore decided by `READ_TOOL_NAMES`, not by the tier. `google_drive_get_file` has no size limit: the
+file passes through as a stream and only the chosen range of lines stays in memory
+(`lib/line_window.py`). Binary files are refused.
 
 ## Agent Folder
 

@@ -1,1 +1,1 @@
-Read the content of a Drive file. Google Docs are exported as plain text, Sheets as CSV. Downloads are capped at 5 MB.
+Read the content of a Drive file. Google Docs are exported as plain text, Sheets as CSV. Text files only. Returns its content and total_lines. Output that does not fit is cut off at the end: read a long file in portions with line_start/line_end.

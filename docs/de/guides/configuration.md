@@ -241,7 +241,6 @@ Zusätzliche `.env`-Schlüssel, die der Code liest (nur Namen und Bedeutung):
 | `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | Wie lange nach dem Anhalten eines laufenden Stroms vor einer Ansage auf die Bestätigung des Pucks gewartet wird; sonst wird die Ansage verworfen |
 | `TTS_CONTROL_API_TOKEN` | Bearer-Token der TTS-Start/Stopp-API für die Dienste-Steuerseite |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Größte Datei, die ein Kanal-Sendetool anhängen darf |
-| `DRIVE_MAX_DOWNLOAD_BYTES` | Größte Drive-Datei, die das Drive-Tool der Agenten herunterlädt |
 
 Wichtige Plugin-Einstellungen:
 

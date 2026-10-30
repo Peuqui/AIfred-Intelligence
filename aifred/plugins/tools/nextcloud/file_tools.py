@@ -44,9 +44,9 @@ def get_nextcloud_file_tools(store: Any) -> list[Tool]:
             return _error(exc)
         return wrap_untrusted_data(_answer({"total_count": len(rows), "results": rows}), _SOURCE)
 
-    async def nextcloud_file_read(path: str) -> str:
+    async def nextcloud_file_read(path: str, line_start: int | str = 0, line_end: int | str = 0) -> str:
         try:
-            result = await asyncio.to_thread(files.read, parse_text(path, "path"))
+            result = await asyncio.to_thread(files.read, parse_text(path, "path"), int(line_start), int(line_end))
         except _EXPECTED_ERRORS as exc:
             return _error(exc)
         return wrap_untrusted_data(_answer(result), _SOURCE)

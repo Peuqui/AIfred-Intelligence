@@ -23,6 +23,7 @@ from .config import (
     TOOL_OUTPUT_TOTAL_INPUT_RATIO,
 )
 from .context_manager import estimate_tokens
+from .security import UNTRUSTED_DATA_END
 
 # Token budget for the next tool call. Set by multi_agent before each
 # inference run, read by backends/base.py when a tool returns its result.
@@ -100,7 +101,8 @@ def cap_tool_output(result_str: str, budget_tokens: int) -> str:
 
 
 def _raw_truncate(text: str, budget_tokens: int) -> str:
-    """Cut a string to roughly budget_tokens × 3 chars and append a marker."""
+    """Cut a string to roughly budget_tokens × 3 chars and append a marker. A fence
+    around retrieved data stays closed: the marker comes from us, not from the data."""
     # Reserve some characters for the truncation marker
     target_chars = max(budget_tokens * 3 - 200, 500)
     if len(text) <= target_chars:
@@ -109,4 +111,5 @@ def _raw_truncate(text: str, budget_tokens: int) -> str:
         f"\n\n[... truncated to ~{budget_tokens} tokens — "
         f"refine the query for less data ...]"
     )
-    return text[:target_chars] + suffix
+    fence_end = f"\n{UNTRUSTED_DATA_END}" if text.endswith(UNTRUSTED_DATA_END) else ""
+    return text[:target_chars] + fence_end + suffix

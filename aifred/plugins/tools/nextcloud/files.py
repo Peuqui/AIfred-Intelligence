@@ -10,6 +10,7 @@ boundary: they may fill it but not delete or move it. The document manager
 import mimetypes
 from typing import Any
 
+from ....lib.line_window import LineWindow
 from .dav import DavClient, DavConflict, DavError, DavFile
 from .errors import NextcloudRefused
 
@@ -84,19 +85,21 @@ class AgentFiles:
             return []
         return [_row(entry, self._relative(entry)) for entry in entries]
 
-    def read(self, path: str) -> dict[str, Any]:
+    def read(self, path: str, line_start: int = 0, line_end: int = 0) -> dict[str, Any]:
+        """The text, or a range of its lines. Length and range stand before the
+        content: the tool output is cut from the end, and they must survive that."""
         cleaned = clean_path(path)
+        window = LineWindow(line_start, line_end)
         try:
-            content = self._client.read_file(self._item(cleaned))
+            etag = self._client.read_file(self._item(cleaned), window.feed)
+            part, total_lines, range_info = window.result()
+        except UnicodeDecodeError as exc:
+            raise NextcloudRefused(f"{cleaned} is no text file") from exc
         except DavError as exc:
             if exc.status != _NOT_FOUND:
                 raise
             raise NextcloudRefused(f"no file {cleaned!r}") from exc
-        try:
-            text = content.data.decode("utf-8")
-        except UnicodeDecodeError as exc:
-            raise NextcloudRefused(f"{cleaned} is no text file ({content.mime})") from exc
-        return {"path": cleaned, "etag": content.etag, "content": text}
+        return {"path": cleaned, "etag": etag, "total_lines": total_lines, "range": range_info, "content": part}
 
     def write(self, path: str, content: str, etag: str | None) -> dict[str, Any]:
         """A new file, or with the ``etag`` from reading it an overwrite if it is unchanged."""
