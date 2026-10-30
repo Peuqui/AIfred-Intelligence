@@ -142,6 +142,8 @@ def patched_plugin(monkeypatch, store: VisionStore, tmp_path: Path):
     des gemockten Ollama-Pfads (Test-Isolation).
     """
     install_fake_gpu_orc(monkeypatch, FakeGpuOrc())
+    # Ohne das hinge das Routing am echten freien Speicher der Karten dieses Rechners.
+    monkeypatch.setattr("aifred.lib.vision_routing.fitting_visiond", lambda name: (None, None))
     watcher = VisionWatcher(store, frames_dir=tmp_path / "frames")
     monkeypatch.setattr(vp, "_store", lambda: store)
     monkeypatch.setattr(vp, "_watcher", lambda store=None: watcher)
