@@ -1004,7 +1004,11 @@ console.log('✂️ Crop handler loaded');
                     rx.el.div(
                         id="tts-queue-data",
                         **{  # type: ignore[arg-type]  # dict-Invarianz vs. Var-Werte
-                            "data-autoplay": rx.cond(AIState.tts_autoplay, "true", "false"),
+                            # Der Knopf an der Blase ist eine ausdrückliche Bitte: Seine Lesung
+                            # spielt auch ohne Auto-Play.
+                            "data-autoplay": rx.cond(
+                                AIState.tts_autoplay | AIState.tts_regenerating, "true", "false"
+                            ),
                             "data-polling": rx.cond(AIState.enable_tts, "true", "false"),
                             # "true" solange noch TTS-Sentences kommen koennen.
                             # custom.js audioOnEnded blockiert media-resume bis

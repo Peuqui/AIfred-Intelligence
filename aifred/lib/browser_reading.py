@@ -108,6 +108,7 @@ class BrowserReading:
         self.browser_speech: list[dict[str, Any]] = []
         self.note = ""
         self.aborted = False  # abort() ended the reading
+        self.broke_off = False  # the service stopped after the first sound: audio_urls is not the whole text
         self._task: asyncio.Task[None] | None = None
 
     # ---- the text in ----
@@ -179,6 +180,7 @@ class BrowserReading:
         """Say what happened; ``True`` = the browser takes over."""
         reason = f"{type(error).__name__}: {error}"
         if self._first_tone:
+            self.broke_off = True
             log_message(f"❌ [Browser {self.agent_label}] TTS service broke off after the first sound: {reason}", "error")
             self._report(f"❌ [Browser {self.agent_label}] TTS service broke off after the first sound: {reason}")
             self._notify("error", t("tts_reading_broke_off", lang=self._ui_language, reason=str(error)))

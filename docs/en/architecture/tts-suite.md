@@ -117,6 +117,10 @@ How much text goes to the engine at once is **one setting per TTS engine**, syst
   per agent, `_process_vision_request` for VL Direct); a still open reading is ended when a new
   one starts. Afterwards the segments are joined into the session's audio and attached to the
   bubble with the note (replay, export).
+  The button on a bubble takes the same way, also without autoplay: each section plays as soon as
+  the service delivers it (`_read_bubble_aloud`), and at the end the whole audio is attached to the
+  bubble. A reading that was cut short replaces no audio the bubble already has. Regenerating all
+  bubbles only writes files (`speak_to_files`).
 - **Browser voice** (`browser`, Web Speech API): an entry of the list that produces no file. The
   service never speaks with it; the entries **above** it go to the service, the browser's own
   voice speaks if none of them can (or if it is the topmost entry). An entry below it is never
