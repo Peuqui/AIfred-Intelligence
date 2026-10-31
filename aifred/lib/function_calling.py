@@ -51,6 +51,16 @@ def _redact_args_preview(value: Any) -> str:
     return str(_walk(value))
 
 
+def _reports_error(result: str) -> bool:
+    """Tools report an expected failure as a result with an ``error`` field, not
+    as an exception."""
+    try:
+        parsed = json.loads(result)
+    except (json.JSONDecodeError, TypeError):
+        return False
+    return isinstance(parsed, dict) and "error" in parsed
+
+
 def _identical_call_refusal(name: str, repeats: int, unchanged_result: bool) -> str:
     """Message to the model when the identical-call breaker stops a tool call."""
     outcome = " and the result did not change" if unchanged_result else ""
@@ -115,6 +125,9 @@ class ToolKit:
         # result and how often in a row it came back unchanged. A repeat after
         # something changed in between (a write, a sub-agent) is legitimate.
         self._unchanged_reads: dict[str, tuple[str, int]] = {}
+        # What ran during this request, for call_note: name, read-only, redacted
+        # arguments, failed.
+        self._calls: list[tuple[str, bool, str, bool]] = []
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
@@ -127,6 +140,29 @@ class ToolKit:
         artifact paths (sandbox screenshots) without reaching into the
         private audit field."""
         return self._session_id
+
+    def call_note(self) -> str | None:
+        """One line on what ran in this request, for the turn's llm_history entry
+        (PipelineResult.history_notes): the calls themselves are not kept between
+        turns, and without this the model denies its own actions in the next one.
+        Writes with their arguments, reads only counted. Empties the record."""
+        from .config import TOOL_CALL_NOTE_ARGS_CHARS, TOOL_CALL_NOTE_MAX_WRITES
+        from .prompt_loader import load_prompt
+
+        calls, self._calls = self._calls, []
+        if not calls:
+            return None
+        writes = [c for c in calls if not c[1]]
+        reads: dict[str, int] = {}
+        for name, is_read, _args, _failed in calls:
+            if is_read:
+                reads[name] = reads.get(name, 0) + 1
+        parts = [f"{name}({args[:TOOL_CALL_NOTE_ARGS_CHARS]}){' ✗' if failed else ''}"
+                 for name, _is_read, args, failed in writes[:TOOL_CALL_NOTE_MAX_WRITES]]
+        if len(writes) > TOOL_CALL_NOTE_MAX_WRITES:
+            parts.append(f"+{len(writes) - TOOL_CALL_NOTE_MAX_WRITES}")
+        parts.extend(f"{name} ×{count}" for name, count in reads.items())
+        return load_prompt("shared/tool_calls_marker", calls="; ".join(parts))
 
     def _refuse_unchanged_read(self, name: str, call_key: str, result_str: str) -> str:
         """Count a read-only call whose result equals the previous one for the
@@ -329,7 +365,7 @@ class ToolKit:
             if reads_only:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the model sees the failure
             success = False
             logger.error(f"Tool '{name}' failed: {e}")
             result_str = json.dumps({"error": str(e)})
@@ -339,6 +375,7 @@ class ToolKit:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         finally:
+            self._calls.append((name, reads_only, _redact_args_preview(args), not success or _reports_error(result_str)))
             try:
                 from .security import audit_log
                 audit_log(
@@ -352,8 +389,8 @@ class ToolKit:
                     success=success,
                     duration_ms=(time.perf_counter() - t0) * 1000,
                 )
-            except Exception:
-                pass  # Audit must never block tool execution
+            except Exception as audit_error:  # noqa: BLE001 — audit must never block tool execution
+                logger.warning(f"Audit log for tool '{name}' failed: {audit_error}")
 
 
 # ============================================================================
