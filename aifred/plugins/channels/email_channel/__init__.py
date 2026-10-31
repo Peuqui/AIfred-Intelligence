@@ -698,7 +698,7 @@ def _auto_response_marker(msg: email_lib.message.Message) -> str | None:
 
 def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> InboundMessage | None:
     """Fetch a single email by UID and convert to InboundMessage."""
-    from .client import _decode_header, _extract_body
+    from .client import _decode_header, _decode_sender, _extract_body
     from .config import EMAIL_MAX_BODY_CHARS
     from ....lib.envelope import InboundMessage
 
@@ -708,7 +708,7 @@ def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> InboundMessa
 
     msg = email_lib.message_from_bytes(msg_data[0][1])
 
-    sender = _decode_header(msg.get("From", ""))
+    sender = _decode_sender(msg.get("From", ""))
     subject = _decode_header(msg.get("Subject", ""))
     body = _extract_body(msg)[:EMAIL_MAX_BODY_CHARS]
     message_id = msg.get("Message-ID", "")

@@ -100,17 +100,17 @@ def resolve_tier_for_sender(
 
 
 def extract_sender_email(sender: str) -> str:
-    """Extract the real address from a raw From-header value.
+    """Extract the real address from a sender string, empty if it holds none.
 
     Uses :func:`email.utils.parseaddr` so a spoofed display name that merely
     *looks* like a whitelisted address cannot bypass allowlist/owner checks:
     for ``'"owner@x.de" <attacker@evil.com>'`` parseaddr returns the address
     inside the angle brackets (``attacker@evil.com``), not the display name.
-    Falls back to the lowercased raw string if no address can be parsed.
+    The raw string is no stand-in: ``<attacker@evil.com>, a@x.de`` holds no
+    single address, yet would end in an allowed ``@x.de``.
     """
     from email.utils import parseaddr
-    addr = parseaddr(sender)[1].strip().lower()
-    return addr or sender.strip().lower()
+    return parseaddr(sender)[1].strip().lower()
 
 
 def is_sender_allowed(service: str, key: str, sender_id: int) -> bool:
@@ -170,8 +170,6 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
     Uses the channel's allowed_users/allowed_senders list from the broker.
     The FIRST entry in the whitelist is considered the owner.
     """
-    from .credential_broker import broker
-
     if channel == "telegram":
         first_id = first_allowlist_entry("telegram", "allowed_users")
         if not first_id:
@@ -188,10 +186,9 @@ def _is_owner(channel: str, sender: str, metadata: dict) -> bool:
         # and "fail" never elevate: the From header alone is forgeable.
         if metadata.get("auth_results") != "pass":
             return False
-        allowed = broker.get("email", "allowed_senders").strip()
-        if not allowed or allowed == "*":
+        first_entry = first_allowlist_entry("email", "allowed_senders").lower()
+        if not first_entry:
             return False
-        first_entry = allowed.split(",")[0].strip().lower()
         # Extract the real address from '"Name" <user@mail.de>' — parseaddr so
         # a spoofed display name cannot masquerade as the owner address.
         sender_email = extract_sender_email(sender)
