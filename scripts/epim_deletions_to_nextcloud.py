@@ -4,7 +4,9 @@
 EPIM's option "delete on the other side" has to stay off: in about every fourth
 sync EPIM loses entries while reading them from the server, takes them for
 deleted there and deletes them locally. Without the option a deletion in EPIM
-never reaches Nextcloud, so this tool does that part from EPIM's recycle bin.
+never reaches Nextcloud, so this tool does that part from EPIM's recycle bin:
+appointments, contacts and tasks. Series are left alone, one deletion in
+Nextcloud would take every date of it.
 
 It reads the newest backup EPIM wrote itself, a consistent file that does not
 need EPIM to be closed, and takes what entered the recycle bin since the last
@@ -40,6 +42,7 @@ from aifred.lib.config import DATA_DIR
 SETTINGS_FILE = DATA_DIR / "epim" / "deletion_sync.json"
 STATE_FILE = DATA_DIR / "epim" / "deletion_sync_state.json"
 SEARCH_LIMIT = 50
+SEARCH_LIMIT_MAX = 500  # a contact's name may be part of many others
 SSH_CONNECTION_FAILED = 255
 
 
@@ -57,8 +60,8 @@ class Settings:
 @dataclass(frozen=True)
 class EpimEntry:
     title: str
-    start: datetime
-    series: bool
+    start: datetime | None = None  # appointments only
+    series: bool = False
 
 
 @dataclass
@@ -68,6 +71,19 @@ class Plan:
     still_active: list[EpimEntry] = field(default_factory=list)
     series: list[EpimEntry] = field(default_factory=list)
     ambiguous: list[EpimEntry] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
+class EpimBin:
+    """What entered the recycle bin since the last run and what is still active."""
+
+    events: list[EpimEntry]
+    active_events: set[tuple[str, datetime]]
+    contacts: list[str]
+    active_contacts: set[str]
+    tasks: list[str]
+    active_tasks: set[str]
+    newest: datetime
 
 
 def load_settings() -> Settings:
@@ -108,6 +124,48 @@ def plan_deletions(deleted: list[EpimEntry], active: set[tuple[str, datetime]],
     return plan
 
 
+def plan_contact_deletions(deleted: list[str], active: set[str],
+                           find: Callable[[str], list[dict[str, Any]]]) -> Plan:
+    """A contact has only its name to go by and Nextcloud keeps no recycle bin for
+    contacts, so only a single contact of exactly this name is deleted."""
+    plan = Plan()
+    for name in dict.fromkeys(deleted):
+        entry = EpimEntry(name)
+        if not name:
+            plan.ambiguous.append(entry)
+        elif name in active:
+            plan.still_active.append(entry)
+        else:
+            matches = [row for row in find(name) if row["name"] == name]
+            if not matches:
+                plan.already_gone.append(entry)
+            elif len(matches) > 1:
+                plan.ambiguous.append(entry)
+            else:
+                plan.delete.append((entry, matches[0]["id"]))
+    return plan
+
+
+def plan_task_deletions(deleted: list[str], active: set[str],
+                        find: Callable[[str], list[dict[str, Any]]]) -> Plan:
+    """EPIM keeps one task in several Nextcloud lists as separate objects, so all of
+    them go: one per list. Two of the same title in one list are not copies."""
+    plan = Plan()
+    for title in dict.fromkeys(deleted):
+        entry = EpimEntry(title)
+        if title in active:
+            plan.still_active.append(entry)
+        else:
+            matches = [row for row in find(title) if row["title"] == title]
+            if not matches:
+                plan.already_gone.append(entry)
+            elif len({row["list"] for row in matches}) < len(matches):
+                plan.ambiguous.append(entry)
+            else:
+                plan.delete.extend((entry, row["id"]) for row in matches)
+    return plan
+
+
 def latest_backup(settings: Settings) -> str | None:
     """Path of the newest backup, None while the EPIM machine cannot be reached:
     it is often off, and the next hourly run simply tries again."""
@@ -133,31 +191,47 @@ def fetch_restored(settings: Settings, remote: str) -> tuple[Path, Path]:
     return backup, restored
 
 
-def read_epim(path: Path, deleted_after: datetime | None) -> tuple[list[EpimEntry], set[tuple[str, datetime]], datetime]:
+def read_epim(path: Path, deleted_after: datetime | None) -> EpimBin:
     """Entries deleted after ``deleted_after``, the keys of all active entries and
     the newest deletion. Without a point in time there is nothing to compare with."""
     con = firebird_embedded.connect(path)
     try:
         cur = con.cursor()
-        cur.execute("SELECT MAX(DELETED) FROM TASKS WHERE STATUS = 1")
+
+        def active_names(table: str, column: str) -> set[str]:
+            cur.execute(f"SELECT {column} FROM {table} WHERE STATUS = 0")
+            return {name or "" for name, in cur.fetchall()}
+
+        def deleted_names(table: str, column: str) -> list[str]:
+            if deleted_after is None:
+                return []
+            cur.execute(f"SELECT {column} FROM {table} WHERE STATUS = 1 AND DELETED > ?", (deleted_after,))
+            return [name or "" for name, in cur.fetchall()]
+
+        newest_per_table = []
+        for table in ("TASKS", "CONTACTS", "TODOS"):
+            cur.execute(f"SELECT MAX(DELETED) FROM {table} WHERE STATUS = 1")
+            newest_per_table.append(cur.fetchone()[0])
         # An empty bin leaves no time: whatever enters it later is new.
-        newest = cur.fetchone()[0] or datetime.min  # noqa: DTZ901 - EPIM stores naive local times
-        deleted: list[EpimEntry] = []
+        newest = max((time for time in newest_per_table if time is not None), default=datetime.min)  # noqa: DTZ901 - EPIM stores naive local times
+        events: list[EpimEntry] = []
         if deleted_after is not None:
             cur.execute("SELECT TITLE, STARTTIME, REPEATING FROM TASKS WHERE STATUS = 1 AND DELETED > ?", (deleted_after,))
-            deleted = [EpimEntry(title or "", start, bool(repeating)) for title, start, repeating in cur.fetchall()]
+            events = [EpimEntry(title or "", start, bool(repeating)) for title, start, repeating in cur.fetchall()]
         cur.execute("SELECT TITLE, STARTTIME FROM TASKS WHERE STATUS = 0")
-        return deleted, {(title or "", start) for title, start in cur.fetchall()}, newest
+        active_events = {(title or "", start) for title, start in cur.fetchall()}
+        return EpimBin(events, active_events, deleted_names("CONTACTS", "SUBJECT"), active_names("CONTACTS", "SUBJECT"),
+                       deleted_names("TODOS", "TITLE"), active_names("TODOS", "TITLE"), newest)
     finally:
         con.close()
 
 
-def _report(plan: Plan) -> None:
-    print(f"to delete in Nextcloud: {len(plan.delete)}")
-    print(f"already gone there: {len(plan.already_gone)}")
-    print(f"skipped, active again in EPIM: {len(plan.still_active)}")
-    print(f"skipped, part of a series: {len(plan.series)}")
-    print(f"skipped, several matches: {len(plan.ambiguous)}")
+def _report(kind: str, plan: Plan) -> None:
+    print(f"{kind}, to delete in Nextcloud: {len(plan.delete)}")
+    print(f"{kind}, already gone there: {len(plan.already_gone)}")
+    print(f"{kind}, skipped, active again in EPIM: {len(plan.still_active)}")
+    print(f"{kind}, skipped, part of a series: {len(plan.series)}")
+    print(f"{kind}, skipped, several matches: {len(plan.ambiguous)}")
     for title in sorted({entry.title for entry in plan.series + plan.ambiguous}):
         print(f"  by hand: {title}")
 
@@ -182,7 +256,7 @@ def run(apply: bool) -> int:
 
     backup, restored = fetch_restored(settings, remote)
     try:
-        deleted, active, newest = read_epim(restored, deleted_after)
+        epim_bin = read_epim(restored, deleted_after)
     finally:
         restored.unlink(missing_ok=True)
         backup.unlink(missing_ok=True)
@@ -191,20 +265,30 @@ def run(apply: bool) -> int:
     if store is None:
         raise RuntimeError("Nextcloud is not configured")
 
-    def find(entry: EpimEntry) -> list[dict[str, Any]]:
+    def find_event(entry: EpimEntry) -> list[dict[str, Any]]:
+        assert entry.start is not None
         day = entry.start.date()
         return store.events(day, day, entry.title, SEARCH_LIMIT)
 
-    plan = plan_deletions(deleted, active, find)
-    _report(plan)
-    if len(plan.delete) > settings.max_deletions:
-        print(f"STOPPED: {len(plan.delete)} deletions exceed max_deletions ({settings.max_deletions}), nothing deleted")
+    plans = {
+        "events": (plan_deletions(epim_bin.events, epim_bin.active_events, find_event), store.delete_event),
+        "contacts": (plan_contact_deletions(epim_bin.contacts, epim_bin.active_contacts,
+                                            lambda name: store.contacts(name, SEARCH_LIMIT_MAX)), store.delete_contact),
+        "tasks": (plan_task_deletions(epim_bin.tasks, epim_bin.active_tasks,
+                                      lambda title: store.tasks(title, None, SEARCH_LIMIT_MAX)), store.delete_task),
+    }
+    for kind, (plan, _delete) in plans.items():
+        _report(kind, plan)
+    total = sum(len(plan.delete) for plan, _delete in plans.values())
+    if total > settings.max_deletions:
+        print(f"STOPPED: {total} deletions exceed max_deletions ({settings.max_deletions}), nothing deleted")
         return 1
     if apply:
-        for entry, object_id in plan.delete:
-            store.delete_event(object_id)
-            print(f"deleted: {entry.start:%Y-%m-%d %H:%M} {entry.title}")
-        STATE_FILE.write_text(json.dumps({"backup": remote, "deleted_after": newest.isoformat()}), encoding="utf-8")
+        for kind, (plan, delete) in plans.items():
+            for entry, object_id in plan.delete:
+                delete(object_id)
+                print(f"deleted {kind}: {entry.start or ''} {entry.title}")
+        STATE_FILE.write_text(json.dumps({"backup": remote, "deleted_after": epim_bin.newest.isoformat()}), encoding="utf-8")
     return 0
 
 
