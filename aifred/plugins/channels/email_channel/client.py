@@ -135,6 +135,24 @@ def _decode_header(raw: str | None) -> str:
     return decoded
 
 
+def _decode_sender(raw: str | None) -> str:
+    """From header as ``"Name" <address>``, the form the allowlist reads.
+
+    The address comes from the raw header and only the name is decoded: decoding
+    the whole header first would turn ``=?utf-8?q?owner=40x.de?=`` into an address
+    no one sent from. The name stays quoted, so a decoded ``<`` or comma cannot
+    pass for a second address, and on one line, since parseaddr stops at a line
+    break even inside quotes. A header without one address stays as it is, for
+    display: extract_sender_email finds nothing in it.
+    """
+    header = str(raw or "")
+    name, address = email.utils.parseaddr(header)
+    if not address:
+        return header
+    decoded_name = " ".join(_decode_header(name).split())
+    return f'"{email.utils.quote(decoded_name)}" <{address}>' if decoded_name else address
+
+
 def _extract_body(msg: email.message.Message) -> str:
     """Extract plain text body from email message."""
     if msg.is_multipart():
@@ -346,7 +364,7 @@ def check_inbox(account: ImapAccount, n: int = EMAIL_MAX_FETCH, folder: str = "I
             if header_raw:
                 msg = email.message_from_bytes(header_raw)
                 subject = _decode_header(msg.get("Subject", ""))
-                sender = _decode_header(msg.get("From", ""))
+                sender = _decode_sender(msg.get("From", ""))
                 date = msg.get("Date", "")
                 # Parse date to readable format
                 parsed_date = _safe_parsedate(date)
@@ -390,7 +408,7 @@ def read_email(account: ImapAccount, msg_id: str, folder: str = "INBOX") -> Emai
         return EmailMessage(
             msg_id=msg_id,
             subject=_decode_header(msg.get("Subject", "")),
-            sender=_decode_header(msg.get("From", "")),
+            sender=_decode_sender(msg.get("From", "")),
             to=_decode_header(msg.get("To", "")),
             date=date_str,
             body=body,
@@ -438,7 +456,7 @@ def search_emails(
                     results.append(EmailSummary(
                         msg_id=msg_id,
                         subject=_decode_header(msg.get("Subject", "")),
-                        sender=_decode_header(msg.get("From", "")),
+                        sender=_decode_sender(msg.get("From", "")),
                         date=parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date,
                         preview="",
                     ))
