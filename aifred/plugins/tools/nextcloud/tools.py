@@ -312,7 +312,7 @@ def get_nextcloud_tools(store: NextcloudStore) -> list[Tool]:
         return _dump({"success": True, "id": object_id})
 
     def tool(name: str, tier: int, executor: Any, types: list[str]) -> Tool:
-        return Tool(name=name, tier=tier, executor=executor,
+        return Tool(name=name, tier=tier, executor=executor, read_only=name in ("nextcloud_search", "nextcloud_get"),
                     description=load_tool_description(__file__, name),
                     parameters=load_tool_parameters(__file__, name, enums={"entity_type": types}))
 

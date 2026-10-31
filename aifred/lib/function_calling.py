@@ -73,6 +73,7 @@ class Tool:
     tier: int = 0  # Security tier (0=readonly … 4=admin)
     outbound: bool = False  # Sends a message out of AIfred (see may_send_outbound)
     owner_gated: bool = False  # Admitted by may_use_memory, not by the tier
+    read_only: bool = False  # Changes nothing above tier 0: the tier rates the data, not the effect
 
     @property
     def definition(self) -> dict[str, Any]:
@@ -214,6 +215,7 @@ class ToolKit:
             check_rate_limit,
         )
 
+        reads_only = tool.read_only or tool.tier == TIER_READONLY
         self._call_count += 1
         if SECURITY_MAX_TOOL_CHAIN_DEPTH > 0 and self._call_count > SECURITY_MAX_TOOL_CHAIN_DEPTH:
             msg = f"Tool chain depth limit ({SECURITY_MAX_TOOL_CHAIN_DEPTH}) exceeded"
@@ -228,7 +230,7 @@ class ToolKit:
         # Key on tool name + canonicalised args (sorted keys) so a trivially
         # different serialisation of the SAME call still collides.
         call_key = f"{name}:{json.dumps(args, sort_keys=True, ensure_ascii=False)}"
-        if SECURITY_MAX_IDENTICAL_TOOL_CALLS > 0 and tool.tier != TIER_READONLY:
+        if SECURITY_MAX_IDENTICAL_TOOL_CALLS > 0 and not reads_only:
             seen = self._identical_calls.get(call_key, 0) + 1
             self._identical_calls[call_key] = seen
             if seen > SECURITY_MAX_IDENTICAL_TOOL_CALLS:
@@ -324,7 +326,7 @@ class ToolKit:
             # Sanitize before it enters LLM context.
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)
-            if tool.tier == TIER_READONLY:
+            if reads_only:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         except Exception as e:
@@ -333,7 +335,7 @@ class ToolKit:
             result_str = json.dumps({"error": str(e)})
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)
-            if tool.tier == TIER_READONLY:
+            if reads_only:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         finally:

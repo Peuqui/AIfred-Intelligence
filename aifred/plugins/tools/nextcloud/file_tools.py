@@ -74,7 +74,8 @@ def get_nextcloud_file_tools(store: Any) -> list[Tool]:
         return _answer({"success": True, "path": path})
 
     def tool(name: str, tier: int, executor: Any) -> Tool:
-        return Tool(name=name, tier=tier, executor=executor, description=load_tool_description(__file__, name),
+        return Tool(name=name, tier=tier, executor=executor, read_only=(name, tier, executor) in reading,
+                    description=load_tool_description(__file__, name),
                     parameters=load_tool_parameters(__file__, name, values=placeholders))
 
     reading = [("nextcloud_file_list", TIER_WRITE_DATA, nextcloud_file_list),

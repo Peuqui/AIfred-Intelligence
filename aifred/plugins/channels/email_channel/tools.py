@@ -286,6 +286,7 @@ def get_readonly_mailbox_tools(lang: str = "de") -> list[Tool]:
     return [
         Tool(
             name="email_readonly",
+            read_only=True,
             tier=TIER_WRITE_DATA,
             description=load_tool_description(__file__, "email_readonly"),
             parameters=load_tool_parameters(__file__, "email_readonly", enums={"action": sorted(handlers)}),
