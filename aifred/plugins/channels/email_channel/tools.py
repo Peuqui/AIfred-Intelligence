@@ -16,7 +16,9 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from functools import partial
 from pathlib import Path
+from typing import Any
 
+from ....lib.context_manager import estimate_tokens
 from ....lib.formatting import format_number
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
@@ -29,16 +31,20 @@ from ....lib.security import (
     sanitize_outbound,
     wrap_untrusted_data,
 )
+from ....lib.tool_args import parse_bool
+from ....lib.tool_output_cap import budget_var
 from .client import (
+    EmailMessage,
+    EmailSummary,
     ImapAccount,
     agent_mailbox_account,
     check_inbox,
-    read_email,
+    read_emails,
     readonly_mailbox_account,
     readonly_mailbox_configured,
     search_emails,
 )
-from .config import EMAIL_MAX_FETCH
+from .config import EMAIL_LIST_DEFAULT
 
 # Actions offered by the safe (COMMUNICATE) tool vs. the destructive one.
 # Each tool enforces its own set so the model cannot smuggle a delete through
@@ -47,28 +53,26 @@ _SAFE_ACTIONS = {"check", "read", "search", "send", "list_folders", "mark"}
 _MANAGE_ACTIONS = {"delete", "move", "create_folder"}
 
 
-async def _check(account: ImapAccount, kwargs: dict[str, str]) -> str:
-    n = int(kwargs.get("n", "10"))
-    folder = kwargs.get("folder", "INBOX")
-    emails = await asyncio.to_thread(
-        check_inbox, account, n=max(1, min(n, EMAIL_MAX_FETCH)), folder=folder
-    )
-    if not emails:
-        return "No emails found (0 messages)."
-    lines = [f"Total: {format_number(len(emails))} emails"]
+def _mail_list(emails: list[EmailSummary], total: int) -> str:
+    """What the list tells about a mail. No content: to know what a mail says, read it."""
+    lines = [f"Showing {format_number(len(emails))} of {format_number(total)} emails"]
     for e in emails:
-        status = "📩" if not e.is_read else "📧"
-        lines.append(f"{status} [{e.msg_id}] {e.date} — {e.sender}\n   {e.subject}\n   {e.preview}")
-    return wrap_untrusted_data("\n\n".join(lines), "email")
+        lines.append(f"{'📩' if not e.is_read else '📧'} [{e.msg_id}] {e.date} — {e.sender}: {e.subject}")
+    return wrap_untrusted_data("\n".join(lines), "email")
 
 
-async def _read(account: ImapAccount, kwargs: dict[str, str], *, owner_verdict: bool) -> str:
-    """``owner_verdict``: may a mail earn the "owner" label? Off, it stays "external"."""
-    msg_id = kwargs.get("msg_id", "")
-    if not msg_id:
-        return "Error: msg_id required"
+async def _check(account: ImapAccount, kwargs: dict[str, Any]) -> str:
+    unread = parse_bool(kwargs["unread"], "unread") if "unread" in kwargs else False
+    n = int(kwargs["n"]) if "n" in kwargs else None if unread else EMAIL_LIST_DEFAULT
     folder = kwargs.get("folder", "INBOX")
-    msg = await asyncio.to_thread(read_email, account, msg_id=msg_id, folder=folder)
+    emails, total = await asyncio.to_thread(check_inbox, account, n=n, folder=folder, unread_only=unread)
+    if not emails:
+        return "No unread emails." if unread else "No emails found (0 messages)."
+    return _mail_list(emails, total)
+
+
+def _render_mail(msg: EmailMessage, *, owner_verdict: bool) -> str:
+    """``owner_verdict``: may a mail earn the "owner" label? Off, it stays "external"."""
     parts = [
         f"From: {msg.sender}",
         f"To: {msg.to}",
@@ -86,18 +90,49 @@ async def _read(account: ImapAccount, kwargs: dict[str, str], *, owner_verdict: 
     return wrap_untrusted_data("\n".join(parts), "email", trust)
 
 
-async def _search(account: ImapAccount, kwargs: dict[str, str]) -> str:
+def _within_budget(rendered: list[tuple[str, str]], budget: int) -> list[str]:
+    """Whole mails as far as the model's budget goes, then the IDs of the others for the
+    next step: left to the generic cap, one mail would end mid-sentence and the mails
+    behind it would be gone. The first mail always comes."""
+    if budget <= 0:
+        return [text for _msg_id, text in rendered]
+    kept: list[str] = []
+    used = 0
+    for index, (_msg_id, text) in enumerate(rendered):
+        rest = load_tool_description(__file__, "email_read_rest").format(
+            ids=", ".join(msg_id for msg_id, _text in rendered[index:]))
+        used += estimate_tokens([{"content": text}])
+        if kept and used + estimate_tokens([{"content": rest}]) > budget:
+            return [*kept, rest]
+        kept.append(text)
+    return kept
+
+
+async def _read(account: ImapAccount, kwargs: dict[str, Any], *, owner_verdict: bool) -> str:
+    msg_ids = [msg_id.strip() for msg_id in kwargs.get("msg_id", "").split(",") if msg_id.strip()]
+    if not msg_ids:
+        return "Error: msg_id required"
+    folder = kwargs.get("folder", "INBOX")
+    mails, missing = await asyncio.to_thread(read_emails, account, msg_ids, folder)
+    if not mails:
+        raise ValueError(f"Email {', '.join(missing)} not found")
+    rendered = [(msg.msg_id, _render_mail(msg, owner_verdict=owner_verdict)) for msg in mails]
+    answers = await asyncio.to_thread(_within_budget, rendered, budget_var.get())
+    if missing:
+        answers.append(f"Not found: {', '.join(missing)}")
+    return "\n\n".join(answers)
+
+
+async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     query = kwargs.get("query", "")
     if not query:
         return "Error: query required"
+    n = int(kwargs["n"]) if "n" in kwargs else EMAIL_LIST_DEFAULT
     folder = kwargs.get("folder", "INBOX")
-    emails = await asyncio.to_thread(search_emails, account, query=query, folder=folder)
+    emails, total = await asyncio.to_thread(search_emails, account, query=query, folder=folder, n=n)
     if not emails:
         return f"No emails found for '{query}'."
-    lines = []
-    for e in emails:
-        lines.append(f"[{e.msg_id}] {e.date} — {e.sender}: {e.subject}")
-    return wrap_untrusted_data("\n".join(lines), "email")
+    return _mail_list(emails, total)
 
 
 def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "de") -> list[Tool]:

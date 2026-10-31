@@ -19,9 +19,9 @@ Channel plugin for email communication via IMAP IDLE and SMTP.
 
 | Action | Required parameters | Notes |
 |--------|--------------------|-------|
-| `check` | – | `n` (default 10, capped at 20), `folder` (default INBOX) |
-| `read` | `msg_id` | `folder` (default INBOX) |
-| `search` | `query` | `folder` (default INBOX) |
+| `check` | – | `n` (default 20), `unread` (only unread ones, then all of them), `folder` (default INBOX). A list of date, sender, subject and read state, no content |
+| `read` | `msg_id` (several separated by commas) | `folder` (default INBOX). HTML becomes text. If not everything fits the model's budget, the answer names the remaining IDs for the next call |
+| `search` | `query` | `n` (default 20), `folder` (default INBOX) |
 | `send` | `to`, `subject`, `body` (optional `attachment`) | registers the session route |
 | `move` | `msg_id`, `target_folder` | `folder` = source (default INBOX) |
 | `delete` | `msg_id` | `folder` (default INBOX) |
@@ -84,7 +84,7 @@ not exist there.
 
 **Read-only is enforced technically:**
 
-- `check_inbox`, `read_email` and `search_emails` work on `_ReadOnlyMailbox` and never see the
+- `check_inbox`, `read_emails` and `search_emails` work on `_ReadOnlyMailbox` and never see the
   IMAP connection. That class knows only EXAMINE, `UID SEARCH` and `UID FETCH` with `BODY.PEEK`;
   STORE, COPY, APPEND and EXPUNGE cannot be reached from there.
 - EXAMINE (`select(..., readonly=True)`) opens the folder read-only, BODY.PEEK leaves `\Seen`

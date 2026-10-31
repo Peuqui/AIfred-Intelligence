@@ -8,6 +8,11 @@ Kontrakt (email_channel/client.py, tools.py):
 - Das Postfach hat keinen Listener; Schreibendes erreicht nur AIfreds eigenes Postfach.
 - Mails daraus bekommen nie das Owner-Label.
 - Der Weg über das ``email``-Werkzeug läuft weiter auf AIfreds Postfach, mit Owner-Urteil.
+- Die Liste zeigt Datum, Absender, Betreff und den Lesestatus, keinen Inhalt; sie sagt, wie viele
+  von wie vielen sie zeigt. ``unread`` liefert alle ungelesenen.
+- ``read`` nimmt mehrere IDs, über eine Verbindung. Mails werden nie still gekürzt: Passt nicht
+  alles ins Budget des Modells, nennt die Antwort die übrigen IDs für den nächsten Schritt.
+- Aus HTML wird lesbarer Text, ohne Technik und ohne Inhalt zu verlieren.
 
 Ohne Netz: FakeImap ersetzt imaplib.IMAP4_SSL und antwortet in der Form von imaplib.
 """
@@ -27,6 +32,7 @@ import pytest
 
 from aifred.lib.plugin_base import PluginContext
 from aifred.lib.security import TIER_COMMUNICATE, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
+from aifred.lib.tool_output_cap import budget_var
 from aifred.plugins.channels import email_channel
 from aifred.plugins.channels.email_channel import EmailChannel, client
 from aifred.plugins.channels.email_channel.tools import get_readonly_mailbox_tools
@@ -63,6 +69,27 @@ def _mail(subject: str, sender: str, body: str, auth_results: str | None = None)
     if auth_results:
         message["Authentication-Results"] = auth_results
     message.set_content(body)
+    return message.as_bytes()
+
+
+def _html_mail(subject: str, html: str) -> bytes:
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = "Anna <anna@freunde.test>"
+    message["To"] = READONLY_USER
+    message["Date"] = "Sat, 31 Oct 2026 09:30:00 +0100"
+    message.set_content(html, subtype="html")
+    return message.as_bytes()
+
+
+def _both_parts_mail(subject: str, text: str, html: str) -> bytes:
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = "Anna <anna@freunde.test>"
+    message["To"] = READONLY_USER
+    message["Date"] = "Sat, 31 Oct 2026 09:30:00 +0100"
+    message.set_content(text)
+    message.add_alternative(html, subtype="html")
     return message.as_bytes()
 
 
@@ -133,6 +160,9 @@ class FakeImap:
     def _search(self, args: tuple) -> bytes:
         self.server.searches.append(args)
         criteria = args[-1]
+        if criteria == "UNSEEN":
+            unseen = [uid for uid, (_, flags) in sorted(self.server.mails.items()) if r"\Seen" not in flags]
+            return " ".join(str(uid) for uid in unseen).encode()
         if criteria == "ALL":
             needle = ""
         elif args[0] == "CHARSET":
@@ -150,17 +180,12 @@ class FakeImap:
         if uid not in self.server.mails:
             return [None]
         raw, flags = self.server.mails[uid]
-        header, _, text = raw.partition(b"\n\n")
-        header += b"\n\n"
+        header = raw.partition(b"\n\n")[0] + b"\n\n"
         if items == "(BODY.PEEK[])":
             return [(f"1 (UID {uid} BODY[] {{{len(raw)}}}".encode(), raw), b")"]
         with_flags = (f"1 (UID {uid} FLAGS ({flags}) BODY[HEADER] {{{len(header)}}}".encode(), header)
         if items == "(FLAGS BODY.PEEK[HEADER])":
             return [with_flags, b")"]
-        if items == "(FLAGS BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.400>)":
-            if not text.strip():  # An empty body is no literal, so imaplib makes no tuple of it
-                return [with_flags, b' BODY[TEXT]<0> "")']
-            return [with_flags, (f" BODY[TEXT]<0> {{{len(text)}}}".encode(), text), b")"]
         raise AssertionError(f"FETCH form the read path must not use: {items}")
 
 
@@ -194,7 +219,9 @@ def _run(tool, **args: str) -> str:
 
 READ_CALLS = [
     {"action": "check"},
+    {"action": "check", "unread": True},
     {"action": "read", "msg_id": "7"},
+    {"action": "read", "msg_id": "5,7"},
     {"action": "search", "query": "Rechnung"},
     {"action": "search", "query": "Müller"},
 ]
@@ -239,7 +266,7 @@ class TestStrictlyReadOnly:
     def test_read_functions_cannot_reach_the_connection(self) -> None:
         """Their whole IMAP surface: no writing method, no public way to the connection."""
         surface = {name for name in vars(client._ReadOnlyMailbox) if not name.startswith("_")}
-        assert surface == {"search", "search_header", "fetch_summary", "fetch_headers", "fetch_message"}
+        assert surface == {"search", "search_header", "fetch_headers", "fetch_message"}
 
     def test_unopenable_folder_stops_before_any_fetch(
         self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
@@ -285,7 +312,7 @@ class TestToolOffer:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         schema = _tools()["email_readonly"].parameters
         assert schema["properties"]["action"]["enum"] == ["check", "read", "search"]
-        assert set(schema["properties"]) == {"action", "msg_id", "query", "n", "folder"}
+        assert set(schema["properties"]) == {"action", "msg_id", "query", "n", "unread", "folder"}
 
     @pytest.mark.parametrize("lang", ["de", "en"])
     @pytest.mark.parametrize("action", ["send", "delete", "move", "mark", "list_folders", "create_folder"])
@@ -342,7 +369,7 @@ class TestNeverTheOwnMailbox:
         assert client.readonly_mailbox_account().password != OWN_PASSWORD
 
     def test_read_functions_have_no_default_account(self) -> None:
-        for function in (client.check_inbox, client.read_email, client.search_emails):
+        for function in (client.check_inbox, client.read_emails, client.search_emails):
             parameter = inspect.signature(function).parameters["account"]
             assert parameter.default is inspect.Parameter.empty
 
@@ -382,26 +409,133 @@ class TestOutput:
         assert "📩 [7]" in answer
         assert "📧 [5]" in answer
 
-    def test_preview_is_the_body_not_the_header(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
-        """BODY[HEADER] also contains "BODY": the parser must tell the two parts apart."""
+    def test_list_shows_no_content(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
-        summaries = client.check_inbox(client.readonly_mailbox_account())
-        assert "Müller" in summaries[0].subject
-        assert summaries[0].preview == "Sehen wir uns am Samstag?"
+        answer = _run(get_readonly_mailbox_tools()[0], action="check")
+        assert "Treffen bei Müller" in answer and "Anna" in answer
+        assert "Sehen wir uns" not in answer
 
-    def test_mail_without_text_has_no_preview(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The header part must not slip into the preview when no text part follows."""
+    def test_list_says_how_many_of_how_many(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
-        server.mails[9] = (_mail("Nur Betreff", "Anna <anna@freunde.test>", ""), "")
-        summaries = client.check_inbox(client.readonly_mailbox_account())
-        assert summaries[0].subject == "Nur Betreff"
-        assert summaries[0].preview == ""
+        server.mails = {uid: (_mail(f"Mail {uid}", "A <a@b.test>", "x"), "") for uid in range(1, 31)}
+        answer = _run(get_readonly_mailbox_tools()[0], action="check", n="3")
+        assert "3 of 30" in answer and "[30]" in answer and "[27]" not in answer
+
+    def test_unread_lists_only_the_unread_ones(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        answer = _run(get_readonly_mailbox_tools()[0], action="check", unread=True)
+        assert "[7]" in answer and "[5]" not in answer
+
+    def test_unread_lists_all_of_them(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails = {uid: (_mail(f"Mail {uid}", "A <a@b.test>", "x"), "") for uid in range(1, 61)}
+        answer = _run(get_readonly_mailbox_tools()[0], action="check", unread=True)
+        assert answer.count("📩") == 60
+
+    def test_nothing_unread_is_said_plainly(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails = {5: server.mails[5]}
+        answer = _run(get_readonly_mailbox_tools()[0], action="check", unread=True)
+        assert "[5]" not in answer and "No unread" in answer
+
+    def test_search_shows_the_read_state_too(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        answer = _run(get_readonly_mailbox_tools()[0], action="search", query="Rechnung")
+        assert "📧 [5]" in answer
 
     def test_read_returns_the_whole_mail(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
         answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="5")
         assert "Subject: Rechnung Oktober" in answer
         assert "Bitte bis Freitag zahlen." in answer
+
+    def test_several_mails_in_one_call_and_one_connection(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="7, 5")
+        assert answer.index("Sehen wir uns am Samstag?") < answer.index("Bitte bis Freitag zahlen.")
+        assert len(server.connections) == 1
+
+    def test_several_with_an_unknown_id_reports_it(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="5,99")
+        assert "Bitte bis Freitag zahlen." in answer and "99" in answer
+
+    def test_long_mail_is_not_cut(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails[9] = (_mail("Lang", "Anna <anna@freunde.test>", "Absatz eins.\n" * 5000 + "Das Ende."), "")
+        answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="9")
+        assert "Das Ende." in answer
+
+    def test_what_exceeds_the_budget_is_named_for_the_next_step(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails = {uid: (_mail(f"Mail {uid}", "A <a@b.test>", f"Text {uid}. " * 200), "") for uid in (1, 2, 3)}
+        token = budget_var.set(500)
+        try:
+            answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="1,2,3")
+        finally:
+            budget_var.reset(token)
+        assert "Text 1." in answer and "Text 3." not in answer
+        rest = answer.rsplit("</untrusted_data>", 1)[1]
+        assert "3" in rest and "1" not in rest
+
+    def test_first_mail_comes_even_above_the_budget(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails = {1: (_mail("Gross", "A <a@b.test>", "Wort " * 2000), "")}
+        token = budget_var.set(100)
+        try:
+            answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="1")
+        finally:
+            budget_var.reset(token)
+        assert "Subject: Gross" in answer
+
+    def test_without_a_budget_everything_comes(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails = {uid: (_mail(f"Mail {uid}", "A <a@b.test>", f"Text {uid}. " * 500), "") for uid in (1, 2, 3)}
+        answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="1,2,3")
+        assert all(f"Text {uid}." in answer for uid in (1, 2, 3))
+
+    @pytest.mark.parametrize("mail_id,build", [
+        (21, lambda html: _html_mail("Nur HTML", html)),
+        (22, lambda html: _both_parts_mail("Leerer Textteil", "", html)),
+    ])
+    def test_html_becomes_readable_text(self, server, monkeypatch, mail_id: int, build) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        html = ("<html><head><title>Kopf</title><style>p {color: red}</style></head><body>"
+                "<p>Erster&nbsp;Satz.</p><div>Zweiter Satz.</div><script>alert(1)</script>"
+                "<table><tr><td>Kosten</td><td>12 Euro</td></tr></table></body></html>")
+        server.mails[mail_id] = (build(html), "")
+        answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id=str(mail_id))
+        assert "Erster Satz." in answer and "Zweiter Satz." in answer and "12 Euro" in answer
+        assert "<p>" not in answer and "color: red" not in answer and "alert(1)" not in answer
+
+    def test_short_html_keeps_its_text(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An article extractor drops a short mail altogether (real mail, 31.10.2026)."""
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails[23] = (_html_mail("Kurz", "<p>Termin um neun.</p>"), "")
+        assert "Termin um neun." in _run(get_readonly_mailbox_tools()[0], action="read", msg_id="23")
+
+    def test_html_with_an_encoding_declaration(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        html = '<?xml version="1.0" encoding="utf-8"?><html><body><p>Grüße aus Köln</p></body></html>'
+        server.mails[24] = (_html_mail("XHTML", html), "")
+        assert "Grüße aus Köln" in _run(get_readonly_mailbox_tools()[0], action="read", msg_id="24")
+
+    def test_empty_html_is_no_error(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails[25] = (_html_mail("Leer", "   "), "")
+        assert "Subject: Leer" in _run(get_readonly_mailbox_tools()[0], action="read", msg_id="25")
+
+    def test_text_part_goes_before_html(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails[26] = (_both_parts_mail("Beides", "Klartext.", "<p>Aus dem HTML.</p>"), "")
+        answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="26")
+        assert "Klartext." in answer and "Aus dem HTML." not in answer
 
     def test_non_ascii_search_uses_literals(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)

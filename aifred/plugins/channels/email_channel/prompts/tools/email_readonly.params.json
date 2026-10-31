@@ -8,7 +8,7 @@
     },
     "msg_id": {
       "type": "string",
-      "description": "Message ID from check or search (for read)"
+      "description": "Message ID from check or search, or several separated by commas (for read)"
     },
     "query": {
       "type": "string",
@@ -16,7 +16,11 @@
     },
     "n": {
       "type": "string",
-      "description": "Number of emails to fetch (for check, default 10)"
+      "description": "Number of newest emails to list (for check and search, default 20)"
+    },
+    "unread": {
+      "type": "boolean",
+      "description": "Only unread emails, all of them unless n is given (for check)"
     },
     "folder": {
       "type": "string",
