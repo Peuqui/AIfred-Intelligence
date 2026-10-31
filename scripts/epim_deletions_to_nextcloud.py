@@ -18,11 +18,15 @@ option off EPIM deletes nothing by itself, so all of this is the user's doing.
 
 Settings: data/epim/deletion_sync.json with ssh_host, ssh_port, ssh_user,
 backup_dir (on the EPIM machine), backup_glob (the working database only,
-e.g. MP.backup_*.epim), work_dir, max_deletions. A run deleting more
-than max_deletions stops without deleting anything.
+e.g. MP.backup_*.epim), work_dir, max_deletions, notify_channel,
+notify_recipient, stop_subject, stop_text ({total} and {limit}). A run deleting
+more than max_deletions stops without deleting anything and tells the user, once
+per backup: it runs unattended, and left unnoticed the stop would hold back every
+later deletion too.
 """
 
 import argparse
+import asyncio
 import json
 import shlex
 import subprocess
@@ -55,6 +59,10 @@ class Settings:
     backup_glob: str
     work_dir: Path
     max_deletions: int
+    notify_channel: str
+    notify_recipient: str
+    stop_subject: str
+    stop_text: str
 
 
 @dataclass(frozen=True)
@@ -89,7 +97,8 @@ class EpimBin:
 def load_settings() -> Settings:
     raw = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
     return Settings(raw["ssh_host"], int(raw["ssh_port"]), raw["ssh_user"], raw["backup_dir"],
-                    raw["backup_glob"], Path(raw["work_dir"]), int(raw["max_deletions"]))
+                    raw["backup_glob"], Path(raw["work_dir"]), int(raw["max_deletions"]),
+                    raw["notify_channel"], raw["notify_recipient"], raw["stop_subject"], raw["stop_text"])
 
 
 def _naive(value: date | datetime) -> datetime:
@@ -236,6 +245,22 @@ def _report(kind: str, plan: Plan) -> None:
         print(f"  by hand: {title}")
 
 
+def notify_stop(settings: Settings, state: dict[str, Any], remote: str, total: int) -> None:
+    """Tell the user once per backup; the marker stays where it is. Undelivered, the
+    next run tries again."""
+    if state.get("stop_notified") == remote:
+        return
+    from aifred.lib.message_processor import announce_to_channel
+
+    text = settings.stop_text.format(total=total, limit=settings.max_deletions)
+    delivered = asyncio.run(announce_to_channel(settings.notify_channel, settings.notify_recipient, text,
+                                                session_id=None, metadata={"subject": settings.stop_subject}))
+    if delivered:
+        STATE_FILE.write_text(json.dumps({**state, "stop_notified": remote}), encoding="utf-8")
+    else:
+        print(f"notification via {settings.notify_channel} not delivered, trying again next run")
+
+
 def run(apply: bool) -> int:
     from aifred.plugins.tools.nextcloud import store as store_module
 
@@ -282,6 +307,8 @@ def run(apply: bool) -> int:
     total = sum(len(plan.delete) for plan, _delete in plans.values())
     if total > settings.max_deletions:
         print(f"STOPPED: {total} deletions exceed max_deletions ({settings.max_deletions}), nothing deleted")
+        if apply:
+            notify_stop(settings, state, remote, total)
         return 1
     if apply:
         for kind, (plan, delete) in plans.items():

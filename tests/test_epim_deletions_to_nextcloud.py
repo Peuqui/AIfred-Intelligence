@@ -10,11 +10,15 @@ Kontrakt:
 - Aufgaben stehen in Nextcloud in mehreren Listen zugleich (EPIM verteilt sie so): gelöscht
   werden alle Kopien gleichen Titels, aber höchstens eine je Liste. Zwei gleiche in einer
   Liste sind mehrdeutig und bleiben stehen.
+- Die Bremse: Über max_deletions wird nichts gelöscht, die Zeitmarke bleibt stehen, und der
+  Benutzer bekommt je Sicherung genau eine Nachricht. Scheitert sie, kommt der nächste Lauf
+  dran. Der Lauf ohne --apply benachrichtigt nie.
 """
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
@@ -159,7 +163,49 @@ def test_task_search_hit_with_another_title_does_not_count() -> None:
 
 
 def _settings() -> Any:
-    return tool.Settings("host", 22, "user", "/backups", "MP.backup_*.epim", Path("/tmp/x"), 20)
+    return tool.Settings("host", 22, "user", "/backups", "MP.backup_*.epim", Path("/tmp/x"), 20,
+                         "email", "Lord Helmchen", "Bremse", "{total} über {limit}")
+
+
+def _announce(monkeypatch: pytest.MonkeyPatch, tmp_path: Path, delivered: bool = True) -> list[tuple]:
+    sent: list[tuple] = []
+
+    async def announce(channel: str, recipient: str, text: str, *, session_id: str | None,
+                       metadata: dict | None = None) -> bool:
+        sent.append((channel, recipient, text, session_id, metadata))
+        return delivered
+
+    monkeypatch.setattr("aifred.lib.message_processor.announce_to_channel", announce)
+    monkeypatch.setattr(tool, "STATE_FILE", tmp_path / "state.json")
+    return sent
+
+
+def test_stop_tells_the_user_what_is_pending(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sent = _announce(monkeypatch, tmp_path)
+    tool.notify_stop(_settings(), {"deleted_after": "2026-10-31T15:42:07"}, "/backups/new.epim", 750)
+    assert sent == [("email", "Lord Helmchen", "750 über 20", None, {"subject": "Bremse"})]
+
+
+def test_stop_notifies_once_per_backup_and_keeps_the_marker(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sent = _announce(monkeypatch, tmp_path)
+    state = {"backup": "/backups/old.epim", "deleted_after": "2026-10-31T15:42:07"}
+    tool.notify_stop(_settings(), state, "/backups/new.epim", 750)
+    saved = json.loads(tool.STATE_FILE.read_text(encoding="utf-8"))
+    tool.notify_stop(_settings(), saved, "/backups/new.epim", 750)
+    assert len(sent) == 1
+    assert saved == {**state, "stop_notified": "/backups/new.epim"}
+
+
+def test_next_backup_notifies_again(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sent = _announce(monkeypatch, tmp_path)
+    tool.notify_stop(_settings(), {"stop_notified": "/backups/old.epim"}, "/backups/new.epim", 750)
+    assert len(sent) == 1
+
+
+def test_failed_notification_is_tried_again(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    sent = _announce(monkeypatch, tmp_path, delivered=False)
+    tool.notify_stop(_settings(), {}, "/backups/new.epim", 750)
+    assert len(sent) == 1 and not tool.STATE_FILE.exists()
 
 
 def _ssh_result(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str) -> None:
