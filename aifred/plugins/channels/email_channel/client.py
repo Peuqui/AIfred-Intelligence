@@ -196,17 +196,18 @@ def _extract_body(msg: email.message.Message) -> str:
     return ""
 
 
-def _get_attachments(msg: email.message.Message) -> list[str]:
-    """Get list of attachment filenames."""
-    attachments = []
+def _attachment_parts(msg: email.message.Message) -> Iterator[tuple[str, email.message.Message]]:
+    """The attachments of a mail with their filenames."""
     if msg.is_multipart():
         for part in msg.walk():
-            disposition = str(part.get("Content-Disposition", ""))
-            if "attachment" in disposition:
-                filename = part.get_filename()
-                if filename:
-                    attachments.append(_decode_header(filename))
-    return attachments
+            filename = part.get_filename()
+            if filename and "attachment" in str(part.get("Content-Disposition", "")):
+                yield _decode_header(filename), part
+
+
+def _get_attachments(msg: email.message.Message) -> list[str]:
+    """Get list of attachment filenames."""
+    return [name for name, _part in _attachment_parts(msg)]
 
 
 def _safe_parsedate(date_raw: str) -> datetime | None:
@@ -387,6 +388,22 @@ def read_emails(account: ImapAccount, msg_ids: list[str], folder: str = "INBOX")
             ))
     log_message(f"📧 Email: read {len(mails)} of {len(msg_ids)} from {folder}")
     return mails, missing
+
+
+def read_attachment(account: ImapAccount, msg_id: str, name: str, folder: str = "INBOX") -> bytes:
+    """One attachment of a mail, by the filename the mail lists."""
+    _reject_imap_arg(msg_id, "msg_id")
+    _reject_imap_arg(folder, "folder")
+    with _examine(account, folder) as mailbox:
+        msg_data = mailbox.fetch_message(msg_id)
+    if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
+        raise ValueError(f"Email {msg_id} not found")
+    msg = email.message_from_bytes(msg_data[0][1])
+    for filename, part in _attachment_parts(msg):
+        payload = part.get_payload(decode=True)
+        if filename == name and isinstance(payload, bytes):
+            return payload
+    raise ValueError(f"Email {msg_id} has no attachment {name!r}, it has: {', '.join(_get_attachments(msg)) or 'none'}")
 
 
 def search_emails(

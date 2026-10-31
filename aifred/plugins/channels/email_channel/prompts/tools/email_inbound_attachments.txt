@@ -1,0 +1,1 @@
+Attachments of this mail (msg_id {msg_id}): {names}. Read them with the email tool, action attachment.

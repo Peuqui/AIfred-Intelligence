@@ -15,12 +15,13 @@ Channel plugin for email communication via IMAP IDLE and SMTP.
 | `email_readonly` | Fetch, read and search a second mailbox (see [below](#second-mailbox-read-only)) | WRITE_DATA |
 
 `email` dispatches by an `action` parameter: `check`, `read`, `search`, `send`,
-`list_folders`, `mark`. So does `email_manage`: `delete`, `move`, `create_folder`.
+`list_folders`, `mark`. So does `email_manage`: `delete`, `move`, `create_folder`, `index_attachment`.
 
 | Action | Required parameters | Notes |
 |--------|--------------------|-------|
 | `check` | – | `n` (default 20), `unread` (only unread ones, then all of them), `folder` (default INBOX). A list of date, sender, subject and read state, no content |
-| `read` | `msg_id` (several separated by commas) | `folder` (default INBOX). HTML becomes text. If not everything fits the model's budget, the answer names the remaining IDs for the next call |
+| `read` | `msg_id` (several separated by commas) | `line_start`, `line_end`, `folder` (default INBOX). HTML becomes text, attachments are listed by filename. If not everything fits the model's budget, the answer names the remaining IDs, and a mail too long ends at a line and says where to go on |
+| `attachment` | `msg_id`, `attachment` | `line_start`, `line_end`, `folder`. Text of an attachment through the parsers of the document index (PDF, Office, text), by lines like a file |
 | `search` | `query` | `n` (default 20), `folder` (default INBOX) |
 | `send` | `to`, `subject`, `body` (optional `attachment`) | registers the session route |
 | `move` | `msg_id`, `target_folder` | `folder` = source (default INBOX) |
@@ -28,6 +29,7 @@ Channel plugin for email communication via IMAP IDLE and SMTP.
 | `mark` | `msg_id`, `flag` | `flag` ∈ `read` / `unread` / `flagged` / `unflagged` |
 | `list_folders` | – | |
 | `create_folder` | `folder_name` | |
+| `index_attachment` | `msg_id`, `attachment` | Puts an attachment into the document index, marked as external (`file_manager.index_received_file`). Also in `email_readonly`, not in `email` |
 
 All IMAP/SMTP operations run in `asyncio.to_thread()` (blocking I/O).
 

@@ -694,9 +694,9 @@ def _auto_response_marker(msg: email_lib.message.Message) -> str | None:
 
 def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> InboundMessage | None:
     """Fetch a single email by UID and convert to InboundMessage."""
-    from .client import _decode_header, _decode_sender, _extract_body
-    from .config import EMAIL_MAX_BODY_CHARS
+    from .client import _decode_header, _decode_sender, _extract_body, _get_attachments
     from ....lib.envelope import InboundMessage
+    from ....lib.plugin_base import load_tool_description
 
     _, msg_data = imap.uid("FETCH", uid, "(RFC822)")  # type: ignore[arg-type]
     if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
@@ -706,7 +706,11 @@ def _fetch_email_as_inbound(imap: imaplib.IMAP4_SSL, uid: bytes) -> InboundMessa
 
     sender = _decode_sender(msg.get("From", ""))
     subject = _decode_header(msg.get("Subject", ""))
-    body = _extract_body(msg)[:EMAIL_MAX_BODY_CHARS]
+    body = _extract_body(msg)
+    attachments = _get_attachments(msg)
+    if attachments:
+        note = load_tool_description(__file__, "email_inbound_attachments")
+        body = f"{body}\n\n{note.format(msg_id=uid.decode(), names=', '.join(attachments))}"
     message_id = msg.get("Message-ID", "")
     in_reply_to = msg.get("In-Reply-To", "")
     references = msg.get("References", "")

@@ -16,11 +16,16 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from functools import partial
 from pathlib import Path
+from textwrap import wrap
 from typing import Any
 
+from ....lib import file_manager
+from ....lib.config import WORKSPACE_READ_MAX_BYTES
 from ....lib.context_manager import estimate_tokens
+from ....lib.document_store import document_text
 from ....lib.formatting import format_number
 from ....lib.function_calling import Tool
+from ....lib.line_window import LineWindow
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
 from ....lib.security import (
     TIER_COMMUNICATE,
@@ -32,13 +37,14 @@ from ....lib.security import (
     wrap_untrusted_data,
 )
 from ....lib.tool_args import parse_bool
-from ....lib.tool_output_cap import budget_var
+from ....lib.tool_output_cap import CHARS_PER_TOKEN, budget_var
 from .client import (
     EmailMessage,
     EmailSummary,
     ImapAccount,
     agent_mailbox_account,
     check_inbox,
+    read_attachment,
     read_emails,
     readonly_mailbox_account,
     readonly_mailbox_configured,
@@ -49,8 +55,8 @@ from .config import EMAIL_LIST_DEFAULT
 # Actions offered by the safe (COMMUNICATE) tool vs. the destructive one.
 # Each tool enforces its own set so the model cannot smuggle a delete through
 # the low-tier ``email`` tool.
-_SAFE_ACTIONS = {"check", "read", "search", "send", "list_folders", "mark"}
-_MANAGE_ACTIONS = {"delete", "move", "create_folder"}
+_SAFE_ACTIONS = {"check", "read", "attachment", "search", "send", "list_folders", "mark"}
+_MANAGE_ACTIONS = {"delete", "move", "create_folder", "index_attachment"}
 
 
 def _mail_list(emails: list[EmailSummary], total: int) -> str:
@@ -71,17 +77,33 @@ async def _check(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     return _mail_list(emails, total)
 
 
-def _render_mail(msg: EmailMessage, *, owner_verdict: bool) -> str:
+def _lines(text: str, kwargs: dict[str, Any]) -> tuple[str, str]:
+    """The asked-for lines of a text, as much as the model's budget holds, and the range
+    in words. Like a file: what does not fit ends at a line, the next call goes on there."""
+    budget = budget_var.get()
+    max_chars = budget * CHARS_PER_TOKEN if budget > 0 else WORKSPACE_READ_MAX_BYTES
+    # A line longer than the budget would stop every range in front of it.
+    broken = (piece for line in text.rstrip().split("\n")
+              for piece in (wrap(line, max_chars) if len(line) > max_chars else [line]))
+    window = LineWindow(int(kwargs.get("line_start", 0)), int(kwargs.get("line_end", 0)), max_chars=max_chars)
+    window.feed_text("\n".join(broken))
+    body, _total, lines = window.result()
+    return body, lines
+
+
+def _render_mail(msg: EmailMessage, kwargs: dict[str, Any], *, owner_verdict: bool) -> str:
     """``owner_verdict``: may a mail earn the "owner" label? Off, it stays "external"."""
+    body, lines = _lines(msg.body, kwargs)
     parts = [
         f"From: {msg.sender}",
         f"To: {msg.to}",
         f"Date: {msg.date}",
         f"Subject: {msg.subject}",
+        f"Lines: {lines}",
     ]
     if msg.attachments:
         parts.append(f"Attachments: {', '.join(msg.attachments)}")
-    parts.append(f"\n{msg.body}")
+    parts.append(f"\n{body}")
     # Same owner verdict as for inbound mail (From + SPF/DKIM/DMARC pass).
     trust = (
         resolve_trust_label("email", msg.sender, {"auth_results": msg.auth_results})
@@ -116,11 +138,34 @@ async def _read(account: ImapAccount, kwargs: dict[str, Any], *, owner_verdict: 
     mails, missing = await asyncio.to_thread(read_emails, account, msg_ids, folder)
     if not mails:
         raise ValueError(f"Email {', '.join(missing)} not found")
-    rendered = [(msg.msg_id, _render_mail(msg, owner_verdict=owner_verdict)) for msg in mails]
+    rendered = [(msg.msg_id, _render_mail(msg, kwargs, owner_verdict=owner_verdict)) for msg in mails]
     answers = await asyncio.to_thread(_within_budget, rendered, budget_var.get())
     if missing:
         answers.append(f"Not found: {', '.join(missing)}")
     return "\n\n".join(answers)
+
+
+async def _attachment(account: ImapAccount, kwargs: dict[str, Any]) -> str:
+    """The text of an attachment, by lines like a mail or a file."""
+    msg_id, name = kwargs.get("msg_id", ""), kwargs.get("attachment", "")
+    if not msg_id or not name:
+        return "Error: msg_id and attachment required"
+    data = await asyncio.to_thread(read_attachment, account, msg_id, name, kwargs.get("folder", "INBOX"))
+    text = await asyncio.to_thread(document_text, data, name)
+    if not text.strip():
+        return f"Attachment {name} contains no readable text, perhaps it is a scan."
+    body, lines = _lines(text, kwargs)
+    return wrap_untrusted_data(f"Attachment: {name}\nLines: {lines}\n\n{body}", "email")
+
+
+async def _index_attachment(source_key: str, account: ImapAccount, kwargs: dict[str, Any]) -> str:
+    """Put an attachment into the document index. The text stays marked as external."""
+    msg_id, name = kwargs.get("msg_id", ""), kwargs.get("attachment", "")
+    if not msg_id or not name:
+        return "Error: msg_id and attachment required"
+    data = await asyncio.to_thread(read_attachment, account, msg_id, name, kwargs.get("folder", "INBOX"))
+    result = await file_manager.index_received_file(data, name, source_key, f"{msg_id}/{name}")
+    return result.detail if result.success else f"Error: {result.detail}"
 
 
 async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:
@@ -154,6 +199,12 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
 
         elif action == "read":
             return await _read(agent_mailbox_account(), kwargs, owner_verdict=True)
+
+        elif action == "attachment":
+            return await _attachment(agent_mailbox_account(), kwargs)
+
+        elif action == "index_attachment":
+            return await _index_attachment("email", agent_mailbox_account(), kwargs)
 
         elif action == "search":
             return await _search(agent_mailbox_account(), kwargs)
@@ -308,6 +359,8 @@ def get_readonly_mailbox_tools(lang: str = "de") -> list[Tool]:
     handlers: dict[str, Callable[[ImapAccount, dict[str, str]], Awaitable[str]]] = {
         "check": _check,
         "read": partial(_read, owner_verdict=False),
+        "attachment": _attachment,
+        "index_attachment": partial(_index_attachment, "email_readonly"),
         "search": _search,
     }
 

@@ -1,4 +1,5 @@
-Manage the user's emails via IMAP/SMTP. Actions: check (list inbox, unread=true lists only the unread ones), read (full email by msg_id, several separated by commas), search (by subject/sender), send, list_folders, mark (read/unread/flagged/unflagged). Deleting, moving and creating folders are NOT here — they are in email_manage and only work from the web UI.
+Manage the user's emails via IMAP/SMTP. Actions: check (list inbox, unread=true lists only the unread ones), read (full email by msg_id, several separated by commas), attachment (text of an attachment: PDF, Office, text), search (by subject/sender), send, list_folders, mark (read/unread/flagged/unflagged). Deleting, moving and creating folders are NOT here — they are in email_manage and only work from the web UI.
+Long mails and attachments are read by lines like a file: the answer names the lines it holds, go on with line_start.
 Lists show date, sender and subject, no content: to know what mails say, read them, several at once in one call. In lists, 📩 marks an unread mail and 📧 a read one.
 
 CRITICAL: every email operation needs a tool call — writing text sends or reads nothing. NEVER say an email was sent unless a tool_result confirms it.

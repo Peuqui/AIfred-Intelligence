@@ -20,10 +20,6 @@ EMAIL_READONLY_IMAP_HOST_DEFAULT = "imap.mail.de"
 # Mails listed by check and search unless the model asks for another number
 EMAIL_LIST_DEFAULT = 20
 
-# Cut the body of a mail arriving in AIfred's own mailbox. Tools have no such limit:
-# their results follow the model's context (lib/tool_output_cap), an inbound mail does not.
-EMAIL_MAX_BODY_CHARS = 10_000
-
 # Default Sent-folder name if EMAIL_SENT_FOLDER is not configured
 # (provider-specific: GMX = "Gesendet", many others = "Sent")
 EMAIL_SENT_FOLDER_DEFAULT = "Gesendet"
