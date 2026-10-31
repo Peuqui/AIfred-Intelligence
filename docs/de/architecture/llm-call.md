@@ -82,6 +82,8 @@ Jeder LLM-Call in AIfred läuft durch eine einheitliche Chunk-Processing-Pipelin
 
 `PipelineResult` enthält: vollständigen Antworttext (`text`, inkl. `<think>`-Blöcken), bereinigten Text (`text_clean`), Inferenz-Metadaten (`metadata_dict`, `metadata_display`, `debug_msg`, `metrics`), `ttft`, `inference_time`, die gemessene Arbeit (`work`), Bubble-Artefakte (`artifacts` — Quellen aus `web_fetch`, Sandbox-Ausgabe, VLM-Ausgabe), `final_text` (Antwort nach dem letzten Tool-Call), `history_notes` sowie die Flags `silent_reply` und `truncated`.
 
+`history_notes` sind Zeilen, die nur hinter der Antwort in der `llm_history` stehen, nicht im Chat. Die Werkzeug-Aufrufe selbst überleben die Runde nicht. Damit das Modell in der Folgerunde weiß, was es getan hat, hängt `run_llm_stream()` hier die Zeile aus `ToolKit.call_note()` an (Text: `prompts/{de,en}/shared/tool_calls_marker.txt`): schreibende Aufrufe mit ihren Angaben (geheime Werte geschwärzt, gekürzt auf `TOOL_CALL_NOTE_ARGS_CHARS`, höchstens `TOOL_CALL_NOTE_MAX_WRITES`, `✗` = fehlgeschlagen), lesende nur gezählt. `shared/tool_instructions.txt` verbietet dem Modell, solche Zeilen selbst zu schreiben.
+
 ---
 
 ## Call-Pfade im Detail

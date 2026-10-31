@@ -620,6 +620,10 @@ async def run_llm_stream(
         load_time=load_time,
     )
 
+    tool_call_note = toolkit.call_note() if toolkit is not None else None
+    if tool_call_note:
+        history_notes.append(tool_call_note)
+
     yield {
         "type": "pipeline_result",
         "result": PipelineResult(
