@@ -64,7 +64,7 @@ The Notes app stores every note as a text file: the title is the file name, the 
 
 ## Deletions from EssentialPIM
 
-EPIM's option to delete entries on the other side stays off when syncing with Nextcloud: in about every third run EPIM loses entries while reading, takes them for deleted on the server and, with the option on, deletes them locally. The server delivers everything.
+EPIM's option to delete entries on the other side stays off when syncing with Nextcloud: in about every fourth run EPIM loses entries while reading, takes them for deleted on the server and, with the option on, deletes them locally. The server delivers everything.
 
 Without the option a deletion in EPIM does not reach Nextcloud. `scripts/epim_deletions_to_nextcloud.py` does that part: it reads the newest backup EPIM wrote itself, takes recycle-bin entries that still have a CalDAV mapping and deletes them in Nextcloud when exactly one non-recurring event with the same title and start exists and EPIM holds no active entry like it. Series and ambiguous matches are only reported. Contacts and tasks are not covered, nor are deletions made in Nextcloud, which stay in EPIM.
 
