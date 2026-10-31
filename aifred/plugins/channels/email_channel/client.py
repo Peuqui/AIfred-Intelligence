@@ -561,7 +561,7 @@ def send_email(
                     f"📧 Email: Sent folder '{sent_folder}' not found — copy skipped "
                     f"(set EMAIL_SENT_FOLDER in the credentials dialog)", "warning"
                 )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — the mail is out, only its copy failed
         log_message(f"📧 Email: could not copy to Sent folder '{sent_folder}': {exc}", "warning")
 
     # Register outgoing Message-ID for session routing (single source of truth)

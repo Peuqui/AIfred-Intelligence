@@ -87,6 +87,14 @@ def _save_checkpoint(last_uid: int, uidvalidity: int) -> None:
     )
 
 
+def _logout_quietly(imap: imaplib.IMAP4_SSL) -> None:
+    """A broken connection cannot say goodbye; it is dropped either way."""
+    try:
+        imap.logout()
+    except (imaplib.IMAP4.error, OSError):
+        pass
+
+
 class EmailChannel(BaseChannel):
     """E-Mail channel via IMAP IDLE + SMTP."""
 
@@ -316,35 +324,23 @@ class EmailChannel(BaseChannel):
             except asyncio.CancelledError:
                 self.channel_log("Email Plugin: shutting down")
                 if imap:
-                    try:
-                        imap.logout()
-                    except Exception:
-                        pass
+                    _logout_quietly(imap)
                 return
 
             except OSError as exc:
                 if "IDLE" in str(exc) and "timeout" in str(exc):
                     # Normal IDLE timeout — not an error, just reconnect immediately
                     if imap:
-                        try:
-                            imap.logout()
-                        except Exception:
-                            pass
+                        _logout_quietly(imap)
                     continue
                 self.channel_log(f"Email Plugin: error — {exc}, reconnecting in {_RECONNECT_DELAY_SECONDS}s", "error")
                 if imap:
-                    try:
-                        imap.logout()
-                    except Exception:
-                        pass
+                    _logout_quietly(imap)
                 await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — the listener reconnects whatever went wrong
                 self.channel_log(f"Email Plugin: error — {exc}, reconnecting in {_RECONNECT_DELAY_SECONDS}s", "error")
                 if imap:
-                    try:
-                        imap.logout()
-                    except Exception:
-                        pass
+                    _logout_quietly(imap)
                 await asyncio.sleep(_RECONNECT_DELAY_SECONDS)
 
     # ── IDLE cycle ────────────────────────────────────────────
@@ -477,7 +473,7 @@ class EmailChannel(BaseChannel):
         skipped either way)."""
         try:
             imap.uid("STORE", uid, "+FLAGS", r"(\Flagged)")  # type: ignore[arg-type]
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — a failing flag must not break the loop
             self.channel_log(
                 f"Email Plugin: could not flag quarantined UID {uid.decode()}: {exc}",
                 "warning",
