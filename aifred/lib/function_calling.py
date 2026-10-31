@@ -21,7 +21,7 @@ import re
 import time
 from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, NamedTuple
 
 logger = logging.getLogger(__name__)
 
@@ -32,23 +32,36 @@ _SENSITIVE_ARG_KEY_RE = re.compile(
 )
 
 
-def _redact_args_preview(value: Any) -> str:
-    """Build a log-safe preview of tool args, redacting sensitive values.
-
-    Recursively replaces the values of keys that look like secrets with '***'
+def _redact_args(value: Any) -> Any:
+    """Tool args with the values of keys that look like secrets replaced by '***',
     so credentials passed through generic tools (epim_create/update password
-    fields, etc.) don't land in the audit log.
-    """
-    def _walk(v: Any) -> Any:
-        if isinstance(v, dict):
-            return {
-                k: ("***" if isinstance(k, str) and _SENSITIVE_ARG_KEY_RE.search(k) else _walk(val))
-                for k, val in v.items()
-            }
-        if isinstance(v, list):
-            return [_walk(x) for x in v]
-        return v
-    return str(_walk(value))
+    fields, etc.) don't land in the audit log or the history."""
+    if isinstance(value, dict):
+        return {
+            k: ("***" if isinstance(k, str) and _SENSITIVE_ARG_KEY_RE.search(k) else _redact_args(val))
+            for k, val in value.items()
+        }
+    if isinstance(value, list):
+        return [_redact_args(x) for x in value]
+    return value
+
+
+def _redact_args_preview(value: Any) -> str:
+    """Log-safe preview of tool args."""
+    return str(_redact_args(value))
+
+
+def _shorten_values(value: Any, limit: int) -> Any:
+    """Cut long strings one by one and visibly. The model reads a note as the call
+    it made: cut as a whole, a date ended mid-value, the model took that for a wrong
+    argument and took back a call that had worked."""
+    if isinstance(value, dict):
+        return {k: _shorten_values(val, limit) for k, val in value.items()}
+    if isinstance(value, list):
+        return [_shorten_values(x, limit) for x in value]
+    if isinstance(value, str) and len(value) > limit:
+        return f"{value[:limit]}…"
+    return value
 
 
 def _reports_error(result: str) -> bool:
@@ -59,6 +72,15 @@ def _reports_error(result: str) -> bool:
     except (json.JSONDecodeError, TypeError):
         return False
     return isinstance(parsed, dict) and "error" in parsed
+
+
+class _ToolCall(NamedTuple):
+    """One executed call, for ToolKit.call_note."""
+
+    name: str
+    reads_only: bool
+    args: Any
+    failed: bool
 
 
 def _identical_call_refusal(name: str, repeats: int, unchanged_result: bool) -> str:
@@ -125,9 +147,8 @@ class ToolKit:
         # result and how often in a row it came back unchanged. A repeat after
         # something changed in between (a write, a sub-agent) is legitimate.
         self._unchanged_reads: dict[str, tuple[str, int]] = {}
-        # What ran during this request, for call_note: name, read-only, redacted
-        # arguments, failed.
-        self._calls: list[tuple[str, bool, str, bool]] = []
+        # What ran during this request, for call_note.
+        self._calls: list[_ToolCall] = []
 
     @property
     def definitions(self) -> list[dict[str, Any]]:
@@ -145,23 +166,25 @@ class ToolKit:
         """One line on what ran in this request, for the turn's llm_history entry
         (PipelineResult.history_notes): the calls themselves are not kept between
         turns, and without this the model denies its own actions in the next one.
-        Writes with their arguments, reads only counted. Empties the record."""
-        from .config import TOOL_CALL_NOTE_ARGS_CHARS, TOOL_CALL_NOTE_MAX_WRITES
+        Writes with their arguments, reads only counted, failures marked. Empties
+        the record."""
+        from .config import TOOL_CALL_NOTE_MAX_WRITES, TOOL_CALL_NOTE_VALUE_CHARS
         from .prompt_loader import load_prompt
 
         calls, self._calls = self._calls, []
         if not calls:
             return None
-        writes = [c for c in calls if not c[1]]
-        reads: dict[str, int] = {}
-        for name, is_read, _args, _failed in calls:
-            if is_read:
-                reads[name] = reads.get(name, 0) + 1
-        parts = [f"{name}({args[:TOOL_CALL_NOTE_ARGS_CHARS]}){' ✗' if failed else ''}"
-                 for name, _is_read, args, failed in writes[:TOOL_CALL_NOTE_MAX_WRITES]]
+        writes = [call for call in calls if not call.reads_only]
+        parts = [f"{call.name}({_shorten_values(_redact_args(call.args), TOOL_CALL_NOTE_VALUE_CHARS)})"
+                 f"{' ✗' if call.failed else ''}"
+                 for call in writes[:TOOL_CALL_NOTE_MAX_WRITES]]
         if len(writes) > TOOL_CALL_NOTE_MAX_WRITES:
             parts.append(f"+{len(writes) - TOOL_CALL_NOTE_MAX_WRITES}")
-        parts.extend(f"{name} ×{count}" for name, count in reads.items())
+        reads = [call for call in calls if call.reads_only]
+        for name in dict.fromkeys(call.name for call in reads):
+            runs = [call for call in reads if call.name == name]
+            failed = sum(call.failed for call in runs)
+            parts.append(f"{name} ×{len(runs)}{f' ✗{failed}' if failed else ''}")
         return load_prompt("shared/tool_calls_marker", calls="; ".join(parts))
 
     def _refuse_unchanged_read(self, name: str, call_key: str, result_str: str) -> str:
@@ -375,7 +398,7 @@ class ToolKit:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
         finally:
-            self._calls.append((name, reads_only, _redact_args_preview(args), not success or _reports_error(result_str)))
+            self._calls.append(_ToolCall(name, reads_only, args, not success or _reports_error(result_str)))
             try:
                 from .security import audit_log
                 audit_log(
