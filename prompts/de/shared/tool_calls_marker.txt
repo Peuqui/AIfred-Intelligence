@@ -1,1 +1,1 @@
-[Vom System notiert, nicht von dir geschrieben. In dieser Antwort ausgeführte Werkzeuge: {calls} (✗ = fehlgeschlagen)]
+[Vom System notiert, nicht von dir geschrieben. In dieser Antwort ausgeführte Werkzeuge: {calls}. Alle waren erfolgreich, außer den mit ✗ markierten. „…“ heißt: Der Wert ist nur hier gekürzt, im Aufruf war er vollständig.]
