@@ -1,4 +1,5 @@
 Manage the user's emails via IMAP/SMTP. Actions: check (list inbox), read (full email by msg_id), search (by subject/sender), send, list_folders, mark (read/unread/flagged/unflagged). Deleting, moving and creating folders are NOT here — they are in email_manage and only work from the web UI.
+In the list from check, 📩 marks an unread mail and 📧 a read one.
 
 CRITICAL: every email operation needs a tool call — writing text sends or reads nothing. NEVER say an email was sent unless a tool_result confirms it.
 
