@@ -5,7 +5,8 @@ byte-for-byte. Write tools are refused before running after
 SECURITY_MAX_IDENTICAL_TOOL_CALLS repeats (a repeated write duplicates its
 effect whatever it returns); read-only tools are refused once the same call
 returned the same result that often in a row. Different arguments, or a
-changed result in between, are unaffected.
+changed result in between, are unaffected. What counts as read-only is the
+tool's effect, not its tier: a private calendar is read at a high tier.
 """
 
 import asyncio
@@ -143,3 +144,41 @@ def test_write_with_changing_result_still_refused():
 
     results = asyncio.run(run())
     assert all("Refused" in r for r in results[2:])
+
+
+def _sensitive_read_kit(result: dict):
+    def executor(**kw):
+        return result["value"]
+
+    kit = ToolKit(
+        tools=[Tool(name="nextcloud_search", description="x", parameters={}, executor=executor,
+                    tier=2, read_only=True)],
+        _source="browser",
+        _max_tier=4,
+    )
+    return kit
+
+
+def test_sensitive_read_is_judged_by_its_result_not_by_its_tier():
+    result = {"value": "a"}
+    kit = _sensitive_read_kit(result)
+
+    async def run():
+        out = []
+        for value in ("a", "a", "b", "b", "c"):
+            result["value"] = value
+            out.append(await kit.execute("nextcloud_search", {"query": "x"}))
+        return out
+
+    assert asyncio.run(run()) == ["a", "a", "b", "b", "c"]
+
+
+def test_sensitive_read_with_unchanged_result_is_still_refused():
+    kit = _sensitive_read_kit({"value": "same"})
+
+    async def run():
+        return [await kit.execute("nextcloud_search", {"query": "x"}) for _ in range(4)]
+
+    results = asyncio.run(run())
+    assert results[:2] == ["same", "same"]
+    assert all("did not change" in r for r in results[2:])

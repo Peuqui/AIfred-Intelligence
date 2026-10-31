@@ -1671,7 +1671,7 @@ MAX_TOOL_ROUNDS = SECURITY_MAX_TOOL_CHAIN_DEPTH or 100
 TOOL_LOOP_CONTEXT_GUARD = 0.85
 # Loop breaker für identische Tool-Calls (0 = aus). Schreib-Tools: derselbe Call
 # mit denselben Argumenten wird nach so vielen Wiederholungen vor der Ausführung
-# verweigert. Lese-Tools (Tier 0): verweigert wird erst, wenn derselbe Call so oft
+# verweigert. Lese-Tools (Tier 0 oder read_only): verweigert wird erst, wenn derselbe Call so oft
 # in Folge dasselbe Ergebnis lieferte — ein Wiederholen nach einer Änderung
 # dazwischen (Schreibvorgang, Sub-Agent) geht durch.
 SECURITY_MAX_IDENTICAL_TOOL_CALLS = 2
