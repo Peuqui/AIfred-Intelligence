@@ -121,14 +121,18 @@ def _decode_header(raw: str | None) -> str:
     """Decode RFC2047 encoded header."""
     if not raw:
         return ""
-    parts = email.header.decode_header(raw)
-    decoded = []
-    for part, charset in parts:
-        if isinstance(part, bytes):
-            decoded.append(_safe_decode(part, charset))
-        else:
-            decoded.append(part)
-    return " ".join(decoded)
+    decoded = ""
+    previous_charset = None
+    for part, charset in email.header.decode_header(raw):
+        text = _safe_decode(part, charset) if isinstance(part, bytes) else part
+        # Adjacent encoded words join directly (RFC 2047). decode_header keeps the
+        # space next to plain text, except at a folded line, where it strips it.
+        at_plain_boundary = (charset is None) != (previous_charset is None)
+        if decoded and at_plain_boundary and not decoded[-1].isspace() and not text[:1].isspace():
+            decoded += " "
+        decoded += text
+        previous_charset = charset
+    return decoded
 
 
 def _extract_body(msg: email.message.Message) -> str:
