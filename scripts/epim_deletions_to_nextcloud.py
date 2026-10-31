@@ -7,9 +7,9 @@ deleted there and deletes them locally. Without the option a deletion in EPIM
 never reaches Nextcloud, so this tool does that part from EPIM's recycle bin.
 
 It reads the newest backup EPIM wrote itself, a consistent file that does not
-need EPIM to be closed. An entry counts as deleted by the user when it lies in
-the recycle bin and still has its CalDAV mapping: a wrong local deletion drops
-the mapping, and a sync with the option off keeps it.
+need EPIM to be closed, and takes what entered the recycle bin since the last
+run. The first run only notes where the bin stands and deletes nothing. With the
+option off EPIM deletes nothing by itself, so all of this is the user's doing.
 
     AIFRED_CLI_MODE=1 venv/bin/python scripts/epim_deletions_to_nextcloud.py           # shows the plan
     AIFRED_CLI_MODE=1 venv/bin/python scripts/epim_deletions_to_nextcloud.py --apply   # deletes
@@ -39,7 +39,6 @@ from aifred.lib.config import DATA_DIR
 
 SETTINGS_FILE = DATA_DIR / "epim" / "deletion_sync.json"
 STATE_FILE = DATA_DIR / "epim" / "deletion_sync_state.json"
-CALDAV_SYNCTYPE = 9
 SEARCH_LIMIT = 50
 SSH_CONNECTION_FAILED = 255
 
@@ -134,17 +133,21 @@ def fetch_restored(settings: Settings, remote: str) -> tuple[Path, Path]:
     return backup, restored
 
 
-def read_epim(path: Path) -> tuple[list[EpimEntry], set[tuple[str, datetime]]]:
-    """Recycle-bin entries with a CalDAV mapping, and the keys of all active entries."""
+def read_epim(path: Path, deleted_after: datetime | None) -> tuple[list[EpimEntry], set[tuple[str, datetime]], datetime]:
+    """Entries deleted after ``deleted_after``, the keys of all active entries and
+    the newest deletion. Without a point in time there is nothing to compare with."""
     con = firebird_embedded.connect(path)
     try:
         cur = con.cursor()
-        cur.execute("SELECT t.TITLE, t.STARTTIME, t.REPEATING FROM TASKS t "
-                    "JOIN SYNCINFO s ON s.IDLOCALRECORD = t.IDTASK "
-                    "WHERE s.SYNCTYPE = ? AND t.STATUS = 1", (CALDAV_SYNCTYPE,))
-        deleted = [EpimEntry(title or "", start, bool(repeating)) for title, start, repeating in cur.fetchall()]
+        cur.execute("SELECT MAX(DELETED) FROM TASKS WHERE STATUS = 1")
+        # An empty bin leaves no time: whatever enters it later is new.
+        newest = cur.fetchone()[0] or datetime.min
+        deleted: list[EpimEntry] = []
+        if deleted_after is not None:
+            cur.execute("SELECT TITLE, STARTTIME, REPEATING FROM TASKS WHERE STATUS = 1 AND DELETED > ?", (deleted_after,))
+            deleted = [EpimEntry(title or "", start, bool(repeating)) for title, start, repeating in cur.fetchall()]
         cur.execute("SELECT TITLE, STARTTIME FROM TASKS WHERE STATUS = 0")
-        return deleted, {(title or "", start) for title, start in cur.fetchall()}
+        return deleted, {(title or "", start) for title, start in cur.fetchall()}, newest
     finally:
         con.close()
 
@@ -155,8 +158,8 @@ def _report(plan: Plan) -> None:
     print(f"skipped, active again in EPIM: {len(plan.still_active)}")
     print(f"skipped, part of a series: {len(plan.series)}")
     print(f"skipped, several matches: {len(plan.ambiguous)}")
-    for entry in plan.series + plan.ambiguous:
-        print(f"  by hand: {entry.start:%Y-%m-%d %H:%M} {entry.title}")
+    for title in sorted({entry.title for entry in plan.series + plan.ambiguous}):
+        print(f"  by hand: {title}")
 
 
 def run(apply: bool) -> int:
@@ -173,9 +176,13 @@ def run(apply: bool) -> int:
         return 0
     print(f"backup: {Path(remote).name}")
 
+    deleted_after = datetime.fromisoformat(state["deleted_after"]) if "deleted_after" in state else None
+    if deleted_after is None:
+        print("first run: the recycle bin as it stands is the starting point, nothing to delete")
+
     backup, restored = fetch_restored(settings, remote)
     try:
-        deleted, active = read_epim(restored)
+        deleted, active, newest = read_epim(restored, deleted_after)
     finally:
         restored.unlink(missing_ok=True)
         backup.unlink(missing_ok=True)
@@ -197,7 +204,7 @@ def run(apply: bool) -> int:
         for entry, object_id in plan.delete:
             store.delete_event(object_id)
             print(f"deleted: {entry.start:%Y-%m-%d %H:%M} {entry.title}")
-        STATE_FILE.write_text(json.dumps({"backup": remote}), encoding="utf-8")
+        STATE_FILE.write_text(json.dumps({"backup": remote, "deleted_after": newest.isoformat()}), encoding="utf-8")
     return 0
 
 
