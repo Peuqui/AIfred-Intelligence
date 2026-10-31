@@ -41,6 +41,7 @@ SETTINGS_FILE = DATA_DIR / "epim" / "deletion_sync.json"
 STATE_FILE = DATA_DIR / "epim" / "deletion_sync_state.json"
 CALDAV_SYNCTYPE = 9
 SEARCH_LIMIT = 50
+SSH_CONNECTION_FAILED = 255
 
 
 @dataclass(frozen=True)
@@ -108,15 +109,17 @@ def plan_deletions(deleted: list[EpimEntry], active: set[tuple[str, datetime]],
     return plan
 
 
-def _ssh(settings: Settings, command: str) -> str:
-    return subprocess.run(["ssh", "-p", str(settings.ssh_port), "-o", "ConnectTimeout=10",
-                           f"{settings.ssh_user}@{settings.ssh_host}", command],
-                          capture_output=True, text=True, timeout=60, check=True).stdout
-
-
-def latest_backup(settings: Settings) -> str:
-    listing = _ssh(settings, f"ls -t {shlex.quote(settings.backup_dir)}/{settings.backup_glob}").split("\n")
-    return listing[0].strip()
+def latest_backup(settings: Settings) -> str | None:
+    """Path of the newest backup, None while the EPIM machine cannot be reached:
+    it is often off, and the next hourly run simply tries again."""
+    listing = f"ls -t {shlex.quote(settings.backup_dir)}/{settings.backup_glob}"
+    result = subprocess.run(["ssh", "-p", str(settings.ssh_port), "-o", "ConnectTimeout=10",
+                             f"{settings.ssh_user}@{settings.ssh_host}", listing],
+                            capture_output=True, text=True, timeout=60, check=False)
+    if result.returncode == SSH_CONNECTION_FAILED:
+        return None
+    result.check_returncode()
+    return result.stdout.split("\n")[0].strip()
 
 
 def fetch_restored(settings: Settings, remote: str) -> tuple[Path, Path]:
@@ -161,6 +164,9 @@ def run(apply: bool) -> int:
 
     settings = load_settings()
     remote = latest_backup(settings)
+    if remote is None:
+        print(f"{settings.ssh_host} not reachable, trying again next run")
+        return 0
     state = json.loads(STATE_FILE.read_text(encoding="utf-8")) if STATE_FILE.exists() else {}
     if apply and state.get("backup") == remote:
         print(f"nothing new: {Path(remote).name} is already processed")

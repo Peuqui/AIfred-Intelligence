@@ -68,7 +68,7 @@ EPIM's option to delete entries on the other side stays off when syncing with Ne
 
 Without the option a deletion in EPIM does not reach Nextcloud. `scripts/epim_deletions_to_nextcloud.py` does that part: it reads the newest backup EPIM wrote itself, takes recycle-bin entries that still have a CalDAV mapping and deletes them in Nextcloud when exactly one non-recurring event with the same title and start exists and EPIM holds no active entry like it. Series and ambiguous matches are only reported. Contacts and tasks are not covered, nor are deletions made in Nextcloud, which stay in EPIM.
 
-Settings live in `data/epim/deletion_sync.json` (`ssh_host`, `ssh_port`, `ssh_user`, `backup_dir`, `backup_glob`, `work_dir`, `max_deletions`). Without `--apply` the script only shows the plan; above `max_deletions` it deletes nothing and exits with an error code. The user timer `systemd/aifred-epim-deletions.timer` runs it daily.
+Settings live in `data/epim/deletion_sync.json` (`ssh_host`, `ssh_port`, `ssh_user`, `backup_dir`, `backup_glob`, `work_dir`, `max_deletions`). Without `--apply` the script only shows the plan; above `max_deletions` it deletes nothing and exits with an error code. The user timer `systemd/aifred-epim-deletions.timer` starts it hourly: with the EPIM machine off the run ends at once without an error, and a backup already processed changes nothing. A deletion reaches Nextcloud with the next backup EPIM writes.
 
 ## Configuration
 
