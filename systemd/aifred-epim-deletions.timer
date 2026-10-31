@@ -1,8 +1,8 @@
 [Unit]
-Description=Daily run of the EPIM deletion carry-over
+Description=Hourly check for a new EPIM backup with deletions
 
 [Timer]
-OnCalendar=*-*-* 13:00:00
+OnCalendar=hourly
 Persistent=true
 
 [Install]

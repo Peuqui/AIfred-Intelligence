@@ -10,10 +10,13 @@ Kontrakt:
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
+
+import pytest
 
 _PATH = Path(__file__).resolve().parents[1] / "scripts" / "epim_deletions_to_nextcloud.py"
 _SPEC = importlib.util.spec_from_file_location("epim_deletions_to_nextcloud", _PATH)
@@ -84,3 +87,30 @@ def test_series_in_epim_is_left_alone_without_asking_nextcloud() -> None:
 def test_recurring_match_in_nextcloud_is_left_alone() -> None:
     plan = _plan(_entry(), [_row(recurring=True)])
     assert plan.series == [_entry()] and not plan.delete
+
+
+def _settings() -> Any:
+    return tool.Settings("host", 22, "user", "/backups", "MP.backup_*.epim", Path("/tmp/x"), 20)
+
+
+def _ssh_result(monkeypatch: pytest.MonkeyPatch, returncode: int, stdout: str) -> None:
+    def run(args: list[str], **_kwargs: Any) -> subprocess.CompletedProcess:
+        return subprocess.CompletedProcess(args, returncode, stdout, "")
+
+    monkeypatch.setattr(tool.subprocess, "run", run)
+
+
+def test_machine_switched_off_is_no_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    _ssh_result(monkeypatch, tool.SSH_CONNECTION_FAILED, "")
+    assert tool.latest_backup(_settings()) is None
+
+
+def test_newest_backup_comes_first(monkeypatch: pytest.MonkeyPatch) -> None:
+    _ssh_result(monkeypatch, 0, "/backups/new.epim\n/backups/old.epim\n")
+    assert tool.latest_backup(_settings()) == "/backups/new.epim"
+
+
+def test_missing_backup_is_a_failure(monkeypatch: pytest.MonkeyPatch) -> None:
+    _ssh_result(monkeypatch, 2, "")
+    with pytest.raises(subprocess.CalledProcessError):
+        tool.latest_backup(_settings())
