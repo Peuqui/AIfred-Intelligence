@@ -21,6 +21,7 @@ NS = {
     "d": "DAV:",
     "cal": "urn:ietf:params:xml:ns:caldav",
     "card": "urn:ietf:params:xml:ns:carddav",
+    "nc": "http://nextcloud.com/ns",
 }
 CALENDAR, ADDRESSBOOK = "calendar", "addressbook"
 _XML = {"Content-Type": "application/xml; charset=utf-8"}
@@ -42,11 +43,18 @@ class DavCollection:
     href: str
     kind: str
     name: str
+    owner: str
     components: frozenset[str]
     # Granted by the server for the logged-in user (a calendar shared
     # read-only lacks it); the plugin's own setting comes on top.
     writable: bool
     sync_token: str | None
+
+    @property
+    def plain_name(self) -> str:
+        """The name without the owner Nextcloud appends to a shared collection:
+        people say "Urlaub", the server calls it "Urlaub (Peuqui)"."""
+        return self.name.removesuffix(f" ({self.owner})")
 
 
 @dataclass(frozen=True)
@@ -147,8 +155,8 @@ class DavClient:
         return calendar_home, addressbook_home
 
     def collections(self) -> list[DavCollection]:
-        body = ('<d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav"><d:prop>'
-                '<d:displayname/><d:resourcetype/><cal:supported-calendar-component-set/>'
+        body = ('<d:propfind xmlns:d="DAV:" xmlns:cal="urn:ietf:params:xml:ns:caldav" xmlns:nc="http://nextcloud.com/ns"><d:prop>'
+                '<d:displayname/><nc:owner-displayname/><d:resourcetype/><cal:supported-calendar-component-set/>'
                 '<d:current-user-privilege-set/><d:sync-token/></d:prop></d:propfind>')
         out = []
         for home in self.homes():
@@ -169,6 +177,7 @@ class DavClient:
                 components = frozenset(c.get("name", "") for c in prop.findall("cal:supported-calendar-component-set/cal:comp", NS))
                 out.append(DavCollection(
                     href=href, kind=kind, name=_text(prop.find("d:displayname", NS)) or href.rstrip("/").rsplit("/", 1)[-1],
+                    owner=_text(prop.find("nc:owner-displayname", NS)) or "",
                     components=components, writable=writable, sync_token=_text(prop.find("d:sync-token", NS))))
         return out
 

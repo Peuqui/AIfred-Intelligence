@@ -113,7 +113,8 @@ class NextcloudStore:
         raise NextcloudRefused(f"no collection {uri!r}")
 
     def _target(self, kind: tuple[str, str, str], name: str | None) -> DavCollection:
-        """The collection to create in: by name or ID, or the only writable one."""
+        """The collection to create in: by name (with or without the owner of a
+        shared one) or ID, or the only writable one."""
         writable = [c for c in self._collections(kind) if self._writable(kind, c)]
         if not writable:
             raise NextcloudRefused("Nextcloud grants AIfred no writable collection for this")
@@ -121,7 +122,7 @@ class NextcloudStore:
             if len(writable) == 1:
                 return writable[0]
             raise NextcloudRefused("several collections are writable, name one: " + ", ".join(c.name for c in writable))
-        matches = [c for c in writable if name.casefold() in (c.name.casefold(), _uri(c).casefold())]
+        matches = [c for c in writable if name.casefold() in (c.name.casefold(), c.plain_name.casefold(), _uri(c).casefold())]
         if len(matches) != 1:
             raise NextcloudRefused(f"no single writable collection named {name!r}; writable: "
                                    + ", ".join(c.name for c in writable))

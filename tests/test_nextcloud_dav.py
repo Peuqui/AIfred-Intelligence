@@ -59,6 +59,7 @@ def _event(uid: str, summary: str, rrule: str = "") -> str:
 def test_collections_report_kind_components_and_rights(client):
     calendar = _collection(client, CALENDAR)
     assert calendar.writable and {"VEVENT", "VTODO"} <= calendar.components
+    assert calendar.owner
     assert _collection(client, ADDRESSBOOK).writable
     read_only = [c for c in client.collections() if c.kind == ADDRESSBOOK and not c.writable]
     assert read_only  # Nextcloud's system address books are not writable
