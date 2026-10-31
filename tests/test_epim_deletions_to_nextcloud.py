@@ -5,6 +5,11 @@ Kontrakt:
   der keine Serie ist und zu dem EPIM keinen aktiven gleichen Eintrag hat.
 - Serien und mehrdeutige Treffer bleiben stehen und werden gemeldet.
 - Ein Eintrag, den Nextcloud nicht mehr hat, ist kein Fehler.
+- Kontakte haben nur ihren Namen und in Nextcloud keinen Papierkorb: gelöscht wird nur bei
+  genau einem Kontakt dieses Namens, solange EPIM keinen aktiven gleichnamigen hat.
+- Aufgaben stehen in Nextcloud in mehreren Listen zugleich (EPIM verteilt sie so): gelöscht
+  werden alle Kopien gleichen Titels, aber höchstens eine je Liste. Zwei gleiche in einer
+  Liste sind mehrdeutig und bleiben stehen.
 """
 
 from __future__ import annotations
@@ -87,6 +92,70 @@ def test_series_in_epim_is_left_alone_without_asking_nextcloud() -> None:
 def test_recurring_match_in_nextcloud_is_left_alone() -> None:
     plan = _plan(_entry(), [_row(recurring=True)])
     assert plan.series == [_entry()] and not plan.delete
+
+
+def _contact(name: str = "Hans Muster", object_id: str = "book/1.vcf") -> dict:
+    return {"id": object_id, "name": name}
+
+
+def _task(title: str = "Milch", task_list: str = "Einkauf", object_id: str = "list/1.ics") -> dict:
+    return {"id": object_id, "title": title, "list": task_list}
+
+
+def test_contact_with_a_single_exact_name_is_deleted() -> None:
+    plan = tool.plan_contact_deletions(["Hans Muster"], set(), lambda _name: [_contact()])
+    assert [object_id for _entry, object_id in plan.delete] == ["book/1.vcf"]
+
+
+def test_contact_search_hit_with_another_name_does_not_count() -> None:
+    plan = tool.plan_contact_deletions(["Hans Muster"], set(), lambda _name: [_contact("Hans Mustermann")])
+    assert not plan.delete and len(plan.already_gone) == 1
+
+
+def test_two_contacts_of_that_name_are_left_alone() -> None:
+    rows = [_contact(), _contact(object_id="book/2.vcf")]
+    plan = tool.plan_contact_deletions(["Hans Muster"], set(), lambda _name: rows)
+    assert not plan.delete and len(plan.ambiguous) == 1
+
+
+def test_active_contact_of_that_name_protects_it() -> None:
+    plan = tool.plan_contact_deletions(["Hans Muster"], {"Hans Muster"}, lambda _name: [_contact()])
+    assert not plan.delete and len(plan.still_active) == 1
+
+
+def test_contact_without_a_name_is_never_searched() -> None:
+    def fail(_name: str) -> list[dict]:
+        raise AssertionError("must not search")
+
+    plan = tool.plan_contact_deletions([""], set(), fail)
+    assert not plan.delete and len(plan.ambiguous) == 1
+
+
+def test_same_name_twice_in_the_bin_is_one_deletion() -> None:
+    plan = tool.plan_contact_deletions(["Hans Muster", "Hans Muster"], set(), lambda _name: [_contact()])
+    assert len(plan.delete) == 1
+
+
+def test_task_copies_in_several_lists_all_go() -> None:
+    rows = [_task(task_list=name, object_id=f"{name}/1.ics") for name in ("Einkauf", "ToDo", "Liste 1")]
+    plan = tool.plan_task_deletions(["Milch"], set(), lambda _title: rows)
+    assert sorted(object_id for _entry, object_id in plan.delete) == ["Einkauf/1.ics", "Liste 1/1.ics", "ToDo/1.ics"]
+
+
+def test_two_equal_tasks_in_one_list_are_left_alone() -> None:
+    rows = [_task(), _task(object_id="list/2.ics"), _task(task_list="ToDo", object_id="other/1.ics")]
+    plan = tool.plan_task_deletions(["Milch"], set(), lambda _title: rows)
+    assert not plan.delete and len(plan.ambiguous) == 1
+
+
+def test_active_task_of_that_title_protects_it() -> None:
+    plan = tool.plan_task_deletions(["Milch"], {"Milch"}, lambda _title: [_task()])
+    assert not plan.delete and len(plan.still_active) == 1
+
+
+def test_task_search_hit_with_another_title_does_not_count() -> None:
+    plan = tool.plan_task_deletions(["Milch"], set(), lambda _title: [_task("Milchreis")])
+    assert not plan.delete and len(plan.already_gone) == 1
 
 
 def _settings() -> Any:
