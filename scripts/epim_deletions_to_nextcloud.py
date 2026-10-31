@@ -141,7 +141,7 @@ def read_epim(path: Path, deleted_after: datetime | None) -> tuple[list[EpimEntr
         cur = con.cursor()
         cur.execute("SELECT MAX(DELETED) FROM TASKS WHERE STATUS = 1")
         # An empty bin leaves no time: whatever enters it later is new.
-        newest = cur.fetchone()[0] or datetime.min
+        newest = cur.fetchone()[0] or datetime.min  # noqa: DTZ901 - EPIM stores naive local times
         deleted: list[EpimEntry] = []
         if deleted_after is not None:
             cur.execute("SELECT TITLE, STARTTIME, REPEATING FROM TASKS WHERE STATUS = 1 AND DELETED > ?", (deleted_after,))
