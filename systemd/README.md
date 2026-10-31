@@ -192,3 +192,12 @@ After applying, **recalibrate your models** in the AIfred UI to take advantage o
 - AIfred restarts automatically on failure (`Restart=always`)
 - Logs are persistently stored in journald
 - Services start automatically on system boot (when enabled)
+
+## User timer: EPIM deletions
+
+`aifred-epim-deletions.service` and `.timer` run as a user unit, not through
+`install-services.sh`. Replace `__PROJECT_DIR__`, copy both to
+`~/.config/systemd/user/` and enable the timer with
+`systemctl --user enable --now aifred-epim-deletions.timer`. The account needs
+lingering and SSH access to the machine running EPIM. See
+`docs/en/guides/plugins/nextcloud.md`.

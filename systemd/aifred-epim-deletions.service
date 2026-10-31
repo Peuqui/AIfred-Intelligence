@@ -1,0 +1,10 @@
+[Unit]
+Description=AIfred: carry EssentialPIM deletions over to Nextcloud
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=__PROJECT_DIR__
+Environment=AIFRED_CLI_MODE=1
+ExecStart=__PROJECT_DIR__/venv/bin/python scripts/epim_deletions_to_nextcloud.py --apply

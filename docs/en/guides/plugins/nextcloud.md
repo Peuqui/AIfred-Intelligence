@@ -62,6 +62,14 @@ The Notes app stores every note as a text file: the title is the file name, the 
 - **Changing:** `content` replaces the whole text. A new title or category moves the file; the result names the new ID.
 - **Deleting:** The note goes into the trash bin.
 
+## Deletions from EssentialPIM
+
+EPIM's option to delete entries on the other side stays off when syncing with Nextcloud: in about every third run EPIM loses entries while reading, takes them for deleted on the server and, with the option on, deletes them locally. The server delivers everything.
+
+Without the option a deletion in EPIM does not reach Nextcloud. `scripts/epim_deletions_to_nextcloud.py` does that part: it reads the newest backup EPIM wrote itself, takes recycle-bin entries that still have a CalDAV mapping and deletes them in Nextcloud when exactly one non-recurring event with the same title and start exists and EPIM holds no active entry like it. Series and ambiguous matches are only reported. Contacts and tasks are not covered, nor are deletions made in Nextcloud, which stay in EPIM.
+
+Settings live in `data/epim/deletion_sync.json` (`ssh_host`, `ssh_port`, `ssh_user`, `backup_dir`, `backup_glob`, `work_dir`, `max_deletions`). Without `--apply` the script only shows the plan; above `max_deletions` it deletes nothing and exits with an error code. The user timer `systemd/aifred-epim-deletions.timer` runs it daily.
+
 ## Configuration
 
 | Field | Stored in | Meaning |

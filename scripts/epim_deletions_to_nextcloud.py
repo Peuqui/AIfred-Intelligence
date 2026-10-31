@@ -1,0 +1,205 @@
+#!/usr/bin/env python3
+"""Carry deletions from EssentialPIM over to Nextcloud.
+
+EPIM's option "delete on the other side" has to stay off: in about every third
+sync EPIM loses entries while reading them from the server, takes them for
+deleted there and deletes them locally. Without the option a deletion in EPIM
+never reaches Nextcloud, so this tool does that part from EPIM's recycle bin.
+
+It reads the newest backup EPIM wrote itself, a consistent file that does not
+need EPIM to be closed. An entry counts as deleted by the user when it lies in
+the recycle bin and still has its CalDAV mapping: a wrong local deletion drops
+the mapping, and a sync with the option off keeps it.
+
+    AIFRED_CLI_MODE=1 venv/bin/python scripts/epim_deletions_to_nextcloud.py           # shows the plan
+    AIFRED_CLI_MODE=1 venv/bin/python scripts/epim_deletions_to_nextcloud.py --apply   # deletes
+
+Settings: data/epim/deletion_sync.json with ssh_host, ssh_port, ssh_user,
+backup_dir (on the EPIM machine), backup_glob (the working database only,
+e.g. MP.backup_*.epim), work_dir, max_deletions. A run deleting more
+than max_deletions stops without deleting anything.
+"""
+
+import argparse
+import json
+import shlex
+import subprocess
+import sys
+from collections.abc import Callable
+from dataclasses import dataclass, field
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+REPO = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(REPO))
+
+from aifred.lib import firebird_embedded
+from aifred.lib.config import DATA_DIR
+
+SETTINGS_FILE = DATA_DIR / "epim" / "deletion_sync.json"
+STATE_FILE = DATA_DIR / "epim" / "deletion_sync_state.json"
+CALDAV_SYNCTYPE = 9
+SEARCH_LIMIT = 50
+
+
+@dataclass(frozen=True)
+class Settings:
+    ssh_host: str
+    ssh_port: int
+    ssh_user: str
+    backup_dir: str
+    backup_glob: str
+    work_dir: Path
+    max_deletions: int
+
+
+@dataclass(frozen=True)
+class EpimEntry:
+    title: str
+    start: datetime
+    series: bool
+
+
+@dataclass
+class Plan:
+    delete: list[tuple[EpimEntry, str]] = field(default_factory=list)
+    already_gone: list[EpimEntry] = field(default_factory=list)
+    still_active: list[EpimEntry] = field(default_factory=list)
+    series: list[EpimEntry] = field(default_factory=list)
+    ambiguous: list[EpimEntry] = field(default_factory=list)
+
+
+def load_settings() -> Settings:
+    raw = json.loads(SETTINGS_FILE.read_text(encoding="utf-8"))
+    return Settings(raw["ssh_host"], int(raw["ssh_port"]), raw["ssh_user"], raw["backup_dir"],
+                    raw["backup_glob"], Path(raw["work_dir"]), int(raw["max_deletions"]))
+
+
+def _naive(value: date | datetime) -> datetime:
+    """Nextcloud gives all-day events as a date and others as aware local times;
+    EPIM stores naive local times."""
+    if isinstance(value, datetime):
+        return value.replace(tzinfo=None)
+    return datetime(value.year, value.month, value.day)
+
+
+def plan_deletions(deleted: list[EpimEntry], active: set[tuple[str, datetime]],
+                   find: Callable[[EpimEntry], list[dict[str, Any]]]) -> Plan:
+    """Decide per deleted entry. Only an exact, single, non-recurring match in
+    Nextcloud is deleted, and only while EPIM holds no active entry like it."""
+    plan = Plan()
+    for entry in deleted:
+        if entry.series:
+            plan.series.append(entry)
+        elif (entry.title, entry.start) in active:
+            plan.still_active.append(entry)
+        else:
+            matches = [row for row in find(entry)
+                       if row["title"] == entry.title and _naive(row["start"]) == entry.start]
+            if not matches:
+                plan.already_gone.append(entry)
+            elif len(matches) > 1:
+                plan.ambiguous.append(entry)
+            elif matches[0]["recurring"]:
+                plan.series.append(entry)
+            else:
+                plan.delete.append((entry, matches[0]["id"]))
+    return plan
+
+
+def _ssh(settings: Settings, command: str) -> str:
+    return subprocess.run(["ssh", "-p", str(settings.ssh_port), "-o", "ConnectTimeout=10",
+                           f"{settings.ssh_user}@{settings.ssh_host}", command],
+                          capture_output=True, text=True, timeout=60, check=True).stdout
+
+
+def latest_backup(settings: Settings) -> str:
+    listing = _ssh(settings, f"ls -t {shlex.quote(settings.backup_dir)}/{settings.backup_glob}").split("\n")
+    return listing[0].strip()
+
+
+def fetch_restored(settings: Settings, remote: str) -> tuple[Path, Path]:
+    """Copy the backup here and restore it into a readable database file."""
+    settings.work_dir.mkdir(parents=True, exist_ok=True)
+    backup = settings.work_dir / "epim-backup.fbk"
+    restored = settings.work_dir / "epim-restored.epim"
+    subprocess.run(["scp", "-q", "-P", str(settings.ssh_port),
+                    f"{settings.ssh_user}@{settings.ssh_host}:{remote}", str(backup)],
+                   timeout=900, check=True)
+    firebird_embedded.restore(backup, restored)
+    return backup, restored
+
+
+def read_epim(path: Path) -> tuple[list[EpimEntry], set[tuple[str, datetime]]]:
+    """Recycle-bin entries with a CalDAV mapping, and the keys of all active entries."""
+    con = firebird_embedded.connect(path)
+    try:
+        cur = con.cursor()
+        cur.execute("SELECT t.TITLE, t.STARTTIME, t.REPEATING FROM TASKS t "
+                    "JOIN SYNCINFO s ON s.IDLOCALRECORD = t.IDTASK "
+                    "WHERE s.SYNCTYPE = ? AND t.STATUS = 1", (CALDAV_SYNCTYPE,))
+        deleted = [EpimEntry(title or "", start, bool(repeating)) for title, start, repeating in cur.fetchall()]
+        cur.execute("SELECT TITLE, STARTTIME FROM TASKS WHERE STATUS = 0")
+        return deleted, {(title or "", start) for title, start in cur.fetchall()}
+    finally:
+        con.close()
+
+
+def _report(plan: Plan) -> None:
+    print(f"to delete in Nextcloud: {len(plan.delete)}")
+    print(f"already gone there: {len(plan.already_gone)}")
+    print(f"skipped, active again in EPIM: {len(plan.still_active)}")
+    print(f"skipped, part of a series: {len(plan.series)}")
+    print(f"skipped, several matches: {len(plan.ambiguous)}")
+    for entry in plan.series + plan.ambiguous:
+        print(f"  by hand: {entry.start:%Y-%m-%d %H:%M} {entry.title}")
+
+
+def run(apply: bool) -> int:
+    from aifred.plugins.tools.nextcloud import store as store_module
+
+    settings = load_settings()
+    remote = latest_backup(settings)
+    state = json.loads(STATE_FILE.read_text(encoding="utf-8")) if STATE_FILE.exists() else {}
+    if apply and state.get("backup") == remote:
+        print(f"nothing new: {Path(remote).name} is already processed")
+        return 0
+    print(f"backup: {Path(remote).name}")
+
+    backup, restored = fetch_restored(settings, remote)
+    try:
+        deleted, active = read_epim(restored)
+    finally:
+        restored.unlink(missing_ok=True)
+        backup.unlink(missing_ok=True)
+
+    store = store_module.get_store()
+    if store is None:
+        raise RuntimeError("Nextcloud is not configured")
+
+    def find(entry: EpimEntry) -> list[dict[str, Any]]:
+        day = entry.start.date()
+        return store.events(day, day, entry.title, SEARCH_LIMIT)
+
+    plan = plan_deletions(deleted, active, find)
+    _report(plan)
+    if len(plan.delete) > settings.max_deletions:
+        print(f"STOPPED: {len(plan.delete)} deletions exceed max_deletions ({settings.max_deletions}), nothing deleted")
+        return 1
+    if apply:
+        for entry, object_id in plan.delete:
+            store.delete_event(object_id)
+            print(f"deleted: {entry.start:%Y-%m-%d %H:%M} {entry.title}")
+        STATE_FILE.write_text(json.dumps({"backup": remote}), encoding="utf-8")
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser.add_argument("--apply", action="store_true", help="delete in Nextcloud, otherwise only show the plan")
+    return run(parser.parse_args().apply)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

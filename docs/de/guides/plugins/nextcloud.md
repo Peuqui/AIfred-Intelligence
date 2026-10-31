@@ -62,6 +62,14 @@ Die Notizen-App speichert jede Notiz als Textdatei: Der Titel ist der Dateiname,
 - **Ändern:** `content` ersetzt den ganzen Text. Ein neuer Titel oder eine neue Kategorie verschiebt die Datei, das Ergebnis nennt die neue ID.
 - **Löschen:** Die Notiz kommt in den Papierkorb.
 
+## Löschungen aus EssentialPIM
+
+EPIMs Option „Gelöschte Einträge automatisch auf Gegenseite löschen“ bleibt beim Abgleich mit Nextcloud aus: In rund jedem dritten Lauf verliert EPIM beim Lesen Einträge, hält sie für auf dem Server gelöscht und löscht sie mit der Option bei sich. Der Server liefert dabei vollständig.
+
+Ohne die Option erreicht eine Löschung in EPIM Nextcloud nicht. Das übernimmt `scripts/epim_deletions_to_nextcloud.py`: Es liest die neueste von EPIM selbst geschriebene Sicherung, nimmt Einträge aus dem Papierkorb, die noch eine CalDAV-Zuordnung haben, und löscht sie in Nextcloud, wenn genau ein nicht wiederkehrender Termin mit gleichem Titel und Beginn existiert und EPIM keinen aktiven gleichen Eintrag hat. Serien und mehrdeutige Treffer werden nur gemeldet. Kontakte und Aufgaben sind nicht abgedeckt, ebenso wenig Löschungen in Nextcloud, die bleiben in EPIM stehen.
+
+Einstellungen stehen in `data/epim/deletion_sync.json` (`ssh_host`, `ssh_port`, `ssh_user`, `backup_dir`, `backup_glob`, `work_dir`, `max_deletions`). Ohne `--apply` zeigt das Skript nur den Plan; über `max_deletions` löscht es nichts und endet mit Fehlercode. Den täglichen Lauf steuert der Benutzer-Timer `systemd/aifred-epim-deletions.timer`.
+
 ## Konfiguration
 
 | Feld | Speicherort | Bedeutung |
