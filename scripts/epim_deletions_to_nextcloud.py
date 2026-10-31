@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Carry deletions from EssentialPIM over to Nextcloud.
 
-EPIM's option "delete on the other side" has to stay off: in about every third
+EPIM's option "delete on the other side" has to stay off: in about every fourth
 sync EPIM loses entries while reading them from the server, takes them for
 deleted there and deletes them locally. Without the option a deletion in EPIM
 never reaches Nextcloud, so this tool does that part from EPIM's recycle bin.
