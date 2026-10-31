@@ -12,12 +12,11 @@ that sends or changes mail has no account parameter and reaches only AIfred's ow
 mailbox through _imap_connect.
 """
 
-import base64
 import email
 import email.header
 import email.utils
 import imaplib
-import quopri
+import re
 import smtplib
 import ssl
 from collections.abc import Iterator
@@ -28,12 +27,13 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
+from lxml import etree, html
+
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 from .config import (
     EMAIL_IMAP_PORT_DEFAULT,
-    EMAIL_MAX_BODY_CHARS,
-    EMAIL_MAX_FETCH,
+    EMAIL_LIST_DEFAULT,
     EMAIL_SENT_FOLDER_DEFAULT,
 )
 
@@ -46,7 +46,6 @@ class EmailSummary:
     subject: str
     sender: str
     date: str
-    preview: str  # First ~200 chars of body
     is_read: bool = True
 
 
@@ -82,9 +81,12 @@ _READONLY_REQUIRED_KEYS = ("imap_host", "user", "password")
 
 # PEEK leaves \Seen alone, so reading never marks a mail as read. These are the
 # only FETCH forms of the read functions (see _ReadOnlyMailbox).
-_FETCH_SUMMARY = "(FLAGS BODY.PEEK[HEADER] BODY.PEEK[TEXT]<0.400>)"
 _FETCH_HEADERS = "(FLAGS BODY.PEEK[HEADER])"
 _FETCH_MESSAGE = "(BODY.PEEK[])"
+
+# HTML elements whose content is nobody's text, and those that end a line.
+_HTML_WITHOUT_TEXT = ("script", "style", "head")
+_HTML_LINE_BREAKS = ("br", "p", "div", "tr", "li", "table", "h1", "h2", "h3", "h4", "h5", "h6")
 
 # IMAP socket timeout (seconds) for tool operations. Without it a hung/slow
 # server blocks a to_thread worker indefinitely and can exhaust the pool.
@@ -153,6 +155,22 @@ def _decode_sender(raw: str | None) -> str:
     return f'"{email.utils.quote(decoded_name)}" <{address}>' if decoded_name else address
 
 
+def _html_text(source: str) -> str:
+    """The text of an HTML mail, without markup. A plain walk over the document, no
+    article extractor: those drop short mails and whatever looks like boilerplate. The
+    bytes go to the parser because a str with an encoding declaration is refused."""
+    parser = html.HTMLParser(encoding="utf-8")
+    try:
+        document = html.fromstring(source.encode("utf-8"), parser=parser)
+    except etree.ParserError:  # Nothing but whitespace or comments
+        return ""
+    etree.strip_elements(document, *_HTML_WITHOUT_TEXT, etree.Comment, with_tail=False)
+    for element in document.iter(*_HTML_LINE_BREAKS):
+        element.tail = "\n" + (element.tail or "")
+    text = re.sub(r"[ \t]+", " ", document.text_content().replace("\xa0", " "))
+    return re.sub(r"\s*\n\s*", "\n", text).strip()
+
+
 def _extract_body(msg: email.message.Message) -> str:
     """Extract plain text body from email message."""
     if msg.is_multipart():
@@ -161,18 +179,20 @@ def _extract_body(msg: email.message.Message) -> str:
             disposition = str(part.get("Content-Disposition", ""))
             if content_type == "text/plain" and "attachment" not in disposition:
                 payload = part.get_payload(decode=True)
-                if isinstance(payload, bytes):
+                # An empty text part beside the HTML says nothing about the mail
+                if isinstance(payload, bytes) and payload.strip():
                     return _safe_decode(payload, part.get_content_charset())
-        # Fallback: try text/html
+        # No text part with content: the HTML one
         for part in msg.walk():
             if part.get_content_type() == "text/html":
                 payload = part.get_payload(decode=True)
                 if isinstance(payload, bytes):
-                    return f"[HTML]\n{_safe_decode(payload, part.get_content_charset())}"
+                    return _html_text(_safe_decode(payload, part.get_content_charset()))
     else:
         payload = msg.get_payload(decode=True)
         if isinstance(payload, bytes):
-            return _safe_decode(payload, msg.get_content_charset())
+            text = _safe_decode(payload, msg.get_content_charset())
+            return _html_text(text) if msg.get_content_type() == "text/html" else text
     return ""
 
 
@@ -201,30 +221,6 @@ def _safe_parsedate(date_raw: str) -> datetime | None:
         return email.utils.parsedate_to_datetime(date_raw)
     except (ValueError, TypeError):
         return None
-
-
-def _decode_preview(preview_raw: bytes, msg: email.message.Message) -> str:
-    """Best-effort decode of a ``BODY[TEXT]`` prefix for the inbox preview.
-
-    Non-multipart mails with base64/quoted-printable transfer encoding
-    would otherwise show raw encoding garbage. Multipart bodies (prefix =
-    MIME boundary + part headers) stay raw — a real decode would need a
-    BODYSTRUCTURE roundtrip, which a 200-char preview doesn't justify.
-    Decode failure degrades VISIBLY to the raw prefix (never fatal).
-    """
-    if not msg.get_content_type().startswith("multipart"):
-        cte = (msg.get("Content-Transfer-Encoding") or "").strip().lower()
-        charset = msg.get_content_charset()
-        try:
-            if cte == "base64":
-                stripped = b"".join(preview_raw.split())
-                stripped = stripped[: len(stripped) - len(stripped) % 4]
-                return _safe_decode(base64.b64decode(stripped), charset)
-            if cte == "quoted-printable":
-                return _safe_decode(quopri.decodestring(preview_raw), charset)
-        except Exception:  # noqa: BLE001 — preview only, raw prefix shows instead
-            pass
-    return preview_raw.decode("utf-8", errors="replace")
 
 
 def _broker_account(service: str) -> ImapAccount:
@@ -302,10 +298,6 @@ class _ReadOnlyMailbox:
         _, data = self._imap.uid("SEARCH", "CHARSET", "UTF-8", header)
         return data[0].split() if data and data[0] else []
 
-    def fetch_summary(self, uid: str) -> list:
-        """Flags, headers and the start of the body."""
-        return self._imap.uid("FETCH", uid, _FETCH_SUMMARY)[1]
-
     def fetch_headers(self, uid: str) -> list:
         """Flags and headers."""
         return self._imap.uid("FETCH", uid, _FETCH_HEADERS)[1]
@@ -322,110 +314,88 @@ def _examine(account: ImapAccount, folder: str) -> Iterator[_ReadOnlyMailbox]:
         yield _ReadOnlyMailbox(imap, folder)
 
 
-def check_inbox(account: ImapAccount, n: int = EMAIL_MAX_FETCH, folder: str = "INBOX") -> list[EmailSummary]:
-    """Fetch the N most recent emails from IMAP inbox.
+def _summary(msg_id: str, fetched: list) -> EmailSummary | None:
+    """List entry from a FETCH of flags and headers."""
+    flags = b" ".join(part[0] if isinstance(part, tuple) else part for part in fetched if part)
+    for part in fetched:
+        if isinstance(part, tuple) and b"HEADER" in part[0]:
+            msg = email.message_from_bytes(part[1])
+            date = msg.get("Date", "")
+            parsed_date = _safe_parsedate(date)
+            return EmailSummary(
+                msg_id=msg_id,
+                subject=_decode_header(msg.get("Subject", "")),
+                sender=_decode_sender(msg.get("From", "")),
+                date=parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date,
+                is_read=b"\\Seen" in flags,
+            )
+    return None
+
+
+def _summaries(mailbox: _ReadOnlyMailbox, uids: list[str], n: int | None) -> list[EmailSummary]:
+    """List entries of the newest ``n`` of ``uids`` (ascending), newest first; all with None."""
+    # n <= 0 would slice to the ENTIRE list (uids[-0:] == all)
+    chosen = uids if n is None else uids[-max(1, n):]
+    entries = (_summary(uid, mailbox.fetch_headers(uid)) for uid in reversed(chosen))
+    return [entry for entry in entries if entry is not None]
+
+
+def check_inbox(
+    account: ImapAccount, n: int | None = EMAIL_LIST_DEFAULT, folder: str = "INBOX", unread_only: bool = False
+) -> tuple[list[EmailSummary], int]:
+    """The newest mails of a folder and how many there are in all.
 
     Returned ``msg_id`` values are IMAP UIDs — stable across connections
     (unlike sequence numbers, which shift on every expunge), so a later
     read/delete/move on a separate connection hits the same mail.
     """
     _reject_imap_arg(folder, "folder")
-    # n <= 0 would slice to the ENTIRE mailbox (msg_ids[-0:] == all)
-    n = max(1, n)
-    results: list[EmailSummary] = []
-
     with _examine(account, folder) as mailbox:
-        msg_ids = [u.decode() for u in mailbox.search("ALL")]
-        recent_ids = msg_ids[-n:]
-        recent_ids.reverse()  # Newest first
-
-        for msg_id in recent_ids:
-            msg_data = mailbox.fetch_summary(msg_id)
-            if not msg_data or not msg_data[0]:
-                continue
-
-            # Parse flags
-            flags_raw = ""
-            header_raw = b""
-            preview_raw = b""
-
-            for part in msg_data:
-                if isinstance(part, tuple):
-                    desc = part[0].decode("utf-8", errors="replace") if isinstance(part[0], bytes) else str(part[0])
-                    if "FLAGS" in desc:
-                        flags_raw = desc
-                    if "BODY[HEADER]" in desc:
-                        header_raw = part[1] if len(part) > 1 else b""
-                    if "BODY[TEXT]" in desc:
-                        preview_raw = part[1] if len(part) > 1 else b""
-
-            is_read = "\\Seen" in flags_raw
-
-            if header_raw:
-                msg = email.message_from_bytes(header_raw)
-                subject = _decode_header(msg.get("Subject", ""))
-                sender = _decode_sender(msg.get("From", ""))
-                date = msg.get("Date", "")
-                # Parse date to readable format
-                parsed_date = _safe_parsedate(date)
-                date_str = parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date
-
-                preview = _decode_preview(preview_raw, msg)[:200].strip()
-
-                results.append(EmailSummary(
-                    msg_id=msg_id,
-                    subject=subject,
-                    sender=sender,
-                    date=date_str,
-                    preview=preview,
-                    is_read=is_read,
-                ))
-
-    log_message(f"📧 Email: fetched {len(results)} from {folder}")
-    return results
+        uids = [u.decode() for u in mailbox.search("UNSEEN" if unread_only else "ALL")]
+        results = _summaries(mailbox, uids, n)
+    log_message(f"📧 Email: fetched {len(results)} of {len(uids)} from {folder}")
+    return results, len(uids)
 
 
-def read_email(account: ImapAccount, msg_id: str, folder: str = "INBOX") -> EmailMessage:
-    """Read full email by UID (as returned by check_inbox/search_emails)."""
-    _reject_imap_arg(msg_id, "msg_id")
+def read_emails(account: ImapAccount, msg_ids: list[str], folder: str = "INBOX") -> tuple[list[EmailMessage], list[str]]:
+    """Full emails by UID, in the order asked for, and the UIDs that do not exist."""
+    for msg_id in msg_ids:
+        _reject_imap_arg(msg_id, "msg_id")
     _reject_imap_arg(folder, "folder")
+    from . import _parse_auth_results
+
+    mails: list[EmailMessage] = []
+    missing: list[str] = []
     with _examine(account, folder) as mailbox:
-        msg_data = mailbox.fetch_message(msg_id)
-        if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
-            raise ValueError(f"Email {msg_id} not found")
-
-        msg = email.message_from_bytes(msg_data[0][1])
-        body = _extract_body(msg)[:EMAIL_MAX_BODY_CHARS]
-        attachments = _get_attachments(msg)
-
-        date = msg.get("Date", "")
-        parsed_date = _safe_parsedate(date)
-        date_str = parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date
-
-        from . import _parse_auth_results
-
-        log_message(f"📧 Email: read msg {msg_id}")
-        return EmailMessage(
-            msg_id=msg_id,
-            subject=_decode_header(msg.get("Subject", "")),
-            sender=_decode_sender(msg.get("From", "")),
-            to=_decode_header(msg.get("To", "")),
-            date=date_str,
-            body=body,
-            auth_results=_parse_auth_results(msg),
-            attachments=attachments,
-        )
+        for msg_id in msg_ids:
+            msg_data = mailbox.fetch_message(msg_id)
+            if not msg_data or not msg_data[0] or not isinstance(msg_data[0], tuple):
+                missing.append(msg_id)
+                continue
+            msg = email.message_from_bytes(msg_data[0][1])
+            date = msg.get("Date", "")
+            parsed_date = _safe_parsedate(date)
+            mails.append(EmailMessage(
+                msg_id=msg_id,
+                subject=_decode_header(msg.get("Subject", "")),
+                sender=_decode_sender(msg.get("From", "")),
+                to=_decode_header(msg.get("To", "")),
+                date=parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date,
+                body=_extract_body(msg),
+                auth_results=_parse_auth_results(msg),
+                attachments=_get_attachments(msg),
+            ))
+    log_message(f"📧 Email: read {len(mails)} of {len(msg_ids)} from {folder}")
+    return mails, missing
 
 
 def search_emails(
-    account: ImapAccount, query: str, folder: str = "INBOX", n: int = EMAIL_MAX_FETCH
-) -> list[EmailSummary]:
-    """Search emails via IMAP SEARCH. Returned ``msg_id`` values are UIDs."""
+    account: ImapAccount, query: str, folder: str = "INBOX", n: int | None = EMAIL_LIST_DEFAULT
+) -> tuple[list[EmailSummary], int]:
+    """Search emails via IMAP SEARCH: the newest hits and how many there are in all.
+    Returned ``msg_id`` values are UIDs."""
     _reject_imap_arg(query, "query")
     _reject_imap_arg(folder, "folder")
-    # n <= 0 would slice to ALL matches
-    n = max(1, n)
-    results: list[EmailSummary] = []
 
     with _examine(account, folder) as mailbox:
         # IMAP SEARCH: search in subject and from. Escape backslash/quote so a
@@ -434,35 +404,16 @@ def search_emails(
         # raw command since imaplib does not escape it).
         if query.isascii():
             safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
-            uids = set(mailbox.search(f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'))
+            found = set(mailbox.search(f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'))
         else:
             # Non-ASCII ("Müller"): SUBJECT and FROM are searched separately
             # (see search_header) and the UID sets are merged.
-            uids = set(mailbox.search_header("SUBJECT", query)) | set(mailbox.search_header("FROM", query))
-        msg_ids = sorted((u.decode() for u in uids), key=int)[-n:]
-        msg_ids.reverse()
+            found = set(mailbox.search_header("SUBJECT", query)) | set(mailbox.search_header("FROM", query))
+        uids = sorted((u.decode() for u in found), key=int)
+        results = _summaries(mailbox, uids, n)
 
-        for msg_id in msg_ids:
-            msg_data = mailbox.fetch_headers(msg_id)
-            if not msg_data or not msg_data[0]:
-                continue
-
-            for part in msg_data:
-                if isinstance(part, tuple) and b"HEADER" in part[0]:
-                    msg = email.message_from_bytes(part[1])
-                    date = msg.get("Date", "")
-                    parsed_date = _safe_parsedate(date)
-
-                    results.append(EmailSummary(
-                        msg_id=msg_id,
-                        subject=_decode_header(msg.get("Subject", "")),
-                        sender=_decode_sender(msg.get("From", "")),
-                        date=parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date,
-                        preview="",
-                    ))
-
-    log_message(f"📧 Email: search '{query}' → {len(results)} results")
-    return results
+    log_message(f"📧 Email: search '{query}' → {len(results)} of {len(uids)} results")
+    return results, len(uids)
 
 
 def _file_part(path: str, disposition: str, content_id: str | None = None) -> email.message.Message:
@@ -610,7 +561,7 @@ def send_email(
                     f"📧 Email: Sent folder '{sent_folder}' not found — copy skipped "
                     f"(set EMAIL_SENT_FOLDER in the credentials dialog)", "warning"
                 )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — the mail is out, only its copy failed
         log_message(f"📧 Email: could not copy to Sent folder '{sent_folder}': {exc}", "warning")
 
     # Register outgoing Message-ID for session routing (single source of truth)

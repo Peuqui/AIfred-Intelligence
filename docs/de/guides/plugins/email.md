@@ -19,9 +19,9 @@ Channel-Plugin für E-Mail-Kommunikation via IMAP IDLE und SMTP.
 
 | Action | Pflicht-Parameter | Hinweise |
 |--------|-------------------|----------|
-| `check` | – | `n` (Default 10, max. 20), `folder` (Default INBOX) |
-| `read` | `msg_id` | `folder` (Default INBOX) |
-| `search` | `query` | `folder` (Default INBOX) |
+| `check` | – | `n` (Default 20), `unread` (nur ungelesene, dann alle), `folder` (Default INBOX). Liste aus Datum, Absender, Betreff und Lesestatus, ohne Inhalt |
+| `read` | `msg_id` (mehrere durch Kommas getrennt) | `folder` (Default INBOX). HTML wird zu Text. Passt nicht alles ins Budget des Modells, nennt die Antwort die übrigen IDs für den nächsten Aufruf |
+| `search` | `query` | `n` (Default 20), `folder` (Default INBOX) |
 | `send` | `to`, `subject`, `body` | `attachment` (URL aus dieser Konversation); registriert die Session-Route |
 | `move` | `msg_id`, `target_folder` | `folder` = Quelle (Default INBOX) |
 | `delete` | `msg_id` | `folder` (Default INBOX) |
@@ -83,7 +83,7 @@ Verschieben und Markieren gibt es dort nicht.
 
 **Nur lesend ist technisch erzwungen:**
 
-- `check_inbox`, `read_email` und `search_emails` arbeiten auf `_ReadOnlyMailbox` und sehen die
+- `check_inbox`, `read_emails` und `search_emails` arbeiten auf `_ReadOnlyMailbox` und sehen die
   IMAP-Verbindung nicht. Diese Klasse kennt nur EXAMINE, `UID SEARCH` und `UID FETCH` mit
   `BODY.PEEK`; STORE, COPY, APPEND und EXPUNGE sind von dort nicht erreichbar.
 - EXAMINE (`select(..., readonly=True)`) öffnet den Ordner schreibgeschützt, BODY.PEEK lässt

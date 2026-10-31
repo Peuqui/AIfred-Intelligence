@@ -1522,7 +1522,7 @@ BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selec
 # Credentials managed by credential_broker.py (not as global variables!)
 # Non-secret tuning values live plugin-local in
 # aifred/plugins/channels/email_channel/config.py (each plugin owns its
-# own configuration) — EMAIL_MAX_FETCH / EMAIL_MAX_BODY_CHARS /
+# own configuration) — EMAIL_LIST_DEFAULT / EMAIL_MAX_BODY_CHARS /
 # EMAIL_MAX_PROCESS_ATTEMPTS moved there 2026-07-06.
 
 # ============================================================
