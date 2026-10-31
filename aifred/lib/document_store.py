@@ -6,6 +6,7 @@ Uses the ChromaDB server and the embedding function from embeddings.py
 """
 
 import asyncio
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -257,7 +258,7 @@ def _chunk_text(text: str, chunk_size: int, overlap: int) -> list[str]:
     """
     try:
         return _chunk_by_tokens(text, chunk_size, overlap)
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — a document must not fail on its tokenizer
         log_message(f"⚠️ Tokenizer chunking failed ({exc}) — using char fallback")
         return _chunk_by_chars(text, chunk_size, overlap)
 
@@ -340,6 +341,18 @@ PARSERS = {
 # search_in_file) use it for these; plain-text formats they read as-is, so
 # line numbers match the file.
 CONTAINER_FORMATS = frozenset({".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"})
+
+
+def document_text(data: bytes, name: str) -> str:
+    """The text of a file that exists only in memory, by the parsers of the index."""
+    suffix = Path(name).suffix.lower()
+    parser = PARSERS.get(suffix)
+    if parser is None:
+        raise ValueError(f"Unsupported file type: {name}. Readable: {', '.join(sorted(PARSERS))}")
+    with tempfile.TemporaryDirectory(prefix="aifred-read-") as folder:
+        copy = Path(folder) / f"document{suffix}"
+        copy.write_bytes(data)
+        return parser(copy)
 
 
 class _ResilientCollection:

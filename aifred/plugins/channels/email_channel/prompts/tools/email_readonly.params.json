@@ -10,6 +10,20 @@
       "type": "string",
       "description": "Message ID from check or search, or several separated by commas (for read)"
     },
+    "attachment": {
+      "type": "string",
+      "description": "Filename of an attachment, as read lists it (for attachment and index_attachment)"
+    },
+    "line_start": {
+      "type": "integer",
+      "description": "First line to read, 1-based (for read and attachment). Use with line_end, or to go on where a long text ended.",
+      "default": 0
+    },
+    "line_end": {
+      "type": "integer",
+      "description": "Last line to read, inclusive; 0 = to the end (for read and attachment)",
+      "default": 0
+    },
     "query": {
       "type": "string",
       "description": "Search term, matched against subject and sender (for search)"

@@ -15,6 +15,7 @@ from __future__ import annotations
 import logging
 import shutil
 import tempfile
+from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -273,7 +274,7 @@ async def delete_folder(
                     }
                     for fn in matching:
                         chunks_removed += await store.delete_document(fn, delete_file=False)
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — the folder goes either way, the index catches up
             logger.warning(f"delete_folder: index cleanup partially failed: {exc}")
 
     actions: list[str] = []
@@ -369,7 +370,7 @@ async def delete_file(
                     chunks_removed = await store.delete_document(name, delete_file=False)
                 if chunks_removed:
                     actions.append(f"index({chunks_removed} chunks)")
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — the file goes either way, the index catches up
             logger.warning(f"delete_file: index cleanup failed for {name}: {exc}")
 
     if from_disk and target.exists():
@@ -409,7 +410,7 @@ def _sync_index_path(old_path: Path, new_path: Path, old_name: str) -> int:
                         )
                         chunks_updated += 1
                     break
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — the rename stands, only the index is behind
         logger.warning(f"index path sync failed for {old_name}: {exc}")
     return chunks_updated
 
@@ -555,11 +556,11 @@ async def index_file(rel_path: str) -> FileOpResult:
     return FileOpResult(True, detail, {"chunks": chunks, "rel_path": rel_path})
 
 
-async def index_source_file(source_key: str, file_id: str, name: str) -> FileOpResult:
-    """Index a file of a further document source. It stays there: only a
-    temporary copy is parsed, the index keeps the text. The result reports a
-    failure instead of raising, a bad file must not end a run over a folder."""
-    from .document_sources import get_document_source, source_index_name
+async def _index_temp_copy(chunks: AsyncIterator[bytes], name: str, source_key: str, file_id: str) -> FileOpResult:
+    """Index a file that stays where it is: only a temporary copy is parsed, the
+    index keeps the text. The result reports a failure instead of raising, a bad
+    file must not end a run over a folder."""
+    from .document_sources import source_index_name
     from .document_store import PARSERS, get_document_store
     store = get_document_store()
     if not store:
@@ -568,19 +569,39 @@ async def index_source_file(source_key: str, file_id: str, name: str) -> FileOpR
         return FileOpResult(False, f"Unsupported file type: {name}")
 
     try:
-        download = await get_document_source(source_key).download(file_id)
         with tempfile.TemporaryDirectory(prefix="aifred-index-") as folder:
             copy = Path(folder) / Path(name).name
             with copy.open("wb") as target:
-                async for chunk in download.chunks:
+                async for chunk in chunks:
                     target.write(chunk)
-            chunks = await store.index_document(copy, source_index_name(source_key, file_id), source=source_key)
+            indexed = await store.index_document(copy, source_index_name(source_key, file_id), source=source_key)
     except Exception as exc:  # noqa: BLE001
-        logger.warning(f"index_source_file: {source_key} {name}: {exc}")
+        logger.warning(f"index {source_key} {name}: {exc}")
         return FileOpResult(False, f"{name}: {exc}")
-    detail = f"Indexed {name} from {source_key}: {chunks} chunks"
+    detail = f"Indexed {name} from {source_key}: {indexed} chunks"
     logger.info(detail)
-    return FileOpResult(True, detail, {"chunks": chunks})
+    return FileOpResult(True, detail, {"chunks": indexed})
+
+
+async def index_source_file(source_key: str, file_id: str, name: str) -> FileOpResult:
+    """Index a file of a further document source."""
+    from .document_sources import get_document_source
+
+    async def download() -> AsyncIterator[bytes]:
+        source_file = await get_document_source(source_key).download(file_id)
+        async for chunk in source_file.chunks:
+            yield chunk
+
+    return await _index_temp_copy(download(), name, source_key, file_id)
+
+
+async def index_received_file(data: bytes, name: str, source_key: str, file_id: str) -> FileOpResult:
+    """Index a file that arrived from outside, such as a mail attachment. The index
+    marks its text as external, like everything from a source."""
+    async def content() -> AsyncIterator[bytes]:
+        yield data
+
+    return await _index_temp_copy(content(), name, source_key, file_id)
 
 
 async def deindex_file(rel_path: str, fallback_filename: str = "") -> FileOpResult:

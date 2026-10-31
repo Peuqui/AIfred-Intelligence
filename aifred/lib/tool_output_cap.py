@@ -25,6 +25,9 @@ from .config import (
 from .context_manager import estimate_tokens
 from .security import UNTRUSTED_DATA_END
 
+# Rough size of a token, for cutting text without counting it
+CHARS_PER_TOKEN = 3
+
 # Token budget for the next tool call. Set by multi_agent before each
 # inference run, read by backends/base.py when a tool returns its result.
 budget_var: ContextVar[int] = ContextVar("tool_output_budget", default=0)
@@ -104,7 +107,7 @@ def _raw_truncate(text: str, budget_tokens: int) -> str:
     """Cut a string to roughly budget_tokens × 3 chars and append a marker. A fence
     around retrieved data stays closed: the marker comes from us, not from the data."""
     # Reserve some characters for the truncation marker
-    target_chars = max(budget_tokens * 3 - 200, 500)
+    target_chars = max(budget_tokens * CHARS_PER_TOKEN - 200, 500)
     if len(text) <= target_chars:
         return text
     suffix = (

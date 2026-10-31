@@ -13,6 +13,12 @@ Kontrakt (email_channel/client.py, tools.py):
 - ``read`` nimmt mehrere IDs, über eine Verbindung. Mails werden nie still gekürzt: Passt nicht
   alles ins Budget des Modells, nennt die Antwort die übrigen IDs für den nächsten Schritt.
 - Aus HTML wird lesbarer Text, ohne Technik und ohne Inhalt zu verlieren.
+- Mails liest man wie Dateien nach Zeilen (lib/line_window, line_start/line_end). Passt eine Mail
+  nicht ins Budget, kommt ein Stück bis zu einer Zeilengrenze, und die Antwort sagt, wo es weitergeht.
+- Eingehende Mails werden nicht gekürzt und nennen ihre Anhänge.
+- Anhänge: ``attachment`` liest sie mit den Parsern des Dokumenten-Index, nach Zeilen, als fremder
+  Text markiert. ``index_attachment`` legt sie in den Index, markiert als extern; das gibt es nicht
+  im ``email``-Werkzeug, das auch ein fremder Absender erreicht.
 
 Ohne Netz: FakeImap ersetzt imaplib.IMAP4_SSL und antwortet in der Form von imaplib.
 """
@@ -27,14 +33,17 @@ from email import message_from_bytes, policy
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Self
+from unittest.mock import AsyncMock
 
 import pytest
 
+from aifred.lib import file_manager
+from aifred.lib.file_manager import FileOpResult
 from aifred.lib.plugin_base import PluginContext
 from aifred.lib.security import TIER_COMMUNICATE, TIER_WRITE_DATA, TIER_WRITE_SYSTEM
 from aifred.lib.tool_output_cap import budget_var
 from aifred.plugins.channels import email_channel
-from aifred.plugins.channels.email_channel import EmailChannel, client
+from aifred.plugins.channels.email_channel import EmailChannel, _fetch_email_as_inbound, client
 from aifred.plugins.channels.email_channel.tools import get_readonly_mailbox_tools
 
 OWN_HOST = "imap.own.test"
@@ -93,6 +102,27 @@ def _both_parts_mail(subject: str, text: str, html: str) -> bytes:
     return message.as_bytes()
 
 
+def _mail_with_attachments(*attachments: tuple[str, bytes, str, str]) -> bytes:
+    message = EmailMessage()
+    message["Subject"] = "Mit Anhang"
+    message["From"] = "Anna <anna@freunde.test>"
+    message["To"] = READONLY_USER
+    message["Date"] = "Sat, 31 Oct 2026 09:30:00 +0100"
+    message.set_content("Siehe Anhang.")
+    for name, data, maintype, subtype in attachments:
+        message.add_attachment(data, maintype=maintype, subtype=subtype, filename=name)
+    return message.as_bytes()
+
+
+def _pdf(text: str) -> bytes:
+    import fitz
+
+    document = fitz.open()
+    document.new_page().insert_text((72, 72), text)
+    data: bytes = document.tobytes()
+    return data
+
+
 def _searchable_headers(raw: bytes) -> str:
     """Subject and sender as a server searches them: decoded, not as RFC 2047 bytes."""
     message = message_from_bytes(raw, policy=policy.default)
@@ -104,6 +134,7 @@ class FakeServer:
 
     def __init__(self) -> None:
         self.mails: dict[int, tuple[bytes, str]] = {
+            8: (_mail_with_attachments(("notiz.txt", b"Erste Zeile\nZweite Zeile\n", "text", "plain")), r"\Seen"),
             5: (_mail("Rechnung Oktober", "Stadtwerke <rechnung@stadtwerke.test>", "Bitte bis Freitag zahlen."), r"\Seen"),
             7: (_mail("Treffen bei Müller", "Anna <anna@freunde.test>", "Sehen wir uns am Samstag?"), ""),
         }
@@ -222,6 +253,8 @@ READ_CALLS = [
     {"action": "check", "unread": True},
     {"action": "read", "msg_id": "7"},
     {"action": "read", "msg_id": "5,7"},
+    {"action": "read", "msg_id": "7", "line_start": 1, "line_end": 1},
+    {"action": "attachment", "msg_id": "8", "attachment": "notiz.txt"},
     {"action": "search", "query": "Rechnung"},
     {"action": "search", "query": "Müller"},
 ]
@@ -311,8 +344,9 @@ class TestToolOffer:
     ) -> None:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         schema = _tools()["email_readonly"].parameters
-        assert schema["properties"]["action"]["enum"] == ["check", "read", "search"]
-        assert set(schema["properties"]) == {"action", "msg_id", "query", "n", "unread", "folder"}
+        assert schema["properties"]["action"]["enum"] == ["attachment", "check", "index_attachment", "read", "search"]
+        assert set(schema["properties"]) == {"action", "msg_id", "query", "n", "unread", "folder", "attachment",
+                                             "line_start", "line_end"}
 
     @pytest.mark.parametrize("lang", ["de", "en"])
     @pytest.mark.parametrize("action", ["send", "delete", "move", "mark", "list_folders", "create_folder"])
@@ -323,7 +357,7 @@ class TestToolOffer:
         tool = get_readonly_mailbox_tools(lang=lang)[0]
         answer = _run(tool, action=action, msg_id="5", to="fremd@example.org", subject="x", body="y")
         assert answer.startswith("Fehler" if lang == "de" else "Error")
-        assert "check, read, search" in answer
+        assert "attachment, check, index_attachment, read, search" in answer
         assert server.connections == []
 
     @pytest.mark.parametrize(("arguments", "missing"), [({"action": "read"}, "msg_id"), ({"action": "search"}, "query")])
@@ -537,6 +571,114 @@ class TestOutput:
         answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="26")
         assert "Klartext." in answer and "Aus dem HTML." not in answer
 
+    def test_mail_is_read_by_lines_like_a_file(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        body = "\n".join(f"Zeile {number}" for number in range(1, 101))
+        server.mails[9] = (_mail("Lang", "Anna <anna@freunde.test>", body), "")
+        answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="9", line_start=10, line_end=12)
+        assert "Zeile 10\n" in answer and "Zeile 12" in answer
+        assert "Zeile 9\n" not in answer and "Zeile 13" not in answer
+        assert "lines 10-12 of 100" in answer
+
+    def test_mail_above_the_budget_ends_at_a_line_and_says_where_to_go_on(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        body = "\n".join(f"Zeile {number} mit etwas Text" for number in range(1, 5001))
+        server.mails[9] = (_mail("Riesig", "Anna <anna@freunde.test>", body), "")
+        token = budget_var.set(200)
+        try:
+            answer = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="9")
+        finally:
+            budget_var.reset(token)
+        shown = re.search(r"lines 1-(\d+) of 5000", answer)
+        assert shown is not None
+        last = int(shown.group(1))
+        assert f"Zeile {last} mit etwas Text" in answer and f"Zeile {last + 1} " not in answer
+
+    def test_one_line_above_the_budget_stays_reachable(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        words = " ".join(f"Wort{number}" for number in range(1, 2001))
+        server.mails[9] = (_mail("Eine Zeile", "Anna <anna@freunde.test>", words), "")
+        token = budget_var.set(200)
+        try:
+            first = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="9")
+            shown = re.search(r"lines 1-(\d+) of (\d+)", first)
+            assert shown is not None and "Wort1 " in first
+            rest = _run(get_readonly_mailbox_tools()[0], action="read", msg_id="9", line_start=int(shown.group(2)))
+        finally:
+            budget_var.reset(token)
+        assert "Wort2000" in rest
+
+    def test_attachment_is_read_as_text(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        answer = _run(get_readonly_mailbox_tools()[0], action="attachment", msg_id="8", attachment="notiz.txt")
+        assert "Erste Zeile" in answer and "Zweite Zeile" in answer
+        assert 'trust="external"' in answer
+
+    def test_read_names_the_attachments(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        assert "notiz.txt" in _run(get_readonly_mailbox_tools()[0], action="read", msg_id="8")
+
+    def test_attachment_by_lines(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        answer = _run(get_readonly_mailbox_tools()[0], action="attachment", msg_id="8", attachment="notiz.txt",
+                      line_start=2, line_end=2)
+        assert "Zweite Zeile" in answer and "Erste Zeile" not in answer
+
+    def test_pdf_attachment_goes_through_the_index_parser(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails[10] = (_mail_with_attachments(("rechnung.pdf", _pdf("Betrag 42 Euro"), "application", "pdf")), "")
+        answer = _run(get_readonly_mailbox_tools()[0], action="attachment", msg_id="10", attachment="rechnung.pdf")
+        assert "Betrag 42 Euro" in answer
+
+    def test_pdf_without_text_is_said_plainly(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails[10] = (_mail_with_attachments(("scan.pdf", _pdf(""), "application", "pdf")), "")
+        answer = _run(get_readonly_mailbox_tools()[0], action="attachment", msg_id="10", attachment="scan.pdf")
+        assert "no readable text" in answer
+
+    def test_unknown_attachment_names_the_real_ones(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        with pytest.raises(ValueError, match="notiz.txt"):
+            _run(get_readonly_mailbox_tools()[0], action="attachment", msg_id="8", attachment="falsch.pdf")
+
+    def test_unreadable_type_names_the_readable_ones(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails[10] = (_mail_with_attachments(("bild.png", b"x", "image", "png")), "")
+        with pytest.raises(ValueError, match=r"\.pdf"):
+            _run(get_readonly_mailbox_tools()[0], action="attachment", msg_id="10", attachment="bild.png")
+
+    def test_attachment_goes_into_the_index_as_external(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        index = AsyncMock(return_value=FileOpResult(True, "Indexed notiz.txt: 3 chunks", {"chunks": 3}))
+        monkeypatch.setattr(file_manager, "index_received_file", index)
+        answer = _run(get_readonly_mailbox_tools()[0], action="index_attachment", msg_id="8", attachment="notiz.txt")
+        assert "3 chunks" in answer
+        data, name, source, file_id = index.await_args.args
+        assert b"Erste Zeile" in data
+        assert (name, source, file_id) == ("notiz.txt", "email_readonly", "8/notiz.txt")
+
+    def test_a_failed_index_is_reported(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        index = AsyncMock(return_value=FileOpResult(False, "Document store not available"))
+        monkeypatch.setattr(file_manager, "index_received_file", index)
+        answer = _run(get_readonly_mailbox_tools()[0], action="index_attachment", msg_id="8", attachment="notiz.txt")
+        assert answer.startswith("Error") and "Document store not available" in answer
+
+    def test_the_low_tier_tool_cannot_index(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, OWN_ACCOUNT)
+        tools = _tools()
+        assert "index_attachment" not in tools["email"].parameters["properties"]["action"]["enum"]
+        assert "index_attachment" in tools["email_manage"].parameters["properties"]["action"]["enum"]
+        assert "attachment" in tools["email"].parameters["properties"]["action"]["enum"]
+
     def test_non_ascii_search_uses_literals(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
         answer = _run(get_readonly_mailbox_tools()[0], action="search", query="Müller")
@@ -614,3 +756,29 @@ class TestCredentialFields:
         EmailChannel().apply_credentials({**OWN_ACCOUNT, **READONLY_ACCOUNT})
         assert client.readonly_mailbox_account().user == READONLY_USER
         assert client.agent_mailbox_account().user == OWN_USER
+
+
+class _InboundImap:
+    def __init__(self, raw: bytes) -> None:
+        self.raw = raw
+
+    def uid(self, command: str, uid: bytes, items: str) -> tuple[str, list]:
+        assert (command, items) == ("FETCH", "(RFC822)")
+        return "OK", [(b"1 (RFC822 {1}", self.raw), b")"]
+
+
+class TestInboundMail:
+    def test_a_long_mail_arrives_whole(self) -> None:
+        body = "Absatz.\n" * 5000 + "Das Ende."
+        inbound = _fetch_email_as_inbound(_InboundImap(_mail("Lang", "Anna <anna@freunde.test>", body)), b"7")
+        assert inbound is not None and "Das Ende." in inbound.text
+
+    def test_attachments_are_named_with_the_id_to_read_them(self) -> None:
+        raw = _mail_with_attachments(("rechnung.pdf", b"%PDF", "application", "pdf"))
+        inbound = _fetch_email_as_inbound(_InboundImap(raw), b"7")
+        assert inbound is not None
+        assert "Siehe Anhang." in inbound.text and "rechnung.pdf" in inbound.text and "7" in inbound.text
+
+    def test_a_mail_without_attachments_stays_as_it_is(self) -> None:
+        inbound = _fetch_email_as_inbound(_InboundImap(_mail("Kurz", "Anna <anna@freunde.test>", "Hallo")), b"7")
+        assert inbound is not None and inbound.text.strip() == "Hallo"

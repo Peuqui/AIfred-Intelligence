@@ -8,7 +8,11 @@
     },
     "msg_id": {
       "type": "string",
-      "description": "Message ID (for delete, move)"
+      "description": "Message ID (for delete, move, index_attachment)"
+    },
+    "attachment": {
+      "type": "string",
+      "description": "Filename of an attachment, as read lists it (for index_attachment)"
     },
     "folder": {
       "type": "string",

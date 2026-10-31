@@ -15,12 +15,13 @@ Channel-Plugin für E-Mail-Kommunikation via IMAP IDLE und SMTP.
 | `email_readonly` | Zweites Postfach abrufen, lesen, durchsuchen (siehe [unten](#zweites-postfach-nur-lesend)) | WRITE_DATA |
 
 `email` dispatcht über einen `action`-Parameter: `check`, `read`, `search`, `send`,
-`list_folders`, `mark`. `email_manage` ebenso: `delete`, `move`, `create_folder`.
+`list_folders`, `mark`. `email_manage` ebenso: `delete`, `move`, `create_folder`, `index_attachment`.
 
 | Action | Pflicht-Parameter | Hinweise |
 |--------|-------------------|----------|
 | `check` | – | `n` (Default 20), `unread` (nur ungelesene, dann alle), `folder` (Default INBOX). Liste aus Datum, Absender, Betreff und Lesestatus, ohne Inhalt |
-| `read` | `msg_id` (mehrere durch Kommas getrennt) | `folder` (Default INBOX). HTML wird zu Text. Passt nicht alles ins Budget des Modells, nennt die Antwort die übrigen IDs für den nächsten Aufruf |
+| `read` | `msg_id` (mehrere durch Kommas getrennt) | `line_start`, `line_end`, `folder` (Default INBOX). HTML wird zu Text, Anhänge stehen als Dateinamen dabei. Passt nicht alles ins Budget des Modells, nennt die Antwort die übrigen IDs, eine zu lange Mail endet an einer Zeile und sagt, wo es weitergeht |
+| `attachment` | `msg_id`, `attachment` | `line_start`, `line_end`, `folder`. Text eines Anhangs über die Parser des Dokumenten-Index (PDF, Office, Text), nach Zeilen wie eine Datei |
 | `search` | `query` | `n` (Default 20), `folder` (Default INBOX) |
 | `send` | `to`, `subject`, `body` | `attachment` (URL aus dieser Konversation); registriert die Session-Route |
 | `move` | `msg_id`, `target_folder` | `folder` = Quelle (Default INBOX) |
@@ -28,6 +29,7 @@ Channel-Plugin für E-Mail-Kommunikation via IMAP IDLE und SMTP.
 | `mark` | `msg_id`, `flag` | `flag` ∈ `read` / `unread` / `flagged` / `unflagged` |
 | `list_folders` | – | |
 | `create_folder` | `folder_name` | |
+| `index_attachment` | `msg_id`, `attachment` | Legt einen Anhang in den Dokumenten-Index, als extern markiert (`file_manager.index_received_file`). Auch bei `email_readonly`, nicht bei `email` |
 
 Alle IMAP/SMTP-Operationen laufen in `asyncio.to_thread()` (blockierendes I/O).
 
