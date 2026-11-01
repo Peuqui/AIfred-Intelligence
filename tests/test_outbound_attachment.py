@@ -3,10 +3,15 @@
 Security invariants:
 - session-scoped sources (uploads, sandbox output) resolve only for the
   OWNING session (VI7 cross-session rejection),
-- the shared documents/ folder is browser-only,
+- the shared documents/ folder is for the browser and the user's own scheduled jobs,
+  never for an external channel,
 - vigilantia frames are system-wide,
 - size cap + existence are enforced.
 """
+
+import asyncio
+from datetime import datetime
+from types import SimpleNamespace
 
 import pytest
 
@@ -61,6 +66,17 @@ class TestResolveOutboundAttachment:
         path, err = vu.resolve_outbound_attachment("/_upload/documents/shared.pdf", SID, "browser")
         assert err is None and path is not None
 
+    def test_documents_scheduled_job_ok(self, dirs):
+        _write(dirs["doc"], "preise.png")
+        path, err = vu.resolve_outbound_attachment("/_upload/documents/preise.png", SID, "scheduler")
+        assert err is None and path is not None
+
+    @pytest.mark.parametrize("source", ["email", "telegram", "discord", "webhook", "ai_connect", "freeecho2", ""])
+    def test_no_other_source_reaches_documents(self, dirs, source):
+        _write(dirs["doc"], "shared.pdf")
+        path, err = vu.resolve_outbound_attachment("/_upload/documents/shared.pdf", SID, source)
+        assert path is None and err is not None
+
     def test_documents_external_rejected(self, dirs):
         _write(dirs["doc"], "shared.pdf")
         path, err = vu.resolve_outbound_attachment("/_upload/documents/shared.pdf", SID, "telegram")
@@ -100,3 +116,47 @@ class TestIsImageFile:
         from pathlib import Path
         assert not vu.is_image_file(Path("a.pdf"))
         assert not vu.is_image_file(Path("a.txt"))
+
+
+class TestScheduledMail:
+    """A job's report links its chart from documents/: the mail goes out with it, while a
+    reply to an outside sender with the same link stays refused."""
+
+    REPORT = "Der Bericht.\n\n![Verlauf](/_upload/documents/heizoel/preise.png)"
+
+    def _send(self, monkeypatch, metadata: dict) -> list[dict]:
+        from aifred.lib.envelope import InboundMessage, OutboundMessage
+        from aifred.plugins.channels import email_channel
+        from aifred.plugins.channels.email_channel import client
+
+        sent: list[dict] = []
+        monkeypatch.setattr(client, "send_email", lambda **kwargs: sent.append(kwargs))
+        outbound = OutboundMessage(channel="email", channel_id="x", recipient="owner@example.test", text=self.REPORT,
+                                   metadata={"session_id": SID, "subject": "Bericht", **metadata})
+        original = InboundMessage(channel="email", channel_id="x", sender="system", text="", timestamp=datetime.now())
+        asyncio.run(email_channel.EmailChannel().send_reply(outbound, original))
+        return sent
+
+    def test_a_job_report_goes_out_with_its_chart(self, dirs, monkeypatch):
+        _write(dirs["doc"] / "heizoel", "preise.png")
+        sent = self._send(monkeypatch, {"source": "scheduler"})
+        assert len(sent) == 1 and len(sent[0]["inline_images"]) == 1
+
+    def test_a_reply_cannot_attach_from_documents(self, dirs, monkeypatch):
+        _write(dirs["doc"] / "heizoel", "preise.png")
+        with pytest.raises(ValueError, match="Could not resolve attachment"):
+            self._send(monkeypatch, {})
+
+    def test_the_scheduler_says_who_it_is(self, monkeypatch):
+        from aifred.lib import message_processor, scheduler
+
+        calls: list[dict] = []
+
+        async def announce(_channel, _recipient, _text, *, session_id, metadata):
+            calls.append(metadata)
+            return True
+
+        monkeypatch.setattr(message_processor, "announce_to_channel", announce)
+        job = SimpleNamespace(name="Heizöl", payload={"channel": "email", "recipient": "Lord Helmchen"})
+        asyncio.run(scheduler._deliver_announce(job, "Text", SID))
+        assert calls == [{"subject": "Heizöl", "source": "scheduler"}]
