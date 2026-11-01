@@ -8,6 +8,8 @@ Kontrakt (email_channel/client.py, tools.py):
 - Das Postfach hat keinen Listener; Schreibendes erreicht nur AIfreds eigenes Postfach.
 - Mails daraus bekommen nie das Owner-Label.
 - Der Weg über das ``email``-Werkzeug läuft weiter auf AIfreds Postfach, mit Owner-Urteil.
+- ``search`` sucht alle Wörter in Betreff, Absender und Text, ohne ``folder`` über alle Ordner, und
+  nennt je Treffer den Ordner: Eine msg_id gilt nur dort. Der Server findet nur ganze Wörter.
 - Die Liste zeigt Datum, Absender, Betreff und den Lesestatus, keinen Inhalt; sie sagt, wie viele
   von wie vielen sie zeigt. ``unread`` liefert alle ungelesenen.
 - ``read`` nimmt mehrere IDs, über eine Verbindung. Mails werden nie still gekürzt: Passt nicht
@@ -76,12 +78,15 @@ READONLY_ACCOUNT = {
 OTHER_KEYS = ("EMAIL_IMAP_PORT", "EMAIL_FROM", "EMAIL_ALLOWED_SENDERS")
 
 
-def _mail(subject: str, sender: str, body: str, auth_results: str | None = None) -> bytes:
+def _mail(
+    subject: str, sender: str, body: str, auth_results: str | None = None,
+    date: str = "Sat, 31 Oct 2026 09:30:00 +0100",
+) -> bytes:
     message = EmailMessage()
     message["Subject"] = subject
     message["From"] = sender
     message["To"] = READONLY_USER
-    message["Date"] = "Sat, 31 Oct 2026 09:30:00 +0100"
+    message["Date"] = date
     if auth_results:
         message["Authentication-Results"] = auth_results
     message.set_content(body)
@@ -146,10 +151,11 @@ def _session_tool():
     return get_readonly_mailbox_tools(session_id="abc123def456abc123def456abc123de")[0]
 
 
-def _searchable_headers(raw: bytes) -> str:
-    """Subject and sender as a server searches them: decoded, not as RFC 2047 bytes."""
+def _searchable_text(raw: bytes) -> str:
+    """Subject, sender and text as a server searches them: decoded, not as RFC 2047 bytes."""
     message = message_from_bytes(raw, policy=policy.default)
-    return f"{message['Subject']} {message['From']}"
+    body = message.get_body(preferencelist=("plain", "html"))
+    return f"{message['Subject']} {message['From']} {body.get_content() if body else ''}"
 
 
 class FakeServer:
@@ -161,6 +167,13 @@ class FakeServer:
             5: (_mail("Rechnung Oktober", "Stadtwerke <rechnung@stadtwerke.test>", "Bitte bis Freitag zahlen."), r"\Seen"),
             7: (_mail("Treffen bei Müller", "Anna <anna@freunde.test>", "Sehen wir uns am Samstag?"), ""),
         }
+        self.archive: dict[int, tuple[bytes, str]] = {}
+        # Listed but not openable, like a server's parent folders.
+        self.list_lines: list[bytes] = [
+            b'(\\HasNoChildren) "/" "INBOX"',
+            b'(\\HasNoChildren) "/" "Archiv"',
+            b'(\\Noselect \\HasChildren) "/" "Archives"',
+        ]
         self.connections: list[FakeImap] = []
         self.selects: list[tuple[str, bool]] = []
         self.fetches: list[str] = []
@@ -183,6 +196,7 @@ class FakeImap:
         self.user = ""
         self.password = ""
         self.literal: bytes | None = None
+        self.selected = "INBOX"
 
     def __enter__(self) -> Self:
         return self
@@ -198,10 +212,20 @@ class FakeImap:
         return "OK", [b"logged in"]
 
     def select(self, mailbox: str = "INBOX", readonly: bool = False) -> tuple[str, list[bytes]]:
-        self.server.selects.append((mailbox, readonly))
-        if mailbox not in ("INBOX", "Archiv"):
+        assert mailbox.startswith('"') and mailbox.endswith('"'), "unquoted folder breaks on a space"
+        name = mailbox[1:-1]
+        self.server.selects.append((name, readonly))
+        if name not in ("INBOX", "Archiv"):
             return "NO", [b"no such mailbox"]
-        return "OK", [str(len(self.server.mails)).encode()]
+        self.selected = name
+        return "OK", [str(len(self._mails)).encode()]
+
+    def list(self) -> tuple[str, list[bytes]]:
+        return "OK", self.server.list_lines
+
+    @property
+    def _mails(self) -> dict[int, tuple[bytes, str]]:
+        return self.server.archive if self.selected == "Archiv" else self.server.mails
 
     def uid(self, command: str, *args: object) -> tuple[str, list]:
         if command == "SEARCH":
@@ -215,25 +239,28 @@ class FakeImap:
         self.server.searches.append(args)
         criteria = args[-1]
         if criteria == "UNSEEN":
-            unseen = [uid for uid, (_, flags) in sorted(self.server.mails.items()) if r"\Seen" not in flags]
+            unseen = [uid for uid, (_, flags) in sorted(self._mails.items()) if r"\Seen" not in flags]
             return " ".join(str(uid) for uid in unseen).encode()
         if criteria == "ALL":
-            needle = ""
-        elif args[0] == "CHARSET":
+            return " ".join(str(uid) for uid in sorted(self._mails)).encode()
+        if args[0] == "CHARSET":
             assert self.literal is not None
             needle, self.literal = self.literal.decode("utf-8"), None
         else:
-            quoted = re.search(r'SUBJECT "([^"]*)"', str(criteria))
-            assert quoted is not None
+            quoted = re.fullmatch(r'TEXT "((?:[^"\\]|\\.)*)"', str(criteria))
+            assert quoted is not None, f"not a quoted TEXT search: {criteria}"
             needle = quoted.group(1)
-        hits =[uid for uid, (raw, _) in sorted(self.server.mails.items()) if needle in _searchable_headers(raw)]
+        # Whole words, as the real server does (measured 01.11.2026): "matratze" does
+        # not find "Wechseldruckmatratze".
+        word = re.compile(rf"(?<!\w){re.escape(needle)}(?!\w)")
+        hits = [uid for uid, (raw, _) in sorted(self._mails.items()) if word.search(_searchable_text(raw))]
         return " ".join(str(uid) for uid in hits).encode()
 
     def _fetch(self, uid: int, items: str) -> list:
         self.server.fetches.append(items)
-        if uid not in self.server.mails:
+        if uid not in self._mails:
             return [None]
-        raw, flags = self.server.mails[uid]
+        raw, flags = self._mails[uid]
         header = raw.partition(b"\n\n")[0] + b"\n\n"
         if items == "(BODY.PEEK[])":
             return [(f"1 (UID {uid} BODY[] {{{len(raw)}}}".encode(), raw), b")"]
@@ -295,7 +322,7 @@ class TestStrictlyReadOnly:
     def test_opens_read_only(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: dict) -> None:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         _run(_tools()["email_readonly"], **call)
-        assert server.selects == [("INBOX", True)]
+        assert server.selects and all(readonly for _, readonly in server.selects)
 
     @pytest.mark.parametrize("call", READ_CALLS)
     def test_fetches_only_with_peek(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch, call: dict) -> None:
@@ -329,7 +356,7 @@ class TestStrictlyReadOnly:
     def test_read_functions_cannot_reach_the_connection(self) -> None:
         """Their whole IMAP surface: no writing method, no public way to the connection."""
         surface = {name for name in vars(client._ReadOnlyMailbox) if not name.startswith("_")}
-        assert surface == {"search", "search_header", "fetch_headers", "fetch_message"}
+        assert surface == {"open", "folders", "search", "search_text", "fetch_headers", "fetch_message"}
 
     def test_unopenable_folder_stops_before_any_fetch(
         self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
@@ -534,6 +561,53 @@ class TestOutput:
         _configure(monkeypatch, READONLY_ACCOUNT)
         answer = _run(get_readonly_mailbox_tools()[0], action="search", query="Rechnung")
         assert "📧 [5]" in answer
+
+    def test_search_finds_a_word_only_in_the_text(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        assert "[5]" in _run(get_readonly_mailbox_tools()[0], action="search", query="Freitag")
+
+    def test_search_goes_through_every_folder_and_names_it(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.archive = {3: (_mail("Alte Rechnung", "Amt <a@amt.test>", "Betrag"), r"\Seen")}
+        answer = _run(get_readonly_mailbox_tools()[0], action="search", query="Rechnung")
+        assert "[5]" in answer and "| folder: INBOX" in answer
+        assert "[3]" in answer and "| folder: Archiv" in answer
+        assert "Showing 2 of 2" in answer
+
+    def test_search_opens_no_folder_the_server_marks_unselectable(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        _run(get_readonly_mailbox_tools()[0], action="search", query="Rechnung")
+        assert ("Archives", True) not in server.selects
+
+    def test_a_named_folder_limits_the_search(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.archive = {3: (_mail("Alte Rechnung", "Amt <a@amt.test>", "Betrag"), r"\Seen")}
+        answer = _run(get_readonly_mailbox_tools()[0], action="search", query="Rechnung", folder="Archiv")
+        assert "[3]" in answer and "[5]" not in answer
+
+    def test_search_needs_all_words(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        tool = get_readonly_mailbox_tools()[0]
+        assert "[5]" in _run(tool, action="search", query="Rechnung Freitag")
+        assert "[5]" not in _run(tool, action="search", query="Rechnung Samstag")
+
+    def test_newest_hits_first_across_folders(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        server.mails = {1: (_mail("Rechnung alt", "Amt <a@amt.test>", "x", date="Mon, 02 Mar 2020 10:00:00 +0100"), "")}
+        server.archive = {2: (_mail("Rechnung neu", "Amt <a@amt.test>", "x", date="Tue, 03 Mar 2026 10:00:00 +0100"), "")}
+        hits, total = client.search_emails(client.readonly_mailbox_account(), "Rechnung", n=1)
+        assert [hit.msg_id for hit in hits] == ["2"] and total == 2
+
+    def test_a_quote_cannot_rewrite_the_search(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        _run(get_readonly_mailbox_tools()[0], action="search", query='x" OR ALL "y')
+        criteria = [args[-1] for args in server.searches]
+        assert all(c.startswith('TEXT "') for c in criteria)
+        assert 'TEXT "x\\""' in criteria
 
     def test_read_returns_the_whole_mail(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
@@ -769,7 +843,7 @@ class TestOutput:
         _configure(monkeypatch, READONLY_ACCOUNT)
         answer = _run(get_readonly_mailbox_tools()[0], action="search", query="Müller")
         assert "[7]" in answer
-        assert server.searches == [("CHARSET", "UTF-8", "SUBJECT"), ("CHARSET", "UTF-8", "FROM")]
+        assert server.searches == [("CHARSET", "UTF-8", "TEXT")] * 2  # INBOX and Archiv
 
     @pytest.mark.parametrize("call", READ_CALLS)
     def test_content_is_fenced_as_external(
@@ -800,7 +874,7 @@ class TestOwnMailboxPath:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         _run(_tools()["email"], **call)
         assert [(c.host, c.user) for c in server.connections] == [(OWN_HOST, OWN_USER)]
-        assert server.selects == [("INBOX", True)]
+        assert server.selects and all(readonly for _, readonly in server.selects)
 
     def test_tiers_are_unchanged(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, OWN_ACCOUNT)

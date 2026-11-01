@@ -1,1 +1,1 @@
-- search_documents → Indexierte Dokumente semantisch durchsuchen (eine bestimmte Datei → read_file)
+- search_documents → Indexierte Dokumente nach Bedeutung und Wortlaut durchsuchen (eine bestimmte Datei → read_file)

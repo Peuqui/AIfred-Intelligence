@@ -17,7 +17,7 @@ Tool Plugins stellen dem LLM Werkzeuge zur Verfügung, die es autonom aufrufen k
 
 **Datei:** `plugins/tools/workspace/`
 
-Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische Suche über ChromaDB.
+Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und die Suche über alle indexierten Abschnitte, nach Bedeutung und Wortlaut.
 
 | Tool | Beschreibung | Tier |
 |------|-------------|------|
@@ -30,7 +30,7 @@ Dateizugriff auf das Dokumenten-Verzeichnis (`data/documents/`) und semantische 
 | `delete_file` | Datei löschen (entfernt sie auch aus dem Index) | WRITE_DATA |
 | `delete_folder` | Leeren Ordner löschen | WRITE_DATA |
 | `index_document` | Datei in ChromaDB-Vektordatenbank einspeisen | WRITE_DATA |
-| `search_documents` | Indexierte Dokumente semantisch durchsuchen | READONLY |
+| `search_documents` | Indexierte Dokumente nach Bedeutung und Wortlaut durchsuchen | READONLY |
 | `list_indexed` | Alle indexierten Dokumente anzeigen | READONLY |
 | `chromadb_stats` | Alle ChromaDB-Collections mit Eintragsanzahl anzeigen | READONLY |
 | `chromadb_clear` | Alle Einträge einer Collection löschen | WRITE_SYSTEM |

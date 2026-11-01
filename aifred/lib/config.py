@@ -1590,10 +1590,16 @@ READ_FILE_RENDER_MAX_PAGES = 12      # read_file: at most this many pages render
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8000"))
 EMBEDDING_USE_GPU = True           # True = GPU (~900MB VRAM, ~10× faster — needed for large docs), False = CPU
-# Vorauswahl der Dokumentensuche: So viele Treffer holt ChromaDB, bevor sie umsortiert (MMR)
-# und seitenweise ausgegeben werden. Keine Obergrenze aus Vorsicht: Ohne Vorauswahl müsste jede
-# Suche den ganzen Index laden.
-DOCUMENT_SEARCH_POOL_SIZE = env_int("DOCUMENT_SEARCH_POOL_SIZE", 100)
+# Die Dokumentensuche vergleicht jede Frage mit jedem Abschnitt, ohne Vorauswahl
+# (lib/document_search_index.py). Vielfalt (MMR) ordnet nur die besten Treffer um, alle
+# übrigen behalten ihren Platz: Keiner fällt weg, sie sind seitenweise erreichbar.
+DOCUMENT_SEARCH_DIVERSITY_WINDOW = 100
+# k der Reciprocal Rank Fusion: Punkte je Rangliste = 1 / (k + Platz). Der übliche Wert;
+# je kleiner, desto stärker zählen die ersten Plätze.
+DOCUMENT_SEARCH_RANK_CONSTANT = 60
+# Eigene Bestände mit eigenen Werkzeugen (search_bible, search_judaica): Eine Suche ohne
+# Ordnerangabe lässt sie aus, mit folder="bibel" oder folder="judaica" sind sie erreichbar.
+DOCUMENT_SEARCH_SEPARATE_CORPORA = ("bibel", "judaica")
 DOCUMENT_SEARCH_NEIGHBOR_WINDOW = 1 # ±N neighbor chunks returned per hit. Compensates for
                                      # mid-sentence chunk cuts: a hit at chunk K also returns
                                      # K-1 and K+1 so the model sees the full sentence/paragraph

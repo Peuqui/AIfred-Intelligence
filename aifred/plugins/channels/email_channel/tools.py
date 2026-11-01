@@ -69,7 +69,8 @@ def _mail_list(emails: list[EmailSummary], total: int, own_left_out: int = 0) ->
     if own_left_out:
         lines[0] += f", {format_number(own_left_out)} of your own left out"
     for e in emails:
-        lines.append(f"{'📩' if not e.is_read else '📧'} [{e.msg_id}] {e.date} — {e.sender}: {e.subject}")
+        line = f"{'📩' if not e.is_read else '📧'} [{e.msg_id}] {e.date} — {e.sender}: {e.subject}"
+        lines.append(f"{line} | folder: {e.folder}" if e.folder else line)
     return wrap_untrusted_data("\n".join(lines), "email")
 
 
@@ -216,8 +217,7 @@ async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     if not query:
         return "Error: query required"
     n = int(kwargs["n"]) if "n" in kwargs else LIST_DEFAULT
-    folder = kwargs.get("folder", "INBOX")
-    emails, total = await asyncio.to_thread(search_emails, account, query=query, folder=folder, n=n)
+    emails, total = await asyncio.to_thread(search_emails, account, query=query, folder=kwargs.get("folder"), n=n)
     if not emails:
         return f"No emails found for '{query}'."
     return _mail_list(emails, total)

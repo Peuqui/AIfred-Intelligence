@@ -30,7 +30,7 @@
     },
     "query": {
       "type": "string",
-      "description": "Search term (for search)"
+      "description": "Words to find, all of them must occur in the mail (for search)"
     },
     "n": {
       "type": "string",
@@ -58,7 +58,7 @@
     },
     "folder": {
       "type": "string",
-      "description": "IMAP folder (default INBOX)"
+      "description": "IMAP folder (default INBOX; search goes through every folder unless one is named)"
     },
     "flag": {
       "type": "string",

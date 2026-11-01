@@ -237,7 +237,6 @@ Zusätzliche `.env`-Schlüssel, die der Code liest (nur Namen und Bedeutung):
 | `ANNOUNCE_PAUSE_MS` | Standardpause zwischen Absätzen |
 | `LIST_DEFAULT` | Standardmenge einer Liste oder Suche (20). Die Antwort nennt immer die Gesamtzahl, mehr lässt sich abrufen |
 | `READ_MEMORY_GUARD_BYTES` | Was beim Lesen auf einmal im Arbeitsspeicher liegen darf (25 MiB): Datei, Zeile, Webseite. Was das Modell sieht, richtet sich nach seinem Kontext (`lib/tool_output_cap.py`) |
-| `DOCUMENT_SEARCH_POOL_SIZE` | Vorauswahl der Dokumentensuche vor dem Umsortieren (100) |
 | `SANDBOX_MAX_RAM_MB`, `SANDBOX_MAX_FILE_SIZE_MB`, `SANDBOX_MAX_PROCESSES` | Schutzgrenzen der Code-Ausführung |
 | `SECURITY_MAX_TOOL_CHAIN_DEPTH`, `SECURITY_MAX_IDENTICAL_TOOL_CALLS`, `SECURITY_RATE_LIMIT_WINDOW_SEC` | Schutz vor Werkzeug-Schleifen und Überflutung |
 | `AUDIO_UPLOAD_MAX_MB`, `HTML_PREVIEW_MAX_FILES`, `LOOKUP_CACHE_MAX_BYTES`, `VLLM_CALIBRATION_CACHE_MAX_GIB`, `VLLM_PRODUCTION_CACHE_MAX_GIB`, `VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS` | Speicher und Platz |

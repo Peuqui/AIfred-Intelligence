@@ -1,1 +1,1 @@
-- search_documents → Search indexed documents semantically (one specific file → read_file)
+- search_documents → Search indexed documents by meaning and exact words (one specific file → read_file)
