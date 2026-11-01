@@ -8,8 +8,9 @@ Kontrakt (email_channel/client.py, tools.py):
 - Das Postfach hat keinen Listener; Schreibendes erreicht nur AIfreds eigenes Postfach.
 - Mails daraus bekommen nie das Owner-Label.
 - Der Weg über das ``email``-Werkzeug läuft weiter auf AIfreds Postfach, mit Owner-Urteil.
-- ``search`` sucht alle Wörter in Betreff, Absender und Text, ohne ``folder`` über alle Ordner, und
-  nennt je Treffer den Ordner: Eine msg_id gilt nur dort. Der Server findet nur ganze Wörter.
+- ``search`` läuft über den lokalen Mail-Index (mail_index.py): alle Wörter oder Wortteile in Kopf,
+  Text und Anhängen, ohne ``folder`` über alle Ordner. Jeder Treffer nennt seinen Ordner, eine msg_id
+  gilt nur dort. Fürs Füllen liest der Index nur mit EXAMINE und BODY.PEEK.
 - Die Liste zeigt Datum, Absender, Betreff und den Lesestatus, keinen Inhalt; sie sagt, wie viele
   von wie vielen sie zeigt. ``unread`` liefert alle ungelesenen.
 - ``read`` nimmt mehrere IDs, über eine Verbindung. Mails werden nie still gekürzt: Passt nicht
@@ -36,7 +37,6 @@ import asyncio
 import inspect
 import json
 import re
-from email import message_from_bytes, policy
 from email.message import EmailMessage
 from pathlib import Path
 from typing import Self
@@ -151,13 +151,6 @@ def _session_tool():
     return get_readonly_mailbox_tools(session_id="abc123def456abc123def456abc123de")[0]
 
 
-def _searchable_text(raw: bytes) -> str:
-    """Subject, sender and text as a server searches them: decoded, not as RFC 2047 bytes."""
-    message = message_from_bytes(raw, policy=policy.default)
-    body = message.get_body(preferencelist=("plain", "html"))
-    return f"{message['Subject']} {message['From']} {body.get_content() if body else ''}"
-
-
 class FakeServer:
     """The mailbox behind every FakeImap, and the record of what happened to it."""
 
@@ -195,7 +188,6 @@ class FakeImap:
         self.port = port
         self.user = ""
         self.password = ""
-        self.literal: bytes | None = None
         self.selected = "INBOX"
 
     def __enter__(self) -> Self:
@@ -223,6 +215,10 @@ class FakeImap:
     def list(self) -> tuple[str, list[bytes]]:
         return "OK", self.server.list_lines
 
+    def response(self, code: str) -> tuple[str, list[bytes]]:
+        assert code == "UIDVALIDITY"
+        return code, [b"7" if self.selected == "INBOX" else b"8"]
+
     @property
     def _mails(self) -> dict[int, tuple[bytes, str]]:
         return self.server.archive if self.selected == "Archiv" else self.server.mails
@@ -241,20 +237,8 @@ class FakeImap:
         if criteria == "UNSEEN":
             unseen = [uid for uid, (_, flags) in sorted(self._mails.items()) if r"\Seen" not in flags]
             return " ".join(str(uid) for uid in unseen).encode()
-        if criteria == "ALL":
-            return " ".join(str(uid) for uid in sorted(self._mails)).encode()
-        if args[0] == "CHARSET":
-            assert self.literal is not None
-            needle, self.literal = self.literal.decode("utf-8"), None
-        else:
-            quoted = re.fullmatch(r'TEXT "((?:[^"\\]|\\.)*)"', str(criteria))
-            assert quoted is not None, f"not a quoted TEXT search: {criteria}"
-            needle = quoted.group(1)
-        # Whole words, as the real server does (measured 01.11.2026): "matratze" does
-        # not find "Wechseldruckmatratze".
-        word = re.compile(rf"(?<!\w){re.escape(needle)}(?!\w)")
-        hits = [uid for uid, (raw, _) in sorted(self._mails.items()) if word.search(_searchable_text(raw))]
-        return " ".join(str(uid) for uid in hits).encode()
+        assert criteria == "ALL", f"search the read path must not use: {criteria}"
+        return " ".join(str(uid) for uid in sorted(self._mails)).encode()
 
     def _fetch(self, uid: int, items: str) -> list:
         self.server.fetches.append(items)
@@ -272,9 +256,11 @@ class FakeImap:
 
 @pytest.fixture(autouse=True)
 def _uploads_in_a_temp_folder(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    """Rendered pages go to the session's upload folder; not the real one in a test."""
+    """Rendered pages go to the session's upload folder, the mail index to its own place;
+    neither to the real one in a test."""
     from aifred.lib import vision_utils
     monkeypatch.setattr(vision_utils, "UPLOAD_IMAGES_DIR", tmp_path)
+    monkeypatch.setattr(client, "MAIL_INDEX_DIR", tmp_path / "mail_index")
 
 
 @pytest.fixture
@@ -356,7 +342,7 @@ class TestStrictlyReadOnly:
     def test_read_functions_cannot_reach_the_connection(self) -> None:
         """Their whole IMAP surface: no writing method, no public way to the connection."""
         surface = {name for name in vars(client._ReadOnlyMailbox) if not name.startswith("_")}
-        assert surface == {"open", "folders", "search", "search_text", "fetch_headers", "fetch_message"}
+        assert surface == {"open", "folders", "uid_validity", "search", "fetch_headers", "fetch_message"}
 
     def test_unopenable_folder_stops_before_any_fetch(
         self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
@@ -433,9 +419,9 @@ class TestNeverTheOwnMailbox:
     ) -> None:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         _run(_tools()["email_readonly"], **call)
-        assert [(c.host, c.user, c.password) for c in server.connections] == [
+        assert {(c.host, c.user, c.password) for c in server.connections} == {
             (READONLY_HOST, READONLY_USER, READONLY_PASSWORD)
-        ]
+        }
 
     def test_works_without_any_own_credentials(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
@@ -599,15 +585,32 @@ class TestOutput:
         _configure(monkeypatch, READONLY_ACCOUNT)
         server.mails = {1: (_mail("Rechnung alt", "Amt <a@amt.test>", "x", date="Mon, 02 Mar 2020 10:00:00 +0100"), "")}
         server.archive = {2: (_mail("Rechnung neu", "Amt <a@amt.test>", "x", date="Tue, 03 Mar 2026 10:00:00 +0100"), "")}
-        hits, total = client.search_emails(client.readonly_mailbox_account(), "Rechnung", n=1)
-        assert [hit.msg_id for hit in hits] == ["2"] and total == 2
+        hits, total, not_indexed = client.search_emails(client.readonly_mailbox_account(), "Rechnung", n=1)
+        assert [hit.msg_id for hit in hits] == ["2"] and total == 2 and not_indexed == 0
 
-    def test_a_quote_cannot_rewrite_the_search(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_a_part_of_a_word_is_found(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
-        _run(get_readonly_mailbox_tools()[0], action="search", query='x" OR ALL "y')
-        criteria = [args[-1] for args in server.searches]
-        assert all(c.startswith('TEXT "') for c in criteria)
-        assert 'TEXT "x\\""' in criteria
+        server.mails = {1: (_mail("Angebot", "Amt <a@amt.test>", "Zur Wechseldruckmatratze"), "")}
+        assert "[1]" in _run(get_readonly_mailbox_tools()[0], action="search", query="matratze")
+
+    def test_the_text_of_an_attachment_is_found(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        assert "[8]" in _run(get_readonly_mailbox_tools()[0], action="search", query="Zweite Zeile")
+
+    def test_a_query_is_no_syntax(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        answer = _run(get_readonly_mailbox_tools()[0], action="search", query='x" OR ALL "y')
+        assert "No emails found" in answer
+
+    def test_a_search_says_what_the_index_has_not_read_yet(
+        self, server: FakeServer, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        _configure(monkeypatch, READONLY_ACCOUNT)
+        monkeypatch.setattr(
+            "aifred.plugins.channels.email_channel.tools.search_emails", lambda *a, **k: ([], 0, 1234)
+        )
+        answer = _run(get_readonly_mailbox_tools()[0], action="search", query="x")
+        assert "No emails found" in answer and "not searchable yet" in answer
 
     def test_read_returns_the_whole_mail(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
@@ -839,11 +842,9 @@ class TestOutput:
         assert "index_attachment" in tools["email_manage"].parameters["properties"]["action"]["enum"]
         assert "attachment" in tools["email"].parameters["properties"]["action"]["enum"]
 
-    def test_non_ascii_search_uses_literals(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_an_umlaut_is_found(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)
-        answer = _run(get_readonly_mailbox_tools()[0], action="search", query="Müller")
-        assert "[7]" in answer
-        assert server.searches == [("CHARSET", "UTF-8", "TEXT")] * 2  # INBOX and Archiv
+        assert "[7]" in _run(get_readonly_mailbox_tools()[0], action="search", query="Müller")
 
     @pytest.mark.parametrize("call", READ_CALLS)
     def test_content_is_fenced_as_external(
@@ -873,7 +874,7 @@ class TestOwnMailboxPath:
     ) -> None:
         _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
         _run(_tools()["email"], **call)
-        assert [(c.host, c.user) for c in server.connections] == [(OWN_HOST, OWN_USER)]
+        assert {(c.host, c.user) for c in server.connections} == {(OWN_HOST, OWN_USER)}
         assert server.selects and all(readonly for _, readonly in server.selects)
 
     def test_tiers_are_unchanged(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:

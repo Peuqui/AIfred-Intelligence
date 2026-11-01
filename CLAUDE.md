@@ -27,7 +27,7 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 - **RAG über Dokumente** - agentengetrieben per `search_documents`-Tool (kein Auto-Inject); indexiert sind lokale Dateien und, was der Benutzer im Dokumentenfenster aus einer Quelle wie Nextcloud indexiert. Gesucht wird immer über alle Abschnitte, nach Bedeutung und Wortlaut zugleich (`lib/document_search_index.py`, exakt im Arbeitsspeicher, nie über den Näherungs-Index von ChromaDB); ohne Ordner lässt `search_documents` Bibel und Judaica aus
 - **History Compression** - Automatische Kompression (siehe unten)
 - **Nextcloud** - Kalender, Aufgaben, Kontakte, Notizen, Dateien (`plugins/tools/nextcloud`); EPIM gleicht selbst ab, Löschungen zieht `scripts/epim_deletions_to_nextcloud.py` nach
-- **E-Mail** - `email` (AIfreds Postfach), `email_readonly` (privates Postfach), Anhänge über die Parser des Dokumenten-Index, Scans über den Bildbeschreiber
+- **E-Mail** - `email` (AIfreds Postfach), `email_readonly` (privates Postfach), Anhänge über die Parser des Dokumenten-Index, Scans über den Bildbeschreiber. Die Suche läuft über einen lokalen Index je Postfach (`email_channel/mail_index.py`, unter `~/.cache/aifred/mail_index`, außerhalb der Sicherung), weil der Mailserver nur ganze Wörter findet
 - **Multi-Backend Support** - llama.cpp und vLLM (beide via llama-swap), Ollama, Cloud-APIs
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
 - **Message Hub** *(WIP)* - Background-Worker für externe Kanäle (E-Mail, Discord, Telegram, Signal). Architektur: [docs/de/architecture/message-hub.md](docs/de/architecture/message-hub.md)
@@ -48,6 +48,7 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
   - `message_processor.py` - Processing Pipeline (Message → Engine → Reply)
   - `embeddings.py` - bge-m3-Embedding-Function für die ChromaDB-Collections
   - `document_search_index.py` - Suche über jeden Abschnitt: Vektorabstand + Wortindex, zusammengeführt nach Rang
+  - `text_search.py` - Wörter für FTS5 mit Trigrammen, gemeinsam für Dokumentensuche und Mail-Index
   - `research_tools.py` - Recherche-Pipeline (`execute_research`, `hub_web_search`)
 - `prompts/de/` und `prompts/en/` - Alle Prompts (NICHT hardcodiert im Code!)
 - `aifred/backends/` - LLM-Backend Adapter

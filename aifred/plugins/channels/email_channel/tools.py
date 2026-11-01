@@ -217,10 +217,15 @@ async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     if not query:
         return "Error: query required"
     n = int(kwargs["n"]) if "n" in kwargs else LIST_DEFAULT
-    emails, total = await asyncio.to_thread(search_emails, account, query=query, folder=kwargs.get("folder"), n=n)
-    if not emails:
-        return f"No emails found for '{query}'."
-    return _mail_list(emails, total)
+    emails, total, not_indexed = await asyncio.to_thread(
+        search_emails, account, query=query, folder=kwargs.get("folder"), n=n
+    )
+    answer = _mail_list(emails, total) if emails else f"No emails found for '{query}'."
+    if not_indexed:
+        answer += "\n" + load_tool_description(__file__, "email_index_building").format(
+            pending=format_number(not_indexed)
+        )
+    return answer
 
 
 def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "de", trust: str = "external") -> list[Tool]:
