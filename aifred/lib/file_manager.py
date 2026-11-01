@@ -624,39 +624,35 @@ async def search_index(
     n_results: int = 5,
     folder: str | None = None,
     page: int = 1,
+    without_corpora: bool = False,
 ) -> FileOpResult:
-    """Semantic search over indexed documents.
+    """Search indexed documents by meaning and by words, over every chunk.
 
     Args:
         query: Search query.
-        n_results: Page size — number of similarity hits per page (capped
-                   at DOCUMENT_SEARCH_POOL_SIZE). Each hit may bring
-                   along ±DOCUMENT_SEARCH_NEIGHBOR_WINDOW neighbor chunks
-                   so the model sees the full surrounding context.
+        n_results: Page size — number of ranked hits per page. Each hit may
+                   bring along ±DOCUMENT_SEARCH_NEIGHBOR_WINDOW neighbor
+                   chunks so the model sees the full surrounding context.
         folder: If set, restrict to this folder. Recursively includes
                 sub-folders via prefix match — ``"bibel"`` covers
                 ``"bibel/Schlachter"`` AND ``"bibel/GuteNachricht"``;
                 ``"bibel/Schlachter"`` stays narrow. ``None`` = whole store.
         page: 1-based page number for pagination. ``page=2`` skips the
-              first ``n_results`` similarity hits — same query, deeper
-              into the ranking.
+              first ``n_results`` hits — same query, deeper into the ranking.
+        without_corpora: Leave out the separate corpora when no folder is named.
     """
-    from .config import DOCUMENT_SEARCH_POOL_SIZE
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
         return FileOpResult(False, "Document store not available", {"results": []})
 
-    hits, has_more = await store.search(
-        query,
-        n_results=min(n_results, DOCUMENT_SEARCH_POOL_SIZE),
-        folder=folder,
-        page=page,
+    hits, has_more, total = await store.search(
+        query, n_results=n_results, folder=folder, page=page, without_corpora=without_corpora
     )
     return FileOpResult(
         True,
         f"{len(hits)} hits (page {page})",
-        {"results": hits, "has_more": has_more, "page": page},
+        {"results": hits, "has_more": has_more, "page": page, "total": total},
     )
 
 

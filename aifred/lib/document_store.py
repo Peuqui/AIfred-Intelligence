@@ -7,10 +7,12 @@ Uses the ChromaDB server and the embedding function from embeddings.py
 
 import asyncio
 import tempfile
+import threading
 from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import numpy as np
 from chromadb.errors import ChromaError, NotFoundError
 
 from .config import (
@@ -19,8 +21,12 @@ from .config import (
     DOCUMENT_CHUNK_SIZE,
     DOCUMENT_COLLECTION,
     DOCUMENT_EMBED_BATCH_SIZE,
+    DOCUMENT_SEARCH_DIVERSITY_WINDOW,
+    DOCUMENT_SEARCH_NEIGHBOR_WINDOW,
+    DOCUMENT_SEARCH_SEPARATE_CORPORA,
     DOCUMENTS_DIR,
 )
+from .document_search_index import DocumentSearchIndex
 from .embeddings import OLLAMA_EMBEDDING_MODEL, OllamaEmbeddingFunction
 from .logging_utils import log_message
 
@@ -35,8 +41,8 @@ def _read_text_file(file_path: Path) -> str:
 
 
 def _mmr_rerank(
-    query_emb: Any,
-    doc_embs: list[Any],
+    relevance: "np.ndarray",
+    doc_embs: "np.ndarray",
     k: int,
     lambda_: float = 0.5,
 ) -> list[int]:
@@ -44,38 +50,30 @@ def _mmr_rerank(
 
     Spreads selected documents across the embedding space instead of
     returning many near-duplicate chunks. At each step picks the candidate
-    with the highest score = ``λ·sim(query, doc) − (1-λ)·max_sim(doc, selected)``.
+    with the highest score = ``λ·relevance(doc) − (1-λ)·max_sim(doc, selected)``.
 
     Args:
-        query_emb: Query embedding (D-dim sequence).
+        relevance: How well each document answers the query, 1.0 = best (N items).
         doc_embs: Document embeddings (N items, each D-dim).
-        k: How many documents to select (capped at len(doc_embs)).
+        k: How many documents to select (capped at N).
         lambda_: λ in [0,1]. 1.0 = pure relevance, 0.0 = pure diversity.
                  0.5 = balanced default.
 
     Returns:
         List of indices into ``doc_embs`` in selection order.
     """
-    import numpy as np
-
     n = len(doc_embs)
     if n == 0:
         return []
-    embs = np.asarray(doc_embs, dtype=np.float32)
-    q = np.asarray(query_emb, dtype=np.float32)
-
     # Normalize once for cosine similarity
-    q_norm = q / (np.linalg.norm(q) + 1e-9)
-    embs_norm = embs / (np.linalg.norm(embs, axis=1, keepdims=True) + 1e-9)
-
-    sim_to_query = embs_norm @ q_norm  # shape (N,)
+    embs_norm = doc_embs / (np.linalg.norm(doc_embs, axis=1, keepdims=True) + 1e-9)
 
     selected: list[int] = []
     remaining = set(range(n))
     target = min(k, n)
     while len(selected) < target and remaining:
         if not selected:
-            best = max(remaining, key=lambda i: float(sim_to_query[i]))
+            best = max(remaining, key=lambda i: float(relevance[i]))
         else:
             sel_norm = embs_norm[selected]  # (M, D)
             best_score = -float("inf")
@@ -84,7 +82,7 @@ def _mmr_rerank(
                 # Max similarity of candidate to any already-selected doc
                 redundancy = float(np.max(sel_norm @ embs_norm[i]))
                 score = (
-                    lambda_ * float(sim_to_query[i])
+                    lambda_ * float(relevance[i])
                     - (1.0 - lambda_) * redundancy
                 )
                 if score > best_score:
@@ -428,6 +426,10 @@ class DocumentStore:
         # Invalidated whenever index_document / delete_document mutate the
         # collection — the cache stays correct without a per-search round-trip.
         self._folder_cache: set[str] | None = None
+        # Read on the first search, dropped with every change. A thread lock, as the
+        # store serves several event loops; it only guards the load.
+        self._search_index: DocumentSearchIndex | None = None
+        self._search_index_lock = threading.Lock()
 
     def _resolve_collection(self) -> Any:
         """Bootstrap-time get-or-create. Called ONLY from ``__init__`` —
@@ -470,7 +472,7 @@ class DocumentStore:
                 "lost the collection metadata. Inspect chroma manually."
             )
             raise
-        self._invalidate_folder_cache()
+        self._invalidate_caches()
 
     @property
     def collection(self) -> "_ResilientCollection":
@@ -522,8 +524,29 @@ class DocumentStore:
             self._folder_cache = folders
         return self._folder_cache
 
-    def _invalidate_folder_cache(self) -> None:
+    def _invalidate_caches(self) -> None:
         self._folder_cache = None
+        self._search_index = None
+
+    def _current_search_index(self, count: int) -> DocumentSearchIndex:
+        """The search index for what ChromaDB holds now. ``count`` catches what the
+        invalidation cannot: a write while the load was running."""
+        with self._search_index_lock:
+            if self._search_index is None or len(self._search_index) != count:
+                self._search_index = DocumentSearchIndex.load(self._collection)
+            return self._search_index
+
+    def _search_scope(
+        self, index: DocumentSearchIndex, folder: str | None, without_corpora: bool
+    ) -> "np.ndarray":
+        """Which chunks a search covers. A named folder includes its sub-folders."""
+        if folder is not None:
+            return index.folder_mask(self._expand_folder_prefix(folder))
+        corpora = [
+            stored for corpus in DOCUMENT_SEARCH_SEPARATE_CORPORA if without_corpora
+            for stored in self._expand_folder_prefix(corpus)
+        ]
+        return ~index.folder_mask(corpora)
 
     def _expand_folder_prefix(self, folder: str) -> list[str]:
         """Return all stored folder values that the requested folder covers.
@@ -617,7 +640,7 @@ class DocumentStore:
                 f"(+{len(batch_chunks)} in this batch)"
             )
 
-        self._invalidate_folder_cache()
+        self._invalidate_caches()
 
         log_message(f"📄 Indexed {filename}: {total} chunks (in batches of {DOCUMENT_EMBED_BATCH_SIZE})")
         return total
@@ -631,132 +654,93 @@ class DocumentStore:
         page: int = 1,
         diversify: bool = True,
         mmr_lambda: float = 0.5,
-    ) -> tuple[list[dict[str, Any]], bool]:
-        """Semantic search across documents. Returns (hits, has_more).
+        without_corpora: bool = False,
+    ) -> tuple[list[dict[str, Any]], bool, int]:
+        """Search every chunk by meaning and by words. Returns (hits, has_more, total_hits).
 
         Args:
             query: Search query.
-            n_results: Page size — number of similarity hits per page.
+            n_results: Page size — number of ranked hits per page.
             folder: If set, restrict search to this folder *or any folder
                     nested under it*. ``"bibel"`` covers ``"bibel/Schlachter"``
                     and ``"bibel/GuteNachricht"``; ``"bibel/Schlachter"``
-                    stays narrow. Pass ``None`` to search the whole store
-                    (only sensible for cross-corpus tools).
+                    stays narrow. ``None`` covers the whole store.
             neighbor_window: Per hit, also include ±N adjacent chunks of the
                     same document so the model sees the full surrounding
                     context (mid-sentence chunk cuts are mitigated).
                     None → use DOCUMENT_SEARCH_NEIGHBOR_WINDOW from config,
-                    0 → off (similarity-only).
+                    0 → off (ranked hits only).
             page: 1-based page number. ``page=1`` returns hits 1..n_results,
                   ``page=2`` returns hits n_results+1..2*n_results, etc.
-                  We fetch the full pool (capped at DOCUMENT_SEARCH_POOL_SIZE),
-                  re-rank via MMR if ``diversify`` is on, then slice.
             diversify: When True (default), apply MMR (Maximal Marginal Relevance)
-                  re-ranking to the pool. Picks the most relevant hit, then each
+                  to the best hits. Picks the most relevant hit, then each
                   subsequent hit by max ``λ·relevance − (1-λ)·max_redundancy``.
                   Spreads results across files / vector regions instead of
                   returning many near-duplicate chunks from one dominant document.
-            mmr_lambda: λ in [0, 1]. 1.0 = pure relevance (similarity ranking),
-                  0.0 = pure diversity. 0.5 (default) = balanced.
+            mmr_lambda: λ in [0, 1]. 1.0 = pure relevance, 0.0 = pure diversity.
+                  0.5 (default) = balanced.
+            without_corpora: Leave out DOCUMENT_SEARCH_SEPARATE_CORPORA when no
+                  folder is named. They have their own tools and would bury a
+                  question about a document in scripture.
 
         Returns:
-            (hits, has_more): hits is the page's chunks (similarity + neighbors).
-            has_more is True iff a further page still fits inside the pool.
+            (hits, has_more, total_hits): hits is the page's chunks (ranked + neighbors),
+            has_more is True iff a further page holds hits, total_hits counts all hits.
         """
         count = await asyncio.to_thread(self._collection.count)
         if count == 0:
-            return ([], False)
+            return ([], False, 0)
 
         if neighbor_window is None:
-            from .config import DOCUMENT_SEARCH_NEIGHBOR_WINDOW
             neighbor_window = DOCUMENT_SEARCH_NEIGHBOR_WINDOW
 
-        from .config import DOCUMENT_SEARCH_DISTANCE_MAX, DOCUMENT_SEARCH_POOL_SIZE
         page = max(1, page)
-        # Stable pool: always fetch the full MAX_RESULTS slice (or whole index
-        # if smaller). Same query → same pool → page-stable. MMR re-rank acts
-        # on this pool once; pagination just slices the re-ranked order.
-        pool_size = min(DOCUMENT_SEARCH_POOL_SIZE, count)
         skip = (page - 1) * n_results
-        if skip >= pool_size:
-            return ([], False)
 
+        index = await asyncio.to_thread(self._current_search_index, count)
         # Embed the query via the CPU/query-mode function so we don't
         # wake up the GPU embedding model for a single-shot search.
         query_embeddings = await asyncio.to_thread(self._embed_query, [query])
-        query_kwargs: dict[str, Any] = {
-            "query_embeddings": query_embeddings,
-            "n_results": pool_size,
-            # We need embeddings for MMR — include them in the response.
-            # ChromaDB always returns documents + metadatas + distances by
-            # default; `include` REPLACES that default, so list them all.
-            "include": ["documents", "metadatas", "distances", "embeddings"],
-        }
-        if folder is not None:
-            # Prefix-expand: "bibel" matches every "bibel/..." sub-folder so
-            # callers don't need to enumerate sub-corpora. Empty result list
-            # means the requested folder isn't represented at all — pass an
-            # impossible filter so Chroma cleanly returns no hits instead of
-            # the whole store.
-            matching = await asyncio.to_thread(self._expand_folder_prefix, folder)
-            if not matching:
-                query_kwargs["where"] = {"folder": folder}
-            elif len(matching) == 1:
-                query_kwargs["where"] = {"folder": matching[0]}
-            else:
-                query_kwargs["where"] = {"folder": {"$in": matching}}
+        in_scope = await asyncio.to_thread(self._search_scope, index, folder, without_corpora)
+        ranking = await asyncio.to_thread(index.rank, query, query_embeddings[0], in_scope)
+        order = ranking.rows
+        total_hits = len(order)
 
-        results = await asyncio.to_thread(self._collection.query, **query_kwargs)
+        # MMR orders the top of the ranking only: spread over everything, it would
+        # bring up barely related chunks just for being different. The rest keeps its
+        # place, so every hit stays reachable. Same query → same order → page-stable.
+        if diversify and total_hits > 1:
+            window = order[:DOCUMENT_SEARCH_DIVERSITY_WINDOW]
+            relevance = ranking.scores[:len(window)] / ranking.scores[0]
+            spread = _mmr_rerank(relevance, index.vectors(window), k=len(window), lambda_=mmr_lambda)
+            order = np.concatenate((window[spread], order[len(window):]))
 
-        all_hits: list[dict[str, Any]] = []
-        all_embs: list[Any] = []
-        if results and results["documents"] and results["documents"][0]:
-            for i, doc in enumerate(results["documents"][0]):
-                meta = results["metadatas"][0][i] if results["metadatas"] else {}  # type: ignore[index]
-                distance = results["distances"][0][i] if results["distances"] else None  # type: ignore[index]
-                all_hits.append({
-                    "content": doc,
-                    "filename": meta.get("filename", ""),
-                    "folder": meta.get("folder", ""),
-                    "chunk_index": meta.get("chunk_index", 0),
-                    "total_chunks": meta.get("total_chunks", 0),
-                    "distance": distance,
-                    "_neighbor": False,  # mark original similarity hits
-                })
-                if results.get("embeddings") and results["embeddings"][0] is not None:
-                    all_embs.append(results["embeddings"][0][i])
+        page_rows = order[skip:skip + n_results]
+        if len(page_rows) == 0:
+            return ([], False, total_hits)
+        has_more = (skip + n_results) < total_hits
 
-        # Drop hits beyond the off-topic distance ceiling. Keeps a query
-        # with no real match in this folder (or a fachfremde query) from
-        # returning a long tail of irrelevant chunks, and makes has_more
-        # honest — pagination ends once the on-topic pool does.
-        if all_hits:
-            kept = [
-                i for i, h in enumerate(all_hits)
-                if h["distance"] is None
-                or h["distance"] <= DOCUMENT_SEARCH_DISTANCE_MAX
-            ]
-            if len(kept) < len(all_hits):
-                all_hits = [all_hits[i] for i in kept]
-                if all_embs:
-                    all_embs = [all_embs[i] for i in kept]
+        page_ids = [index.ids[row] for row in page_rows]
+        stored = await asyncio.to_thread(
+            self._collection.get, ids=page_ids, include=["documents", "metadatas"]
+        )
+        by_id = dict(zip(stored["ids"], zip(stored["documents"], stored["metadatas"], strict=True), strict=True))
+        hits: list[dict[str, Any]] = []
+        for row, chunk_id in zip(page_rows, page_ids, strict=True):
+            doc, meta = by_id[chunk_id]
+            hits.append({
+                "content": doc,
+                "filename": meta.get("filename", ""),
+                "folder": meta.get("folder", ""),
+                "chunk_index": meta.get("chunk_index", 0),
+                "total_chunks": meta.get("total_chunks", 0),
+                "distance": float(ranking.distances[row]),
+                "_neighbor": False,  # mark original ranked hits
+            })
 
-        # MMR re-rank: diversify the full pool once, page-slice afterwards.
-        # Skip when only one hit (nothing to diversify) or embeddings missing.
-        if diversify and len(all_hits) > 1 and len(all_embs) == len(all_hits):
-            mmr_order = _mmr_rerank(
-                query_embeddings[0], all_embs, k=len(all_hits), lambda_=mmr_lambda
-            )
-            all_hits = [all_hits[i] for i in mmr_order]
-
-        # Page slice from the (possibly MMR-reordered) pool.
-        hits: list[dict[str, Any]] = all_hits[skip:skip + n_results]
-        # has_more: another page worth of hits still sits in the pool.
-        has_more = (skip + n_results) < len(all_hits)
-
-        # Fetch neighbor chunks for each similarity hit (deduped by ID).
+        # Fetch neighbor chunks for each ranked hit (deduped by ID).
         # Neighbors are added with _neighbor=True so callers can distinguish
-        # similarity-driven hits from contextual augmentation.
+        # ranked hits from contextual augmentation.
         if neighbor_window and neighbor_window > 0 and hits:
             existing_ids = {
                 f"{h['filename']}__chunk_{h['chunk_index']}" for h in hits
@@ -799,7 +783,7 @@ class DocumentStore:
             # the original passage.
             hits.sort(key=lambda h: (h["filename"], h["chunk_index"]))
 
-        return (hits, has_more)
+        return (hits, has_more, total_hits)
 
     def list_documents(self) -> list[dict[str, Any]]:
         """List all unique documents with metadata.
@@ -843,7 +827,7 @@ class DocumentStore:
         ids = self._collection.get(include=[])["ids"]
         if ids:
             self._collection.delete(ids=ids)
-        self._invalidate_folder_cache()
+        self._invalidate_caches()
         return len(ids)
 
     async def delete_document(self, filename: str, delete_file: bool = True) -> int:
@@ -856,7 +840,7 @@ class DocumentStore:
 
         count = len(all_data["ids"])
         await asyncio.to_thread(self._collection.delete, ids=all_data["ids"])
-        self._invalidate_folder_cache()
+        self._invalidate_caches()
 
         # Delete file from disk if requested
         if delete_file:

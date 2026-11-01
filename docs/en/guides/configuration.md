@@ -236,7 +236,6 @@ Additional `.env` keys read by the code (names and meaning only):
 | `ANNOUNCE_PAUSE_MS` | Default pause between paragraphs |
 | `LIST_DEFAULT` | Default size of a list or search (20). The answer always names the total, more can be fetched |
 | `READ_MEMORY_GUARD_BYTES` | What may sit in memory at once while reading (25 MiB): a file, a line, a web page. What the model sees follows its context (`lib/tool_output_cap.py`) |
-| `DOCUMENT_SEARCH_POOL_SIZE` | Preselection of the document search before re-ranking (100) |
 | `SANDBOX_MAX_RAM_MB`, `SANDBOX_MAX_FILE_SIZE_MB`, `SANDBOX_MAX_PROCESSES` | Safety limits of code execution |
 | `SECURITY_MAX_TOOL_CHAIN_DEPTH`, `SECURITY_MAX_IDENTICAL_TOOL_CALLS`, `SECURITY_RATE_LIMIT_WINDOW_SEC` | Protection against tool loops and flooding |
 | `AUDIO_UPLOAD_MAX_MB`, `HTML_PREVIEW_MAX_FILES`, `LOOKUP_CACHE_MAX_BYTES`, `VLLM_CALIBRATION_CACHE_MAX_GIB`, `VLLM_PRODUCTION_CACHE_MAX_GIB`, `VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS` | Memory and disk |

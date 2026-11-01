@@ -621,16 +621,16 @@ class WorkspacePlugin:
             folder: str | None = None,
             page: int = 1,
         ) -> str:
-            """Semantic search in ChromaDB, optionally restricted to a folder.
+            """Search every indexed chunk by meaning and words, optionally in one folder.
 
             ``page`` enables pagination: page=2 returns hits ``n_results+1``
-            through ``2*n_results`` of the same similarity ranking. Use this
-            when the topic is broad (many relevant passages exist) and the
-            first page didn't surface enough material.
+            through ``2*n_results`` of the same ranking. Use this when the
+            topic is broad (many relevant passages exist) and the first page
+            didn't surface enough material.
             """
             page = max(1, int(page or 1))
             result = await fm.search_index(
-                query, n_results=n_results, folder=folder, page=page
+                query, n_results=n_results, folder=folder, page=page, without_corpora=folder is None
             )
             if not result.success:
                 return json.dumps({"error": result.detail})
@@ -646,8 +646,8 @@ class WorkspacePlugin:
                         "has_more": False,
                         "message": (
                             f"No more results on page {page}. The previous "
-                            f"page(s) covered the available similarity hits "
-                            f"for this query — try refining the query."
+                            f"page(s) covered all hits for this query — try "
+                            f"refining the query."
                         ),
                     })
                 # Erst checken ob die Collection überhaupt was enthält —
@@ -679,7 +679,7 @@ class WorkspacePlugin:
                             f"No matches in folder '{folder}'. The index has "
                             f"{indexed_count} documents in these folders: "
                             f"{folders_in_index}. Try a different folder or "
-                            f"omit the parameter to search the whole index."
+                            f"omit the parameter to search all documents."
                         ),
                         "indexed_count": indexed_count,
                         "available_folders": folders_in_index,
@@ -687,9 +687,11 @@ class WorkspacePlugin:
                 return json.dumps({
                     "results": [],
                     "message": (
-                        f"No matches for this query. The index has "
-                        f"{indexed_count} documents — try different keywords "
-                        f"or list_indexed() to see what's available."
+                        f"No matches for this query in the documents. The index "
+                        f"has {indexed_count} documents, the Bible and Judaica "
+                        f"corpora are only searched with folder='bibel' or "
+                        f"folder='judaica' — try different keywords or "
+                        f"list_indexed() to see what's available."
                     ),
                     "indexed_count": indexed_count,
                 })
@@ -723,6 +725,7 @@ class WorkspacePlugin:
             payload: dict[str, Any] = {
                 "data_notice": retrieved_data_notice(),
                 "total_results": len(results),
+                "total_hits": result.metadata.get("total", 0),
                 "page": page,
                 "has_more": has_more,
                 "results": results,

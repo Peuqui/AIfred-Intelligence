@@ -7,16 +7,16 @@
     },
     "n_results": {
       "type": "integer",
-      "description": "Page size — number of similarity hits per page (default: 5)",
+      "description": "Page size — number of hits per page (default: 5)",
       "default": 5
     },
     "folder": {
       "type": "string",
-      "description": "Folder to restrict the search to. Includes all nested sub-folders automatically — pass 'bibel' to search both Schlachter and GuteNachricht, 'judaica' to search everything Jewish, 'bibel/Schlachter' to narrow to one translation. Omit to search across all indexed content."
+      "description": "Folder to restrict the search to. Includes all nested sub-folders automatically — pass 'bibel' to search both Schlachter and GuteNachricht, 'judaica' to search everything Jewish, 'bibel/Schlachter' to narrow to one translation. Omit to search all documents; the Bible and Judaica corpora need their folder."
     },
     "page": {
       "type": "integer",
-      "description": "1-based page number. page=1 (default) returns the top similarity hits, page=2 the next batch deeper into the ranking, etc. Use the SAME query; fetch a next page only when the response contains a next_page_hint.",
+      "description": "1-based page number. page=1 (default) returns the best hits, page=2 the next batch deeper into the ranking, etc. Use the SAME query; fetch a next page only when the response contains a next_page_hint.",
       "default": 1
     }
   },

@@ -17,7 +17,7 @@ Tool Plugins provide tools the LLM can call autonomously during conversations.
 
 **File:** `plugins/tools/workspace/`
 
-File access to the documents directory (`data/documents/`) and semantic search via ChromaDB.
+File access to the documents directory (`data/documents/`) and search across all indexed passages, by meaning and exact words.
 
 | Tool | Description | Tier |
 |------|------------|------|
@@ -30,7 +30,7 @@ File access to the documents directory (`data/documents/`) and semantic search v
 | `delete_file` | Delete a file (also removes it from the index) | WRITE_DATA |
 | `delete_folder` | Delete an empty folder | WRITE_DATA |
 | `index_document` | Index a file into the ChromaDB vector database | WRITE_DATA |
-| `search_documents` | Search indexed documents semantically | READONLY |
+| `search_documents` | Search indexed documents by meaning and exact words | READONLY |
 | `list_indexed` | List all indexed documents | READONLY |
 | `chromadb_stats` | Show all ChromaDB collections with entry counts | READONLY |
 | `chromadb_clear` | Clear all entries from a collection | WRITE_SYSTEM |

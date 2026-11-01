@@ -36,7 +36,7 @@ sys.path.insert(0, str(REPO_ROOT))
 # Reflex app and resets the running service's live debug log.
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
-from aifred.lib.document_store import get_document_store  # noqa: E402
+from aifred.lib.document_store import get_document_store
 
 
 def _truncate(text: str, max_chars: int) -> str:
@@ -68,7 +68,7 @@ async def semantic_search(
     store = get_document_store()
     if store is None:
         raise SystemExit("DocumentStore unavailable — is ChromaDB running?")
-    hits, _has_more = await store.search(
+    hits, _has_more, _total = await store.search(
         query=query, n_results=n_results, folder=folder, neighbor_window=neighbor,
     )
     return hits

@@ -26,7 +26,7 @@ import os
 import re
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import unquote
 
 from fastapi import FastAPI, File, Form, HTTPException, Query, UploadFile
@@ -39,8 +39,8 @@ sys.path.insert(0, str(REPO_ROOT))
 # Reflex app and resets the running service's live debug log.
 os.environ.setdefault("AIFRED_CLI_MODE", "1")
 
-from aifred.lib.document_store import get_document_store  # noqa: E402
-from aifred.lib.config import DOCUMENTS_DIR  # noqa: E402
+from aifred.lib.config import DOCUMENTS_DIR
+from aifred.lib.document_store import get_document_store
 
 app = FastAPI(title="AIfred Bibliothek", version="1.0")
 
@@ -295,16 +295,15 @@ def _safe_relpath(folder: str, name: str) -> Path:
     """Resolve folder/name into DOCUMENTS_DIR; reject traversal."""
     rel = Path(folder.strip("/")) / name if folder else Path(name)
     target = (DOCUMENTS_DIR / rel).resolve()
-    if not str(target).startswith(str(DOCUMENTS_DIR.resolve()) + str(Path("/"))):
-        # Allow exact match too (file directly in DOCUMENTS_DIR root)
-        if target != DOCUMENTS_DIR.resolve():
-            raise HTTPException(400, "Path traversal not allowed")
+    # Allow exact match too (file directly in DOCUMENTS_DIR root)
+    if not str(target).startswith(str(DOCUMENTS_DIR.resolve()) + str(Path("/"))) and target != DOCUMENTS_DIR.resolve():
+        raise HTTPException(400, "Path traversal not allowed")
     return target
 
 
 @app.post("/api/upload")
 async def upload(
-    file: UploadFile = File(...),
+    file: UploadFile = File(...),  # noqa: B008 — how FastAPI declares an upload
     folder: str = Form(default=""),
     auto_index: bool = Form(default=True),
 ) -> dict[str, Any]:
@@ -403,7 +402,7 @@ def reindex_folder(folder: str = Form(...)) -> dict[str, Any]:
             chunks = asyncio.run(s.index_document(path, rel))
             chunks_total += chunks
             indexed += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — one bad file must not stop the batch, the answer names it
             failures.append({"filename": rel, "error": str(exc)})
     return {
         "folder": folder.strip("/"),
@@ -576,7 +575,7 @@ def folder_index_new(folder: str) -> dict[str, Any]:
             chunks = asyncio.run(s.index_document(path, rel))
             chunks_total += chunks
             indexed += 1
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — one bad file must not stop the batch, the answer names it
             failures.append({"filename": rel, "error": str(exc)})
     return {
         "folder": target_folder,
@@ -617,7 +616,7 @@ def folder_cleanup_orphans(folder: str) -> dict[str, Any]:
 
     if orphan_ids:
         s.collection.delete(ids=orphan_ids)
-        s._invalidate_folder_cache()
+        s._invalidate_caches()
 
     return {
         "folder": target_folder,
@@ -634,7 +633,7 @@ def folder_cleanup_orphans(folder: str) -> dict[str, Any]:
 class SearchRequest(BaseModel):
     query: str = Field(min_length=1)
     mode: str = Field(default="semantic", pattern=r"^(semantic|literal|phrase)$")
-    folder: Optional[str] = None
+    folder: str | None = None
     # n_results = Anzeige-Limit (semantic) bzw. Hard-Cap (literal/phrase). Bei
     # phrase-mode iteriert der Server ueber alle Chunks und liefert alle
     # Phrase-Treffer (bis zu n_results, default hoch genug fuer Volltextsuche).
@@ -642,7 +641,7 @@ class SearchRequest(BaseModel):
     neighbor: int = Field(default=1, ge=0, le=5)
 
 
-def _build_phrase_regex(query: str) -> Optional[re.Pattern[str]]:
+def _build_phrase_regex(query: str) -> re.Pattern[str] | None:
     """Build a case-insensitive phrase regex with German-stem tolerance.
 
     Mirror of the frontend stem heuristic so frontend Highlight and backend
@@ -668,7 +667,7 @@ def search(req: SearchRequest) -> dict[str, Any]:
     s = _store()
 
     if req.mode == "semantic":
-        hits, _has_more = asyncio.run(s.search(
+        hits, _has_more, _total = asyncio.run(s.search(
             query=req.query,
             n_results=req.n_results,
             folder=req.folder,
@@ -856,7 +855,7 @@ def list_collections() -> dict[str, Any]:
             metas = sample.get("metadatas") or []
             sample_meta = metas[0] if metas and isinstance(metas[0], dict) else None
             schema = _detect_schema(col.name, sample_meta)
-        except Exception:
+        except Exception:  # noqa: BLE001 — one broken collection must not empty the list, count -1 shows it
             count = -1
             schema = _SCHEMA_GENERIC
             sample_meta = None
