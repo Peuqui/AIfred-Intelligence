@@ -21,6 +21,7 @@ from ....lib import file_manager as fm
 from ....lib.bubble import KIND_DOCUMENT_PAGES, BubbleArtifact
 from ....lib.line_window import line_range
 from ....lib.message_builder import image_marker
+from ....lib.pdf_pages import page_selection, render_scanned_pages
 from ....lib.vision_utils import is_image_file
 from ....lib.function_calling import Tool
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA, TIER_WRITE_SYSTEM, retrieved_data_notice
@@ -47,48 +48,21 @@ def _container_text(file_path: Path) -> str | None:
     return PARSERS[suffix](file_path)
 
 
-def _page_selection(pages: str, total_pages: int) -> list[int]:
-    """0-based page indices for a range like "3", "1-5", "3,7,10-12"."""
-    selected: list[int] = []
-    for part in pages.split(","):
-        part = part.strip()
-        if "-" in part:
-            start, end = part.split("-", 1)
-            # Clamp to the actual page count BEFORE building the range —
-            # otherwise "1-2000000000" materializes a two-billion-element
-            # list and OOMs the worker.
-            selected.extend(range(max(1, int(start)) - 1, min(int(end), total_pages)))
-        else:
-            selected.append(int(part) - 1)
-    return [p for p in selected if 0 <= p < total_pages]
-
-
 def _read_pdf(file_path: Path, pages: str, session_id: str) -> tuple[dict[str, Any], list[str]]:
     """Text of the selected PDF pages; pages without a text layer (scans) are
-    rendered as images into the session's upload folder instead — at most
-    READ_FILE_RENDER_MAX_PAGES per call. Returns the result dict and the
-    image URLs."""
+    rendered as images into the session's upload folder instead. Returns the
+    result dict and the image URLs."""
     import pymupdf
-    from ....lib.config import READ_FILE_RENDER_DPI, READ_FILE_RENDER_MAX_PAGES
-    from ....lib.vision_utils import get_image_url, save_session_upload
 
     with pymupdf.open(str(file_path)) as doc:
         total_pages = len(doc)
-        selected = _page_selection(pages, total_pages) if pages else list(range(total_pages))
+        selected = page_selection(pages, total_pages) if pages else list(range(total_pages))
         text_parts: list[str] = []
-        image_less: list[int] = []
         for index in selected:
             text = doc[index].get_text()
             if text.strip():
                 text_parts.append(f"--- Page {index + 1} ---\n{text}")
-            else:
-                image_less.append(index)
-        rendered = image_less[:READ_FILE_RENDER_MAX_PAGES]
-        urls: list[str] = []
-        for index in rendered:
-            png = doc[index].get_pixmap(dpi=READ_FILE_RENDER_DPI).tobytes("png")
-            path = save_session_upload(png, session_id, f"{file_path.stem}_p{index + 1}", "png")
-            urls.append(get_image_url(path))
+        rendered, not_rendered = render_scanned_pages(doc, selected, file_path.stem, session_id)
 
     result: dict[str, Any] = {
         "filename": file_path.name,
@@ -96,12 +70,11 @@ def _read_pdf(file_path: Path, pages: str, session_id: str) -> tuple[dict[str, A
         "total_pages": total_pages,
         "content": "\n\n".join(text_parts),
     }
-    if urls:
-        result["image_pages"] = [{"page": index + 1, "url": url} for index, url in zip(rendered, urls)]
-    not_rendered = [index + 1 for index in image_less[READ_FILE_RENDER_MAX_PAGES:]]
+    if rendered:
+        result["image_pages"] = [{"page": page, "url": url} for page, url in rendered]
     if not_rendered:
         result["image_pages_not_rendered"] = not_rendered
-    return result, urls
+    return result, [url for _page, url in rendered]
 
 
 def _read_image(file_path: Path, session_id: str) -> tuple[dict[str, Any], list[str]]:

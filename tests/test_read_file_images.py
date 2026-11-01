@@ -4,8 +4,10 @@ import pymupdf
 import pytest
 from PIL import Image
 
-from aifred.lib import config, vision_utils
-from aifred.plugins.tools.workspace import _page_selection, _read_image, _read_pdf
+from aifred.lib import vision_utils
+from aifred.lib import pdf_pages
+from aifred.lib.pdf_pages import page_selection
+from aifred.plugins.tools.workspace import _read_image, _read_pdf
 
 SESSION = "0123456789abcdef0123456789abcdef"
 
@@ -37,9 +39,9 @@ def mixed_pdf(tmp_path):
 
 
 def test_page_selection_ranges_and_clamping():
-    assert _page_selection("3,1-2", 5) == [2, 0, 1]
-    assert _page_selection("4-2000000000", 5) == [3, 4]
-    assert _page_selection("9", 5) == []
+    assert page_selection("3,1-2", 5) == [2, 0, 1]
+    assert page_selection("4-2000000000", 5) == [3, 4]
+    assert page_selection("9", 5) == []
 
 
 def test_text_pages_stay_text_scanned_pages_become_images(upload_dir, mixed_pdf):
@@ -59,7 +61,7 @@ def test_page_selection_limits_rendering(upload_dir, mixed_pdf):
 
 
 def test_render_cap_reports_the_rest(upload_dir, mixed_pdf, monkeypatch):
-    monkeypatch.setattr(config, "READ_FILE_RENDER_MAX_PAGES", 1)
+    monkeypatch.setattr(pdf_pages, "READ_FILE_RENDER_MAX_PAGES", 1)
     result, _urls = _read_pdf(mixed_pdf, "", SESSION)
     assert [p["page"] for p in result["image_pages"]] == [2]
     assert result["image_pages_not_rendered"] == [3]
