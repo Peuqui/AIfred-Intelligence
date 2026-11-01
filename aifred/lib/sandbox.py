@@ -231,6 +231,7 @@ async def describe_sandbox_screenshots(
     from datetime import datetime
 
     from .prompt_loader import load_prompt
+    from .security import UNTRUSTED_DATA_END, wrap_untrusted_data
     from .vision_utils import url_to_file_path
 
     # Extract the caller's verification question (transport line from
@@ -335,6 +336,9 @@ async def describe_sandbox_screenshots(
             f"🖼️ Sandbox image(s) described: {', '.join(filenames)} "
             f"({len(analysis.text)} chars, {analysis.duration_ms:.0f} ms)"
         )}
+        # Text read off a foreign document (a scan in a mail) stays marked as foreign
+        if UNTRUSTED_DATA_END in result_text:
+            described = wrap_untrusted_data(described, "image")
         yield {"type": "result", "text": f"{result_text}\n\n{described}"}
     except Exception as e:  # noqa: BLE001
         error_note = load_prompt(

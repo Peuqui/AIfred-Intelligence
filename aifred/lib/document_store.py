@@ -327,6 +327,7 @@ PARSERS = {
     ".pdf": _read_pdf,
     ".txt": _read_text_file,
     ".md": _read_text_file,
+    ".ics": _read_text_file,
     ".csv": _read_csv,
     ".docx": _read_docx,
     ".xlsx": _read_xlsx,

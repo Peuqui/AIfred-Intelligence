@@ -24,6 +24,10 @@
       "description": "Last line to read, inclusive; 0 = to the end (for read and attachment)",
       "default": 0
     },
+    "pages": {
+      "type": "string",
+      "description": "Scanned PDF pages to show, like 3 or 1-5 or 3,7,10-12 (for attachment)"
+    },
     "query": {
       "type": "string",
       "description": "Search term, matched against subject and sender (for search)"

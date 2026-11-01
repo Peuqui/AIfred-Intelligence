@@ -26,7 +26,9 @@ from ....lib.document_store import document_text
 from ....lib.formatting import format_number
 from ....lib.function_calling import Tool
 from ....lib.line_window import LineWindow
+from ....lib.pdf_pages import page_selection, render_scanned_pages
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
+from ....lib.sandbox import SANDBOX_IMAGE_URL_MARKER, SANDBOX_VISION_FOCUS_MARKER
 from ....lib.security import (
     TIER_COMMUNICATE,
     TIER_WRITE_DATA,
@@ -38,6 +40,7 @@ from ....lib.security import (
 )
 from ....lib.tool_args import parse_bool
 from ....lib.tool_output_cap import CHARS_PER_TOKEN, budget_var
+from ....lib.vision_utils import get_image_url, is_image_file, save_session_upload
 from .client import (
     EmailMessage,
     EmailSummary,
@@ -144,17 +147,47 @@ async def _read(account: ImapAccount, kwargs: dict[str, Any], *, owner_verdict: 
     return "\n\n".join(answers)
 
 
-async def _attachment(account: ImapAccount, kwargs: dict[str, Any]) -> str:
-    """The text of an attachment, by lines like a mail or a file."""
+def _scanned_pages(data: bytes, msg_id: str, pages: str, session_id: str) -> tuple[list[tuple[int, str]], list[int]]:
+    """Pages without text as images: done (page, URL) and the page numbers left."""
+    import pymupdf
+
+    with pymupdf.open(stream=data, filetype="pdf") as document:
+        selected = page_selection(pages, len(document)) if pages else list(range(len(document)))
+        return render_scanned_pages(document, selected, f"mail{msg_id}", session_id)
+
+
+def _for_the_describer(answer: str, urls: list[str]) -> str:
+    """Add the lines the backend acts on: it hands the images to the vision model and
+    appends what it read (sandbox.describe_sandbox_screenshots)."""
+    focus = load_tool_description(__file__, "email_attachment_focus").strip()
+    return "\n".join([answer, f"{SANDBOX_VISION_FOCUS_MARKER}{focus}", *(f"{SANDBOX_IMAGE_URL_MARKER}{url}" for url in urls)])
+
+
+async def _attachment(session_id: str, account: ImapAccount, kwargs: dict[str, Any]) -> str:
+    """An attachment: its text by lines like a mail or a file, what is only a picture
+    of text through the vision model."""
     msg_id, name = kwargs.get("msg_id", ""), kwargs.get("attachment", "")
     if not msg_id or not name:
         return "Error: msg_id and attachment required"
     data = await asyncio.to_thread(read_attachment, account, msg_id, name, kwargs.get("folder", "INBOX"))
-    text = await asyncio.to_thread(document_text, data, name)
-    if not text.strip():
-        return f"Attachment {name} contains no readable text, perhaps it is a scan."
+    suffix = Path(name).suffix.lower()
+    if is_image_file(Path(name)):
+        path = await asyncio.to_thread(save_session_upload, data, session_id, f"mail{msg_id}", suffix.lstrip("."))
+        return _for_the_describer(wrap_untrusted_data(f"Attachment: {name}", "email"), [get_image_url(path)])
+
+    pages = str(kwargs.get("pages", ""))
+    text = "" if pages else await asyncio.to_thread(document_text, data, name)
+    rendered: list[tuple[int, str]] = []
+    left: list[int] = []
+    if suffix == ".pdf":
+        rendered, left = await asyncio.to_thread(_scanned_pages, data, msg_id, pages, session_id)
+    if not text.strip() and not rendered:
+        return f"Attachment {name} contains no readable text."
     body, lines = _lines(text, kwargs)
-    return wrap_untrusted_data(f"Attachment: {name}\nLines: {lines}\n\n{body}", "email")
+    answer = wrap_untrusted_data(f"Attachment: {name}\nLines: {lines}\n\n{body}", "email")
+    if left:
+        answer += "\n" + load_tool_description(__file__, "email_attachment_pages_left").format(pages=", ".join(map(str, left)))
+    return _for_the_describer(answer, [url for _page, url in rendered]) if rendered else answer
 
 
 async def _index_attachment(source_key: str, account: ImapAccount, kwargs: dict[str, Any]) -> str:
@@ -200,7 +233,7 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
             return await _read(agent_mailbox_account(), kwargs, owner_verdict=True)
 
         elif action == "attachment":
-            return await _attachment(agent_mailbox_account(), kwargs)
+            return await _attachment(session_id, agent_mailbox_account(), kwargs)
 
         elif action == "index_attachment":
             return await _index_attachment("email", agent_mailbox_account(), kwargs)
@@ -344,7 +377,7 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
     ]
 
 
-def get_readonly_mailbox_tools(lang: str = "de") -> list[Tool]:
+def get_readonly_mailbox_tools(lang: str = "de", session_id: str = "") -> list[Tool]:
     """The tool of the read-only second mailbox; none while its credentials are missing.
 
     A separate function, no action of ``email``: its handlers are all it can do, and
@@ -358,7 +391,7 @@ def get_readonly_mailbox_tools(lang: str = "de") -> list[Tool]:
     handlers: dict[str, Callable[[ImapAccount, dict[str, str]], Awaitable[str]]] = {
         "check": _check,
         "read": partial(_read, owner_verdict=False),
-        "attachment": _attachment,
+        "attachment": partial(_attachment, session_id),
         "index_attachment": partial(_index_attachment, "email_readonly"),
         "search": _search,
     }

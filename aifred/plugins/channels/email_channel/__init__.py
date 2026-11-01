@@ -549,7 +549,7 @@ class EmailChannel(BaseChannel):
         from .tools import get_email_tools, get_readonly_mailbox_tools
         return [
             *get_email_tools(session_id=ctx.session_id, source=ctx.source, lang=ctx.lang),
-            *get_readonly_mailbox_tools(lang=ctx.lang),
+            *get_readonly_mailbox_tools(lang=ctx.lang, session_id=ctx.session_id),
         ]
 
     def build_reply_metadata(self, message: InboundMessage) -> dict:
