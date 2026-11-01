@@ -16,6 +16,8 @@ AIfred läuft auf deinem eigenen Rechner und arbeitet für dich über jeden Kana
 
 **Auf einen Blick**
 - 🔗 **Autonome Tool-Ketten** über Plugins hinweg — ein Prompt, viele Schritte, aus jedem Kanal
+- 📬 **Deine Mails, richtig gelesen** — ungelesene Mails, mehrere auf einmal, PDFs und Office-Dateien als Text, Scans und Fotos über das Bildmodell; nichts wird abgeschnitten, lange Mails liest AIfred in Schritten
+- 📅 **Nextcloud als Drehscheibe** — Kalender, Aufgaben, Kontakte, Notizen und Dateien, mit Rechten je Modul
 - 🎩 **Multi-Agent-System** — AIfred, Sokrates, Salomo und deine eigenen Agenten debattieren, kritisieren, urteilen — oder übernehmen als Sub-Agenten delegierte Aufgaben
 - 📡 **Überall erreichbar** — Web-UI, Telegram, Discord, E-Mail, Echo-Dot-Sprach-Terminal; läuft headless
 - 🎤 **Sprache** — Speech-to-Text plus der Dienst TTS-Suite mit sieben Engines (lokal, andere Rechner, Cloud, Browser), Voice Cloning, gesprochene Ansagen auf dem Echo Dot
@@ -47,6 +49,17 @@ AIfred führt das als eine durchgehende Kette aus:
 
 Alles lokal, ein einziger Prompt, kein Klick dazwischen. Dateien aus der Konversation (hochgeladene Bilder, PDFs oder Plots aus der Sandbox) lassen sich über **jeden** Kanal als Anhang versenden, isoliert pro Session.
 
+**Zweites Beispiel (echt, durchgängig getestet):** eine Mail mit gescannter Rechnung und einem PDF-Bericht im Anhang:
+
+> *„Welche Mails sind ungelesen? In einer davon steckt eine Rechnung als Scan und ein Protokoll einer Probefahrt. Lies beide Anhänge und nenne mir nur Rechnungsnummer, Betrag, Fälligkeit und den Namen des Fahrers."*
+
+1. **📬 Ungelesene Mails** — listet nur, was du noch nicht gelesen hast; das Lesen ändert nichts an deinem Postfach
+2. **📖 Mehrere auf einmal** — liest die Mails in einem einzigen Aufruf, HTML wird zu reinem Text
+3. **📄 PDF** — liest den Bericht mit denselben Parsern wie der Dokumenten-Index
+4. **👁️ Scan** — die Rechnung hat keine Textebene, ihre Seiten gehen deshalb ans Bildmodell, das neben dem Chat-Modell lief, ohne es zu verdrängen
+
+Keine feste Grenze entscheidet, was AIfred sehen darf: Wie viel in einen Schritt passt, richtet sich nach dem Kontext des Modells, lange Mails und Anhänge liest er nach Zeilen wie Dateien. Text aus einer Mail bleibt als fremd markiert, damit eine Mail AIfred keine Anweisungen geben kann.
+
 **Voraussetzungen & Stellschrauben:**
 - **Sicherheits-Tier:** Etwas anlegen (Kontakt, Termin, Code ausführen) braucht `WRITE_DATA` oder höher. Im Browser hast du das immer; externe Kanäle stellst du bei Bedarf im **Plugin Manager** höher — bewusst nur dort, kein Absender kann sich selbst Rechte geben. Siehe [Sicherheit](#-sicherheit)
 - **Vision + Tool-Ketten:** Für zuverlässige Tool-Aufrufe im Bild-Pfad **Thinking für das Vision-LLM ausschalten** (🧠-Icon; der 💭-Reasoning-Prompt darf an bleiben). Reasoning-Modelle mit spekulativer Dekodierung (MoE/MTP) verschlucken sonst Tool-Calls nach dem Denken
@@ -59,7 +72,8 @@ Alles lokal, ein einziger Prompt, kein Klick dazwischen. Dateien aus der Konvers
 
 Das LLM entscheidet selbst, welche Tools es einsetzt — OpenAI-kompatibles Function Calling, bis zu 100 Tool-Calls pro Anfrage, jedes Tool kommt aus einem Plugin:
 
-- **E-Mail** — lesen, suchen, senden über IMAP/SMTP; Senden braucht eine ausdrückliche Bestätigung (Entwurf → Prüfung → Bestätigung)
+- **E-Mail** — lesen, suchen, senden über IMAP/SMTP; Senden braucht eine ausdrückliche Bestätigung (Entwurf → Prüfung → Bestätigung). Ein zweites, privates Postfach lässt sich rein lesend anbinden: Mails bleiben ungelesen. AIfred listet ungelesene Mails, lässt seine eigenen weg, liest mehrere Mails in einem Aufruf und arbeitet Anhänge durch: PDF, Office, Text und Kalendereinladungen als Text, Scans und Bilder über das Bildmodell, auf Wunsch in den Dokumenten-Index. Siehe [E-Mail](docs/de/guides/plugins/email.md)
+- **Nextcloud** — Kalender, Aufgaben, Kontakte, Notizen und Dateien über CalDAV, CardDAV und WebDAV, je Modul aus, lesen oder schreiben; Freigaben deines Kontos findet er unter ihrem einfachen Namen. Suchen nennen die echte Gesamtzahl. Siehe [Nextcloud](docs/de/guides/plugins/nextcloud.md)
 - **Google Suite** — Kalender, Kontakte, Drive und Tasks über OAuth 2.0; die Agenten arbeiten in genau einem Drive-Ordner (Einstellung `GOOGLE_DRIVE_AGENT_FOLDER`) und nirgends sonst, der Dokumentenmanager zeigt dein ganzes Drive
 - **EssentialPIM** — voller Lese-/Schreibzugriff auf die [EssentialPIM](https://www.essentialpim.com/)-Datenbank: Termine, Kontakte, Notizen, To-dos, Passworteinträge; Name-zu-ID-Auflösung und Schutz gegen Halluzinationen
 - **Workspace (Dateien & Dokumente)** — PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV hochladen; AIfred durchsucht, liest (PDFs seitenweise), schreibt, patcht, benennt um, kopiert, verschiebt und löscht Dateien, indexiert sie in ChromaDB (**bge-m3**, token-genaues Chunking) und durchsucht sie semantisch mit Ordner-Filter und Kontext aus Nachbar-Chunks. Dokument-Manager-UI mit Vorschau, Bulk-Indexierung ganzer Ordner und Orphan-Cleanup; **Google Drive** erscheint dort als zweite, live angebundene Quelle (Durchsuchen, Suchen, Download, Upload — ohne lokale Kopie)
@@ -162,6 +176,7 @@ Vom Framework erzwungen, nicht den Plugins überlassen:
 
 - **Fünf Berechtigungsstufen** — READONLY → COMMUNICATE → WRITE_DATA → WRITE_SYSTEM → ADMIN; jedes Tool hat einen festen Tier (Badges T0–T4 im Agenten-Editor), jeder Kanal ein konfigurierbares Maximum
 - **Schutz gegen Prompt Injection** — Inbound-Sanitization (HTML-Strip, Entfernen von Zero-Width-Zeichen, NFC), `<external_message>`-Einzäunung mit Absender und Trust-Level, Security-Boundary-Prompt, Recherche-Ergebnisse als nicht vertrauenswürdige Daten eingezäunt
+- **Wer fragt, nicht welcher Kanal** — Agenten-Gedächtnis und der gemeinsame Dokumentenordner stehen dir offen, wo immer du geprüft bist: im Browser, mit deiner Telegram-Benutzer-ID, per E-Mail mit bestandenem SPF, DKIM und DMARC, in deinen eigenen geplanten Aufträgen. Ein gefälschter Absender bekommt nichts, und ein neuer Kanal folgt derselben Regel
 - **Rule of Two** — Tools der Schreib-Tiers sind für externe Kanäle gesperrt, sofern sie nicht im Plugin Manager hochgestuft werden
 - **Limits** — Rate Limiting pro Kanal, max. 100 Tool-Calls pro Anfrage
 - **Secrets** — Plugins bekommen Zugangsdaten nur über den Credential Broker; Secret-Muster werden aus Tool-Ausgaben entfernt
