@@ -26,6 +26,8 @@ Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 - **ChromaDB** (Docker, Daten in `data/chromadb/`) - Dokumente (`aifred_documents`) + Agent-Memory (`agent_memory_*`). KEIN Web-Research-Cache — bewusst entfernt, jede Recherche läuft frisch
 - **RAG über Dokumente** - agentengetrieben per `search_documents`-Tool (kein Auto-Inject); indexiert sind lokale Dateien und, was der Benutzer im Dokumentenfenster aus einer Quelle wie Nextcloud indexiert
 - **History Compression** - Automatische Kompression (siehe unten)
+- **Nextcloud** - Kalender, Aufgaben, Kontakte, Notizen, Dateien (`plugins/tools/nextcloud`); EPIM gleicht selbst ab, Löschungen zieht `scripts/epim_deletions_to_nextcloud.py` nach
+- **E-Mail** - `email` (AIfreds Postfach), `email_readonly` (privates Postfach), Anhänge über die Parser des Dokumenten-Index, Scans über den Bildbeschreiber
 - **Multi-Backend Support** - llama.cpp und vLLM (beide via llama-swap), Ollama, Cloud-APIs
 - **Thinking Mode** - Chain-of-Thought für Qwen3 Modelle
 - **Message Hub** *(WIP)* - Background-Worker für externe Kanäle (E-Mail, Discord, Telegram, Signal). Architektur: [docs/de/architecture/message-hub.md](docs/de/architecture/message-hub.md)
