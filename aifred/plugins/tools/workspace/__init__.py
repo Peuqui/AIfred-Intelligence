@@ -534,8 +534,8 @@ class WorkspacePlugin:
         ))
 
         async def _move_file(path: str, target_path: str, overwrite: bool = False) -> str:
-            """Move a file or folder; index metadata follows moved files."""
-            result = fm.move_file(path, target_path, overwrite=overwrite)
+            """Move a file or folder; the index follows."""
+            result = await asyncio.to_thread(fm.move_file, path, target_path, overwrite=overwrite)
             if not result.success:
                 return json.dumps({"error": result.detail})
             return json.dumps({
@@ -555,9 +555,9 @@ class WorkspacePlugin:
         ))
 
         async def _rename(path: str, new_name: str) -> str:
-            """Rename a file or folder. Updates the ChromaDB index for indexed files."""
+            """Rename a file or folder; the index follows."""
             parent_rel, leaf = _split_parent_leaf(path)
-            result = fm.rename(parent_rel, leaf, new_name, sync_index=True)
+            result = await asyncio.to_thread(fm.rename, parent_rel, leaf, new_name, sync_index=True)
             if not result.success:
                 return json.dumps({"error": result.detail})
             return json.dumps({

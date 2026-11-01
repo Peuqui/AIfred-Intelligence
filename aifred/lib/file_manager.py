@@ -12,6 +12,7 @@ duplicating semantics.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import shutil
 import tempfile
@@ -261,21 +262,19 @@ async def delete_folder(
 
     chunks_removed = 0
     if from_index:
+        from .document_store import get_document_store
+        store = get_document_store()
+        if store is None:
+            return FileOpResult(False, f"{name} stays: the document index is not available")
+        prefix = rel_target.rstrip("/") + "/"
         try:
-            from .document_store import get_document_store
-            store = get_document_store()
-            if store:
-                prefix = rel_target.rstrip("/") + "/"
-                all_data = store.collection.get()
-                if all_data and all_data.get("metadatas"):
-                    matching = {
-                        m["filename"] for m in all_data["metadatas"]
-                        if m.get("filename", "").startswith(prefix)
-                    }
-                    for fn in matching:
-                        chunks_removed += await store.delete_document(fn, delete_file=False)
-        except Exception as exc:  # noqa: BLE001 — the folder goes either way, the index catches up
-            logger.warning(f"delete_folder: index cleanup partially failed: {exc}")
+            documents = await asyncio.to_thread(store.list_documents)
+            for document in documents:
+                if document["filename"].startswith(prefix):
+                    chunks_removed += await store.delete_document(document["filename"], delete_file=False)
+        except Exception as exc:  # noqa: BLE001 — the folder stays: gone from disk, the search would keep finding it
+            logger.warning(f"delete_folder: index cleanup failed for {name}: {exc}")
+            return FileOpResult(False, f"{name} stays: removing it from the index failed: {exc}")
 
     actions: list[str] = []
     if from_index and chunks_removed:
@@ -360,18 +359,17 @@ async def delete_file(
     chunks_removed = 0
 
     if from_index:
+        from .document_store import get_document_store
+        store = get_document_store()
+        if store is None:
+            return FileOpResult(False, f"{name} stays: the document index is not available")
         try:
-            from .document_store import get_document_store
-            store = get_document_store()
-            if store:
-                chunks_removed = await store.delete_document(rel_target, delete_file=False)
-                if chunks_removed == 0:
-                    # Legacy uploads stored without subfolder prefix
-                    chunks_removed = await store.delete_document(name, delete_file=False)
-                if chunks_removed:
-                    actions.append(f"index({chunks_removed} chunks)")
-        except Exception as exc:  # noqa: BLE001 — the file goes either way, the index catches up
+            chunks_removed = await store.delete_document(rel_target, delete_file=False)
+        except Exception as exc:  # noqa: BLE001 — the file stays: gone from disk, the search would keep finding it
             logger.warning(f"delete_file: index cleanup failed for {name}: {exc}")
+            return FileOpResult(False, f"{name} stays: removing it from the index failed: {exc}")
+        if chunks_removed:
+            actions.append(f"index({chunks_removed} chunks)")
 
     if from_disk and target.exists():
         target.unlink()
@@ -387,10 +385,10 @@ async def delete_file(
     return FileOpResult(True, detail, {"chunks_removed": chunks_removed, "actions": actions})
 
 
-def _sync_index_path(old_path: Path, new_path: Path, old_name: str) -> int:
-    """Update ChromaDB chunk metadata after a file changed its path, so the
-    indexed document stays searchable. Returns the number of updated chunks
-    (0 when the file isn't indexed or the store is down)."""
+def _sync_index_path(old_path: Path, new_path: Path) -> int:
+    """Take the index along after a file or folder changed its path, so what is indexed
+    stays searchable under the new one. Returns the number of chunks moved (0 when
+    nothing is indexed there or the store is down)."""
     chunks_updated = 0
     try:
         from .document_store import get_document_store
@@ -398,20 +396,16 @@ def _sync_index_path(old_path: Path, new_path: Path, old_name: str) -> int:
         if store:
             old_rel = str(old_path.relative_to(DOCUMENTS_DIR))
             new_rel = str(new_path.relative_to(DOCUMENTS_DIR))
-            # Try canonical rel-path first, fall back to bare filename
-            # (legacy uploads stored without subfolder prefix).
-            for filename_query in (old_rel, old_name):
-                data = store.collection.get(where={"filename": filename_query})
-                if data and data.get("ids"):
-                    for chunk_id in data["ids"]:
-                        store.collection.update(
-                            ids=[chunk_id],
-                            metadatas=[{"filename": new_rel}],
-                        )
-                        chunks_updated += 1
-                    break
+            names = [old_rel]
+            if new_path.is_dir():
+                names = [
+                    document["filename"] for document in store.list_documents()
+                    if document["filename"].startswith(f"{old_rel}/")
+                ]
+            for name in names:
+                chunks_updated += store.rename_document(name, new_rel + name.removeprefix(old_rel))
     except Exception as exc:  # noqa: BLE001 — the rename stands, only the index is behind
-        logger.warning(f"index path sync failed for {old_name}: {exc}")
+        logger.warning(f"index path sync failed for {old_path.name}: {exc}")
     return chunks_updated
 
 
@@ -477,9 +471,8 @@ def move_file(src_rel: str, dest_rel: str, *, overwrite: bool = False) -> FileOp
         return FileOpResult(False, f"Target exists: {dest_rel} (set overwrite=true to replace)")
 
     dest.parent.mkdir(parents=True, exist_ok=True)
-    was_file = src.is_file()
     shutil.move(str(src), str(dest))
-    chunks_updated = _sync_index_path(src, dest, src.name) if was_file else 0
+    chunks_updated = _sync_index_path(src, dest)
     dest_out = str(dest.relative_to(DOCUMENTS_DIR))
     detail = f"Moved {src_rel} → {dest_out}"
     if chunks_updated:
@@ -495,9 +488,8 @@ def rename(
     *,
     sync_index: bool = True,
 ) -> FileOpResult:
-    """Rename a file or folder. With ``sync_index=True`` ChromaDB chunk
-    metadata is updated so the indexed document remains searchable under
-    its new path.
+    """Rename a file or folder. With ``sync_index=True`` the index follows, so
+    what is indexed stays searchable under the new path.
     """
     if not _is_safe_name(new_name):
         return FileOpResult(False, f"Invalid new name: {new_name!r}")
@@ -518,9 +510,7 @@ def rename(
 
     old_path.rename(new_path)
 
-    chunks_updated = 0
-    if sync_index and new_path.is_file():
-        chunks_updated = _sync_index_path(old_path, new_path, old_name)
+    chunks_updated = _sync_index_path(old_path, new_path) if sync_index else 0
 
     detail = f"Renamed {old_name} → {new_name}"
     if chunks_updated:
@@ -604,7 +594,7 @@ async def index_received_file(data: bytes, name: str, source_key: str, file_id: 
     return await _index_temp_copy(content(), name, source_key, file_id)
 
 
-async def deindex_file(rel_path: str, fallback_filename: str = "") -> FileOpResult:
+async def deindex_file(rel_path: str) -> FileOpResult:
     """Remove a file from ChromaDB index without touching disk."""
     from .document_store import get_document_store
     store = get_document_store()
@@ -612,8 +602,6 @@ async def deindex_file(rel_path: str, fallback_filename: str = "") -> FileOpResu
         return FileOpResult(False, "Document store not available")
 
     chunks = await store.delete_document(rel_path, delete_file=False)
-    if chunks == 0 and fallback_filename:
-        chunks = await store.delete_document(fallback_filename, delete_file=False)
     detail = f"Deindexed {rel_path}: {chunks} chunks"
     logger.info(detail)
     return FileOpResult(True, detail, {"chunks_removed": chunks})
