@@ -21,7 +21,7 @@ import smtplib
 import ssl
 from collections.abc import Iterator
 from contextlib import contextmanager
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
@@ -48,6 +48,9 @@ class EmailSummary:
     sender: str
     date: str
     is_read: bool = True
+    # Set where a list spans folders: a msg_id only means something within its folder.
+    folder: str = ""
+    sent_at: float = 0.0
 
 
 @dataclass
@@ -269,6 +272,38 @@ def _imap_connect(timeout: float = _IMAP_TIMEOUT_SECONDS) -> imaplib.IMAP4_SSL:
     return _open_imap(agent_mailbox_account(), timeout)
 
 
+def _folder_names(imap: imaplib.IMAP4_SSL) -> list[str]:
+    """The folders of a connection that hold mails."""
+    status, folder_data = imap.list()
+    if status != "OK":
+        raise ValueError(f"Cannot list IMAP folders: {folder_data}")
+    folders = []
+    for item in folder_data:
+        if isinstance(item, bytes):
+            # Format: (\\flags) "delimiter" "name"
+            parts = item.decode("utf-8", errors="replace")
+            if "\\noselect" in parts.partition(")")[0].lower():
+                continue
+            # Extract folder name (last quoted string or last word)
+            if '"' in parts:
+                name = parts.rstrip('"').rsplit('"', 1)[-1].strip()
+                if not name:
+                    # Try second-to-last quoted segment
+                    segments = parts.split('"')
+                    name = segments[-2] if len(segments) >= 2 else parts.split()[-1]
+            else:
+                name = parts.split()[-1]
+            folders.append(name)
+    return folders
+
+
+def _quoted(text: str) -> str:
+    """An IMAP quoted string. imaplib sends arguments as they are, so a folder with
+    a space would break the command and a quote could rewrite it."""
+    escaped = text.replace("\\", "\\\\").replace('"', '\\"')
+    return f'"{escaped}"'
+
+
 class _ReadOnlyMailbox:
     """A folder opened with EXAMINE, the whole IMAP surface of the read functions.
 
@@ -279,25 +314,34 @@ class _ReadOnlyMailbox:
     """
 
     def __init__(self, imap: imaplib.IMAP4_SSL, folder: str) -> None:
-        status, detail = imap.select(folder, readonly=True)
+        self._imap = imap
+        self.open(folder)
+
+    def open(self, folder: str) -> None:
+        """Go on in ``folder``, on the same connection."""
+        status, detail = self._imap.select(_quoted(folder), readonly=True)
         # Refused, imaplib stays connected but unselected: without this check the
         # next command would fail with a state error that hides the real reason.
         if status != "OK":
             raise ValueError(f"Cannot open IMAP folder {folder!r}: {detail}")
-        self._imap = imap
+
+    def folders(self) -> list[str]:
+        """All folders of this mailbox that hold mails."""
+        return _folder_names(self._imap)
 
     def search(self, criteria: str) -> list[bytes]:
         """UIDs matching ASCII search criteria, ascending."""
         _, data = self._imap.uid("SEARCH", None, criteria)  # type: ignore[arg-type]
         return data[0].split() if data and data[0] else []
 
-    def search_header(self, header: str, text: str) -> list[bytes]:
-        """UIDs whose ``header`` contains non-ASCII ``text``. imaplib encodes
-        command args as ASCII, so the text travels as an IMAP literal (length-
-        prefixed, no escaping needed) with CHARSET UTF-8; imaplib supports only
-        one literal per command, hence one header per call."""
-        self._imap.literal = text.encode("utf-8")  # type: ignore[assignment]
-        _, data = self._imap.uid("SEARCH", "CHARSET", "UTF-8", header)
+    def search_text(self, word: str) -> list[bytes]:
+        """UIDs of the mails with ``word`` in the headers or the text. imaplib encodes
+        command args as ASCII, so a non-ASCII word travels as an IMAP literal (length-
+        prefixed, no escaping needed) with CHARSET UTF-8."""
+        if word.isascii():
+            return self.search(f"TEXT {_quoted(word)}")
+        self._imap.literal = word.encode("utf-8")  # type: ignore[assignment]
+        _, data = self._imap.uid("SEARCH", "CHARSET", "UTF-8", "TEXT")
         return data[0].split() if data and data[0] else []
 
     def fetch_headers(self, uid: str) -> list:
@@ -330,6 +374,7 @@ def _summary(msg_id: str, fetched: list) -> EmailSummary | None:
                 sender=_decode_sender(msg.get("From", "")),
                 date=parsed_date.strftime("%d.%m.%Y %H:%M") if parsed_date else date,
                 is_read=b"\\Seen" in flags,
+                sent_at=parsed_date.timestamp() if parsed_date else 0.0,
             )
     return None
 
@@ -407,31 +452,45 @@ def read_attachment(account: ImapAccount, msg_id: str, name: str, folder: str = 
     raise ValueError(f"Email {msg_id} has no attachment {name!r}, it has: {', '.join(_get_attachments(msg)) or 'none'}")
 
 
+def _uids_with_all_words(mailbox: _ReadOnlyMailbox, words: list[str]) -> list[str]:
+    """UIDs of the open folder's mails that hold every word, ascending."""
+    found: set[bytes] | None = None
+    for word in words:
+        with_word = set(mailbox.search_text(word))
+        found = with_word if found is None else found & with_word
+        if not found:
+            return []
+    return sorted((uid.decode() for uid in found or ()), key=int)
+
+
 def search_emails(
-    account: ImapAccount, query: str, folder: str = "INBOX", n: int | None = LIST_DEFAULT
+    account: ImapAccount, query: str, folder: str | None = None, n: int | None = LIST_DEFAULT
 ) -> tuple[list[EmailSummary], int]:
-    """Search emails via IMAP SEARCH: the newest hits and how many there are in all.
-    Returned ``msg_id`` values are UIDs."""
+    """Mails holding every word of ``query`` in subject, sender or text: the newest
+    hits and how many there are in all. Without ``folder`` it searches every folder.
+    Returned ``msg_id`` values are UIDs of the folder each hit names.
+
+    Quoting and the literal keep a crafted query (LLM tool arg) from rewriting the
+    command; CRLF is rejected here (would inject a raw command since imaplib does
+    not escape it).
+    """
     _reject_imap_arg(query, "query")
-    _reject_imap_arg(folder, "folder")
+    if folder is not None:
+        _reject_imap_arg(folder, "folder")
 
-    with _examine(account, folder) as mailbox:
-        # IMAP SEARCH: search in subject and from. Escape backslash/quote so a
-        # crafted query (LLM tool arg) cannot break out of the quoted string and
-        # rewrite the search semantics. CRLF is rejected above (would inject a
-        # raw command since imaplib does not escape it).
-        if query.isascii():
-            safe_query = query.replace("\\", "\\\\").replace('"', '\\"')
-            found = set(mailbox.search(f'(OR SUBJECT "{safe_query}" FROM "{safe_query}")'))
-        else:
-            # Non-ASCII ("Müller"): SUBJECT and FROM are searched separately
-            # (see search_header) and the UID sets are merged.
-            found = set(mailbox.search_header("SUBJECT", query)) | set(mailbox.search_header("FROM", query))
-        uids = sorted((u.decode() for u in found), key=int)
-        results = _summaries(mailbox, uids, n)
+    hits: list[EmailSummary] = []
+    total = 0
+    with _examine(account, folder or "INBOX") as mailbox:
+        for name in [folder] if folder else mailbox.folders():
+            mailbox.open(name)
+            uids = _uids_with_all_words(mailbox, query.split())
+            total += len(uids)
+            hits += [replace(entry, folder=name) for entry in _summaries(mailbox, uids, n)]
 
-    log_message(f"📧 Email: search '{query}' → {len(results)} of {len(uids)} results")
-    return results, len(uids)
+    hits.sort(key=lambda entry: entry.sent_at, reverse=True)
+    results = hits if n is None else hits[:max(1, n)]
+    log_message(f"📧 Email: search '{query}' → {len(results)} of {total} results")
+    return results, total
 
 
 def _file_part(path: str, disposition: str, content_id: str | None = None) -> email.message.Message:
@@ -639,24 +698,7 @@ def move_email(msg_id: str, target_folder: str, source_folder: str = "INBOX") ->
 def list_folders() -> list[str]:
     """List all IMAP folders/mailboxes."""
     with _imap_connect() as imap:
-        status, folder_data = imap.list()
-        if status != "OK":
-            return []
-        folders = []
-        for item in folder_data:
-            if isinstance(item, bytes):
-                # Format: (\\flags) "delimiter" "name"
-                parts = item.decode("utf-8", errors="replace")
-                # Extract folder name (last quoted string or last word)
-                if '"' in parts:
-                    name = parts.rstrip('"').rsplit('"', 1)[-1].strip()
-                    if not name:
-                        # Try second-to-last quoted segment
-                        segments = parts.split('"')
-                        name = segments[-2] if len(segments) >= 2 else parts.split()[-1]
-                else:
-                    name = parts.split()[-1]
-                folders.append(name)
+        folders = _folder_names(imap)
 
     log_message(f"📧 Email: listed {len(folders)} folders")
     return folders
