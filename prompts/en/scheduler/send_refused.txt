@@ -1,1 +1,1 @@
-Error: a scheduled job does not send anything itself. Write the result as your answer; the scheduler delivers it.
+Error: this scheduled job delivers its answer by e-mail itself. Write the result as your answer, otherwise it would arrive twice.

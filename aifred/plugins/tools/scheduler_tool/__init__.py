@@ -31,7 +31,9 @@ class SchedulerPlugin:
     _SCHEDULE_TYPES = ("cron", "interval", "once")
     _DELIVERY_MODES = ("review", "announce", "webhook")
     # Payload fields shown by list and changed by update — one place.
-    _PAYLOAD_FIELDS = ("message", "agent", "delivery", "channel", "recipient", "webhook_url")
+    _PAYLOAD_FIELDS = (
+        "message", "agent", "delivery", "channel", "recipient", "webhook_url", "fixed_text", "audio_type",
+    )
 
     def _invalid_choice(self, schedule_type: str, delivery: str) -> str | None:
         """Error JSON for an unknown schedule type or delivery mode, else None."""
@@ -41,8 +43,17 @@ class SchedulerPlugin:
             return json.dumps({"error": f"Invalid delivery: {delivery}. Use: {', '.join(self._DELIVERY_MODES)}"})
         return None
 
+    @staticmethod
+    def _invalid_fixed_text(payload: dict[str, Any]) -> str | None:
+        """Error JSON for a fixed text with nowhere to go, else None: without a model run
+        there is no session to review it in."""
+        if payload.get("fixed_text") and not (payload.get("delivery") == "announce" and payload.get("channel")):
+            return json.dumps({"error": "fixed_text needs delivery 'announce' and a channel"})
+        return None
+
     def get_tools(self, ctx: PluginContext) -> list[Tool]:
         from ....lib.logging_utils import log_message
+        from ....lib.tool_args import InvalidValue, parse_bool
 
         async def _create(
             name: str,
@@ -54,6 +65,8 @@ class SchedulerPlugin:
             channel: str = "",
             recipient: str = "",
             webhook_url: str = "",
+            fixed_text: bool = False,
+            audio_type: str = "",
         ) -> str:
             """Create a new scheduled job."""
             from ....lib.scheduler import get_job_store
@@ -74,6 +87,16 @@ class SchedulerPlugin:
                 payload["recipient"] = recipient
             if webhook_url:
                 payload["webhook_url"] = webhook_url
+            if audio_type:
+                payload["audio_type"] = audio_type
+            try:
+                if parse_bool(fixed_text, "fixed_text"):
+                    payload["fixed_text"] = True
+            except InvalidValue as exc:
+                return json.dumps({"error": str(exc)})
+            error = self._invalid_fixed_text(payload)
+            if error:
+                return error
 
             # Jobs laufen unbeaufsichtigt (channel="scheduler") — Cap auf
             # TIER_COMMUNICATE, nicht auf das Tier des Erstellers. Bewusst
@@ -148,6 +171,8 @@ class SchedulerPlugin:
             recipient: str = "",
             webhook_url: str = "",
             enabled: bool | None = None,
+            fixed_text: bool | None = None,
+            audio_type: str = "",
         ) -> str:
             """Change a scheduled job in place; empty arguments stay unchanged."""
             from ....lib.scheduler import get_job_store
@@ -165,8 +190,17 @@ class SchedulerPlugin:
             changes = {
                 "message": message, "agent": agent, "delivery": delivery,
                 "channel": channel, "recipient": recipient, "webhook_url": webhook_url,
+                "audio_type": audio_type,
             }
             payload = {**job.payload, **{k: v for k, v in changes.items() if v}}
+            try:
+                if fixed_text is not None:
+                    payload["fixed_text"] = parse_bool(fixed_text, "fixed_text")
+            except InvalidValue as exc:
+                return json.dumps({"error": str(exc)})
+            error = self._invalid_fixed_text(payload)
+            if error:
+                return error
             try:
                 updated = store.update(
                     job_id, name or job.name, new_type,

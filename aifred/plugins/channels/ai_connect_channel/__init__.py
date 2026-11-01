@@ -333,7 +333,7 @@ class AIConnectChannel(BaseChannel):
             Tool(
                 name="ai_connect_peer_send",
                 tier=TIER_COMMUNICATE,
-                outbound=True,
+                outbound_channel="ai_connect",
                 description=load_tool_description(__file__, "ai_connect_peer_send"),
                 parameters=load_tool_parameters(__file__, "ai_connect_peer_send"),
                 executor=_execute_peer_send,

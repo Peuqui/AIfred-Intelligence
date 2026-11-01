@@ -9,6 +9,7 @@ from aifred.state._agent_editor_mixin import AgentEditorMixin as M
 OPTION_LISTS = [
     M._SCHED_TYPE_OPTIONS,
     M._SCHED_DELIVERY_OPTIONS,
+    M._SCHED_AUDIO_OPTIONS,
     M._DOW_OPTIONS,
     M._MONTH_OPTIONS,
     M._INTERVAL_UNIT_OPTIONS,

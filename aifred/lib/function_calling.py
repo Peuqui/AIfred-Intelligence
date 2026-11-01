@@ -103,7 +103,7 @@ class Tool:
     parameters: dict[str, Any]
     executor: Callable[..., Any]
     tier: int = 0  # Security tier (0=readonly … 4=admin)
-    outbound: bool = False  # Sends a message out of AIfred (see may_send_outbound)
+    outbound_channel: str = ""  # The channel it sends on, empty if it sends nothing (see may_send_outbound)
     owner_gated: bool = False  # Admitted by in_owner_context, not by the tier
     read_only: bool = False  # Changes nothing above tier 0: the tier rates the data, not the effect
 

@@ -239,6 +239,12 @@ def get_agent_config(agent_id: str) -> AgentConfig | None:
     return agents.get(agent_id)
 
 
+def agent_display_name(agent_id: str) -> str:
+    """The name an agent speaks and signs with; its id if it no longer exists."""
+    agent = get_agent_config(agent_id)
+    return agent.display_name if agent else agent_id
+
+
 # Generic fallback used when an agent has no per-engine voice default.
 # Empty voice means "let the TTS engine pick its own default"; no speed/pitch
 # means "not set" (nothing is sent, the service's tuning of the voice applies).

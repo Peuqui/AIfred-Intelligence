@@ -59,6 +59,7 @@ from .client import (
 # Actions offered by the safe (COMMUNICATE) tool vs. the destructive one.
 # Each tool enforces its own set so the model cannot smuggle a delete through
 # the low-tier ``email`` tool.
+_CHANNEL = "email"
 _SAFE_ACTIONS = {"check", "read", "attachment", "search", "send", "list_folders", "mark"}
 _MANAGE_ACTIONS = {"delete", "move", "create_folder", "index_attachment"}
 
@@ -228,15 +229,18 @@ async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     return answer
 
 
-def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "de", trust: str = "external") -> list[Tool]:
+def get_email_tools(
+    session_id: str = "", source: str = "browser", lang: str = "de", trust: str = "external", delivery_channel: str = "") -> list[Tool]:
     """Create email tools for LLM function calling.
 
     ``source`` is the origin of the current pipeline (browser/email/…). It gates
     the send-recipient allowlist check: only the browser may send to a recipient
-    that is not on the allowlist (see the ``send`` action). Where the source may
-    not send at all (a scheduled job), ``send`` is not offered.
+    that is not on the allowlist (see the ``send`` action). A scheduled job that
+    is delivered by mail itself is not offered ``send`` (see may_send_outbound).
     """
-    safe_actions = _SAFE_ACTIONS if may_send_outbound(source) else _SAFE_ACTIONS - {"send"}
+    safe_actions = (
+        _SAFE_ACTIONS if may_send_outbound(source, _CHANNEL, delivery_channel) else _SAFE_ACTIONS - {"send"}
+    )
 
     async def _email(action: str, **kwargs: str) -> str:
         """Unified email dispatcher — action set is enforced by the caller."""

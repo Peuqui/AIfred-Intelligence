@@ -37,6 +37,8 @@ class AgentEditorMixin(rx.State, mixin=True):
     scheduler_edit_tier: str = "1"
     scheduler_edit_webhook_url: str = ""
     scheduler_edit_recipient: str = ""
+    scheduler_edit_fixed_text: bool = False
+    scheduler_edit_audio_type: str = "notification"
     # Structured schedule fields (compose to scheduler_edit_expr on save)
     scheduler_cron_min: str = "0"
     scheduler_cron_hour: str = "8"
@@ -613,6 +615,8 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.scheduler_edit_channel = job.payload.get("channel", "")
         self.scheduler_edit_webhook_url = job.payload.get("webhook_url", "")
         self.scheduler_edit_recipient = job.payload.get("recipient", "")
+        self.scheduler_edit_fixed_text = bool(job.payload.get("fixed_text"))
+        self.scheduler_edit_audio_type = job.payload.get("audio_type", "notification")
         self.scheduler_edit_tier = str(job.max_tier)
         self._decompose_schedule_expr()
 
@@ -628,6 +632,8 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.scheduler_edit_channel = ""
         self.scheduler_edit_webhook_url = ""
         self.scheduler_edit_recipient = ""
+        self.scheduler_edit_fixed_text = False
+        self.scheduler_edit_audio_type = "notification"
         self.scheduler_edit_tier = "1"
         self.scheduler_cron_min = "0"
         self.scheduler_cron_hour = "8"
@@ -654,6 +660,10 @@ class AgentEditorMixin(rx.State, mixin=True):
         ("sched_delivery_review", "review"),
         ("sched_delivery_announce", "announce"),
         ("sched_delivery_webhook", "webhook"),
+    ]
+    _SCHED_AUDIO_OPTIONS: list[tuple[str, str]] = [
+        ("sched_audio_notification", "notification"),
+        ("sched_audio_alarm", "alarm"),
     ]
 
     @staticmethod
@@ -706,6 +716,9 @@ class AgentEditorMixin(rx.State, mixin=True):
     def set_scheduler_edit_recipient(self, value: str) -> None:
         self.scheduler_edit_recipient = value
 
+    def set_scheduler_edit_fixed_text(self, value: bool) -> None:
+        self.scheduler_edit_fixed_text = value
+
     def set_scheduler_cron_min(self, value: str) -> None:
         self.scheduler_cron_min = value
 
@@ -734,6 +747,17 @@ class AgentEditorMixin(rx.State, mixin=True):
     @rx.var(deps=["scheduler_edit_delivery", "ui_language"], auto_deps=False)
     def sched_delivery_display(self) -> str:
         return self._sched_label_for_value(self._SCHED_DELIVERY_OPTIONS, self.scheduler_edit_delivery, self.ui_language)
+
+    @rx.var(deps=["ui_language"], auto_deps=False)
+    def sched_audio_options(self) -> list[str]:
+        return self._sched_labels(self._SCHED_AUDIO_OPTIONS)
+
+    @rx.var(deps=["scheduler_edit_audio_type", "ui_language"], auto_deps=False)
+    def sched_audio_display(self) -> str:
+        return self._sched_label_for_value(self._SCHED_AUDIO_OPTIONS, self.scheduler_edit_audio_type, self.ui_language)
+
+    def set_scheduler_audio_from_label(self, label: str) -> None:
+        self.scheduler_edit_audio_type = self._sched_value_for_label(self._SCHED_AUDIO_OPTIONS, label, "notification")
 
     def set_scheduler_delivery_from_label(self, label: str) -> None:
         self.scheduler_edit_delivery = self._sched_value_for_label(self._SCHED_DELIVERY_OPTIONS, label, "review")
@@ -928,7 +952,7 @@ class AgentEditorMixin(rx.State, mixin=True):
 
         store = get_job_store()
         expr = self._compose_schedule_expr()
-        payload = {
+        payload: dict[str, str | bool] = {
             "message": self.scheduler_edit_message,
             "agent": self.scheduler_edit_agent,
             "delivery": self.scheduler_edit_delivery,
@@ -938,6 +962,10 @@ class AgentEditorMixin(rx.State, mixin=True):
                 payload["channel"] = self.scheduler_edit_channel
             if self.scheduler_edit_recipient:
                 payload["recipient"] = self.scheduler_edit_recipient
+            if self.scheduler_edit_fixed_text:
+                payload["fixed_text"] = True
+            if self.scheduler_edit_channel == "freeecho2":
+                payload["audio_type"] = self.scheduler_edit_audio_type
         elif self.scheduler_edit_delivery == "webhook":
             if self.scheduler_edit_webhook_url:
                 payload["webhook_url"] = self.scheduler_edit_webhook_url

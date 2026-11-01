@@ -416,6 +416,7 @@ async def _execute_job(job: Job) -> None:
 
     from .envelope import InboundMessage
     from .message_processor import process_inbound
+    from .security import DELIVERY_CHANNEL_KEY
 
     message_text = job.payload.get("message", "")
     agent = job.payload.get("agent", "aifred")
@@ -425,6 +426,10 @@ async def _execute_job(job: Job) -> None:
         return
 
     store = get_job_store()
+
+    if job.payload.get("fixed_text"):
+        await _deliver_fixed_text(job, message_text, store)
+        return
 
     # Fresh channel_id per run → routing_table allocates a new session,
     # so every job execution lives in its own conversation. What earlier
@@ -444,6 +449,7 @@ async def _execute_job(job: Job) -> None:
             # Honored by resolve_tier_for_sender for the scheduler channel
             # only — see security.py.
             "max_tier": job.max_tier,
+            DELIVERY_CHANNEL_KEY: _delivery_channel(job),
         },
         target_agent=agent,
     )
@@ -489,16 +495,21 @@ def build_job_prompt(job: Job, store: JobStore) -> str:
     """The message a job run starts with: job context, delivery, the
     previous runs' deliveries and the task (prompts/<lang>/scheduler/)."""
     from .config import SCHEDULER_HISTORY_EXCERPT_CHARS, SCHEDULER_HISTORY_RUNS
-    from .message_processor import channel_display_label
+    from .message_processor import announces_in_rooms, channel_display_label
     from .prompt_loader import load_prompt
     from .settings import load_settings
 
     lang = (load_settings() or {}).get("ui_language", "de")
     delivery = job.payload.get("delivery", "review")
-    if delivery == "announce":
+    channel = _delivery_channel(job)
+    if delivery == "announce" and announces_in_rooms(channel):
+        delivery_text = load_prompt(
+            "scheduler/delivery_announce_spoken", lang=lang, channel=channel_display_label(channel),
+        )
+    elif delivery == "announce":
         delivery_text = load_prompt(
             "scheduler/delivery_announce", lang=lang,
-            channel=channel_display_label(job.payload.get("channel", "")),
+            channel=channel_display_label(channel),
             recipient=job.payload.get("recipient", ""),
         )
     else:
@@ -546,24 +557,53 @@ async def _deliver_result(job: Job, response_text: str, session_id: str) -> None
         await _deliver_webhook(job, response_text)
 
 
+def _delivery_channel(job: Job) -> str:
+    """The channel a job's answer goes out on, empty if it goes to none."""
+    return job.payload.get("channel", "") if job.payload.get("delivery") == "announce" else ""
+
+
+async def _send_announcement(job: Job, text: str, session_id: str | None) -> bool:
+    """Send a job's text on its channel, through the paths everything else uses:
+    in rooms like an agent's announcement or the announce API (all connected
+    pucks without a room), to a recipient like an alert (recipient resolution and
+    allowlist fallback live in ``announce_to_channel``). Returns whether it arrived."""
+    from .agent_config import agent_display_name
+    from .message_processor import (
+        announce_into_rooms,
+        announce_to_channel,
+        announces_in_rooms,
+        resolve_announce_targets,
+    )
+
+    channel = _delivery_channel(job)
+    recipient = job.payload.get("recipient", "")
+    # The job name is the subject of channels that have one (email). The source
+    # opens what a job may link, which a reply to an outside sender may not.
+    metadata = {"subject": job.name, **job.payload.get("metadata", {}), "source": "scheduler"}
+    if not announces_in_rooms(channel):
+        return await announce_to_channel(channel, recipient, text, session_id=session_id, metadata=metadata)
+    speaker = agent_display_name(job.payload.get("agent", "aifred"))
+    metadata |= {"audio_type": job.payload.get("audio_type", "notification"), "proactive": True}
+    rooms = resolve_announce_targets(channel, recipient)
+    return bool(await announce_into_rooms(channel, rooms, text, speaker, metadata))
+
+
+async def _deliver_fixed_text(job: Job, text: str, store: JobStore) -> None:
+    """A job without a model: the text goes out word for word at its time, punctual
+    and without a graphics card. Nothing to review in a session, so a text that does
+    not arrive fails the job, which the scheduler loop logs and counts."""
+    if not await _send_announcement(job, text, None):
+        raise RuntimeError(f"Fixed text of job '{job.name}' did not arrive (channel {_delivery_channel(job)!r})")
+    store.add_run(job.job_id, "", text)
+
+
 async def _deliver_announce(job: Job, response_text: str, session_id: str) -> None:
-    """Send result to a channel via the shared autonomous-delivery SSoT
-    (``message_processor.announce_to_channel`` — same path the alert pipeline
-    uses; recipient resolution + allowlist fallback live there)."""
-    channel_name = job.payload.get("channel", "")
+    """Send the result of a run to its channel; a failure shows up in the UI."""
+    channel_name = _delivery_channel(job)
     if not channel_name:
         log_message(f"Scheduler: job '{job.name}' announce has no channel configured", "warning")
         return
-    from .message_processor import announce_to_channel
-    ok = await announce_to_channel(
-        channel_name,
-        job.payload.get("recipient", ""),
-        response_text,
-        session_id=session_id,
-        # The job name is the subject of channels that have one (email). The source
-        # opens what a job may link, which a reply to an outside sender may not.
-        metadata={"subject": job.name, **job.payload.get("metadata", {}), "source": "scheduler"},
-    )
+    ok = await _send_announcement(job, response_text, session_id)
     if not ok:
         # Nicht nur ins Debug-Log (das beim Neustart geleert wird): der Auftrag
         # hat seinen Bericht erzeugt, ihn aber nicht zugestellt — das muss

@@ -968,6 +968,12 @@ def _freeecho2_groups() -> dict[str, list[str]]:
     }
 
 
+def announces_in_rooms(channel: str) -> bool:
+    """Whether an announcement on a channel is spoken in rooms rather than sent to
+    someone: it then needs ``resolve_announce_targets`` and ``announce_into_rooms``."""
+    return channel == "freeecho2"
+
+
 def resolve_announce_targets(channel: str, target: str) -> list[str]:
     """Expandiert ein Sink-Ziel in konkrete Empfänger.
 
@@ -975,7 +981,7 @@ def resolve_announce_targets(channel: str, target: str) -> list[str]:
     → konfigurierte Rooms der Gruppe, sonst der einzelne (aufgelöste) Room.
     Andere Kanäle: immer genau ein aufgelöster Empfänger. So bleibt das
     Broadcast/Gruppen-Wissen serverseitig — die Firmware bleibt room-only."""
-    if channel == "freeecho2":
+    if announces_in_rooms(channel):
         try:
             from ..plugins.channels.freeecho2_channel import _devices
         except ImportError:

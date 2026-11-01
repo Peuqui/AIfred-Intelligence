@@ -188,7 +188,7 @@ class FreeEchoChannel(ConnectionMixin):
         async def _execute_announce(
             message: str, target: str = "*", audio_type: str = "notification",
         ) -> str:
-            from ....lib.agent_config import get_agent_config
+            from ....lib.agent_config import agent_display_name
             from ....lib.message_processor import announce_into_rooms, resolve_announce_targets
 
             if audio_type not in ("alarm", "notification"):
@@ -209,8 +209,7 @@ class FreeEchoChannel(ConnectionMixin):
             meta = {"audio_type": audio_type, "proactive": True}
             # Like the announce API: a bubble in each room's session (the agent
             # as sender) with what the puck speaks kept on it.
-            agent = get_agent_config(ctx.agent_id)
-            speaker = agent.display_name if agent else ctx.agent_id
+            speaker = agent_display_name(ctx.agent_id)
             reached = await announce_into_rooms("freeecho2", rooms, message, speaker, meta)
             return json.dumps({
                 "success": bool(reached),
@@ -222,7 +221,7 @@ class FreeEchoChannel(ConnectionMixin):
             Tool(
                 name="freeecho2_announce",
                 tier=TIER_COMMUNICATE,
-                outbound=True,
+                outbound_channel="freeecho2",
                 description=(
                     load_tool_description(__file__, "freeecho2_announce")
                 ),

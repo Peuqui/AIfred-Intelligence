@@ -1,0 +1,1 @@
+Deine Antwort wird nach diesem Lauf automatisch über {channel} laut vorgelesen. Schreibe sie zum Hören: in ganzen Sätzen, ohne Tabellen, Aufzählungen und Links.

@@ -327,7 +327,7 @@ def _scheduler_edit_form() -> rx.Component:
                 rx.vstack(
                     rx.text(t("sched_label_channel"), font_size="11px", color=COLORS["text_secondary"]),
                     rx.select(
-                        ["telegram", "discord", "email"],
+                        ["telegram", "discord", "email", "freeecho2"],
                         value=AIState.scheduler_edit_channel,
                         on_change=AIState.set_scheduler_edit_channel,
                         size="2", width="100%",
@@ -366,9 +366,35 @@ def _scheduler_edit_form() -> rx.Component:
                     on_change=AIState.set_scheduler_edit_recipient,
                     size="2", width="100%",
                     variant="surface",
-                    placeholder="Chat-ID / E-Mail / Channel-ID",
+                    placeholder=t("sched_recipient_placeholder"),
                 ),
                 width="100%",
+            ),
+        ),
+        # Without a model, and the sound on the pucks
+        rx.cond(
+            AIState.scheduler_edit_delivery == "announce",
+            rx.hstack(
+                rx.checkbox(
+                    t("sched_label_fixed_text"),
+                    checked=AIState.scheduler_edit_fixed_text,
+                    on_change=AIState.set_scheduler_edit_fixed_text,
+                    size="2",
+                ),
+                clickable_tip(
+                    rx.icon("lightbulb", size=12, color=COLORS["text_secondary"]),
+                    rx.text(t("sched_tip_fixed_text"), font_size="12px", color=COLORS["text_primary"]),
+                ),
+                rx.cond(
+                    AIState.scheduler_edit_channel == "freeecho2",
+                    rx.select(
+                        AIState.sched_audio_options,
+                        value=AIState.sched_audio_display,
+                        on_change=AIState.set_scheduler_audio_from_label,
+                        size="2",
+                    ),
+                ),
+                spacing="3", align="center", width="100%",
             ),
         ),
         # Webhook URL (only when delivery = webhook)
@@ -388,7 +414,11 @@ def _scheduler_edit_form() -> rx.Component:
         ),
         # Message
         rx.vstack(
-            rx.text(t("sched_label_message"), font_size="11px", color=COLORS["text_secondary"]),
+            rx.cond(
+                AIState.scheduler_edit_fixed_text & (AIState.scheduler_edit_delivery == "announce"),
+                rx.text(t("sched_label_message_fixed"), font_size="11px", color=COLORS["text_secondary"]),
+                rx.text(t("sched_label_message"), font_size="11px", color=COLORS["text_secondary"]),
+            ),
             rx.text_area(
                 value=AIState.scheduler_edit_message,
                 on_change=AIState.set_scheduler_edit_message,
