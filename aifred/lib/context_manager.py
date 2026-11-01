@@ -15,7 +15,6 @@ from .config import (
     HISTORY_CHARS_PER_TOKEN,
     HISTORY_COMPRESSION_TARGET,
     HISTORY_COMPRESSION_TRIGGER,
-    HISTORY_MAX_SUMMARIES,
     HISTORY_SUMMARY_MAX_RATIO,
     HISTORY_SUMMARY_MIN_TOKENS,
     HISTORY_SUMMARY_RATIO,
@@ -144,8 +143,6 @@ def count_tokens_with_tokenizer(text: str) -> int:
         FileNotFoundError: If tokenizer.json not found in cache
         Exception: If tokenization fails
     """
-    global _tokenizer_cache
-
     cache_key = "qwen3"  # Single tokenizer for all Qwen models
 
     if cache_key not in _tokenizer_cache:
@@ -364,18 +361,17 @@ def calculate_max_summaries(context_limit: int, avg_summary_tokens: int = 500) -
     Examples:
         4K Context:  4096 * 0.2 / 500 = 1-2 Summaries
         8K Context:  8192 * 0.2 / 500 = 3 Summaries
-        32K Context: 32768 * 0.2 / 500 = 13 → capped at HISTORY_MAX_SUMMARIES (10)
+        32K Context: 32768 * 0.2 / 500 = 13 Summaries
 
     Args:
         context_limit: The model's context window size in tokens
         avg_summary_tokens: Average expected tokens per summary (default: 500)
 
     Returns:
-        int: Maximum number of summaries allowed (at least 1, at most HISTORY_MAX_SUMMARIES)
+        int: Maximum number of summaries allowed (at least 1)
     """
     max_summary_budget = int(context_limit * HISTORY_SUMMARY_MAX_RATIO)
-    max_summaries = max(1, max_summary_budget // avg_summary_tokens)
-    return min(max_summaries, HISTORY_MAX_SUMMARIES)
+    return max(1, max_summary_budget // avg_summary_tokens)
 
 
 def is_summary_message(msg: dict[str, Any]) -> bool:
@@ -709,7 +705,7 @@ async def summarize_history_if_needed(
         log_message("⚠️ Async timeout during summary generation")
         yield {"type": "debug", "message": "⚠️ Summary generation timeout"}
         summary_text = ""
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — a failed summary must not end the answer
         log_message(f"❌ Error during summary generation: {e}")
         yield {"type": "debug", "message": f"❌ Summary error: {e}"}
         summary_text = ""
@@ -903,8 +899,8 @@ async def prepare_automatik_llm(
                     parts.append(f"KV-Cache: {model_info['kv_cache_quant']}")
                 if parts:
                     details = f" ({', '.join(parts)})"
-            except Exception:
-                pass
+            except Exception as e:  # noqa: BLE001 — details of a debug line only
+                log_message(f"Automatik-LLM details unavailable: {e}")
             yield {"type": "debug", "message": f"🤖 Automatik-LLM ({model_name}) is being preloaded{details}..."}
             log_message(f"🔄 prepare_automatik_llm: Preloading {model_name}{details} (llama-swap cold-start)")
 

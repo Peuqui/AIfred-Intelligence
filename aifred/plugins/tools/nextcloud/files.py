@@ -16,7 +16,6 @@ from .errors import NextcloudRefused
 
 _NOT_FOUND = 404
 _TEXT = "text/plain"
-SEARCH_LIMIT_MAX = 200
 
 
 def clean_path(value: str) -> str:
@@ -84,10 +83,10 @@ class AgentFiles:
             return []
         return [_row(entry, self._relative(entry)) for entry in entries]
 
-    def search(self, term: str, limit: int) -> list[dict[str, Any]]:
+    def search(self, term: str) -> list[dict[str, Any]]:
         """Files and folders with ``term`` in their name."""
         try:
-            entries = self._client.search_files(self._folder, term, max(1, min(limit, SEARCH_LIMIT_MAX)))
+            entries = self._client.search_files(self._folder, term)
         except DavError as exc:
             if exc.status != _NOT_FOUND:
                 raise

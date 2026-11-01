@@ -275,7 +275,7 @@ class DavClient:
         found = [self._file(href, prop) for href, prop in self._multistatus("PROPFIND", self._file_href(path), "1", body)]
         return [entry for entry in found if entry.path != path.strip("/")]
 
-    def search_files(self, folder: str, term: str, limit: int) -> list[DavFile]:
+    def search_files(self, folder: str, term: str) -> list[DavFile]:
         """Files and folders below ``folder`` with ``term`` in their name, newest first."""
         scope = f"/files/{self._user}/{folder}".rstrip("/")
         body = ('<d:searchrequest xmlns:d="DAV:"><d:basicsearch>'
@@ -283,7 +283,6 @@ class DavClient:
                 f'<d:from><d:scope><d:href>{escape(scope)}</d:href><d:depth>infinity</d:depth></d:scope></d:from>'
                 f'<d:where><d:like><d:prop><d:displayname/></d:prop><d:literal>%{escape(term)}%</d:literal></d:like></d:where>'
                 '<d:orderby><d:order><d:prop><d:getlastmodified/></d:prop><d:descending/></d:order></d:orderby>'
-                f'<d:limit><d:nresults>{limit}</d:nresults></d:limit>'
                 '</d:basicsearch></d:searchrequest>')
         return [self._file(href, prop) for href, prop in self._multistatus("SEARCH", self._root, "0", body)]
 

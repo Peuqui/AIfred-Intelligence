@@ -15,7 +15,7 @@ Kontrakt von ToolKit.call_note:
 import asyncio
 import json
 
-from aifred.lib.config import TOOL_CALL_NOTE_MAX_WRITES, TOOL_CALL_NOTE_VALUE_CHARS
+from aifred.lib.config import TOOL_CALL_NOTE_VALUE_CHARS
 from aifred.lib.function_calling import Tool, ToolKit
 
 
@@ -144,12 +144,12 @@ def test_refused_repeat_did_not_run_and_is_left_out() -> None:
     assert note.count("nextcloud_create") == 2
 
 
-def test_many_writes_are_capped() -> None:
+def test_every_write_stands_in_the_note() -> None:
     kit = _kit()
-    _run(kit, *[("nextcloud_create", {"n": n}) for n in range(TOOL_CALL_NOTE_MAX_WRITES + 3)])
+    _run(kit, *[("nextcloud_create", {"n": n}) for n in range(30)])
     note = kit.call_note()
     assert note is not None
-    assert note.count("nextcloud_create") == TOOL_CALL_NOTE_MAX_WRITES and "+3" in note
+    assert note.count("nextcloud_create") == 30
 
 
 def test_collecting_empties_the_record() -> None:

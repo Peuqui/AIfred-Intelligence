@@ -890,7 +890,6 @@
   "doc_hint": "💡 Upload document: PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV",
   "doc_upload_no_store": "⚠️ Document store not available (ChromaDB not running?)",
   "doc_upload_invalid_type": "⚠️ {filename}: Type not allowed. Allowed: {allowed}",
-  "doc_upload_too_large": "⚠️ {filename}: Too large (max {max_mb} MB)",
   "doc_upload_indexing": "📄 Indexing {filename}...",
   "doc_upload_success": "✅ {filename}: {chunks} chunks indexed",
   "doc_upload_saved": "✅ {filename} uploaded",

@@ -8,7 +8,7 @@ invalid byte (``UnicodeDecodeError``), so the rest is never fetched.
 
 import codecs
 
-from .config import WORKSPACE_READ_MAX_BYTES
+from .config import READ_MEMORY_GUARD_BYTES
 
 
 class LineTooLong(ValueError):
@@ -20,7 +20,7 @@ class LineWindow:
     bound) of what is fed in, at most ``max_chars`` of them."""
 
     def __init__(self, line_start: int = 0, line_end: int = 0, encoding: str = "utf-8",
-                 max_chars: int = WORKSPACE_READ_MAX_BYTES) -> None:
+                 max_chars: int = READ_MEMORY_GUARD_BYTES) -> None:
         self._whole = line_start <= 0 and line_end <= 0
         self._first = max(1, line_start)
         self._last = line_end

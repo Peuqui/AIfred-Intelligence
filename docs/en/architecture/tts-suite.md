@@ -183,10 +183,8 @@ after the other and a running announcement is not interrupted.
 - **Body:** `{"room", "text"}` **or** `{"room", "texts": [...], "pause_ms"}` (exactly one of
   `text`/`texts`), plus `speaker` (required, the caller's name, display only — it appears in the
   bubble header). `room` = room name, `@group` or `*`. `texts` = several paragraphs as **one**
-  announcement; `pause_ms` = silence between the paragraphs (default `ANNOUNCE_PAUSE_MS` = 1,000 ms,
-  at most `ANNOUNCE_MAX_PAUSE_MS` = 5,000 ms).
-- **Limits:** 413 above `ANNOUNCE_MAX_CHARS` (1,200) characters per entry or
-  `ANNOUNCE_MAX_TOTAL_CHARS` (4,000) in total — no silent truncation; 404 for an unknown or not
+  announcement; `pause_ms` = silence between the paragraphs (default `ANNOUNCE_PAUSE_MS` = 1,000 ms).
+- **Limits:** No length limit. 404 for an unknown or not
   connected room; 502 if the announcement could not be delivered.
 - **Rooms:** `GET /api/audio/announce/rooms` returns the rooms connected right now.
 - **Tones:** the chime is fixed to `notification`, never `alarm`. Whether a start tone before and

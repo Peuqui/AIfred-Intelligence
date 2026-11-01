@@ -187,10 +187,8 @@ laufen nacheinander, eine laufende Ansage wird nicht unterbrochen.
 - **Body:** `{"room", "text"}` **oder** `{"room", "texts": [...], "pause_ms"}` (genau eines von
   `text`/`texts`), dazu `speaker` (Pflicht, Name des Aufrufers, nur Anzeige — er steht in der
   Bubble-Kopfzeile). `room` = Raumname, `@gruppe` oder `*`. `texts` = mehrere Absätze als **eine**
-  Ansage; `pause_ms` = Stille zwischen den Absätzen (Standard `ANNOUNCE_PAUSE_MS` = 1.000 ms,
-  höchstens `ANNOUNCE_MAX_PAUSE_MS` = 5.000 ms).
-- **Grenzen:** 413 über `ANNOUNCE_MAX_CHARS` (1.200) Zeichen je Eintrag oder
-  `ANNOUNCE_MAX_TOTAL_CHARS` (4.000) insgesamt — kein stilles Kürzen; 404 bei unbekanntem oder
+  Ansage; `pause_ms` = Stille zwischen den Absätzen (Standard `ANNOUNCE_PAUSE_MS` = 1.000 ms).
+- **Grenzen:** Keine Längengrenze. 404 bei unbekanntem oder
   nicht verbundenem Raum; 502, wenn die Ansage nicht zugestellt werden konnte.
 - **Räume:** `GET /api/audio/announce/rooms` liefert die gerade verbundenen Räume.
 - **Töne:** Der Gong ist fest `notification`, nie `alarm`. Ob ein Beginn-Ton davor und ein

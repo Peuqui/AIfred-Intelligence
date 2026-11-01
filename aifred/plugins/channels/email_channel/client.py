@@ -29,11 +29,11 @@ from pathlib import Path
 
 from lxml import etree, html
 
+from ....lib.config import LIST_DEFAULT
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
 from .config import (
     EMAIL_IMAP_PORT_DEFAULT,
-    EMAIL_LIST_DEFAULT,
     EMAIL_SENT_FOLDER_DEFAULT,
 )
 
@@ -342,7 +342,7 @@ def _summaries(mailbox: _ReadOnlyMailbox, uids: list[str], n: int | None) -> lis
 
 
 def check_inbox(
-    account: ImapAccount, n: int | None = EMAIL_LIST_DEFAULT, folder: str = "INBOX", unread_only: bool = False
+    account: ImapAccount, n: int | None = LIST_DEFAULT, folder: str = "INBOX", unread_only: bool = False
 ) -> tuple[list[EmailSummary], int]:
     """The newest mails of a folder and how many there are in all.
 
@@ -407,7 +407,7 @@ def read_attachment(account: ImapAccount, msg_id: str, name: str, folder: str = 
 
 
 def search_emails(
-    account: ImapAccount, query: str, folder: str = "INBOX", n: int | None = EMAIL_LIST_DEFAULT
+    account: ImapAccount, query: str, folder: str = "INBOX", n: int | None = LIST_DEFAULT
 ) -> tuple[list[EmailSummary], int]:
     """Search emails via IMAP SEARCH: the newest hits and how many there are in all.
     Returned ``msg_id`` values are UIDs."""

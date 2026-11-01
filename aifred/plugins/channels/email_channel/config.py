@@ -17,9 +17,6 @@ EMAIL_IMAP_PORT_DEFAULT = "993"
 # (external e-mail clients: POP3, IMAP & SMTP settings). The port is the one above.
 EMAIL_READONLY_IMAP_HOST_DEFAULT = "imap.mail.de"
 
-# Mails listed by check and search unless the model asks for another number
-EMAIL_LIST_DEFAULT = 20
-
 # Default Sent-folder name if EMAIL_SENT_FOLDER is not configured
 # (provider-specific: GMX = "Gesendet", many others = "Sent")
 EMAIL_SENT_FOLDER_DEFAULT = "Gesendet"

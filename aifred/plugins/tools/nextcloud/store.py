@@ -25,7 +25,6 @@ from .settings import (
     load_nextcloud_settings,
 )
 
-LIMIT_MAX = 500
 # Which module and DAV collection type serve an entity, and its component.
 _EVENT = ("calendar", CALENDAR, "VEVENT")
 _TASK = ("tasks", CALENDAR, "VTODO")
@@ -34,10 +33,6 @@ _CONTACT = ("contacts", ADDRESSBOOK, "")
 
 def _uri(collection: DavCollection) -> str:
     return collection.href.rstrip("/").rsplit("/", 1)[-1]
-
-
-def _clamp(limit: int) -> int:
-    return max(1, min(int(limit), LIMIT_MAX))
 
 
 def _as_kind(value: date | datetime, all_day: bool) -> date | datetime:
@@ -148,7 +143,7 @@ class NextcloudStore:
 
     # ── events ────────────────────────────────────────────────────
 
-    def events(self, date_from: date, date_to: date, query: str | None, limit: int) -> list[dict[str, Any]]:
+    def events(self, date_from: date, date_to: date, query: str | None) -> list[dict[str, Any]]:
         """Events overlapping [date_from, date_to]; series come expanded."""
         self._allow("calendar", write=False)
         start = datetime.combine(date_from, datetime.min.time())
@@ -161,7 +156,7 @@ class NextcloudStore:
                     if _matches(query, row["title"], row["location"], row["description"]):
                         out.append({"id": self._object_id(collection, obj), "calendar": collection.name, **row})
         out.sort(key=lambda r: (str(r["start"]), r["title"]))
-        return out[:_clamp(limit)]
+        return out
 
     def get_event(self, object_id: str) -> dict[str, Any]:
         self._allow("calendar", write=False)
@@ -215,7 +210,7 @@ class NextcloudStore:
 
     # ── tasks ─────────────────────────────────────────────────────
 
-    def tasks(self, query: str | None, done: bool | None, limit: int) -> list[dict[str, Any]]:
+    def tasks(self, query: str | None, done: bool | None) -> list[dict[str, Any]]:
         self._allow("tasks", write=False)
         out = []
         for collection in self._collections(_TASK):
@@ -225,7 +220,7 @@ class NextcloudStore:
                     if _matches(query, row["title"], row["description"]) and (done is None or row["done"] == done):
                         out.append({"id": self._object_id(collection, obj), "list": collection.name, **row})
         out.sort(key=lambda r: (r["done"], r["due"] is None, str(r["due"]), r["title"]))
-        return out[:_clamp(limit)]
+        return out
 
     def get_task(self, object_id: str) -> dict[str, Any]:
         self._allow("tasks", write=False)
@@ -260,9 +255,9 @@ class NextcloudStore:
 
     # ── notes ─────────────────────────────────────────────────────
 
-    def notes(self, query: str | None, limit: int) -> list[dict[str, Any]]:
+    def notes(self, query: str | None) -> list[dict[str, Any]]:
         self._allow("notes", write=False)
-        return self._notes.search(query, _clamp(limit))
+        return self._notes.search(query)
 
     def get_note(self, note_id: str) -> dict[str, Any]:
         self._allow("notes", write=False)
@@ -282,7 +277,7 @@ class NextcloudStore:
 
     # ── contacts ──────────────────────────────────────────────────
 
-    def contacts(self, query: str | None, limit: int) -> list[dict[str, Any]]:
+    def contacts(self, query: str | None) -> list[dict[str, Any]]:
         self._allow("contacts", write=False)
         out = []
         for collection in self._collections(_CONTACT):
@@ -292,7 +287,7 @@ class NextcloudStore:
                 if _matches(query, *searchable):
                     out.append({"id": self._object_id(collection, obj), "addressbook": collection.name, **fields})
         out.sort(key=lambda r: str(r["name"] or "").casefold())
-        return out[:_clamp(limit)]
+        return out
 
     def get_contact(self, object_id: str) -> dict[str, Any]:
         self._allow("contacts", write=False)

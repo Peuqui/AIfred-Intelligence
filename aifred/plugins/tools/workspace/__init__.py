@@ -13,8 +13,8 @@ from typing import Any, Optional
 from collections.abc import AsyncGenerator
 
 from ....lib.config import (
-    DOCUMENTS_DIR, DOCUMENT_SEARCH_MAX_RESULTS,
-    DOCUMENT_SEARCH_DISTANCE_STRONG, WORKSPACE_READ_MAX_BYTES,
+    DOCUMENTS_DIR,
+    DOCUMENT_SEARCH_DISTANCE_STRONG, READ_MEMORY_GUARD_BYTES,
     WORKSPACE_WRITE_EXTENSIONS,
 )
 from ....lib import file_manager as fm
@@ -211,11 +211,11 @@ class WorkspacePlugin:
             # very large file would blow the worker's memory. Point the model at
             # page/line ranges instead of failing opaquely.
             file_size = file_path.stat().st_size
-            if file_size > WORKSPACE_READ_MAX_BYTES:
+            if file_size > READ_MEMORY_GUARD_BYTES:
                 return json.dumps({
                     "error": (
                         f"File too large ({round(file_size / 1024 / 1024, 1)} MB, "
-                        f"limit {WORKSPACE_READ_MAX_BYTES // 1024 // 1024} MB). "
+                        f"limit {READ_MEMORY_GUARD_BYTES // 1024 // 1024} MB). "
                         "Use 'pages' (PDF) or 'line_start'/'line_end' (text, Office) to read a range."
                     )
                 }), []
@@ -258,7 +258,7 @@ class WorkspacePlugin:
                         "content": text,
                     }
                     image_urls = []
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the model sees the failure
                 log_message(f"  read_file failed: {e}")
                 return json.dumps({"error": f"Cannot read {filename}: {e}"}), []
             return json.dumps(result, ensure_ascii=False), image_urls
@@ -623,7 +623,7 @@ class WorkspacePlugin:
                 })
             try:
                 result = await fm.index_file(filename)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the model sees the failure
                 return json.dumps({"error": f"Indexing failed: {e}"})
             if not result.success:
                 return json.dumps({"error": result.detail})
@@ -777,7 +777,7 @@ class WorkspacePlugin:
             description=(
                 load_tool_description(__file__, "search_documents")
             ),
-            parameters=load_tool_parameters(__file__, "search_documents", values={"max_results": DOCUMENT_SEARCH_MAX_RESULTS}),
+            parameters=load_tool_parameters(__file__, "search_documents"),
             executor=_search_documents,
         ))
 
@@ -839,7 +839,7 @@ class WorkspacePlugin:
             try:
                 client = _chroma_client()
                 client.heartbeat()
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the model sees the failure
                 return json.dumps({"error": f"ChromaDB not reachable: {e}"})
 
             collections = client.list_collections()
@@ -889,7 +889,7 @@ class WorkspacePlugin:
             try:
                 client = _chroma_client()
                 col = client.get_collection(collection_name)
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — the model sees the failure
                 return json.dumps({"error": f"Collection '{collection_name}' not found: {e}"})
 
             count = col.count()

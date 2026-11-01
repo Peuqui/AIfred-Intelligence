@@ -890,7 +890,6 @@
   "doc_hint": "💡 Dokument hochladen: PDF, Word, Excel, PowerPoint, LibreOffice, TXT, MD, CSV",
   "doc_upload_no_store": "⚠️ Dokumenten-Speicher nicht verfügbar (ChromaDB läuft nicht?)",
   "doc_upload_invalid_type": "⚠️ {filename}: Typ nicht erlaubt. Erlaubt: {allowed}",
-  "doc_upload_too_large": "⚠️ {filename}: Zu groß (max {max_mb} MB)",
   "doc_upload_indexing": "📄 Analysiere {filename}...",
   "doc_upload_success": "✅ {filename}: {chunks} Abschnitte indexiert",
   "doc_upload_saved": "✅ {filename} hochgeladen",

@@ -24,7 +24,7 @@
     },
     "limit": {
       "type": "integer",
-      "description": "Maximum number of results (default 20)"
+      "description": "How many results to return (default 20), total_count names all there are"
     }
   },
   "required": ["entity_type"]

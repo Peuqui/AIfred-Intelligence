@@ -192,8 +192,7 @@ Raums laufen nacheinander). Aufrufer ist z. B. Agent-Orc.
   länger als `KEEPALIVE_SEC` des Dienstes, schickt er einen Keep-alive-Marker, aus dem AIfred 20 ms Stille macht
   (das 30-s-Inaktivitäts-Timeout des Pucks löst nie aus, er ist die einzige Erkennung einer toten
   Verbindung; die Pumpe im Orchestrator hat keine zweite Uhr). Jede Ansage wird in der Sitzung des Raums dokumentiert (`record_autonomous_turn`).
-- 404 bei unbekanntem/nicht verbundenem Raum, 413 bei Text über `ANNOUNCE_MAX_CHARS` je Eintrag
-  (Standard 1200) oder `ANNOUNCE_MAX_TOTAL_CHARS` insgesamt (Standard 4000), kein stilles Kürzen. Chime fest `notification`, nie `alarm`; Beginn- und Ende-Ton
+- 404 bei unbekanntem/nicht verbundenem Raum, keine Längengrenze. Chime fest `notification`, nie `alarm`; Beginn- und Ende-Ton
   spielt der Puck selbst (Protokoll v2: `audio_flag(…, start_tone)` und `audio_end(end_tone)`, Slots
   `notification_wav` / `notification_end_wav` in der Puck-Oberfläche). Läuft Musik/Hörbuch/TTS, hält der Server
   sie vor der Ansage per `_pause` am Puck an und wartet auf die Bestätigung (sonst wird die Ansage verworfen).

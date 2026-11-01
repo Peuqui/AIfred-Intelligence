@@ -161,7 +161,6 @@ Nachrichten zu einer Zusammenfassung komprimiert:
 | `HISTORY_SUMMARY_MIN_TOKENS` | 500 | Minimum für eine sinnvolle Zusammenfassung |
 | `HISTORY_SUMMARY_TOLERANCE` | 0.5 | erlaubte Überschreitung, darüber wird gekürzt |
 | `HISTORY_SUMMARY_MAX_RATIO` | 0.2 | höchstens 20 % des Kontexts für Zusammenfassungen |
-| `HISTORY_MAX_SUMMARIES` | 10 | harte Obergrenze für behaltene Zusammenfassungen |
 
 **Algorithmus**
 1. Vorab-Prüfung vor jedem LLM-Aufruf, Trigger bei 70 %
@@ -235,9 +234,13 @@ Zusätzliche `.env`-Schlüssel, die der Code liest (nur Namen und Bedeutung):
 | Schlüssel | Bedeutung |
 |---|---|
 | `ANNOUNCE_API_TOKEN` | Bearer-Token für `POST /api/audio/announce` (ohne Token 503) |
-| `ANNOUNCE_MAX_CHARS` | Längster einzelner Ansagetext, längere werden mit 413 abgelehnt |
-| `ANNOUNCE_MAX_TOTAL_CHARS` | Grenze für alle Absätze einer Ansage zusammen |
-| `ANNOUNCE_PAUSE_MS`, `ANNOUNCE_MAX_PAUSE_MS` | Standardpause zwischen Absätzen und deren Obergrenze |
+| `ANNOUNCE_PAUSE_MS` | Standardpause zwischen Absätzen |
+| `LIST_DEFAULT` | Standardmenge einer Liste oder Suche (20). Die Antwort nennt immer die Gesamtzahl, mehr lässt sich abrufen |
+| `READ_MEMORY_GUARD_BYTES` | Was beim Lesen auf einmal im Arbeitsspeicher liegen darf (25 MiB): Datei, Zeile, Webseite. Was das Modell sieht, richtet sich nach seinem Kontext (`lib/tool_output_cap.py`) |
+| `DOCUMENT_SEARCH_POOL_SIZE` | Vorauswahl der Dokumentensuche vor dem Umsortieren (100) |
+| `SANDBOX_MAX_RAM_MB`, `SANDBOX_MAX_FILE_SIZE_MB`, `SANDBOX_MAX_PROCESSES` | Schutzgrenzen der Code-Ausführung |
+| `SECURITY_MAX_TOOL_CHAIN_DEPTH`, `SECURITY_MAX_IDENTICAL_TOOL_CALLS`, `SECURITY_RATE_LIMIT_WINDOW_SEC` | Schutz vor Werkzeug-Schleifen und Überflutung |
+| `AUDIO_UPLOAD_MAX_MB`, `HTML_PREVIEW_MAX_FILES`, `LOOKUP_CACHE_MAX_BYTES`, `VLLM_CALIBRATION_CACHE_MAX_GIB`, `VLLM_PRODUCTION_CACHE_MAX_GIB`, `VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS` | Speicher und Platz |
 | `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | Wie lange nach dem Anhalten eines laufenden Stroms vor einer Ansage auf die Bestätigung des Pucks gewartet wird; sonst wird die Ansage verworfen |
 | `TTS_CONTROL_API_TOKEN` | Bearer-Token der TTS-Start/Stopp-API für die Dienste-Steuerseite |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Größte Datei, die ein Kanal-Sendetool anhängen darf |

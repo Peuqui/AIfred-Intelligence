@@ -161,7 +161,6 @@ messages are compressed into a summary:
 | `HISTORY_SUMMARY_MIN_TOKENS` | 500 | minimum for a useful summary |
 | `HISTORY_SUMMARY_TOLERANCE` | 0.5 | allowed overshoot, beyond that it is truncated |
 | `HISTORY_SUMMARY_MAX_RATIO` | 0.2 | at most 20 % of the context for summaries |
-| `HISTORY_MAX_SUMMARIES` | 10 | hard cap on kept summaries |
 
 **Algorithm**
 1. Pre-check before each LLM call, trigger at 70 %
@@ -234,9 +233,13 @@ Additional `.env` keys read by the code (names and meaning only):
 | Key | Meaning |
 |---|---|
 | `ANNOUNCE_API_TOKEN` | Bearer token for `POST /api/audio/announce` (503 without it) |
-| `ANNOUNCE_MAX_CHARS` | Longest single announcement text, longer is refused with 413 |
-| `ANNOUNCE_MAX_TOTAL_CHARS` | Limit for all paragraphs of one announcement together |
-| `ANNOUNCE_PAUSE_MS`, `ANNOUNCE_MAX_PAUSE_MS` | Default pause between paragraphs and its upper bound |
+| `ANNOUNCE_PAUSE_MS` | Default pause between paragraphs |
+| `LIST_DEFAULT` | Default size of a list or search (20). The answer always names the total, more can be fetched |
+| `READ_MEMORY_GUARD_BYTES` | What may sit in memory at once while reading (25 MiB): a file, a line, a web page. What the model sees follows its context (`lib/tool_output_cap.py`) |
+| `DOCUMENT_SEARCH_POOL_SIZE` | Preselection of the document search before re-ranking (100) |
+| `SANDBOX_MAX_RAM_MB`, `SANDBOX_MAX_FILE_SIZE_MB`, `SANDBOX_MAX_PROCESSES` | Safety limits of code execution |
+| `SECURITY_MAX_TOOL_CHAIN_DEPTH`, `SECURITY_MAX_IDENTICAL_TOOL_CALLS`, `SECURITY_RATE_LIMIT_WINDOW_SEC` | Protection against tool loops and flooding |
+| `AUDIO_UPLOAD_MAX_MB`, `HTML_PREVIEW_MAX_FILES`, `LOOKUP_CACHE_MAX_BYTES`, `VLLM_CALIBRATION_CACHE_MAX_GIB`, `VLLM_PRODUCTION_CACHE_MAX_GIB`, `VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS` | Memory and disk |
 | `FREEECHO2_PAUSE_ACK_TIMEOUT_SEC` | How long to wait for the puck's confirmation after pausing a running stream before an announcement; otherwise the announcement is dropped |
 | `TTS_CONTROL_API_TOKEN` | Bearer token of the TTS start/stop API used by the service control page |
 | `OUTBOUND_ATTACHMENT_MAX_BYTES` | Largest file a channel send tool may attach |

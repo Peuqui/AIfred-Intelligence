@@ -168,18 +168,15 @@ class ToolKit:
         turns, and without this the model denies its own actions in the next one.
         Writes with their arguments, reads only counted, failures marked. Empties
         the record."""
-        from .config import TOOL_CALL_NOTE_MAX_WRITES, TOOL_CALL_NOTE_VALUE_CHARS
+        from .config import TOOL_CALL_NOTE_VALUE_CHARS
         from .prompt_loader import load_prompt
 
         calls, self._calls = self._calls, []
         if not calls:
             return None
-        writes = [call for call in calls if not call.reads_only]
         parts = [f"{call.name}({_shorten_values(_redact_args(call.args), TOOL_CALL_NOTE_VALUE_CHARS)})"
                  f"{' ✗' if call.failed else ''}"
-                 for call in writes[:TOOL_CALL_NOTE_MAX_WRITES]]
-        if len(writes) > TOOL_CALL_NOTE_MAX_WRITES:
-            parts.append(f"+{len(writes) - TOOL_CALL_NOTE_MAX_WRITES}")
+                 for call in calls if not call.reads_only]
         reads = [call for call in calls if call.reads_only]
         for name in dict.fromkeys(call.name for call in reads):
             runs = [call for call in reads if call.name == name]

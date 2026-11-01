@@ -69,7 +69,7 @@ def test_the_store_checks_the_level_itself() -> None:
     with pytest.raises(NextcloudDisabled, match="read-only"):
         _store("read").create_note(title="x", content="", category=None)
     with pytest.raises(NextcloudDisabled, match="switched off"):
-        _store("off").notes(None, 10)
+        _store("off").notes(None)
 
 
 def test_reading_notes_stays_away_from_external_channels() -> None:
@@ -103,7 +103,7 @@ def test_a_note_goes_through_its_whole_life(client, folder) -> None:
     note_id = notes.create("Grüße an Tante", "Erste Fassung", "Familie/Post")
     assert note_id == "Familie/Post/Grüße an Tante.md"
     assert notes.get(note_id) == {"id": note_id, "title": "Grüße an Tante", "category": "Familie/Post", "content": "Erste Fassung"}
-    assert [hit["id"] for hit in notes.search("grüße", 10)] == [note_id]
+    assert [hit["id"] for hit in notes.search("grüße")] == [note_id]
 
     assert notes.update(note_id, {"content": "Zweite Fassung"}) == note_id
     assert notes.get(note_id)["content"] == "Zweite Fassung"
@@ -122,7 +122,7 @@ def test_the_list_holds_notes_only(client, folder) -> None:
     client.write_file(f"{folder}/Kategorie/a.md", b"x", "text/markdown", None)
     client.write_file(f"{folder}/alt.txt", b"x", "text/plain", None)
     client.write_file(f"{folder}/bild.png", b"x", "image/png", None)
-    found = {hit["id"]: hit["category"] for hit in Notes(AgentFiles(client, folder)).search(None, 50)}
+    found = {hit["id"]: hit["category"] for hit in Notes(AgentFiles(client, folder)).search(None)}
     assert found == {"Kategorie/a.md": "Kategorie", "alt.txt": ""}
 
 
@@ -141,7 +141,7 @@ def test_a_missing_share_is_named_and_creates_nothing(client) -> None:
     with pytest.raises(NextcloudRefused, match="shared"):
         Notes(AgentFiles(client, name)).create("x", "y", None)
     assert AgentFiles(client, name).folder_exists() is False
-    assert Notes(AgentFiles(client, name)).search(None, 10) == []
+    assert Notes(AgentFiles(client, name)).search(None) == []
 
 
 @live

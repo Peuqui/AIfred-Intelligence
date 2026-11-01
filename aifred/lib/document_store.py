@@ -648,7 +648,7 @@ class DocumentStore:
                     0 → off (similarity-only).
             page: 1-based page number. ``page=1`` returns hits 1..n_results,
                   ``page=2`` returns hits n_results+1..2*n_results, etc.
-                  We fetch the full pool (capped at DOCUMENT_SEARCH_MAX_RESULTS),
+                  We fetch the full pool (capped at DOCUMENT_SEARCH_POOL_SIZE),
                   re-rank via MMR if ``diversify`` is on, then slice.
             diversify: When True (default), apply MMR (Maximal Marginal Relevance)
                   re-ranking to the pool. Picks the most relevant hit, then each
@@ -670,12 +670,12 @@ class DocumentStore:
             from .config import DOCUMENT_SEARCH_NEIGHBOR_WINDOW
             neighbor_window = DOCUMENT_SEARCH_NEIGHBOR_WINDOW
 
-        from .config import DOCUMENT_SEARCH_DISTANCE_MAX, DOCUMENT_SEARCH_MAX_RESULTS
+        from .config import DOCUMENT_SEARCH_DISTANCE_MAX, DOCUMENT_SEARCH_POOL_SIZE
         page = max(1, page)
         # Stable pool: always fetch the full MAX_RESULTS slice (or whole index
         # if smaller). Same query → same pool → page-stable. MMR re-rank acts
         # on this pool once; pagination just slices the re-ranked order.
-        pool_size = min(DOCUMENT_SEARCH_MAX_RESULTS, count)
+        pool_size = min(DOCUMENT_SEARCH_POOL_SIZE, count)
         skip = (page - 1) * n_results
         if skip >= pool_size:
             return ([], False)

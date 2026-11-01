@@ -32,10 +32,10 @@ class Notes:
     def __init__(self, files: AgentFiles) -> None:
         self._files = files
 
-    def search(self, query: str | None, limit: int) -> list[dict[str, Any]]:
+    def search(self, query: str | None) -> list[dict[str, Any]]:
         """By title, newest first; without a query the newest notes."""
         return [{**_identity(row["path"]), "modified": row["modified"]}
-                for row in self._files.search(query or "", limit)
+                for row in self._files.search(query or "")
                 if row["type"] == "file" and row["path"].endswith(_NOTE_SUFFIXES)]
 
     def get(self, note_id: str) -> dict[str, Any]:
