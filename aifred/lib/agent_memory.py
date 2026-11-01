@@ -500,8 +500,14 @@ async def prepare_agent_toolkit(
         # Anchoring-Bias und gibt dem Modell volle Recherche-Hoheit.
 
     # Security: filter tools by tier before building toolkit
-    from .security import filter_tools_by_tier, filter_tools_for_source
-    all_tools = filter_tools_for_source(filter_tools_by_tier(all_tools, max_tier), source)
+    from .security import (
+        DELIVERY_CHANNEL_KEY,
+        filter_tools_by_tier,
+        filter_tools_for_source,
+    )
+    all_tools = filter_tools_for_source(
+        filter_tools_by_tier(all_tools, max_tier), source, (metadata or {}).get(DELIVERY_CHANNEL_KEY, ""),
+    )
     # Memory writes are gated by the owner check above, not by the tier: a
     # scheduler job runs at TIER_COMMUNICATE but is still the owner's.
     all_tools = memory_tools + all_tools

@@ -31,15 +31,28 @@
     },
     "channel": {
       "type": "string",
-      "description": "Target channel for 'announce' delivery (e.g. telegram, discord, email)"
+      "description": "Target channel for 'announce' delivery: telegram, discord, email, or freeecho2 (read out loud on the Echo pucks)"
     },
     "recipient": {
       "type": "string",
-      "description": "Recipient for 'announce' delivery (email address, etc.)"
+      "description": "Recipient for 'announce' delivery: an email address or user name. For freeecho2 a room, '@group', or '*' for all connected pucks (default)"
     },
     "webhook_url": {
       "type": "string",
       "description": "URL for 'webhook' delivery"
+    },
+    "fixed_text": {
+      "type": "boolean",
+      "description": "true = no model run: 'message' goes out word for word at the exact scheduled time. Needs delivery 'announce'. For alarms and plain reminders.",
+      "default": false
+    },
+    "audio_type": {
+      "type": "string",
+      "enum": [
+        "notification",
+        "alarm"
+      ],
+      "description": "For freeecho2: the sound before the announcement. 'notification' = gentle chime (default), 'alarm' = alarm sound, for waking up or urgent matters."
     }
   },
   "required": [

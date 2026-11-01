@@ -133,7 +133,7 @@ Wohin geht das Ergebnis eines Jobs?
 | Mode | Beschreibung |
 |------|-------------|
 | `review` | Notification in der Web-UI, User prüft in Session (Default) |
-| `announce` | An einen Channel senden (Discord, Telegram, E-Mail) |
+| `announce` | An einen Channel senden (Discord, Telegram, E-Mail) oder auf den FreeEcho-Pucks vorlesen |
 | `webhook` | HTTP POST an externe URL (z.B. Home Assistant) |
 
 Die Notification kommt bei jedem Modus, `announce` und `webhook` liefern
@@ -157,12 +157,15 @@ zusätzlich aus.
   jede Kanal-Antwort bekommt. Bis 04.10.2026 ging nur der Text nach dem
   letzten Tool-Call raus; schrieb der Agent die Nachricht zuerst und
   aktualisierte danach sein Gedächtnis, kam nur der Schlusssatz an. Gegen
-  Arbeitsnotizen in der Zustellung stehen der Job-Prompt und das Fehlen
-  jeder Sende-Aktion (die Notizen vom 15.09. stammten aus Versandversuchen
+  Arbeitsnotizen in der Zustellung steht der Job-Prompt, und auf dem eigenen
+  Zustellkanal fehlt die Sende-Aktion (die Notizen vom 15.09. stammten aus Versandversuchen
   des Agenten). Liefert der Lauf keinen Text, schlägt der Job fehl.
-- **Kein Selbstversand:** Im Scheduler-Lauf fehlen alle Sende-Werkzeuge
-  (`Tool.outbound`, `security.may_send_outbound`), beim `email`-Werkzeug die
-  Aktion `send`. Zustellen tut ausschließlich der Scheduler.
+- **Kein doppelter Versand:** Im Scheduler-Lauf fehlt nur das Sende-Werkzeug des
+  eigenen Zustellkanals (`Tool.outbound_channel`, `security.may_send_outbound`,
+  die Zustellung steht in den Metadaten unter `DELIVERY_CHANNEL_KEY`), beim
+  `email`-Werkzeug die Aktion `send`, wenn per Mail zugestellt wird. Das gilt
+  auch für Sub-Agenten des Laufs. Die anderen Kanäle stehen dem Agenten offen,
+  laut Job-Prompt aber nur, wenn der Auftrag es ausdrücklich verlangt.
 - **Gedächtnis:** Jobs laufen als Owner und dürfen Erinnerungen schreiben,
   obwohl ihr Tier bei `TIER_COMMUNICATE` liegt (siehe security.md,
   Gedächtnis nur für den Owner).
@@ -176,6 +179,19 @@ Benötigt `channel` und optional `recipient` im Payload:
 ```json
 {"delivery": "announce", "channel": "discord", "recipient": ""}
 ```
+
+Auf `freeecho2` wird die Antwort in den Räumen vorgelesen, über denselben Weg wie
+das Werkzeug `freeecho2_announce` und die Ansage-API (`resolve_announce_targets`,
+`announce_into_rooms`). `recipient` ist ein Raum, `@gruppe` oder `*`; ohne Angabe
+gehen alle verbundenen Pucks. `audio_type` wählt den Ton davor (`notification`,
+`alarm`), gesprochen wird als der Agent des Jobs. Der Job-Prompt sagt dem Agenten,
+dass er zum Hören schreiben soll.
+
+**Fester Text:** Mit `"fixed_text": true` startet kein Modell, `message` geht
+wörtlich und pünktlich raus (`_deliver_fixed_text`), auf jedem Kanal, ohne Karte
+und ohne Sitzung. Für Wecker und einfache Erinnerungen. Kommt der Text nicht an,
+schlägt der Job fehl. Ein Job mit Modell braucht erst den Modellstart (kalt rund
+5 Minuten), er muss für eine feste Uhrzeit also früher angesetzt werden.
 
 ### webhook
 

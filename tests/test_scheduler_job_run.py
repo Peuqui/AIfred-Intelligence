@@ -144,20 +144,173 @@ class TestExecuteJob:
 # ── No self-sending in scheduler runs ─────────────────────────
 
 class TestNoSelfSending:
-    def test_outbound_tools_dropped_only_for_scheduler(self):
-        tools = [_tool("telegram_send", outbound=True), _tool("web_search")]
-        assert may_send_outbound("telegram") and not may_send_outbound("scheduler")
-        assert [t.name for t in filter_tools_for_source(tools, "scheduler")] == ["web_search"]
-        assert len(filter_tools_for_source(tools, "browser")) == 2
+    TOOLS = [
+        _tool("telegram_send", outbound_channel="telegram"),
+        _tool("freeecho2_announce", outbound_channel="freeecho2"),
+        _tool("web_search"),
+    ]
 
-    def test_email_tool_without_send_in_scheduler(self):
+    def _names(self, source, delivery_channel):
+        return [t.name for t in filter_tools_for_source(self.TOOLS, source, delivery_channel)]
+
+    def test_a_job_loses_only_the_tool_of_its_own_delivery_channel(self):
+        assert self._names("scheduler", "telegram") == ["freeecho2_announce", "web_search"]
+        assert may_send_outbound("scheduler", "freeecho2", "telegram")
+        assert not may_send_outbound("scheduler", "telegram", "telegram")
+
+    def test_a_job_that_goes_to_no_channel_may_send_everywhere(self):
+        assert len(self._names("scheduler", "")) == 3
+
+    def test_only_a_job_is_limited(self):
+        assert len(self._names("browser", "telegram")) == 3
+
+    def test_mail_send_goes_only_where_the_job_is_delivered_by_mail(self):
         from aifred.plugins.channels.email_channel.tools import get_email_tools
-        email = get_email_tools(source="scheduler", lang="de")[0]
-        assert "send" not in email.parameters["properties"]["action"]["enum"]
+
+        def actions(delivery_channel):
+            email = get_email_tools(source="scheduler", lang="de", delivery_channel=delivery_channel)[0]
+            return email.parameters["properties"]["action"]["enum"]
+
+        assert "send" not in actions("email")
+        assert "send" in actions("telegram") and "send" in actions("")
+        assert "send" in get_email_tools(source="browser", delivery_channel="email")[0].parameters[
+            "properties"]["action"]["enum"]
+
+    def test_a_refused_mail_says_why(self):
+        from aifred.plugins.channels.email_channel.tools import get_email_tools
+        email = get_email_tools(source="scheduler", lang="de", delivery_channel="email")[0]
         result = asyncio.run(email.executor(action="send", to="a@b.c", subject="s", body="b"))
-        assert "geplanten Job" in result
-        browser_email = get_email_tools(source="browser")[0]
-        assert "send" in browser_email.parameters["properties"]["action"]["enum"]
+        assert "per E-Mail zu" in result
+
+    def test_the_run_is_told_its_delivery_channel(self, monkeypatch):
+        seen = {}
+
+        async def fake_process_inbound(msg):
+            seen.update(msg.metadata)
+            return SimpleNamespace(text="Fertig", metadata={"session_id": "s"})
+
+        async def delivered(*args):
+            return None
+
+        monkeypatch.setattr("aifred.lib.message_processor.process_inbound", fake_process_inbound)
+        monkeypatch.setattr(sched, "_deliver_result", delivered)
+        job = sched.get_job_store().add("Bericht", "interval", "60", {
+            "message": "Los", "delivery": "announce", "channel": "email",
+        })
+        asyncio.run(sched._execute_job(job))
+        assert seen["delivery_channel"] == "email"
+
+    def test_review_has_no_delivery_channel(self):
+        job = sched.get_job_store().add("Bericht", "interval", "60", {
+            "message": "Los", "delivery": "review", "channel": "email",
+        })
+        assert sched._delivery_channel(job) == ""
+
+
+# ── Delivery on the channel ───────────────────────────────────────────
+
+@pytest.fixture
+def rooms(monkeypatch):
+    """Two connected pucks; records what the announcement paths get."""
+    calls = {"into_rooms": [], "to_channel": []}
+
+    async def into_rooms(channel, targets, text, speaker, metadata):
+        calls["into_rooms"].append((channel, targets, text, speaker, metadata))
+        return list(targets)
+
+    async def to_channel(channel, recipient, text, *, session_id, metadata):
+        calls["to_channel"].append((channel, recipient, text, session_id, metadata))
+        return True
+
+    def targets(channel, target):
+        return {"": ["Bad", "Flur"], "*": ["Bad", "Flur"], "@oben": ["Bad"], "Flur": ["Flur"]}.get(target, [])
+
+    monkeypatch.setattr("aifred.lib.message_processor.announce_into_rooms", into_rooms)
+    monkeypatch.setattr("aifred.lib.message_processor.announce_to_channel", to_channel)
+    monkeypatch.setattr("aifred.lib.message_processor.resolve_announce_targets", targets)
+    monkeypatch.setattr("aifred.lib.agent_config.agent_display_name", lambda agent_id: agent_id.capitalize())
+    return calls
+
+
+def _echo_job(**payload):
+    return sched.get_job_store().add("Wecker", "cron", "0 7 * * *", {
+        "message": "Guten Morgen", "delivery": "announce", "channel": "freeecho2", **payload,
+    })
+
+
+class TestRooms:
+    @pytest.mark.parametrize(("recipient", "reached"), [
+        ("", ["Bad", "Flur"]), ("*", ["Bad", "Flur"]), ("@oben", ["Bad"]), ("Flur", ["Flur"]),
+    ])
+    def test_rooms_all_groups_and_one(self, rooms, recipient, reached):
+        asyncio.run(sched._deliver_announce(_echo_job(recipient=recipient), "Guten Morgen", "s"))
+        assert rooms["into_rooms"][0][1] == reached and rooms["to_channel"] == []
+
+    def test_it_speaks_as_the_agent_with_a_tone_first(self, rooms):
+        asyncio.run(sched._deliver_announce(_echo_job(agent="pater", audio_type="alarm"), "Text", "s"))
+        channel, _, text, speaker, metadata = rooms["into_rooms"][0]
+        assert (channel, text, speaker) == ("freeecho2", "Text", "Pater")
+        assert metadata["proactive"] is True and metadata["audio_type"] == "alarm"
+
+    def test_the_gentle_tone_is_the_default(self, rooms):
+        asyncio.run(sched._deliver_announce(_echo_job(), "Text", "s"))
+        assert rooms["into_rooms"][0][4]["audio_type"] == "notification"
+
+    def test_no_puck_connected_shows_up_as_failed(self, rooms, monkeypatch):
+        shown = []
+        monkeypatch.setattr("aifred.lib.message_processor.write_hub_notification",
+                            lambda **kwargs: shown.append(kwargs["status"]))
+        asyncio.run(sched._deliver_announce(_echo_job(recipient="Keller"), "Text", "s"))
+        assert shown == ["error"]
+
+    def test_other_channels_keep_their_session(self, rooms):
+        job = sched.get_job_store().add("Bericht", "interval", "60", {
+            "message": "Los", "delivery": "announce", "channel": "email", "recipient": "x",
+        })
+        asyncio.run(sched._deliver_announce(job, "Text", "sitzung"))
+        assert rooms["to_channel"][0][3] == "sitzung" and rooms["into_rooms"] == []
+
+
+class TestSpokenPrompt:
+    def test_a_job_read_out_loud_is_told_to_write_for_listening(self, monkeypatch):
+        monkeypatch.setattr("aifred.lib.message_processor.channel_display_label", lambda ch: "FreeEcho")
+        prompt = sched.build_job_prompt(_echo_job(), sched.get_job_store())
+        assert "laut vorgelesen" in prompt and "FreeEcho" in prompt
+
+    def test_the_prompt_allows_other_channels_only_on_request(self):
+        job = sched.get_job_store().add("Gebet", "interval", "60", {"message": "x", "delivery": "review"})
+        prompt = sched.build_job_prompt(job, sched.get_job_store())
+        assert "ausdrücklich verlangt" in prompt and "keine Sende-Werkzeuge" not in prompt
+
+
+class TestFixedText:
+    def _no_model(self, monkeypatch):
+        async def refuse(msg):
+            raise AssertionError("A fixed text must not start a model run")
+
+        monkeypatch.setattr("aifred.lib.message_processor.process_inbound", refuse)
+
+    def test_it_goes_out_word_for_word_without_a_model(self, rooms, monkeypatch):
+        self._no_model(monkeypatch)
+        job = _echo_job(fixed_text=True, recipient="*")
+        asyncio.run(sched._execute_job(job))
+        assert rooms["into_rooms"][0][1:3] == (["Bad", "Flur"], "Guten Morgen")
+        assert [text for _, text in sched.get_job_store().recent_runs(job.job_id, 5)] == ["Guten Morgen"]
+
+    def test_it_works_on_any_channel(self, rooms, monkeypatch):
+        self._no_model(monkeypatch)
+        job = sched.get_job_store().add("Erinnerung", "once", "2030-01-01T08:00:00", {
+            "message": "Müll raus", "delivery": "announce", "channel": "telegram", "fixed_text": True,
+        })
+        asyncio.run(sched._execute_job(job))
+        assert rooms["to_channel"][0][:4] == ("telegram", "", "Müll raus", None)
+
+    def test_a_text_that_does_not_arrive_fails_the_job(self, rooms, monkeypatch):
+        self._no_model(monkeypatch)
+        job = _echo_job(fixed_text=True, recipient="Keller")
+        with pytest.raises(RuntimeError, match="did not arrive"):
+            asyncio.run(sched._execute_job(job))
+        assert sched.get_job_store().recent_runs(job.job_id, 5) == []
 
 
 # ── Memory only in owner contexts ─────────────────────────────

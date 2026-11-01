@@ -1,1 +1,1 @@
-Fehler: In einem geplanten Job wird nichts selbst verschickt. Schreib das Ergebnis als Antwort, der Scheduler stellt es zu.
+Fehler: Dieser geplante Job stellt seine Antwort selbst per E-Mail zu. Schreib das Ergebnis als Antwort, sonst käme es doppelt an.

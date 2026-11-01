@@ -237,6 +237,10 @@ def filter_tools_by_tier(tools: list[Tool], max_tier: int) -> list[Tool]:
     return [t for t in tools if t.tier <= max_tier]
 
 
+# Message metadata of a scheduled run: the channel its answer goes out on.
+DELIVERY_CHANNEL_KEY = "delivery_channel"
+
+
 def in_owner_context(source: str, trust: str) -> bool:
     """Whether the owner is the one asking, whatever the channel: the browser, the
     verified owner on a channel and the owner's own scheduler jobs (both: trust label
@@ -250,18 +254,19 @@ def in_owner_context(source: str, trust: str) -> bool:
     return trust == "owner"
 
 
-def may_send_outbound(source: str) -> bool:
-    """Whether the agent may send messages itself. A scheduled job may not:
-    the scheduler delivers the run's answer, so a send tool would only
-    duplicate it (and bypass the job's delivery settings)."""
-    return source != "scheduler"
+def may_send_outbound(source: str, channel: str, delivery_channel: str) -> bool:
+    """Whether the agent may send on ``channel`` itself. A scheduled job may do
+    everything except send where its own answer goes out: the scheduler delivers
+    that, so the tool would only duplicate it."""
+    return source != "scheduler" or channel != delivery_channel
 
 
-def filter_tools_for_source(tools: list[Tool], source: str) -> list[Tool]:
-    """Drop outbound tools where the source may not send (may_send_outbound)."""
-    if may_send_outbound(source):
-        return tools
-    return [t for t in tools if not t.outbound]
+def filter_tools_for_source(tools: list[Tool], source: str, delivery_channel: str) -> list[Tool]:
+    """Drop the send tools the source may not use (may_send_outbound)."""
+    return [
+        t for t in tools
+        if not t.outbound_channel or may_send_outbound(source, t.outbound_channel, delivery_channel)
+    ]
 
 
 # ============================================================

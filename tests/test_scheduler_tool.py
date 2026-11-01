@@ -120,6 +120,51 @@ class TestSchedulerCreate:
         assert "error" in data
 
 
+class TestFixedText:
+    def _create(self, plugin, ctx, **arguments):
+        tool = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_create")
+        return json.loads(_run(tool.executor(
+            name="Wecker", schedule_type="cron", schedule_expr="0 7 * * *", message="Guten Morgen", **arguments,
+        )))
+
+    def test_a_fixed_text_on_the_pucks(self, plugin, ctx):
+        from aifred.lib.scheduler import get_job_store
+        data = self._create(plugin, ctx, delivery="announce", channel="freeecho2", recipient="*",
+                            fixed_text=True, audio_type="alarm")
+        payload = get_job_store().get(data["job_id"]).payload
+        assert payload["fixed_text"] is True and payload["audio_type"] == "alarm" and payload["recipient"] == "*"
+
+    def test_models_may_send_the_word_true(self, plugin, ctx):
+        assert self._create(plugin, ctx, delivery="announce", channel="telegram", fixed_text="true")["success"]
+
+    def test_a_fixed_text_needs_somewhere_to_go(self, plugin, ctx):
+        assert "needs delivery" in self._create(plugin, ctx, fixed_text=True)["error"]
+        assert "needs delivery" in self._create(plugin, ctx, delivery="announce", fixed_text=True)["error"]
+
+    def test_nonsense_is_refused(self, plugin, ctx):
+        assert "fixed_text" in self._create(plugin, ctx, delivery="announce", channel="email", fixed_text="ja")["error"]
+
+    def test_update_can_switch_it_on_and_off(self, plugin, ctx):
+        from aifred.lib.scheduler import get_job_store
+        update = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_update")
+        job_id = self._create(plugin, ctx, delivery="announce", channel="email")["job_id"]
+        _run(update.executor(job_id=job_id, fixed_text=True))
+        assert get_job_store().get(job_id).payload["fixed_text"] is True
+        _run(update.executor(job_id=job_id, fixed_text=False))
+        assert get_job_store().get(job_id).payload["fixed_text"] is False
+
+    def test_update_refuses_a_fixed_text_without_a_channel(self, plugin, ctx):
+        update = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_update")
+        job_id = self._create(plugin, ctx)["job_id"]
+        assert "needs delivery" in json.loads(_run(update.executor(job_id=job_id, fixed_text=True)))["error"]
+
+    def test_the_tool_names_the_pucks_and_all_rooms(self, plugin, ctx):
+        tool = next(t for t in plugin.get_tools(ctx) if t.name == "scheduler_create")
+        parameters = tool.parameters["properties"]
+        assert "freeecho2" in parameters["channel"]["description"]
+        assert "'*'" in parameters["recipient"]["description"]
+
+
 class TestSchedulerList:
     def test_list_empty(self, plugin, ctx):
         tools = {t.name: t for t in plugin.get_tools(ctx)}

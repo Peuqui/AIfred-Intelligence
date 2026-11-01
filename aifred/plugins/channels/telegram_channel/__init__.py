@@ -524,7 +524,7 @@ class TelegramChannel(BaseChannel):
             Tool(
                 name="telegram_send",
                 tier=TIER_COMMUNICATE,
-                outbound=True,
+                outbound_channel="telegram",
                 description=load_tool_description(__file__, "telegram_send"),
                 parameters=load_tool_parameters(__file__, "telegram_send"),
                 executor=_execute_telegram_send,
