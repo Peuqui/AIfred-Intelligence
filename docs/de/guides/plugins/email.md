@@ -22,7 +22,7 @@ Channel-Plugin für E-Mail-Kommunikation via IMAP IDLE und SMTP.
 | `check` | – | `n` (Default 20), `unread` (nur ungelesene, dann alle), `exclude_own` (AIfreds eigene Mails weglassen, erkannt an der Absenderadresse), `folder` (Default INBOX). Liste aus Datum, Absender, Betreff und Lesestatus, ohne Inhalt |
 | `read` | `msg_id` (mehrere durch Kommas getrennt) | `line_start`, `line_end`, `folder` (Default INBOX). HTML wird zu Text, Anhänge stehen als Dateinamen dabei. Passt nicht alles ins Budget des Modells, nennt die Antwort die übrigen IDs, eine zu lange Mail endet an einer Zeile und sagt, wo es weitergeht |
 | `attachment` | `msg_id`, `attachment` | `line_start`, `line_end`, `pages`, `folder`. Text eines Anhangs über die Parser des Dokumenten-Index (PDF, Office, Text, Kalendereinladung), nach Zeilen wie eine Datei. Bilder und PDF-Seiten ohne Text (Scans) gehen ans Beschreiber-Modell, je Aufruf so viele Seiten, wie eine Nachricht an das Modell fasst; die Antwort nennt die übrigen für `pages`. Was es liest, bleibt als fremder Text markiert |
-| `search` | `query` | `n` (Default 20), `folder` (Default INBOX) |
+| `search` | `query` | `n` (Default 20), `folder` (Default alle Ordner) |
 | `send` | `to`, `subject`, `body` | `attachment` (URL aus dieser Konversation); registriert die Session-Route |
 | `move` | `msg_id`, `target_folder` | `folder` = Quelle (Default INBOX) |
 | `delete` | `msg_id` | `folder` (Default INBOX) |
@@ -111,6 +111,23 @@ Provider ihn zuverlässig stempelt, ist nicht geprüft.
 AIfreds eigenes Konto gibt es also auch `email_readonly` nicht. Der Zugangsdialog ist derselbe:
 Speichern schaltet wie immer den E-Mail-Kanal ein (`EMAIL_ENABLED`, Überwachung und Listener von
 AIfreds Postfach).
+
+## Suche und Mail-Index
+
+`search` sucht nicht auf dem Mailserver: Dessen Suche findet nur ganze Wörter („matratze“ nicht in
+„Wechseldruckmatratze“) und keine Anhänge. AIfred hält deshalb je Postfach einen eigenen Index
+(`mail_index.py`, SQLite FTS5 auf Trigrammen) mit Betreff, Absender, Empfängern, Text, Namen der
+Anhänge und dem Text von Anhängen, die die Parser des Dokumenten-Index lesen können. Scans enthalten
+keinen Text und bleiben außen vor.
+
+- Alle Suchwörter müssen vorkommen, auch als Wortteil, über alle Ordner, wenn `folder` fehlt. Jeder
+  Treffer nennt seinen Ordner, denn eine `msg_id` gilt nur dort.
+- Das Postfach bleibt die Wahrheit: Vor jeder Suche gleicht der Index Ordner und UIDs ab, liest Neues
+  und vergisst Gelöschtes. Er öffnet das Postfach dabei rein lesend, Mails bleiben ungelesen.
+- Den ersten Aufbau startet die erste Suche. Er läuft im Hintergrund und setzt nach einem Abbruch dort
+  fort, wo er stand; eine Suche währenddessen nennt, wie viele Mails noch fehlen.
+- Die Dateien liegen in `MAIL_INDEX_DIR` (`~/.cache/aifred/mail_index`, nur für den Besitzer lesbar).
+  Das liegt außerhalb der Borg-Sicherung; der Index lässt sich jederzeit neu aufbauen, Löschen genügt.
 
 ## Bilder und Anhänge
 

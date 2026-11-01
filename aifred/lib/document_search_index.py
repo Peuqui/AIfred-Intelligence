@@ -11,10 +11,7 @@ words; the word index finds what a text says, names and numbers above all, and a
 inside compounds ("Heizöl" in "Heizölrechnung"), which is why it works on trigrams.
 """
 
-import re
 import sqlite3
-import string
-import unicodedata
 from collections.abc import Iterable
 from dataclasses import dataclass
 from typing import Any, Self
@@ -23,31 +20,14 @@ import numpy as np
 
 from .config import DOCUMENT_SEARCH_DISTANCE_MAX, DOCUMENT_SEARCH_RANK_CONSTANT
 from .logging_utils import log_message
+from .text_search import MIN_INDEXED_WORD_LENGTH, fts_phrase, query_words, without_marks
 
 _LOAD_PAGE_SIZE = 2000
-# The trigram tokenizer has no token for anything shorter.
-_MIN_WORD_LENGTH = 3
-_WORD_EDGES = string.punctuation + "„“”‚‘’«»…–—"
-# Combining marks of Latin text (umlauts after NFD, transliterations like "A͑qiba") and
-# the Hebrew points and accents, not its maqaf and sof pasuq, which separate words.
-_MARKS = re.compile("[\u0300-\u036f\u0591-\u05bd\u05bf\u05c1\u05c2\u05c4\u05c5\u05c7]")
-
-
-def _without_marks(text: str) -> str:
-    """``text`` as the word index holds it. The tokenizer's own remove_diacritics
-    handles precomposed letters only, a separate combining mark stays in the word.
-    Indexed text and query words both pass here, so "Müller" still meets "Müller"."""
-    return _MARKS.sub("", unicodedata.normalize("NFD", text))
 
 
 def _word_query(query: str) -> str:
-    """The FTS5 expression for ``query``: any of its words, each one quoted so that
-    nothing in it counts as FTS5 syntax. Empty when no word is long enough."""
-    words = dict.fromkeys(
-        word for raw in _without_marks(query).split()
-        if len(word := raw.strip(_WORD_EDGES)) >= _MIN_WORD_LENGTH
-    )
-    return " OR ".join('"' + word.replace('"', '""') + '"' for word in words)
+    """The FTS5 expression for ``query``: any of its words. Empty when none is long enough."""
+    return " OR ".join(fts_phrase(word) for word in query_words(query) if len(word) >= MIN_INDEXED_WORD_LENGTH)
 
 
 @dataclass(frozen=True)
@@ -83,7 +63,7 @@ class DocumentSearchIndex:
                 self._words.executemany(
                     "INSERT INTO chunks(rowid, filename, content) VALUES (?, ?, ?)",
                     (
-                        (row, _without_marks(str(meta.get("filename", ""))), _without_marks(text))
+                        (row, without_marks(str(meta.get("filename", ""))), without_marks(text))
                         for row, (meta, text) in enumerate(
                             zip(page["metadatas"], page["documents"], strict=True), start=first_row
                         )

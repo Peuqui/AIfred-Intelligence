@@ -9,6 +9,11 @@ Plugin verwaltet seine eigene Konfiguration selbst (Kapselung). Secrets
 from __future__ import annotations
 
 import os
+from pathlib import Path
+
+# The mail index holds the text of every mail. Under ~/.cache it stays out of the Borg
+# backup, which is not encrypted and would keep deleted mails; it can be rebuilt at any time.
+MAIL_INDEX_DIR = Path(os.environ.get("MAIL_INDEX_DIR", Path.home() / ".cache" / "aifred" / "mail_index"))
 
 # IMAP over TLS, for a mailbox without a configured port
 EMAIL_IMAP_PORT_DEFAULT = "993"

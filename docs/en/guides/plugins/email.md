@@ -22,7 +22,7 @@ Channel plugin for email communication via IMAP IDLE and SMTP.
 | `check` | – | `n` (default 20), `unread` (only unread ones, then all of them), `exclude_own` (leave out AIfred's own mails, recognised by the sender address), `folder` (default INBOX). A list of date, sender, subject and read state, no content |
 | `read` | `msg_id` (several separated by commas) | `line_start`, `line_end`, `folder` (default INBOX). HTML becomes text, attachments are listed by filename. If not everything fits the model's budget, the answer names the remaining IDs, and a mail too long ends at a line and says where to go on |
 | `attachment` | `msg_id`, `attachment` | `line_start`, `line_end`, `pages`, `folder`. Text of an attachment through the parsers of the document index (PDF, Office, text, calendar invitation), by lines like a file. Images and PDF pages without text (scans) go to the describer model, per call as many pages as one message to the model holds; the answer names the others for `pages`. What it reads stays marked as foreign text |
-| `search` | `query` | `n` (default 20), `folder` (default INBOX) |
+| `search` | `query` | `n` (default 20), `folder` (default all folders) |
 | `send` | `to`, `subject`, `body` (optional `attachment`) | registers the session route |
 | `move` | `msg_id`, `target_folder` | `folder` = source (default INBOX) |
 | `delete` | `msg_id` | `folder` (default INBOX) |
@@ -112,6 +112,22 @@ stamps it reliably has not been verified.
 AIfred's own account there is no `email_readonly` either. The credentials dialog is the same one:
 saving switches the email channel on as always (`EMAIL_ENABLED`, monitoring and the listener of
 AIfred's mailbox).
+
+## Search and Mail Index
+
+`search` does not search on the mail server: its search only finds whole words ("matratze" not in
+"Wechseldruckmatratze") and no attachments. So AIfred keeps an index per mailbox (`mail_index.py`,
+SQLite FTS5 on trigrams) with subject, sender, recipients, text, attachment names and the text of
+attachments the document index parsers can read. Scans hold no text and stay out.
+
+- All search words must occur, also as a part of a word, across every folder unless `folder` is
+  given. Each hit names its folder, because a `msg_id` only means something there.
+- The mailbox stays the truth: before every search the index matches folders and UIDs, reads what is
+  new and forgets what is gone. It opens the mailbox read-only, mails stay unread.
+- The first search starts the first build. It runs in the background and resumes where it stopped; a
+  search meanwhile says how many mails are still missing.
+- The files live in `MAIL_INDEX_DIR` (`~/.cache/aifred/mail_index`, readable by the owner only). That
+  is outside the Borg backup; the index can be rebuilt at any time, deleting it is enough.
 
 ## Images and Attachments
 

@@ -15,6 +15,7 @@ mailbox through _imap_connect.
 import email
 import email.header
 import email.utils
+import hashlib
 import imaplib
 import re
 import smtplib
@@ -31,12 +32,15 @@ from lxml import etree, html
 
 from ....lib.config import LIST_DEFAULT
 from ....lib.credential_broker import broker
+from ....lib.document_store import PARSERS, document_text
 from ....lib.logging_utils import log_message
 from ....lib.security import extract_sender_email
 from .config import (
     EMAIL_IMAP_PORT_DEFAULT,
     EMAIL_SENT_FOLDER_DEFAULT,
+    MAIL_INDEX_DIR,
 )
+from .mail_index import MailIndex, MailText
 
 
 @dataclass
@@ -329,19 +333,14 @@ class _ReadOnlyMailbox:
         """All folders of this mailbox that hold mails."""
         return _folder_names(self._imap)
 
+    def uid_validity(self) -> int:
+        """UIDVALIDITY of the open folder, reported when it was opened."""
+        _, data = self._imap.response("UIDVALIDITY")
+        return int(data[0])
+
     def search(self, criteria: str) -> list[bytes]:
         """UIDs matching ASCII search criteria, ascending."""
         _, data = self._imap.uid("SEARCH", None, criteria)  # type: ignore[arg-type]
-        return data[0].split() if data and data[0] else []
-
-    def search_text(self, word: str) -> list[bytes]:
-        """UIDs of the mails with ``word`` in the headers or the text. imaplib encodes
-        command args as ASCII, so a non-ASCII word travels as an IMAP literal (length-
-        prefixed, no escaping needed) with CHARSET UTF-8."""
-        if word.isascii():
-            return self.search(f"TEXT {_quoted(word)}")
-        self._imap.literal = word.encode("utf-8")  # type: ignore[assignment]
-        _, data = self._imap.uid("SEARCH", "CHARSET", "UTF-8", "TEXT")
         return data[0].split() if data and data[0] else []
 
     def fetch_headers(self, uid: str) -> list:
@@ -452,45 +451,66 @@ def read_attachment(account: ImapAccount, msg_id: str, name: str, folder: str = 
     raise ValueError(f"Email {msg_id} has no attachment {name!r}, it has: {', '.join(_get_attachments(msg)) or 'none'}")
 
 
-def _uids_with_all_words(mailbox: _ReadOnlyMailbox, words: list[str]) -> list[str]:
-    """UIDs of the open folder's mails that hold every word, ascending."""
-    found: set[bytes] | None = None
-    for word in words:
-        with_word = set(mailbox.search_text(word))
-        found = with_word if found is None else found & with_word
-        if not found:
-            return []
-    return sorted((uid.decode() for uid in found or ()), key=int)
+def _mail_text(raw: bytes) -> MailText:
+    """What the mail index holds of a mail: headers, text, attachment names, and the
+    text of attachments the document parsers can read. A scan has none."""
+    msg = email.message_from_bytes(raw)
+    attachments: list[str] = []
+    for name, part in _attachment_parts(msg):
+        attachments.append(name)
+        payload = part.get_payload(decode=True)
+        if isinstance(payload, bytes) and Path(name).suffix.lower() in PARSERS:
+            try:
+                attachments.append(document_text(payload, name))
+            except Exception as exc:  # noqa: BLE001 — the mail stays findable by everything else
+                log_message(f"📧 Mail index: attachment {name!r} is unreadable: {exc}", "warning")
+    sent = _safe_parsedate(msg.get("Date", ""))
+    return MailText(
+        subject=_decode_header(msg.get("Subject", "")),
+        sender=_decode_sender(msg.get("From", "")),
+        recipients=" ".join(_decode_header(msg.get(header, "")) for header in ("To", "Cc")),
+        body=_extract_body(msg),
+        attachments="\n".join(attachments),
+        sent_at=sent.timestamp() if sent else 0.0,
+    )
+
+
+_mail_indexes: dict[Path, MailIndex] = {}
+
+
+def _mail_index(account: ImapAccount) -> MailIndex:
+    """The index of ``account``, one file per mailbox."""
+    name = hashlib.sha256(f"{account.host}\0{account.user}".encode()).hexdigest()[:16]
+    path = MAIL_INDEX_DIR / f"{name}.sqlite"
+    return _mail_indexes.setdefault(path, MailIndex(path))
 
 
 def search_emails(
     account: ImapAccount, query: str, folder: str | None = None, n: int | None = LIST_DEFAULT
-) -> tuple[list[EmailSummary], int]:
-    """Mails holding every word of ``query`` in subject, sender or text: the newest
-    hits and how many there are in all. Without ``folder`` it searches every folder.
-    Returned ``msg_id`` values are UIDs of the folder each hit names.
+) -> tuple[list[EmailSummary], int, int]:
+    """Mails holding every word of ``query`` or a part of it, in headers, text or
+    attachments, by the local index: the newest hits, how many there are in all, and
+    how many mails the index has not read yet. Without ``folder`` it covers every
+    folder. Returned ``msg_id`` values are UIDs of the folder each hit names."""
+    index = _mail_index(account)
+    index.refresh(lambda: _examine(account, "INBOX"), _mail_text)
+    found = index.find(query, folder)
+    chosen = found if n is None else found[:max(1, n)]
 
-    Quoting and the literal keep a crafted query (LLM tool arg) from rewriting the
-    command; CRLF is rejected here (would inject a raw command since imaplib does
-    not escape it).
-    """
-    _reject_imap_arg(query, "query")
-    if folder is not None:
-        _reject_imap_arg(folder, "folder")
-
+    uids_by_folder: dict[str, list[str]] = {}
+    for name, uid in chosen:
+        uids_by_folder.setdefault(name, []).append(str(uid))
     hits: list[EmailSummary] = []
-    total = 0
-    with _examine(account, folder or "INBOX") as mailbox:
-        for name in [folder] if folder else mailbox.folders():
-            mailbox.open(name)
-            uids = _uids_with_all_words(mailbox, query.split())
-            total += len(uids)
-            hits += [replace(entry, folder=name) for entry in _summaries(mailbox, uids, n)]
-
+    # Flags and headers come from the mailbox: the read state changes, the index knows none.
+    if uids_by_folder:
+        with _examine(account, "INBOX") as mailbox:
+            for name, uids in uids_by_folder.items():
+                mailbox.open(name)
+                hits += [replace(entry, folder=name) for entry in _summaries(mailbox, sorted(uids, key=int), None)]
     hits.sort(key=lambda entry: entry.sent_at, reverse=True)
-    results = hits if n is None else hits[:max(1, n)]
-    log_message(f"📧 Email: search '{query}' → {len(results)} of {total} results")
-    return results, total
+
+    log_message(f"📧 Email: search '{query}' → {len(hits)} of {len(found)} results, {index.pending} mails not indexed yet")
+    return hits, len(found), index.pending
 
 
 def _file_part(path: str, disposition: str, content_id: str | None = None) -> email.message.Message:
