@@ -4,6 +4,7 @@ Document Mixin – file explorer, upload, indexing and management.
 Part of the AIfred State refactoring (aifred/state/ package).
 """
 
+import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
 from typing import Any
 
@@ -345,15 +346,18 @@ class DocumentMixin(rx.State, mixin=True):
         """Update rename input value."""
         self.doc_rename_value = value
 
-    def doc_confirm_rename(self) -> None:
-        """Execute rename on disk (file_manager updates ChromaDB metadata too)."""
+    async def doc_confirm_rename(self) -> None:
+        """Execute rename on disk (file_manager takes the index along). On a thread: a large
+        folder moves many chunks, and a blocked event loop gets the worker killed."""
         from ..lib import file_manager as fm
         old_name = self.doc_rename_target
         new_name = self.doc_rename_value.strip()
         if not old_name or not new_name or old_name == new_name:
             self.doc_rename_target = ""
             return
-        result = fm.rename(self.doc_current_folder, old_name, new_name, sync_index=True)
+        result = await asyncio.to_thread(
+            fm.rename, self.doc_current_folder, old_name, new_name, sync_index=True
+        )
         if not result.success:
             self.add_debug(f"⚠️ rename: {result.detail}")  # type: ignore[attr-defined]
         self.doc_rename_target = ""
@@ -384,6 +388,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.document_upload_status = ""
         yield  # type: ignore[misc]
 
+        uploaded: list[str] = []
         try:
             target_dir = DOCUMENTS_DIR / self.doc_current_folder
             target_dir.mkdir(parents=True, exist_ok=True)
@@ -438,6 +443,7 @@ class DocumentMixin(rx.State, mixin=True):
                     yield  # type: ignore[misc]
                     continue
                 file_path.write_bytes(content)
+                uploaded.append(f"{self.doc_current_folder}/{filename}".lstrip("/"))
 
                 self.document_upload_status = t(
                     "doc_upload_saved", lang=self.ui_language,  # type: ignore[attr-defined]
@@ -462,10 +468,43 @@ class DocumentMixin(rx.State, mixin=True):
             if final_msg:
                 kind = "error" if final_msg.startswith("❌") else "success"
                 yield getattr(rx.toast, kind)(final_msg, duration=5000, position="top-center")
+            if uploaded:
+                yield type(self).doc_index_uploaded(uploaded)  # type: ignore[misc]
 
     # ================================================================
     # INDEX / DEINDEX
     # ================================================================
+
+    @rx.event(background=True)  # type: ignore[operator]
+    async def doc_index_uploaded(self, rel_paths: list[str]):
+        """Index what was just uploaded to the documents folder, so the search finds it.
+        In the background: a long PDF takes its time and must not hold up the session.
+
+        Not for a further source: its files sit behind a higher tier than the search, so
+        indexing one stays the user's decision per file."""
+        from pathlib import Path
+
+        from ..lib import file_manager as fm
+        from ..lib.i18n import t
+
+        for rel_path in rel_paths:
+            name = Path(rel_path).name
+            async with self:
+                self.document_upload_status = t(
+                    "doc_upload_indexing", lang=self.ui_language,  # type: ignore[attr-defined]
+                    filename=name,
+                )
+            try:
+                result = await fm.index_file(rel_path)
+            except Exception as exc:  # noqa: BLE001 — the upload stands, the user sees why it is not searchable
+                result = fm.FileOpResult(False, f"{name}: {exc}")
+            async with self:
+                self.document_upload_status = ""
+                toast = self._index_toast(result, name)
+                refresh = await self._refresh_open_source()
+            yield toast
+            if refresh is not None:
+                yield refresh
 
     async def _index_files(
         self, files: Sequence[tuple[str, Callable[[], Awaitable[Any]]]], where: str,
@@ -639,7 +678,7 @@ class DocumentMixin(rx.State, mixin=True):
         from ..lib.i18n import t
 
         rel_path = f"{self.doc_current_folder}/{filename}".lstrip("/")
-        result = await fm.deindex_file(rel_path, fallback_filename=filename)
+        result = await fm.deindex_file(rel_path)
         count = result.metadata.get("chunks_removed", 0)
 
         msg = t(
@@ -722,6 +761,7 @@ class DocumentMixin(rx.State, mixin=True):
             chunks_total += result.metadata.get("chunks_removed", 0)
             if not result.success:
                 failed.append(filename)
+                self.add_debug(f"⚠️ {result.detail}")  # type: ignore[attr-defined]
 
         deleted = len(selection) - len(failed)
         actions: list[str] = []
@@ -773,7 +813,8 @@ class DocumentMixin(rx.State, mixin=True):
         if is_folder:
             result = await fm.delete_folder(
                 self.doc_current_folder, target_name,
-                recursive=self.doc_delete_from_disk,
+                recursive=True,
+                from_disk=self.doc_delete_from_disk,
                 from_index=self.doc_delete_from_index,
             )
         else:
@@ -783,12 +824,19 @@ class DocumentMixin(rx.State, mixin=True):
                 from_index=self.doc_delete_from_index,
             )
 
+        if not result.success:
+            self.add_debug(f"⚠️ {result.detail}")  # type: ignore[attr-defined]
+            self.doc_delete_target = ""
+            self.doc_delete_is_folder = False
+            yield rx.toast.error(result.detail, duration=8000, position="top-center")
+            return
+
         # Build human-readable summary aligned with the previous wording
         actions: list[str] = []
         chunks = result.metadata.get("chunks_removed", 0)
         if self.doc_delete_from_index and chunks:
             actions.append(f"Index ({chunks} chunks)")
-        if self.doc_delete_from_disk and result.success:
+        if self.doc_delete_from_disk:
             actions.append("Disk")
         action_str = " + ".join(actions) if actions else "nothing"
 

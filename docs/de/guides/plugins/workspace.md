@@ -47,6 +47,8 @@ Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Ver
 - **Chunking:** Automatisch in ~800-Token-Abschnitte mit Overlap
 - **Semantische Suche:** Embedding-basiert über alle indexierten Dokumente
 - **Ordner-Filter:** `search_documents(folder="bibel")` schränkt die Suche ein und schließt alle verschachtelten Unterordner automatisch mit ein
+- **Von selbst:** Was der Benutzer im Dokumentenfenster in den lokalen Ordner hochlädt, wird nach dem Speichern im Hintergrund indexiert. Scheitert das, bleibt die Datei, und eine Meldung sagt warum. Von Agenten Erzeugtes kommt nur über `index_document` in den Index: Arbeitsdateien und eigene Ausgaben sollen nicht als Quelle wiederkehren.
+- **Der Index folgt der Datei:** Löschen entfernt Datei und Index. Klappt das am Index nicht, bleibt die Datei, und die Antwort sagt es, sonst fände die Suche weiter, was es nicht mehr gibt. Umbenennen und Verschieben ziehen die Abschnitte samt Embeddings um, auch alles unter einem Ordner.
 - **Weitere Quellen:** Dateien einer Dokumentenquelle (z. B. Nextcloud) indexiert der Benutzer im Dokumentenfenster, je Datei oder ganzen Ordner. Die Datei bleibt dort, der Index hält ihren Text unter `<quelle>:/<id>`, z. B. `nextcloud_files:/berichte/x.pdf`. `read_file` erreicht sie nicht; `folder="nextcloud_files:"` deckt die ganze Quelle ab. Ändert sich die Datei, gilt wie bei lokalen Dateien: neu indexieren. Agenten können nur lokale Dateien indexieren
 - **Relevanz-Labels:** Jeder Treffer wird mit `high` / `medium` (Ähnlichkeit) oder `context` (Nachbar-Chunks rund um einen Treffer) markiert
 - **MMR-Diversifizierung:** Ergebnisse werden über Dateien/Vektor-Regionen verteilt, statt viele fast identische Chunks zurückzugeben
@@ -60,4 +62,4 @@ Das Workspace Plugin bietet dem LLM direkten Dateizugriff auf das Dokumenten-Ver
 - Path-Traversal-Versuche (z.B. `../../etc/passwd`) werden blockiert
 - Löschen erfordert WRITE_SYSTEM Tier (höchste Stufe vor ADMIN)
 - ChromaDB-Clear erfordert ebenfalls WRITE_SYSTEM
-- `search_documents` ist READONLY: Was der Benutzer aus einer Quelle indexiert, finden Agenten auf jedem Kanal, auch wenn die Quelle selbst eine höhere Stufe verlangt. Indexieren ist deshalb eine bewusste Entscheidung des Benutzers und nur im Dokumentenfenster möglich
+- `search_documents` ist READONLY: Was der Benutzer aus einer Quelle indexiert, finden Agenten auf jedem Kanal, auch wenn die Quelle selbst eine höhere Stufe verlangt. Indexieren aus einer Quelle ist deshalb eine bewusste Entscheidung des Benutzers je Datei oder Ordner, auch nach einem Hochladen dorthin, und nur im Dokumentenfenster möglich

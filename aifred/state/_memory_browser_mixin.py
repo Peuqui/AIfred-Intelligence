@@ -7,9 +7,14 @@ export/import.
 
 from __future__ import annotations
 
-from typing import Any
+from collections.abc import AsyncGenerator
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
+from reflex.event import EventSpec
+
+if TYPE_CHECKING:
+    from ..lib.file_manager import FileOpResult
 
 
 def _meta_str(meta: Any, key: str, default: str = "") -> str:
@@ -25,12 +30,12 @@ def _by_path(doc: dict[str, Any]) -> str:
     return str(doc.get("filename", "")).casefold()
 
 
-async def _deindex(filename: str) -> None:
+async def _deindex(filename: str) -> FileOpResult:
     """Remove one document from the index only (the file stays on disk)."""
     from ..lib import file_manager as fm
     parts = filename.strip("/").rsplit("/", 1)
     parent_rel, leaf = ("", parts[0]) if len(parts) == 1 else (parts[0], parts[1])
-    await fm.delete_file(parent_rel, leaf, from_disk=False, from_index=True)
+    return await fm.delete_file(parent_rel, leaf, from_disk=False, from_index=True)
 
 
 
@@ -162,21 +167,30 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         orphans = result.metadata.get("orphans", []) if result.success else []
         self.db_orphans = sorted(orphans, key=_by_path)
 
-    async def db_deindex_document(self, filename: str) -> None:
+    async def db_deindex_document(self, filename: str) -> AsyncGenerator[EventSpec | None, None]:
         """Remove one document from the index (document row or orphan row)."""
-        await _deindex(filename)
+        result = await _deindex(filename)
         await self._refresh_db_documents()
         if self.db_orphans_visible:
             await self._reload_db_orphans()
+        if not result.success:
+            self.add_debug(f"⚠️ {result.detail}")  # type: ignore[attr-defined]
+            yield rx.toast.error(result.detail, duration=8000, position="top-center")
 
-    async def db_delete_all_orphans(self) -> None:
+    async def db_delete_all_orphans(self) -> AsyncGenerator[EventSpec | None, None]:
         """Bulk-remove every orphaned document from the index."""
+        failed = []
         for orphan in list(self.db_orphans):
             filename = str(orphan.get("filename", ""))
             if filename:
-                await _deindex(filename)
+                result = await _deindex(filename)
+                if not result.success:
+                    failed.append(result.detail)
         await self._reload_db_orphans()
         await self._refresh_db_documents()
+        for detail in failed:
+            self.add_debug(f"⚠️ {detail}")  # type: ignore[attr-defined]
+            yield rx.toast.error(detail, duration=8000, position="top-center")
 
     def _load_memory_collections(self) -> None:
         """Load the memory overview: every agent with its entry count.

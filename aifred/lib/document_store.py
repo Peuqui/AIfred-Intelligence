@@ -342,6 +342,17 @@ PARSERS = {
 CONTAINER_FORMATS = frozenset({".docx", ".xlsx", ".pptx", ".odt", ".ods", ".odp"})
 
 
+def document_folder(filename: str) -> str:
+    """The folder a document counts to: the parent of its relative path, empty for the root."""
+    return str(Path(filename).parent) if "/" in filename else ""
+
+
+def chunk_id(filename: str, chunk_index: int) -> str:
+    """The id of one passage. It carries the document's current name: the neighbours of a
+    hit are looked up by it, and a later document of that name would overwrite it."""
+    return f"{filename}__chunk_{chunk_index}"
+
+
 def document_text(data: bytes, name: str) -> str:
     """The text of a file that exists only in memory, by the parsers of the index."""
     suffix = Path(name).suffix.lower()
@@ -587,10 +598,9 @@ class DocumentStore:
         )
         now = datetime.now().isoformat()
 
-        # Folder is the parent path of the relative filename — empty string means root
-        folder = str(Path(filename).parent) if "/" in filename else ""
+        folder = document_folder(filename)
 
-        ids = [f"{filename}__chunk_{i}" for i in range(len(chunks))]
+        ids = [chunk_id(filename, i) for i in range(len(chunks))]
         metadatas = [
             {
                 "filename": filename,
@@ -726,8 +736,8 @@ class DocumentStore:
         )
         by_id = dict(zip(stored["ids"], zip(stored["documents"], stored["metadatas"], strict=True), strict=True))
         hits: list[dict[str, Any]] = []
-        for row, chunk_id in zip(page_rows, page_ids, strict=True):
-            doc, meta = by_id[chunk_id]
+        for row, passage_id in zip(page_rows, page_ids, strict=True):
+            doc, meta = by_id[passage_id]
             hits.append({
                 "content": doc,
                 "filename": meta.get("filename", ""),
@@ -742,9 +752,7 @@ class DocumentStore:
         # Neighbors are added with _neighbor=True so callers can distinguish
         # ranked hits from contextual augmentation.
         if neighbor_window and neighbor_window > 0 and hits:
-            existing_ids = {
-                f"{h['filename']}__chunk_{h['chunk_index']}" for h in hits
-            }
+            existing_ids = {chunk_id(h["filename"], h["chunk_index"]) for h in hits}
             neighbor_ids: set[str] = set()
             for h in hits:
                 fname = h["filename"]
@@ -756,7 +764,7 @@ class DocumentStore:
                     nidx = idx + offset
                     if nidx < 0 or (total and nidx >= total):
                         continue
-                    nid = f"{fname}__chunk_{nidx}"
+                    nid = chunk_id(fname, nidx)
                     if nid not in existing_ids:
                         neighbor_ids.add(nid)
 
@@ -850,6 +858,39 @@ class DocumentStore:
 
         log_message(f"🗑️ Deleted {filename}: {count} chunks")
         return count
+
+    def rename_document(self, old_filename: str, new_filename: str) -> int:
+        """Move a document to a new name, without embedding it again. What was indexed
+        under the new name is replaced. Returns the number of chunks moved.
+
+        The ids have to move too, see ``chunk_id``. The new ones are written before the
+        old ones go, so a failure leaves the document findable."""
+        data = self._collection.get(
+            where={"filename": old_filename},
+            include=["documents", "embeddings", "metadatas"],
+        )
+        old_ids = data["ids"]
+        if not old_ids:
+            return 0
+
+        self._collection.delete(where={"filename": new_filename})
+        metadatas = [
+            {**meta, "filename": new_filename, "folder": document_folder(new_filename)}
+            for meta in data["metadatas"]
+        ]
+        for start in range(0, len(old_ids), DOCUMENT_EMBED_BATCH_SIZE):
+            end = start + DOCUMENT_EMBED_BATCH_SIZE
+            batch = metadatas[start:end]
+            self._collection.upsert(
+                ids=[chunk_id(new_filename, meta["chunk_index"]) for meta in batch],
+                documents=data["documents"][start:end],
+                embeddings=data["embeddings"][start:end],
+                metadatas=batch,
+            )
+        self._collection.delete(ids=old_ids)
+        self._invalidate_caches()
+        log_message(f"📄 Renamed {old_filename} → {new_filename}: {len(old_ids)} chunks")
+        return len(old_ids)
 
 
 # Singleton
