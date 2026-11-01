@@ -312,7 +312,7 @@ def _strip_html(text: str) -> str:
     try:
         extractor.feed(text)
         return extractor.get_text()
-    except Exception as exc:  # noqa: BLE001 — checked content stays unblocked if a pattern fails
+    except Exception as exc:  # noqa: BLE001 — broken markup must not stop the message
         logger.warning("HTMLParser failed on inbound text (%s) — falling back to regex strip", exc)
         return re.sub(r"<[^>]*>", "", text)
 
