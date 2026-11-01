@@ -163,7 +163,7 @@ def test_a_file_goes_through_its_whole_life(client, folder) -> None:
     assert row["modified"].startswith("20")
     read = files.read("berichte/Grüße Test.txt")
     assert read["content"] == "Hallo Welt"
-    assert [hit["path"] for hit in files.search("grüße", 10)] == ["berichte/Grüße Test.txt"]
+    assert [hit["path"] for hit in files.search("grüße")] == ["berichte/Grüße Test.txt"]
     assert files.move("berichte/Grüße Test.txt", "archiv/2026/neu.txt") == {"path": "archiv/2026/neu.txt"}
     assert files.read("archiv/2026/neu.txt")["content"] == "Hallo Welt"
     files.delete("archiv/2026/neu.txt")
@@ -237,7 +237,7 @@ def test_the_search_stays_inside_the_agent_folder(client, folder) -> None:
         client.write_file(f"{other}/treffer-{folder}.txt", b"x", "text/plain", None)
         files = AgentFiles(client, folder)
         files.write("sub/treffer-innen.txt", "x", None)
-        assert [row["path"] for row in files.search("treffer", 10)] == ["sub/treffer-innen.txt"]
+        assert [row["path"] for row in files.search("treffer")] == ["sub/treffer-innen.txt"]
     finally:
         client.delete_file(other)
 

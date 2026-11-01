@@ -13,7 +13,6 @@ from datetime import UTC, datetime
 from typing import Any, Optional
 
 from .config import (
-    AGENT_MEMORY_COLLECTION_MAX,
     AGENT_MEMORY_DISTANCE_THRESHOLD,
     AGENT_MEMORY_QUERY_MAX_CHARS,
     AGENT_MEMORY_RECENT_COUNT,
@@ -47,10 +46,6 @@ def summary_fits_index(summary: str) -> bool:
     """
     text = summary.strip()
     return "\n" not in text and len(text) <= AGENT_MEMORY_SUMMARY_MAX_CHARS
-
-
-class MemoryFullError(RuntimeError):
-    """The agent's collection has reached AGENT_MEMORY_COLLECTION_MAX."""
 
 
 class AgentMemory:
@@ -96,16 +91,6 @@ class AgentMemory:
         the full content goes into metadata.
         """
         col = self._collection(agent_id)
-
-        # Full memory: refuse instead of evicting. The agent sees every entry
-        # (recall_context) and merges or deletes; nothing disappears silently.
-        count = col.count()
-        if count >= AGENT_MEMORY_COLLECTION_MAX:
-            raise MemoryFullError(
-                f"Memory is full ({count} entries, limit {AGENT_MEMORY_COLLECTION_MAX}). "
-                "Merge overlapping entries with update_memory or delete obsolete ones "
-                "with delete_memory, then store again."
-            )
 
         doc_id = str(uuid.uuid4())
         now = datetime.now(UTC).isoformat()
@@ -547,7 +532,7 @@ def get_agent_memory() -> AgentMemory | None:
     if _instance is None:
         try:
             _instance = AgentMemory()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — without ChromaDB the agent works, it just has no memory
             log_message(f"AgentMemory unavailable: {e}")
             return None
     return _instance

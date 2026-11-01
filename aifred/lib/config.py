@@ -9,6 +9,12 @@ import os
 import platform
 from pathlib import Path
 
+
+def env_int(name: str, default: int) -> int:
+    """A setting that ``.env`` can change without touching the code."""
+    return int(os.environ.get(name, default))
+
+
 # ============================================================
 # PROJECT PATHS
 # ============================================================
@@ -439,7 +445,7 @@ TOOL_HEARTBEAT_INTERVAL_SEC = 20.0
 # Patterns wertvoller sind als historische und der Cache nach Loeschung in
 # 1-2 Tagen Normal-Use wieder voll aufgebaut ist, ist Loeschen bei Schwellwert-
 # Ueberschreitung pragmatischer als Truncation des Binaerformats.
-LOOKUP_CACHE_MAX_BYTES = 300 * 1024 * 1024  # 300 MB pro Lookup-Cache-Datei
+LOOKUP_CACHE_MAX_BYTES = env_int("LOOKUP_CACHE_MAX_BYTES", 300 * 1024 * 1024)  # 300 MB pro Lookup-Cache-Datei
 LOOKUP_CACHE_GLOB = str(Path.home() / ".cache" / "llama_lookup_*.bin")
 
 # Gemeinsamer Wartungsslot fuer alle Background-GC-Tasks (Lookup-Cache,
@@ -525,8 +531,6 @@ HISTORY_SUMMARY_MIN_TOKENS = 500
 # Tolerance: How much larger than target is acceptable before truncation
 HISTORY_SUMMARY_TOLERANCE = 0.5  # 50% over target allowed, above that: truncate
 
-# Maximum number of summaries stored (FIFO when exceeded)
-HISTORY_MAX_SUMMARIES = 10
 
 # Maximum percentage of context that can be used by summaries
 # Used for dynamic max_summaries calculation based on context size
@@ -1300,7 +1304,7 @@ WHISPER_SERVICE_URL = "http://localhost:5080"
 # has no API limit (the old 25 MB was OpenAI's cloud upload cap). A 2 h meeting
 # as uncompressed WAV is ~1.3 GB. NOTE: uploads through the nginx reverse proxy
 # are additionally capped by its client_max_body_size.
-AUDIO_UPLOAD_MAX_MB = 2048
+AUDIO_UPLOAD_MAX_MB = env_int("AUDIO_UPLOAD_MAX_MB", 2048)
 
 # Whisper transcribes each file in a single request (no chunking), so long
 # recordings need a matching HTTP timeout. GPU large-v3 runs at roughly
@@ -1407,7 +1411,7 @@ VLLM_CALIBRATION_CACHE_ROOT = Path.home() / ".cache" / "vllm-calibration"
 # seine Artefakte dienen nur den Sonden-Boots, die Produktion kompiliert
 # unter ihrem eigenen Root ohnehin einmal neu; der naechste Lauf legt sich
 # seine Eintraege einmalig wieder an (RTX 8000: ~5 min je kaltem Boot).
-VLLM_CALIBRATION_CACHE_MAX_GIB = 40
+VLLM_CALIBRATION_CACHE_MAX_GIB = env_int("VLLM_CALIBRATION_CACHE_MAX_GIB", 40)
 # Produktions-Cache (vLLMs Standard-Root, die llama-swap-Eintraege setzen
 # keinen eigenen): jeder Betriebspunkt hinterlaesst ein AOT-Artefakt von
 # 0,7-2,5 GB, und nichts raeumt die Artefakte geloeschter Modelle oder
@@ -1418,8 +1422,8 @@ VLLM_CALIBRATION_CACHE_MAX_GIB = 40
 # ist die atime der Artefakte (relatime: mindestens taeglich aktualisiert).
 # Ein geloeschter Eintrag legt sich beim naechsten Boot einmalig neu an.
 VLLM_PRODUCTION_CACHE_ROOT = Path.home() / ".cache" / "vllm"
-VLLM_PRODUCTION_CACHE_MAX_GIB = 40
-VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS = 21
+VLLM_PRODUCTION_CACHE_MAX_GIB = env_int("VLLM_PRODUCTION_CACHE_MAX_GIB", 40)
+VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS = env_int("VLLM_PRODUCTION_CACHE_MAX_AGE_DAYS", 21)
 
 # Host-RAM-Wache der Kalibrationsboots: Anteil des GESAMTEN Arbeitsspeichers,
 # der waehrend eines Boots verfuegbar bleiben muss. Faellt er darunter, wird
@@ -1473,10 +1477,8 @@ MEDIA_VIDEO_DIR.mkdir(parents=True, exist_ok=True)
 # ============================================================
 # AGENT MEMORY CONFIGURATION
 # ============================================================
-# Every entry goes into the context as an index line (recall_context), so the
-# limit bounds that index: 200 lines are roughly 8k tokens. A full memory
-# refuses new entries; the agent merges or deletes.
-AGENT_MEMORY_COLLECTION_MAX = 200    # Max entries per agent collection
+# Every entry goes into the context as an index line (recall_context): 200 lines are
+# roughly 8k tokens. There is no upper limit, what is irrelevant gets cleaned up.
 AGENT_MEMORY_DISTANCE_THRESHOLD = 1.0  # Max distance for relevant memories (bge-m3 embeddings)
 AGENT_MEMORY_RESULTS = 5             # Semantic hits shown with their content
 AGENT_MEMORY_RECENT_COUNT = 3        # Newest entries shown with their content
@@ -1490,11 +1492,10 @@ AGENT_MEMORY_QUERY_MAX_CHARS = 8000
 # SANDBOX (CODE EXECUTION) CONFIGURATION
 # ============================================================
 SANDBOX_TIMEOUT_SECONDS = 30         # Max execution time per run
-SANDBOX_MAX_RAM_MB = 2048            # RLIMIT_AS for subprocess (numpy/pandas need ~1GB)
-SANDBOX_MAX_OUTPUT_BYTES = 1_000_000 # Truncate stdout/stderr beyond this
-SANDBOX_MAX_FILE_SIZE_MB = 512       # RLIMIT_FSIZE: single-file write cap inside the
+SANDBOX_MAX_RAM_MB = env_int("SANDBOX_MAX_RAM_MB", 2048)  # RLIMIT_AS for subprocess (numpy/pandas need ~1GB)
+SANDBOX_MAX_FILE_SIZE_MB = env_int("SANDBOX_MAX_FILE_SIZE_MB", 512)  # RLIMIT_FSIZE: single-file write cap inside the
                                      # sandbox — stops code filling the host disk/tmpfs.
-SANDBOX_MAX_PROCESSES = 64           # RLIMIT_NPROC: cap child processes so a fork bomb
+SANDBOX_MAX_PROCESSES = env_int("SANDBOX_MAX_PROCESSES", 64)  # RLIMIT_NPROC: cap child processes so a fork bomb
                                      # can't multiply past the per-process RAM limit.
 SANDBOX_MATH_THREADS = 4             # OpenBLAS/OpenMP thread pools: each thread reserves
                                      # address space — at 16 threads `import cv2` needed
@@ -1522,7 +1523,7 @@ BROWSER_RENDER_ACTION_TIMEOUT_MS = 5000      # per-action timeout (missing selec
 # Credentials managed by credential_broker.py (not as global variables!)
 # Non-secret tuning values live plugin-local in
 # aifred/plugins/channels/email_channel/config.py (each plugin owns its
-# own configuration) — EMAIL_LIST_DEFAULT /
+# own configuration) — 
 # EMAIL_MAX_PROCESS_ATTEMPTS moved there 2026-07-06.
 
 # ============================================================
@@ -1571,13 +1572,14 @@ DOCUMENT_EMBED_BATCH_SIZE = 64      # Chunks pro Embed-API-Call beim Indexieren.
                                      # bleibt responsiv. 64 ist ein Kompromiss
                                      # zwischen API-Overhead (kleinere Batches → mehr
                                      # Calls) und Worker-Responsiveness.
-DOCUMENT_MAX_FILE_SIZE_MB = 0       # 0 = no limit
 MAX_IMAGES_PER_MESSAGE = 12        # = --limit-mm-per-prompt image in den vLLM-Profilen
                                      # (llama-swap-Config); mehr lehnt vLLM mit 400 ab.
-WORKSPACE_READ_MAX_BYTES = 25 * 1024 * 1024  # read_file tool: reject files larger
-                                     # than this (the whole file is loaded into RAM;
-                                     # a huge file would blow the worker's memory).
-                                     # The model should page/line-range large files.
+# Schützt den Arbeitsspeicher, nicht das Modell: So viel darf beim Lesen auf einmal im RAM
+# liegen (eine Datei, eine Zeile, eine Webseite). Was das Modell sieht, regelt tool_output_cap.
+READ_MEMORY_GUARD_BYTES = env_int("READ_MEMORY_GUARD_BYTES", 25 * 1024 * 1024)
+# Standardmenge einer Liste oder Suche. Nur der erste Schritt: Die Antwort nennt die Gesamtzahl,
+# und das Modell kann mehr holen. Eine Obergrenze gibt es nicht.
+LIST_DEFAULT = env_int("LIST_DEFAULT", 20)
 READ_FILE_RENDER_DPI = 150           # read_file: PDF pages without a text layer
                                      # (scans) are rendered as images at this
                                      # resolution (A4 ≈ 1240×1754 px) for vision_analyze.
@@ -1587,12 +1589,11 @@ READ_FILE_RENDER_MAX_PAGES = 12      # read_file: at most this many pages render
 # ChromaDB vector store endpoint (workspace ChromaDB tools, documents, agent memory).
 CHROMA_HOST = os.environ.get("CHROMA_HOST", "localhost")
 CHROMA_PORT = int(os.environ.get("CHROMA_PORT", "8000"))
-# Web scraper: hard cap on a single fetched response body. Without it a
-# malicious/compromised URL could stream gigabytes within the timeout window
-# and OOM the worker (the body is buffered fully for trafilatura/PyMuPDF).
-SCRAPER_MAX_RESPONSE_BYTES = 25 * 1024 * 1024
 EMBEDDING_USE_GPU = True           # True = GPU (~900MB VRAM, ~10× faster — needed for large docs), False = CPU
-DOCUMENT_SEARCH_MAX_RESULTS = 100   # Hard cap for the search_documents tool's n_results parameter
+# Vorauswahl der Dokumentensuche: So viele Treffer holt ChromaDB, bevor sie umsortiert (MMR)
+# und seitenweise ausgegeben werden. Keine Obergrenze aus Vorsicht: Ohne Vorauswahl müsste jede
+# Suche den ganzen Index laden.
+DOCUMENT_SEARCH_POOL_SIZE = env_int("DOCUMENT_SEARCH_POOL_SIZE", 100)
 DOCUMENT_SEARCH_NEIGHBOR_WINDOW = 1 # ±N neighbor chunks returned per hit. Compensates for
                                      # mid-sentence chunk cuts: a hit at chunk K also returns
                                      # K-1 and K+1 so the model sees the full sentence/paragraph
@@ -1640,10 +1641,9 @@ SECURITY_AUDIT_RETENTION_DAYS = 7       # tool_audit-Zeilen aelter als N Tage ta
 # degenerierte Varianten-Ketten kleiner Modelle. 0 = deaktiviert.
 # 2026-08-13: 50 → 100 — eine legitime Datei-Pipeline (Transkript in
 # ~40 Chunks übersetzen + Datei-Ops) lief bei 50 gegen den Deckel.
-SECURITY_MAX_TOOL_CHAIN_DEPTH = 100
+SECURITY_MAX_TOOL_CHAIN_DEPTH = env_int("SECURITY_MAX_TOOL_CHAIN_DEPTH", 100)
 # Notiz in der llm_history, was die Werkzeuge einer Antwort getan haben
-# (ToolKit.call_note): höchstens so viele schreibende Aufrufe, lange Werte einzeln gekürzt.
-TOOL_CALL_NOTE_MAX_WRITES = 20
+# (ToolKit.call_note): lange Werte werden einzeln gekürzt.
 TOOL_CALL_NOTE_VALUE_CHARS = 120
 
 # Maximum tool call rounds per LLM response — der harte Not-Aus der
@@ -1678,8 +1678,8 @@ TOOL_LOOP_CONTEXT_GUARD = 0.85
 # verweigert. Lese-Tools (Tier 0 oder read_only): verweigert wird erst, wenn derselbe Call so oft
 # in Folge dasselbe Ergebnis lieferte — ein Wiederholen nach einer Änderung
 # dazwischen (Schreibvorgang, Sub-Agent) geht durch.
-SECURITY_MAX_IDENTICAL_TOOL_CALLS = 2
-SECURITY_RATE_LIMIT_WINDOW_SEC = 60     # Rate limit window in seconds
+SECURITY_MAX_IDENTICAL_TOOL_CALLS = env_int("SECURITY_MAX_IDENTICAL_TOOL_CALLS", 2)
+SECURITY_RATE_LIMIT_WINDOW_SEC = env_int("SECURITY_RATE_LIMIT_WINDOW_SEC", 60)  # Rate limit window in seconds
 SECURITY_RATE_LIMITS: dict[str, int] = {
     "browser": 0,       # 0 = unlimited
     "email": 5,         # Max 5 tool calls per minute
@@ -1693,24 +1693,17 @@ SECURITY_RATE_LIMITS: dict[str, int] = {
 # ============================================================
 # HTML PREVIEW CONFIGURATION
 # ============================================================
-HTML_PREVIEW_MAX_FILES = 200         # LRU cache limit for data/html_preview/
+HTML_PREVIEW_MAX_FILES = env_int("HTML_PREVIEW_MAX_FILES", 200)  # LRU cache limit for data/html_preview/
 SANDBOX_OUTPUT_DIR = DATA_DIR / "sandbox_output"
 # Max size of a file a channel *_send tool may attach. Guards against a
 # huge sandbox/upload file stalling the send or hitting provider limits
 # (Telegram bot API: 50 MB, most SMTP: ~25 MB). env-overridable.
 OUTBOUND_ATTACHMENT_MAX_BYTES = int(os.environ.get("OUTBOUND_ATTACHMENT_MAX_BYTES", str(20 * 1024 * 1024)))
-# Max text length of POST /api/audio/announce. Longer texts are refused (413)
-# instead of cut: an announcement is read aloud, ~1200 characters are roughly
-# 80 s of speech. env-overridable.
-ANNOUNCE_MAX_CHARS = int(os.environ.get("ANNOUNCE_MAX_CHARS", "1200"))
 # Vor einer Ansage/einem Alarm hält der Server einen laufenden Strom per _pause am Puck an
 # und wartet so lange auf dessen Bestätigung; danach wird die Ansage verworfen (laut geloggt).
 FREEECHO2_PAUSE_ACK_TIMEOUT_SEC = float(os.environ.get("FREEECHO2_PAUSE_ACK_TIMEOUT_SEC", "3"))
-# POST /api/audio/announce mit mehreren Absätzen (texts): Gesamtlimit (413 statt Kürzen),
-# Standardpause zwischen den Absätzen und deren Obergrenze, jeweils in ms.
-ANNOUNCE_MAX_TOTAL_CHARS = int(os.environ.get("ANNOUNCE_MAX_TOTAL_CHARS", "4000"))
+# POST /api/audio/announce mit mehreren Absätzen (texts): Standardpause dazwischen in ms.
 ANNOUNCE_PAUSE_MS = int(os.environ.get("ANNOUNCE_PAUSE_MS", "1000"))
-ANNOUNCE_MAX_PAUSE_MS = int(os.environ.get("ANNOUNCE_MAX_PAUSE_MS", "5000"))
 
 # ============================================================
 # XML TAG FORMATTING CONFIGURATION

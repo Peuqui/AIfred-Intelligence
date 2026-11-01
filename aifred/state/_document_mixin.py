@@ -370,7 +370,6 @@ class DocumentMixin(rx.State, mixin=True):
 
         from ..lib.config import (
             DOCUMENT_ALLOWED_EXTENSIONS,
-            DOCUMENT_MAX_FILE_SIZE_MB,
             DOCUMENTS_DIR,
         )
         from ..lib.i18n import t
@@ -414,16 +413,6 @@ class DocumentMixin(rx.State, mixin=True):
                 # Read content
                 content = await file.read()
 
-                # Validate size (0 = no limit)
-                size_mb = len(content) / (1024 * 1024)
-                if DOCUMENT_MAX_FILE_SIZE_MB > 0 and size_mb > DOCUMENT_MAX_FILE_SIZE_MB:
-                    self.document_upload_status = t(
-                        "doc_upload_too_large", lang=self.ui_language,  # type: ignore[attr-defined]
-                        filename=filename, max_mb=DOCUMENT_MAX_FILE_SIZE_MB,
-                    )
-                    yield  # type: ignore[misc]
-                    continue
-
                 if self.doc_source != "local":
                     # Further source (e.g. Google Drive): into the open folder there.
                     import mimetypes
@@ -460,7 +449,7 @@ class DocumentMixin(rx.State, mixin=True):
             # Refresh file list
             yield await self._refresh_open_source()  # type: ignore[misc]
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the user sees the failure
             self.document_upload_status = f"\u274c {e}"
             self.add_debug(f"\u274c Document upload failed: {e}")  # type: ignore[attr-defined]
 
@@ -846,7 +835,7 @@ class DocumentMixin(rx.State, mixin=True):
             text = parser(file_path)
             self.document_preview_filename = filename
             self.document_preview_content = text
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the user sees the failure
             self.document_preview_filename = filename
             self.document_preview_content = f"\u274c {e}"
 

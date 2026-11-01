@@ -14,9 +14,6 @@ from pydantic import BaseModel, Field, model_validator
 
 from ..auth import require_service_token
 from ..config import (
-    ANNOUNCE_MAX_CHARS,
-    ANNOUNCE_MAX_PAUSE_MS,
-    ANNOUNCE_MAX_TOTAL_CHARS,
     ANNOUNCE_PAUSE_MS,
 )
 from ..logging_utils import log_message
@@ -41,7 +38,7 @@ class AnnounceRequest(BaseModel):
         "first, one end tone after the last, silence between them)",
     )
     pause_ms: int | None = Field(
-        None, ge=0, le=ANNOUNCE_MAX_PAUSE_MS,
+        None, ge=0,
         description="Silence between the paragraphs of texts in ms (default ANNOUNCE_PAUSE_MS)",
     )
     speaker: CallerName
@@ -84,22 +81,9 @@ async def announce_rooms(authorization: str | None = Header(None)) -> dict[str, 
 @api_app.post("/audio/announce", response_model=AnnounceResponse, tags=["Audio"])
 async def announce(request: AnnounceRequest, authorization: str | None = Header(None)) -> dict[str, object]:
     """Read the text (or the paragraphs of ``texts`` as ONE announcement) aloud in ``room``
-    (404 for an unknown or not connected room, 413 for a text longer than
-    ``ANNOUNCE_MAX_CHARS`` per entry or ``ANNOUNCE_MAX_TOTAL_CHARS`` in total)."""
+    (404 for an unknown or not connected room)."""
     _require_announce_token(authorization)
     paragraphs = request.paragraphs
-    too_long = [len(p) for p in paragraphs if len(p) > ANNOUNCE_MAX_CHARS]
-    if too_long:
-        raise HTTPException(
-            status_code=413,
-            detail=f"an entry has {max(too_long)} characters, the limit is {ANNOUNCE_MAX_CHARS} per entry",
-        )
-    total = sum(len(p) for p in paragraphs)
-    if total > ANNOUNCE_MAX_TOTAL_CHARS:
-        raise HTTPException(
-            status_code=413,
-            detail=f"the texts have {total} characters in total, the limit is {ANNOUNCE_MAX_TOTAL_CHARS}",
-        )
     rooms = resolve_announce_targets("freeecho2", request.room)
     if not rooms:
         raise HTTPException(status_code=404, detail=f"no connected FreeEcho.2 room '{request.room}'")
@@ -116,5 +100,5 @@ async def announce(request: AnnounceRequest, authorization: str | None = Header(
     reached = await announce_into_rooms("freeecho2", rooms, spoken, request.speaker, metadata)
     if not reached:
         raise HTTPException(status_code=502, detail="the announcement could not be delivered")
-    log_message(f"Announce API: {len(paragraphs)} paragraph(s), {total} characters to {reached}")
+    log_message(f"Announce API: {len(paragraphs)} paragraph(s), {sum(map(len, paragraphs))} characters to {reached}")
     return {"success": True, "rooms": reached}

@@ -20,7 +20,7 @@ from textwrap import wrap
 from typing import Any
 
 from ....lib import file_manager
-from ....lib.config import WORKSPACE_READ_MAX_BYTES
+from ....lib.config import LIST_DEFAULT, READ_MEMORY_GUARD_BYTES
 from ....lib.context_manager import estimate_tokens
 from ....lib.document_store import document_text
 from ....lib.formatting import format_number
@@ -50,7 +50,6 @@ from .client import (
     readonly_mailbox_configured,
     search_emails,
 )
-from .config import EMAIL_LIST_DEFAULT
 
 # Actions offered by the safe (COMMUNICATE) tool vs. the destructive one.
 # Each tool enforces its own set so the model cannot smuggle a delete through
@@ -69,7 +68,7 @@ def _mail_list(emails: list[EmailSummary], total: int) -> str:
 
 async def _check(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     unread = parse_bool(kwargs["unread"], "unread") if "unread" in kwargs else False
-    n = int(kwargs["n"]) if "n" in kwargs else None if unread else EMAIL_LIST_DEFAULT
+    n = int(kwargs["n"]) if "n" in kwargs else None if unread else LIST_DEFAULT
     folder = kwargs.get("folder", "INBOX")
     emails, total = await asyncio.to_thread(check_inbox, account, n=n, folder=folder, unread_only=unread)
     if not emails:
@@ -81,7 +80,7 @@ def _lines(text: str, kwargs: dict[str, Any]) -> tuple[str, str]:
     """The asked-for lines of a text, as much as the model's budget holds, and the range
     in words. Like a file: what does not fit ends at a line, the next call goes on there."""
     budget = budget_var.get()
-    max_chars = budget * CHARS_PER_TOKEN if budget > 0 else WORKSPACE_READ_MAX_BYTES
+    max_chars = budget * CHARS_PER_TOKEN if budget > 0 else READ_MEMORY_GUARD_BYTES
     # A line longer than the budget would stop every range in front of it.
     broken = (piece for line in text.rstrip().split("\n")
               for piece in (wrap(line, max_chars) if len(line) > max_chars else [line]))
@@ -172,7 +171,7 @@ async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     query = kwargs.get("query", "")
     if not query:
         return "Error: query required"
-    n = int(kwargs["n"]) if "n" in kwargs else EMAIL_LIST_DEFAULT
+    n = int(kwargs["n"]) if "n" in kwargs else LIST_DEFAULT
     folder = kwargs.get("folder", "INBOX")
     emails, total = await asyncio.to_thread(search_emails, account, query=query, folder=folder, n=n)
     if not emails:

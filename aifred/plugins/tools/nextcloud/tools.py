@@ -13,6 +13,7 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
+from ....lib.config import LIST_DEFAULT
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
 from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
@@ -34,7 +35,6 @@ from .vcard import ADDRESS_PARTS, EMAIL_KINDS, PHONE_KINDS
 
 SEARCH_TYPES = ["events", "tasks", "contacts", "notes", "calendars", "tasklists", "addressbooks"]
 ITEM_TYPES = ["event", "task", "contact", "note"]
-DEFAULT_LIMIT = 20
 EVENT_WINDOW_DAYS = 30
 
 _MODULE = {"events": "calendar", "event": "calendar", "calendars": "calendar",
@@ -226,18 +226,18 @@ def _note_update(store: NextcloudStore, object_id: str, data: dict) -> str:
 
 
 def _search(store: NextcloudStore, entity_type: str, query: str | None, date_from: str | None,
-            date_to: str | None, completed: object, limit: int) -> list[dict[str, Any]]:
+            date_to: str | None, completed: object) -> list[dict[str, Any]]:
     query = query or None
     if entity_type == "events":
         first = parse_date(date_from, "date_from") if date_from else date.today()
         last = parse_date(date_to, "date_to") if date_to else first + timedelta(days=EVENT_WINDOW_DAYS)
-        return store.events(first, last, query, limit)
+        return store.events(first, last, query)
     if entity_type == "tasks":
-        return store.tasks(query, None if completed is None else parse_bool(completed, "completed"), limit)
+        return store.tasks(query, None if completed is None else parse_bool(completed, "completed"))
     if entity_type == "contacts":
-        return store.contacts(query, limit)
+        return store.contacts(query)
     if entity_type == "notes":
-        return store.notes(query, limit)
+        return store.notes(query)
     return store.collections(entity_type)
 
 
@@ -252,14 +252,15 @@ def get_nextcloud_tools(store: NextcloudStore) -> list[Tool]:
 
     async def nextcloud_search(entity_type: str, query: str | None = None, date_from: str | None = None,
                                date_to: str | None = None, completed: object = None,
-                               limit: int = DEFAULT_LIMIT) -> str:
+                               limit: int = LIST_DEFAULT) -> str:
         try:
             if entity_type not in search_types:
                 raise InvalidValue(f"entity_type must be one of {', '.join(search_types)}")
-            results = await run(_search, store, entity_type, query, date_from, date_to, completed, limit)
+            shown = max(1, int(limit))
+            results = await run(_search, store, entity_type, query, date_from, date_to, completed)
         except _EXPECTED_ERRORS as exc:
             return _error(str(exc))
-        return _dump({"total_count": len(results), "results": results})
+        return _dump({"total_count": len(results), "results": results[:shown]})
 
     async def nextcloud_get(entity_type: str, entity_id: str) -> str:
         getters = {"event": store.get_event, "task": store.get_task, "contact": store.get_contact,

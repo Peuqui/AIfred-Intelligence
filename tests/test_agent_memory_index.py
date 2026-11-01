@@ -5,7 +5,7 @@ import asyncio
 import pytest
 
 from aifred.lib import agent_memory
-from aifred.lib.agent_memory import AgentMemory, MemoryFullError, format_memory_context
+from aifred.lib.agent_memory import AgentMemory, format_memory_context
 
 
 class FakeCollection:
@@ -58,13 +58,11 @@ def test_similar_summary_creates_a_new_entry(memory):
     assert memory._collections["pater"].count() == 2
 
 
-def test_full_memory_refuses_instead_of_evicting(memory, monkeypatch):
-    monkeypatch.setattr(agent_memory, "AGENT_MEMORY_COLLECTION_MAX", 2)
-    _store(memory, "eins")
-    _store(memory, "zwei")
-    with pytest.raises(MemoryFullError, match="update_memory"):
-        _store(memory, "drei")
-    assert memory._collections["pater"].count() == 2
+def test_memory_has_no_upper_limit(memory):
+    """Pater notes every psalm he used, one entry a day: a limit would stop him one day."""
+    for number in range(250):
+        _store(memory, f"Eintrag {number}")
+    assert memory._collections["pater"].count() == 250
 
 
 def test_index_lists_all_and_expands_recent_and_hits(memory):

@@ -7,7 +7,7 @@
     },
     "n_results": {
       "type": "integer",
-      "description": "Page size — number of similarity hits per page (default: 5, max: {max_results})",
+      "description": "Page size — number of similarity hits per page (default: 5)",
       "default": 5
     },
     "folder": {

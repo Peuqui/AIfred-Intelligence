@@ -45,8 +45,6 @@ from aifred.lib.config import DATA_DIR
 
 SETTINGS_FILE = DATA_DIR / "epim" / "deletion_sync.json"
 STATE_FILE = DATA_DIR / "epim" / "deletion_sync_state.json"
-SEARCH_LIMIT = 50
-SEARCH_LIMIT_MAX = 500  # a contact's name may be part of many others
 SSH_CONNECTION_FAILED = 255
 
 
@@ -293,14 +291,14 @@ def run(apply: bool) -> int:
     def find_event(entry: EpimEntry) -> list[dict[str, Any]]:
         assert entry.start is not None
         day = entry.start.date()
-        return store.events(day, day, entry.title, SEARCH_LIMIT)
+        return store.events(day, day, entry.title)
 
     plans = {
         "events": (plan_deletions(epim_bin.events, epim_bin.active_events, find_event), store.delete_event),
         "contacts": (plan_contact_deletions(epim_bin.contacts, epim_bin.active_contacts,
-                                            lambda name: store.contacts(name, SEARCH_LIMIT_MAX)), store.delete_contact),
+                                            lambda name: store.contacts(name)), store.delete_contact),
         "tasks": (plan_task_deletions(epim_bin.tasks, epim_bin.active_tasks,
-                                      lambda title: store.tasks(title, None, SEARCH_LIMIT_MAX)), store.delete_task),
+                                      lambda title: store.tasks(title, None)), store.delete_task),
     }
     for kind, (plan, _delete) in plans.items():
         _report(kind, plan)

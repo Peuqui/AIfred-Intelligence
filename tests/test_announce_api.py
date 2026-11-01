@@ -1,4 +1,4 @@
-"""Announce API: token guard, room list, 404 / 413 / 422, one text or several paragraphs."""
+"""Announce API: token guard, room list, 404 / 422, one text or several paragraphs, no length limit."""
 
 import pytest
 from starlette.testclient import TestClient
@@ -103,8 +103,8 @@ def test_exactly_one_of_text_and_texts(client: TestClient, body) -> None:
     assert client.delivered == []  # type: ignore[attr-defined]
 
 
-def test_pause_is_limited(client: TestClient) -> None:
-    assert _post(client, texts=["a"], pause_ms=announce.ANNOUNCE_MAX_PAUSE_MS + 1).status_code == 422
+def test_pause_has_no_upper_limit(client: TestClient) -> None:
+    assert _post(client, texts=["a"], pause_ms=60_000).status_code == 200
     assert _post(client, texts=["a"], pause_ms=-1).status_code == 422
 
 
@@ -114,14 +114,8 @@ def test_unknown_room_is_404(client: TestClient) -> None:
     assert client.delivered == []  # type: ignore[attr-defined]
 
 
-def test_too_long_entry_is_413_not_cut(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(announce, "ANNOUNCE_MAX_CHARS", 10)
-    assert _post(client, text="x" * 11).status_code == 413
-    assert _post(client, texts=["ok", "x" * 11]).status_code == 413
-    assert client.delivered == []  # type: ignore[attr-defined]
-
-
-def test_too_long_total_is_413(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setattr(announce, "ANNOUNCE_MAX_TOTAL_CHARS", 20)
-    assert _post(client, texts=["x" * 8, "y" * 8, "z" * 8]).status_code == 413
-    assert _post(client, texts=["x" * 8, "y" * 8]).status_code == 200
+def test_long_text_is_read_whole(client: TestClient) -> None:
+    long_text = "Ein langer Absatz. " * 2000
+    assert _post(client, text=long_text).status_code == 200
+    assert _post(client, texts=[long_text, long_text, long_text]).status_code == 200
+    assert len(client.delivered) == 2  # type: ignore[attr-defined]

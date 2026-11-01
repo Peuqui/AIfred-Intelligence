@@ -18,7 +18,6 @@ from .dav import DavClient, DavConflict, DavError, DavFile
 from .errors import NextcloudRefused
 from .files import clean_path
 
-_SEARCH_LIMIT = 100
 _DOWNLOAD_CHUNK = 256 * 1024
 _NOT_FOUND = 404
 _OCTET_STREAM = "application/octet-stream"
@@ -57,7 +56,7 @@ class NextcloudDocumentSource:
 
     async def search(self, query: str) -> list[SourceEntry]:
         try:
-            entries = await asyncio.to_thread(self._client.search_files, "", query.strip(), _SEARCH_LIMIT)
+            entries = await asyncio.to_thread(self._client.search_files, "", query.strip())
         except (DavError, httpx.HTTPError) as exc:
             raise _source_error(exc, "searching") from exc
         return [_entry(item) for item in entries]

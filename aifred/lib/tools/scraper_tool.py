@@ -143,24 +143,24 @@ class WebScraperTool(BaseTool):
 
     @staticmethod
     def _read_capped(resp: requests.Response) -> None:
-        """Buffer the response body but abort past SCRAPER_MAX_RESPONSE_BYTES.
+        """Buffer the response body but abort past READ_MEMORY_GUARD_BYTES.
 
         Populates ``resp._content`` so downstream ``.text``/``.content`` work
         without re-reading. Raises :class:`UnsafeURLError` if the body (streamed
         within the timeout) exceeds the cap — guards against OOM from a huge or
         endless body (no reliable Content-Length required).
         """
-        from ..config import SCRAPER_MAX_RESPONSE_BYTES
+        from ..config import READ_MEMORY_GUARD_BYTES
         chunks: list[bytes] = []
         total = 0
         for chunk in resp.iter_content(64 * 1024):
             if not chunk:
                 continue
             total += len(chunk)
-            if total > SCRAPER_MAX_RESPONSE_BYTES:
+            if total > READ_MEMORY_GUARD_BYTES:
                 resp.close()
                 raise UnsafeURLError(
-                    f"Response body exceeds {SCRAPER_MAX_RESPONSE_BYTES} bytes"
+                    f"Response body exceeds {READ_MEMORY_GUARD_BYTES} bytes"
                 )
             chunks.append(chunk)
         resp._content = b"".join(chunks)
@@ -407,8 +407,8 @@ class WebScraperTool(BaseTool):
                                 text = el.inner_text(timeout=3000)
                                 if len(text.split()) > 50:
                                     break
-                        except Exception:
-                            continue
+                        except Exception as e:  # noqa: BLE001 — the next selector may work
+                            logger.debug(f"selector {selector} failed: {e}")
                     if not text or len(text.split()) < 50:
                         text = page.inner_text('body')
                     text = self._clean_text(text)
@@ -428,7 +428,7 @@ class WebScraperTool(BaseTool):
                 finally:
                     browser.close()  # ALWAYS executed, even on exception
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — reported in the scrape result
             error_msg = str(e)
 
             # The Chromium browser is installed as a deliberate deploy step

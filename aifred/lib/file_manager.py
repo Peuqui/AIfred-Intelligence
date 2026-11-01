@@ -630,7 +630,7 @@ async def search_index(
     Args:
         query: Search query.
         n_results: Page size — number of similarity hits per page (capped
-                   at DOCUMENT_SEARCH_MAX_RESULTS). Each hit may bring
+                   at DOCUMENT_SEARCH_POOL_SIZE). Each hit may bring
                    along ±DOCUMENT_SEARCH_NEIGHBOR_WINDOW neighbor chunks
                    so the model sees the full surrounding context.
         folder: If set, restrict to this folder. Recursively includes
@@ -641,7 +641,7 @@ async def search_index(
               first ``n_results`` similarity hits — same query, deeper
               into the ranking.
     """
-    from .config import DOCUMENT_SEARCH_MAX_RESULTS
+    from .config import DOCUMENT_SEARCH_POOL_SIZE
     from .document_store import get_document_store
     store = get_document_store()
     if not store:
@@ -649,7 +649,7 @@ async def search_index(
 
     hits, has_more = await store.search(
         query,
-        n_results=min(n_results, DOCUMENT_SEARCH_MAX_RESULTS),
+        n_results=min(n_results, DOCUMENT_SEARCH_POOL_SIZE),
         folder=folder,
         page=page,
     )

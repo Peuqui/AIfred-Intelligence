@@ -96,7 +96,7 @@ AIfred ins Internet stellst (siehe [Einrichtungsanleitung → Auf die Web-UI zug
 
 | Endpoint | Methode | Beschreibung |
 |---|---|---|
-| `/api/audio/announce` | POST | Fertigen Text im Raum vorlesen. Body: `room` (Raumname, `@gruppe` oder `*`), `text` ODER `texts` (mehrere Absätze als EINE Ansage, optional `pause_ms`), `speaker` (Pflicht: Name des Sprechers). 404 bei unbekanntem Raum, 413 bei zu langem Text (`ANNOUNCE_MAX_CHARS` je Eintrag, `ANNOUNCE_MAX_TOTAL_CHARS` insgesamt), 502 wenn nicht zustellbar |
+| `/api/audio/announce` | POST | Fertigen Text im Raum vorlesen. Body: `room` (Raumname, `@gruppe` oder `*`), `text` ODER `texts` (mehrere Absätze als EINE Ansage, optional `pause_ms`), `speaker` (Pflicht: Name des Sprechers). 404 bei unbekanntem Raum, 502 wenn nicht zustellbar. Keine Längengrenze |
 | `/api/audio/announce/rooms` | GET | Die gerade verbundenen Räume (gültige Werte von `room`) |
 
 Die Ansage steht in der Sitzung des Raums als `🎤 FreeEcho.2 · <speaker>`; das Modell sieht sie als

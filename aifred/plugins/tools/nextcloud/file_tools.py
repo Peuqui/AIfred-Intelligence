@@ -9,6 +9,7 @@ import asyncio
 import json
 from typing import Any
 
+from ....lib.config import LIST_DEFAULT
 from ....lib.function_calling import Tool
 from ....lib.plugin_base import load_tool_description, load_tool_parameters
 from ....lib.security import TIER_WRITE_DATA, TIER_WRITE_SYSTEM, wrap_untrusted_data
@@ -16,7 +17,6 @@ from ....lib.tool_args import parse_optional_text, parse_text
 from .dav import DavError
 
 FILES_MODULE = "files"
-DEFAULT_SEARCH_LIMIT = 20
 _EXPECTED_ERRORS = (ValueError, DavError)  # InvalidValue, NextcloudRefused and a limit that is no number
 _SOURCE = "nextcloud"
 
@@ -35,14 +35,15 @@ def get_nextcloud_file_tools(store: Any) -> list[Tool]:
     files = store.agent_files
     placeholders = {"agent_folder": store.settings.agent_folder}
 
-    async def nextcloud_file_list(folder: str = "", query: str | None = None, limit: int = DEFAULT_SEARCH_LIMIT) -> str:
+    async def nextcloud_file_list(folder: str = "", query: str | None = None, limit: int = LIST_DEFAULT) -> str:
         try:
             term = parse_optional_text(query, "query")
-            rows = await asyncio.to_thread(files.search, term, int(limit)) if term \
+            shown = max(1, int(limit))
+            rows = await asyncio.to_thread(files.search, term) if term \
                 else await asyncio.to_thread(files.listing, parse_text(folder, "folder") if folder else "")
         except _EXPECTED_ERRORS as exc:
             return _error(exc)
-        return wrap_untrusted_data(_answer({"total_count": len(rows), "results": rows}), _SOURCE)
+        return wrap_untrusted_data(_answer({"total_count": len(rows), "results": rows[:shown]}), _SOURCE)
 
     async def nextcloud_file_read(path: str, line_start: int | str = 0, line_end: int | str = 0) -> str:
         try:

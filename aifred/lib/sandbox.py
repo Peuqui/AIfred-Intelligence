@@ -23,7 +23,6 @@ from .config import (
     DOCUMENTS_DIR,
     SANDBOX_MATH_THREADS,
     SANDBOX_MAX_FILE_SIZE_MB,
-    SANDBOX_MAX_OUTPUT_BYTES,
     SANDBOX_MAX_PROCESSES,
     SANDBOX_MAX_RAM_MB,
     SANDBOX_TIMEOUT_SECONDS,
@@ -605,8 +604,8 @@ async def execute_sandboxed_code(
             log_message(f"Sandbox({exec_id}): timed out")
             return result
 
-        result.stdout = stdout_bytes.decode("utf-8", errors="replace")[:SANDBOX_MAX_OUTPUT_BYTES]
-        result.stderr = stderr_bytes.decode("utf-8", errors="replace")[:SANDBOX_MAX_OUTPUT_BYTES]
+        result.stdout = stdout_bytes.decode("utf-8", errors="replace")
+        result.stderr = stderr_bytes.decode("utf-8", errors="replace")
         result.exit_code = proc.returncode or 0
         result.images = _collect_images(work_dir, sid)
         result.html_urls = _collect_html(work_dir, sid)
@@ -624,7 +623,7 @@ async def execute_sandboxed_code(
             f"images={len(result.images)}, html_urls={len(result.html_urls)}"
         )
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — the model sees the failure
         result.stderr = f"Sandbox error: {e}"
         result.exit_code = -1
         log_message(f"Sandbox({exec_id}): {e}")

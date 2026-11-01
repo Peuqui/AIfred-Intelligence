@@ -96,7 +96,7 @@ expose AIfred to the internet (see [Deployment → Access the web UI](deployment
 
 | Endpoint | Method | Description |
 |---|---|---|
-| `/api/audio/announce` | POST | Read a ready-made text aloud in a room. Body: `room` (room name, `@group` or `*`), `text` OR `texts` (several paragraphs as ONE announcement, optional `pause_ms`), `speaker` (required: the speaker's name). 404 for an unknown room, 413 for a text that is too long (`ANNOUNCE_MAX_CHARS` per entry, `ANNOUNCE_MAX_TOTAL_CHARS` in total), 502 if it cannot be delivered |
+| `/api/audio/announce` | POST | Read a ready-made text aloud in a room. Body: `room` (room name, `@group` or `*`), `text` OR `texts` (several paragraphs as ONE announcement, optional `pause_ms`), `speaker` (required: the speaker's name). 404 for an unknown room, 502 if it cannot be delivered. No length limit |
 | `/api/audio/announce/rooms` | GET | The rooms connected right now (valid values of `room`) |
 
 The announcement appears in the room's session as `🎤 FreeEcho.2 · <speaker>`; the model sees it as
