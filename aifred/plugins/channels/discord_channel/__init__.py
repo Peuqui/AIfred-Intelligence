@@ -294,8 +294,8 @@ class DiscordChannel(BaseChannel):
             _log(f"Discord Plugin: error — {exc}, will be restarted by hub", "error")
             try:
                 await client.close()
-            except Exception:
-                pass
+            except Exception as close_error:  # noqa: BLE001 — the hub restarts the bot either way
+                _log(f"Discord Plugin: close failed — {close_error}", "warning")
             _discord_client = None
             raise
 
@@ -313,7 +313,7 @@ class DiscordChannel(BaseChannel):
             # DM channels may not be in cache — fetch from API
             try:
                 channel = await _discord_client.fetch_channel(channel_id)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — reported, the message is dropped
                 self.channel_log(f"Discord Plugin: channel {channel_id} not found — {exc}", "error")
                 return
 
@@ -408,7 +408,7 @@ class DiscordChannel(BaseChannel):
             media: str | None = None
             if attachment:
                 from ....lib.vision_utils import resolve_outbound_attachment
-                path, err = resolve_outbound_attachment(attachment, ctx.session_id, ctx.source)
+                path, err = resolve_outbound_attachment(attachment, ctx.session_id, ctx.source, ctx.trust)
                 if err:
                     return json.dumps({"error": err})
                 media = str(path)
@@ -445,7 +445,7 @@ class DiscordChannel(BaseChannel):
                 # propagieren durch wrap_future in den except unten.
                 future = asyncio.run_coroutine_threadsafe(_send(), loop)
                 return await asyncio.wrap_future(future)
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — the model sees the failure
                 return json.dumps({"error": str(exc)})
 
         return [

@@ -40,6 +40,7 @@ class RenderedMail:
 
 def render_mail(
     markdown: str, session_id: str, source: str, extra_attachments: list[Path] | None = None,
+    trust: str = "external",
 ) -> RenderedMail:
     """Render ``markdown`` to plain + HTML and collect the files it references.
 
@@ -51,7 +52,7 @@ def render_mail(
     attachments: list[Path] = list(extra_attachments or [])
 
     def resolve(ref: str) -> Path:
-        path, error = resolve_outbound_attachment(ref, session_id, source)
+        path, error = resolve_outbound_attachment(ref, session_id, source, trust)
         if path is None:
             raise ValueError(error)
         return path

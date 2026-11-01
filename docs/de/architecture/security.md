@@ -151,7 +151,7 @@ Owner schreibt via Telegram) — entfällt die Bestätigung.
 
 Der eingefügte Gedächtnis-Kontext (Index aller Einträge) und die Werkzeuge
 `read_memory`, `store_memory`, `update_memory` und `delete_memory` hängen
-nicht am Tier, sondern an `security.py: may_use_memory(source, trust)`.
+nicht am Tier, sondern an `security.py: in_owner_context(source, trust)`. Dieselbe Regel gilt für Anhänge aus dem Dokumentenordner: Entscheidend ist, wer fragt, nicht der Kanal.
 Fremde Absender sehen keine Erinnerungen:
 
 | Kontext | Gedächtnis |

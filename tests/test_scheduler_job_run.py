@@ -14,7 +14,7 @@ from aifred.lib.security import (
     TIER_READONLY,
     filter_tools_for_source,
     may_send_outbound,
-    may_use_memory,
+    in_owner_context,
     wrap_untrusted_data,
 )
 
@@ -172,8 +172,8 @@ class TestMemoryOwnerGate:
         ("email", "external", False),
         ("webhook", "owner", False),
     ])
-    def test_may_use_memory(self, source, trust, allowed):
-        assert may_use_memory(source, trust) is allowed
+    def test_in_owner_context(self, source, trust, allowed):
+        assert in_owner_context(source, trust) is allowed
 
     def _toolkit(self, monkeypatch, source, trust, max_tier):
         from aifred.lib import agent_memory

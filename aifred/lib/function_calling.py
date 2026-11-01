@@ -104,7 +104,7 @@ class Tool:
     executor: Callable[..., Any]
     tier: int = 0  # Security tier (0=readonly … 4=admin)
     outbound: bool = False  # Sends a message out of AIfred (see may_send_outbound)
-    owner_gated: bool = False  # Admitted by may_use_memory, not by the tier
+    owner_gated: bool = False  # Admitted by in_owner_context, not by the tier
     read_only: bool = False  # Changes nothing above tier 0: the tier rates the data, not the effect
 
     @property

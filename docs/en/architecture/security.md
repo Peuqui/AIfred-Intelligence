@@ -150,7 +150,7 @@ sending via Telegram) — no confirmation is required.
 
 The injected memory context (index of all entries) and the tools
 `read_memory`, `store_memory`, `update_memory` and `delete_memory` are not
-gated by the tier but by `security.py: may_use_memory(source, trust)`.
+gated by the tier but by `security.py: in_owner_context(source, trust)`. The same rule applies to attachments from the documents folder: what counts is who asks, not the channel.
 Foreign senders see no memories:
 
 | Context | Memory |
