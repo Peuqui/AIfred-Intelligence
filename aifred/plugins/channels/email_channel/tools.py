@@ -33,6 +33,7 @@ from ....lib.security import (
     TIER_COMMUNICATE,
     TIER_WRITE_DATA,
     TIER_WRITE_SYSTEM,
+    extract_sender_email,
     may_send_outbound,
     resolve_trust_label,
     sanitize_outbound,
@@ -47,6 +48,7 @@ from .client import (
     ImapAccount,
     agent_mailbox_account,
     check_inbox,
+    own_address,
     read_attachment,
     read_emails,
     readonly_mailbox_account,
@@ -61,9 +63,11 @@ _SAFE_ACTIONS = {"check", "read", "attachment", "search", "send", "list_folders"
 _MANAGE_ACTIONS = {"delete", "move", "create_folder", "index_attachment"}
 
 
-def _mail_list(emails: list[EmailSummary], total: int) -> str:
+def _mail_list(emails: list[EmailSummary], total: int, own_left_out: int = 0) -> str:
     """What the list tells about a mail. No content: to know what a mail says, read it."""
     lines = [f"Showing {format_number(len(emails))} of {format_number(total)} emails"]
+    if own_left_out:
+        lines[0] += f", {format_number(own_left_out)} of your own left out"
     for e in emails:
         lines.append(f"{'📩' if not e.is_read else '📧'} [{e.msg_id}] {e.date} — {e.sender}: {e.subject}")
     return wrap_untrusted_data("\n".join(lines), "email")
@@ -74,9 +78,16 @@ async def _check(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     n = int(kwargs["n"]) if "n" in kwargs else None if unread else LIST_DEFAULT
     folder = kwargs.get("folder", "INBOX")
     emails, total = await asyncio.to_thread(check_inbox, account, n=n, folder=folder, unread_only=unread)
+    own_left_out = 0
+    if "exclude_own" in kwargs and parse_bool(kwargs["exclude_own"], "exclude_own"):
+        others = [e for e in emails if extract_sender_email(e.sender) != own_address()]
+        own_left_out = len(emails) - len(others)
+        emails = others
+        total -= own_left_out
     if not emails:
-        return "No unread emails." if unread else "No emails found (0 messages)."
-    return _mail_list(emails, total)
+        nothing = "No unread emails." if unread else "No emails found (0 messages)."
+        return f"{nothing} {format_number(own_left_out)} of your own left out." if own_left_out else nothing
+    return _mail_list(emails, total, own_left_out)
 
 
 def _lines(text: str, kwargs: dict[str, Any]) -> tuple[str, str]:

@@ -13,6 +13,8 @@ Kontrakt (email_channel/client.py, tools.py):
 - ``read`` nimmt mehrere IDs, über eine Verbindung. Mails werden nie still gekürzt: Passt nicht
   alles ins Budget des Modells, nennt die Antwort die übrigen IDs für den nächsten Schritt.
 - Aus HTML wird lesbarer Text, ohne Technik und ohne Inhalt zu verlieren.
+- ``exclude_own`` lässt AIfreds eigene Mails weg, erkannt an seiner Absenderadresse, nie am Namen:
+  Sonst könnte sich ein Fremder „AIfred“ nennen und aus dem Briefing verschwinden.
 - Mails liest man wie Dateien nach Zeilen (lib/line_window, line_start/line_end). Passt eine Mail
   nicht ins Budget, kommt ein Stück bis zu einer Zeilengrenze, und die Antwort sagt, wo es weitergeht.
 - Eingehende Mails werden nicht gekürzt und nennen ihre Anhänge.
@@ -374,7 +376,7 @@ class TestToolOffer:
         schema = _tools()["email_readonly"].parameters
         assert schema["properties"]["action"]["enum"] == ["attachment", "check", "index_attachment", "read", "search"]
         assert set(schema["properties"]) == {"action", "msg_id", "query", "n", "unread", "folder", "attachment",
-                                             "line_start", "line_end", "pages"}
+                                             "line_start", "line_end", "pages", "exclude_own"}
 
     @pytest.mark.parametrize("lang", ["de", "en"])
     @pytest.mark.parametrize("action", ["send", "delete", "move", "mark", "list_folders", "create_folder"])
@@ -499,6 +501,34 @@ class TestOutput:
         server.mails = {5: server.mails[5]}
         answer = _run(get_readonly_mailbox_tools()[0], action="check", unread=True)
         assert "[5]" not in answer and "No unread" in answer
+
+    def test_own_mails_can_be_left_out_by_address(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
+        server.mails = {
+            1: (_mail("Morgenbriefing", f"AIfred <{OWN_USER}>", "x"), ""),
+            2: (_mail("Heizöl", f"Butler <{OWN_USER}>", "x"), ""),
+            3: (_mail("Rechnung", "Anna <anna@freunde.test>", "x"), ""),
+        }
+        answer = _run(get_readonly_mailbox_tools()[0], action="check", unread=True, exclude_own=True)
+        assert "[3]" in answer and "[1]" not in answer and "[2]" not in answer
+        assert "2 of your own" in answer
+
+    def test_a_stranger_calling_himself_aifred_stays(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
+        server.mails = {1: (_mail("Wichtig", f'"AIfred {OWN_USER}" <fremd@example.test>', "x"), "")}
+        answer = _run(get_readonly_mailbox_tools()[0], action="check", unread=True, exclude_own=True)
+        assert "[1]" in answer
+
+    def test_own_mails_stay_unless_asked(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
+        server.mails = {1: (_mail("Morgenbriefing", f"AIfred <{OWN_USER}>", "x"), "")}
+        assert "[1]" in _run(get_readonly_mailbox_tools()[0], action="check", unread=True)
+
+    def test_only_own_mails_means_nothing_unread(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
+        _configure(monkeypatch, OWN_ACCOUNT, READONLY_ACCOUNT)
+        server.mails = {1: (_mail("Morgenbriefing", f"AIfred <{OWN_USER}>", "x"), "")}
+        answer = _run(get_readonly_mailbox_tools()[0], action="check", unread=True, exclude_own=True)
+        assert "[1]" not in answer and "1 of your own" in answer
 
     def test_search_shows_the_read_state_too(self, server: FakeServer, monkeypatch: pytest.MonkeyPatch) -> None:
         _configure(monkeypatch, READONLY_ACCOUNT)

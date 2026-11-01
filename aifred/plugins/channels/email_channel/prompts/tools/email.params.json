@@ -40,6 +40,10 @@
       "type": "boolean",
       "description": "Only unread emails, all of them unless n is given (for check)"
     },
+    "exclude_own": {
+      "type": "boolean",
+      "description": "Leave out mails you sent yourself, your own reports and messages (for check)"
+    },
     "to": {
       "type": "string",
       "description": "Recipient email address (for send)"
