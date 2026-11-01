@@ -195,7 +195,7 @@ class TelegramChannel(BaseChannel):
                 try:
                     await bot.delete_messages(chat_id=chat.id, message_ids=batch)
                     deleted += len(batch)
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — the next batch may still work
                     _log(f"Telegram Plugin: /clear delete batch failed: {exc}")
 
             conf = await bot.send_message(
@@ -503,7 +503,7 @@ class TelegramChannel(BaseChannel):
             media: str | None = None
             if attachment:
                 from ....lib.vision_utils import resolve_outbound_attachment
-                path, err = resolve_outbound_attachment(attachment, ctx.session_id, ctx.source)
+                path, err = resolve_outbound_attachment(attachment, ctx.session_id, ctx.source, ctx.trust)
                 if err:
                     return json.dumps({"error": err})
                 media = str(path)

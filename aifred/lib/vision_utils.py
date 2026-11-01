@@ -1042,7 +1042,7 @@ def is_video_file(path: Path) -> bool:
 
 
 def resolve_outbound_attachment(
-    attachment: str, session_id: str, source: str
+    attachment: str, session_id: str, source: str, trust: str = "external"
 ) -> tuple[Path | None, str | None]:
     """Resolve an attachment reference for a channel ``*_send`` tool → file.
 
@@ -1056,16 +1056,16 @@ def resolve_outbound_attachment(
     - uploaded images + sandbox output are session-scoped (VI7): a caller can
       only attach files from its OWN conversation.
     - vigilantia frames are system-wide (already tier-gated for external).
-    - the shared documents/ folder has no per-session ownership, so an
-      external channel must not attach from it (a write_file needs WRITE_DATA
-      anyway, which external channels lack). The browser may, and so may the
-      user's own scheduled jobs: their reports link what they wrote there.
+    - the shared documents/ folder has no per-session ownership, so it depends
+      on who asks, not on the channel (security.in_owner_context): the owner
+      may, a foreign sender may not.
 
     The recipient allowlist gate in each tool stays the exfiltration guard —
     combined, an injected external prompt can at most re-send a file already
     in its own session to an allowlisted recipient.
     """
     from .config import DOCUMENTS_DIR, OUTBOUND_ATTACHMENT_MAX_BYTES, SANDBOX_OUTPUT_DIR
+    from .security import in_owner_context
 
     if not attachment or not attachment.strip():
         return None, "No attachment reference provided."
@@ -1075,7 +1075,7 @@ def resolve_outbound_attachment(
         ("_upload/images/", UPLOAD_IMAGES_DIR, True),
         ("_upload/sandbox_output/", SANDBOX_OUTPUT_DIR, True),
     ]
-    if source in ("browser", "scheduler"):
+    if in_owner_context(source, trust):
         markers.append(("_upload/documents/", DOCUMENTS_DIR, False))
 
     path = _resolve_upload_marker(attachment.strip(), session_id, tuple(markers))
@@ -1084,7 +1084,7 @@ def resolve_outbound_attachment(
             f"Could not resolve attachment {attachment!r} — it is not a valid file "
             "URL for this session. Only files from the current conversation "
             "(uploads, generated sandbox output) can be sent; shared documents "
-            "can only be attached from the web UI."
+            "only on the owner's own request."
         )
     if not path.exists():
         return None, f"Attachment file for {attachment!r} no longer exists on disk."

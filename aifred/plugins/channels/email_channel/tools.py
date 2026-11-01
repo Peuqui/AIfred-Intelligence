@@ -212,7 +212,7 @@ async def _search(account: ImapAccount, kwargs: dict[str, Any]) -> str:
     return _mail_list(emails, total)
 
 
-def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "de") -> list[Tool]:
+def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "de", trust: str = "external") -> list[Tool]:
     """Create email tools for LLM function calling.
 
     ``source`` is the origin of the current pipeline (browser/email/…). It gates
@@ -281,7 +281,7 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
             attachment = kwargs.get("attachment", "")
             if attachment:
                 from ....lib.vision_utils import resolve_outbound_attachment
-                path, err = resolve_outbound_attachment(attachment, session_id, source)
+                path, err = resolve_outbound_attachment(attachment, session_id, source, trust)
                 if err or path is None:
                     return f"Error: {err}"
                 explicit.append(path)
@@ -289,7 +289,7 @@ def get_email_tools(session_id: str = "", source: str = "browser", lang: str = "
             # embedded/attached (same rendering as the channel reply path).
             from .media import render_mail
             try:
-                mail = render_mail(body, session_id, source, explicit)
+                mail = render_mail(body, session_id, source, explicit, trust)
             except ValueError as exc:
                 return f"Error: {exc}"
             # session_id passed to send_email for route registration (single source of truth)

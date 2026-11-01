@@ -513,8 +513,11 @@ class EmailChannel(BaseChannel):
         # rejects that with ValueError and the reply would never go out.
         recipient = outbound.recipient.replace("\r", " ").replace("\n", " ").strip()
 
+        from ....lib.security import resolve_trust_label
         from .media import render_mail
-        mail = render_mail(outbound.text, sid, outbound.metadata.get("source", self.name))
+        source = outbound.metadata.get("source", self.name)
+        mail = render_mail(outbound.text, sid, source,
+                           trust=resolve_trust_label(source, original.sender, original.metadata))
         send_email(
             to=recipient,
             subject=subject,
@@ -548,7 +551,7 @@ class EmailChannel(BaseChannel):
         """Email tools for LLM function calling."""
         from .tools import get_email_tools, get_readonly_mailbox_tools
         return [
-            *get_email_tools(session_id=ctx.session_id, source=ctx.source, lang=ctx.lang),
+            *get_email_tools(session_id=ctx.session_id, source=ctx.source, lang=ctx.lang, trust=ctx.trust),
             *get_readonly_mailbox_tools(lang=ctx.lang, session_id=ctx.session_id),
         ]
 

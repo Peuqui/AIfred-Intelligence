@@ -449,7 +449,7 @@ async def prepare_agent_toolkit(
         max_tier: Maximum security tier for tools in this context
         source: Origin of the request (browser/email/discord/cron/webhook)
         trust: Owner verdict of the sender (resolve_trust_label); gates the
-            memory context and tools together with source (may_use_memory)
+            memory context and tools together with source (in_owner_context)
 
     Returns:
         (memory_context_str, toolkit) — context for system prompt, combined toolkit.
@@ -462,8 +462,8 @@ async def prepare_agent_toolkit(
 
     # Memory tools + context — both only in owner contexts: the index holds
     # personal entries a foreign sender must not see.
-    from .security import may_use_memory
-    if memory_enabled and may_use_memory(source, trust):
+    from .security import in_owner_context
+    if memory_enabled and in_owner_context(source, trust):
         memory = get_agent_memory()
         if memory:
             memories = await memory.recall_context(agent_id, user_query)
@@ -485,6 +485,7 @@ async def prepare_agent_toolkit(
             user_query=user_query,
             max_tier=max_tier,
             source=source,
+            trust=trust,
             llm_history=llm_history or [],
             metadata=metadata or {},
         )

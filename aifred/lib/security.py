@@ -237,13 +237,12 @@ def filter_tools_by_tier(tools: list[Tool], max_tier: int) -> list[Tool]:
     return [t for t in tools if t.tier <= max_tier]
 
 
-def may_use_memory(source: str, trust: str) -> bool:
-    """Agent memory — the injected memory context and the memory tools (read,
-    store, update, delete) — exists only in owner contexts: the browser, the verified
-    owner on a channel and the owner's own scheduler jobs (both: trust label
-    from resolve_trust_label). Never for foreign senders, whatever tier the
-    channel is configured to, and never for webhooks, whose payload comes
-    from outside."""
+def in_owner_context(source: str, trust: str) -> bool:
+    """Whether the owner is the one asking, whatever the channel: the browser, the
+    verified owner on a channel and the owner's own scheduler jobs (both: trust label
+    from resolve_trust_label). Never foreign senders, whatever tier the channel is
+    configured to, and never webhooks, whose payload comes from outside. Agent memory
+    and the shared documents folder are open to this context only."""
     if source == "browser":
         return True
     if source == "webhook":
@@ -313,7 +312,7 @@ def _strip_html(text: str) -> str:
     try:
         extractor.feed(text)
         return extractor.get_text()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — checked content stays unblocked if a pattern fails
         logger.warning("HTMLParser failed on inbound text (%s) — falling back to regex strip", exc)
         return re.sub(r"<[^>]*>", "", text)
 
@@ -758,7 +757,7 @@ def audit_log(
                 ),
             )
             conn.commit()
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — a failed audit entry must not stop the tool
         logger.warning("Audit log write failed: %s", exc)
 
 

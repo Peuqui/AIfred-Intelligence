@@ -281,6 +281,7 @@ class PluginContext:
     user_query: str = ""
     max_tier: int = 4        # Max allowed tool tier in this context
     source: str = "browser"  # Origin: browser/email/discord/cron/webhook
+    trust: str = "external"  # Owner verdict of the sender (security.resolve_trust_label)
     llm_history: list = field(default_factory=list)  # Conversation history for tools
     # Channel-spezifische Metadaten (z.B. {"room": "wohnzimmer"} für freeecho2,
     # {"chat_id": 123} für telegram). Wird vom Channel-Plugin beim Tool-Build
