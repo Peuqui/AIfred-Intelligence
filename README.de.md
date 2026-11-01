@@ -18,6 +18,7 @@ AIfred läuft auf deinem eigenen Rechner und arbeitet für dich über jeden Kana
 - 🔗 **Autonome Tool-Ketten** über Plugins hinweg — ein Prompt, viele Schritte, aus jedem Kanal
 - 📬 **Deine Mails, richtig gelesen** — ungelesene Mails, mehrere auf einmal, PDFs und Office-Dateien als Text, Scans und Fotos über das Bildmodell; nichts wird abgeschnitten, lange Mails liest AIfred in Schritten
 - 📅 **Nextcloud als Drehscheibe** — Kalender, Aufgaben, Kontakte, Notizen und Dateien, mit Rechten je Modul
+- 🌅 **Morgenbriefing** — jeden Morgen per Mail: Termine der nächsten sieben Tage, Geburtstage, offene Aufgaben und ungelesene Mails, zuerst alles mit Frist
 - 🎩 **Multi-Agent-System** — AIfred, Sokrates, Salomo und deine eigenen Agenten debattieren, kritisieren, urteilen — oder übernehmen als Sub-Agenten delegierte Aufgaben
 - 📡 **Überall erreichbar** — Web-UI, Telegram, Discord, E-Mail, Echo-Dot-Sprach-Terminal; läuft headless
 - 🎤 **Sprache** — Speech-to-Text plus der Dienst TTS-Suite mit sieben Engines (lokal, andere Rechner, Cloud, Browser), Voice Cloning, gesprochene Ansagen auf dem Echo Dot
