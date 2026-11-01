@@ -350,7 +350,7 @@ def _next_cron_run(cron_expr: str, after: str) -> str | None:
         cron = croniter(cron_expr, base)
         next_dt = cron.get_next(datetime)
         return str(next_dt.strftime("%Y-%m-%dT%H:%M:%S"))
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — a job with a broken schedule must not stop the others
         logger.error("Invalid cron expression '%s': %s", cron_expr, exc)
         return None
 
@@ -390,14 +390,14 @@ async def scheduler_loop() -> None:
                     await _execute_job(job)
                     store.mark_executed(job.job_id)
                     log_message(f"Scheduler: job '{job.name}' completed")
-                except Exception as exc:
+                except Exception as exc:  # noqa: BLE001 — one failing job must not end the loop
                     store.mark_failed(job.job_id)
                     log_message(f"Scheduler: job '{job.name}' failed: {exc}", "error")
 
         except asyncio.CancelledError:
             log_message("Scheduler: shutting down")
             return
-        except Exception as exc:
+        except Exception as exc:  # noqa: BLE001 — the loop outlives every error
             log_message(f"Scheduler: loop error: {exc}", "error")
 
         await asyncio.sleep(_CHECK_INTERVAL_SECONDS)
@@ -560,8 +560,9 @@ async def _deliver_announce(job: Job, response_text: str, session_id: str) -> No
         job.payload.get("recipient", ""),
         response_text,
         session_id=session_id,
-        # The job name is the subject of channels that have one (email).
-        metadata={"subject": job.name, **job.payload.get("metadata", {})},
+        # The job name is the subject of channels that have one (email). The source
+        # opens what a job may link, which a reply to an outside sender may not.
+        metadata={"subject": job.name, **job.payload.get("metadata", {}), "source": "scheduler"},
     )
     if not ok:
         # Nicht nur ins Debug-Log (das beim Neustart geleert wird): der Auftrag
@@ -620,15 +621,14 @@ async def _deliver_webhook(job: Job, response_text: str) -> None:
     }
 
     try:
-        async with aiohttp.ClientSession() as session:
-            # allow_redirects=False: validate_external_url only vetted THIS url.
-            # Following a 302 would let a public host redirect us to an internal
-            # address (cloud metadata, llama-swap, ChromaDB) — SSRF. The webhook
-            # is fire-and-forget, so there's no need to follow redirects anyway.
-            async with session.post(
-                url, json=payload, allow_redirects=False,
-                timeout=aiohttp.ClientTimeout(total=30),
-            ) as resp:
-                log_message(f"Scheduler: webhook POST to {url} → {resp.status}")
-    except Exception as exc:
+        # allow_redirects=False: validate_external_url only vetted THIS url.
+        # Following a 302 would let a public host redirect us to an internal
+        # address (cloud metadata, llama-swap, ChromaDB) — SSRF. The webhook
+        # is fire-and-forget, so there's no need to follow redirects anyway.
+        async with aiohttp.ClientSession() as session, session.post(
+            url, json=payload, allow_redirects=False,
+            timeout=aiohttp.ClientTimeout(total=30),
+        ) as resp:
+            log_message(f"Scheduler: webhook POST to {url} → {resp.status}")
+    except Exception as exc:  # noqa: BLE001 — reported in the log, the job itself succeeded
         log_message(f"Scheduler: webhook POST to {url} failed: {exc}", "error")

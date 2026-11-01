@@ -514,7 +514,7 @@ class EmailChannel(BaseChannel):
         recipient = outbound.recipient.replace("\r", " ").replace("\n", " ").strip()
 
         from .media import render_mail
-        mail = render_mail(outbound.text, sid, self.name)
+        mail = render_mail(outbound.text, sid, outbound.metadata.get("source", self.name))
         send_email(
             to=recipient,
             subject=subject,

@@ -140,8 +140,8 @@ def resolve_source_label(source_id: str) -> str:
         rec = VisionStore().get_source(source_id)
         if rec:
             return VisionStore.source_label(rec)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as exc:  # noqa: BLE001 — without a label the ID has to do
+        logger.debug(f"No label for source {source_id}: {exc}")
     return source_id
 
 
@@ -1056,9 +1056,10 @@ def resolve_outbound_attachment(
     - uploaded images + sandbox output are session-scoped (VI7): a caller can
       only attach files from its OWN conversation.
     - vigilantia frames are system-wide (already tier-gated for external).
-    - the shared documents/ folder is browser-only: it has no per-session
-      ownership, so an external channel must not attach from it (a
-      write_file needs WRITE_DATA anyway, which external channels lack).
+    - the shared documents/ folder has no per-session ownership, so an
+      external channel must not attach from it (a write_file needs WRITE_DATA
+      anyway, which external channels lack). The browser may, and so may the
+      user's own scheduled jobs: their reports link what they wrote there.
 
     The recipient allowlist gate in each tool stays the exfiltration guard —
     combined, an injected external prompt can at most re-send a file already
@@ -1074,7 +1075,7 @@ def resolve_outbound_attachment(
         ("_upload/images/", UPLOAD_IMAGES_DIR, True),
         ("_upload/sandbox_output/", SANDBOX_OUTPUT_DIR, True),
     ]
-    if source == "browser":
+    if source in ("browser", "scheduler"):
         markers.append(("_upload/documents/", DOCUMENTS_DIR, False))
 
     path = _resolve_upload_marker(attachment.strip(), session_id, tuple(markers))
@@ -1133,7 +1134,7 @@ def load_image_url_as_base64(image_url: str, session_id: str) -> str | None:
     try:
         base64_data = load_image_as_base64(file_path)
         return f"data:image/jpeg;base64,{base64_data}"
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — the caller shows nothing instead of the image
         logger.warning(f"⚠️ Failed to load image: {e}")
         return None
 
