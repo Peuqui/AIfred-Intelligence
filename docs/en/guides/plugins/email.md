@@ -19,7 +19,7 @@ Channel plugin for email communication via IMAP IDLE and SMTP.
 
 | Action | Required parameters | Notes |
 |--------|--------------------|-------|
-| `check` | – | `n` (default 20), `unread` (only unread ones, then all of them), `folder` (default INBOX). A list of date, sender, subject and read state, no content |
+| `check` | – | `n` (default 20), `unread` (only unread ones, then all of them), `exclude_own` (leave out AIfred's own mails, recognised by the sender address), `folder` (default INBOX). A list of date, sender, subject and read state, no content |
 | `read` | `msg_id` (several separated by commas) | `line_start`, `line_end`, `folder` (default INBOX). HTML becomes text, attachments are listed by filename. If not everything fits the model's budget, the answer names the remaining IDs, and a mail too long ends at a line and says where to go on |
 | `attachment` | `msg_id`, `attachment` | `line_start`, `line_end`, `pages`, `folder`. Text of an attachment through the parsers of the document index (PDF, Office, text, calendar invitation), by lines like a file. Images and PDF pages without text (scans) go to the describer model, per call as many pages as one message to the model holds; the answer names the others for `pages`. What it reads stays marked as foreign text |
 | `search` | `query` | `n` (default 20), `folder` (default INBOX) |

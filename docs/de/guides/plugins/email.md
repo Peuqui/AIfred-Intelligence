@@ -19,7 +19,7 @@ Channel-Plugin für E-Mail-Kommunikation via IMAP IDLE und SMTP.
 
 | Action | Pflicht-Parameter | Hinweise |
 |--------|-------------------|----------|
-| `check` | – | `n` (Default 20), `unread` (nur ungelesene, dann alle), `folder` (Default INBOX). Liste aus Datum, Absender, Betreff und Lesestatus, ohne Inhalt |
+| `check` | – | `n` (Default 20), `unread` (nur ungelesene, dann alle), `exclude_own` (AIfreds eigene Mails weglassen, erkannt an der Absenderadresse), `folder` (Default INBOX). Liste aus Datum, Absender, Betreff und Lesestatus, ohne Inhalt |
 | `read` | `msg_id` (mehrere durch Kommas getrennt) | `line_start`, `line_end`, `folder` (Default INBOX). HTML wird zu Text, Anhänge stehen als Dateinamen dabei. Passt nicht alles ins Budget des Modells, nennt die Antwort die übrigen IDs, eine zu lange Mail endet an einer Zeile und sagt, wo es weitergeht |
 | `attachment` | `msg_id`, `attachment` | `line_start`, `line_end`, `pages`, `folder`. Text eines Anhangs über die Parser des Dokumenten-Index (PDF, Office, Text, Kalendereinladung), nach Zeilen wie eine Datei. Bilder und PDF-Seiten ohne Text (Scans) gehen ans Beschreiber-Modell, je Aufruf so viele Seiten, wie eine Nachricht an das Modell fasst; die Antwort nennt die übrigen für `pages`. Was es liest, bleibt als fremder Text markiert |
 | `search` | `query` | `n` (Default 20), `folder` (Default INBOX) |

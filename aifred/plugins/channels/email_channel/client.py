@@ -32,6 +32,7 @@ from lxml import etree, html
 from ....lib.config import LIST_DEFAULT
 from ....lib.credential_broker import broker
 from ....lib.logging_utils import log_message
+from ....lib.security import extract_sender_email
 from .config import (
     EMAIL_IMAP_PORT_DEFAULT,
     EMAIL_SENT_FOLDER_DEFAULT,
@@ -453,6 +454,21 @@ def _file_part(path: str, disposition: str, content_id: str | None = None) -> em
     return part
 
 
+def _own_sender() -> str:
+    """The From header of AIfred's mails."""
+    email_user = broker.get("email", "user")
+    email_from = broker.get("email", "from") or email_user
+    # If EMAIL_FROM is a display name without address, combine with EMAIL_USER
+    if email_from and "@" not in email_from:
+        return f'"{email_from}" <{email_user}>'
+    return email_from
+
+
+def own_address() -> str:
+    """The address AIfred writes from. A display name proves nothing, anyone can use it."""
+    return extract_sender_email(_own_sender())
+
+
 def send_email(
     to: str,
     subject: str,
@@ -493,13 +509,7 @@ def send_email(
         raise ValueError("Illegal newline in reply_to_id")
 
     email_user = broker.get("email", "user")
-    email_from = broker.get("email", "from") or email_user
-
-    # If EMAIL_FROM is a display name without address, combine with EMAIL_USER
-    if email_from and "@" not in email_from:
-        sender = f'"{email_from}" <{email_user}>'
-    else:
-        sender = email_from
+    sender = _own_sender()
 
     body_part: email.message.Message
     if html:
