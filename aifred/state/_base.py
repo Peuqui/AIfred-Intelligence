@@ -420,6 +420,40 @@ class AIState(  # type: ignore[misc]
         async for event in self._handle_audio(files, source="mic"):
             yield event
 
+    async def handle_browser_dictation(self, result: Dict[str, str] | None):
+        """End of a browser dictation (custom.js startBrowserDictation): ``{"text", "error"}``.
+        None comes from the click that stops it; the text arrives with the promise of the click
+        that started it. A dictation that ended with an error goes into the input field and is
+        never sent on its own: the user cannot tell what was heard before it broke off."""
+        if not self.logged_in_user:
+            self.add_debug("⚠️ Browser dictation rejected: not logged in")
+            return
+        if result is None:
+            return
+        from ..lib.i18n import t as _t
+
+        text, error = result["text"].strip(), result["error"]
+        if error:
+            self.add_debug(f"❌ Browser dictation ended with an error: {error}")
+            key = "dictation_browser_error_text" if text else "dictation_browser_error"
+            yield rx.toast.error(
+                _t(key, lang=self.ui_language, error=error),
+                duration=10000, position="top-center",
+            )
+        if not text:
+            if not error:
+                self.add_debug("⚠️ Browser dictation: nothing recognised")
+                yield rx.toast.info(
+                    _t("dictation_browser_nothing", lang=self.ui_language),
+                    duration=5000, position="top-center",
+                )
+            return
+        self.add_debug(f"✅ Browser dictation complete ({len(text)} chars)")
+        async for event in self._deliver_transcript(
+            text, "dictation", "mic", "", force_edit=error != ""
+        ):
+            yield event
+
     async def _handle_audio(self, files: List[rx.UploadFile], source: str):
         """Shared validation + device routing for both audio sources."""
         # POST /_upload reaches this handler with any client token, a fresh one gives a state
@@ -746,119 +780,10 @@ class AIState(  # type: ignore[misc]
                 from ..lib.formatting import format_number
                 self.add_debug(f"✅ Transcription complete ({format_number(stt_time, 1)}s)")
 
-                # Long recording (meeting etc.) → workspace file instead of
-                # flooding the input field. The agent can then process it with
-                # its file tools (translate_file, read_file, …).
-                from ..lib.config import TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS
-                if len(user_text) > TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS:
-                    from datetime import datetime
-                    from ..lib import file_manager as fm
-                    stem = re.sub(
-                        r'[^A-Za-z0-9._-]+', '_',
-                        os.path.splitext(filename)[0],
-                    )[:60]
-                    rel_name = f"transcript-{stem}-{datetime.now().strftime('%Y-%m-%d-%H%M')}.txt"
-                    result = fm.write_file(rel_name, user_text)
-                    if result.success:
-                        self.add_debug(
-                            f"📄 Transcript saved to workspace: {rel_name} "
-                            f"({format_number(len(user_text) / 1000, 1)}k chars)"
-                        )
-                        # Persistent chat bubble — synced to llm_history so the
-                        # model knows the filename ("summarize it" works).
-                        # Markdown link, NOT raw <a> HTML: the markdown
-                        # component map renders [..](..) as a new-tab link,
-                        # while raw HTML anchors come out dead — and the
-                        # model imitates whatever pattern it sees here.
-                        from ..lib.i18n import t as _t
-                        transcript_link = f"[{rel_name}](/_upload/documents/{rel_name})"
-                        # Diarized transcripts get the variant that explains
-                        # the [SPEAKER_xx] markers — without it the model
-                        # just parrots the anonymous labels instead of
-                        # resolving them to the names used in the recording.
-                        bubble_key = ("stt_bubble_saved_speakers"
-                                      if "[SPEAKER_" in user_text else "stt_bubble_saved")
-                        self.add_agent_panel(  # type: ignore[attr-defined]
-                            agent="aifred",
-                            content=_t(bubble_key, lang=self.ui_language,
-                                       transcript_link=transcript_link,
-                                       filename=rel_name,
-                                       chars=format_number(len(user_text) / 1000, 1)),
-                            mode="standard",
-                            sync_llm_history=True,
-                        )
-                        yield rx.toast.success(
-                            f"📄 Transkript gespeichert: {rel_name} — im Chat z. B. "
-                            f"„fasse {rel_name} zusammen“ oder „übersetze {rel_name}“",
-                            duration=12000, position="top-center",
-                        )
-                    else:
-                        self.add_debug(f"❌ Workspace write failed: {result.detail}")
-                        yield rx.toast.error(
-                            f"❌ Transkript konnte nicht gespeichert werden: {result.detail}",
-                            duration=8000, position="top-center",
-                        )
-                    self.add_debug(CONSOLE_SEPARATOR)
-                    console_separator()  # Log-File
-                    return
-
-                # File uploads (audio button): transcript always lands in a
-                # persistent chat bubble — synced to llm_history so the agent
-                # can work with it. Never the input field, never auto-send.
-                if source == "file":
-                    from ..lib.i18n import t as _t
-                    self.add_agent_panel(  # type: ignore[attr-defined]
-                        agent="aifred",
-                        content=_t("stt_bubble_transcript", lang=self.ui_language,
-                                   filename=filename, size=size_display,
-                                   text=user_text),
-                        mode="standard",
-                        sync_llm_history=True,
-                    )
-                    self.add_debug("💬 Transcript added to chat bubble")
-                    self.add_debug(CONSOLE_SEPARATOR)
-                    console_separator()  # Log-File
-                    return
-
-                # Mic dictation (user request) from here on.
-                # Auto-enable edit mode if transcription contains structured data
-                # (email addresses, URLs) that STT likely got wrong
-                force_edit = _transcription_needs_review(user_text)
-                if force_edit and not self.show_transcription:
-                    self.add_debug("✏️ Email/URL detected → edit mode enabled")
-
-                # Show Transcription Workflow
-                if self.show_transcription or force_edit:
-                    # Mode: Edit text → Send manually
-                    # Append to existing text (multiple recordings)
-                    if self.current_user_input:
-                        self.current_user_input += " " + user_text
-                    else:
-                        self.current_user_input = user_text
-                    # Append to uncontrolled textarea via JavaScript
-                    import json
-                    yield rx.call_script(
-                        f"var el = document.getElementById('user-text-input');"
-                        f" var t = {json.dumps(user_text)};"
-                        f" el.value = el.value.trim() ? el.value + ' ' + t : t"
-                    )
-                    self.add_debug("✏️ Text in input field → Ready for editing")
-                    # Separator after STT complete (user will edit + send manually)
-                    self.add_debug(CONSOLE_SEPARATOR)
-                    console_separator()  # Log-File
-                else:
-                    # Mode: Direct to AI (no append, send immediately)
-                    self.current_user_input = user_text
-                    self.add_debug("🚀 Sending text directly to AI...")
-                    # Separator after STT, before send_message starts
-                    self.add_debug(CONSOLE_SEPARATOR)
-                    console_separator()  # Log-File
-                    # Forward yields from send_message() — the yielded value
-                    # must be passed through: send_message emits real events
-                    # (rx.call_script for the TTS browser stream), and a bare
-                    # ``yield`` would drop them and only push state deltas.
-                    async for event in self.send_message():
-                        yield event
+                async for event in self._deliver_transcript(
+                    user_text, filename, source, size_display
+                ):
+                    yield event
             else:
                 self.add_debug("⚠️ Transcription returned empty text")
                 yield rx.toast.error(
@@ -878,6 +803,130 @@ class AIState(  # type: ignore[misc]
                     os.unlink(tmp_path)
                 except Exception:
                     pass
+
+    async def _deliver_transcript(
+        self, user_text: str, filename: str, source: str, size_display: str,
+        force_edit: bool = False,
+    ):
+        """What becomes of a recognised text: a long one goes to the workspace, a file's into a
+        chat bubble, a dictation (``source == "mic"``) into the input field or straight to the AI.
+        Both dictation engines end here (STT-Suite: _run_transcription, browser:
+        handle_browser_dictation). ``force_edit``: into the field, never sent on its own."""
+        from ..lib.formatting import format_number
+
+        # Long recording (meeting etc.) → workspace file instead of
+        # flooding the input field. The agent can then process it with
+        # its file tools (translate_file, read_file, …).
+        from ..lib.config import TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS
+        if len(user_text) > TRANSCRIPT_TO_WORKSPACE_THRESHOLD_CHARS:
+            from datetime import datetime
+            from ..lib import file_manager as fm
+            stem = re.sub(
+                r'[^A-Za-z0-9._-]+', '_',
+                os.path.splitext(filename)[0],
+            )[:60]
+            rel_name = f"transcript-{stem}-{datetime.now().strftime('%Y-%m-%d-%H%M')}.txt"
+            result = fm.write_file(rel_name, user_text)
+            if result.success:
+                self.add_debug(
+                    f"📄 Transcript saved to workspace: {rel_name} "
+                    f"({format_number(len(user_text) / 1000, 1)}k chars)"
+                )
+                # Persistent chat bubble — synced to llm_history so the
+                # model knows the filename ("summarize it" works).
+                # Markdown link, NOT raw <a> HTML: the markdown
+                # component map renders [..](..) as a new-tab link,
+                # while raw HTML anchors come out dead — and the
+                # model imitates whatever pattern it sees here.
+                from ..lib.i18n import t as _t
+                transcript_link = f"[{rel_name}](/_upload/documents/{rel_name})"
+                # Diarized transcripts get the variant that explains
+                # the [SPEAKER_xx] markers — without it the model
+                # just parrots the anonymous labels instead of
+                # resolving them to the names used in the recording.
+                bubble_key = ("stt_bubble_saved_speakers"
+                              if "[SPEAKER_" in user_text else "stt_bubble_saved")
+                self.add_agent_panel(  # type: ignore[attr-defined]
+                    agent="aifred",
+                    content=_t(bubble_key, lang=self.ui_language,
+                               transcript_link=transcript_link,
+                               filename=rel_name,
+                               chars=format_number(len(user_text) / 1000, 1)),
+                    mode="standard",
+                    sync_llm_history=True,
+                )
+                yield rx.toast.success(
+                    f"📄 Transkript gespeichert: {rel_name} — im Chat z. B. "
+                    f"„fasse {rel_name} zusammen“ oder „übersetze {rel_name}“",
+                    duration=12000, position="top-center",
+                )
+            else:
+                self.add_debug(f"❌ Workspace write failed: {result.detail}")
+                yield rx.toast.error(
+                    f"❌ Transkript konnte nicht gespeichert werden: {result.detail}",
+                    duration=8000, position="top-center",
+                )
+            self.add_debug(CONSOLE_SEPARATOR)
+            console_separator()  # Log-File
+            return
+
+        # File uploads (audio button): transcript always lands in a
+        # persistent chat bubble — synced to llm_history so the agent
+        # can work with it. Never the input field, never auto-send.
+        if source == "file":
+            from ..lib.i18n import t as _t
+            self.add_agent_panel(  # type: ignore[attr-defined]
+                agent="aifred",
+                content=_t("stt_bubble_transcript", lang=self.ui_language,
+                           filename=filename, size=size_display,
+                           text=user_text),
+                mode="standard",
+                sync_llm_history=True,
+            )
+            self.add_debug("💬 Transcript added to chat bubble")
+            self.add_debug(CONSOLE_SEPARATOR)
+            console_separator()  # Log-File
+            return
+
+        # Mic dictation (user request) from here on.
+        # Auto-enable edit mode if transcription contains structured data
+        # (email addresses, URLs) that STT likely got wrong
+        review = _transcription_needs_review(user_text)
+        if review and not self.show_transcription:
+            self.add_debug("✏️ Email/URL detected → edit mode enabled")
+
+        # Show Transcription Workflow
+        if self.show_transcription or review or force_edit:
+            # Mode: Edit text → Send manually
+            # Append to existing text (multiple recordings)
+            if self.current_user_input:
+                self.current_user_input += " " + user_text
+            else:
+                self.current_user_input = user_text
+            # Append to uncontrolled textarea via JavaScript
+            import json
+            yield rx.call_script(
+                f"var el = document.getElementById('user-text-input');"
+                f" var t = {json.dumps(user_text)};"
+                f" el.value = el.value.trim() ? el.value + ' ' + t : t"
+            )
+            self.add_debug("✏️ Text in input field → Ready for editing")
+            # Separator after STT complete (user will edit + send manually)
+            self.add_debug(CONSOLE_SEPARATOR)
+            console_separator()  # Log-File
+        else:
+            # Mode: Direct to AI (no append, send immediately)
+            self.current_user_input = user_text
+            self.add_debug("🚀 Sending text directly to AI...")
+            # Separator after STT, before send_message starts
+            self.add_debug(CONSOLE_SEPARATOR)
+            console_separator()  # Log-File
+            # Forward yields from send_message() — the yielded value
+            # must be passed through: send_message emits real events
+            # (rx.call_script for the TTS browser stream), and a bare
+            # ``yield`` would drop them and only push state deltas.
+            async for event in self.send_message():
+                yield event
 
     def toggle_yarn(self):
         """Toggle YaRN context extension"""

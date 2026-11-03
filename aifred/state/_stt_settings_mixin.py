@@ -1,9 +1,13 @@
 """STT-Settings-Mixin — der „STT"-Tab im Agent-Editor.
 
-AIfred stellt nur ein einziges Ding selbst ein: auf welchem Gerät es transkribieren lassen will
-(``stt_device`` in settings.json: ``auto``, ``cpu`` oder ``cuda``) — eine Regel des Clients.
-Engine, Modell, Genauigkeit je Gerät, die Reihenfolge der Automatik, Puffer und Burn-in liegen
-als SSOT im STT-Dienst und werden auf dessen eigener Oberfläche (``/ui/``) eingestellt.
+AIfred stellt beim STT-Dienst nur ein einziges Ding selbst ein: auf welchem Gerät es transkribieren
+lassen will (``stt_device`` in settings.json: ``auto``, ``cpu`` oder ``cuda``) — eine Regel des
+Clients. Engine, Modell, Genauigkeit je Gerät, die Reihenfolge der Automatik, Puffer und Burn-in
+liegen als SSOT im STT-Dienst und werden auf dessen eigener Oberfläche (``/ui/``) eingestellt.
+
+Dazu kommt, wer beim Mikrofon-Knopf zuhört (``dictation_engine``): die STT-Suite oder die
+Spracherkennung des Browsers. Das ist eine Eigenschaft des Browsers, deshalb liegt die Wahl je
+Gerät im localStorage, nicht in settings.json.
 """
 
 from __future__ import annotations
@@ -23,6 +27,11 @@ class STTSettingsMixin(rx.State, mixin=True):
 
     stt_available: bool = False          # Dienst erreichbar?
     stt_device: str = "auto"             # bevorzugtes Gerät dieses Clients (settings.json)
+    # Wer beim Mikrofon-Knopf zuhört: "stt-suite" oder "browser" (custom.js toggleRecording).
+    # sync: eine Änderung im Editor gilt auch in den anderen Tabs dieses Browsers.
+    dictation_engine: str = rx.LocalStorage("stt-suite", name="aifred-dictation-engine", sync=True)
+    # Kann dieser Browser selbst erkennen? Beim Laden des Editors gefragt (custom.js).
+    browser_recognition: bool = False
 
     @rx.var(auto_deps=False, deps=["stt_device", "ui_language"])
     def stt_device_label(self) -> str:
@@ -66,3 +75,12 @@ class STTSettingsMixin(rx.State, mixin=True):
         settings["stt_device"] = device
         self._write_settings_file(settings)  # type: ignore[attr-defined]
         self.stt_device = device
+
+    @rx.event
+    def stt_set_dictation_engine(self, engine: str) -> None:
+        self.dictation_engine = engine
+        self.add_debug(f"🎤 Dictation on this device: {engine}")  # type: ignore[attr-defined]
+
+    @rx.event
+    def stt_set_browser_recognition(self, available: bool) -> None:
+        self.browser_recognition = available

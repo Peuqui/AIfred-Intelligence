@@ -48,10 +48,31 @@ def _stt_row(label, control: rx.Component, hint=None) -> rx.Component:
     )
 
 
+def _dictation_engine_select() -> rx.Component:
+    """Wer beim Mikrofon-Knopf zuhört; „Browser“ gesperrt, wenn dieser Browser nicht erkennt."""
+    return rx.select.root(
+        rx.select.trigger(),
+        rx.select.content(
+            rx.select.item(t("dictation_engine_stt_suite"), value="stt-suite"),
+            rx.select.item(
+                t("dictation_engine_browser"),
+                value="browser",
+                disabled=~AIState.browser_recognition,
+            ),
+        ),
+        value=AIState.dictation_engine,
+        on_change=AIState.stt_set_dictation_engine,
+        size="1",
+    )
+
+
 def _stt_view() -> rx.Component:
-    """STT-Tab: das bevorzugte Gerät; alles Weitere stellt die STT-Suite selbst ein."""
+    """STT-Tab: wer am Mikrofon-Knopf zuhört (je Gerät) und das bevorzugte Gerät der STT-Suite;
+    alles Weitere stellt die STT-Suite selbst ein."""
     return rx.vstack(
         _editor_header(),
+        # Unabhängig von der STT-Suite: das Browser-Diktat geht auch, wenn sie nicht erreichbar ist.
+        _stt_row(t("dictation_engine"), _dictation_engine_select(), t("dictation_engine_hint")),
         rx.cond(
             ~AIState.stt_available,
             rx.callout(

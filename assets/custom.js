@@ -121,14 +121,113 @@ function stopAudioRecording() {
     }
 }
 
-// Toggle recording
-function toggleRecording() {
-    console.log('🟢 toggleRecording() called, current state:', isRecording);
+// Microphone button. engine = this device's choice in the STT tab (aifred-dictation-engine):
+// "stt-suite" records and uploads, "browser" lets the browser's own recognition listen.
+// Starting a browser dictation returns a promise of {text, error} that settles when the dictation
+// ends; every other click returns null (the backend's callback ignores it).
+function toggleRecording(engine, lang) {
+    console.log('🟢 toggleRecording() called, engine:', engine, 'recording:', isRecording);
+    if (window.__aifredBrowserDictation) {
+        stopBrowserDictation();
+        return null;
+    }
     if (isRecording) {
         stopAudioRecording();
-    } else {
-        startAudioRecording();
+        return null;
     }
+    if (engine === 'browser') return startBrowserDictation(lang);
+    startAudioRecording();
+    return null;
+}
+
+// ============================================================
+// BROWSER SPEECH RECOGNITION (Web Speech API)
+// ============================================================
+// Chrome sends the audio to Google, Edge to Microsoft, Safari to Apple; Firefox has none.
+// Only the microphone button ends a dictation: the browser stops by itself after a silence and
+// is started again, the final results are collected and the text comes as one piece at the end.
+// The running dictation lives on window: Reflex may run this file again on a re-render.
+var BrowserRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+
+function hasBrowserRecognition() {
+    return BrowserRecognition !== undefined;
+}
+window.hasBrowserRecognition = hasBrowserRecognition;
+
+function startBrowserDictation(lang) {
+    return new Promise((resolve) => {
+        if (!hasBrowserRecognition()) {
+            resolve({text: '', error: 'not-supported'});
+            return;
+        }
+        const recognition = new BrowserRecognition();
+        const dictation = {recognition, heard: [], ending: false, error: '', resolve};
+        recognition.lang = lang;
+        recognition.continuous = true;
+        recognition.interimResults = false;
+        recognition.onresult = (event) => {
+            for (let index = event.resultIndex; index < event.results.length; index++) {
+                const result = event.results[index];
+                if (result.isFinal) dictation.heard.push(result[0].transcript.trim());
+            }
+        };
+        recognition.onerror = (event) => {
+            // "no-speech" is a silence before anything was said: it ends like any other silence.
+            if (event.error === 'no-speech') return;
+            dictation.ending = true;
+            dictation.error = event.error;
+        };
+        recognition.onend = () => {
+            if (!dictation.ending) {
+                // Safari may refuse a start that no tap triggered: then the dictation ends here.
+                try {
+                    recognition.start();
+                    return;
+                } catch (error) {
+                    dictation.error = error.name || String(error);
+                }
+            }
+            finishBrowserDictation(dictation);
+        };
+        try {
+            recognition.start();
+        } catch (error) {
+            resolve({text: '', error: error.name || String(error)});
+            return;
+        }
+        window.__aifredBrowserDictation = dictation;
+        updateRecordingButton(true);
+        playBeep(1000, 150);
+        console.log('🔴 Browser dictation started (' + lang + ')');
+    });
+}
+
+function finishBrowserDictation(dictation) {
+    if (window.__aifredBrowserDictation === dictation) window.__aifredBrowserDictation = null;
+    updateRecordingButton(false);
+    playBeep(600, 200);
+    const text = dictation.heard.filter(Boolean).join(' ');
+    console.log('⏹️ Browser dictation ended:', text.length, 'chars', dictation.error || '');
+    dictation.resolve({text, error: dictation.error});
+}
+
+// The click that ends the dictation: its text comes with the promise of the click that started it.
+function stopBrowserDictation() {
+    const dictation = window.__aifredBrowserDictation;
+    dictation.ending = true;
+    dictation.recognition.stop();
+}
+
+// A reload or a closed tab drops the dictation: without abort the restart in onend keeps listening.
+if (!window.__aifredDictationPagehideBound) {
+    window.__aifredDictationPagehideBound = true;
+    window.addEventListener('pagehide', () => {
+        const dictation = window.__aifredBrowserDictation;
+        if (!dictation) return;
+        window.__aifredBrowserDictation = null;
+        dictation.recognition.onend = null;
+        dictation.recognition.abort();
+    });
 }
 
 // Make toggleRecording available globally for Reflex rx.call_script()

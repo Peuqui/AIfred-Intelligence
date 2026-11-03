@@ -256,6 +256,12 @@ class AgentEditorMixin(rx.State, mixin=True):
         bleibt der Editor-State unangetastet — der User landet wieder
         in dem Tab den er vor dem Detour offen hatte.
         """
+        # Ob dieser Browser selbst Sprache erkennt, weiß nur er: die Option „Browser“ im STT-Tab
+        # ist sonst gesperrt.
+        yield rx.call_script(
+            "hasBrowserRecognition()",
+            callback=type(self).stt_set_browser_recognition,  # type: ignore[attr-defined]
+        )
         if not self._agent_editor_needs_init:
             return
         self._agent_editor_needs_init = False

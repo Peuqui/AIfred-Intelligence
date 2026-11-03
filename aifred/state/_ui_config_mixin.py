@@ -236,5 +236,11 @@ class UIConfigMixin(rx.State, mixin=True):
         self._save_settings()  # type: ignore[attr-defined]
 
     def toggle_audio_recording(self):  # type: ignore[no-untyped-def]
-        """Toggle audio recording (calls JavaScript MediaRecorder)."""
-        return rx.call_script("toggleRecording()")
+        """Mikrofon-Knopf: custom.js nimmt für die STT-Suite auf oder lässt den Browser zuhören.
+        Ein Browser-Diktat liefert seinen Text erst an seinem Ende (handle_browser_dictation)."""
+        import json
+        engine = self.dictation_engine  # type: ignore[attr-defined]
+        script = f"toggleRecording({json.dumps(engine)}, {json.dumps(self.ui_language)})"
+        if engine == "browser":
+            return rx.call_script(script, callback=type(self).handle_browser_dictation)  # type: ignore[attr-defined]
+        return rx.call_script(script)
