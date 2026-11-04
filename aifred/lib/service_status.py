@@ -9,13 +9,14 @@ How the state stays current without polling:
 
 - llama-swap pushes every change over ``/api/events`` (SSE): a model loads, becomes ready,
   unloads (TTL included). It does not tell the time left; llama-swap counts the TTL from
-  the end of the last request (or from "ready"), and the events say when a request ended
-  (``inflight``), so the time left is computed here from ``ttl`` and that moment.
+  the end of the last request (or from "ready"), and the events say when a request began
+  and ended (``inflight``), so the time left is computed here from ``ttl`` and that moment.
   ``exact`` is False for a model that was already running when the stream connected: its
   last request is unknown, the time left is then an upper bound.
 - STT-Suite and TTS-Suite report the time left themselves but push nothing. Their state is
-  read when AIfred itself used them (``notify_used``), shortly before the reported expiry
-  (another client may have reset the clock meanwhile) and when asked (``refresh``).
+  read when AIfred itself changed it (``notify_changed``: it used the service, or GPU-Orc
+  released a card for AIfred), shortly before the reported expiry (another client may have
+  reset the clock meanwhile) and when asked (``refresh``).
 
 Listeners (``add_listener``) hear every change of the snapshot; the browser gets it over the
 push bus. The time left travels as seconds from the moment of the snapshot; the page counts
@@ -27,6 +28,7 @@ from __future__ import annotations
 import asyncio
 import json
 import time
+from collections import Counter
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from typing import Any
@@ -175,13 +177,14 @@ class _LlmModel:
 
 class ServiceStatusMonitor:
     """Holds the state of the three services. All changes happen on the event loop that
-    ``run`` runs on; other threads reach it through ``notify_used`` and ``refresh_threadsafe``."""
+    ``run`` runs on; other threads reach it through ``notify_changed`` and ``refresh_threadsafe``."""
 
     def __init__(self, llamaswap_url: str = LLAMASWAP_BASE_URL) -> None:
         self._llamaswap_url = llamaswap_url
         self._loop: asyncio.AbstractEventLoop | None = None
         self._llm_reachable = False
         self._llm: dict[str, _LlmModel] = {}
+        self._requests: dict[str, str] = {}  # llama-swap's requests in flight: request id -> model
         self._stt_reachable = False
         self._stt: dict[str, tuple[SttDeviceStatus, _Anchored | None]] = {}
         self._tts_reachable = False
@@ -261,20 +264,22 @@ class ServiceStatusMonitor:
 
     async def _follow_llamaswap(self) -> None:
         timeout = httpx.Timeout(None, connect=SERVICE_STATUS_SSE_CONNECT_TIMEOUT_S)
-        async with httpx.AsyncClient(timeout=timeout) as http:
-            async with http.stream("GET", f"{self._llamaswap_url}/api/events") as response:
-                response.raise_for_status()
-                self._llm_reachable = True
-                async for line in response.aiter_lines():
-                    if line.startswith("data:"):
-                        await self._on_event(json.loads(line.removeprefix("data:")))
+        async with (
+            httpx.AsyncClient(timeout=timeout) as http,
+            http.stream("GET", f"{self._llamaswap_url}/api/events") as response,
+        ):
+            response.raise_for_status()
+            self._llm_reachable = True
+            async for line in response.aiter_lines():
+                if line.startswith("data:"):
+                    await self._on_event(json.loads(line.removeprefix("data:")))
 
     async def _on_event(self, event: dict[str, Any]) -> None:
         match event["type"]:
             case "modelStatus":
                 await self._on_model_status(json.loads(event["data"]))
             case "inflight":
-                self._on_inflight(json.loads(event["data"])["requests"])
+                self._on_inflight(json.loads(event["data"]))
 
     async def _on_model_status(self, models: list[dict[str, Any]]) -> None:
         now = time.monotonic()
@@ -297,17 +302,31 @@ class ServiceStatusMonitor:
             known.state = state
         self._changed()
 
-    def _on_inflight(self, requests_running: list[dict[str, Any]]) -> None:
+    def _on_inflight(self, change: dict[str, Any]) -> None:
+        """llama-swap reports the requests in flight as changes: ``snapshot`` lists all of them on
+        connect (the list is left out when there are none), ``upsert`` names one that began or
+        made progress (every few hundred ms while it streams), ``remove`` one that ended."""
+        match change["operation"]:
+            case "snapshot":
+                self._requests = {request["id"]: request["model"] for request in change.get("requests", [])}
+            case "upsert":
+                self._requests[change["request"]["id"]] = change["request"]["model"]
+            case "remove":
+                del self._requests[change["id"]]
+            case operation:
+                raise LlamaSwapError(f"llama-swap inflight event with unknown operation {operation!r}")
         now = time.monotonic()
-        counts: dict[str, int] = {}
-        for request in requests_running:
-            counts[request["model"]] = counts.get(request["model"], 0) + 1
+        counts = Counter(self._requests.values())
+        changed = False
         for name, model in self._llm.items():
-            count = counts.get(name, 0)
-            if model.inflight > 0 and count == 0:
+            count = counts[name]
+            if count == model.inflight:
+                continue  # progress of a running request: nothing to tell
+            if count == 0:
                 model.last_use, model.exact = now, True  # llama-swap counts from the end of the last request
-            model.inflight = count
-        self._changed()
+            model.inflight, changed = count, True
+        if changed:
+            self._changed()
 
     # -- STT / TTS --
 
@@ -426,6 +445,7 @@ def get_monitor() -> ServiceStatusMonitor:
     return _monitor
 
 
-def notify_used(service: str) -> None:
-    """AIfred just used ``stt`` or ``tts``: ask the service for the time left (its clock was reset)."""
+def notify_changed(service: str) -> None:
+    """AIfred just changed the state of ``stt`` or ``tts`` (it used the service, which reset its idle
+    clock, or GPU-Orc released the service's card for AIfred): read the service again."""
     _monitor.refresh_threadsafe(service)

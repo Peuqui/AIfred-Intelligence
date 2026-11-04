@@ -56,7 +56,7 @@ from .config import (
     TTS_SUITE_SYSTEMCTL_TIMEOUT_S,
     TTS_SUITE_URL,
 )
-from .service_status import notify_used
+from .service_status import notify_changed
 
 FRAMES_MEDIA_TYPE = "application/x-tts-frames"
 _HEADER_LENGTH = struct.Struct(">I")
@@ -396,7 +396,7 @@ class _FrameStream:
         if kind == "summary":
             data = json.loads(body)
             self._summary = SpeakSummary(_trace_from_json(data["trace"]), data["switch"])
-            notify_used("tts")  # the reading reset the engine's idle clock
+            notify_changed("tts")  # the reading reset the engine's idle clock
             return None
         if kind == "error":
             raise _error_from_body(json.loads(body), None, body.decode("utf-8", "replace"))
@@ -532,6 +532,7 @@ def _systemctl_start() -> tuple[int, str]:
     try:
         result = subprocess.run(
             ["systemctl", "start", unit],
+            check=False,  # the exit code goes to the caller
             capture_output=True,
             text=True,
             timeout=TTS_SUITE_SYSTEMCTL_TIMEOUT_S,

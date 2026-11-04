@@ -29,7 +29,7 @@ from .config import (
 )
 from .logging_utils import log_message
 from .process_utils import docker_compose_action
-from .service_status import notify_used
+from .service_status import notify_changed
 
 
 class STTError(RuntimeError):
@@ -130,7 +130,7 @@ class STTClient:
                 data={"device": device, "language": language,
                       "diarize": "1" if diarize else "0"},
             )
-        notify_used("stt")  # the transcription reset the idle clock of the GPU worker
+        notify_changed("stt")  # the transcription reset the idle clock of the GPU worker
         return result
 
     # ---- Container auf Abruf ---------------------------------------------

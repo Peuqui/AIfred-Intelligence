@@ -32,6 +32,20 @@ def test_the_model_form_names_the_model_server_and_the_reason(fake) -> None:
     assert result == FreeResult(False, True, (FreeAction("stt-suite", "gpu-worker", "released_forced", "waited"),))
 
 
+@pytest.mark.parametrize(
+    ("outcome", "read_again"),
+    [("released", ["stt", "tts"]), ("released_forced", ["stt", "tts"]), ("refused_busy", []), ("kept", [])],
+)
+def test_a_release_has_the_status_line_read_stt_and_tts_again(fake, monkeypatch, outcome, read_again) -> None:
+    from aifred.lib import gpu_orc_client
+
+    asked: list[str] = []
+    monkeypatch.setattr(gpu_orc_client, "notify_changed", asked.append)
+    fake.actions = [{"consumer": "stt-suite", "item": "gpu-worker", "outcome": outcome}]
+    get_gpu_orc_client().free_for_model("m", reason="r")
+    assert asked == read_again
+
+
 def test_clearing_all_cards_keeps_the_model_servers_models(fake) -> None:
     get_gpu_orc_client().free_all_but_models(reason="AIfred: calibration")
     assert fake.frees == [{"gpus": "all", "keep": [GPU_ORC_MODEL_SERVER], "reason": "AIfred: calibration"}]

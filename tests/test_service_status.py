@@ -38,6 +38,32 @@ def monitor_with_ttls(monkeypatch: pytest.MonkeyPatch, ttls: dict[str, int]) -> 
     return ss.ServiceStatusMonitor()
 
 
+# The ``inflight`` changes of llama-swap v269, shaped like the ones read from its /api/events
+# (request fields trimmed to what the monitor reads plus one it ignores).
+def request(request_id: str, model: str = MODEL, resp_bytes: int = 0) -> dict[str, Any]:
+    return {"id": request_id, "model": model, "req_path": "/v1/chat/completions", "resp_bytes": resp_bytes}
+
+
+def snapshot(*requests_running: dict[str, Any]) -> dict[str, Any]:
+    # llama-swap leaves the list out when no request runs
+    return {"operation": "snapshot", "requests": list(requests_running)} if requests_running else {"operation": "snapshot"}
+
+
+def upsert(request_id: str, resp_bytes: int = 0) -> dict[str, Any]:
+    return {"operation": "upsert", "request": request(request_id, resp_bytes=resp_bytes)}
+
+
+def remove(request_id: str) -> dict[str, Any]:
+    return {"operation": "remove", "id": request_id}
+
+
+def ready_monitor(monkeypatch: pytest.MonkeyPatch) -> ss.ServiceStatusMonitor:
+    monitor = monitor_with_ttls(monkeypatch, {MODEL: TTL_S})
+    asyncio.run(monitor._on_model_status(model_status((MODEL, "starting"))))
+    asyncio.run(monitor._on_model_status(model_status((MODEL, "ready"))))
+    return monitor
+
+
 # ---- /running ----------------------------------------------------------------
 
 
@@ -97,19 +123,59 @@ def test_a_model_already_ready_when_listening_starts_is_an_upper_bound(
 def test_the_clock_stands_still_while_a_request_runs_and_restarts_when_it_ends(
     monkeypatch: pytest.MonkeyPatch, clock: list[float],
 ) -> None:
-    monitor = monitor_with_ttls(monkeypatch, {MODEL: TTL_S})
-    asyncio.run(monitor._on_model_status(model_status((MODEL, "starting"))))
-    asyncio.run(monitor._on_model_status(model_status((MODEL, "ready"))))
+    monitor = ready_monitor(monkeypatch)
+    monitor._on_inflight(snapshot())
     clock[0] += 500
-    monitor._on_inflight([{"model": MODEL}])
+    monitor._on_inflight(upsert("11"))
     clock[0] += 300
     busy = monitor.snapshot().models[0]
     assert (busy.busy, busy.remaining_s) == (True, float(TTL_S))
 
-    monitor._on_inflight([])
+    monitor._on_inflight(remove("11"))
     clock[0] += 10
     idle = monitor.snapshot().models[0]
     assert (idle.busy, idle.remaining_s, idle.exact) == (False, TTL_S - 10, True)
+
+
+def test_a_request_running_when_listening_starts_comes_with_the_snapshot(
+    monkeypatch: pytest.MonkeyPatch, clock: list[float],
+) -> None:
+    monitor = ready_monitor(monkeypatch)
+    monitor._on_inflight(snapshot(request("12")))
+    assert monitor.snapshot().models[0].busy is True
+    monitor._on_inflight(remove("12"))
+    assert monitor.snapshot().models[0].busy is False
+
+
+def test_the_clock_waits_for_the_last_of_two_requests(monkeypatch: pytest.MonkeyPatch, clock: list[float]) -> None:
+    monitor = ready_monitor(monkeypatch)
+    monitor._on_inflight(snapshot())
+    monitor._on_inflight(upsert("1"))
+    monitor._on_inflight(upsert("2"))
+    monitor._on_inflight(remove("1"))
+    assert monitor.snapshot().models[0].busy is True
+    monitor._on_inflight(remove("2"))
+    assert monitor.snapshot().models[0].busy is False
+
+
+def test_the_progress_of_a_streaming_request_tells_the_listeners_nothing(
+    monkeypatch: pytest.MonkeyPatch, clock: list[float],
+) -> None:
+    monitor = ready_monitor(monkeypatch)
+    monitor._on_inflight(snapshot())
+    heard: list[ss.ServiceSnapshot] = []
+    monitor.add_listener(heard.append)
+    monitor._on_inflight(upsert("11"))
+    for resp_bytes in (6168, 12842, 19240):
+        monitor._on_inflight(upsert("11", resp_bytes))
+    monitor._on_inflight(remove("11"))
+    assert [h.models[0].busy for h in heard] == [True, False]
+
+
+def test_an_unknown_inflight_operation_is_a_llama_swap_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    monitor = ready_monitor(monkeypatch)
+    with pytest.raises(ss.LlamaSwapError, match="'clear'"):
+        monitor._on_inflight({"operation": "clear"})
 
 
 def test_a_model_with_ttl_zero_never_unloads_and_an_unloaded_one_disappears(
@@ -135,8 +201,8 @@ def test_listeners_hear_every_change_and_a_broken_one_does_not_silence_the_rest(
     monitor.add_listener(broken)
     monitor.add_listener(heard.append)
     asyncio.run(monitor._on_event({"type": "modelStatus", "data": json.dumps(model_status((MODEL, "ready")))}))
-    asyncio.run(monitor._on_event({"type": "inflight", "data": json.dumps({"requests": []})}))
-    assert len(heard) == 2 and heard[0].models[0].name == MODEL
+    asyncio.run(monitor._on_event({"type": "inflight", "data": json.dumps(upsert("11"))}))
+    assert len(heard) == 2 and heard[0].models[0].name == MODEL and heard[1].models[0].busy
 
 
 def test_the_embedding_server_is_not_listed_and_a_describer_is_told_apart(

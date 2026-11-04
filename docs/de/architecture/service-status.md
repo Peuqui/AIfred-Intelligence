@@ -19,16 +19,18 @@ Code: [`service_status.py`](../../../aifred/lib/service_status.py) (SSOT),
 
 | Dienst | Zustand | Restzeit |
 |---|---|---|
-| llama-swap | SSE-Strom `/api/events` (`modelStatus`, `inflight`), vom Monitor dauerhaft gehalten | berechnet: `ttl` (aus `/running`) ab dem Ende der letzten Anfrage, wie llama-swap selbst zählt. `exact: false` = Modell war schon geladen, als AIfred zu lauschen begann (Obergrenze, Anzeige mit `≤`) |
+| llama-swap | SSE-Strom `/api/events` (`modelStatus`, `inflight`), vom Monitor dauerhaft gehalten. `inflight` meldet seit llama-swap v269 Änderungen je Anfrage: `snapshot` (alle laufenden beim Verbinden, ohne Liste, wenn keine läuft), `upsert` (Beginn und Fortschritt, beim Streamen etwa alle 250 ms), `remove` (Ende). Der Monitor meldet nur, wenn sich die Zahl laufender Anfragen je Modell ändert | berechnet: `ttl` (aus `/running`) ab dem Ende der letzten Anfrage, wie llama-swap selbst zählt. `exact: false` = Modell war schon geladen, als AIfred zu lauschen begann (Obergrenze, Anzeige mit `≤`) |
 | STT-Suite | `GET /status` | `gpu_ttl_remaining_seconds` des Dienstes (CPU-Modell bleibt geladen) |
 | TTS-Suite | `GET /engines` | `idle_remaining_s` je laufender GPU-Engine (Leerlauf-Timer des Containers) |
 
 STT und TTS melden die Restzeit selbst, pushen aber nichts. AIfred liest sie deshalb nach jeder
-eigenen Nutzung (`notify_used`, ausgelöst im Client beim Ende einer Transkription bzw. beim
-Summary-Frame einer Lesung), kurz vor dem gemeldeten Ablauf (`SERVICE_STATUS_RECHECK_MARGIN_S`;
+eigenen Änderung (`notify_changed`, ausgelöst im Client beim Ende einer Transkription bzw. beim
+Summary-Frame einer Lesung, und im GPU-Orc-Client, sobald GPU-Orc für AIfred etwas freigegeben hat), kurz vor dem gemeldeten Ablauf (`SERVICE_STATUS_RECHECK_MARGIN_S`;
 ein anderer Client kann die Uhr inzwischen zurückgesetzt haben), bei überfälligem Ablauf alle
 `SERVICE_STATUS_OVERDUE_POLL_S` (die Container prüfen ihren Leerlauf nur alle 30 bis 120 s) und auf
-Knopfdruck. Die Anzeige liegt dadurch höchstens zu kurz, nie zu lang.
+Knopfdruck. Die Restzeit liegt dadurch höchstens zu kurz, nie zu lang. Gibt GPU-Orc eine Karte
+für einen anderen Aufrufer frei (Agent-Orc, vllm-research), sieht AIfred das erst beim nächsten
+geplanten Nachschauen oder auf Knopfdruck.
 
 ## Weg zum Browser
 

@@ -19,16 +19,18 @@ Code: [`service_status.py`](../../../aifred/lib/service_status.py) (SSOT),
 
 | Service | State | Time left |
 |---|---|---|
-| llama-swap | SSE stream `/api/events` (`modelStatus`, `inflight`), held permanently by the monitor | computed: `ttl` (from `/running`) from the end of the last request, the way llama-swap counts itself. `exact: false` = the model was already loaded when AIfred started listening (upper bound, shown with `≤`) |
+| llama-swap | SSE stream `/api/events` (`modelStatus`, `inflight`), held permanently by the monitor. Since llama-swap v269 `inflight` reports changes per request: `snapshot` (all running ones on connect, without the list when none runs), `upsert` (start and progress, about every 250 ms while streaming), `remove` (end). The monitor tells only when the number of running requests per model changes | computed: `ttl` (from `/running`) from the end of the last request, the way llama-swap counts itself. `exact: false` = the model was already loaded when AIfred started listening (upper bound, shown with `≤`) |
 | STT-Suite | `GET /status` | the service's `gpu_ttl_remaining_seconds` (the CPU model stays loaded) |
 | TTS-Suite | `GET /engines` | `idle_remaining_s` per running GPU engine (the container's idle timer) |
 
 STT and TTS report the time left themselves but push nothing. AIfred therefore reads it after
-every use of its own (`notify_used`, triggered in the client when a transcription ends or at the
-summary frame of a reading), shortly before the reported expiry (`SERVICE_STATUS_RECHECK_MARGIN_S`;
+every change of its own (`notify_changed`, triggered in the client when a transcription ends or at the
+summary frame of a reading, and in the GPU-Orc client once GPU-Orc released something for AIfred), shortly before the reported expiry (`SERVICE_STATUS_RECHECK_MARGIN_S`;
 another client may have reset the clock meanwhile), every `SERVICE_STATUS_OVERDUE_POLL_S` when the
 expiry is due but has not happened (the containers check their idle time only every 30 to 120 s)
-and on a click of the button. The display can therefore be too short, never too long.
+and on a click of the button. The time left can therefore be too short, never too long. When GPU-Orc
+releases a card for another caller (Agent-Orc, vllm-research), AIfred sees it only at its next
+scheduled look or on a click of the button.
 
 ## Way to the browser
 
