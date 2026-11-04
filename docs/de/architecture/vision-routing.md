@@ -84,6 +84,13 @@ Ein Ollama-Modell (kein llama-swap-Eintrag) bleibt unverändert. Den Versand
 ([`aifred/lib/vision_analyzer.py`](../../../aifred/lib/vision_analyzer.py)) nur
 noch per Dispatch: `has_native_vision` → llama-swap, sonst Ollama.
 
+**Sieht ein Eintrag?** `has_native_vision`
+([`aifred/lib/vision_utils.py`](../../../aifred/lib/vision_utils.py)) liest den
+Startbefehl des llama-swap-Eintrags: llama.cpp mit `--mmproj`; vLLM, wenn das
+Checkpoint einen Bildkodierer trägt und weder `--language-model-only` noch ein
+Bildlimit 0 in `--limit-mm-per-prompt` ihn abschaltet (dann weist vLLM jedes
+Bild ab). Der Name des Modells zählt nicht.
+
 **Passt das daneben?** `check_visiond_fits`
 ([`aifred/lib/vision_vram_check.py`](../../../aifred/lib/vision_vram_check.py)):
 ein schon geladenes Profil passt immer; sonst der Burn-in-Peak aus

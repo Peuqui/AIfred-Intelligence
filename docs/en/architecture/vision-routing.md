@@ -80,6 +80,13 @@ An Ollama model (no llama-swap entry) stays unchanged. `analyze_sequence`
 ([`aifred/lib/vision_analyzer.py`](../../../aifred/lib/vision_analyzer.py))
 only dispatches: `has_native_vision` → llama-swap, otherwise Ollama.
 
+**Does an entry see?** `has_native_vision`
+([`aifred/lib/vision_utils.py`](../../../aifred/lib/vision_utils.py)) reads the
+llama-swap entry's start command: llama.cpp with `--mmproj`; vLLM when the
+checkpoint carries a vision encoder and neither `--language-model-only` nor an
+image limit of 0 in `--limit-mm-per-prompt` switches it off (vLLM then rejects
+every image). The model's name does not count.
+
 **Does it fit alongside?** `check_visiond_fits`
 ([`aifred/lib/vision_vram_check.py`](../../../aifred/lib/vision_vram_check.py)):
 an already loaded profile always fits; otherwise the burn-in peak from

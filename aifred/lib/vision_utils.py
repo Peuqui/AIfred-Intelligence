@@ -5,6 +5,7 @@ Multi-backend vision model detection and image handling for AIfred Intelligence.
 Supports Ollama, llama.cpp (via llama-swap), and vLLM backends.
 """
 
+import json
 import logging
 import re
 import shlex
@@ -211,17 +212,38 @@ _native_vision_cache: set[str] = set()
 _native_vision_cache_mtime: float = -1.0
 
 
+def _vllm_rejects_images(args: list[str]) -> bool:
+    """Sets ``--limit-mm-per-prompt`` the image limit to 0? vLLM then rejects
+    every image, even though the checkpoint carries a vision encoder.
+
+    vLLM accepts the limit as a number (``{"image": 0}``) or as options
+    (``{"image": {"count": 0, …}}``); a missing ``image`` key means vLLM's
+    default, images allowed.
+    """
+    flag = "--limit-mm-per-prompt"
+    if flag not in args or args.index(flag) + 1 >= len(args):
+        return False
+    limits: dict[str, object] = json.loads(args[args.index(flag) + 1])
+    image = limits.get("image")
+    count: object = image.get("count") if isinstance(image, dict) else image
+    return count == 0
+
+
 def _entry_has_native_vision(full_cmd: str) -> bool:
-    """Loads this llama-swap cmd a vision encoder alongside the LLM?
+    """Loads this llama-swap cmd a vision encoder alongside the LLM and
+    takes images?
 
     llama.cpp: ``--mmproj``. vLLM: the ``--model`` checkpoint carries a
-    vision encoder and ``--language-model-only`` does not switch it off.
+    vision encoder, and neither ``--language-model-only`` nor an image limit
+    of 0 switches it off.
     """
     if "--mmproj" in full_cmd:
         return True
     if "--language-model-only" in full_cmd:
         return False
     args = shlex.split(full_cmd)
+    if _vllm_rejects_images(args):
+        return False
     if "--model" not in args or args.index("--model") + 1 >= len(args):
         return False
     checkpoint = Path(args[args.index("--model") + 1])

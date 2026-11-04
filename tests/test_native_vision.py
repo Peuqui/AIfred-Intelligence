@@ -1,5 +1,6 @@
 """Tests für die Native-Vision-SSOT (vision_utils.has_native_vision) —
-llama.cpp (--mmproj) und vLLM (Checkpoint-Encoder ohne --language-model-only)."""
+llama.cpp (--mmproj) und vLLM (Checkpoint-Encoder ohne --language-model-only
+und ohne Bildlimit 0 in --limit-mm-per-prompt)."""
 
 from __future__ import annotations
 
@@ -35,6 +36,19 @@ def swap_config(tmp_path, monkeypatch):
             "full_cmd": f"{vllm} {vision_ckpt} --port 1 --language-model-only"
         },
         "vllm-text": {"full_cmd": f"{vllm} {text_ckpt} --port 1"},
+        # Bildlimit 0 (so steht GLM-5.3 in llama-swap): vLLM weist jedes Bild ab
+        "vllm-vision-images-off": {
+            "full_cmd": f"{vllm} {vision_ckpt} --limit-mm-per-prompt "
+                        "'{\"image\":0,\"video\":0}' --port 1"
+        },
+        "vllm-vision-images-off-options": {
+            "full_cmd": f"{vllm} {vision_ckpt} --limit-mm-per-prompt "
+                        "'{\"image\": {\"count\": 0, \"width\": 512}}' --port 1"
+        },
+        "vllm-vision-images-12": {
+            "full_cmd": f"{vllm} {vision_ckpt} --limit-mm-per-prompt "
+                        "'{\"image\":12,\"video\":0}' --port 1"
+        },
     }
     config_file = tmp_path / "config.yaml"
     config_file.write_text("models: {}\n")
@@ -51,6 +65,9 @@ def swap_config(tmp_path, monkeypatch):
     ("vllm-vision", True),
     ("vllm-vision-vlm-qwen3vl4b", False),
     ("vllm-text", False),
+    ("vllm-vision-images-off", False),
+    ("vllm-vision-images-off-options", False),
+    ("vllm-vision-images-12", True),
     ("unknown", False),
 ])
 def test_has_native_vision(swap_config, model, expected):
