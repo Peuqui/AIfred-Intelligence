@@ -191,32 +191,6 @@ class LlamaCppBackend(OpenAICompatibleBackend):
 
     # === Backend-specific methods ===
 
-    async def preload_model(self, model: str, num_ctx: int | None = None) -> tuple[bool, float]:
-        """
-        Trigger llama-swap to load a model by sending a minimal completion request.
-
-        llama-swap starts the model's llama-server on first request. By sending a
-        minimal request during idle time (e.g. parallel to web scraping), we hide
-        the cold-start latency from the user.
-
-        num_ctx is ignored - llama-swap uses the -c value from its YAML config.
-        """
-        import time
-        start = time.time()
-        try:
-            await self.client.chat.completions.create(
-                model=model,
-                messages=[{"role": "user", "content": "hi"}],
-                max_tokens=1,
-            )
-            load_time = time.time() - start
-            logger.info(f"llama.cpp: Preloaded {model} via llama-swap ({load_time:.1f}s)")
-            return (True, load_time)
-        except openai.OpenAIError as e:
-            load_time = time.time() - start
-            logger.warning(f"llama.cpp: Preload failed for {model}: {e}")
-            return (False, load_time)
-
     async def get_model_context_limit(self, model: str) -> tuple[int, int]:
         """
         Get context limit for a llama.cpp model.

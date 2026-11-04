@@ -201,8 +201,10 @@ class LLMBackend(ABC):
     @abstractmethod
     async def preload_model(self, model: str, num_ctx: int | None = None) -> tuple[bool, float]:
         """
-        Preload a model into VRAM by sending a minimal request.
-        This warms up the model so future requests are faster.
+        Load a model ahead of the request that needs it, so its load time hides behind other
+        work (e.g. web scraping). llama-swap backends take their own load path
+        (``load_model``: GPU-Orc clears the cards, llama-swap loads); Ollama sends a minimal
+        request with the context of the following inference.
 
         IMPORTANT for Ollama Multi-GPU:
         num_ctx MUST be passed during preload so Ollama loads the model
@@ -352,8 +354,18 @@ class OpenAICompatibleBackend(LLMBackend):
             return False
 
     async def preload_model(self, model: str, num_ctx: int | None = None) -> tuple[bool, float]:
-        """No-op preload — models are already loaded. Override for Ollama/llamacpp."""
-        return (True, 0.0)
+        """Load ``model`` the way its request will (``load_model``); ``num_ctx`` is unused, the context
+        comes from the server's configuration (llama-swap YAML). ``(True, 0.0)`` when it ran already; a
+        failed load is logged and reported as ``False``, the request then names the cause itself."""
+        from ..lib.logging_utils import log_message
+        from ..lib.timer import Timer
+
+        timer = Timer()
+        try:
+            return True, await self.load_model(model)
+        except BackendError as error:
+            log_message(f"⚠️ Preload of '{model}' failed: {error}", "warning")
+            return False, timer.elapsed()
 
     # === Hooks (override in subclasses as needed) ===
 

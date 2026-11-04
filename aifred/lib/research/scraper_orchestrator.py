@@ -56,28 +56,14 @@ async def orchestrate_scraping(
 
     yield {"type": "debug", "message": "🌐 Web scraping starting (parallel)"}
 
-    # PERFORMANCE: Preload Main LLM during scraping (only for backends that need it)
-    # vLLM keeps models loaded in VRAM, so preloading is unnecessary
-    needs_preload = llm_client.backend_type != "vllm"
-    preload_task = None
+    # PERFORMANCE: load the main LLM while the pages are scraped. A cold start of a big model takes
+    # minutes, also on vLLM (llama-swap unloads it after its ttl); preload_model returns at once
+    # when it runs already.
+    backend = llm_client._get_backend()
+    preload_task = asyncio.create_task(backend.preload_model(model_choice, num_ctx=preload_num_ctx))
     preload_message_sent = False
-    unloaded_models = []
-
-    if needs_preload:
-        backend = llm_client._get_backend()
-
-        async def unload_and_preload():
-            """Preload main LLM with the inference num_ctx to avoid a reload later"""
-            success, load_time = await backend.preload_model(model_choice, num_ctx=preload_num_ctx)
-            return (success, load_time, [])
-
-        preload_task = asyncio.create_task(unload_and_preload())
-        log_message(f"🚀 AIfred-LLM ({model_choice}) preloading... [Context={preload_num_ctx}]")
-        yield {"type": "debug", "message": f"🚀 AIfred-LLM preloading... [Context={format_number(preload_num_ctx)}]"}
-    else:
-        log_message(f"ℹ️ AIfred-LLM ({model_choice}) already loaded (Backend: {llm_client.backend_type})")
-        yield {"type": "debug", "message": f"ℹ️ AIfred-LLM ({model_choice}) already loaded"}
-        preload_message_sent = True  # Skip preload messages
+    log_message(f"🚀 AIfred-LLM ({model_choice}) preloading... [Context={preload_num_ctx}]")
+    yield {"type": "debug", "message": f"🚀 AIfred-LLM preloading... [Context={format_number(preload_num_ctx)}]"}
 
     # Parallel Scraping
     log_message(f"🚀 Parallel Scraping: {len(urls_to_scrape)} URLs simultaneously")
@@ -95,11 +81,9 @@ async def orchestrate_scraping(
         return url, rank_idx, result
 
     tasks = [_scrape_one(url, idx) for idx, url in enumerate(urls_to_scrape)]
-    completed_count = 0
 
-    for coro in asyncio.as_completed(tasks):
+    for completed_count, coro in enumerate(asyncio.as_completed(tasks), start=1):
         url, rank_idx, scrape_result = await coro
-        completed_count += 1
         all_results.append((url, rank_idx, scrape_result))
         url_short = url[:60] + '...' if len(url) > 60 else url
 
@@ -111,22 +95,9 @@ async def orchestrate_scraping(
             log_message(f"  ❌ {url_short}: {scrape_result.get('error', 'Unknown')}")
 
         # Check if preload finished and send message immediately
-        if not preload_message_sent and preload_task and preload_task.done():
-            try:
-                success, load_time, unloaded_models = preload_task.result()
-
-                if unloaded_models:
-                    models_str = ", ".join(unloaded_models)
-                    yield {"type": "debug", "message": f"🗑️ Unloaded models: {models_str}"}
-
-                if success:
-                    yield {"type": "debug", "message": f"✅ AIfred-LLM preloaded ({load_time:.1f}s)"}
-                else:
-                    yield {"type": "debug", "message": f"⚠️ AIfred-LLM preload failed ({load_time:.1f}s)"}
-                preload_message_sent = True
-            except Exception as e:
-                log_message(f"⚠️ AIfred-LLM preload exception: {e}")
-                preload_message_sent = True
+        if not preload_message_sent and preload_task.done():
+            yield {"type": "debug", "message": _preload_message(*preload_task.result())}
+            preload_message_sent = True
 
         # Update progress
         failed_count = completed_count - len(scraped_results)
@@ -153,20 +124,17 @@ async def orchestrate_scraping(
         log_message(f"⚠️ {len(failed_sources)} URLs not scrapeable")
 
     # Wait for preload task to complete if not done yet
-    if not preload_message_sent and preload_task:
-        try:
-            success, load_time, unloaded_models = await preload_task
-            if unloaded_models:
-                models_str = ", ".join(unloaded_models)
-                yield {"type": "debug", "message": f"🗑️ Unloaded models: {models_str}"}
-
-            # log_message via add_debug when yield processed
-            if success:
-                yield {"type": "debug", "message": f"✅ AIfred-LLM preloaded ({load_time:.1f}s)"}
-            else:
-                yield {"type": "debug", "message": f"⚠️ AIfred-LLM preload failed ({load_time:.1f}s)"}
-        except Exception as e:
-            log_message(f"⚠️ AIfred-LLM preload exception: {e}")
+    if not preload_message_sent:
+        yield {"type": "debug", "message": _preload_message(*await preload_task)}
 
     # Return results
     yield {"type": "scraping_result", "data": (scraped_results, tool_results)}
+
+
+def _preload_message(success: bool, load_time: float) -> str:
+    """Debug line for the outcome of preload_model (0.0 s = it ran already)."""
+    if not success:
+        return f"⚠️ AIfred-LLM preload failed ({format_number(load_time, 1)}s)"
+    if load_time == 0.0:
+        return "ℹ️ AIfred-LLM already loaded"
+    return f"✅ AIfred-LLM preloaded ({format_number(load_time, 1)}s)"

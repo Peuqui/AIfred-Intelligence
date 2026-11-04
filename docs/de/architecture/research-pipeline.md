@@ -75,7 +75,7 @@ Suchanfragen formuliert der Agent selbst in seinem Tool-Call:
    ├─ PDFs (Leitlinien, Paper) per PyMuPDF extrahiert
    ├─ Kein Playwright-Retry bei fehlgeschlagenen Downloads (404, Timeout, Bot-Schutz)
    ├─ Fehlgeschlagene Quellen werden mit Fehlergrund aufgelistet
-   └─ Hauptmodell lädt parallel vor (nicht bei vLLM — das bleibt resident)
+   └─ Hauptmodell lädt parallel vor (preload_model, derselbe Ladeweg wie seine Anfrage)
 
 4. Kontext-Aufbau
    ├─ build_context(): gescrapter Text, token-bewusst

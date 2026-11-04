@@ -74,7 +74,7 @@ agent writes the 1-3 search queries itself in its tool call:
    ├─ PDFs (guidelines, papers) extracted via PyMuPDF
    ├─ No Playwright retry for failed downloads (404, timeout, bot protection)
    ├─ Failed sources are listed with their error reason
-   └─ Main model preloads in parallel (not for vLLM — it stays resident)
+   └─ Main model loads in parallel (preload_model, the same load path as its request)
 
 4. Context building
    ├─ build_context(): scraped text, token-aware
