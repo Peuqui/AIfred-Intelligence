@@ -1,7 +1,12 @@
 # SearXNG Configuration for AI Voice Assistant
 # Optimized for fast responses and reliable results
 
-use_default_settings: true
+# ahmia und torch sind Tor-Suchmaschinen; ohne Tor-Proxy scheitert schon ihr Laden
+use_default_settings:
+  engines:
+    remove:
+      - ahmia
+      - torch
 
 general:
   debug: false
@@ -72,12 +77,6 @@ engines:
     disabled: false
 
 # Disable less relevant engines for faster responses
-  - name: reddit
-    disabled: true
-
-  - name: twitter
-    disabled: true
-
   - name: youtube
     disabled: true
 

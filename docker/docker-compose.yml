@@ -42,7 +42,7 @@ services:
 
   # SearXNG Search Engine (Primary web-research backend — always needed)
   searxng:
-    image: searxng/searxng:2026.10.2-19ffbcd30
+    image: searxng/searxng:2026.11.2-cccbc9e15
     container_name: aifred-searxng
     restart: unless-stopped
     ports:
