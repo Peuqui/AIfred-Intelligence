@@ -23,6 +23,7 @@ import time
 from typing import Any, Self
 
 from .config import TTS_BURNIN_AGENT
+from .gpu_release import RELEASE_DONE_OUTCOMES
 from .tts_client import EngineRef, TTSSuiteError, get_tts_client, new_run_id
 from .tts_service import catalog
 from .tts_voices import voices_for
@@ -210,7 +211,7 @@ async def _release(engine_key: str) -> None:
         get_tts_client().gpu_release, [engine_key], force=False, reason="AIfred: TTS burn-in finished",
     )
     for result in results:
-        if result.outcome not in ("released", "not_running"):
+        if result.outcome not in RELEASE_DONE_OUTCOMES:
             logger.warning(
                 "tts_stress_burnin: %s stays on the card (%s): %s", engine_key, result.outcome, result.detail,
             )
@@ -241,10 +242,7 @@ async def stress_burnin_tts(
 
     def _log(msg: str) -> None:
         if debug is not None:
-            try:
-                debug(msg)
-            except Exception:  # noqa: BLE001
-                pass
+            debug(msg)
         logger.info(msg)
 
     try:

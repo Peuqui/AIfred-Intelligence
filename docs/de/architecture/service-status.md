@@ -2,16 +2,17 @@
 
 > **English version:** [service-status.md](../../en/architecture/service-status.md)
 
-Stand: 13.10.2026. Die einklappbare Leiste unter der Titelzeile zeigt, was gerade geladen ist
+Stand: 04.11.2026. Die einklappbare Leiste unter der Titelzeile zeigt, was gerade geladen ist
 und wie lange noch: das Sprachmodell (Zylinder-Icon), den Bildbeschreiber (Kamera), die
 Spracherkennung (STT) und die Sprachausgabe (TTS). Im zugeklappten Kopf steht je Dienst ein Icon
 mit Statuspunkt (grün geladen und sanft pulsierend, gelb lädt und schneller pulsierend, grau
 nichts geladen, rot nicht erreichbar); aufgeklappt eine Zeile je Dienst mit Namen und der Zeit
-bis zum Entladen. Der Knopf daneben fragt STT und TTS frisch ab. Embedding-Server laufen auf der
-CPU und werden nicht gezeigt.
+bis zum Entladen und einem Knopf zum Entladen bzw. Laden (siehe unten). Der Knopf rechts fragt STT
+und TTS frisch ab. Embedding-Server laufen auf der CPU und werden nicht gezeigt.
 
 Code: [`service_status.py`](../../../aifred/lib/service_status.py) (SSOT),
 [`api/service_status.py`](../../../aifred/lib/api/service_status.py) (Endpunkt + Push),
+[`service_control.py`](../../../aifred/lib/service_control.py) (Laden und Entladen),
 [`ui/service_status_bar.py`](../../../aifred/ui/service_status_bar.py) (leerer Rahmen),
 `serviceStatus*` in [`assets/custom.js`](../../../assets/custom.js) (Darstellung, Countdown).
 
@@ -31,6 +32,30 @@ ein anderer Client kann die Uhr inzwischen zurückgesetzt haben), bei überfäll
 Knopfdruck. Die Restzeit liegt dadurch höchstens zu kurz, nie zu lang. Gibt GPU-Orc eine Karte
 für einen anderen Aufrufer frei (Agent-Orc, vllm-research), sieht AIfred das erst beim nächsten
 geplanten Nachschauen oder auf Knopfdruck.
+
+## Laden und Entladen per Knopf
+
+Hinter jeder Zeile sitzt ein Ein/Aus-Knopf (`serviceStatusActionButton` in `custom.js`, Endpunkte
+`POST /api/service-status/unload` und `/load`):
+
+| Zeile | Knopf | Weg |
+|---|---|---|
+| Sprachmodell, Bildbeschreiber, geladen und frei | Entladen | `POST /api/models/unload/<Modell>` an llama-swap. Nur ein Modell, das der Monitor führt (der Name landet im Pfad der URL), und nur, solange keine Anfrage läuft |
+| Sprachmodell, nichts geladen | Laden | das Hauptmodell, das eine Chat-Anfrage jetzt laden würde (`get_effective_model_from_settings("aifred")`), über `LLMBackend.load_model`, also wie jede Anfrage: GPU-Orc räumt die Karten, llama-swap lädt. Nur mit llama.cpp oder vLLM als Backend |
+| Bildbeschreiber, nichts geladen | Laden | die `-visiond`-Platzierung des Vision-LLMs der Einstellungen, die gerade neben das Geladene passt (`fitting_visiond`). Passt keine, wird nicht geladen und die Meldung sagt warum: der Bildbeschreiber verdrängt nie das Hauptmodell |
+| STT, GPU | Entladen | `POST /gpu/release` der STT-Suite ohne `force`; eine laufende Transkription bleibt (`busy`) |
+| TTS, lokale Engine | Entladen | `POST /gpu/release` der TTS-Suite für diese Engine ohne `force`; eine Lesung bleibt |
+
+STT und TTS haben keinen Lade-Knopf, sie laden mit der ersten Anfrage; das CPU-Modell der STT-Suite
+entlädt nie, eine TTS-Engine auf einem anderen Rechner ist nicht Sache dieses Rechners. Entladen geht
+bei den Suiten direkt an den Dienst, nicht über GPU-Orc: der räumt nur ganze Karten oder Platz für ein
+Modell, und beide Suiten können auf derselben Karte liegen.
+
+Laden antwortet sofort und läuft im Hintergrund weiter (ein großes Modell braucht Minuten, ein
+geschlossener Tab bricht es nicht ab); die Zeile zeigt „lädt“ über die Ereignisse von llama-swap, ein
+Fehlschlag landet in der Debug-Konsole. Eine Ablehnung (arbeitet gerade, passt nicht, nicht geladen)
+kommt als 409 mit der Meldung in der Sprache der Seite zurück und steht kurz unter der Liste
+(`service-status-notice`). Eine Rückfrage vor dem Entladen gibt es bewusst nicht.
 
 ## Weg zum Browser
 

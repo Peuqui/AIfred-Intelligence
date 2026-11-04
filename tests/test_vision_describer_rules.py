@@ -45,7 +45,7 @@ def world(monkeypatch):
         monkeypatch.setattr(vision_routing, "loaded_llamaswap_profiles", lambda: loaded or [])
         monkeypatch.setattr(vision_routing, "load_in_progress",
                             lambda: f"'{loading}' lädt gerade" if loading else None)
-        monkeypatch.setattr(vision_routing, "_settings_model",
+        monkeypatch.setattr(vision_routing, "settings_model",
                             lambda role: vision_llm if role == "vision" else MAIN)
         monkeypatch.setattr(config, "get_effective_model_from_settings",
                             lambda role: f"{vision_llm}-tts" if role == "vision" else MAIN)

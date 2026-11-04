@@ -22,11 +22,13 @@ from .config import (
     STT_SUITE_DIR,
     WHISPER_CONTROL_TIMEOUT_S,
     WHISPER_HEALTH_TIMEOUT_S,
+    WHISPER_RELEASE_TIMEOUT_S,
     WHISPER_SERVICE_URL,
     WHISPER_START_POLL_S,
     WHISPER_START_TIMEOUT_S,
     WHISPER_TRANSCRIBE_TIMEOUT_S,
 )
+from .gpu_release import GpuReleaseResult
 from .logging_utils import log_message
 from .process_utils import docker_compose_action
 from .service_status import notify_changed
@@ -106,6 +108,29 @@ class STTClient:
 
     def status(self) -> dict[str, Any]:
         return self._call("GET", "/status", WHISPER_CONTROL_TIMEOUT_S)
+
+    def gpu_release(self, *, reason: str) -> list[GpuReleaseResult]:
+        """Ask the service to end its GPU processes (GPU worker, diarization) without ``force``;
+        ``reason`` goes to its log. A running transcription is left alone (``busy``). Blocking until the
+        service has proven the end: call in a thread from async code.
+
+        Raises:
+            STTUnreachableError: the service does not answer.
+            STTError: the service refused the request or answered without results.
+        """
+        resp = self._request(
+            "POST", "/gpu/release", WHISPER_RELEASE_TIMEOUT_S,
+            json={"items": "all", "force": False, "reason": reason},
+        )
+        # 409 (an item busy) and 500 (an end not proven) carry the results like 200.
+        if resp.status_code not in (200, 409, 500):
+            self._raise_service_error(resp, "GPU release")
+        try:
+            results = [GpuReleaseResult(r["item"], r["outcome"], r["detail"]) for r in resp.json()["results"]]
+        except (ValueError, KeyError, TypeError) as e:
+            raise STTError("STT service sent no results on /gpu/release") from e
+        notify_changed("stt")  # the GPU worker may have left the card
+        return results
 
     def set_config(self, payload: dict[str, Any]) -> None:
         """Konfiguration der Engines schreiben; gelesen wird sie über ``status()``."""

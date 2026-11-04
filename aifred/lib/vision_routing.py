@@ -178,7 +178,7 @@ def eviction_notice(model: str) -> str:
     )
 
 
-def _settings_model(role: str) -> str:
+def settings_model(role: str) -> str:
     """Basis-Id der Rolle (``aifred``, ``vision``) im aktiven Backend laut
     ``settings.json``."""
     from .settings import persisted_settings
@@ -205,7 +205,7 @@ def _vision_llm_describer(reason: str) -> Describer:
     in seiner effektiven Variante (TTS-Reserve etc.) selbst und verdrängt
     das Chat-LLM. ``reason`` landet im Fehler, wenn keins eingestellt ist."""
     from .config import get_effective_model_from_settings
-    vision = _settings_model("vision")
+    vision = settings_model("vision")
     if not vision:
         raise NoVisionModelError(f"{reason}; no vision LLM is configured")
     visiond, _ = fitting_visiond(vision)

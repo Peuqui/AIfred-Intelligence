@@ -2410,10 +2410,14 @@ function serviceStatusFormat(seconds, daysShort) {
 }
 
 // One service as the page shows it: color (green loaded, yellow loading, grey nothing loaded,
-// red not reachable), what is loaded and the seconds left (null = stays loaded).
+// red not reachable), what is loaded, the seconds left (null = stays loaded) and what its button
+// does (null = no button): unload what is loaded and idle, load the model or describer when none is
+// (lib/service_control.py). STT and TTS load with their first request, the STT CPU model never
+// unloads, and a TTS engine on another machine is not this machine's to release.
 function serviceStatusRows(st, t) {
     const rows = {llm: [], describer: [], stt: [], tts: []};
     const placeholder = {llm: t.tNoModel, describer: t.tNoneLoaded, stt: t.tNoneLoaded, tts: t.tNoneLoaded};
+    const unload = (service, item) => ({verb: 'unload', service, item});
     for (const model of st.models) {
         const ready = model.state === 'ready';
         rows[model.role].push({
@@ -2421,12 +2425,14 @@ function serviceStatusRows(st, t) {
             text: ready ? (model.busy ? `${model.name} · ${t.tBusy}` : model.name) : `${model.name} · ${t.tLoading}`,
             remaining: ready && !model.busy ? model.remaining_s : null,
             upperBound: !model.exact,
+            action: ready && !model.busy ? unload(model.role, model.name) : null,
         });
     }
     for (const device of st.stt) {
         rows.stt.push({
             color: 'green', text: `${device.engine[0].toUpperCase()}${device.engine.slice(1)} · ${device.device === 'cuda' ? 'GPU' : 'CPU'}`,
             remaining: device.remaining_s, upperBound: false,
+            action: device.device === 'cuda' ? unload('stt', '') : null,
         });
     }
     for (const engine of st.tts) {
@@ -2434,12 +2440,17 @@ function serviceStatusRows(st, t) {
         rows.tts.push({
             color: 'green', text: engine.host ? `${name} · ${engine.host}` : name,
             remaining: engine.remaining_s, upperBound: false,
+            action: engine.host ? null : unload('tts', engine.engine),
         });
     }
     const reachable = {llm: st.llm_reachable, describer: st.llm_reachable, stt: st.stt_reachable, tts: st.tts_reachable};
+    const loadable = {llm: true, describer: true, stt: false, tts: false};
     for (const key of Object.keys(rows)) {
-        if (!reachable[key]) rows[key] = [{color: 'red', text: t.tUnreachable, remaining: null, upperBound: false}];
-        else if (rows[key].length === 0) rows[key] = [{color: 'grey', text: placeholder[key], remaining: null, upperBound: false}];
+        if (!reachable[key]) rows[key] = [{color: 'red', text: t.tUnreachable, remaining: null, upperBound: false, action: null}];
+        else if (rows[key].length === 0) rows[key] = [{
+            color: 'grey', text: placeholder[key], remaining: null, upperBound: false,
+            action: loadable[key] ? {verb: 'load', service: key, item: ''} : null,
+        }];
     }
     return rows;
 }
@@ -2499,7 +2510,7 @@ function serviceStatusRender() {
     if (!list) return;
     const elapsed = (performance.now() - serviceStatusAt) / 1000;
     const listSignature = JSON.stringify(services.map(([key]) => rows[key].map(
-        (row) => [row.color, row.text, row.remaining !== null, row.upperBound],
+        (row) => [row.color, row.text, row.remaining !== null, row.upperBound, row.action],
     )));
     if (listSignature !== serviceStatusListSignature || !list.hasChildNodes()) {
         serviceStatusListSignature = listSignature;
@@ -2509,6 +2520,7 @@ function serviceStatusRender() {
             value.title = row.text;
             line.append(serviceStatusBadge(t, key, row.color, longName), serviceStatusElement('span', 'ss-label', `${longName}:`), value);
             if (row.remaining !== null) line.append(serviceStatusElement('span', 'ss-time'));
+            if (row.action) line.append(serviceStatusActionButton(t, row.action));
             return line;
         })));
     }
@@ -2516,6 +2528,55 @@ function serviceStatusRender() {
     services.flatMap(([key]) => rows[key]).filter((row) => row.remaining !== null).forEach((row, index) => {
         timeCells[index].textContent = serviceStatusTimeText(row, t, elapsed);
     });
+}
+
+// The button behind a line: a power symbol, titled with what it does.
+const SERVICE_STATUS_POWER_SVG = '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" '
+    + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v10"/>'
+    + '<path d="M18.4 6.6a9 9 0 1 1-12.77.04"/></svg>';
+
+function serviceStatusActionButton(t, action) {
+    const button = serviceStatusElement('button', `ss-action ss-action-${action.verb}`);
+    button.type = 'button';
+    button.title = action.verb === 'load' ? t.tLoad : t.tUnload;
+    button.setAttribute('aria-label', button.title);
+    button.dataset.verb = action.verb;
+    button.dataset.service = action.service;
+    button.dataset.item = action.item;
+    button.innerHTML = SERVICE_STATUS_POWER_SVG;
+    return button;
+}
+
+// What the server answered to a click (a refusal or an error), under the list for a while.
+const SERVICE_STATUS_NOTICE_MS = 10000;
+var serviceStatusNoticeTimer = null;
+
+function serviceStatusNotice(text) {
+    const notice = document.getElementById('service-status-notice');
+    if (!notice) return;
+    notice.textContent = text;
+    clearTimeout(serviceStatusNoticeTimer);
+    serviceStatusNoticeTimer = setTimeout(() => { notice.textContent = ''; }, SERVICE_STATUS_NOTICE_MS);
+}
+
+// A load answers at once and goes on in the background; the line follows over the bus.
+async function serviceStatusAct(button) {
+    const {verb, service, item} = button.dataset;
+    const lang = document.getElementById('service-status-dots').dataset.lang;
+    const body = verb === 'load' ? {service, lang} : {service, item, lang};
+    button.disabled = true;
+    try {
+        const response = await fetch(`/api/service-status/${verb}`, {
+            method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
+        });
+        if (!response.ok) {
+            const answer = await response.json();
+            serviceStatusNotice(typeof answer.detail === 'string' ? answer.detail : JSON.stringify(answer.detail));
+        }
+    } catch (e) {
+        serviceStatusNotice(String(e));
+    }
+    button.disabled = false;
 }
 
 async function serviceStatusFetch(refresh) {
@@ -2529,6 +2590,8 @@ async function serviceStatusFetch(refresh) {
 
 document.addEventListener('click', (event) => {
     if (event.target.closest('#service-status-refresh')) serviceStatusFetch(true);
+    const action = event.target.closest('.ss-action');
+    if (action) serviceStatusAct(action);
 });
 // The bus only brings changes: the page asks for a fresh state whenever its stream opens
 // (startBrowserStream, onopen), asks on its own while it has none yet (the stream may open late or

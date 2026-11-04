@@ -1041,21 +1041,32 @@ tr:hover {
 }
 /* Slim closed bar: the icons fill its height */
 .service-status-accordion .AccordionTrigger { padding: 3px var(--space-4); }
-/* Open bar as a table: icon | name: | what is loaded | time left. The rows share the columns
+/* Open bar as a table: icon | name: | what is loaded | time left | button. The rows share the columns
    (subgrid), so everything starts at the same place; on a narrow screen the value moves to a
    second line under the name. */
 .service-status-list {
-    display: grid; grid-template-columns: auto auto minmax(0, max-content) 1fr; column-gap: 10px; row-gap: 8px;
+    display: grid; grid-template-columns: auto auto minmax(0, max-content) 1fr auto; column-gap: 10px; row-gap: 8px;
     align-items: center; font-size: 13px; min-width: 0;
 }
 .ss-row {
     display: grid; grid-column: 1 / -1; grid-template-columns: subgrid; align-items: center;
-    grid-template-areas: "badge label value time";
+    grid-template-areas: "badge label value time action";
 }
 .ss-row .ss-badge { grid-area: badge; }
 .ss-row .ss-label { grid-area: label; opacity: 0.7; padding-right: 1em; }  /* air between the colon and the value */
 .ss-row .ss-value { grid-area: value; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ss-row .ss-time { grid-area: time; font-variant-numeric: tabular-nums; opacity: 0.7; white-space: nowrap; }
+/* Unload (or load when nothing is loaded): a quiet power symbol, coloured on hover by what it will do. */
+.ss-action {
+    grid-area: action; display: inline-flex; align-items: center; justify-content: center;
+    width: 24px; height: 24px; padding: 0; border: 1px solid var(--aifred-border); border-radius: 6px;
+    background: transparent; color: var(--aifred-text-muted); cursor: pointer;
+}
+.ss-action-unload:hover { color: var(--aifred-danger); border-color: var(--aifred-danger); }
+.ss-action-load:hover { color: var(--aifred-accent-success); border-color: var(--aifred-accent-success); }
+.ss-action:disabled { opacity: 0.4; cursor: progress; }
+.service-status-notice { font-size: 12px; color: var(--aifred-accent-warning); }
+.service-status-notice:empty { display: none; }
 /* Narrow screens: one flowing line per service (icon, name, value, time); the value wraps to its own
    line only when it no longer fits beside the name, the time stays at the right end. */
 @media (max-width: 640px) {
@@ -1064,6 +1075,8 @@ tr:hover {
     .ss-row .ss-label { flex: none; width: 8.8em; padding-right: 0; }
     .ss-row .ss-value { flex: 0 1 auto; max-width: 100%; }
     .ss-row .ss-time { flex: none; margin-left: auto; }
+    .ss-row .ss-action { flex: none; margin-left: auto; }
+    .ss-row .ss-time + .ss-action { margin-left: 0; }
 }
 
 /* Chat text size (A− / A+ in the chat history header, custom.js): the messages scale with the

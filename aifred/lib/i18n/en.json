@@ -977,6 +977,16 @@
   "service_status_llm": "Language model",
   "service_status_describer": "Image describer",
   "service_status_days_short": "d",
+  "service_status_load": "Load",
+  "service_status_unload": "Unload",
+  "service_control_not_llamaswap": "Loading works only while AIfred runs on llama-swap (llama.cpp or vLLM).",
+  "service_control_no_main_model": "No main model is set in AIfred.",
+  "service_control_no_describer": "No describer is set.",
+  "service_control_describer_no_profile": "{model} has no describer profile (-visiond).",
+  "service_control_describer_does_not_fit": "The describer does not fit next to what is loaded right now: {reason}",
+  "service_control_not_loaded": "{name} is not loaded.",
+  "service_control_busy": "{name} is working right now and stays loaded.",
+  "service_control_failed": "{name} could not be unloaded: {error}",
   "chat_font_smaller": "Smaller text",
   "chat_font_larger": "Larger text"
 }

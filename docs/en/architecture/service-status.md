@@ -2,16 +2,17 @@
 
 > **Deutsche Version:** [service-status.md](../../de/architecture/service-status.md)
 
-As of 2026-10-13. The collapsible bar under the title line shows what is loaded right now and
+As of 2026-11-04. The collapsible bar under the title line shows what is loaded right now and
 for how much longer: the language model (top-hat icon), the image describer (camera), speech
 recognition (STT) and speech output (TTS). The closed header has one icon per service with a
 status dot (green loaded and gently pulsing, yellow loading and pulsing faster, grey nothing
-loaded, red not reachable); opened it has a line per service with its name and the time until it
-unloads. The button next to it reads STT and TTS afresh. Embedding servers run on the CPU and are
-not shown.
+loaded, red not reachable); opened it has a line per service with its name, the time until it
+unloads and a button to unload or load (see below). The button on the right reads STT and TTS afresh.
+Embedding servers run on the CPU and are not shown.
 
 Code: [`service_status.py`](../../../aifred/lib/service_status.py) (SSOT),
 [`api/service_status.py`](../../../aifred/lib/api/service_status.py) (endpoint + push),
+[`service_control.py`](../../../aifred/lib/service_control.py) (loading and unloading),
 [`ui/service_status_bar.py`](../../../aifred/ui/service_status_bar.py) (empty frame),
 `serviceStatus*` in [`assets/custom.js`](../../../assets/custom.js) (rendering, countdown).
 
@@ -31,6 +32,30 @@ expiry is due but has not happened (the containers check their idle time only ev
 and on a click of the button. The time left can therefore be too short, never too long. When GPU-Orc
 releases a card for another caller (Agent-Orc, vllm-research), AIfred sees it only at its next
 scheduled look or on a click of the button.
+
+## Loading and unloading by button
+
+Each line has a power button (`serviceStatusActionButton` in `custom.js`, endpoints
+`POST /api/service-status/unload` and `/load`):
+
+| Line | Button | Way |
+|---|---|---|
+| Language model, describer, loaded and idle | Unload | `POST /api/models/unload/<model>` to llama-swap. Only a model the monitor lists (the name goes into the URL path), and only while no request runs |
+| Language model, nothing loaded | Load | the main model a chat request would load now (`get_effective_model_from_settings("aifred")`), through `LLMBackend.load_model`, so like every request: GPU-Orc clears the cards, llama-swap loads. Only with llama.cpp or vLLM as backend |
+| Describer, nothing loaded | Load | the `-visiond` placement of the vision LLM in the settings that fits next to what is loaded (`fitting_visiond`). If none fits, nothing loads and the message says why: the describer never pushes the main model out |
+| STT, GPU | Unload | `POST /gpu/release` of the STT-Suite without `force`; a running transcription stays (`busy`) |
+| TTS, local engine | Unload | `POST /gpu/release` of the TTS-Suite for this engine without `force`; a reading stays |
+
+STT and TTS have no load button, they load with their first request; the STT-Suite's CPU model never
+unloads, and a TTS engine on another machine is not this machine's business. Unloading goes to the
+suite directly, not through GPU-Orc: it clears only whole cards or room for a model, and both suites
+may sit on the same card.
+
+Loading answers at once and goes on in the background (a big model takes minutes, a closed tab does
+not stop it); the line shows "loading" through llama-swap's events, a failure lands in the debug
+console. A refusal (working right now, does not fit, not loaded) comes back as 409 with the message in
+the page's language and shows under the list for a while (`service-status-notice`). There is
+deliberately no confirmation before unloading.
 
 ## Way to the browser
 

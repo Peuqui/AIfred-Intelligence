@@ -270,6 +270,9 @@ LLAMACPP_CALIBRATION_PORT = int(os.environ.get("LLAMACPP_CALIBRATION_PORT", "999
 # HTTP timeout (seconds) for llama-swap's /running query; normal answer < 100 ms,
 # the value only guards against hung connections.
 LLAMASWAP_RUNNING_TIMEOUT_S = 5
+# Unloading one model on a click in the status line (POST /api/models/unload/<model>); a vLLM server
+# spread over several cards takes a while to stop.
+LLAMASWAP_UNLOAD_TIMEOUT_S = 120
 
 # Service status (lib/service_status.py): STT-Suite and TTS-Suite report the time until they
 # end themselves for being idle, but push nothing — so AIfred looks again shortly before.
@@ -1333,6 +1336,8 @@ WHISPER_CONFIRM_THRESHOLD_S = 180
 # control calls; transcriptions use WHISPER_TRANSCRIBE_TIMEOUT_S.
 WHISPER_HEALTH_TIMEOUT_S = 2
 WHISPER_CONTROL_TIMEOUT_S = 5   # /status, /config
+# A release request (POST /gpu/release) waits until the GPU worker has provably ended.
+WHISPER_RELEASE_TIMEOUT_S = 60
 
 # On-demand container start: how long to wait for the model to load, and how
 # often to ask /health meanwhile.

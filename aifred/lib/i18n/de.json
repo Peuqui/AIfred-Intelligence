@@ -977,6 +977,16 @@
   "service_status_llm": "Sprachmodell",
   "service_status_describer": "Bildbeschreiber",
   "service_status_days_short": "T",
+  "service_status_load": "Laden",
+  "service_status_unload": "Entladen",
+  "service_control_not_llamaswap": "Laden geht nur, wenn AIfred über llama-swap arbeitet (llama.cpp oder vLLM).",
+  "service_control_no_main_model": "In AIfred ist kein Hauptmodell eingestellt.",
+  "service_control_no_describer": "Es ist kein Bildbeschreiber eingestellt.",
+  "service_control_describer_no_profile": "Für {model} gibt es kein Bildbeschreiber-Profil (-visiond).",
+  "service_control_describer_does_not_fit": "Der Bildbeschreiber passt gerade nicht neben das Geladene: {reason}",
+  "service_control_not_loaded": "{name} ist nicht geladen.",
+  "service_control_busy": "{name} arbeitet gerade und bleibt geladen.",
+  "service_control_failed": "{name} ließ sich nicht entladen: {error}",
   "chat_font_smaller": "Schrift kleiner",
   "chat_font_larger": "Schrift größer"
 }

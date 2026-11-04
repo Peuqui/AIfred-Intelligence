@@ -56,6 +56,7 @@ from .config import (
     TTS_SUITE_SYSTEMCTL_TIMEOUT_S,
     TTS_SUITE_URL,
 )
+from .gpu_release import GpuReleaseResult
 from .service_status import notify_changed
 
 FRAMES_MEDIA_TYPE = "application/x-tts-frames"
@@ -273,17 +274,6 @@ class EngineRef:
 class VoiceInfo:
     name: str
     label: str
-
-
-@dataclass(frozen=True)
-class GpuReleaseResult:
-    """What the service did for one engine of a GPU release (``POST /gpu/release``). ``outcome``:
-    ``released`` (the container is proven down), ``not_running`` (nothing to release), ``busy`` (a
-    reading holds it or it is starting, left alone), ``failed`` (the end could not be proven)."""
-
-    item: str
-    outcome: str
-    detail: str
 
 
 @dataclass(frozen=True)
@@ -656,6 +646,7 @@ class TTSClient:
         body = response.json()
         if not isinstance(body, dict) or not isinstance(body.get("results"), list):
             raise IncompatibleService("the service's /gpu/release answer has no results")
+        notify_changed("tts")  # engines may have left the cards
         return [_decode(GpuReleaseResult, item, "/gpu/release") for item in body["results"]]
 
     # ---- speak ----

@@ -249,6 +249,11 @@ class LLMBackend(ABC):
         """
         return 0.0
 
+    async def load_model(self, model: str) -> float:
+        """Load ``model`` the way a request would (``_pre_request_check``), without a request: for
+        the load button of the status line. Seconds the load took, 0.0 when it ran already."""
+        return await self._pre_request_check(model)
+
     async def close(self) -> None:
         """
         Close any open connections or resources.
@@ -703,9 +708,11 @@ class OpenAICompatibleBackend(LLMBackend):
                 delta_dict = delta.model_dump() if hasattr(delta, "model_dump") else {}
                 # OpenAI SDK doesn't define the servers' reasoning field in
                 # ChoiceDelta — it lands in model_extra instead of model_dump()
-                if self.REASONING_FIELD and hasattr(delta, "model_extra") and delta.model_extra:
-                    if self.REASONING_FIELD in delta.model_extra:
-                        delta_dict[self.REASONING_FIELD] = delta.model_extra[self.REASONING_FIELD]
+                if (
+                    self.REASONING_FIELD and hasattr(delta, "model_extra") and delta.model_extra
+                    and self.REASONING_FIELD in delta.model_extra
+                ):
+                    delta_dict[self.REASONING_FIELD] = delta.model_extra[self.REASONING_FIELD]
 
                 # Accumulate tool calls from streaming deltas
                 if tool_calls is not None and hasattr(delta, "tool_calls") and delta.tool_calls:
