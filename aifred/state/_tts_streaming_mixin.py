@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import re
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -310,7 +309,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         try:
             await reading.wait()
             audio_urls = await self._keep_reading_audio(reading)
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — background task: an error here would vanish, it is logged
             log_message(f"🔊 TTS Background: ❌ Finalize raised: {e}")
             return
         finally:
@@ -389,15 +388,15 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     kind="bubble_tts_note",
                     url=tts_note,
                 )
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — a failed push must not keep the session from being saved
                 log_message(f"🔊 TTS Background: bubble_audio push failed: {e}")
 
             # Persist so a session reload still has the audio URL.
             try:
                 self._save_current_session()  # type: ignore[attr-defined]
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — background task: an error here would vanish, it is logged
                 log_message(f"🔊 TTS Background: session save failed: {e}")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — background task: an error here would vanish, it is logged
             log_message(f"🔊 TTS Background: ❌ Bubble patch failed: {e}")
 
     # ============================================================
@@ -414,43 +413,20 @@ class TTSStreamingMixin(rx.State, mixin=True):
     def _extract_bubble_tts_request(self, bubble_index: int) -> dict[str, Any] | None:
         """Phase 1 (State-READS — im Background-Event nur unter ``async with
         self`` aufrufen): Text und Sprache als reine Werte einsammeln.
-        ``None`` wenn die Bubble nichts Synthetisierbares hergibt."""
+        ``None`` wenn die Bubble nichts Synthetisierbares hergibt.
+
+        Gelesen wird die Blase, wie sie im Chat steht, durch denselben Filter wie die laufende
+        Lesung einer Antwort (``strip_ui_only_content``). Nicht ``llm_history``: Das ist der
+        Verlauf für das Modell, mit der Werkzeug-Notiz am Ende und nur dem Text der letzten
+        Runde (04.11.2026: der Knopf las die Notiz vor und ließ den Absatz vor dem
+        Werkzeugaufruf weg)."""
         from ..lib.tts_text_filter import strip_ui_only_content
 
         _ch = self._chat_sub()
         msg = _ch.chat_history[bubble_index]
         agent = msg.get("agent", "aifred")
-
-        # Use llm_history instead of chat_history - it's already cleaned
-        # Find the corresponding entry in llm_history by counting assistant messages
-        assistant_count = 0
-        for i in range(bubble_index + 1):
-            if _ch.chat_history[i].get("role") == "assistant":
-                assistant_count += 1
-
-        # Find the N-th assistant message in llm_history
-        llm_content = None
-        llm_assistant_count = 0
-        for entry in _ch.llm_history:
-            if entry.get("role") == "assistant":
-                llm_assistant_count += 1
-                if llm_assistant_count == assistant_count:
-                    llm_content = entry.get("content", "")
-                    break
-
-        if not llm_content:
-            # Fallback to chat_history if llm_history entry not found
-            llm_content = msg.get("content", "")
-            log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} using chat_history fallback")
-
-        if not llm_content or not llm_content.strip():
-            log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} content is empty")
-            return None
-
-        # llm_history has format "[AGENT]: content" - remove the label
-        content_without_label = re.sub(r'^\[(AIFRED|SOKRATES|SALOMO)\]:\s*', '', llm_content, flags=re.IGNORECASE)
         tts_language = self._resolve_tts_language(agent)
-        text = strip_ui_only_content(content_without_label)
+        text = strip_ui_only_content(msg.get("content", ""))
 
         if len(text) < 5:
             log_message(f"⚠️ TTS Re-Synth: Bubble {bubble_index} text too short after cleanup")

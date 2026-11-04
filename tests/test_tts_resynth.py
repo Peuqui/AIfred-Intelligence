@@ -79,7 +79,7 @@ def test_a_service_error_goes_to_the_caller(service) -> None:
 
 
 class _Bubbles:
-    def __init__(self, llm_content: str) -> None:
+    def __init__(self, shown: str, llm_content: str = "[AIFRED]: der Verlauf für das Modell") -> None:
         self.session_id = "s1"
         self.ui_language = "de"
         self._last_detected_language = "de"
@@ -87,7 +87,7 @@ class _Bubbles:
         self.chat = SimpleNamespace(
             chat_history=[
                 {"role": "user", "content": "Frage"},
-                {"role": "assistant", "agent": "aifred", "content": "angezeigt", "timestamp": "t1"},
+                {"role": "assistant", "agent": "aifred", "content": shown, "timestamp": "t1"},
             ],
             llm_history=[{"role": "user", "content": "Frage"}, {"role": "assistant", "content": llm_content}],
         )
@@ -99,8 +99,8 @@ class _Bubbles:
     _extract = TTSStreamingMixin._extract_bubble_tts_request
 
 
-def test_the_request_takes_the_llm_text_without_label_and_interface_content() -> None:
-    bubbles = _Bubbles("[AIFRED]: <think>geheim</think>Das ist die **Antwort** hier.\n\n*( TTFT: 1.0s )*")
+def test_the_request_takes_the_bubble_as_shown_without_interface_content() -> None:
+    bubbles = _Bubbles("<think>geheim</think>Das ist die **Antwort** hier.\n\n*( TTFT: 1.0s )*")
     req = bubbles._extract(1)
     assert req is not None
     assert req["text"] == "Das ist die **Antwort** hier."  # Markdown is the service's business
@@ -108,8 +108,31 @@ def test_the_request_takes_the_llm_text_without_label_and_interface_content() ->
     assert req["timestamp"] == "t1"
 
 
+def test_the_button_reads_what_the_bubble_shows_not_the_history_of_the_model() -> None:
+    """04.11.2026, GLM: the button read the model's history. It spoke the tool note the model gets
+    after a tool call and left out the paragraph written before the call."""
+    shown = (
+        "<details><summary>💭 Denkprozess</summary>Vorlesen per Puck.</details>\n\n"
+        "Sehr gerne, ich lese Ihnen das vor:\n\n"
+        "<details><summary>💭 Denkprozess</summary>Kein Puck verbunden.</details>\n\n"
+        "Leider ist kein Lautsprecher verbunden.\n\nDarf ich sonst etwas für Sie tun?\n\n"
+        "*( TTFT: 9,74s    Source: AIfred (GLM) [vllm] )*"
+    )
+    history = (
+        "[AIFRED]: Leider ist kein Lautsprecher verbunden.\n\nDarf ich sonst etwas für Sie tun?\n\n"
+        "[Vom System notiert, nicht von dir geschrieben. In dieser Antwort ausgeführte Werkzeuge: "
+        "freeecho2_announce({'message': 'Am Samstag…'}) ✗.]"
+    )
+    req = _Bubbles(shown, history)._extract(1)
+    assert req is not None
+    paragraphs = [paragraph.strip() for paragraph in req["text"].split("\n\n") if paragraph.strip()]
+    assert paragraphs == [
+        "Sehr gerne, ich lese Ihnen das vor:", "Leider ist kein Lautsprecher verbunden.", "Darf ich sonst etwas für Sie tun?",
+    ]
+
+
 def test_a_bubble_with_nothing_to_say_gives_no_request() -> None:
-    bubbles = _Bubbles("[AIFRED]: <think>nur Gedanken</think>")
+    bubbles = _Bubbles("<think>nur Gedanken</think>")
     assert bubbles._extract(1) is None
 
 
