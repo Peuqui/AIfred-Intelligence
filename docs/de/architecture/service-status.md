@@ -42,9 +42,9 @@ Hinter jeder Zeile sitzt ein Ein/Aus-Knopf (`serviceStatusActionButton` in `cust
 |---|---|---|
 | Sprachmodell, Bildbeschreiber, geladen und frei | Entladen | `POST /api/models/unload/<Modell>` an llama-swap. Nur ein Modell, das der Monitor führt (der Name landet im Pfad der URL), und nur, solange keine Anfrage läuft |
 | Sprachmodell, nichts geladen | Laden | das Hauptmodell, das eine Chat-Anfrage jetzt laden würde (`get_effective_model_from_settings("aifred")`), über `LLMBackend.load_model`, also wie jede Anfrage: GPU-Orc räumt die Karten, llama-swap lädt. Nur mit llama.cpp oder vLLM als Backend |
-| Bildbeschreiber, nichts geladen | Laden | die `-visiond`-Platzierung des Vision-LLMs der Einstellungen, die gerade neben das Geladene passt (`fitting_visiond`). Passt keine, wird nicht geladen und die Meldung sagt warum: der Bildbeschreiber verdrängt nie das Hauptmodell |
-| STT, GPU | Entladen | `POST /gpu/release` der STT-Suite ohne `force`; eine laufende Transkription bleibt (`busy`) |
-| TTS, lokale Engine | Entladen | `POST /gpu/release` der TTS-Suite für diese Engine ohne `force`; eine Lesung bleibt |
+| Bildbeschreiber, nichts geladen | Laden | die `-visiond`-Platzierung des Vision-LLMs der Einstellungen, die gerade neben das Geladene passt (`fitting_visiond`). Passt keine, wird nicht geladen und die Meldung sagt warum: der Bildbeschreiber verdrängt nie das Hauptmodell. TTS und STT auf seiner Karte räumt GPU-Orc nach der Rangfolge weg, eine laufende Vorlesung bricht dabei ab |
+| STT, GPU | Entladen | `POST /gpu/release` der STT-Suite mit `force`: eine laufende Transkription bricht ab (mit `device=auto` läuft sie auf der CPU weiter) |
+| TTS, lokale Engine | Entladen | `POST /gpu/release` der TTS-Suite für diese Engine mit `force`: eine laufende Vorlesung bricht ab |
 
 STT und TTS haben keinen Lade-Knopf, sie laden mit der ersten Anfrage; das CPU-Modell der STT-Suite
 entlädt nie, eine TTS-Engine auf einem anderen Rechner ist nicht Sache dieses Rechners. Entladen geht
@@ -55,7 +55,9 @@ Laden antwortet sofort und läuft im Hintergrund weiter (ein großes Modell brau
 geschlossener Tab bricht es nicht ab); die Zeile zeigt „lädt“ über die Ereignisse von llama-swap, ein
 Fehlschlag landet in der Debug-Konsole. Eine Ablehnung (arbeitet gerade, passt nicht, nicht geladen)
 kommt als 409 mit der Meldung in der Sprache der Seite zurück und steht kurz unter der Liste
-(`service-status-notice`). Eine Rückfrage vor dem Entladen gibt es bewusst nicht.
+(`service-status-notice`). Eine Rückfrage vor dem Entladen gibt es bewusst nicht, und eine Vorlesung
+oder Transkription hält einen Klick nicht auf: der Klick ist eine bewusste Entscheidung (Peuqui,
+04.11.2026). Nur ein Modell, das gerade antwortet, hat keinen Knopf.
 
 ## Weg zum Browser
 

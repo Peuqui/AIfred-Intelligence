@@ -222,26 +222,26 @@ def test_the_service_gets_the_preferred_device_as_it_is_only_a_long_file_goes_to
 # ---- GPU release (the suites' common release API) --------------------------------
 
 
-@pytest.mark.parametrize(("status", "outcome"), [(200, "released"), (409, "busy"), (500, "failed")])
-def test_gpu_release_asks_for_everything_without_force_and_reads_the_results_of_every_status(
-    client, calls, monkeypatch, status, outcome,
+@pytest.mark.parametrize(("status", "outcome", "force"), [(200, "released", True), (409, "busy", False), (500, "failed", True)])
+def test_gpu_release_asks_for_everything_and_reads_the_results_of_every_status(
+    client, calls, monkeypatch, status, outcome, force,
 ):
     from aifred.lib.gpu_release import GpuReleaseResult
 
     asked: list[str] = []
     monkeypatch.setattr(stt_client, "notify_changed", asked.append)
     calls.answer = _response(status, {"results": [{"item": "gpu-worker", "outcome": outcome, "detail": "d"}]})
-    assert client.gpu_release(reason="AIfred: test") == [GpuReleaseResult("gpu-worker", outcome, "d")]
+    assert client.gpu_release(force=force, reason="AIfred: test") == [GpuReleaseResult("gpu-worker", outcome, "d")]
     method, url, kwargs = calls.sent[0]
     assert (method, url) == ("POST", "http://stt.test/gpu/release")
-    assert kwargs["json"] == {"items": "all", "force": False, "reason": "AIfred: test"}
+    assert kwargs["json"] == {"items": "all", "force": force, "reason": "AIfred: test"}
     assert asked == ["stt"]
 
 
 def test_gpu_release_refused_or_without_results_is_an_stt_error(client, calls):
     calls.answer = _response(400, {"detail": "empty reason"})
     with pytest.raises(STTError, match="empty reason"):
-        client.gpu_release(reason="")
+        client.gpu_release(force=False, reason="")
     calls.answer = _response(200, {"unexpected": []})
     with pytest.raises(STTError, match="no results"):
-        client.gpu_release(reason="r")
+        client.gpu_release(force=False, reason="r")

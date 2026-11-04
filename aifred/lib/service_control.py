@@ -7,11 +7,12 @@ api/service_status.py).
   (``fitting_visiond``), so it never pushes the main model out. Unloading is llama-swap's
   ``POST /api/models/unload/<model>``.
 - STT and TTS load with their first request, there is nothing to load by hand. Unloading asks the
-  suite itself (``POST /gpu/release`` without force): GPU-Orc frees only whole cards or room for a
-  model, and both suites may share a card.
+  suite itself (``POST /gpu/release``): GPU-Orc frees only whole cards or room for a model, and both
+  suites may share a card. With ``force``: a click is a deliberate decision, a running reading or
+  transcription is aborted (Peuqui, 04.11.2026: "Wenn ich klicken will, dann will ich es auch
+  entladen haben"; a transcription with ``device=auto`` goes on on the CPU).
 
-Whether a model is busy (an answer running) the caller checks against the status monitor; the suites
-answer ``busy`` themselves.
+Whether a model is busy (an answer running) the caller checks against the status monitor.
 """
 
 from __future__ import annotations
@@ -106,30 +107,30 @@ def unload_llamaswap_model(model: str) -> None:
 
 
 async def release_stt_gpu() -> None:
-    """End the GPU processes of the STT-Suite, unless a transcription runs.
+    """End the GPU processes of the STT-Suite, a running transcription included.
 
     Raises:
-        ServiceControlRefused: a transcription runs, the end is not proven, or the service does not answer.
+        ServiceControlRefused: the end is not proven, or the service does not answer.
     """
     from .stt_client import STTError, get_default_client
 
     try:
-        results = await asyncio.to_thread(get_default_client().gpu_release, reason=RELEASE_REASON)
+        results = await asyncio.to_thread(get_default_client().gpu_release, force=True, reason=RELEASE_REASON)
     except STTError as error:
         raise ServiceControlRefused("service_control_failed", name="STT", error=str(error)) from error
     _raise_unless_released("STT", results)
 
 
 async def release_tts_engine(engine: str) -> None:
-    """Take the TTS engine ``engine`` off the cards, unless a reading holds it.
+    """Take the TTS engine ``engine`` off the cards, a running reading included.
 
     Raises:
-        ServiceControlRefused: a reading holds it, the end is not proven, or the service does not answer.
+        ServiceControlRefused: the end is not proven, or the service does not answer.
     """
     from .tts_client import TTSSuiteError, get_tts_client
 
     try:
-        results = await asyncio.to_thread(get_tts_client().gpu_release, [engine], force=False, reason=RELEASE_REASON)
+        results = await asyncio.to_thread(get_tts_client().gpu_release, [engine], force=True, reason=RELEASE_REASON)
     except TTSSuiteError as error:
         raise ServiceControlRefused("service_control_failed", name=engine, error=str(error)) from error
     _raise_unless_released(engine, results)
@@ -137,7 +138,5 @@ async def release_tts_engine(engine: str) -> None:
 
 def _raise_unless_released(name: str, results: list[GpuReleaseResult]) -> None:
     for result in results:
-        if result.outcome == "busy":
-            raise ServiceControlRefused("service_control_busy", name=name)
         if result.outcome not in RELEASE_DONE_OUTCOMES:
             raise ServiceControlRefused("service_control_failed", name=name, error=f"{result.outcome}: {result.detail}")

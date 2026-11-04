@@ -109,9 +109,10 @@ class STTClient:
     def status(self) -> dict[str, Any]:
         return self._call("GET", "/status", WHISPER_CONTROL_TIMEOUT_S)
 
-    def gpu_release(self, *, reason: str) -> list[GpuReleaseResult]:
-        """Ask the service to end its GPU processes (GPU worker, diarization) without ``force``;
-        ``reason`` goes to its log. A running transcription is left alone (``busy``). Blocking until the
+    def gpu_release(self, *, force: bool, reason: str) -> list[GpuReleaseResult]:
+        """Ask the service to end its GPU processes (GPU worker, diarization); ``reason`` goes to its
+        log. Without ``force`` a running transcription is left alone (``busy``); with it the service
+        aborts the transcription (one with ``device=auto`` goes on on the CPU). Blocking until the
         service has proven the end: call in a thread from async code.
 
         Raises:
@@ -120,7 +121,7 @@ class STTClient:
         """
         resp = self._request(
             "POST", "/gpu/release", WHISPER_RELEASE_TIMEOUT_S,
-            json={"items": "all", "force": False, "reason": reason},
+            json={"items": "all", "force": force, "reason": reason},
         )
         # 409 (an item busy) and 500 (an end not proven) carry the results like 200.
         if resp.status_code not in (200, 409, 500):

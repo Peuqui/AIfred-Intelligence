@@ -126,17 +126,17 @@ def test_a_failed_unload_names_the_model_and_the_answer(monkeypatch: pytest.Monk
 
 @pytest.mark.parametrize(
     ("outcome", "key"),
-    [("released", None), ("not_running", None), ("busy", "service_control_busy"), ("failed", "service_control_failed")],
+    [("released", None), ("not_running", None), ("busy", "service_control_failed"), ("failed", "service_control_failed")],
 )
-def test_the_suites_release_without_force_and_busy_stays(
+def test_a_click_releases_the_suites_with_force_a_running_reading_included(
     monkeypatch: pytest.MonkeyPatch, outcome: str, key: str | None,
 ) -> None:
     result = [GpuReleaseResult("item", outcome, "detail")]
-    stt_asked: list[str] = []
+    stt_asked: list[tuple[bool, str]] = []
     tts_asked: list[tuple[list[str], bool]] = []
     monkeypatch.setattr(
         "aifred.lib.stt_client.get_default_client",
-        lambda: SimpleNamespace(gpu_release=lambda reason: stt_asked.append(reason) or result),
+        lambda: SimpleNamespace(gpu_release=lambda force, reason: stt_asked.append((force, reason)) or result),
     )
     monkeypatch.setattr(
         "aifred.lib.tts_client.get_tts_client",
@@ -149,8 +149,8 @@ def test_the_suites_release_without_force_and_busy_stays(
             with pytest.raises(ServiceControlRefused) as refused:
                 asyncio.run(release)
             assert refused.value.key == key
-    assert stt_asked == [service_control.RELEASE_REASON]
-    assert tts_asked == [(["qwen3local"], False)]
+    assert stt_asked == [(True, service_control.RELEASE_REASON)]
+    assert tts_asked == [(["qwen3local"], True)]
 
 
 # ---- the endpoints ----------------------------------------------------------------------

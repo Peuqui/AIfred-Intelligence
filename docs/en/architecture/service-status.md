@@ -42,9 +42,9 @@ Each line has a power button (`serviceStatusActionButton` in `custom.js`, endpoi
 |---|---|---|
 | Language model, describer, loaded and idle | Unload | `POST /api/models/unload/<model>` to llama-swap. Only a model the monitor lists (the name goes into the URL path), and only while no request runs |
 | Language model, nothing loaded | Load | the main model a chat request would load now (`get_effective_model_from_settings("aifred")`), through `LLMBackend.load_model`, so like every request: GPU-Orc clears the cards, llama-swap loads. Only with llama.cpp or vLLM as backend |
-| Describer, nothing loaded | Load | the `-visiond` placement of the vision LLM in the settings that fits next to what is loaded (`fitting_visiond`). If none fits, nothing loads and the message says why: the describer never pushes the main model out |
-| STT, GPU | Unload | `POST /gpu/release` of the STT-Suite without `force`; a running transcription stays (`busy`) |
-| TTS, local engine | Unload | `POST /gpu/release` of the TTS-Suite for this engine without `force`; a reading stays |
+| Describer, nothing loaded | Load | the `-visiond` placement of the vision LLM in the settings that fits next to what is loaded (`fitting_visiond`). If none fits, nothing loads and the message says why: the describer never pushes the main model out. TTS and STT on its card GPU-Orc clears by its ranking, a running reading is aborted |
+| STT, GPU | Unload | `POST /gpu/release` of the STT-Suite with `force`: a running transcription is aborted (with `device=auto` it goes on on the CPU) |
+| TTS, local engine | Unload | `POST /gpu/release` of the TTS-Suite for this engine with `force`: a running reading is aborted |
 
 STT and TTS have no load button, they load with their first request; the STT-Suite's CPU model never
 unloads, and a TTS engine on another machine is not this machine's business. Unloading goes to the
@@ -55,7 +55,9 @@ Loading answers at once and goes on in the background (a big model takes minutes
 not stop it); the line shows "loading" through llama-swap's events, a failure lands in the debug
 console. A refusal (working right now, does not fit, not loaded) comes back as 409 with the message in
 the page's language and shows under the list for a while (`service-status-notice`). There is
-deliberately no confirmation before unloading.
+deliberately no confirmation before unloading, and a reading or transcription does not hold a click
+back: the click is a deliberate decision (Peuqui, 2026-11-04). Only a model that is answering has no
+button.
 
 ## Way to the browser
 
