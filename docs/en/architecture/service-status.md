@@ -25,8 +25,9 @@ Code: [`service_status.py`](../../../aifred/lib/service_status.py) (SSOT),
 | TTS-Suite | `GET /engines` | `idle_remaining_s` per running GPU engine (the container's idle timer) |
 
 STT and TTS report the time left themselves but push nothing. AIfred therefore reads it after
-every change of its own (`notify_changed`, triggered in the client when a transcription ends or at the
-summary frame of a reading, and in the GPU-Orc client once GPU-Orc released something for AIfred), shortly before the reported expiry (`SERVICE_STATUS_RECHECK_MARGIN_S`;
+every change of its own (`notify_changed`, triggered in the client when a transcription ends, at the
+first sound of a reading (it may just have started the engine) and at its summary frame, at every release
+of the suites by AIfred, and in the GPU-Orc client once GPU-Orc released something for AIfred), shortly before the reported expiry (`SERVICE_STATUS_RECHECK_MARGIN_S`;
 another client may have reset the clock meanwhile), every `SERVICE_STATUS_OVERDUE_POLL_S` when the
 expiry is due but has not happened (the containers check their idle time only every 30 to 120 s)
 and on a click of the button. The time left can therefore be too short, never too long. When GPU-Orc

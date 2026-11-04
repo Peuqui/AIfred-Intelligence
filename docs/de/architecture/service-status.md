@@ -26,7 +26,8 @@ Code: [`service_status.py`](../../../aifred/lib/service_status.py) (SSOT),
 
 STT und TTS melden die Restzeit selbst, pushen aber nichts. AIfred liest sie deshalb nach jeder
 eigenen Änderung (`notify_changed`, ausgelöst im Client beim Ende einer Transkription bzw. beim
-Summary-Frame einer Lesung, und im GPU-Orc-Client, sobald GPU-Orc für AIfred etwas freigegeben hat), kurz vor dem gemeldeten Ablauf (`SERVICE_STATUS_RECHECK_MARGIN_S`;
+ersten Ton einer Lesung (sie kann die Engine gerade gestartet haben) und bei ihrem Summary-Frame, bei
+jeder Freigabe der Suiten durch AIfred und im GPU-Orc-Client, sobald GPU-Orc für AIfred etwas freigegeben hat), kurz vor dem gemeldeten Ablauf (`SERVICE_STATUS_RECHECK_MARGIN_S`;
 ein anderer Client kann die Uhr inzwischen zurückgesetzt haben), bei überfälligem Ablauf alle
 `SERVICE_STATUS_OVERDUE_POLL_S` (die Container prüfen ihren Leerlauf nur alle 30 bis 120 s) und auf
 Knopfdruck. Die Restzeit liegt dadurch höchstens zu kurz, nie zu lang. Gibt GPU-Orc eine Karte

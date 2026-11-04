@@ -109,6 +109,26 @@ def test_speak_decodes_frames_cut_anywhere(size: int) -> None:
     assert result.switch is None
 
 
+def test_the_status_line_hears_of_the_engine_at_its_first_audio_and_at_the_end(monkeypatch) -> None:
+    """A reading may start the engine; the status line reads the service once audio comes (keep-alive
+    and pause markers are no audio) and once more at the summary (the idle clock was reset)."""
+    heard: list[str] = []
+    events: list[str] = []
+    monkeypatch.setattr(tts_client, "notify_changed", lambda service: heard.append(service))
+    data = audio(b"", keepalive=True) + pause(400) + audio(b"RIFF-one") + audio(b"RIFF-two") + summary()
+
+    async def run() -> None:
+        stream = await make_client(lambda _: frames_response(data)).speak(
+            "Hallo", language="de", engines=LIST, paragraph_pause_ms=0, run="r",
+        )
+        async for segment in stream:
+            events.append(f"{segment.audio!r} after {len(heard)} notices")
+
+    asyncio.run(run())
+    assert events == ["b'' after 0 notices", "b'' after 0 notices", "b'RIFF-one' after 1 notices", "b'RIFF-two' after 1 notices"]
+    assert heard == ["tts", "tts"]
+
+
 def test_summary_carries_trace_and_switch() -> None:
     trace: list[dict[str, Any]] = [
         {"entry": "xtts@mini", "outcome": "failed", "reason": "timeout", "detail": "slow"},

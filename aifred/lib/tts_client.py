@@ -355,6 +355,7 @@ class _FrameStream:
     def __init__(self) -> None:
         self._decoder = FrameDecoder()
         self._summary: SpeakSummary | None = None
+        self._first_audio_seen = False
 
     @property
     def summary(self) -> SpeakSummary:
@@ -382,7 +383,13 @@ class _FrameStream:
     def _handle_frame(self, header: dict[str, Any], body: bytes) -> Segment | None:
         kind = header["kind"]
         if kind == "audio":
-            return Segment(body, header["media_type"], header["engine"], header["keepalive"], header["pause_ms"])
+            segment = Segment(body, header["media_type"], header["engine"], header["keepalive"], header["pause_ms"])
+            if segment.audio and not self._first_audio_seen:
+                # The engine runs now, it may just have started for this reading: the status line
+                # should not wait for the summary (minutes away on a long text) to show it.
+                self._first_audio_seen = True
+                notify_changed("tts")
+            return segment
         if kind == "summary":
             data = json.loads(body)
             self._summary = SpeakSummary(_trace_from_json(data["trace"]), data["switch"])
