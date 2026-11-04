@@ -62,7 +62,7 @@ ROLE_DESCRIBER = "describer"
 
 
 class LlamaSwapError(RuntimeError):
-    """llama-swap does not answer ``/running`` (or not with what it documents)."""
+    """llama-swap does not answer ``/running`` or its event stream (or not with what it documents)."""
 
 
 @dataclass(frozen=True)
@@ -272,7 +272,16 @@ class ServiceStatusMonitor:
             self._llm_reachable = True
             async for line in response.aiter_lines():
                 if line.startswith("data:"):
-                    await self._on_event(json.loads(line.removeprefix("data:")))
+                    await self._on_data(line.removeprefix("data:"))
+
+    async def _on_data(self, data: str) -> None:
+        """One event of the stream. An event of a form this monitor does not know (llama-swap changed it)
+        is a ``LlamaSwapError``: ``run`` logs it, shows llama-swap as not reachable and connects again,
+        instead of the task ending silently and the status line standing still on an old state."""
+        try:
+            await self._on_event(json.loads(data))
+        except (KeyError, ValueError, TypeError) as error:
+            raise LlamaSwapError(f"llama-swap event of unknown form ({error!r}): {data[:300]}") from error
 
     async def _on_event(self, event: dict[str, Any]) -> None:
         match event["type"]:

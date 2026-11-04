@@ -178,6 +178,54 @@ def test_an_unknown_inflight_operation_is_a_llama_swap_error(monkeypatch: pytest
         monitor._on_inflight({"operation": "clear"})
 
 
+@pytest.mark.parametrize(
+    "data",
+    [
+        json.dumps({"type": "inflight", "data": json.dumps({"requests": []})}),  # the form before v269
+        json.dumps({"type": "inflight", "data": json.dumps({"operation": "remove"})}),  # a field is missing
+        "not json",
+    ],
+)
+def test_an_event_of_unknown_form_is_a_llama_swap_error(monkeypatch: pytest.MonkeyPatch, data: str) -> None:
+    monitor = ready_monitor(monkeypatch)
+    with pytest.raises(ss.LlamaSwapError, match="unknown form"):
+        asyncio.run(monitor._on_data(data))
+
+
+class EndOfTest(Exception):
+    pass
+
+
+def test_an_event_of_unknown_form_shows_llama_swap_unreachable_and_connects_again(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monitor = ready_monitor(monkeypatch)
+    logged: list[str] = []
+    heard: list[ss.ServiceSnapshot] = []
+    connects: list[bool] = []
+
+    async def no_refresh(service: str) -> None:
+        pass
+
+    async def follow() -> None:
+        connects.append(True)
+        if len(connects) == 2:
+            raise EndOfTest
+        monitor._llm_reachable = True
+        await monitor._on_data(json.dumps({"type": "inflight", "data": json.dumps({"requests": []})}))
+
+    monkeypatch.setattr(monitor, "refresh", no_refresh)
+    monkeypatch.setattr(monitor, "_follow_llamaswap", follow)
+    monkeypatch.setattr(ss, "SERVICE_STATUS_SSE_RECONNECT_S", 0)
+    monkeypatch.setattr(ss, "log_message", logged.append)
+    monitor.add_listener(heard.append)
+    with pytest.raises(EndOfTest):
+        asyncio.run(monitor.run())
+    assert len(connects) == 2
+    assert "unknown form" in logged[0]
+    assert (heard[-1].llm_reachable, heard[-1].models) == (False, [])
+
+
 def test_a_model_with_ttl_zero_never_unloads_and_an_unloaded_one_disappears(
     monkeypatch: pytest.MonkeyPatch, clock: list[float],
 ) -> None:

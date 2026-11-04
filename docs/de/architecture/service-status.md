@@ -19,7 +19,7 @@ Code: [`service_status.py`](../../../aifred/lib/service_status.py) (SSOT),
 
 | Dienst | Zustand | Restzeit |
 |---|---|---|
-| llama-swap | SSE-Strom `/api/events` (`modelStatus`, `inflight`), vom Monitor dauerhaft gehalten. `inflight` meldet seit llama-swap v269 Änderungen je Anfrage: `snapshot` (alle laufenden beim Verbinden, ohne Liste, wenn keine läuft), `upsert` (Beginn und Fortschritt, beim Streamen etwa alle 250 ms), `remove` (Ende). Der Monitor meldet nur, wenn sich die Zahl laufender Anfragen je Modell ändert | berechnet: `ttl` (aus `/running`) ab dem Ende der letzten Anfrage, wie llama-swap selbst zählt. `exact: false` = Modell war schon geladen, als AIfred zu lauschen begann (Obergrenze, Anzeige mit `≤`) |
+| llama-swap | SSE-Strom `/api/events` (`modelStatus`, `inflight`), vom Monitor dauerhaft gehalten. `inflight` meldet seit llama-swap v269 Änderungen je Anfrage: `snapshot` (alle laufenden beim Verbinden, ohne Liste, wenn keine läuft), `upsert` (Beginn und Fortschritt, beim Streamen etwa alle 250 ms), `remove` (Ende). Der Monitor meldet nur, wenn sich die Zahl laufender Anfragen je Modell ändert. Eine Meldung in unbekannter Form (llama-swap hat sie geändert) behandelt er wie einen Verbindungsabbruch: Warnung im Log, llama-swap rot als nicht erreichbar, nach `SERVICE_STATUS_SSE_RECONNECT_S` neue Verbindung | berechnet: `ttl` (aus `/running`) ab dem Ende der letzten Anfrage, wie llama-swap selbst zählt. `exact: false` = Modell war schon geladen, als AIfred zu lauschen begann (Obergrenze, Anzeige mit `≤`) |
 | STT-Suite | `GET /status` | `gpu_ttl_remaining_seconds` des Dienstes (CPU-Modell bleibt geladen) |
 | TTS-Suite | `GET /engines` | `idle_remaining_s` je laufender GPU-Engine (Leerlauf-Timer des Containers) |
 
