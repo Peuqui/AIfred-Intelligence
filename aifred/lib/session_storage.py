@@ -26,6 +26,7 @@ from typing import Any
 import bcrypt
 
 from .config import DATA_DIR
+from .formatting import format_stamp
 
 # Session directory (subdirectory of data/)
 SESSION_DIR = DATA_DIR / "sessions"
@@ -921,6 +922,7 @@ def list_sessions(owner: str | None = None) -> list[dict[str, Any]]:
     - title: Chat title (LLM-generated, or None if not yet set)
     - last_seen: Last write or opening of the session (login auto-load)
     - last_message_at: When the session last received a new message
+    - last_message_display: last_message_at as shown in the chat picker
     - created_at: Session creation timestamp
     - message_count: Number of chat messages
     - owner: Username who owns this session
@@ -953,6 +955,9 @@ def list_sessions(owner: str | None = None) -> list[dict[str, Any]]:
                     "title": data.get("data", {}).get("title"),
                     "last_seen": data.get("last_seen", ""),
                     "last_message_at": data["last_message_at"],
+                    "last_message_display": format_stamp(
+                        datetime.fromisoformat(data["last_message_at"]).timestamp()
+                    ),
                     "created_at": data.get("created_at", ""),
                     "message_count": len(chat_history),
                     "owner": data.get("owner", "").lower(),

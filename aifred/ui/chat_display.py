@@ -189,8 +189,7 @@ def session_list_display() -> rx.Component:
 
     def render_session_item(session) -> rx.Component:
         """Render a single session item in the list."""
-        # Format date from ISO string
-        # session has: session_id, title, last_seen, created_at, message_count
+        # session is one entry of list_sessions() (session_storage.py)
         return rx.box(
             rx.hstack(
                 # Tick for bulk delete; must not open the session
@@ -200,6 +199,15 @@ def session_list_display() -> rx.Component:
                     size="1",
                     color_scheme="orange",
                     cursor="pointer",
+                ),
+                # Time of the last message — the list is ordered by it;
+                # muted like the stamps in the storage tab
+                rx.text(
+                    session["last_message_display"],
+                    font_size="11px",
+                    color=COLORS["text_secondary"],
+                    white_space="nowrap",
+                    flex_shrink="0",
                 ),
                 # Session title or placeholder — rendered as rx.el.span so
                 # the data-session-id attribute makes it into the DOM. The

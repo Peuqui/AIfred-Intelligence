@@ -18,11 +18,11 @@ import shutil
 import tempfile
 from collections.abc import AsyncIterator
 from dataclasses import dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any
 
 from .config import DOCUMENTS_DIR
+from .formatting import format_stamp
 
 logger = logging.getLogger(__name__)
 
@@ -97,18 +97,6 @@ def format_size(size_bytes: int) -> str:
     return f"{format_number(size_bytes / (1024 * 1024), 1)} MB"
 
 
-def format_stamp(epoch: float) -> str:
-    """Timestamp for the document browser, same shape as the storage tab.
-
-    Note on ``st_ctime``: Linux has no creation time in ``stat()`` — it is
-    the inode-change time. For this folder that is the moment the file
-    landed here (written once by a tool or an upload), which is exactly
-    what "created" should mean to the user. It only drifts from that if
-    the file is later renamed or its permissions change.
-    """
-    return datetime.fromtimestamp(epoch).strftime("%d.%m.%Y %H:%M")
-
-
 def chunks_per_document() -> dict[str, int]:
     """Chunk count of every indexed document; empty while ChromaDB is unavailable,
     so a file listing still works without the index."""
@@ -151,6 +139,11 @@ def list_directory(folder_rel: str = "") -> FileOpResult:
         key=lambda p: p.name.lower(),
     )
 
+    # "created" is ``st_ctime``: Linux has no creation time in ``stat()``,
+    # it is the inode-change time. For this folder that is the moment the
+    # file landed here (written once by a tool or an upload), which is
+    # exactly what "created" should mean to the user. It only drifts from
+    # that if the file is later renamed or its permissions change.
     items: list[dict[str, Any]] = []
     for d in dirs:
         # Count files recursively so the user can tell at a glance whether

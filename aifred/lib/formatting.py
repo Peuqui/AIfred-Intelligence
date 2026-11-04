@@ -215,6 +215,15 @@ def format_age(seconds: float) -> str:
     return " ".join(parts)
 
 
+def format_stamp(epoch: float) -> str:
+    """SSOT for the date-and-time stamp in the lists of the UI.
+
+    Used by the document browser, the storage tab and the chat picker, so a
+    point in time reads the same everywhere ("04.11.2026 14:32", local time).
+    """
+    return datetime.fromtimestamp(epoch).strftime("%d.%m.%Y %H:%M")
+
+
 def convert_latex_delimiters(text: str) -> str:
     """
     Convert various LaTeX delimiter formats to $...$ syntax for rx.markdown.

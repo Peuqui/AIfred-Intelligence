@@ -207,7 +207,8 @@ class DocumentMixin(rx.State, mixin=True):
 
         from ..lib.document_sources import DocumentSourceError, get_document_source, source_index_name
         from ..lib.document_store import PARSERS
-        from ..lib.file_manager import chunks_per_document, format_size, format_stamp
+        from ..lib.file_manager import chunks_per_document, format_size
+        from ..lib.formatting import format_stamp
         from ..lib.i18n import t
 
         folder_id = self._open_remote_folder_id()

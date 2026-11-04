@@ -15,10 +15,10 @@ Ausbruch aus den erlaubten Roots abgesichert.
 from __future__ import annotations
 
 import shutil
-from datetime import datetime
 from pathlib import Path
 
 from .config import DATA_DIR
+from .formatting import format_stamp
 
 _HTML_PREVIEW_DIR = DATA_DIR / "html_preview"
 _SANDBOX_OUTPUT_DIR = DATA_DIR / "sandbox_output"
@@ -62,7 +62,7 @@ def list_managed_files() -> list[dict]:
                 "filename": f.name,
                 "url": f"{url_prefix}/{rel.as_posix()}",
                 "size_kb": round(st.st_size / 1024),
-                "mtime": datetime.fromtimestamp(st.st_mtime).strftime("%d.%m.%Y %H:%M"),
+                "mtime": format_stamp(st.st_mtime),
                 "mtime_ts": st.st_mtime,
                 "is_html": f.suffix.lower() == ".html",
             })
