@@ -238,3 +238,109 @@ def test_thinking_of_every_round_is_summed(monkeypatch) -> None:
     # Round 1 thinks from its first chunk to the stream end (~0.15 s), round 2
     # until its answer starts (~0.10 s). The first block alone would be ~0.15 s.
     assert thinking_s >= 0.22
+
+
+# ---- When a failed request is sent again -------------------------------------------------
+# Before its first piece reached the caller, a request is retried only when a new try can get past
+# the error (connection, timeout, server 5xx); an error of AIfred's own code comes at once instead of
+# after 15 minutes of silent retries.
+
+
+def _request_url() -> Any:
+    import httpx
+    return httpx.Request("POST", "http://swap/v1/chat/completions")
+
+
+def _connection_error() -> Exception:
+    import openai
+    return openai.APIConnectionError(request=_request_url())
+
+
+def _server_error(message: str, status: int = 502) -> Exception:
+    import httpx
+    import openai
+    return openai.InternalServerError(message, response=httpx.Response(status, request=_request_url()), body=None)
+
+
+def _turn_with_failures(monkeypatch, failures: list[Exception]) -> tuple[list[dict[str, Any]], int, list[float], list[str]]:
+    """A turn whose first requests fail with ``failures`` and whose next one answers. Returns the items,
+    the number of requests, the waits and the logged lines."""
+    from aifred.lib import logging_utils
+    from aifred.backends import base
+
+    backend = _offline_vllm(monkeypatch)
+    monkeypatch.setattr(backend, "_read_counters", lambda: None)
+    sent: list[int] = []
+    waits: list[float] = []
+    logged: list[str] = []
+
+    async def create(**kwargs: Any):
+        sent.append(1)
+        if failures:
+            raise failures.pop(0)
+        return _stream([_chunk({"content": "Antwort"}), _chunk({}, finish_reason="stop")])
+
+    async def no_wait(seconds: float) -> None:
+        waits.append(seconds)
+
+    backend.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+    monkeypatch.setattr(base.asyncio, "sleep", no_wait)
+    monkeypatch.setattr(logging_utils, "log_message", lambda message, category="info": logged.append(message))
+
+    async def run() -> list[dict[str, Any]]:
+        return [item async for item in backend.chat_stream("m", [LLMMessage(role="user", content="Hallo")])]
+
+    return asyncio.run(run()), len(sent), waits, logged
+
+
+@pytest.mark.parametrize("failure", [_connection_error(), _server_error("Bad Gateway: swapping")])
+def test_a_passing_error_is_retried_and_said_in_the_debug_console(monkeypatch, failure: Exception) -> None:
+    from aifred.lib.config import STREAM_RETRY_DELAY_S
+
+    items, sent, waits, logged = _turn_with_failures(monkeypatch, [failure])
+    assert "Antwort" in "".join(i.get("text", "") for i in items)
+    assert (sent, waits) == (2, [STREAM_RETRY_DELAY_S])
+    retries = [line for line in logged if "retry in" in line]
+    assert len(retries) == 1 and type(failure).__name__ in retries[0]
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        TypeError("an error in AIfred's own code"),
+        KeyError("choices"),
+        _server_error("upstream command exited prematurely"),
+    ],
+)
+def test_an_error_a_new_try_cannot_get_past_comes_at_once(monkeypatch, failure: Exception) -> None:
+    from aifred.backends.base import BackendError
+
+    with pytest.raises(BackendError):
+        _turn_with_failures(monkeypatch, [failure])
+
+
+def test_no_retry_once_output_went_out(monkeypatch) -> None:
+    from aifred.backends.base import BackendError
+
+    backend = _offline_vllm(monkeypatch)
+    monkeypatch.setattr(backend, "_read_counters", lambda: None)
+    sent: list[int] = []
+
+    async def broken_after_first_piece():
+        yield _chunk({"content": "Ant"})
+        raise _connection_error()
+
+    async def create(**kwargs: Any):
+        sent.append(1)
+        return broken_after_first_piece()
+
+    backend.client = SimpleNamespace(  # type: ignore[assignment]
+        chat=SimpleNamespace(completions=SimpleNamespace(create=create)))
+
+    async def run() -> list[dict[str, Any]]:
+        return [item async for item in backend.chat_stream("m", [LLMMessage(role="user", content="Hallo")])]
+
+    with pytest.raises(BackendError):
+        asyncio.run(run())
+    assert sent == [1]

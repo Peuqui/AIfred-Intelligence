@@ -11,7 +11,7 @@ from typing import Any
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 
-from aifred.lib.config import DEFAULT_OLLAMA_URL, MAX_OUTPUT_TOKENS
+from aifred.lib.config import DEFAULT_OLLAMA_URL, MAX_OUTPUT_TOKENS, STREAM_RETRY_DELAY_S, STREAM_RETRY_WINDOW_S
 from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
 
 
@@ -676,8 +676,21 @@ class OpenAICompatibleBackend(LLMBackend):
             chat_response.load_time = load_s
             return chat_response
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — every error reaches the caller as a BackendError (_backend_error)
             raise await self._backend_error(e, model)
+
+    @classmethod
+    def _worth_retrying(cls, error: Exception) -> bool:
+        """Can a new try get past ``error``? Yes for the connection (refused, dropped, timed out) and
+        a server that is not ready (5xx, e.g. llama-swap while it swaps). Not for an error of AIfred's
+        own code, a request the server rejects (4xx), or a model server that died while starting
+        (a new try would only start it again)."""
+        import httpx
+        import openai
+
+        if cls._UPSTREAM_EXIT_MARKER in str(error):
+            return False
+        return isinstance(error, openai.APIConnectionError | openai.InternalServerError | httpx.TransportError)
 
     @staticmethod
     def _truncation_debug(finish_reason: str | None) -> list[dict[str, str]]:
@@ -800,14 +813,7 @@ class OpenAICompatibleBackend(LLMBackend):
             kwargs["extra_body"] = extra_body
 
         import time
-        import logging
 
-        # Gesamtfenster fuer Retries — muss >= DEFAULT_TIMEOUT sein, damit nach
-        # einem ersten Timeout-Fehler ueberhaupt noch ein Retry passieren kann.
-        # llama-swap kann bei oversized Models > 2 Min zum Laden brauchen, plus
-        # lange Tool-Loops und Thinking-Models — daher 900s (15 Min).
-        retry_timeout = 900.0
-        retry_delay = 5.0
         from ..lib.config import MAX_TOOL_ROUNDS, TOOL_LOOP_CONTEXT_GUARD
         max_tool_rounds = MAX_TOOL_ROUNDS
         start_time = time.monotonic()
@@ -819,7 +825,7 @@ class OpenAICompatibleBackend(LLMBackend):
         # would duplicate content and re-execute non-idempotent tools.
         yielded_any = False
 
-        while time.monotonic() - start_time < retry_timeout:
+        while time.monotonic() - start_time < STREAM_RETRY_WINDOW_S:
             try:
                 from ..lib.timer import Timer
                 timer = Timer()
@@ -1157,25 +1163,19 @@ class OpenAICompatibleBackend(LLMBackend):
                 yield {"type": "done", "metrics": metrics}
                 return  # success
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — every error reaches the caller as a BackendError; only a passing one is retried
                 last_error = e
-                # Stream already emitted output → retrying would duplicate it
-                # (and re-execute tool side effects). Surface immediately.
-                if yielded_any:
+                remaining = STREAM_RETRY_WINDOW_S - (time.monotonic() - start_time)
+                # Output already went out: a new try would repeat it (and tools with side effects).
+                if yielded_any or not self._worth_retrying(e) or remaining <= STREAM_RETRY_DELAY_S:
                     raise await self._backend_error(e, model)
-                # 400 = the server rejected the request itself (e.g. images
-                # for a text-only profile) — identical on every retry.
-                import openai
-                if isinstance(e, openai.BadRequestError):
-                    raise await self._backend_error(e, model)
-                elapsed = time.monotonic() - start_time
-                remaining = retry_timeout - elapsed
-                if remaining > retry_delay:
-                    logging.getLogger("aifred").warning(
-                        f"Request failed ({type(e).__name__}), retry in {retry_delay}s ({remaining:.0f}s remaining)..."
-                    )
-                    await asyncio.sleep(retry_delay)
-                    continue
-                raise await self._backend_error(e, model)
+                from ..lib.formatting import format_duration_s
+                from ..lib.logging_utils import log_message
+                log_message(
+                    f"⚠️ {model}: request failed ({type(e).__name__}: {e}), retry in "
+                    f"{format_duration_s(STREAM_RETRY_DELAY_S, 0)} ({format_duration_s(remaining, 0)} left)",
+                    "warning",
+                )
+                await asyncio.sleep(STREAM_RETRY_DELAY_S)
 
         raise await self._backend_error(last_error, model)  # type: ignore[arg-type]
