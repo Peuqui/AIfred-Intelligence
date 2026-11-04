@@ -566,6 +566,9 @@ var ttsQueue = [];  // Audio URLs to play; {speak: utterance} items are spoken b
 var ttsQueuePlaying = false;  // Is queue currently playing?
 var ttsQueueCurrentIndex = 0;  // Current playback position
 var ttsQueueVersion = 0;  // Track version to detect updates from backend
+// The queue ran dry on this device while the reading was still in flight (data-tts-active): the
+// next piece continues it here even when the tab is hidden (a covered window counts as hidden).
+var ttsQueueAwaitingMore = false;
 
 // Blob prefetch: download upcoming chunks into memory for instant src switching
 var ttsBlobCache = {};  // originalURL → blobURL mapping
@@ -644,8 +647,11 @@ function updateTtsQueue(queue, version) {
     const queueElement = document.getElementById('tts-queue-data');
     const autoplayEnabled = queueElement?.dataset?.autoplay === 'true';
 
-    if (queue.length > prevLength && !ttsQueuePlaying && autoplayEnabled && !document.hidden) {
-        console.log(`🔊 TTS Queue: New items, starting playback`);
+    // A hidden tab starts no reading (multi-device: only the device in view plays), but one that
+    // was playing this reading and only waits for its next piece goes on.
+    if (queue.length > prevLength && !ttsQueuePlaying && autoplayEnabled && (!document.hidden || ttsQueueAwaitingMore)) {
+        console.log(`🔊 TTS Queue: New items, ${ttsQueueAwaitingMore ? 'continuing the reading' : 'starting playback'}`);
+        ttsQueueAwaitingMore = false;
         playNextChunk();
     } else if (queue.length > prevLength && ttsQueuePlaying) {
         // Already playing - prefetch upcoming chunks
@@ -660,7 +666,8 @@ function updateTtsQueue(queue, version) {
 function playNextChunk() {
     if (ttsQueueCurrentIndex >= ttsQueue.length) {
         ttsQueuePlaying = false;
-        console.log('🔊 TTS Queue: Playback complete');
+        ttsQueueAwaitingMore = document.getElementById('tts-queue-data')?.dataset?.ttsActive === 'true';
+        console.log(`🔊 TTS Queue: ${ttsQueueAwaitingMore ? 'Ran dry, the reading goes on' : 'Playback complete'}`);
         // Clean up blob URLs
         for (const blobUrl of Object.values(ttsBlobCache)) {
             URL.revokeObjectURL(blobUrl);
@@ -814,6 +821,7 @@ function stopPlayback() {
     ttsPrefetchInFlight.clear();
     ttsQueueCurrentIndex = 0;
     ttsQueuePlaying = false;
+    ttsQueueAwaitingMore = false;
 }
 
 /**
