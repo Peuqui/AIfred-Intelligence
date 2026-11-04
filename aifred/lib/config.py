@@ -419,7 +419,7 @@ MAX_OUTPUT_TOKENS = 64000
 # A streamed request to the OpenAI-compatible backends that fails before its first piece reached
 # the caller is sent again after STREAM_RETRY_DELAY_S, within STREAM_RETRY_WINDOW_S from the first
 # try — but only for errors a new try can get past (connection, timeout, server 5xx; see
-# OpenAICompatibleBackend._worth_retrying). The window must be at least the client timeout of the
+# worth_retrying in backends/base.py, the rule of every backend). The window must be at least the client timeout of the
 # backends (900 s), or a first timeout leaves no room for a second try.
 STREAM_RETRY_WINDOW_S = 900.0
 STREAM_RETRY_DELAY_S = 5.0

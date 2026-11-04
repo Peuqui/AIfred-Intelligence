@@ -58,7 +58,7 @@ class _Turn:
 def _result():
     async def run():
         async for event in run_llm_stream(
-            _Turn(), "m", [], SimpleNamespace(enable_thinking=False), "AIfred", source="browser", retry=False,  # type: ignore[arg-type]
+            _Turn(), "m", [], SimpleNamespace(enable_thinking=False), "AIfred", source="browser",  # type: ignore[arg-type]
         ):
             if event["type"] == "pipeline_result":
                 return event["result"]
@@ -129,7 +129,7 @@ class _DraftThenAnswer:
 def test_a_message_written_before_and_after_the_tools_is_delivered_once():
     async def run():
         async for event in run_llm_stream(
-            _DraftThenAnswer(), "m", [], SimpleNamespace(enable_thinking=False), "AIfred", source="scheduler", retry=False,  # type: ignore[arg-type]
+            _DraftThenAnswer(), "m", [], SimpleNamespace(enable_thinking=False), "AIfred", source="scheduler",  # type: ignore[arg-type]
         ):
             if event["type"] == "pipeline_result":
                 return event["result"]

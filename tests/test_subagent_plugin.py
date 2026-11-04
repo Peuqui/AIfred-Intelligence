@@ -214,7 +214,7 @@ class TestRun:
 
         captured: dict[str, Any] = {}
 
-        async def fake_stream(client, model, messages, options, label, *, source, toolkit=None, retry=False):
+        async def fake_stream(client, model, messages, options, label, *, source, toolkit=None):
             captured.update(model=model, messages=messages, toolkit=toolkit, label=label)
             yield {"type": "thinking", "text": "erst lesen"}
             yield {"type": "tool_call", "name": "read_file", "arguments": '{"path": "a.txt"}'}

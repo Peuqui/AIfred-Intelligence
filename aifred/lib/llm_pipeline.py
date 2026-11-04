@@ -14,10 +14,9 @@ Consumers (Chat UI, Message Hub) process the yielded events
 and add their own concerns (streaming to UI, TTS, debug routing).
 """
 
-import asyncio
 import json
 import re
-from collections.abc import AsyncGenerator, AsyncIterator, Callable
+from collections.abc import AsyncGenerator, Callable
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
@@ -140,48 +139,6 @@ def _normalize_image_urls(text: str) -> str:
 
 
 
-async def chat_stream_with_retry(
-    llm_client: 'LLMClient',
-    model: str,
-    messages: list,
-    options: 'LLMOptions',
-    agent_label: str,
-    toolkit: Any = None,
-    on_debug: Callable[[str], None] | None = None,
-    retry_delay: float = 2.0,
-    max_retries: int = 1,
-) -> AsyncGenerator[dict, None]:
-    """Wrapper around llm_client.chat_stream() with retry logic for 500 errors.
-
-    On 500 error: Logs the error, waits retry_delay seconds, retries once.
-    If still fails, re-raises the error.
-    """
-    attempt = 0
-    # Once a chunk has been forwarded to the caller, retrying would duplicate
-    # content downstream (chat history, TTS, browser). Bail out instead.
-    yielded_any = False
-
-    while attempt <= max_retries:
-        try:
-            async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit):
-                yield chunk
-                yielded_any = True
-            return
-        except Exception as e:
-            error_str = str(e)
-            is_500_error = "500" in error_str and ("Internal Server Error" in error_str or "Server error" in error_str)
-
-            if is_500_error and attempt < max_retries and not yielded_any:
-                log_message(f"⚠️ {agent_label}: 500 Error - retrying in {retry_delay}s...")
-                if on_debug:
-                    on_debug(f"⚠️ {agent_label}: 500 Error (attempt {attempt + 1}/{max_retries + 1}) - {error_str}")
-
-                await asyncio.sleep(retry_delay)
-                attempt += 1
-            else:
-                raise
-
-
 async def run_llm_stream(
     llm_client: 'LLMClient',
     model: str,
@@ -191,12 +148,12 @@ async def run_llm_stream(
     *,
     source: str,
     toolkit: Any = None,
-    retry: bool = True,
     on_debug: Callable[[str], None] | None = None,
 ) -> AsyncGenerator[dict[str, Any], None]:
     """Unified LLM chunk-processing pipeline.
 
-    Wraps llm_client.chat_stream() with retry, tracking, and metadata.
+    Wraps llm_client.chat_stream() with tracking and metadata. A failed request is retried in the
+    backend, at one place for all of them (``worth_retrying`` in backends/base.py).
     Yields the same chunk types as chat_stream() (passthrough), plus:
     - {"type": "ttft", "value": float} — after first content token
 
@@ -213,7 +170,6 @@ async def run_llm_stream(
         agent_label: Display label for logs (e.g. "AIfred", "Sokrates")
         source: Channel of the request ("browser", "scheduler", "hub", ...)
         toolkit: Optional toolkit with tools
-        retry: Enable 500-error retry (default True)
         on_debug: Optional debug callback (e.g. state.add_debug)
     """
     # Raw debug logging
@@ -285,17 +241,7 @@ async def run_llm_stream(
     # gezeigten Event-Bilder gehängt.
     event_descriptions: dict[str, tuple[str, str]] = {}
 
-    # Select stream source: with or without retry
-    stream: AsyncIterator[dict[str, Any]]
-    if retry:
-        stream = chat_stream_with_retry(
-            llm_client, model, messages, options, agent_label,
-            toolkit=toolkit, on_debug=on_debug,
-        )
-    else:
-        stream = llm_client.chat_stream(model, messages, options, toolkit=toolkit)
-
-    async for chunk in stream:
+    async for chunk in llm_client.chat_stream(model, messages, options, toolkit=toolkit):
         chunk_type = chunk["type"]
 
         if chunk_type == "model_load":

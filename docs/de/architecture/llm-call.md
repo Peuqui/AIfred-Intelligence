@@ -120,7 +120,7 @@ multi_agent.py: _stream_agent_to_history()
   |
   v
 llm_pipeline.py: run_llm_stream()  <-- PIPELINE
-  |-- chat_stream_with_retry() -> llm_client.chat_stream()
+  |-- llm_client.chat_stream() (Wiederholung bei Netz- und Serverfehlern im Backend: worth_retrying)
   |-- Chunk-Verarbeitung mit Tracking
   |-- PipelineResult
 ```

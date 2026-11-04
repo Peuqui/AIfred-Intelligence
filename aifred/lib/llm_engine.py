@@ -223,7 +223,7 @@ async def call_llm(
 
         async for event in run_llm_stream(
             llm_client, model_choice, cast(list, messages), llm_options, agent_label,
-            source=source, toolkit=memory_toolkit, retry=False,
+            source=source, toolkit=memory_toolkit,
         ):
             event_type = event["type"]
             if event_type == "content":
@@ -443,7 +443,7 @@ async def generate_session_title(
         from .debug_bus import debug
         debug(f"⚠️ Title generation timed out (>{SESSION_TITLE_TIMEOUT_SECONDS:.0f}s)")
         return ""
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — a failed title must not break the reply that asked for it; logged and shown
         log_message(f"Title generation failed: {exc}", "warning")
         # Also surface in the session debug console — the logfile is
         # truncated on every restart, which already ate one diagnosis.

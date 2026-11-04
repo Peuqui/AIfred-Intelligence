@@ -14,6 +14,39 @@ from dataclasses import dataclass
 from aifred.lib.config import DEFAULT_OLLAMA_URL, MAX_OUTPUT_TOKENS, STREAM_RETRY_DELAY_S, STREAM_RETRY_WINDOW_S
 from aifred.lib.perf_metrics import InferenceWork, ThinkingClock
 
+# llama-swap's answer when the upstream process died before serving.
+UPSTREAM_EXIT_MARKER = "upstream command exited prematurely"
+
+
+def worth_retrying(error: Exception) -> bool:
+    """Can a new try of a request get past ``error``? SSOT for every backend that retries.
+
+    Yes for the connection (refused, dropped, timed out) and a server that is not ready (5xx, e.g.
+    llama-swap while it swaps). Not for an error of AIfred's own code, a request the server rejects
+    (4xx), or a model server that died while starting (a new try would only start it again).
+    """
+    import httpx
+    import openai
+
+    if UPSTREAM_EXIT_MARKER in str(error):
+        return False
+    if isinstance(error, httpx.HTTPStatusError):
+        return error.response.status_code >= 500
+    return isinstance(error, openai.APIConnectionError | openai.InternalServerError | httpx.TransportError)
+
+
+async def wait_before_retry(model: str, error: Exception, remaining_s: float) -> None:
+    """Say in the debug console that the request goes out again, then wait STREAM_RETRY_DELAY_S."""
+    from aifred.lib.formatting import format_duration_s
+    from aifred.lib.logging_utils import log_message
+
+    log_message(
+        f"⚠️ {model}: request failed ({type(error).__name__}: {error}), retry in "
+        f"{format_duration_s(STREAM_RETRY_DELAY_S, 0)} ({format_duration_s(remaining_s, 0)} left)",
+        "warning",
+    )
+    await asyncio.sleep(STREAM_RETRY_DELAY_S)
+
 
 @dataclass
 class LLMMessage:
@@ -451,8 +484,6 @@ class OpenAICompatibleBackend(LLMBackend):
             return [{"type": "content", "text": "</think>\n\n"}]
         return []
 
-    # llama-swap's answer when the upstream process died before serving.
-    _UPSTREAM_EXIT_MARKER = "upstream command exited prematurely"
     # The upstream log stream sends its history first and then stays open;
     # this bounds how long we collect it.
     _UPSTREAM_LOG_COLLECT_S = 2.0
@@ -548,7 +579,7 @@ class OpenAICompatibleBackend(LLMBackend):
     async def _backend_error(self, error: Exception, model: str) -> BackendError:
         """BackendError for a failed request; a model server that died while
         starting gets its own reason from the llama-swap log."""
-        if self._UPSTREAM_EXIT_MARKER not in str(error):
+        if UPSTREAM_EXIT_MARKER not in str(error):
             return self._classify_error(error, model)
         cause = await self._upstream_exit_cause()
         detail = cause or (
@@ -678,19 +709,6 @@ class OpenAICompatibleBackend(LLMBackend):
 
         except Exception as e:  # noqa: BLE001 — every error reaches the caller as a BackendError (_backend_error)
             raise await self._backend_error(e, model)
-
-    @classmethod
-    def _worth_retrying(cls, error: Exception) -> bool:
-        """Can a new try get past ``error``? Yes for the connection (refused, dropped, timed out) and
-        a server that is not ready (5xx, e.g. llama-swap while it swaps). Not for an error of AIfred's
-        own code, a request the server rejects (4xx), or a model server that died while starting
-        (a new try would only start it again)."""
-        import httpx
-        import openai
-
-        if cls._UPSTREAM_EXIT_MARKER in str(error):
-            return False
-        return isinstance(error, openai.APIConnectionError | openai.InternalServerError | httpx.TransportError)
 
     @staticmethod
     def _truncation_debug(finish_reason: str | None) -> list[dict[str, str]]:
@@ -1167,15 +1185,8 @@ class OpenAICompatibleBackend(LLMBackend):
                 last_error = e
                 remaining = STREAM_RETRY_WINDOW_S - (time.monotonic() - start_time)
                 # Output already went out: a new try would repeat it (and tools with side effects).
-                if yielded_any or not self._worth_retrying(e) or remaining <= STREAM_RETRY_DELAY_S:
+                if yielded_any or not worth_retrying(e) or remaining <= STREAM_RETRY_DELAY_S:
                     raise await self._backend_error(e, model)
-                from ..lib.formatting import format_duration_s
-                from ..lib.logging_utils import log_message
-                log_message(
-                    f"⚠️ {model}: request failed ({type(e).__name__}: {e}), retry in "
-                    f"{format_duration_s(STREAM_RETRY_DELAY_S, 0)} ({format_duration_s(remaining, 0)} left)",
-                    "warning",
-                )
-                await asyncio.sleep(STREAM_RETRY_DELAY_S)
+                await wait_before_retry(model, e, remaining)
 
         raise await self._backend_error(last_error, model)  # type: ignore[arg-type]

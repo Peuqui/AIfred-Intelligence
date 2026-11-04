@@ -5,12 +5,19 @@ Wraps Ollama API into unified LLMBackend interface
 """
 
 import logging
+import time
 from collections.abc import AsyncIterator
 from typing import Any
 
 import httpx
 
-from ..lib.config import DEFAULT_OLLAMA_URL, MIN_FREE_RAM_MB, MIN_USEFUL_CONTEXT_TOKENS
+from ..lib.config import (
+    DEFAULT_OLLAMA_URL,
+    MIN_FREE_RAM_MB,
+    MIN_USEFUL_CONTEXT_TOKENS,
+    STREAM_RETRY_DELAY_S,
+    STREAM_RETRY_WINDOW_S,
+)
 from ..lib.logging_utils import log_message
 from ..lib.perf_metrics import InferenceWork, ThinkingClock
 from ..lib.timer import Timer
@@ -23,6 +30,8 @@ from .base import (
     LLMOptions,
     LLMResponse,
     done_metrics,
+    wait_before_retry,
+    worth_retrying,
 )
 
 logger = logging.getLogger(__name__)
@@ -317,7 +326,7 @@ class OllamaBackend(LLMBackend):
             else:
                 raise BackendInferenceError(f"Ollama HTTP error: {e}")
         except Exception as e:
-            raise BackendInferenceError(f"Ollama chat failed: {e}")
+            raise BackendInferenceError(f"Ollama chat failed: {e}") from e
 
     async def chat_stream(
         self,
@@ -346,13 +355,15 @@ class OllamaBackend(LLMBackend):
 
         payload = self._build_chat_payload(model, messages, options, stream=True)
 
-        # Retry loop: try once, retry with think=false if needed.
-        # IMPORTANT: only retry while nothing has been yielded yet. Once the
-        # caller has seen a chunk, a retry would duplicate content.
+        # A new try goes out while nothing has been yielded yet (once the caller has seen a chunk,
+        # it would duplicate content): once without think mode when the model has none, and on an
+        # error a new try can get past (worth_retrying) within STREAM_RETRY_WINDOW_S.
         retry_message_shown = False
         first_content_sent = False
         yielded_any = False
-        for attempt in range(2):
+        without_think = False  # the model said it has no think mode: this try runs without it
+        start_time = time.monotonic()
+        while True:
 
             try:
                 timer = Timer()
@@ -360,13 +371,15 @@ class OllamaBackend(LLMBackend):
                 thinking_buffer = ""
                 think_clock = ThinkingClock()
 
-                def content_item(text: str) -> dict[str, Any]:
-                    think_clock.observe(text, timer.elapsed())
+                def content_item(
+                    text: str, clock: ThinkingClock = think_clock, try_timer: Timer = timer,
+                ) -> dict[str, Any]:
+                    clock.observe(text, try_timer.elapsed())
                     return {"type": "content", "text": text}
 
                 async with self.client.stream("POST", f"{self.base_url}/api/chat", json=payload) as response:
                     # Check for 400 error with thinking mode BEFORE raise_for_status
-                    if response.status_code == 400 and options.enable_thinking and attempt == 0 and not yielded_any:
+                    if response.status_code == 400 and options.enable_thinking and not without_think and not yielded_any:
                         # Read error body while stream is still open
                         import json
                         error_body = await response.aread()
@@ -375,9 +388,9 @@ class OllamaBackend(LLMBackend):
 
                         if "does not support thinking" in error_msg:
                             log_message(f"⚠️ Model '{model}' does not support thinking mode, retrying with think=false")
-                            # Set payload for retry
                             payload["think"] = False
-                            continue  # Retry with attempt=1 (warning will be shown with first content)
+                            without_think = True
+                            continue  # the warning is shown with the first content
                         else:
                             # Different 400 error
                             response.raise_for_status()
@@ -408,8 +421,8 @@ class OllamaBackend(LLMBackend):
 
                                 # Handle content chunks
                                 if content:
-                                    # Show retry message and warning before first content (only on attempt 1)
-                                    if not first_content_sent and attempt == 1 and not retry_message_shown:
+                                    # Show the warning before the first content of the try without think mode
+                                    if not first_content_sent and without_think and not retry_message_shown:
                                         yield {"type": "thinking_warning", "model": model}
                                         yield {"type": "debug", "message": f"⚠️ Model '{model}' doesn't support reasoning - running without think mode"}
                                         yielded_any = True
@@ -438,21 +451,14 @@ class OllamaBackend(LLMBackend):
                                 logger.warning(f"Invalid JSON in Ollama stream: {line[:100]}... Error: {e}")
                                 continue
 
-            except httpx.HTTPStatusError as e:
-                # Surface immediately once anything has been yielded, regardless
-                # of status code — a retry would re-emit the same chunks.
-                if yielded_any:
-                    if e.response.status_code == 404:
-                        raise BackendModelNotFoundError(f"Model '{model}' not found")
-                    raise BackendInferenceError(f"Ollama streaming error: {e}")
-                # If this is attempt 0 and might be thinking-related, loop will retry
-                # If this is attempt 1 or not thinking-related, raise the error
-                if attempt == 1 or not (e.response.status_code == 400 and options.enable_thinking):
-                    if e.response.status_code == 404:
-                        raise BackendModelNotFoundError(f"Model '{model}' not found")
-                    else:
-                        raise BackendInferenceError(f"Ollama streaming error: {e}")
-                # else: continue to retry
+            except (httpx.HTTPStatusError, httpx.TransportError) as e:
+                remaining = STREAM_RETRY_WINDOW_S - (time.monotonic() - start_time)
+                if not yielded_any and worth_retrying(e) and remaining > STREAM_RETRY_DELAY_S:
+                    await wait_before_retry(model, e, remaining)
+                    continue
+                if isinstance(e, httpx.HTTPStatusError) and e.response.status_code == 404:
+                    raise BackendModelNotFoundError(f"Model '{model}' not found") from e
+                raise BackendInferenceError(f"Ollama streaming error: {e}") from e
 
     async def test_thinking_capability(self, model: str) -> bool:
         """
@@ -500,7 +506,7 @@ class OllamaBackend(LLMBackend):
             logger.warning(f"Thinking capability test failed for {model}: {e}")
             return False
 
-        except Exception as e:
+        except httpx.HTTPError as e:
             logger.warning(f"Thinking capability test failed for {model}: {e}")
             return False
 
@@ -1275,14 +1281,13 @@ class OllamaBackend(LLMBackend):
                             yield "🔄 Waiting for system recovery..."
                             await asyncio.sleep(5.0)
 
-                            # Check if Ollama is still responsive
-                            try:
-                                # Don't wait here - we do explicit wait_for_vram_stable() below
-                                await self.unload_all_models(wait_for_stability=False)
-                                await wait_for_vram_stable(max_wait_seconds=5.0)
-                            except Exception:
+                            # Check if Ollama is still responsive (the unload reports a dead
+                            # server in its result); wait_for_vram_stable() below waits explicitly
+                            responsive, _ = await self.unload_all_models(wait_for_stability=False)
+                            if not responsive:
                                 yield "❌ Ollama unresponsive - please restart manually"
                                 return
+                            await wait_for_vram_stable(max_wait_seconds=5.0)
 
                             # Restart with lower ceiling if original was very high
                             if high > RECOVERY_THRESHOLD:
