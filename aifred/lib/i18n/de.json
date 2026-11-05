@@ -992,7 +992,6 @@
   "service_status_days_short": "T",
   "service_status_load": "Laden",
   "service_status_unload": "Entladen",
-  "service_status_host": "Rechner",
   "service_status_host_held": "freigehalten",
   "service_status_host_free_cards": "Karte frei für Beschreiber",
   "service_status_host_hold": "Karte freihalten",

@@ -2472,13 +2472,13 @@ function serviceStatusHostRows(hosts, t) {
     const mib = (n) => n.toLocaleString(t.lang);
     return hosts.map((host) => {
         if (!host.reachable) {
-            return {color: 'red', label: `${t.tHost} ${host.name}`, text: t.tUnreachable, title: host.error,
+            return {color: 'red', label: host.name, text: t.tUnreachable, title: host.error,
                     remaining: null, upperBound: false, action: null};
         }
         const parts = [host.held ? t.tHostHeld : t.tHostFreeCards, `${mib(host.used_mib)} / ${mib(host.total_mib)} MiB`,
                        ...host.holders];
         return {
-            color: host.held ? 'yellow' : 'green', label: `${t.tHost} ${host.name}`, text: parts.join(' · '),
+            color: host.held ? 'yellow' : 'green', label: host.name, text: parts.join(' · '),
             title: host.held ? `${t.tHostHeld}: ${host.held}` : parts.join(' · '), remaining: null, upperBound: false,
             action: {verb: host.held ? 'release' : 'hold', service: 'host', item: host.name},
         };

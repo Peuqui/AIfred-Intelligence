@@ -992,7 +992,6 @@
   "service_status_days_short": "d",
   "service_status_load": "Load",
   "service_status_unload": "Unload",
-  "service_status_host": "Machine",
   "service_status_host_held": "held free",
   "service_status_host_free_cards": "card open to describers",
   "service_status_host_hold": "Keep the card free",
