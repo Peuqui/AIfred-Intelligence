@@ -124,12 +124,16 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     # ── Thinking Mode (dropdown: off / on / effort level) ─────────
 
-    def _thinking_mode_labels(self) -> tuple[str, str]:
-        """(off_label, on_label) in the current UI language. Effort levels
-        stay raw — they are the template's proper names (e.g. "max")."""
+    def _thinking_mode_labels(self) -> tuple[str, str, str]:
+        """(off_label, on_label, default_label) in the current UI language.
+        Effort levels stay raw — they are the template's proper names (e.g. "max")."""
         from ..lib.i18n import t
         lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
-        return t("thinking_mode_off", lang=lang), t("thinking_mode_on", lang=lang)
+        return (
+            t("thinking_mode_off", lang=lang),
+            t("thinking_mode_on", lang=lang),
+            t("thinking_mode_default", lang=lang),
+        )
 
     def _set_agent_thinking_mode(self, agent: str, mode: str) -> None:
         """Dropdown label → the agent's thinking choice on the model it runs on.
@@ -143,7 +147,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             get_agent_base_model_id,
             set_thinking_mode,
         )
-        off_label, on_label = self._thinking_mode_labels()
+        off_label, on_label, _ = self._thinking_mode_labels()
         if mode == off_label:
             mode = THINKING_OFF
         elif mode in (on_label, self._thinking_on_option(agent)):
@@ -166,7 +170,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         )
         mode = thinking_mode(self, agent, get_agent_base_model_id(self, agent))
         if mode == THINKING_OFF:
-            off_label, _ = self._thinking_mode_labels()
+            off_label, _, _ = self._thinking_mode_labels()
             return off_label
         # Ein explizit gespeichertes Level, das zufällig dem Template-Default
         # entspricht (Qwen3.8: "xhigh"), zeigt "An (xhigh)" statt "xhigh" —
@@ -206,32 +210,43 @@ class AgentConfigMixin(rx.State, mixin=True):
         Trägt das Template seinen eigenen Default (Qwen3.8:
         ``default('xhigh')``), zeigt das Label ihn an — "An (xhigh)" —
         weil ein nacktes "An" sonst kontraintuitiv NEBEN den expliziten
-        Stufen steht, obwohl es einer davon entspricht. Ohne
+        Stufen steht, obwohl es einer davon entspricht. Lässt sich das
+        Denken gar nicht abschalten (GLM-5.3), hat "An" kein Gegenstück:
+        Der Eintrag heißt dann nach seiner Stufe — "max (Standard)" — und
+        steht an deren Platz (_agent_thinking_options). Ohne
         Template-Default (DeepSeek) bleibt es schlicht "An"."""
-        _, on_label = self._thinking_mode_labels()
+        _, on_label, default_label = self._thinking_mode_labels()
         info = self._thinking_info(agent)
-        default = info.default if info else None
-        return f"{on_label} ({default})" if default else on_label
+        if info is None or not info.default:
+            return on_label
+        if not info.switchable:
+            return f"{info.default} ({default_label})"
+        return f"{on_label} ({info.default})"
 
     def _agent_thinking_options(self, agent: str) -> list[str]:
         """Only what the model's template can do: "Aus" where thinking can be
         turned off, "An" and the levels where it thinks — a model without a
         thinking phase offers nothing but "Aus". Unknown models (Ollama,
         cloud) offer "Aus"/"An", what any request can send."""
-        off_label, _ = self._thinking_mode_labels()
+        off_label, _, _ = self._thinking_mode_labels()
         info = self._thinking_info(agent)
+        on_option = self._thinking_on_option(agent)
         if info is None:
-            return [off_label, self._thinking_on_option(agent)]
+            return [off_label, on_option]
         if not info.thinks:
             return [off_label]
+        if not info.switchable:
+            # Immer denkend: nur Stufen, in der Reihenfolge der Vorlage — der
+            # Standard ("max (Standard)") steht an seinem eigenen Platz.
+            levels = [on_option if lv == info.default else lv for lv in info.levels]
+            return levels if info.default in info.levels else [on_option, *levels]
         # "An (xhigh)" deckt bereits die Stufe ab, auf die das Template ohne
         # explizite Vorgabe von selbst auflöst — sie zusätzlich als eigenen
         # "xhigh"-Eintrag zu zeigen wäre dieselbe Redundanz wie "high" vs.
         # "xhigh" (Template-Alias), nur zwischen implizitem und explizitem
         # Wert statt zwischen zwei Strings.
         levels = [lv for lv in info.levels if lv != info.default]
-        off = [off_label] if info.switchable else []
-        return [*off, self._thinking_on_option(agent), *levels]
+        return [off_label, on_option, *levels]
 
     @rx.var(deps=["agent_tuning", "ui_language"], auto_deps=False)
     def aifred_thinking_options(self) -> list[str]:

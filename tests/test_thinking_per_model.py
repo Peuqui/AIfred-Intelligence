@@ -168,9 +168,27 @@ class TestMenuShowsOnlyWhatTheModelCan:
 
     def test_always_thinking_model_offers_no_off(self, agents_default_on_except_vision):
         # Vision default "off" cannot be carried out by GLM: the menu shows its template default.
+        # Peuqui 05.11.2026: no "An" on a model that always thinks — its levels
+        # in template order, the default at its own place.
         options, current = self._menu(GLM_INFO)
-        assert options == ["An (max)", "low", "high"]
-        assert current == "An (max)"
+        assert options == ["low", "high", "max (Standard)"]
+        assert current == "max (Standard)"
+
+    def test_always_thinking_model_without_default_offers_on_and_levels(self, agents_default_on_except_vision):
+        options, _ = self._menu(ReasoningInfo(["low", "high"], None, thinks=True, switchable=False))
+        assert options == ["An", "low", "high"]
+
+    def test_choosing_the_default_entry_stores_the_template_default(self, agents_default_on_except_vision):
+        state = _State()
+        state.agent_tuning["vision"].model_id = GLM
+        state._set_agent_thinking_mode = AgentConfigMixin._set_agent_thinking_mode.__get__(state)  # type: ignore[attr-defined]
+        state.add_debug = lambda message: None  # type: ignore[attr-defined]
+        state._save_settings = lambda: None  # type: ignore[attr-defined]
+        with patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=GLM_INFO):
+            state._set_agent_thinking_mode("vision", "max (Standard)")  # type: ignore[attr-defined]
+            assert state.agent_tuning["vision"].thinking_by_model == {thinking_model_key(GLM): THINKING_ON}
+            state._set_agent_thinking_mode("vision", "high")  # type: ignore[attr-defined]
+            assert thinking_mode(state, "vision", GLM) == "high"
 
     def test_switchable_model_offers_off_on_and_levels(self, agents_default_on_except_vision):
         options, current = self._menu(QWEN38_INFO, model="Qwen3.8-vllm")

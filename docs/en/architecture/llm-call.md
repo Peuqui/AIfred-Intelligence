@@ -310,8 +310,9 @@ Each agent has a thinking-mode dropdown (🧠) instead of a plain on/off
 toggle. The option list shows only what the model's chat template can do:
 `off` where thinking can be turned off, `on` (the template's default level)
 and the template's levels where the model thinks, nothing but `off` for a
-model without a thinking phase. Examples: GLM-5.3 always thinks → `on (max)`,
-`low`, `high`; DeepSeek-V4 → `off`, `on`, `max`; Qwen3-VL Instruct → `off`.
+model without a thinking phase. A model that cannot stop thinking has no `on`:
+its default stands as a level at its own place, marked "default". Examples:
+GLM-5.3 always thinks → `low`, `high`, `max (default)`; DeepSeek-V4 → `off`, `on`, `max`; Qwen3-VL Instruct → `off`.
 Models without a llama-swap entry (Ollama, cloud) offer `off`/`on`.
 
 The mechanism is fully model-agnostic — no model names are hardcoded:

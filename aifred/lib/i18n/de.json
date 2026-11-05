@@ -240,6 +240,7 @@
   "thinking_tooltip": "Model Thinking – Internes Chain-of-Thought des Modells (enable_thinking)",
   "thinking_mode_off": "Aus",
   "thinking_mode_on": "An",
+  "thinking_mode_default": "Standard",
   "reasoning_thinking_info": "💭 Reasoning = Analyse-Prompt im System-Prompt\n🧠 Thinking = Modell-internes Denken (CoT)",
   "reasoning_thinking_help_title": "Reasoning & Thinking – Übersicht",
   "reasoning_thinking_help_lightbulb_tooltip": "Was bedeuten Reasoning und Thinking?",

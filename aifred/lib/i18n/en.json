@@ -240,6 +240,7 @@
   "thinking_tooltip": "Model Thinking – Internal chain-of-thought (enable_thinking)",
   "thinking_mode_off": "Off",
   "thinking_mode_on": "On",
+  "thinking_mode_default": "default",
   "reasoning_thinking_info": "💭 Reasoning = Analysis prompt in system prompt\n🧠 Thinking = Model-internal thinking (CoT)",
   "reasoning_thinking_help_title": "Reasoning & Thinking – Overview",
   "reasoning_thinking_help_lightbulb_tooltip": "What do Reasoning and Thinking mean?",

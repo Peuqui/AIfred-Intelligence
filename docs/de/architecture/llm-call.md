@@ -311,7 +311,9 @@ Jeder Agent hat statt eines einfachen An/Aus-Schalters ein Thinking-Modus-Dropdo
 Die Optionsliste zeigt nur, was das Chat-Template des Modells kann: `off`, wo
 sich das Denken abschalten lässt, `on` (die Standard-Stufe des Templates) und
 die Stufen des Templates, wo das Modell denkt, und nur `off` bei einem Modell
-ohne Denkphase. Beispiele: GLM-5.3 denkt immer → `on (max)`, `low`, `high`;
+ohne Denkphase. Bei einem Modell, das sich nicht abschalten lässt, gibt es kein
+`on`: Der Standard steht als Stufe an seinem Platz, mit dem Zusatz „Standard“.
+Beispiele: GLM-5.3 denkt immer → `low`, `high`, `max (Standard)`;
 DeepSeek-V4 → `off`, `on`, `max`; Qwen3-VL Instruct → `off`. Modelle ohne
 llama-swap-Eintrag (Ollama, Cloud) bieten `off`/`on`.
 
