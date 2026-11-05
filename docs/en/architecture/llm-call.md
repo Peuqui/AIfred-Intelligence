@@ -307,10 +307,12 @@ intent_detector.py: detect_query_intent_and_addressee()
 ## Thinking Modes & Reasoning-Effort Levels
 
 Each agent has a thinking-mode dropdown (🧠) instead of a plain on/off
-toggle. The option list is model-specific: `off` and `on` always exist;
-models whose chat template supports graded thinking depth contribute
-extra entries (e.g. DeepSeek-V4: `max` = Think Max — `on` is the
-template's default level, Think High).
+toggle. The option list shows only what the model's chat template can do:
+`off` where thinking can be turned off, `on` (the template's default level)
+and the template's levels where the model thinks, nothing but `off` for a
+model without a thinking phase. Examples: GLM-5.3 always thinks → `on (max)`,
+`low`, `high`; DeepSeek-V4 → `off`, `on`, `max`; Qwen3-VL Instruct → `off`.
+Models without a llama-swap entry (Ollama, cloud) offer `off`/`on`.
 
 The mechanism is fully model-agnostic — no model names are hardcoded:
 
@@ -322,9 +324,16 @@ GGUF (tokenizer.chat_template)
   |     template compares against IS the supported level set, because
   |     chat_template_kwargs are passed 1:1 as Jinja variables.
   |
-  |-- model_vram_cache.json: "reasoning_levels" (persisted)
-  |     Filled lazily on model switch/startup (header read, ms) and
-  |     force-refreshed during calibration (re-download may change it).
+  |-- gguf_utils.detect_reasoning_info() -> ReasoningInfo
+  |     levels + default, plus `thinks` (the template has a thinking phase:
+  |     <think>, levels or a switch) and `switchable` (the template reads
+  |     the switch AIfred sends: `enable_thinking`; a bundled prompt encoder
+  |     branches on `thinking_mode`, which vLLM's tokenizer derives from it).
+  |
+  |-- model_vram_cache.json: reasoning_levels, reasoning_default, thinks,
+  |     thinking_switchable (persisted; resolve_reasoning_info, cache-first)
+  |     Filled lazily on first use (header read, ms) and force-refreshed
+  |     during calibration (re-download may change it).
   |
   |-- State: agent_tuning[agent].thinking_by_model {model: choice}
   |     One choice per row AND model: "off", "on" (the level the template
@@ -335,7 +344,10 @@ GGUF (tokenizer.chat_template)
   |     agents.json says. Read only via agent_settings.thinking_mode /
   |     persisted_thinking_mode (with the model the request goes to), written
   |     only via set_thinking_mode (the dropdown). A model switch copies
-  |     nothing: the other model has its own entry.
+  |     nothing: the other model has its own entry. effective_thinking_mode
+  |     turns the stored choice into one the model can carry out (no thinking
+  |     phase → off; off on an always-thinking model → its default; an
+  |     unknown level → its default) without rewriting what is stored.
   |
   v
 build_llm_options(state, agent, model_id, …) -> LLMOptions.reasoning_effort

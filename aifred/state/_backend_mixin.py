@@ -230,8 +230,6 @@ class BackendMixin(rx.State, mixin=True):
 
         backend = getattr(self, "backend_type", None) or getattr(self, "backend_id", None)
 
-        self._load_agent_reasoning_levels(agent, model_id)  # type: ignore[attr-defined]
-
         from ..lib.agent_settings import set_agent_setting
         if backend == "ollama":
             from ..lib.model_vram_cache import get_model_parameters
@@ -1503,21 +1501,6 @@ class BackendMixin(rx.State, mixin=True):
         # Load model parameters from cache
         self._load_agent_model_params("aifred", self.agent_tuning["aifred"].model_id)
 
-        # Re-validate reasoning effort for agents that INHERIT AIfred's model
-        # ("(wie AIfred-LLM)"): the base-model switch changes their effective
-        # reasoning levels, so a previously selected effort (e.g. "max") can
-        # become invalid for the new model and would otherwise leave the effort
-        # dropdown empty. _load_agent_reasoning_levels is owner-aware and clears
-        # an unsupported effort.
-        from ..lib.agent_settings import get_agent_setting
-        for _entry in self._ui_agent_list():  # type: ignore[attr-defined]
-            _aid = _entry["id"]
-            if _aid == "aifred":
-                continue
-            if not get_agent_setting(self, _aid, "model_id"):
-                self._load_agent_reasoning_levels(  # type: ignore[attr-defined]
-                    _aid, get_agent_setting(self, _aid, "model_id")
-                )
         if self.backend_type in LLAMASWAP_BACKENDS and not self.agent_tuning["aifred"].has_speed_variant:
             self.agent_tuning["aifred"].speed_mode = False  # type: ignore[attr-defined, has-type]
 
@@ -1561,8 +1544,7 @@ class BackendMixin(rx.State, mixin=True):
         self.agent_tuning["vision"].model = self._label_for("vision", model_id)
         self.add_debug(f"👁️ Vision-LLM: {self.agent_tuning["vision"].model}")  # type: ignore[attr-defined, has-type]
         self._show_model_calibration_info(self.agent_tuning["vision"].model_id)  # type: ignore[attr-defined]
-        # Like every agent (and like the start-up load in
-        # _load_all_agent_model_params): the thinking levels of the new model.
+        # Like every agent (and like the start-up load in _load_all_agent_model_params).
         if self.backend_type in LLAMASWAP_BACKENDS:
             self._load_agent_model_params("vision", model_id)
 

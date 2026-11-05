@@ -1,7 +1,7 @@
 """Reasoning levels of a vLLM checkpoint whose prompt is built by a bundled
 Python encoder instead of the Jinja template (DeepSeek-V4)."""
 
-from aifred.lib.gguf_utils import get_checkpoint_reasoning_info
+from aifred.lib.gguf_utils import ReasoningInfo, get_checkpoint_reasoning_info
 
 _STUB_JINJA = "{%- for message in messages -%}{{ message['content'] }}{%- endfor -%}"
 
@@ -27,14 +27,17 @@ def _checkpoint(tmp_path, jinja, encoder=None):
 def test_levels_come_from_the_bundled_encoder(tmp_path):
     # "high" passes the encoder's assert but renders the same prompt as plain
     # thinking — only the real branch ("max") is a steerable level.
-    assert get_checkpoint_reasoning_info(_checkpoint(tmp_path, _STUB_JINJA, _ENCODER)) == (["max"], None)
+    info = get_checkpoint_reasoning_info(_checkpoint(tmp_path, _STUB_JINJA, _ENCODER))
+    # The encoder also carries the switch: it branches on thinking_mode.
+    assert info == ReasoningInfo(["max"], None, thinks=True, switchable=True)
 
 
 def test_template_levels_win_over_the_encoder(tmp_path):
     jinja = "{%- set e = reasoning_effort|default('xhigh') %}{%- if e == 'low' %}x{%- endif %}"
-    levels, default = get_checkpoint_reasoning_info(_checkpoint(tmp_path, jinja, _ENCODER))
-    assert levels == ["low", "xhigh"] and default == "xhigh"
+    info = get_checkpoint_reasoning_info(_checkpoint(tmp_path, jinja, _ENCODER))
+    assert info is not None and info.levels == ["low", "xhigh"] and info.default == "xhigh"
 
 
 def test_no_encoder_and_no_template_levels(tmp_path):
-    assert get_checkpoint_reasoning_info(_checkpoint(tmp_path, _STUB_JINJA)) == ([], None)
+    # A stub without thinking phase and no encoder: the model does not think.
+    assert get_checkpoint_reasoning_info(_checkpoint(tmp_path, _STUB_JINJA)) == ReasoningInfo([], None, False, False)

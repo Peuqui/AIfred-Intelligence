@@ -3194,8 +3194,6 @@ class CalibrationMixin(rx.State, mixin=True):
                 _levels = resolve_reasoning_levels(
                     calibration_model_id, force=True,
                 )
-                async with self:
-                    self.agent_tuning["aifred"].reasoning_levels = _levels  # type: ignore[attr-defined]
                 if _levels:
                     self._cal_debug(  # type: ignore[attr-defined]
                         f"🧠 Reasoning-effort levels: {', '.join(_levels)}"

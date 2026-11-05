@@ -10,7 +10,7 @@ per agent id) — access via the ``agent_settings`` helpers.
 
 from __future__ import annotations
 
-from typing import ClassVar
+from typing import TYPE_CHECKING, ClassVar
 
 import reflex as rx
 
@@ -21,6 +21,9 @@ from ..lib.agent_tuning import (
     SamplingRow,
     default_agent_tuning,
 )
+
+if TYPE_CHECKING:
+    from ..lib.gguf_utils import ReasoningInfo
 from ..lib.config import (
     DEFAULT_MIN_P,
     DEFAULT_REPEAT_PENALTY,
@@ -31,7 +34,6 @@ from ..lib.config import (
     LLAMASERVER_DEFAULT_TEMPERATURE,
     LLAMASERVER_DEFAULT_TOP_K,
     LLAMASERVER_DEFAULT_TOP_P,
-    LLAMASWAP_BACKENDS,
     VISION_DEFAULT_MIN_P,
     VISION_DEFAULT_REPEAT_PENALTY,
     VISION_DEFAULT_TEMPERATURE,
@@ -160,8 +162,6 @@ class AgentConfigMixin(rx.State, mixin=True):
             THINKING_OFF,
             THINKING_ON,
             get_agent_base_model_id,
-            get_agent_setting,
-            model_owner,
             thinking_mode,
         )
         mode = thinking_mode(self, agent, get_agent_base_model_id(self, agent))
@@ -173,73 +173,10 @@ class AgentConfigMixin(rx.State, mixin=True):
         # als eigener Options-Eintrag existiert "xhigh" nicht mehr (siehe
         # _agent_thinking_options), sonst hätte das Dropdown einen Wert
         # gewählt, der in seiner eigenen Liste fehlt.
-        default: str = get_agent_setting(
-            self, model_owner(self, agent), "reasoning_default",
-        )
-        if mode == THINKING_ON or mode == default:
+        info = self._thinking_info(agent)
+        if mode == THINKING_ON or (info is not None and mode == info.default):
             return self._thinking_on_option(agent)
         return mode
-
-    def _load_agent_reasoning_levels(self, agent: str, model_id: str) -> None:
-        """Refresh the agent's ``reasoning_levels`` for a newly selected model
-        and clear a stored effort level the model's template no longer knows.
-        Levels kommen aus dem Chat-Template des Modells — SSOT ist
-        ``resolve_reasoning_levels`` (GGUF-Einträge: eingebettetes
-        Template; vLLM-Einträge: chat_template.jinja des Checkpoints).
-        Ollama/Cloud-Modelle haben keinen llama-swap-Eintrag → keine Stufen."""
-        from ..lib.agent_settings import (
-            THINKING_OFF,
-            THINKING_ON,
-            get_agent_setting,
-            model_owner,
-            set_agent_setting,
-            set_thinking_mode,
-            thinking_mode,
-        )
-        from ..lib.model_vram_cache import get_reasoning_levels_for_model
-        levels: list[str] = []
-        default = ""
-        if model_id and self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
-            from ..lib.gguf_utils import resolve_reasoning_levels
-            from ..lib.model_vram_cache import get_reasoning_default_for_model
-            levels = resolve_reasoning_levels(model_id)
-            # resolve above just (re)wrote the cache entry incl. default
-            default = get_reasoning_default_for_model(model_id) or ""
-        set_agent_setting(self, agent, "reasoning_levels", levels)
-        set_agent_setting(self, agent, "reasoning_default", default)
-        # Die Wahl auf dem Modell, auf dem der Agent läuft, gegen die
-        # EFFEKTIVEN Stufen validieren (Owner-aware): Beim Umstellen auf
-        # "(wie AIfred-LLM)" ist die eigene Liste leer, aber ein gesetztes
-        # "high" bleibt gültig, solange der Owner es kann. Weil die Wahl je
-        # Modell gespeichert ist, trifft das nur eine Stufe, die das Template
-        # nach einem Neu-Download nicht mehr kennt.
-        #
-        # Verworfen wird nur, wenn die Stufen des Modells wirklich BEKANNT
-        # sind. Eine leere Liste heisst zweierlei: "analysiert, das Modell
-        # kennt keine Stufen" (DeepSeek-V4) oder "gar nicht analysierbar"
-        # (Ollama/Cloud haben keinen llama-swap-Eintrag, siehe Docstring).
-        # Nur im ersten Fall darf die Wahl des Users fallen — sonst loescht
-        # ein Backend-Wechsel sie unwiederbringlich, weil _save_settings sie
-        # sofort festschreibt. Die Unterscheidung liefert der Cache selbst:
-        # None = nie analysiert, [] = analysiert und ohne Stufen.
-        owner_model: str = get_agent_setting(
-            self, model_owner(self, agent), "model_id",
-        )
-        levels_known = (
-            self.backend_type in LLAMASWAP_BACKENDS  # type: ignore[attr-defined]
-            and bool(owner_model)
-            and get_reasoning_levels_for_model(owner_model) is not None
-        )
-        mode = thinking_mode(self, agent, owner_model)
-        effective = self._effective_reasoning_levels(agent)
-        if levels_known and mode not in (THINKING_OFF, THINKING_ON, *effective):
-            set_thinking_mode(self, agent, owner_model, THINKING_ON)
-            from ..lib.agent_config import get_agent_label
-            self.add_debug(  # type: ignore[attr-defined]
-                f"🧠 {get_agent_label(agent)} reasoning effort '{mode}' "
-                f"unsupported by {owner_model} — cleared"
-            )
-            self._save_settings()  # type: ignore[attr-defined]
 
     # AIfred/Vision keep dedicated vars — their rows are special-cased in
     # the UI (main-model select, vision badges), not part of the foreach.
@@ -251,20 +188,17 @@ class AgentConfigMixin(rx.State, mixin=True):
     def vision_thinking_mode(self) -> str:
         return self._agent_thinking_mode("vision")
 
-    def _effective_reasoning_levels(self, agent: str) -> list[str]:
-        """Reasoning-Levels des Modells, das für diesen Agenten real lädt.
+    def _thinking_info(self, agent: str) -> ReasoningInfo | None:
+        """What the chat template of the model this agent runs on lets it
+        choose (gguf_utils.resolve_reasoning_info SSOT); ``None`` = unknown.
 
         Agenten ohne eigenes Modell ("(wie AIfred-LLM)") erben AIfreds LLM —
-        und damit dessen steuerbare Effort-Stufen (z.B. DeepSeek-V4
-        high/max). Vorher zeigte ihr Dropdown nur Aus/An, weil die eigene
-        ``reasoning_levels``-Liste leer blieb. Owner-Lookup über die
-        ``model_owner``-SSOT, damit ein AIfred-Modellwechsel die Stufen
-        aller Erben automatisch mitzieht."""
-        from ..lib.agent_settings import get_agent_setting, model_owner
-        levels: list[str] = get_agent_setting(
-            self, model_owner(self, agent), "reasoning_levels",
-        )
-        return levels
+        und damit dessen Stufen (get_agent_base_model_id), sodass ein
+        AIfred-Modellwechsel das Menü aller Erben mitzieht."""
+        from ..lib.agent_settings import get_agent_base_model_id
+        from ..lib.gguf_utils import resolve_reasoning_info
+        model_id = get_agent_base_model_id(self, agent)
+        return resolve_reasoning_info(model_id) if model_id else None
 
     def _thinking_on_option(self, agent: str) -> str:
         """Dropdown-Label für "Thinking an ohne Stufen-Vorgabe".
@@ -274,30 +208,30 @@ class AgentConfigMixin(rx.State, mixin=True):
         weil ein nacktes "An" sonst kontraintuitiv NEBEN den expliziten
         Stufen steht, obwohl es einer davon entspricht. Ohne
         Template-Default (DeepSeek) bleibt es schlicht "An"."""
-        from ..lib.agent_settings import get_agent_setting, model_owner
         _, on_label = self._thinking_mode_labels()
-        default: str = get_agent_setting(
-            self, model_owner(self, agent), "reasoning_default",
-        )
+        info = self._thinking_info(agent)
+        default = info.default if info else None
         return f"{on_label} ({default})" if default else on_label
 
     def _agent_thinking_options(self, agent: str) -> list[str]:
-        from ..lib.agent_settings import get_agent_setting, model_owner
+        """Only what the model's template can do: "Aus" where thinking can be
+        turned off, "An" and the levels where it thinks — a model without a
+        thinking phase offers nothing but "Aus". Unknown models (Ollama,
+        cloud) offer "Aus"/"An", what any request can send."""
         off_label, _ = self._thinking_mode_labels()
-        levels = self._effective_reasoning_levels(agent)
+        info = self._thinking_info(agent)
+        if info is None:
+            return [off_label, self._thinking_on_option(agent)]
+        if not info.thinks:
+            return [off_label]
         # "An (xhigh)" deckt bereits die Stufe ab, auf die das Template ohne
         # explizite Vorgabe von selbst auflöst — sie zusätzlich als eigenen
         # "xhigh"-Eintrag zu zeigen wäre dieselbe Redundanz wie "high" vs.
         # "xhigh" (Template-Alias), nur zwischen implizitem und explizitem
-        # Wert statt zwischen zwei Strings. reasoning_levels selbst bleibt
-        # unangetastet (Validierung in _load_agent_reasoning_levels braucht
-        # den vollen Ground-Truth-Satz) — gefiltert wird nur die Anzeige.
-        default: str = get_agent_setting(
-            self, model_owner(self, agent), "reasoning_default",
-        )
-        if default:
-            levels = [lv for lv in levels if lv != default]
-        return [off_label, self._thinking_on_option(agent)] + levels
+        # Wert statt zwischen zwei Strings.
+        levels = [lv for lv in info.levels if lv != info.default]
+        off = [off_label] if info.switchable else []
+        return [*off, self._thinking_on_option(agent), *levels]
 
     @rx.var(deps=["agent_tuning", "ui_language"], auto_deps=False)
     def aifred_thinking_options(self) -> list[str]:
@@ -922,7 +856,6 @@ class AgentConfigMixin(rx.State, mixin=True):
             set_agent_setting(self, agent, "has_speed_variant", has_speed)
             if not has_speed:
                 set_agent_setting(self, agent, "speed_mode", False)
-        self._load_agent_reasoning_levels(agent, model_id)
 
         # Reset sampling params to model defaults
         self._reset_agent_sampling(agent)

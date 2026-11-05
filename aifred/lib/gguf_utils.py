@@ -6,10 +6,23 @@ for llama.cpp backend integration.
 """
 
 import logging
+import re
 from collections.abc import Callable
+from dataclasses import dataclass
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class ReasoningInfo:
+    """What a model's chat template lets a request choose about thinking —
+    the SSOT behind the thinking menu and every request's thinking fields."""
+
+    levels: list[str]      # steerable effort levels (template order)
+    default: str | None    # level the template picks when none is sent
+    thinks: bool           # the template has a thinking phase at all
+    switchable: bool       # the thinking phase can be turned off
 
 
 # GGUF value-type IDs that are numeric scalars (UINT/INT/BOOL only).
@@ -473,30 +486,48 @@ def detect_reasoning_default(template: str) -> str | None:
     return None
 
 
-def get_gguf_reasoning_info(gguf_path: Path) -> tuple[list[str], str | None]:
-    """(effort levels, default level) from the model's embedded chat
-    template. ``([], None)`` when the template is absent or has no
-    steerable levels."""
+# The switch that reaches the template: AIfred sends ``enable_thinking`` in
+# chat_template_kwargs, which Jinja templates get 1:1 as a variable. A bundled
+# prompt encoder (DeepSeek checkpoints) gets ``thinking_mode`` ("chat" /
+# "thinking") instead — vLLM's tokenizer derives it from ``enable_thinking``.
+_THINKING_SWITCH_RE = re.compile(r"\benable_thinking\b|\bthinking_mode\s*[!=]=")
+_THINKING_TAG = "<think>"
+
+
+def detect_reasoning_info(template: str) -> ReasoningInfo:
+    """Levels, default, and whether the template thinks at all / can stop
+    thinking — read from the source that renders the prompt, never from the
+    model's name. A template without a thinking phase (no ``<think>``, no
+    levels, no switch) cannot think; one that thinks but never reads the
+    switch always thinks (GLM-5.3: ``<think>`` on every turn)."""
+    levels = detect_reasoning_levels(template)
+    switchable = bool(_THINKING_SWITCH_RE.search(template))
+    return ReasoningInfo(
+        levels=levels,
+        default=detect_reasoning_default(template) if levels else None,
+        thinks=bool(levels) or switchable or _THINKING_TAG in template,
+        switchable=switchable,
+    )
+
+
+def get_gguf_reasoning_info(gguf_path: Path) -> ReasoningInfo | None:
+    """:class:`ReasoningInfo` from the model's embedded chat template;
+    ``None`` when the GGUF carries no template (nothing to read)."""
     template = get_gguf_chat_template(gguf_path)
     if not template:
-        return [], None
-    levels = detect_reasoning_levels(template)
-    default = detect_reasoning_default(template) if levels else None
-    if levels:
-        logger.info(
-            f"✅ Reasoning levels from chat template ({gguf_path.name}): "
-            f"{levels} (default: {default})"
-        )
-    return levels, default
+        return None
+    info = detect_reasoning_info(template)
+    logger.info(f"✅ Reasoning from chat template ({gguf_path.name}): {info}")
+    return info
 
 
-def get_checkpoint_reasoning_info(checkpoint_dir: Path) -> tuple[list[str], str | None]:
-    """(effort levels, default level) from a vLLM checkpoint directory.
+def get_checkpoint_reasoning_info(checkpoint_dir: Path) -> ReasoningInfo | None:
+    """:class:`ReasoningInfo` from a vLLM checkpoint directory.
 
     Liest das Chat-Template aus ``chat_template.jinja`` (Standard bei
     Qwen-Checkpoints) oder ``tokenizer_config.json`` (``chat_template``-
     Schlüssel — die zweite übliche HF-Ablage) und schickt es durch
-    denselben Detektor wie die GGUF-Templates.
+    denselben Detektor wie die GGUF-Templates. ``None`` ohne beides.
     """
     template = None
     jinja = checkpoint_dir / "chat_template.jinja"
@@ -507,23 +538,19 @@ def get_checkpoint_reasoning_info(checkpoint_dir: Path) -> tuple[list[str], str 
         if tok_cfg.exists():
             import json
             template = json.loads(tok_cfg.read_text()).get("chat_template")
-    levels = detect_reasoning_levels(template) if template else []
     source = "template"
-    if not levels:
+    if not template or not detect_reasoning_levels(template):
         # DeepSeek checkpoints render their prompt with a bundled Python
         # encoder (encoding/encoding_dsv4.py), which vLLM's tokenizer calls
-        # instead of the stub Jinja file — the effort branches live there.
-        template = _read_checkpoint_prompt_encoder(checkpoint_dir)
-        levels = detect_reasoning_levels(template) if template else []
-        source = "prompt encoder"
-    if not levels or template is None:
-        return [], None
-    default = detect_reasoning_default(template)
-    logger.info(
-        f"✅ Reasoning levels from checkpoint {source} ({checkpoint_dir.name}): "
-        f"{levels} (default: {default})"
-    )
-    return levels, default
+        # instead of the stub Jinja file — levels and switch live there.
+        encoder = _read_checkpoint_prompt_encoder(checkpoint_dir)
+        if encoder is not None:
+            template, source = encoder, "prompt encoder"
+    if not template:
+        return None
+    info = detect_reasoning_info(template)
+    logger.info(f"✅ Reasoning from checkpoint {source} ({checkpoint_dir.name}): {info}")
+    return info
 
 
 def _read_checkpoint_prompt_encoder(checkpoint_dir: Path) -> str | None:
@@ -542,29 +569,31 @@ def _read_checkpoint_prompt_encoder(checkpoint_dir: Path) -> str | None:
     return "\n".join(line for line in lines if not line.lstrip().startswith("assert "))
 
 
-def resolve_reasoning_levels(model_id: str, force: bool = False) -> list[str]:
+def resolve_reasoning_info(model_id: str, force: bool = False) -> ReasoningInfo | None:
     """
-    Reasoning-effort levels for a llama-swap model — cache-first, on miss
+    :class:`ReasoningInfo` for a llama-swap model — cache-first, on miss
     analyzed from the model's chat template and persisted. GGUF-Einträge
     lesen das eingebettete Template, ``-vllm``-Einträge die
     ``chat_template.jinja`` des Checkpoint-Verzeichnisses.
 
-    SSOT for both the model-switch state load (lazy fill) and
+    SSOT for the thinking menu, every request's thinking fields and
     calibration (``force=True`` re-analyzes, e.g. after a re-download
     changed the embedded template).
 
-    Returns [] when the model can't be resolved to an existing GGUF or
-    checkpoint dir (not persisted, so a later attempt retries).
+    ``None`` = unknown: the model has no llama-swap entry (Ollama, cloud,
+    a describer of another machine) or no readable template. Not persisted,
+    so a later attempt retries.
     """
     from .model_vram_cache import (
-        get_reasoning_levels_for_model,
-        set_reasoning_levels_for_model,
+        get_reasoning_info_for_model,
+        set_reasoning_info_for_model,
     )
 
     if not force:
-        cached = get_reasoning_levels_for_model(model_id)
+        cached = get_reasoning_info_for_model(model_id)
         if cached is not None:
-            return cached
+            levels, default, thinks, switchable = cached
+            return ReasoningInfo(levels, default, thinks, switchable)
 
     from .calibration import parse_llamaswap_config
     from .config import LLAMASWAP_CONFIG_PATH
@@ -572,22 +601,27 @@ def resolve_reasoning_levels(model_id: str, force: bool = False) -> list[str]:
     try:
         config = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
     except (FileNotFoundError, OSError, ValueError) as e:
-        logger.debug(f"Reasoning-level resolve: config unreadable: {e}")
-        return []
+        logger.debug(f"Reasoning resolve: config unreadable: {e}")
+        return None
     entry = config.get(model_id) or {}
     gguf = entry.get("gguf_path")
     if not gguf or not Path(gguf).exists():
-        logger.debug(f"Reasoning-level resolve: no model path for '{model_id}'")
-        return []
+        logger.debug(f"Reasoning resolve: no model path for '{model_id}'")
+        return None
 
     model_path = Path(gguf)
-    if model_path.is_dir():
-        # vLLM-Eintrag: --model zeigt auf ein Checkpoint-Verzeichnis
-        levels, default = get_checkpoint_reasoning_info(model_path)
-    else:
-        levels, default = get_gguf_reasoning_info(model_path)
-    set_reasoning_levels_for_model(model_id, levels, default)
-    return levels
+    # vLLM-Eintrag: --model zeigt auf ein Checkpoint-Verzeichnis
+    info = get_checkpoint_reasoning_info(model_path) if model_path.is_dir() else get_gguf_reasoning_info(model_path)
+    if info is None:
+        return None
+    set_reasoning_info_for_model(model_id, info.levels, info.default, info.thinks, info.switchable)
+    return info
+
+
+def resolve_reasoning_levels(model_id: str, force: bool = False) -> list[str]:
+    """Effort levels of :func:`resolve_reasoning_info` ([] when unknown)."""
+    info = resolve_reasoning_info(model_id, force=force)
+    return info.levels if info else []
 
 
 def reasoning_effort_label(model_id: str, effort: str | None) -> str:

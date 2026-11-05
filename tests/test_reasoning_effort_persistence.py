@@ -1,99 +1,75 @@
-"""Regression: ein Backend-Wechsel darf die gewaehlte Reasoning-Tiefe nicht loeschen.
+"""Regression: ein Backend- oder Modellwechsel darf die gewählte Denktiefe nicht löschen.
 
-Bug (2026-09-07, Peuqui): ``_load_agent_reasoning_levels`` las eine leere
-Stufenliste als "das Modell kann keine einzige Stufe" und verwarf
-``reasoning_effort``. Leer ist die Liste aber auch, wenn die Stufen schlicht
-unbekannt sind — Ollama- und Cloud-Modelle haben keinen llama-swap-Eintrag.
-Da ``_save_settings`` sofort schreibt, war die Wahl endgueltig weg.
+Bug (2026-09-07, Peuqui): Eine leere Stufenliste wurde als "das Modell kann
+keine Stufe" gelesen und ``reasoning_effort`` verworfen. Leer ist die Liste aber
+auch, wenn die Stufen schlicht unbekannt sind — Ollama- und Cloud-Modelle haben
+keinen llama-swap-Eintrag.
 
-Getroffen hat es nur AIfred: Agenten auf "(wie AIfred-LLM)" haben keine eigene
-``model_id``, und ``_load_agent_model_params`` steigt davor schon aus.
+Seit 05.11.2026 wird die Wahl je Modell gespeichert und nie umgeschrieben: Was
+das Modell davon ausführen kann, entscheidet beim Lesen
+``agent_settings.effective_thinking_mode`` anhand seiner Vorlage.
 """
 
 from unittest.mock import patch
 
-from aifred.lib.agent_settings import THINKING_ON, thinking_mode, thinking_model_key
+import pytest
+
+from aifred.lib.agent_settings import (
+    THINKING_OFF,
+    THINKING_ON,
+    effective_thinking_mode,
+    set_thinking_mode,
+    thinking_mode,
+    thinking_model_key,
+)
 from aifred.lib.agent_tuning import AgentTuning
-from aifred.state._agent_config_mixin import AgentConfigMixin
+from aifred.lib.gguf_utils import ReasoningInfo
 
-LEVELS = ["low", "medium", "xhigh"]
-
-
-class _FakeState:
-    """Minimalzustand mit den beiden echten Methoden unter Test."""
-
-    _load_agent_reasoning_levels = AgentConfigMixin._load_agent_reasoning_levels
-    _effective_reasoning_levels = AgentConfigMixin._effective_reasoning_levels
-
-    def __init__(self, backend_type: str, model_id: str, effort: str):
-        self.backend_type = backend_type
-        self.agent_tuning = {
-            "aifred": AgentTuning(model_id=model_id, thinking_by_model={thinking_model_key(model_id): effort}),
-        }
-        self.saved = False
-        self.debug_lines: list[str] = []
-
-    def _save_settings(self) -> None:
-        self.saved = True
-
-    def add_debug(self, message: str) -> None:
-        self.debug_lines.append(message)
+QWEN38 = ReasoningInfo(["low", "medium", "xhigh"], "xhigh", thinks=True, switchable=True)
+GLM = ReasoningInfo(["low", "high", "max"], "max", thinks=True, switchable=False)
+INSTRUCT_VL = ReasoningInfo([], None, thinks=False, switchable=False)
 
 
-def _run(state: _FakeState, *, cached_levels, resolved=None):
-    """Ruft die Validierung mit gemocktem Template-/Cache-Zugriff.
-
-    ``cached_levels`` ist die Cache-Antwort: ``None`` = nie analysiert,
-    ``[]`` = analysiert und ohne steuerbare Stufen.
-    """
-    resolved = LEVELS if resolved is None else resolved
-    with patch(
-        "aifred.lib.gguf_utils.resolve_reasoning_levels", return_value=resolved,
-    ), patch(
-        "aifred.lib.model_vram_cache.get_reasoning_default_for_model",
-        return_value="xhigh",
-    ), patch(
-        "aifred.lib.model_vram_cache.get_reasoning_levels_for_model",
-        return_value=cached_levels,
-    ):
-        # Mixin method bound to a stand-in state (the Reflex state class
-        # cannot be instantiated in a unit test).
-        state._load_agent_reasoning_levels("aifred", state.agent_tuning["aifred"].model_id)  # type: ignore[misc]
-    return thinking_mode(state, "aifred", state.agent_tuning["aifred"].model_id)
+def _with_info(info):
+    return patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=info)
 
 
-class TestEffortSurvivesUnknownLevels:
-    def test_ollama_backend_keeps_effort(self):
-        # DER Bugfall: Ollama hat keinen llama-swap-Eintrag, also keine
-        # Stufeninformation — "medium" muss den Wechsel ueberleben.
-        state = _FakeState("ollama", "irgendein-ollama-modell", "medium")
-        assert _run(state, cached_levels=None, resolved=[]) == "medium"
-        assert state.saved is False
-
-    def test_unanalyzed_llamaswap_model_keeps_effort(self):
-        # Noch nie analysiert (Cache liefert None) → keine Information,
-        # also nicht anfassen. resolve_reasoning_levels persistiert in dem
-        # Fall bewusst nichts und laesst einen spaeteren Versuch zu.
-        state = _FakeState("vllm", "Frisch-Eingetragen-vllm", "medium")
-        assert _run(state, cached_levels=None, resolved=[]) == "medium"
-        assert state.saved is False
+class TestUnknownModelRunsAsChosen:
+    @pytest.mark.parametrize("mode", [THINKING_OFF, THINKING_ON, "medium"])
+    def test_no_template_information_keeps_the_choice(self, mode):
+        # DER Bugfall: Ollama/Cloud haben keine Stufeninformation.
+        with _with_info(None):
+            assert effective_thinking_mode(mode, "irgendein-ollama-modell") == mode
 
 
-class TestEffortValidatedWhenLevelsKnown:
-    def test_supported_effort_survives(self):
-        state = _FakeState("vllm", "Qwen3.8-Flash-Next-vllm", "medium")
-        assert _run(state, cached_levels=LEVELS) == "medium"
-        assert state.saved is False
+class TestTemplateDecides:
+    def test_supported_level_survives(self):
+        with _with_info(QWEN38):
+            assert effective_thinking_mode("medium", "Qwen3.8-vllm") == "medium"
 
-    def test_unsupported_effort_is_cleared(self):
-        # Modell ohne steuerbare Stufen (analysiert, Ergebnis leer) —
-        # hier ist das Verwerfen richtig, und es wird protokolliert.
-        state = _FakeState("vllm", "DeepSeek-V4-Flash-vllm", "medium")
-        assert _run(state, cached_levels=[], resolved=[]) == THINKING_ON
-        assert state.saved is True
-        assert any("medium" in line for line in state.debug_lines)
+    def test_unknown_level_is_the_template_default(self):
+        with _with_info(QWEN38):
+            assert effective_thinking_mode("max", "Qwen3.8-vllm") == THINKING_ON
 
-    def test_effort_outside_known_levels_is_cleared(self):
-        state = _FakeState("vllm", "Qwen3.8-Flash-Next-vllm", "max")
-        assert _run(state, cached_levels=LEVELS) == THINKING_ON
-        assert state.saved is True
+    def test_off_on_a_model_that_always_thinks_is_the_template_default(self):
+        with _with_info(GLM):
+            assert effective_thinking_mode(THINKING_OFF, "GLM-vllm") == THINKING_ON
+            assert effective_thinking_mode("high", "GLM-vllm") == "high"
+
+    @pytest.mark.parametrize("mode", [THINKING_ON, "high"])
+    def test_a_model_without_thinking_phase_stays_off(self, mode):
+        with _with_info(INSTRUCT_VL):
+            assert effective_thinking_mode(mode, "Qwen3VL-4B") == THINKING_OFF
+
+
+def test_the_stored_choice_is_never_rewritten():
+    class _State:
+        agent_tuning = {"aifred": AgentTuning(model_id="GLM-vllm")}
+
+    state = _State()
+    set_thinking_mode(state, "aifred", "GLM-vllm", THINKING_OFF)
+    with _with_info(GLM):
+        assert thinking_mode(state, "aifred", "GLM-vllm") == THINKING_ON
+    assert state.agent_tuning["aifred"].thinking_by_model == {thinking_model_key("GLM-vllm"): THINKING_OFF}
+    with _with_info(None):
+        assert thinking_mode(state, "aifred", "GLM-vllm") == THINKING_OFF

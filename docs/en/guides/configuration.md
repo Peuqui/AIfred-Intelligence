@@ -140,6 +140,9 @@ Two independent toggles per agent in the LLM settings:
 - **Reasoning effort:** for models whose chat template knows levels
   (e.g. `low` … `xhigh`), a per-agent selector picks one; empty means the
   template's default, shown in the label.
+- **Only what the model can do:** the 🧠 menu offers "Off" only where the model's template can
+  turn thinking off (GLM-5.3 always thinks), and nothing but "Off" for a model without a
+  thinking phase (Qwen3-VL Instruct). This is read from the template, not from the model name.
 - **Per model:** the choice is stored per agent row and model. Switching a row to another
   model brings back the choice it last had on that model; a model it never ran on starts
   from the agent's default in `agents.json`. The same model can think differently in two

@@ -140,6 +140,9 @@ Zwei voneinander unabhängige Schalter pro Agent in den LLM-Einstellungen:
 - **Reasoning Effort:** Für Modelle, deren Chat-Template Stufen kennt
   (z. B. `low` … `xhigh`), wählt ein Selektor pro Agent eine aus; leer bedeutet den
   Standard des Templates, der im Label angezeigt wird.
+- **Nur was das Modell kann:** Das 🧠-Menü zeigt „Aus“ nur, wo die Vorlage des Modells das
+  Denken abschalten kann (GLM-5.3 denkt immer), und bei einem Modell ohne Denkphase (Qwen3-VL
+  Instruct) nur „Aus“. Gelesen wird das aus der Vorlage, nicht aus dem Modellnamen.
 - **Je Modell:** Die Wahl wird je Agentenzeile und Modell gespeichert. Wechselt eine Zeile auf
   ein anderes Modell, kommt die Wahl zurück, die sie zuletzt auf diesem Modell hatte; ein Modell,
   auf dem sie noch nie lief, beginnt mit der Grundeinstellung des Agenten aus `agents.json`.

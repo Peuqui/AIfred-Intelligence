@@ -28,10 +28,12 @@ def run(coro):
 
 @pytest.fixture(autouse=True)
 def _no_saved_settings(monkeypatch):
-    """The describers read the vision row's thinking choice from settings.json —
-    never the real one of the machine the tests run on."""
-    from aifred.lib import settings
+    """The describers read the vision row's thinking choice from settings.json
+    and judge it by the model's template — never the real settings, model cache
+    or llama-swap YAML of the machine the tests run on."""
+    from aifred.lib import gguf_utils, settings
     monkeypatch.setattr(settings, "persisted_settings", dict)
+    monkeypatch.setattr(gguf_utils, "resolve_reasoning_info", lambda model_id, force=False: None)
 
 
 def _make_frame(idx: int = 0) -> Frame:

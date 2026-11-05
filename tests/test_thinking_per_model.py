@@ -23,14 +23,36 @@ from aifred.lib.agent_settings import (
     thinking_model_key,
 )
 from aifred.lib.agent_tuning import AgentTuning, default_tuning
+from aifred.lib.gguf_utils import ReasoningInfo
 from aifred.lib.llm_client import build_llm_options
+from aifred.state._agent_config_mixin import AgentConfigMixin
 
 GLM = "GLM-5.3-Flash-NVFP4-DFlash2-vllm"
 SMALL_VL = "Qwen3VL-4B-Instruct-Q8_0"
 
 
+GLM_INFO = ReasoningInfo(["low", "high", "max"], "max", thinks=True, switchable=False)
+QWEN38_INFO = ReasoningInfo(["low", "medium", "xhigh"], "xhigh", thinks=True, switchable=True)
+SMALL_VL_INFO = ReasoningInfo([], None, thinks=False, switchable=False)
+
+
+@pytest.fixture(autouse=True)
+def templates_unknown():
+    """Models have no template information unless a test says otherwise —
+    never the real model cache or llama-swap YAML of this machine."""
+    with patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=None) as resolve:
+        yield resolve
+
+
 class _State:
     backend_type = "vllm"
+    ui_language = "de"
+
+    _thinking_mode_labels = AgentConfigMixin._thinking_mode_labels
+    _thinking_info = AgentConfigMixin._thinking_info
+    _thinking_on_option = AgentConfigMixin._thinking_on_option
+    _agent_thinking_options = AgentConfigMixin._agent_thinking_options
+    _agent_thinking_mode = AgentConfigMixin._agent_thinking_mode
 
     def __init__(self) -> None:
         self.agent_tuning = {agent: default_tuning(agent) for agent in ("aifred", "sokrates", "vision")}
@@ -134,8 +156,45 @@ class TestBuildLlmOptions:
         assert (options.enable_thinking, options.reasoning_effort) == (False, None)
 
 
+class TestMenuShowsOnlyWhatTheModelCan:
+    """The 🧠 menu offers what the model's template can do (Peuqui 05.11.2026:
+    a model that cannot stop thinking offers no "Aus")."""
+
+    def _menu(self, info, model=GLM):
+        state = _State()
+        state.agent_tuning["vision"].model_id = model
+        with patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=info):
+            return state._agent_thinking_options("vision"), state._agent_thinking_mode("vision")  # type: ignore[misc]
+
+    def test_always_thinking_model_offers_no_off(self, agents_default_on_except_vision):
+        # Vision default "off" cannot be carried out by GLM: the menu shows its template default.
+        options, current = self._menu(GLM_INFO)
+        assert options == ["An (max)", "low", "high"]
+        assert current == "An (max)"
+
+    def test_switchable_model_offers_off_on_and_levels(self, agents_default_on_except_vision):
+        options, current = self._menu(QWEN38_INFO, model="Qwen3.8-vllm")
+        assert options == ["Aus", "An (xhigh)", "low", "medium"]
+        assert current == "Aus"
+
+    def test_model_without_thinking_phase_offers_only_off(self, agents_default_on_except_vision):
+        options, current = self._menu(SMALL_VL_INFO, model=SMALL_VL)
+        assert options == ["Aus"] and current == "Aus"
+
+    def test_unknown_model_offers_what_any_request_can_send(self, agents_default_on_except_vision):
+        options, _ = self._menu(None, model="qwen3-vl:8b")
+        assert options == ["Aus", "An"]
+
+    def test_requests_send_what_the_menu_shows(self, agents_default_on_except_vision):
+        state = _State()
+        with patch("aifred.lib.gguf_utils.resolve_reasoning_info", return_value=GLM_INFO):
+            options = build_llm_options(state, "vision", GLM, 0.7, 8192)  # type: ignore[arg-type]
+        assert (options.enable_thinking, options.reasoning_effort) == (True, None)
+
+
 def test_tuning_holds_no_second_thinking_field():
-    # One truth: the per-model map is the only thinking state of a row.
+    # One truth: the per-model map is the only thinking state of a row, the
+    # template information lives in the model cache only.
     fields = AgentTuning.__dataclass_fields__
     assert "thinking_by_model" in fields
-    assert "thinking" not in fields and "reasoning_effort" not in fields
+    assert not {"thinking", "reasoning_effort", "reasoning_levels", "reasoning_default"} & set(fields)

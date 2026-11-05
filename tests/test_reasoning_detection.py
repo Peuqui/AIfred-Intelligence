@@ -5,7 +5,12 @@ source. Each model family states its fallback differently; the lines below are
 copied from the real checkpoints.
 """
 
-from aifred.lib.gguf_utils import detect_reasoning_default, detect_reasoning_levels
+from aifred.lib.gguf_utils import (
+    ReasoningInfo,
+    detect_reasoning_default,
+    detect_reasoning_info,
+    detect_reasoning_levels,
+)
 
 # Qwen3.8: fallback via default()
 QWEN38 = """
@@ -52,3 +57,24 @@ def test_deepseek_v4_has_level_but_no_default():
 def test_template_without_effort_variable():
     assert detect_reasoning_levels(NO_EFFORT) == []
     assert detect_reasoning_default(NO_EFFORT) is None
+
+
+# Qwen3-VL Instruct: no thinking phase at all (no <think>, no switch, no levels)
+INSTRUCT_VL = "{%- for message in messages %}<|im_start|>{{ message.role }}{%- endfor %}<|im_start|>assistant"
+
+
+def test_glm53_always_thinks_and_cannot_be_switched_off():
+    assert detect_reasoning_info(GLM53) == ReasoningInfo(["low", "high", "max"], "max", thinks=True, switchable=False)
+
+
+def test_deepseek_v4_encoder_is_switched_by_thinking_mode():
+    # vLLM's tokenizer derives thinking_mode ("chat"/"thinking") from enable_thinking.
+    assert detect_reasoning_info(DEEPSEEK_V4) == ReasoningInfo(["max"], None, thinks=True, switchable=True)
+
+
+def test_enable_thinking_template_is_switchable():
+    assert detect_reasoning_info(NO_EFFORT) == ReasoningInfo([], None, thinks=True, switchable=True)
+
+
+def test_template_without_thinking_phase_cannot_think():
+    assert detect_reasoning_info(INSTRUCT_VL) == ReasoningInfo([], None, thinks=False, switchable=False)

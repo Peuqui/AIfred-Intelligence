@@ -17,6 +17,7 @@ __all__ = [
     "PERSISTED_TUNING_FIELDS",
     "THINKING_OFF",
     "THINKING_ON",
+    "effective_thinking_mode",
     "get_agent_base_model_id",
     "get_agent_setting",
     "get_persisted_tuning",
@@ -172,14 +173,35 @@ def _default_thinking_mode(agent: str) -> str:
     return THINKING_ON if config.toggles.get("thinking", True) else THINKING_OFF
 
 
+def effective_thinking_mode(mode: str, model_id: str) -> str:
+    """The choice ``mode`` as the model can carry it out, judged by its chat
+    template (gguf_utils.resolve_reasoning_info): a model that cannot think
+    stays off, "off" on a model that always thinks is its template default,
+    a level its template does not know (any more) is the template default.
+    The stored choice itself stays untouched. An unknown model (no llama-swap
+    entry: Ollama, cloud, another machine) runs as chosen."""
+    from .gguf_utils import resolve_reasoning_info
+    info = resolve_reasoning_info(model_id)
+    if info is None:
+        return mode
+    if not info.thinks:
+        return THINKING_OFF
+    if mode == THINKING_OFF:
+        return THINKING_OFF if info.switchable else THINKING_ON
+    if mode == THINKING_ON or mode in info.levels:
+        return mode
+    return THINKING_ON
+
+
 def _mode_in(choices: dict[str, str], agent: str, model_id: str) -> str:
     mode = choices.get(thinking_model_key(model_id))
-    return _default_thinking_mode(agent) if mode is None else mode
+    return effective_thinking_mode(_default_thinking_mode(agent) if mode is None else mode, model_id)
 
 
 def thinking_mode(state: Any, agent: str, model_id: str) -> str:
-    """The agent's thinking choice on ``model_id``: THINKING_OFF, THINKING_ON
-    or an effort level."""
+    """The agent's thinking choice on ``model_id`` as the model can carry it
+    out (:func:`effective_thinking_mode`): THINKING_OFF, THINKING_ON or an
+    effort level."""
     choices: dict[str, str] = get_agent_setting(state, agent, "thinking_by_model")
     return _mode_in(choices, agent, model_id)
 

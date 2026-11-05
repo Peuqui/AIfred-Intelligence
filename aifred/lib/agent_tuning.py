@@ -59,11 +59,6 @@ class AgentTuning:
     # through agent_settings (thinking_mode / set_thinking_mode); a model
     # without an entry thinks as the agent's agents.json default says.
     thinking_by_model: dict[str, str] = field(default_factory=dict)
-    # Effort levels of the model this agent runs on (runtime, from its chat template)
-    reasoning_levels: list[str] = field(default_factory=list)
-    # Template-default level shown in the "On" label ("An (xhigh)") —
-    # derived from the model's chat template at load, not persisted.
-    reasoning_default: str = ""
 
     # Temperature (offset applies in auto mode relative to AIfred's temp)
     temperature: float = DEFAULT_TEMPERATURE

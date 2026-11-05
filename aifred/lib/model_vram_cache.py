@@ -582,23 +582,42 @@ def get_thinking_support_for_model(model_name: str) -> bool | None:
     return result
 
 
-def set_reasoning_levels_for_model(
-    model_name: str, levels: list[str], default: str | None = None,
+def set_reasoning_info_for_model(
+    model_name: str, levels: list[str], default: str | None, thinks: bool, switchable: bool,
 ) -> bool:
     """
-    Set the steerable reasoning-effort levels for a model, detected from
-    its embedded chat template (gguf_utils.detect_reasoning_levels), plus
-    the template's default level (None = template has no default()).
+    Store what the model's chat template lets a request choose about thinking
+    (gguf_utils.detect_reasoning_info): its effort levels, the template's
+    default level (None = template has no default()), whether it thinks at
+    all and whether thinking can be turned off.
 
-    Empty list = template analyzed, no effort levels (plain on/off
-    thinking, or none at all).
+    Empty list = template analyzed, no effort levels.
     """
     return _update_entry(
         model_name,
         defaults={"backend": "llamacpp", "native_context": 0, "gpu_model": "Unknown"},
-        updates={"reasoning_levels": levels, "reasoning_default": default},
-        log_msg=f"🧠 Set reasoning_levels={levels} (default={default}) for {model_name}",
+        updates={
+            "reasoning_levels": levels, "reasoning_default": default,
+            "thinks": thinks, "thinking_switchable": switchable,
+        },
+        log_msg=(
+            f"🧠 Set reasoning_levels={levels} (default={default}, thinks={thinks}, "
+            f"switchable={switchable}) for {model_name}"
+        ),
     )
+
+
+def get_reasoning_info_for_model(
+    model_name: str,
+) -> tuple[list[str], str | None, bool, bool] | None:
+    """``(levels, default, thinks, switchable)`` as stored by
+    :func:`set_reasoning_info_for_model`; None if never analyzed (an entry
+    without ``thinking_switchable`` predates that field and is analyzed
+    again)."""
+    entry = load_cache().get(model_name)
+    if entry is None or "thinking_switchable" not in entry:
+        return None
+    return entry["reasoning_levels"], entry["reasoning_default"], entry["thinks"], entry["thinking_switchable"]
 
 
 def get_reasoning_levels_for_model(model_name: str) -> list[str] | None:
