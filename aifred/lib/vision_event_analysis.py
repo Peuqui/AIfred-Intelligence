@@ -99,7 +99,12 @@ async def analyze_frames_with_vlm(
     from .logging_utils import log_message
     from .vision_analyzer import analyze_sequence
     from .vision_prewarm import get_active_vlm_model
-    from .vision_routing import camera_describer, eviction_notice
+    from .vision_routing import (
+        Describer,
+        camera_describer,
+        describe_with_second_attempt,
+        eviction_notice,
+    )
 
     if not frames:
         raise ValueError("analyze_frames_with_vlm requires at least one frame")
@@ -113,14 +118,19 @@ async def analyze_frames_with_vlm(
         identity_names=identity_names,
         headcount=headcount,
     )
-    describer = camera_describer(str(target_model), explicit=explicit)
-    if describer.evicts_chat_model:
-        log_message(eviction_notice(describer.model))
-    result = await analyze_sequence(frames, prompt, model=describer.model)
+    def choose() -> Describer:
+        describer = camera_describer(str(target_model), explicit=explicit)
+        if describer.evicts_chat_model:
+            log_message(eviction_notice(describer.model))
+        return describer
+
+    result = await describe_with_second_attempt(
+        choose(), choose, lambda describer: analyze_sequence(frames, prompt, model=describer.model),
+    )
     description = (result.text or "").strip()
     if not description:
         raise RuntimeError("VLM returned empty response")
-    return description, describer.model
+    return description, result.model
 
 
 async def analyze_event_with_vlm(
@@ -358,7 +368,8 @@ async def analyze_cluster_with_frames(
             try:
                 data = Path(fp).read_bytes()
                 ph = phash_bytes(data)
-            except Exception:  # noqa: BLE001
+            except Exception as error:  # noqa: BLE001 — one unreadable frame must not sink the cluster
+                logger.warning("cluster frame %s skipped, unreadable: %s", fp, error)
                 continue
             images.append((data, str(ev["source_id"]), fp))
             if is_wide or moment_phash is None:

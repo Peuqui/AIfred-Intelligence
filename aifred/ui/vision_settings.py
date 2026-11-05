@@ -12,6 +12,7 @@ from typing import Literal
 import reflex as rx
 
 from ..state import AIState
+from ..state._vision_settings_mixin import REMOTE_NONE_CHOICE
 from ..theme import COLORS
 from .helpers import overlay_modal, t
 
@@ -82,6 +83,69 @@ def _model_section() -> rx.Component:
         align="stretch",
         spacing="1",
         width="100%",
+    )
+
+
+def _remote_host_row(host: rx.Var) -> rx.Component:
+    """Eine Zeile je Rechner mit Describern (``VISION_REMOTE_HOSTS``): Auswahl des Modells dort,
+    Zustand (antwortet nicht, nicht vermessen, gemessener Bedarf) und der Knopf zum Vermessen."""
+    name = host["name"].to(str)
+    measuring = AIState.vision_remote_measuring == name
+    return rx.vstack(
+        rx.text(host["label"].to(str), font_weight="bold", size="2"),
+        rx.hstack(
+            rx.box(
+                rx.select.root(
+                    rx.select.trigger(width="100%"),
+                    rx.select.content(
+                        rx.select.item(t("vision_settings_remote_none"), value=REMOTE_NONE_CHOICE),
+                        rx.foreach(
+                            host["choices"].to(list[str]),
+                            lambda m: rx.select.item(m, value=m),
+                        ),
+                    ),
+                    value=host["choice"].to(str),
+                    on_change=lambda v: AIState.set_remote_describer(name, v),
+                ),
+                style={"flex": "1 1 0", "min_width": "0", "overflow": "hidden"},
+            ),
+            rx.button(
+                rx.cond(measuring, t("vision_settings_remote_measuring"), t("vision_settings_remote_measure")),
+                on_click=AIState.measure_remote_describer(name),  # type: ignore[misc]
+                disabled=~host["can_measure"].to(bool) | (AIState.vision_remote_measuring != ""),
+                loading=measuring,
+                size="2",
+                variant="soft",
+                title=t("vision_settings_remote_measure_tooltip"),
+                style={"flex_shrink": "0"},
+            ),
+            spacing="2",
+            align="center",
+            width="100%",
+            style={"min_width": "0"},
+        ),
+        rx.text(
+            host["note"].to(str),
+            size="1",
+            color=rx.cond(host["reachable"].to(bool), "gray", "var(--aifred-accent-warning)"),
+        ),
+        align="stretch",
+        spacing="1",
+        width="100%",
+    )
+
+
+def _remote_section() -> rx.Component:
+    """Describer anderer Rechner — nur, wenn welche konfiguriert sind."""
+    return rx.cond(
+        AIState.vision_remote_hosts.length() > 0,
+        rx.vstack(
+            rx.text(t("vision_settings_remote_help"), color="gray", size="1"),
+            rx.foreach(AIState.vision_remote_hosts, _remote_host_row),
+            align="stretch",
+            spacing="2",
+            width="100%",
+        ),
     )
 
 
@@ -743,6 +807,7 @@ def vision_settings_modal() -> rx.Component:
             _mode_section(),
             rx.divider(),
             _model_section(),
+            _remote_section(),
             rx.divider(),
             _face_recognition_section(),
             rx.divider(),

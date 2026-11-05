@@ -542,11 +542,19 @@ class OpenAICompatibleBackend(LLMBackend):
         Called by ``_load_model`` only when ``model`` is not running, i.e. when a load follows — also a
         re-load of the same model after its ttl expired. What may hold the cards the calibrated split
         counts as free (the STT and TTS GPU workers, the persistent describers and embedders of
-        llama-swap) is GPU-Orc's to know and to release; the load goes on whatever it answers.
+        llama-swap) is GPU-Orc's to know and to release; the load goes on whatever it answers. Asked is
+        the GPU-Orc of the machine this llama-swap runs on (a describer on another machine loads there).
         """
-        from ..lib.gpu_orc_client import clear_cards_for
+        from ..lib.gpu_orc_client import GpuOrcError, clear_cards_for
+        from ..lib.logging_utils import log_message
+        from ..lib.remote_describers import gpu_orc_for_llamaswap
 
-        await asyncio.to_thread(clear_cards_for, model, reason=f"AIfred: loading '{model}'")
+        try:
+            client = gpu_orc_for_llamaswap(self._llamaswap_root())
+        except GpuOrcError as error:
+            log_message(f"⚠️ GPU-Orc could not clear the cards for '{model}': {error}", "warning")
+            return
+        await asyncio.to_thread(clear_cards_for, model, reason=f"AIfred: loading '{model}'", client=client)
 
     @classmethod
     def _last_exception_line(cls, log_text: str) -> str | None:

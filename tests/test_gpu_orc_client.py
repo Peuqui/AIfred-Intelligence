@@ -3,6 +3,7 @@ clears every card but the models (calibration)."""
 
 from __future__ import annotations
 
+import httpx
 import pytest
 from fake_gpu_orc import FakeGpuOrc, card, install_fake_gpu_orc
 
@@ -12,6 +13,7 @@ from aifred.lib.gpu_orc_client import (
     CardStatus,
     FreeAction,
     FreeResult,
+    GpuOrcClient,
     GpuOrcError,
     describe,
     get_gpu_orc_client,
@@ -66,9 +68,22 @@ def test_a_gpu_orc_that_does_not_answer_is_an_error_naming_the_address() -> None
 def test_the_status_is_read_per_card(fake) -> None:
     fake.cards = [card("GPU-a", ("stt-suite", "gpu-worker", 3100), ("llama-swap", "big", None)), card("GPU-b")]
     assert get_gpu_orc_client().card_status() == [
-        CardStatus("GPU-a", (CardHolder("stt-suite", "gpu-worker", 3100), CardHolder("llama-swap", "big", None))),
-        CardStatus("GPU-b", ()),
+        CardStatus("GPU-a", (CardHolder("stt-suite", "gpu-worker", 3100), CardHolder("llama-swap", "big", None)),
+                   32768, 0),
+        CardStatus("GPU-b", (), 32768, 0),
     ]
+
+
+def test_a_client_with_a_token_sends_it_on_every_request() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("Authorization", ""))
+        return httpx.Response(200, json={"loading": []})
+
+    client = GpuOrcClient("http://remote.test", transport=httpx.MockTransport(handler), token="s3cret")
+    assert client.loading() == []
+    assert seen == ["Bearer s3cret"]
 
 
 def test_describe_says_what_was_released_what_stayed_and_whether_the_cards_are_free() -> None:

@@ -550,8 +550,16 @@ class TestPluginMeta:
 
         assert isinstance(vp.plugin, ToolPlugin)
 
-    def test_is_available_with_settings_present(self, patched_plugin):
+    def test_is_available_with_settings_present(self, patched_plugin, monkeypatch, tmp_path):
+        # Not the real settings file of this machine: it is local (gitignored) and missing elsewhere.
+        settings = tmp_path / "settings.json"
+        settings.write_text("{}", encoding="utf-8")
+        monkeypatch.setattr(vp, "VISION_SETTINGS_PATH", settings)
         assert vp.plugin.is_available() is True
+
+    def test_is_not_available_without_settings(self, patched_plugin, monkeypatch, tmp_path):
+        monkeypatch.setattr(vp, "VISION_SETTINGS_PATH", tmp_path / "missing.json")
+        assert vp.plugin.is_available() is False
 
     def test_prompt_instructions_both_languages(self, patched_plugin):
         de = vp.plugin.get_prompt_instructions("de")

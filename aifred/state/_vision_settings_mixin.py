@@ -27,6 +27,9 @@ from ..lib.vision_settings import load_vision_settings, save_vision_settings
 
 logger = logging.getLogger(__name__)
 
+# Value of the "none" item of a machine's describer select (a select item needs a value).
+REMOTE_NONE_CHOICE = "__none__"
+
 
 def _hhmm(value: Any) -> str:
     """Zeitfenster-Wert auf ``"HH:MM"`` normalisieren (Legacy-Stunden-Ints →
@@ -105,6 +108,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
     vision_mode_value: str = "on-demand"
     vision_model_value: str = "qwen3-vl:4b-instruct-q8_0"
     vision_available_models: list[str] = []
+    # Describers on other machines (lib/remote_describers), one row per machine of
+    # VISION_REMOTE_HOSTS: {name, label, choice, choices (list), reachable, note}.
+    # ``choice`` is REMOTE_NONE_CHOICE for none (a select item needs a value).
+    vision_remote_hosts: list[dict[str, Any]] = []
+    # Machine whose describer is being measured right now ("" = none).
+    vision_remote_measuring: str = ""
     # Gesichts­erkennung an/aus — SSOT in
     # ``plugins/tools/vision/settings.json`` ``face_recognition.enabled``.
     # Wirkt auf den Watcher (run_face_detect_on_motion).
@@ -189,6 +198,85 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.vigilantia_armed = bool(settings.get("vigilantia_armed", False))
         self._reload_vigilantia_sources()
         self._discover_vision_models()
+        self._refresh_remote_describers()
+
+    def _refresh_remote_describers(self, failed: dict[str, str] | None = None) -> None:
+        """One row per machine with describers (lib/remote_describers.overview): its models that
+        see, the stored choice and what holds it back. ``failed``: machine → error of a burn-in."""
+        from ..lib.formatting import format_number, format_stamp
+        from ..lib.i18n import t
+        from ..lib.remote_describers import overview
+        from ..lib.vlm_vram_cache import get_any, measured_at
+
+        lang = self.ui_language  # type: ignore[attr-defined]
+        rows: list[dict[str, Any]] = []
+        for o in overview():
+            host = o.host.name
+            chosen = next((m for m in o.models if m.model == o.chosen), None)
+            if host in (failed or {}):
+                note = t("vision_remote_measure_failed", lang=lang, error=(failed or {})[host])
+            elif not o.chosen:
+                note = t("vision_remote_off", lang=lang, host=host)
+            elif not o.reachable:
+                note = t("vision_remote_unreachable", lang=lang, host=host)
+            elif o.error:
+                note = t("vision_remote_list_error", lang=lang, host=host, error=o.error)
+            elif chosen is None:
+                note = t("vision_remote_not_listed", lang=lang, host=host, model=o.chosen)
+            else:
+                measured = get_any(chosen.qualified)
+                when = measured_at(chosen.qualified)
+                ctx = format_number(chosen.context, 0)
+                if measured is None or when is None or measured[1] != chosen.context:
+                    note = t("vision_remote_unmeasured", lang=lang, model=chosen.model, ctx=ctx)
+                else:
+                    note = t("vision_remote_measured", lang=lang, model=chosen.model, ctx=ctx,
+                             mib=format_number(measured[0], 0), when=format_stamp(when.timestamp()))
+            # Shown while the machine is off: the stored choice stays selectable.
+            choices = [m.model for m in o.models] or ([o.chosen] if o.chosen else [])
+            rows.append({
+                "name": host, "label": t("vision_remote_label", lang=lang, host=host),
+                "choice": o.chosen or REMOTE_NONE_CHOICE, "choices": choices,
+                "reachable": o.reachable and not o.error, "note": note,
+                "can_measure": chosen is not None,
+            })
+        self.vision_remote_hosts = rows
+
+    @rx.event
+    def set_remote_describer(self, host: str, value: str) -> None:
+        """Choose the describer of ``host`` (REMOTE_NONE_CHOICE = none)."""
+        from ..lib.remote_describers import save_choice
+        save_choice(host, "" if value == REMOTE_NONE_CHOICE else value)
+        self._refresh_remote_describers()
+
+    @rx.event(background=True)  # type: ignore[operator]
+    async def measure_remote_describer(self, host: str):
+        """Burn-in of the chosen describer on ``host`` (vlm_stress_prewarm.stress_prewarm_remote)."""
+        import asyncio
+
+        import httpx
+
+        from ..lib.gpu_orc_client import GpuOrcError
+        from ..lib.logging_utils import log_message
+        from ..lib.remote_describers import RemoteHostError, chosen_remote_model
+        from ..lib.vlm_stress_prewarm import stress_prewarm_remote
+
+        async with self:
+            if self.vision_remote_measuring:
+                return
+            self.vision_remote_measuring = host
+        failed: dict[str, str] = {}
+        try:
+            model = await asyncio.to_thread(chosen_remote_model, host)
+            log_message(f"🔥 Burn-in of {model.qualified} on {host} …")
+            need = await stress_prewarm_remote(model)
+            log_message(f"✅ Burn-in of {model.qualified}: {need} MiB at {model.context} context")
+        except (RemoteHostError, GpuOrcError, httpx.HTTPError) as error:
+            log_message(f"⚠️ Burn-in on {host} failed: {error}", "warning")
+            failed[host] = str(error)
+        async with self:
+            self.vision_remote_measuring = ""
+            self._refresh_remote_describers(failed)
 
     def _discover_vision_models(self) -> None:
         """VLM-Discovery für das Vigilantia-Dropdown (SSOT).
@@ -372,7 +460,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
             for src in list_all():
                 try:
                     info = src.info()
-                except Exception:  # noqa: BLE001
+                except Exception as error:  # noqa: BLE001 — one broken source must not empty the list
+                    logger.warning("vision settings: source %r left out, info() failed: %s", src, error)
                     continue
                 stored = store.get_source(info.source_id) or {}
                 s = stored.get("settings") or {}

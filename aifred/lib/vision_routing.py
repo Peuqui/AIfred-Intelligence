@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import logging
 import re
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
@@ -149,11 +150,25 @@ def release_side_channels_for_describer(profile: str) -> None:
     Hauptmodell > Describer > TTS > STT; die Platzprüfung hat den VRAM von TTS und STT schon als frei
     gezählt). Dieselbe Modell-Form wie vor jedem Laden eines Chat-Modells: GPU-Orc gibt STT- und
     TTS-Worker auf den Karten des Profils frei, die dauerhaften Modelle von llama-swap (das Profil
-    gehört selbst zu ihnen) und die Chat-Modelle bleiben. Blockiert, bis GPU-Orc fertig ist — aus
+    gehört selbst zu ihnen) und die Chat-Modelle bleiben. Ein Describer auf einem anderen Rechner
+    (``<rechner>/<modell>``) fragt dessen GPU-Orc. Blockiert, bis GPU-Orc fertig ist — aus
     async-Code per ``asyncio.to_thread`` rufen."""
-    from .gpu_orc_client import clear_cards_for
+    from .gpu_orc_client import GpuOrcError, clear_cards_for
+    from .logging_utils import log_message
+    from .remote_describers import gpu_orc, split
 
-    clear_cards_for(profile, reason=f"AIfred: describer {profile}")
+    reason = f"AIfred: describer {profile}"
+    remote = split(profile)
+    if remote is None:
+        clear_cards_for(profile, reason=reason)
+        return
+    host, model = remote
+    try:
+        client = gpu_orc(host)
+    except GpuOrcError as error:
+        log_message(f"⚠️ GPU-Orc could not clear the cards for '{profile}': {error}", "warning")
+        return
+    clear_cards_for(model, reason=reason, client=client)
 
 
 class NoVisionModelError(RuntimeError):
@@ -219,21 +234,35 @@ def _vision_llm_describer(reason: str) -> Describer:
     )
 
 
+def remote_describer() -> Describer | None:
+    """Der gewählte Describer eines anderen Rechners (``lib/remote_describers``), wenn der Rechner
+    antwortet und das Modell dort gerade passt; ``None`` sonst. Er lädt dort, verdrängt hier also nie."""
+    from .remote_describers import pick
+    model = pick()
+    return Describer(model, evicts_chat_model=False) if model else None
+
+
 def chat_describer(main_model: str) -> Describer:
     """Regel A (Chat-Bilder, Symposion, Sandbox-Screenshots, hochgeladene
     Bilder in vision_analyze): sieht ``main_model`` — das Modell, das den
-    Turn rechnet —, beschreibt es selbst; sonst das Vision-LLM der
-    Haupteinstellungen (der User hat das Bild ausdrücklich geschickt, es
-    darf also verdrängen)."""
+    Turn rechnet —, beschreibt es selbst (Umladen kostet mehr als jede
+    Beschreibung); sonst der Describer eines anderen Rechners
+    (:func:`remote_describer`); sonst das Vision-LLM der Haupteinstellungen
+    (der User hat das Bild ausdrücklich geschickt, es darf also verdrängen)."""
     from .vision_utils import is_vision_model_sync
     if main_model and is_vision_model_sync(main_model):
         return Describer(main_model, evicts_chat_model=False)
+    remote = remote_describer()
+    if remote is not None:
+        return remote
     return _vision_llm_describer(f"main model '{main_model}' cannot see")
 
 
 def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:
     """Regel B (Vigilantia: Watcher, Alarme, Türsteher, Kamerabilder).
 
+    0. Der gewählte Describer eines anderen Rechners antwortet und passt
+       dort → er beschreibt (:func:`remote_describer`).
     1. Das Kamera-VLM passt auf einer Karte neben das Geladene (oder es
        ist nichts geladen) → das VLM über die passende ``-visiond``-
        Platzierung (fitting_visiond).
@@ -249,6 +278,9 @@ def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:
     es würde im exklusiven Haupt-Slot das Chat-LLM verdrängen.
     """
     from .vision_utils import has_native_vision
+    remote = remote_describer()
+    if remote is not None:
+        return remote
     visiond, fit = fitting_visiond(vlm_model)
     if fit is None and not has_native_vision(vlm_model):
         return Describer(vlm_model, evicts_chat_model=False)
@@ -264,6 +296,33 @@ def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:
     if not explicit:
         raise NoVisionModelError(reason)
     return _vision_llm_describer(reason)
+
+
+async def describe_with_second_attempt[T](
+    describer: Describer, choose_again: Callable[[], Describer], run: Callable[[Describer], Awaitable[T]],
+) -> T:
+    """``describer`` beschreiben lassen (``run``).
+
+    Fällt der Describer eines anderen Rechners mitten in der Anfrage aus und antwortet der Rechner
+    danach nicht mehr, sagt die Debug-Konsole das laut, und dieselbe Wahl (``choose_again``, Regel A
+    oder B samt Ansage, die ``describer`` lieferte) läuft genau ein zweites Mal: Sie findet den Rechner
+    nicht mehr und nimmt die nächste Stufe. Antwortet der Rechner noch, liegt der Fehler in der Anfrage
+    oder im Modell und geht unverändert an den Aufrufer — ein Anlauf woanders würde ihn verdecken."""
+    from .logging_utils import log_message
+    from .remote_describers import reachable, split
+
+    try:
+        return await run(describer)
+    except Exception as error:
+        remote = split(describer.model)
+        if remote is None or reachable(remote[0]):
+            raise
+        log_message(
+            f"⚠️ Vision: {remote[0].name} went away while describing with {describer.model} "
+            f"({error}) — second attempt",
+            "warning",
+        )
+    return await run(choose_again())
 
 
 def same_model(a: str, b: str) -> bool:

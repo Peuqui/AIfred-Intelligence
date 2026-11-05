@@ -69,6 +69,13 @@ def get_any(model_id: str) -> tuple[int, int] | None:
     return int(peak), int(entry.get("num_ctx", 0))
 
 
+def measured_at(model_id: str) -> datetime | None:
+    """When the stored measurement of ``model_id`` was taken, ``None`` without one."""
+    entry = _store.get_entry(model_id)
+    stamp = entry.get("measured_at") if entry else None
+    return datetime.fromisoformat(stamp) if isinstance(stamp, str) else None
+
+
 def put(model_id: str, num_ctx: int, peak_mb: int, source: str = "stress_prewarm") -> None:
     """Persist a measurement. Overwrites any previous entry for ``model_id``
     (we only keep the latest measurement per model)."""

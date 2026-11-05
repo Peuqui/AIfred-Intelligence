@@ -258,7 +258,13 @@ async def describe_sandbox_screenshots(
 
     # Wer beschreibt: Regel A (SSOT vision_routing.chat_describer) —
     # das laufende Modell selbst, wenn es sieht, sonst das Vision-LLM.
-    from .vision_routing import NoVisionModelError, chat_describer, eviction_notice
+    from .vision_routing import (
+        Describer,
+        NoVisionModelError,
+        chat_describer,
+        describe_with_second_attempt,
+        eviction_notice,
+    )
     try:
         chosen = chat_describer(main_model)
     except NoVisionModelError as e:
@@ -317,8 +323,15 @@ async def describe_sandbox_screenshots(
         from .vision_analyzer import analyze_sequence
         # max_pixels=0: no downscale — rendered UI text/layout detail
         # matters and the render viewport bounds the size anyway.
-        analysis = await analyze_sequence(
-            frames, vlm_prompt, model=describer, max_pixels=0
+        def choose_again() -> Describer:
+            again = chat_describer(main_model)
+            if again.evicts_chat_model:
+                log_message(eviction_notice(again.model))
+            return again
+
+        analysis = await describe_with_second_attempt(
+            chosen, choose_again,
+            lambda d: analyze_sequence(frames, vlm_prompt, model=d.model, max_pixels=0),
         )
         if len(frames) == 1:
             described = load_prompt(

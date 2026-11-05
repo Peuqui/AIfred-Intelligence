@@ -18,9 +18,12 @@ import asyncio
 import base64
 import logging
 from pathlib import Path
-from typing import Self
+from typing import TYPE_CHECKING, Self
 
 from .config import DATA_DIR
+
+if TYPE_CHECKING:
+    from .remote_describers import RemoteModel
 
 logger = logging.getLogger(__name__)
 
@@ -100,6 +103,36 @@ def _ensure_stress_image() -> Path:
 
 def _image_b64(path: Path) -> str:
     return base64.b64encode(path.read_bytes()).decode("ascii")
+
+
+def _stress_payload() -> dict[str, object]:
+    """The worst-case request of every burn-in (this machine and others): the large stress image and
+    a long answer, so the vision encoder and the compute buffer reach their production peak."""
+    image_b64 = _image_b64(_ensure_stress_image())
+    return {
+        "messages": [{
+            "role": "user",
+            "content": [
+                {
+                    "type": "text",
+                    "text": (
+                        "Describe this image in extensive detail. "
+                        "Enumerate every visible object, color, "
+                        "geometric shape, line and any text fragments "
+                        "you can identify. Be thorough — list at "
+                        "least twenty distinct elements with their "
+                        "approximate positions."
+                    ),
+                },
+                {
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/jpeg;base64,{image_b64}"},
+                },
+            ],
+        }],
+        "max_tokens": 512,
+        "temperature": 0.7,
+    }
 
 
 def _gpu_used_mb(gpu_index: int) -> int:
@@ -229,33 +262,7 @@ async def stress_prewarm_vlm(
                 return None
 
             # ── Phase 2: Stress-Inferenz (großes Bild + lange Antwort) ─
-            image_b64 = _image_b64(_ensure_stress_image())
-            payload = {
-                "messages": [{
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": (
-                                "Describe this image in extensive detail. "
-                                "Enumerate every visible object, color, "
-                                "geometric shape, line and any text fragments "
-                                "you can identify. Be thorough — list at "
-                                "least twenty distinct elements with their "
-                                "approximate positions."
-                            ),
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{image_b64}",
-                            },
-                        },
-                    ],
-                }],
-                "max_tokens": 512,
-                "temperature": 0.7,
-            }
+            payload = _stress_payload()
             try:
                 async with httpx.AsyncClient() as client:
                     r = await client.post(
@@ -377,3 +384,55 @@ async def resolve_vlm_reserve(
         model_id, peak, VLM_HEADROOM_MIB, reserve,
     )
     return uuid, reserve
+
+
+async def stress_prewarm_remote(model: RemoteModel, *, timeout_s: float = 600.0) -> int:
+    """Burn-in of a describer on another machine; returns and stores (``vlm_vram_cache``, under the
+    qualified id and the context the machine reports) what it needs: the peak of the machine's cards
+    while it loads and answers the stress request, minus what they held just before.
+
+    The machine's llama-swap unloads everything first, so the load before is not a describer that the
+    load swaps out. The card readings come from the machine's GPU-Orc (``/status``, nvidia-smi there).
+    Raises ``RemoteHostError``/``GpuOrcError``/``httpx.HTTPError`` when the machine, its GPU-Orc or the
+    request fail; nothing is stored then.
+    """
+    import httpx
+
+    from . import vlm_vram_cache
+    from .remote_describers import gpu_orc
+
+    host = model.host
+    client = gpu_orc(host)
+
+    def used_mib() -> int:
+        return sum(card.used_mib for card in client.card_status())
+
+    async with httpx.AsyncClient(timeout=timeout_s) as http:
+        (await http.post(f"{host.llamaswap_url}/api/models/unload")).raise_for_status()
+        baseline = await asyncio.to_thread(used_mib)
+        peak = baseline
+        done = asyncio.Event()
+
+        async def watch() -> None:
+            nonlocal peak
+            while not done.is_set():
+                peak = max(peak, await asyncio.to_thread(used_mib))
+                try:
+                    await asyncio.wait_for(done.wait(), timeout=0.1)
+                except TimeoutError:
+                    pass
+
+        watcher = asyncio.create_task(watch())
+        try:
+            response = await http.post(
+                f"{host.llamaswap_url}/v1/chat/completions", json={**_stress_payload(), "model": model.model},
+            )
+            response.raise_for_status()
+        finally:
+            done.set()
+            await watcher
+    need = peak - baseline
+    logger.info("vlm_stress_prewarm: %s needs %d MiB (peak %d, before %d) at %d context",
+                model.qualified, need, peak, baseline, model.context)
+    vlm_vram_cache.put(model.qualified, model.context, need, source="stress_remote")
+    return need

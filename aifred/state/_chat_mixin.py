@@ -447,7 +447,14 @@ class ChatMixin(rx.State, mixin=True):
             "text": load_prompt("vision/task_adaptive", lang=detected_language, task_instruction=task_instruction),
         })
 
-        llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)  # type: ignore[attr-defined]
+        # A describer of another machine answers from that machine's llama-swap, under its id there.
+        from ..lib.remote_describers import BACKEND_TYPE, endpoint
+        remote = endpoint(model_id)
+        if remote is not None:
+            llm_client = LLMClient(backend_type=BACKEND_TYPE, base_url=remote[0])
+            model_id = remote[1]
+        else:
+            llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)  # type: ignore[attr-defined]
         try:
             response = await llm_client.chat(
                 model=model_id,
@@ -905,15 +912,20 @@ class ChatMixin(rx.State, mixin=True):
                     self.add_debug(eviction_notice(_eff_vl))  # type: ignore[attr-defined]
                     yield
 
-                # Cold start warning (llama-swap: llamacpp + vllm)
-                if _eff_vl and self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
+                # Cold start warning (llama-swap: llamacpp + vllm; a describer of another
+                # machine loads there, this llama-swap knows nothing about it)
+                from ..lib.remote_describers import endpoint as _remote_endpoint
+                if _eff_vl and self.backend_type in LLAMASWAP_BACKENDS and _remote_endpoint(_eff_vl) is None:  # type: ignore[attr-defined]
+                    from ..lib.service_status import LlamaSwapError
                     try:
                         running = await self._llamaswap_running_models()
-                        if _eff_vl not in running:
-                            self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
-                            yield
-                    except Exception:
-                        pass
+                    except LlamaSwapError as exc:
+                        # Only the cold-start hint is lost; the description itself reports its own error.
+                        log_message(f"⚠️ VL cold-start check: llama-swap does not answer: {exc}", "warning")
+                        running = None
+                    if running is not None and _eff_vl not in running:
+                        self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
+                        yield
 
                 img_count = len(local_images)
                 _symposion = self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2  # type: ignore[attr-defined]
@@ -985,8 +997,20 @@ class ChatMixin(rx.State, mixin=True):
                 if _eff_vl:
                     self.add_debug(f"📷 Image description ({img_count} image(s)) → {_eff_vl}")  # type: ignore[attr-defined]
                     yield
-                    description = await self._describe_images(
-                        local_images, user_msg.strip(), detected_language, _eff_vl, _vl_bucket,
+                    from ..lib.vision_routing import Describer, describe_with_second_attempt
+
+                    def _choose_again() -> Describer:
+                        model, _bucket, evicts = self._image_describer()  # type: ignore[attr-defined]
+                        if evicts:
+                            self.add_debug(eviction_notice(model))  # type: ignore[attr-defined]
+                        return Describer(model, evicts)
+
+                    description = await describe_with_second_attempt(
+                        Describer(_eff_vl, _vl_evicts), _choose_again,
+                        lambda d: self._describe_images(
+                            local_images, user_msg.strip(), detected_language, d.model,
+                            self._image_tuning_bucket(d.model),  # type: ignore[attr-defined]
+                        ),
                     )
                     _block = load_prompt("vision/image_description_block", lang=detected_language, description=description)
                     llm_user_content = f"{llm_user_content}\n\n{_block}"
@@ -1034,14 +1058,15 @@ class ChatMixin(rx.State, mixin=True):
             # Check /running BEFORE the first LLM call so the user knows why it's slow.
             # ============================================================
             if self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
+                from ..lib.service_status import LlamaSwapError
                 try:
                     running_models = await self._llamaswap_running_models()
                     if effective_auto not in running_models:
                         # Extract model details from llama-swap config
                         details = ""
+                        from ..lib.calibration import parse_llamaswap_config
+                        from ..lib.config import LLAMASWAP_CONFIG_PATH
                         try:
-                            from ..lib.calibration import parse_llamaswap_config
-                            from ..lib.config import LLAMASWAP_CONFIG_PATH
                             model_info = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(effective_auto, {})
                             parts: list[str] = []
                             if model_info.get("current_context"):
@@ -1050,15 +1075,16 @@ class ChatMixin(rx.State, mixin=True):
                                 parts.append(f"KV-Cache: {model_info['kv_cache_quant']}")
                             if parts:
                                 details = f" ({', '.join(parts)})"
-                        except Exception:
-                            pass
+                        except (OSError, ValueError) as exc:
+                            log_message(f"⚠️ Cold start: llama-swap config unreadable, no model details: {exc}", "warning")
                         self.add_debug(f"🔄 Model Cold Start ({effective_auto}){details} — loading into VRAM, this may take a while")
                         log_message(f"🔄 Cold Start: {effective_auto}{details}")
                         # Whisper's GPU worker and sidecars are cleared by the
                         # backend right before the load (_load_model).
                         yield
-                except Exception:
-                    pass  # Can't check — proceed normally, don't show false warnings
+                except LlamaSwapError as exc:
+                    # Can't check — proceed normally, don't show false warnings
+                    log_message(f"⚠️ Cold-start check: llama-swap does not answer: {exc}", "warning")
 
             # ============================================================
             # INTENT + ADDRESSEE + LANGUAGE DETECTION (first LLM call)
@@ -1321,7 +1347,7 @@ class ChatMixin(rx.State, mixin=True):
             # (session save etc. still run).
             _client_gone = True
             raise
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the chat turn's boundary: any failure becomes the visible answer
             error_msg = f"Error: {e!s}"
             self._js_chunk_buffer = ""  # type: ignore[attr-defined]
             self._streaming_sub().current_ai_response = error_msg  # type: ignore[attr-defined]
@@ -1575,7 +1601,7 @@ class ChatMixin(rx.State, mixin=True):
             self.add_debug(f"📌 Session memory: {status} — {summary[:100]}...")  # type: ignore[attr-defined]
             yield rx.toast.success(f"Session memory: {status}", duration=3000, position="top-center")
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — the pin button's boundary: any failure is shown as a toast
             self.add_debug(f"❌ Session pin failed: {e}")  # type: ignore[attr-defined]
             yield rx.toast.error(f"Error: {e}", duration=3000, position="top-center")
         finally:

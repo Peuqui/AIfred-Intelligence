@@ -62,15 +62,19 @@ mehreren Minuten dauern).
 **Regel A — `chat_describer(main_model)`** (Chat-Uploads, Symposion,
 Sandbox-Screenshots, hochgeladene Bilder im Vision-Tool):
 
-1. Sieht das Hauptmodell selbst (`has_native_vision`), beschreibt es selbst.
-2. Sonst das Vision-LLM der Haupteinstellungen über sein `-visiond`-Profil,
+1. Sieht das Hauptmodell selbst (`has_native_vision`), beschreibt es selbst und wird nie
+   verdrängt: Umladen kostet mehr als jede Beschreibung.
+2. Sonst der Describer eines anderen Rechners, wenn er antwortet und das Modell dort passt
+   (siehe „Describer auf anderen Rechnern“).
+3. Sonst das Vision-LLM der Haupteinstellungen über sein `-visiond`-Profil,
    wenn es daneben passt (`check_visiond_fits`, siehe unten).
-3. Sonst die effektive Variante des Vision-LLM — sie verdrängt das Chat-LLM.
-4. Ist kein Vision-LLM eingestellt: `NoVisionModelError`.
+4. Sonst die effektive Variante des Vision-LLM — sie verdrängt das Chat-LLM.
+5. Ist kein Vision-LLM eingestellt: `NoVisionModelError`.
 
 **Regel B — `camera_describer(vlm_model, explicit=…)`** (Vigilantia-Watcher,
 Event-Analyse, Bulk, Vision-Tool mit Kamera-Quelle):
 
+0. Der Describer eines anderen Rechners antwortet und passt dort → er beschreibt.
 1. Das Kamera-VLM (z.B. das 4B) passt neben das Geladene oder läuft schon →
    sein `-visiond`-Profil.
 2. Sonst ein geladenes Profil, das selbst sehen kann.
@@ -106,6 +110,41 @@ voll sind; ein Describer, der nach dem freien Speicher geht, nähme dem Modell d
 stürbe mit OOM. Ein schon geladener Describer arbeitet weiter. Sonst gibt es keinen: Automatische
 Pfade schicken das Bild ohne Beschreibung, die sich nachträglich erzeugen lässt, und auch ein
 ausdrücklicher Auftrag verdrängt kein ladendes Modell (`NoVisionModelError`).
+
+### Describer auf anderen Rechnern
+
+[`aifred/lib/remote_describers.py`](../../../aifred/lib/remote_describers.py). Ein anderer
+Rechner (z.B. ein Arbeitsplatz mit eigener Karte) betreibt seinen eigenen llama-swap und seinen
+eigenen GPU-Orc. AIfred kennt ihn genau einmal, in `VISION_REMOTE_HOSTS` (`.env`, JSON-Liste mit
+`name`, `llamaswap_url`, `gpu_orc_url`, `gpu_orc_token_file`), ohne Modelle: Welche Modelle es dort
+gibt, welche sehen (`capabilities.vision`), mit welchem Kontext und ob sie geladen sind, meldet
+sein `/v1/models`. Welches beschreibt, wählt der Nutzer in den Vigilantia-Einstellungen
+(`remote_describers`: Rechner → Modell); ein neues Profil dort erscheint von selbst in der Auswahl.
+
+- **Adresse:** Ein Modell dort heißt `<rechner>/<modell>`, wie llama-swap die Modelle seiner
+  Peers nennt. Die Aufrufer reichen die Id weiter wie jede andere; `analyze_sequence` und
+  `_describe_images` schicken an den llama-swap des Rechners, mit der Id dort. Ein `peers:`-Eintrag
+  in der eigenen llama-swap-YAML ist nicht nötig (er bräuchte eine feste Modellliste).
+- **Erreichbar?** Vor jeder Wahl ein `GET /health` mit 0,5 s Frist
+  (`VISION_REMOTE_HEALTH_TIMEOUT_S`). Ein Rechner, der aus ist oder schläft, ist der Normalfall:
+  Die Wahl geht ohne Warnung zur nächsten Stufe, die Logdatei sagt warum.
+- **Passt es?** Geladen passt; solange dort ein großes Modell lädt (Ampel des GPU-Orc dort), kommt
+  nichts dazu; sonst der gemessene Bedarf plus `VLM_HEADROOM_MIB` gegen den freien Speicher der
+  Karten dort (`/status` des GPU-Orc dort, was er vor dem Laden freiräumt, zählt als frei). Ein nie
+  vermessenes Modell passt nicht.
+- **Vermessen:** Knopf in der Auswahl (`stress_prewarm_remote` in
+  [`aifred/lib/vlm_stress_prewarm.py`](../../../aifred/lib/vlm_stress_prewarm.py)): llama-swap
+  dort entlädt alles, lädt das Modell mit dem Stressbild des Burn-ins, gespeichert wird die Spitze
+  der Karten minus die Belegung davor, unter `<rechner>/<modell>` und dem Kontext, den der Rechner
+  meldet.
+- **Freiräumen:** Vor dem Laden fragt AIfred den GPU-Orc des Rechners, auf dem das Modell lädt
+  (Bildweg `release_side_channels_for_describer`, Chat-Weg `_free_gpus_for_load`).
+- **Ausfall mitten in der Anfrage:** `describe_with_second_attempt` (alle Bildwege). Antwortet der
+  Rechner danach nicht mehr, meldet die Debug-Konsole das laut, und dieselbe Wahl läuft genau ein
+  zweites Mal: Sie findet den Rechner nicht mehr und nimmt die nächste Stufe. Antwortet er noch,
+  liegt der Fehler in Anfrage oder Modell und geht unverändert an den Aufrufer. Im Chat-Weg
+  wiederholt das Backend Verbindungsfehler zuerst selbst (`worth_retrying`, Fenster
+  `STREAM_RETRY_WINDOW_S`), erst danach greift der zweite Anlauf.
 
 ### Chat-Bilder: VL Direct oder zwei Schritte
 

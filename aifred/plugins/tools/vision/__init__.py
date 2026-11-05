@@ -508,10 +508,11 @@ class VisionPlugin:
             from ....lib.config import get_effective_model_from_settings
             from ....lib.logging_utils import log_message
             from ....lib.vision_routing import (
-                NoVisionModelError, camera_describer, chat_describer,
-                eviction_notice,
+                Describer, NoVisionModelError, camera_describer, chat_describer,
+                describe_with_second_attempt, eviction_notice,
             )
-            try:
+
+            def choose() -> Describer:
                 describer = (
                     camera_describer(
                         str(vlm_cfg.get("model", DEFAULT_MODEL)), explicit=True,
@@ -520,23 +521,29 @@ class VisionPlugin:
                         get_effective_model_from_settings(ctx.agent_id)
                     )
                 )
+                if describer.evicts_chat_model:
+                    log_message(eviction_notice(describer.model))
+                return describer
+
+            try:
+                result = await describe_with_second_attempt(
+                    choose(),
+                    choose,
+                    lambda describer: analyze_sequence(
+                        frames,
+                        actual_prompt,
+                        model=describer.model,
+                        num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
+                        keep_alive=keep_alive,
+                        host=vlm_cfg.get("host"),
+                        # Bewusster Tool-Call → volle Auflösung (kein Downscale).
+                        # Der Watcher/Alert-Pfad bleibt beim 0,8-MP-Default; hier
+                        # will der User echte Detailanalyse (kleiner Text, OCR).
+                        max_pixels=0,
+                    ),
+                )
             except NoVisionModelError as e:
                 return _err(f"no vision model available: {e}")
-            if describer.evicts_chat_model:
-                log_message(eviction_notice(describer.model))
-            try:
-                result = await analyze_sequence(
-                    frames,
-                    actual_prompt,
-                    model=describer.model,
-                    num_ctx=int(vlm_cfg.get("num_ctx", DEFAULT_NUM_CTX)),
-                    keep_alive=keep_alive,
-                    host=vlm_cfg.get("host"),
-                    # Bewusster Tool-Call → volle Auflösung (kein Downscale).
-                    # Der Watcher/Alert-Pfad bleibt beim 0,8-MP-Default; hier
-                    # will der User echte Detailanalyse (kleiner Text, OCR).
-                    max_pixels=0,
-                )
             except RuntimeError as e:
                 return _err(f"VLM call failed: {e}")
 

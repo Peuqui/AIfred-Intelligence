@@ -474,11 +474,13 @@ class AgentConfigMixin(rx.State, mixin=True):
         at the image. Raises ``NoVisionModelError`` when nothing can see.
         """
         from ..lib.vision_routing import chat_describer
-        effective_main = self._effective_model_id("aifred")
-        describer = chat_describer(effective_main)
-        if describer.model == effective_main:
-            return effective_main, "aifred", False
-        return describer.model, "vision", describer.evicts_chat_model
+        describer = chat_describer(self._effective_model_id("aifred"))
+        return describer.model, self._image_tuning_bucket(describer.model), describer.evicts_chat_model
+
+    def _image_tuning_bucket(self, model_id: str) -> str:
+        """The agent_tuning row whose sampling settings apply when ``model_id`` looks at an uploaded
+        image: the main model's own ("aifred") or the vision LLM's ("vision")."""
+        return "aifred" if model_id == self._effective_model_id("aifred") else "vision"
 
     # ================================================================
     # SPEED MODE TOGGLES (llamacpp only)

@@ -59,15 +59,19 @@ chat LLM, `eviction_notice` announces it (reloading can take several minutes).
 **Rule A — `chat_describer(main_model)`** (chat uploads, Symposion, sandbox
 screenshots, uploaded images in the vision tool):
 
-1. If the main model can see (`has_native_vision`), it describes itself.
-2. Otherwise the vision LLM from the main settings via its `-visiond`
+1. If the main model can see (`has_native_vision`), it describes itself and is never evicted:
+   reloading costs more than any description.
+2. Otherwise the describer of another machine, if it answers and the model fits there (see
+   "Describers on other machines").
+3. Otherwise the vision LLM from the main settings via its `-visiond`
    profile, if it fits alongside (`check_visiond_fits`, see below).
-3. Otherwise the effective variant of the vision LLM — it evicts the chat LLM.
-4. No vision LLM configured: `NoVisionModelError`.
+4. Otherwise the effective variant of the vision LLM — it evicts the chat LLM.
+5. No vision LLM configured: `NoVisionModelError`.
 
 **Rule B — `camera_describer(vlm_model, explicit=…)`** (Vigilantia watcher,
 event analysis, bulk, vision tool with a camera source):
 
+0. The describer of another machine answers and fits there → it describes.
 1. The camera VLM (e.g. the 4B) fits next to what is loaded or already runs →
    its `-visiond` profile.
 2. Otherwise a loaded profile that can see by itself.
@@ -102,6 +106,40 @@ fill up; a describer going by the free memory would take the model's room and it
 OOM. A describer that is already loaded keeps working. Otherwise there is none: automatic paths
 send the picture without a description, which can be made afterwards, and not even an explicit
 request evicts a loading model (`NoVisionModelError`).
+
+### Describers on other machines
+
+[`aifred/lib/remote_describers.py`](../../../aifred/lib/remote_describers.py). Another machine
+(e.g. a workstation with its own card) runs its own llama-swap and its own GPU-Orc. AIfred knows it
+exactly once, in `VISION_REMOTE_HOSTS` (`.env`, a JSON list with `name`, `llamaswap_url`,
+`gpu_orc_url`, `gpu_orc_token_file`), without models: which models it has, which of them see
+(`capabilities.vision`), their context and whether they are loaded, its `/v1/models` reports. Which
+one describes, the user chooses in the Vigilantia settings (`remote_describers`: machine → model); a
+new profile there shows up in the choice by itself.
+
+- **Address:** a model there is called `<machine>/<model>`, the way llama-swap names the models of
+  its peers. Callers hand the id on like any other; `analyze_sequence` and `_describe_images` send to
+  the machine's llama-swap, with the id there. No `peers:` entry in the own llama-swap YAML is needed
+  (it would need a fixed model list).
+- **Reachable?** Before every choice one `GET /health` with a 0.5 s limit
+  (`VISION_REMOTE_HEALTH_TIMEOUT_S`). A machine that is off or asleep is the normal case: the choice
+  goes on to the next stage without a warning, the log file says why.
+- **Does it fit?** Loaded fits; while a big model loads there (traffic light of the GPU-Orc there)
+  nothing new goes on; otherwise the measured need plus `VLM_HEADROOM_MIB` against the free memory of
+  the cards there (`/status` of the GPU-Orc there; what it clears before a load counts as free). A
+  model never measured does not fit.
+- **Measuring:** a button next to the choice (`stress_prewarm_remote` in
+  [`aifred/lib/vlm_stress_prewarm.py`](../../../aifred/lib/vlm_stress_prewarm.py)): the llama-swap
+  there unloads everything and loads the model with the burn-in's stress image; stored is the cards'
+  peak minus what they held before, under `<machine>/<model>` and the context the machine reports.
+- **Clearing the cards:** before a load AIfred asks the GPU-Orc of the machine the model loads on
+  (image path `release_side_channels_for_describer`, chat path `_free_gpus_for_load`).
+- **Failure mid-request:** `describe_with_second_attempt` (every image path). If the machine answers
+  no more afterwards, the debug console says so loudly and the same choice runs exactly once more: it
+  no longer finds the machine and takes the next stage. If it still answers, the error lies in the
+  request or the model and reaches the caller unchanged. In the chat path the backend first retries
+  connection errors itself (`worth_retrying`, window `STREAM_RETRY_WINDOW_S`); the second attempt
+  follows after that.
 
 ### Chat images: VL Direct or two steps
 

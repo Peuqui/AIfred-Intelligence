@@ -277,7 +277,12 @@ def _refresh_native_vision_cache() -> None:
 def has_native_vision(model_name: str) -> bool:
     """True if the model's llama-swap entry loads its own vision encoder
     (llama.cpp and vLLM alike) — it describes images itself, no side-channel
-    VLM needed."""
+    VLM needed. A model of another machine (``<machine>/<model>``) is only ever
+    chosen when that machine's llama-swap reports it as seeing
+    (``remote_describers.seeing_models``), so its qualified id sees."""
+    from .remote_describers import split
+    if split(model_name) is not None:
+        return True
     _refresh_native_vision_cache()
     return model_name in _native_vision_cache
 

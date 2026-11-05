@@ -1,0 +1,279 @@
+"""Describers on other machines (lib/remote_describers): configuration, the choice of Rule A and B, the
+second attempt when the machine goes away mid-request, and where the image request is sent."""
+
+from __future__ import annotations
+
+import asyncio
+import json
+from datetime import datetime
+from typing import Any, Self
+
+import httpx
+import pytest
+from fake_gpu_orc import FakeGpuOrc, card
+
+from aifred.lib import remote_describers, vision_routing, vision_utils, vlm_vram_cache
+from aifred.lib.frame_sources import Frame
+from aifred.lib.gpu_orc_client import GpuOrcClient, GpuOrcError
+from aifred.lib.remote_describers import RemoteHost, RemoteModel
+from aifred.lib.vision_routing import Describer, describe_with_second_attempt
+from aifred.lib.vision_vram_check import VRAMCheckResult
+
+HOST = {"name": "Box", "llamaswap_url": "http://box.test:11435", "gpu_orc_url": "http://box.test:5070",
+        "gpu_orc_token_file": "/nonexistent/token"}
+BIG = "Big-VL-30B-visiond"
+SMALL = "Small-VL-4B-visiond"
+
+
+@pytest.fixture
+def box(monkeypatch, tmp_path):
+    """One configured machine; its reachability, its models, the chosen one and its GPU-Orc as set."""
+    monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", json.dumps([HOST]))
+    monkeypatch.setattr(vlm_vram_cache, "_store", vlm_vram_cache.JsonPeakCache(tmp_path / "vlm.json", "test"))
+    state: dict[str, Any] = {"reachable": True, "models": [], "chosen": BIG, "gpu_orc": FakeGpuOrc(),
+                             "token_ok": True}
+
+    def models(host: RemoteHost) -> list[RemoteModel]:
+        return [RemoteModel(host, name, 24576, loaded) for name, loaded in state["models"]]
+
+    def gpu_orc(host: RemoteHost) -> GpuOrcClient:
+        if not state["token_ok"]:
+            raise GpuOrcError("token file missing")
+        return GpuOrcClient(host.gpu_orc_url, transport=httpx.MockTransport(state["gpu_orc"].handler), token="t")
+
+    monkeypatch.setattr(remote_describers, "reachable", lambda host: state["reachable"])
+    monkeypatch.setattr(remote_describers, "seeing_models", models)
+    monkeypatch.setattr(remote_describers, "chosen_model", lambda host: state["chosen"])
+    monkeypatch.setattr(remote_describers, "gpu_orc", gpu_orc)
+    return state
+
+
+def _card(total: int, used: int, *holders: tuple[str, str, int | None]) -> dict[str, Any]:
+    c = card("GPU-box", *holders)
+    c.update(memory_total_mib=total, memory_used_mib=used)
+    return c
+
+
+# ── configuration ────────────────────────────────────────────────────
+
+def test_the_machines_come_from_the_environment(monkeypatch):
+    monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", json.dumps([{**HOST, "llamaswap_url": "http://b/v1/"}]))
+    [host] = remote_describers.remote_hosts()
+    assert host == RemoteHost("Box", "http://b", "http://box.test:5070", "/nonexistent/token")
+
+
+@pytest.mark.parametrize("raw", ['{"name": "Box"}', "[{}]", "not json", json.dumps([HOST, HOST]),
+                                 json.dumps([{**HOST, "name": "a/b"}])])
+def test_a_malformed_list_of_machines_is_an_error(monkeypatch, raw):
+    monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", raw)
+    with pytest.raises(ValueError, match="VISION_REMOTE_HOSTS"):
+        remote_describers.remote_hosts()
+
+
+def test_a_qualified_id_leads_to_the_machine_and_the_model_there(box):
+    assert remote_describers.endpoint(f"Box/{BIG}") == ("http://box.test:11435/v1", BIG)
+    assert remote_describers.endpoint(BIG) is None
+    assert remote_describers.endpoint(f"Other/{BIG}") is None  # an Ollama namespace, not a machine
+
+
+def test_only_models_that_see_are_listed(monkeypatch):
+    host = RemoteHost("Box", "http://box.test:11435", "http://box.test:5070", "/x")
+    answer = {"data": [
+        {"id": BIG, "context_length": 24576, "capabilities": {"vision": True}, "status": {"value": "ready"}},
+        {"id": "Text-only", "context_length": 8192, "capabilities": {}, "status": {"value": "unloaded"}},
+    ]}
+    monkeypatch.setattr(httpx, "get", lambda url, timeout: httpx.Response(200, json=answer, request=httpx.Request("GET", url)))
+    assert remote_describers.seeing_models(host) == [RemoteModel(host, BIG, 24576, True)]
+
+
+def test_a_machine_that_does_not_answer_is_not_reachable(monkeypatch):
+    host = RemoteHost("Box", "http://box.test:11435", "http://box.test:5070", "/x")
+
+    def refuse(url, timeout):
+        raise httpx.ConnectError("refused")
+    monkeypatch.setattr(httpx, "get", refuse)
+    assert remote_describers.reachable(host) is False
+
+
+# ── the choice ───────────────────────────────────────────────────────
+
+def test_no_chosen_model_no_remote_describer(box):
+    box["chosen"] = ""
+    assert remote_describers.pick() is None
+
+
+def test_a_machine_that_is_off_is_passed_over(box):
+    box.update(reachable=False, models=[(BIG, True)])
+    assert remote_describers.pick() is None
+
+
+def test_the_chosen_model_must_be_one_that_sees_there(box):
+    box["models"] = [(SMALL, True)]
+    assert remote_describers.pick() is None
+
+
+def test_a_loaded_model_fits(box):
+    box["models"] = [(BIG, True)]
+    assert remote_describers.pick() == f"Box/{BIG}"
+
+
+def test_a_model_never_measured_does_not_fit(box):
+    box["models"] = [(BIG, False)]
+    box["gpu_orc"].cards = [_card(24564, 1599)]
+    assert remote_describers.pick() is None
+
+
+def test_a_measured_model_fits_when_its_need_is_free(box):
+    box["models"] = [(BIG, False)]
+    vlm_vram_cache.put(f"Box/{BIG}", 24576, 20769)
+    box["gpu_orc"].cards = [_card(24564, 1599)]  # 22965 free ≥ 20769 + 500
+    assert remote_describers.pick() == f"Box/{BIG}"
+
+
+def test_a_measured_model_that_does_not_fit_is_passed_over(box):
+    box["models"] = [(BIG, False)]
+    vlm_vram_cache.put(f"Box/{BIG}", 24576, 20769)
+    box["gpu_orc"].cards = [_card(24564, 8614)]  # the TTS containers hold 7015 MiB
+    assert remote_describers.pick() is None
+
+
+def test_what_the_machines_gpu_orc_clears_counts_as_free(box):
+    box["models"] = [(BIG, False)]
+    vlm_vram_cache.put(f"Box/{BIG}", 24576, 20769)
+    box["gpu_orc"].cards = [_card(24564, 8614, ("tts-suite", "xtts", 7015))]
+    assert remote_describers.pick() == f"Box/{BIG}"
+
+
+def test_the_measurement_belongs_to_the_context(box):
+    box["models"] = [(BIG, False)]
+    vlm_vram_cache.put(f"Box/{BIG}", 8192, 15000)  # measured at another context
+    box["gpu_orc"].cards = [_card(24564, 1599)]
+    assert remote_describers.pick() is None
+
+
+def test_nothing_new_while_a_big_model_loads_there(box):
+    box["models"] = [(BIG, False)]
+    vlm_vram_cache.put(f"Box/{BIG}", 24576, 7235)
+    box["gpu_orc"].loading = ["Something-Big"]
+    box["gpu_orc"].cards = [_card(24564, 1599)]
+    assert remote_describers.pick() is None
+
+
+def test_without_its_gpu_orc_the_room_is_unknown(box):
+    box.update(models=[(BIG, False)], token_ok=False)
+    vlm_vram_cache.put(f"Box/{BIG}", 24576, 7235)
+    assert remote_describers.pick() is None
+
+
+# ── Rule A and B ─────────────────────────────────────────────────────
+
+@pytest.fixture
+def local(monkeypatch):
+    """This machine: a blind main model, a describer that fits, nothing loaded that sees."""
+    fits = VRAMCheckResult(fits=True, needed_mb=7735, free_mb=20000, gpu_index=4)
+    monkeypatch.setattr(vision_routing, "fitting_visiond", lambda name: (f"{name}-visiond", fits))
+    monkeypatch.setattr(vision_routing, "loaded_seeing_profile", lambda: None)
+    monkeypatch.setattr(vision_utils, "is_vision_model_sync", lambda m: m == "Seeing-Main")
+
+
+def test_camera_images_go_to_the_other_machine_first(box, local):
+    box["models"] = [(BIG, True)]
+    assert vision_routing.camera_describer("Local-VL", explicit=False) == Describer(f"Box/{BIG}", False)
+
+
+def test_camera_images_stay_here_when_the_other_machine_is_off(box, local):
+    box.update(reachable=False, models=[(BIG, True)])
+    assert vision_routing.camera_describer("Local-VL", explicit=False) == Describer("Local-VL-visiond", False)
+
+
+def test_a_main_model_that_sees_keeps_chat_images(box, local):
+    box["models"] = [(BIG, True)]
+    assert vision_routing.chat_describer("Seeing-Main") == Describer("Seeing-Main", False)
+
+
+def test_a_blind_main_model_hands_chat_images_to_the_other_machine(box, local):
+    box["models"] = [(BIG, True)]
+    assert vision_routing.chat_describer("Blind-Main") == Describer(f"Box/{BIG}", False)
+
+
+# ── second attempt ───────────────────────────────────────────────────
+
+def _attempts(fail_on: set[str]) -> tuple[list[str], Any]:
+    seen: list[str] = []
+
+    async def run(describer: Describer) -> str:
+        seen.append(describer.model)
+        if describer.model in fail_on:
+            raise RuntimeError("VLM call failed: connection reset")
+        return f"described by {describer.model}"
+    return seen, run
+
+
+def test_a_machine_that_went_away_gets_one_second_attempt_here(box, monkeypatch):
+    logged: list[str] = []
+    monkeypatch.setattr("aifred.lib.logging_utils.log_message", lambda msg, *a, **k: logged.append(msg))
+    seen, run = _attempts({f"Box/{BIG}"})
+    box["reachable"] = False  # answers no more after the failure
+    result = asyncio.run(describe_with_second_attempt(
+        Describer(f"Box/{BIG}", False), lambda: Describer("Local-VL-visiond", False), run,
+    ))
+    assert result == "described by Local-VL-visiond"
+    assert seen == [f"Box/{BIG}", "Local-VL-visiond"]
+    assert any("Box went away" in line for line in logged)
+
+
+def test_a_machine_that_still_answers_gets_no_second_attempt(box):
+    seen, run = _attempts({f"Box/{BIG}"})
+    with pytest.raises(RuntimeError, match="connection reset"):
+        asyncio.run(describe_with_second_attempt(
+            Describer(f"Box/{BIG}", False), lambda: Describer("Local-VL-visiond", False), run,
+        ))
+    assert seen == [f"Box/{BIG}"]
+
+
+def test_a_failure_on_this_machine_gets_no_second_attempt(box):
+    seen, run = _attempts({"Local-VL-visiond"})
+    with pytest.raises(RuntimeError):
+        asyncio.run(describe_with_second_attempt(
+            Describer("Local-VL-visiond", False), lambda: Describer("Local-VL-visiond", False), run,
+        ))
+    assert seen == ["Local-VL-visiond"]
+
+
+# ── the image request ────────────────────────────────────────────────
+
+def test_the_image_request_goes_to_the_machine_with_the_id_there(box, monkeypatch):
+    from aifred.lib.vision_analyzer import analyze_sequence
+    captured: dict[str, Any] = {}
+    released: list[str] = []
+    monkeypatch.setattr(vision_routing, "release_side_channels_for_describer", released.append)
+
+    class FakeResponse:
+        def raise_for_status(self) -> None:
+            pass
+
+        def json(self) -> dict[str, Any]:
+            return {"choices": [{"message": {"content": "Eine Person am Briefkasten."}}], "usage": {}}
+
+    class FakeAsyncClient:
+        def __init__(self, **kwargs: Any) -> None:
+            pass
+
+        async def __aenter__(self) -> Self:
+            return self
+
+        async def __aexit__(self, *args: object) -> bool:
+            return False
+
+        async def post(self, url: str, json: dict[str, Any] | None = None) -> FakeResponse:
+            captured.update(url=url, payload=json)
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+    frame = Frame(source_id="cam/test", timestamp=datetime.now(), image_bytes=b"FAKEJPEG", format="jpeg",
+                  width=320, height=240)
+    result = asyncio.run(analyze_sequence([frame], "Was ist zu sehen?", model=f"Box/{BIG}"))
+    assert captured["url"] == "http://box.test:11435/v1/chat/completions"
+    assert captured["payload"]["model"] == BIG
+    assert result.model == f"Box/{BIG}" and result.text == "Eine Person am Briefkasten."
+    assert released == [f"Box/{BIG}"]  # the machine's GPU-Orc clears its cards

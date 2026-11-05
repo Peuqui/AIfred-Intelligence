@@ -1287,6 +1287,15 @@ GPU_ORC_MODEL_SERVER = os.environ.get("GPU_ORC_MODEL_SERVER", "llama-swap")
 # /health and /status: GPU-Orc runs nvidia-smi and asks every consumer, all in parallel. A /free takes
 # as long as GPU-Orc's own limit; /health reports the caller timeout that fits it.
 GPU_ORC_STATUS_TIMEOUT_S = 15
+
+# Describers on other machines (lib/remote_describers.py): each machine runs its own llama-swap and its
+# own GPU-Orc. A JSON list, one object per machine with ``name``, ``llamaswap_url``, ``gpu_orc_url`` and
+# ``gpu_orc_token_file`` (that GPU-Orc listens beyond loopback, so every request needs its token). Which
+# of its models describes is chosen in the Vigilantia settings; the models themselves are not listed
+# here, the machine's llama-swap reports them. Empty = describers only on this machine.
+VISION_REMOTE_HOSTS = os.environ.get("VISION_REMOTE_HOSTS", "[]")
+# Such a machine is off or asleep as a matter of course: one short look before every choice.
+VISION_REMOTE_HEALTH_TIMEOUT_S = 0.5
 # The narrator chunks its text itself (NARRATE_CHUNK_LIMIT_CHARS), so the service gets each
 # chunk whole: one audio per chunk, as the engine takes it.
 NARRATE_SPEECH_UNIT = "whole"

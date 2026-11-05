@@ -54,12 +54,18 @@ class CardHolder:
 class CardStatus:
     uuid: str
     holders: tuple[CardHolder, ...]
+    total_mib: int  # nvidia-smi memory.total
+    used_mib: int  # nvidia-smi memory.used, everything on the card (also what no consumer reports)
 
 
 class GpuOrcClient:
-    def __init__(self, base_url: str, transport: httpx.BaseTransport | None = None) -> None:
+    def __init__(
+        self, base_url: str, transport: httpx.BaseTransport | None = None, *, token: str | None = None,
+    ) -> None:
+        """``token``: for a GPU-Orc on another machine (it answers only loopback without one)."""
         self.base_url = base_url
         self._transport = transport
+        self._headers = {"Authorization": f"Bearer {token}"} if token else {}
 
     def free_for_model(self, model: str, *, reason: str) -> FreeResult:
         """Clear the cards ``model`` will load on (GPU-Orc's ``model`` form): the STT and TTS workers
@@ -86,6 +92,8 @@ class GpuOrcClient:
                 CardStatus(
                     gpu["uuid"],
                     tuple(CardHolder(h["consumer"], h["item"], h["memory_mib"]) for h in gpu["holders"]),
+                    int(gpu["memory_total_mib"]),
+                    int(gpu["memory_used_mib"]),
                 )
                 for gpu in body["gpus"]
             ]
@@ -117,7 +125,9 @@ class GpuOrcClient:
 
     def _call(self, method: str, path: str, timeout: float, body: dict[str, Any] | None = None) -> dict[str, Any]:
         try:
-            with httpx.Client(base_url=self.base_url, timeout=timeout, transport=self._transport) as http:
+            with httpx.Client(
+                base_url=self.base_url, timeout=timeout, transport=self._transport, headers=self._headers,
+            ) as http:
                 response = http.request(method, path, json=body)
         except httpx.TransportError as error:
             raise GpuOrcError(f"GPU-Orc not reachable at {self.base_url} ({path}): {error!r}") from error
@@ -151,12 +161,13 @@ def describe(result: FreeResult) -> list[tuple[str, str]]:
     return lines
 
 
-def clear_cards_for(model: str, *, reason: str) -> None:
+def clear_cards_for(model: str, *, reason: str, client: GpuOrcClient | None = None) -> None:
     """Ask GPU-Orc to clear the cards of ``model`` before it loads, and log what came of it. The load goes
     on whatever the answer: a card that stays held shows in the log (and in the load's own error), a
-    GPU-Orc that does not answer is logged loudly; there is no other way to clear the cards."""
+    GPU-Orc that does not answer is logged loudly; there is no other way to clear the cards. ``client``:
+    the GPU-Orc of the machine the model loads on; ``None`` = this machine."""
     try:
-        result = get_gpu_orc_client().free_for_model(model, reason=reason)
+        result = (client or get_gpu_orc_client()).free_for_model(model, reason=reason)
     except GpuOrcError as error:
         log_message(f"⚠️ GPU-Orc could not clear the cards for '{model}': {error}", "warning")
         return

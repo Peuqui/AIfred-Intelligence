@@ -70,6 +70,15 @@ def _no_real_gpu_orc(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_real_remote_describers(monkeypatch):
+    """Tests dürfen nie einen anderen Rechner fragen (VISION_REMOTE_HOSTS aus der .env der
+    Produktion): keine Rechner. Tests, die welche brauchen, setzen ihre eigenen."""
+    from aifred.lib import remote_describers
+
+    monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", "[]")
+
+
+@pytest.fixture(autouse=True)
 def _isolate_audit_db(tmp_path):
     """Tests dürfen nicht in die echte data/security/audit.db schreiben.
 

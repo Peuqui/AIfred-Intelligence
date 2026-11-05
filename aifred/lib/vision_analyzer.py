@@ -346,15 +346,20 @@ async def _analyze_via_llamacpp(
         # kennen den Schalter, andere Server ignorieren das Feld einfach.
         "chat_template_kwargs": {"enable_thinking": False},
     }
-    # BACKEND_URLS["llamacpp"] ist bereits die OpenAI-Basis-URL (…/v1).
-    url = BACKEND_URLS["llamacpp"].rstrip("/") + "/chat/completions"
+    # BACKEND_URLS["llamacpp"] ist bereits die OpenAI-Basis-URL (…/v1). Ein
+    # Describer eines anderen Rechners geht an dessen llama-swap, mit der Id dort.
+    from .remote_describers import endpoint
+    remote = endpoint(model)
+    base_url, payload["model"] = remote if remote else (BACKEND_URLS["llamacpp"], model)
+    url = base_url.rstrip("/") + "/chat/completions"
 
     # Describer vor TTS und STT: sitzen TTS-Container oder der Whisper-GPU-Worker
     # auf der Karte des Profils, das gleich lädt, müssen sie weichen (dieser
-    # Weg läuft nicht über den GPU-Wächter der Chat-Backends).
+    # Weg läuft nicht über den GPU-Wächter der Chat-Backends). Auf einem anderen
+    # Rechner räumt dessen GPU-Orc.
     from .vision_routing import release_side_channels_for_describer
     from .vlm_naming import is_visiond_profile
-    if is_visiond_profile(model):
+    if remote or is_visiond_profile(model):
         import asyncio
         await asyncio.to_thread(release_side_channels_for_describer, model)
 
