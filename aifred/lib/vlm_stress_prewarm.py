@@ -399,7 +399,7 @@ async def stress_prewarm_remote(model: RemoteModel, *, timeout_s: float = 600.0)
     import httpx
 
     from . import vlm_vram_cache
-    from .remote_describers import RemoteHostError, gpu_orc
+    from .remote_describers import RemoteHostError, gpu_orc, remote_model
 
     host = model.host
     client = gpu_orc(host)
@@ -437,7 +437,11 @@ async def stress_prewarm_remote(model: RemoteModel, *, timeout_s: float = 600.0)
             done.set()
             await watcher
     need = peak - baseline
+    # A model never loaded there had no context yet: the load just taught it to the machine's llama-swap.
+    context = model.context if model.context is not None else remote_model(model.qualified).context
+    if context is None:
+        raise RemoteHostError(f"{host.name}: '{model.model}' reports no context even after its load")
     logger.info("vlm_stress_prewarm: %s needs %d MiB (peak %d, before %d) at %d context",
-                model.qualified, need, peak, baseline, model.context)
-    vlm_vram_cache.put(model.qualified, model.context, need, source="stress_remote")
+                model.qualified, need, peak, baseline, context)
+    vlm_vram_cache.put(model.qualified, context, need, source="stress_remote")
     return need

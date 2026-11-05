@@ -329,37 +329,47 @@ async def _analyze_via_llamacpp(
         VISION_DESCRIBE_REPEAT_LAST_N,
         VISION_DESCRIBE_REPEAT_PENALTY,
     )
+    from .remote_describers import endpoint
+    from .vlm_naming import is_visiond_profile
+
+    # BACKEND_URLS["llamacpp"] ist bereits die OpenAI-Basis-URL (…/v1). Ein
+    # Describer eines anderen Rechners geht an dessen llama-swap, mit der Id dort.
+    remote = endpoint(model)
+    base_url, model_there = remote if remote else (BACKEND_URLS["llamacpp"], model)
+    url = base_url.rstrip("/") + "/chat/completions"
+    # Ein Beschreiber der Liste (ein -visiond-Profil hier, ein Modell eines anderen
+    # Rechners) ist ein kleines VLM; beschreibt das Hauptmodell selbst, ist es keins.
+    describer_profile = remote is not None or is_visiond_profile(model)
+
     payload: dict[str, Any] = {
-        "model": model,
+        "model": model_there,
         "messages": [{"role": "user", "content": content}],
         "stream": False,
-        # Antwortlänge deckeln: bei vielen fast gleichen Bildern läuft ein
-        # kleines VLM sonst in eine Wiederholungsschleife bis zum
-        # Kontextende (siehe VISION_DESCRIBE_MAX_TOKENS).
-        "max_tokens": VISION_DESCRIBE_MAX_TOKENS,
-        # Die Schleife selbst unterbinden, nicht nur kürzen: llama-server
-        # nimmt die Sampling-Felder im OpenAI-Body entgegen; der Eintrag in
-        # llama-swap bleibt unangetastet (Per-Request statt Modell-Config).
-        "repeat_penalty": VISION_DESCRIBE_REPEAT_PENALTY,
-        "repeat_last_n": VISION_DESCRIBE_REPEAT_LAST_N,
         # Bildbeschreibung braucht keine Denk-Phase — Qwen3.x-Templates
         # kennen den Schalter, andere Server ignorieren das Feld einfach.
         "chat_template_kwargs": {"enable_thinking": False},
     }
-    # BACKEND_URLS["llamacpp"] ist bereits die OpenAI-Basis-URL (…/v1). Ein
-    # Describer eines anderen Rechners geht an dessen llama-swap, mit der Id dort.
-    from .remote_describers import endpoint
-    remote = endpoint(model)
-    base_url, payload["model"] = remote if remote else (BACKEND_URLS["llamacpp"], model)
-    url = base_url.rstrip("/") + "/chat/completions"
+    if describer_profile:
+        # Nur für die kleinen Beschreiber: Bei vielen fast gleichen Bildern läuft
+        # ein kleines VLM sonst in eine Wiederholungsschleife bis zum Kontextende
+        # (siehe VISION_DESCRIBE_MAX_TOKENS). Deckeln und die Schleife selbst
+        # unterbinden (llama-server nimmt die Sampling-Felder im OpenAI-Body, der
+        # Eintrag in llama-swap bleibt unangetastet). Das Hauptmodell bekommt
+        # keinen Deckel: Ein Modell, das vor der Antwort denkt, verbrauchte ihn
+        # schon beim Denken, und eine abgeschnittene Antwort ist wertlos; seine
+        # Grenze ist sein Kontext.
+        payload.update({
+            "max_tokens": VISION_DESCRIBE_MAX_TOKENS,
+            "repeat_penalty": VISION_DESCRIBE_REPEAT_PENALTY,
+            "repeat_last_n": VISION_DESCRIBE_REPEAT_LAST_N,
+        })
 
     # Describer vor TTS und STT: sitzen TTS-Container oder der Whisper-GPU-Worker
     # auf der Karte des Profils, das gleich lädt, müssen sie weichen (dieser
     # Weg läuft nicht über den GPU-Wächter der Chat-Backends). Auf einem anderen
     # Rechner räumt dessen GPU-Orc.
     from .vision_routing import release_side_channels_for_describer
-    from .vlm_naming import is_visiond_profile
-    if remote or is_visiond_profile(model):
+    if describer_profile:
         import asyncio
         await asyncio.to_thread(release_side_channels_for_describer, model)
 

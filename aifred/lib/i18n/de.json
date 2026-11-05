@@ -306,6 +306,7 @@
   "vision_remote_unreachable": "{host} antwortet nicht, der Eintrag wird übersprungen.",
   "vision_remote_list_error": "{host} antwortet, aber seine Modellliste ist unlesbar: {error}",
   "vision_remote_unmeasured": "Bei {ctx} Kontext noch nicht vermessen, bis dahin übersprungen.",
+  "vision_remote_never_loaded": "Dort noch nie geladen und nicht vermessen, bis dahin übersprungen.",
   "vision_remote_measured": "Braucht {mib} MiB bei {ctx} Kontext (gemessen {when}).",
   "vision_remote_measure_failed": "Vermessen fehlgeschlagen: {error}",
   "vision_settings_rescan_tooltip": "VLM-Modelle neu scannen",

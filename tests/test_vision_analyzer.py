@@ -227,6 +227,44 @@ class TestLlamacppDispatch:
         assert work.decode_tokens == 20 and work.decode_rate() == pytest.approx(25.0)
         assert work.prefill_rate() == pytest.approx(200.0)
         assert stats["backend"] == "llamacpp" and stats["ttft_s"] == pytest.approx(0.5)
+        # The main model describing itself gets no cap: a model that thinks first would use it up.
+        assert "max_tokens" not in captured["payload"] and "repeat_penalty" not in captured["payload"]
+
+    def test_a_describer_profile_gets_the_loop_guard(self, monkeypatch):
+        import httpx
+
+        import aifred.lib.vision_routing as vr
+        import aifred.lib.vision_utils as vu
+        from aifred.lib.config import VISION_DESCRIBE_MAX_TOKENS
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: True)
+        monkeypatch.setattr(vr, "release_side_channels_for_describer", lambda profile: None)
+        captured: dict = {}
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict:
+                return {"choices": [{"message": {"content": "Eine Person."}}], "usage": {}}
+
+        class FakeAsyncClient:
+            def __init__(self, **kwargs) -> None:
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, url, json=None):
+                captured["payload"] = json
+                return FakeResponse()
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+        run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", model="Small-VL-4B-visiond"))
+        assert captured["payload"]["max_tokens"] == VISION_DESCRIBE_MAX_TOKENS
+        assert "repeat_penalty" in captured["payload"]
 
     def test_non_mmproj_model_stays_on_ollama(self, monkeypatch):
         import aifred.lib.vision_utils as vu

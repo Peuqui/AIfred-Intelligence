@@ -57,7 +57,9 @@ class RemoteModel:
 
     host: RemoteHost
     model: str  # the id on the machine
-    context: int  # the context its llama-swap reports (the key of its burn-in)
+    # The context its llama-swap reports (the key of its burn-in); None until it was loaded once there
+    # (llama-swap learns it then, and keeps it when its store is set).
+    context: int | None
     loaded: bool
 
     @property
@@ -126,7 +128,8 @@ def seeing_models(host: RemoteHost) -> list[RemoteModel]:
         entries = response.json()["data"]
         return [
             RemoteModel(
-                host, str(e["id"]), int(e["context_length"]),
+                host, str(e["id"]),
+                int(e["context_length"]) if "context_length" in e else None,  # absent until loaded once
                 str(e["status"]["value"]) != "unloaded",
             )
             for e in entries
@@ -169,6 +172,12 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
     if model.loaded:
         return VRAMCheckResult(fits=True, needed_mb=0, free_mb=0, gpu_index=-1,
                                message=f"'{model.qualified}' ist bereits geladen.")
+    if model.context is None:
+        return VRAMCheckResult(
+            fits=False, needed_mb=0, free_mb=0, gpu_index=-1,
+            message=(f"'{model.qualified}' war dort noch nie geladen (Kontext unbekannt) und ist nicht "
+                     "vermessen — Platzbedarf unbekannt."),
+        )
     peak_mb = vlm_vram_cache.get(model.qualified, model.context)
     if peak_mb is None:
         return VRAMCheckResult(

@@ -230,7 +230,9 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 elif machine.error:
                     note, warn = t("vision_remote_list_error", lang=lang, host=host.name if host else "?",
                                    error=machine.error), True
-                elif model is not None:
+                elif model is not None and model.context is None:
+                    note, warn = t("vision_remote_never_loaded", lang=lang), True
+                elif model is not None and model.context is not None:
                     measured, when = get_any(model.qualified), measured_at(model.qualified)
                     ctx = format_number(model.context, 0)
                     if measured is None or when is None or measured[1] != model.context:
@@ -289,7 +291,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             model = await asyncio.to_thread(remote_model, source)
             log_message(f"🔥 Burn-in of {source} …")
             need = await stress_prewarm_remote(model)
-            log_message(f"✅ Burn-in of {source}: {need} MiB at {model.context} context")
+            log_message(f"✅ Burn-in of {source}: {need} MiB")
         except (RemoteHostError, GpuOrcError, httpx.HTTPError) as error:
             log_message(f"⚠️ Burn-in of {source} failed: {error}", "warning")
             failed[source] = str(error)

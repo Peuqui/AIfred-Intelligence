@@ -332,6 +332,7 @@
   "vision_remote_unreachable": "{host} does not answer, the entry is passed over.",
   "vision_remote_list_error": "{host} answers, but its model list is unreadable: {error}",
   "vision_remote_unmeasured": "Not measured yet at {ctx} context, passed over until then.",
+  "vision_remote_never_loaded": "Never loaded there and not measured, passed over until then.",
   "vision_remote_measured": "Needs {mib} MiB at {ctx} context (measured {when}).",
   "vision_remote_measure_failed": "Measuring failed: {error}",
   "vision_settings_rescan_tooltip": "Rescan VLM models",

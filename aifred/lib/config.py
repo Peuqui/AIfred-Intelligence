@@ -934,7 +934,9 @@ VISION_OVERLAY_SUFFIX_PREROLL = " · Vorlauf"
 # höher gehen heißt num_ctx mitziehen (siehe dort) und ggf. 8B-VLM.
 VISION_DESCRIBE_MAX_FRAMES = 10
 
-# Obergrenze für die Antwortlänge einer Bildbeschreibung. OHNE Limit
+# Obergrenze für die Antwortlänge einer Bildbeschreibung durch einen kleinen
+# Beschreiber (-visiond-Profil, Modell eines anderen Rechners; das Hauptmodell
+# bekommt keinen Deckel, vision_analyzer._analyze_via_llamacpp). OHNE Limit
 # generiert ein kleines VLM bei vielen fast identischen Bildern bis zum
 # Kontextende weiter und wiederholt dabei denselben Satz hunderte Male
 # (live gesehen 24.08.2026 mit Qwen3VL-4B: ~10.000 Zeichen Schleife aus

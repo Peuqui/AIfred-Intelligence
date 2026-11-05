@@ -80,9 +80,17 @@ def test_only_models_that_see_are_listed(monkeypatch):
     answer = {"data": [
         {"id": BIG, "context_length": 24576, "capabilities": {"vision": True}, "status": {"value": "ready"}},
         {"id": "Text-only", "context_length": 8192, "capabilities": {}, "status": {"value": "unloaded"}},
+        # never loaded there: llama-swap knows its capabilities from the config, not yet its context
+        {"id": SMALL, "capabilities": {"vision": True}, "status": {"value": "unloaded"}},
     ]}
     monkeypatch.setattr(httpx, "get", lambda url, timeout: httpx.Response(200, json=answer, request=httpx.Request("GET", url)))
-    assert remote_describers.seeing_models(host) == [RemoteModel(host, BIG, 24576, True)]
+    assert remote_describers.seeing_models(host) == [RemoteModel(host, BIG, 24576, True), RemoteModel(host, SMALL, None, False)]
+
+
+def test_a_model_never_loaded_there_does_not_fit(box):
+    [host] = remote_describers.remote_hosts()
+    fit = remote_describers.check_fits(RemoteModel(host, BIG, None, False))
+    assert fit.fits is False and "noch nie geladen" in fit.message
 
 
 def test_a_machine_that_does_not_answer_is_not_reachable(monkeypatch):
