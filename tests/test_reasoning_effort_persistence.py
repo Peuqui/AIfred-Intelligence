@@ -12,6 +12,7 @@ Getroffen hat es nur AIfred: Agenten auf "(wie AIfred-LLM)" haben keine eigene
 
 from unittest.mock import patch
 
+from aifred.lib.agent_settings import THINKING_ON, thinking_mode, thinking_model_key
 from aifred.lib.agent_tuning import AgentTuning
 from aifred.state._agent_config_mixin import AgentConfigMixin
 
@@ -27,7 +28,7 @@ class _FakeState:
     def __init__(self, backend_type: str, model_id: str, effort: str):
         self.backend_type = backend_type
         self.agent_tuning = {
-            "aifred": AgentTuning(model_id=model_id, reasoning_effort=effort),
+            "aifred": AgentTuning(model_id=model_id, thinking_by_model={thinking_model_key(model_id): effort}),
         }
         self.saved = False
         self.debug_lines: list[str] = []
@@ -58,7 +59,7 @@ def _run(state: _FakeState, *, cached_levels, resolved=None):
         # Mixin method bound to a stand-in state (the Reflex state class
         # cannot be instantiated in a unit test).
         state._load_agent_reasoning_levels("aifred", state.agent_tuning["aifred"].model_id)  # type: ignore[misc]
-    return state.agent_tuning["aifred"].reasoning_effort
+    return thinking_mode(state, "aifred", state.agent_tuning["aifred"].model_id)
 
 
 class TestEffortSurvivesUnknownLevels:
@@ -88,11 +89,11 @@ class TestEffortValidatedWhenLevelsKnown:
         # Modell ohne steuerbare Stufen (analysiert, Ergebnis leer) —
         # hier ist das Verwerfen richtig, und es wird protokolliert.
         state = _FakeState("vllm", "DeepSeek-V4-Flash-vllm", "medium")
-        assert _run(state, cached_levels=[], resolved=[]) == ""
+        assert _run(state, cached_levels=[], resolved=[]) == THINKING_ON
         assert state.saved is True
         assert any("medium" in line for line in state.debug_lines)
 
     def test_effort_outside_known_levels_is_cleared(self):
         state = _FakeState("vllm", "Qwen3.8-Flash-Next-vllm", "max")
-        assert _run(state, cached_levels=LEVELS) == ""
+        assert _run(state, cached_levels=LEVELS) == THINKING_ON
         assert state.saved is True

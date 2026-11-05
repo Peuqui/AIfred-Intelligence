@@ -177,6 +177,13 @@ which applies rule A to the effective main model:
 - **No vision LLM:** the image goes on without a description, with a note in
   the debug console.
 
+**Thinking while describing:** every description (`_describe_images`, `analyze_sequence` →
+`_analyze_via_llamacpp`) is a task of the agent "Vision". It thinks as the vision row says
+for the model that describes (`agent_settings.thinking_mode`, stored per model) and sends
+the level in `chat_template_kwargs` like the chat backends. The 4B thus stays without
+thinking, GLM as main model describes with the level set for GLM in the vision row. VL
+Direct follows the row of the agent that answers.
+
 ## Unload semantics (llama-swap groups)
 
 ```yaml

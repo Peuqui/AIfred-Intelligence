@@ -326,13 +326,19 @@ GGUF (tokenizer.chat_template)
   |     Filled lazily on model switch/startup (header read, ms) and
   |     force-refreshed during calibration (re-download may change it).
   |
-  |-- State: agent_tuning[agent].thinking (bool)
-  |     + agent_tuning[agent].reasoning_effort (str)
-  |     Dropdown maps: off -> thinking=False; on -> thinking=True,
-  |     effort=""; <level> -> thinking=True, effort=<level>.
+  |-- State: agent_tuning[agent].thinking_by_model {model: choice}
+  |     One choice per row AND model: "off", "on" (the level the template
+  |     picks itself) or a level. The model counts as its base model
+  |     (agent_settings.thinking_model_key: without llama-swap variants such
+  |     as -visiond/-tts-…/-vlm-…/-speed, without a machine prefix). A model
+  |     without an entry thinks as the agent's toggles.thinking in
+  |     agents.json says. Read only via agent_settings.thinking_mode /
+  |     persisted_thinking_mode (with the model the request goes to), written
+  |     only via set_thinking_mode (the dropdown). A model switch copies
+  |     nothing: the other model has its own entry.
   |
   v
-LLMOptions.reasoning_effort
+build_llm_options(state, agent, model_id, …) -> LLMOptions.reasoning_effort
   |-- llamacpp/_build_extra_body(): chat_template_kwargs =
   |     {"enable_thinking": ..., "reasoning_effort": "<level>"}
   |-- ollama: ignores effort (bool `think` only)

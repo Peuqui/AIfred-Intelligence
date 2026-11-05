@@ -447,6 +447,11 @@ class ChatMixin(rx.State, mixin=True):
             "text": load_prompt("vision/task_adaptive", lang=detected_language, task_instruction=task_instruction),
         })
 
+        # A description is the vision agent's task: it thinks as the vision row
+        # says for the model that describes (agent_settings SSOT).
+        from ..lib.agent_settings import thinking_fields, thinking_mode
+        enable_thinking, reasoning_effort = thinking_fields(thinking_mode(self, "vision", model_id))
+
         # A describer of another machine answers from that machine's llama-swap, under its id there.
         from ..lib.remote_describers import BACKEND_TYPE, endpoint
         remote = endpoint(model_id)
@@ -462,9 +467,8 @@ class ChatMixin(rx.State, mixin=True):
                 options=LLMOptions(
                     temperature=self.agent_tuning[settings_bucket].temperature,  # type: ignore[attr-defined]
                     num_ctx=self.agent_tuning[settings_bucket].max_context or None,  # type: ignore[attr-defined]
-                    # Deliberately no thinking: a neutral image description
-                    # is a perception task, not a reasoning one.
-                    enable_thinking=False,
+                    enable_thinking=enable_thinking,
+                    reasoning_effort=reasoning_effort,
                 ),
             )
         finally:
@@ -940,8 +944,10 @@ class ChatMixin(rx.State, mixin=True):
 
                     content_parts: list[dict] = []
 
-                    # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL)
-                    if not self.agent_tuning["aifred"].thinking:  # type: ignore[attr-defined]
+                    # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL).
+                    # Same agent and model as the request below (_process_vision_request).
+                    from ..lib.agent_settings import THINKING_OFF, thinking_mode
+                    if thinking_mode(self, self.active_agent or "aifred", _eff_vl) == THINKING_OFF:  # type: ignore[attr-defined]
                         content_parts.append({"type": "text", "text": "/no_think"})
 
                     # Images first (VL models handle it best this way)

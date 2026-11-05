@@ -18,7 +18,9 @@ if TYPE_CHECKING:
 MessageType = dict[str, Any] | LLMMessage
 
 
-def build_llm_options(state: "AIState | None", agent: str, temperature: float, num_ctx: int) -> LLMOptions:
+def build_llm_options(
+    state: "AIState | None", agent: str, model_id: str, temperature: float, num_ctx: int,
+) -> LLMOptions:
     """Build LLMOptions for an agent — sampling params from state or settings.json.
 
     Central function to ensure ALL sampling parameters are passed consistently.
@@ -30,31 +32,42 @@ def build_llm_options(state: "AIState | None", agent: str, temperature: float, n
     job): reads the same keys directly from ``settings.json`` so the per-agent
     settings of the main window (thinking, reasoning effort, sampling) apply
     universally — no inconsistency between channels.
+
+    ``model_id`` is the model the request goes to: the thinking choice is the
+    agent's choice on that model (agent_settings.thinking_mode).
     """
-    from .agent_settings import get_agent_setting, get_persisted_tuning
+    from .agent_settings import (
+        get_agent_setting,
+        get_persisted_tuning,
+        persisted_thinking_mode,
+        thinking_fields,
+        thinking_mode,
+    )
     if state is None:
         from .settings import load_settings
         s = load_settings() or {}
         backend_type = s.get("backend_type", "")
+        enable_thinking, reasoning_effort = thinking_fields(persisted_thinking_mode(s, agent, model_id))
         return LLMOptions(
             temperature=temperature,
-            enable_thinking=get_persisted_tuning(s, agent, "thinking", True),
+            enable_thinking=enable_thinking,
             supports_thinking=(
                 get_persisted_tuning(s, agent, "supports_thinking", None)
                 if backend_type in ("ollama", "llamacpp", "vllm") else None
             ),
-            reasoning_effort=get_persisted_tuning(s, agent, "reasoning_effort", "") or None,
+            reasoning_effort=reasoning_effort,
             num_ctx=num_ctx,
             top_k=get_persisted_tuning(s, agent, "top_k", 40),
             top_p=get_persisted_tuning(s, agent, "top_p", 0.9),
             min_p=get_persisted_tuning(s, agent, "min_p", 0.0),
             repeat_penalty=get_persisted_tuning(s, agent, "repeat_penalty", 1.1),
         )
+    enable_thinking, reasoning_effort = thinking_fields(thinking_mode(state, agent, model_id))
     return LLMOptions(
         temperature=temperature,
-        enable_thinking=get_agent_setting(state, agent, "thinking", True),
+        enable_thinking=enable_thinking,
         supports_thinking=get_agent_setting(state, agent, "supports_thinking", None) if state.backend_type in ("ollama", "llamacpp", "vllm") else None,
-        reasoning_effort=get_agent_setting(state, agent, "reasoning_effort", "") or None,
+        reasoning_effort=reasoning_effort,
         num_ctx=num_ctx,
         top_k=get_agent_setting(state, agent, "top_k", 40),
         top_p=get_agent_setting(state, agent, "top_p", 0.9),

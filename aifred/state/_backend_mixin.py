@@ -1512,7 +1512,7 @@ class BackendMixin(rx.State, mixin=True):
         from ..lib.agent_settings import get_agent_setting
         for _entry in self._ui_agent_list():  # type: ignore[attr-defined]
             _aid = _entry["id"]
-            if _aid in ("aifred", "vision"):
+            if _aid == "aifred":
                 continue
             if not get_agent_setting(self, _aid, "model_id"):
                 self._load_agent_reasoning_levels(  # type: ignore[attr-defined]
@@ -1561,6 +1561,10 @@ class BackendMixin(rx.State, mixin=True):
         self.agent_tuning["vision"].model = self._label_for("vision", model_id)
         self.add_debug(f"👁️ Vision-LLM: {self.agent_tuning["vision"].model}")  # type: ignore[attr-defined, has-type]
         self._show_model_calibration_info(self.agent_tuning["vision"].model_id)  # type: ignore[attr-defined]
+        # Like every agent (and like the start-up load in
+        # _load_all_agent_model_params): the thinking levels of the new model.
+        if self.backend_type in LLAMASWAP_BACKENDS:
+            self._load_agent_model_params("vision", model_id)
 
         if self.backend_type == "llamacpp":
             from ..lib.calibration import model_has_speed_variant

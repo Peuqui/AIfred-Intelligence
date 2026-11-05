@@ -533,9 +533,9 @@ def _setup_debate_contexts(
     )
 
     # LLM options
-    sokrates_options = build_llm_options(state, "sokrates", sokrates_temp, sokrates_num_ctx)
-    alfred_options = build_llm_options(state, "aifred", alfred_temp, main_llm_ctx)
-    salomo_options = build_llm_options(state, "salomo", salomo_temp, salomo_num_ctx)
+    sokrates_options = build_llm_options(state, "sokrates", sokrates_base, sokrates_temp, sokrates_num_ctx)
+    alfred_options = build_llm_options(state, "aifred", aifred_base, alfred_temp, main_llm_ctx)
+    salomo_options = build_llm_options(state, "salomo", salomo_base, salomo_temp, salomo_num_ctx)
 
     return {
         "aifred_ctx": main_llm_ctx, "sokrates_ctx": sokrates_num_ctx, "salomo_ctx": salomo_num_ctx,
@@ -684,8 +684,8 @@ async def _run_agent_direct_response(
         # double-suffix and trigger a 32K fallback).
         from .agent_settings import (
             get_agent_base_model_id,
-            get_agent_setting,
-            set_agent_setting,
+            thinking_fields,
+            thinking_mode,
         )
         agent_model_id = state._effective_model_id(agent) or state._effective_model_id("aifred")
         agent_base_id = get_agent_base_model_id(state, agent)
@@ -769,20 +769,14 @@ async def _run_agent_direct_response(
         from .tool_output_cap import budget_var, compute_budget
         budget_var.set(compute_budget(agent_num_ctx, sys_tok, hist_tok, mem_tok, tools_tok))
 
-        # Build LLM options — direct-chat path forces AIfred's thinking
-        # config onto the responding agent (temporarily, restored below).
-        saved_thinking = get_agent_setting(state, agent, "thinking", True)
-        saved_effort = get_agent_setting(state, agent, "reasoning_effort", "")
-        set_agent_setting(state, agent, "thinking", state.agent_tuning["aifred"].thinking)
-        set_agent_setting(state, agent, "reasoning_effort", state.agent_tuning["aifred"].reasoning_effort)
-        try:
-            agent_options = build_llm_options(state, agent, agent_temp, agent_num_ctx)
-        finally:
-            # Restore MUST run even when build_llm_options raises — the
-            # overrides would otherwise stick and get persisted with the
-            # next settings save.
-            set_agent_setting(state, agent, "thinking", saved_thinking)
-            set_agent_setting(state, agent, "reasoning_effort", saved_effort)
+        # Build LLM options — the direct-chat path thinks as AIfred's row
+        # says for the model the responding agent runs on.
+        from dataclasses import replace
+        enable_thinking, reasoning_effort = thinking_fields(thinking_mode(state, "aifred", agent_model_id))
+        agent_options = replace(
+            build_llm_options(state, agent, agent_model_id, agent_temp, agent_num_ctx),
+            enable_thinking=enable_thinking, reasoning_effort=reasoning_effort,
+        )
 
         # Stream response via shared helper (SSOT for all streaming logic)
         result = None
@@ -1509,7 +1503,7 @@ async def run_symposion(
 
                 # Build options (use agent's temperature from state)
                 agent_temp = resolve_agent_temperature(state, agent_id)
-                agent_options = build_llm_options(state, agent_id, agent_temp, agent_num_ctx)
+                agent_options = build_llm_options(state, agent_id, model_id, agent_temp, agent_num_ctx)
 
                 # Stream response
                 result = None

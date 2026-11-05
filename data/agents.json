@@ -271,7 +271,7 @@
       "toggles": {
         "personality": true,
         "reasoning": false,
-        "thinking": true
+        "thinking": false
       },
       "tools": null
     },

@@ -57,15 +57,17 @@ Globale Einstellungen liegen in `data/settings.json` und werden von der UI, der 
       "ollama": { "aifred": "qwen3.5:4b", "vision": "qwen3.5:4b" }
     },
     "agent_tuning": {
-      "aifred": { "temperature": 0.7, "reasoning": true, "thinking": true, "reasoning_effort": "" }
+      "aifred": { "temperature": 0.7, "reasoning": true, "thinking_by_model": { "<Basis-Id>": "high" } }
     }
   }
   ```
 
   Eine leere Rolle fällt auf AIfreds Modell zurück. Jeder Agent (auch eigene) hat
   seinen eigenen Eintrag.
-- **`agent_tuning`** enthält pro Agent Sampling, Temperatur, Reasoning, Thinking,
-  Reasoning Effort, Persönlichkeit und die Schalter für Speed-Varianten.
+- **`agent_tuning`** enthält pro Agent Sampling, Temperatur, Reasoning, Persönlichkeit und die
+  Schalter für Speed-Varianten, dazu `thinking_by_model`: die Denkwahl des Agenten je Modell
+  (`off`, `on` oder eine Stufe). Ein Modell ohne Eintrag denkt nach `toggles.thinking` des
+  Agenten in `agents.json`.
 - Beim ersten Start werden die Standardwerte aus `aifred/lib/config.py`
   (`BACKEND_DEFAULT_MODELS`) verwendet.
 - Einstellungen pro Session (Agent, Diskussionsmodus) liegen **nicht** hier,
@@ -138,6 +140,16 @@ Zwei voneinander unabhängige Schalter pro Agent in den LLM-Einstellungen:
 - **Reasoning Effort:** Für Modelle, deren Chat-Template Stufen kennt
   (z. B. `low` … `xhigh`), wählt ein Selektor pro Agent eine aus; leer bedeutet den
   Standard des Templates, der im Label angezeigt wird.
+- **Je Modell:** Die Wahl wird je Agentenzeile und Modell gespeichert. Wechselt eine Zeile auf
+  ein anderes Modell, kommt die Wahl zurück, die sie zuletzt auf diesem Modell hatte; ein Modell,
+  auf dem sie noch nie lief, beginnt mit der Grundeinstellung des Agenten aus `agents.json`.
+  Dasselbe Modell kann in zwei Zeilen verschieden denken — etwa GLM als Hauptmodell mit einer
+  Stufe für den Chat und GLM in der Vision-Zeile mit einer anderen für Bildbeschreibungen.
+- **Bildbeschreibungen** (Kamera, `vision_analyze`, Ereignisauswertung, die Beschreibung im
+  Symposion) sind Aufgabe des Vision-Agenten: Sie denken, wie die Vision-Zeile es für das
+  beschreibende Modell sagt — ob das das Vision-LLM ist, ein Beschreiber eines anderen
+  Rechners oder das Hauptmodell. Ein Chat-Bild, das das Hauptmodell selbst beantwortet
+  (VL Direct), folgt der Zeile des Agenten, der antwortet.
 - Die Reasoning-Ausgabe erscheint als Collapsible mit Modellname und Inferenzzeit.
 - Die Temperatur ist unabhängig vom Reasoning (Intent-Erkennung oder manueller Wert).
 - Das Automatik-LLM läuft immer mit ausgeschaltetem Thinking — seine Entscheidungen sind schnell und

@@ -444,9 +444,10 @@ async def run_subagent(
     ]
 
     params = resolve_run_params(target_agent, ctx.state)
+    caller_model = resolve_run_params(ctx.agent_id, ctx.state).model
     options = inherit_reasoning(
-        build_llm_options(ctx.state, target_agent, params.temperature, params.num_ctx),
-        build_llm_options(ctx.state, ctx.agent_id, params.temperature, params.num_ctx),
+        build_llm_options(ctx.state, target_agent, params.model, params.temperature, params.num_ctx),
+        build_llm_options(ctx.state, ctx.agent_id, caller_model, params.temperature, params.num_ctx),
     )
 
     transcript: list[str] = [f"{labels['task']}:\n{task}\n\n{labels['expected']}:\n{expected_result}"]

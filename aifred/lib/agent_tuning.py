@@ -51,11 +51,15 @@ class AgentTuning:
     speed_mode: bool = False
     has_speed_variant: bool = False
 
-    # Prompt/thinking toggles
+    # Prompt toggles
     personality: bool = True
     reasoning: bool = True
-    thinking: bool = True
-    reasoning_effort: str = ""
+    # Thinking choice per model this agent runs on: model key → "off", "on"
+    # (template default level) or an effort level. Read and written only
+    # through agent_settings (thinking_mode / set_thinking_mode); a model
+    # without an entry thinks as the agent's agents.json default says.
+    thinking_by_model: dict[str, str] = field(default_factory=dict)
+    # Effort levels of the model this agent runs on (runtime, from its chat template)
     reasoning_levels: list[str] = field(default_factory=list)
     # Template-default level shown in the "On" label ("An (xhigh)") —
     # derived from the model's chat template at load, not persisted.

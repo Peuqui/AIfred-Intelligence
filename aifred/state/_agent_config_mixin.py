@@ -130,35 +130,44 @@ class AgentConfigMixin(rx.State, mixin=True):
         return t("thinking_mode_off", lang=lang), t("thinking_mode_on", lang=lang)
 
     def _set_agent_thinking_mode(self, agent: str, mode: str) -> None:
-        """Dropdown label → (thinking bool, reasoning_effort str).
+        """Dropdown label → the agent's thinking choice on the model it runs on.
 
         off → thinking off; on → thinking on with template default;
         any other value → thinking on + that effort level.
         """
-        from ..lib.agent_settings import set_agent_setting
+        from ..lib.agent_settings import (
+            THINKING_OFF,
+            THINKING_ON,
+            get_agent_base_model_id,
+            set_thinking_mode,
+        )
         off_label, on_label = self._thinking_mode_labels()
         if mode == off_label:
-            mode = "off"
+            mode = THINKING_OFF
         elif mode in (on_label, self._thinking_on_option(agent)):
             # Plain label or default-annotated variant ("An (xhigh)") —
             # both mean "on with template default", no stored effort.
-            mode = "on"
-        set_agent_setting(self, agent, "thinking", mode != "off")
-        set_agent_setting(
-            self, agent, "reasoning_effort",
-            "" if mode in ("off", "on") else mode,
-        )
+            mode = THINKING_ON
+        model_id = get_agent_base_model_id(self, agent)
+        set_thinking_mode(self, agent, model_id, mode)
         emoji = _FEATURE_EMOJI["thinking"]
-        self.add_debug(f"{emoji} {agent.capitalize()} thinking: {mode}")  # type: ignore[attr-defined]
+        self.add_debug(f"{emoji} {agent.capitalize()} thinking on {model_id}: {mode}")  # type: ignore[attr-defined]
         self._save_settings()  # type: ignore[attr-defined]
 
     def _agent_thinking_mode(self, agent: str) -> str:
-        """Current dropdown label derived from (thinking, effort)."""
-        from ..lib.agent_settings import get_agent_setting, model_owner
-        off_label, _ = self._thinking_mode_labels()
-        if not get_agent_setting(self, agent, "thinking"):
+        """Dropdown label of the agent's thinking choice on the model it runs on."""
+        from ..lib.agent_settings import (
+            THINKING_OFF,
+            THINKING_ON,
+            get_agent_base_model_id,
+            get_agent_setting,
+            model_owner,
+            thinking_mode,
+        )
+        mode = thinking_mode(self, agent, get_agent_base_model_id(self, agent))
+        if mode == THINKING_OFF:
+            off_label, _ = self._thinking_mode_labels()
             return off_label
-        effort: str = get_agent_setting(self, agent, "reasoning_effort")
         # Ein explizit gespeichertes Level, das zufällig dem Template-Default
         # entspricht (Qwen3.8: "xhigh"), zeigt "An (xhigh)" statt "xhigh" —
         # als eigener Options-Eintrag existiert "xhigh" nicht mehr (siehe
@@ -167,21 +176,25 @@ class AgentConfigMixin(rx.State, mixin=True):
         default: str = get_agent_setting(
             self, model_owner(self, agent), "reasoning_default",
         )
-        if effort and default and effort == default:
+        if mode == THINKING_ON or mode == default:
             return self._thinking_on_option(agent)
-        return effort or self._thinking_on_option(agent)
+        return mode
 
     def _load_agent_reasoning_levels(self, agent: str, model_id: str) -> None:
         """Refresh the agent's ``reasoning_levels`` for a newly selected model
-        and clear a selected effort level the new model doesn't support.
+        and clear a stored effort level the model's template no longer knows.
         Levels kommen aus dem Chat-Template des Modells — SSOT ist
         ``resolve_reasoning_levels`` (GGUF-Einträge: eingebettetes
         Template; vLLM-Einträge: chat_template.jinja des Checkpoints).
         Ollama/Cloud-Modelle haben keinen llama-swap-Eintrag → keine Stufen."""
         from ..lib.agent_settings import (
+            THINKING_OFF,
+            THINKING_ON,
             get_agent_setting,
             model_owner,
             set_agent_setting,
+            set_thinking_mode,
+            thinking_mode,
         )
         from ..lib.model_vram_cache import get_reasoning_levels_for_model
         levels: list[str] = []
@@ -194,9 +207,12 @@ class AgentConfigMixin(rx.State, mixin=True):
             default = get_reasoning_default_for_model(model_id) or ""
         set_agent_setting(self, agent, "reasoning_levels", levels)
         set_agent_setting(self, agent, "reasoning_default", default)
-        # Effort gegen die EFFEKTIVEN Stufen validieren (Owner-aware):
-        # Beim Umstellen auf "(wie AIfred-LLM)" ist die eigene Liste leer,
-        # aber ein gesetztes "high" bleibt gültig, solange der Owner es kann.
+        # Die Wahl auf dem Modell, auf dem der Agent läuft, gegen die
+        # EFFEKTIVEN Stufen validieren (Owner-aware): Beim Umstellen auf
+        # "(wie AIfred-LLM)" ist die eigene Liste leer, aber ein gesetztes
+        # "high" bleibt gültig, solange der Owner es kann. Weil die Wahl je
+        # Modell gespeichert ist, trifft das nur eine Stufe, die das Template
+        # nach einem Neu-Download nicht mehr kennt.
         #
         # Verworfen wird nur, wenn die Stufen des Modells wirklich BEKANNT
         # sind. Eine leere Liste heisst zweierlei: "analysiert, das Modell
@@ -214,13 +230,13 @@ class AgentConfigMixin(rx.State, mixin=True):
             and bool(owner_model)
             and get_reasoning_levels_for_model(owner_model) is not None
         )
-        effort: str = get_agent_setting(self, agent, "reasoning_effort")
+        mode = thinking_mode(self, agent, owner_model)
         effective = self._effective_reasoning_levels(agent)
-        if levels_known and effort not in ("", *effective):
-            set_agent_setting(self, agent, "reasoning_effort", "")
+        if levels_known and mode not in (THINKING_OFF, THINKING_ON, *effective):
+            set_thinking_mode(self, agent, owner_model, THINKING_ON)
             from ..lib.agent_config import get_agent_label
             self.add_debug(  # type: ignore[attr-defined]
-                f"🧠 {get_agent_label(agent)} reasoning effort '{effort}' "
+                f"🧠 {get_agent_label(agent)} reasoning effort '{mode}' "
                 f"unsupported by {owner_model} — cleared"
             )
             self._save_settings()  # type: ignore[attr-defined]

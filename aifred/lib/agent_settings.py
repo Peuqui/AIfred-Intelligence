@@ -15,12 +15,19 @@ from .agent_tuning import CANONICAL_AGENTS, default_tuning
 __all__ = [
     "CANONICAL_AGENTS",
     "PERSISTED_TUNING_FIELDS",
+    "THINKING_OFF",
+    "THINKING_ON",
     "get_agent_base_model_id",
     "get_agent_setting",
     "get_persisted_tuning",
     "model_owner",
+    "persisted_thinking_mode",
     "set_agent_setting",
+    "set_thinking_mode",
     "settings_agent",
+    "thinking_fields",
+    "thinking_mode",
+    "thinking_model_key",
 ]
 
 _MISSING = object()
@@ -32,8 +39,7 @@ _MISSING = object()
 PERSISTED_TUNING_FIELDS = (
     "personality",
     "reasoning",
-    "thinking",
-    "reasoning_effort",
+    "thinking_by_model",
     "temperature",
     "temperature_offset",
     "top_k",
@@ -130,3 +136,73 @@ def get_persisted_tuning(settings: dict, agent: str, field: str, default: Any) -
     except ValueError:
         return default
     return settings.get("agent_tuning", {}).get(agent, {}).get(field, default)
+
+
+# ── Thinking choice per agent and model (SSOT) ───────────────────────────
+# One truth: ``AgentTuning.thinking_by_model`` maps a model to the agent's
+# choice on it. Every request (chat, Symposion, hub, sub-agents, image
+# descriptions) reads it through thinking_mode / persisted_thinking_mode with
+# the model the request goes to, the dropdown writes it through
+# set_thinking_mode. Switching an agent's model needs no copying: the other
+# model simply has its own entry.
+
+THINKING_OFF = "off"
+THINKING_ON = "on"  # thinking with the level the chat template picks itself
+
+
+def thinking_model_key(model_id: str) -> str:
+    """The model a request goes to, as the thinking choice knows it: its base
+    model. A describer of another machine (``<machine>/<model>``) and every
+    llama-swap variant (``-visiond``, ``-tts-…``, ``-vlm-…``, ``-speed``) is
+    the same model — the choice belongs to the model, not to where or how it
+    is loaded."""
+    from .remote_describers import split
+    from .vision_utils import strip_variant_suffixes
+    remote = split(model_id)
+    return strip_variant_suffixes(remote[1] if remote else model_id)
+
+
+def _default_thinking_mode(agent: str) -> str:
+    """The agent's thinking default from agents.json (``toggles.thinking``),
+    for a model it never had a choice on."""
+    from .agent_config import get_agent_config
+    config = get_agent_config(agent)
+    if config is None:
+        raise ValueError(f"Unknown agent: {agent}")
+    return THINKING_ON if config.toggles.get("thinking", True) else THINKING_OFF
+
+
+def _mode_in(choices: dict[str, str], agent: str, model_id: str) -> str:
+    mode = choices.get(thinking_model_key(model_id))
+    return _default_thinking_mode(agent) if mode is None else mode
+
+
+def thinking_mode(state: Any, agent: str, model_id: str) -> str:
+    """The agent's thinking choice on ``model_id``: THINKING_OFF, THINKING_ON
+    or an effort level."""
+    choices: dict[str, str] = get_agent_setting(state, agent, "thinking_by_model")
+    return _mode_in(choices, agent, model_id)
+
+
+def persisted_thinking_mode(settings: dict, agent: str, model_id: str) -> str:
+    """:func:`thinking_mode` from a loaded settings.json dict (paths without a
+    State: Message Hub, scheduler, image describers)."""
+    choices: dict[str, str] = get_persisted_tuning(settings, agent, "thinking_by_model", {})
+    return _mode_in(choices, agent, model_id)
+
+
+def set_thinking_mode(state: Any, agent: str, model_id: str, mode: str) -> None:
+    """Store the agent's thinking choice on ``model_id``."""
+    choices = dict(get_agent_setting(state, agent, "thinking_by_model"))
+    choices[thinking_model_key(model_id)] = mode
+    set_agent_setting(state, agent, "thinking_by_model", choices)
+
+
+def thinking_fields(mode: str) -> tuple[bool, str | None]:
+    """``(enable_thinking, reasoning_effort)`` of a choice for LLMOptions;
+    ``None`` lets the chat template pick its default level."""
+    if mode == THINKING_OFF:
+        return False, None
+    if mode == THINKING_ON:
+        return True, None
+    return True, mode

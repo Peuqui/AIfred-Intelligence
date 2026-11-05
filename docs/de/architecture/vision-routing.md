@@ -184,6 +184,13 @@ die Regel A auf das effektive Hauptmodell anwendet:
 - **Kein Vision-LLM:** Das Bild geht ohne Beschreibung weiter, mit Hinweis in
   der Debug-Konsole.
 
+**Denken beim Beschreiben:** Jede Beschreibung (`_describe_images`, `analyze_sequence` →
+`_analyze_via_llamacpp`) ist ein Auftrag an den Agenten „Vision“. Sie denkt, wie die
+Vision-Zeile es für das beschreibende Modell sagt (`agent_settings.thinking_mode`, je Modell
+gespeichert), und schickt die Stufe wie die Chat-Backends in `chat_template_kwargs`. Der
+4B bleibt so ohne Denken, GLM als Hauptmodell beschreibt mit der Stufe, die für GLM in der
+Vision-Zeile steht. VL Direct folgt der Zeile des antwortenden Agenten.
+
 ## Entlade-Semantik (llama-swap-Gruppen)
 
 ```yaml

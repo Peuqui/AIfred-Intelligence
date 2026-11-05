@@ -341,13 +341,29 @@ async def _analyze_via_llamacpp(
     # Rechners) ist ein kleines VLM; beschreibt das Hauptmodell selbst, ist es keins.
     describer_profile = remote is not None or is_visiond_profile(model)
 
+    # Eine Bildbeschreibung ist ein Auftrag an den Agenten „Vision“: Er denkt, wie
+    # die Vision-Zeile es für das beschreibende Modell sagt (agent_settings SSOT),
+    # auf demselben Weg wie die Chat-Backends (chat_template_kwargs).
+    from .agent_settings import persisted_thinking_mode, thinking_fields
+    from .settings import persisted_settings
+    enable_thinking, reasoning_effort = thinking_fields(
+        persisted_thinking_mode(persisted_settings(), "vision", model)
+    )
+    template_kwargs: dict[str, Any] = {"enable_thinking": enable_thinking}
+    if reasoning_effort:
+        template_kwargs["reasoning_effort"] = reasoning_effort
+    if enable_thinking:
+        from .gguf_utils import reasoning_effort_label
+        logger.info(
+            "VLM thinking (model=%s): reasoning_effort on the wire: %s",
+            model, reasoning_effort_label(model, reasoning_effort),
+        )
+
     payload: dict[str, Any] = {
         "model": model_there,
         "messages": [{"role": "user", "content": content}],
         "stream": False,
-        # Bildbeschreibung braucht keine Denk-Phase — Qwen3.x-Templates
-        # kennen den Schalter, andere Server ignorieren das Feld einfach.
-        "chat_template_kwargs": {"enable_thinking": False},
+        "chat_template_kwargs": template_kwargs,
     }
     if describer_profile:
         # Nur für die kleinen Beschreiber: Bei vielen fast gleichen Bildern läuft

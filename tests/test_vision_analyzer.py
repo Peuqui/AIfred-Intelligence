@@ -26,6 +26,14 @@ def run(coro):
     return asyncio.run(coro)
 
 
+@pytest.fixture(autouse=True)
+def _no_saved_settings(monkeypatch):
+    """The describers read the vision row's thinking choice from settings.json —
+    never the real one of the machine the tests run on."""
+    from aifred.lib import settings
+    monkeypatch.setattr(settings, "persisted_settings", dict)
+
+
 def _make_frame(idx: int = 0) -> Frame:
     return Frame(
         source_id="cam/test",
@@ -265,6 +273,50 @@ class TestLlamacppDispatch:
         run(analyze_sequence([_make_frame(0)], "Was ist zu sehen?", model="Small-VL-4B-visiond"))
         assert captured["payload"]["max_tokens"] == VISION_DESCRIBE_MAX_TOKENS
         assert "repeat_penalty" in captured["payload"]
+
+    def test_the_vision_row_choice_for_the_describing_model_goes_on_the_wire(self, monkeypatch):
+        # GLM as main model describes: the vision row's choice for GLM ("high")
+        # rides in chat_template_kwargs like on the chat backends; the 4B of the
+        # same row stays off.
+        import httpx
+
+        import aifred.lib.vision_routing as vr
+        import aifred.lib.vision_utils as vu
+        from aifred.lib import settings
+        from aifred.lib.agent_settings import thinking_model_key
+        monkeypatch.setattr(vu, "has_native_vision", lambda m: True)
+        monkeypatch.setattr(vr, "release_side_channels_for_describer", lambda profile: None)
+        choices = {thinking_model_key("GLM-X-vllm"): "high", thinking_model_key("Small-VL-4B"): "off"}
+        monkeypatch.setattr(settings, "persisted_settings",
+                            lambda: {"agent_tuning": {"vision": {"thinking_by_model": choices}}})
+        sent: list[dict] = []
+
+        class FakeResponse:
+            def raise_for_status(self) -> None:
+                pass
+
+            def json(self) -> dict:
+                return {"choices": [{"message": {"content": "Ein Plan."}}], "usage": {}}
+
+        class FakeAsyncClient:
+            def __init__(self, **kwargs) -> None:
+                pass
+
+            async def __aenter__(self):
+                return self
+
+            async def __aexit__(self, *args):
+                return False
+
+            async def post(self, url, json=None):
+                sent.append(json)
+                return FakeResponse()
+
+        monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+        run(analyze_sequence([_make_frame(0)], "Was steht da?", model="GLM-X-vllm"))
+        run(analyze_sequence([_make_frame(0)], "Was steht da?", model="Small-VL-4B-visiond"))
+        assert sent[0]["chat_template_kwargs"] == {"enable_thinking": True, "reasoning_effort": "high"}
+        assert sent[1]["chat_template_kwargs"] == {"enable_thinking": False}
 
     def test_non_mmproj_model_stays_on_ollama(self, monkeypatch):
         import aifred.lib.vision_utils as vu

@@ -201,7 +201,7 @@ class TestRun:
             lambda agent_id, state: sub.RunParams("llamacpp", "http://x", "test-model", 8192, 0.5),
         )
         from aifred.backends.base import LLMOptions
-        monkeypatch.setattr(sub, "build_llm_options", lambda state, agent, t, n: LLMOptions(temperature=t, num_ctx=n))
+        monkeypatch.setattr(sub, "build_llm_options", lambda state, agent, model, t, n: LLMOptions(temperature=t, num_ctx=n))
 
         class FakeClient:
             def __init__(self, **kwargs):

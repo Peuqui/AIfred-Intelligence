@@ -57,15 +57,17 @@ Global settings live in `data/settings.json`, written by the UI, the REST API
       "ollama": { "aifred": "qwen3.5:4b", "vision": "qwen3.5:4b" }
     },
     "agent_tuning": {
-      "aifred": { "temperature": 0.7, "reasoning": true, "thinking": true, "reasoning_effort": "" }
+      "aifred": { "temperature": 0.7, "reasoning": true, "thinking_by_model": { "<base id>": "high" } }
     }
   }
   ```
 
   An empty role falls back to AIfred's model. Every agent (custom ones too) has
   its own entry.
-- **`agent_tuning`** holds per-agent sampling, temperature, reasoning, thinking,
-  reasoning effort, personality and speed-variant toggles.
+- **`agent_tuning`** holds per-agent sampling, temperature, reasoning, personality and
+  speed-variant toggles, plus `thinking_by_model`: the agent's thinking choice per model
+  (`off`, `on` or a level). A model without an entry thinks as the agent's
+  `toggles.thinking` in `agents.json` says.
 - On first start the defaults from `aifred/lib/config.py`
   (`BACKEND_DEFAULT_MODELS`) are used.
 - Per-session settings (agent, discussion mode) are **not** here
@@ -138,6 +140,16 @@ Two independent toggles per agent in the LLM settings:
 - **Reasoning effort:** for models whose chat template knows levels
   (e.g. `low` … `xhigh`), a per-agent selector picks one; empty means the
   template's default, shown in the label.
+- **Per model:** the choice is stored per agent row and model. Switching a row to another
+  model brings back the choice it last had on that model; a model it never ran on starts
+  from the agent's default in `agents.json`. The same model can think differently in two
+  rows — e.g. GLM as main model with one level for chat and GLM in the vision row with
+  another one for image descriptions.
+- **Image descriptions** (camera, `vision_analyze`, event analysis, the Symposion
+  description) are the vision agent's task: they think as the vision row says for the
+  model that describes, whether that is the vision LLM, a describer of another machine or
+  the main model. A chat image the main model answers itself (VL Direct) follows the row
+  of the agent that answers.
 - Reasoning output appears as a collapsible with model name and inference time.
 - Temperature is independent of reasoning (intent detection or manual value).
 - The Automatik-LLM always runs with thinking off — its decisions are fast and
