@@ -1,4 +1,5 @@
-"""A GPU-Orc stand-in for tests: answers /health, /status, /loading and /free as set up, records every /free."""
+"""A GPU-Orc stand-in for tests: answers /health, /status, /loading, /free and /hold as set up, records every
+/free and /hold."""
 
 from __future__ import annotations
 
@@ -22,6 +23,8 @@ class FakeGpuOrc:
         self.already_running = False
         self.cards: list[dict[str, Any]] = []  # the "gpus" of GET /status
         self.loading: list[str] = []  # what GET /loading names
+        self.held: dict[str, str] | None = None  # the hold GET /loading names (POST /hold sets it)
+        self.holds: list[str] = []  # the reason of each POST /hold
         self.refusal: tuple[int, str] | None = None  # (HTTP status, error) every /free answers instead
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -35,7 +38,18 @@ class FakeGpuOrc:
             queue = {"running": False, "waiting": 0, "running_since_s": None}
             return httpx.Response(200, json={"queue": queue, "gpus": self.cards, "errors": []})
         if path == "/loading":
-            return httpx.Response(200, json={"loading": self.loading})
+            return httpx.Response(200, json={"loading": self.loading, "held": self.held})
+        if path == "/hold" and request.method == "POST":
+            reason = json.loads(request.content)["reason"]
+            self.holds.append(reason)
+            self.held = {"since": "2026-11-05T09:00:00+01:00", "reason": reason}
+            return httpx.Response(200, json={"held": self.held, "free": {
+                "gpus": [], "already_running": False, "duration_s": 0.1, "actions": self.actions,
+                "memory": [], "free": self.free, "status": None,
+            }})
+        if path == "/hold" and request.method == "DELETE":
+            self.held = None
+            return httpx.Response(200, json={"held": None})
         if path == "/free":
             self.frees.append(json.loads(request.content))
             self.free_timeouts.append(request.extensions["timeout"]["read"])

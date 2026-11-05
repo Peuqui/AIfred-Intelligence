@@ -44,6 +44,19 @@ class FreeResult:
 
 
 @dataclass(frozen=True)
+class TrafficLight:
+    """GPU-Orc's ``GET /loading``: nothing new goes on the cards while a big model loads or while
+    somebody holds them (``held``: ``{"since", "reason"}``, else ``None``)."""
+
+    loading: tuple[str, ...]
+    held: dict[str, str] | None
+
+    @property
+    def red(self) -> bool:
+        return bool(self.loading) or self.held is not None
+
+
+@dataclass(frozen=True)
 class CardHolder:
     consumer: str
     item: str
@@ -76,13 +89,27 @@ class GpuOrcClient:
         """Clear every card of everything but the model server's models (``gpus`` form with ``keep``)."""
         return self._free({"gpus": "all", "keep": [GPU_ORC_MODEL_SERVER], "reason": reason})
 
-    def loading(self) -> list[str]:
-        """The big models loading right now (GPU-Orc's traffic light); nothing new goes on a card meanwhile."""
+    def traffic_light(self) -> TrafficLight:
+        """The big models loading right now and the hold of the cards (GPU-Orc's traffic light)."""
         body = self._call("GET", "/loading", GPU_ORC_STATUS_TIMEOUT_S)
         try:
-            return [str(model) for model in body["loading"]]
+            held = body["held"]
+            return TrafficLight(
+                tuple(str(model) for model in body["loading"]),
+                None if held is None else {"since": str(held["since"]), "reason": str(held["reason"])},
+            )
         except (KeyError, TypeError) as error:
             raise GpuOrcError(f"GPU-Orc /loading has an unknown form: {error!r}") from error
+
+    def hold(self, reason: str) -> FreeResult:
+        """Hold the cards for somebody (``POST /hold``): GPU-Orc clears every card at once; the answer is
+        that clearing. It may take as long as a /free."""
+        answer = self._call("POST", "/hold", self._caller_timeout(), {"reason": reason})
+        return self._free_result(answer.get("free"), "/hold")
+
+    def release_hold(self) -> None:
+        """Let go of the cards (``DELETE /hold``)."""
+        self._call("DELETE", "/hold", GPU_ORC_STATUS_TIMEOUT_S)
 
     def card_status(self) -> list[CardStatus]:
         """Who holds what on each card, as the consumers' own services report it."""
@@ -101,11 +128,18 @@ class GpuOrcClient:
             raise GpuOrcError(f"GPU-Orc /status has an unknown form: {error!r}") from error
 
     def _free(self, body: dict[str, Any]) -> FreeResult:
-        # A /free waits as long as GPU-Orc's own limit; it names the timeout that fits on /health.
+        return self._free_result(self._call("POST", "/free", self._caller_timeout(), body), "/free")
+
+    def _caller_timeout(self) -> float:
+        """A /free (and a /hold, which clears like one) waits as long as GPU-Orc's own limit; it names
+        the timeout that fits on /health."""
         timeout = self._call("GET", "/health", GPU_ORC_STATUS_TIMEOUT_S).get("caller_timeout_s")
         if not isinstance(timeout, int | float):
             raise GpuOrcError("GPU-Orc /health names no caller_timeout_s")
-        answer = self._call("POST", "/free", timeout, body)
+        return float(timeout)
+
+    @staticmethod
+    def _free_result(answer: Any, path: str) -> FreeResult:
         try:
             result = FreeResult(
                 answer["already_running"],
@@ -116,7 +150,7 @@ class GpuOrcClient:
                 ),
             )
         except (KeyError, TypeError) as error:
-            raise GpuOrcError(f"GPU-Orc /free has an unknown form: {error!r}") from error
+            raise GpuOrcError(f"GPU-Orc {path} has an unknown form: {error!r}") from error
         if any(action.outcome in RELEASED_OUTCOMES for action in result.actions):
             # STT and TTS push nothing; llama-swap reports its own unloads over its event stream.
             notify_changed("stt")

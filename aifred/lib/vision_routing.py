@@ -366,7 +366,8 @@ def loaded_llamaswap_profiles() -> list[str]:
 
 
 def load_in_progress() -> str | None:
-    """Warum gerade nichts Neues auf die Karten darf, ``None`` wenn doch (GPU-Orcs Ampel).
+    """Warum gerade nichts Neues auf die Karten darf, ``None`` wenn doch (GPU-Orcs Ampel: ein großes
+    Modell lädt, oder jemand hält die Karten frei).
 
     Solange ein großes Modell lädt, zeigt nvidia-smi Karten, die gleich voll sind: Ein
     Describer, der jetzt nach dem freien Speicher geht, nimmt dem Modell den
@@ -375,11 +376,13 @@ def load_in_progress() -> str | None:
     """
     from .gpu_orc_client import GpuOrcError, get_gpu_orc_client
     try:
-        loading = get_gpu_orc_client().loading()
+        light = get_gpu_orc_client().traffic_light()
     except GpuOrcError as error:
         logger.warning("GPU-Orc says nothing about loading models: %s", error)
         return f"GPU-Orc gibt keine Auskunft: {error}"
-    return f"'{', '.join(loading)}' lädt gerade" if loading else None
+    if light.held is not None:
+        return f"die Karten werden freigehalten ({light.held['reason']})"
+    return f"'{', '.join(light.loading)}' lädt gerade" if light.loading else None
 
 
 # Local on-prem backends where the optional Ollama side-channel makes sense.

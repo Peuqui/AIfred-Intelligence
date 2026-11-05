@@ -1296,6 +1296,8 @@ GPU_ORC_STATUS_TIMEOUT_S = 15
 VISION_REMOTE_HOSTS = os.environ.get("VISION_REMOTE_HOSTS", "[]")
 # Such a machine is off or asleep as a matter of course: one short look before every choice.
 VISION_REMOTE_HEALTH_TIMEOUT_S = 0.5
+# The reason a hold set from the status bar carries on that machine's GPU-Orc (its log, the TTS-Suite).
+VISION_REMOTE_HOLD_REASON = "held from AIfred's status bar"
 # The narrator chunks its text itself (NARRATE_CHUNK_LIMIT_CHARS), so the service gets each
 # chunk whole: one audio per chunk, as the engine takes it.
 NARRATE_SPEECH_UNIT = "whole"

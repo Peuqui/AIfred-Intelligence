@@ -15,6 +15,7 @@ from aifred.lib.gpu_orc_client import (
     FreeResult,
     GpuOrcClient,
     GpuOrcError,
+    TrafficLight,
     describe,
     get_gpu_orc_client,
 )
@@ -79,11 +80,30 @@ def test_a_client_with_a_token_sends_it_on_every_request() -> None:
 
     def handler(request: httpx.Request) -> httpx.Response:
         seen.append(request.headers.get("Authorization", ""))
-        return httpx.Response(200, json={"loading": []})
+        return httpx.Response(200, json={"loading": [], "held": None})
 
     client = GpuOrcClient("http://remote.test", transport=httpx.MockTransport(handler), token="s3cret")
-    assert client.loading() == []
+    assert client.traffic_light() == TrafficLight((), None)
     assert seen == ["Bearer s3cret"]
+
+
+def test_held_cards_make_the_light_red_and_a_hold_clears_them(fake) -> None:
+    client = get_gpu_orc_client()
+    assert client.traffic_light().red is False
+    fake.actions = [{"consumer": "llama-swap", "item": "describer", "outcome": "released"}]
+    result = client.hold("gaming")
+    assert fake.holds == ["gaming"] and [a.outcome for a in result.actions] == ["released"]
+    light = client.traffic_light()
+    assert light.red is True and light.held is not None and light.held["reason"] == "gaming"
+    client.release_hold()
+    assert client.traffic_light() == TrafficLight((), None)
+
+
+def test_a_light_without_the_hold_field_is_an_unknown_form() -> None:
+    client = GpuOrcClient("http://old.test", transport=httpx.MockTransport(
+        lambda request: httpx.Response(200, json={"loading": []})))
+    with pytest.raises(GpuOrcError, match="unknown form"):
+        client.traffic_light()
 
 
 def test_describe_says_what_was_released_what_stayed_and_whether_the_cards_are_free() -> None:

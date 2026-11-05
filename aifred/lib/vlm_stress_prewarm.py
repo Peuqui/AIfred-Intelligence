@@ -399,10 +399,15 @@ async def stress_prewarm_remote(model: RemoteModel, *, timeout_s: float = 600.0)
     import httpx
 
     from . import vlm_vram_cache
-    from .remote_describers import gpu_orc
+    from .remote_describers import RemoteHostError, gpu_orc
 
     host = model.host
     client = gpu_orc(host)
+    light = client.traffic_light()
+    if light.held is not None:  # the burn-in unloads and loads there: not while somebody keeps the cards
+        raise RemoteHostError(f"{host.name}: the cards are held ({light.held['reason']})")
+    if light.loading:
+        raise RemoteHostError(f"{host.name}: {', '.join(light.loading)} is loading")
 
     def used_mib() -> int:
         return sum(card.used_mib for card in client.card_status())

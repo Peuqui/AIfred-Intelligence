@@ -2400,6 +2400,9 @@ if (!window.__aifredSummaryLinkBound) {
 // open one a line each with the time left (ui/service_status_bar.py holds the empty frames).
 var serviceStatus = null;       // last snapshot from the server
 var serviceStatusAt = 0;        // performance.now() when it arrived
+// Machines with describers (lib/remote_describers.py): asked when the page asks for the snapshot, on the
+// refresh button and after a click on their button; their state does not come over the bus.
+var serviceStatusHosts = [];
 
 function serviceStatusReceive(snapshot) {
     serviceStatus = snapshot;
@@ -2463,6 +2466,25 @@ function serviceStatusRows(st, t) {
     return rows;
 }
 
+// One line per machine with describers: red its GPU-Orc does not answer, yellow its card is held free
+// for somebody, green open to describers; the button holds the card free or releases it.
+function serviceStatusHostRows(hosts, t) {
+    const mib = (n) => n.toLocaleString(t.lang);
+    return hosts.map((host) => {
+        if (!host.reachable) {
+            return {color: 'red', label: `${t.tHost} ${host.name}`, text: t.tUnreachable, title: host.error,
+                    remaining: null, upperBound: false, action: null};
+        }
+        const parts = [host.held ? t.tHostHeld : t.tHostFreeCards, `${mib(host.used_mib)} / ${mib(host.total_mib)} MiB`,
+                       ...host.holders];
+        return {
+            color: host.held ? 'yellow' : 'green', label: `${t.tHost} ${host.name}`, text: parts.join(' · '),
+            title: host.held ? `${t.tHostHeld}: ${host.held}` : parts.join(' · '), remaining: null, upperBound: false,
+            action: {verb: host.held ? 'release' : 'hold', service: 'host', item: host.name},
+        };
+    });
+}
+
 function serviceStatusSummaryColor(rows) {
     for (const color of ['red', 'yellow', 'green']) {
         if (rows.some((row) => row.color === color)) return color;
@@ -2517,20 +2539,25 @@ function serviceStatusRender() {
 
     if (!list) return;
     const elapsed = (performance.now() - serviceStatusAt) / 1000;
-    const listSignature = JSON.stringify(services.map(([key]) => rows[key].map(
+    const hostRows = serviceStatusHostRows(serviceStatusHosts, t);
+    const listSignature = JSON.stringify([services.map(([key]) => rows[key].map(
         (row) => [row.color, row.text, row.remaining !== null, row.upperBound, row.action],
-    )));
+    )), hostRows]);
     if (listSignature !== serviceStatusListSignature || !list.hasChildNodes()) {
         serviceStatusListSignature = listSignature;
-        list.replaceChildren(...services.flatMap(([key, longName]) => rows[key].map((row) => {
-            const line = serviceStatusElement('div', 'ss-row');
+        const line = (key, row, label) => {
+            const element = serviceStatusElement('div', 'ss-row');
             const value = serviceStatusElement('span', 'ss-value', row.text);
-            value.title = row.text;
-            line.append(serviceStatusBadge(t, key, row.color, longName), serviceStatusElement('span', 'ss-label', `${longName}:`), value);
-            if (row.remaining !== null) line.append(serviceStatusElement('span', 'ss-time'));
-            if (row.action) line.append(serviceStatusActionButton(t, row.action));
-            return line;
-        })));
+            value.title = row.title || row.text;
+            element.append(serviceStatusBadge(t, key, row.color, label), serviceStatusElement('span', 'ss-label', `${label}:`), value);
+            if (row.remaining !== null) element.append(serviceStatusElement('span', 'ss-time'));
+            if (row.action) element.append(serviceStatusActionButton(t, row.action));
+            return element;
+        };
+        list.replaceChildren(
+            ...services.flatMap(([key, longName]) => rows[key].map((row) => line(key, row, longName))),
+            ...hostRows.map((row) => line('host', row, row.label)),
+        );
     }
     const timeCells = list.querySelectorAll('.ss-time');
     services.flatMap(([key]) => rows[key]).filter((row) => row.remaining !== null).forEach((row, index) => {
@@ -2546,7 +2573,8 @@ const SERVICE_STATUS_POWER_SVG = '<svg viewBox="0 0 24 24" width="14" height="14
 function serviceStatusActionButton(t, action) {
     const button = serviceStatusElement('button', `ss-action ss-action-${action.verb}`);
     button.type = 'button';
-    button.title = action.verb === 'load' ? t.tLoad : t.tUnload;
+    const titles = {load: t.tLoad, unload: t.tUnload, hold: t.tHostHold, release: t.tHostRelease};
+    button.title = titles[action.verb];
     button.setAttribute('aria-label', button.title);
     button.dataset.verb = action.verb;
     button.dataset.service = action.service;
@@ -2571,12 +2599,14 @@ function serviceStatusNotice(text) {
 async function serviceStatusAct(button) {
     const {verb, service, item} = button.dataset;
     const lang = document.getElementById('service-status-dots').dataset.lang;
-    const body = verb === 'load' ? {service, lang} : {service, item, lang};
+    const hold = verb === 'hold' || verb === 'release';
+    const body = hold ? {host: item, hold: verb === 'hold', lang} : verb === 'load' ? {service, lang} : {service, item, lang};
     button.disabled = true;
     try {
-        const response = await fetch(`/api/service-status/${verb}`, {
+        const response = await fetch(`/api/service-status/${hold ? 'hold' : verb}`, {
             method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body),
         });
+        if (hold) await serviceStatusFetchHosts();
         if (!response.ok) {
             const answer = await response.json();
             serviceStatusNotice(typeof answer.detail === 'string' ? answer.detail : JSON.stringify(answer.detail));
@@ -2594,6 +2624,17 @@ async function serviceStatusFetch(refresh) {
     } catch (e) {
         console.warn('Status bar: could not read the service status:', e);
     }
+    await serviceStatusFetchHosts();
+}
+
+async function serviceStatusFetchHosts() {
+    try {
+        const response = await fetch('/api/service-status/hosts');
+        if (response.ok) serviceStatusHosts = await response.json();
+    } catch (e) {
+        console.warn('Status bar: could not read the machines with describers:', e);
+    }
+    serviceStatusRender();
 }
 
 document.addEventListener('click', (event) => {

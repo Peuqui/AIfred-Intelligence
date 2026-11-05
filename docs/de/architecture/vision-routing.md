@@ -139,6 +139,14 @@ sein `/v1/models`. Welches beschreibt, wählt der Nutzer in den Vigilantia-Einst
   meldet.
 - **Freiräumen:** Vor dem Laden fragt AIfred den GPU-Orc des Rechners, auf dem das Modell lädt
   (Bildweg `release_side_channels_for_describer`, Chat-Weg `_free_gpus_for_load`).
+- **Freihalten:** Die Statusleiste zeigt je Rechner eine Zeile (GPU-Orc dort: erreichbar,
+  freigehalten, Belegung, was auf der Karte liegt) mit dem Knopf „Karte freihalten“ / „Karte
+  freigeben“ (`/api/service-status/hosts`, `/api/service-status/hold`). Freihalten heißt
+  `POST /hold` beim GPU-Orc dort: Er räumt sofort alle Karten und meldet den Halt auf seiner
+  Ampel, bis `DELETE /hold`; der Halt liegt dort in einer Datei und übersteht einen Neustart. Solange
+  passt dort nichts (`check_fits`), der Burn-in verweigert, und die TTS-Suite startet dort keine
+  Container (sie fragt die Ampel des Rechners vor jedem Start). Dieselbe Ampel bremst auch die
+  Describer dieses Rechners (`load_in_progress`), wenn jemand dessen Karten freihält.
 - **Ausfall mitten in der Anfrage:** `describe_with_second_attempt` (alle Bildwege). Antwortet der
   Rechner danach nicht mehr, meldet die Debug-Konsole das laut, und dieselbe Wahl läuft genau ein
   zweites Mal: Sie findet den Rechner nicht mehr und nimmt die nächste Stufe. Antwortet er noch,

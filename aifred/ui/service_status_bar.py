@@ -43,6 +43,12 @@ def service_status_bar() -> rx.Component:
         "data-t-days-short": t("service_status_days_short"),
         "data-t-load": t("service_status_load"),
         "data-t-unload": t("service_status_unload"),
+        "data-t-host": t("service_status_host"),
+        "data-icon-host": rx.asset("status-icons/vision-describer-icon.svg"),
+        "data-t-host-held": t("service_status_host_held"),
+        "data-t-host-free-cards": t("service_status_host_free_cards"),
+        "data-t-host-hold": t("service_status_host_hold"),
+        "data-t-host-release": t("service_status_host_release"),
     }
     content = rx.vstack(
         rx.hstack(

@@ -165,9 +165,9 @@ def gpu_orc_for_llamaswap(llamaswap_root: str) -> GpuOrcClient | None:
 
 
 def check_fits(model: RemoteModel) -> VRAMCheckResult:
-    """Does ``model`` fit on its machine now? Loaded fits; while a big model loads there nothing new
-    goes on; otherwise measured need plus headroom against what is free (what GPU-Orc there clears
-    before a load counts as free, as on this machine)."""
+    """Does ``model`` fit on its machine now? Loaded fits; while somebody holds the cards there or a
+    big model loads there, nothing new goes on; otherwise measured need plus headroom against what is
+    free (what GPU-Orc there clears before a load counts as free, as on this machine)."""
     from . import vlm_vram_cache
 
     host = model.host
@@ -184,14 +184,17 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
     needed_mb = peak_mb + VLM_HEADROOM_MIB
     try:
         client = gpu_orc(host)
-        loading = client.loading()
-        cards = [] if loading else client.card_status()
+        light = client.traffic_light()
+        cards = [] if light.red else client.card_status()
     except GpuOrcError as error:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
                                message=f"{host.name}: Belegung der Karten unbekannt — {error}")
-    if loading:
+    if light.held is not None:
         return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
-                               message=f"{host.name}: '{', '.join(loading)}' lädt gerade.")
+                               message=f"{host.name}: die Karten werden freigehalten ({light.held['reason']}).")
+    if light.loading:
+        return VRAMCheckResult(fits=False, needed_mb=needed_mb, free_mb=0, gpu_index=-1,
+                               message=f"{host.name}: '{', '.join(light.loading)}' lädt gerade.")
     free_mb = sum(
         card.total_mib - card.used_mib
         + sum(h.memory_mib or 0 for h in card.holders if h.consumer != GPU_ORC_MODEL_SERVER)
@@ -281,3 +284,55 @@ def chosen_remote_model(host_name: str) -> RemoteModel:
     if model is None:
         raise RemoteHostError(f"{host_name}: '{wanted}' is not among its models that see")
     return model
+
+
+@dataclass(frozen=True)
+class HostStatus:
+    """One line of the status bar for a machine with describers, from its GPU-Orc's ``/status``."""
+
+    name: str
+    reachable: bool  # its GPU-Orc answers
+    held: str | None  # the reason somebody holds the cards, None = free
+    used_mib: int
+    total_mib: int
+    holders: list[str]  # what is on its cards (the describer, TTS containers), as its consumers report it
+    error: str  # why it is not reachable
+
+    def as_json(self) -> dict[str, object]:
+        return {"name": self.name, "reachable": self.reachable, "held": self.held, "used_mib": self.used_mib,
+                "total_mib": self.total_mib, "holders": self.holders, "error": self.error}
+
+
+def host_status() -> list[HostStatus]:
+    """The status bar's look at every configured machine (blocking HTTP: call in a thread)."""
+    rows = []
+    for host in remote_hosts():
+        if not reachable(host):
+            rows.append(HostStatus(host.name, False, None, 0, 0, [], f"{host.name} does not answer"))
+            continue
+        try:
+            client = gpu_orc(host)
+            light = client.traffic_light()
+            cards = client.card_status()
+        except GpuOrcError as error:
+            rows.append(HostStatus(host.name, False, None, 0, 0, [], str(error)))
+            continue
+        rows.append(HostStatus(
+            host.name, True, light.held["reason"] if light.held else None,
+            sum(c.used_mib for c in cards), sum(c.total_mib for c in cards),
+            sorted({h.item for c in cards for h in c.holders}), "",
+        ))
+    return rows
+
+
+def set_hold(host_name: str, hold: bool, reason: str) -> None:
+    """Hold the cards of ``host_name`` for somebody (``POST /hold`` there, which clears them all) or let go.
+    :class:`RemoteHostError` for an unknown machine, :class:`GpuOrcError` when its GPU-Orc fails."""
+    host = next((h for h in remote_hosts() if h.name == host_name), None)
+    if host is None:
+        raise RemoteHostError(f"no machine '{host_name}' in VISION_REMOTE_HOSTS")
+    client = gpu_orc(host)
+    if hold:
+        client.hold(reason)
+    else:
+        client.release_hold()

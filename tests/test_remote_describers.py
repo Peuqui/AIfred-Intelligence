@@ -159,6 +159,14 @@ def test_nothing_new_while_a_big_model_loads_there(box):
     assert remote_describers.pick() is None
 
 
+def test_nothing_new_while_somebody_holds_the_cards_there(box):
+    box["models"] = [(BIG, False)]
+    vlm_vram_cache.put(f"Box/{BIG}", 24576, 7235)
+    box["gpu_orc"].held = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming"}
+    box["gpu_orc"].cards = [_card(24564, 1599)]
+    assert remote_describers.pick() is None
+
+
 def test_without_its_gpu_orc_the_room_is_unknown(box):
     box.update(models=[(BIG, False)], token_ok=False)
     vlm_vram_cache.put(f"Box/{BIG}", 24576, 7235)
@@ -277,3 +285,28 @@ def test_the_image_request_goes_to_the_machine_with_the_id_there(box, monkeypatc
     assert captured["payload"]["model"] == BIG
     assert result.model == f"Box/{BIG}" and result.text == "Eine Person am Briefkasten."
     assert released == [f"Box/{BIG}"]  # the machine's GPU-Orc clears its cards
+
+
+# ── status bar ───────────────────────────────────────────────────────
+
+def test_the_status_bar_shows_load_holders_and_hold(box):
+    box["gpu_orc"].cards = [_card(24564, 8834, ("llama-swap", SMALL, 7235))]
+    [row] = remote_describers.host_status()
+    assert (row.reachable, row.held, row.used_mib, row.total_mib, row.holders) == (True, None, 8834, 24564, [SMALL])
+    box["gpu_orc"].held = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming"}
+    assert remote_describers.host_status()[0].held == "gaming"
+
+
+def test_a_machine_that_is_off_shows_as_unreachable(box):
+    box["reachable"] = False
+    [row] = remote_describers.host_status()
+    assert row.reachable is False and "does not answer" in row.error
+
+
+def test_holding_and_releasing_goes_to_the_machines_gpu_orc(box):
+    remote_describers.set_hold("Box", True, "held from AIfred's status bar")
+    assert box["gpu_orc"].holds == ["held from AIfred's status bar"] and box["gpu_orc"].held is not None
+    remote_describers.set_hold("Box", False, "")
+    assert box["gpu_orc"].held is None
+    with pytest.raises(remote_describers.RemoteHostError, match="no machine"):
+        remote_describers.set_hold("Nowhere", True, "x")

@@ -66,6 +66,36 @@ class LoadRequest(BaseModel):
     lang: str
 
 
+class HoldRequest(BaseModel):
+    host: str  # a machine of VISION_REMOTE_HOSTS
+    hold: bool  # True = keep its card free for somebody (clears it), False = release it
+    lang: str
+
+
+@api_app.get("/service-status/hosts", tags=["System"])
+async def service_status_hosts() -> list[dict[str, Any]]:
+    """The machines with describers: does their GPU-Orc answer, are their cards held, what is on them."""
+    from ..remote_describers import host_status
+    return [status.as_json() for status in await asyncio.to_thread(host_status)]
+
+
+@api_app.post("/service-status/hold", tags=["System"])
+async def service_status_hold(request: HoldRequest) -> dict[str, str]:
+    """Keep a machine's card free (its GPU-Orc clears it and nothing new goes on it) or release it."""
+    from ..config import VISION_REMOTE_HOLD_REASON
+    from ..gpu_orc_client import GpuOrcError
+    from ..remote_describers import RemoteHostError, set_hold
+    try:
+        await asyncio.to_thread(set_hold, request.host, request.hold, VISION_REMOTE_HOLD_REASON)
+    except (RemoteHostError, GpuOrcError) as error:
+        message = t("service_status_hold_failed", lang=request.lang).format(host=request.host, error=error)
+        log_message(f"⚠️ Status line: {message}", "warning")
+        raise HTTPException(status_code=409, detail=message) from error
+    log_message(f"{'⛔' if request.hold else '✅'} Status line: the card of {request.host} is "
+                f"{'held free' if request.hold else 'released'}")
+    return {"status": "held" if request.hold else "released"}
+
+
 def _refused(refused: ServiceControlRefused, lang: str) -> HTTPException:
     message = t(refused.key, lang=lang).format(**refused.params)
     log_message(f"⚠️ Status line: {message}", "warning")

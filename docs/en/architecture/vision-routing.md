@@ -134,6 +134,14 @@ new profile there shows up in the choice by itself.
   peak minus what they held before, under `<machine>/<model>` and the context the machine reports.
 - **Clearing the cards:** before a load AIfred asks the GPU-Orc of the machine the model loads on
   (image path `release_side_channels_for_describer`, chat path `_free_gpus_for_load`).
+- **Keeping the card free:** the status bar shows a line per machine (its GPU-Orc: reachable, held,
+  memory in use, what is on the card) with the button "Keep the card free" / "Release the card"
+  (`/api/service-status/hosts`, `/api/service-status/hold`). Keeping it free means `POST /hold` at the
+  GPU-Orc there: it clears every card at once and names the hold on its traffic light until
+  `DELETE /hold`; the hold lives in a file there and outlasts a restart. Meanwhile nothing fits there
+  (`check_fits`), the burn-in refuses, and the TTS-Suite starts no container there (it asks the machine's
+  traffic light before every start). The same light also stops this machine's describers
+  (`load_in_progress`) while somebody holds its cards.
 - **Failure mid-request:** `describe_with_second_attempt` (every image path). If the machine answers
   no more afterwards, the debug console says so loudly and the same choice runs exactly once more: it
   no longer finds the machine and takes the next stage. If it still answers, the error lies in the
