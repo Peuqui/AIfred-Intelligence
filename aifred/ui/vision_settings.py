@@ -7,12 +7,11 @@ mit dem Rest der UI. i18n über den t()-Helper aus ui/helpers.py.
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Any, Literal
 
 import reflex as rx
 
 from ..state import AIState
-from ..state._vision_settings_mixin import REMOTE_NONE_CHOICE
 from ..theme import COLORS
 from .helpers import overlay_modal, t
 
@@ -86,66 +85,82 @@ def _model_section() -> rx.Component:
     )
 
 
-def _remote_host_row(host: rx.Var) -> rx.Component:
-    """Eine Zeile je Rechner mit Describern (``VISION_REMOTE_HOSTS``): Auswahl des Modells dort,
-    Zustand (antwortet nicht, nicht vermessen, gemessener Bedarf) und der Knopf zum Vermessen."""
-    name = host["name"].to(str)
-    measuring = AIState.vision_remote_measuring == name
+def _describer_icon(icon: str, on_click: Any, tooltip_key: str) -> rx.Component:
+    return rx.tooltip(
+        rx.icon_button(rx.icon(icon, size=12), on_click=on_click, size="1", variant="ghost", color_scheme="gray"),
+        content=t(tooltip_key),
+    )
+
+
+def _describer_row(row: rx.Var) -> rx.Component:
+    """Ein Eintrag der Beschreiber-Liste: Reihenfolge, an/aus, Modell · Ort, Zustand; bei einem
+    anderen Rechner der Knopf zum Vermessen."""
+    index = row["index"].to(int)
+    source = row["source"].to(str)
+    measuring = AIState.vision_describer_measuring == source
     return rx.vstack(
-        rx.text(host["label"].to(str), font_weight="bold", size="2"),
         rx.hstack(
-            rx.box(
-                rx.select.root(
-                    rx.select.trigger(width="100%"),
-                    rx.select.content(
-                        rx.select.item(t("vision_settings_remote_none"), value=REMOTE_NONE_CHOICE),
-                        rx.foreach(
-                            host["choices"].to(list[str]),
-                            lambda m: rx.select.item(m, value=m),
-                        ),
-                    ),
-                    value=host["choice"].to(str),
-                    on_change=lambda v: AIState.set_remote_describer(name, v),
-                ),
-                style={"flex": "1 1 0", "min_width": "0", "overflow": "hidden"},
+            _describer_icon("chevron-up", AIState.move_describer(index, -1), "tts_entry_up"),
+            _describer_icon("chevron-down", AIState.move_describer(index, 1), "tts_entry_down"),
+            rx.switch(
+                checked=row["enabled"].to(bool),
+                on_change=lambda enabled: AIState.set_describer_enabled(index, enabled),
+                size="1",
             ),
-            rx.button(
-                rx.cond(measuring, t("vision_settings_remote_measuring"), t("vision_settings_remote_measure")),
-                on_click=AIState.measure_remote_describer(name),  # type: ignore[misc]
-                disabled=~host["can_measure"].to(bool) | (AIState.vision_remote_measuring != ""),
-                loading=measuring,
+            rx.text(
+                row["label"].to(str),
                 size="2",
-                variant="soft",
-                title=t("vision_settings_remote_measure_tooltip"),
-                style={"flex_shrink": "0"},
+                color=rx.cond(row["enabled"].to(bool), "var(--aifred-text-soft)", "var(--aifred-text-muted)"),
+                flex="1",
+                min_width="0",
+                white_space="nowrap",
+                overflow="hidden",
+                text_overflow="ellipsis",
+                title=row["label"].to(str),
             ),
-            spacing="2",
+            rx.cond(
+                row["remote"].to(bool),
+                rx.button(
+                    rx.cond(measuring, t("vision_settings_remote_measuring"), t("vision_settings_remote_measure")),
+                    on_click=AIState.measure_remote_describer(source),  # type: ignore[misc]
+                    disabled=AIState.vision_describer_measuring != "",
+                    loading=measuring,
+                    size="1",
+                    variant="soft",
+                    title=t("vision_settings_remote_measure_tooltip"),
+                    style={"flex_shrink": "0"},
+                ),
+                rx.fragment(),
+            ),
+            spacing="1",
             align="center",
             width="100%",
             style={"min_width": "0"},
         ),
-        rx.text(
-            host["note"].to(str),
-            size="1",
-            color=rx.cond(host["reachable"].to(bool), "gray", "var(--aifred-accent-warning)"),
+        rx.cond(
+            row["note"].to(str) != "",
+            rx.text(
+                row["note"].to(str),
+                size="1",
+                color=rx.cond(row["warn"].to(bool), "var(--aifred-accent-warning)", "gray"),
+                padding_left="4.5em",
+            ),
+            rx.fragment(),
         ),
-        align="stretch",
-        spacing="1",
+        spacing="0",
         width="100%",
     )
 
 
-def _remote_section() -> rx.Component:
-    """Describer anderer Rechner — nur, wenn welche konfiguriert sind."""
-    return rx.cond(
-        AIState.vision_remote_hosts.length() > 0,
-        rx.vstack(
-            rx.text(t("vision_settings_remote_help"), color="gray", size="1"),
-            rx.foreach(AIState.vision_remote_hosts, _remote_host_row),
-            align="stretch",
-            spacing="2",
-            width="100%",
-        ),
+def _describer_section() -> rx.Component:
+    """Die Beschreiber-Liste (lib/describer_list): wer Bilder beschreibt, in welcher Reihenfolge."""
+    return rx.vstack(
+        rx.text(t("vision_settings_describers_label"), font_weight="bold", size="3"),
+        rx.text(t("vision_settings_remote_help"), color="gray", size="1"),
+        rx.foreach(AIState.vision_describer_rows, _describer_row),
+        align="stretch",
+        spacing="1",
+        width="100%",
     )
 
 
@@ -807,7 +822,8 @@ def vision_settings_modal() -> rx.Component:
             _mode_section(),
             rx.divider(),
             _model_section(),
-            _remote_section(),
+            rx.divider(),
+            _describer_section(),
             rx.divider(),
             _face_recognition_section(),
             rx.divider(),

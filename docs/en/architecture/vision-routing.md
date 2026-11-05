@@ -56,13 +56,22 @@ skipped and the base profile with full context wins.
 Both rules return a `Describer(model, evicts_chat_model)`; when it evicts the
 chat LLM, `eviction_notice` announces it (reloading can take several minutes).
 
+**The describer list** ([`aifred/lib/describer_list.py`](../../../aifred/lib/describer_list.py)),
+edited in the Vigilantia settings like the TTS list (arrows, switches): entries are a model of another
+machine (`<machine>/<model>`), this machine (the VLM of the Vigilantia settings via its `-visiond` profile)
+and the main model, when it sees itself. The first entry switched on that can right now describes. The list
+shown and saved is always matched with what is there: new sources come switched off at the end, a model an
+answering machine no longer has drops out, the entries of a machine that does not answer stay. Without a
+stored list: this machine, then the main model. Two rules are fixed and no entries (reasons below).
+
 **Rule A — `chat_describer(main_model)`** (chat uploads, Symposion, sandbox
 screenshots, uploaded images in the vision tool):
 
-1. If the main model can see (`has_native_vision`), it describes itself and is never evicted:
-   reloading costs more than any description.
-2. Otherwise the describer of another machine, if it answers and the model fits there (see
-   "Describers on other machines").
+1. If the main model can see (`has_native_vision`), it describes itself and is never evicted. Fixed: it
+   answers the turn anyway; if it sees, it gets the image directly with history and tools; any other
+   describer would hand it only a text description, and reloading costs more.
+2. Otherwise the first entry of the list switched on that can right now (the entry "main model" does not
+   count here; "this machine" only through a `-visiond` profile).
 3. Otherwise the vision LLM from the main settings via its `-visiond`
    profile, if it fits alongside (`check_visiond_fits`, see below).
 4. Otherwise the effective variant of the vision LLM — it evicts the chat LLM.
@@ -71,14 +80,15 @@ screenshots, uploaded images in the vision tool):
 **Rule B — `camera_describer(vlm_model, explicit=…)`** (Vigilantia watcher,
 event analysis, bulk, vision tool with a camera source):
 
-0. The describer of another machine answers and fits there → it describes.
-1. The camera VLM (e.g. the 4B) fits next to what is loaded or already runs →
-   its `-visiond` profile.
-2. Otherwise a loaded profile that can see by itself.
-3. Otherwise, only on an explicit request (`explicit=True`, e.g. Casus or the
-   user asking AIfred), the vision LLM, evicting.
-4. Otherwise `NoVisionModelError`: automatic paths never evict; the image goes
-   out without a description and can be described later.
+1. The first entry of the list switched on that can right now: a model of another machine (answers, not
+   held, fits there), this machine (the camera VLM, e.g. the 4B, fits next to what is loaded or already
+   runs → its `-visiond` profile; an Ollama VLM over the side channel) or the loaded model that sees itself.
+2. Otherwise, only on an explicit request (`explicit=True`: the Casus button "Analyse", the user asking
+   AIfred about a camera image), the vision LLM, evicting. No question first: the click or the question is
+   the consent; the debug console announces it.
+3. Otherwise `NoVisionModelError`: automatic paths (watcher, alarms, live, night run) never evict; the image
+   goes out without a description and can be described later. Fixed: a motion event would otherwise unload
+   the main model, and reloading it takes minutes.
 
 An Ollama model (no llama-swap entry) stays unchanged. `analyze_sequence`
 ([`aifred/lib/vision_analyzer.py`](../../../aifred/lib/vision_analyzer.py))
@@ -113,9 +123,9 @@ request evicts a loading model (`NoVisionModelError`).
 (e.g. a workstation with its own card) runs its own llama-swap and its own GPU-Orc. AIfred knows it
 exactly once, in `VISION_REMOTE_HOSTS` (`.env`, a JSON list with `name`, `llamaswap_url`,
 `gpu_orc_url`, `gpu_orc_token_file`), without models: which models it has, which of them see
-(`capabilities.vision`), their context and whether they are loaded, its `/v1/models` reports. Which
-one describes, the user chooses in the Vigilantia settings (`remote_describers`: machine → model); a
-new profile there shows up in the choice by itself.
+(`capabilities.vision`), their context and whether they are loaded, its `/v1/models` reports. Every
+model there that sees is an entry of the describer list; a new profile there shows up by itself, switched
+off at the end.
 
 - **Address:** a model there is called `<machine>/<model>`, the way llama-swap names the models of
   its peers. Callers hand the id on like any other; `analyze_sequence` and `_describe_images` send to

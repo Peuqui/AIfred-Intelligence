@@ -234,65 +234,98 @@ def _vision_llm_describer(reason: str) -> Describer:
     )
 
 
-def remote_describer() -> Describer | None:
-    """Der gewählte Describer eines anderen Rechners (``lib/remote_describers``), wenn der Rechner
-    antwortet und das Modell dort gerade passt; ``None`` sonst. Er lädt dort, verdrängt hier also nie."""
-    from .remote_describers import pick
-    model = pick()
-    return Describer(model, evicts_chat_model=False) if model else None
+def camera_vlm() -> str:
+    """Das VLM der Vigilantia-Einstellungen (der Eintrag „dieser Rechner“ der Beschreiber-Liste),
+    ``""`` wenn keins gesetzt oder Vision aus ist."""
+    from .vision_prewarm import get_active_vlm_model
+    return get_active_vlm_model() or ""
+
+
+def _local_describer(vlm_model: str, *, side_channel: bool) -> tuple[Describer | None, str]:
+    """Der Describer dieses Rechners für ``vlm_model``: die passende ``-visiond``-Platzierung
+    (fitting_visiond), mit ``side_channel`` auch ein Ollama-Modell über den optionalen Seitenkanal, der
+    seinen Platz selbst findet. ``(None, warum nicht)`` sonst — ein llama-swap-Modell ohne
+    ``-visiond``-Profil zählt als „passt nicht“, es würde im exklusiven Haupt-Slot das Chat-LLM verdrängen."""
+    from .vision_utils import has_native_vision
+    visiond, fit = fitting_visiond(vlm_model)
+    if side_channel and fit is None and not has_native_vision(vlm_model):
+        return Describer(vlm_model, evicts_chat_model=False), ""
+    if visiond is not None:
+        return Describer(visiond, evicts_chat_model=False), ""
+    if fit is not None:
+        return None, fit.message
+    return None, f"'{vlm_model}' has no -visiond profile and would evict the chat model"
+
+
+def _from_list(vlm_model: str, *, camera: bool) -> tuple[Describer | None, str]:
+    """Der erste eingeschaltete Eintrag der Beschreiber-Liste (lib/describer_list), der jetzt
+    beschreiben kann; sonst ``(None, die Gründe)``. ``camera``: Regel B — der Eintrag „Hauptmodell“
+    gilt (bei Regel A ist das Hauptmodell schon vorher dran) und ein Ollama-VLM geht über den
+    Seitenkanal."""
+    from .describer_list import LOCAL, MAIN, stored
+    from .remote_describers import check_remote
+    reasons: list[str] = []
+    for entry in stored():
+        if not entry.enabled:
+            continue
+        if entry.source == MAIN:
+            if not camera:
+                continue
+            seeing = loaded_seeing_profile()
+            if seeing is not None:
+                return Describer(seeing, evicts_chat_model=False), ""
+            reasons.append("no loaded model sees")
+        elif entry.source == LOCAL:
+            if not vlm_model:
+                reasons.append("no VLM is set for this machine")
+                continue
+            describer, reason = _local_describer(vlm_model, side_channel=camera)
+            if describer is not None:
+                return describer, ""
+            reasons.append(reason)
+        else:
+            fits, reason = check_remote(entry.source)
+            if fits:
+                return Describer(entry.source, evicts_chat_model=False), ""
+            reasons.append(reason)
+    return None, "; ".join(reasons) or "no describer is switched on"
 
 
 def chat_describer(main_model: str) -> Describer:
     """Regel A (Chat-Bilder, Symposion, Sandbox-Screenshots, hochgeladene
     Bilder in vision_analyze): sieht ``main_model`` — das Modell, das den
-    Turn rechnet —, beschreibt es selbst (Umladen kostet mehr als jede
-    Beschreibung); sonst der Describer eines anderen Rechners
-    (:func:`remote_describer`); sonst das Vision-LLM der Haupteinstellungen
-    (der User hat das Bild ausdrücklich geschickt, es darf also verdrängen)."""
+    Turn rechnet —, beschreibt es selbst (fest: es beantwortet den Turn
+    ohnehin, und Umladen kostet mehr als jede Beschreibung); sonst der erste
+    eingeschaltete Describer der Beschreiber-Liste, der jetzt kann; sonst das
+    Vision-LLM der Haupteinstellungen (der User hat das Bild ausdrücklich
+    geschickt, es darf also verdrängen)."""
     from .vision_utils import is_vision_model_sync
     if main_model and is_vision_model_sync(main_model):
         return Describer(main_model, evicts_chat_model=False)
-    remote = remote_describer()
-    if remote is not None:
-        return remote
-    return _vision_llm_describer(f"main model '{main_model}' cannot see")
+    describer, reason = _from_list(camera_vlm(), camera=False)
+    if describer is not None:
+        return describer
+    return _vision_llm_describer(f"main model '{main_model}' cannot see; {reason}")
 
 
 def camera_describer(vlm_model: str, *, explicit: bool) -> Describer:
     """Regel B (Vigilantia: Watcher, Alarme, Türsteher, Kamerabilder).
 
-    0. Der gewählte Describer eines anderen Rechners antwortet und passt
-       dort → er beschreibt (:func:`remote_describer`).
-    1. Das Kamera-VLM passt auf einer Karte neben das Geladene (oder es
-       ist nichts geladen) → das VLM über die passende ``-visiond``-
-       Platzierung (fitting_visiond).
-    2. Sonst sieht das geladene Modell → es beschreibt selbst.
-    3. Sonst nur auf ausdrückliche Bitte (Casus-Button, Agent-Tool): das
-       Vision-LLM der Haupteinstellungen, notfalls mit Verdrängung.
-       Automatische Pfade verdrängen nie → ``NoVisionModelError``, das Bild
-       geht ohne Beschreibung raus und lässt sich nachträglich beschreiben.
+    Der erste eingeschaltete Eintrag der Beschreiber-Liste (lib/describer_list),
+    der jetzt beschreiben kann: ein Modell eines anderen Rechners (antwortet,
+    nicht freigehalten, passt dort), dieser Rechner (``vlm_model`` über die
+    passende ``-visiond``-Platzierung, ein Ollama-Modell über den optionalen
+    Seitenkanal) oder das geladene Modell, wenn es selbst sieht. Ohne gespeicherte
+    Liste: dieser Rechner, dann das Hauptmodell.
 
-    Ein Ollama-Modell (kein llama-swap-Eintrag) geht unverändert über den
-    optionalen Ollama-Seitenkanal, der seinen Platz selbst findet. Ein
-    llama-swap-Modell ohne ``-visiond``-Profil zählt als „passt nicht“ —
-    es würde im exklusiven Haupt-Slot das Chat-LLM verdrängen.
+    Kann keiner, dann nur auf ausdrückliche Bitte (Casus-Button, Agent-Tool) das
+    Vision-LLM der Haupteinstellungen, notfalls mit Verdrängung (fest, kein
+    Listeneintrag). Automatische Pfade verdrängen nie → ``NoVisionModelError``,
+    das Bild geht ohne Beschreibung raus und lässt sich nachträglich beschreiben.
     """
-    from .vision_utils import has_native_vision
-    remote = remote_describer()
-    if remote is not None:
-        return remote
-    visiond, fit = fitting_visiond(vlm_model)
-    if fit is None and not has_native_vision(vlm_model):
-        return Describer(vlm_model, evicts_chat_model=False)
-    if visiond is not None:
-        return Describer(visiond, evicts_chat_model=False)
-    if fit is not None:
-        reason = fit.message
-    else:
-        reason = f"'{vlm_model}' has no -visiond profile and would evict the chat model"
-    seeing = loaded_seeing_profile()
-    if seeing is not None:
-        return Describer(seeing, evicts_chat_model=False)
+    describer, reason = _from_list(vlm_model, camera=True)
+    if describer is not None:
+        return describer
     if not explicit:
         raise NoVisionModelError(reason)
     return _vision_llm_describer(reason)

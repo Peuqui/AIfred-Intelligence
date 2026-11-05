@@ -27,8 +27,6 @@ from ..lib.vision_settings import load_vision_settings, save_vision_settings
 
 logger = logging.getLogger(__name__)
 
-# Value of the "none" item of a machine's describer select (a select item needs a value).
-REMOTE_NONE_CHOICE = "__none__"
 
 
 def _hhmm(value: Any) -> str:
@@ -108,12 +106,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
     vision_mode_value: str = "on-demand"
     vision_model_value: str = "qwen3-vl:4b-instruct-q8_0"
     vision_available_models: list[str] = []
-    # Describers on other machines (lib/remote_describers), one row per machine of
-    # VISION_REMOTE_HOSTS: {name, label, choice, choices (list), reachable, note}.
-    # ``choice`` is REMOTE_NONE_CHOICE for none (a select item needs a value).
-    vision_remote_hosts: list[dict[str, Any]] = []
-    # Machine whose describer is being measured right now ("" = none).
-    vision_remote_measuring: str = ""
+    # The describer list (lib/describer_list), matched with what is there now, one row per entry:
+    # {index, source, label, enabled, note, warn, remote}. Edited like the TTS list.
+    vision_describer_rows: list[dict[str, Any]] = []
+    # Source being measured right now ("" = none).
+    vision_describer_measuring: str = ""
     # Gesichts­erkennung an/aus — SSOT in
     # ``plugins/tools/vision/settings.json`` ``face_recognition.enabled``.
     # Wirkt auf den Watcher (run_face_detect_on_motion).
@@ -198,138 +195,107 @@ class VisionSettingsMixin(rx.State, mixin=True):
         self.vigilantia_armed = bool(settings.get("vigilantia_armed", False))
         self._reload_vigilantia_sources()
         self._discover_vision_models()
-        self._refresh_remote_describers()
+        self._refresh_describer_list()
 
-    def _refresh_remote_describers(self, failed: dict[str, str] | None = None) -> None:
-        """One row per machine with describers (lib/remote_describers.overview): its models that
-        see, the stored choice and what holds it back. ``failed``: machine → error of a burn-in."""
+    def _refresh_describer_list(self, failed: dict[str, str] | None = None) -> None:
+        """The describer list as it stands now (lib/describer_list.matched): stored order and
+        switches, what is new switched off at the end, each remote entry with what holds it back or its
+        measured need. ``failed``: source → error of a burn-in."""
+        from ..lib.describer_list import LOCAL, MAIN, matched, stored
         from ..lib.formatting import format_number, format_stamp
         from ..lib.i18n import t
-        from ..lib.remote_describers import overview
+        from ..lib.remote_describers import overview, split
         from ..lib.vlm_vram_cache import get_any, measured_at
 
         lang = self.ui_language  # type: ignore[attr-defined]
+        machines = overview()
+        by_host = {m.host.name: m for m in machines}
         rows: list[dict[str, Any]] = []
-        for o in overview():
-            host = o.host.name
-            chosen = next((m for m in o.models if m.model == o.chosen), None)
-            if host in (failed or {}):
-                note = t("vision_remote_measure_failed", lang=lang, error=(failed or {})[host])
-            elif not o.chosen:
-                note = t("vision_remote_off", lang=lang, host=host)
-            elif not o.reachable:
-                note = t("vision_remote_unreachable", lang=lang, host=host)
-            elif o.error:
-                note = t("vision_remote_list_error", lang=lang, host=host, error=o.error)
-            elif chosen is None:
-                note = t("vision_remote_not_listed", lang=lang, host=host, model=o.chosen)
+        for index, entry in enumerate(matched(stored(), machines)):
+            note, warn, remote = "", False, False
+            if entry.source == LOCAL:
+                label = f"{self.vision_model_value or '—'} · {t('vision_describer_this_machine', lang=lang)}"
+            elif entry.source == MAIN:
+                label = t("vision_describer_main", lang=lang)
             else:
-                measured = get_any(chosen.qualified)
-                when = measured_at(chosen.qualified)
-                ctx = format_number(chosen.context, 0)
-                if measured is None or when is None or measured[1] != chosen.context:
-                    note = t("vision_remote_unmeasured", lang=lang, model=chosen.model, ctx=ctx)
-                else:
-                    note = t("vision_remote_measured", lang=lang, model=chosen.model, ctx=ctx,
-                             mib=format_number(measured[0], 0), when=format_stamp(when.timestamp()))
-            # Shown while the machine is off: the stored choice stays selectable.
-            choices = [m.model for m in o.models] or ([o.chosen] if o.chosen else [])
-            rows.append({
-                "name": host, "label": t("vision_remote_label", lang=lang, host=host),
-                "choice": o.chosen or REMOTE_NONE_CHOICE, "choices": choices,
-                "reachable": o.reachable and not o.error, "note": note,
-                "can_measure": chosen is not None,
-            })
-        self.vision_remote_hosts = rows
+                remote = True
+                host, model_id = split(entry.source) or (None, entry.source)
+                machine = by_host.get(host.name) if host else None
+                label = f"{model_id} · {host.name if host else '?'}"
+                model = next((m for m in machine.models if m.model == model_id), None) if machine else None
+                if entry.source in (failed or {}):
+                    note, warn = t("vision_remote_measure_failed", lang=lang, error=(failed or {})[entry.source]), True
+                elif machine is None or not machine.reachable:
+                    note, warn = t("vision_remote_unreachable", lang=lang, host=host.name if host else "?"), True
+                elif machine.error:
+                    note, warn = t("vision_remote_list_error", lang=lang, host=host.name if host else "?",
+                                   error=machine.error), True
+                elif model is not None:
+                    measured, when = get_any(model.qualified), measured_at(model.qualified)
+                    ctx = format_number(model.context, 0)
+                    if measured is None or when is None or measured[1] != model.context:
+                        note, warn = t("vision_remote_unmeasured", lang=lang, ctx=ctx), True
+                    else:
+                        note = t("vision_remote_measured", lang=lang, ctx=ctx, mib=format_number(measured[0], 0),
+                                 when=format_stamp(when.timestamp()))
+            rows.append({"index": index, "source": entry.source, "label": label, "enabled": entry.enabled,
+                         "note": note, "warn": warn, "remote": remote})
+        self.vision_describer_rows = rows
+
+    def _edit_describer_list(self, change: Any) -> None:
+        """Apply ``change`` to the list as it stands now (matched) and save the result."""
+        from ..lib.describer_list import matched, save, stored
+        from ..lib.remote_describers import overview
+        entries = matched(stored(), overview())
+        change(entries)
+        save(entries)
+        self._refresh_describer_list()
 
     @rx.event
-    def set_remote_describer(self, host: str, value: str) -> None:
-        """Choose the describer of ``host`` (REMOTE_NONE_CHOICE = none)."""
-        from ..lib.remote_describers import save_choice
-        save_choice(host, "" if value == REMOTE_NONE_CHOICE else value)
-        self._refresh_remote_describers()
+    def move_describer(self, index: int, delta: int) -> None:
+        def change(entries: list[Any]) -> None:
+            target = index + delta
+            if 0 <= index < len(entries) and 0 <= target < len(entries):
+                entries[index], entries[target] = entries[target], entries[index]
+        self._edit_describer_list(change)
+
+    @rx.event
+    def set_describer_enabled(self, index: int, enabled: bool) -> None:
+        from ..lib.describer_list import Entry
+
+        def change(entries: list[Any]) -> None:
+            if 0 <= index < len(entries):
+                entries[index] = Entry(entries[index].source, bool(enabled))
+        self._edit_describer_list(change)
 
     @rx.event(background=True)  # type: ignore[operator]
-    async def measure_remote_describer(self, host: str):
-        """Burn-in of the chosen describer on ``host`` (vlm_stress_prewarm.stress_prewarm_remote)."""
+    async def measure_remote_describer(self, source: str):
+        """Burn-in of the describer ``<machine>/<model>`` there (vlm_stress_prewarm.stress_prewarm_remote)."""
         import asyncio
 
         import httpx
 
         from ..lib.gpu_orc_client import GpuOrcError
         from ..lib.logging_utils import log_message
-        from ..lib.remote_describers import RemoteHostError, chosen_remote_model
+        from ..lib.remote_describers import RemoteHostError, remote_model
         from ..lib.vlm_stress_prewarm import stress_prewarm_remote
 
         async with self:
-            if self.vision_remote_measuring:
+            if self.vision_describer_measuring:
                 return
-            self.vision_remote_measuring = host
+            self.vision_describer_measuring = source
         failed: dict[str, str] = {}
         try:
-            model = await asyncio.to_thread(chosen_remote_model, host)
-            log_message(f"🔥 Burn-in of {model.qualified} on {host} …")
+            model = await asyncio.to_thread(remote_model, source)
+            log_message(f"🔥 Burn-in of {source} …")
             need = await stress_prewarm_remote(model)
-            log_message(f"✅ Burn-in of {model.qualified}: {need} MiB at {model.context} context")
+            log_message(f"✅ Burn-in of {source}: {need} MiB at {model.context} context")
         except (RemoteHostError, GpuOrcError, httpx.HTTPError) as error:
-            log_message(f"⚠️ Burn-in on {host} failed: {error}", "warning")
-            failed[host] = str(error)
+            log_message(f"⚠️ Burn-in of {source} failed: {error}", "warning")
+            failed[source] = str(error)
         async with self:
-            self.vision_remote_measuring = ""
-            self._refresh_remote_describers(failed)
-
-    def _discover_vision_models(self) -> None:
-        """VLM-Discovery für das Vigilantia-Dropdown (SSOT).
-
-        Primär llama-swap-Modelle mit ``-visiond``-Describer-Profil —
-        der aktive Pfad seit dem Vision-Umbau (analyze_sequence löst
-        jede Auswahl auf das Describer-Profil auf). Dahinter Ollama-VLMs
-        ohne llama-swap-Pendant (Fallback-Pfad für Setups ohne
-        Describer-Profile). Dubletten desselben Modells in beiden
-        Backends erscheinen nur einmal, als llama-swap-Name.
-
-        Ist die gespeicherte Auswahl nicht in der Liste, wird sie
-        namens-normalisiert gematcht (Ollama-Schreibweise ↔ llama-swap-
-        Name) und sonst geleert. Leere Liste = keine Quelle erreichbar →
-        Auswahl unangetastet lassen."""
-        from ..lib.vision_routing import _normalize
-
-        models: list[str] = []
-        suffix = "-visiond"
-        try:
-            from ..lib.calibration.llamaswap_io import parse_llamaswap_config
-            from ..lib.config import LLAMASWAP_CONFIG_PATH
-            swap_models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
-            models = sorted(
-                mid[: -len(suffix)]
-                for mid in swap_models if mid.endswith(suffix)
-            )
-        except (OSError, ValueError) as e:
-            logger.warning("vision settings: llama-swap discovery failed: %s", e)
-        try:
-            from ..lib.ollama_models import list_ollama_vlm_models
-            seen = {_normalize(m) for m in models}
-            models.extend(
-                m.name for m in list_ollama_vlm_models()
-                if _normalize(m.name) not in seen
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("vision settings: ollama discovery failed: %s", e)
-
-        if not models:
-            self.vision_available_models = (
-                [self.vision_model_value] if self.vision_model_value else []
-            )
-            return
-        if self.vision_model_value and self.vision_model_value not in models:
-            target = _normalize(self.vision_model_value)
-            match = next((m for m in models if _normalize(m) == target), None)
-            # Nur die ANZEIGE auf den gelisteten Namen mappen — die
-            # Settings behalten den gespeicherten Wert, bis der User
-            # aktiv wechselt (analyze_sequence löst beide Schreibweisen
-            # identisch auf).
-            self.vision_model_value = match or ""
-        self.vision_available_models = models
+            self.vision_describer_measuring = ""
+            self._refresh_describer_list(failed)
 
     @rx.event
     def open_vision_settings(self) -> None:
@@ -376,6 +342,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         settings = load_vision_settings()
         settings.setdefault("vlm", {})["model"] = value
         save_vision_settings(settings)
+        self._refresh_describer_list()  # the entry "this machine" names the VLM
         if old_model and old_model != value:
             # Ollama-Unload nur für Ollama-Modelle: Läuft das alte Modell
             # als llama-swap-Describer, verdrängt die vision-Gruppe

@@ -12,7 +12,8 @@ import httpx
 import pytest
 from fake_gpu_orc import FakeGpuOrc, card
 
-from aifred.lib import remote_describers, vision_routing, vision_utils, vlm_vram_cache
+from aifred.lib import describer_list, remote_describers, vision_routing, vision_utils, vlm_vram_cache
+from aifred.lib.describer_list import LOCAL, MAIN
 from aifred.lib.frame_sources import Frame
 from aifred.lib.gpu_orc_client import GpuOrcClient, GpuOrcError
 from aifred.lib.remote_describers import RemoteHost, RemoteModel
@@ -27,11 +28,10 @@ SMALL = "Small-VL-4B-visiond"
 
 @pytest.fixture
 def box(monkeypatch, tmp_path):
-    """One configured machine; its reachability, its models, the chosen one and its GPU-Orc as set."""
+    """One configured machine; its reachability, its models and its GPU-Orc as set."""
     monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", json.dumps([HOST]))
     monkeypatch.setattr(vlm_vram_cache, "_store", vlm_vram_cache.JsonPeakCache(tmp_path / "vlm.json", "test"))
-    state: dict[str, Any] = {"reachable": True, "models": [], "chosen": BIG, "gpu_orc": FakeGpuOrc(),
-                             "token_ok": True}
+    state: dict[str, Any] = {"reachable": True, "models": [], "gpu_orc": FakeGpuOrc(), "token_ok": True}
 
     def models(host: RemoteHost) -> list[RemoteModel]:
         return [RemoteModel(host, name, 24576, loaded) for name, loaded in state["models"]]
@@ -43,7 +43,6 @@ def box(monkeypatch, tmp_path):
 
     monkeypatch.setattr(remote_describers, "reachable", lambda host: state["reachable"])
     monkeypatch.setattr(remote_describers, "seeing_models", models)
-    monkeypatch.setattr(remote_describers, "chosen_model", lambda host: state["chosen"])
     monkeypatch.setattr(remote_describers, "gpu_orc", gpu_orc)
     return state
 
@@ -97,58 +96,53 @@ def test_a_machine_that_does_not_answer_is_not_reachable(monkeypatch):
 
 # ── the choice ───────────────────────────────────────────────────────
 
-def test_no_chosen_model_no_remote_describer(box):
-    box["chosen"] = ""
-    assert remote_describers.pick() is None
-
-
 def test_a_machine_that_is_off_is_passed_over(box):
     box.update(reachable=False, models=[(BIG, True)])
-    assert remote_describers.pick() is None
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
-def test_the_chosen_model_must_be_one_that_sees_there(box):
+def test_the_model_must_be_one_that_sees_there(box):
     box["models"] = [(SMALL, True)]
-    assert remote_describers.pick() is None
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
 def test_a_loaded_model_fits(box):
     box["models"] = [(BIG, True)]
-    assert remote_describers.pick() == f"Box/{BIG}"
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is True
 
 
 def test_a_model_never_measured_does_not_fit(box):
     box["models"] = [(BIG, False)]
     box["gpu_orc"].cards = [_card(24564, 1599)]
-    assert remote_describers.pick() is None
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
 def test_a_measured_model_fits_when_its_need_is_free(box):
     box["models"] = [(BIG, False)]
     vlm_vram_cache.put(f"Box/{BIG}", 24576, 20769)
     box["gpu_orc"].cards = [_card(24564, 1599)]  # 22965 free ≥ 20769 + 500
-    assert remote_describers.pick() == f"Box/{BIG}"
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is True
 
 
 def test_a_measured_model_that_does_not_fit_is_passed_over(box):
     box["models"] = [(BIG, False)]
     vlm_vram_cache.put(f"Box/{BIG}", 24576, 20769)
     box["gpu_orc"].cards = [_card(24564, 8614)]  # the TTS containers hold 7015 MiB
-    assert remote_describers.pick() is None
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
 def test_what_the_machines_gpu_orc_clears_counts_as_free(box):
     box["models"] = [(BIG, False)]
     vlm_vram_cache.put(f"Box/{BIG}", 24576, 20769)
     box["gpu_orc"].cards = [_card(24564, 8614, ("tts-suite", "xtts", 7015))]
-    assert remote_describers.pick() == f"Box/{BIG}"
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is True
 
 
 def test_the_measurement_belongs_to_the_context(box):
     box["models"] = [(BIG, False)]
     vlm_vram_cache.put(f"Box/{BIG}", 8192, 15000)  # measured at another context
     box["gpu_orc"].cards = [_card(24564, 1599)]
-    assert remote_describers.pick() is None
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
 def test_nothing_new_while_a_big_model_loads_there(box):
@@ -156,7 +150,7 @@ def test_nothing_new_while_a_big_model_loads_there(box):
     vlm_vram_cache.put(f"Box/{BIG}", 24576, 7235)
     box["gpu_orc"].loading = ["Something-Big"]
     box["gpu_orc"].cards = [_card(24564, 1599)]
-    assert remote_describers.pick() is None
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
 def test_nothing_new_while_somebody_holds_the_cards_there(box):
@@ -164,44 +158,112 @@ def test_nothing_new_while_somebody_holds_the_cards_there(box):
     vlm_vram_cache.put(f"Box/{BIG}", 24576, 7235)
     box["gpu_orc"].held = {"since": "2026-11-05T09:00:00+01:00", "reason": "gaming"}
     box["gpu_orc"].cards = [_card(24564, 1599)]
-    assert remote_describers.pick() is None
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
 def test_without_its_gpu_orc_the_room_is_unknown(box):
     box.update(models=[(BIG, False)], token_ok=False)
     vlm_vram_cache.put(f"Box/{BIG}", 24576, 7235)
-    assert remote_describers.pick() is None
+    assert remote_describers.check_remote(f"Box/{BIG}")[0] is False
 
 
 # ── Rule A and B ─────────────────────────────────────────────────────
 
 @pytest.fixture
 def local(monkeypatch):
-    """This machine: a blind main model, a describer that fits, nothing loaded that sees."""
+    """This machine: a blind main model, a describer that fits, nothing loaded that sees; the describer
+    list as each test sets it (``order``: sources, all switched on unless named in ``off``)."""
     fits = VRAMCheckResult(fits=True, needed_mb=7735, free_mb=20000, gpu_index=4)
     monkeypatch.setattr(vision_routing, "fitting_visiond", lambda name: (f"{name}-visiond", fits))
     monkeypatch.setattr(vision_routing, "loaded_seeing_profile", lambda: None)
     monkeypatch.setattr(vision_utils, "is_vision_model_sync", lambda m: m == "Seeing-Main")
+    monkeypatch.setattr(vision_routing, "camera_vlm", lambda: "Local-VL")
+
+    def order(*sources: str, off: tuple[str, ...] = ()) -> None:
+        entries = [{"source": s, "enabled": s not in off} for s in sources]
+        monkeypatch.setattr(describer_list, "_settings", lambda: {describer_list.SETTINGS_KEY: entries})
+    return order
 
 
-def test_camera_images_go_to_the_other_machine_first(box, local):
+def test_camera_images_go_to_the_first_entry_that_can(box, local):
+    local(f"Box/{BIG}", LOCAL, MAIN)
     box["models"] = [(BIG, True)]
     assert vision_routing.camera_describer("Local-VL", explicit=False) == Describer(f"Box/{BIG}", False)
 
 
-def test_camera_images_stay_here_when_the_other_machine_is_off(box, local):
+def test_a_machine_that_is_off_hands_on_to_the_next_entry(box, local):
+    local(f"Box/{BIG}", LOCAL, MAIN)
     box.update(reachable=False, models=[(BIG, True)])
     assert vision_routing.camera_describer("Local-VL", explicit=False) == Describer("Local-VL-visiond", False)
 
 
+def test_a_second_model_of_the_same_machine_takes_over_when_the_first_does_not_fit(box, local):
+    local(f"Box/{BIG}", f"Box/{SMALL}", LOCAL)
+    box["models"] = [(BIG, False), (SMALL, True)]  # the big one never measured, the small one loaded
+    assert vision_routing.camera_describer("Local-VL", explicit=False) == Describer(f"Box/{SMALL}", False)
+
+
+def test_a_switched_off_entry_is_passed_over(box, local):
+    local(f"Box/{BIG}", LOCAL, off=(f"Box/{BIG}",))
+    box["models"] = [(BIG, True)]
+    assert vision_routing.camera_describer("Local-VL", explicit=False) == Describer("Local-VL-visiond", False)
+
+
+def test_the_main_model_entry_takes_camera_images_when_it_sees(box, local, monkeypatch):
+    local(MAIN, LOCAL)
+    monkeypatch.setattr(vision_routing, "loaded_seeing_profile", lambda: "Big-Seeing-Main")
+    assert vision_routing.camera_describer("Local-VL", explicit=False) == Describer("Big-Seeing-Main", False)
+
+
+def test_nothing_on_the_list_can_and_no_explicit_request_means_no_description(box, local):
+    local(f"Box/{BIG}", LOCAL, off=(LOCAL,))
+    box["reachable"] = False
+    with pytest.raises(vision_routing.NoVisionModelError, match="does not answer"):
+        vision_routing.camera_describer("Local-VL", explicit=False)
+
+
 def test_a_main_model_that_sees_keeps_chat_images(box, local):
+    local(f"Box/{BIG}", LOCAL, MAIN)
     box["models"] = [(BIG, True)]
     assert vision_routing.chat_describer("Seeing-Main") == Describer("Seeing-Main", False)
 
 
-def test_a_blind_main_model_hands_chat_images_to_the_other_machine(box, local):
+def test_a_blind_main_model_hands_chat_images_to_the_list(box, local):
+    local(MAIN, f"Box/{BIG}", LOCAL)  # the main model entry does not count for chat images
     box["models"] = [(BIG, True)]
     assert vision_routing.chat_describer("Blind-Main") == Describer(f"Box/{BIG}", False)
+
+
+# ── the list as the settings show it ─────────────────────────────────
+
+def _overview(models: list[str], *, up: bool = True) -> list[remote_describers.HostOverview]:
+    [host] = remote_describers.remote_hosts()
+    return [remote_describers.HostOverview(host, up, [RemoteModel(host, m, 24576, False) for m in models] if up else [], "")]
+
+
+def test_without_a_stored_list_this_machine_then_the_main_model_and_new_models_off_at_the_end(box):
+    entries = describer_list.matched(describer_list.stored(), _overview([BIG, SMALL]))
+    assert [(e.source, e.enabled) for e in entries] == [
+        (LOCAL, True), (MAIN, True), (f"Box/{BIG}", False), (f"Box/{SMALL}", False)]
+
+
+def test_a_model_the_answering_machine_no_longer_has_drops_out(box):
+    stored = [describer_list.Entry(f"Box/{BIG}", True), describer_list.Entry(LOCAL, True), describer_list.Entry(MAIN, False)]
+    entries = describer_list.matched(stored, _overview([SMALL]))
+    assert [(e.source, e.enabled) for e in entries] == [(LOCAL, True), (MAIN, False), (f"Box/{SMALL}", False)]
+
+
+def test_the_entries_of_a_machine_that_is_off_stay(box):
+    stored = [describer_list.Entry(f"Box/{BIG}", True), describer_list.Entry(LOCAL, True), describer_list.Entry(MAIN, True)]
+    entries = describer_list.matched(stored, _overview([], up=False))
+    assert [(e.source, e.enabled) for e in entries] == [(f"Box/{BIG}", True), (LOCAL, True), (MAIN, True)]
+
+
+def test_a_list_naming_a_source_twice_is_an_error(monkeypatch):
+    twice = [{"source": LOCAL, "enabled": True}, {"source": LOCAL, "enabled": False}]
+    monkeypatch.setattr(describer_list, "_settings", lambda: {describer_list.SETTINGS_KEY: twice})
+    with pytest.raises(ValueError, match="twice"):
+        describer_list.stored()
 
 
 # ── second attempt ───────────────────────────────────────────────────

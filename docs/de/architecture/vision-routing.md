@@ -59,13 +59,23 @@ Beide Regeln liefern einen `Describer(model, evicts_chat_model)`; verdrängt er
 das Chat-LLM, kündigt `eviction_notice` das an (das Neuladen kann bis zu
 mehreren Minuten dauern).
 
+**Die Beschreiber-Liste** ([`aifred/lib/describer_list.py`](../../../aifred/lib/describer_list.py)),
+in den Vigilantia-Einstellungen bearbeitet wie die TTS-Liste (Pfeile, Schalter): Einträge sind ein Modell
+eines anderen Rechners (`<rechner>/<modell>`), dieser Rechner (das VLM der Vigilantia-Einstellungen über
+sein `-visiond`-Profil) und das Hauptmodell, wenn es selbst sieht. Der erste eingeschaltete Eintrag, der
+jetzt kann, beschreibt. Die angezeigte und gespeicherte Liste ist immer der Abgleich mit dem, was da ist:
+Neues kommt ausgeschaltet ans Ende, ein Modell, das ein antwortender Rechner nicht mehr hat, fällt raus,
+die Einträge eines Rechners, der nicht antwortet, bleiben. Ohne gespeicherte Liste: dieser Rechner, dann das
+Hauptmodell. Zwei Regeln sind fest und keine Einträge (Begründung unten).
+
 **Regel A — `chat_describer(main_model)`** (Chat-Uploads, Symposion,
 Sandbox-Screenshots, hochgeladene Bilder im Vision-Tool):
 
 1. Sieht das Hauptmodell selbst (`has_native_vision`), beschreibt es selbst und wird nie
-   verdrängt: Umladen kostet mehr als jede Beschreibung.
-2. Sonst der Describer eines anderen Rechners, wenn er antwortet und das Modell dort passt
-   (siehe „Describer auf anderen Rechnern“).
+   verdrängt. Fest: Es beantwortet den Turn ohnehin, sieht es, bekommt es das Bild direkt mit Verlauf und
+   Werkzeugen; jeder andere Beschreiber gäbe ihm nur eine Textbeschreibung, und Umladen kostet mehr.
+2. Sonst der erste eingeschaltete Eintrag der Liste, der jetzt kann (der Eintrag „Hauptmodell“ zählt hier
+   nicht; „dieser Rechner“ nur über ein `-visiond`-Profil).
 3. Sonst das Vision-LLM der Haupteinstellungen über sein `-visiond`-Profil,
    wenn es daneben passt (`check_visiond_fits`, siehe unten).
 4. Sonst die effektive Variante des Vision-LLM — sie verdrängt das Chat-LLM.
@@ -74,14 +84,16 @@ Sandbox-Screenshots, hochgeladene Bilder im Vision-Tool):
 **Regel B — `camera_describer(vlm_model, explicit=…)`** (Vigilantia-Watcher,
 Event-Analyse, Bulk, Vision-Tool mit Kamera-Quelle):
 
-0. Der Describer eines anderen Rechners antwortet und passt dort → er beschreibt.
-1. Das Kamera-VLM (z.B. das 4B) passt neben das Geladene oder läuft schon →
-   sein `-visiond`-Profil.
-2. Sonst ein geladenes Profil, das selbst sehen kann.
-3. Sonst nur bei ausdrücklicher Anfrage (`explicit=True`, z.B. Casus oder der
-   Nutzer fragt AIfred) das Vision-LLM, verdrängend.
-4. Sonst `NoVisionModelError`: Automatische Pfade verdrängen nie; das Bild
-   geht ohne Beschreibung raus und lässt sich nachträglich beschreiben.
+1. Der erste eingeschaltete Eintrag der Liste, der jetzt kann: ein Modell eines anderen Rechners (antwortet,
+   nicht freigehalten, passt dort), dieser Rechner (das Kamera-VLM, z.B. das 4B, passt neben das Geladene
+   oder läuft schon → sein `-visiond`-Profil; ein Ollama-VLM über den Seitenkanal) oder das geladene
+   Modell, das selbst sieht.
+2. Sonst nur bei ausdrücklicher Anfrage (`explicit=True`: Casus-Knopf „Analysieren“, der Nutzer fragt
+   AIfred nach einem Kamerabild) das Vision-LLM, verdrängend. Keine Rückfrage: Der Klick oder die Frage ist
+   die Zustimmung, die Debug-Konsole sagt es vorher an.
+3. Sonst `NoVisionModelError`: Automatische Pfade (Watcher, Alarme, Live, Nachtlauf) verdrängen nie; das
+   Bild geht ohne Beschreibung raus und lässt sich nachträglich beschreiben. Fest: Ein Bewegungsereignis
+   würde sonst das Hauptmodell entladen, und sein Neuladen dauert Minuten.
 
 Ein Ollama-Modell (kein llama-swap-Eintrag) bleibt unverändert. Den Versand
 übernimmt `analyze_sequence`
@@ -118,8 +130,8 @@ Rechner (z.B. ein Arbeitsplatz mit eigener Karte) betreibt seinen eigenen llama-
 eigenen GPU-Orc. AIfred kennt ihn genau einmal, in `VISION_REMOTE_HOSTS` (`.env`, JSON-Liste mit
 `name`, `llamaswap_url`, `gpu_orc_url`, `gpu_orc_token_file`), ohne Modelle: Welche Modelle es dort
 gibt, welche sehen (`capabilities.vision`), mit welchem Kontext und ob sie geladen sind, meldet
-sein `/v1/models`. Welches beschreibt, wählt der Nutzer in den Vigilantia-Einstellungen
-(`remote_describers`: Rechner → Modell); ein neues Profil dort erscheint von selbst in der Auswahl.
+sein `/v1/models`. Jedes Modell dort, das sieht, ist ein Eintrag der Beschreiber-Liste; ein neues
+Profil dort erscheint von selbst, ausgeschaltet am Ende.
 
 - **Adresse:** Ein Modell dort heißt `<rechner>/<modell>`, wie llama-swap die Modelle seiner
   Peers nennt. Die Aufrufer reichen die Id weiter wie jede andere; `analyze_sequence` und

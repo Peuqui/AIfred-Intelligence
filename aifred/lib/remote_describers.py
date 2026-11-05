@@ -4,8 +4,8 @@ A model there is addressed as ``<machine>/<model>``, the form llama-swap gives t
 callers hand the id on like any other, and :func:`endpoint` turns it back into the machine's llama-swap
 and the model id there. The machine's ``/v1/models`` is the one list of what it has: which models see
 (``capabilities.vision``), their context and whether they are loaded. AIfred keeps no list of models of
-another machine; which one describes is chosen in the Vigilantia settings (``remote_describers``:
-machine name → model).
+another machine; which of them describe, and in which order, is the describer list of the Vigilantia
+settings (lib/describer_list).
 
 Such a machine is off or asleep as a matter of course: before every choice it gets one short look
 (``VISION_REMOTE_HEALTH_TIMEOUT_S``), and a machine that does not answer is passed over without a
@@ -35,7 +35,6 @@ from .vision_vram_check import VRAMCheckResult
 
 logger = logging.getLogger(__name__)
 
-SETTINGS_KEY = "remote_describers"  # in the Vigilantia settings: machine name → model there
 # The backend that speaks to a machine's llama-swap (chat path; the image path sends itself).
 BACKEND_TYPE = "llamacpp"
 
@@ -137,10 +136,6 @@ def seeing_models(host: RemoteHost) -> list[RemoteModel]:
         raise RemoteHostError(f"{host.name}: llama-swap /v1/models unreadable: {error!r}") from error
 
 
-def chosen_model(host: RemoteHost) -> str:
-    """The model chosen to describe on ``host`` (Vigilantia settings), ``""`` if none."""
-    from .vision_settings import load_vision_settings
-    return str((load_vision_settings().get(SETTINGS_KEY) or {}).get(host.name) or "")
 
 
 def gpu_orc(host: RemoteHost) -> GpuOrcClient:
@@ -208,39 +203,42 @@ def check_fits(model: RemoteModel) -> VRAMCheckResult:
     )
 
 
-def pick() -> str | None:
-    """The qualified id of the first machine's chosen describer that answers and fits now, ``None``
-    when none does (each reason goes to the log file, a machine that is off is no news)."""
-    for host in remote_hosts():
-        wanted = chosen_model(host)
-        if not wanted:
-            continue
-        if not reachable(host):
-            logger.info("remote describer %s: %s does not answer", wanted, host.name)
-            continue
-        try:
-            model = next((m for m in seeing_models(host) if m.model == wanted), None)
-        except RemoteHostError as error:
-            logger.info("remote describer %s: %s", wanted, error)
-            continue
-        if model is None:
-            logger.info("remote describer %s: %s has no such model that sees", wanted, host.name)
-            continue
-        fit = check_fits(model)
-        if fit.fits:
-            return model.qualified
-        logger.info("remote describer %s: %s", model.qualified, fit.message)
-    return None
+def remote_model(model_id: str) -> RemoteModel:
+    """``<machine>/<model>`` as the machine's llama-swap reports it now. :class:`RemoteHostError` if the
+    id names no configured machine, the machine does not answer or has no such model that sees."""
+    remote = split(model_id)
+    if remote is None:
+        raise RemoteHostError(f"'{model_id}' names no machine of VISION_REMOTE_HOSTS")
+    host, wanted = remote
+    if not reachable(host):
+        raise RemoteHostError(f"{host.name} does not answer")
+    model = next((m for m in seeing_models(host) if m.model == wanted), None)
+    if model is None:
+        raise RemoteHostError(f"{host.name} has no model '{wanted}' that sees")
+    return model
+
+
+def check_remote(model_id: str) -> tuple[bool, str]:
+    """Can ``<machine>/<model>`` describe now (the machine answers, has it, it fits there)? ``(False, why)``
+    otherwise; a machine that is off is no news, the reason goes to the log file."""
+    try:
+        model = remote_model(model_id)
+    except RemoteHostError as error:
+        logger.info("remote describer %s: %s", model_id, error)
+        return False, str(error)
+    fit = check_fits(model)
+    if not fit.fits:
+        logger.info("remote describer %s: %s", model_id, fit.message)
+    return fit.fits, fit.message
 
 
 @dataclass(frozen=True)
 class HostOverview:
-    """What the settings show for one machine: does it answer, its models that see, the chosen one."""
+    """What the settings show for one machine: does it answer, its models that see."""
 
     host: RemoteHost
     reachable: bool
     models: list[RemoteModel]  # empty while it does not answer
-    chosen: str
     error: str  # the machine answers /health, but its model list is unreadable
 
 
@@ -254,36 +252,8 @@ def overview() -> list[HostOverview]:
                 models = seeing_models(host)
             except RemoteHostError as exc:
                 error = str(exc)
-        rows.append(HostOverview(host, up, models, chosen_model(host), error))
+        rows.append(HostOverview(host, up, models, error))
     return rows
-
-
-def save_choice(host_name: str, model: str) -> None:
-    """Store the describer of ``host_name`` (``""`` = none) in the Vigilantia settings."""
-    from .vision_settings import load_vision_settings, save_vision_settings
-    settings = load_vision_settings()
-    choices = dict(settings.get(SETTINGS_KEY) or {})
-    if model:
-        choices[host_name] = model
-    else:
-        choices.pop(host_name, None)
-    settings[SETTINGS_KEY] = choices
-    save_vision_settings(settings)
-
-
-def chosen_remote_model(host_name: str) -> RemoteModel:
-    """The chosen describer of ``host_name`` as its llama-swap reports it now (for a burn-in).
-    :class:`RemoteHostError` if the machine, the choice or the model there is missing."""
-    host = next((h for h in remote_hosts() if h.name == host_name), None)
-    if host is None:
-        raise RemoteHostError(f"no machine '{host_name}' in VISION_REMOTE_HOSTS")
-    wanted = chosen_model(host)
-    if not wanted:
-        raise RemoteHostError(f"{host_name}: no describer chosen")
-    model = next((m for m in seeing_models(host) if m.model == wanted), None)
-    if model is None:
-        raise RemoteHostError(f"{host_name}: '{wanted}' is not among its models that see")
-    return model
 
 
 @dataclass(frozen=True)
