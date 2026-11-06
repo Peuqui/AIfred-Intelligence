@@ -10,16 +10,16 @@ Ein Code-Pfad, alle Features, und du kannst im Browser zusehen, wie die Antwort
 gestreamt wird, während dein Skript wartet.
 
 ```
-API request ──→ set_pending_message() ──→ browser polls (1 s)
-                                              │
-                                              ▼
-                                    send_message() pipeline
-                                              │
-                                              ▼
-                            intent detection, multi-agent, research …
-                                              │
-                                              ▼
-                             response visible in browser + via API
+API request ──→ queue_pending_message() ──→ browser polls (500 ms)
+                                                │
+                                                ▼
+                                      send_message() pipeline
+                                                │
+                                                ▼
+                              intent detection, multi-agent, research …
+                                                │
+                                                ▼
+                               response visible in browser + via API
 ```
 
 Für Jobs, die **ohne** Browser laufen sollen (Cron, Webhooks), nutze den

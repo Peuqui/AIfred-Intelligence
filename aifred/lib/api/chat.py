@@ -58,7 +58,7 @@ async def inject_message(request: ChatInjectRequest):
     # konfiguriertes Token ist der Endpoint deaktiviert (kein offener
     # Remote-Control-Zugang). Zentrale, konstant-zeitige Prüfung in lib/auth.
     from ..auth import require_service_token
-    from ..session_storage import set_pending_message
+    from ..session_storage import queue_pending_message
     require_service_token("inject", request.token)
 
     log_message(f"📨 API: Injecting message to {request.session_id[:8]}...")
@@ -73,7 +73,7 @@ async def inject_message(request: ChatInjectRequest):
         channel="inject", channel_id=request.session_id, sender=request.sender,
         text=request.message, timestamp=datetime.now(),
     ))
-    success = set_pending_message(request.session_id, headed)
+    success = queue_pending_message(request.session_id, headed)
 
     if success:
         log_message(f"✅ API: Message queued for {request.session_id[:8]}...")

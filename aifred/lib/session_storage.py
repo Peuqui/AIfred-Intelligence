@@ -1078,99 +1078,65 @@ def get_session_title(session_id: str) -> str | None:
 
 
 # ============================================================
-# Pending Message (API → Browser Message Injection)
+# Pending Messages (sent by the browser on its next poll)
 # ============================================================
+# Messages a browser session sends as its own turn: injected through the API, and dictation
+# sent straight to the AI. The browser's 500 ms poll takes the oldest once it is not generating
+# and starts send_message as an event of its own, so the turn does not depend on the request
+# that queued it (the recording's POST /_upload ends with the connection). A queue, not a
+# slot: a dictation while AIfred still answers waits, and a second one must not replace it.
+# The ``.pending`` flag file spares the poll from reading the session file every 500 ms.
 
-def set_pending_message(session_id: str, message: str) -> bool:
-    """
-    Set pending message for browser to process.
+def _pending_flag_path(session_id: str) -> Path:
+    return SESSION_DIR / f"{_sanitize_session_id(session_id)}.pending"
 
-    Called by API to inject a message into a browser session.
-    Browser polls for .pending flag, reads message, triggers send_message().
 
-    Args:
-        session_id: Session identifier
-        message: User message to inject
+def queue_pending_message(session_id: str, message: str) -> bool:
+    """Append ``message`` to the session's pending messages (creates the session if missing).
 
     Returns:
         True on success
     """
     _ensure_session_dir()
-
     try:
-        safe_id = _sanitize_session_id(session_id)
-
-        # Load existing session or create minimal structure
         session_path = get_session_path(session_id)
-        if session_path.exists():
-            with open(session_path, 'r', encoding='utf-8') as f:
-                session = json.load(f)
-        else:
-            session = {"session_id": session_id, "data": {}}
-            _stamp_new_session(session, datetime.now().isoformat())
-
-        # Set pending message in session data
-        if "data" not in session:
-            session["data"] = {}
-        session["data"]["pending_message"] = message
-
-        # Save session (atomic write — crash mid-write leaves prior content intact)
-        if not _write_session_file(session_path, session):
-            return False
-
-        # Set .pending flag file
-        flag_path = SESSION_DIR / f"{safe_id}.pending"
-        flag_path.touch()
-
+        with session_rmw_lock:
+            session = load_session(session_id)
+            if session is None and session_path.exists():
+                return False  # unreadable session file: never overwrite it
+            if session is None:
+                session = {"session_id": session_id, "data": {}}
+                _stamp_new_session(session, datetime.now().isoformat())
+            data = session.setdefault("data", {})
+            data["pending_messages"] = [*data.get("pending_messages", []), message]
+            if not _write_session_file(session_path, session):
+                return False
+            _pending_flag_path(session_id).touch()
         return True
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return False
 
 
-def get_and_clear_pending_message(session_id: str) -> str | None:
-    """
-    Get pending message and clear it.
-
-    Called by browser to check for API-injected messages.
-    Returns the message if present, clears it from session.
-
-    Args:
-        session_id: Session identifier
-
-    Returns:
-        Pending message string, or None if no pending message
-    """
+def pop_pending_message(session_id: str) -> str | None:
+    """The oldest pending message of the session, removed from it; None if there is none."""
     _ensure_session_dir()
-
     try:
-        safe_id = _sanitize_session_id(session_id)
-        flag_path = SESSION_DIR / f"{safe_id}.pending"
-
-        # Check flag first (fast path)
+        flag_path = _pending_flag_path(session_id)
         if not flag_path.exists():
             return None
-
-        # Flag exists - clear it (missing_ok: another caller may race-clear it)
-        flag_path.unlink(missing_ok=True)
-
-        # Load session and extract message
-        session_path = get_session_path(session_id)
-        if not session_path.exists():
-            return None
-
-        with open(session_path, 'r', encoding='utf-8') as f:
-            session = json.load(f)
-
-        pending_msg = session.get("data", {}).get("pending_message")
-        if not pending_msg:
-            return None
-
-        # Clear pending_message from session (atomic write)
-        session["data"]["pending_message"] = None
-        _write_session_file(session_path, session)
-
-        result: str | None = pending_msg
+        with session_rmw_lock:
+            session = load_session(session_id)
+            queued = (session or {}).get("data", {}).get("pending_messages", [])
+            if session is None or not queued:
+                flag_path.unlink(missing_ok=True)
+                return None
+            message, rest = queued[0], queued[1:]
+            session["data"]["pending_messages"] = rest
+            if not _write_session_file(get_session_path(session_id), session):
+                return None
+            if not rest:
+                flag_path.unlink(missing_ok=True)
+        result: str = message
         return result
-
-    except (OSError, ValueError, json.JSONDecodeError):
+    except (OSError, ValueError):
         return None

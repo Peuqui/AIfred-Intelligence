@@ -1404,7 +1404,8 @@ class ChatMixin(rx.State, mixin=True):
             _cancelled = True
             raise
         except GeneratorExit:
-            # WebSocket disconnect cancelled this generator. A generator
+            # Closed from outside: shutdown or worker respawn (Reflex 0.9 does
+            # not end an event when the tab disconnects). A generator
             # that yields again while unwinding GeneratorExit raises
             # "async generator ignored GeneratorExit" and aborts the
             # finally block — so flag it and let finally skip its yields

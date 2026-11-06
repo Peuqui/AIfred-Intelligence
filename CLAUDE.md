@@ -239,8 +239,9 @@ curl -s "http://localhost:8002/api/chat/inject" \
 **Wichtig:**
 - Port ist `8002` (Backend-API), NICHT `3000` (Frontend)
 - Parameter heißt `session_id` (UUID der Browser-Session, Dateiname unter
-  `data/sessions/<session_id>.json`) — der Browser pollt `pending_message`
-  über genau diese `session_id`
+  `data/sessions/<session_id>.json`) — die Nachricht kommt in die Warteschlange
+  `pending_messages` dieser Sitzung; der Browser holt alle 500 ms die älteste ab,
+  sobald nichts mehr läuft (derselbe Weg wie ein Diktat „direkt an die KI“)
 - **`token` ist Pflicht** — Wert aus `INJECT_API_TOKEN` (`.env`). Ohne gültiges
   Token antwortet der Endpoint mit `403` (falsch) bzw. `503` (nicht konfiguriert).
   Schützt den Remote-Control-Zugang zum Agenten.

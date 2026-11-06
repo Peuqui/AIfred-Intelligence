@@ -10,16 +10,16 @@ One code path, all features, and you can watch the answer stream in the
 browser while your script waits.
 
 ```
-API request ──→ set_pending_message() ──→ browser polls (1 s)
-                                              │
-                                              ▼
-                                    send_message() pipeline
-                                              │
-                                              ▼
-                            intent detection, multi-agent, research …
-                                              │
-                                              ▼
-                             response visible in browser + via API
+API request ──→ queue_pending_message() ──→ browser polls (500 ms)
+                                                │
+                                                ▼
+                                      send_message() pipeline
+                                                │
+                                                ▼
+                              intent detection, multi-agent, research …
+                                                │
+                                                ▼
+                               response visible in browser + via API
 ```
 
 For jobs that should run **without** a browser (cron, webhooks) use the

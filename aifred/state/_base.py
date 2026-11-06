@@ -265,13 +265,14 @@ class AIState(
         except OSError:
             pass  # File doesn't exist or not accessible
 
-        # Check for pending message from API (message injection)
+        # Pending messages of the session (API injection, dictation sent straight to the AI):
+        # the oldest one, once nothing is generating
         if self.session_id and not self.is_generating:
-            from ..lib.session_storage import get_and_clear_pending_message
-            pending_msg = get_and_clear_pending_message(self.session_id)
+            from ..lib.session_storage import pop_pending_message
+            pending_msg = pop_pending_message(self.session_id)
             if pending_msg:
                 self.current_user_input = pending_msg
-                self.add_debug(f"📨 API: Message injected ({len(pending_msg)} chars)")
+                self.add_debug(f"📨 Pending message picked up ({len(pending_msg)} chars)")
                 yield  # Update UI with debug message and input field
                 # Trigger send_message as next event in chain
                 return AIState.send_message
@@ -833,9 +834,28 @@ class AIState(
                 if force_edit and not self.show_transcription:
                     self.add_debug("✏️ Email/URL detected → edit mode enabled")
 
-                # Show Transcription Workflow
-                if self.show_transcription or force_edit:
-                    # Mode: Edit text → Send manually
+                # Mode: Direct to AI. Not sent from in here: this handler is the
+                # recording's POST /_upload, and Reflex cancels everything it runs
+                # or chains when that request ends (tab closed, phone locked). The
+                # session's queue hands the text to the browser's next poll, which
+                # starts the turn as an event of its own — it then runs to its end
+                # and is saved, like a typed message.
+                queued = False
+                if not (self.show_transcription or force_edit):
+                    from ..lib.session_storage import queue_pending_message
+                    queued = queue_pending_message(self.session_id, user_text)
+                    if queued:
+                        self.add_debug("🚀 Dictation queued, sent on the next poll")
+                    else:
+                        self.add_debug("❌ Dictation could not be queued → text in input field")
+                        yield rx.toast.error(
+                            "❌ Diktat konnte nicht gesendet werden — der Text steht im Eingabefeld",
+                            duration=8000, position="top-center",
+                        )
+
+                if not queued:
+                    # Mode: Edit text → Send manually (also where a dictation lands that
+                    # could not be queued, so it is not lost)
                     # Append to existing text (multiple recordings)
                     if self.current_user_input:
                         self.current_user_input += " " + user_text
@@ -849,22 +869,9 @@ class AIState(
                         f" el.value = el.value.trim() ? el.value + ' ' + t : t"
                     )
                     self.add_debug("✏️ Text in input field → Ready for editing")
-                    # Separator after STT complete (user will edit + send manually)
-                    self.add_debug(CONSOLE_SEPARATOR)
-                    console_separator()  # Log-File
-                else:
-                    # Mode: Direct to AI (no append, send immediately)
-                    self.current_user_input = user_text
-                    self.add_debug("🚀 Sending text directly to AI...")
-                    # Separator after STT, before send_message starts
-                    self.add_debug(CONSOLE_SEPARATOR)
-                    console_separator()  # Log-File
-                    # Forward yields from send_message() — the yielded value
-                    # must be passed through: send_message emits real events
-                    # (rx.call_script for the TTS browser stream), and a bare
-                    # ``yield`` would drop them and only push state deltas.
-                    async for event in self.send_message(""):  # "": send_message reads current_user_input
-                        yield event
+                # Separator after STT complete
+                self.add_debug(CONSOLE_SEPARATOR)
+                console_separator()  # Log-File
             else:
                 self.add_debug("⚠️ Transcription returned empty text")
                 yield rx.toast.error(
