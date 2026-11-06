@@ -53,6 +53,16 @@ arguments of a handler called from state code; its return value stays ``Any``.
 ``Var``, so ``AIState.agent_tuning["aifred"].model_id`` had no attributes for mypy. An overload
 for dataclass values returns ``ObjectVar`` (three edits: TYPE_CHECKING import, TypeVar, overload).
 
+9. ``reflex_base/event/processor/event_processor.py`` — ``enqueue_stream_delta`` (the upload
+request) built its event context with ``dataclasses.replace(self._root_context, …)`` and so kept
+the root context's txid. Every event enqueued from outside (websocket, API) is a ``fork()`` of
+the root context, whose ``parent_txid`` is that txid: while an upload ran, each of them — any
+tab, any client — became a child of the upload. The upload request waited for them all and
+cancelled them when it ended early. Found 06.11.2026 (0.9.10.post1): a dictation sent straight
+to the AI is picked up by the 500 ms poll during the recording's upload, and its turn died when
+the tab closed. ``fork()`` gives the upload a txid of its own; it stays a root event, because
+the root txid has no tracked future.
+
 Idempotent — running it twice is a no-op. A patch is only applied when its
 original text is found verbatim, so a changed upstream file is reported,
 never overwritten blindly.
@@ -310,6 +320,21 @@ if TYPE_CHECKING:
         self: ObjectVar[Mapping[Any, VALUE_TYPE]],
         key: Var | Any,
     ) -> Var[VALUE_TYPE]: ...
+""",
+    ),
+    (
+        "reflex_base/event/processor/event_processor.py",
+        """            ev_ctx=dataclasses.replace(
+                self._root_context,
+                token=token,
+                emit_delta_impl=_emit_delta_impl,
+""",
+        """            ev_ctx=dataclasses.replace(
+                # A txid of its own (patch-reflex.py, 9): replace() kept the root's txid,
+                # the parent of every event enqueued from outside, and each of them
+                # became a child of this upload.
+                self._root_context.fork(token=token),
+                emit_delta_impl=_emit_delta_impl,
 """,
     ),
 ]
