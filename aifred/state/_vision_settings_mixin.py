@@ -810,9 +810,10 @@ class VisionSettingsMixin(rx.State, mixin=True):
         je Kategorie) und die verfügbaren Channels generisch entdecken
         (plugin_registry) — kein Kanal hartcodiert."""
         try:
+            from ..lib.plugin_base import plugin_display_name
             from ..lib.plugin_registry import all_channels
             self.alert_channels = [
-                {"name": str(n), "display_name": str(c.display_name)}
+                {"name": str(n), "display_name": plugin_display_name(c, self.ui_language)}
                 for n, c in sorted(all_channels().items())
             ]
         except Exception as e:  # noqa: BLE001
