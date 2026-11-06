@@ -1,14 +1,12 @@
-"""A plugin is switched off by a marker beside its code, not by moving the code away.
+"""A plugin is a folder, and it is switched off by a marker in that folder, not by moving it away.
 
 Until 06.11.2026 the Plugin Manager moved a plugin's folder to ``plugins/disabled/``: git then
 saw its files as deleted, a ``git add -u`` would have removed the plugin from the repository, and
-the plugin's tests failed to import. Now the folder stays and gets ``.disabled`` (a single-file
-plugin ``<name>.disabled`` beside it). These tests build a plugin tree in a temporary folder, so
-no test ever sets a marker in the real code tree.
+the plugin's tests failed to import. Now the folder stays and gets ``.disabled``. These tests build
+a plugin tree in a temporary folder, so no test ever sets a marker in the real code tree.
 """
 
 import json
-import pkgutil
 from pathlib import Path
 
 import pytest
@@ -28,12 +26,11 @@ def _package(base: Path, name: str) -> Path:
 
 @pytest.fixture
 def tree(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Path:
-    """tools/alpha (on), tools/beta (off), tools/gamma.py (off), channels/delta (on)."""
+    """tools/alpha (on), tools/beta (off), channels/delta (on); tools/gamma.py is no plugin."""
     tools, channels = tmp_path / "tools", tmp_path / "channels"
     _package(tools, "alpha")
     (_package(tools, "beta") / ".disabled").touch()
     (tools / "gamma.py").write_text("", encoding="utf-8")
-    (tools / "gamma.disabled").touch()
     (tools / "__init__.py").write_text("", encoding="utf-8")
     _package(channels, "delta")
     (channels / "__init__.py").write_text("", encoding="utf-8")
@@ -52,14 +49,12 @@ def reloads(monkeypatch: pytest.MonkeyPatch) -> list[str]:
 def test_the_marker_decides_on_or_off(tree: Path) -> None:
     assert plugin_registry.is_plugin_enabled("alpha")
     assert not plugin_registry.is_plugin_enabled("beta")
-    assert not plugin_registry.is_plugin_enabled("gamma")
     assert plugin_registry.is_plugin_enabled("delta", "channel")
     assert not plugin_registry.is_plugin_enabled("missing")
+    assert not plugin_registry.is_plugin_enabled("gamma")   # a lone module is no plugin
 
 
 def test_the_manager_lists_plugins_switched_off_too(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    (tree / "tools" / "gamma.py").unlink()   # a single file has no i18n.json for the list
-    (tree / "tools" / "gamma.disabled").unlink()
     monkeypatch.setattr(plugin_registry, "discover_tools", list)
     listed = {(entry["type"], entry["name"]): entry["enabled"] for entry in plugin_registry.list_all_plugins()}
     assert listed == {("tool", "alpha"): "1", ("tool", "beta"): "", ("channel", "delta"): "1"}
@@ -76,19 +71,16 @@ def test_switching_off_and_on_sets_and_removes_the_marker_only(tree: Path, reloa
     assert sorted(path.name for path in alpha.iterdir()) == files   # the code never moved
     assert reloads == ["reload", "reload"]
 
-    assert plugin_registry.disable_plugin("gamma", "tool")          # single file: marker beside it
-    assert (tree / "tools" / "gamma.disabled").exists()
-    assert plugin_registry.enable_plugin("gamma", "tool")
-    assert not (tree / "tools" / "gamma.disabled").exists()
-
 
 def test_switching_what_is_not_there_changes_nothing(tree: Path, reloads: list[str]) -> None:
     assert not plugin_registry.disable_plugin("missing", "tool")
+    assert not plugin_registry.disable_plugin("gamma", "tool")
     assert not plugin_registry.enable_plugin("alpha", "tool")      # already on
     assert reloads == []
+    assert not (tree / "tools" / "gamma.disabled").exists()
 
 
-def test_discovery_does_not_import_a_plugin_switched_off(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_discovery_imports_only_plugins_switched_on(tree: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     imported: list[str] = []
 
     def record(name: str, package: str | None = None) -> object:
@@ -103,11 +95,4 @@ def test_discovery_does_not_import_a_plugin_switched_off(tree: Path, monkeypatch
     plugin_registry.discover_tools()
     plugin_registry._discover_channels()
 
-    assert imported == [".tools.alpha", ".channels.delta"]
-
-
-def test_the_marker_of_a_module_lies_beside_it(tmp_path: Path) -> None:
-    (tmp_path / "solo.py").write_text("", encoding="utf-8")
-    (tmp_path / "solo.disabled").touch()
-    [info] = list(pkgutil.iter_modules([str(tmp_path)]))
-    assert plugin_registry._is_switched_off(tmp_path, info)
+    assert imported == [".tools.alpha", ".channels.delta"]   # beta is off, gamma.py is no plugin

@@ -403,7 +403,7 @@ Plugins are managed via the **Plugin Manager** (Settings > Plugin Manager > gear
 - State is stored in AIfred's `data/settings.json` (`channel_toggles`)
 
 **Tool plugins** (Calculator, Workspace, EPIM, etc.) have toggles that apply **immediately**:
-- Switching off puts an empty `.disabled` file into the plugin's folder (for a single-file plugin `<name>.disabled` beside it); the registry then does not load the plugin
+- Switching off puts an empty `.disabled` file into the plugin's folder; the registry then does not load the plugin
 - Switching on removes the marker; a plugin without a marker is on, so a new plugin needs nothing
 - The code always stays where it is under `tools/` or `channels/`: the marker is gitignored and applies to this machine only, and the plugin's tests run while it is switched off
 

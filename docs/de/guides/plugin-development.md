@@ -403,7 +403,7 @@ Plugins werden über den **Plugin Manager** verwaltet (Settings > Plugin Manager
 - Der Zustand wird in AIfreds `data/settings.json` gespeichert (`channel_toggles`)
 
 **Tool-Plugins** (Calculator, Workspace, EPIM usw.) haben Schalter, die **sofort** wirken:
-- Ausschalten legt eine leere Datei `.disabled` in den Ordner des Plugins (bei einem Einzeldatei-Plugin `<name>.disabled` daneben); die Registry lädt das Plugin dann nicht
+- Ausschalten legt eine leere Datei `.disabled` in den Ordner des Plugins; die Registry lädt das Plugin dann nicht
 - Einschalten entfernt die Markierung wieder; ein Plugin ohne Markierung ist an, ein neues braucht also nichts
 - Der Code bleibt immer an seinem Platz unter `tools/` bzw. `channels/`: Die Markierung ist gitignoriert und gilt nur auf diesem Rechner, die Tests des Plugins laufen auch, wenn es abgeschaltet ist
 

@@ -134,7 +134,6 @@ data/FreeEchoDot2/
 
 # Abschalt-Markierung des Plugin-Managers: gilt nur auf diesem Rechner, der Code bleibt versioniert
 aifred/plugins/*/*/.disabled
-aifred/plugins/*/*.disabled
 
 # Sicherungen von User-Configs vor Aenderungen (vllm_runtime.yaml, Betriebspunkte)
 backups/
