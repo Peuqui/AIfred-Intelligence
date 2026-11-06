@@ -355,6 +355,22 @@ laufen lassen; danach prüfen: `grep -n "allowedHosts\|dedupe" .web/vite.config.
 
 ---
 
+## ⚠️ Reflex Patch: eigener Kontext für Uploads (Laufzeit)
+
+Reflex 0.9.10.post1 legt das Ereignis einer Upload-Anfrage in `enqueue_stream_delta` mit
+`dataclasses.replace(self._root_context, …)` an und behält dabei die txid des Wurzelkontexts.
+Jedes Ereignis von außen (Websocket, API) ist ein `fork()` dieses Kontexts, seine Eltern-txid
+also genau diese: Während ein Upload läuft, wird jedes neue Ereignis, aus jedem Tab, sein Kind.
+Die Upload-Anfrage wartet auf alle Kinder und bricht sie ab, wenn sie vorzeitig endet.
+Gefunden 06.11.2026: Ein Diktat „Direkt senden“ wird während des Aufnahme-Uploads vom
+500-ms-Abholer übernommen, und sein Zug starb beim Schließen des Tabs.
+
+`scripts/patch-reflex.py` (Patch 9) setzt `self._root_context.fork(token=token)` ein: eigene
+txid, bleibt ein Wurzelereignis. `tests/test_reflex_upload_context.py` schlägt fehl, solange der
+Patch fehlt. **Bei Reflex-Update:** `patch-reflex.py` erneut laufen lassen.
+
+---
+
 ## ⚠️ Reflex Patch: Typen der Komponenten-Pakete (mypy)
 
 Reflex 0.9 liefert die Komponenten in eigenen Paketen (`reflex_components_*`)

@@ -128,6 +128,23 @@ geht als `device=auto|cpu|cuda` an den Dienst und ist für Browser, Echo Dot und
 Engine, Modell und Genauigkeit je Gerät, die Reihenfolge der Automatik und der Speicherpuffer stehen
 auf der Oberfläche der STT-Suite (`/stt-suite/ui/` am Proxy).
 
+**Diktat im Browser** (Knopf *Aufnahme*): Der Schalter **Transkription bearbeiten: ✏️ Text editieren**
+unter dem Eingabefeld entscheidet, wohin der erkannte Text geht.
+
+- **An:** Der Text landet im Eingabefeld (an vorhandenen Text angehängt); du korrigierst ihn und
+  schickst ihn selbst ab.
+- **Aus** (die Beschriftung wechselt auf *⚡ Direkt senden*): Der Text geht ohne Umweg an die KI. Er kommt in die Warteschlange der Sitzung, und der
+  Browser startet daraus innerhalb einer halben Sekunde einen eigenen Zug. Ist der Text erkannt,
+  geht nichts mehr verloren: Der Zug läuft zu Ende und wird gespeichert, auch wenn du danach den
+  Tab schließt oder das Handy sperrst; schließt du den Tab, bevor der Browser den Text abgeholt hat,
+  startet der Zug beim nächsten Öffnen der Sitzung. Diktierst du, während AIfred noch antwortet,
+  wartet das Diktat und geht danach der Reihe nach raus. Reißt die Verbindung schon während des
+  Hochladens ab, ist die Aufnahme verloren.
+- Erkennt AIfred im Text eine Mailadresse oder einen Link, landet er immer im Eingabefeld, weil die
+  Spracherkennung so etwas oft falsch schreibt.
+
+Der Schalter gilt für alle Sitzungen (`show_transcription` in `settings.json`).
+
 ## Reasoning und Thinking
 
 Zwei voneinander unabhängige Schalter pro Agent in den LLM-Einstellungen:

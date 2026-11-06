@@ -85,7 +85,7 @@ The LLM decides on its own which tools to use — OpenAI-compatible function cal
 - **More plugins** — **Audio Player** (library search, folders, seek, speed, resume), **System Monitor** (CPU, RAM, GPU, disk, temperatures), **Printer** (CUPS: `print_file` with copies, page range and duplex, `printer_status` with supply levels — a scheduler job can poll it and notify on any channel), **Translator** (DeepL, 30+ languages), **Narrator** (whole documents → one MP3, multi-voice audio dramas via `[SPEAKER]:` markers), **Bible** and **Judaica** (exact passages + thematic vector search over Tanakh, Talmud, Mishnah, Midrash, Halacha, commentaries), **Calculator**
 - **Tool-output cap** — a single tool result is trimmed so that system + history + memory + result stay within 75 % of the context; JSON-aware, the model still sees structured data
 
-Every plugin is a directory under `aifred/plugins/tools/` or `aifred/plugins/channels/` — auto-discovered, switchable at runtime in the **Plugin Manager**. Overview: [Available Plugins](docs/en/guides/plugins-overview.md) · writing your own: [Plugin Development](docs/en/guides/plugin-development.md).
+Every plugin is a directory under `aifred/plugins/tools/` or `aifred/plugins/channels/` — auto-discovered, switchable at runtime in the **Plugin Manager**. Switching off leaves the code in place (a machine-local marker), so the plugin's tests keep running. Overview: [Available Plugins](docs/en/guides/plugins-overview.md) · writing your own: [Plugin Development](docs/en/guides/plugin-development.md).
 
 ### 🎩 Multi-Agent System
 
@@ -126,6 +126,7 @@ Setup: [Telegram](docs/en/guides/telegram-setup.md) · [Discord](docs/en/guides/
 ### 🎤 Voice
 
 - **Speech-to-text** — the **STT-Suite** ([Peuqui/STT-Suite](https://github.com/Peuqui/STT-Suite), Whisper and Parakeet in Docker, set up by the installer) for browser and FreeEcho.2 alike. AIfred only chooses the **device** (automatic, CPU only, GPU only); engine, model, quality per device and the order of the automatic mode are set on the STT-Suite's own page. Before an LLM load [GPU-Orc](https://github.com/Peuqui/GPU-Orc) releases the GPU worker; it also unloads itself when idle. Large uploads (meetings) go to the CPU, get a duration estimate and a confirmation for long files
+- **Dictation in the browser** — into the input field for correcting first, or straight to the AI; once recognised, a dictated question runs to its end even if you then close the tab or lock the phone, and one dictated while AIfred is still answering waits its turn. [Details](docs/en/guides/configuration.md#speech-input-stt)
 - **Meeting pipeline** — transcribe in the original language → translate on demand (DeepL) → narrate into a phone-friendly MP3; every step leaves a file
 - **FreeEcho.2 voice terminal** — Echo Dot 2 hardware with custom firmware: wake word, the question appears in the browser within ~500 ms after STT. The household language (German or English: STT language prior, prompt language, tool replies) is a setting of the channel plugin
 - **Spoken announcements without an LLM** — `POST /api/audio/announce` reads a finished text (or several paragraphs as one announcement) in one room, a group or all rooms; a running stream is paused first, start and end tone are plugin settings. See [REST API](docs/en/guides/rest-api.md)

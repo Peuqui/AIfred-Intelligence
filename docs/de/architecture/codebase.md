@@ -58,10 +58,31 @@ AIfred-Intelligence/
   beiden Sprachen.
 - Zahlen für den User laufen über `format_number()` (`aifred/lib/formatting.py`)
   für locale-abhängige Formatierung.
+- Fehler fängt man dort, wo sie auftreten können, und nur sie (`sqlite3.Error`, `OSError`,
+  `cv2.error`, `OLLAMA_ERRORS` …). Ein breites `except Exception` steht nur an einer echten
+  Grenze — eine Schleife, die weiterlaufen muss, ein Rückruf, eine Regel oder Kamera unter
+  mehreren, eine Aktion mit sichtbarer Fehlermeldung — und nennt seinen Grund und schreibt den
+  Traceback ins Log. `tests/test_broad_except_reasons.py` lehnt `# noqa: BLE001` ohne Grund ab.
+- Im State sind öffentliche Felder `rx.Field`, öffentliche Methoden tragen `@rx.event`, und was
+  ein Mixin von einem anderen benutzt, steht unter `if TYPE_CHECKING:`. Methoden, die nur
+  State-Code aufruft, sind privat (`_name`), denn jede öffentliche Methode kann jeder verbundene
+  Client auslösen. `tests/test_state_typing_conventions.py` und
+  `tests/test_state_attribute_references.py` halten das.
 
 **Qualitätsprüfungen**
 ```bash
-venv/bin/ruff check aifred/
-venv/bin/mypy aifred/ --ignore-missing-imports
+ruff check aifred tests
+mypy aifred/ tests/ --python-executable venv/bin/python --ignore-missing-imports
 venv/bin/python -m pytest
 ```
+
+- ruff und mypy liegen nicht im Projekt-venv; installiere sie getrennt (geprüft mit ruff 0.16 und
+  mypy 2.4). Die Typen des Projekts und die Stubs aus `requirements.txt` bekommt mypy über
+  `--python-executable`. Geprüft wird `aifred/` und `tests/` ohne Ausnahme für eigenen Code.
+- mypy braucht die Typ-Patches aus `scripts/patch-reflex.py` (siehe
+  [Reflex-Patches](../guides/deployment.md#reflex-patches)); ohne sie meldet es in `aifred/ui`
+  Hunderte Fehler. Meldet es „Module not callable“, ohne Cache gegenprüfen (`--no-incremental`).
+- Einige Tests brauchen Dateien, die nur auf einem eingerichteten Rechner liegen:
+  `data/vllm_runtime.yaml` (vLLM-Kalibrierung), `data/epim/test-fixture.epim` und
+  `lib/firebird25/` (EPIM-Datenbank). Fehlen sie, überspringen sich die EPIM-Tests, die
+  Kalibrier-Tests schlagen fehl.

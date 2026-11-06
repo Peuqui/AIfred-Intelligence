@@ -354,7 +354,9 @@ it after every Reflex upgrade:
 |---|---|
 | `reflex/utils/exec.py` — `run_granian_backend()`: `reload=False`, `respawn_failed_workers=True`, `respawn_interval=3.5` | Without it a backend worker that dies from a C-level crash is never respawned and AIfred stays dead until a manual restart |
 | `reflex_base/compiler/templates.py` — `resolve.dedupe` in the generated `vite.config.js` | Without it `react-helmet` ends up in several chunks and the browser crashes |
-| `py.typed` markers in `reflex_components_*` and TypeVars moved in `reflex_components_core/core/cond.py` | Only for `mypy` (development), no runtime effect |
+| `py.typed` markers in `reflex_components_*` and TypeVars moved in `reflex_components_core/core/cond.py` | Only for `mypy` (development), no runtime effect: without the markers mypy ignores the shipped stubs, without the moved TypeVars every `rx.cond(var, "a", "b")` fails |
+| Type patches in `reflex_base`: overloads of `Field.__get__` (`vars/base.py`), `rx.event` as an overloaded function and the return type of `EventCallback.__get__` (`event/__init__.py`), `ObjectVar.__getitem__` for dataclass values (`vars/object.py`) | Only for `mypy` (development), no runtime effect: without them every `dict` field becomes an `ArrayVar[Never]`, no `@rx.event` method is checked, and mypy reports hundreds of errors in `aifred/ui` |
+| `reflex_base/event/processor/event_processor.py` — `enqueue_stream_delta`: the upload gets a txid of its own (`fork()` instead of `replace()` of the root context) | Without it every other event, from any tab, becomes a child of a running upload; the upload request waits for all of them and cancels them when it ends early. A dictation sent with *Send directly* died that way when the tab closed |
 
 The first patch also turns off backend hot reload — restart the service after
 code changes.

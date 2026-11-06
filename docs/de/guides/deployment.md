@@ -353,7 +353,9 @@ nach jedem Reflex-Upgrade erneut ausführen:
 |---|---|
 | `reflex/utils/exec.py` — `run_granian_backend()`: `reload=False`, `respawn_failed_workers=True`, `respawn_interval=3.5` | Ohne ihn wird ein Backend-Worker, der durch einen C-Level-Crash stirbt, nie neu gestartet, und AIfred bleibt tot bis zum manuellen Neustart |
 | `reflex_base/compiler/templates.py` — `resolve.dedupe` in der erzeugten `vite.config.js` | Ohne ihn landet `react-helmet` in mehreren Chunks und der Browser stürzt ab |
-| `py.typed`-Marker in `reflex_components_*` und verschobene TypeVars in `reflex_components_core/core/cond.py` | Nur für `mypy` (Entwicklung), keine Laufzeitwirkung |
+| `py.typed`-Marker in `reflex_components_*` und verschobene TypeVars in `reflex_components_core/core/cond.py` | Nur für `mypy` (Entwicklung), keine Laufzeitwirkung: Ohne Marker ignoriert mypy die mitgelieferten Stubs, ohne die verschobenen TypeVars scheitert jedes `rx.cond(var, "a", "b")` |
+| Typ-Patches in `reflex_base`: Überladungen von `Field.__get__` (`vars/base.py`), `rx.event` als überladene Funktion und der Rückgabetyp von `EventCallback.__get__` (`event/__init__.py`), `ObjectVar.__getitem__` für Dataclass-Werte (`vars/object.py`) | Nur für `mypy` (Entwicklung), keine Laufzeitwirkung: Ohne sie wird aus jedem `dict`-Feld eine `ArrayVar[Never]`, jede `@rx.event`-Methode ungeprüft und mypy meldet in `aifred/ui` Hunderte Fehler |
+| `reflex_base/event/processor/event_processor.py` — `enqueue_stream_delta`: der Upload bekommt eine eigene txid (`fork()` statt `replace()` des Wurzelkontexts) | Ohne ihn hängt während eines Uploads jedes andere Ereignis, aus jedem Tab, als Kind an diesem Upload; die Upload-Anfrage wartet auf alle und bricht sie ab, wenn sie vorzeitig endet. Ein Diktat „Direkt senden“ starb so beim Schließen des Tabs |
 
 Der erste Patch schaltet außerdem den Backend-Hot-Reload ab — starte den Dienst nach
 Code-Änderungen neu.

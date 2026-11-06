@@ -105,7 +105,7 @@ mutagen==1.47.0         # Audio tags for the audio player index (lib/audio_index
 matplotlib==3.10.8      # Plots from the execute_python tool (lib/sandbox.py)
 transformers==5.9.0     # Qwen3 tokenizer download for context estimation (lib/context_manager.py)
 
-# Development (ruff and mypy come from ~/.venv/devtools, see CLAUDE.md)
+# Development: ruff and mypy are installed separately (docs/en/architecture/codebase.md, quality checks)
 types-PyYAML==6.0.12.20250915   # stubs, read by mypy via --python-executable
 types-requests==2.32.4.20260107 # stubs, read by mypy via --python-executable
 pytest==9.1.1

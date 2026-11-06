@@ -58,10 +58,30 @@ AIfred-Intelligence/
   languages, always.
 - User-facing numbers go through `format_number()` (`aifred/lib/formatting.py`)
   for locale-aware formatting.
+- Catch errors where they can occur, and only those (`sqlite3.Error`, `OSError`, `cv2.error`,
+  `OLLAMA_ERRORS` …). A broad `except Exception` stands only at a real boundary — a loop that
+  must go on, a callback, one rule or camera among several, an action with a visible error
+  message — and names its reason and logs the traceback. `tests/test_broad_except_reasons.py`
+  rejects `# noqa: BLE001` without a reason.
+- In the state, public fields are `rx.Field`, public methods carry `@rx.event`, and what a mixin
+  uses from another one is declared under `if TYPE_CHECKING:`. Methods only state code calls are
+  private (`_name`): every public method can be triggered by any connected client.
+  `tests/test_state_typing_conventions.py` and `tests/test_state_attribute_references.py` keep this.
 
 **Quality checks**
 ```bash
-venv/bin/ruff check aifred/
-venv/bin/mypy aifred/ --ignore-missing-imports
+ruff check aifred tests
+mypy aifred/ tests/ --python-executable venv/bin/python --ignore-missing-imports
 venv/bin/python -m pytest
 ```
+
+- ruff and mypy are not in the project venv; install them separately (checked with ruff 0.16 and
+  mypy 2.4). mypy gets the project's types and the stubs from `requirements.txt` through
+  `--python-executable`. It checks `aifred/` and `tests/` with no exceptions for our own code.
+- mypy needs the type patches of `scripts/patch-reflex.py` (see
+  [Reflex patches](../guides/deployment.md#reflex-patches)); without them it reports hundreds of
+  errors in `aifred/ui`. If it reports "Module not callable", re-check without the cache
+  (`--no-incremental`).
+- Some tests need files that exist only on a set-up machine: `data/vllm_runtime.yaml` (vLLM
+  calibration), `data/epim/test-fixture.epim` and `lib/firebird25/` (EPIM database). Without
+  them the EPIM tests skip themselves and the calibration tests fail.
