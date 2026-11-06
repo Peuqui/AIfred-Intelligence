@@ -121,10 +121,28 @@ sieht die anderen nicht.
   Methode ist ein Event-Handler, den jeder verbundene Client mit eigenen
   Argumenten auslösen kann (06.11.: `picker_open_for` setzte so Sandbox-Wurzel,
   Fähigkeiten und Rückruf des Datei-Pickers).
-- Eine mit `@rx.event` dekorierte Methode ist für mypy ein `EventNamespace` und
-  lässt sich aus State-Code nicht direkt aufrufen („not callable“). Das nackte
-  `@rx.event` tut zur Laufzeit nichts; nötig ist es nur mit Optionen wie
-  `background=True`.
+- **Öffentliche State-Felder sind `rx.Field`:** `name: rx.Field[T] = rx.field(wert)`,
+  ein veränderlicher Default über `default_factory` (`rx.field(default_factory=list)`).
+  Nur so ist `AIState.name` in der Oberfläche für mypy eine typisierte Var
+  (`.length()`, `.contains()`, `["key"]`); zur Laufzeit ist es dasselbe wie die
+  einfache Annotation (Reflex baut beides gleich).
+- **Jede öffentliche Methode trägt `@rx.event`** (berechnete Vars `@rx.var`). Erst dann
+  prüft mypy die Aufrufe aus der Oberfläche, mit Argumenttypen. Das nackte
+  `@rx.event` tut zur Laufzeit nichts. Aus State-Code aufgerufen prüft mypy nur die
+  Positionsargumente, nicht Schlüsselwörter, Defaults oder den Rückgabewert: Eine
+  Methode, die Code so aufruft, ist eine interne und gehört privat; ein Handler,
+  dessen Ergebnis State-Code braucht, ruft eine private Methode auf, die auch der
+  Code nutzt (`open_channel_credentials` → `_open_channel_credentials`).
+- `tests/test_state_typing_conventions.py` hält beide Regeln.
+- **Oberfläche:** Ein Element aus `rx.foreach` ist `ObjectVar[dict[str, Any]]` (bzw.
+  `ObjectVar[EineDataclass]`), nie `rx.Var` oder `dict`; `data-*`-Attribute gehen über
+  `custom_attrs={...}`, nicht über `**{...}`. Einen Text aus `rx.cond` gibt `t()` als
+  `StringVar` zurück (`.to(str)` ändert weder Laufzeittyp noch JavaScript). Nach
+  Änderungen an Typen, Deklarationen oder Dekoratoren das Rendering jeder Seite
+  vorher und nachher vergleichen: `scripts/render_pages.py` (06.11. fing das ein
+  `.to(list)`, das den Elementtyp verwarf und die Seite beim Kompilieren gebrochen hätte).
+- mypy für die Oberfläche **ohne Cache** prüfen, wenn Ergebnisse überraschen
+  (`--no-incremental`): 06.11. lieferte der Cache 242 falsche „rx.icon: Module not callable“.
 - **Stellvertreter in Tests** (eine kleine Klasse statt des echten States oder
   Objekts) erben für mypy von der echten Klasse und zur Laufzeit von `object`:
   ```python
@@ -330,6 +348,14 @@ Wert-Überladungen, und `rx.cond(var, "a", "b")` scheitert mit `call-overload`.
 `scripts/patch-reflex.py` setzt die Marker und zieht die TypeVars vor die
 Serie (Laufzeit unverändert). **Bei Reflex-Update:** Skript erneut laufen
 lassen, `--check` meldet, ob upstream inzwischen gefixt ist.
+
+Seit 06.11.2026 setzt es dazu vier reine Typ-Patches (5–8), ohne die mypy die
+Oberfläche nicht prüfen kann (Begründung je Patch im Docstring des Skripts):
+`Field.__get__` (mypy machte aus jedem `dict`-Feld eine `ArrayVar[Never]`),
+`rx.event` als überladene Funktion statt Klasse mit `__new__`, der Rückgabetyp
+von `EventCallback.__get__` auf der Instanz und `ObjectVar.__getitem__` für
+Dataclass-Werte. Fehlen sie nach einem Update, meldet mypy in `aifred/ui`
+Hunderte Fehler — dann zuerst `patch-reflex.py` laufen lassen.
 
 ---
 

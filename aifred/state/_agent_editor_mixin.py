@@ -24,55 +24,60 @@ class AgentEditorMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         _agents_json_revision: int
-        audit_log_entries: list[dict[str, str]]
-        channel_allowlists: dict[str, str]
-        channel_security_tiers: dict[str, int]
-        db_clear_confirm: bool
-        editor_tts_engine: str
-        tool_plugin_toggles: dict[str, str]
-        tts_list_revision: int
-        ui_language: str
+        audit_log_entries: rx.Field[list[dict[str, str]]]
+        channel_allowlists: rx.Field[dict[str, str]]
+        channel_security_tiers: rx.Field[dict[str, int]]
+        db_clear_confirm: rx.Field[bool]
+        editor_tts_engine: rx.Field[str]
+        tool_plugin_toggles: rx.Field[dict[str, str]]
+        tts_list_revision: rx.Field[int]
+        ui_language: rx.Field[str]
 
         def _load_editor_tts_settings(self) -> None: ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
         @rx.event(background=True)
         async def check_tts_status(self): ...
+        @rx.event
         async def db_load_documents(self) -> None: ...
+        @rx.event
         def load_storage_files(self) -> None: ...
+        @rx.event
         def load_stt_settings(self) -> None: ...
+        @rx.event
         def open_memory_browser(self) -> None: ...
 
     # Editor modal visibility
-    agent_editor_open: bool = False
+    agent_editor_open: rx.Field[bool] = rx.field(False)
 
     # Editor view mode: "config", "memory" or "database"
-    agent_editor_mode: str = "config"
+    agent_editor_mode: rx.Field[str] = rx.field("config")
 
     # Scheduler state
-    scheduler_job_list: list[dict[str, str]] = []
-    scheduler_edit_id: str = ""  # Job being edited ("" = none, "new" = create)
-    scheduler_edit_name: str = ""
-    scheduler_edit_type: str = "cron"
-    scheduler_edit_expr: str = ""
-    scheduler_edit_message: str = ""
-    scheduler_edit_agent: str = "aifred"
-    scheduler_edit_delivery: str = "review"
-    scheduler_edit_channel: str = ""
-    scheduler_edit_tier: str = "1"
-    scheduler_edit_webhook_url: str = ""
-    scheduler_edit_recipient: str = ""
-    scheduler_edit_fixed_text: bool = False
-    scheduler_edit_audio_type: str = "notification"
+    scheduler_job_list: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
+    scheduler_edit_id: rx.Field[str] = rx.field("")  # Job being edited ("" = none, "new" = create)
+    scheduler_edit_name: rx.Field[str] = rx.field("")
+    scheduler_edit_type: rx.Field[str] = rx.field("cron")
+    scheduler_edit_expr: rx.Field[str] = rx.field("")
+    scheduler_edit_message: rx.Field[str] = rx.field("")
+    scheduler_edit_agent: rx.Field[str] = rx.field("aifred")
+    scheduler_edit_delivery: rx.Field[str] = rx.field("review")
+    scheduler_edit_channel: rx.Field[str] = rx.field("")
+    scheduler_edit_tier: rx.Field[str] = rx.field("1")
+    scheduler_edit_webhook_url: rx.Field[str] = rx.field("")
+    scheduler_edit_recipient: rx.Field[str] = rx.field("")
+    scheduler_edit_fixed_text: rx.Field[bool] = rx.field(False)
+    scheduler_edit_audio_type: rx.Field[str] = rx.field("notification")
     # Structured schedule fields (compose to scheduler_edit_expr on save)
-    scheduler_cron_min: str = "0"
-    scheduler_cron_hour: str = "8"
-    scheduler_cron_dom: str = "*"
-    scheduler_cron_month: str = "*"
-    scheduler_cron_dow: str = "*"
-    scheduler_interval_value: str = "60"
-    scheduler_interval_unit: str = "minutes"  # minutes, hours, days
-    scheduler_once_date: str = ""
-    scheduler_once_time: str = "10:00"
+    scheduler_cron_min: rx.Field[str] = rx.field("0")
+    scheduler_cron_hour: rx.Field[str] = rx.field("8")
+    scheduler_cron_dom: rx.Field[str] = rx.field("*")
+    scheduler_cron_month: rx.Field[str] = rx.field("*")
+    scheduler_cron_dow: rx.Field[str] = rx.field("*")
+    scheduler_interval_value: rx.Field[str] = rx.field("60")
+    scheduler_interval_unit: rx.Field[str] = rx.field("minutes")  # minutes, hours, days
+    scheduler_once_date: rx.Field[str] = rx.field("")
+    scheduler_once_time: rx.Field[str] = rx.field("10:00")
 
     # Agent dropdown options for the editor (["emoji name", ...])
     _agent_dropdown_items: list[str] = []
@@ -80,47 +85,47 @@ class AgentEditorMixin(rx.State, mixin=True):
     _agent_id_by_label: dict[str, str] = {}
 
     # Currently editing agent (empty = creating new)
-    editor_agent_id: str = ""
-    editor_display_name: str = ""
-    editor_emoji: str = ""
+    editor_agent_id: rx.Field[str] = rx.field("")
+    editor_display_name: rx.Field[str] = rx.field("")
+    editor_emoji: rx.Field[str] = rx.field("")
     _editor_description: str = ""
-    editor_role: str = "custom"
-    editor_model: str = ""  # Cloud model id, only used for system-role agents
+    editor_role: rx.Field[str] = rx.field("custom")
+    editor_model: rx.Field[str] = rx.field("")  # Cloud model id, only used for system-role agents
     # Cloud provider for system-role agents (calibration). One of
     # CLOUD_API_PROVIDERS — drives which endpoint + key the model list and
     # the calibration loop use (same SSOT as the main chat backend).
-    editor_cloud_provider: str = "qwen"
+    editor_cloud_provider: rx.Field[str] = rx.field("qwen")
     # Live model list fetched from the selected provider's /models endpoint.
-    editor_cloud_models: list[str] = []
+    editor_cloud_models: rx.Field[list[str]] = rx.field(default_factory=list)
     # Reasoning toggle for system-role agents (e.g. calibration). Mirrors
     # agents.json `toggles.reasoning`. Off by default — system workflows
     # typically don't benefit enough from chain-of-thought to justify the
     # 30-120 s per-turn overhead.
-    editor_system_reasoning: bool = False
+    editor_system_reasoning: rx.Field[bool] = rx.field(False)
 
     # Prompt layer editor state
-    editor_prompt_tab: str = "identity"
+    editor_prompt_tab: rx.Field[str] = rx.field("identity")
     _editor_prompt_content: str = ""
-    editor_prompt_lang: str = "de"  # Language toggle for prompt editor
+    editor_prompt_lang: rx.Field[str] = rx.field("de")  # Language toggle for prompt editor
     # Available prompt keys for current agent (for tab rendering)
-    editor_prompt_keys: list[str] = []
+    editor_prompt_keys: rx.Field[list[str]] = rx.field(default_factory=list)
 
     # New agent creation fields
     _editor_new_agent_id: str = ""
 
     # Delete confirmation
-    editor_delete_confirm: str = ""
+    editor_delete_confirm: rx.Field[str] = rx.field("")
     # Memory clear confirmation
-    editor_memory_confirm: str = ""
+    editor_memory_confirm: rx.Field[str] = rx.field("")
 
     # Emoji picker visibility
-    editor_emoji_picker_open: bool = False
+    editor_emoji_picker_open: rx.Field[bool] = rx.field(False)
 
     # Tool whitelist editor: the tools on offer with enabled/disabled state, and
     # the same tools per plugin for the page. Built on every load, not at startup:
     # plugins are switched on and off while the service runs.
-    editor_tools: dict[str, bool] = {}
-    editor_tool_groups: list[dict[str, Any]] = []  # see plugin_registry.tool_groups_on_offer
+    editor_tools: rx.Field[dict[str, bool]] = rx.field(default_factory=dict)
+    editor_tool_groups: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)  # see plugin_registry.tool_groups_on_offer
 
 
     @rx.var(deps=["_agent_dropdown_items"], auto_deps=False)
@@ -151,6 +156,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         its own dedicated UI path."""
         return self.editor_role == "system" and self.editor_agent_id != "automatik"
 
+    @rx.event
     def set_editor_model(self, value: str) -> None:
         """Set the cloud model for a system-role agent."""
         if value:
@@ -180,6 +186,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             models = [self.editor_model] + models
         return models
 
+    @rx.event
     async def set_editor_cloud_provider(self, label: str):
         """Switch provider (selected by display label) → reset model + reload
         the live model list. Label→id resolves through the cloud_api SSOT."""
@@ -192,6 +199,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             async for _ in self.refresh_editor_cloud_models():
                 yield
 
+    @rx.event
     async def refresh_editor_cloud_models(self):
         """Fetch the live /models list for the selected provider via the
         shared cloud_api SSOT (CloudAPIBackend.list_models)."""
@@ -220,6 +228,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             self.editor_cloud_models = []
         yield
 
+    @rx.event
     def toggle_editor_system_reasoning(self) -> None:
         """Flip the reasoning toggle for a system-role agent."""
         self.editor_system_reasoning = not self.editor_system_reasoning
@@ -261,6 +270,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     # Tab the next full open lands on (open_tts_settings opens the TTS tab).
     _agent_editor_start_tab: str = "config"
 
+    @rx.event
     def open_agent_editor(self):
         """Navigate to the agent-editor page.
 
@@ -271,6 +281,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self._agent_editor_needs_init = True
         return rx.redirect("/agent-editor")
 
+    @rx.event
     def open_tts_settings(self):
         """Open the agent editor on its TTS tab (gear icon next to the
         spoken-output switch on the main page)."""
@@ -279,6 +290,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.tts_list_revision += 1
         return rx.redirect("/agent-editor")
 
+    @rx.event
     def on_load_agent_editor(self):
         """Page-Load-Hook fuer ``/agent-editor``.
 
@@ -316,8 +328,8 @@ class AgentEditorMixin(rx.State, mixin=True):
             yield type(self).check_tts_status
 
     # Dirty flag — set on any keystroke in editor fields
-    editor_dirty: bool = False
-    editor_dirty_confirm: bool = False  # Show unsaved-changes dialog
+    editor_dirty: rx.Field[bool] = rx.field(False)
+    editor_dirty_confirm: rx.Field[bool] = rx.field(False)  # Show unsaved-changes dialog
     _pending_agent_label: str = ""
     _pending_close: bool = False
 
@@ -328,12 +340,14 @@ class AgentEditorMixin(rx.State, mixin=True):
     # a text field is taken from the page only when the user changed it.
     _editor_typed: list[str] = []
 
+    @rx.event
     def mark_editor_dirty(self, field: str) -> None:
         """Mark editor as having unsaved changes (any input in a text field)."""
         self.editor_dirty = True
         if field not in self._editor_typed:
             self._editor_typed = [*self._editor_typed, field]
 
+    @rx.event
     def close_agent_editor(self):
         """Close the agent editor — reset state + navigate back to chat."""
         self.agent_editor_open = False
@@ -343,6 +357,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.editor_dirty = False
         return rx.redirect("/")
 
+    @rx.event
     def close_editor_with_dirty_check(self):
         """Close editor — warn if unsaved changes.
 
@@ -357,6 +372,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self._pending_agent_label = ""
         self.editor_dirty_confirm = True
 
+    @rx.event
     def select_editor_agent_with_dirty_check(self, label: str):
         """Switch agent — warn if unsaved changes."""
         if not self.editor_dirty:
@@ -365,6 +381,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self._pending_close = False
         self.editor_dirty_confirm = True
 
+    @rx.event
     def confirm_discard_changes(self):
         """User confirmed discarding unsaved changes — reload current agent, stay open."""
         self.editor_dirty_confirm = False
@@ -383,6 +400,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             return self._push_editor_dom()
 
 
+    @rx.event
     def set_agent_editor_tab(self, tab: str):
         """Switch between config, memory and database tabs."""
         self.agent_editor_mode = tab
@@ -604,6 +622,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             for j in jobs
         ]
 
+    @rx.event
     def toggle_scheduler_job(self, job_id: str) -> None:
         """Toggle a scheduler job enabled/disabled."""
         from ..lib.scheduler import get_job_store
@@ -613,6 +632,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             store.enable(int(job_id), not job.enabled)
         self._load_scheduler_jobs()
 
+    @rx.event
     def delete_scheduler_job(self, job_id: str) -> None:
         """Delete a scheduler job."""
         from ..lib.scheduler import get_job_store
@@ -622,6 +642,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             self.scheduler_edit_id = ""
         self._load_scheduler_jobs()
 
+    @rx.event
     def edit_scheduler_job(self, job_id: str) -> None:
         """Load a job into the edit form."""
         from ..lib.scheduler import get_job_store
@@ -644,6 +665,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.scheduler_edit_tier = str(job.max_tier)
         self._decompose_schedule_expr()
 
+    @rx.event
     def new_scheduler_job(self) -> None:
         """Open empty edit form for a new job."""
         self.scheduler_edit_id = "new"
@@ -722,45 +744,59 @@ class AgentEditorMixin(rx.State, mixin=True):
 
     # Plain setters for the editor inputs — Reflex 0.9 no longer generates
     # set_<var> on its own.
+    @rx.event
     def set_scheduler_edit_name(self, value: str) -> None:
         self.scheduler_edit_name = value
 
+    @rx.event
     def set_scheduler_edit_message(self, value: str) -> None:
         self.scheduler_edit_message = value
 
+    @rx.event
     def set_scheduler_edit_channel(self, value: str) -> None:
         self.scheduler_edit_channel = value
 
+    @rx.event
     def set_scheduler_edit_tier(self, value: str) -> None:
         self.scheduler_edit_tier = value
 
+    @rx.event
     def set_scheduler_edit_webhook_url(self, value: str) -> None:
         self.scheduler_edit_webhook_url = value
 
+    @rx.event
     def set_scheduler_edit_recipient(self, value: str) -> None:
         self.scheduler_edit_recipient = value
 
+    @rx.event
     def set_scheduler_edit_fixed_text(self, value: bool) -> None:
         self.scheduler_edit_fixed_text = value
 
+    @rx.event
     def set_scheduler_cron_min(self, value: str) -> None:
         self.scheduler_cron_min = value
 
+    @rx.event
     def set_scheduler_cron_hour(self, value: str) -> None:
         self.scheduler_cron_hour = value
 
+    @rx.event
     def set_scheduler_cron_dom(self, value: str) -> None:
         self.scheduler_cron_dom = value
 
+    @rx.event
     def set_scheduler_interval_value(self, value: str) -> None:
         self.scheduler_interval_value = value
 
+    @rx.event
     def set_scheduler_once_date(self, value: str) -> None:
         self.scheduler_once_date = value
 
+    @rx.event
     def set_scheduler_once_time(self, value: str) -> None:
         self.scheduler_once_time = value
 
+    @rx.event
     def set_scheduler_type_from_label(self, label: str) -> None:
         self.scheduler_edit_type = self._sched_value_for_label(self._SCHED_TYPE_OPTIONS, label, "cron")
 
@@ -780,9 +816,11 @@ class AgentEditorMixin(rx.State, mixin=True):
     def sched_audio_display(self) -> str:
         return self._sched_label_for_value(self._SCHED_AUDIO_OPTIONS, self.scheduler_edit_audio_type, self.ui_language)
 
+    @rx.event
     def set_scheduler_audio_from_label(self, label: str) -> None:
         self.scheduler_edit_audio_type = self._sched_value_for_label(self._SCHED_AUDIO_OPTIONS, label, "notification")
 
+    @rx.event
     def set_scheduler_delivery_from_label(self, label: str) -> None:
         self.scheduler_edit_delivery = self._sched_value_for_label(self._SCHED_DELIVERY_OPTIONS, label, "review")
 
@@ -801,6 +839,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     def sched_preset_options(self) -> list[str]:
         return self._sched_labels([(p[0], p[0]) for p in self._CRON_PRESETS])
 
+    @rx.event
     def apply_cron_preset(self, label: str) -> None:
         preset_key = self._sched_value_for_label([(p[0], p[0]) for p in self._CRON_PRESETS], label, "")
         for p in self._CRON_PRESETS:
@@ -835,6 +874,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     def sched_dow_display(self) -> str:
         return self._sched_label_for_value(self._DOW_OPTIONS, self.scheduler_cron_dow, self.ui_language)
 
+    @rx.event
     def set_scheduler_dow_from_label(self, label: str) -> None:
         self.scheduler_cron_dow = self._sched_value_for_label(self._DOW_OPTIONS, label, "*")
 
@@ -864,6 +904,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     def sched_month_display(self) -> str:
         return self._sched_label_for_value(self._MONTH_OPTIONS, self.scheduler_cron_month, self.ui_language)
 
+    @rx.event
     def set_scheduler_month_from_label(self, label: str) -> None:
         self.scheduler_cron_month = self._sched_value_for_label(self._MONTH_OPTIONS, label, "*")
 
@@ -883,6 +924,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     def sched_interval_unit_display(self) -> str:
         return self._sched_label_for_value(self._INTERVAL_UNIT_OPTIONS, self.scheduler_interval_unit, self.ui_language)
 
+    @rx.event
     def set_scheduler_interval_unit_from_label(self, label: str) -> None:
         self.scheduler_interval_unit = self._sched_value_for_label(self._INTERVAL_UNIT_OPTIONS, label, "minutes")
 
@@ -958,6 +1000,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         cfg = get_agent_config(self.scheduler_edit_agent)
         return f"{cfg.emoji} {cfg.display_name}" if cfg else self.scheduler_edit_agent
 
+    @rx.event
     def set_scheduler_edit_agent_from_label(self, label: str) -> None:
         """Resolve agent display label back to ID."""
         from ..lib.agent_config import load_agents_raw
@@ -966,10 +1009,12 @@ class AgentEditorMixin(rx.State, mixin=True):
                 self.scheduler_edit_agent = aid
                 return
 
+    @rx.event
     def cancel_scheduler_edit(self) -> None:
         """Close the edit form."""
         self.scheduler_edit_id = ""
 
+    @rx.event
     def save_scheduler_job(self) -> None:
         """Save (create or update) a scheduler job."""
         from ..lib.scheduler import get_job_store
@@ -1015,6 +1060,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.scheduler_edit_id = ""
         self._load_scheduler_jobs()
 
+    @rx.event
     def select_editor_agent(self, label: str):
         """Select an agent from the dropdown by its display label."""
         if label == self._AUTOMATIK_SEPARATOR:
@@ -1172,6 +1218,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             else:
                 self._editor_prompt_content = ""
 
+    @rx.event
     def set_editor_prompt_tab(self, tab: str) -> None:
         """Switch prompt layer tab — load from disk and push to DOM."""
         import json as _json
@@ -1183,6 +1230,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
         )
 
+    @rx.event
     def set_editor_prompt_lang(self, lang: str) -> None:
         """Switch prompt language — load from disk and push to DOM."""
         import json as _json
@@ -1194,25 +1242,30 @@ class AgentEditorMixin(rx.State, mixin=True):
             f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
         )
 
+    @rx.event
     def set_editor_emoji(self, value: str) -> None:
         """Update editor emoji field from picker."""
         self.editor_emoji = value
         self.editor_emoji_picker_open = False
 
+    @rx.event
     def set_editor_role(self, value: str) -> None:
         """Update editor role field."""
         self.editor_role = value
 
+    @rx.event
     def toggle_editor_tool(self, tool_name: str) -> None:
         """Toggle a single tool in the editor whitelist."""
         tools = dict(self.editor_tools)
         tools[tool_name] = not tools.get(tool_name, True)
         self.editor_tools = tools
 
+    @rx.event
     def set_all_editor_tools(self, enabled: bool) -> None:
         """Enable or disable all tools at once."""
         self.editor_tools = {name: enabled for name in self.editor_tools}
 
+    @rx.event
     def set_editor_tool_group(self, tool_names: list[str], enabled: bool) -> None:
         """Enable or disable all tools of one group at once (group-header toggle)."""
         tools = dict(self.editor_tools)
@@ -1221,6 +1274,7 @@ class AgentEditorMixin(rx.State, mixin=True):
                 tools[name] = enabled
         self.editor_tools = tools
 
+    @rx.event
     def toggle_emoji_picker(self) -> None:
         """Toggle the emoji picker visibility."""
         self.editor_emoji_picker_open = not self.editor_emoji_picker_open
@@ -1254,6 +1308,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         full_path.parent.mkdir(parents=True, exist_ok=True)
         full_path.write_text(content, encoding="utf-8")
 
+    @rx.event
     def save_agent_editor(self, dom_values: str = "{}") -> EventSpec | None:
         """Save agent editor — receives DOM values JSON from UI call_script callback."""
         import json
@@ -1349,6 +1404,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.editor_dirty_confirm = False
         return rx.toast.success(f"{self.editor_display_name} gespeichert", duration=2000)
 
+    @rx.event
     def delete_agent_editor(self, agent_id: str) -> EventSpec | None:
         """Delete an agent (with confirmation), then show the first remaining one."""
         if self.editor_delete_confirm != agent_id:
@@ -1371,6 +1427,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self._load_agent_into_state(next(iter(load_agents_raw())))
         return self._push_editor_dom()
 
+    @rx.event
     def clear_agent_memory(self, agent_id: str) -> EventSpec | None:
         """Clear an agent's long-term memory (confirm on first click, delete on second)."""
         import reflex as rx
@@ -1403,12 +1460,14 @@ class AgentEditorMixin(rx.State, mixin=True):
             return rx.toast.error(f"Error: {e}", duration=3000, position="top-center")
 
     # Reset confirm state
-    editor_reset_confirm: bool = False
+    editor_reset_confirm: rx.Field[bool] = rx.field(False)
 
+    @rx.event
     def request_reset_editor_prompt(self) -> None:
         """First click on reset — show confirmation."""
         self.editor_reset_confirm = True
 
+    @rx.event
     def confirm_reset_editor_prompt(self) -> EventSpec:
         """Second click — actually reset prompt to file on disk."""
         self.editor_reset_confirm = False
@@ -1421,6 +1480,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             f"setTimeout(() => {{ const p = document.getElementById('editor-prompt-textarea'); if (p) p.value = {prompt_js}; }}, 50)",
         )
 
+    @rx.event
     def start_new_agent(self) -> None:
         """Switch editor to 'create new agent' mode (empty form)."""
         self.editor_agent_id = ""

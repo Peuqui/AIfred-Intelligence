@@ -17,11 +17,12 @@ class ExportMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        current_session_title: str
-        session_id: str
-        user_name: str
+        current_session_title: rx.Field[str]
+        session_id: rx.Field[str]
+        user_name: rx.Field[str]
 
         def _chat_sub(self): ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # ------------------------------------------------------------------
@@ -104,6 +105,7 @@ class ExportMixin(rx.State, mixin=True):
         )
         return preview_url, download_filename
 
+    @rx.event
     def share_chat(self):
         """Share chat history – export as HTML and open in a new browser tab.
 
@@ -117,6 +119,7 @@ class ExportMixin(rx.State, mixin=True):
         preview_url, _ = result
         return rx.call_script(f'window.open("{preview_url}", "_blank");')
 
+    @rx.event
     def download_chat(self):
         """Download the chat as a self-contained .html file.
 

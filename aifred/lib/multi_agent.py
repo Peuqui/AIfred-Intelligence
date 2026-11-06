@@ -615,7 +615,7 @@ def _add_agent_result_panel(
     metadata_dict = result["metadata_dict"]
     audio_urls = result.get("audio_urls", [])
 
-    state.add_agent_panel(
+    state._add_agent_panel(
         agent=agent,
         content=formatted,
         mode=mode,
@@ -809,7 +809,7 @@ async def _run_agent_direct_response(
 
         # Add to chat history
         panel_meta = {**metadata_dict, "audio_urls": audio_urls}
-        state.add_agent_panel(
+        state._add_agent_panel(
             agent=agent,
             content=formatted_response,
             mode="direct",
@@ -827,7 +827,7 @@ async def _run_agent_direct_response(
     except Exception as e:  # noqa: BLE001 — boundary of the run: the UI shows the error, the log keeps the traceback
         log_exception(f"{agent_label} direct response failed", e)
         state.add_debug(f"❌ {agent_label} Direct Response Error: {e}")
-        state.add_agent_panel(
+        state._add_agent_panel(
             agent=agent,
             content=f"Error: {e!s}",
             mode="error"
@@ -1400,7 +1400,7 @@ async def run_symposion(
         # Beitraege auseinanderhalten kann.
         import re as _re
         conversation: list[dict[str, str]] = []
-        # Producer ist add_agent_panel: es schreibt "[<AGENT_ID_UPPER>]: ..."
+        # Producer ist _add_agent_panel: es schreibt "[<AGENT_ID_UPPER>]: ..."
         # in die llm_history. Display-Namen zusaetzlich mappen, damit auch
         # anders erzeugte Panels (z.B. Alt-Bestand) zugeordnet werden.
         agent_id_by_label: dict[str, str] = {}
@@ -1530,7 +1530,7 @@ async def run_symposion(
 
                 formatted = _format_stream_result(result, agent_label, model_id)
 
-                state.add_agent_panel(
+                state._add_agent_panel(
                     agent=agent_id,
                     content=formatted,
                     mode="symposion",

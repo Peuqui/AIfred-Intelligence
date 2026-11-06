@@ -78,7 +78,7 @@ class _Reply(_ReplyBase):
     def _save_current_session(self) -> None:
         self.saved += 1
 
-    def tts_agent_enabled(self, agent: str) -> bool:
+    def _tts_agent_enabled(self, agent: str) -> bool:
         return True
 
     _resolve_tts_language = TTSStreamingMixin._resolve_tts_language

@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ...theme import COLORS
 from ..helpers import overlay_scaffold, t
 
 
-def _bundle_export_row(agent: dict) -> rx.Component:
+def _bundle_export_row(agent: ObjectVar[dict[str, str]]) -> rx.Component:
     """One agent in the export selection list."""
     return rx.hstack(
         rx.checkbox(
@@ -88,7 +91,7 @@ def bundle_export_modal() -> rx.Component:
     )
 
 
-def _bundle_import_row(agent: dict) -> rx.Component:
+def _bundle_import_row(agent: ObjectVar[dict[str, Any]]) -> rx.Component:
     """One agent in the import bundle's selection list."""
     return rx.hstack(
         rx.checkbox(
@@ -150,7 +153,7 @@ def bundle_import_modal() -> rx.Component:
             _hover={"border_color": COLORS["accent_warning"]},
         ),
         id="agent-bundle-upload",
-        on_drop=AIState.handle_bundle_upload(rx.upload_files(upload_id="agent-bundle-upload")),  # type: ignore[arg-type]
+        on_drop=AIState.handle_bundle_upload,
         accept={"application/zip": [".zip"]},
         multiple=False,
         border="none", padding="0", width="100%",

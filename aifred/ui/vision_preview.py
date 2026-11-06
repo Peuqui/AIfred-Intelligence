@@ -17,7 +17,10 @@ Element im Grid.
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..lib.config import VISION_PTZ_HEARTBEAT_MS, VISION_PTZ_SPEEDS
 from ..state import AIState
@@ -256,7 +259,7 @@ def _face_recognition_button(sid: rx.Var) -> rx.Component:
     )
 
 
-def _source_row(source: rx.Var) -> rx.Component:
+def _source_row(source: ObjectVar[dict[str, Any]]) -> rx.Component:
     """One row in the source list — the per-cam manager.
 
     Pure Live-Steuerung: Sichtbarkeit, Alias, Watch/Face-Buttons
@@ -320,7 +323,7 @@ def _source_row(source: rx.Var) -> rx.Component:
     )
 
 
-def _source_card(source: rx.Var, position: rx.Var) -> rx.Component:
+def _source_card(source: ObjectVar[dict[str, Any]], position: rx.Var) -> rx.Component:
     """Eine Kamera: ihre Zeile und, bei PTZ-Kameras, daneben ihre Kopfsteuerung.
     Auf dem Handy steht die Steuerung unter der Zeile und die Kachel der Kamera
     direkt darunter (siehe custom.css; ``--vlm-order`` ordnet beide)."""
@@ -349,7 +352,7 @@ def _source_list() -> rx.Component:
     )
 
 
-def _alias_overlay(entry: rx.Var) -> rx.Component:
+def _alias_overlay(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Top-left semi-transparent label showing the camera alias."""
     return rx.box(
         entry["label"],
@@ -402,7 +405,7 @@ def _ptz_speed_button(level: str) -> rx.Component:
     )
 
 
-def _ptz_panel(source: rx.Var) -> rx.Component:
+def _ptz_panel(source: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Kopfsteuerung als eigener kleiner Rahmen neben der Kameraliste: Kreuz
     (oben/unten/links/rechts um die Ausgangsposition, Zoom in den oberen
     Ecken) und die drei Geschwindigkeitsstufen daneben. Bleibt bedienbar, auch
@@ -473,7 +476,7 @@ def _ptz_panel(source: rx.Var) -> rx.Component:
     )
 
 
-def _photo_button(entry: rx.Var) -> rx.Component:
+def _photo_button(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Foto-Knopf (hochaufgelöster Schnappschuss) unter dem Namensschild. Jede
     Aufnahme legt rechts neben dem Knopf eine kleine Vorschau ab; die Vorschauen
     füllen die Zeile und brechen um, bei vielen Fotos scrollt der Bereich. Ein
@@ -521,7 +524,7 @@ def _photo_button(entry: rx.Var) -> rx.Component:
     )
 
 
-def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
+def _teleprompter_overlay(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Subtitle-style overlay at the bottom of the image. The inner
     .vlm-event-target div both carries the SSE-Hook and is the
     scroll-container — vlm_sse_manager.js setzt ``el.scrollTop =
@@ -586,7 +589,7 @@ def _teleprompter_overlay(entry: rx.Var) -> rx.Component:
     )
 
 
-def _teleprompter_below(entry: rx.Var) -> rx.Component:
+def _teleprompter_below(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Full-width block below the image. Same data-vlm-source hook
     as the overlay variant so the script attaches an EventSource
     regardless of which layout the user picked."""
@@ -644,7 +647,7 @@ def _teleprompter_below(entry: rx.Var) -> rx.Component:
     )
 
 
-def _image_tile(entry: rx.Var) -> rx.Component:
+def _image_tile(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """One full per-cam workspace in the grid.
 
     Layout: image (left) + briefing (right) side-by-side. The

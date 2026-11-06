@@ -5,7 +5,10 @@ Contains the main chat history display, session list, and progress banner.
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..state import AIState, ChatHistoryState, StreamingState
 from ..theme import COLORS
@@ -187,7 +190,7 @@ def processing_progress_banner() -> rx.Component:
 def session_list_display() -> rx.Component:
     """Session picker - Collapsible list of saved chats above chat history."""
 
-    def render_session_item(session) -> rx.Component:
+    def render_session_item(session: ObjectVar[dict[str, Any]]) -> rx.Component:
         """Render a single session item in the list."""
         # session is one entry of list_sessions() (session_storage.py)
         return rx.box(
@@ -225,7 +228,7 @@ def session_list_display() -> rx.Component:
                         t("untitled_chat"),
                     ),
                     class_name="session-title-text",
-                    **{"data-session-id": session["session_id"]},
+                    custom_attrs={"data-session-id": session["session_id"]},
                     style={
                         "fontSize": "13px",
                         "fontWeight": rx.cond(

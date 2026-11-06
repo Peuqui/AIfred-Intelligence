@@ -890,7 +890,7 @@ def clean_text_for_tts(text, language):
     clean_text = re.sub(r'^>\s*', '', clean_text, flags=re.MULTILINE)
 
     # Note: Multi-Agent consensus tags ([LGTM], [WEITER]) are translated to natural
-    # language in add_agent_panel() BEFORE they reach chat_history. TTS speaks
+    # language in _add_agent_panel() BEFORE they reach chat_history. TTS speaks
     # what the user sees in the UI - no duplicate translation needed here.
 
     # Remove Multi-Agent round labels - these are UI markers prepended to messages

@@ -38,26 +38,26 @@ class SessionMixin(rx.State, mixin=True):
         _last_detected_language: str
         _last_session_mtime: float
         _min_agent_context_limit: int
-        active_agent: str
-        agent_tuning: dict[str, AgentTuning]
-        all_sources: list[dict[str, Any]]
-        current_user_message: str
-        debate_in_progress: bool
-        debate_round: int
-        debate_user_interjection: str
-        debug_messages: list[str]
-        failed_sources: list[dict[str, str]]
-        image_upload_warning: str
-        is_generating: bool
-        logged_in_user: str
-        multi_agent_mode: str
-        pending_images: list[dict[str, str]]
-        show_sokrates_panel: bool
-        sokrates_contra_args: str
-        sokrates_critique: str
-        sokrates_pro_args: str
-        symposion_agents: list[str]
-        used_sources: list[dict[str, Any]]
+        active_agent: rx.Field[str]
+        agent_tuning: rx.Field[dict[str, AgentTuning]]
+        all_sources: rx.Field[list[dict[str, Any]]]
+        current_user_message: rx.Field[str]
+        debate_in_progress: rx.Field[bool]
+        debate_round: rx.Field[int]
+        debate_user_interjection: rx.Field[str]
+        debug_messages: rx.Field[list[str]]
+        failed_sources: rx.Field[list[dict[str, str]]]
+        image_upload_warning: rx.Field[str]
+        is_generating: rx.Field[bool]
+        logged_in_user: rx.Field[str]
+        multi_agent_mode: rx.Field[str]
+        pending_images: rx.Field[list[dict[str, str]]]
+        show_sokrates_panel: rx.Field[bool]
+        sokrates_contra_args: rx.Field[str]
+        sokrates_critique: rx.Field[str]
+        sokrates_pro_args: rx.Field[str]
+        symposion_agents: rx.Field[list[str]]
+        used_sources: rx.Field[list[dict[str, Any]]]
 
         def _chat_sub(self): ...
         def _normalize_upload_urls(self) -> None: ...
@@ -65,20 +65,22 @@ class SessionMixin(rx.State, mixin=True):
         def _set_current_agent(self, agent_id: str) -> None: ...
         def _stop_media(self) -> None: ...
         def _streaming_sub(self): ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # ── State Variables ──────────────────────────────────────────────
-    session_id: str = ""  # Session ID from cookie (32 hex chars)
-    session_restored: bool = False  # True if chat history was loaded from session
+    session_id: rx.Field[str] = rx.field("")  # Session ID from cookie (32 hex chars)
+    session_restored: rx.Field[bool] = rx.field(False)  # True if chat history was loaded from session
     _session_initialized: bool = False  # Guard against multiple session restore callbacks
 
-    available_sessions: list[dict[str, Any]] = []  # List of sessions from list_sessions()
-    current_session_title: str = ""  # Title of current session (for display)
-    selected_session_ids: list[str] = []  # Sessions ticked in the picker for bulk delete
-    session_confirm_delete_all: bool = False  # "Delete all" asked, waiting for the second click
+    available_sessions: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)  # List of sessions from list_sessions()
+    current_session_title: rx.Field[str] = rx.field("")  # Title of current session (for display)
+    selected_session_ids: rx.Field[list[str]] = rx.field(default_factory=list)  # Sessions ticked in the picker for bulk delete
+    session_confirm_delete_all: rx.Field[bool] = rx.field(False)  # "Delete all" asked, waiting for the second click
 
     # ── Session CRUD ─────────────────────────────────────────────────
 
+    @rx.event
     def new_session(self):
         """Create a new empty session and switch to it."""
         from ..lib.logging_utils import log_message
@@ -117,6 +119,7 @@ class SessionMixin(rx.State, mixin=True):
         from ..lib.browser_storage import set_session_id_script
         return rx.call_script(set_session_id_script(new_id))
 
+    @rx.event
     def switch_session(self, session_id: str):
         """Switch to a different session.
 
@@ -222,6 +225,7 @@ class SessionMixin(rx.State, mixin=True):
         from ..lib.browser_storage import set_session_id_script
         return rx.call_script(set_session_id_script(session_id))
 
+    @rx.event
     def toggle_session_selection(self, session_id: str) -> None:
         """Tick or untick a session in the picker for bulk delete."""
         if session_id in self.selected_session_ids:
@@ -229,27 +233,34 @@ class SessionMixin(rx.State, mixin=True):
         else:
             self.selected_session_ids = [*self.selected_session_ids, session_id]
 
+    @rx.event
     def select_all_sessions(self) -> None:
         self.selected_session_ids = [str(s["session_id"]) for s in self.available_sessions]
 
+    @rx.event
     def clear_session_selection(self) -> None:
         self.selected_session_ids = []
 
+    @rx.event
     def request_delete_all_sessions(self) -> None:
         self.session_confirm_delete_all = True
 
+    @rx.event
     def cancel_delete_all_sessions(self) -> None:
         self.session_confirm_delete_all = False
 
+    @rx.event
     def delete_all_sessions(self):
         """Delete every session of this account; a new one opens."""
         self.session_confirm_delete_all = False
         return self._delete_sessions([str(s["session_id"]) for s in self.available_sessions])
 
+    @rx.event
     def delete_session(self, session_id: str):
         """Delete one session (owner-only), the open one included."""
         return self._delete_sessions([session_id])
 
+    @rx.event
     def delete_selected_sessions(self):
         """Delete every session ticked in the picker."""
         return self._delete_sessions(list(self.selected_session_ids))
@@ -539,6 +550,7 @@ class SessionMixin(rx.State, mixin=True):
         listed = {s["session_id"] for s in self.available_sessions}
         self.selected_session_ids = [s for s in self.selected_session_ids if s in listed]
 
+    @rx.event
     def refresh_session_list(self):
         """Refresh the list of available sessions for the session picker.
 

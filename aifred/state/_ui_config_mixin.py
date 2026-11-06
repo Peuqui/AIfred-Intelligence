@@ -19,38 +19,40 @@ class UIConfigMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         _min_agent_context_limit: int
-        auto_refresh_enabled: bool
-        backend_type: str
+        auto_refresh_enabled: rx.Field[bool]
+        backend_type: rx.Field[str]
 
         def _effective_model_id(self, agent: str) -> str: ...
         def _log_history_utilization(self, effective_limit: int) -> None: ...
         def _save_settings(self) -> None: ...
         def _ui_agent_list(self, include_vision: bool = True) -> list[dict[str, str]]: ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # ── Temperature ───────────────────────────────────────────────
     # Per-agent temperature lives in agent_tuning (SSOT) — no global var.
-    temperature_mode: str = "auto"  # "auto" (Intent-Detection) | "manual" (user slider)
+    temperature_mode: rx.Field[str] = rx.field("auto")  # "auto" (Intent-Detection) | "manual" (user slider)
 
     # ── Context Window Control ────────────────────────────────────
     # Per-agent manual values + toggles live in agent_tuning
     # (num_ctx_manual / num_ctx_manual_enabled) — persisted for vision only.
-    num_ctx: int = 32768
+    num_ctx: rx.Field[int] = rx.field(32768)
 
     # ── STT (Whisper) Settings ────────────────────────────────────
-    show_transcription: bool = False  # Show transcribed text for editing before sending
+    show_transcription: rx.Field[bool] = rx.field(False)  # Show transcribed text for editing before sending
 
     # ── Text-Input Behavior ──────────────────────────────────────
     # When True, pressing Enter in the textarea sends the message
     # immediately (Shift+Enter = newline). When False, Enter inserts
     # a newline and the user clicks the Send button. Default ON for
     # short prompts; user can toggle off for multi-line code/log paste.
-    enter_sends_message: bool = True
+    enter_sends_message: rx.Field[bool] = rx.field(True)
 
     # ================================================================
     # AUTO-REFRESH TOGGLE
     # ================================================================
 
+    @rx.event
     def toggle_auto_refresh(self) -> None:
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)."""
         self.auto_refresh_enabled = not self.auto_refresh_enabled
@@ -60,6 +62,7 @@ class UIConfigMixin(rx.State, mixin=True):
     # TEMPERATURE
     # ================================================================
 
+    @rx.event
     def set_temperature_mode(self, checked: bool) -> None:
         """Set temperature mode from toggle switch.
 
@@ -102,6 +105,7 @@ class UIConfigMixin(rx.State, mixin=True):
         except (ValueError, TypeError):
             self.add_debug(f"\u274c Invalid Context value: {value}")
 
+    @rx.event
     def set_agent_num_ctx_manual(self, agent: str, value: str) -> None:
         """Generic manual-context input handler (foreach rows pass the id).
 
@@ -120,6 +124,7 @@ class UIConfigMixin(rx.State, mixin=True):
         status = "Manual" if enabled else "Auto"
         self.add_debug(f"{get_agent_label(agent)} Context: {status}")
 
+    @rx.event
     def toggle_agent_num_ctx_manual(self, agent: str, enabled: bool) -> None:
         """Generic manual-context toggle handler (foreach rows pass the id)."""
         self._toggle_num_ctx_manual(agent, enabled)
@@ -159,6 +164,7 @@ class UIConfigMixin(rx.State, mixin=True):
         rope_factor = get_rope_factor_for_model(model_id)
         return get_ollama_calibrated_max_context(model_id, rope_factor) or 0
 
+    @rx.event
     def calculate_manual_context(self) -> None:
         """Calculate and display context limits.
 
@@ -235,6 +241,7 @@ class UIConfigMixin(rx.State, mixin=True):
     # STT
     # ================================================================
 
+    @rx.event
     def toggle_show_transcription(self) -> None:
         """Toggle show transcription mode."""
         self.show_transcription = not self.show_transcription
@@ -242,6 +249,7 @@ class UIConfigMixin(rx.State, mixin=True):
         self.add_debug(f"\U0001f3a4 Transcription: {mode}")
         self._save_settings()
 
+    @rx.event
     def toggle_enter_sends_message(self) -> None:
         """Toggle whether Enter sends the message or inserts a newline."""
         self.enter_sends_message = not self.enter_sends_message
@@ -249,6 +257,7 @@ class UIConfigMixin(rx.State, mixin=True):
         self.add_debug(f"⏎ Text input: {mode}")
         self._save_settings()
 
+    @rx.event
     def toggle_audio_recording(self):
         """Toggle audio recording (calls JavaScript MediaRecorder)."""
         return rx.call_script("toggleRecording()")

@@ -27,12 +27,12 @@ class STTSettingsMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        ui_language: str
+        ui_language: rx.Field[str]
 
         def _write_settings_file(self, settings: dict[str, Any]) -> None: ...
 
-    stt_available: bool = False          # Dienst erreichbar?
-    stt_device: str = "auto"             # bevorzugtes Gerät dieses Clients (settings.json)
+    stt_available: rx.Field[bool] = rx.field(False)          # Dienst erreichbar?
+    stt_device: rx.Field[str] = rx.field("auto")             # bevorzugtes Gerät dieses Clients (settings.json)
 
     @rx.var(auto_deps=False, deps=["stt_device", "ui_language"])
     def stt_device_label(self) -> str:
@@ -44,6 +44,7 @@ class STTSettingsMixin(rx.State, mixin=True):
         from ..lib.i18n import t
         return [t(key, lang=self.ui_language) for key in STT_DEVICE_LABEL_KEYS.values()]
 
+    @rx.event
     def load_stt_settings(self) -> None:
         """Erreichbarkeit des Dienstes und das gespeicherte Gerät lesen. Normale Methode (kein
         Event-Decorator), damit ``set_agent_editor_tab`` sie direkt beim Tab-Wechsel aufrufen kann."""

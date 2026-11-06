@@ -35,7 +35,7 @@ def get_research_tools(state: Any | None = None, lang: str = "de", llm_history: 
         Yields ``{"progress": ""}`` on each upstream yield from
         ``execute_research`` so the LLM-stream can push UI updates while the
         pipeline runs (the state is mutated via ``state.add_debug``/
-        ``state.set_progress`` directly inside execute_research; the empty
+        ``state._set_progress`` directly inside execute_research; the empty
         progress marker just nudges the outer generator to yield).
         Terminates with exactly one ``{"result": "..."}`` event.
         """

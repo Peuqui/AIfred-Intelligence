@@ -42,30 +42,30 @@ class CasusMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        vlm_model_loaded: bool
+        vlm_model_loaded: rx.Field[bool]
 
-    casus_open: bool = False
+    casus_open: rx.Field[bool] = rx.field(False)
     # Aktuelle Seite an Events (filter-/seitenbasiert nachgeladen).
-    casus_events: list[dict[str, Any]] = []
-    casus_total_count: int = 0
-    casus_page: int = 0  # 0-basiert
+    casus_events: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
+    casus_total_count: rx.Field[int] = rx.field(0)
+    casus_page: rx.Field[int] = rx.field(0)  # 0-basiert
     # Vollständige, geordnete ID-Liste der gefilterten Menge (alle
     # Seiten) — treibt die seitenübergreifende Vollbild-Slideshow,
     # während das Raster seitenweise bleibt. Leichtgewichtig (nur IDs).
-    casus_all_ids: list[int] = []
+    casus_all_ids: rx.Field[list[int]] = rx.field(default_factory=list)
     # Filter-Werte (UI-bindings). Default: alle.
-    casus_filter_source: str = "all"
-    casus_filter_type: str = "all"
-    casus_filter_face: str = "all"  # "all" | "unknown" | <face_id as str>
+    casus_filter_source: rx.Field[str] = rx.field("all")
+    casus_filter_type: rx.Field[str] = rx.field("all")
+    casus_filter_face: rx.Field[str] = rx.field("all")  # "all" | "unknown" | <face_id as str>
     # Filter-Dropdown-Optionen, beim Modal-Open befüllt.
-    casus_source_options: list[dict[str, str]] = []
-    casus_face_options: list[dict[str, str]] = []
+    casus_source_options: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
+    casus_face_options: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
     # Status-Feedback (Toast-Ersatz).
-    casus_status: str = ""
+    casus_status: rx.Field[str] = rx.field("")
     # Tag-Modus pro Zeile: event_id der Zeile, die gerade getagged wird
     # (0 = niemand). Plus aktuell ausgewählte face_id im Dropdown.
-    casus_tag_event_id: int = 0
-    casus_tag_face_id: str = ""
+    casus_tag_event_id: rx.Field[int] = rx.field(0)
+    casus_tag_face_id: rx.Field[str] = rx.field("")
     # Auto-Refresh bei offenem Modal: zuletzt gesehene höchste Event-ID
     # + Poll-Drossel (Backend-Vars, kein Client-Sync).
     _casus_last_seen_event_id: int = 0
@@ -74,32 +74,32 @@ class CasusMixin(rx.State, mixin=True):
     # ``casus_confirm_delete_all=True`` und tauscht den Button gegen
     # „Wirklich löschen?" + „Abbrechen", damit nichts versehentlich
     # weggeklickt wird.
-    casus_confirm_delete_all: bool = False
+    casus_confirm_delete_all: rx.Field[bool] = rx.field(False)
     # Single-Event-VLM-Analyse: ID des Events, das gerade analysiert
     # wird (0 = nichts läuft). Lässt die Zeile einen Spinner zeigen.
-    casus_analyzing_event_id: int = 0
+    casus_analyzing_event_id: rx.Field[int] = rx.field(0)
     # Volltext-Expand pro Zeile: event_id der Zeile, deren VLM-Beschreibung
     # ausgeklappt ist (0 = alle geklemmt). Klick auf den Text toggelt.
-    casus_expanded_event_id: int = 0
+    casus_expanded_event_id: rx.Field[int] = rx.field(0)
     # Bild-Modal: globaler Index des aktuell groß angezeigten Events in
     # ``casus_all_ids`` (-1 = zu). Global statt seiten-lokal, damit die
     # Pfeil-Navigation seitenübergreifend durch ALLE Events blättert,
     # nicht nur durch die 50 der aktuellen Rasterseite.
-    casus_image_index: int = -1
+    casus_image_index: rx.Field[int] = rx.field(-1)
     # Bulk-Worker-State — alle Events ohne description durch das VLM
     # schicken, dedupliziert via pHash-Cluster (Story 3).
-    casus_bulk_running: bool = False
-    casus_bulk_total: int = 0
-    casus_bulk_progress: int = 0
-    casus_bulk_message: str = ""
-    casus_bulk_cancel: bool = False
+    casus_bulk_running: rx.Field[bool] = rx.field(False)
+    casus_bulk_total: rx.Field[int] = rx.field(0)
+    casus_bulk_progress: rx.Field[int] = rx.field(0)
+    casus_bulk_message: rx.Field[str] = rx.field("")
+    casus_bulk_cancel: rx.Field[bool] = rx.field(False)
     # Cluster-Anzeige: bei True wird pro cluster_id nur der Repräsentant
     # (jüngster Eintrag) gezeigt + Badge „+N ähnliche". Idle off, weil
     # die meisten User „alle Events sehen" erwarten beim Modal-Open.
-    casus_cluster_mode: bool = False
+    casus_cluster_mode: rx.Field[bool] = rx.field(False)
     # Hilfe-Modal — Klick auf die Glühbirne öffnet eine Erklärung
     # zu „Alle analysieren" + „Gruppiert".
-    casus_help_open: bool = False
+    casus_help_open: rx.Field[bool] = rx.field(False)
 
     @rx.event
     def open_casus_help(self) -> None:
@@ -473,8 +473,8 @@ class CasusMixin(rx.State, mixin=True):
     # (aifred/ui/lightbox.py): Stufe pro Ansicht (1 = eingepasst, 2 = 200 %
     # Breite mit Scroll). Klick aufs Bild: 1 → 2 → Modal schließen;
     # Navigation/Öffnen/Schließen setzt die Stufen zurück.
-    casus_image_scale_wide: int = 1
-    casus_image_scale_zoom: int = 1
+    casus_image_scale_wide: rx.Field[int] = rx.field(1)
+    casus_image_scale_zoom: rx.Field[int] = rx.field(1)
 
     @rx.event
     def casus_image_cycle_scale(self, which: str) -> None:
@@ -762,7 +762,7 @@ class CasusMixin(rx.State, mixin=True):
     # gegen t()-Keys — so bleibt die Liste sprachreaktiv, ohne dass
     # der Mixin t() aufrufen muss (t() liefert eine Var, die in einer
     # Klassenkonstante nicht serialisierbar ist).
-    casus_type_values: list[str] = [
+    casus_type_values: rx.Field[list[str]] = rx.field(default_factory=lambda: [
         "all", "motion", "face", "face_known",
         "face_unsure", "face_unknown", "vlm",
-    ]
+    ])

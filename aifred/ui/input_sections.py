@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import reflex as rx
+from reflex.vars import ObjectVar, StringVar
 
 from ..state import AIState
 from ..theme import COLORS, DELEGATION_ICON
@@ -26,7 +27,7 @@ def _busy_disabled() -> rx.Var:
     )
 
 
-def _agent_toggle_button(agent: rx.Var) -> rx.Component:
+def _agent_toggle_button(agent: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render a single agent toggle button for the active-agent row."""
     # Core agent IDs that are locked in fixed modes
     is_core = (agent["id"] == "aifred") | (agent["id"] == "sokrates") | (agent["id"] == "salomo")
@@ -785,7 +786,7 @@ def text_input_section() -> rx.Component:
 # ============================================================
 
 
-def _debug_line(msg: Any) -> rx.Component:
+def _debug_line(msg: StringVar) -> rx.Component:
     """One console line; the delegation icon in the accent colour, like in the
     bubble, the rest in the line's own colour."""
     color = rx.cond(

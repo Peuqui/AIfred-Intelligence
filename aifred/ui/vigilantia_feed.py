@@ -10,14 +10,17 @@ Header-Badge (Events-Count letzte 10 Min) und ausklappbarer Liste.
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..state import AIState
 from ..theme import COLORS
 from .helpers import overlay_modal, t
 
 
-def _feed_thumb(event: rx.Var) -> rx.Component:
+def _feed_thumb(event: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Vorschaubild (32×32): Face-Crop wenn vorhanden, sonst verkleinertes
     Vollbild über den /api/vision/frame-Endpoint (w=64). Nur wenn weder
     Crop noch Frame da sind, bleibt das Activity-Icon."""
@@ -56,7 +59,7 @@ def _feed_thumb(event: rx.Var) -> rx.Component:
     )
 
 
-def _feed_badge(event: rx.Var) -> rx.Component:
+def _feed_badge(event: ObjectVar[dict[str, Any]]) -> rx.Component | rx.Var:
     et = event["event_type"]
     return rx.match(
         et,
@@ -72,7 +75,7 @@ def _feed_badge(event: rx.Var) -> rx.Component:
     )
 
 
-def _feed_row(event: rx.Var) -> rx.Component:
+def _feed_row(event: ObjectVar[dict[str, Any]]) -> rx.Component:
     return rx.hstack(
         # Datum + Zeit in einer Zeile — im Popover-Feed wird die Liste
         # mehrere Tage abdecken; ohne Datum sind Sprünge zwischen Tagen
@@ -118,7 +121,7 @@ def _feed_row(event: rx.Var) -> rx.Component:
     )
 
 
-def _latest_event_card(event) -> rx.Component:
+def _latest_event_card(event: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Inline-Karte mit dem jüngsten Event. Sitzt als Popover-Trigger
     rechtsbündig in der Research-Modi-Zeile — der User sieht sofort,
     was die Hintergrund-Cams gerade gemeldet haben, ohne klicken zu

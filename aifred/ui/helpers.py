@@ -6,6 +6,7 @@ from collections.abc import Callable
 from typing import Any
 
 import reflex as rx
+from reflex.vars import StringVar
 
 from ..lib.i18n import TranslationManager
 from ..state import AIState
@@ -27,7 +28,7 @@ MARKDOWN_COMPONENT_MAP = {
 # TRANSLATION HELPER
 # ============================================================
 
-def t(key: str) -> rx.Var:
+def t(key: str) -> StringVar:
     """
     Translation helper that returns German or English text based on state.
 
@@ -38,22 +39,24 @@ def t(key: str) -> rx.Var:
     de_text = TranslationManager._translations.get("de", {})
     en_text = TranslationManager._translations.get("en", {})
 
+    # .to(str): rx.cond of two strings is a Var[str] for the type checker (a StringVar at runtime);
+    # the cast changes neither the type at runtime nor the JavaScript.
     return rx.cond(
         AIState.ui_language == "de",
         de_text.get(key, key),  # Fallback to key if not found
         en_text.get(key, key)   # Fallback to key if not found
-    )
+    ).to(str)
 
 
-def plugin_text(accessor: Callable[[object, str], str], plugin: object) -> rx.Var:
+def plugin_text(accessor: Callable[[object, str], str], plugin: object) -> StringVar:
     """A plugin's own i18n text (``plugin_display_name`` or
     ``plugin_description`` from lib.plugin_base) in the live UI language.
     Plugin rows are built at build time, so both variants go into rx.cond."""
-    return rx.cond(
+    return rx.cond(  # .to(str) as in t()
         AIState.ui_language == "de",
         accessor(plugin, "de"),
         accessor(plugin, "en"),
-    )
+    ).to(str)
 
 
 # ============================================================

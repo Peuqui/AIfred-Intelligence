@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ..helpers import t
@@ -24,7 +27,7 @@ def _header_cell(key: str) -> rx.Component:
     return rx.table.column_header_cell(rx.text(t(key), font_size="11px"), style=_CELL)
 
 
-def _audit_entry_row(entry: rx.Var) -> rx.Component:
+def _audit_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render a single audit log entry."""
     return rx.table.row(
         _cell(rx.text(entry["timestamp"], font_size="11px")),

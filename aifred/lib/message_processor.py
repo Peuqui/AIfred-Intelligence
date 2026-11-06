@@ -513,7 +513,7 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
 
         debug(f"✅ Response generated ({len(response_text)} chars)")
         # A cold start usually happens in the intent call above; the answer
-        # carries it like in the browser (add_agent_panel).
+        # carries it like in the browser (_add_agent_panel).
         if intent_load_time:
             result_metadata["load_time"] = result_metadata.get("load_time", 0.0) + intent_load_time
 
@@ -798,7 +798,7 @@ def _append_response(
     """Append the assistant response to an existing session.
 
     If metadata is provided, appends a performance footer (TTFT, tok/s, etc.)
-    to the chat content — same format as browser-path add_agent_panel.
+    to the chat content — same format as browser-path _add_agent_panel.
 
     ``history_notes`` is what the turn's tools left for the llm_history
     (PipelineResult.history_notes); it follows the response text the same
@@ -817,7 +817,7 @@ def _append_response(
     from .session_storage import load_session, session_rmw_lock
 
     # Bubble: text plus the turn's artifacts (lib/bubble.py), then the
-    # metadata footer (shared with browser-path add_agent_panel). llm_history
+    # metadata footer (shared with browser-path _add_agent_panel). llm_history
     # keeps the plain response text and the turn's history notes.
     display_content = response_display
     if metadata:
@@ -835,7 +835,7 @@ def _append_response(
         if user_llm_text:
             existing_llm.append({"role": "user", "content": user_llm_text})
 
-        # SSOT: same dict shape as browser-path add_agent_panel
+        # SSOT: same dict shape as browser-path _add_agent_panel
         existing_chat.append(build_assistant_chat_entry(display_content, agent, metadata))
         existing_llm.append({"role": "assistant", "content": with_history_notes(response_text, history_notes)})
 

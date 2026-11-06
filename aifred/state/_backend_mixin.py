@@ -47,27 +47,27 @@ class BackendMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         _session_initialized: bool
-        agent_tuning: dict[str, AgentTuning]
-        auto_refresh_enabled: bool
-        consensus_type: str
-        debug_messages: list[str]
-        enable_tts: bool
-        enter_sends_message: bool
-        image_upload_warning: str
-        max_debate_rounds: int
-        multi_agent_mode: str
-        narrator_voices: dict[str, str]
-        pending_images: list[dict[str, str]]
-        session_id: str
-        show_transcription: bool
-        temperature_mode: str
-        tts_agents: dict[str, dict[str, Any]]
-        tts_autoplay: bool
-        tts_pitch: str
-        tts_playback_rate: str
-        ui_language: str
-        user_gender: str
-        user_name: str
+        agent_tuning: rx.Field[dict[str, AgentTuning]]
+        auto_refresh_enabled: rx.Field[bool]
+        consensus_type: rx.Field[str]
+        debug_messages: rx.Field[list[str]]
+        enable_tts: rx.Field[bool]
+        enter_sends_message: rx.Field[bool]
+        image_upload_warning: rx.Field[str]
+        max_debate_rounds: rx.Field[int]
+        multi_agent_mode: rx.Field[str]
+        narrator_voices: rx.Field[dict[str, str]]
+        pending_images: rx.Field[list[dict[str, str]]]
+        session_id: rx.Field[str]
+        show_transcription: rx.Field[bool]
+        temperature_mode: rx.Field[str]
+        tts_agents: rx.Field[dict[str, dict[str, Any]]]
+        tts_autoplay: rx.Field[bool]
+        tts_pitch: rx.Field[str]
+        tts_playback_rate: rx.Field[str]
+        ui_language: rx.Field[str]
+        user_gender: rx.Field[str]
+        user_name: rx.Field[str]
 
         def _effective_model_id(self, agent: str) -> str: ...
         def _load_channel_settings(self, settings: dict[str, Any]) -> None: ...
@@ -80,51 +80,53 @@ class BackendMixin(rx.State, mixin=True):
         ) -> None: ...
         def _save_settings(self) -> None: ...
         def _show_model_calibration_info(self, model_id: str): ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
+        @rx.event
         def refresh_session_list(self): ...
 
     # ── Backend Settings ──────────────────────────────────────────
-    backend_type: str = "ollama"  # "ollama", "vllm", "llamacpp", "cloud_api"
-    backend_id: str = "ollama"  # Pure backend ID (synced with backend_type)
-    current_backend_label: str = "Ollama"  # Display label for current backend
-    backend_url: str = config.DEFAULT_OLLAMA_URL
+    backend_type: rx.Field[str] = rx.field("ollama")  # "ollama", "vllm", "llamacpp", "cloud_api"
+    backend_id: rx.Field[str] = rx.field("ollama")  # Pure backend ID (synced with backend_type)
+    current_backend_label: rx.Field[str] = rx.field("Ollama")  # Display label for current backend
+    backend_url: rx.Field[str] = rx.field(config.DEFAULT_OLLAMA_URL)
 
     # Cloud API Settings (only relevant when backend_type == "cloud_api")
-    cloud_api_provider: str = "qwen"  # "claude", "qwen", "kimi"
-    cloud_api_provider_label: str = "Qwen (DashScope)"
-    cloud_api_key_configured: bool = False
+    cloud_api_provider: rx.Field[str] = rx.field("qwen")  # "claude", "qwen", "kimi"
+    cloud_api_provider_label: rx.Field[str] = rx.field("Qwen (DashScope)")
+    cloud_api_key_configured: rx.Field[bool] = rx.field(False)
 
     # Backend ID/Label Mapping (static - all possible backends)
-    available_backends_dict: dict[str, str] = {
+    available_backends_dict: rx.Field[dict[str, str]] = rx.field(default_factory=lambda: {
         "ollama": "Ollama",
         "llamacpp": "llama.cpp",
         "vllm": "vLLM",
         "cloud_api": "Cloud APIs",
-    }
+    })
 
     # ── Model Settings ────────────────────────────────────────────
     # Per-agent model/model_id live in agent_tuning (AgentConfigMixin).
-    available_models: list[str] = []
-    available_models_dict: dict[str, str] = {}
-    vision_models_cache: list[str] = []
-    available_vision_models_list: list[str] = []
+    available_models: rx.Field[list[str]] = rx.field(default_factory=list)
+    available_models_dict: rx.Field[dict[str, str]] = rx.field(default_factory=dict)
+    vision_models_cache: rx.Field[list[str]] = rx.field(default_factory=list)
+    available_vision_models_list: rx.Field[list[str]] = rx.field(default_factory=list)
     # Fertig gerenderte Vision-Modell-Zeilen fürs Dropdown: je ein Dict mit
     # ``name`` (Display-Name = Select-value), ``badge`` (⚡ No Swap / 🔄 Swap
     # / "") und ``color``. "No Swap" heißt: Bildanfrage läuft über den
     # Ollama-Side-Channel parallel, das Chat-Modell bleibt geladen; "Swap":
     # llama-swap verdrängt es. Einmal beim Discovery bestimmt (Ollama-VLM-
     # Liste wird dort ohnehin geholt) — kein API-Call im Render.
-    available_vision_models_rich: list[dict[str, str]] = []
+    available_vision_models_rich: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
 
-    automatik_model: str = ""
-    automatik_model_id: str = ""
+    automatik_model: rx.Field[str] = rx.field("")
+    automatik_model_id: rx.Field[str] = rx.field("")
 
     # ── Backend Status ────────────────────────────────────────────
-    backend_healthy: bool = False
-    backend_info: str = ""
-    model_count: int = 0
-    backend_switching: bool = False
-    backend_initializing: bool = True
+    backend_healthy: rx.Field[bool] = rx.field(False)
+    backend_info: rx.Field[str] = rx.field("")
+    model_count: rx.Field[int] = rx.field(0)
+    backend_switching: rx.Field[bool] = rx.field(False)
+    backend_initializing: rx.Field[bool] = rx.field(True)
 
     # ── Initialization Flags ──────────────────────────────────────
     _backend_initialized: bool = False
@@ -132,28 +134,28 @@ class BackendMixin(rx.State, mixin=True):
     _on_load_running: bool = False
 
     # ── GPU Detection ─────────────────────────────────────────────
-    gpu_detected: bool = False
-    gpu_name: str = ""
-    gpu_compute_cap: float = 0.0
-    gpu_warnings: list[str] = []
-    gpu_count: int = 1
-    gpu_vram_gb: float = 0
-    gpu_all_names: list[str] = []
-    available_backends: list[str] = [
+    gpu_detected: rx.Field[bool] = rx.field(False)
+    gpu_name: rx.Field[str] = rx.field("")
+    gpu_compute_cap: rx.Field[float] = rx.field(0.0)
+    gpu_warnings: rx.Field[list[str]] = rx.field(default_factory=list)
+    gpu_count: rx.Field[int] = rx.field(1)
+    gpu_vram_gb: rx.Field[float] = rx.field(0)
+    gpu_all_names: rx.Field[list[str]] = rx.field(default_factory=list)
+    available_backends: rx.Field[list[str]] = rx.field(default_factory=lambda: [
         "ollama", "llamacpp", "vllm", "cloud_api",
-    ]
-    available_backends_list: list[str] = [
+    ])
+    available_backends_list: rx.Field[list[str]] = rx.field(default_factory=lambda: [
         "Ollama", "llama.cpp", "vLLM", "Cloud APIs",
-    ]
+    ])
 
     # ── vLLM YaRN Settings ────────────────────────────────────────
-    enable_yarn: bool = False
-    yarn_factor: float = 1.0
-    yarn_factor_input: str = "1.0"
-    yarn_max_factor: float = 0.0
-    yarn_max_tested: bool = False
-    vllm_max_tokens: int = 0
-    vllm_native_context: int = 0
+    enable_yarn: rx.Field[bool] = rx.field(False)
+    yarn_factor: rx.Field[float] = rx.field(1.0)
+    yarn_factor_input: rx.Field[str] = rx.field("1.0")
+    yarn_max_factor: rx.Field[float] = rx.field(0.0)
+    yarn_max_tested: rx.Field[bool] = rx.field(False)
+    vllm_max_tokens: rx.Field[int] = rx.field(0)
+    vllm_native_context: rx.Field[int] = rx.field(0)
 
     # ── Cached Model Metadata ─────────────────────────────────────
     _automatik_model_context_limit: int = 0
@@ -352,6 +354,7 @@ class BackendMixin(rx.State, mixin=True):
     # ON_LOAD
     # ================================================================
 
+    @rx.event
     async def on_load(self):
         """Called when page loads - initialize backend and load models.
 
@@ -770,6 +773,7 @@ class BackendMixin(rx.State, mixin=True):
     # INITIALIZE BACKEND
     # ================================================================
 
+    @rx.event
     async def initialize_backend(self) -> bool:
         """Initialize LLM backend.
 
@@ -1351,6 +1355,7 @@ class BackendMixin(rx.State, mixin=True):
     # BACKEND SWITCHING
     # ================================================================
 
+    @rx.event
     async def switch_backend_by_label(self, label: str):
         """Switch backend using display label (for native mobile select)."""
         label_to_id = {v: k for k, v in self.available_backends_dict.items()}
@@ -1358,6 +1363,7 @@ class BackendMixin(rx.State, mixin=True):
         async for _ in self.switch_backend(backend_id):
             yield
 
+    @rx.event
     async def switch_backend(self, new_backend: str):
         """Switch to different backend and restore last used models."""
         from . import _global_backend_state
@@ -1443,6 +1449,7 @@ class BackendMixin(rx.State, mixin=True):
     # CLOUD API PROVIDER SWITCHING
     # ================================================================
 
+    @rx.event
     async def set_cloud_api_provider_by_label(self, label: str):
         """Switch Cloud API provider using display label (cloud_api SSOT)."""
         from ..backends.cloud_api import cloud_provider_from_label
@@ -1450,6 +1457,7 @@ class BackendMixin(rx.State, mixin=True):
         async for _ in self.set_cloud_api_provider(provider_id):
             yield
 
+    @rx.event
     async def set_cloud_api_provider(self, provider: str):
         """Switch Cloud API provider (claude, qwen, kimi)."""
         if provider not in CLOUD_API_PROVIDERS:
@@ -1523,6 +1531,7 @@ class BackendMixin(rx.State, mixin=True):
     # MODEL SELECTION
     # ================================================================
 
+    @rx.event
     async def set_aifred_model(self, model_id: str):
         """Set selected model and restart backend if needed."""
         from ..lib.vision_utils import is_vision_model
@@ -1568,6 +1577,7 @@ class BackendMixin(rx.State, mixin=True):
         # naechsten Request, kein Server-Restart noetig.
         yield
 
+    @rx.event
     async def set_automatik_model(self, model_id: str):
         """Set automatik model for decision and query optimization."""
         # "" ist das Sentinel fuer "wie AIfred-LLM" — es kommt jetzt als
@@ -1584,6 +1594,7 @@ class BackendMixin(rx.State, mixin=True):
         else:
             self.add_debug("⚡ Automatic-LLM: (same as Main-LLM)")
 
+    @rx.event
     async def set_vision_model(self, model_id: str):
         """Set vision model for OCR/image analysis."""
         self.agent_tuning["vision"].model_id = model_id

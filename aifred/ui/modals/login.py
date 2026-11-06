@@ -34,7 +34,7 @@ def login_dialog() -> rx.Component:
                         rx.hstack(
                             rx.button(
                                 "Anmelden",
-                                on_click=lambda: AIState.open_login_dialog("login"),  # type: ignore[arg-type]
+                                on_click=lambda: AIState.open_login_dialog("login"),
                                 variant=rx.cond(AIState.login_mode == "login", "solid", "ghost"),
                                 color_scheme="orange",
                                 size="2",
@@ -42,7 +42,7 @@ def login_dialog() -> rx.Component:
                             ),
                             rx.button(
                                 "Registrieren",
-                                on_click=lambda: AIState.open_login_dialog("register"),  # type: ignore[arg-type]
+                                on_click=lambda: AIState.open_login_dialog("register"),
                                 variant=rx.cond(AIState.login_mode == "register", "solid", "ghost"),
                                 color_scheme="orange",
                                 size="2",

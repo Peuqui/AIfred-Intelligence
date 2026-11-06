@@ -2,7 +2,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..state import AIState
 from ..theme import COLORS
@@ -15,7 +18,7 @@ from .helpers import (
 # MESSAGE BUBBLES
 # ============================================================
 
-def render_user_message(msg: dict) -> rx.Component:
+def render_user_message(msg: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render user message (right-aligned with emoji outside on the right)"""
     # NOTE: Since this is called from rx.cond, msg fields are already extracted as Vars
     # We can use them directly in rx components
@@ -59,7 +62,7 @@ def render_user_message(msg: dict) -> rx.Component:
 # AUDIO BUTTONS
 # ============================================================
 
-def render_bubble_audio_buttons(msg: dict) -> rx.Component:
+def render_bubble_audio_buttons(msg: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render play and regenerate buttons for audio replay.
 
     KISS: Buttons werden IMMER gerendert mit display:none.
@@ -73,7 +76,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
             type="button",
             title=t("audio_play_tooltip"),
             disabled=AIState.tts_regenerating,
-            **{"data-audio-urls": msg["audio_urls_json"], "data-browser-speech": msg["browser_speech_json"]},
+            custom_attrs={"data-audio-urls": msg["audio_urls_json"], "data-browser-speech": msg["browser_speech_json"]},
             class_name="bubble-audio-btn",
             style={
                 "display": "none",  # JS zeigt Button wenn Audio vorhanden
@@ -96,14 +99,14 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
                 rx.spinner(size="1"),
                 rx.icon("refresh-cw", size=16),
             ),
-            on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),  # type: ignore[misc]
+            on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),
             title=t("audio_generate_tooltip"),
             size="1",
             variant="ghost",
             color_scheme="gray",
             disabled=AIState.tts_regenerating,
             class_name="bubble-regenerate-btn",
-            **{
+            custom_attrs={
                 "data-audio-urls": msg["audio_urls_json"],
                 "data-tooltip-generate": t("audio_generate_tooltip"),
                 "data-tooltip-regenerate": t("audio_regenerate_tooltip"),
@@ -123,7 +126,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
         rx.el.span(
             class_name="bubble-tts-note",
             style={"font_size": "10px", "color": COLORS["text_secondary"]},
-            **{"data-note": msg["tts_note"].to(str)},
+            custom_attrs={"data-note": msg["tts_note"].to(str)},
         ),
         spacing="1",
         align="center",
@@ -135,9 +138,9 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
 # ============================================================
 
 def _agent_bubble(
-    msg: dict,
-    emoji: str,
-    name: str,
+    msg: ObjectVar[dict[str, Any]],
+    emoji: rx.Var,
+    name: rx.Var,
     name_color: str,
     inner_bg: str,
     outer_bg: str,
@@ -187,7 +190,7 @@ def _agent_bubble(
     )
 
 
-def render_assistant_message(msg: dict) -> rx.Component:
+def render_assistant_message(msg: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render assistant message (left-aligned, styled per agent).
 
     Uses agent_display_name and agent_emoji from chat_history dict.
@@ -218,7 +221,7 @@ def render_assistant_message(msg: dict) -> rx.Component:
 # SYSTEM MESSAGE
 # ============================================================
 
-def render_system_message(msg: dict) -> rx.Component:
+def render_system_message(msg: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render system message (summary) as a centered, subtle bubble."""
     return rx.box(
         rx.markdown(
@@ -241,7 +244,7 @@ def render_system_message(msg: dict) -> rx.Component:
 # MESSAGE DISPATCHER
 # ============================================================
 
-def render_message_standalone(msg: dict) -> rx.Component:
+def render_message_standalone(msg: ObjectVar[dict[str, Any]]) -> rx.Component:
     """
     Rendert eine einzelne Message aus chat_history (dict-based).
 

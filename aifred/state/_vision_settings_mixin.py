@@ -94,92 +94,92 @@ class VisionSettingsMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        ui_language: str
-        vision_preview_sources: list[dict[str, Any]]
+        ui_language: rx.Field[str]
+        vision_preview_sources: rx.Field[list[dict[str, Any]]]
 
         def _persist_source_alias(self, source_id: str, alias: str) -> None: ...
 
-    vision_settings_open: bool = False
+    vision_settings_open: rx.Field[bool] = rx.field(False)
     # Presets für den Pro-Kamera "Min. Event-Abstand"-Regler (Hintergrund-
     # Watcher). Bewusst eigene, gröbere Stufen als das Live-Vorschau-Popup
     # (``vision_preview_face_throttle_options``, 0,1-3s für Türsteher-
     # Modus) — der Hintergrund läuft dauerhaft, hier ist der sinnvolle
     # Bereich 1-10s statt Zehntelsekunden.
-    vision_event_interval_options: list[dict[str, str]] = [
+    vision_event_interval_options: rx.Field[list[dict[str, str]]] = rx.field(default_factory=lambda: [
         {"value": "1", "label": "1 s"},
         {"value": "2", "label": "2 s"},
         {"value": "3", "label": "3 s"},
         {"value": "5", "label": "5 s"},
         {"value": "10", "label": "10 s"},
-    ]
-    vision_mode_value: str = "on-demand"
-    vision_model_value: str = "qwen3-vl:4b-instruct-q8_0"
-    vision_available_models: list[str] = []
+    ])
+    vision_mode_value: rx.Field[str] = rx.field("on-demand")
+    vision_model_value: rx.Field[str] = rx.field("qwen3-vl:4b-instruct-q8_0")
+    vision_available_models: rx.Field[list[str]] = rx.field(default_factory=list)
     # The describer list (lib/describer_list), matched with what is there now, one row per entry:
     # {index, source, label, enabled, note, warn, remote}. Edited like the TTS list.
-    vision_describer_rows: list[dict[str, Any]] = []
+    vision_describer_rows: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
     # Source being measured right now ("" = none).
-    vision_describer_measuring: str = ""
+    vision_describer_measuring: rx.Field[str] = rx.field("")
     # Gesichts­erkennung an/aus — SSOT in
     # ``plugins/tools/vision/settings.json`` ``face_recognition.enabled``.
     # Wirkt auf den Watcher (run_face_detect_on_motion).
-    face_recognition_enabled: bool = True
+    face_recognition_enabled: rx.Field[bool] = rx.field(True)
     # Kontinuierliche (motion-unabhängige) Gesichtserkennung. Default
     # OFF — die Detection läuft dann nur, wenn der Motion-Detector
     # anschlägt (GPU-schonend, für Türsteher-Cam). User schaltet ihn
     # ein, wenn die Cam einen ruhigen Schreibtisch zeigt und Motion
     # nicht zuverlässig triggert.
-    face_recognition_continuous: bool = False
+    face_recognition_continuous: rx.Field[bool] = rx.field(False)
     # YOLO-Körper-/Personen-Erkennung pro Motion-Event. SSoT aus
     # ``settings.json`` ``watch.run_person_detect_on_motion``. Läuft
     # parallel zur Gesichtserkennung (kein Gate) — sowohl im Hintergrund-
     # Watcher (Auge) als auch im Live-Preview, wenn Face aktiv ist.
-    person_detect_enabled: bool = False
+    person_detect_enabled: rx.Field[bool] = rx.field(False)
     # Aufbewahrungsdauer der Face-Crops + Motion-Frames + Vision-DB-
     # Events in Tagen. Cleanup-Task läuft täglich um 03:00 lokal.
-    face_retention_days: int = 14
+    face_retention_days: rx.Field[int] = rx.field(14)
     # Master-Schalter — wie scharf/unscharf an einer Alarmanlage.
     # Erst wenn ``vigilantia_armed=True`` UND eine Source
     # ``auto_start=True`` hat, läuft beim Boot ein Hintergrund-Watcher.
     # Default OFF — der User schaltet bewusst scharf.
-    vigilantia_armed: bool = False
+    vigilantia_armed: rx.Field[bool] = rx.field(False)
     # Liste der Cams für die „Quellen"-Sektion im Settings-Modal —
     # ein Dict pro Source mit ``id``, ``label``, ``auto_start``,
     # ``resolution``. Wird beim Modal-Open befüllt aus vision_store +
     # frame_sources. Bewegungs-Schwelle wird im Zonen-Editor getunt.
-    vigilantia_sources: list[dict[str, Any]] = []
+    vigilantia_sources: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
     # Plain var, deliberately NOT a computed var: a computed iterating the
     # mutable sources list re-marks the list dirty on every evaluation
     # (MutableProxy), creating a self-sustaining dirty cycle — both vars
     # were pushed in EVERY 500ms tick delta to all tabs, wiping any text
     # selection in chat bubbles. Updated via _update_has_armed_source().
-    vigilantia_has_armed_source: bool = False
+    vigilantia_has_armed_source: rx.Field[bool] = rx.field(False)
     # Ob das aktuell konfigurierte VLM-Modell im Ollama-VRAM liegt.
     # Wird beim Page-Load + nach jedem Load/Unload-Toggle frisch von
     # Ollama abgefragt — keine Annahme, dass der State stimmt, wenn
     # jemand außerhalb von AIfred mit Ollama gespielt hat.
-    vlm_model_loaded: bool = False
+    vlm_model_loaded: rx.Field[bool] = rx.field(False)
     # Lade/Entlade-Vorgang läuft gerade → Spinner-Optik am Button.
-    vlm_model_busy: bool = False
+    vlm_model_busy: rx.Field[bool] = rx.field(False)
 
     # ── RTSP-Kamera-Verwaltung ───────────────────────────────────────
     # Bestehende RTSP-Kameras erscheinen als normale Quellen-Karte (mit
     # Verbindungs-Stecker); dieses Formular legt neue an / bearbeitet die
     # Verbindung einer bestehenden.
     # Add/Edit-Formular — alle Felder als String/Bool fürs Binding.
-    rtsp_form: dict[str, Any] = {}
-    rtsp_form_open: bool = False
+    rtsp_form: rx.Field[dict[str, Any]] = rx.field(default_factory=dict)
+    rtsp_form_open: rx.Field[bool] = rx.field(False)
     # Name der gerade bearbeiteten Kamera ("" = neue Kamera anlegen).
-    rtsp_form_editing: str = ""
-    rtsp_form_error: str = ""
+    rtsp_form_editing: rx.Field[str] = rx.field("")
+    rtsp_form_error: rx.Field[str] = rx.field("")
 
     # ── Alert-Routing-Regeln (Kategorie → Kanäle/VLM/Cooldown) ────────
     # Eine Zeile je Kategorie für die Regeln-UI; gespiegelt aus
     # data/alert_rules.json. {category, label_key, sinks(list), vlm, cooldown}.
-    alert_rules_ui: list[dict[str, Any]] = []
+    alert_rules_ui: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
     # Alle verfügbaren Channel-Plugins (kanal-agnostisch via plugin_registry):
     # {name, display_name}. Neue Channels tauchen automatisch auf.
-    alert_channels: list[dict[str, str]] = []
+    alert_channels: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
 
     def _refresh_vision_settings(self) -> None:
         """Lade Plugin-Settings + Ollama-Modellliste in den State.
@@ -1098,6 +1098,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         except Exception as e:  # noqa: BLE001
             logger.warning("vigilantia armed toggle side-effect failed: %s", e)
 
+    @rx.event
     async def force_disarm_vigilantia(self) -> None:
         """Unconditionally disarm the Watcher + stop its background watchers.
 

@@ -18,6 +18,7 @@ from __future__ import annotations
 from typing import Any
 
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ...theme import COLORS
@@ -50,7 +51,7 @@ def _section_heading(key: str, *extra: rx.Component) -> rx.Component:
 
 # ── Liste ─────────────────────────────────────────────────────────
 
-def _entry_row(row: rx.Var) -> rx.Component:
+def _entry_row(row: ObjectVar[dict[str, Any]]) -> rx.Component:
     """One escalation entry: order, on/off, label, status, speech unit."""
     index = row["index"].to(int)
     return rx.hstack(

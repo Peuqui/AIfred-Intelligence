@@ -38,28 +38,28 @@ POSE_STEPS: list[dict[str, str]] = [
 class MultiposeMixin(rx.State, mixin=True):
     """UI state for the Multi-Pose enrollment modal."""
 
-    multipose_open: bool = False
+    multipose_open: rx.Field[bool] = rx.field(False)
     # 0 = neue Person, > 0 = bestehende Identity erweitern
-    multipose_target_face_id: int = 0
-    multipose_name: str = ""
-    multipose_source_id: str = ""
+    multipose_target_face_id: rx.Field[int] = rx.field(0)
+    multipose_name: rx.Field[str] = rx.field("")
+    multipose_source_id: rx.Field[str] = rx.field("")
     # Step-Pointer (0..len(POSE_STEPS)-1). Wenn step == len(POSE_STEPS),
     # ist die Sequenz durch und der Save-Button erscheint.
-    multipose_step: int = 0
+    multipose_step: rx.Field[int] = rx.field(0)
     # Pro Capture: {"key": str, "preview_data_url": str, "embedding_b64": str,
     #               "detection_score": float}
-    multipose_captures: list[dict[str, Any]] = []
+    multipose_captures: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
     # Vorschau der letzten Aufnahme im Modal (data:image/jpeg;base64,…).
     # Wird nach erfolgreichem Capture gesetzt — der User sieht direkt,
     # was gespeichert wurde, und kann ggf. „wiederholen".
-    multipose_preview_data_url: str = ""
+    multipose_preview_data_url: rx.Field[str] = rx.field("")
     # Vorschau VOR dem Capture (Live-Bild des Hubs, damit der User den
     # Bildausschnitt sieht, bevor er auslöst).
-    multipose_live_preview_url: str = ""
-    multipose_status: str = ""
-    multipose_busy: bool = False
+    multipose_live_preview_url: rx.Field[str] = rx.field("")
+    multipose_status: rx.Field[str] = rx.field("")
+    multipose_busy: rx.Field[bool] = rx.field(False)
     # Quellen-Dropdown
-    multipose_source_options: list[dict[str, str]] = []
+    multipose_source_options: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
 
     # ── Computed ─────────────────────────────────────────────────
 

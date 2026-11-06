@@ -70,12 +70,12 @@ class AgentConfigMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         _min_agent_context_limit: int
-        available_models_dict: dict[str, str]
-        backend_id: str
-        backend_type: str
-        enable_tts: bool
-        temperature_mode: str
-        ui_language: str
+        available_models_dict: rx.Field[dict[str, str]]
+        backend_id: rx.Field[str]
+        backend_type: rx.Field[str]
+        enable_tts: rx.Field[bool]
+        temperature_mode: rx.Field[str]
+        ui_language: rx.Field[str]
 
         @property
         def _effective_automatik_id(self) -> str: ...
@@ -84,39 +84,40 @@ class AgentConfigMixin(rx.State, mixin=True):
         def _persist_session_config(self) -> None: ...
         def _save_settings(self) -> None: ...
         def _show_model_calibration_info(self, model_id: str): ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # ── Per-Agent Tuning (SSOT: one bucket per agent id) ──────────
-    agent_tuning: dict[str, AgentTuning] = default_agent_tuning()
+    agent_tuning: rx.Field[dict[str, AgentTuning]] = rx.field(default_factory=default_agent_tuning)
 
-    sampling_reset_key: int = 0  # UI key counter to force re-mount on reset
+    sampling_reset_key: rx.Field[int] = rx.field(0)  # UI key counter to force re-mount on reset
 
     # ── Automatik (intent LLM — not an agent, own fields) ─────────
-    automatik_rope_factor: float = 1.0
+    automatik_rope_factor: rx.Field[float] = rx.field(1.0)
 
     # ── Active Agent (direct chat) ─────────────────────────────────
     # NOTE: active_agent, multi_agent_mode, symposion_agents are now
     # per-session (session_storage.DEFAULT_SESSION_CONFIG). Class defaults
     # only apply before any session is loaded.
-    active_agent: str = "aifred"  # Which agent responds (default: aifred)
-    agent_memory_enabled: bool = True  # Global toggle: agents use long-term memory
+    active_agent: rx.Field[str] = rx.field("aifred")  # Which agent responds (default: aifred)
+    agent_memory_enabled: rx.Field[bool] = rx.field(True)  # Global toggle: agents use long-term memory
 
     # ── Multi-Agent Settings (per-session) ────────────────────────
-    multi_agent_mode: str = "standard"
-    max_debate_rounds: int = 3  # still global (debate param)
-    symposion_agents: list[str] = []  # Selected agents for Symposion mode
-    consensus_type: str = "majority"
+    multi_agent_mode: rx.Field[str] = rx.field("standard")
+    max_debate_rounds: rx.Field[int] = rx.field(3)  # still global (debate param)
+    symposion_agents: rx.Field[list[str]] = rx.field(default_factory=list)  # Selected agents for Symposion mode
+    consensus_type: rx.Field[str] = rx.field("majority")
 
     # ── Multi-Agent Runtime State ─────────────────────────────────
-    sokrates_critique: str = ""
-    sokrates_pro_args: str = ""
-    sokrates_contra_args: str = ""
-    show_sokrates_panel: bool = False
-    salomo_synthesis: str = ""
-    show_salomo_panel: bool = False
-    debate_round: int = 0
-    debate_user_interjection: str = ""
-    debate_in_progress: bool = False
+    sokrates_critique: rx.Field[str] = rx.field("")
+    sokrates_pro_args: rx.Field[str] = rx.field("")
+    sokrates_contra_args: rx.Field[str] = rx.field("")
+    show_sokrates_panel: rx.Field[bool] = rx.field(False)
+    salomo_synthesis: rx.Field[str] = rx.field("")
+    show_salomo_panel: rx.Field[bool] = rx.field(False)
+    debate_round: rx.Field[int] = rx.field(0)
+    debate_user_interjection: rx.Field[str] = rx.field("")
+    debate_in_progress: rx.Field[bool] = rx.field(False)
 
     # ================================================================
     # GENERIC HELPERS (deduplicated triple-agent pattern)
@@ -511,6 +512,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     # ROPE FACTOR SETTERS
     # ================================================================
 
+    @rx.event
     def set_aifred_rope_factor(self, value: str) -> None:
         """Set RoPE scaling factor for AIfred-LLM."""
         from ..lib.agent_settings import get_agent_setting, set_agent_setting
@@ -575,6 +577,7 @@ class AgentConfigMixin(rx.State, mixin=True):
                 if native_ctx is None:
                     self.add_debug("⚠️ No native calibration found - please calibrate first!")
 
+    @rx.event
     def set_automatik_rope_factor(self, value: str) -> None:
         """Set RoPE scaling factor for Automatik-LLM."""
         factor = float(value.replace("x", ""))
@@ -635,6 +638,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     # MULTI-AGENT MODE SETTINGS
     # ================================================================
 
+    @rx.event
     def set_multi_agent_mode(self, mode: str) -> None:
         """Set multi-agent discussion mode."""
         self.multi_agent_mode = mode
@@ -665,6 +669,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         }
         self.add_debug(f"\U0001f916 Discussion mode: {mode_labels.get(mode, mode)}")
 
+    @rx.event
     def increase_debate_rounds(self) -> None:
         """Increase max debate rounds by 1 (max 10)."""
         if self.max_debate_rounds < 10:
@@ -672,6 +677,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             self._save_settings()
             self.add_debug(f"\U0001f504 Max debate rounds: {self.max_debate_rounds}")
 
+    @rx.event
     def decrease_debate_rounds(self) -> None:
         """Decrease max debate rounds by 1 (min 1)."""
         if self.max_debate_rounds > 1:
@@ -679,6 +685,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             self._save_settings()
             self.add_debug(f"\U0001f504 Max debate rounds: {self.max_debate_rounds}")
 
+    @rx.event
     def toggle_consensus_type(self, checked: bool) -> None:
         """Toggle consensus type between majority (off) and unanimous (on)."""
         self.consensus_type = "unanimous" if checked else "majority"
@@ -749,6 +756,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         """True when the current mode locks agents to AIfred+Sokrates+Salomo."""
         return self.multi_agent_mode in self.FIXED_MODES
 
+    @rx.event
     def toggle_agent_memory(self) -> None:
         """Toggle agent memory on/off (incognito mode)."""
         self.agent_memory_enabled = not self.agent_memory_enabled
@@ -757,6 +765,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         else:
             self.add_debug("🔒 Incognito mode (no memory)")
 
+    @rx.event
     def set_active_agent(self, agent_id: str) -> None:
         """Set which agent responds to messages. In Symposion mode, toggles multi-select."""
         # Fixed modes: agents are locked, ignore clicks
@@ -772,6 +781,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.add_debug(f"🎯 Active agent: {label}")
         self._persist_session_config()
 
+    @rx.event
     def toggle_symposion_agent(self, agent_id: str) -> None:
         """Toggle an agent's participation in Symposion mode."""
         from ..lib.agent_config import get_agent_config
@@ -804,6 +814,7 @@ class AgentConfigMixin(rx.State, mixin=True):
     # MULTI-AGENT RUNTIME STATE MANAGEMENT
     # ================================================================
 
+    @rx.event
     def reset_sokrates_state(self) -> None:
         """Reset all Sokrates-related runtime state."""
         self.sokrates_critique = ""
@@ -814,6 +825,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         self.debate_user_interjection = ""
         self.debate_in_progress = False
 
+    @rx.event
     def reset_salomo_state(self) -> None:
         """Reset all Salomo-related runtime state."""
         self.salomo_synthesis = ""
@@ -909,13 +921,16 @@ class AgentConfigMixin(rx.State, mixin=True):
     # GENERIC EVENT HANDLERS (rx.foreach rows pass the agent id)
     # ================================================================
 
+    @rx.event
     def set_agent_model_for(self, agent: str, model: str) -> None:
         """Model select handler for any secondary agent (incl. custom)."""
         self._set_secondary_agent_model(agent, model)
 
+    @rx.event
     def set_agent_sampling_for(self, agent: str, param: str, value: str) -> None:
         self._set_agent_sampling(agent, param, value)
 
+    @rx.event
     def set_agent_temperature_for(self, agent: str, value: str) -> None:
         self._set_temperature_input(agent, value)
 
@@ -938,22 +953,28 @@ class AgentConfigMixin(rx.State, mixin=True):
                 continue
             self._reset_agent_sampling(agent, include_temperature=include_temperature)
 
+    @rx.event
     def reset_agent_sampling_for(self, agent: str) -> None:
         self._reset_agent_sampling(agent)
         self._save_settings()
 
+    @rx.event
     def toggle_agent_personality_for(self, agent: str, _value: bool | None = None) -> None:
         self._toggle_agent_feature(agent, "personality")
 
+    @rx.event
     def toggle_agent_reasoning_for(self, agent: str, _value: bool | None = None) -> None:
         self._toggle_agent_feature(agent, "reasoning")
 
+    @rx.event
     def set_agent_thinking_mode_for(self, agent: str, mode: str) -> None:
         self._set_agent_thinking_mode(agent, mode)
 
+    @rx.event
     def toggle_agent_speed_mode_for(self, agent: str, _value: bool | None = None) -> None:
         self._toggle_speed_mode(agent)
 
+    @rx.event
     def set_agent_rope_factor_for(self, agent: str, value: str) -> None:
         self._set_agent_rope_factor(agent, value)
 

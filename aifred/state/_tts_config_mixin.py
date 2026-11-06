@@ -48,29 +48,30 @@ class TTSConfigMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        agent_tuning: dict[str, AgentTuning]
-        editor_agent_id: str
+        agent_tuning: rx.Field[dict[str, AgentTuning]]
+        editor_agent_id: rx.Field[str]
 
         def _save_settings(self) -> None: ...
         def _write_settings_file(self, settings: dict[str, Any]) -> None: ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # ── TTS Settings ──────────────────────────────────────────────
-    enable_tts: bool = False
-    tts_autoplay: bool = TTS_AUTOPLAY_DEFAULT  # Global, persisted ("tts_autoplay")
-    tts_playback_rate: str = "1.0x"  # Browser playback rate (1.0 = neutral, speed via Agent Settings)
-    tts_pitch: str = "1.0"  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
+    enable_tts: rx.Field[bool] = rx.field(False)
+    tts_autoplay: rx.Field[bool] = rx.field(TTS_AUTOPLAY_DEFAULT)  # Global, persisted ("tts_autoplay")
+    tts_playback_rate: rx.Field[str] = rx.field("1.0x")  # Browser playback rate (1.0 = neutral, speed via Agent Settings)
+    tts_pitch: rx.Field[str] = rx.field("1.0")  # Pitch adjustment (0.8 = lower, 1.0 = normal, 1.2 = higher)
     # Per agent, for every engine: {"enabled": bool, "language": "auto"|ISO code}
-    tts_agents: dict[str, dict[str, Any]] = {}
+    tts_agents: rx.Field[dict[str, dict[str, Any]]] = rx.field(default_factory=dict)
 
     # The list and the unit per engine live in settings.json; bumping this revision recomputes every var derived from them.
-    tts_list_revision: int = 0
-    tts_status_checking: bool = False
+    tts_list_revision: rx.Field[int] = rx.field(0)
+    tts_status_checking: rx.Field[bool] = rx.field(False)
 
     # Narrator (narrate_file) voice PER ENGINE — voices are engine-bound.
-    narrator_voices: dict[str, str] = {}
-    narrator_voice_engine: str = TTS_DEFAULT_ENGINE  # Engine whose narrator voice the modal edits
-    narrator_settings_open: bool = False
+    narrator_voices: rx.Field[dict[str, str]] = rx.field(default_factory=dict)
+    narrator_voice_engine: rx.Field[str] = rx.field(TTS_DEFAULT_ENGINE)  # Engine whose narrator voice the modal edits
+    narrator_settings_open: rx.Field[bool] = rx.field(False)
 
     # ── List (computed) ───────────────────────────────────────────
 
@@ -137,11 +138,13 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     # ── Spoken output on/off, autoplay ────────────────────────────
 
+    @rx.event
     def set_enable_tts(self, enabled: bool):
         self.enable_tts = enabled
         self._save_settings()
         self.add_debug(f"🔊 TTS: {'enabled' if enabled else 'disabled'}")
 
+    @rx.event
     def toggle_tts_autoplay(self):
         self.tts_autoplay = not self.tts_autoplay
         self._save_settings()
@@ -174,6 +177,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.tts_list_revision += 1
         return []
 
+    @rx.event
     async def move_tts_entry(self, index: int, delta: int):
         def change(settings: dict[str, Any]) -> None:
             entries = settings["tts_escalation"]
@@ -184,12 +188,14 @@ class TTSConfigMixin(rx.State, mixin=True):
         for event in await self._edit_tts_lists(change):
             yield event
 
+    @rx.event
     async def set_tts_entry_enabled(self, index: int, enabled: bool):
         def change(settings: dict[str, Any]) -> None:
             _entry_at(settings["tts_escalation"], index)["enabled"] = enabled
         for event in await self._edit_tts_lists(change):
             yield event
 
+    @rx.event
     async def set_tts_entry_unit(self, engine_key: str, unit: str):
         """Speech unit of an engine (system-wide, every agent and channel)."""
         from ..lib.tts_client import SPEECH_UNITS
@@ -226,7 +232,7 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     # ── Per-agent mute and language ───────────────────────────────
 
-    def tts_agent_enabled(self, agent: str) -> bool:
+    def _tts_agent_enabled(self, agent: str) -> bool:
         return bool(self.tts_agents.get(agent, {}).get("enabled", True))
 
     def _set_tts_agent(self, agent: str, key: str, value: Any) -> None:
@@ -236,7 +242,7 @@ class TTSConfigMixin(rx.State, mixin=True):
     # ── Agent Editor TTS State ───────────────────────────────────
     # The editor configures each agent's voice per engine; whether that
     # engine speaks is the escalation list's decision.
-    editor_tts_engine: str = TTS_DEFAULT_ENGINE
+    editor_tts_engine: rx.Field[str] = rx.field(TTS_DEFAULT_ENGINE)
     _editor_tts_settings: dict[str, Any] = {}  # {"voice": ..., "speed": ..., "pitch": ...}
 
     @rx.var(deps=["ui_language", "tts_list_revision"], auto_deps=False)
@@ -257,7 +263,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         from ..lib.i18n import tts_key_to_label
         from ..lib.tts_client import TTSSuiteUnreachable
         from ..lib.tts_service import unreachable_text
-        if not self.tts_agent_enabled(self.editor_agent_id):
+        if not self._tts_agent_enabled(self.editor_agent_id):
             return tts_key_to_label("off", lang=_lang(self))
         try:
             return tts_key_to_label(self.editor_tts_engine, lang=_lang(self))
@@ -311,6 +317,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         from ..lib.config import TTS_LANGUAGE_LABELS
         return TTS_LANGUAGE_LABELS
 
+    @rx.event
     def set_editor_agent_tts_language(self, label: str) -> None:
         from ..lib.config import TTS_LANGUAGE_LABEL_TO_CODE
         self._set_tts_agent(self.editor_agent_id, "language", TTS_LANGUAGE_LABEL_TO_CODE.get(label, "auto"))
@@ -343,6 +350,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         }
         self._write_settings_file(settings)
 
+    @rx.event
     def set_editor_tts_engine(self, label: str):
         """'Off' mutes the agent (every engine); an engine unmutes it and
         loads its voice settings for that engine."""
@@ -360,14 +368,17 @@ class TTSConfigMixin(rx.State, mixin=True):
         self.editor_tts_engine = key
         self._load_editor_tts_settings()
 
+    @rx.event
     def set_editor_agent_tts_voice(self, voice: str):
         self._editor_tts_settings["voice"] = voice
         self._save_editor_tts_settings()
 
+    @rx.event
     def set_editor_agent_tts_speed(self, speed: str):
         self._editor_tts_settings["speed"] = speed
         self._save_editor_tts_settings()
 
+    @rx.event
     def set_editor_agent_tts_pitch(self, pitch: str):
         self._editor_tts_settings["pitch"] = pitch
         self._save_editor_tts_settings()
@@ -420,6 +431,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             return saved
         return options[0] if options else ""
 
+    @rx.event
     def set_narrator_voice_engine(self, label: str):
         from ..lib.i18n import tts_label_to_key
         from ..lib.toast import toast
@@ -428,6 +440,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         except ValueError as error:   # the dropdown's one line while the service does not answer
             return toast("error", str(error))
 
+    @rx.event
     def set_narrator_voice(self, voice: str) -> None:
         engine = self.narrator_voice_engine
         # Re-assign the dict so Reflex flags it dirty.
@@ -435,8 +448,10 @@ class TTSConfigMixin(rx.State, mixin=True):
         self._save_settings()
         self.add_debug(f"🔊 Narrator voice ({engine}): {voice}")
 
+    @rx.event
     def open_narrator_settings(self) -> None:
         self.narrator_settings_open = True
 
+    @rx.event
     def close_narrator_settings(self) -> None:
         self.narrator_settings_open = False

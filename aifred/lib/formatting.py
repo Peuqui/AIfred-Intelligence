@@ -343,7 +343,7 @@ def performance_footer_text(metadata: dict) -> str:
     """Build the performance metadata line from a metrics dict, as plain text
     (the sub-agent transcript shows it inside a preformatted block).
 
-    Used by both browser-path (add_agent_panel) and hub-path (_append_response).
+    Used by both browser-path (_add_agent_panel) and hub-path (_append_response).
 
     Args:
         metadata: Dict with keys: ttft, prompt_per_sec, tokens_per_sec,
@@ -415,7 +415,7 @@ def build_assistant_chat_entry(
     """Build a chat_history dict for an assistant message.
 
     Single source of truth for the dict shape that the UI renderer expects.
-    Used by both the browser path (add_agent_panel) and the hub/channel path
+    Used by both the browser path (_add_agent_panel) and the hub/channel path
     (_append_response in message_processor).
 
     Args:
@@ -510,7 +510,7 @@ def build_inference_metadata(
 
     Returns:
         (metadata_dict, metadata_display, debug_msg):
-        - metadata_dict: For chat_history / add_agent_panel persistence
+        - metadata_dict: For chat_history / _add_agent_panel persistence
         - metadata_display: format_metadata() string for chat bubble embedding
         - debug_msg: Debug "done" line (the caller logs it)
     """
@@ -538,7 +538,7 @@ def build_inference_metadata(
 
     # --- Metadata display string (for chat bubble) ---
     # SSOT: dieselbe Zeile, die der Browser-Pfad aus dem persistierten Dict
-    # rendert (add_agent_panel) — jedes neue Feld gibt es nur einmal.
+    # rendert (_add_agent_panel) — jedes neue Feld gibt es nur einmal.
     metadata_display = format_performance_footer(metadata_dict)
 
     # --- Debug "done" message ---

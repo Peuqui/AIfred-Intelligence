@@ -20,17 +20,19 @@ class StorageMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
-    storage_files: list[dict] = []
+    storage_files: rx.Field[list[dict]] = rx.field(default_factory=list)
     # ID, für die gerade eine Lösch-Bestätigung aussteht (zweistufig).
-    storage_confirm_delete_id: str = ""
+    storage_confirm_delete_id: rx.Field[str] = rx.field("")
     # Zuletzt in den Showcase kopierter Dateiname (für einen UI-Hinweis).
-    storage_last_showcase: str = ""
+    storage_last_showcase: rx.Field[str] = rx.field("")
     # Angehakte file_ids (Mehrfachauswahl) + Bestätigung für „alles löschen".
-    storage_selected: list[str] = []
-    storage_confirm_clear: bool = False
+    storage_selected: rx.Field[list[str]] = rx.field(default_factory=list)
+    storage_confirm_clear: rx.Field[bool] = rx.field(False)
 
+    @rx.event
     def load_storage_files(self) -> None:
         """Datei-Liste aus dem SSOT neu laden. Normale Methode (kein
         Event-Decorator), damit ``set_agent_editor_tab`` sie direkt beim

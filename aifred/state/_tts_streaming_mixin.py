@@ -85,17 +85,18 @@ class TTSStreamingMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         _last_detected_language: str
-        enable_tts: bool
-        media_paused_for_tts: bool
-        session_id: str
-        tts_agents: dict[str, dict[str, Any]]
-        tts_autoplay: bool
-        ui_language: str
+        enable_tts: rx.Field[bool]
+        media_paused_for_tts: rx.Field[bool]
+        session_id: rx.Field[str]
+        tts_agents: rx.Field[dict[str, dict[str, Any]]]
+        tts_autoplay: rx.Field[bool]
+        ui_language: rx.Field[str]
 
         def _chat_sub(self): ...
         def _save_current_session(self): ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
-        def tts_agent_enabled(self, agent: str) -> bool: ...
+        def _tts_agent_enabled(self, agent: str) -> bool: ...
 
     # ── State Variables ──────────────────────────────────────────────
 
@@ -107,7 +108,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
     _pending_audio_urls: list[str] = []  # Audio URLs collected during streaming, for message assignment
 
     # TTS Regeneration
-    tts_regenerating: bool = False  # True while TTS regeneration is in progress (for spinner)
+    tts_regenerating: rx.Field[bool] = rx.field(False)  # True while TTS regeneration is in progress (for spinner)
 
     # NOTE: the reading and its coordination live in a module-level TTSBackendState (see
     # get_tts_backend_state), not in Reflex state attributes, so the per-chunk work during
@@ -164,6 +165,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
     _UI_YIELD_INTERVAL: float = 0.05  # 50ms — word-level batching
     _js_chunk_buffer: str = ""  # Accumulates chunks between yields
 
+    @rx.event
     def stream_text_to_ui(self, chunk: str) -> bool:
         """Accumulate streaming chunk and update state var when interval elapses.
 
@@ -196,6 +198,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             return True
         return False
 
+    @rx.event
     def flush_stream_to_ui(self) -> bool:
         """Flush remaining buffer to current_ai_response. Call at end of streaming."""
         if self._js_chunk_buffer:
@@ -213,7 +216,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """
         if not (self.enable_tts and self.tts_autoplay):
             return False
-        return self.tts_agent_enabled(agent)
+        return self._tts_agent_enabled(agent)
 
     def _pause_media_for_tts(self) -> None:
         """Auto-pause media playback before the first TTS entry goes to the browser. Position is

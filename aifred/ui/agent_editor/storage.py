@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ...theme import COLORS
@@ -13,7 +16,7 @@ from ..helpers import bulk_delete_bar, t
 from .header import _editor_header
 
 
-def _storage_entry_row(entry: rx.Var) -> rx.Component:
+def _storage_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Eine Datei-Zeile im Speicher-Tab: Name + Typ-Badge + Datum/Größe,
     rechts die Aktionen (Öffnen / In Showcase übernehmen / Löschen mit
     zweistufiger Bestätigung)."""

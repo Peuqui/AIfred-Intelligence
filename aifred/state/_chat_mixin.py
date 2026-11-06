@@ -34,22 +34,22 @@ class ChatMixin(rx.State, mixin=True):
         _js_chunk_buffer: str
         _last_detected_language: str
         _pending_audio_urls: list[str]
-        active_agent: str
-        agent_memory_enabled: bool
-        agent_tuning: dict[str, AgentTuning]
-        all_sources: list[dict[str, Any]]
-        backend_type: str
-        backend_url: str
-        cloud_api_provider: str
-        enable_tts: bool
-        failed_sources: list[dict[str, str]]
-        logged_in_user: str
-        multi_agent_mode: str
-        pending_images: list[dict[str, str]]
-        session_id: str
-        symposion_agents: list[str]
-        ui_language: str
-        used_sources: list[dict[str, Any]]
+        active_agent: rx.Field[str]
+        agent_memory_enabled: rx.Field[bool]
+        agent_tuning: rx.Field[dict[str, AgentTuning]]
+        all_sources: rx.Field[list[dict[str, Any]]]
+        backend_type: rx.Field[str]
+        backend_url: rx.Field[str]
+        cloud_api_provider: rx.Field[str]
+        enable_tts: rx.Field[bool]
+        failed_sources: rx.Field[list[dict[str, str]]]
+        logged_in_user: rx.Field[str]
+        multi_agent_mode: rx.Field[str]
+        pending_images: rx.Field[list[dict[str, str]]]
+        session_id: rx.Field[str]
+        symposion_agents: rx.Field[list[str]]
+        ui_language: rx.Field[str]
+        used_sources: rx.Field[list[dict[str, Any]]]
 
         def _abort_streaming_tts(self) -> None: ...
         def _chat_sub(self): ...
@@ -68,12 +68,16 @@ class ChatMixin(rx.State, mixin=True):
         def _streaming_sub(self): ...
         def _tts_streaming_wanted(self, agent: str = "aifred") -> bool: ...
         async def _wait_for_tts_finalize(self) -> None: ...
+        @rx.event
         def clear_pending_images(self) -> None: ...
+        @rx.event
         def flush_stream_to_ui(self) -> bool: ...
+        @rx.event
         def refresh_session_list(self): ...
+        @rx.event
         def stream_text_to_ui(self, chunk: str) -> bool: ...
     # Ladezeit des letzten Cold Starts (Sekunden), gemessen am ersten
-    # LLM-Aufruf nach der Erkennung; add_agent_panel haengt sie an die
+    # LLM-Aufruf nach der Erkennung; _add_agent_panel haengt sie an die
     # naechste Antwort und setzt sie zurueck — Warmstarts tragen nichts.
     _pending_load_time: float = 0.0
     # Tool-Schema-Token des letzten Turns (multi_agent setzt sie) — fuer die
@@ -82,35 +86,35 @@ class ChatMixin(rx.State, mixin=True):
 
 
     # ── State Variables ──────────────────────────────────────────────
-    current_user_input: str = ""
-    current_user_message: str = ""  # The message currently being processed
+    current_user_input: rx.Field[str] = rx.field("")
+    current_user_message: rx.Field[str] = rx.field("")  # The message currently being processed
     # current_ai_response lives on StreamingState (separate React context)
-    current_agent: str = ""  # Current streaming agent ID
-    current_agent_display_name: str = ""  # Display name for streaming UI
-    current_agent_emoji: str = ""  # Emoji for streaming UI
-    is_generating: bool = False
+    current_agent: rx.Field[str] = rx.field("")  # Current streaming agent ID
+    current_agent_display_name: rx.Field[str] = rx.field("")  # Display name for streaming UI
+    current_agent_emoji: rx.Field[str] = rx.field("")  # Emoji for streaming UI
+    is_generating: rx.Field[bool] = rx.field(False)
     # True when the current is_generating was triggered by an external
     # channel (Message Hub: FreeEcho.2, email, Telegram, …) rather than the
     # local browser.  The tick handler keeps running its mtime-watch
     # while a hub-side pipeline is in progress so the user sees the
     # chat bubble the moment STT / intent / etc. writes to the session
     # file — instead of only after the whole pipeline finishes.
-    is_generating_hub: bool = False
-    is_compressing: bool = False  # Shows if history compression is running
+    is_generating_hub: rx.Field[bool] = rx.field(False)
+    is_compressing: rx.Field[bool] = rx.field(False)  # Shows if history compression is running
 
     # Debug Console
-    debug_messages: list[str] = []
-    auto_refresh_enabled: bool = True  # For Debug Console + Chat History + AI Response Area
+    debug_messages: rx.Field[list[str]] = rx.field(default_factory=list)
+    auto_refresh_enabled: rx.Field[bool] = rx.field(True)  # For Debug Console + Chat History + AI Response Area
 
     # Processing Progress (Automatik, Scraping, LLM)
-    progress_active: bool = False
-    progress_phase: str = ""  # "automatik", "scraping", "llm"
-    progress_current: int = 0
-    progress_total: int = 0
-    progress_failed: int = 0  # Number of failed URLs
+    progress_active: rx.Field[bool] = rx.field(False)
+    progress_phase: rx.Field[str] = rx.field("")  # "automatik", "scraping", "llm"
+    progress_current: rx.Field[int] = rx.field(0)
+    progress_total: rx.Field[int] = rx.field(0)
+    progress_failed: rx.Field[int] = rx.field(0)  # Number of failed URLs
 
     # Tool Status (shown in UI while agent uses tools)
-    tool_status: str = ""  # e.g. "🌐 bibleserver.com/HFA/Psalm139"
+    tool_status: rx.Field[str] = rx.field("")  # e.g. "🌐 bibleserver.com/HFA/Psalm139"
 
     # Outputs of the last execute_research run (web_search tool): the page
     # content for the tool result, the sources collapsible for the bubble,
@@ -121,6 +125,7 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Debug / Progress ─────────────────────────────────────────────
 
+    @rx.event
     def add_debug(self, message: str) -> None:
         """Add message to debug console.
 
@@ -146,7 +151,7 @@ class ChatMixin(rx.State, mixin=True):
         # Debug Bus (logfile + optional session persistence)
         _debug(message)
 
-    def set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0) -> None:
+    def _set_progress(self, phase: str, current: int = 0, total: int = 0, failed: int = 0) -> None:
         """Update processing progress."""
         self.progress_active = True
         self.progress_phase = phase
@@ -154,15 +159,18 @@ class ChatMixin(rx.State, mixin=True):
         self.progress_total = total
         self.progress_failed = failed
 
+    @rx.event
     def clear_progress(self) -> None:
         """Clear processing progress."""
         self.progress_active = False
         self.progress_phase = ""
 
+    @rx.event
     def set_tool_status(self, status: str) -> None:
         """Show tool activity in UI (e.g. '🌐 fetching bibleserver.com...')."""
         self.tool_status = status
 
+    @rx.event
     def clear_tool_status(self) -> None:
         """Clear tool status."""
         self.tool_status = ""
@@ -280,7 +288,7 @@ class ChatMixin(rx.State, mixin=True):
 
         IMPORTANT: Callers should pass RAW content (before format_thinking_process),
         not formatted content with <details> collapsibles. If the caller already
-        formats before calling add_agent_panel(), use sync_llm_history=False and
+        formats before calling _add_agent_panel(), use sync_llm_history=False and
         sync manually with raw content.
 
         Args:
@@ -302,7 +310,7 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Central Agent Panel ──────────────────────────────────────────
 
-    def add_agent_panel(
+    def _add_agent_panel(
         self,
         agent: str,  # "aifred", "sokrates", "salomo"
         content: str,
@@ -370,7 +378,7 @@ class ChatMixin(rx.State, mixin=True):
         # Include audio URLs if streaming TTS generated them
         if self._pending_audio_urls:
             msg_metadata["audio_urls"] = self._pending_audio_urls.copy()
-            log_message(f"🔊 add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")
+            log_message(f"🔊 _add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")
             self._pending_audio_urls: list[str] = []
 
         # Store agent's playback rate for HTML export (browser speed setting, per-agent)
@@ -611,7 +619,7 @@ class ChatMixin(rx.State, mixin=True):
                 if item.get("clear", False):
                     self.clear_progress()
                 else:
-                    self.set_progress(
+                    self._set_progress(
                         phase=item.get("phase", ""),
                         current=item.get("current", 0),
                         total=item.get("total", 0),
@@ -727,6 +735,7 @@ class ChatMixin(rx.State, mixin=True):
                 yield
 
 
+    @rx.event
     async def send_message(self, text: str = "") -> AsyncGenerator[None, None]:
         """Send message to LLM with optional web research.
 
@@ -1163,7 +1172,7 @@ class ChatMixin(rx.State, mixin=True):
             else:
                 # Beim Cold Start laedt das Backend das Modell fuer diesen
                 # ersten LLM-Aufruf und misst die Ladezeit; sie landet als
-                # "Load" an der Antwort (add_agent_panel). Bild-/URL-only-Turns
+                # "Load" an der Antwort (_add_agent_panel). Bild-/URL-only-Turns
                 # ohne Intent-Aufruf laden im Hauptaufruf, dort misst die
                 # Pipeline dieselbe Zeit.
                 (
@@ -1409,7 +1418,7 @@ class ChatMixin(rx.State, mixin=True):
 
             # APPEND error as separate panel
             # Note: User panel was already created above with user_msg/display_user_msg
-            self.add_agent_panel(
+            self._add_agent_panel(
                 agent="aifred",
                 content=error_msg,
                 mode="error",
@@ -1454,7 +1463,7 @@ class ChatMixin(rx.State, mixin=True):
             # mid-stream (CancelledError from the stop button or pipeline
             # supersession, GeneratorExit on shutdown/worker respawn), the
             # streamed text so far lives ONLY in current_ai_response —
-            # add_agent_panel never ran and a minutes-long answer would be
+            # _add_agent_panel never ran and a minutes-long answer would be
             # lost. Persist it as a visibly interrupted bubble. Gate on
             # "last chat entry is not an assistant panel": the success path
             # and the except-Exception path both appended one already (the
@@ -1469,7 +1478,7 @@ class ChatMixin(rx.State, mixin=True):
             if _last_entry.get("role") != "assistant" and _partial.strip():
                 from ..lib.i18n import t
                 _lang = self.ui_language if self.ui_language != "auto" else "de"
-                self.add_agent_panel(
+                self._add_agent_panel(
                     agent=self.current_agent or "aifred",
                     content=f"{_partial}\n\n{t('generation_interrupted', lang=_lang)}",
                     mode="standard",
@@ -1522,6 +1531,7 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Clear Chat ───────────────────────────────────────────────────
 
+    @rx.event
     def clear_chat(self) -> None:
         """UI Event Handler: Clear chat history (shows debug message)."""
         if not self.logged_in_user:
@@ -1533,6 +1543,7 @@ class ChatMixin(rx.State, mixin=True):
 
     # ── Save Session Memory ──────────────────────────────────────────
 
+    @rx.event
     async def save_session_memory(self) -> AsyncGenerator[EventSpec | None, None]:
         """Generate a session summary and store it for all participating agents."""
         import re

@@ -7,18 +7,20 @@ registrierte Agent (auch Custom) bekommt seine Zeile automatisch.
 from __future__ import annotations
 
 import reflex as rx
+from reflex.vars import ObjectVar
 
+from ...lib.agent_tuning import SamplingRow
 from ...state import AIState
 from ...theme import COLORS
 from ..helpers import agent_emoji_var, clickable_tip, t
 
 
-def _sampling_input(row: rx.Var, param: str, value: rx.Var, width: str = "55px") -> rx.Component:
+def _sampling_input(row: ObjectVar[SamplingRow], param: str, value: rx.Var, width: str = "55px") -> rx.Component:
     """Helper: Input field for a sampling parameter (always editable)."""
     return rx.input(
         default_value=value,
         on_blur=lambda v: AIState.set_agent_sampling_for(row.id, param, v),
-        key=AIState.sampling_reset_key.to(str) + "_" + row.id + "_" + param,
+        key=AIState.sampling_reset_key.to(str) + "_" + row.id.to(str) + "_" + param,
         type="number",
         width=width,
         size="1",
@@ -26,12 +28,12 @@ def _sampling_input(row: rx.Var, param: str, value: rx.Var, width: str = "55px")
     )
 
 
-def _temp_input(row: rx.Var, width: str = "50px") -> rx.Component:
+def _temp_input(row: ObjectVar[SamplingRow], width: str = "50px") -> rx.Component:
     """Helper: Temperature input (disabled in Auto mode, except Vision)."""
     return rx.input(
         default_value=row.temp,
         on_blur=lambda v: AIState.set_agent_temperature_for(row.id, v),
-        key=AIState.sampling_reset_key.to(str) + "_" + row.id + "_temp",
+        key=AIState.sampling_reset_key.to(str) + "_" + row.id.to(str) + "_temp",
         type="number",
         width=width,
         size="1",
@@ -41,7 +43,7 @@ def _temp_input(row: rx.Var, width: str = "50px") -> rx.Component:
     )
 
 
-def _sampling_agent_row(row: rx.Var) -> rx.Component:
+def _sampling_agent_row(row: ObjectVar[SamplingRow]) -> rx.Component:
     """One agent row with temp + 4 sampling inputs + reset button."""
     return rx.hstack(
         rx.hstack(

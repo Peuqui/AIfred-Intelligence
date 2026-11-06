@@ -48,45 +48,47 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        agent_editor_mode: str
-        editor_agent_id: str
+        agent_editor_mode: rx.Field[str]
+        editor_agent_id: rx.Field[str]
 
         def _refresh_agent_dropdown(self) -> None: ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # Database tab: the document index, one entry per document (not per chunk)
-    db_documents: list[dict[str, Any]] = []
-    db_clear_confirm: bool = False  # Confirmation state for clear-all
+    db_documents: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
+    db_clear_confirm: rx.Field[bool] = rx.field(False)  # Confirmation state for clear-all
 
     # Orphan cleanup: indexed documents whose file is gone from disk
-    db_orphans: list[dict[str, Any]] = []      # one entry per orphaned document (not per chunk)
-    db_orphans_visible: bool = False           # toggles the orphan section
+    db_orphans: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)      # one entry per orphaned document (not per chunk)
+    db_orphans_visible: rx.Field[bool] = rx.field(False)           # toggles the orphan section
 
     # Memory browser state
-    memory_browser_agent: str = ""  # Selected agent in memory browser ("" = overview)
-    memory_browser_agent_display: str = ""  # Display name of selected agent
-    memory_browser_entries: list[dict[str, str]] = []  # Entries for selected agent
-    memory_browser_collections: list[dict[str, str]] = []  # Collection overview
-    memory_browser_filter: str = "all"  # "all", "session", "agent"
+    memory_browser_agent: rx.Field[str] = rx.field("")  # Selected agent in memory browser ("" = overview)
+    memory_browser_agent_display: rx.Field[str] = rx.field("")  # Display name of selected agent
+    memory_browser_entries: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)  # Entries for selected agent
+    memory_browser_collections: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)  # Collection overview
+    memory_browser_filter: rx.Field[str] = rx.field("all")  # "all", "session", "agent"
     # Entry being edited in the memory browser ("" = none) and its draft
-    memory_edit_id: str = ""
-    memory_edit_summary: str = ""
-    memory_edit_content: str = ""
-    memory_confirm_clear: bool = False  # "Delete all" of the agent asked
+    memory_edit_id: rx.Field[str] = rx.field("")
+    memory_edit_summary: rx.Field[str] = rx.field("")
+    memory_edit_content: rx.Field[str] = rx.field("")
+    memory_confirm_clear: rx.Field[bool] = rx.field(False)  # "Delete all" of the agent asked
 
     # ── Agent Bundle Export/Import ──────────────────────────────
-    bundle_export_open: bool = False
-    bundle_export_selected: list[str] = []
+    bundle_export_open: rx.Field[bool] = rx.field(False)
+    bundle_export_selected: rx.Field[list[str]] = rx.field(default_factory=list)
     # Snapshot of all agents for the export modal — refreshed when modal opens
-    bundle_all_agents: list[dict[str, str]] = []
+    bundle_all_agents: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
 
-    bundle_import_open: bool = False
-    bundle_import_uploaded_b64: str = ""  # base64-encoded ZIP, kept in state until confirm
-    bundle_import_agents: list[dict[str, Any]] = []  # output of peek_bundle
-    bundle_import_selected: list[str] = []
-    bundle_import_conflict: str = "rename"  # abort | overwrite | rename
-    bundle_import_error: str = ""
+    bundle_import_open: rx.Field[bool] = rx.field(False)
+    bundle_import_uploaded_b64: rx.Field[str] = rx.field("")  # base64-encoded ZIP, kept in state until confirm
+    bundle_import_agents: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)  # output of peek_bundle
+    bundle_import_selected: rx.Field[list[str]] = rx.field(default_factory=list)
+    bundle_import_conflict: rx.Field[str] = rx.field("rename")  # abort | overwrite | rename
+    bundle_import_error: rx.Field[str] = rx.field("")
 
+    @rx.event
     def open_memory_browser(self) -> None:
         """Switch to memory browser view, pre-select AIfred."""
         self.agent_editor_mode = "memory"
@@ -101,6 +103,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             pick = aifred_col or agent_collections[0]
             self.browse_memory_agent(pick["agent_id"])
 
+    @rx.event
     def select_memory_agent(self, label: str) -> None:
         """Select an agent in the memory browser dropdown."""
         # Find agent_id from display label (label may include count suffix)
@@ -109,6 +112,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
                 self.browse_memory_agent(col["agent_id"])
                 return
 
+    @rx.event
     def set_memory_filter(self, filter_value: str) -> None:
         """Set the memory type filter (all/session/agent)."""
         self.memory_browser_filter = filter_value
@@ -143,14 +147,17 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         docs = result.metadata.get("documents", []) if result.success else []
         self.db_documents = sorted(docs, key=_by_path)
 
+    @rx.event
     async def db_load_documents(self) -> None:
         """Event: the database tab was opened."""
         await self._refresh_db_documents()
 
+    @rx.event
     def confirm_clear_db(self) -> None:
         """Toggle confirmation state for clearing the document index."""
         self.db_clear_confirm = not self.db_clear_confirm
 
+    @rx.event
     async def clear_db_index(self) -> None:
         """Remove every document from the index (files on disk stay)."""
         import asyncio
@@ -166,6 +173,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         if self.db_orphans_visible:
             await self._reload_db_orphans()
 
+    @rx.event
     async def db_toggle_orphans(self) -> None:
         """Toggle the orphan-cleanup section."""
         self.db_orphans_visible = not self.db_orphans_visible
@@ -179,6 +187,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         orphans = result.metadata.get("orphans", []) if result.success else []
         self.db_orphans = sorted(orphans, key=_by_path)
 
+    @rx.event
     async def db_deindex_document(self, filename: str) -> AsyncGenerator[EventSpec | None, None]:
         """Remove one document from the index (document row or orphan row)."""
         result = await _deindex(filename)
@@ -189,6 +198,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             self.add_debug(f"⚠️ {result.detail}")
             yield rx.toast.error(result.detail, duration=8000, position="top-center")
 
+    @rx.event
     async def db_delete_all_orphans(self) -> AsyncGenerator[EventSpec | None, None]:
         """Bulk-remove every orphaned document from the index."""
         failed = []
@@ -240,6 +250,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             for agent_id in sorted(set(get_agent_ids()) | set(counts))
         ]
 
+    @rx.event
     def browse_memory_agent(self, agent_id: str) -> None:
         """Load all entries for a specific agent's memory collection."""
         from ..lib.agent_memory import get_agent_memory
@@ -289,6 +300,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         entries.sort(key=lambda e: e.get("date", ""), reverse=True)
         self.memory_browser_entries = entries
 
+    @rx.event
     def delete_memory_entry(self, entry_id: str) -> None:
         """Delete a single memory entry from the current agent's collection."""
         from ..lib.agent_memory import get_agent_memory
@@ -309,12 +321,15 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         self._load_memory_collections()
         self.browse_memory_agent(self.memory_browser_agent)
 
+    @rx.event
     def request_clear_memory(self) -> None:
         self.memory_confirm_clear = True
 
+    @rx.event
     def cancel_clear_memory(self) -> None:
         self.memory_confirm_clear = False
 
+    @rx.event
     def clear_browsed_memory(self) -> None:
         """Delete every memory entry of the browsed agent (after confirmation)."""
         from ..lib.agent_memory import get_agent_memory
@@ -333,6 +348,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         self._load_memory_collections()
         self.browse_memory_agent(self.memory_browser_agent)
 
+    @rx.event
     def start_memory_edit(self, entry_id: str) -> None:
         """Open one memory entry for editing in place."""
         for entry in self.memory_browser_entries:
@@ -342,17 +358,21 @@ class MemoryBrowserMixin(rx.State, mixin=True):
                 self.memory_edit_content = entry["content"]
                 return
 
+    @rx.event
     def cancel_memory_edit(self) -> None:
         self.memory_edit_id = ""
         self.memory_edit_summary = ""
         self.memory_edit_content = ""
 
+    @rx.event
     def set_memory_edit_summary(self, value: str) -> None:
         self.memory_edit_summary = value
 
+    @rx.event
     def set_memory_edit_content(self, value: str) -> None:
         self.memory_edit_content = value
 
+    @rx.event
     async def save_memory_edit(self) -> None:
         """Write the edited summary and content back to the agent's memory.
 
@@ -404,6 +424,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
     # Agent Bundle Export
     # ─────────────────────────────────────────────────────────
 
+    @rx.event
     def open_bundle_export(self) -> None:
         """Open the export modal — preselect the currently edited agent."""
         from ..lib.agent_config import load_agents_raw
@@ -420,16 +441,19 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         self.bundle_export_selected = preselect
         self.bundle_export_open = True
 
+    @rx.event
     def close_bundle_export(self) -> None:
         self.bundle_export_open = False
         self.bundle_export_selected = []
 
+    @rx.event
     def toggle_bundle_export_agent(self, agent_id: str) -> None:
         if agent_id in self.bundle_export_selected:
             self.bundle_export_selected = [a for a in self.bundle_export_selected if a != agent_id]
         else:
             self.bundle_export_selected = [*self.bundle_export_selected, agent_id]
 
+    @rx.event
     def confirm_bundle_export(self):
         """Trigger a browser download via the /api/agents/export endpoint."""
         if not self.bundle_export_selected:
@@ -444,6 +468,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
     # Agent Bundle Import
     # ─────────────────────────────────────────────────────────
 
+    @rx.event
     def open_bundle_import(self) -> None:
         """Open the import modal in its initial empty state."""
         self.bundle_import_open = True
@@ -453,7 +478,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         self.bundle_import_conflict = "rename"
         self.bundle_import_error = ""
 
-    async def handle_bundle_upload(self, files: list) -> None:
+    @rx.event
+    async def handle_bundle_upload(self, files: list[rx.UploadFile]) -> None:
         """Reflex on_drop callback — read ZIP, peek manifest, open modal."""
         import base64
         from ..lib.agent_bundle import BUNDLE_READ_ERRORS, peek_bundle
@@ -482,6 +508,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         self.bundle_import_error = ""
         self.bundle_import_open = True
 
+    @rx.event
     def close_bundle_import(self) -> None:
         self.bundle_import_open = False
         self.bundle_import_uploaded_b64 = ""
@@ -489,16 +516,19 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         self.bundle_import_selected = []
         self.bundle_import_error = ""
 
+    @rx.event
     def toggle_bundle_import_agent(self, agent_id: str) -> None:
         if agent_id in self.bundle_import_selected:
             self.bundle_import_selected = [a for a in self.bundle_import_selected if a != agent_id]
         else:
             self.bundle_import_selected = [*self.bundle_import_selected, agent_id]
 
+    @rx.event
     def set_bundle_import_conflict(self, value: str) -> None:
         if value in ("abort", "overwrite", "rename"):
             self.bundle_import_conflict = value
 
+    @rx.event
     def confirm_bundle_import(self) -> None:
         """Decode the staged bundle and write the selected agents."""
         import base64

@@ -4,18 +4,29 @@ changed it — an empty, freshly rebuilt field must never wipe stored text
 from __future__ import annotations
 
 import json
-from types import MethodType
+from typing import TYPE_CHECKING
 
 import pytest
 
 from aifred.lib import agent_config
 from aifred.state._agent_editor_mixin import AgentEditorMixin as M
 
+if TYPE_CHECKING:
+    # For mypy the stand-in is the mixin, so its fields and borrowed methods are checked against the
+    # real ones. At runtime it stays a plain class: a Reflex state refuses undeclared attributes.
+    _StateBase = M
+else:
+    _StateBase = object
 
-class _Editor:
+
+class _Editor(_StateBase):
     """What save_agent_editor touches, editing the existing agent 'aifred'."""
 
+    save_agent_editor = M.save_agent_editor
+    mark_editor_dirty = M.mark_editor_dirty
+
     def __init__(self) -> None:
+        self.updates: list[dict] = []
         self.editor_agent_id = "aifred"
         self.editor_display_name = "AIfred"
         self.editor_emoji = "🎩"
@@ -27,7 +38,6 @@ class _Editor:
         self._editor_prompt_content = "Du bist AIfred."
         self._agents_json_revision = 0
         self.saved_prompt: str | None = None
-        self.mark_editor_dirty = MethodType(M.mark_editor_dirty, self)
 
     def _save_editor_prompt_to_disk(self) -> None:
         self.saved_prompt = self._editor_prompt_content
@@ -44,13 +54,13 @@ def editor(monkeypatch: pytest.MonkeyPatch):
     updates: list[dict] = []
     monkeypatch.setattr(agent_config, "update_agent", lambda agent_id, payload: updates.append(payload))
     state = _Editor()
-    state.updates = updates  # type: ignore[attr-defined]
+    state.updates = updates
     return state
 
 
 def _save(editor: _Editor, **dom: str) -> None:
     page = {"name": "", "description": "", "prompt": "", "agent_id": "", **dom}
-    M.save_agent_editor(editor, json.dumps(page))  # type: ignore[arg-type]
+    editor.save_agent_editor(json.dumps(page))
 
 
 def test_empty_untouched_fields_keep_the_stored_text(editor) -> None:

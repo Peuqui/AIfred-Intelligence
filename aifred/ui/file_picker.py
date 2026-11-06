@@ -8,7 +8,10 @@ event (registered by the caller) is dispatched with the chosen relative path.
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..state import AIState
 from ..theme import COLORS
@@ -33,7 +36,7 @@ def _icon_for(entry_is_dir: rx.Var, entry_is_symlink: rx.Var) -> rx.Component:
     )
 
 
-def _entry_row(entry: rx.Var) -> rx.Component:
+def _entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """One row in the file list."""
     return rx.hstack(
         _icon_for(entry["is_dir"], entry["is_symlink"]),
@@ -108,7 +111,7 @@ def _toolbar() -> rx.Component:
                 variant="soft",
                 on_click=AIState.picker_create_folder_start,
                 cursor="pointer",
-                disabled=~AIState.picker_writable,  # type: ignore[arg-type]
+                disabled=~AIState.picker_writable,
                 title=rx.cond(
                     AIState.picker_writable,
                     "Neuen Ordner anlegen",
@@ -126,7 +129,7 @@ def _toolbar() -> rx.Component:
                 variant="soft",
                 on_click=AIState.picker_create_symlink_start,
                 cursor="pointer",
-                disabled=~AIState.picker_writable,  # type: ignore[arg-type]
+                disabled=~AIState.picker_writable,
                 title=rx.cond(
                     AIState.picker_writable,
                     "Symlink anlegen",

@@ -12,11 +12,13 @@ from __future__ import annotations
 
 from typing import Any
 
+import reflex as rx
+
 from ._base import AIState
 
 
 class ChatHistoryState(AIState):
     """Substate for chat + LLM history — separate React context."""
 
-    chat_history: list[dict[str, Any]] = []
-    llm_history: list[dict[str, str]] = []
+    chat_history: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
+    llm_history: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)

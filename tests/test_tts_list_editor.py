@@ -115,7 +115,7 @@ class FakeState(_StateBase):
 
     ui_language = "de"
     _edit_tts_lists = TTSConfigMixin._edit_tts_lists
-    tts_agent_enabled = TTSConfigMixin.tts_agent_enabled
+    _tts_agent_enabled = TTSConfigMixin._tts_agent_enabled
 
     def __init__(self, file: SettingsFile | None = None) -> None:
         self.file = file

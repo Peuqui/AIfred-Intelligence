@@ -23,38 +23,38 @@ import reflex as rx
 class FilePickerMixin(rx.State, mixin=True):
     """Generic sandboxed folder/file picker."""
 
-    picker_open: bool = False
-    picker_title: str = ""
-    picker_root: str = ""               # absolute path of the sandbox
-    picker_current: str = ""            # rel_path inside root
-    picker_entries: list[dict[str, Any]] = []  # serialized BrowseEntry list
-    picker_caps: dict[str, bool] = {}   # can_create_folder/delete/rename/upload/can_create_symlink
-    picker_symlink_target_must_be_under_root: bool = True  # fail-closed sandbox-escape protection
-    picker_file_filter: list[str] = []
-    picker_show_files: bool = True
-    picker_show_hidden: bool = False
-    picker_sort_by: str = "name"        # "name" | "mtime" | "size"
-    picker_mode: str = "pick_folder"    # "pick_folder" | "pick_file"
+    picker_open: rx.Field[bool] = rx.field(False)
+    picker_title: rx.Field[str] = rx.field("")
+    picker_root: rx.Field[str] = rx.field("")               # absolute path of the sandbox
+    picker_current: rx.Field[str] = rx.field("")            # rel_path inside root
+    picker_entries: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)  # serialized BrowseEntry list
+    picker_caps: rx.Field[dict[str, bool]] = rx.field(default_factory=dict)   # can_create_folder/delete/rename/upload/can_create_symlink
+    picker_symlink_target_must_be_under_root: rx.Field[bool] = rx.field(True)  # fail-closed sandbox-escape protection
+    picker_file_filter: rx.Field[list[str]] = rx.field(default_factory=list)
+    picker_show_files: rx.Field[bool] = rx.field(True)
+    picker_show_hidden: rx.Field[bool] = rx.field(False)
+    picker_sort_by: rx.Field[str] = rx.field("name")        # "name" | "mtime" | "size"
+    picker_mode: rx.Field[str] = rx.field("pick_folder")    # "pick_folder" | "pick_file"
 
     # Callback (string-based event dispatch into the caller's mixin)
-    picker_callback_event: str = ""
-    picker_callback_args: dict[str, str] = {}
+    picker_callback_event: rx.Field[str] = rx.field("")
+    picker_callback_args: rx.Field[dict[str, str]] = rx.field(default_factory=dict)
 
     # UI sub-states
-    picker_loading: bool = False
-    picker_error: str = ""
-    picker_writable: bool = False       # current folder accepts new entries
-    picker_filter_text: str = ""        # client-side live filter on entry names
+    picker_loading: rx.Field[bool] = rx.field(False)
+    picker_error: rx.Field[str] = rx.field("")
+    picker_writable: rx.Field[bool] = rx.field(False)       # current folder accepts new entries
+    picker_filter_text: rx.Field[str] = rx.field("")        # client-side live filter on entry names
 
     # Inline forms
-    picker_creating_folder: bool = False
-    picker_new_folder_name: str = ""
-    picker_creating_symlink: bool = False
-    picker_symlink_name: str = ""
-    picker_symlink_target: str = ""
+    picker_creating_folder: rx.Field[bool] = rx.field(False)
+    picker_new_folder_name: rx.Field[str] = rx.field("")
+    picker_creating_symlink: rx.Field[bool] = rx.field(False)
+    picker_symlink_name: rx.Field[str] = rx.field("")
+    picker_symlink_target: rx.Field[str] = rx.field("")
 
     # Path-Input (tippen + Enter zum direkten Sprung)
-    picker_path_input: str = ""
+    picker_path_input: rx.Field[str] = rx.field("")
 
     # ── Computed ─────────────────────────────────────────
 

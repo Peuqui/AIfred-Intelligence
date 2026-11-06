@@ -14,6 +14,7 @@ import reflex as rx
 # ergänzt. Für Links auf die /_upload-Mounts (außerhalb der App-Routen)
 # brauchen wir ein echtes Anchor-Tag.
 from reflex.components.el.elements.inline import A as _Anchor
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ...theme import COLORS
@@ -25,7 +26,7 @@ DOC_HEADER_BUTTON_SIZE: Literal["1", "2", "3", "4"] = "2"
 
 def _file_count_label(count: rx.Var) -> rx.Var:
     """"1 Datei" / "n Dateien" — one wording for every count in the window."""
-    return count.to(str) + rx.cond(count == 1, t("doc_file_suffix_one"), t("doc_files_suffix"))
+    return count.to(str) + rx.cond(count == 1, t("doc_file_suffix_one"), t("doc_files_suffix")).to(str)
 
 
 def _doc_chunks_badge(is_indexed: rx.Var, chunks: rx.Var) -> rx.Component:
@@ -61,7 +62,7 @@ def _doc_index_toggle(is_indexed: rx.Var, on_index: Any, on_deindex: Any) -> rx.
     )
 
 
-def _doc_file_row(item: rx.Var) -> rx.Component:
+def _doc_file_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Single row in the document file explorer."""
     name = item["name"].to(str)
     is_folder = item["type"].to(str) == "folder"
@@ -274,7 +275,7 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
     )
 
 
-def _doc_remote_row(item: rx.Var) -> rx.Component:
+def _doc_remote_row(item: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Row of a further source (e.g. Nextcloud): open folders, download and
     index files — rename, delete and preview stay with the local folder."""
     name = item["name"].to(str)

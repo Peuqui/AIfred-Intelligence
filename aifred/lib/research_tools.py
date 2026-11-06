@@ -203,7 +203,7 @@ async def execute_research(
                 state.add_debug(item["message"])
                 yield
             elif item["type"] == "progress":
-                state.set_progress(
+                state._set_progress(
                     phase=item.get("phase", ""),
                     current=item.get("current", 0),
                     total=item.get("total", 0),

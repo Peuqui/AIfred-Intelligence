@@ -174,46 +174,47 @@ class CalibrationMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        agent_tuning: dict[str, AgentTuning]
-        available_models: list[str]
-        available_models_dict: dict[str, str]
-        backend_id: str
-        backend_switching: bool
-        backend_type: str
-        backend_url: str
-        debug_messages: list[str]
-        ui_language: str
+        agent_tuning: rx.Field[dict[str, AgentTuning]]
+        available_models: rx.Field[list[str]]
+        available_models_dict: rx.Field[dict[str, str]]
+        backend_id: rx.Field[str]
+        backend_switching: rx.Field[bool]
+        backend_type: rx.Field[str]
+        backend_url: rx.Field[str]
+        debug_messages: rx.Field[list[str]]
+        ui_language: rx.Field[str]
 
         def _save_current_session(self): ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # ------------------------------------------------------------------
     # State vars
     # ------------------------------------------------------------------
-    is_calibrating: bool = False  # Shows spinner during context calibration
+    is_calibrating: rx.Field[bool] = rx.field(False)  # Shows spinner during context calibration
 
     # User-requested abort of the running calibration. Checked by the
     # background wrapper between generator steps — the run then ends
     # cleanly (inner finally blocks restart llama-swap etc.). Before this
     # flag existed the only "abort" was killing the service, which left
     # half-written variant families behind.
-    calibration_cancel: bool = False
+    calibration_cancel: rx.Field[bool] = rx.field(False)
 
     # Revision counter — bumped after every llama.cpp calibration finishes
     # writing TTS variants to llama-swap.yaml. Pure-Python computed vars
     # like ``tts_escalation_rows`` depend on this so they re-evaluate when
     # the on-disk YAML changes (Reflex has no file-system watcher).
-    llamaswap_revision: int = 0
+    llamaswap_revision: rx.Field[int] = rx.field(0)
 
     # Calibration mode: "legacy" (deterministic algorithm, default) or
     # "ai-<qwen-model>" (LLM-driven via DashScope). The UI auto-disables
     # AI options when no DashScope API key is configured.
-    calibration_mode: str = "legacy"
+    calibration_mode: rx.Field[str] = rx.field("legacy")
 
     # Allow hybrid mode during calibration (CPU offload of layers).
     # Off by default — hybrid is slow both during calibration and at
     # inference. Toggle on for models that exceed total GPU VRAM.
-    calibration_allow_hybrid: bool = False
+    calibration_allow_hybrid: rx.Field[bool] = rx.field(False)
 
     # Matrix-style selection for the next calibration run. One entry
     # per (VLM × TTS) combination the user ticked in the picker. Key
@@ -229,15 +230,15 @@ class CalibrationMixin(rx.State, mixin=True):
     # switching — what the user clicked is what gets calibrated.
     # Resets every time the picker opens (per-click decision, not
     # persisted).
-    calibration_matrix: dict[str, bool] = {}
+    calibration_matrix: rx.Field[dict[str, bool]] = rx.field(default_factory=dict)
 
     # vLLM-Nachmessmodus (Peuqui 2026-09-05/06): nur die Topologie des
     # persistierten Betriebspunkts neu vermessen (k=0-Referenz + k-Sweep),
     # keine Topologie-Leiter; Trockenlauf = messen, Matrix schreiben,
     # nichts persistieren. Beides Entscheidungen fuer den naechsten Lauf,
     # nicht persistiert.
-    calibration_vllm_resweep: bool = False
-    calibration_vllm_dry_run: bool = False
+    calibration_vllm_resweep: rx.Field[bool] = rx.field(False)
+    calibration_vllm_dry_run: rx.Field[bool] = rx.field(False)
 
     # Revision counter — bumped whenever something writes to agents.json
     # so that reactive computed vars (e.g. calibration_ai_label) re-read
@@ -245,12 +246,15 @@ class CalibrationMixin(rx.State, mixin=True):
     # Reflex can't auto-track file-IO as a dependency.
     _agents_json_revision: int = 0
 
+    @rx.event
     def toggle_calibration_vllm_resweep(self) -> None:
         self.calibration_vllm_resweep = not self.calibration_vllm_resweep
 
+    @rx.event
     def toggle_calibration_vllm_dry_run(self) -> None:
         self.calibration_vllm_dry_run = not self.calibration_vllm_dry_run
 
+    @rx.event
     def toggle_calibration_allow_hybrid(self) -> None:
         """Flip the hybrid-mode permission and persist to settings.json."""
         from ..lib.settings import load_settings, save_settings
@@ -261,6 +265,7 @@ class CalibrationMixin(rx.State, mixin=True):
         state = "enabled" if self.calibration_allow_hybrid else "disabled"
         self.add_debug(f"⚙️ Hybrid calibration mode: {state}")
 
+    @rx.event
     def set_calibration_mode(self, value: str) -> None:
         """Persist the chosen calibration mode.
 
@@ -554,6 +559,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
         return rows
 
+    @rx.event
     def open_calibration_picker(self) -> None:
         """Initialize the matrix map with one entry per cell on first
         open. The picker stays sticky within a session — close it,
@@ -569,6 +575,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 cur.setdefault(f"{v}|{t}", False)
         self.calibration_matrix = cur
 
+    @rx.event
     def reset_vlm_vram_cache(self) -> None:
         """Drop all stress-prewarm-measured VLM peak values. The next
         calibration that needs a VLM reserve will re-measure via stress
@@ -606,6 +613,7 @@ class CalibrationMixin(rx.State, mixin=True):
         except OSError as e:
             log_message(f"⚠️ Calibration: session not saved: {e}", "warning")
 
+    @rx.event
     def set_calibration_matrix_cell(self, payload: list) -> None:
         """Toggle one cell of the calibration matrix. ``payload`` is the
         Reflex-friendly ``[key, checked]`` list. ``key`` is in the
@@ -3374,6 +3382,7 @@ class CalibrationMixin(rx.State, mixin=True):
     # Backend restart
     # ------------------------------------------------------------------
 
+    @rx.event
     async def restart_backend(self):
         """Restart current LLM backend service and reload model list"""
         import httpx
@@ -3501,6 +3510,7 @@ class CalibrationMixin(rx.State, mixin=True):
     # AIfred service restart
     # ------------------------------------------------------------------
 
+    @rx.event
     def restart_aifred(self):
         """Restart AIfred service via systemctl"""
         import threading

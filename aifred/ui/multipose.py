@@ -13,13 +13,16 @@ Global gemountet in aifred.py, sichtbar bei
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..state import AIState
 from .helpers import overlay_modal, t
 
 
-def _capture_thumb(cap: rx.Var) -> rx.Component:
+def _capture_thumb(cap: ObjectVar[dict[str, Any]]) -> rx.Component:
     return rx.image(
         src=cap["preview_data_url"],
         style={

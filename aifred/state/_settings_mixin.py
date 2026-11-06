@@ -54,77 +54,80 @@ class SettingsMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         _backend_initialized: bool
-        active_agent: str
-        agent_tuning: dict[str, AgentTuning]
-        auto_refresh_enabled: bool
-        automatik_model: str
-        automatik_model_id: str
-        automatik_rope_factor: float
-        available_backends_dict: dict[str, str]
-        available_models_dict: dict[str, str]
-        backend_id: str
-        backend_type: str
-        calibration_allow_hybrid: bool
-        calibration_mode: str
-        cloud_api_provider: str
-        consensus_type: str
-        current_backend_label: str
-        enable_tts: bool
-        enable_yarn: bool
-        enter_sends_message: bool
-        max_debate_rounds: int
-        multi_agent_mode: str
-        narrator_voices: dict[str, str]
-        show_transcription: bool
-        symposion_agents: list[str]
-        temperature_mode: str
-        tts_agents: dict[str, dict[str, Any]]
-        tts_autoplay: bool
-        tts_list_revision: int
-        tts_pitch: str
-        tts_playback_rate: str
-        yarn_factor: float
+        active_agent: rx.Field[str]
+        agent_tuning: rx.Field[dict[str, AgentTuning]]
+        auto_refresh_enabled: rx.Field[bool]
+        automatik_model: rx.Field[str]
+        automatik_model_id: rx.Field[str]
+        automatik_rope_factor: rx.Field[float]
+        available_backends_dict: rx.Field[dict[str, str]]
+        available_models_dict: rx.Field[dict[str, str]]
+        backend_id: rx.Field[str]
+        backend_type: rx.Field[str]
+        calibration_allow_hybrid: rx.Field[bool]
+        calibration_mode: rx.Field[str]
+        cloud_api_provider: rx.Field[str]
+        consensus_type: rx.Field[str]
+        current_backend_label: rx.Field[str]
+        enable_tts: rx.Field[bool]
+        enable_yarn: rx.Field[bool]
+        enter_sends_message: rx.Field[bool]
+        max_debate_rounds: rx.Field[int]
+        multi_agent_mode: rx.Field[str]
+        narrator_voices: rx.Field[dict[str, str]]
+        show_transcription: rx.Field[bool]
+        symposion_agents: rx.Field[list[str]]
+        temperature_mode: rx.Field[str]
+        tts_agents: rx.Field[dict[str, dict[str, Any]]]
+        tts_autoplay: rx.Field[bool]
+        tts_list_revision: rx.Field[int]
+        tts_pitch: rx.Field[str]
+        tts_playback_rate: rx.Field[str]
+        yarn_factor: rx.Field[float]
 
         def _refresh_editor_tools(self) -> None: ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
+        @rx.event
         async def force_disarm_vigilantia(self) -> None: ...
+        @rx.event
         async def initialize_backend(self) -> bool: ...
 
     # ── User Settings ─────────────────────────────────────────────
-    ui_language: str = "de"  # "de" or "en" - for UI language
-    user_name: str = ""  # User's name for personalized responses (optional)
-    user_gender: str = "male"  # "male" or "female" - for proper salutation (Herr/Frau)
+    ui_language: rx.Field[str] = rx.field("de")  # "de" or "en" - for UI language
+    user_name: rx.Field[str] = rx.field("")  # User's name for personalized responses (optional)
+    user_gender: rx.Field[str] = rx.field("male")  # "male" or "female" - for proper salutation (Herr/Frau)
 
     # ── Message Hub Settings (generic, per-channel) ────────────
     # Toggles per channel: {"email": {"monitor": True, "auto_reply": False}, ...}
-    channel_toggles: dict[str, dict[str, bool]] = {}
+    channel_toggles: rx.Field[dict[str, dict[str, bool]]] = rx.field(default_factory=dict)
     # Security tier per channel: {"freeecho2": 4, "email": 1, ...}
-    channel_security_tiers: dict[str, int] = {}
+    channel_security_tiers: rx.Field[dict[str, int]] = rx.field(default_factory=dict)
 
     # Generic Credentials Modal (one modal, dynamic fields per channel)
-    channel_credentials_modal_open: bool = False
-    channel_credentials_editing: str = ""  # Which channel we're editing (internal name)
-    channel_credentials_display_name: str = ""  # Display name for modal title
-    channel_credential_values: dict[str, str] = {}  # env_key → value
-    channel_credential_fields: list[dict[str, str]] = []  # Rendered field descriptors
-    channel_cred_show_password: bool = False  # Eye toggle
+    channel_credentials_modal_open: rx.Field[bool] = rx.field(False)
+    channel_credentials_editing: rx.Field[str] = rx.field("")  # Which channel we're editing (internal name)
+    channel_credentials_display_name: rx.Field[str] = rx.field("")  # Display name for modal title
+    channel_credential_values: rx.Field[dict[str, str]] = rx.field(default_factory=dict)  # env_key → value
+    channel_credential_fields: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)  # Rendered field descriptors
+    channel_cred_show_password: rx.Field[bool] = rx.field(False)  # Eye toggle
 
     # OAuth-Verbindung im Credentials-Modal: idle | connecting | connected | error
-    oauth_connect_status: str = "idle"
+    oauth_connect_status: rx.Field[str] = rx.field("idle")
     # Connected, but the stored grant lacks a right the plugin's settings need.
-    oauth_rights_missing: bool = False
+    oauth_rights_missing: rx.Field[bool] = rx.field(False)
     # Provider-Name des aktuell im Modal bearbeiteten OAuth-Plugins (leer wenn nicht OAuth)
-    oauth_connect_provider: str = ""
+    oauth_connect_provider: rx.Field[str] = rx.field("")
     # Vorab generierte Auth-URL — wird vom Connect-Link (target="_blank") direkt genutzt,
     # damit der Browser-Pop-up-Blocker den Login-Tab nicht abblockt (echter User-Click).
-    oauth_auth_url: str = ""
+    oauth_auth_url: rx.Field[str] = rx.field("")
 
     # ── Plugin Manager (in the Agent-Editor "plugins" tab) ──────────
-    tool_plugin_toggles: dict[str, str] = {}  # {"epim": "1", "calculator": "1", ...}
-    channel_allowlists: dict[str, str] = {}  # {"email": "user@mail.de, @family.de", "telegram": "123456"}
+    tool_plugin_toggles: rx.Field[dict[str, str]] = rx.field(default_factory=dict)  # {"epim": "1", "calculator": "1", ...}
+    channel_allowlists: rx.Field[dict[str, str]] = rx.field(default_factory=dict)  # {"email": "user@mail.de, @family.de", "telegram": "123456"}
 
     # ── Audit Log (agent editor tab) ─────────────────────────────
-    audit_log_entries: list[dict[str, str]] = []  # [{timestamp, source, tool_name, ...}]
+    audit_log_entries: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)  # [{timestamp, source, tool_name, ...}]
 
     # ── Settings File Tracking ────────────────────────────────────
     _last_settings_mtime: float = 0.0  # Last seen settings.json mtime (for multi-browser sync)
@@ -328,6 +331,7 @@ class SettingsMixin(rx.State, mixin=True):
     # UI LANGUAGE
     # ================================================================
 
+    @rx.event
     def set_ui_language(self, lang: str) -> None:
         """Set UI language and switch TTS voice to matching language."""
         if lang in ["de", "en"]:
@@ -346,10 +350,12 @@ class SettingsMixin(rx.State, mixin=True):
     # USER PROFILE
     # ================================================================
 
+    @rx.event
     def set_user_name(self, name: str) -> None:
         """Set user name (called on every keystroke)."""
         self.user_name = name
 
+    @rx.event
     def save_user_name(self, name: str) -> None:
         """Save user name when input loses focus."""
         self.user_name = name.strip()
@@ -357,6 +363,7 @@ class SettingsMixin(rx.State, mixin=True):
             self.add_debug(f"\U0001f464 User name: {self.user_name}")
         self._save_settings()
 
+    @rx.event
     def set_user_gender(self, gender: str | list[str]) -> None:
         """Set user gender for salutation (male/female)."""
         # Reflex segmented_control can return str or list[str]
@@ -370,6 +377,7 @@ class SettingsMixin(rx.State, mixin=True):
     # RESET TO DEFAULTS
     # ================================================================
 
+    @rx.event
     async def load_default_settings(self):
         """Load default settings from config.py and apply them to state."""
         from ..lib.settings import reset_to_defaults
@@ -427,6 +435,7 @@ class SettingsMixin(rx.State, mixin=True):
     # MESSAGE HUB — GENERIC CHANNEL TOGGLES
     # ================================================================
 
+    @rx.event
     def set_channel_security_tier(self, data: list) -> None:
         """Set security tier for a channel. Called from UI with [channel_name, tier_label].
 
@@ -444,6 +453,7 @@ class SettingsMixin(rx.State, mixin=True):
         current[key] = value
         self._save_channel_setting("channel_toggles", channel, current)
 
+    @rx.event
     def toggle_channel_monitor(self, data: list) -> EventSpec | list | None:
         """Toggle channel plugin on/off. Called from UI with [channel_name, value].
 
@@ -460,7 +470,7 @@ class SettingsMixin(rx.State, mixin=True):
         if value and plugin and not plugin.is_configured():
             # open_channel_credentials returnt rx.redirect — durchreichen
             # damit Reflex die Navigation tatsaechlich ausloest
-            return self.open_channel_credentials(channel_name)
+            return self._open_channel_credentials(channel_name)
 
         self._set_channel_toggle(channel_name, "monitor", value)
         display = plugin_display_name(plugin, "en") if plugin else channel_name
@@ -479,6 +489,7 @@ class SettingsMixin(rx.State, mixin=True):
                 message_hub.unregister(channel_name)
         return None
 
+    @rx.event
     def toggle_channel_listener(self, data: list) -> None:
         """Toggle background listener for a channel. Called from UI with [channel_name, value]."""
         channel_name: str = data[0]
@@ -501,6 +512,7 @@ class SettingsMixin(rx.State, mixin=True):
         else:
             message_hub.unregister(channel_name)
 
+    @rx.event
     def toggle_channel_auto_reply(self, data: list) -> None:
         """Toggle auto-reply for a channel. Called from UI with [channel_name, value]."""
         channel_name: str = data[0]
@@ -521,8 +533,14 @@ class SettingsMixin(rx.State, mixin=True):
     # (Settings-Accordion auf /, oder Plugin-Tab auf /agent-editor).
     _credentials_return_to: str = "/"
 
+    @rx.event
     def open_channel_credentials(self, channel_name: str) -> EventSpec | list | None:
         """Open credentials page, pre-filled from .env (secrets) and settings.json (config)."""
+        return self._open_channel_credentials(channel_name)
+
+    def _open_channel_credentials(self, channel_name: str) -> EventSpec | list | None:
+        """The work of open_channel_credentials, also for state code: a handler called
+        from there is typed by Reflex without its return value."""
         from ..lib.plugin_registry import get_channel, get_tool_plugin
 
         # Try channel first, then tool plugin
@@ -642,6 +660,7 @@ class SettingsMixin(rx.State, mixin=True):
             return [rx.redirect("/credentials"), type(self).verify_oauth_connection]
         return rx.redirect("/credentials")
 
+    @rx.event
     def close_channel_credentials(self):
         """Close credentials page without saving — back to caller's page."""
         self.channel_credentials_modal_open = False
@@ -651,6 +670,7 @@ class SettingsMixin(rx.State, mixin=True):
         target = self._credentials_return_to or "/"
         return rx.redirect(target)
 
+    @rx.event
     def update_channel_credential(self, data: list) -> None:
         """Update a single credential field. Called with [env_key, value]."""
         env_key: str = data[0]
@@ -659,6 +679,7 @@ class SettingsMixin(rx.State, mixin=True):
         values[env_key] = value
         self.channel_credential_values = values
 
+    @rx.event
     def toggle_channel_cred_show_password(self) -> None:
         """Toggle password visibility in credentials modal."""
         self.channel_cred_show_password = not self.channel_cred_show_password
@@ -703,6 +724,7 @@ class SettingsMixin(rx.State, mixin=True):
         except KeyError:  # provider not registered: no link
             return ""
 
+    @rx.event
     async def verify_oauth_connection(self) -> None:
         """Echt-Prüfung des angezeigten „Verbunden"-Status (Refresh-Roundtrip).
 
@@ -739,6 +761,7 @@ class SettingsMixin(rx.State, mixin=True):
             f"⚠️ OAuth grant for {provider} was revoked at the provider — reconnect required"
         )
 
+    @rx.event
     async def start_oauth_connection(self):
         """Set status to ``connecting`` and poll ``is_connected`` for up to 5 min.
 
@@ -779,6 +802,7 @@ class SettingsMixin(rx.State, mixin=True):
             f"⚠️ {display}: OAuth not completed — please try again."
         )
 
+    @rx.event
     async def disconnect_oauth(self) -> None:
         """Remove stored OAuth tokens for the current plugin."""
         from ..lib.oauth import oauth_broker
@@ -799,6 +823,7 @@ class SettingsMixin(rx.State, mixin=True):
         plugin_name = plugin_display_name(plugin, "en") if plugin is not None else provider
         self.add_debug(f"🔌 {plugin_name}: OAuth disconnected.")
 
+    @rx.event
     def save_channel_credentials(self):
         """Write credentials to .env (secrets) and plugin settings.json (config).
 
@@ -921,6 +946,7 @@ class SettingsMixin(rx.State, mixin=True):
     # PLUGIN MANAGER MODAL
     # ================================================================
 
+    @rx.event
     async def toggle_tool_plugin(self, plugin_name: str):
         """Toggle a tool plugin AND apply it on the filesystem immediately.
 
@@ -984,6 +1010,7 @@ class SettingsMixin(rx.State, mixin=True):
     # TRANSLATION HELPER
     # ================================================================
 
+    @rx.event
     def get_text(self, key: str) -> str:
         """Get translated text based on current UI language."""
         return TranslationManager.get_text(key, self.ui_language)

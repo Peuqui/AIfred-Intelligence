@@ -19,21 +19,22 @@ class DocumentMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        logged_in_user: str
-        ui_language: str
+        logged_in_user: rx.Field[str]
+        ui_language: rx.Field[str]
 
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # State variables
-    is_uploading_document: bool = False
-    document_upload_status: str = ""
-    document_manager_open: bool = False
-    document_preview_filename: str = ""
-    document_preview_content: str = ""
+    is_uploading_document: rx.Field[bool] = rx.field(False)
+    document_upload_status: rx.Field[str] = rx.field("")
+    document_manager_open: rx.Field[bool] = rx.field(False)
+    document_preview_filename: rx.Field[str] = rx.field("")
+    document_preview_content: rx.Field[str] = rx.field("")
 
     # File explorer state
-    doc_current_folder: str = ""  # relative to data/documents/, empty = root
-    doc_file_list: list[dict[str, Any]] = []  # [{name, type, size, indexed, chunks}]
+    doc_current_folder: rx.Field[str] = rx.field("")  # relative to data/documents/, empty = root
+    doc_file_list: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)  # [{name, type, size, indexed, chunks}]
 
     @rx.var
     def doc_path_prefix(self) -> str:
@@ -59,21 +60,21 @@ class DocumentMixin(rx.State, mixin=True):
         return "/_upload/documents/"
 
     # Rename state
-    doc_rename_target: str = ""  # file/folder being renamed
-    doc_rename_value: str = ""  # new name input
+    doc_rename_target: rx.Field[str] = rx.field("")  # file/folder being renamed
+    doc_rename_value: rx.Field[str] = rx.field("")  # new name input
 
     # Delete confirmation dialog
-    doc_delete_target: str = ""  # filename or foldername to delete
-    doc_delete_is_folder: bool = False  # target is a folder (recursive delete)
-    doc_delete_from_disk: bool = True
-    doc_delete_from_index: bool = True
+    doc_delete_target: rx.Field[str] = rx.field("")  # filename or foldername to delete
+    doc_delete_is_folder: rx.Field[bool] = rx.field(False)  # target is a folder (recursive delete)
+    doc_delete_from_disk: rx.Field[bool] = rx.field(True)
+    doc_delete_from_index: rx.Field[bool] = rx.field(True)
 
     # Multi-select for batch delete. Holds bare filenames of the CURRENT
     # folder only — _refresh_file_list drops entries that are no longer
     # listed, so navigating away cannot carry a selection into a folder
     # where the same name means a different file.
-    doc_selected_files: list[str] = []
-    doc_delete_batch: bool = False  # dialog targets the selection, not one file
+    doc_selected_files: rx.Field[list[str]] = rx.field(default_factory=list)
+    doc_delete_batch: rx.Field[bool] = rx.field(False)  # dialog targets the selection, not one file
 
     @rx.var
     def doc_selection_count(self) -> int:
@@ -97,13 +98,14 @@ class DocumentMixin(rx.State, mixin=True):
         return self.doc_delete_target != "" or self.doc_delete_batch
 
     # Create folder state
-    doc_creating_folder: bool = False
-    doc_new_folder_name: str = ""
+    doc_creating_folder: rx.Field[bool] = rx.field(False)
+    doc_new_folder_name: rx.Field[str] = rx.field("")
 
     # ================================================================
     # MODAL OPEN / CLOSE
     # ================================================================
 
+    @rx.event
     def open_document_manager(self):
         """Navigate to document-manager page (formerly: open modal).
 
@@ -111,6 +113,7 @@ class DocumentMixin(rx.State, mixin=True):
         """
         return rx.redirect("/documents")
 
+    @rx.event
     def on_load_document_manager(self) -> None:
         """Page-Load-Hook fuer ``/documents`` — Setup-Logic die frueher
         in open_document_manager lag (vor dem Multi-Route-Split)."""
@@ -123,6 +126,7 @@ class DocumentMixin(rx.State, mixin=True):
         self._refresh_file_list()
         self.document_manager_open = True
 
+    @rx.event
     def close_document_manager(self):
         """Close document manager — reset state + navigate back to chat."""
         self.document_manager_open = False
@@ -149,6 +153,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.doc_selected_files = [n for n in self.doc_selected_files if n in listed]
         self.add_debug(f"📂 _refresh_file_list: folder={self.doc_current_folder!r}, {len(items)} items: {[i['name'] for i in items]}")
 
+    @rx.event
     def doc_navigate_folder(self, folder_name: str) -> None:
         """Navigate into a subfolder."""
         from pathlib import PurePosixPath
@@ -161,6 +166,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.document_preview_filename = ""
         self.document_preview_content = ""
 
+    @rx.event
     def doc_navigate_up(self) -> None:
         """Navigate to parent folder."""
         from pathlib import PurePosixPath
@@ -169,6 +175,7 @@ class DocumentMixin(rx.State, mixin=True):
             self.doc_current_folder = "" if parent == "." else parent
         self._refresh_file_list()
 
+    @rx.event
     def doc_navigate_root(self) -> None:
         """Navigate to root documents folder."""
         self.doc_current_folder = ""
@@ -181,12 +188,12 @@ class DocumentMixin(rx.State, mixin=True):
     # plugins and are addressed by folder id. Their rows carry id, download_url
     # and the index state instead of the local rename/delete fields.
 
-    doc_source: str = "local"
-    doc_source_options: list[dict[str, str]] = []  # [{key, label}], local first
-    doc_source_writable: bool = True               # the open source takes uploads
-    doc_remote_trail: list[dict[str, str]] = []    # opened folders [{id, name}], root = empty
-    doc_remote_query: str = ""                     # active search ("" = folder listing)
-    doc_remote_query_input: str = ""
+    doc_source: rx.Field[str] = rx.field("local")
+    doc_source_options: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)  # [{key, label}], local first
+    doc_source_writable: rx.Field[bool] = rx.field(True)               # the open source takes uploads
+    doc_remote_trail: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)    # opened folders [{id, name}], root = empty
+    doc_remote_query: rx.Field[str] = rx.field("")                     # active search ("" = folder listing)
+    doc_remote_query_input: rx.Field[str] = rx.field("")
 
     @rx.var
     def doc_is_remote(self) -> bool:
@@ -257,6 +264,7 @@ class DocumentMixin(rx.State, mixin=True):
             return None
         return await self._refresh_remote_list()
 
+    @rx.event
     async def set_doc_source(self, key: str | list[str]) -> EventSpec | None:
         """Switch between the local folder and a further source (the segmented
         control's on_change is typed str | list[str]; single choice = str)."""
@@ -271,30 +279,36 @@ class DocumentMixin(rx.State, mixin=True):
         self.document_preview_content = ""
         return await self._refresh_open_source()
 
+    @rx.event
     async def doc_open_remote_folder(self, folder_id: str, name: str) -> EventSpec | None:
         self.doc_remote_trail = [*self.doc_remote_trail, {"id": folder_id, "name": name}]
         self.doc_remote_query = ""
         return await self._refresh_remote_list()
 
+    @rx.event
     async def doc_remote_up(self) -> EventSpec | None:
         self.doc_remote_trail = self.doc_remote_trail[:-1]
         self.doc_remote_query = ""
         return await self._refresh_remote_list()
 
+    @rx.event
     async def doc_remote_root(self) -> EventSpec | None:
         self.doc_remote_trail = []
         self.doc_remote_query = ""
         self.doc_remote_query_input = ""
         return await self._refresh_remote_list()
 
+    @rx.event
     def set_doc_remote_query_input(self, value: str) -> None:
         self.doc_remote_query_input = value
 
+    @rx.event
     async def doc_remote_search(self) -> EventSpec | None:
         """Search the whole source (empty input = back to the open folder)."""
         self.doc_remote_query = self.doc_remote_query_input.strip()
         return await self._refresh_remote_list()
 
+    @rx.event
     async def doc_remote_refresh(self) -> EventSpec | None:
         return await self._refresh_remote_list()
 
@@ -302,24 +316,29 @@ class DocumentMixin(rx.State, mixin=True):
     # CREATE / DELETE FOLDER
     # ================================================================
 
+    @rx.event
     def doc_refresh(self) -> None:
         """Refresh the file list (e.g. after agent wrote files)."""
         self._refresh_file_list()
 
+    @rx.event
     def doc_open_create_folder(self) -> None:
         """Show inline input for new folder name."""
         self.doc_creating_folder = True
         self.doc_new_folder_name = ""
 
+    @rx.event
     def doc_cancel_create_folder(self) -> None:
         """Hide new-folder input."""
         self.doc_creating_folder = False
         self.doc_new_folder_name = ""
 
+    @rx.event
     def doc_set_new_folder_name(self, value: str) -> None:
         """Update new-folder input value."""
         self.doc_new_folder_name = value
 
+    @rx.event
     def doc_confirm_create_folder(self) -> None:
         """Create subfolder from doc_new_folder_name in current directory."""
         from ..lib import file_manager as fm
@@ -331,6 +350,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.doc_new_folder_name = ""
         self._refresh_file_list()
 
+    @rx.event
     def doc_open_delete_folder_dialog(self, folder_name: str) -> None:
         """Open delete confirmation for a folder (recursive)."""
         self.doc_delete_target = folder_name
@@ -342,20 +362,24 @@ class DocumentMixin(rx.State, mixin=True):
     # RENAME
     # ================================================================
 
+    @rx.event
     def doc_start_rename(self, name: str) -> None:
         """Open inline rename for a file or folder."""
         self.doc_rename_target = name
         self.doc_rename_value = name
 
+    @rx.event
     def doc_cancel_rename(self) -> None:
         """Cancel rename."""
         self.doc_rename_target = ""
         self.doc_rename_value = ""
 
+    @rx.event
     def doc_set_rename_value(self, value: str) -> None:
         """Update rename input value."""
         self.doc_rename_value = value
 
+    @rx.event
     async def doc_confirm_rename(self) -> None:
         """Execute rename on disk (file_manager takes the index along). On a thread: a large
         folder moves many chunks, and a blocked event loop gets the worker killed."""
@@ -378,6 +402,7 @@ class DocumentMixin(rx.State, mixin=True):
     # UPLOAD
     # ================================================================
 
+    @rx.event
     async def handle_document_upload(self, files: list[rx.UploadFile]) -> AsyncGenerator[EventSpec | None, None]:
         """Handle document file upload — save to current folder."""
         from pathlib import Path
@@ -570,6 +595,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.add_debug(f"⚠️ index: {result.detail}")
         return rx.toast.error(result.detail, duration=5000, position="top-center")
 
+    @rx.event
     async def doc_index_folder(self):
         """Bulk-index every file under the current folder (recursive):
         ``doc_current_folder`` and all sub-folders, via ``fm.index_file``.
@@ -597,6 +623,7 @@ class DocumentMixin(rx.State, mixin=True):
         async for event in self._index_files(indexing, self.doc_current_folder or "/"):
             yield event
 
+    @rx.event
     async def doc_index_remote_folder(self) -> AsyncGenerator[EventSpec | None, None]:
         """Bulk-index every indexable file below the open folder of a further source."""
         from functools import partial
@@ -629,6 +656,7 @@ class DocumentMixin(rx.State, mixin=True):
         async for event in self._index_files(indexing, f"{self.doc_source}:/{self.doc_remote_path_text}"):
             yield event
 
+    @rx.event
     async def doc_index_file(self, filename: str) -> AsyncGenerator[EventSpec | None, None]:
         """Index a file into ChromaDB."""
         from ..lib import file_manager as fm
@@ -651,6 +679,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.document_upload_status = ""
         yield  # type: ignore[misc]
 
+    @rx.event
     async def doc_index_remote_file(self, file_id: str, name: str) -> AsyncGenerator[EventSpec | None, None]:
         """Index a file of the open source; the file itself stays there."""
         from ..lib import file_manager as fm
@@ -667,6 +696,7 @@ class DocumentMixin(rx.State, mixin=True):
         yield await self._refresh_remote_list()
         yield self._index_toast(result, name)
 
+    @rx.event
     async def doc_deindex_remote_file(self, file_id: str, name: str) -> AsyncGenerator[EventSpec | None, None]:
         """Remove a file of the open source from the index; it stays at the source."""
         from ..lib import file_manager as fm
@@ -682,6 +712,7 @@ class DocumentMixin(rx.State, mixin=True):
             duration=5000, position="top-center",
         )
 
+    @rx.event
     async def doc_deindex_file(self, filename: str) -> AsyncGenerator[EventSpec | None, None]:
         """Remove a file from ChromaDB index (file stays on disk)."""
         from ..lib import file_manager as fm
@@ -704,6 +735,7 @@ class DocumentMixin(rx.State, mixin=True):
     # DELETE — with confirmation dialog
     # ================================================================
 
+    @rx.event
     def doc_toggle_select(self, filename: str) -> None:
         """Add or remove a file from the batch selection."""
         if filename in self.doc_selected_files:
@@ -711,15 +743,18 @@ class DocumentMixin(rx.State, mixin=True):
         else:
             self.doc_selected_files = [*self.doc_selected_files, filename]
 
+    @rx.event
     def doc_toggle_select_all(self) -> None:
         """Select every file in the current folder, or clear the selection."""
         files = [item["name"] for item in self.doc_file_list if item.get("type") != "folder"]
         self.doc_selected_files = [] if len(self.doc_selected_files) == len(files) else files
 
+    @rx.event
     def doc_clear_selection(self) -> None:
         """Drop the batch selection."""
         self.doc_selected_files = []
 
+    @rx.event
     def doc_open_delete_dialog(self, filename: str) -> None:
         """Open delete confirmation for a file."""
         self.doc_delete_target = filename
@@ -728,6 +763,7 @@ class DocumentMixin(rx.State, mixin=True):
         self.doc_delete_from_disk = True
         self.doc_delete_from_index = True
 
+    @rx.event
     def doc_open_batch_delete_dialog(self) -> None:
         """Open delete confirmation for the whole selection."""
         if not self.doc_selected_files:
@@ -738,16 +774,19 @@ class DocumentMixin(rx.State, mixin=True):
         self.doc_delete_from_disk = True
         self.doc_delete_from_index = True
 
+    @rx.event
     def doc_close_delete_dialog(self) -> None:
         """Close delete confirmation."""
         self.doc_delete_target = ""
         self.doc_delete_is_folder = False
         self.doc_delete_batch = False
 
+    @rx.event
     def doc_toggle_delete_disk(self, _val: bool) -> None:
         """Toggle 'delete from disk' checkbox."""
         self.doc_delete_from_disk = not self.doc_delete_from_disk
 
+    @rx.event
     def doc_toggle_delete_index(self, _val: bool) -> None:
         """Toggle 'delete from index' checkbox."""
         self.doc_delete_from_index = not self.doc_delete_from_index
@@ -805,6 +844,7 @@ class DocumentMixin(rx.State, mixin=True):
                 duration=5000, position="top-center",
             )
 
+    @rx.event
     async def doc_confirm_delete(self) -> AsyncGenerator[EventSpec | None, None]:
         """Execute delete with selected options (file or folder)."""
         from ..lib import file_manager as fm
@@ -866,6 +906,7 @@ class DocumentMixin(rx.State, mixin=True):
     # PREVIEW
     # ================================================================
 
+    @rx.event
     def preview_document(self, filename: str) -> None:
         """Load document content for preview in the modal."""
         from ..lib.document_store import PARSERS
@@ -897,6 +938,7 @@ class DocumentMixin(rx.State, mixin=True):
             self.document_preview_filename = filename
             self.document_preview_content = f"\u274c {e}"
 
+    @rx.event
     def close_document_preview(self) -> None:
         """Close the document preview."""
         self.document_preview_filename = ""

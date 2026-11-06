@@ -81,7 +81,7 @@ _global_backend_state: dict[str, Any] = {
 _backend_init_lock = asyncio.Lock()
 
 # Strong references for fire-and-forget asyncio tasks that the rest of
-# the app doesn't await (e.g. queue_tts_for_agent in add_agent_panel).
+# the app doesn't await (e.g. queue_tts_for_agent in _add_agent_panel).
 # Without this, asyncio.create_task()'s task object can be GC'd while
 # the coroutine is still running. A done-callback removes the entry
 # again so the set doesn't grow unbounded.
@@ -170,9 +170,9 @@ class AIState(
     # NOTE: chat_history and llm_history live in ChatHistoryState (separate React context)
 
     # Web Research Sources State (for current request - shown in UI)
-    all_sources: list[dict[str, Any]] = []
-    used_sources: list[dict[str, Any]] = []
-    failed_sources: list[dict[str, str]] = []
+    all_sources: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
+    used_sources: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
+    failed_sources: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
     _pending_used_sources: list[dict[str, Any]] = []
     _pending_failed_sources: list[dict[str, str]] = []
 
@@ -212,6 +212,7 @@ class AIState(
 
     # ── Methods (only those NOT in any mixin) ────────────────────
 
+    @rx.event
     def refresh_debug_console(self):
         """
         Refresh debug console to propagate background task updates
@@ -408,11 +409,13 @@ class AIState(
     _stt_pending_filename: str = ""
     _stt_pending_size: str = ""
 
+    @rx.event
     async def handle_audio_upload(self, files: list[rx.UploadFile]):
         """Audio file upload (disc button) — transcript goes to a chat bubble."""
         async for event in self._handle_audio(files, source="file"):
             yield event
 
+    @rx.event
     async def handle_audio_recording(self, files: list[rx.UploadFile]):
         """Mic recording (MediaRecorder) — transcript goes to the input
         field (edit toggle on) or straight to the AI (toggle off)."""
@@ -564,6 +567,7 @@ class AIState(
         self._stt_pending_size = ""
         return parked
 
+    @rx.event
     async def stt_confirm_result(self, confirmed: bool):
         """Resume or cancel a transcription parked for user confirmation."""
         tmp_path, source, filename, size_display = self._consume_stt_pending()
@@ -586,6 +590,7 @@ class AIState(
         async for event in self._run_transcription(tmp_path, filename, source, size_display):
             yield event
 
+    @rx.event
     async def stt_unload_confirm_result(self, confirmed: bool):
         """Resume a big-file transcription parked on the 'unload LLM?'
         question: unload the chat backend, then retry the GPU engine once."""
@@ -663,7 +668,7 @@ class AIState(
             # lands in the chat anyway).
             if source == "file":
                 from ..lib.i18n import t as _t
-                self.add_agent_panel(
+                self._add_agent_panel(
                     agent="aifred",
                     content=_t("stt_bubble_started", lang=self.ui_language,
                                filename=filename, size=size_display, engine="GPU"),
@@ -779,7 +784,7 @@ class AIState(
                         # resolving them to the names used in the recording.
                         bubble_key = ("stt_bubble_saved_speakers"
                                       if "[SPEAKER_" in user_text else "stt_bubble_saved")
-                        self.add_agent_panel(
+                        self._add_agent_panel(
                             agent="aifred",
                             content=_t(bubble_key, lang=self.ui_language,
                                        transcript_link=transcript_link,
@@ -808,7 +813,7 @@ class AIState(
                 # can work with it. Never the input field, never auto-send.
                 if source == "file":
                     from ..lib.i18n import t as _t
-                    self.add_agent_panel(
+                    self._add_agent_panel(
                         agent="aifred",
                         content=_t("stt_bubble_transcript", lang=self.ui_language,
                                    filename=filename, size=size_display,
@@ -858,7 +863,7 @@ class AIState(
                     # must be passed through: send_message emits real events
                     # (rx.call_script for the TTS browser stream), and a bare
                     # ``yield`` would drop them and only push state deltas.
-                    async for event in self.send_message():
+                    async for event in self.send_message(""):  # "": send_message reads current_user_input
                         yield event
             else:
                 self.add_debug("⚠️ Transcription returned empty text")
@@ -877,6 +882,7 @@ class AIState(
             if not parked:
                 Path(tmp_path).unlink(missing_ok=True)
 
+    @rx.event
     def toggle_yarn(self):
         """Toggle YaRN context extension"""
         self.enable_yarn = not self.enable_yarn
@@ -886,6 +892,7 @@ class AIState(
             self.add_debug("⚠️ Click 'Apply YaRN' to start backend with new factor!")
         self._save_settings()
 
+    @rx.event
     def set_yarn_factor_input(self, factor: str):
         """Update YaRN factor input field (temporary, not applied yet)"""
         self.yarn_factor_input = factor
@@ -900,6 +907,7 @@ class AIState(
         except ValueError:
             pass  # Ignore invalid input during typing
 
+    @rx.event
     async def apply_yarn_factor(self):
         """Apply YaRN factor and restart backend"""
         try:

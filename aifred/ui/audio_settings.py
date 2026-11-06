@@ -13,7 +13,10 @@ Plus a "Neue Source" button that triggers the generic file_picker.
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..state import AIState
 from ..theme import COLORS
@@ -291,7 +294,7 @@ def _tts_list_threshold_editor() -> rx.Component:
     )
 
 
-def _source_row(src: rx.Var) -> rx.Component:
+def _source_row(src: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Single row per source — type icon, label, target, indexed-count, action buttons."""
     is_busy = (AIState.audio_settings_busy_source == src["label"]) & (
         AIState.audio_settings_busy != ""
@@ -363,7 +366,7 @@ def _source_row(src: rx.Var) -> rx.Component:
                             "Indexieren",
                             size="1",
                             variant="soft",
-                            on_click=AIState.audio_index_rebuild_source(src["label"], False),  # type: ignore[misc]
+                            on_click=AIState.audio_index_rebuild_source(src["label"], False),
                             cursor="pointer",
                             disabled=AIState.audio_settings_busy != "",
                         ),
@@ -373,7 +376,7 @@ def _source_row(src: rx.Var) -> rx.Component:
                             size="1",
                             variant="soft",
                             color_scheme="orange",
-                            on_click=AIState.audio_index_rebuild_source(src["label"], True),  # type: ignore[misc]
+                            on_click=AIState.audio_index_rebuild_source(src["label"], True),
                             cursor="pointer",
                             disabled=AIState.audio_settings_busy != "",
                             title="Komplett neu indexieren (ignoriert mtime, liest alle Tags neu)",

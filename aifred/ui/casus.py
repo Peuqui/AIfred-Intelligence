@@ -11,14 +11,17 @@ Erreichbar vom Vigilantia-Settings-Modal aus über den Button
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..state import AIState
 from ..theme import COLORS
 from .helpers import confirm_delete_all, overlay_modal, t
 
 
-def _event_type_badge(event: rx.Var) -> rx.Component:
+def _event_type_badge(event: ObjectVar[dict[str, Any]]) -> rx.Component | rx.Var:
     """Farbiges Badge je nach event_type. Labels sind i18n-gerendert
     (DE: Bewegung/Bekannt/Unsicher/Unbekannt/Bildanalyse)."""
     et = event["event_type"]
@@ -36,7 +39,7 @@ def _event_type_badge(event: rx.Var) -> rx.Component:
     )
 
 
-def _thumb(event: rx.Var, index: rx.Var) -> rx.Component:
+def _thumb(event: ObjectVar[dict[str, Any]], index: rx.Var) -> rx.Component:
     """Vorschaubilder (je 40×40), klickbar → Bild-Modal mit dem Vollbild.
 
     Erste Kachel: Gesichts-Crop (Face-Events) oder verkleinertes
@@ -101,7 +104,7 @@ def _thumb(event: rx.Var, index: rx.Var) -> rx.Component:
     )
 
 
-def _person_cell(event: rx.Var) -> rx.Component:
+def _person_cell(event: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Namen-Zelle: bei zugeordnetem Face den Namen, sonst Confidence-
     Band oder „—". Wenn eine VLM-Beschreibung vorliegt, wird sie als
     zweite Zeile dezenter angehängt."""
@@ -157,7 +160,7 @@ def _person_cell(event: rx.Var) -> rx.Component:
     )
 
 
-def _tag_controls(event: rx.Var) -> rx.Component:
+def _tag_controls(event: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Tag-Modus pro Zeile: bei aktivem Tag-Mode Dropdown + Save/Cancel,
     sonst „+ taggen"-Button (nur für face_unknown/face_unsure ohne face_id)."""
     eid = event["id"]
@@ -265,7 +268,7 @@ def _tag_controls(event: rx.Var) -> rx.Component:
     )
 
 
-def _event_row(event: rx.Var, index: rx.Var) -> rx.Component:
+def _event_row(event: ObjectVar[dict[str, Any]], index: rx.Var) -> rx.Component:
     """Eine Zeile in der Casus-Tabelle. ``index`` = Position in
     casus_events, fürs Bild-Modal/Slideshow."""
     return rx.hstack(
@@ -336,7 +339,7 @@ def _bulk_bar() -> rx.Component:
     nur der Start-Button."""
     progress_pct = rx.cond(
         AIState.casus_bulk_total > 0,
-        AIState.casus_bulk_progress * 100 // AIState.casus_bulk_total,
+        (AIState.casus_bulk_progress * 100 // AIState.casus_bulk_total).to(int),
         0,
     )
     return rx.cond(
@@ -693,7 +696,7 @@ _OVERLAY_VIEWPORT_STYLE = {
 
 def _overlay_image(
     src: rx.Var, scale: rx.Var | int, which: str, max_w: str,
-) -> rx.Component:
+) -> rx.Component | rx.Var:
     """Eine Overlay-Ansicht (Weitwinkel oder Zoom) mit Klick-Zoom wie die
     Lightbox (aifred/ui/lightbox.py): Stufe 1 passt das Bild ein, der Klick
     schaltet auf 200 % Breite (scrollbarer Viewport), der nächste Klick

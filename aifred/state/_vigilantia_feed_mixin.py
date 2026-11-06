@@ -34,7 +34,7 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        vigilantia_sources: list[dict[str, Any]]
+        vigilantia_sources: rx.Field[list[dict[str, Any]]]
 
         def _reload_vigilantia_sources(self) -> None: ...
 
@@ -42,21 +42,21 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
     # Zeile. Default an — der Knopf ist klein, das Badge meldet sich nur
     # bei Events, und Nicht-Vision-User können ihn in den Vigilantia-
     # Settings ausblenden.
-    vigilantia_feed_visible: bool = True
+    vigilantia_feed_visible: rx.Field[bool] = rx.field(True)
     # Akkordeon offen / zu
-    vigilantia_feed_open: bool = False
+    vigilantia_feed_open: rx.Field[bool] = rx.field(False)
     # Live-Card-Popover offen / zu (rechte Modus-Zeile). Wir steuern den
     # Radix-Popover controlled, damit Klick-daneben / ESC den Feed nicht
     # zumachen — User wollte explizit nur via X schliessen koennen.
-    vigilantia_feed_popover_open: bool = False
+    vigilantia_feed_popover_open: rx.Field[bool] = rx.field(False)
     # Events der letzten _FEED_LIMIT Einträge (gemischt: motion, face_*,
     # vlm_analysis je nach was die Hintergrund-Watcher produzieren).
-    vigilantia_feed_events: list[dict[str, Any]] = []
+    vigilantia_feed_events: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
     # Anzahl Events im _BADGE_WINDOW_MIN-Zeitfenster — Badge im Header.
-    vigilantia_feed_recent_count: int = 0
+    vigilantia_feed_recent_count: rx.Field[int] = rx.field(0)
     # Hilfe-Modal-State — Klick auf die Glühbirne öffnet eine
     # Übersicht „Wo stelle ich was ein / wann passiert was".
-    vigilantia_help_open: bool = False
+    vigilantia_help_open: rx.Field[bool] = rx.field(False)
 
     @rx.event
     def open_vigilantia_help(self) -> None:

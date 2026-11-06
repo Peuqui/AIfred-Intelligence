@@ -111,67 +111,67 @@ class VisionPreviewMixin(rx.State, mixin=True):
         async def _refresh_vlm_loaded(self) -> None: ...
 
     # The complete list of detected sources (filled on page-load + rescan)
-    vision_preview_sources: list[dict[str, Any]] = []  # [{id, label, available}]
+    vision_preview_sources: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)  # [{id, label, available}]
 
     # Quelle, deren Pfeiltaste gerade gehalten wird (leer = keine). Steuert den
     # Herzschlag der Seite, der den Totmann-Stopp des Kamerakopfs verlängert.
-    ptz_held: str = ""
+    ptz_held: rx.Field[str] = rx.field("")
 
     # Quelle im Vollbild-Fokus der Live-Ansicht (leer = Raster mit allen).
-    vision_preview_focus: str = ""
+    vision_preview_focus: rx.Field[str] = rx.field("")
 
     # Fotos dieser Sitzung je Quelle (URLs der hochaufgelösten Schnappschüsse,
     # das neueste zuletzt). Beim Öffnen der Live-Ansicht leer; die Dateien auf
     # der Platte bleiben liegen.
-    vision_preview_photos: dict[str, list[str]] = {}
+    vision_preview_photos: rx.Field[dict[str, list[str]]] = rx.field(default_factory=dict)
 
     # Geschwindigkeitsstufe der Kopfsteuerung (Schlüssel aus VISION_PTZ_SPEEDS).
-    ptz_speed: str = VISION_PTZ_DEFAULT_SPEED
+    ptz_speed: rx.Field[str] = rx.field(VISION_PTZ_DEFAULT_SPEED)
 
     # Subset of source IDs that should be rendered (each gets an <img>)
-    vision_preview_visible_sources: list[str] = []
+    vision_preview_visible_sources: rx.Field[list[str]] = rx.field(default_factory=list)
 
     # Per-source resolution choice ("default" or "WIDTHxHEIGHT")
-    vision_preview_resolutions: dict[str, str] = {}
+    vision_preview_resolutions: rx.Field[dict[str, str]] = rx.field(default_factory=dict)
 
     # Global FPS for all visible sources. 0 = manual single-shot mode.
-    vision_preview_fps: float = 1.0
+    vision_preview_fps: rx.Field[float] = rx.field(1.0)
 
     # Teleprompter layout: "overlay" (subtitle-style on the image) or
     # "below" (full-width block below the image). Global because users
     # tend to settle on one style. Persisted in vision_preview.json.
-    vision_preview_teleprompter_mode: str = "overlay"
+    vision_preview_teleprompter_mode: rx.Field[str] = rx.field("overlay")
 
     # Bumped on every refresh request — appended to image URLs as cache-buster
-    vision_preview_cache_buster: int = 0
+    vision_preview_cache_buster: rx.Field[int] = rx.field(0)
 
     # Source IDs with an active continuous-VLM watcher. Drives the
     # watch-toggle switch in each cam-tile and which SSE streams the
     # frontend opens.
-    vision_preview_watching: list[str] = []
+    vision_preview_watching: rx.Field[list[str]] = rx.field(default_factory=list)
 
     # Source-IDs mit aktiver Gesichts­erkennung im Watch-Mode. Lebt
     # parallel zu ``vision_preview_watching`` — beide können
     # unabhängig an sein, die Watcher-Engine läuft solange
     # mindestens einer der beiden Modi für eine Source aktiv ist.
-    vision_preview_face_active: list[str] = []
+    vision_preview_face_active: rx.Field[list[str]] = rx.field(default_factory=list)
 
     # Global cooldown between VLM calls in continuous watch-mode.
     # Seconds; persisted in vision_preview.json. 1s is the minimum
     # sane value (the VLM itself answers in ~0.4s for short prompts).
-    vision_preview_vlm_cooldown_sec: float = 5.0
+    vision_preview_vlm_cooldown_sec: rx.Field[float] = rx.field(5.0)
 
     # Min-Abstand zwischen Face-Recognition-Events (motion-getriggert).
     # Default 1 s reicht für Eingangs-Überwachung — bei Bedarf im
     # Header-Dropdown anpassbar. Läuft unabhängig vom VLM-Cycle.
-    vision_preview_face_throttle_sec: float = 1.0
+    vision_preview_face_throttle_sec: rx.Field[float] = rx.field(1.0)
 
     # NB: ein eigenes ``vision_preview_vlm_model`` gibt es nicht mehr.
     # Das Modell-Dropdown im Popup-Header bindet direkt an
     # ``vision_model_value`` aus _vision_settings_mixin (SSOT in
     # plugins/tools/vision/settings.json). Ein Wert, zwei UIs.
 
-    vision_preview_cooldown_options: list[dict[str, str]] = [
+    vision_preview_cooldown_options: rx.Field[list[dict[str, str]]] = rx.field(default_factory=lambda: [
         {"value": "1", "label": "1 s"},
         {"value": "2", "label": "2 s"},
         {"value": "3", "label": "3 s"},
@@ -179,19 +179,19 @@ class VisionPreviewMixin(rx.State, mixin=True):
         {"value": "10", "label": "10 s"},
         {"value": "30", "label": "30 s"},
         {"value": "60", "label": "60 s"},
-    ]
+    ])
     # Face-Throttle-Werte: Detection läuft GPU-seitig in ~10 ms,
     # selbst 10 Events/s lasten die Karte nicht aus. Die schnellen
     # Werte werden zusätzlich als „N/s" gelabelt (intuitiver für
     # Türsteher-Modus), die langsamen als Sekunden.
-    vision_preview_face_throttle_options: list[dict[str, str]] = [
+    vision_preview_face_throttle_options: rx.Field[list[dict[str, str]]] = rx.field(default_factory=lambda: [
         {"value": "0.1", "label": "0,1 s · 10/s"},
         {"value": "0.2", "label": "0,2 s · 5/s"},
         {"value": "0.5", "label": "0,5 s · 2/s"},
         {"value": "1", "label": "1 s"},
         {"value": "2", "label": "2 s"},
         {"value": "3", "label": "3 s"},
-    ]
+    ])
 
     @rx.var
     def vision_preview_vlm_cooldown_value(self) -> str:
@@ -206,13 +206,13 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # 0.1/0.2/0.5 sauber als „0.1" rendern (statt 0.10000…0001)
         return f"{v:g}"
 
-    vision_preview_status: str = ""
+    vision_preview_status: rx.Field[str] = rx.field("")
 
     # --- Static dropdown options (read-only) -----------------------------
 
     # Bildrate-Optionen in fps. Sub-fps-Werte zusätzlich mit Sekunden
     # gelabelt, damit „0,2 fps" nicht abstrakt wirkt.
-    vision_preview_fps_options: list[dict[str, str]] = [
+    vision_preview_fps_options: rx.Field[list[dict[str, str]]] = rx.field(default_factory=lambda: [
         {"value": "0", "label": "Manuell (Einzelbild)"},
         {"value": "0.2", "label": "0,2 fps · 1 Bild / 5 s"},
         {"value": "0.5", "label": "0,5 fps · 1 Bild / 2 s"},
@@ -222,7 +222,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         {"value": "10", "label": "10 fps"},
         {"value": "15", "label": "15 fps"},
         {"value": "30", "label": "30 fps"},
-    ]
+    ])
     # Resolution options are per-source now (built in _refresh_sources from
     # the camera's actual supported modes) — no global field anymore.
 

@@ -225,7 +225,7 @@ def build_history_entry(
 
     Single Source of Truth for the history dict format.
     Used by llm_engine.py.
-    The browser UI path uses add_agent_panel() which adds extra UI concerns
+    The browser UI path uses _add_agent_panel() which adds extra UI concerns
     (markers, TTS, session save) on top of the same structure.
 
     Args:

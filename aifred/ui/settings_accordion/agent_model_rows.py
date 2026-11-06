@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import reflex as rx
+from reflex.vars import ObjectVar
 
+from ...lib.agent_tuning import AgentModelRow
 from ...state import AIState
 from ..helpers import native_select_model, select_model_by_id, t
 from .controls import (
@@ -47,27 +49,27 @@ def _aifred_toggles_row() -> rx.Component:
         rx.hstack(
             rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
             _rope_select(AIState.rope_factor_display, AIState.set_aifred_rope_factor),
-            _agent_toggle("\U0001f3a9", AIState.agent_tuning["aifred"].personality, AIState.toggle_agent_personality_for("aifred"), t("personality_aifred_tooltip")),  # type: ignore[arg-type]
-            _agent_toggle("\U0001f4ad", AIState.agent_tuning["aifred"].reasoning, AIState.toggle_agent_reasoning_for("aifred"), t("reasoning_tooltip")),  # type: ignore[arg-type]
-            _agent_thinking_select(AIState.aifred_thinking_mode, AIState.aifred_thinking_options, AIState.set_agent_thinking_mode_for("aifred"), t("thinking_tooltip")),  # type: ignore[arg-type]
+            _agent_toggle("\U0001f3a9", AIState.agent_tuning["aifred"].personality, AIState.toggle_agent_personality_for("aifred"), t("personality_aifred_tooltip")),
+            _agent_toggle("\U0001f4ad", AIState.agent_tuning["aifred"].reasoning, AIState.toggle_agent_reasoning_for("aifred"), t("reasoning_tooltip")),
+            _agent_thinking_select(AIState.aifred_thinking_mode, AIState.aifred_thinking_options, AIState.set_agent_thinking_mode_for("aifred"), t("thinking_tooltip")),
             _lightbulb_icon(),
             spacing="2",
             align="center",
         ),
         # Other backends: Personality + Reasoning + Thinking + Info + optional Speed toggle
         rx.hstack(
-            _agent_toggle("\U0001f3a9", AIState.agent_tuning["aifred"].personality, AIState.toggle_agent_personality_for("aifred"), t("personality_aifred_tooltip")),  # type: ignore[arg-type]
-            _agent_toggle("\U0001f4ad", AIState.agent_tuning["aifred"].reasoning, AIState.toggle_agent_reasoning_for("aifred"), t("reasoning_tooltip")),  # type: ignore[arg-type]
-            _agent_thinking_select(AIState.aifred_thinking_mode, AIState.aifred_thinking_options, AIState.set_agent_thinking_mode_for("aifred"), t("thinking_tooltip")),  # type: ignore[arg-type]
+            _agent_toggle("\U0001f3a9", AIState.agent_tuning["aifred"].personality, AIState.toggle_agent_personality_for("aifred"), t("personality_aifred_tooltip")),
+            _agent_toggle("\U0001f4ad", AIState.agent_tuning["aifred"].reasoning, AIState.toggle_agent_reasoning_for("aifred"), t("reasoning_tooltip")),
+            _agent_thinking_select(AIState.aifred_thinking_mode, AIState.aifred_thinking_options, AIState.set_agent_thinking_mode_for("aifred"), t("thinking_tooltip")),
             _lightbulb_icon(),
-            _speed_toggle(AIState.agent_tuning["aifred"].has_speed_variant, AIState.agent_tuning["aifred"].speed_mode, AIState.toggle_agent_speed_mode_for("aifred")),  # type: ignore[arg-type]
+            _speed_toggle(AIState.agent_tuning["aifred"].has_speed_variant, AIState.agent_tuning["aifred"].speed_mode, AIState.toggle_agent_speed_mode_for("aifred")),
             spacing="2",
             align="center",
         ),
     )
 
 
-def _secondary_agent_row(row) -> rx.Component:
+def _secondary_agent_row(row: ObjectVar[AgentModelRow]) -> rx.Component:
     """Model-Select + Toggle-Zeile für einen Sekundär-Agenten (foreach-Row).
 
     Deckt Sokrates, Salomo und alle Custom-Agenten ab — Sichtbarkeit
@@ -221,7 +223,7 @@ def _vision_rope_row() -> rx.Component:
         (AIState.backend_id == "ollama") & AIState.backend_supports_dynamic_models,
         rx.hstack(
             rx.text("  \u2514\u2500 RoPE:", font_size="10px", color="gray"),
-            _rope_select(AIState.vision_rope_display, AIState.set_agent_rope_factor_for("vision")),  # type: ignore[arg-type]
+            _rope_select(AIState.vision_rope_display, AIState.set_agent_rope_factor_for("vision")),
             spacing="2",
             align="center",
         ),
@@ -233,10 +235,10 @@ def _vision_toggles_row() -> rx.Component:
     return rx.cond(
         AIState.backend_supports_dynamic_models,
         rx.hstack(
-            _agent_toggle("\U0001f4f7", AIState.agent_tuning["vision"].personality, AIState.toggle_agent_personality_for("vision"), t("personality_vision_tooltip")),  # type: ignore[arg-type]
-            _agent_toggle("\U0001f4ad", AIState.agent_tuning["vision"].reasoning, AIState.toggle_agent_reasoning_for("vision"), t("reasoning_tooltip")),  # type: ignore[arg-type]
-            _agent_thinking_select(AIState.vision_thinking_mode, AIState.vision_thinking_options, AIState.set_agent_thinking_mode_for("vision"), t("thinking_tooltip")),  # type: ignore[arg-type]
-            _speed_toggle(AIState.agent_tuning["vision"].has_speed_variant, AIState.agent_tuning["vision"].speed_mode, AIState.toggle_agent_speed_mode_for("vision")),  # type: ignore[arg-type]
+            _agent_toggle("\U0001f4f7", AIState.agent_tuning["vision"].personality, AIState.toggle_agent_personality_for("vision"), t("personality_vision_tooltip")),
+            _agent_toggle("\U0001f4ad", AIState.agent_tuning["vision"].reasoning, AIState.toggle_agent_reasoning_for("vision"), t("reasoning_tooltip")),
+            _agent_thinking_select(AIState.vision_thinking_mode, AIState.vision_thinking_options, AIState.set_agent_thinking_mode_for("vision"), t("thinking_tooltip")),
+            _speed_toggle(AIState.agent_tuning["vision"].has_speed_variant, AIState.agent_tuning["vision"].speed_mode, AIState.toggle_agent_speed_mode_for("vision")),
             spacing="2",
             align="center",
         ),

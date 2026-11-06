@@ -22,13 +22,14 @@ class ImageMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        agent_tuning: dict[str, AgentTuning]
-        debug_messages: list[str]
-        logged_in_user: str
-        session_id: str
-        vision_models_cache: list[str]
+        agent_tuning: rx.Field[dict[str, AgentTuning]]
+        debug_messages: rx.Field[list[str]]
+        logged_in_user: rx.Field[str]
+        session_id: rx.Field[str]
+        vision_models_cache: rx.Field[list[str]]
 
         def _chat_sub(self): ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
 
     # ------------------------------------------------------------------
@@ -36,30 +37,30 @@ class ImageMixin(rx.State, mixin=True):
     # ------------------------------------------------------------------
 
     # Image Upload State
-    is_uploading_image: bool = False
-    pending_images: list[dict[str, str]] = []
-    image_upload_warning: str = ""
-    max_images_per_message: int = MAX_IMAGES_PER_MESSAGE
-    camera_available: bool = False
+    is_uploading_image: rx.Field[bool] = rx.field(False)
+    pending_images: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
+    image_upload_warning: rx.Field[str] = rx.field("")
+    max_images_per_message: rx.Field[int] = rx.field(MAX_IMAGES_PER_MESSAGE)
+    camera_available: rx.Field[bool] = rx.field(False)
     _camera_detection_done: bool = False
 
     # Image Crop State
-    crop_modal_open: bool = False
-    crop_image_index: int = -1
-    crop_preview_url: str = ""
-    crop_box_x: float = 0.0
-    crop_box_y: float = 0.0
-    crop_box_width: float = 100.0
-    crop_box_height: float = 100.0
-    crop_rotation: int = 0
+    crop_modal_open: rx.Field[bool] = rx.field(False)
+    crop_image_index: rx.Field[int] = rx.field(-1)
+    crop_preview_url: rx.Field[str] = rx.field("")
+    crop_box_x: rx.Field[float] = rx.field(0.0)
+    crop_box_y: rx.Field[float] = rx.field(0.0)
+    crop_box_width: rx.Field[float] = rx.field(100.0)
+    crop_box_height: rx.Field[float] = rx.field(100.0)
+    crop_rotation: rx.Field[int] = rx.field(0)
 
     # Help Modals
-    multi_agent_help_open: bool = False
-    reasoning_thinking_help_open: bool = False
-    model_lifecycle_help_open: bool = False
+    multi_agent_help_open: rx.Field[bool] = rx.field(False)
+    reasoning_thinking_help_open: rx.Field[bool] = rx.field(False)
+    model_lifecycle_help_open: rx.Field[bool] = rx.field(False)
 
     # Mobile Detection
-    is_mobile: bool = False
+    is_mobile: rx.Field[bool] = rx.field(False)
     _mobile_detection_done: bool = False
 
     # ------------------------------------------------------------------
@@ -109,21 +110,25 @@ class ImageMixin(rx.State, mixin=True):
     # Image Upload Handlers
     # ------------------------------------------------------------------
 
+    @rx.event
     def on_camera_click(self):
         """Debug message when camera button is clicked"""
         self.add_debug("\U0001f4f7 Opening camera...")
         yield
 
+    @rx.event
     def on_file_picker_click(self):
         """Debug message when file picker button is clicked"""
         self.add_debug("\U0001f5bc\ufe0f Opening file picker...")
         yield
 
+    @rx.event
     async def handle_image_upload(self, files: list[rx.UploadFile]):
         """Handle image file uploads - keeps original filename"""
         async for _ in self._process_image_upload(files, from_camera=False):
             yield
 
+    @rx.event
     async def handle_camera_upload(self, files: list[rx.UploadFile]):
         """Handle camera uploads - shortens filename to Image_001.jpg"""
         async for _ in self._process_image_upload(files, from_camera=True):
@@ -217,6 +222,7 @@ class ImageMixin(rx.State, mixin=True):
             self.is_uploading_image = False
             yield  # Update UI to hide spinner
 
+    @rx.event
     def remove_pending_image(self, index: int) -> None:
         """Remove image from pending uploads"""
         if 0 <= index < len(self.pending_images):
@@ -227,6 +233,7 @@ class ImageMixin(rx.State, mixin=True):
             if self.image_upload_warning.startswith("\u26a0\ufe0f Selected model"):
                 self.image_upload_warning = ""
 
+    @rx.event
     def clear_pending_images(self) -> None:
         """Clear all pending images"""
         count = len(self.pending_images)
@@ -239,10 +246,12 @@ class ImageMixin(rx.State, mixin=True):
     # Multi-Agent Help Modal Handlers
     # ------------------------------------------------------------------
 
+    @rx.event
     def open_multi_agent_help(self) -> None:
         """Opens the multi-agent modes help modal"""
         self.multi_agent_help_open = True
 
+    @rx.event
     def close_multi_agent_help(self) -> None:
         """Closes the multi-agent modes help modal"""
         self.multi_agent_help_open = False
@@ -251,10 +260,12 @@ class ImageMixin(rx.State, mixin=True):
     # Reasoning/Thinking Help Modal Handlers
     # ------------------------------------------------------------------
 
+    @rx.event
     def open_reasoning_thinking_help(self) -> None:
         """Opens the reasoning/thinking explanation modal"""
         self.reasoning_thinking_help_open = True
 
+    @rx.event
     def close_reasoning_thinking_help(self) -> None:
         """Closes the reasoning/thinking explanation modal"""
         self.reasoning_thinking_help_open = False
@@ -263,10 +274,12 @@ class ImageMixin(rx.State, mixin=True):
     # Model Lifecycle Help Modal Handlers
     # ------------------------------------------------------------------
 
+    @rx.event
     def open_model_lifecycle_help(self) -> None:
         """Opens the model lifecycle (base/VLM/TTS/LLM) help modal."""
         self.model_lifecycle_help_open = True
 
+    @rx.event
     def close_model_lifecycle_help(self) -> None:
         """Closes the model lifecycle help modal."""
         self.model_lifecycle_help_open = False
@@ -275,6 +288,7 @@ class ImageMixin(rx.State, mixin=True):
     # Image Crop Handlers
     # ------------------------------------------------------------------
 
+    @rx.event
     def open_crop_modal(self, index: int) -> None:
         """Opens crop modal for image at index"""
         if 0 <= index < len(self.pending_images):
@@ -289,6 +303,7 @@ class ImageMixin(rx.State, mixin=True):
             self.crop_modal_open = True
             self.add_debug(f"\u2702\ufe0f Crop mode opened for: {self.pending_images[index]['name']}")
 
+    @rx.event
     def cancel_crop(self) -> None:
         """Schliesst Modal ohne Aenderung"""
         self.crop_modal_open = False
@@ -296,10 +311,12 @@ class ImageMixin(rx.State, mixin=True):
         self.crop_preview_url = ""
         self.crop_rotation = 0
 
+    @rx.event
     def rotate_crop_image_left(self) -> None:
         """Rotate image 90 degrees counter-clockwise in crop preview"""
         self._rotate_crop_image(clockwise=False)
 
+    @rx.event
     def rotate_crop_image_right(self) -> None:
         """Rotate image 90 degrees clockwise in crop preview"""
         self._rotate_crop_image(clockwise=True)
@@ -368,6 +385,7 @@ class ImageMixin(rx.State, mixin=True):
         except (ValueError, FileNotFoundError, AttributeError) as e:
             self.add_debug(f"\u274c Rotate failed: {e}")
 
+    @rx.event
     async def apply_crop_with_coords(self, coords_json: str) -> None:
         """Applies crop with coordinates from JavaScript (JSON String)"""
         import json
@@ -476,6 +494,7 @@ class ImageMixin(rx.State, mixin=True):
     # Device Detection
     # ------------------------------------------------------------------
 
+    @rx.event
     def set_camera_available(self, available: bool) -> None:
         """Set camera availability based on browser capabilities (called from JavaScript)"""
         if self._camera_detection_done:
@@ -489,6 +508,7 @@ class ImageMixin(rx.State, mixin=True):
         else:
             self.add_debug("\u26a0\ufe0f Browser does not support camera access")
 
+    @rx.event
     def set_is_mobile(self, is_mobile: bool) -> None:
         """Set mobile device detection based on User-Agent and touch capabilities (called from JavaScript)"""
         if self._mobile_detection_done:

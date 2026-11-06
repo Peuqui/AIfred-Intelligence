@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ...theme import COLORS
@@ -81,7 +84,7 @@ def _database_view() -> rx.Component:
     )
 
 
-def _indexed_doc_row(doc: rx.Var, icon: str, icon_color: str) -> rx.Component:
+def _indexed_doc_row(doc: ObjectVar[dict[str, Any]], icon: str, icon_color: str) -> rx.Component:
     """One indexed document (document list or orphan list): name, chunks, remove from index."""
     return rx.hstack(
         rx.icon(icon, size=14, color=icon_color),

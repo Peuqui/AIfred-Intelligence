@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any
 
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ...theme import COLORS
@@ -36,7 +37,7 @@ def _tier_help_content() -> rx.Component:
     )
 
 
-def _tool_pill(tool: rx.Var) -> rx.Component:
+def _tool_pill(tool: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render a single tool as a clickable pill toggle with tier badge."""
     name = tool["name"].to(str)
     tier = tool["tier"].to(int)
@@ -65,7 +66,7 @@ def _tool_pill(tool: rx.Var) -> rx.Component:
     )
 
 
-def _tool_group(group: rx.Var) -> rx.Component:
+def _tool_group(group: ObjectVar[dict[str, Any]]) -> rx.Component:
     """One plugin's pills under a heading with a switch that toggles every tool of
     the group at once.
 

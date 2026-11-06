@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ...theme import COLORS
@@ -13,7 +16,7 @@ from ..helpers import clickable_tip, t
 from .header import _editor_header
 
 
-def _scheduler_job_row(job: rx.Var) -> rx.Component:
+def _scheduler_job_row(job: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render a single scheduler job as collapsible card with full details."""
     return rx.box(
         # Header row — always visible

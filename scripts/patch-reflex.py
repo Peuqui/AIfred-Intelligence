@@ -32,6 +32,27 @@ the compile) is overwritten at once; the template is the one place that
 sticks. (``allowedHosts`` needs no patch: ``vite_allowed_hosts`` in
 ``rxconfig.py``.)
 
+5. ``reflex_base/vars/base.py`` — ``Field.__get__`` overloads whose self-type is a union with a
+TypeVar (``Field[SEQUENCE_TYPE] | Field[SEQUENCE_TYPE | None]``). mypy (2.4) solves the TypeVar
+as Never there and takes the first such overload for every field: a ``dict`` field became
+``ArrayVar[Never]``, ``AIState.agent_tuning["aifred"]`` an error. One overload per self-type
+fixes it; an optional field falls through to ``Var[FIELD_TYPE]``. Type-level only: at runtime
+an ``@overload`` is replaced by the implementation below it.
+
+6. ``reflex_base/event/__init__.py`` — ``event = EventNamespace``: the decorator is a class whose
+``__new__`` returns an EventCallback. mypy ignores such a ``__new__``, so every ``@rx.event``
+method was an ``EventNamespace`` ("not callable" in state code, no checking in the UI). For the
+type checker ``event`` becomes the overloaded function the ``__new__`` overloads describe; the
+runtime lines stay as they are, under ``else``.
+
+7. Same file, ``EventCallback.__get__`` on an instance returns ``Callable[[Unpack[P]]]`` — no
+return type, so mypy took the whole call as ``Any``. ``Callable[[Unpack[P]], Any]`` checks the
+arguments of a handler called from state code; its return value stays ``Any``.
+
+8. ``reflex_base/vars/object.py`` — ``ObjectVar.__getitem__`` turns a dataclass value into a bare
+``Var``, so ``AIState.agent_tuning["aifred"].model_id`` had no attributes for mypy. An overload
+for dataclass values returns ``ObjectVar`` (three edits: TYPE_CHECKING import, TypeVar, overload).
+
 Idempotent — running it twice is a no-op. A patch is only applied when its
 original text is found verbatim, so a changed upstream file is reported,
 never overwritten blindly.
@@ -108,6 +129,187 @@ def cond(
 
 @overload
 def cond(
+""",
+    ),
+    (
+        "reflex_base/vars/base.py",
+        """    @overload
+    def __get__(
+        self: Field[list[V]]
+        | Field[set[V]]
+        | Field[list[V] | None]
+        | Field[set[V] | None],
+        instance: None,
+        owner: Any,
+    ) -> ArrayVar[Sequence[V]]: ...
+
+    @overload
+    def __get__(
+        self: Field[SEQUENCE_TYPE] | Field[SEQUENCE_TYPE | None],
+        instance: None,
+        owner: Any,
+    ) -> ArrayVar[SEQUENCE_TYPE]: ...
+
+    @overload
+    def __get__(
+        self: Field[MAPPING_TYPE] | Field[MAPPING_TYPE | None],
+        instance: None,
+        owner: Any,
+    ) -> ObjectVar[MAPPING_TYPE]: ...
+
+    @overload
+    def __get__(
+        self: Field[SQLA_TYPE] | Field[SQLA_TYPE | None], instance: None, owner: Any
+    ) -> ObjectVar[SQLA_TYPE]: ...
+
+    if TYPE_CHECKING:
+
+        @overload
+        def __get__(
+            self: Field[DATACLASS_TYPE] | Field[DATACLASS_TYPE | None],
+            instance: None,
+            owner: Any,
+        ) -> ObjectVar[DATACLASS_TYPE]: ...
+
+""",
+        """    # mypy (2.4) solves a TypeVar in a union self-type as Never and then takes that overload
+    # for every field (a dict field became ArrayVar[Never]). One overload per self-type and no
+    # union with a TypeVar; an optional field falls through to Var[FIELD_TYPE].
+    @overload
+    def __get__(self: Field[list[V]], instance: None, owner: Any) -> ArrayVar[Sequence[V]]: ...
+
+    @overload
+    def __get__(self: Field[set[V]], instance: None, owner: Any) -> ArrayVar[Sequence[V]]: ...
+
+    @overload
+    def __get__(
+        self: Field[SEQUENCE_TYPE], instance: None, owner: Any
+    ) -> ArrayVar[SEQUENCE_TYPE]: ...
+
+    @overload
+    def __get__(
+        self: Field[MAPPING_TYPE], instance: None, owner: Any
+    ) -> ObjectVar[MAPPING_TYPE]: ...
+
+    @overload
+    def __get__(
+        self: Field[SQLA_TYPE], instance: None, owner: Any
+    ) -> ObjectVar[SQLA_TYPE]: ...
+
+    if TYPE_CHECKING:
+
+        @overload
+        def __get__(
+            self: Field[DATACLASS_TYPE], instance: None, owner: Any
+        ) -> ObjectVar[DATACLASS_TYPE]: ...
+
+""",
+    ),
+    (
+        "reflex_base/event/__init__.py",
+        """event = EventNamespace
+event.event = event  # pyright: ignore[reportAttributeAccessIssue]
+_this = sys.modules[__name__]
+event.__path__ = _this.__path__  # pyright: ignore[reportAttributeAccessIssue]
+event.__spec__ = _this.__spec__  # pyright: ignore[reportAttributeAccessIssue]
+event.__package__ = _this.__package__  # pyright: ignore[reportAttributeAccessIssue]
+sys.modules[__name__] = event  # pyright: ignore[reportArgumentType]
+""",
+        """if TYPE_CHECKING:
+    # For a type checker ``event`` is the decorator: mypy ignores a ``__new__`` that returns
+    # another type (EventCallback), and every @rx.event method became an EventNamespace.
+
+    @overload
+    def event(
+        func: None = None,
+        *,
+        background: bool | None = None,
+        supersedes: bool | None = None,
+        stop_propagation: bool | None = None,
+        prevent_default: bool | None = None,
+        throttle: int | None = None,
+        debounce: int | None = None,
+        temporal: bool | None = None,
+    ) -> Callable[[Callable[[BASE_STATE, Unpack[P]], Any]], EventCallback[Unpack[P]]]: ...
+
+    @overload
+    def event(
+        func: Callable[[BASE_STATE, Unpack[P]], Any],
+        *,
+        background: bool | None = None,
+        supersedes: bool | None = None,
+        stop_propagation: bool | None = None,
+        prevent_default: bool | None = None,
+        throttle: int | None = None,
+        debounce: int | None = None,
+        temporal: bool | None = None,
+    ) -> EventCallback[Unpack[P]]: ...
+
+    def event(func: Any = None, **kwargs: Any) -> Any: ...
+
+else:
+    event = EventNamespace
+    event.event = event  # pyright: ignore[reportAttributeAccessIssue]
+    _this = sys.modules[__name__]
+    event.__path__ = _this.__path__  # pyright: ignore[reportAttributeAccessIssue]
+    event.__spec__ = _this.__spec__  # pyright: ignore[reportAttributeAccessIssue]
+    event.__package__ = _this.__package__  # pyright: ignore[reportAttributeAccessIssue]
+    sys.modules[__name__] = event  # pyright: ignore[reportArgumentType]
+""",
+    ),
+    (
+        "reflex_base/event/__init__.py",
+        """    def __get__(self, instance: Any, owner: Any) -> "Callable[[Unpack[P]]]": ...
+""",
+        """    def __get__(self, instance: Any, owner: Any) -> "Callable[[Unpack[P]], Any]": ...
+""",
+    ),
+    (
+        "reflex_base/vars/object.py",
+        """from typing import (
+    Any,
+    NoReturn,
+""",
+        """from typing import (
+    TYPE_CHECKING,
+    Any,
+    NoReturn,
+""",
+    ),
+    (
+        "reflex_base/vars/object.py",
+        """OTHER_KEY_TYPE = TypeVar("OTHER_KEY_TYPE")
+""",
+        """OTHER_KEY_TYPE = TypeVar("OTHER_KEY_TYPE")
+
+if TYPE_CHECKING:
+    from _typeshed import DataclassInstance
+
+    DATACLASS_VALUE_TYPE = TypeVar("DATACLASS_VALUE_TYPE", bound=DataclassInstance)
+""",
+    ),
+    (
+        "reflex_base/vars/object.py",
+        """    @overload
+    def __getitem__(
+        self: ObjectVar[Mapping[Any, VALUE_TYPE]],
+        key: Var | Any,
+    ) -> Var[VALUE_TYPE]: ...
+""",
+        """    if TYPE_CHECKING:
+        # A dataclass value is an object as well: its fields stay reachable
+        # (``State.tuning["a"].model_id``); the generic overload below gives a bare Var.
+        @overload
+        def __getitem__(
+            self: ObjectVar[Mapping[Any, DATACLASS_VALUE_TYPE]],
+            key: Var | Any,
+        ) -> ObjectVar[DATACLASS_VALUE_TYPE]: ...
+
+    @overload
+    def __getitem__(
+        self: ObjectVar[Mapping[Any, VALUE_TYPE]],
+        key: Var | Any,
+    ) -> Var[VALUE_TYPE]: ...
 """,
     ),
 ]

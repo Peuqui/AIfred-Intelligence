@@ -4,8 +4,10 @@ und Betriebspunkt-Popover (vLLM)."""
 from __future__ import annotations
 
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
+from ...state._calibration_mixin import CalibrationCell, CalibrationRow
 from ...theme import COLORS
 from ..helpers import t
 
@@ -59,7 +61,7 @@ def _matrix_header() -> rx.Component:
     )
 
 
-def _matrix_row(row) -> rx.Component:
+def _matrix_row(row: ObjectVar[CalibrationRow]) -> rx.Component:
     """Eine Matrixzeile: Zeilenkopf plus je Spalte eine Zelle aus Checkbox
     und Statuspunkt (gruen = fertig, rot = fehlgeschlagen).
 
@@ -75,7 +77,7 @@ def _matrix_row(row) -> rx.Component:
             min_width="60px",
         ),
         rx.foreach(
-            row["cells"],
+            row["cells"].to(list[CalibrationCell]),  # a TypedDict key is Var[object] for mypy
             lambda cell: rx.box(
                 rx.cond(
                     cell["not_applicable"].to(bool),
@@ -88,7 +90,7 @@ def _matrix_row(row) -> rx.Component:
                     rx.hstack(
                         rx.checkbox(
                             checked=cell["checked"].to(bool),
-                            on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),  # type: ignore[arg-type]
+                            on_change=lambda val, k=cell["key"]: AIState.set_calibration_matrix_cell([k, val]),
                             size="1",
                             color_scheme="orange",
                             variant="soft",

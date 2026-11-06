@@ -5,7 +5,10 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...lib.config import AGENT_MEMORY_SUMMARY_MAX_CHARS
 from ...state import AIState
@@ -14,7 +17,7 @@ from ..helpers import confirm_delete_all, t
 from .header import _editor_header
 
 
-def _memory_entry_text(entry: rx.Var) -> rx.Component:
+def _memory_entry_text(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Summary and content of an entry, read-only."""
     return rx.fragment(
         rx.text(
@@ -84,7 +87,7 @@ def _memory_entry_editor() -> rx.Component:
     )
 
 
-def _memory_entry_row(entry: rx.Var) -> rx.Component:
+def _memory_entry_row(entry: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render a single memory entry with expandable content."""
     return rx.box(
         rx.hstack(

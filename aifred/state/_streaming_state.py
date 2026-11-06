@@ -10,10 +10,12 @@ reference StreamingState.current_ai_response subscribe ONLY to this context.
 
 from __future__ import annotations
 
+import reflex as rx
+
 from ._base import AIState
 
 
 class StreamingState(AIState):
     """Substate for streaming text — separate React context."""
 
-    current_ai_response: str = ""
+    current_ai_response: rx.Field[str] = rx.field("")

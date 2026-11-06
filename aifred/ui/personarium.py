@@ -8,13 +8,17 @@ aifred.py, aufrufbar via ``AIState.open_personarium``.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ArrayVar, ObjectVar
 
 from ..state import AIState
 from .helpers import bulk_delete_bar, overlay_modal, t
 
 
-def _face_row(face: rx.Var) -> rx.Component:
+def _face_row(face: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Eine Zeile in der Identitäten-Tabelle."""
     fid = face["id"]
     is_editing = AIState.personarium_edit_face_id == fid
@@ -176,7 +180,7 @@ def _embedding_grid() -> rx.Component:
     )
 
 
-def _embedding_cell(emb: rx.Var) -> rx.Component:
+def _embedding_cell(emb: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Eine Embedding-Kachel: Crop-Thumbnail (oder Platzhalter), Quality-Badge
     und ein Löschen-Overlay."""
     return rx.box(
@@ -214,7 +218,7 @@ def _embedding_cell(emb: rx.Var) -> rx.Component:
 
 
 def _untagged_section(
-    cards: rx.Var, title: rx.Var, help_text: rx.Var, icon: str,
+    cards: ArrayVar[Sequence[dict[str, Any]]], title: rx.Var, help_text: rx.Var, icon: str,
 ) -> rx.Component:
     """Ein beschrifteter Block des Nachtag-Grids (Unbekannte bzw. Unsicher
     Erkannte). Leere Blöcke werden ganz ausgeblendet — eine Überschrift
@@ -238,7 +242,7 @@ def _untagged_section(
     )
 
 
-def _untagged_card(ev: rx.Var) -> rx.Component:
+def _untagged_card(ev: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Eine Karte im „Unzugeordnete Gesichter"-Grid: Crop + Zeit/Quelle,
     darunter „zuordnen"-Button bzw. im Tag-Modus Dropdown (+ Name bei
     neuer Person) mit Save/Cancel."""

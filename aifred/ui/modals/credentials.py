@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ...state import AIState
 from ...theme import COLORS
 from ..helpers import clickable_tip, t
 
 
-def _cred_field_input(field: rx.Var) -> rx.Component:
+def _cred_field_input(field: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Render a single credential field from a field descriptor dict.
 
     The field var is a dict with keys: env_key, label_key, placeholder, is_password, group, width_ratio.
@@ -25,14 +28,14 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
                 AIState.channel_cred_show_password,
                 rx.input(
                     value=value,
-                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),  # type: ignore[arg-type]
+                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),
                     placeholder="••••••••",
                     size="2",
                     width="100%",
                 ),
                 rx.input(
                     value=value,
-                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),  # type: ignore[arg-type]
+                    on_change=lambda val: AIState.update_channel_credential([env_key, val]),
                     type="password",
                     placeholder="••••••••",
                     size="2",
@@ -86,7 +89,7 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         rx.select(
             field["option_labels"].to(str).split(","),
             value=value,
-            on_change=lambda val: AIState.update_channel_credential([env_key, val]),  # type: ignore[arg-type]
+            on_change=lambda val: AIState.update_channel_credential([env_key, val]),
             size="2",
             width="100%",
         ),
@@ -99,7 +102,7 @@ def _cred_field_input(field: rx.Var) -> rx.Component:
         label_with_tooltip,
         rx.input(
             value=value,
-            on_change=lambda val: AIState.update_channel_credential([env_key, val]),  # type: ignore[arg-type]
+            on_change=lambda val: AIState.update_channel_credential([env_key, val]),
             placeholder=field["placeholder"].to(str),
             size="2",
             width="100%",

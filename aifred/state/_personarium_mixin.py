@@ -22,40 +22,40 @@ logger = logging.getLogger(__name__)
 class PersonariumMixin(rx.State, mixin=True):
     """UI state for the Personarium identity management modal."""
 
-    personarium_open: bool = False
+    personarium_open: rx.Field[bool] = rx.field(False)
     # Liste aller Identitäten — befüllt beim Modal-Open + nach jeder
     # Aktion (Umbenennen, Löschen). Format kommt von
     # ``VisionStore.list_faces_with_summary()``.
-    personarium_faces: list[dict[str, Any]] = []
+    personarium_faces: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
     # Status-Feedback nach Aktionen (Toast-Ersatz)
-    personarium_status: str = ""
+    personarium_status: rx.Field[str] = rx.field("")
     # Inline-Edit-State: face_id der Zeile die gerade umbenannt wird
     # (0 = niemand), plus aktueller Input.
-    personarium_edit_face_id: int = 0
-    personarium_edit_name: str = ""
+    personarium_edit_face_id: rx.Field[int] = rx.field(0)
+    personarium_edit_name: rx.Field[str] = rx.field("")
     # Embedding-Manager: face_id der Identität, deren Embeddings gerade
     # inline angezeigt werden (0 = keine), + die Embedding-Liste
     # ({id, quality, created_at, crop_url} — ohne den numpy-Vektor).
-    personarium_manage_face_id: int = 0
-    personarium_embeddings: list[dict[str, Any]] = []
+    personarium_manage_face_id: rx.Field[int] = rx.field(0)
+    personarium_embeddings: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
     # „Unzugeordnete Gesichter" — face_unknown/face_unsure-Events ohne
     # Identity, eine Karte je Crop-Datei (``member_ids`` = alle Events
     # dahinter). Zum Nachtaggen + Embedding-Lernen (lib.face_enroll).
-    personarium_untagged: list[dict[str, Any]] = []
+    personarium_untagged: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)
     # Mehrfachauswahl im Nachtag-Grid: event_ids der angehakten Karten,
     # plus die zweistufige Bestätigung für „alle verwerfen". Gleiche
     # Mechanik wie Speicher-Tab und Chatliste (ui.helpers.bulk_delete_bar).
-    personarium_untagged_selected: list[int] = []
-    personarium_confirm_dismiss_all: bool = False
+    personarium_untagged_selected: rx.Field[list[int]] = rx.field(default_factory=list)
+    personarium_confirm_dismiss_all: rx.Field[bool] = rx.field(False)
     # Tag-Modus: event_id der Karte, die gerade zugeordnet wird (0 = keine),
     # Auswahl im Dropdown (face_id als String oder "__new__") + Name-Input.
-    personarium_tag_event_id: int = 0
-    personarium_tag_value: str = ""
-    personarium_tag_new_name: str = ""
+    personarium_tag_event_id: rx.Field[int] = rx.field(0)
+    personarium_tag_value: rx.Field[str] = rx.field("")
+    personarium_tag_new_name: rx.Field[str] = rx.field("")
     # Läuft gerade ein Enroll (InsightFace auf dem Frame)? → Spinner.
-    personarium_tag_busy: bool = False
+    personarium_tag_busy: rx.Field[bool] = rx.field(False)
     # Läuft gerade der manuelle Re-Match über alle Unzugeordneten?
-    personarium_rematch_busy: bool = False
+    personarium_rematch_busy: rx.Field[bool] = rx.field(False)
 
     @rx.event
     def open_personarium(self) -> None:

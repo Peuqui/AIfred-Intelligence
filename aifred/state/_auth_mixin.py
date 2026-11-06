@@ -18,36 +18,42 @@ class AuthMixin(rx.State, mixin=True):
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
         _session_initialized: bool
-        available_sessions: list[dict[str, Any]]
-        debug_messages: list[str]
-        session_id: str
+        available_sessions: rx.Field[list[dict[str, Any]]]
+        debug_messages: rx.Field[list[str]]
+        session_id: rx.Field[str]
 
         def _clear_chat_internal(self, silent: bool = False): ...
         def _load_latest_session(self) -> bool: ...
+        @rx.event
         def add_debug(self, message: str) -> None: ...
+        @rx.event
         def new_session(self): ...
+        @rx.event
         def refresh_session_list(self): ...
 
     # ── State Variables ──────────────────────────────────────────────
-    logged_in_user: str = ""  # Currently logged in username (empty = not logged in)
-    login_dialog_open: bool = True  # Blocks UI until authenticated (closed by auto-login or manual login)
-    login_mode: str = "login"  # "login" or "register"
-    login_username: str = ""  # Input field for username
-    login_password: str = ""  # Input field for password
-    login_error: str = ""  # Error message to display
+    logged_in_user: rx.Field[str] = rx.field("")  # Currently logged in username (empty = not logged in)
+    login_dialog_open: rx.Field[bool] = rx.field(True)  # Blocks UI until authenticated (closed by auto-login or manual login)
+    login_mode: rx.Field[str] = rx.field("login")  # "login" or "register"
+    login_username: rx.Field[str] = rx.field("")  # Input field for username
+    login_password: rx.Field[str] = rx.field("")  # Input field for password
+    login_error: rx.Field[str] = rx.field("")  # Error message to display
 
     # ── Setters ──────────────────────────────────────────────────────
 
+    @rx.event
     def set_login_username(self, value: str) -> None:
         """Set login username input (explicit setter for Reflex 0.9.0)."""
         self.login_username = value
 
+    @rx.event
     def set_login_password(self, value: str) -> None:
         """Set login password input (explicit setter for Reflex 0.9.0)."""
         self.login_password = value
 
     # ── Login Dialog ─────────────────────────────────────────────────
 
+    @rx.event
     def handle_login_key_down(self, key: str):
         """Handle key press in login dialog - Enter triggers submit."""
         if key == "Enter":
@@ -56,6 +62,7 @@ class AuthMixin(rx.State, mixin=True):
             else:
                 return type(self).do_register
 
+    @rx.event
     def handle_login_submit(self, form_data: dict):
         """Handle form submit - for browser password manager support."""
         if self.login_mode == "login":
@@ -63,6 +70,7 @@ class AuthMixin(rx.State, mixin=True):
         else:
             return type(self).do_register
 
+    @rx.event
     def open_login_dialog(self, mode: str = "login") -> None:
         """Open login dialog in specified mode."""
         self.login_mode = mode
@@ -71,6 +79,7 @@ class AuthMixin(rx.State, mixin=True):
         self.login_error = ""
         self.login_dialog_open = True
 
+    @rx.event
     def close_login_dialog(self) -> None:
         """Close login dialog and clear fields."""
         self.login_dialog_open = False
@@ -94,6 +103,7 @@ class AuthMixin(rx.State, mixin=True):
         )
         return rx.call_script(combined_script)
 
+    @rx.event
     def do_login(self):
         """Attempt to log in with entered credentials."""
         from ..lib.session_storage import account_exists, verify_account
@@ -126,6 +136,7 @@ class AuthMixin(rx.State, mixin=True):
 
         return self._post_auth_script()
 
+    @rx.event
     def do_register(self):
         """Attempt to create new account."""
         from ..lib.session_storage import create_account, is_username_allowed
@@ -156,6 +167,7 @@ class AuthMixin(rx.State, mixin=True):
 
         return self._post_auth_script()
 
+    @rx.event
     def do_logout(self):
         """Log out current user."""
         from ..lib.browser_storage import clear_username_script
@@ -184,6 +196,7 @@ class AuthMixin(rx.State, mixin=True):
 
     # ── Cookie-based Auto-Login ──────────────────────────────────────
 
+    @rx.event
     def handle_username_loaded(self, cookie_value: str):
         """Callback nach Cookie-Read via rx.call_script().
 

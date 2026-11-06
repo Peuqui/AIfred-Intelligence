@@ -10,6 +10,7 @@ from __future__ import annotations
 from typing import Any, Literal
 
 import reflex as rx
+from reflex.vars import ObjectVar
 
 from ..state import AIState
 from ..theme import COLORS
@@ -92,7 +93,7 @@ def _describer_icon(icon: str, on_click: Any, tooltip_key: str) -> rx.Component:
     )
 
 
-def _describer_row(row: rx.Var) -> rx.Component:
+def _describer_row(row: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Ein Eintrag der Beschreiber-Liste: Reihenfolge, an/aus, Modell · Ort, Zustand; bei einem
     anderen Rechner der Knopf zum Vermessen."""
     index = row["index"].to(int)
@@ -122,7 +123,7 @@ def _describer_row(row: rx.Var) -> rx.Component:
                 row["remote"].to(bool),
                 rx.button(
                     rx.cond(measuring, t("vision_settings_remote_measuring"), t("vision_settings_remote_measure")),
-                    on_click=AIState.measure_remote_describer(source),  # type: ignore[misc]
+                    on_click=AIState.measure_remote_describer(source),
                     disabled=AIState.vision_describer_measuring != "",
                     loading=measuring,
                     size="1",
@@ -165,7 +166,7 @@ def _describer_section() -> rx.Component:
 
 
 def _alert_type_check(
-    sid: rx.Var, cam: rx.Var, atype: str, label_key: str
+    sid: rx.Var, cam: ObjectVar[dict[str, Any]], atype: str, label_key: str
 ) -> rx.Component:
     """Checkbox für einen Alarm-Event-Typ einer Kamera (Phase 3)."""
     return rx.checkbox(
@@ -177,7 +178,7 @@ def _alert_type_check(
     )
 
 
-def _source_card(cam: rx.Var) -> rx.Component:
+def _source_card(cam: ObjectVar[dict[str, Any]]) -> rx.Component:
     """Eine Karte pro Cam in der Quellen-Sektion. Zeigt Name +
     Hintergrund-Toggle + Auflösung.
 

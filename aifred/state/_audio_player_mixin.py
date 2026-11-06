@@ -50,7 +50,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
         # them only through these declarations; where AIState combines the mixins it checks them
         # against the real definitions.
-        agent_editor_mode: str
+        agent_editor_mode: rx.Field[str]
 
         def _picker_open_for(
             self,
@@ -67,30 +67,30 @@ class AudioPlayerMixin(rx.State, mixin=True):
         ) -> None: ...
 
     # ── Media (audio_player tool target=browser) ────────────────────
-    media_audio_url: str = ""        # /api/audio/file?key=... or http stream
-    media_state_key: str = ""        # for audio_state.json position tracking
-    media_is_stream: bool = False    # True for http_stream sources (no resume)
-    media_paused_for_tts: bool = False  # set when TTS interrupts media
-    media_pause_pos_sec: float = 0.0    # saved position when TTS interrupts
+    media_audio_url: rx.Field[str] = rx.field("")        # /api/audio/file?key=... or http stream
+    media_state_key: rx.Field[str] = rx.field("")        # for audio_state.json position tracking
+    media_is_stream: rx.Field[bool] = rx.field(False)    # True for http_stream sources (no resume)
+    media_paused_for_tts: rx.Field[bool] = rx.field(False)  # set when TTS interrupts media
+    media_pause_pos_sec: rx.Field[float] = rx.field(0.0)    # saved position when TTS interrupts
     # set when the USER explicitly paused via audio_pause / wake-word _pause.
     # If true, resume_media_after_tts() does NOT auto-resume — user said pause,
     # user has to say resume.
-    media_paused_by_user: bool = False
+    media_paused_by_user: rx.Field[bool] = rx.field(False)
 
     # ── Sequenzielles Playback (audio_play_folder) ──────────────────
     # Liste der NACH dem aktuellen Item folgenden Tracks. Beim Ende des
     # aktuellen Tracks popt custom.js den ersten Eintrag und spielt ihn.
     # Items: [{"audio_url": "/api/audio/file?key=...", "state_key": "label/path"}]
-    media_queue: list[dict[str, str]] = []
+    media_queue: rx.Field[list[dict[str, str]]] = rx.field(default_factory=list)
 
     # ── Audio Settings Modal (Source-Liste + Index-Buttons) ─────────
-    audio_settings_open: bool = False
-    audio_sources_view: list[dict[str, Any]] = []   # snapshot for UI
-    audio_settings_busy: str = ""                    # "indexing" | "clearing" | ""
-    audio_settings_busy_source: str = ""             # which source is being worked on
-    audio_settings_status: str = ""                  # last result message
-    audio_picker_root_input: str = ""                # UI input for picker sandbox
-    audio_tts_list_max_input: str = ""               # max items for TTS list filter
+    audio_settings_open: rx.Field[bool] = rx.field(False)
+    audio_sources_view: rx.Field[list[dict[str, Any]]] = rx.field(default_factory=list)   # snapshot for UI
+    audio_settings_busy: rx.Field[str] = rx.field("")                    # "indexing" | "clearing" | ""
+    audio_settings_busy_source: rx.Field[str] = rx.field("")             # which source is being worked on
+    audio_settings_status: rx.Field[str] = rx.field("")                  # last result message
+    audio_picker_root_input: rx.Field[str] = rx.field("")                # UI input for picker sandbox
+    audio_tts_list_max_input: rx.Field[str] = rx.field("")               # max items for TTS list filter
 
     # ── Public event handlers ───────────────────────────────────────
 
@@ -238,7 +238,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         view.sort(key=lambda v: v["label"].lower())
         self.audio_sources_view = view
 
-    audio_settings_help_open: bool = False
+    audio_settings_help_open: rx.Field[bool] = rx.field(False)
 
     @rx.event
     def open_audio_settings(self):
