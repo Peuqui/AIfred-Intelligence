@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING, Any
 from collections.abc import Callable, Coroutine
 
 from ._audio_orchestrator import AudioOrchestrator
-from ._freeecho2_stream import FreeEcho2Stream
+from ._freeecho2_stream import STREAM_ERRORS, FreeEcho2Stream
 from ..logging_utils import log_message
 from ..loudness import build_music_filter_chain
 from .base import AudioFormat, TargetInfo
@@ -151,13 +151,7 @@ class FreeEcho2Channel:
                 f"FreeEcho2Channel[{room}]: send failed → orc.stop() "
                 f"(state-sync mit Puck)"
             )
-            try:
-                await self.stop(target_id)
-            except Exception as exc:  # noqa: BLE001
-                log_message(
-                    f"FreeEcho2Channel[{room}]: stop() in send-failed-cb "
-                    f"failed: {exc}", "warning",
-                )
+            await self.stop(target_id)
         return _cb
 
     def _make_natural_end_cb(self, target_id: str) -> Any:
@@ -170,13 +164,7 @@ class FreeEcho2Channel:
                 f"FreeEcho2Channel[{room}]: track self-ended → stop() "
                 f"(audio_end + done)"
             )
-            try:
-                await self.stop(target_id)
-            except Exception as exc:  # noqa: BLE001
-                log_message(
-                    f"FreeEcho2Channel[{room}]: natural-end stop() failed: {exc}",
-                    "warning",
-                )
+            await self.stop(target_id)
         return _cb
 
     def _get_or_create_orchestrator(self, room: str) -> AudioOrchestrator | None:
@@ -244,7 +232,7 @@ class FreeEcho2Channel:
                 audio_type=audio_type,
                 audio_filters=audio_filters,
             )
-        except Exception as exc:  # noqa: BLE001
+        except STREAM_ERRORS as exc:
             return {
                 "success": False,
                 "target": target_id,
@@ -416,7 +404,7 @@ class FreeEcho2Channel:
                 audio_type=audio_type,
                 audio_filters=audio_filters,
             )
-        except Exception as exc:  # noqa: BLE001
+        except STREAM_ERRORS as exc:
             stream._on_eof_cb = None
             return {"success": False, "error": f"FreeEcho.2 stream start failed: {exc}"}
         return {"success": True}
@@ -508,7 +496,7 @@ class FreeEcho2Channel:
         try:
             await stream._ipc.send({"command": ["set_property", "speed", float(factor)]})
             return True
-        except Exception:  # noqa: BLE001
+        except STREAM_ERRORS:  # mpv did not take the speed
             return False
 
     @_on_ws_loop

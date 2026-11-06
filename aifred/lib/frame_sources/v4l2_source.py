@@ -266,8 +266,6 @@ def _can_capture(index: int) -> bool:
             return False
         w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
         return w > 0
-    except Exception:  # noqa: BLE001
-        return False
     finally:
         cap.release()
 
@@ -646,7 +644,7 @@ def _register_device(index: int, name: str, stable_key: str) -> bool:
                 "V4L2 /dev/video%d (%s) not capturable, skipping", index, name
             )
             return False
-    except Exception as e:  # noqa: BLE001
+    except cv2.error as e:  # the device could not be probed
         logger.warning("V4L2 probe failed for /dev/video%d: %s", index, e)
         return False
     source = V4L2Source(index=index, display_name=name, source_id=stable_key)
@@ -654,12 +652,7 @@ def _register_device(index: int, name: str, stable_key: str) -> bool:
     # ersten Stream) und auf der Instanz cachen — sonst läuft der lazy
     # Probe der Live-Vorschau WÄHREND des Streamens, scheitert (V4L2
     # erlaubt nur einen Reader) und das Dropdown zeigt nur "Treiber-Default".
-    try:
-        source.detect_resolutions()
-    except Exception as e:  # noqa: BLE001
-        logger.debug(
-            "resolution probe at discover failed for %s: %s", stable_key, e
-        )
+    source.detect_resolutions()
     register(source)
     logger.info(
         "Registered V4L2 source: %s (%s, /dev/video%d)",

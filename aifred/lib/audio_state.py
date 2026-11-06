@@ -31,7 +31,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import AUDIO_STATE_CLEANUP_AGE_DAYS, DATA_DIR
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 
 STATE_FILE = DATA_DIR / "audio_state.json"
 
@@ -188,7 +188,7 @@ async def cleanup_audio_state_task() -> None:
                 log_message(
                     f"🗑️ AudioState cleanup: {removed} expired entries removed"
                 )
-        except Exception as exc:  # pragma: no cover  # noqa: BLE001
-            log_message(f"⚠️ AudioState cleanup task error: {exc}")
+        except Exception as exc:  # pragma: no cover  # noqa: BLE001 — the nightly task must not end; logged
+            log_exception("⚠️ AudioState cleanup task error", exc)
             # Continue running despite errors
 

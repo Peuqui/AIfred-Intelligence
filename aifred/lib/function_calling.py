@@ -385,9 +385,9 @@ class ToolKit:
             if reads_only:
                 result_str = self._refuse_unchanged_read(name, call_key, result_str)
             yield {"type": "tool_result", "result": result_str}
-        except Exception as e:  # noqa: BLE001 — the model sees the failure
+        except Exception as e:  # the model sees the failure; logged with its traceback
             success = False
-            logger.error(f"Tool '{name}' failed: {e}")
+            logger.exception(f"Tool '{name}' failed")
             result_str = json.dumps({"error": str(e)})
             from .security import sanitize_tool_output
             result_str = sanitize_tool_output(result_str)

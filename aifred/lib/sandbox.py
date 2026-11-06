@@ -28,7 +28,7 @@ from .config import (
     SANDBOX_TIMEOUT_SECONDS,
     SANDBOX_WORK_DIR,
 )
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 from .session_storage import SESSION_ID_RE
 
 
@@ -353,7 +353,8 @@ async def describe_sandbox_screenshots(
         if UNTRUSTED_DATA_END in result_text:
             described = wrap_untrusted_data(described, "image")
         yield {"type": "result", "text": f"{result_text}\n\n{described}"}
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001 — a failed description must not end the chat stream; the model gets the error note, logged
+        log_exception(f"Sandbox image description failed for {', '.join(filenames)}", e)
         error_note = load_prompt(
             "vision/sandbox_screenshot_error",
             filename=", ".join(filenames),

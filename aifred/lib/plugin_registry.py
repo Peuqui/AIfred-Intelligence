@@ -211,14 +211,10 @@ def reload_all() -> None:
 
     # 1. Stop channel listeners. Iterate over the channels we currently
     #    know about (not every hub worker — the scheduler must keep going).
-    from .logging_utils import log_message as _log
-    try:
-        from .message_hub import message_hub
-        for channel_name in list(_channels.keys()):
-            if message_hub.is_running(channel_name):
-                message_hub.unregister(channel_name)
-    except Exception as exc:  # noqa: BLE001
-        _log(f"Plugin Registry: channel teardown warning: {exc}", "warning")
+    from .message_hub import message_hub
+    for channel_name in list(_channels.keys()):
+        if message_hub.is_running(channel_name):
+            message_hub.unregister(channel_name)
 
     # 2. Clear tool cache + stale modules
     stale = [k for k in sys.modules if k.startswith(("aifred.plugins.tools.", "aifred.plugins.channels."))]

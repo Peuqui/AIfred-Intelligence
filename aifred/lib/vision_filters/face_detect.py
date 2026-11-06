@@ -199,8 +199,8 @@ class FaceDetector:
         app = self._ensure_initialized()
         try:
             raw = app.get(img)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("InsightFace get() failed on %s: %s", frame.source_id, e)
+        except Exception as e:  # onnxruntime's errors share no base class: this frame without faces, logged
+            logger.warning("InsightFace get() failed on %s: %s", frame.source_id, e, exc_info=True)
             return []
         return self._to_detections(raw, frame.source_id)
 
@@ -245,10 +245,11 @@ class FaceDetector:
                 continue
             try:
                 raw = app.get(img[y1:y2, x1:x2])
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # onnxruntime's errors share no base class: this region without faces, logged
                 logger.warning(
                     "InsightFace get() failed on ROI of %s: %s",
                     frame.source_id, e,
+                    exc_info=True,
                 )
                 continue
             for det in self._to_detections(raw, frame.source_id, offset=(x1, y1)):

@@ -14,6 +14,8 @@ from aifred.lib.audio_channels._audio_orchestrator import (
     AudioOrchestrator,
     TTSBuffer,
 )
+from aifred.lib.audio_channels._freeecho2_stream import FreeEcho2Stream
+from aifred.plugins.channels.freeecho2_channel.ws_bridge import WsBridgeMixin
 
 
 def run(coro):
@@ -66,12 +68,14 @@ class TestTTSBuffer:
 
 @pytest.fixture
 def bridge():
-    """Mock-Bridge mit allen send_*-Methoden als AsyncMock."""
-    b = MagicMock()
+    """Mock-Bridge mit allen send_*-Methoden als AsyncMock. ``spec``: eine Methode, die die
+    echte Bridge nicht hat, scheitert mit AttributeError, statt still ein MagicMock zu liefern."""
+    b = MagicMock(spec=WsBridgeMixin)
     b.send_audio_flag = AsyncMock(return_value=True)
     b.send_audio_start = AsyncMock(return_value=True)
     b.send_audio_chunk = AsyncMock(return_value=True)
     b.send_audio_end = AsyncMock(return_value=True)
+    b.send_done = AsyncMock(return_value=True)
     b.pause_stream = AsyncMock(return_value=None)
     return b
 
@@ -235,7 +239,7 @@ class TestPumpAbort:
 
 class TestPauseForAnnouncement:
     def _music_orc(self, bridge):
-        stream = MagicMock()
+        stream = MagicMock(spec=FreeEcho2Stream)
         stream.pause = AsyncMock(return_value=True)
         stream.stop = AsyncMock(return_value=True)
         orc = AudioOrchestrator("room1", bridge)
@@ -382,8 +386,10 @@ class TestStop:
             await task
 
         run(scenario())
-        assert orc.is_idle is True
+        # Terminal contract of a stop: audio_end without the end tone, then done.
         assert bridge.send_audio_end.await_args.kwargs == {"end_tone": False}
+        bridge.send_done.assert_awaited_once_with("room1")
+        assert orc.is_idle is True
 
     def test_stop_tts_sends_audio_end(self, bridge):
         orc = AudioOrchestrator("room1", bridge)
@@ -423,7 +429,7 @@ class TestTTSReplacesMusic:
     """
 
     def test_play_tts_replaces_music(self, bridge):
-        stream = MagicMock()
+        stream = MagicMock(spec=FreeEcho2Stream)
         stream.pause = AsyncMock(return_value=True)
         stream.resume = AsyncMock(return_value=True)
         stream.stop = AsyncMock(return_value=True)
@@ -446,7 +452,7 @@ class TestTTSReplacesMusic:
         # active_type ist nach komplettem Pump None (Buffer durch)
 
     def test_chunks_match_input_after_music_replace(self, bridge):
-        stream = MagicMock()
+        stream = MagicMock(spec=FreeEcho2Stream)
         stream.pause = AsyncMock(return_value=True)
         stream.resume = AsyncMock(return_value=True)
         stream.stop = AsyncMock(return_value=True)

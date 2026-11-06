@@ -109,7 +109,7 @@ async def _alert_worker(room: str) -> None:
     Item auf das _done-Signal des Pucks (mit Timeout). Musik-Pause/Resume
     um den Queue-Lauf kommt mit Firmware-Phase 2 dazu."""
     from ....lib import audio_channels
-    from ....lib.logging_utils import log_message
+    from ....lib.logging_utils import log_exception, log_message
 
     queue = _alert_queues[room]
     while True:
@@ -172,10 +172,12 @@ async def _alert_worker(room: str) -> None:
                     f"{done_timeout:.0f}s (playback ~{playback_sec:.0f}s) — proceeding",
                     "warning",
                 )
-        except Exception as e:  # noqa: BLE001
+        except OSError as e:  # the puck did not confirm the pause, or the connection is gone
             log_message(
                 f"[FreeEcho.2 {room}] alert worker error — announcement dropped: {e}", "error",
             )
+        except Exception as e:  # noqa: BLE001 — one announcement must not end the room's worker; logged
+            log_exception(f"[FreeEcho.2 {room}] alert worker error — announcement dropped", e)
         finally:
             buffer.discard()   # ein noch laufender Erzeuger (verworfene/abgebrochene Ansage)
             queue.task_done()

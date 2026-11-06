@@ -172,7 +172,7 @@ def side_channel_uuids() -> set[str]:
         by_index = {v: k for k, v in _smi_index_by_uuid().items()}
         if vlm_index in by_index:
             reserved.add(by_index[vlm_index])
-    except Exception as e:  # noqa: BLE001
+    except (RuntimeError, subprocess.SubprocessError, OSError, ValueError) as e:  # no VLM card known: none reserved
         logger.debug(f"vlm gpu lookup skipped: {e}")
     return reserved
 
@@ -680,7 +680,8 @@ def _measure_topology(
         # 25 GB nach ungefangener Probe-Exception).
         try:
             probed = _probe_rung(server, spec, meta)
-        except Exception as probe_err:  # noqa: BLE001
+        except Exception as probe_err:  # a crashed probe rejects this rung, the sweep goes on; logged
+            logger.warning("rung probe crashed", exc_info=True)
             # Ein OOM erst in der Sonde (Prefill-Scratch, den das
             # Speicherprofil nicht sieht — Lauf 2026-09-05: V100-Paar bei
             # GMU 0,97) ist dieselbe Leiter wie ein Boot-OOM, kein Urteil
@@ -895,7 +896,8 @@ def _sweep_k(
                 tps = max(short.tps) if short else 0.0
                 short_tokens = short.prompt_tokens if short else 0
                 probe_failed = False
-            except Exception as probe_err:  # noqa: BLE001
+            except Exception as probe_err:  # a crashed probe rejects this k, the sweep goes on; logged
+                logger.warning("k=%d probe crashed", k, exc_info=True)
                 full_log = (server.log_path.read_text(errors="replace")
                             if server.log_path.exists() else "")
                 probe_oom = any(sig in full_log for sig in OOM_SIGNATURES)
@@ -1004,7 +1006,8 @@ def _challenger_ab(
         # Tripel antritt (nur wenn die Regel den Kurzpunkt ueberhaupt kennt).
         short = (probe_throughput(server, sampling=sampling)
                  if (ok == total and best_speed.short_tps > 0) else None)
-    except Exception as probe_err:  # noqa: BLE001
+    except Exception as probe_err:  # a crashed probe keeps the previous winner; logged
+        logger.warning("%s probe crashed", tag, exc_info=True)
         progress(f"   ↳ {tag} probe crashed ({type(probe_err).__name__}) "
                  f"— keeping {keep_note}")
         return best_spec, best_speed, None

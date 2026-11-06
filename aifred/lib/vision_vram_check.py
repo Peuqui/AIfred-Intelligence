@@ -20,6 +20,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from .ollama_models import OLLAMA_ERRORS
+
 logger = logging.getLogger(__name__)
 
 
@@ -60,7 +62,7 @@ async def _query_ollama_running_models(host: str) -> list[dict[str, Any]]:
     try:
         client = AsyncClient(host=host)
         result = await client.ps()
-    except Exception as e:  # noqa: BLE001
+    except OLLAMA_ERRORS as e:
         logger.debug("ollama ps() failed: %s", e)
         return []
     out: list[dict[str, Any]] = []
@@ -234,7 +236,7 @@ async def check_vlm_fits(model: str | None = None) -> VRAMCheckResult:
                 needed_mb = 10500
             else:
                 needed_mb = 7000
-        except Exception:  # noqa: BLE001
+        except OLLAMA_ERRORS:  # no answer from Ollama: the mid-range estimate
             needed_mb = 8000  # Mid-range Default
 
     # Plus Reserve fürs KV-Cache + Workspace (über die gemessenen Werte

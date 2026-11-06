@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -336,15 +337,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
             )
         except (OSError, ValueError) as e:
             logger.warning("vision settings: llama-swap discovery failed: %s", e)
-        try:
-            from ..lib.ollama_models import list_ollama_vlm_models
-            seen = {_normalize(m) for m in models}
-            models.extend(
-                m.name for m in list_ollama_vlm_models()
-                if _normalize(m.name) not in seen
-            )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("vision settings: ollama discovery failed: %s", e)
+        from ..lib.ollama_models import list_ollama_vlm_models
+        seen = {_normalize(m) for m in models}
+        models.extend(
+            m.name for m in list_ollama_vlm_models()
+            if _normalize(m.name) not in seen
+        )
 
         if not models:
             self.vision_available_models = (
@@ -388,11 +386,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
         # Without this, the model wouldn't appear in nvidia-smi until the
         # first vision_analyze call (or the next calibration run).
         if value == "live":
-            try:
-                from ..lib.vision_prewarm import prewarm_vlm
-                await prewarm_vlm()
-            except Exception as e:  # noqa: BLE001
-                logger.warning("prewarm on mode-switch failed: %s", e)
+            from ..lib.vision_prewarm import prewarm_vlm
+            await prewarm_vlm()
 
     @rx.event
     async def set_vision_model_value(self, value: str) -> None:
@@ -413,11 +408,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
             # (swap: true) es beim Laden des neuen selbst.
             from ..lib.vision_routing import visiond_profile_for
             if visiond_profile_for(old_model) is None:
-                try:
-                    from ..lib.vision_prewarm import unload_vlm_model
-                    await unload_vlm_model(old_model)
-                except Exception as e:  # noqa: BLE001
-                    logger.warning("unload of old VLM model failed: %s", e)
+                from ..lib.vision_prewarm import unload_vlm_model
+                await unload_vlm_model(old_model)
 
     @rx.event
     def set_face_recognition_enabled(self, value: bool) -> None:
@@ -530,7 +522,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             # twice a second (which also wipes text selections).
             if cams != self.vigilantia_sources:
                 self.vigilantia_sources = cams
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:  # the source database; a bug in this code shows
             logger.warning("vigilantia sources load failed: %s", e)
             if self.vigilantia_sources:
                 self.vigilantia_sources = []
@@ -588,7 +580,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         active = bool(value)
         try:
             self._set_source_auto_start(source_id, active)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("auto_start persist failed for %s: %s", source_id, e)
             return
         self.vigilantia_sources = [
@@ -599,15 +591,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
         # Live-Effekt nur wenn Master scharf ist.
         if not self.vigilantia_armed:
             return
-        try:
-            if active:
-                from ..lib.vision_autostart import start_background_watcher
-                await start_background_watcher(source_id)
-            else:
-                from ..lib.vision_watcher import get_default_watcher
-                await get_default_watcher().stop(source_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("watcher live-toggle failed for %s: %s", source_id, e)
+        if active:
+            from ..lib.vision_autostart import start_background_watcher
+            await start_background_watcher(source_id)
+        else:
+            from ..lib.vision_watcher import get_default_watcher
+            await get_default_watcher().stop(source_id)
 
     @rx.event
     def set_vigilantia_source_alias(self, source_id: str, value: str) -> None:
@@ -623,7 +612,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         new_alias = value.strip() if isinstance(value, str) else ""
         try:
             self._persist_source_alias(source_id, new_alias)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("alias persist failed for %s: %s", source_id, e)
             return
         self.vigilantia_sources = [
@@ -669,7 +658,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         active = bool(value)
         try:
             self._persist_source_setting(source_id, "alerts_enabled", active)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("alerts_enabled persist failed for %s: %s", source_id, e)
             return
         self.vigilantia_sources = [
@@ -693,7 +682,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             current.remove(alert_type)
         try:
             self._persist_source_setting(source_id, "alert_types", current)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("alert_types persist failed for %s: %s", source_id, e)
             return
         self.vigilantia_sources = [
@@ -719,7 +708,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             display_val = str(hour)
         try:
             self._persist_source_setting(source_id, field, stored_val)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("quiet persist failed for %s: %s", source_id, e)
             return
         self.vigilantia_sources = [
@@ -741,7 +730,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             return
         try:
             self._persist_source_setting(source_id, "min_event_interval_sec", sec)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("event-interval persist failed for %s: %s", source_id, e)
             return
         display_val = _fmt_interval(sec)
@@ -775,7 +764,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             display_val = norm
         try:
             self._persist_source_setting(source_id, field, stored_val)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("schedule persist failed for %s: %s", source_id, e)
             return
         self.vigilantia_sources = [
@@ -783,34 +772,31 @@ class VisionSettingsMixin(rx.State, mixin=True):
             for c in self.vigilantia_sources
         ]
         # Sofort anwenden: Watcher je nach Fenster + global-armed starten/stoppen.
-        try:
-            from ..lib.vision_autostart import (
-                _schedule_active_now,
-                start_background_watcher,
+        from ..lib.vision_autostart import (
+            _schedule_active_now,
+            start_background_watcher,
+        )
+        from ..lib.vision_watcher import get_default_watcher
+        if self.vigilantia_armed:
+            rec = next(
+                (c for c in self.vigilantia_sources if c["id"] == source_id), None
             )
-            from ..lib.vision_watcher import get_default_watcher
-            if self.vigilantia_armed:
-                rec = next(
-                    (c for c in self.vigilantia_sources if c["id"] == source_id), None
-                )
-                settings = {
-                    "schedule_enabled": bool(rec.get("schedule_enabled")) if rec else False,
-                    # Roh-Wert ("HH:MM" oder Legacy) durchreichen — _schedule_active_now
-                    # parst selbst über schedule_minutes.
-                    "schedule_start": rec.get("schedule_start", "00:00") if rec else "00:00",
-                    "schedule_end": rec.get("schedule_end", "00:00") if rec else "00:00",
-                }
-                active = _schedule_active_now(settings)
-                running = get_default_watcher().is_running(source_id)
-                # auto_start gate — mirrors schedule_supervisor: a camera whose
-                # background watcher is disabled must not be started here.
-                armed_source = bool(rec.get("auto_start")) if rec else False
-                if active and not running and armed_source:
-                    await start_background_watcher(source_id)
-                elif not active and running:
-                    await get_default_watcher().stop(source_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("schedule live-apply failed for %s: %s", source_id, e)
+            settings = {
+                "schedule_enabled": bool(rec.get("schedule_enabled")) if rec else False,
+                # Roh-Wert ("HH:MM" oder Legacy) durchreichen — _schedule_active_now
+                # parst selbst über schedule_minutes.
+                "schedule_start": rec.get("schedule_start", "00:00") if rec else "00:00",
+                "schedule_end": rec.get("schedule_end", "00:00") if rec else "00:00",
+            }
+            active = _schedule_active_now(settings)
+            running = get_default_watcher().is_running(source_id)
+            # auto_start gate — mirrors schedule_supervisor: a camera whose
+            # background watcher is disabled must not be started here.
+            armed_source = bool(rec.get("auto_start")) if rec else False
+            if active and not running and armed_source:
+                await start_background_watcher(source_id)
+            elif not active and running:
+                await get_default_watcher().stop(source_id)
 
     # ── Alert-Routing-Regeln ─────────────────────────────────────────
 
@@ -818,16 +804,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
         """Regeln aus data/alert_rules.json in die UI-Liste spiegeln (eine Zeile
         je Kategorie) und die verfügbaren Channels generisch entdecken
         (plugin_registry) — kein Kanal hartcodiert."""
-        try:
-            from ..lib.plugin_base import plugin_display_name
-            from ..lib.plugin_registry import all_channels
-            self.alert_channels = [
-                {"name": str(n), "display_name": plugin_display_name(c, self.ui_language)}
-                for n, c in sorted(all_channels().items())
-            ]
-        except Exception as e:  # noqa: BLE001
-            logger.warning("channel discovery failed: %s", e)
-            self.alert_channels = []
+        from ..lib.plugin_base import plugin_display_name
+        from ..lib.plugin_registry import all_channels
+        self.alert_channels = [
+            {"name": str(n), "display_name": plugin_display_name(c, self.ui_language)}
+            for n, c in sorted(all_channels().items())
+        ]
         by_cat = {
             str(r.get("category")): r for r in _load_alert_rules()
             if isinstance(r, dict)
@@ -864,11 +846,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
             rules.append(rule)
         mutator(rule)
         _save_alert_rules(rules)
-        try:
-            from ..lib.alert_bus import reload_rules
-            reload_rules()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("alert dispatcher reload failed: %s", e)
+        from ..lib.alert_bus import reload_rules
+        reload_rules()
         self._reload_alert_rules()
 
     @rx.event
@@ -1037,14 +1016,11 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 self._persist_rtsp_credentials(
                     cred, str(f.get("user", "")).strip(), str(f.get("password", "")),
                 )
-            except Exception as e:  # noqa: BLE001
+            except OSError as e:  # writing .env
                 logger.warning("rtsp credential persist failed: %s", e)
 
-        try:
-            from ..lib.frame_sources import rescan
-            rescan()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("frame source rescan failed: %s", e)
+        from ..lib.frame_sources import rescan
+        rescan()
 
         self.rtsp_form_open = False
         self.rtsp_form_error = ""
@@ -1059,11 +1035,8 @@ class VisionSettingsMixin(rx.State, mixin=True):
             if not (isinstance(c, dict) and str(c.get("name")) == name)
         ]
         save_vision_settings(settings)
-        try:
-            from ..lib.frame_sources import rescan
-            rescan()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("frame source rescan failed: %s", e)
+        from ..lib.frame_sources import rescan
+        rescan()
         self.rtsp_form_open = False
         self._reload_vigilantia_sources()
 
@@ -1088,15 +1061,12 @@ class VisionSettingsMixin(rx.State, mixin=True):
         settings = load_vision_settings()
         settings["vigilantia_armed"] = new_value
         save_vision_settings(settings)
-        try:
-            if new_value:
-                from ..lib.vision_autostart import start_all_background_watchers
-                await start_all_background_watchers()
-            else:
-                from ..lib.vision_autostart import stop_all_background_watchers
-                await stop_all_background_watchers()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("vigilantia armed toggle side-effect failed: %s", e)
+        if new_value:
+            from ..lib.vision_autostart import start_all_background_watchers
+            await start_all_background_watchers()
+        else:
+            from ..lib.vision_autostart import stop_all_background_watchers
+            await stop_all_background_watchers()
 
     @rx.event
     async def force_disarm_vigilantia(self) -> None:
@@ -1110,22 +1080,15 @@ class VisionSettingsMixin(rx.State, mixin=True):
         settings = load_vision_settings()
         settings["vigilantia_armed"] = False
         save_vision_settings(settings)
-        try:
-            from ..lib.vision_autostart import stop_all_background_watchers
-            await stop_all_background_watchers()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("force_disarm_vigilantia side-effect failed: %s", e)
+        from ..lib.vision_autostart import stop_all_background_watchers
+        await stop_all_background_watchers()
 
     async def _refresh_vlm_loaded(self) -> None:
         """Status frisch von Ollama abfragen. Wird vom on_load des
         Vorschau-Popups gerufen, damit der Power-Button den realen
         Zustand zeigt."""
-        try:
-            from ..lib.vision_prewarm import is_vlm_loaded
-            self.vlm_model_loaded = await is_vlm_loaded(self.vision_model_value)
-        except Exception as e:  # noqa: BLE001
-            logger.debug("_refresh_vlm_loaded failed: %s", e)
-            self.vlm_model_loaded = False
+        from ..lib.vision_prewarm import is_vlm_loaded
+        self.vlm_model_loaded = await is_vlm_loaded(self.vision_model_value)
 
     @rx.event
     async def toggle_vlm_model_loaded(self) -> None:
@@ -1155,8 +1118,6 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 keep_alive = str(load_vision_settings().get("vlm", {}).get("keep_alive", "30m"))
                 await prewarm_vlm(keep_alive_override=keep_alive)
                 self.vlm_model_loaded = await is_vlm_loaded(model)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("vlm toggle failed: %s", e)
         finally:
             self.vlm_model_busy = False
 

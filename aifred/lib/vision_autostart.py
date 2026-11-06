@@ -19,6 +19,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from typing import Any
 
 from .config import VISION_BACKGROUND_WATCH_FPS
@@ -241,8 +242,8 @@ async def start_background_watcher(source_id: str) -> bool:
         await watcher.start(source_id, cfg)
         logger.info("autostart: background watcher running for %s", source_id)
         return True
-    except Exception as e:  # noqa: BLE001
-        logger.warning("autostart: start failed for %s: %s", source_id, e)
+    except Exception as e:  # camera or detector: logged, the caller sees False
+        logger.warning("autostart: start failed for %s: %s", source_id, e, exc_info=True)
         return False
 
 
@@ -292,7 +293,7 @@ async def start_all_background_watchers() -> int:
     try:
         store = VisionStore()
         sources = store.list_sources()
-    except Exception as e:  # noqa: BLE001
+    except sqlite3.Error as e:
         logger.warning("autostart: source listing failed: %s", e)
         return 0
     plugin = load_vision_settings()
@@ -324,8 +325,8 @@ async def start_all_background_watchers() -> int:
             await watcher.start(source_id, cfg)
             started += 1
             logger.info("autostart: background watcher running for %s", source_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("autostart: start failed for %s: %s", source_id, e)
+        except Exception as e:  # one camera that fails to start must not stop the others
+            logger.warning("autostart: start failed for %s: %s", source_id, e, exc_info=True)
     return started
 
 
@@ -380,8 +381,8 @@ async def schedule_supervisor() -> None:
                     logger.info("schedule: %s außerhalb Zeitfenster → gestoppt", source_id)
         except asyncio.CancelledError:
             raise
-        except Exception as e:  # noqa: BLE001
-            logger.warning("schedule supervisor error: %s", e)
+        except Exception as e:  # the supervisor loop goes on
+            logger.warning("schedule supervisor error: %s", e, exc_info=True)
 
 
 _supervisor_task: asyncio.Task[None] | None = None
@@ -414,7 +415,7 @@ async def stop_all_background_watchers() -> int:
     try:
         store = VisionStore()
         sources = store.list_sources()
-    except Exception as e:  # noqa: BLE001
+    except sqlite3.Error as e:
         logger.warning("autostart: source listing failed: %s", e)
         return 0
     watcher = get_default_watcher()
@@ -425,11 +426,8 @@ async def stop_all_background_watchers() -> int:
         source_id = record.get("source_id") or ""
         if not source_id:
             continue
-        try:
-            ok = await watcher.stop(source_id)
-            if ok:
-                stopped += 1
-                logger.info("autostart: background watcher stopped for %s", source_id)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("autostart: stop failed for %s: %s", source_id, e)
+        ok = await watcher.stop(source_id)
+        if ok:
+            stopped += 1
+            logger.info("autostart: background watcher stopped for %s", source_id)
     return stopped

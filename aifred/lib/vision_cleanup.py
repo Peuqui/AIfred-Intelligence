@@ -28,10 +28,11 @@ import asyncio
 import logging
 import re
 import shutil
+import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 from .vision_settings import load_vision_settings
 
 logger = logging.getLogger(__name__)
@@ -97,7 +98,7 @@ def _cleanup_vision_db_events(cutoff: datetime) -> int:
         return 0
     try:
         store = VisionStore()
-    except Exception as e:  # noqa: BLE001
+    except (sqlite3.Error, OSError) as e:  # the event database could not be opened
         logger.warning("vision_store init for cleanup failed: %s", e)
         return 0
     cutoff_iso = cutoff.isoformat(timespec="seconds")
@@ -109,7 +110,7 @@ def _cleanup_vision_db_events(cutoff: datetime) -> int:
                 (cutoff_iso,),
             )
             return int(cur.rowcount or 0)
-    except Exception as e:  # noqa: BLE001
+    except sqlite3.Error as e:  # busy database: the next night retries
         logger.warning("vision_store event cleanup failed: %s", e)
         return 0
 
@@ -151,8 +152,8 @@ async def cleanup_vision_task() -> None:
                         f"from {described.total_events} events, "
                         f"{described.failed} failed"
                     )
-            except Exception as exc:  # noqa: BLE001
-                log_message(f"⚠️ Nightly describe error: {exc}")
+            except Exception as exc:  # noqa: BLE001 — a failed describe run must not stop the cleanup; logged
+                log_exception("⚠️ Nightly describe error", exc)
 
             ttl_days = _load_retention_days()
             cutoff = datetime.now() - timedelta(days=ttl_days)
@@ -175,5 +176,5 @@ async def cleanup_vision_task() -> None:
                     f"{db_removed} DB-Events entfernt "
                     f"(TTL {ttl_days}d)"
                 )
-        except Exception as exc:  # pragma: no cover  # noqa: BLE001
-            log_message(f"⚠️ Vision cleanup task error: {exc}")
+        except Exception as exc:  # pragma: no cover  # noqa: BLE001 — the nightly task must not end; logged
+            log_exception("⚠️ Vision cleanup task error", exc)

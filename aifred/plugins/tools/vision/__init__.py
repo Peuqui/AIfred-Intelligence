@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import json
 import logging
+import sqlite3
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -344,7 +345,7 @@ class VisionPlugin:
                         if i > 0 and interval > 0:
                             await asyncio.sleep(interval)
                         frames.append(await hub.snapshot(source, width=w, height=h))
-                except Exception as e:  # noqa: BLE001
+                except (RuntimeError, TimeoutError) as e:  # no frame from the camera
                     return _err(f"snapshot failed: {e}")
             # Burn the documentation overlay (name + location + capture time)
             # into every frame. The same stamped image is what the user sees
@@ -395,7 +396,7 @@ class VisionPlugin:
                             base_dir=TOOLCALL_IMAGES_DIR,
                         )
                         urls.append(get_image_url(path))
-                    except Exception as e:  # noqa: BLE001
+                    except OSError as e:  # this frame stays out of the reply
                         logger.warning("snapshot save failed: %s", e)
                 if urls:
                     # image_urls = the full burst (pass to vision_analyze for a
@@ -493,7 +494,7 @@ class VisionPlugin:
                     briefing = (_info or {}).get("prompt_context") or ""
                     if isinstance(briefing, str) and briefing.strip():
                         actual_prompt = f"{briefing.strip()}\n\n{actual_prompt}"
-                except Exception as e:  # noqa: BLE001
+                except sqlite3.Error as e:  # busy database: the prompt without the briefing
                     logger.warning("analyze briefing load failed: %s", e)
             # In "live"-Mode (Türsteher/Always-On) override keep_alive auf -1,
             # damit das VLM permanent im VRAM bleibt. Muss int sein — Ollama
@@ -593,7 +594,7 @@ class VisionPlugin:
                     classification={"description": result.text, "model": result.model},
                     metadata={"prompt": actual_prompt, "n_frames": result.n_frames},
                 )
-            except Exception as e:  # noqa: BLE001
+            except sqlite3.Error as e:  # busy database: the analysis is returned, only not logged
                 logger.warning("vlm event log failed: %s", e)
             return _ok(**payload)
 
@@ -626,14 +627,11 @@ class VisionPlugin:
                 # FrameHub statt direktem source.snapshot() (Deadlock bei
                 # laufendem Watcher, siehe vision_snapshot).
                 frame = await get_default_hub().snapshot(source)
-            except Exception as e:  # noqa: BLE001
+            except (RuntimeError, TimeoutError) as e:  # no frame from the camera
                 return _err(f"snapshot failed: {e}")
             import asyncio
-            try:
-                detector = get_default_detector()
-                detections = await asyncio.to_thread(detector.detect, frame)
-            except Exception as e:  # noqa: BLE001
-                return _err(f"face_detect failed: {e}")
+            detector = get_default_detector()
+            detections = await asyncio.to_thread(detector.detect, frame)
             if not detections:
                 return _err("no face found in current frame")
             # Pick the highest-scoring detection
@@ -856,7 +854,7 @@ class VisionPlugin:
                     # einen abweichenden Store setzen, werden umgangen.
                     store=_store(),
                 )
-            except Exception as e:  # noqa: BLE001
+            except sqlite3.Error as e:  # busy database: the events as they are
                 logger.warning("on-demand describe failed: %s", e)
 
             # Scan the WHOLE window (no cap) so dedup can collapse clusters that
@@ -870,7 +868,7 @@ class VisionPlugin:
                     since=since,
                     limit=None,
                 )
-            except Exception as e:  # noqa: BLE001
+            except sqlite3.Error as e:
                 return _err(f"query failed: {e}")
 
             # Collapse cluster members into ONE representative per happening.
@@ -916,7 +914,7 @@ class VisionPlugin:
                 face_names = {
                     int(f["id"]): str(f["name"]) for f in store.list_faces()
                 }
-            except Exception:  # noqa: BLE001
+            except sqlite3.Error:  # busy database: events without face names
                 face_names = {}
 
             def _out(ev: dict[str, Any]) -> dict[str, Any]:

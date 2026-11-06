@@ -231,11 +231,8 @@ async def run_llm_stream(
         artifacts.append(artifact)
 
     def source_alias(source_id: Any) -> str:
-        try:
-            from .vision_utils import resolve_source_alias
-            return str(resolve_source_alias(str(source_id), fallback="Snapshot"))
-        except Exception:  # noqa: BLE001
-            return "Snapshot"
+        from .vision_utils import resolve_source_alias
+        return str(resolve_source_alias(str(source_id), fallback="Snapshot"))
     # image_url → (label, VLM-Beschreibung) aus vision_query_events. Wird im
     # Post-Processing als <image_descriptions>-Collapsible über die tatsächlich
     # gezeigten Event-Bilder gehängt.

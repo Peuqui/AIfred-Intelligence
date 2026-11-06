@@ -18,7 +18,7 @@ import glob
 import os
 
 from .cleanup_utils import seconds_until_next_run
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 
 
 async def cleanup_lookup_cache_task() -> None:
@@ -64,7 +64,7 @@ async def cleanup_lookup_cache_task() -> None:
                         log_message(
                             f"⚠️ Lookup-Cache loeschen fehlgeschlagen: {path}: {exc}"
                         )
-        except Exception as exc:  # noqa: BLE001
-            log_message(f"⚠️ Lookup-Cache cleanup task error: {exc}")
+        except Exception as exc:  # noqa: BLE001 — the nightly task must not end; logged
+            log_exception("⚠️ Lookup-Cache cleanup task error", exc)
             # Kurzer Schlaf, damit Endlos-Fehlerschleife nicht CPU saugt
             await asyncio.sleep(60)

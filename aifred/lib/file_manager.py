@@ -107,8 +107,8 @@ def chunks_per_document() -> dict[str, int]:
         if store:
             for doc in store.list_documents():
                 chunks[doc["filename"]] = doc.get("total_chunks", 0)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"chunks_per_document: ChromaDB unavailable, skipping index lookup: {exc}")
+    except Exception as exc:  # ChromaDB raises a bare Exception for HTTP errors: no chunk counts, logged
+        logger.warning(f"chunks_per_document: ChromaDB unavailable, skipping index lookup: {exc}", exc_info=True)
     return chunks
 
 
@@ -558,8 +558,8 @@ async def _index_temp_copy(chunks: AsyncIterator[bytes], name: str, source_key: 
                 async for chunk in chunks:
                     target.write(chunk)
             indexed = await store.index_document(copy, source_index_name(source_key, file_id), source=source_key)
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(f"index {source_key} {name}: {exc}")
+    except Exception as exc:  # the user sees why the file was not indexed; logged
+        logger.warning(f"index {source_key} {name}: {exc}", exc_info=True)
         return FileOpResult(False, f"{name}: {exc}")
     detail = f"Indexed {name} from {source_key}: {indexed} chunks"
     logger.info(detail)

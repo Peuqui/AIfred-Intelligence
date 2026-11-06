@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import sqlite3
 from collections.abc import AsyncIterator
 from typing import Any
 
@@ -56,7 +57,7 @@ async def _teardown_after_grace(source_id: str) -> None:
     try:
         from .vision_autostart import restore_or_stop_after_preview
         await restore_or_stop_after_preview(source_id)
-    except Exception as e:  # noqa: BLE001
+    except (ValueError, sqlite3.Error, OSError) as e:  # settings file or event database
         logger.warning("event-bus: preview teardown failed for %s: %s", source_id, e)
     finally:
         _pending_teardown.pop(source_id, None)

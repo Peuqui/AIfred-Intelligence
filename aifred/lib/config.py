@@ -1046,12 +1046,9 @@ def resolve_vlm_host(chat_backend_type: str | None = None) -> str:
     a state reference handy.
     """
     if chat_backend_type is None:
-        try:
-            from .settings import load_settings
-            s = load_settings() or {}
-            chat_backend_type = str(s.get("backend_type", "ollama"))
-        except Exception:  # noqa: BLE001
-            chat_backend_type = "ollama"
+        from .settings import load_settings
+        s = load_settings() or {}
+        chat_backend_type = str(s.get("backend_type", "ollama"))
     return (
         VISION_VLM_HOST_DEFAULT
         if chat_backend_type == "ollama"

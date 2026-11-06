@@ -11,6 +11,7 @@ Liest direkt aus ``VisionStore`` (keine API), Writes ebenfalls.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import TYPE_CHECKING, Any
 
 import reflex as rx
@@ -212,8 +213,8 @@ class CasusMixin(rx.State, mixin=True):
             self.casus_status = f"✓ Analysiert: {text[:60]}…" if len(text) > 60 else f"✓ {text}"
         except FileNotFoundError as e:
             self.casus_status = f"⚠️ Frame nicht mehr auf Disk: {e}"
-        except Exception as e:  # noqa: BLE001
-            logger.warning("casus_analyze_event %d failed: %s", eid, e)
+        except Exception as e:  # the Casus shows why the analysis failed
+            logger.warning("casus_analyze_event %d failed: %s", eid, e, exc_info=True)
             self.casus_status = f"⚠️ {e}"
         finally:
             self.casus_analyzing_event_id = 0
@@ -285,8 +286,8 @@ class CasusMixin(rx.State, mixin=True):
                         + (f", {result.failed} Fehler" if result.failed else "")
                     )
                 self._refresh_events()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("bulk worker crashed: %s", e)
+        except Exception as e:  # boundary of the bulk worker: logged, shown, reset below
+            logger.warning("bulk worker crashed: %s", e, exc_info=True)
             async with self:
                 self.casus_bulk_message = f"⚠️ Fehler: {e}"
         finally:
@@ -331,7 +332,7 @@ class CasusMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_store import VisionStore
             latest = VisionStore().latest_event_id()
-        except Exception:  # noqa: BLE001
+        except sqlite3.Error:  # busy database: the next poll retries
             return
         if latest == self._casus_last_seen_event_id:
             return
@@ -377,7 +378,7 @@ class CasusMixin(rx.State, mixin=True):
                 unknown_only=unknown_only,
             )
             self.casus_status = f"✓ {deleted} Ereignis(se) gelöscht"
-        except Exception as e:  # noqa: BLE001
+        except (sqlite3.Error, OSError) as e:  # the events and their frames on disk
             logger.warning("casus bulk-delete failed: %s", e)
             self.casus_status = f"⚠️ {e}"
         self.casus_confirm_delete_all = False
@@ -411,7 +412,7 @@ class CasusMixin(rx.State, mixin=True):
                 self.casus_status = "✓ Ereignis gelöscht"
             else:
                 self.casus_status = "⚠️ Ereignis nicht gefunden"
-        except Exception as e:  # noqa: BLE001
+        except (sqlite3.Error, OSError) as e:  # the event and its frames on disk
             logger.warning("casus delete failed: %s", e)
             self.casus_status = f"⚠️ {e}"
             return
@@ -451,7 +452,7 @@ class CasusMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_store import VisionStore
             has_zoom = bool(VisionStore().get_event_frame_path(eid, zoom=True))
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("casus zoom lookup failed: %s", e)
             return ""
         return f"/api/vision/frame?id={eid}&zoom=1" if has_zoom else ""
@@ -538,7 +539,7 @@ class CasusMixin(rx.State, mixin=True):
             ev = store.get_event(int(event_id))
             cid = str((ev or {}).get("cluster_id") or "")
             ids = store.list_cluster_event_ids(cid)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("casus film open failed: %s", e)
             return
         if not ids:
@@ -626,7 +627,7 @@ class CasusMixin(rx.State, mixin=True):
                 self.casus_status = "✓ Zuordnung gespeichert"
             else:
                 self.casus_status = "⚠️ Ereignis nicht gefunden"
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("casus tag failed: %s", e)
             self.casus_status = f"⚠️ {e}"
             return
@@ -662,7 +663,7 @@ class CasusMixin(rx.State, mixin=True):
                     "label": str(f["name"]),
                 })
             self.casus_face_options = face_opts
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("casus filter-options refresh failed: %s", e)
             self.casus_source_options = [{"value": "all", "label": "Alle Quellen"}]
             self.casus_face_options = [{"value": "all", "label": "Alle Personen"}]
@@ -751,7 +752,7 @@ class CasusMixin(rx.State, mixin=True):
                     face_id=face_id,
                     unknown_only=unknown_only,
                 )
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("casus events refresh failed: %s", e)
             self.casus_events = []
             self.casus_total_count = 0

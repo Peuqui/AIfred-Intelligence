@@ -1,6 +1,7 @@
 """Vision endpoints: snapshot/stream/events, face enrollment/Personarium,
 event frames, zone masks and motion tuning."""
 
+import sqlite3
 from pathlib import Path
 from typing import Any
 
@@ -586,7 +587,7 @@ async def save_zone_mask(payload: ZoneMaskPayload) -> SystemActionResponse:
     try:
         from ..vision_watcher import get_default_watcher
         get_default_watcher().reload_zone_mask(payload.source_id)
-    except Exception as e:  # noqa: BLE001
+    except (ValueError, sqlite3.Error) as e:  # saved; the watch takes it on its next start
         log_message(f"⚠️ zone mask live-reload failed: {e}")
     return SystemActionResponse(success=True, message=msg)
 
@@ -628,7 +629,7 @@ async def save_motion_min(payload: MotionMinPayload) -> SystemActionResponse:
     try:
         from ..vision_watcher import get_default_watcher
         get_default_watcher().reload_motion_min(payload.source_id, mma)
-    except Exception as e:  # noqa: BLE001
+    except sqlite3.Error as e:  # saved; the watch takes it on its next start
         log_message(f"⚠️ motion_min live-reload failed: {e}")
     return SystemActionResponse(success=True, message="motion min saved")
 
@@ -657,7 +658,7 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
         try:
             from ..vision_store import VisionStore
             src_name = VisionStore().source_labels().get(source_id, "")
-        except Exception:  # noqa: BLE001
+        except sqlite3.Error:  # busy database: no source name
             src_name = ""
     # Übersetzungen in der aktuellen UI-Sprache als window.T injizieren —
     # zentral aus i18n.py, kein Duplikat im JS. Scannt alle zone_editor_*-Keys.
@@ -686,7 +687,7 @@ async def zone_editor_page(source_id: str = "") -> HTMLResponse:
                 or ""
             )
             ai_cam = not resolve_profile(str(profile_name)).allow_local_detection
-        except Exception:  # noqa: BLE001
+        except (ValueError, sqlite3.Error):  # settings file or event database: treated as a plain camera
             ai_cam = False
     inject = (
         f"<style>{css_variables()}</style>"

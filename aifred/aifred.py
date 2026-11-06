@@ -1339,10 +1339,10 @@ async def _message_hub_lifespan():
         # nur start_all aufgerufen wurde — Kameras blieben nach Fenster-Ende
         # scharf. Idempotent (Granian-Respawn-sicher).
         ensure_schedule_supervisor()
-    except Exception as e:  # noqa: BLE001
+    except Exception as e:  # Vigilantia must not keep AIfred from starting; logged
         import logging
         logging.getLogger(__name__).warning(
-            "vigilantia autostart failed: %s", e
+            "vigilantia autostart failed: %s", e, exc_info=True,
         )
     try:
         yield

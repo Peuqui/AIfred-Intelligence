@@ -168,8 +168,8 @@ async def _bulk_describe_impl(
                 return BulkDescribeResult(
                     aborted_vram=True, vram_message=vram.message
                 )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("VRAM check failed (continuing anyway): %s", e)
+        except Exception as e:  # the pre-check only advises: the run goes on, logged
+            logger.warning("VRAM check failed (continuing anyway): %s", e, exc_info=True)
 
     events = store.list_events_without_description(  # type: ignore[attr-defined]
         source_id=source_id, event_types=event_types,
@@ -230,8 +230,8 @@ async def _bulk_describe_impl(
                 store.apply_cluster_description(  # type: ignore[attr-defined]
                     cluster_id, text, "bulk-worker",
                 )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("bulk: cluster %s failed: %s", cluster_id, e)
+        except Exception as e:  # one cluster must not stop the others; counted and logged
+            logger.warning("bulk: cluster %s failed: %s", cluster_id, e, exc_info=True)
             failed += 1
         processed += 1
 

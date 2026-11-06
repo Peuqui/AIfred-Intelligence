@@ -662,7 +662,7 @@ def _connect_imap(host: str, port: int, user: str, password: str) -> tuple[imapl
             match = re.search(rb"UIDVALIDITY\s+(\d+)", uv_data[0])
             if match:
                 uidvalidity = int(match.group(1))
-    except Exception as exc:  # noqa: BLE001
+    except (imaplib.IMAP4.error, OSError) as exc:
         # Nicht still auf 0 fallen: mit uv=0 hält die Recovery einen echten
         # UIDVALIDITY-Wechsel fälschlich für "unverändert" (bzw. umgekehrt).
         log_message(f"Email Plugin: could not determine UIDVALIDITY: {exc}", "warning")

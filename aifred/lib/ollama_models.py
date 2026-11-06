@@ -31,8 +31,14 @@ import re
 from dataclasses import dataclass
 
 import httpx
+import ollama
 
 logger = logging.getLogger(__name__)
+
+# How a call through the ollama Python client fails: Ollama answered with an error (model
+# missing, out of memory), the daemon is not reachable (the client raises ConnectionError),
+# or the transport broke off (timeouts and the like, passed through from httpx).
+OLLAMA_ERRORS = (ollama.ResponseError, ConnectionError, httpx.HTTPError)
 
 
 DEFAULT_OLLAMA_HOST = os.environ.get("OLLAMA_HOST", "http://localhost:11434")

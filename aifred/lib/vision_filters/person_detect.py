@@ -148,8 +148,8 @@ class PersonDetector:
         blob, scale, pad_x, pad_y = self._preprocess(img)
         try:
             outputs = session.run(None, {self._input_name: blob})
-        except Exception as e:  # noqa: BLE001
-            logger.warning("YOLO run failed on %s: %s", frame.source_id, e)
+        except Exception as e:  # onnxruntime's errors share no base class: this frame without persons, logged
+            logger.warning("YOLO run failed on %s: %s", frame.source_id, e, exc_info=True)
             return []
         return self._postprocess(outputs[0], img.shape[:2], scale, pad_x, pad_y)
 

@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import base64
 import logging
+import sqlite3
 from typing import Any
 
 import reflex as rx
@@ -162,8 +163,8 @@ class MultiposeMixin(rx.State, mixin=True):
             jpeg_bytes, detection = await self._snapshot_and_detect(
                 self.multipose_source_id
             )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("multipose capture failed: %s", e)
+        except Exception as e:  # camera and face model: the dialog shows why
+            logger.warning("multipose capture failed: %s", e, exc_info=True)
             self.multipose_status = f"⚠️ {e}"
             self.multipose_busy = False
             return
@@ -246,14 +247,15 @@ class MultiposeMixin(rx.State, mixin=True):
                     try:
                         crop_jpeg = base64.b64decode(durl.split(",", 1)[1])
                         crop_url = crop_store.save_raw(crop_jpeg, face_id)
-                    except Exception:  # noqa: BLE001
+                    except (ValueError, OSError) as e:  # no crop: the embedding is stored without one
+                        logger.warning("multipose: crop of face %s not stored: %s", face_id, e)
                         crop_url = ""
                 store.add_embedding(
                     face_id, emb,
                     quality_score=float(cap.get("detection_score", 0.0)),
                     crop_url=crop_url,
                 )
-        except Exception as e:  # noqa: BLE001
+        except (sqlite3.Error, ValueError, OSError) as e:  # store, embedding bytes or crop file
             logger.warning("multipose finish failed: %s", e)
             self.multipose_status = f"⚠️ {e}"
             return
@@ -269,19 +271,14 @@ class MultiposeMixin(rx.State, mixin=True):
 
     async def _refresh_multipose_sources(self) -> None:
         """Source-Dropdown füllen + Default auf erste verfügbare Cam."""
-        try:
-            from ..lib.frame_sources import list_all
-            sources = list_all()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("multipose source listing failed: %s", e)
-            self.multipose_source_options = []
-            return
+        from ..lib.frame_sources import list_all
+        sources = list_all()
         # User-Alias ("Büro") hat Vorrang vor dem Hardware-Namen — eine
         # Query, SSoT für die Präzedenz im Store.
         try:
             from ..lib.vision_store import VisionStore
             labels = VisionStore().source_labels()
-        except Exception:  # noqa: BLE001
+        except sqlite3.Error:  # no aliases: the hardware names stand
             labels = {}
         opts: list[dict[str, str]] = []
         available: list[str] = []
@@ -310,8 +307,8 @@ class MultiposeMixin(rx.State, mixin=True):
         try:
             jpeg_bytes = await self._snapshot_jpeg(self.multipose_source_id)
             self.multipose_live_preview_url = self._jpeg_to_data_url(jpeg_bytes)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("multipose live-preview failed: %s", e)
+        except Exception as e:  # camera: the preview stays empty, logged
+            logger.warning("multipose live-preview failed: %s", e, exc_info=True)
             self.multipose_live_preview_url = ""
 
     async def _fresh_frame(self, source_id: str) -> Any:
@@ -386,6 +383,6 @@ class MultiposeMixin(rx.State, mixin=True):
             if not ok:
                 return MultiposeMixin._jpeg_to_data_url(jpeg_bytes)
             return MultiposeMixin._jpeg_to_data_url(bytes(enc.tobytes()))
-        except Exception as e:  # noqa: BLE001
+        except cv2.error as e:  # the uncropped picture is shown
             logger.warning("multipose preview crop failed: %s", e)
             return MultiposeMixin._jpeg_to_data_url(jpeg_bytes)

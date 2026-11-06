@@ -51,6 +51,11 @@ class MpvError(RuntimeError):
     """Raised when mpv returns a non-success error or IPC fails."""
 
 
+# How playing or steering mpv fails: our own error, the process or the position file (OSError),
+# or no answer in time.
+PLAYER_ERRORS = (MpvError, OSError, TimeoutError)
+
+
 class AudioManager:
     """Singleton mpv-IPC controller. Async-first."""
 

@@ -26,6 +26,7 @@ resolution tied to its hardware capability (a 4K overview cam vs a
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import TYPE_CHECKING, Any
 
 import reflex as rx
@@ -89,8 +90,8 @@ def _build_resolution_options(src: Any, available: bool) -> list[dict[str, str]]
         return opts
     try:
         supported = detector()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("resolution detect failed for %s: %s", src.source_id, e)
+    except Exception as e:  # one camera's probe must not cost the other options
+        logger.warning("resolution detect failed for %s: %s", src.source_id, e, exc_info=True)
         return opts
     for w, h in supported:
         key = (w, h)
@@ -568,7 +569,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_store import VisionStore
             record = VisionStore().get_source(source_id)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("preview: source lookup failed for %s: %s", source_id, e)
         overrides = profile_watch_overrides(
             source_id, (record or {}).get("settings") or {}, load_vision_settings()
@@ -582,8 +583,8 @@ class VisionPreviewMixin(rx.State, mixin=True):
         await watcher.stop(source_id)
         try:
             await watcher.start(source_id, cfg)
-        except Exception as e:  # noqa: BLE001
-            logger.warning("watcher start failed for %s: %s", source_id, e)
+        except Exception as e:  # the preview shows why the watcher did not start
+            logger.warning("watcher start failed for %s: %s", source_id, e, exc_info=True)
             self.vision_preview_status = f"⚠️ Watcher: {e}"
 
     @rx.event
@@ -793,13 +794,8 @@ class VisionPreviewMixin(rx.State, mixin=True):
 
     @rx.event
     def rescan_vision_preview_sources(self) -> None:
-        try:
-            from ..lib.frame_sources import rescan
-            rescan()
-        except Exception as e:  # noqa: BLE001
-            logger.warning("vision-preview rescan failed: %s", e)
-            self.vision_preview_status = f"⚠️ {e}"
-            return
+        from ..lib.frame_sources import rescan
+        rescan()
         self._refresh_sources()
 
     # --- Internals -------------------------------------------------------
@@ -812,15 +808,9 @@ class VisionPreviewMixin(rx.State, mixin=True):
         resolution as ``"resolution"`` field — needed because Reflex
         can't index dict-vars with foreach-loop vars in render lambdas.
         """
-        from ..lib.logging_utils import log_message
-        try:
-            from ..lib.frame_sources import list_all
-            sources_raw = list_all()
-        except Exception as e:  # noqa: BLE001
-            log_message(f"⚠️ vision-preview source listing failed: {e}")
-            self.vision_preview_sources = []
-            self.vision_preview_status = f"⚠️ {e}"
-            return
+        from ..lib.logging_utils import log_exception, log_message
+        from ..lib.frame_sources import list_all
+        sources_raw = list_all()
         log_message(f"🎬 _refresh_sources: list_all returned {len(sources_raw)} source(s)")
 
         # Load persisted per-source resolution from vision_store
@@ -839,7 +829,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
                     if isinstance(persisted, str):
                         res = persisted
                 new_resolutions[sid] = res
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("vision-preview resolution load failed: %s", e)
         self.vision_preview_resolutions = new_resolutions
 
@@ -870,7 +860,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 mma = s.get("motion_min_area_ratio")
                 if isinstance(mma, (int, float)) and 0.001 <= mma <= 0.5:
                     stored_motion_min[sid] = float(mma)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("vision-preview alias/prompt load failed: %s", e)
 
         # Build the source list with current resolution + per-source
@@ -879,8 +869,8 @@ class VisionPreviewMixin(rx.State, mixin=True):
         for src in sources_raw:
             try:
                 src_info = src.info()
-            except Exception as e:  # noqa: BLE001
-                log_message(f"⚠️ source.info() failed for {src.source_id}: {e}")
+            except Exception as e:  # noqa: BLE001 — one broken source must not empty the list; logged
+                log_exception(f"⚠️ source.info() failed for {src.source_id}", e)
                 continue
             hardware_name = src_info.display_name or src_info.source_id
             alias = stored_aliases.get(src_info.source_id, "")
@@ -963,7 +953,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             ft = data.get("face_throttle_sec")
             if isinstance(ft, (int, float)) and 0.1 <= ft <= 60:
                 self.vision_preview_face_throttle_sec = float(ft)
-        except Exception as e:  # noqa: BLE001
+        except (OSError, ValueError) as e:  # preview settings file unreadable
             logger.warning("vision-preview settings load failed: %s", e)
 
     def _persist_preview_setting(self, key: str, value: Any) -> None:
@@ -981,7 +971,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             path.parent.mkdir(parents=True, exist_ok=True)
             with open(path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2)
-        except Exception as e:  # noqa: BLE001
+        except (OSError, ValueError) as e:  # preview settings file
             logger.warning("vision-preview setting '%s' persist failed: %s", key, e)
 
     def _persist_preview_fps(self, fps: float) -> None:
@@ -1005,7 +995,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
             if not isinstance(vis, list):
                 return None
             return [str(s) for s in vis]
-        except Exception as e:  # noqa: BLE001
+        except (OSError, ValueError) as e:  # preview settings file unreadable
             logger.warning("vision-preview visible-sources load failed: %s", e)
             return None
 
@@ -1023,7 +1013,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 fallback_kind=src.kind if src else "webcam",
                 prompt_context=prompt_context,
             )
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("vision-preview prompt-context persist failed: %s", e)
             self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
 
@@ -1047,7 +1037,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
                 fallback_kind=src.kind if src else "webcam",
                 settings=settings,
             )
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("vision-preview alias persist failed: %s", e)
             self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"
 
@@ -1055,6 +1045,6 @@ class VisionPreviewMixin(rx.State, mixin=True):
         """Write the per-source resolution choice to vision_store.sources."""
         try:
             self._persist_source_setting(source_id, "resolution", resolution)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("vision-preview resolution persist failed: %s", e)
             self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"

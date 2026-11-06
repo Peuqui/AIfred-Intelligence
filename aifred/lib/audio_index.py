@@ -28,7 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import DATA_DIR
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 
 INDEX_DB = DATA_DIR / "audio_index.sqlite"
 
@@ -602,6 +602,6 @@ async def sync_audio_index_task() -> None:
                         f"+{result.inserted} ~{result.updated} -{result.deleted} "
                         f"in {result.elapsed_sec:.1f}s"
                     )
-        except Exception as exc:  # pragma: no cover  # noqa: BLE001
-            log_message(f"⚠️ AudioIndex sync task error: {exc}")
+        except Exception as exc:  # pragma: no cover  # noqa: BLE001 — the sync task must not end; logged
+            log_exception("⚠️ AudioIndex sync task error", exc)
 

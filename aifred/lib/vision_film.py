@@ -34,6 +34,10 @@ FILMS_DIR = VIGILANTIA_DIR / "films"
 LENS_LABELS = {"wide": "Weitwinkel", "zoom": "Zoom"}
 
 
+class FilmEncodeError(Exception):
+    """ffmpeg could not encode the film (its exit code and the end of its error output)."""
+
+
 def film_label(path: str) -> str:
     """Beschriftung eines Film-Dateipfads („Weitwinkel"/„Zoom"), aus dem Dateinamen."""
     stem = Path(path).stem
@@ -90,13 +94,13 @@ async def _encode(paths: list[str], out: Path) -> None:
         )
         _stdout, stderr = await process.communicate()
     if process.returncode != 0:
-        raise RuntimeError(f"ffmpeg ({process.returncode}): {stderr.decode(errors='replace')[-300:]}")
+        raise FilmEncodeError(f"ffmpeg ({process.returncode}): {stderr.decode(errors='replace')[-300:]}")
 
 
 async def make_cluster_films(store: VisionStore, cluster_id: str) -> list[Path]:
     """Je Linse mit mindestens ``VISION_FILM_MIN_FRAMES`` Bildern ein Film des
     Vorkommnisses. Returnt die Dateipfade in Anzeigereihenfolge (Weitwinkel, Zoom);
-    leer, wenn keine Linse genug Bilder hat. Wirft bei einem ffmpeg-Fehler."""
+    leer, wenn keine Linse genug Bilder hat. Wirft :class:`FilmEncodeError` bei einem ffmpeg-Fehler."""
     source_id, day, frames = await asyncio.to_thread(_lens_frames, store, cluster_id)
     films: list[Path] = []
     for lens, paths in frames.items():

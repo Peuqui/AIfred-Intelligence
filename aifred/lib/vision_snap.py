@@ -27,6 +27,8 @@ from dataclasses import replace
 from datetime import datetime
 from typing import Any
 
+from .reolink_ai import ReolinkAIError
+
 logger = logging.getLogger(__name__)
 
 # Snap-Clients pro KAMERA (Schlüssel host:api_port), NICHT pro Source:
@@ -159,7 +161,7 @@ async def snap_frames(
                 jpeg = await client.snap(ch)
                 frames.append(frame_from_snap(source_id, jpeg))
             return frames
-    except Exception as e:  # noqa: BLE001
+    except ReolinkAIError as e:
         logger.warning(
             "snap failed for %s: %s — caller falls back to RTSP/hub",
             source_id, e,
@@ -248,10 +250,7 @@ async def _close_key(key: str) -> None:
     client = _clients.pop(key, None)
     if client is None:
         return
-    try:
-        await client.aclose()
-    except Exception as e:  # noqa: BLE001
-        logger.warning("snap client close failed for %s: %s", key, e)
+    await client.aclose()
 
 
 async def close_clients(source_id: str | None = None) -> None:

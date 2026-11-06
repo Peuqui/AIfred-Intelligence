@@ -827,7 +827,7 @@ def prune_audit_log(retention_days: int | None = None) -> int:
             )
             conn.commit()
             return int(cur.rowcount)
-    except Exception as exc:  # noqa: BLE001
+    except sqlite3.Error as exc:  # busy database: the next night retries
         logger.warning("Audit log prune failed: %s", exc)
         return 0
 
@@ -842,7 +842,7 @@ async def cleanup_audit_log_task() -> None:
 
     from .cleanup_utils import seconds_until_next_run
     from .config import GARBAGE_COLLECTION_HOUR, SECURITY_AUDIT_RETENTION_DAYS
-    from .logging_utils import log_message
+    from .logging_utils import log_exception, log_message
 
     log_message(
         f"🗑️ Audit-Log cleanup task started "
@@ -855,5 +855,5 @@ async def cleanup_audit_log_task() -> None:
             removed = prune_audit_log()
             if removed > 0:
                 log_message(f"🗑️ Audit-Log cleanup: {removed} alte Einträge entfernt")
-        except Exception as exc:  # noqa: BLE001
-            log_message(f"⚠️ Audit-Log cleanup task error: {exc}")
+        except Exception as exc:  # noqa: BLE001 — the nightly task must not end; logged
+            log_exception("⚠️ Audit-Log cleanup task error", exc)

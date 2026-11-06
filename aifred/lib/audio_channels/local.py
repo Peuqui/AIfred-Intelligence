@@ -42,7 +42,7 @@ class LocalChannel(AudioOutputChannel):
         start_pos_sec: float | None,
         ctx: PluginContext,
     ) -> dict[str, Any]:
-        from ..audio_manager import audio_manager
+        from ..audio_manager import PLAYER_ERRORS, audio_manager
         # Streams haben keine sinnvolle Start-Position
         local_start = (
             start_pos_sec if (start_pos_sec and start_pos_sec > 0 and not src.is_stream) else None
@@ -53,7 +53,7 @@ class LocalChannel(AudioOutputChannel):
                 state_key=src.state_key,
                 start_pos_sec=local_start,
             )
-        except Exception as exc:  # noqa: BLE001
+        except PLAYER_ERRORS as exc:
             return {"success": False, "error": f"playback failed: {exc}"}
 
         return {

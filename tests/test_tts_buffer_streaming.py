@@ -13,6 +13,7 @@ from aifred.lib.audio_channels._audio_orchestrator import (
     TTSBuffer,
     silence_pcm,
 )
+from aifred.plugins.channels.freeecho2_channel.ws_bridge import WsBridgeMixin
 
 
 def run(coro):
@@ -21,11 +22,14 @@ def run(coro):
 
 @pytest.fixture
 def bridge():
-    b = MagicMock()
+    """``spec``: eine Methode, die die echte Bridge nicht hat, scheitert mit AttributeError,
+    statt still ein MagicMock zu liefern (bis 06.11. fehlte ``send_done``)."""
+    b = MagicMock(spec=WsBridgeMixin)
     b.send_audio_flag = AsyncMock(return_value=True)
     b.send_audio_start = AsyncMock(return_value=True)
     b.send_audio_chunk = AsyncMock(return_value=True)
     b.send_audio_end = AsyncMock(return_value=True)
+    b.send_done = AsyncMock(return_value=True)
     return b
 
 
@@ -159,6 +163,7 @@ class TestStreamingPump:
             return result, buffer.producer.cancelled()
 
         assert run(go()) == (False, True)
+        bridge.send_done.assert_awaited_once_with("room1")   # a stop ends the turn with done
 
     def test_silence_between_paragraphs_is_real_zero_samples(self):
         assert silence_pcm(1000) == bytes(96000) and len(silence_pcm(20)) == len(KEEPALIVE_SILENCE)

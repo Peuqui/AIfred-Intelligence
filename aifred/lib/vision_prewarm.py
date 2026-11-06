@@ -23,6 +23,7 @@ import asyncio
 import logging
 from typing import Any
 
+from .ollama_models import OLLAMA_ERRORS
 from .vision_settings import load_vision_settings
 
 logger = logging.getLogger(__name__)
@@ -216,7 +217,7 @@ async def prewarm_vlm(
     except TimeoutError:
         logger.warning("prewarm_vlm: load took longer than %.0fs", timeout_seconds)
         return False
-    except Exception as e:  # noqa: BLE001
+    except OLLAMA_ERRORS as e:
         logger.warning("prewarm_vlm: ollama call failed: %s", e)
         return False
     return True
@@ -246,7 +247,7 @@ async def is_vlm_loaded(model: str | None = None, host: str | None = None) -> bo
     try:
         # ollama-python AsyncClient.ps() liefert die laufenden Modelle.
         result = await client.ps()
-    except Exception as e:  # noqa: BLE001
+    except OLLAMA_ERRORS as e:
         logger.debug("is_vlm_loaded: ps() failed: %s", e)
         return False
     models = getattr(result, "models", None) or result.get("models", [])
@@ -295,7 +296,7 @@ async def unload_vlm_model(model: str, host: str | None = None) -> bool:
     except TimeoutError:
         logger.warning("unload_vlm_model: timeout while unloading %s", model)
         return False
-    except Exception as e:  # noqa: BLE001
+    except OLLAMA_ERRORS as e:
         logger.warning("unload_vlm_model: ollama call failed: %s", e)
         return False
     return True

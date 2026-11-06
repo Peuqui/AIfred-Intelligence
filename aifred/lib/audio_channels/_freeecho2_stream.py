@@ -33,7 +33,7 @@ from typing import Any
 from ..config import DATA_DIR
 from ..debug_bus import debug as debug_event
 from ..formatting import format_clock, format_number
-from ..logging_utils import log_message
+from ..logging_utils import log_exception, log_message
 from ..mpv_ipc import MpvIpcClient
 from ..task_utils import cancel_and_wait
 
@@ -94,6 +94,11 @@ HEARTBEAT_INTERVAL_SEC = 5.0
 
 class FreeEcho2StreamError(RuntimeError):
     """mpv konnte nicht starten oder die IPC-Verbindung schlug fehl."""
+
+
+# How starting or steering the mpv stream fails: our own error (no IPC, mpv refused), the
+# process or its FIFO (OSError), or no answer in time.
+STREAM_ERRORS = (FreeEcho2StreamError, OSError, TimeoutError)
 
 
 def _fmt_pos(sec: float | None) -> str:
@@ -521,12 +526,7 @@ class FreeEcho2Stream:
                 pass
 
         # FreeEcho.2 signalisieren dass der Stream aus ist
-        try:
-            await self._send_end(self.room, end_tone=False)
-        except Exception as exc:  # noqa: BLE001
-            log_message(
-                f"FreeEcho2Stream[{self.room}]: send_end failed: {exc}", "warning"
-            )
+        await self._send_end(self.room, end_tone=False)
 
         self._current_uri = None
         self._current_state_key = None
@@ -546,7 +546,7 @@ class FreeEcho2Stream:
                 f"@ {_fmt_state(pos, dur)}"
             )
             return True
-        except Exception:  # noqa: BLE001
+        except STREAM_ERRORS:  # mpv did not take the pause
             return False
 
     async def resume(self) -> bool:
@@ -568,7 +568,7 @@ class FreeEcho2Stream:
                 f"@ {_fmt_state(pos, dur)}"
             )
             return True
-        except Exception as exc:  # noqa: BLE001
+        except STREAM_ERRORS as exc:
             log_message(
                 f"FreeEcho2Stream[{self.room}]: resume failed: {exc}", "warning"
             )
@@ -581,19 +581,15 @@ class FreeEcho2Stream:
             mode = "relative" if relative else "absolute"
             await self._ipc.send({"command": ["seek", float(position_sec), mode]})
             return True
-        except Exception:  # noqa: BLE001
+        except STREAM_ERRORS:  # mpv did not take the seek
             return False
 
     async def status(self) -> dict[str, Any]:
         if not self.is_running:
             return {"running": False, "playing": False, "paused": False, "target": self.target_id}
-        try:
-            pos = await self._ipc.get_property("time-pos", default=None)
-            dur = await self._ipc.get_property("duration", default=None)
-            paused = await self._ipc.get_property("pause", default=False)
-        except Exception:  # noqa: BLE001
-            pos = dur = None
-            paused = False
+        pos = await self._ipc.get_property("time-pos", default=None)
+        dur = await self._ipc.get_property("duration", default=None)
+        paused = await self._ipc.get_property("pause", default=False)
         return {
             "running": True,
             "playing": not paused,
@@ -621,11 +617,8 @@ class FreeEcho2Stream:
         if cb is not None:
             try:
                 await cb()
-            except Exception as exc:  # noqa: BLE001
-                log_message(
-                    f"FreeEcho2Stream[{self.room}]: on_eof callback error: {exc}",
-                    "warning",
-                )
+            except Exception as exc:  # noqa: BLE001 — a callback's failure must not break the end of the stream; logged
+                log_exception(f"FreeEcho2Stream[{self.room}]: on_eof callback error", exc)
 
     def _fire_send_failed_cb(self) -> None:
         """Schedule den send-failed-Callback als unabhaengigen Task.
@@ -647,11 +640,8 @@ class FreeEcho2Stream:
         async def _run() -> None:
             try:
                 await cb()
-            except Exception as exc:  # noqa: BLE001
-                log_message(
-                    f"FreeEcho2Stream[{self.room}]: send-failed cb error: {exc}",
-                    "warning",
-                )
+            except Exception as exc:  # noqa: BLE001 — a callback's failure must not break the stream; logged
+                log_exception(f"FreeEcho2Stream[{self.room}]: send-failed cb error", exc)
         self._spawn_bg_task(_run(), name=f"freeecho2-{self.room}-send-failed-cb")
 
     def _fire_natural_end_cb(self) -> None:
@@ -670,11 +660,8 @@ class FreeEcho2Stream:
         async def _run() -> None:
             try:
                 await cb()
-            except Exception as exc:  # noqa: BLE001
-                log_message(
-                    f"FreeEcho2Stream[{self.room}]: natural-end cb error: {exc}",
-                    "warning",
-                )
+            except Exception as exc:  # noqa: BLE001 — a callback's failure must not break the stream; logged
+                log_exception(f"FreeEcho2Stream[{self.room}]: natural-end cb error", exc)
         self._spawn_bg_task(_run(), name=f"freeecho2-{self.room}-natural-end-cb")
 
     # ── FIFO-Pumpe: PCM von mpv → freeecho2 WS-Bridge ───────
@@ -805,14 +792,7 @@ class FreeEcho2Stream:
                     # mpv exited — natural end (FIFO drained)
                     natural_eof = True
                     break
-                try:
-                    ok = await self._send_chunk(self.room, chunk)
-                except Exception as exc:  # noqa: BLE001
-                    log_message(
-                        f"FreeEcho2Stream[{self.room}]: send_chunk error: {exc}", "warning"
-                    )
-                    self._fire_send_failed_cb()
-                    break
+                ok = await self._send_chunk(self.room, chunk)
                 if not ok:
                     log_message(
                         f"FreeEcho2Stream[{self.room}]: WS send returned False — aborting",
@@ -885,14 +865,7 @@ class FreeEcho2Stream:
                 await asyncio.sleep(HEARTBEAT_INTERVAL_SEC)
                 if self._stopping:
                     break
-                try:
-                    ok = await self._send_heartbeat(self.room)
-                except Exception as exc:  # noqa: BLE001
-                    log_message(
-                        f"FreeEcho2Stream[{self.room}]: heartbeat error: {exc}",
-                        "warning",
-                    )
-                    ok = False
+                ok = await self._send_heartbeat(self.room)
                 if ok:
                     consecutive_failures = 0
                     continue
@@ -939,7 +912,7 @@ class FreeEcho2Stream:
                 )
         except asyncio.CancelledError:
             return
-        except Exception as exc:  # noqa: BLE001
+        except OSError as exc:  # the state file; the IPC reads give their default
             log_message(
                 f"FreeEcho2Stream[{self.room}]: position-save loop error: {exc}", "warning"
             )

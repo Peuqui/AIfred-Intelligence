@@ -45,15 +45,10 @@ class CommandsMixin(BaseChannel):
             # weiter, dort wird der pump-Task pausiert/fortgesetzt.
             state = msg.get("state", "")
             self.channel_log(f"[FreeEcho.2 {room}] flow={state}")
-            try:
-                from ....lib import audio_channels
-                ch = audio_channels.resolve(f"freeecho2:{room}")
-                if ch is not None and hasattr(ch, "notify_flow"):
-                    ch.notify_flow(room, state)
-            except Exception as exc:  # noqa: BLE001
-                self.channel_log(
-                    f"[FreeEcho.2 {room}] flow handling error: {exc}", "warning",
-                )
+            from ....lib import audio_channels
+            ch = audio_channels.resolve(f"freeecho2:{room}")
+            if ch is not None and hasattr(ch, "notify_flow"):
+                ch.notify_flow(room, state)
 
         elif msg_type == "wake":
             wake_agent = msg.get("agent")
@@ -407,7 +402,7 @@ class CommandsMixin(BaseChannel):
         try:
             resolver = SourceResolver(build_configured_source_map())
             src = resolver.resolve(key)
-        except Exception as exc:  # noqa: BLE001
+        except (ValueError, OSError) as exc:  # unknown or missing source: nothing to resume
             self.channel_log(
                 f"⚠️ [FreeEcho.2 {room}] _resume: cannot resolve key={key}: {exc}",
                 "warning",

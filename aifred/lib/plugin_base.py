@@ -47,10 +47,7 @@ def load_plugin_instructions(
     import inspect
     from pathlib import Path
     lang_code = "de" if str(lang).startswith("de") else "en"
-    try:
-        prompts_dir = Path(inspect.getfile(plugin.__class__)).parent / "prompts"
-    except Exception:  # noqa: BLE001
-        return ""
+    prompts_dir = Path(inspect.getfile(plugin.__class__)).parent / "prompts"
 
     per_tool_dir = prompts_dir / lang_code
     if not per_tool_dir.is_dir():
@@ -260,7 +257,9 @@ def _plugin_tool_names(plugin: Any) -> set[str]:
     try:
         ctx = PluginContext(agent_id="_promptscan", lang="de", session_id="")
         names = {t.name for t in plugin.get_tools(ctx)}
-    except Exception:  # noqa: BLE001
+    except Exception as exc:  # noqa: BLE001 — a plugin that cannot list its tools without a session: its intro is not gated, logged
+        from .logging_utils import log_exception
+        log_exception(f"Plugin {key}: tools not listable for the intro gate", exc)
         names = set()
     _plugin_tool_names_cache[key] = names
     return names

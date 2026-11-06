@@ -29,7 +29,7 @@ from mcp.client.stdio import stdio_client
 from mcp.client.streamable_http import streamablehttp_client
 
 from ....lib.function_calling import Tool
-from ....lib.logging_utils import log_message
+from ....lib.logging_utils import log_exception, log_message
 from ....lib.plugin_base import PluginContext
 
 SERVERS_FILE = Path(__file__).parent / "servers.json"
@@ -133,8 +133,8 @@ class McpClientPlugin:
             try:
                 self._discovered[server] = _discover_in_thread(cfg)
                 log_message(f"🔌 mcp_client: '{server}' offers {len(self._discovered[server])} tools")
-            except Exception as exc:  # noqa: BLE001
-                log_message(f"❌ mcp_client: discovery of '{server}' failed: {exc!r}", "error")
+            except Exception as exc:  # noqa: BLE001 — one server must not stop the others' discovery; logged
+                log_exception(f"❌ mcp_client: discovery of '{server}' failed", exc)
                 self._discovered[server] = []
         return self._discovered[server]
 

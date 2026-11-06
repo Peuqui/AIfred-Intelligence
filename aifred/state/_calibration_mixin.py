@@ -1056,7 +1056,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             else "🔄 llama-swap restarted (dry run: operating "
                                  "point unchanged)"
                         )
-                except Exception as start_err:  # noqa: BLE001
+                except OSError as start_err:  # systemctl could not be started
                     self._cal_debug(
                         f"⚠️ llama-swap restart failed: {start_err} — "
                         f"run llama-swap-restart manually"
@@ -1525,19 +1525,16 @@ class CalibrationMixin(rx.State, mixin=True):
                         self._cal_debug(
                             f"   ⚠️ Ollama /api/ps returned {_ps.status_code}"
                         )
-            except Exception as _e:  # noqa: BLE001
-                # ConnectionRefused heißt schlicht: kein Ollama-Daemon
-                # lauscht — der Normalfall seit der Ollama-Stilllegung,
-                # kein Problem. Andere Fehler weiterhin im Wortlaut zeigen.
-                _msg = str(_e)
-                if "Connection refused" in _msg or "Errno 111" in _msg:
-                    self._cal_debug(
-                        "   ℹ️ Ollama not running — unload not needed"
-                    )
-                else:
-                    self._cal_debug(
-                        f"   ⚠️ Ollama unload skipped: {_e}"
-                    )
+            except httpx.ConnectError:
+                # Kein Ollama-Daemon lauscht — der Normalfall seit der
+                # Ollama-Stilllegung, kein Problem.
+                self._cal_debug(
+                    "   ℹ️ Ollama not running — unload not needed"
+                )
+            except (httpx.HTTPError, ValueError) as _e:  # any other HTTP failure, or no JSON
+                self._cal_debug(
+                    f"   ⚠️ Ollama unload skipped: {_e}"
+                )
 
             # Stop llama-swap BEFORE the emptiness check — it holds the
             # last chat model resident on the GPUs, so leaving it up makes
@@ -1685,7 +1682,8 @@ class CalibrationMixin(rx.State, mixin=True):
                                         yield
                                         await asyncio.sleep(0.3)
                                     _peak = await _v_task
-                                except Exception as _e:  # noqa: BLE001
+                                except Exception as _e:  # noqa: BLE001 — one VLM's burn-in must not stop the others; shown and logged
+                                    log_exception(f"Calibration: {_vc['label']} prewarm", _e)
                                     self._cal_debug(
                                         f"   ❌ {_vc['label']} prewarm error: {_e}"
                                     )
@@ -2659,7 +2657,8 @@ class CalibrationMixin(rx.State, mixin=True):
                         _vlm_u, _vlm_mb = await resolve_vlm_reserve(
                             VLM_NUM_CTX, model_id_override=vlm_model_id,
                         )
-                    except Exception as e:  # noqa: BLE001
+                    except Exception as e:  # noqa: BLE001 — one VLM's reserve must not stop the others; shown and logged
+                        log_exception(f"Calibration: VLM reserve for {vlm_label}", e)
                         self._cal_debug(f"   ⚠️ VLM reserve resolution failed for {vlm_label}: {e}")
                         yield
                         continue
@@ -2907,7 +2906,8 @@ class CalibrationMixin(rx.State, mixin=True):
                             _vu, _vmb = await resolve_vlm_reserve(
                                 VLM_NUM_CTX, model_id_override=vlm_model_id_c,
                             )
-                        except Exception as e:  # noqa: BLE001
+                        except Exception as e:  # noqa: BLE001 — one combination must not stop the others; shown and logged
+                            log_exception("Calibration: combination reserve", e)
                             self._cal_debug(f"   ⚠️ Combo resolve failed: {e}")
                             yield
                             continue

@@ -141,8 +141,10 @@ sieht die anderen nicht.
   Änderungen an Typen, Deklarationen oder Dekoratoren das Rendering jeder Seite
   vorher und nachher vergleichen: `scripts/render_pages.py` (06.11. fing das ein
   `.to(list)`, das den Elementtyp verwarf und die Seite beim Kompilieren gebrochen hätte).
-- mypy für die Oberfläche **ohne Cache** prüfen, wenn Ergebnisse überraschen
-  (`--no-incremental`): 06.11. lieferte der Cache 242 falsche „rx.icon: Module not callable“.
+- Meldet mypy „Module not callable“ (meist `rx.icon`), **ohne Cache gegenprüfen**
+  (`--no-incremental`): Am 06.11. lieferte ein alter Cache 242 solche Fehler, auch beim
+  Lauf über `aifred/ tests/`; ohne Cache und mit frischem Cache (auch nach
+  Einzeldatei-Läufen) keine. Die Ursache ist nicht gefunden.
 - **Stellvertreter in Tests** (eine kleine Klasse statt des echten States oder
   Objekts) erben für mypy von der echten Klasse und zur Laufzeit von `object`:
   ```python
@@ -186,6 +188,18 @@ python3 -m py_compile aifred/DATEI.py
 ```bash
 ~/.venv/devtools/bin/ruff check aifred/state/ aifred/aifred.py aifred/lib/context_manager.py
 ```
+
+**Breite `except`-Fänge (seit 06.11.2026):**
+- Gefangen wird, was dort auftreten kann: Datenbank `sqlite3.Error`, Datei `OSError`,
+  JSON-Datei `(OSError, ValueError)`, HTTP `httpx.HTTPError`, OpenCV `cv2.error`, Ollama
+  `OLLAMA_ERRORS` (`lib/ollama_models.py`), mpv `PLAYER_ERRORS` / `STREAM_ERRORS`.
+- Kein Fang, wo der Aufgerufene selbst fängt oder der Aufrufer die Grenze ist (Tool-Fehler
+  meldet `function_calling.py` dem Modell, mit Traceback im Log).
+- `except Exception` nur an einer echten Grenze (Schleife, Rückruf, je Regel/Kamera/Ziel,
+  Aktion mit sichtbarer Fehlermeldung) und immer mit Traceback: mit `logger` als
+  `except Exception as e:  # <Grund>` plus `exc_info=True`, mit `log_message` als
+  `# noqa: BLE001 — <Grund>` plus `log_exception(...)`. `tests/test_broad_except_reasons.py`
+  lehnt jedes `noqa: BLE001` ohne „ — Grund“ ab.
 
 **Bekannte Ignores (NICHT beheben):**
 - `E402` in config.py/state/: Import-Position (notwendig wegen zirkulärer Imports)

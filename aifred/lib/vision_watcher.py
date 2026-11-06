@@ -35,6 +35,7 @@ from . import vision_snap
 from .config import DATA_DIR
 from .frame_hub import get_default_hub
 from .frame_sources import get as get_source
+from .task_utils import cancel_and_wait
 from .vision_burst import BurstRunner
 from .vision_continuous_vlm import ContinuousVlm
 from .vision_detect import DetectionService
@@ -170,13 +171,8 @@ class VisionWatcher:
         if session is None:
             return False
         was_running = session.task is not None and not session.task.done()
-        if was_running:
-            assert session.task is not None
-            session.task.cancel()
-            try:
-                await session.task
-            except asyncio.CancelledError:
-                pass
+        # Logs a failure while the task winds down, so the cleanup below always runs.
+        await cancel_and_wait(session.task, f"Vision watcher {source_id}")
         self._bursts.cancel(source_id)
         with self._lock:
             self._sessions.pop(source_id, None)

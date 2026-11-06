@@ -14,6 +14,7 @@ core only orchestrates. See docs/de/architecture/proactive-alerts.md.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -171,10 +172,11 @@ class AlertDispatcher:
                 continue
             try:
                 ok = await self._deliver(ev, rule)
-            except Exception as e:  # noqa: BLE001
+            except Exception as e:  # one rule's delivery must not stop the others
                 logger.warning(
                     "alert: deliver failed for rule '%s': %s",
                     rule.rule_id or rule.producer, e,
+                    exc_info=True,
                 )
                 ok = False
             if ok:
@@ -234,10 +236,11 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> tuple[str | None, list[str]
             return await analyze_cluster_with_frames(
                 segment_ids, headcount=headcount, explicit=False,
             )
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # any VLM failure: the alert goes out without a description
             logger.warning(
                 "alert: segment VLM describe failed for %s (%d events): %s",
                 ev.source_id, len(segment_ids), e,
+                exc_info=True,
             )
             return None, []
 
@@ -248,10 +251,11 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> tuple[str | None, list[str]
             return await describe_cluster_by_id(
                 cluster_id, headcount=headcount, prompt=summary_prompt,
             ), []
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:  # any VLM failure: the alert goes out without a description
             logger.warning(
                 "alert: cluster VLM describe failed for %s (%s): %s",
                 ev.source_id, cluster_id, e,
+                exc_info=True,
             )
             return None, []
 
@@ -288,8 +292,8 @@ async def _describe_media_via_vlm(ev: AlertEvent) -> tuple[str | None, list[str]
             explicit=False,
         )
         return description, []
-    except Exception as e:  # noqa: BLE001
-        logger.warning("alert: VLM describe failed for %s: %s", ev.source_id, e)
+    except Exception as e:  # any VLM failure: the alert goes out without a description
+        logger.warning("alert: VLM describe failed for %s: %s", ev.source_id, e, exc_info=True)
         return None, []
 
 
@@ -411,7 +415,7 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
                         "alert: persisted VLM description to %d event(s) "
                         "in %s", n, where,
                     )
-            except Exception as e:  # noqa: BLE001
+            except sqlite3.Error as e:
                 logger.warning("alert: persist VLM description failed: %s", e)
 
     if mode in ("llm", "vlm+llm"):
@@ -419,8 +423,8 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
         # VLM-Beschreibung als Kontext. process_inbound legt die Session an.
         try:
             composed = await _compose_via_llm(ev, extra_context=vlm_desc or "")
-        except Exception as e:  # noqa: BLE001
-            logger.warning("alert: LLM compose failed (%s) — template fallback", e)
+        except Exception as e:  # any LLM failure: the template text goes out
+            logger.warning("alert: LLM compose failed (%s) — template fallback", e, exc_info=True)
             composed = None
         if composed:
             text = composed
@@ -444,7 +448,7 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
                 media=ev.media, media_gallery=ev.media_gallery,
             )
             recorded = True
-        except Exception as e:  # noqa: BLE001
+        except OSError as e:  # the session file; the alert is delivered anyway
             logger.warning("alert: session record failed: %s", e)
 
     # Fixed session title (e.g. "Vigilantia: Hauseingang") — autonomous
@@ -457,7 +461,7 @@ async def _default_deliver(ev: AlertEvent, rule: AlertRule) -> bool:
                 ev.producer, ev.session_key or ev.source_id or ev.producer,
                 ev.session_title,
             )
-        except Exception as e:  # noqa: BLE001
+        except OSError as e:  # the session file
             logger.warning("alert: session title failed: %s", e)
 
     # Severity → Audio-Type-Tupel fuer Sinks die einen lokalen Sound vor

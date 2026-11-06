@@ -651,10 +651,7 @@ class SettingsMixin(rx.State, mixin=True):
 
         # Remember the page the user came from for the close/save redirect
         # (Settings-Accordion auf /, oder Plugin-Tab auf /agent-editor).
-        try:
-            current_path = self.router.page.path or "/"
-        except Exception:  # noqa: BLE001
-            current_path = "/"
+        current_path = self.router.page.path or "/"
         self._credentials_return_to = current_path
         if connected:
             return [rx.redirect("/credentials"), type(self).verify_oauth_connection]

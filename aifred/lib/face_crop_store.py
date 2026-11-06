@@ -181,7 +181,7 @@ class FaceCropStore:
         """
         try:
             crop_bytes = _crop_from_jpeg(frame_bytes, bbox)
-        except Exception as e:  # noqa: BLE001
+        except cv2.error as e:
             logger.warning("face crop decode failed for %s: %s", source_id, e)
             return None
         if not crop_bytes:
@@ -238,7 +238,7 @@ class FaceCropStore:
         (Best-Effort — eine Meldung ohne Crop ist besser als keine)."""
         try:
             crop_bytes = _crop_person_from_jpeg(frame_bytes, bbox)
-        except Exception as e:  # noqa: BLE001
+        except cv2.error as e:
             logger.warning("person crop decode failed for %s: %s", source_id, e)
             return ""
         if not crop_bytes:

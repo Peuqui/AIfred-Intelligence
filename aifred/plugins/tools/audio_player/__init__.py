@@ -24,7 +24,7 @@ from ....lib.audio_player_settings import (
     load_audio_player_settings,
 )
 from ....lib.function_calling import Tool
-from ....lib.logging_utils import log_message
+from ....lib.logging_utils import log_exception, log_message
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.security import TIER_READONLY, TIER_WRITE_DATA
 
@@ -342,21 +342,14 @@ class AudioPlayerPlugin:
                     "error": f"No output channel can handle target '{target_id}'",
                 })
 
-            try:
-                # shuffle=False: die Liste ist oben bereits (einmal) gemischt —
-                # ein zweites Channel-Shuffle würde die zurückgegebene
-                # files-Preview von der echten Abspielreihenfolge entkoppeln.
-                result = await channel.play_queue(
-                    queue_items, target_id, ctx,
-                    audio_type=queue_audio_type,
-                    shuffle=False,
-                )
-            except Exception as exc:  # noqa: BLE001
-                return json.dumps({
-                    "success": False,
-                    "target": target_id,
-                    "error": f"play_queue failed: {exc}",
-                })
+            # shuffle=False: die Liste ist oben bereits (einmal) gemischt —
+            # ein zweites Channel-Shuffle würde die zurückgegebene
+            # files-Preview von der echten Abspielreihenfolge entkoppeln.
+            result = await channel.play_queue(
+                queue_items, target_id, ctx,
+                audio_type=queue_audio_type,
+                shuffle=False,
+            )
 
             if not result.get("success"):
                 return json.dumps({**result, "label": label, "folder": sub or "(root)"})
@@ -418,7 +411,8 @@ class AudioPlayerPlugin:
                     method = getattr(ch, action)
                     try:
                         ok = await method(tinfo.id, **kwargs, ctx=ctx)
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:  # noqa: BLE001 — one target must not stop the others; reported and logged
+                        log_exception(f"audio {action}: {tinfo.id} failed", exc)
                         results.append({"target": tinfo.id, "ok": False, "error": str(exc)})
                         continue
                     # Auch Falsy-Ergebnisse listen ("nichts lief auf diesem
@@ -443,10 +437,7 @@ class AudioPlayerPlugin:
                 ),
             }
         method = getattr(channel, action)
-        try:
-            ok = await method(target, **kwargs, ctx=ctx)
-        except Exception as exc:  # noqa: BLE001
-            return {"success": False, "target": target, "error": str(exc)}
+        ok = await method(target, **kwargs, ctx=ctx)
         return {"success": True, "target": target, "ok": bool(ok)}
 
     def _tool_pause(self, ctx: PluginContext) -> Tool:
@@ -500,13 +491,8 @@ class AudioPlayerPlugin:
                         for tinfo in ch.list_targets(ctx):
                             try:
                                 ok = await ch.resume(tinfo.id, ctx=ctx)
-                            except Exception as exc:  # noqa: BLE001
-                                # Nicht still verschlucken — der nächste
-                                # Kandidat wird trotzdem probiert.
-                                log_message(
-                                    f"audio_resume: {tinfo.id} failed: {exc}",
-                                    "warning",
-                                )
+                            except Exception as exc:  # noqa: BLE001 — one target must not stop the next; logged
+                                log_exception(f"audio_resume: {tinfo.id} failed", exc)
                                 continue
                             if ok:
                                 return json.dumps({
@@ -665,7 +651,8 @@ class AudioPlayerPlugin:
                 for tinfo in ch.list_targets(ctx):
                     try:
                         st = await ch.status(tinfo.id, ctx=ctx)
-                    except Exception as exc:  # noqa: BLE001
+                    except Exception as exc:  # noqa: BLE001 — one target must not cost the others' status; reported and logged
+                        log_exception(f"audio_status: {tinfo.id} failed", exc)
                         st = {"error": str(exc)}
                     st["target"] = tinfo.id
                     statuses.append(st)

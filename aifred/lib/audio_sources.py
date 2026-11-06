@@ -18,6 +18,7 @@ facing path always starts with the source label).
 
 from __future__ import annotations
 
+import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -126,7 +127,7 @@ def resolve_audio_type(
         try:
             from .audio_index import audio_index
             genre = audio_index.get_genre(label, sub_path)
-        except Exception:  # noqa: BLE001
+        except sqlite3.Error:  # busy index: no genre
             genre = None
         tag_type = _audio_type_from_genre(genre)
         if tag_type:

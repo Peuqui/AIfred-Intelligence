@@ -18,7 +18,7 @@ from reflex.event import EventSpec
 
 from ..lib.config import DEBUG_MESSAGES_MAX, LLAMASWAP_BACKENDS
 from ..lib.context_manager import strip_thinking_blocks
-from ..lib.logging_utils import log_message
+from ..lib.logging_utils import log_exception, log_message
 
 if TYPE_CHECKING:
     from ..lib.agent_tuning import AgentTuning
@@ -813,9 +813,9 @@ class ChatMixin(rx.State, mixin=True):
                 if _warn:
                     self.add_debug(_warn)
                     log_message(_warn)
-            except Exception as _e:  # noqa: BLE001
+            except Exception as _e:  # noqa: BLE001 — a diagnostic never blocks sending; logged
                 # Diagnostic only — never block a chat submit on a check failure
-                log_message(f"diagnose_uncalibrated_combo failed: {_e}")
+                log_exception("diagnose_uncalibrated_combo failed", _e)
 
         # ============================================================
         # PHASE 1: Spinner + textarea clear — yield IMMEDIATELY

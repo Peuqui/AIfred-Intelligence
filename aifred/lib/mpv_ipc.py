@@ -164,7 +164,7 @@ class MpvIpcClient:
                     await self._on_eof()
         except asyncio.CancelledError:
             return
-        except Exception as exc:  # noqa: BLE001
+        except (OSError, ValueError) as exc:  # the connection broke or mpv sent an unreadable line: the read loop ends
             log_message(
                 f"{self._log_prefix}: IPC read loop error: {exc}",
                 self._read_error_log_level,

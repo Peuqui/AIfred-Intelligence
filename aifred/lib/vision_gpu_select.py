@@ -96,7 +96,7 @@ def list_gpus() -> list[GpuInfo]:
         return []
     try:
         pynvml.nvmlInit()
-    except Exception as e:  # noqa: BLE001
+    except pynvml.NVMLError as e:  # no NVIDIA driver: no cards to list
         logger.debug("nvmlInit failed: %s", e)
         return []
 
@@ -119,7 +119,7 @@ def list_gpus() -> list[GpuInfo]:
                         pci_bus_id=_nvml_bus_id(pynvml, h),
                     )
                 )
-            except Exception as e:  # noqa: BLE001
+            except pynvml.NVMLError as e:  # this card is left out, the others are listed
                 logger.warning("NVML query failed for GPU %d: %s", i, e)
     finally:
         try:
@@ -134,7 +134,7 @@ def _nvml_bus_id(pynvml, handle) -> str:
     try:
         raw = pynvml.nvmlDeviceGetPciInfo(handle).busId
         return raw.decode() if isinstance(raw, bytes) else str(raw)
-    except Exception as e:  # noqa: BLE001 — Bus-ID ist Zusatzinfo
+    except pynvml.NVMLError as e:  # the bus ID is extra information
         logger.debug("pci bus id unavailable: %s", e)
         return ""
 

@@ -26,6 +26,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+import cv2
+
 from .config import (
     VISION_CLUSTER_GAP_SECONDS as GAP_SECONDS,
 )
@@ -126,7 +128,7 @@ def cluster_events(
             continue
         try:
             ph = phash_file(frame_path)
-        except Exception as e:  # noqa: BLE001
+        except (OSError, cv2.error) as e:  # frame missing or undecodable: no hash
             logger.debug("phash failed for %s: %s", frame_path, e)
             result[eid] = ""
             continue

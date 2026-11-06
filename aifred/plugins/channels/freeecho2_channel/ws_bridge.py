@@ -126,7 +126,7 @@ class WsBridgeMixin(BaseChannel):
                     f"— stream abort, WS stays open", "warning",
                 )
             return False
-        except Exception as exc:  # noqa: BLE001
+        except OSError as exc:  # the connection is gone
             if not quiet:
                 self.channel_log(
                     f"[FreeEcho.2 {room}] {frame_name} error: {exc}", "warning",

@@ -11,6 +11,7 @@ Kept out of the watcher core: the watcher just calls emit_face_alert().
 from __future__ import annotations
 
 import logging
+import sqlite3
 from datetime import datetime
 from typing import Any
 
@@ -197,8 +198,9 @@ async def _emit(
     describe: bool = True,
     media_album: list[str] | None = None,
 ) -> None:
-    """Build + dispatch one AlertEvent. Best-effort — never raises into the
-    watcher's hot path. The shared dispatcher's rules decide where it goes.
+    """Build + dispatch one AlertEvent. A busy event database costs this alert
+    (logged); the dispatcher guards each rule's delivery itself. The shared
+    dispatcher's rules decide where it goes.
 
     ``media`` (VLM description + single-image channels) is the ZOOM still when
     available — it shows the subject, while the wide-angle latest frame often
@@ -280,7 +282,7 @@ async def _emit(
             session_title=session_title,
         )
         await get_default_dispatcher().emit(ev)
-    except Exception as e:  # noqa: BLE001
+    except sqlite3.Error as e:  # busy database: this alert is lost, logged
         logger.warning("vision alert emit failed for %s: %s", source_id, e)
 
 
@@ -741,13 +743,13 @@ class BurstReport:
         geht die Zusammenfassung ohne ihn raus (Warnung im Log)."""
         if not self.has_observations():
             return
-        from .vision_film import make_cluster_films
+        from .vision_film import FilmEncodeError, make_cluster_films
 
         films: list[str] = []
         if self.cluster_id and self._store is not None:
             try:
                 films = [str(path) for path in await make_cluster_films(self._store, self.cluster_id)]
-            except Exception as e:  # noqa: BLE001
+            except (sqlite3.Error, OSError, FilmEncodeError) as e:  # the summary goes out without the film
                 logger.warning("burst film for %s failed: %s", self.cluster_id, e)
         await self._send_once(films=films, summary=True)
 
@@ -835,7 +837,7 @@ class BurstReport:
             return []
         try:
             ids = self._store.list_cluster_event_ids(self.cluster_id)
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:  # busy database: nothing new this round
             logger.warning("burst: reading cluster events failed: %s", e)
             return []
         return sorted(i for i in ids if int(i) > self._described_up_to)

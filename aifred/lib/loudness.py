@@ -503,7 +503,7 @@ class LoudnessIndex:
             # weiterlaufen.
             try:
                 info = self.analyze_file(child)
-            except Exception as exc:  # noqa: BLE001
+            except sqlite3.Error as exc:  # the cache write failed: marked failed
                 log_message(
                     f"loudness.scan_directory: {child.name} threw "
                     f"{type(exc).__name__}: {exc} — marked failed",

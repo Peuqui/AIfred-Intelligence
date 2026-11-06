@@ -321,10 +321,8 @@ async def process_inbound(message: InboundMessage, user_saved: bool = False) -> 
             try:
                 await gate_plugin.send_reply(gate_reply, message)
                 gate_reply.metadata["sent"] = True
-            except Exception as e:  # noqa: BLE001
-                log_message(
-                    f"⚠️ Calibration-gate reply via {message.channel} failed: {e}"
-                )
+            except Exception as e:  # noqa: BLE001 — channel plugins fail in their own ways; the gate holds anyway, logged
+                log_exception(f"⚠️ Calibration-gate reply via {message.channel} failed", e)
         return gate_reply
 
     # 0. Determine security tier for this channel
@@ -1041,8 +1039,8 @@ async def announce_to_channel(
     try:
         await plugin.send_reply(outbound, dummy)
         return True
-    except Exception as e:  # noqa: BLE001
-        log_message(f"announce: send via '{channel}' failed: {e}", "error")
+    except Exception as e:  # noqa: BLE001 — channel plugins fail in their own ways; the caller sees False, logged
+        log_exception(f"announce: send via '{channel}' failed", e)
         return False
 
 

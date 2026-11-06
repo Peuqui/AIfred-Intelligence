@@ -13,6 +13,7 @@ mit dem Vorschau-Popup, das schon SSE-verdrahtet ist.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import TYPE_CHECKING, Any
 
 import reflex as rx
@@ -135,7 +136,7 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
             )
             if recent != self.vigilantia_feed_recent_count:
                 self.vigilantia_feed_recent_count = recent
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:  # the event database; this runs in the 500 ms tick
             logger.warning("vigilantia-feed refresh failed: %s", e)
             if self.vigilantia_feed_events:
                 self.vigilantia_feed_events = []

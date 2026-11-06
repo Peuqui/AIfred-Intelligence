@@ -406,7 +406,7 @@ class RTSPSource:
                             self.source_id, dropped,
                         )
                     jpeg_bytes, w, h = await asyncio.to_thread(cap.read_encode)
-                except Exception as e:  # noqa: BLE001
+                except (RuntimeError, cv2.error) as e:  # the stream broke: reconnect
                     logger.warning(
                         "RTSP read failed for %s: %s — reconnecting in %.0fs",
                         self.source_id, e, backoff,

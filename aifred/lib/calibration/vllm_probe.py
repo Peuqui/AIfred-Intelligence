@@ -576,7 +576,7 @@ async def cleanup_vllm_compile_cache_task() -> None:
 
     from ..cleanup_utils import seconds_until_next_run
     from ..config import GARBAGE_COLLECTION_HOUR
-    from ..logging_utils import log_message
+    from ..logging_utils import log_exception, log_message
 
     gib = 1024**3
     log_message(
@@ -594,8 +594,8 @@ async def cleanup_vllm_compile_cache_task() -> None:
                     f"🧹 vLLM compile cache cleanup: {freed / gib:.1f} GiB freed, "
                     f"{kept / gib:.1f} GiB kept"
                 )
-        except Exception as exc:  # noqa: BLE001
-            log_message(f"⚠️ vLLM compile cache cleanup task error: {exc}")
+        except Exception as exc:  # noqa: BLE001 — the nightly task must not end; logged
+            log_exception("⚠️ vLLM compile cache cleanup task error", exc)
 
 
 def probe_boot_env(spec: VllmSpec, runtime: dict) -> dict[str, str]:

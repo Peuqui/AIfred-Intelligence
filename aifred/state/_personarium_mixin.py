@@ -12,6 +12,7 @@ sind für externe Konsumenten gedacht.
 from __future__ import annotations
 
 import logging
+import sqlite3
 from typing import Any
 
 import reflex as rx
@@ -81,7 +82,7 @@ class PersonariumMixin(rx.State, mixin=True):
             from ..lib.vision_store import VisionStore
             store = VisionStore()
             self.personarium_faces = store.list_faces_with_summary()
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("personarium refresh failed: %s", e)
             self.personarium_faces = []
             self.personarium_status = f"⚠️ {e}"
@@ -138,7 +139,7 @@ class PersonariumMixin(rx.State, mixin=True):
                 }
                 for r in rows
             ]
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("personarium embeddings load failed: %s", e)
             self.personarium_embeddings = []
 
@@ -163,7 +164,7 @@ class PersonariumMixin(rx.State, mixin=True):
             store = VisionStore()
             store.delete_embedding(int(embedding_id))
             bump_enrollment_epoch()  # frisch erkennen
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("delete embedding failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
@@ -201,7 +202,7 @@ class PersonariumMixin(rx.State, mixin=True):
         except ValueError as e:
             self.personarium_status = f"⚠️ {e}"
             return
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("personarium rename failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
@@ -229,7 +230,7 @@ class PersonariumMixin(rx.State, mixin=True):
                 f"✓ '{face['name']}' gelöscht "
                 f"({info['embeddings_deleted']} Embeddings)"
             )
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("personarium delete failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
@@ -257,7 +258,7 @@ class PersonariumMixin(rx.State, mixin=True):
                 unknown_only=True,
                 limit=2000,
             )
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("personarium untagged load failed: %s", e)
             self.personarium_untagged = []
             return
@@ -325,8 +326,8 @@ class PersonariumMixin(rx.State, mixin=True):
                 + (f" ({by_name})" if by_name else "")
                 + (f" — {rest} bleiben unzugeordnet" if rest else "")
             )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("personarium rematch failed: %s", e)
+        except Exception as e:  # the Personarium shows why: face model, files and store
+            logger.warning("personarium rematch failed: %s", e, exc_info=True)
             self.personarium_status = f"⚠️ {e}"
         self.personarium_rematch_busy = False
         self._refresh_personarium_untagged()
@@ -340,7 +341,7 @@ class PersonariumMixin(rx.State, mixin=True):
             from ..lib.vision_store import VisionStore
             VisionStore().dismiss_untagged_events(self._untagged_group_ids([int(event_id)]))
             self.personarium_status = "✓ Aufnahme verworfen"
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("personarium dismiss failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
@@ -382,7 +383,7 @@ class PersonariumMixin(rx.State, mixin=True):
                 self._untagged_group_ids(self.personarium_untagged_selected)
             )
             self.personarium_status = f"✓ {n} Aufnahmen verworfen"
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("personarium dismiss selected failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
@@ -410,7 +411,7 @@ class PersonariumMixin(rx.State, mixin=True):
             from ..lib.vision_store import VisionStore
             n = VisionStore().dismiss_untagged_events(ids)
             self.personarium_status = f"✓ {n} Aufnahmen verworfen"
-        except Exception as e:  # noqa: BLE001
+        except sqlite3.Error as e:
             logger.warning("personarium dismiss all failed: %s", e)
             self.personarium_status = f"⚠️ {e}"
             return
@@ -482,8 +483,8 @@ class PersonariumMixin(rx.State, mixin=True):
                     f" — {siblings} weitere Aufnahme(n) des Vorkommnisses "
                     f"mit zugeordnet"
                 )
-        except Exception as e:  # noqa: BLE001
-            logger.warning("personarium tag+learn failed: %s", e)
+        except Exception as e:  # the Personarium shows why: face model, files and store
+            logger.warning("personarium tag+learn failed: %s", e, exc_info=True)
             self.personarium_status = f"⚠️ {e}"
             self.personarium_tag_busy = False
             return

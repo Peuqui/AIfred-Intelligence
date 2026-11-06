@@ -440,7 +440,7 @@ class VisionStore:
         for r in rows:
             try:
                 cls = json.loads(r["classification"] or "{}")
-            except Exception:  # noqa: BLE001
+            except json.JSONDecodeError:  # a broken classification: the event without it
                 cls = {}
             result.append({
                 "id": int(r["id"]),
@@ -771,7 +771,7 @@ class VisionStore:
         for r in rows:
             try:
                 cls = json.loads(r["classification"] or "{}")
-            except Exception:  # noqa: BLE001
+            except json.JSONDecodeError:  # a broken classification: the event without it
                 cls = {}
             ts_iso = str(r["timestamp"])
             # Pre-render date + time strings so the UI doesn't have to
@@ -1025,7 +1025,7 @@ class VisionStore:
         for r in rows:
             try:
                 cls = json.loads(r["classification"] or "{}")
-            except Exception:  # noqa: BLE001
+            except json.JSONDecodeError:  # a broken classification: the event without it
                 cls = {}
             result.append({
                 "id": int(r["id"]),
@@ -1057,7 +1057,7 @@ class VisionStore:
             for r in rows:
                 try:
                     cls = json.loads(r["classification"] or "{}")
-                except Exception:  # noqa: BLE001
+                except json.JSONDecodeError:  # a broken classification: the event without it
                     cls = {}
                 cls["description"] = description
                 cls["analyzed_at"] = analyzed_at
@@ -1282,7 +1282,7 @@ class VisionStore:
                     continue
                 try:
                     cls = json.loads(row["classification"] or "{}")
-                except Exception:  # noqa: BLE001
+                except json.JSONDecodeError:  # a broken classification: the event without it
                     cls = {}
                 cls["description"] = description
                 cls["analyzed_at"] = analyzed_at

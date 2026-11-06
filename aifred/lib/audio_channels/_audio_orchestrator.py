@@ -41,7 +41,7 @@ import threading
 from typing import TYPE_CHECKING, Any
 
 from ..formatting import format_number
-from ..logging_utils import log_message
+from ..logging_utils import log_exception, log_message
 from ..task_utils import cancel_and_wait
 from ._freeecho2_stream import PCM_CHUNK_BYTES
 
@@ -426,13 +426,7 @@ class AudioOrchestrator:
             # _reset_active_unlocked hat audio_end geschickt (für music/tts);
             # done schließt die Turn-Grenze deterministisch ab (Puck → IDLE +
             # _done-ACK), symmetrisch zum Alert- und reaktiven Pfad.
-            try:
-                await self.bridge.send_done(self.room)
-            except Exception as exc:  # noqa: BLE001
-                log_message(
-                    f"AudioOrchestrator[{self.room}]: send_done error: {exc}",
-                    "warning",
-                )
+            await self.bridge.send_done(self.room)
             log_message(f"AudioOrchestrator[{self.room}]: stop → IDLE")
             return True
 
@@ -450,23 +444,14 @@ class AudioOrchestrator:
         if self._stream is not None:
             try:
                 await self._stream.stop()
-            except Exception as exc:  # noqa: BLE001
-                log_message(
-                    f"AudioOrchestrator[{self.room}]: stream.stop error: {exc}",
-                    "warning",
-                )
+            except Exception as exc:  # noqa: BLE001 — the reset goes on with audio_end; logged
+                log_exception(f"AudioOrchestrator[{self.room}]: stream.stop error", exc)
             self._stream = None
 
         # audio_end-Marker an Puck (Protokoll v2: jeder Strom hatte ein audio_start);
         # ein Stopp/Abbruch spielt keinen Ende-Ton
         if self._active_type is not None:
-            try:
-                await self.bridge.send_audio_end(self.room, end_tone=False)
-            except Exception as exc:  # noqa: BLE001
-                log_message(
-                    f"AudioOrchestrator[{self.room}]: send_audio_end error: {exc}",
-                    "warning",
-                )
+            await self.bridge.send_audio_end(self.room, end_tone=False)
 
         self._active_type = None
         self._paused = False

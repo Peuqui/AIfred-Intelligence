@@ -9,6 +9,7 @@ import json
 import logging
 import re
 import shlex
+import sqlite3
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -62,7 +63,7 @@ def resolve_source_resolution(
         from .vision_store import VisionStore
         store = VisionStore()
         info = store.get_source(source_id)
-    except Exception:  # noqa: BLE001
+    except sqlite3.Error:  # busy database: resolution unknown
         return 0, 0
     if not info:
         return 0, 0
@@ -90,7 +91,7 @@ def is_grayscale_image(jpeg_bytes: bytes) -> bool:
         small = cv2.resize(arr, (64, 64), interpolation=cv2.INTER_AREA)
         sat = cv2.cvtColor(small, cv2.COLOR_BGR2HSV)[:, :, 1]
         return float(sat.mean()) < 12.0
-    except Exception:  # noqa: BLE001
+    except cv2.error:
         return False
 
 
@@ -102,7 +103,7 @@ def get_source_briefing(source_id: str) -> str:
     try:
         from .vision_store import VisionStore
         rec = VisionStore().get_source(source_id) if source_id else None
-    except Exception:  # noqa: BLE001
+    except sqlite3.Error:  # busy database: no briefing
         return ""
     return str((rec or {}).get("prompt_context") or "").strip()
 
@@ -120,7 +121,7 @@ def resolve_source_alias(source_id: str, fallback: str = "") -> str:
         from .vision_store import VisionStore
         store = VisionStore()
         info = store.get_source(source_id)
-    except Exception:  # noqa: BLE001
+    except sqlite3.Error:  # busy database: the fallback label
         return fallback
     if not info:
         return fallback
@@ -162,7 +163,7 @@ def resolve_source_id(name_or_id: str) -> str:
         from .vision_store import VisionStore
         store = VisionStore()
         records = store.list_sources()
-    except Exception:  # noqa: BLE001
+    except sqlite3.Error:  # busy database: the name as given
         return name_or_id
     wanted = name_or_id.strip().lower()
     for rec in records:
@@ -682,7 +683,7 @@ def source_overlay_label(source_id: str) -> str:
         ).strip()
         pos = str(stored.get("position") or "").strip()
         return f"{name} ({pos})" if pos else name
-    except Exception as e:  # noqa: BLE001
+    except sqlite3.Error as e:
         logger.debug("source_overlay_label lookup failed for %s: %s", source_id, e)
         return source_id
 
@@ -762,7 +763,7 @@ def annotate_frame(
         buf = io.BytesIO()
         out.save(buf, format="JPEG", quality=90)
         return buf.getvalue()
-    except Exception as e:  # noqa: BLE001
+    except (OSError, ValueError) as e:  # PIL could not draw: the frame goes out unannotated
         logger.warning("annotate_frame failed: %s", e)
         return image_bytes
 

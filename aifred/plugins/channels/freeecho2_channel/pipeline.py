@@ -101,7 +101,7 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
             while heartbeat_running:
                 try:
                     await ws.send_str(json.dumps({"type": "heartbeat"}))
-                except Exception as exc:  # noqa: BLE001
+                except OSError as exc:  # the socket is gone: the heartbeat ends
                     self.channel_log(
                         f"[FreeEcho.2 {room}] heartbeat send failed: "
                         f"{type(exc).__name__}: {exc}", "warning",
@@ -216,21 +216,15 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
             # damit der User hört, dass der Service gerade nicht kann,
             # statt vor einem stummen Puck zu stehen.
             if outbound is not None and outbound.metadata.get("calibration_gate"):
-                try:
-                    from ....lib import audio_channels
-                    ch = audio_channels.resolve(f"freeecho2:{room}")
-                    orc = (
-                        ch.get_orchestrator(room)
-                        if ch is not None and hasattr(ch, "get_orchestrator")
-                        else None
-                    )
-                    if orc is not None:
-                        await orc.play_notification(None, start_tone=True, end_tone=False)
-                except Exception as e:  # noqa: BLE001
-                    self.channel_log(
-                        f"[FreeEcho.2 {room}] calibration-gate notification failed: {e}",
-                        "warning",
-                    )
+                from ....lib import audio_channels
+                ch = audio_channels.resolve(f"freeecho2:{room}")
+                orc = (
+                    ch.get_orchestrator(room)
+                    if ch is not None and hasattr(ch, "get_orchestrator")
+                    else None
+                )
+                if orc is not None:
+                    await orc.play_notification(None, start_tone=True, end_tone=False)
 
             total_time = _fe2_time.monotonic() - _fe2_t0
             self.channel_log(f"[FreeEcho.2 {room}] ← Pipeline complete ({total_time:.1f}s)")

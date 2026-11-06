@@ -2340,7 +2340,7 @@ def _vlm_gpu_uuid() -> str:
         idx = vision_gpu_select.pick_vlm_gpu()
         rows = nvidia_smi.query("uuid", gpu_index=idx)
         return str(rows[0]["uuid"]) if rows else ""
-    except Exception as e:  # noqa: BLE001
+    except RuntimeError as e:  # no CUDA card: visiond without pin
         print(f"  ⚠ VLM-GPU pin unavailable ({e}) — visiond without pin")
         return ""
 
