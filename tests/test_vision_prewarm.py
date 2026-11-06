@@ -2,8 +2,8 @@
 
 New model (see is_vision_active docstring):
 * is_vision_active() == "Vision plugin enabled" (the override trigger),
-  NOT vision_mode. The plugin status is a filesystem fact (tools/ vs
-  disabled/), so we mock plugin_registry.is_plugin_enabled.
+  NOT vision_mode. The plugin status is a filesystem fact (the off marker in
+  the plugin's folder), so we mock plugin_registry.is_plugin_enabled.
 * prewarm_vlm() only PRELOADS the VLM in ``live`` mode. ``on-demand`` keeps
   the reserved slot empty (loads lazily on first request), so it's a no-op.
   Plugin disabled → no-op too.

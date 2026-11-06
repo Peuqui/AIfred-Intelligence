@@ -427,7 +427,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         elif tab == "plugins":
             # Load tool toggles + channel allowlists for the plugins tab.
             # list_all_plugins() (not discover_tools) so DISABLED tool plugins
-            # stay visible and can be re-enabled — enabled == in tools/.
+            # stay visible and can be re-enabled — enabled == no off marker.
             from ..lib.credential_broker import broker
             from ..lib.plugin_registry import all_channels, list_all_plugins
             self.tool_plugin_toggles = {

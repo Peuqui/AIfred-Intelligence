@@ -3,10 +3,11 @@
 Scans:
 - aifred/plugins/channels/ → BaseChannel instances
 - aifred/plugins/tools/    → ToolPlugin instances
-- aifred/plugins/disabled/ → stored but not loaded
 
-Plugins can be enabled/disabled by moving files between their
-subdirectory and disabled/.
+A plugin is switched off by a marker beside its code: ``<package>/.disabled``, or
+``<module>.disabled`` next to a single-file plugin. The marker is machine-local (gitignored); the
+code stays where git keeps it, so its tests run and updates reach it while it is off. Without a
+marker a plugin is on: a new plugin needs nothing, a deleted one takes its marker along.
 """
 
 from __future__ import annotations
@@ -14,7 +15,6 @@ from __future__ import annotations
 import importlib
 import logging
 import pkgutil
-import shutil
 import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -38,10 +38,19 @@ def _plugins_root() -> Path:
     return Path(__file__).parent.parent / "plugins"
 
 
-def _disabled_dir() -> Path:
-    d = _plugins_root() / "disabled"
-    d.mkdir(exist_ok=True)
-    return d
+DISABLED_MARKER = ".disabled"
+
+
+def _disabled_marker(plugin_path: Path) -> Path:
+    """Where a plugin's off switch lies: inside its package, beside a single-file module."""
+    if plugin_path.is_dir():
+        return plugin_path / DISABLED_MARKER
+    return plugin_path.with_suffix(DISABLED_MARKER)
+
+
+def _is_switched_off(base: Path, module_info: pkgutil.ModuleInfo) -> bool:
+    path = base / module_info.name if module_info.ispkg else base / f"{module_info.name}.py"
+    return _disabled_marker(path).exists()
 
 
 # ============================================================
@@ -53,7 +62,8 @@ _channels_discovered = False
 
 
 def _discover_channels() -> None:
-    """Import all modules in plugins/channels/ and collect BaseChannel instances."""
+    """Import the modules in plugins/channels/ that are not switched off and collect their
+    BaseChannel instances."""
     global _channels_discovered
     if _channels_discovered:
         return
@@ -71,7 +81,7 @@ def _discover_channels() -> None:
         channels_init.touch()
 
     for module_info in pkgutil.iter_modules([str(channels_dir)]):
-        if module_info.name.startswith("_"):
+        if module_info.name.startswith("_") or _is_switched_off(channels_dir, module_info):
             continue
         try:
             mod = importlib.import_module(f".channels.{module_info.name}", package="aifred.plugins")
@@ -112,7 +122,7 @@ def get_tool_plugin(name: str) -> ToolPlugin | None:
 
 
 def discover_tools() -> list[ToolPlugin]:
-    """Scan plugins/tools/ and return all ToolPlugin instances. Cached."""
+    """Scan plugins/tools/ and return all ToolPlugin instances that are not switched off. Cached."""
     global _tools
     if _tools is not None:
         return _tools
@@ -131,7 +141,7 @@ def discover_tools() -> list[ToolPlugin]:
 
     _tools = []
     for module_info in pkgutil.iter_modules([str(tools_dir)]):
-        if module_info.name.startswith("_"):
+        if module_info.name.startswith("_") or _is_switched_off(tools_dir, module_info):
             continue
         try:
             mod = importlib.import_module(f".tools.{module_info.name}", package="aifred.plugins")
@@ -199,7 +209,7 @@ def tool_groups_on_offer(ctx: PluginContext) -> list[dict[str, Any]]:
 # ============================================================
 
 def reload_all() -> None:
-    """Clear all caches and re-discover. Called after moving plugin files.
+    """Clear all caches and re-discover. Called after a plugin is switched on or off.
 
     Stops any currently registered channel listeners BEFORE swapping out
     the module objects from ``sys.modules`` — otherwise the old listener
@@ -235,24 +245,23 @@ def reload_all() -> None:
 # ============================================================
 
 def list_all_plugins() -> list[dict[str, str]]:
-    """List all plugins (enabled + disabled) with status.
+    """List all plugins, switched on or off, with status.
 
-    Returns: [{"name": "epim", "file": "epim.py", "type": "tool", "enabled": "1"}, ...]
+    Returns: [{"name": "epim", "file": "epim", "type": "tool", "enabled": "1"}, ...]
     """
     root = _plugins_root()
-    disabled = _disabled_dir()
     result: list[dict[str, str]] = []
 
     def _display(path: Path) -> dict[str, str]:
         """Display names in both UI languages, read from the plugin's own
-        i18n.json — works for disabled plugins too, which are not loaded."""
+        i18n.json — works for plugins switched off too, which are not loaded."""
         return {
             f"display_{lang}": plugin_i18n_text(path, PLUGIN_DISPLAY_NAME_KEY, lang)
             for lang in ("de", "en")
         }
 
     def _has_credentials(stem: str) -> str:
-        """Check if a tool plugin has credential_fields."""
+        """Check if a tool plugin has credential_fields (a plugin switched off is not loaded: "")."""
         for p in discover_tools():
             if p.name == stem:
                 fields = getattr(p, "credential_fields", None)
@@ -260,53 +269,23 @@ def list_all_plugins() -> list[dict[str, str]]:
                     return "1"
         return ""
 
-    # Enabled channels (single files + packages)
-    channels_dir = root / "channels"
-    if channels_dir.exists():
-        for f in sorted(channels_dir.glob("*.py")):
-            if f.name.startswith("_"):
-                continue
-            result.append({"name": f.stem, **_display(f), "file": f.name, "type": "channel", "enabled": "1", "has_credentials": ""})
-        for d in sorted(channels_dir.iterdir()):
-            if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
-                name = d.name
-                result.append({"name": name, **_display(d), "file": d.name, "type": "channel", "enabled": "1", "has_credentials": ""})
-
-    # Enabled tools (single files + packages)
-    tools_dir = root / "tools"
-    if tools_dir.exists():
-        for f in sorted(tools_dir.glob("*.py")):
-            if f.name.startswith("_"):
-                continue
-            result.append({"name": f.stem, **_display(f), "file": f.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(f.stem)})
-        for d in sorted(tools_dir.iterdir()):
-            if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
-                name = d.name
-                result.append({"name": name, **_display(d), "file": d.name, "type": "tool", "enabled": "1", "has_credentials": _has_credentials(name)})
-
-    # Disabled (both types — file/dir name encodes origin via prefix).
-    def _split_prefix(stem: str) -> tuple[str, str]:
-        if stem.startswith("channel_"):
-            return "channel", stem.removeprefix("channel_")
-        if stem.startswith("tool_"):
-            return "tool", stem.removeprefix("tool_")
-        return "tool", stem
-
-    # Single-file disabled plugins
-    for f in sorted(disabled.glob("*.py")):
-        if f.name.startswith("_"):
+    for subdir, plugin_type in (("channels", "channel"), ("tools", "tool")):
+        base = root / subdir
+        if not base.exists():
             continue
-        ptype, pname = _split_prefix(f.stem)
-        result.append({"name": pname, **_display(f), "file": f.name, "type": ptype, "enabled": "", "has_credentials": ""})
-
-    # Package disabled plugins (directories) — e.g. the vision package.
-    # Without this a disabled package vanishes from the manager and can
-    # never be re-enabled via the UI.
-    if disabled.exists():
-        for d in sorted(disabled.iterdir()):
-            if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_"):
-                ptype, pname = _split_prefix(d.name)
-                result.append({"name": pname, **_display(d), "file": d.name, "type": ptype, "enabled": "", "has_credentials": ""})
+        # Single files + packages
+        paths = [f for f in sorted(base.glob("*.py")) if not f.name.startswith("_")]
+        paths += [
+            d for d in sorted(base.iterdir())
+            if d.is_dir() and (d / "__init__.py").exists() and not d.name.startswith("_")
+        ]
+        for path in paths:
+            name = path.stem if path.is_file() else path.name
+            result.append({
+                "name": name, **_display(path), "file": path.name, "type": plugin_type,
+                "enabled": "" if _disabled_marker(path).exists() else "1",
+                "has_credentials": _has_credentials(name) if plugin_type == "tool" else "",
+            })
 
     result.sort(key=lambda p: p["name"])
     return result
@@ -329,52 +308,34 @@ def _find_plugin_path(name: str, plugin_type: str) -> Path | None:
 
 
 def is_plugin_enabled(name: str, plugin_type: str = "tool") -> bool:
-    """True if the plugin lives in its active dir (tools/ or channels/),
-    i.e. it is NOT moved to disabled/.
+    """True if the plugin exists and is not switched off.
 
     Pure filesystem check (no plugin import) — safe to call from lib modules
-    like vision_prewarm without a circular import. Enable/disable is a
-    directory move, so presence in the active dir == enabled.
+    like vision_prewarm without a circular import.
     """
-    return _find_plugin_path(name, plugin_type) is not None
+    path = _find_plugin_path(name, plugin_type)
+    return path is not None and not _disabled_marker(path).exists()
 
 
 def disable_plugin(name: str, plugin_type: str) -> bool:
-    """Move a plugin to disabled/. Prefixes with type."""
-    src = _find_plugin_path(name, plugin_type)
-    if not src:
+    """Switch a plugin off (set its marker) and re-discover. False if there is no such plugin."""
+    path = _find_plugin_path(name, plugin_type)
+    if path is None:
         return False
-
-    prefix = "channel" if plugin_type == "channel" else "tool"
-    dst = _disabled_dir() / f"{prefix}_{src.name}"
-    shutil.move(str(src), str(dst))
+    _disabled_marker(path).touch()
     reload_all()
     return True
 
 
 def enable_plugin(name: str, plugin_type: str) -> bool:
-    """Move a plugin back from disabled/ to its subdirectory."""
-    subdir = "channels" if plugin_type == "channel" else "tools"
-    prefix = "channel" if plugin_type == "channel" else "tool"
-
-    # Find in disabled (could be .py or directory)
-    src = None
-    for candidate in [f"{prefix}_{name}.py", f"{prefix}_{name}_pkg", f"{prefix}_{name}"]:
-        p = _disabled_dir() / candidate
-        if p.exists():
-            src = p
-            break
-
-    if not src:
+    """Switch a plugin on (remove its marker) and re-discover. False if there is no such plugin
+    or it is not switched off."""
+    path = _find_plugin_path(name, plugin_type)
+    if path is None:
         return False
-
-    # Restore original name (remove type prefix)
-    original_name = src.name.removeprefix(f"{prefix}_")
-    dst = _plugins_root() / subdir / original_name
-
-    if not src.exists():
+    marker = _disabled_marker(path)
+    if not marker.exists():
         return False
-
-    shutil.move(str(src), str(dst))
+    marker.unlink()
     reload_all()
     return True

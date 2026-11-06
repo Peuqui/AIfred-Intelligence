@@ -479,4 +479,4 @@ aifred/plugins/
 | 3 | WRITE_SYSTEM | Löschen, System-Operationen |
 | 4 | ADMIN | Shell-Zugriff (nicht implementiert) |
 
-**Plugin Manager:** Plugins können zur Laufzeit über das UI-Modal aktiviert/deaktiviert werden (verschiebt Dateien nach `disabled/`).
+**Plugin Manager:** Plugins können zur Laufzeit über das UI-Modal aktiviert/deaktiviert werden (legt die Markierung `.disabled` in den Ordner des Plugins, der Code bleibt liegen).

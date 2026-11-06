@@ -51,8 +51,8 @@ AIfred-Intelligence/
 
 **Konventionen**
 - Plugins sind atomar: Ein Plugin importiert nie ein anderes Plugin; gemeinsame
-  Logik gehört nach `aifred/lib/`. Ein Plugin zu deaktivieren (Verschieben nach
-  `plugins/disabled/`) darf nichts kaputt machen. Plugins schreiben:
+  Logik gehört nach `aifred/lib/`. Ein Plugin abzuschalten (Markierung `.disabled`
+  in seinem Ordner, der Code bleibt liegen) darf nichts kaputt machen. Plugins schreiben:
   [Plugin-Entwicklung](../guides/plugin-development.md).
 - Alles, was das LLM liest, liegt in `prompts/de/` und `prompts/en/` — immer in
   beiden Sprachen.

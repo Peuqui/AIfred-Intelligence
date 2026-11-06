@@ -10,8 +10,13 @@ Fallbacks und keine Backward-Compatibility, Keep It Simple bei Race Conditions u
 Plugins (`aifred/plugins/`) sind eigenständige, atomare, modulare Gebilde:
 
 - **Plugin → Plugin: VERBOTEN** — kein Import und keine Code-Abhängigkeit
-  zwischen Plugins. Wird ein Plugin deaktiviert (Verzeichnis-Move nach
-  `disabled/`), darf keine Kette brechen.
+  zwischen Plugins. Wird ein Plugin abgeschaltet, darf keine Kette brechen.
+- **Abschalten = Markierung, nie Verschieben** (seit 06.11.2026): Der Plugin-Manager
+  legt `.disabled` in den Ordner des Plugins (gitignoriert, gilt nur auf diesem
+  Rechner); die Registry lädt es dann nicht. Der Code bleibt unter `plugins/tools/`
+  bzw. `plugins/channels/`, seine Tests laufen immer. Vorher wurde das Verzeichnis
+  nach `plugins/disabled/` verschoben: Git sah die Dateien als gelöscht, und die
+  Tests des Plugins fanden es nicht.
 - **Plugin → aifred/lib: ERLAUBT und erwünscht** — lib ist Kern-Infrastruktur
   und immer da. Gemeinsame Logik zweier Plugins wird als lib-Helper
   konsolidiert, niemals per Plugin-Import geteilt.

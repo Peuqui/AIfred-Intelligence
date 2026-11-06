@@ -52,8 +52,8 @@ AIfred-Intelligence/
 
 **Conventions**
 - Plugins are atomic: a plugin never imports another plugin; shared logic goes
-  into `aifred/lib/`. Disabling a plugin (moving it to `plugins/disabled/`) must
-  not break anything. Writing plugins: [Plugin Development](../guides/plugin-development.md).
+  into `aifred/lib/`. Switching a plugin off (a `.disabled` marker in its folder;
+  the code stays where it is) must not break anything. Writing plugins: [Plugin Development](../guides/plugin-development.md).
 - Everything the LLM reads lives in `prompts/de/` and `prompts/en/` — both
   languages, always.
 - User-facing numbers go through `format_number()` (`aifred/lib/formatting.py`)

@@ -402,10 +402,10 @@ Plugins werden über den **Plugin Manager** verwaltet (Settings > Plugin Manager
 - Änderungen wirken sofort, weil sie laufende Hintergrund-Worker starten/stoppen
 - Der Zustand wird in AIfreds `data/settings.json` gespeichert (`channel_toggles`)
 
-**Tool-Plugins** (Calculator, Workspace, EPIM usw.) haben Schalter, die **bei OK** wirken:
-- Das Umschalten eines Tool-Plugins in der UI ändert nur den sichtbaren Zustand
-- Ein Klick auf OK übernimmt alle Änderungen auf einmal, indem Plugin-Verzeichnisse nach/aus `plugins/disabled/` verschoben werden
-- Das Plugin-Verzeichnis wird physisch verschoben und bekommt seinen Typ als Präfix (`disabled/tool_<name>`, `disabled/channel_<name>`) — was in `tools/` oder `channels/` liegt, ist aktiv, was in `disabled/` liegt, nicht
+**Tool-Plugins** (Calculator, Workspace, EPIM usw.) haben Schalter, die **sofort** wirken:
+- Ausschalten legt eine leere Datei `.disabled` in den Ordner des Plugins (bei einem Einzeldatei-Plugin `<name>.disabled` daneben); die Registry lädt das Plugin dann nicht
+- Einschalten entfernt die Markierung wieder; ein Plugin ohne Markierung ist an, ein neues braucht also nichts
+- Der Code bleibt immer an seinem Platz unter `tools/` bzw. `channels/`: Die Markierung ist gitignoriert und gilt nur auf diesem Rechner, die Tests des Plugins laufen auch, wenn es abgeschaltet ist
 
 ### Unterschalter von Kanälen
 
@@ -435,21 +435,20 @@ aifred/
     │   ├── email_channel/     # IMAP IDLE + SMTP (+ E-Mail-Tools; client.py, config.py, tools.py)
     │   ├── freeecho2_channel/ # FreeEcho.2-Lautsprecher über WebSocket (+ freeecho2_announce)
     │   └── telegram_channel/  # Telegram-Bot (+ telegram_send)
-    ├── tools/                 # jedes Tool: __init__.py, i18n.json, prompts/ (settings.json bei Bedarf)
-    │   ├── audio_player/      # Lokale Audiodateien und Internet-Streams
-    │   ├── bible/             # Bibelstellen nachschlagen und durchsuchen
-    │   ├── calculator/        # calculate
-    │   ├── epim/              # EPIM-Termine, -Kontakte, -Notizen, -Aufgaben (db.py, tools.py)
-    │   ├── google_suite/      # Google Calendar, Contacts, Tasks, Drive (Unterpaket pro Dienst)
-    │   ├── judaica/           # Jüdischen Quellenkorpus nachschlagen und durchsuchen
-    │   ├── narrator/          # Liest Textdateien in eine Audiodatei ein
-    │   ├── research/          # web_search, web_fetch
-    │   ├── sandbox/           # execute_code, render_html
-    │   ├── scheduler_tool/    # Geplante Aufgaben und Erinnerungen
-    │   ├── subagent/          # delegate_task an Sub-Agenten
-    │   ├── system_monitor/    # system_status (CPU, RAM, VRAM, Platten, …)
-    │   ├── translator/        # DeepL translate, translate_file
-    │   ├── vision/            # Vigilantia: Snapshots, Szenenbeschreibungen, Watches
-    │   └── workspace/         # Dateien im Arbeitsverzeichnis + ChromaDB-Dokumentenindex
-    └── disabled/              # Deaktivierte Plugins (von der UI als tool_<name> / channel_<name> hierher verschoben)
+    └── tools/                 # jedes Tool: __init__.py, i18n.json, prompts/ (settings.json bei Bedarf)
+        ├── audio_player/      # Lokale Audiodateien und Internet-Streams
+        ├── bible/             # Bibelstellen nachschlagen und durchsuchen
+        ├── calculator/        # calculate
+        ├── epim/              # EPIM-Termine, -Kontakte, -Notizen, -Aufgaben (db.py, tools.py)
+        ├── google_suite/      # Google Calendar, Contacts, Tasks, Drive (Unterpaket pro Dienst)
+        ├── judaica/           # Jüdischen Quellenkorpus nachschlagen und durchsuchen
+        ├── narrator/          # Liest Textdateien in eine Audiodatei ein
+        ├── research/          # web_search, web_fetch
+        ├── sandbox/           # execute_code, render_html
+        ├── scheduler_tool/    # Geplante Aufgaben und Erinnerungen
+        ├── subagent/          # delegate_task an Sub-Agenten
+        ├── system_monitor/    # system_status (CPU, RAM, VRAM, Platten, …)
+        ├── translator/        # DeepL translate, translate_file
+        ├── vision/            # Vigilantia: Snapshots, Szenenbeschreibungen, Watches
+        └── workspace/         # Dateien im Arbeitsverzeichnis + ChromaDB-Dokumentenindex
 ```

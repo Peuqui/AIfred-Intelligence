@@ -402,10 +402,10 @@ Plugins are managed via the **Plugin Manager** (Settings > Plugin Manager > gear
 - Changes take effect instantly because they start/stop running background workers
 - State is stored in AIfred's `data/settings.json` (`channel_toggles`)
 
-**Tool plugins** (Calculator, Workspace, EPIM, etc.) have toggles that apply **on OK**:
-- Toggling a tool plugin in the UI only changes the visual state
-- Clicking OK applies all changes at once by moving plugin directories to/from `plugins/disabled/`
-- The plugin directory is physically moved and prefixed with its type (`disabled/tool_<name>`, `disabled/channel_<name>`) — what's in `tools/` or `channels/` is active, what's in `disabled/` is not
+**Tool plugins** (Calculator, Workspace, EPIM, etc.) have toggles that apply **immediately**:
+- Switching off puts an empty `.disabled` file into the plugin's folder (for a single-file plugin `<name>.disabled` beside it); the registry then does not load the plugin
+- Switching on removes the marker; a plugin without a marker is on, so a new plugin needs nothing
+- The code always stays where it is under `tools/` or `channels/`: the marker is gitignored and applies to this machine only, and the plugin's tests run while it is switched off
 
 ### Channel Sub-Toggles
 
@@ -435,21 +435,20 @@ aifred/
     │   ├── email_channel/     # IMAP IDLE + SMTP (+ email tools; client.py, config.py, tools.py)
     │   ├── freeecho2_channel/ # FreeEcho.2 speakers via WebSocket (+ freeecho2_announce)
     │   └── telegram_channel/  # Telegram bot (+ telegram_send)
-    ├── tools/                 # every tool: __init__.py, i18n.json, prompts/ (settings.json where needed)
-    │   ├── audio_player/      # Local audio files and internet streams
-    │   ├── bible/             # Bible passage lookup and search
-    │   ├── calculator/        # calculate
-    │   ├── epim/              # EPIM appointments, contacts, notes, tasks (db.py, tools.py)
-    │   ├── google_suite/      # Google Calendar, Contacts, Tasks, Drive (sub-packages per service)
-    │   ├── judaica/           # Jewish source corpus lookup and search
-    │   ├── narrator/          # Narrates text files into an audio file
-    │   ├── research/          # web_search, web_fetch
-    │   ├── sandbox/           # execute_code, render_html
-    │   ├── scheduler_tool/    # Scheduled tasks and reminders
-    │   ├── subagent/          # delegate_task to sub-agents
-    │   ├── system_monitor/    # system_status (CPU, RAM, VRAM, disks, …)
-    │   ├── translator/        # DeepL translate, translate_file
-    │   ├── vision/            # Vigilantia: snapshots, scene descriptions, watches
-    │   └── workspace/         # Files in the working directory + ChromaDB document index
-    └── disabled/              # Disabled plugins (moved here by the UI as tool_<name> / channel_<name>)
+    └── tools/                 # every tool: __init__.py, i18n.json, prompts/ (settings.json where needed)
+        ├── audio_player/      # Local audio files and internet streams
+        ├── bible/             # Bible passage lookup and search
+        ├── calculator/        # calculate
+        ├── epim/              # EPIM appointments, contacts, notes, tasks (db.py, tools.py)
+        ├── google_suite/      # Google Calendar, Contacts, Tasks, Drive (sub-packages per service)
+        ├── judaica/           # Jewish source corpus lookup and search
+        ├── narrator/          # Narrates text files into an audio file
+        ├── research/          # web_search, web_fetch
+        ├── sandbox/           # execute_code, render_html
+        ├── scheduler_tool/    # Scheduled tasks and reminders
+        ├── subagent/          # delegate_task to sub-agents
+        ├── system_monitor/    # system_status (CPU, RAM, VRAM, disks, …)
+        ├── translator/        # DeepL translate, translate_file
+        ├── vision/            # Vigilantia: snapshots, scene descriptions, watches
+        └── workspace/         # Files in the working directory + ChromaDB document index
 ```

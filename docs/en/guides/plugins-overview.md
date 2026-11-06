@@ -501,4 +501,4 @@ aifred/plugins/
 | 3 | WRITE_SYSTEM | Delete, system operations |
 | 4 | ADMIN | Shell access (not implemented) |
 
-**Plugin Manager:** Plugins can be enabled/disabled at runtime via the UI modal (moves files to `disabled/`).
+**Plugin Manager:** Plugins can be enabled/disabled at runtime via the UI modal (puts a `.disabled` marker into the plugin's folder; the code stays where it is).

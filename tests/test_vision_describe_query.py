@@ -99,11 +99,7 @@ class TestQueryEventsDedup:
     def _run(self, store: VisionStore, monkeypatch) -> dict:
         from aifred.lib import vision_bulk
         from aifred.lib.plugin_base import PluginContext
-        # Vision kann per Plugin-Manager deaktiviert sein (→ plugins/disabled/)
-        vision_plugin = pytest.importorskip(
-            "aifred.plugins.tools.vision",
-            reason="Vision-Plugin deaktiviert (plugins/disabled/)",
-        )
+        import aifred.plugins.tools.vision as vision_plugin
 
         monkeypatch.setattr(vision_plugin, "_store", lambda: store)
 

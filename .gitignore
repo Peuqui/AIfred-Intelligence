@@ -132,8 +132,9 @@ data/FreeEchoDot2/
 /_private/
 /docs/Forum-Aifred-Vorstellung.md
 
-# Plugin-Manager verschiebt deaktivierte Plugins hierher (transienter Zustand)
-aifred/plugins/disabled/
+# Abschalt-Markierung des Plugin-Managers: gilt nur auf diesem Rechner, der Code bleibt versioniert
+aifred/plugins/*/*/.disabled
+aifred/plugins/*/*.disabled
 
 # Sicherungen von User-Configs vor Aenderungen (vllm_runtime.yaml, Betriebspunkte)
 backups/

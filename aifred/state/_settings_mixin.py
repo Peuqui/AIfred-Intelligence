@@ -947,11 +947,10 @@ class SettingsMixin(rx.State, mixin=True):
     async def toggle_tool_plugin(self, plugin_name: str):
         """Toggle a tool plugin AND apply it on the filesystem immediately.
 
-        Enable/disable is a directory move (tools/ ⇄ disabled/) — that's what
-        ``discover_tools`` / ``is_plugin_enabled`` read. Doing it here makes
-        the toggle actually take effect; the old batch-on-close apply path was
-        never wired up. Applies to ALL tool plugins generically; Vision
-        additionally disarms its Watcher.
+        Enable/disable sets or removes the plugin's off marker (``.disabled`` in
+        its folder) — that's what ``discover_tools`` / ``is_plugin_enabled`` read.
+        Doing it here makes the toggle actually take effect. Applies to ALL tool
+        plugins generically; Vision additionally disarms its Watcher.
 
         OAuth plugins that aren't connected yet are not toggleable from here —
         the user opens the credentials modal (gear icon) and uses the explicit
@@ -990,9 +989,8 @@ class SettingsMixin(rx.State, mixin=True):
             self.add_debug(f"🔌 {display} enabled")
         else:
             display = plugin_display_name(plugin, "en") if plugin else plugin_name
-            # Vision: disarm the Watcher FIRST — force_disarm writes the
-            # vision settings.json, which is gone once disable_plugin moves
-            # the package to disabled/ (that caused the FileNotFoundError).
+            # Vision: disarm the Watcher before the plugin goes off — once it
+            # is off, nothing of Vigilantia may keep watching.
             if plugin_name == "vision":
                 await self.force_disarm_vigilantia()
             if is_plugin_enabled(plugin_name):

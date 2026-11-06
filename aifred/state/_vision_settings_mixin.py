@@ -464,7 +464,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
     # auto-dep warning.
     @rx.var(deps=["tool_plugin_toggles"], auto_deps=False)
     def vision_plugin_enabled(self) -> bool:
-        """True if the Vision plugin is enabled (present in tools/). The eye
+        """True if the Vision plugin is enabled (not switched off). The eye
         toggle is greyed out when this is False — without the plugin the
         Watcher can't run."""
         from ..lib.plugin_registry import is_plugin_enabled
