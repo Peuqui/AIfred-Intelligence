@@ -13,6 +13,7 @@ import reflex as rx
 from reflex.event import EventSpec
 
 from ..lib.config import TTS_DEFAULT_ENGINE
+from ..lib.logging_utils import log_exception
 
 
 class AgentEditorMixin(rx.State, mixin=True):
@@ -1397,7 +1398,8 @@ class AgentEditorMixin(rx.State, mixin=True):
                 return rx.toast.info(f"{agent_name}: memory already empty", duration=3000, position="top-center")
             self.add_debug(f"🗑️ {agent_name}: {count} memories cleared")
             return rx.toast.success(f"{agent_name}: {count} memories cleared", duration=3000, position="top-center")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — ChromaDB's client has no common error class; shown, logged with traceback
+            log_exception(f"Agent editor: clearing the memory of {agent_id}", e)
             return rx.toast.error(f"Error: {e}", duration=3000, position="top-center")
 
     # Reset confirm state

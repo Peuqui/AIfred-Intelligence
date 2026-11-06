@@ -35,6 +35,7 @@ from ..debug_bus import debug as debug_event
 from ..formatting import format_clock, format_number
 from ..logging_utils import log_message
 from ..mpv_ipc import MpvIpcClient
+from ..task_utils import cancel_and_wait
 
 MPV_BINARY = "/usr/bin/mpv"
 SOCKET_WAIT_TIMEOUT_SEC = 5.0
@@ -474,8 +475,8 @@ class FreeEcho2Stream:
                         pos_sec=float(pos),
                         duration_sec=float(dur) if dur is not None else None,
                     )
-            except Exception:  # noqa: BLE001
-                pass
+            except OSError as exc:  # the state file; the stream stops either way
+                log_message(f"⚠️ FreeEcho2Stream[{self.room}]: stop position not saved: {exc}", "warning")
         debug_event(
             f"🎵 [{self.room}] ⏹️ stream stopped: {self._current_state_key}"
         )
@@ -497,19 +498,15 @@ class FreeEcho2Stream:
 
         # 3. Tasks aufräumen (Read-Loop des IPC-Clients in derselben
         # Cancel/Await-Reihenfolge wie die eigenen Tasks)
-        _tasks = (
-            self._fifo_pump_task, self._ipc.reader_task,
-            self._save_task, self._heartbeat_task,
-        )
-        for task in _tasks:
-            if task is not None and not task.done():
-                task.cancel()
-        for task in _tasks:
+        _tasks = {
+            "FIFO pump": self._fifo_pump_task, "mpv IPC reader": self._ipc.reader_task,
+            "position save": self._save_task, "heartbeat": self._heartbeat_task,
+        }
+        for task in _tasks.values():
             if task is not None:
-                try:
-                    await asyncio.wait_for(task, timeout=2.0)
-                except (TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
-                    pass
+                task.cancel()  # all at once; the waits below take up to 2 s each
+        for label, task in _tasks.items():
+            await cancel_and_wait(task, f"FreeEcho2 stream [{self.room}]: {label}", timeout=2.0)
         self._fifo_pump_task = None
         self._save_task = None
         self._heartbeat_task = None

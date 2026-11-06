@@ -27,7 +27,7 @@ from .i18n import t
 
 # Imports for the functions (same as original state.py methods)
 from .llm_client import LLMClient, build_llm_options
-from .logging_utils import console_separator, log_message, log_raw_messages
+from .logging_utils import console_separator, log_exception, log_raw_messages
 from .message_builder import build_messages_from_llm_history, inject_before_question
 from .prompt_loader import (
     get_agent_system_prompt,
@@ -440,7 +440,8 @@ async def _check_compression_if_needed(
 
         state.is_compressing = False
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — the answer goes on with the uncompressed history; logged
+        log_exception("Compression check failed", e)
         state.add_debug(f"⚠️ Compression check failed: {e}")
         state.is_compressing = False
 
@@ -823,7 +824,8 @@ async def _run_agent_direct_response(
 
         yield
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary of the run: the UI shows the error, the log keeps the traceback
+        log_exception(f"{agent_label} direct response failed", e)
         state.add_debug(f"❌ {agent_label} Direct Response Error: {e}")
         state.add_agent_panel(
             agent=agent,
@@ -1125,7 +1127,8 @@ async def run_sokrates_analysis(
 
         _finalize_debate(state)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary of the run: the UI shows the error, the log keeps the traceback
+        log_exception("Sokrates debate failed", e)
         state.add_debug(f"❌ Sokrates Error: {e}")
 
     finally:
@@ -1322,7 +1325,8 @@ async def run_tribunal(
 
         _finalize_debate(state)
 
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — boundary of the run: the UI shows the error, the log keeps the traceback
+        log_exception("Tribunal failed", e)
         state.add_debug(f"❌ Tribunal Error: {e}")
 
     finally:
@@ -1550,12 +1554,8 @@ async def run_symposion(
         console_separator()
         state.add_debug("────────────────────")
 
-    except Exception as e:
-        # Vollstaendiger Trace ins Service-Log — der Debug-Stream zeigt nur
-        # die Kurzform (eine Zeile reicht der UI), aber fuer die Diagnose
-        # brauchen wir die Herkunft (z.B. ChromaDB down vs. LLM-Backend down).
-        import traceback
-        log_message(f"Symposion error:\n{traceback.format_exc()}")
+    except Exception as e:  # noqa: BLE001 — boundary of the run: the UI shows the error, the log keeps the traceback
+        log_exception("Symposion failed", e)
         state.add_debug(f"❌ Symposion Error: {type(e).__name__}: {e}")
 
     finally:

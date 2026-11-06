@@ -27,7 +27,8 @@ def load_vision_settings() -> dict[str, Any]:
     except (OSError, json.JSONDecodeError) as e:
         raise ValueError(f"{VISION_SETTINGS_PATH} unlesbar: {e}") from e
     if not isinstance(parsed, dict):
-        raise ValueError(f"{VISION_SETTINGS_PATH}: JSON-Objekt erwartet")
+        # Eine kaputte Datei ist für den Aufrufer eine Fehlerart, wie die unlesbare oben.
+        raise ValueError(f"{VISION_SETTINGS_PATH}: JSON-Objekt erwartet")  # noqa: TRY004
     return parsed
 
 

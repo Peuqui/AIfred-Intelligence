@@ -1349,20 +1349,21 @@ async def _message_hub_lifespan():
     try:
         yield
     finally:
+        from .lib.logging_utils import log_exception
         await message_hub.stop_all()
         try:
             from .lib.vision_watcher import get_default_watcher
             await get_default_watcher().shutdown()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 — shutting down: the camera logout below must still run
+            log_exception("Shutdown: vision watcher", exc)
         # Geteilte Kamera-Snap-/AI-Clients sauber abmelden (Reolink-Logout →
         # gibt die Session frei). Gegen Token-Leaks bei Service-Neustarts,
         # die sonst das „max session"-Kontingent der Kamera füllen.
         try:
             from .lib.vision_snap import close_clients
             await close_clients()
-        except Exception:  # noqa: BLE001
-            pass
+        except Exception as exc:  # noqa: BLE001 — shutting down: logged, nothing else depends on it
+            log_exception("Shutdown: camera clients", exc)
 
 
 @contextlib.asynccontextmanager

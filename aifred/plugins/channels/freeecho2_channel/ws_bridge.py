@@ -73,7 +73,7 @@ class WsBridgeMixin(BaseChannel):
         # Type-Checks pro Feld: alle Felder sind strikt bool (kein int-Aliasing)
         for field, v in params.items():
             if not isinstance(v, bool):
-                raise ValueError(
+                raise TypeError(
                     f"audio_flag({audio_type!r}): {field} must be bool, got {v!r}"
                 )
 
@@ -223,7 +223,7 @@ class WsBridgeMixin(BaseChannel):
         """``audio_end`` mit Pflichtfeld ``end_tone`` (Ende-Ton am Puck). Bei Stopp
         und Abbruch ``False``: ein Abbruch spielt keinen Ende-Ton."""
         if not isinstance(end_tone, bool):
-            raise ValueError(f"audio_end: end_tone must be bool, got {end_tone!r}")
+            raise TypeError(f"audio_end: end_tone must be bool, got {end_tone!r}")
         return await self._send_frame(
             room, {"type": "audio_end", "end_tone": end_tone}, "send_audio_end",
         )

@@ -142,13 +142,11 @@ class CasusMixin(rx.State, mixin=True):
         self.casus_confirm_delete_all = False
         self._refresh_filter_options()
         self._refresh_events()
-        # VLM-Power-Toggle braucht den realen Ollama-Status.
-        try:
-            from ..lib.vision_prewarm import is_vlm_loaded
-            model = getattr(self, "vision_model_value", None)
-            self.vlm_model_loaded = await is_vlm_loaded(model)
-        except Exception:  # noqa: BLE001
-            pass
+        # VLM-Power-Toggle braucht den realen Ollama-Status (is_vlm_loaded
+        # fängt ihre Fehler selbst und meldet dann False).
+        from ..lib.vision_prewarm import is_vlm_loaded
+        model = getattr(self, "vision_model_value", None)
+        self.vlm_model_loaded = await is_vlm_loaded(model)
 
     @rx.event
     def close_casus(self) -> None:

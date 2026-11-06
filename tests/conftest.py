@@ -78,7 +78,7 @@ def _no_real_remote_describers(monkeypatch):
 
     monkeypatch.setattr(remote_describers, "VISION_REMOTE_HOSTS", "[]")
     # Nor the describer list and the VLM of this machine's Vigilantia settings: the default list, no VLM.
-    monkeypatch.setattr(describer_list, "_settings", lambda: {})
+    monkeypatch.setattr(describer_list, "_settings", dict)
     monkeypatch.setattr(vision_routing, "camera_vlm", lambda: "")
 
 

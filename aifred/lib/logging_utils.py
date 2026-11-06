@@ -11,6 +11,7 @@ UNIFIED LOGGING SYSTEM:
 
 import os
 import time
+import traceback
 from datetime import datetime
 
 from .config import CONSOLE_DEBUG_ENABLED, DATA_DIR, FILE_DEBUG_ENABLED
@@ -99,8 +100,6 @@ def log_message(message: str, category: str = "info") -> None:
         - Auto-initializes debug log on first call
         - Thread-safe queue for UI communication
     """
-    global _console_messages, _debug_log_initialized
-
     # Auto-initialize on first call
     if not _debug_log_initialized:
         initialize_debug_log()
@@ -135,6 +134,13 @@ def log_message(message: str, category: str = "info") -> None:
             _message_queue.put_nowait(formatted_msg)  # Non-blocking
         except queue.Full:
             pass  # Queue full, old messages are in _console_messages
+
+
+def log_exception(message: str, error: BaseException) -> None:
+    """Log ``message`` with the error and its traceback, for a boundary that catches broadly:
+    without the traceback such a failure cannot be traced back to its origin."""
+    trace = "".join(traceback.format_exception(error)).rstrip()
+    log_message(f"{message}: {error!r}\n{trace}", "error")
 
 
 def log_raw_messages(agent_name: str, messages: list, token_counter=None,
@@ -173,11 +179,8 @@ def log_raw_messages(agent_name: str, messages: list, token_counter=None,
         # Count tokens if counter provided
         msg_tokens = 0
         if token_counter and content:
-            try:
-                msg_tokens = token_counter([{"content": content}])
-                total_tokens += msg_tokens
-            except Exception:
-                pass
+            msg_tokens = token_counter([{"content": content}])
+            total_tokens += msg_tokens
 
         token_info = f", tokens={msg_tokens}" if token_counter else ""
         log_message(f"[{i}] role={role}{token_info}")
@@ -235,7 +238,6 @@ CONSOLE_SEPARATOR = "─" * 20
 
 def console_separator() -> None:
     """Adds a horizontal separator line to the console"""
-    global _console_messages, _message_queue
     _console_messages.append(CONSOLE_SEPARATOR)
 
     # Write to queue (pipe for UI thread!)

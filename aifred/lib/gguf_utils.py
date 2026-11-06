@@ -123,7 +123,7 @@ def get_gguf_lazy_tensor_bytes(gguf_path: Path) -> int:
     for part in get_gguf_part_paths(gguf_path):
         try:
             reader = gguf.GGUFReader(part)
-        except Exception as exc:
+        except (OSError, ValueError, KeyError) as exc:  # unreadable, not a GGUF, or a malformed header
             logger.warning(f"Cannot read GGUF part {part.name}: {exc}")
             continue
         for tensor in reader.tensors:

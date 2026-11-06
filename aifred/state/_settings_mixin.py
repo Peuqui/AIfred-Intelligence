@@ -145,17 +145,16 @@ class SettingsMixin(rx.State, mixin=True):
         # Prevents saving stale IDs from a different backend during transitions
         # (e.g., backend_id already switched but model_ids not yet validated).
         aifred_model_id: str = get_agent_setting(self, "aifred", "model_id")
-        if aifred_model_id and self.backend_id and self.available_models_dict:
-            # tuning buckets always contain base IDs (SSOT — speed suffix is
-            # computed). Keys are agent ids ("" = inherits AIfred); the
-            # Automatik (not an agent) keeps its own entry.
-            if aifred_model_id in self.available_models_dict:
-                models_out = {
-                    agent: tuning.model_id
-                    for agent, tuning in self.agent_tuning.items()
-                }
-                models_out["automatik"] = self.automatik_model_id
-                backend_models[self.backend_id] = models_out
+        # tuning buckets always contain base IDs (SSOT — speed suffix is
+        # computed). Keys are agent ids ("" = inherits AIfred); the
+        # Automatik (not an agent) keeps its own entry.
+        if aifred_model_id and self.backend_id and aifred_model_id in self.available_models_dict:
+            models_out = {
+                agent: tuning.model_id
+                for agent, tuning in self.agent_tuning.items()
+            }
+            models_out["automatik"] = self.automatik_model_id
+            backend_models[self.backend_id] = models_out
 
         # Only save self.backend_type if backend is fully initialized.
         # Prevents the class default "ollama" from overwriting the persisted
@@ -549,10 +548,8 @@ class SettingsMixin(rx.State, mixin=True):
         elif tool:
             tool_loader = getattr(tool, "_load_settings", None)
             if callable(tool_loader):
-                try:
-                    plugin_settings = dict(tool_loader())
-                except Exception:
-                    plugin_settings = {}
+                # No catch: an empty form saved over unreadable settings would erase them.
+                plugin_settings = dict(tool_loader())
 
         # Pre-fill values: secrets from os.environ, config from settings.json
         lang = self.ui_language
@@ -693,15 +690,9 @@ class SettingsMixin(rx.State, mixin=True):
         scopes_method = getattr(plugin, "aggregated_scopes", None)
         scope_list: list[str] = []
         if callable(scopes_method):
-            try:
-                scope_list = list(scopes_method())
-            except Exception:
-                scope_list = []
+            scope_list = list(scopes_method())
 
-        try:
-            page_host = self.router.page.host
-        except Exception:
-            page_host = ""
+        page_host = self.router.page.host
         if page_host:
             redirect_uri = f"{page_host.rstrip('/')}/api/oauth/{provider}/callback"
         else:
@@ -709,7 +700,7 @@ class SettingsMixin(rx.State, mixin=True):
 
         try:
             return str(oauth_broker.get_auth_url(provider, scope_list, redirect_uri))
-        except Exception:
+        except KeyError:  # provider not registered: no link
             return ""
 
     async def verify_oauth_connection(self) -> None:
@@ -848,10 +839,8 @@ class SettingsMixin(rx.State, mixin=True):
             # Tool plugins may have their own settings loader (private convention)
             tool_loader = getattr(tool, "_load_settings", None)
             if callable(tool_loader):
-                try:
-                    plugin_settings = dict(tool_loader())
-                except Exception:
-                    plugin_settings = {}
+                # No catch: settings saved over unreadable ones would erase them.
+                plugin_settings = dict(tool_loader())
 
         for field in fields:
             val = self.channel_credential_values.get(field.env_key, "")
@@ -880,7 +869,7 @@ class SettingsMixin(rx.State, mixin=True):
                 if callable(tool_saver):
                     try:
                         tool_saver(plugin_settings)
-                    except Exception as exc:
+                    except OSError as exc:
                         self.add_debug(
                             f"⚠️ {display}: failed to write settings: {exc}"
                         )

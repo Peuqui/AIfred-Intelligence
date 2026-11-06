@@ -59,7 +59,7 @@ def _discover_channels() -> None:
         return
     _channels_discovered = True
 
-    from .logging_utils import log_message
+    from .logging_utils import log_exception, log_message
 
     channels_dir = _plugins_root() / "channels"
     if not channels_dir.exists():
@@ -82,8 +82,8 @@ def _discover_channels() -> None:
                     _channels[obj.name] = obj
                     obj.load_settings_to_env()
                     log_message(f"Plugin Registry: channel '{obj.name}' registered")
-        except Exception as exc:
-            log_message(f"Plugin Registry: failed to load channel '{module_info.name}': {exc}", "error")
+        except Exception as exc:  # noqa: BLE001 — one broken plugin must not stop the others (plugin atomicity)
+            log_exception(f"Plugin Registry: failed to load channel '{module_info.name}'", exc)
 
 
 def get_channel(name: str) -> BaseChannel | None:
@@ -117,7 +117,7 @@ def discover_tools() -> list[ToolPlugin]:
     if _tools is not None:
         return _tools
 
-    from .logging_utils import log_message
+    from .logging_utils import log_exception, log_message
 
     tools_dir = _plugins_root() / "tools"
     if not tools_dir.exists():
@@ -135,8 +135,8 @@ def discover_tools() -> list[ToolPlugin]:
             continue
         try:
             mod = importlib.import_module(f".tools.{module_info.name}", package="aifred.plugins")
-        except Exception as e:
-            log_message(f"Plugin Registry: failed to load tool '{module_info.name}': {e}", "error")
+        except Exception as exc:  # noqa: BLE001 — one broken plugin must not stop the others (plugin atomicity)
+            log_exception(f"Plugin Registry: failed to load tool '{module_info.name}'", exc)
             continue
 
         plugin = getattr(mod, "plugin", None)
@@ -207,7 +207,7 @@ def reload_all() -> None:
     gets registered on the next call to register_channel_workers, leading
     to duplicate IMAP polls / Discord reconnects.
     """
-    global _tools, _channels, _channels_discovered
+    global _tools, _channels_discovered
 
     # 1. Stop channel listeners. Iterate over the channels we currently
     #    know about (not every hub worker — the scheduler must keep going).

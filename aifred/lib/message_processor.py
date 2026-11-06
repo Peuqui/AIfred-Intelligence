@@ -17,7 +17,7 @@ from pathlib import Path
 from .config import MESSAGE_HUB_OWNER
 from .envelope import InboundMessage, OutboundMessage
 from .formatting import build_channel_chat_entry
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 from .routing_table import routing_table
 from .session_storage import create_empty_session, update_chat_data
 
@@ -692,8 +692,8 @@ async def _call_engine(
                         data["response_clean"], data["response_display"],
                         result_meta, data["history_notes"],
                     )
-    except Exception as exc:
-        log_message(f"Message Processor: engine error — {exc}", "error")
+    except Exception as exc:  # noqa: BLE001 — no reply ends the message as failed (hub.fail at the caller)
+        log_exception("Message Processor: engine error", exc)
         debug(f"❌ Engine error: {exc}")
         return "", "", {}, []
 

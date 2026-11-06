@@ -161,14 +161,11 @@ def find_camera_config(source_id: str) -> dict[str, Any] | None:
 def _make_capture(url: str) -> cv2.VideoCapture:
     """Öffne eine RTSP-Capture über das FFMPEG-Backend mit Timeouts +
     kleinem Puffer (näher an Echtzeit). Property-Sets sind best-effort —
-    nicht jedes Backend ehrt sie."""
+    nicht jedes Backend ehrt sie (``set`` gibt dann False zurück)."""
     cap = cv2.VideoCapture(url, cv2.CAP_FFMPEG)
-    try:
-        cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, float(_OPEN_TIMEOUT_MS))
-        cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, float(_READ_TIMEOUT_MS))
-        cap.set(cv2.CAP_PROP_BUFFERSIZE, 1.0)
-    except Exception:  # noqa: BLE001
-        pass
+    cap.set(cv2.CAP_PROP_OPEN_TIMEOUT_MSEC, float(_OPEN_TIMEOUT_MS))
+    cap.set(cv2.CAP_PROP_READ_TIMEOUT_MSEC, float(_READ_TIMEOUT_MS))
+    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1.0)
     return cap
 
 

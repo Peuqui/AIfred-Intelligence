@@ -180,7 +180,7 @@ def _ffmpeg_concat(file_paths: list[str], output_path: str) -> bool:
     filter_str = f"{filter_inputs}concat=n={len(file_paths)}:v=0:a=1"
 
     cmd = ["ffmpeg", "-y", *input_args, "-filter_complex", filter_str, output_path]
-    result = subprocess.run(cmd, capture_output=True, timeout=None)
+    result = subprocess.run(cmd, capture_output=True, timeout=None, check=False)
     return result.returncode == 0 and os.path.exists(output_path)
 
 
@@ -464,11 +464,9 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
     remaining = buffer
 
     # Skip if we're in a code block (``` ... ```)
-    if "```" in remaining:
-        # Count occurrences - odd number means we're inside a code block
-        if remaining.count("```") % 2 == 1:
-            # Inside code block - don't extract sentences
-            return [], buffer
+    # An odd number of ``` means we're inside a code block - don't extract sentences
+    if remaining.count("```") % 2 == 1:
+        return [], buffer
 
     # ============================================================
     # IMPORTANT: Newline detection must happen BEFORE clean_text_for_tts()!
@@ -529,17 +527,16 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
                 # This handles headings like "Ein Marmeladenbrot\nEin Text..."
                 # where there's no blank line between heading and content
                 sentence = remaining[sentence_start:i].strip()
-                if sentence and len(sentence) > 1:
-                    # If line doesn't end with punctuation, it's likely a heading
-                    # Treat newline as sentence boundary and add period
-                    # NOTE: Don't clean here - cleaning happens in _tts_generate_sentence_async()
-                    if sentence[-1] not in '.!?:;':
-                        sentence += '.'
-                        sentences.append(sentence)
-                        # Always update sentence_start to skip past this content
-                        sentence_start = i + 1
-                    # If it DOES end with punctuation, it was already extracted
-                    # by the normal punctuation handling below
+                # If line doesn't end with punctuation, it's likely a heading
+                # Treat newline as sentence boundary and add period
+                # NOTE: Don't clean here - cleaning happens in _tts_generate_sentence_async()
+                # If it DOES end with punctuation, it was already extracted
+                # by the normal punctuation handling below
+                if len(sentence) > 1 and sentence[-1] not in '.!?:;':
+                    sentence += '.'
+                    sentences.append(sentence)
+                    # Always update sentence_start to skip past this content
+                    sentence_start = i + 1
 
         # Check for colon followed by double newline (intro sentence before list/table)
         # "Hier nun die gewünschte Tabelle:\n\n| ..." → extract as sentence
@@ -611,13 +608,12 @@ def extract_complete_sentences(buffer: str) -> tuple[list[str], str]:
                         is_abbreviation = True
 
                 # Check for ellipsis (...)
-                if not is_abbreviation and i >= 2:
-                    if remaining[i-2:i+1] == "...":
-                        # Ellipsis at end of sentence IS a sentence end
-                        # But only if followed by space+uppercase or end
-                        if after and after[0].isupper() or not after.strip():
-                            is_sentence_end = True
-                        is_abbreviation = True  # Don't double-check
+                if not is_abbreviation and i >= 2 and remaining[i-2:i+1] == "...":
+                    # Ellipsis at end of sentence IS a sentence end
+                    # But only if followed by space+uppercase or end
+                    if after and after[0].isupper() or not after.strip():
+                        is_sentence_end = True
+                    is_abbreviation = True  # Don't double-check
 
                 if not is_abbreviation:
                     # Real sentence end if followed by:
@@ -1052,7 +1048,7 @@ def cleanup_old_tts_audio(max_age_hours: int = 24) -> int:
         if deleted > 0:
             log_message(f"🧹 TTS Audio Cleanup: {deleted} old files deleted")
 
-    except Exception as e:
+    except OSError as e:
         log_message(f"❌ TTS cleanup error: {e}")
 
     return deleted
@@ -1065,7 +1061,7 @@ def get_audio_duration(audio_path: str) -> float:
         result = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-of", "default=noprint_wrappers=1:nokey=1", audio_path],
-            capture_output=True, text=True, timeout=10,
+            capture_output=True, text=True, timeout=10, check=False,
         )
         if result.returncode == 0 and result.stdout.strip():
             return float(result.stdout.strip())

@@ -12,7 +12,6 @@ import json
 import os
 import pathlib
 import threading
-from contextlib import ExitStack
 from datetime import datetime, timezone, UTC
 from typing import TYPE_CHECKING
 
@@ -86,6 +85,12 @@ def _msglog_take(chat_id: str | int) -> list[int]:
         ids = log.pop(str(chat_id), [])
         _msglog_file().write_text(json.dumps(log))
         return ids
+
+
+async def _read_local(path: str) -> tuple[bytes, str]:
+    """Bytes and name of a local file to send. Read in a thread: python-telegram-bot reads a
+    handle whole and blocking anyway, and a long video would stall the event loop."""
+    return await asyncio.to_thread(pathlib.Path(path).read_bytes), pathlib.Path(path).name
 
 
 class TelegramChannel(BaseChannel):
@@ -340,18 +345,17 @@ class TelegramChannel(BaseChannel):
             if len(album_local) >= 2:
                 from telegram import InputMediaPhoto, InputMediaVideo
                 caption, overflow = text[:1024], text[1024:]
-                with ExitStack() as stack:
-                    items: list[InputMediaPhoto | InputMediaVideo] = []
-                    for index, path in enumerate(album_local):
-                        handle = stack.enter_context(open(path, "rb"))
-                        if is_video_file(pathlib.Path(path)):
-                            items.append(InputMediaVideo(
-                                handle, caption=caption if index == 0 else None,
-                                supports_streaming=True,
-                            ))
-                        else:
-                            items.append(InputMediaPhoto(handle, caption=caption if index == 0 else None))
-                    msgs = await bot.send_media_group(chat_id=chat_id, media=items)
+                items: list[InputMediaPhoto | InputMediaVideo] = []
+                for index, path in enumerate(album_local):
+                    data, name = await _read_local(path)
+                    if is_video_file(pathlib.Path(path)):
+                        items.append(InputMediaVideo(
+                            data, caption=caption if index == 0 else None,
+                            supports_streaming=True, filename=name,
+                        ))
+                    else:
+                        items.append(InputMediaPhoto(data, caption=caption if index == 0 else None, filename=name))
+                msgs = await bot.send_media_group(chat_id=chat_id, media=items)
                 sent_ids.extend(m.message_id for m in msgs)
                 if overflow:
                     for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
@@ -359,10 +363,10 @@ class TelegramChannel(BaseChannel):
                         sent_ids.append(m.message_id)
             elif len(album_local) == 1 and is_video_file(pathlib.Path(album_local[0])):
                 caption, overflow = text[:1024], text[1024:]
-                with open(album_local[0], "rb") as fh:
-                    m = await bot.send_video(
-                        chat_id=chat_id, video=fh, caption=caption, supports_streaming=True,
-                    )
+                data, name = await _read_local(album_local[0])
+                m = await bot.send_video(
+                    chat_id=chat_id, video=data, filename=name, caption=caption, supports_streaming=True,
+                )
                 sent_ids.append(m.message_id)
                 if overflow:
                     for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
@@ -377,14 +381,14 @@ class TelegramChannel(BaseChannel):
                 # EINE Nachricht; Caption (1024-Cap, TD7) am ersten Bild.
                 from telegram import InputMediaPhoto
                 caption, overflow = text[:1024], text[1024:]
-                with open(local, "rb") as f1, open(ctx_local, "rb") as f2:
-                    msgs = await bot.send_media_group(
-                        chat_id=chat_id,
-                        media=[
-                            InputMediaPhoto(f1, caption=caption),
-                            InputMediaPhoto(f2),
-                        ],
-                    )
+                (zoom, zoom_name), (scene, scene_name) = await _read_local(local), await _read_local(ctx_local)
+                msgs = await bot.send_media_group(
+                    chat_id=chat_id,
+                    media=[
+                        InputMediaPhoto(zoom, caption=caption, filename=zoom_name),
+                        InputMediaPhoto(scene, filename=scene_name),
+                    ],
+                )
                 sent_ids.extend(m.message_id for m in msgs)
                 if overflow:
                     for chunk in split_message(overflow, _MAX_MESSAGE_LENGTH):
@@ -396,13 +400,12 @@ class TelegramChannel(BaseChannel):
                 # silently dropping it (TD7).
                 caption, overflow = text[:1024], text[1024:]
                 if local:
-                    is_img = is_image_file(pathlib.Path(local))
-                    with open(local, "rb") as fh:
-                        if is_img:
-                            m = await bot.send_photo(chat_id=chat_id, photo=fh, caption=caption)
-                        else:
-                            m = await bot.send_document(chat_id=chat_id, document=fh, caption=caption)
-                        sent_ids.append(m.message_id)
+                    data, name = await _read_local(local)
+                    if is_image_file(pathlib.Path(local)):
+                        m = await bot.send_photo(chat_id=chat_id, photo=data, filename=name, caption=caption)
+                    else:
+                        m = await bot.send_document(chat_id=chat_id, document=data, filename=name, caption=caption)
+                    sent_ids.append(m.message_id)
                 elif url:
                     # Remote URL (reply path only) — Telegram fetches it; treat
                     # as photo (the reply path only ever sets image URLs).

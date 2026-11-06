@@ -319,18 +319,13 @@ def _seed_partition(meta: VllmModelMeta, stage_gpus: list[list[GPU]]) -> str | N
     if meta.num_layers <= 0 or len(stage_gpus) < 2:
         return None
     vram = [sum(g.total_mb for g in stage) for stage in stage_gpus]
-    if meta.giant_layers:
-        # Riesen (PLE-Klasse) liegen in fruehen Layern → muessen auf die
-        # Stufe mit dem meisten VRAM; die bekommt die fruehen Layer.
-        if max(range(len(vram)), key=lambda i: vram[i]) != 0:
-            # Stufenordnung ist fix (Capability-Konvention) — dann
-            # Partition zugunsten Stufe 0 verschieben, die die Riesen
-            # tragen MUSS (alle giant_layers < Partitionsgrenze).
-            pass
     total = sum(vram)
     layers = [round(meta.num_layers * v / total) for v in vram]
     layers[-1] = meta.num_layers - sum(layers[:-1])
     if meta.giant_layers:
+        # Riesen-Layer (PLE-Klasse) liegen früh im Modell. Die Stufenordnung ist fest
+        # (Capability-Konvention), also trägt Stufe 0 sie: die Partitionsgrenze liegt
+        # hinter dem letzten Riesen, auch wenn eine andere Stufe mehr VRAM hat.
         min_first = max(meta.giant_layers) + 1
         if layers[0] < min_first:
             delta = min_first - layers[0]

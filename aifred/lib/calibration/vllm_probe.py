@@ -192,7 +192,8 @@ def load_vllm_runtime() -> dict:
         )
     runtime: dict = yaml.safe_load(VLLM_RUNTIME_PATH.read_text())
     if not isinstance(runtime, dict):
-        raise ValueError(f"vLLM runtime config is not a mapping: {VLLM_RUNTIME_PATH}")
+        # A broken config file is one kind of error for the caller, as with the parse error.
+        raise ValueError(f"vLLM runtime config is not a mapping: {VLLM_RUNTIME_PATH}")  # noqa: TRY004
     python = runtime.get("python", "")
     if not python or not Path(python).exists():
         raise FileNotFoundError(
@@ -359,8 +360,9 @@ def _kill_tree(pid: int, grace_s: int = 25) -> None:
 
     def descendants(p: int) -> list[int]:
         try:
+            # ps exits 1 when p has no children; the empty output says the same.
             out = subprocess.run(["ps", "-o", "pid=", "--ppid", str(p)],
-                                 capture_output=True, text=True, timeout=10).stdout
+                                 capture_output=True, text=True, timeout=10, check=False).stdout
         except (subprocess.SubprocessError, OSError):
             return []
         pids = []
@@ -628,11 +630,12 @@ def boot_vllm(
     env = probe_boot_env(spec, runtime)
 
     log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_file = open(log_path, "w")
-    proc = subprocess.Popen(
-        cmd, stdout=log_file, stderr=subprocess.STDOUT,
-        stdin=subprocess.DEVNULL, env=env, start_new_session=True,
-    )
+    # The server writes into its own copy of the descriptor; ours is closed right after the start.
+    with open(log_path, "w") as log_file:
+        proc = subprocess.Popen(
+            cmd, stdout=log_file, stderr=subprocess.STDOUT,
+            stdin=subprocess.DEVNULL, env=env, start_new_session=True,
+        )
     server = VllmServer(proc, port, spec.served_name, log_path)
 
     def boot_error(reason: str) -> VllmBootError:
@@ -901,8 +904,8 @@ def probe_long_context(server: VllmServer, mml: int,
             accepted = m_after.get(SPEC_ACCEPT_METRIC, 0.0) - m_before.get(SPEC_ACCEPT_METRIC, 0.0)
             if drafted > 0:
                 accept_rate = accepted / drafted
-        except Exception:  # noqa: BLE001
-            pass
+        except (OSError, ValueError) as exc:  # /metrics unreachable or unparsable: rate unknown (-1)
+            logger.warning(f"speculative accept rate unknown, /metrics failed: {exc}")
     return {"tokens": prompt_tokens, "prefill_tps": prefill_tps,
             "decode_tps": decode_tps, "accept_rate": accept_rate}
 

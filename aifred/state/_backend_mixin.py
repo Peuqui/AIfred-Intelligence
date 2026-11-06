@@ -16,7 +16,7 @@ import uuid
 
 import reflex as rx
 
-from ..lib.logging_utils import initialize_debug_log, log_message
+from ..lib.logging_utils import initialize_debug_log, log_exception, log_message
 from ..lib import config
 from ..lib.config import (
     CLOUD_API_PROVIDERS,
@@ -737,11 +737,9 @@ class BackendMixin(rx.State, mixin=True):
                 try:
                     was_fast_path = await self.initialize_backend()
                     backend_init_success = True
-                except Exception as e:
+                except Exception as e:  # noqa: BLE001 — boundary of the backend start: the UI shows the error state, the log the traceback
                     self.add_debug(f"❌ Backend init failed: {e}")
-                    log_message(f"❌ Backend init failed: {e}")
-                    import traceback
-                    log_message(traceback.format_exc())
+                    log_exception("❌ Backend init failed", e)
 
                 if backend_init_success and not was_fast_path:
                     self.add_debug("✅ Backend ready")
@@ -1055,11 +1053,11 @@ class BackendMixin(rx.State, mixin=True):
                             context_limits.append(ctx)
                 self._min_agent_context_limit = min(context_limits) if context_limits else 0
 
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — boundary of the backend start: the UI shows the error state, the log the traceback
                 self.backend_healthy = False
                 self.backend_info = f"{self.backend_type} error"
                 self.add_debug(f"❌ Model loading failed: {e}")
-                log_message(f"❌ Model loading failed: {e}")
+                log_exception("❌ Model loading failed", e)
 
             # Check backend capabilities for model switching
             from aifred.backends import BackendFactory
@@ -1103,7 +1101,8 @@ class BackendMixin(rx.State, mixin=True):
             self.backend_initializing = False
             return False  # SLOW PATH
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — boundary of the backend start: the UI shows the error state, the log the traceback
+            log_exception("❌ Backend initialization failed", e)
             self.backend_healthy = False
             self.backend_info = f"Error: {e!s}"
             self.add_debug(f"❌ Backend initialization failed: {e}")
@@ -1509,7 +1508,8 @@ class BackendMixin(rx.State, mixin=True):
                 else:
                     self._clear_models_state(include_vision=True)
                     self.add_debug("⚠️ No models returned from API")
-            except Exception as e:
+            except Exception as e:  # noqa: BLE001 — boundary of the backend start: the UI shows the error state, the log the traceback
+                log_exception("⚠️ Failed to fetch cloud models", e)
                 self._clear_models_state(include_vision=True)
                 self.add_debug(f"⚠️ Failed to fetch models: {e}")
         else:

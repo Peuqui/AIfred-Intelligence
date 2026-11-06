@@ -13,6 +13,8 @@ from typing import TYPE_CHECKING, Any
 import reflex as rx
 from reflex.event import EventSpec
 
+from ..lib.logging_utils import log_exception
+
 if TYPE_CHECKING:
     from ..lib.file_manager import FileOpResult
 
@@ -223,7 +225,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             for col in memory._client.list_collections():
                 if col.name.startswith("agent_memory_"):
                     counts[col.name.removeprefix("agent_memory_")] = col.count()
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — ChromaDB's client has no common error class; shown, logged with traceback
+            log_exception("Memory browser: listing the collections", e)
             self.add_debug(f"❌ Memory browser error: {e}")
 
         # Agents sorted alphabetically
@@ -279,7 +282,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
                     "content": _meta_str(meta, "content", doc or ""),
                     "session_id": _meta_str(meta, "session_id"),
                 })
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — ChromaDB's client has no common error class; shown, logged with traceback
+            log_exception("Memory browser: reading the entries", e)
             self.add_debug(f"❌ Memory browse error: {e}")
 
         entries.sort(key=lambda e: e.get("date", ""), reverse=True)
@@ -296,7 +300,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             col = memory._collection(self.memory_browser_agent)
             col.delete(ids=[entry_id])
             self.add_debug(f"🗑️ Memory entry deleted: {entry_id[:8]}...")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — ChromaDB's client has no common error class; shown, logged with traceback
+            log_exception("Memory browser: delete", e)
             self.add_debug(f"❌ Delete failed: {e}")
 
         # Refresh collections first so browse_memory_agent reads the updated
@@ -321,7 +326,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         try:
             count = memory.clear(self.memory_browser_agent)
             self.add_debug(f"🗑️ {count} memory entries deleted ({self.memory_browser_agent})")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — ChromaDB's client has no common error class; shown, logged with traceback
+            log_exception("Memory browser: delete", e)
             self.add_debug(f"❌ Delete failed: {e}")
 
         self._load_memory_collections()
@@ -386,7 +392,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
                 session_id=entry["session_id"],
             )
             self.add_debug(f"✏️ Memory entry updated: {entry['id'][:8]}...")
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — ChromaDB's client has no common error class; shown, logged with traceback
+            log_exception("Memory browser: update", e)
             self.add_debug(f"❌ Update failed: {e}")
             return
 
@@ -449,21 +456,21 @@ class MemoryBrowserMixin(rx.State, mixin=True):
     async def handle_bundle_upload(self, files: list) -> None:
         """Reflex on_drop callback — read ZIP, peek manifest, open modal."""
         import base64
-        from ..lib.agent_bundle import peek_bundle
+        from ..lib.agent_bundle import BUNDLE_READ_ERRORS, peek_bundle
 
         if not files:
             return
 
         try:
             zip_bytes = await files[0].read()
-        except Exception as exc:
+        except OSError as exc:
             self.bundle_import_error = f"Datei konnte nicht gelesen werden: {exc}"
             self.bundle_import_open = True
             return
 
         try:
             info = peek_bundle(zip_bytes)
-        except Exception as exc:
+        except BUNDLE_READ_ERRORS as exc:
             self.bundle_import_error = f"Kein gültiges Agent-Bundle: {exc}"
             self.bundle_import_open = True
             return
@@ -495,7 +502,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
     def confirm_bundle_import(self) -> None:
         """Decode the staged bundle and write the selected agents."""
         import base64
-        from ..lib.agent_bundle import import_bundle
+        from ..lib.agent_bundle import BUNDLE_READ_ERRORS, import_bundle
 
         if not self.bundle_import_uploaded_b64 or not self.bundle_import_selected:
             return
@@ -510,7 +517,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         except FileExistsError as exc:
             self.bundle_import_error = str(exc)
             return
-        except Exception as exc:
+        except (*BUNDLE_READ_ERRORS, OSError) as exc:  # OSError: writing the agent files
             self.bundle_import_error = f"Import fehlgeschlagen: {exc}"
             return
 

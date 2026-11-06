@@ -80,17 +80,16 @@ class CloudAPIBackend(OpenAICompatibleBackend):
         elif self.provider == "deepseek":
             # DeepSeek, OpenAI-compatible: thinking via a ``thinking`` object.
             extra_body["thinking"] = {"type": "enabled" if thinking else "disabled"}
-        elif self.provider == "claude":
+        elif self.provider == "claude" and thinking:
             # Anthropic OpenAI-SDK compatibility: extended thinking via a
             # ``thinking`` object with a required token budget. Disabled is
             # Claude's default, so only the enabled form is sent. NOTE:
             # UNVERIFIED — no ANTHROPIC_API_KEY configured; budgets are
             # conservative/tunable and must stay below the request max_tokens.
-            if thinking:
-                budget = {"max": 16000, "high": 8000}.get(
-                    options.reasoning_effort or "", 4000
-                )
-                extra_body["thinking"] = {"type": "enabled", "budget_tokens": budget}
+            budget = {"max": 16000, "high": 8000}.get(
+                options.reasoning_effort or "", 4000
+            )
+            extra_body["thinking"] = {"type": "enabled", "budget_tokens": budget}
         return extra_body
 
     def _classify_error(self, error: Exception, model: str) -> BackendError:

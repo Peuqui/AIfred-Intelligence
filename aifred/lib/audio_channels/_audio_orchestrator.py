@@ -42,6 +42,7 @@ from typing import TYPE_CHECKING, Any
 
 from ..formatting import format_number
 from ..logging_utils import log_message
+from ..task_utils import cancel_and_wait
 from ._freeecho2_stream import PCM_CHUNK_BYTES
 
 # 48 kHz, mono, int16: das Format aller Ströme zum Puck (SSOT für Dauer-Rechnungen)
@@ -233,12 +234,7 @@ class AudioOrchestrator:
             # Pending TTS-pump-Task abbrechen (Standalone oder Takeover).
             # Der Cancel raised CancelledError, beide Pump-Funktionen
             # leiten den durch ohne audio_end zu senden.
-            if self._tts_pump_task is not None and not self._tts_pump_task.done():
-                self._tts_pump_task.cancel()
-                try:
-                    await self._tts_pump_task
-                except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                    pass
+            await cancel_and_wait(self._tts_pump_task, f"AudioOrchestrator[{self.room}]: TTS pump")
             self._tts_pump_task = None
             self._tts_buffer = None
             self._takeover_active = False
@@ -378,12 +374,7 @@ class AudioOrchestrator:
             if self._active_type == "music" and self._stream is not None:
                 await self._stream.pause()
             elif self._active_type == "tts" and self._tts_pump_task is not None:
-                if not self._tts_pump_task.done():
-                    self._tts_pump_task.cancel()
-                    try:
-                        await self._tts_pump_task
-                    except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                        pass
+                await cancel_and_wait(self._tts_pump_task, f"AudioOrchestrator[{self.room}]: TTS pump")
                 self._tts_pump_task = None
 
             self._paused = True
@@ -449,13 +440,7 @@ class AudioOrchestrator:
 
     async def _reset_active_unlocked(self) -> None:
         """Caller hat ``_lock``. Räumt alle Sub-Sources auf."""
-        # TTS-pump-Task abbrechen
-        if self._tts_pump_task is not None and not self._tts_pump_task.done():
-            self._tts_pump_task.cancel()
-            try:
-                await self._tts_pump_task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
+        await cancel_and_wait(self._tts_pump_task, f"AudioOrchestrator[{self.room}]: TTS pump")
         self._tts_pump_task = None
         if self._tts_buffer is not None:
             self._tts_buffer.discard()   # laufenden Erzeuger (satzweises Streaming) abbrechen

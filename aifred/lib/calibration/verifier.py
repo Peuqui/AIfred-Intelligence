@@ -16,7 +16,6 @@ import logging
 import os
 import re
 import shlex
-import signal
 import subprocess
 import tempfile
 from dataclasses import dataclass
@@ -147,17 +146,19 @@ async def _start_server(
 
     fd, log_path = tempfile.mkstemp(suffix=".log", prefix="llama_")
     try:
-        process = subprocess.Popen(
+        # Its own session keeps a Ctrl+C in AIfred's terminal away from the server (a
+        # preexec_fn could hang the child of a process with threads).
+        process = await asyncio.to_thread(
+            subprocess.Popen,
             args,
             stdout=fd,
             stderr=subprocess.STDOUT,
             env=proc_env,
-            preexec_fn=lambda: signal.signal(signal.SIGINT, signal.SIG_IGN),
+            start_new_session=True,
         )
-    except Exception as e:
-        # Catch broader than OSError: PermissionError on /tmp quota,
-        # NotADirectoryError on unusual mounts, etc. — all of these would
-        # have leaked the tmpfile previously.
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        # OSError covers a missing binary, PermissionError and NotADirectoryError;
+        # the tmpfile must not leak in any of these cases.
         try:
             os.close(fd)
         except OSError:
@@ -696,14 +697,15 @@ async def verify(
         raise
 
 
-async def kill_orphan_on_port(port: int) -> None:
-    """Best-effort cleanup of a leftover llama-server holding ``port``."""
+async def kill_orphan_on_port(port: int) -> bool:
+    """Best-effort cleanup of a leftover llama-server holding ``port``; True when one was killed."""
     try:
-        result = subprocess.run(
-            ["fuser", "-k", f"{port}/tcp"],
-            capture_output=True, timeout=5, check=False,
+        result = await asyncio.to_thread(
+            subprocess.run, ["fuser", "-k", f"{port}/tcp"], capture_output=True, timeout=5, check=False,
         )
-        if result.returncode == 0:
-            logger.info(f"Killed orphan on port {port}")
-    except (OSError, subprocess.SubprocessError):
-        pass
+    except (OSError, subprocess.SubprocessError) as exc:
+        logger.warning(f"fuser on port {port} failed, a leftover server may still hold it: {exc}")
+        return False
+    if result.returncode == 0:
+        logger.info(f"Killed orphan on port {port}")
+    return result.returncode == 0

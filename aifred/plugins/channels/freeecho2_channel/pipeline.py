@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 from ....lib.formatting import format_number
+from ....lib.logging_utils import log_exception
 from ._shared import _pending_wake_agent
 from .tts_reply import TtsReplyMixin
 from .voice_routes import forward_voice, load_voice_routes
@@ -237,12 +238,10 @@ class AudioPipelineMixin(WsBridgeMixin, TtsReplyMixin):
             # Signal client: all done, go back to IDLE
             await self.send_done(room)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — boundary of one turn: the puck gets done(error) and goes idle
+            log_exception(f"FreeEcho.2 {room}: pipeline error", e)
             self.channel_log(f"[FreeEcho.2 {room}] Pipeline error: {e}", "error")
-            try:
-                await self.send_done(room, reason="error")
-            except Exception:
-                pass
+            await self.send_done(room, reason="error")  # _send_frame reports its own failure
         finally:
             # Stop the heartbeat — single source of truth for ALL exit paths
             # (empty-STT early return, clean finish, exception). Setting the

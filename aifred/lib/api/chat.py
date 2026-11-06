@@ -212,46 +212,44 @@ async def get_chat_history(session_id: str | None = None):
     """
     from ..session_storage import get_latest_session_file, load_session
 
-    try:
-        # Determine which session to load
-        if session_id:
-            session_data = load_session(session_id)
+    # Determine which session to load
+    if session_id:
+        session_data = load_session(session_id)
+    else:
+        session_file = get_latest_session_file()
+        if session_file:
+            session_data = load_session(session_file.stem)
+            session_id = session_file.stem
         else:
-            session_file = get_latest_session_file()
-            if session_file:
-                session_data = load_session(session_file.stem)
-                session_id = session_file.stem
-            else:
-                session_data = None
-                session_id = ""
+            session_data = None
+            session_id = ""
 
-        if session_data and "data" in session_data:
-            # Convert chat_history from internal format (role/content dicts) to API format
-            chat_history = []
-            stored_history = session_data["data"].get("chat_history", [])
-            # Pair consecutive user/assistant messages
-            i = 0
-            while i < len(stored_history):
-                msg = stored_history[i]
-                if isinstance(msg, dict) and msg.get("role") == "user":
-                    user_text = msg.get("content", "")
-                    assistant_text = ""
-                    if i + 1 < len(stored_history):
-                        next_msg = stored_history[i + 1]
-                        if isinstance(next_msg, dict) and next_msg.get("role") == "assistant":
-                            assistant_text = next_msg.get("content", "")
-                            i += 1
-                    chat_history.append({"user": user_text, "assistant": assistant_text})
-                i += 1
+    if session_data and "data" in session_data:
+        # Convert chat_history from internal format (role/content dicts) to API format
+        chat_history = []
+        stored_history = session_data["data"].get("chat_history", [])
+        # Pair consecutive user/assistant messages
+        i = 0
+        while i < len(stored_history):
+            msg = stored_history[i]
+            if isinstance(msg, dict) and msg.get("role") == "user":
+                user_text = msg.get("content", "")
+                assistant_text = ""
+                if i + 1 < len(stored_history):
+                    next_msg = stored_history[i + 1]
+                    if isinstance(next_msg, dict) and next_msg.get("role") == "assistant":
+                        assistant_text = next_msg.get("content", "")
+                        i += 1
+                chat_history.append({"user": user_text, "assistant": assistant_text})
+            i += 1
 
-            return ChatHistoryResponse(
-                chat_history=chat_history,
-                llm_history=session_data["data"].get("llm_history", []),
-                session_id=session_id
-            )
-    except Exception as e:
-        log_message(f"⚠️ API: Failed to load session: {e}")
+        return ChatHistoryResponse(
+            chat_history=chat_history,
+            llm_history=session_data["data"].get("llm_history", []),
+            session_id=session_id
+        )
 
+    # No session yet: an empty history, not an error.
     return ChatHistoryResponse(
         chat_history=[],
         llm_history=[],

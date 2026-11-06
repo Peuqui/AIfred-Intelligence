@@ -51,7 +51,7 @@ class TestValidateAudioFlag:
     @pytest.mark.parametrize("bad", [1, 0, "yes", None])
     def test_start_tone_must_be_strict_bool(self, bad):
         # bool ist subclass von int in Python — wir wollen aber strikt bool
-        with pytest.raises(ValueError, match="start_tone must be bool"):
+        with pytest.raises(TypeError, match="start_tone must be bool"):
             FreeEchoChannel._validate_audio_flag("notification", {"start_tone": bad})
 
 
@@ -150,7 +150,7 @@ class TestSendAudioEnd:
     def test_end_tone_must_be_strict_bool(self, room, bad):
         rid, ws = room
         ch = FreeEchoChannel()
-        with pytest.raises(ValueError, match="end_tone must be bool"):
+        with pytest.raises(TypeError, match="end_tone must be bool"):
             run(ch.send_audio_end(rid, end_tone=bad))
         ws.send_str.assert_not_awaited()
 

@@ -31,6 +31,8 @@ from collections.abc import AsyncIterator
 from threading import Lock
 from typing import TYPE_CHECKING
 
+from .task_utils import cancel_and_wait
+
 if TYPE_CHECKING:
     from .frame_sources.base import Frame, FrameSource
 
@@ -82,14 +84,7 @@ class _HubChannel:
             return
 
         # Alten Reader (falls vorhanden) sauber beenden.
-        old = self.reader_task
-        if old is not None and not old.done():
-            old.cancel()
-            try:
-                await old
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
-            self.reader_task = None
+        await cancel_and_wait(self.reader_task, f"FrameHub reader {self.source.source_id}")
 
         self.current_fps = max(self.current_fps, fps, _DEFAULT_FPS)
         if width > 0:
@@ -155,13 +150,7 @@ class _HubChannel:
             return
         if self.subscribers:
             return  # neuer Subscriber kam dazu
-        task = self.reader_task
-        if task is not None and not task.done():
-            task.cancel()
-            try:
-                await task
-            except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                pass
+        await cancel_and_wait(self.reader_task, f"FrameHub reader {self.source.source_id}")
         self.reader_task = None
         self.current_fps = 0.0
         self.current_w = 0
@@ -268,13 +257,7 @@ class FrameHub:
         with self._lock:
             channels = list(self._channels.values())
         for ch in channels:
-            task = ch.reader_task
-            if task is not None and not task.done():
-                task.cancel()
-                try:
-                    await task
-                except (asyncio.CancelledError, Exception):  # noqa: BLE001
-                    pass
+            await cancel_and_wait(ch.reader_task, f"FrameHub reader {ch.source.source_id}")
 
 
 # Modul-Singleton ────────────────────────────────────────────────────────

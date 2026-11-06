@@ -183,6 +183,7 @@ def _measure_file_sync(file_path: Path) -> LoudnessInfo | None:
             encoding="utf-8",
             errors="replace",
             timeout=ANALYSIS_TIMEOUT_SEC,
+            check=False,
         )
     except subprocess.TimeoutExpired:
         log_message(
@@ -609,13 +610,13 @@ def build_music_filter_chain(
     if fade_in_sec > 0:
         filters.append(f"afade=t=in:d={fade_in_sec}")
 
-    if fade_out_sec > 0 and info is not None and info.duration_sec is not None:
-        # Fade-Out so positionieren, dass er genau am Track-Ende endet.
-        # Bei sehr kurzen Tracks (< 2x fade_out) Fade-Out weglassen,
-        # sonst überlappt er den Fade-In.
-        if info.duration_sec > 2 * fade_out_sec:
-            fade_start = info.duration_sec - fade_out_sec
-            filters.append(f"afade=t=out:st={fade_start:.2f}:d={fade_out_sec}")
+    # Fade-Out so positionieren, dass er genau am Track-Ende endet.
+    # Bei sehr kurzen Tracks (< 2x fade_out) Fade-Out weglassen,
+    # sonst überlappt er den Fade-In.
+    if (fade_out_sec > 0 and info is not None and info.duration_sec is not None
+            and info.duration_sec > 2 * fade_out_sec):
+        fade_start = info.duration_sec - fade_out_sec
+        filters.append(f"afade=t=out:st={fade_start:.2f}:d={fade_out_sec}")
 
     name = Path(file_path).name
     if info is None:

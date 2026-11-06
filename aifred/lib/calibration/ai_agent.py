@@ -324,7 +324,7 @@ async def _pre_search_max_ctx(
         if free and min(free) >= headroom_mib:
             return (native_ctx, initial_split,
                     f"native ctx={native_ctx} already fits (min free={min(free)} MB)")
-    except Exception as exc:
+    except (proj.FitParamsError, OSError) as exc:
         logger.warning(f"pre-search native probe failed: {exc}")
 
     # Binary search: lo always-fits-by-construction (use a tiny start),
@@ -342,7 +342,8 @@ async def _pre_search_max_ctx(
                 gpu_total_mb=gpu_total_mb,
             )
             free = _apply_reserve(list(point.per_gpu_free_mb), reserve_mb)
-        except Exception:
+        except (proj.FitParamsError, OSError) as exc:
+            logger.warning(f"pre-search probe at ctx={mid} failed, counted as not fitting: {exc}")
             free = []
 
         if free and min(free) >= headroom_mib:
@@ -536,21 +537,15 @@ async def calibrate_with_ai(
     # / …) works, not just DashScope. The model must support OpenAI-style
     # tool-calling (this loop drives estimate/probe/finalize via tools).
     from ...backends.cloud_api import get_cloud_api_key
+    from ..agent_config import load_agents_raw
     from ..config import CLOUD_API_PROVIDERS
-
-    provider = "qwen"
-    enable_thinking = False
-    try:
-        from ..agent_config import load_agents_raw
-        cal_cfg = load_agents_raw().get("calibration") or {}
-        provider = str(cal_cfg.get("cloud_provider") or "qwen")
-        if cloud_model is None:
-            cloud_model = cal_cfg.get("model") or None
-        # Reasoning costs extra time per turn (30-120 s) — for the focused
-        # decisions this loop makes it's often overkill, so the default is OFF.
-        enable_thinking = bool((cal_cfg.get("toggles") or {}).get("reasoning", False))
-    except Exception:
-        pass
+    cal_cfg = load_agents_raw().get("calibration") or {}
+    provider = str(cal_cfg.get("cloud_provider") or "qwen")
+    if cloud_model is None:
+        cloud_model = cal_cfg.get("model") or None
+    # Reasoning costs extra time per turn (30-120 s) — for the focused
+    # decisions this loop makes it's often overkill, so the default is OFF.
+    enable_thinking = bool((cal_cfg.get("toggles") or {}).get("reasoning", False))
 
     provider_cfg = CLOUD_API_PROVIDERS.get(provider)
     if not provider_cfg:
@@ -715,9 +710,6 @@ async def calibrate_with_ai(
             )
         except _openai.OpenAIError as exc:
             yield f"__AI_ERROR__:DashScope API error: {exc}"
-            return
-        except Exception as exc:
-            yield f"__AI_ERROR__:Unexpected error: {exc}"
             return
 
         msg = response.choices[0].message

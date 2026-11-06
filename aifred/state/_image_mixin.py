@@ -4,6 +4,7 @@ Image Mixin – handles image upload, crop, camera detection, and mobile detecti
 Part of the AIfred State refactoring (aifred/state/ package).
 """
 
+import asyncio
 from typing import TYPE_CHECKING
 
 import reflex as rx
@@ -402,10 +403,9 @@ class ImageMixin(rx.State, mixin=True):
         image_data = self.pending_images[self.crop_image_index]
 
         # Read original bytes from file
+        image_path = Path(image_data["path"])
         try:
-            image_path = Path(image_data["path"])
-            with open(image_path, 'rb') as f:
-                original_bytes = f.read()
+            original_bytes = await asyncio.to_thread(image_path.read_bytes)
         except FileNotFoundError as e:
             self.add_debug(f"\u274c Crop failed: {e}")
             self.cancel_crop()

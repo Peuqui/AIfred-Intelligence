@@ -58,9 +58,8 @@ class TestBoundedRetry:
         ch = _channel(monkeypatch)
         async def boom(self, imap, uid):
             raise RuntimeError("LLM backend down")
-        with patch.object(EmailChannel, "_process_uid_once", boom):
-            with pytest.raises(RuntimeError):
-                run(ch._process_uid(MagicMock(), b"7"))
+        with patch.object(EmailChannel, "_process_uid_once", boom), pytest.raises(RuntimeError):
+            run(ch._process_uid(MagicMock(), b"7"))
         # Erster Fehlversuch: zählt, KEIN skip/quarantine
         assert ec._uid_failures["7"] == 1
         ch._quarantine_uid.assert_not_called()

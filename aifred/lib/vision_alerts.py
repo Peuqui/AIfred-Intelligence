@@ -33,12 +33,9 @@ def _alerts_enabled(source_id: str, store: Any) -> bool:
     Default an. Aus = die Kamera erkennt/speichert/chronisiert weiter, schickt
     aber KEINE proaktiven Push-Alerts — verhindert Dauer-Spam von Kameras, die
     permanent Bewegung sehen (z.B. der eigene Schreibtisch)."""
-    try:
-        rec = store.get_source(source_id) if store else None
-        if rec:
-            return bool((rec.get("settings") or {}).get("alerts_enabled", True))
-    except Exception:  # noqa: BLE001
-        pass
+    rec = store.get_source(source_id) if store else None
+    if rec:
+        return bool((rec.get("settings") or {}).get("alerts_enabled", True))
     return True
 
 
@@ -51,10 +48,7 @@ def _alert_passes_filters(source_id: str, store: Any, alert_type: str) -> bool:
       in diesem Zeitfenster keine Alerts. Über Mitternacht (z.B. 22→6) wird
       korrekt behandelt.
     ``alert_type`` ist einer von person/vehicle/animal/face."""
-    try:
-        rec = store.get_source(source_id) if store else None
-    except Exception:  # noqa: BLE001
-        rec = None
+    rec = store.get_source(source_id) if store else None
     settings = (rec.get("settings") or {}) if rec else {}
 
     types = settings.get("alert_types")
@@ -78,13 +72,10 @@ def _source_alias(source_id: str, store: Any) -> str:
     """Anzeigename der Kamera für den Alert. Geht über die SSoT
     :meth:`VisionStore.source_label` (Alias > display_name > source_id) —
     derselbe Name wie in den Event-Panels und im Zonen-Editor."""
-    try:
-        from .vision_store import VisionStore
-        rec = store.get_source(source_id) if store else None
-        if rec:
-            return VisionStore.source_label(rec)
-    except Exception:  # noqa: BLE001
-        pass
+    from .vision_store import VisionStore
+    rec = store.get_source(source_id) if store else None
+    if rec:
+        return VisionStore.source_label(rec)
     return source_id
 
 
@@ -98,14 +89,8 @@ def _session_routing(source_id: str, store: Any) -> tuple[str, str]:
     fest aus dem Alias der routenden Quelle ("Vigilantia: Hauseingang")
     — autonome Turns bekommen keinen LLM-Titel, ohne festen Titel
     erschienen die Alert-Sessions als namenlose Chats."""
-    key = source_id
-    try:
-        rec = store.get_source(source_id) if store else None
-        group = ((rec or {}).get("settings") or {}).get("session_group") or ""
-        if group:
-            key = group
-    except Exception:  # noqa: BLE001
-        pass
+    rec = store.get_source(source_id) if store else None
+    key = ((rec or {}).get("settings") or {}).get("session_group") or source_id
     return key, f"Vigilantia: {_source_alias(key, store)}"
 
 

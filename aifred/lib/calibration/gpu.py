@@ -80,7 +80,7 @@ def _query_nvidia_smi() -> list[dict[str, Any]]:
             ["nvidia-smi",
              "--query-gpu=uuid,gpu_name,compute_cap,memory.total,memory.free",
              "--format=csv,noheader,nounits"],
-            capture_output=True, text=True, timeout=5,
+            capture_output=True, text=True, timeout=5, check=False,
         )
         if result.returncode != 0:
             logger.warning(f"nvidia-smi exited {result.returncode}: {result.stderr[:200]}")

@@ -12,6 +12,7 @@ import hmac
 import json
 from typing import TYPE_CHECKING
 
+from ....lib.logging_utils import log_exception
 from . import alert_queue
 from ._shared import (
     _DEFAULT_PATH,
@@ -96,7 +97,7 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
             for room, ws in list(_devices.items()):
                 try:
                     await ws.close(code=1001, message=b"server shutting down")
-                except Exception as e:
+                except TimeoutError as e:  # aiohttp's close swallows every other error itself
                     self.channel_log(
                         f"Error closing WebSocket for {room}: {e}", "warning",
                     )
@@ -196,8 +197,11 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
                             )
                             try:
                                 await existing.close(code=1001, message=b"room slot taken over")
-                            except Exception:
-                                pass
+                            except TimeoutError:  # aiohttp's close swallows every other error itself
+                                self.channel_log(
+                                    f"FreeEcho.2 room '{room}': previous socket did not close in time",
+                                    "warning",
+                                )
                         _devices[room] = ws
                         self.channel_log(f"FreeEcho.2 registered: room={room}")
                     if room is None:
@@ -244,7 +248,8 @@ class ConnectionMixin(CommandsMixin, AudioPipelineMixin):
                 elif msg.type in (WSMsgType.CLOSE, WSMsgType.ERROR):
                     break
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — boundary of one device connection; the finally cleans up
+            log_exception(f"FreeEcho.2 WebSocket error ({room})", e)
             self.channel_log(f"WebSocket error ({room}): {e}", "error")
         finally:
             if room is not None:

@@ -371,9 +371,8 @@ class AudioIndex:
                         continue
                     if child.is_dir():
                         walk(child, rel_child)
-                    elif child.is_file():
-                        if child.suffix.lower() in AUDIO_EXTENSIONS:
-                            process_file(child, rel_child)
+                    elif child.is_file() and child.suffix.lower() in AUDIO_EXTENSIONS:
+                        process_file(child, rel_child)
 
                 # Persist this folder's mtime for next-scan fast-path
                 conn.execute("""

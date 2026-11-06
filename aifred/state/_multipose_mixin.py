@@ -288,7 +288,8 @@ class MultiposeMixin(rx.State, mixin=True):
         for src in sources:
             try:
                 info = src.info()
-            except Exception:  # noqa: BLE001
+            except Exception as e:  # noqa: BLE001 — one broken source must not empty the list
+                logger.warning("multipose: source %r left out, info() failed: %s", src, e)
                 continue
             label = labels.get(info.source_id) or info.display_name or info.source_id
             if not info.available:

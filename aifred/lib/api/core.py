@@ -293,7 +293,7 @@ async def get_available_models():
                         # Check if vision model
                         if _is_vision_model(model_id):
                             vision_models.append(model_id)
-        except Exception as e:
+        except httpx.HTTPError as e:  # Ollama not reachable: no models to list
             log_message(f"⚠️ API: Failed to fetch models: {e}")
     else:
         for model_id, display_label in cached_models.items():

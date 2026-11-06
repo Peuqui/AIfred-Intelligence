@@ -8,6 +8,7 @@ Main state for chat, settings, and backend management
 import asyncio
 import os
 import re
+from pathlib import Path
 from typing import Any, TypedDict
 
 import reflex as rx
@@ -228,20 +229,15 @@ class AIState(
         # piggyback auf dem existierenden 500ms-Tick. Die Methode setzt
         # state-Variablen, Reflex erkennt die Änderung und liefert ein
         # Delta wenn was Neues da ist. Falls Mixin nicht im AIState
-        # gemounted ist (Tests), still no-op.
+        # gemounted ist (Tests), still no-op. Datenbankfehler behandeln beide
+        # Aufrufe selbst; was sonst scheitert, ist ein Fehler im Code und soll laut sein.
         if getattr(self, "vigilantia_feed_visible", False):
-            try:
-                self._refresh_vigilantia_feed()
-            except Exception:  # noqa: BLE001
-                pass
+            self._refresh_vigilantia_feed()
 
         # Casus-Modal mit-aktualisieren (gleiches Piggyback-Muster):
         # billiger max(id)-Check, Neuladen nur wenn neue Events da sind.
         if getattr(self, "casus_open", False):
-            try:
-                self._casus_poll_new_events()
-            except Exception:  # noqa: BLE001
-                pass
+            self._casus_poll_new_events()
 
         # Check if settings.json was modified (mtime-based, multi-browser safe)
         # Each browser tracks its own last-seen mtime - no race conditions
@@ -879,10 +875,7 @@ class AIState(
             # Clean up temporary file — unless the context was parked for the
             # unload-confirm dialog (stt_unload_confirm_result cleans up then).
             if not parked:
-                try:
-                    os.unlink(tmp_path)
-                except Exception:
-                    pass
+                Path(tmp_path).unlink(missing_ok=True)
 
     def toggle_yarn(self):
         """Toggle YaRN context extension"""

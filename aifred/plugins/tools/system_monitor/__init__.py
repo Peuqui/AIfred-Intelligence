@@ -1,5 +1,6 @@
 """System Monitor Plugin — CPU, RAM, GPU, Disk, Uptime, loaded model, STT and TTS state."""
 
+import asyncio
 import json
 import os
 import subprocess
@@ -12,6 +13,15 @@ from ....lib.security import TIER_READONLY
 from ....lib.plugin_base import PluginContext, load_tool_description, load_tool_parameters
 from ....lib.logging_utils import log_message
 from ....lib.service_status import get_monitor
+
+
+# A command that does not start, times out or fails, or output in an unexpected shape.
+_READ_FAILED = (OSError, subprocess.SubprocessError, IndexError)
+
+
+async def _command_output(*command: str) -> str:
+    """Output of a short system command, run in a thread so it does not block the event loop."""
+    return await asyncio.to_thread(subprocess.check_output, list(command), text=True, timeout=5)
 
 
 @dataclass
@@ -33,9 +43,7 @@ class SystemMonitorPlugin:
             # Uptime + Load
             if check_all or "cpu" in parts or "uptime" in parts:
                 try:
-                    uptime_out = subprocess.check_output(
-                        ["uptime", "-p"], text=True, timeout=5
-                    ).strip()
+                    uptime_out = (await _command_output("uptime", "-p")).strip()
                     loads = Path("/proc/loadavg").read_text().split()
                     result["uptime"] = uptime_out
                     result["cpu"] = {
@@ -44,15 +52,13 @@ class SystemMonitorPlugin:
                         "load_5m": loads[1],
                         "load_15m": loads[2],
                     }
-                except Exception as e:
+                except _READ_FAILED as e:
                     result["cpu"] = {"error": str(e)}
 
             # RAM
             if check_all or "ram" in parts or "memory" in parts:
                 try:
-                    mem_out = subprocess.check_output(
-                        ["free", "-h", "--si"], text=True, timeout=5
-                    ).strip()
+                    mem_out = (await _command_output("free", "-h", "--si")).strip()
                     lines = mem_out.split("\n")
                     if len(lines) >= 2:
                         values = lines[1].split()
@@ -69,7 +75,7 @@ class SystemMonitorPlugin:
                             "used": swap[2],
                             "free": swap[3],
                         }
-                except Exception as e:
+                except _READ_FAILED as e:
                     result["ram"] = {"error": str(e)}
 
             # GPU (nvidia-smi)
@@ -98,10 +104,9 @@ class SystemMonitorPlugin:
             # Disk
             if check_all or "disk" in parts:
                 try:
-                    disk_out = subprocess.check_output(
-                        ["df", "-h", "--output=target,size,used,avail,pcent", "/", "/home"],
-                        text=True, timeout=5
-                    ).strip()
+                    disk_out = (await _command_output(
+                        "df", "-h", "--output=target,size,used,avail,pcent", "/", "/home",
+                    )).strip()
                     disks = []
                     for line in disk_out.split("\n")[1:]:
                         cols = line.split()
@@ -114,15 +119,13 @@ class SystemMonitorPlugin:
                                 "usage_pct": cols[4],
                             })
                     result["disks"] = disks
-                except Exception as e:
+                except _READ_FAILED as e:
                     result["disks"] = {"error": str(e)}
 
             # Temperatures (optional) — extract key values only
             if check_all or "temp" in parts:
                 try:
-                    sensors_out = subprocess.check_output(
-                        ["sensors", "-j"], text=True, timeout=5
-                    )
+                    sensors_out = await _command_output("sensors", "-j")
                     raw = json.loads(sensors_out)
                     temps: dict[str, str] = {}
                     for chip, data in raw.items():
@@ -140,7 +143,7 @@ class SystemMonitorPlugin:
                     # lm-sensors nicht installiert — Temperaturen sind optional,
                     # kein Fehler (bewusst kein Eintrag im Resultat)
                     pass
-                except Exception as e:  # noqa: BLE001
+                except (*_READ_FAILED, ValueError) as e:  # ValueError: sensors gave no valid JSON
                     # Kaputtes sensors-Output o.ä. NICHT still verschlucken —
                     # sichtbar machen wie bei CPU/RAM/Disk
                     result["temps"] = {"error": str(e)}

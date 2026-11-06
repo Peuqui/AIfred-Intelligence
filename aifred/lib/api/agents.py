@@ -7,7 +7,7 @@ from fastapi import BackgroundTasks, File, Form, HTTPException, Request, UploadF
 from fastapi.responses import HTMLResponse, Response
 from pydantic import BaseModel, Field
 
-from ..logging_utils import log_message
+from ..logging_utils import log_exception, log_message
 from .app import api_app
 from .schemas import CallerName
 
@@ -152,7 +152,8 @@ async def oauth_callback(provider: str, request: Request, code: str = "", state:
             "<p>Tokens gespeichert. Du kannst dieses Fenster schließen.</p>"
             "</body></html>"
         )
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 — the login window shows why; the log keeps the traceback
+        log_exception(f"OAuth callback for {provider} failed", exc)
         return HTMLResponse(
             f"<html><body><h2>❌ Fehler</h2><p>{_html.escape(str(exc))}</p></body></html>",
             status_code=400,
@@ -215,8 +216,8 @@ async def export_agents_endpoint(ids: str) -> Response:
         raise HTTPException(status_code=404, detail=str(exc))
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        log_message(f"export_bundle failed: {exc}")
+    except Exception as exc:  # noqa: BLE001 — the caller gets the reason, the log the traceback
+        log_exception("export_bundle failed", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
     if len(agent_ids) == 1:
@@ -235,12 +236,12 @@ async def peek_agent_bundle(file: UploadFile = File(...)) -> dict:
     """Inspect a bundle without writing — returns the list of agents inside
     plus a flag per agent indicating whether it already exists locally.
     """
-    from ..agent_bundle import peek_bundle
+    from ..agent_bundle import BUNDLE_READ_ERRORS, peek_bundle
 
+    zip_bytes = await file.read()
     try:
-        zip_bytes = await file.read()
         return peek_bundle(zip_bytes)
-    except Exception as exc:
+    except BUNDLE_READ_ERRORS as exc:
         raise HTTPException(status_code=400, detail=f"Bundle nicht lesbar: {exc}")
 
 
@@ -255,7 +256,7 @@ async def import_agents_endpoint(
     ``ids`` (comma-separated) selects which agents to import; empty means
     all agents in the bundle. ``conflict`` is one of abort|overwrite|rename.
     """
-    from ..agent_bundle import import_bundle
+    from ..agent_bundle import BUNDLE_READ_ERRORS, import_bundle
 
     if conflict not in ("abort", "overwrite", "rename"):
         raise HTTPException(status_code=400, detail=f"Invalid conflict strategy: {conflict}")
@@ -269,10 +270,10 @@ async def import_agents_endpoint(
         )
     except FileExistsError as exc:
         raise HTTPException(status_code=409, detail=str(exc))
-    except (ValueError, KeyError) as exc:
+    except BUNDLE_READ_ERRORS as exc:
         raise HTTPException(status_code=400, detail=str(exc))
-    except Exception as exc:
-        log_message(f"import_bundle failed: {exc}")
+    except Exception as exc:  # noqa: BLE001 — the caller gets the reason, the log the traceback
+        log_exception("import_bundle failed", exc)
         raise HTTPException(status_code=500, detail=str(exc))
 
     return {"success": True, "agent_ids": effective_ids, "warnings": warnings}

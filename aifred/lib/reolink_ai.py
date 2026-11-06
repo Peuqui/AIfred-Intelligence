@@ -190,8 +190,8 @@ class ReolinkAIClient:
                         params={"cmd": "Logout", "token": self._token},
                         json=[{"cmd": "Logout", "param": {}}],
                     )
-                except Exception:  # noqa: BLE001
-                    pass
+                except httpx.HTTPError as exc:  # the token expires on the camera by itself (~1 h)
+                    logger.warning(f"Reolink logout failed, the session stays until its lease ends: {exc}")
             await self._client.aclose()
             self._client = None
         self._token = ""

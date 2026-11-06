@@ -330,11 +330,10 @@ def read_gguf_field(gguf_path: Path, key_suffix: str) -> int | None:
                 vtype = struct.unpack("<I", f.read(4))[0]
                 value = _read_value(vtype)
 
-                if key.lower().endswith(suffix_lower):
-                    if isinstance(value, (int, float)):
-                        return int(value)
+                if key.lower().endswith(suffix_lower) and isinstance(value, (int, float)):
+                    return int(value)
 
-    except Exception as e:
+    except (OSError, struct.error) as e:  # unreadable or cut off
         logger.debug(f"GGUF read failed for {gguf_path}: {e}")
 
     return None
@@ -427,7 +426,7 @@ def is_moe_model(model_name: str, ollama_url: str = DEFAULT_OLLAMA_URL) -> bool:
 
             return is_moe
 
-    except Exception as e:
+    except (requests.RequestException, ValueError) as e:  # Ollama unreachable or no JSON
         logger.debug(f"Ollama API query failed for {model_name}: {e}")
 
     logger.debug(f"📊 MoE detection inconclusive, defaulting to Dense: {model_name}")
@@ -480,7 +479,7 @@ def get_model_size_from_cache(model_name: str) -> int:
         logger.warning(f"Could not determine size for model: {model_name}")
         return 0
 
-    except Exception as e:
+    except OSError as e:
         logger.warning(f"Error getting model size: {e}")
         return 0
 

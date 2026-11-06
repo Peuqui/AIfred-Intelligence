@@ -18,6 +18,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from ..logging_utils import log_message
 from .base import AudioFormat, AudioOutputChannel, TargetInfo
 from .browser import BrowserChannel
 from .local import LocalChannel
@@ -61,9 +62,8 @@ def all_targets(ctx: PluginContext) -> list[TargetInfo]:
     for ch in _REGISTRY:
         try:
             targets.extend(ch.list_targets(ctx))
-        except Exception:  # noqa: BLE001
-            # Discovery-Fehler eines Channels darf nie die Liste killen
-            pass
+        except Exception as exc:  # noqa: BLE001 — one channel's discovery must not empty the list; logged
+            log_message(f"⚠️ Audio targets of channel '{ch.name}' failed: {exc!r}", "warning")
     return targets
 
 

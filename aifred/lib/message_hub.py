@@ -17,7 +17,7 @@ import time
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass
 
-from .logging_utils import log_message
+from .logging_utils import log_exception, log_message
 
 
 def _hub_log(msg: str, level: str = "info") -> None:
@@ -243,7 +243,8 @@ class MessageHub:
             except asyncio.CancelledError:
                 _hub_log(f"Message Hub: worker '{worker.name}' stopped")
                 return
-            except Exception as exc:
+            except Exception as exc:  # noqa: BLE001 — the supervisor restarts a crashed worker with backoff
+                log_exception(f"Message Hub: worker '{worker.name}' crashed", exc)
                 # Reset the counter ONLY if the worker had been running stably
                 # before this crash — otherwise a crash-on-start increments every
                 # round and the permanent-dead cap below is actually reached

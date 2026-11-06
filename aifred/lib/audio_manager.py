@@ -174,7 +174,7 @@ class AudioManager:
                 )
         except asyncio.CancelledError:
             return
-        except Exception as exc:  # pragma: no cover
+        except OSError as exc:  # pragma: no cover — the state file; the IPC reads give their default
             log_message(f"Audio Manager: position-save loop error: {exc}", "error")
 
 

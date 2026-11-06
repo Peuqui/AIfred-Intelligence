@@ -213,7 +213,11 @@ def get_agent_num_ctx(
         # engine expected to share the card — reserve what the TTS-Suite says it needs.
         # A service that does not answer starts no engine: there is nothing to reserve.
         from ..tts_client import TTSSuiteUnreachable
-        from ..tts_service import active_local_keys, engine_label_short, gpu_engine_needs
+        from ..tts_service import (
+            active_local_keys,
+            engine_label_short,
+            gpu_engine_needs,
+        )
         try:
             reserves = gpu_engine_needs()
         except TTSSuiteUnreachable as unreachable:

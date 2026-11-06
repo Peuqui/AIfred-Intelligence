@@ -19,7 +19,7 @@ import reflex as rx
 from datetime import datetime
 
 from ..lib.config import DEBUG_MESSAGES_MAX
-from ..lib.logging_utils import CONSOLE_SEPARATOR, log_message
+from ..lib.logging_utils import CONSOLE_SEPARATOR, log_exception, log_message
 
 if TYPE_CHECKING:
     from ..lib.agent_tuning import AgentTuning
@@ -599,12 +599,12 @@ class CalibrationMixin(rx.State, mixin=True):
         That means no state delta, no React reconcile, no wiped text
         selection — the safety net stays intact.
 
-        Wrapped in a broad except: persistence is best-effort, must
-        never break the calibration loop."""
+        A failed write is logged, not raised: persistence is best-effort
+        and must never break the calibration loop."""
         try:
             self._save_current_session()
-        except Exception:  # noqa: BLE001
-            pass
+        except OSError as e:
+            log_message(f"⚠️ Calibration: session not saved: {e}", "warning")
 
     def set_calibration_matrix_cell(self, payload: list) -> None:
         """Toggle one cell of the calibration matrix. ``payload`` is the
@@ -673,11 +673,8 @@ class CalibrationMixin(rx.State, mixin=True):
         _ = self._agents_json_revision
         # Absoluter Import — siehe has_dashscope_key.
         from aifred.lib.agent_config import load_agents_raw
-        try:
-            cfg = load_agents_raw().get("calibration") or {}
-            model = cfg.get("model") or "qwen-plus"
-        except Exception:
-            model = "qwen-plus"
+        cfg = load_agents_raw().get("calibration") or {}
+        model = cfg.get("model") or "qwen-plus"
         return f"🤖 KI: {model}"
 
     # ------------------------------------------------------------------
@@ -1216,7 +1213,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
             self._cal_debug(CONSOLE_SEPARATOR)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — boundary of the calibration run: shown, logged, cleaned up
+            log_exception("Calibration failed", e)
             self._cal_debug(f"❌ Calibration failed: {type(e).__name__}: {e}")
 
         finally:
@@ -1481,15 +1479,9 @@ class CalibrationMixin(rx.State, mixin=True):
             yield
             await asyncio.to_thread(_free_cards_for_calibration, self._cal_debug)
             # Kill any llama-server still running on calibration port
-            try:
-                result = subprocess.run(
-                    ["fuser", "-k", f"{LLAMACPP_CALIBRATION_PORT}/tcp"],
-                    capture_output=True, timeout=5,
-                )
-                if result.returncode == 0:
-                    self._cal_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")
-            except (subprocess.SubprocessError, FileNotFoundError):
-                pass
+            from ..lib.calibration.verifier import kill_orphan_on_port
+            if await kill_orphan_on_port(LLAMACPP_CALIBRATION_PORT):
+                self._cal_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")
             # Unload any models currently held in Ollama VRAM (embedding
             # models, VLMs that were warm from a previous Vigilantia
             # session, etc.) so the calibration's nvidia-smi probe sees
@@ -1900,13 +1892,10 @@ class CalibrationMixin(rx.State, mixin=True):
                 swap_cfg = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
                 model_cfg = swap_cfg.get(calibration_model_id, {})
                 existing_fmt = model_cfg.get("reasoning_format", "")
-                if existing_fmt != "deepseek":
-                    if update_llamaswap_reasoning_format(
-                        LLAMASWAP_CONFIG_PATH, calibration_model_id
-                    ):
-                        self._cal_debug(
-                            "   --reasoning-format deepseek written to config"
-                        )
+                if existing_fmt != "deepseek" and update_llamaswap_reasoning_format(
+                    LLAMASWAP_CONFIG_PATH, calibration_model_id
+                ):
+                    self._cal_debug("   --reasoning-format deepseek written to config")
 
             # Step 4: Update llama-swap YAML (-c and optionally -ngl).
             # Skipped when ``skip_base`` is set — the YAML entries were the
@@ -3217,7 +3206,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
             self._cal_debug(CONSOLE_SEPARATOR)
 
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — boundary of the calibration run: shown, logged, cleaned up
+            log_exception("Calibration failed", e)
             self._cal_debug(f"❌ Calibration failed: {type(e).__name__}: {e}")
 
         finally:
@@ -3407,8 +3397,11 @@ class CalibrationMixin(rx.State, mixin=True):
 
             if self.backend_type == "ollama":
                 from ..lib.process_utils import restart_service
-                restart_service("ollama", check=True)
-                self.add_debug(f"✅ {backend_name} service restarted")
+                # In a thread: systemctl waits for the restart; the event loop serves every session.
+                if await asyncio.to_thread(restart_service, "ollama", check=True):
+                    self.add_debug(f"✅ {backend_name} service restarted")
+                else:
+                    self.add_debug(f"⚠️ {backend_name} service restart failed")
                 yield  # Update UI after restart
 
                 # Wait for Ollama to be ready (active polling with retry)
@@ -3421,7 +3414,8 @@ class CalibrationMixin(rx.State, mixin=True):
                 for attempt in range(max_retries):
                     try:
                         endpoint = f'{self.backend_url}/api/tags'
-                        response = httpx.get(endpoint, timeout=2.0)
+                        async with httpx.AsyncClient(timeout=2.0) as client:
+                            response = await client.get(endpoint)
 
                         if response.status_code == 200:
                             # Parse JSON to verify API is actually ready
@@ -3461,7 +3455,8 @@ class CalibrationMixin(rx.State, mixin=True):
                 # llama-swap: restart via systemctl (system service) —
                 # traegt auch die vLLM-Eintraege (gleiche Sicht, gleicher Dienst)
                 from ..lib.process_utils import restart_llama_swap
-                if restart_llama_swap():
+                # In a thread: with the autoscan a restart takes over a minute.
+                if await asyncio.to_thread(restart_llama_swap):
                     self.add_debug("✅ llama-swap restarted (autoscan running...)")
                 else:
                     self.add_debug("⚠️ llama-swap restart failed")
@@ -3478,7 +3473,8 @@ class CalibrationMixin(rx.State, mixin=True):
                 models_url = f"{str(self.backend_url).rstrip('/')}/models"
                 for attempt in range(max_retries):
                     try:
-                        response = httpx.get(models_url, timeout=2.0)
+                        async with httpx.AsyncClient(timeout=2.0) as client:
+                            response = await client.get(models_url)
                         if response.status_code == 200:
                             elapsed = (attempt + 1) * 0.5
                             self.add_debug(f"✅ llama-swap ready after {elapsed:.1f}s")
@@ -3494,7 +3490,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     self.add_debug("⚠️ llama-swap might not be ready yet (timeout after 20s)")
                 yield
 
-        except Exception as e:
+        except (OSError, ValueError, KeyError) as e:  # systemctl not startable, or an unexpected Ollama answer
             self.add_debug(f"❌ {backend_name} restart failed: {e}")
         finally:
             self.backend_switching = False
@@ -3509,22 +3505,18 @@ class CalibrationMixin(rx.State, mixin=True):
         """Restart AIfred service via systemctl"""
         import threading
 
-        try:
-            self.add_debug("🔄 Restarting AIfred service...")
+        self.add_debug("🔄 Restarting AIfred service...")
 
-            # Schedule systemd restart in background thread
-            # This allows us to return rx.call_script() BEFORE the service dies
-            from ..lib.process_utils import restart_service as do_restart_service
+        # Schedule systemd restart in background thread
+        # This allows us to return rx.call_script() BEFORE the service dies
+        from ..lib.process_utils import restart_service as do_restart_service
 
-            def delayed_restart():
-                import time
-                time.sleep(0.5)  # Short delay to let browser script execute first
-                do_restart_service("aifred-intelligence", check=False)
+        def delayed_restart():
+            import time
+            time.sleep(0.5)  # Short delay to let browser script execute first
+            do_restart_service("aifred-intelligence", check=False)
 
-            thread = threading.Thread(target=delayed_restart, daemon=True)
-            thread.start()
+        thread = threading.Thread(target=delayed_restart, daemon=True)
+        thread.start()
 
-            self.add_debug("✅ AIfred service restart initiated")
-
-        except Exception as e:
-            self.add_debug(f"❌ AIfred service restart failed: {e}")
+        self.add_debug("✅ AIfred service restart initiated")

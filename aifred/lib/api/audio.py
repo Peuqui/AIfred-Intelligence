@@ -122,7 +122,7 @@ async def audio_file(request: Request, key: str):
             # File I/O via to_thread — a stalling medium (NFS, USB) must not
             # block the whole event loop.
             def _open_seeked():
-                f = open(file_path, "rb")
+                f = open(file_path, "rb")  # noqa: SIM115 — closed in the finally below, also in a thread
                 f.seek(start)
                 return f
 

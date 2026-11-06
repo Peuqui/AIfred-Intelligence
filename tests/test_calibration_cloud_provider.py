@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import asyncio
 
+import pytest
+
 from aifred.backends import cloud_api
 from aifred.lib import agent_config
 from aifred.lib.calibration import ai_agent
@@ -63,22 +65,23 @@ def test_provider_drives_endpoint(monkeypatch):
     captured: dict = {}
     import openai
 
+    class _StopAfterClient(Exception):
+        pass
+
     class _CaptureClient:
         def __init__(self, *a, **k):
             captured.update(k)
-            raise RuntimeError("stop after client construction")
+            raise _StopAfterClient
     monkeypatch.setattr(openai, "AsyncOpenAI", _CaptureClient)
 
     async def run() -> None:
-        try:
-            async for _ in ai_agent.calibrate_with_ai(
-                model_id="m", full_cmd="--model x --port 1",
-                headroom_mib=192,
-            ):
-                pass
-        except Exception:  # noqa: BLE001 — _CaptureClient stops the loop
+        async for _ in ai_agent.calibrate_with_ai(
+            model_id="m", full_cmd="--model x --port 1",
+            headroom_mib=192,
+        ):
             pass
-    asyncio.run(run())
+    with pytest.raises(_StopAfterClient):
+        asyncio.run(run())
 
     from aifred.lib.config import CLOUD_API_PROVIDERS
     assert captured.get("base_url") == CLOUD_API_PROVIDERS["deepseek"]["base_url"]

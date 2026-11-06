@@ -124,8 +124,8 @@ def list_gpus() -> list[GpuInfo]:
     finally:
         try:
             pynvml.nvmlShutdown()
-        except Exception:  # noqa: BLE001
-            pass
+        except pynvml.NVMLError as e:  # the list is complete; only the release failed
+            logger.warning("NVML shutdown failed: %s", e)
     return gpus
 
 

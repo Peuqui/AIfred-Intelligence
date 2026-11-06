@@ -144,10 +144,10 @@ async def handle_stop_command(session_id: str) -> dict:
     cancelled = cancel_pipeline(session_id)
 
     audio_stopped = False
+    from .audio_manager import MpvError, audio_manager
     try:
-        from .audio_manager import audio_manager
         audio_stopped = await audio_manager.stop()
-    except Exception as exc:
+    except (MpvError, OSError, TimeoutError) as exc:  # mpv's IPC or the position file
         log_message(f"Pipeline registry: audio_manager.stop() failed: {exc}", "warning")
 
     log_message(

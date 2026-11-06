@@ -126,13 +126,16 @@ class MpvIpcClient:
             self._pending.pop(rid, None)
 
     async def get_property(self, name: str, default: Any = None) -> Any:
-        """Best-effort Property-Read — Fehler liefern ``default``."""
+        """Best-effort Property-Read: nicht verbunden, keine Antwort in der Zeit, eine
+        abgebrochene Verbindung oder eine Property, die mpv nicht hat, liefern ``default``."""
+        if self._writer is None:
+            return default
         try:
             resp = await self.send({"command": ["get_property", name]})
-            if resp.get("error") == "success":
-                return resp.get("data", default)
-        except Exception:  # noqa: BLE001
-            pass
+        except (OSError, TimeoutError):
+            return default
+        if resp.get("error") == "success":
+            return resp.get("data", default)
         return default
 
     async def _read_loop(self) -> None:
@@ -156,9 +159,9 @@ class MpvIpcClient:
                         fut.set_result(msg)
                     continue
 
-                if msg.get("event") == "property-change":
-                    if msg.get("name") == "eof-reached" and msg.get("data") is True:
-                        await self._on_eof()
+                if (msg.get("event") == "property-change" and msg.get("name") == "eof-reached"
+                        and msg.get("data") is True):
+                    await self._on_eof()
         except asyncio.CancelledError:
             return
         except Exception as exc:  # noqa: BLE001

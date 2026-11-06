@@ -422,11 +422,10 @@ class SessionMixin(rx.State, mixin=True):
         # DEBUG-PERSISTENCE (v2.14.0+): debug_messages wiederherstellen
         # Saved messages (from before restart) come first, then startup messages
         # This keeps chronological order: session messages < startup/login messages
-        if "debug_messages" in data:
-            if data["debug_messages"]:
-                startup_messages = self.debug_messages.copy()
-                self.debug_messages = data["debug_messages"] + startup_messages
-            # Empty list = new/cleared session — keep startup messages as-is
+        # Empty list = new/cleared session — keep startup messages as-is
+        if data.get("debug_messages"):
+            startup_messages = self.debug_messages.copy()
+            self.debug_messages = data["debug_messages"] + startup_messages
 
         # Session title wiederherstellen
         self.current_session_title = data.get("title", "")
@@ -808,10 +807,7 @@ class SessionMixin(rx.State, mixin=True):
             # Reflex-independent live push: a background task pushes no state
             # delta — announce the title over the Browser Push Bus so
             # custom.js patches it into the session-list entry at once.
-            try:
-                browser_push(title_sid, kind="session_title", url=title)
-            except Exception as e:
-                self.add_debug(f"⚠️ session_title push failed: {e}")
+            browser_push(title_sid, kind="session_title", url=title)  # in memory, nothing to fail
         else:
             self.add_debug("Session title: empty response")
         console_separator()

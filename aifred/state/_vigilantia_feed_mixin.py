@@ -102,14 +102,9 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
         # Source-Liste bei Erst-Tick laden (Live-Card braucht
         # ``vigilantia_has_armed_source`` für den Smart-Hinweis).
         # Methode lebt im VisionSettingsMixin — ist im AIState via
-        # Mixin-Composition verfügbar.
-        try:
-            if not self.vigilantia_sources and hasattr(
-                self, "_reload_vigilantia_sources"
-            ):
-                self._reload_vigilantia_sources()
-        except Exception:  # noqa: BLE001
-            pass
+        # Mixin-Composition verfügbar; Fehler einer Quelle fängt sie selbst.
+        if not self.vigilantia_sources:
+            self._reload_vigilantia_sources()
         try:
             from datetime import datetime, timedelta
 

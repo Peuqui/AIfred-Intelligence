@@ -12,6 +12,7 @@ import os
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .base import BaseTool, RateLimitError, APIKeyMissingError
+from ..logging_utils import log_exception
 from .url_utils import deduplicate_urls, deduplicate_urls_with_metadata
 
 # Logging Setup
@@ -452,10 +453,14 @@ class MultiAPISearchTool(BaseTool):
                     logger.warning(f"⚠️ {api.name}: {e}")
                     failed_apis.append((api.name, str(e)))  # config issue, neither
 
-                except Exception as e:
-                    logger.error(f"❌ {api.name}: {e}")
+                except TimeoutError:
+                    logger.error(f"❌ {api.name}: timed out")
+                    failed_apis.append((api.name, "timeout"))
+                    network_failures += 1  # never completed
+
+                except Exception as e:  # noqa: BLE001 — one broken API must not stop the others; not an outage
+                    log_exception(f"Web search: {api.name} failed", e)
                     failed_apis.append((api.name, str(e)))
-                    network_failures += 1  # future timeout / never completed
 
         # At least one API successful?
         if not all_urls:
@@ -619,10 +624,18 @@ class MultiAPISearchTool(BaseTool):
                         'success': False, 'error': str(e)
                     })
 
-                except Exception as e:
-                    logger.error(f"❌ {api.name}: {e}")
+                except TimeoutError:
+                    logger.error(f"❌ {api.name}: timed out")
+                    failed_apis.append((api.name, "timeout"))
+                    network_failures += 1  # never completed
+                    query_results.append({
+                        'query': query, 'api': api.name, 'urls_found': 0,
+                        'success': False, 'error': "timeout"
+                    })
+
+                except Exception as e:  # noqa: BLE001 — one broken API must not stop the others; not an outage
+                    log_exception(f"Web search: {api.name} failed", e)
                     failed_apis.append((api.name, str(e)))
-                    network_failures += 1  # future timeout / never completed
                     query_results.append({
                         'query': query, 'api': api.name, 'urls_found': 0,
                         'success': False, 'error': str(e)

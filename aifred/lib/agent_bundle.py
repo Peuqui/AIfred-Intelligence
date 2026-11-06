@@ -40,6 +40,10 @@ from .tts_client import get_tts_client
 
 BUNDLE_FORMAT_VERSION = 1
 
+# What an unreadable bundle raises in peek_bundle and import_bundle: no ZIP, a file
+# missing in it, broken JSON, or contents the checks refuse.
+BUNDLE_READ_ERRORS = (zipfile.BadZipFile, KeyError, ValueError)
+
 PROMPTS_DIR = PROJECT_ROOT / "prompts"
 
 ConflictStrategy = Literal["abort", "overwrite", "rename"]

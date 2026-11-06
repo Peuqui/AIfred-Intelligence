@@ -34,12 +34,12 @@ class _FakeBot:
         self.groups.append(list(media))
         return [self._msg() for _ in media]
 
-    async def send_video(self, chat_id, video, caption, supports_streaming=False):
-        self.videos.append({"caption": caption, "streaming": supports_streaming})
+    async def send_video(self, chat_id, video, caption, filename, supports_streaming=False):
+        self.videos.append({"caption": caption, "streaming": supports_streaming, "filename": filename})
         return self._msg()
 
-    async def send_photo(self, chat_id, photo, caption):
-        self.photos.append({"caption": caption})
+    async def send_photo(self, chat_id, photo, caption, filename):
+        self.photos.append({"caption": caption, "filename": filename})
         return self._msg()
 
     async def send_message(self, chat_id, text):
@@ -70,6 +70,7 @@ class TestAlbum:
         assert len(bot.groups) == 1 and len(bot.groups[0]) == 4
         assert bot.groups[0][0].caption == "Bilanz"
         assert all(item.caption is None for item in bot.groups[0][1:])
+        assert [item.media.filename for item in bot.groups[0]] == [f"frame{index}.jpg" for index in range(4)]
         assert len(ids) == 4
         assert bot.photos == [] and bot.texts == []
 
@@ -95,7 +96,7 @@ class TestAlbum:
     def test_a_single_frame_is_sent_as_plain_photo(self, tmp_path):
         bot = _FakeBot()
         _deliver(tmp_path, bot, "Bilanz", media_album=_images(tmp_path, 1))
-        assert bot.groups == [] and bot.photos == [{"caption": "Bilanz"}]
+        assert bot.groups == [] and bot.photos == [{"caption": "Bilanz", "filename": "frame0.jpg"}]
 
     def test_missing_frames_are_skipped_not_fatal(self, tmp_path):
         bot = _FakeBot()
@@ -128,11 +129,14 @@ class TestFilmAlbum:
         assert all(isinstance(item, InputMediaVideo) for item in bot.groups[0])
         assert bot.groups[0][0].caption == "Zusammenfassung"
         assert all(item.supports_streaming for item in bot.groups[0])  # spielt im Chat ab
+        assert [item.media.filename for item in bot.groups[0]] == ["film0.mp4", "film1.mp4"]
 
     def test_a_single_film_is_sent_as_video(self, tmp_path):
         bot = _FakeBot()
         _deliver(tmp_path, bot, "Zusammenfassung", media_album=_films(tmp_path, 1))
-        assert bot.groups == [] and bot.videos == [{"caption": "Zusammenfassung", "streaming": True}]
+        assert bot.groups == [] and bot.videos == [
+            {"caption": "Zusammenfassung", "streaming": True, "filename": "film0.mp4"},
+        ]
 
     def test_a_film_over_the_bot_limit_is_not_sent(self, tmp_path):
         bot = _FakeBot()

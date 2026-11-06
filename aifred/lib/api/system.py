@@ -67,7 +67,7 @@ async def restart_ollama():
 
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=500, detail="Restart timed out")
-    except Exception as e:
+    except OSError as e:  # systemctl could not be started; our own HTTPException passes through
         log_message(f"❌ API: Ollama restart failed: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 

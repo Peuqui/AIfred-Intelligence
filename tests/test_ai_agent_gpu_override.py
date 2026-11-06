@@ -18,18 +18,22 @@ def _gpu(uuid: str, name: str, cc: float, total: int) -> GPU:
                free_mb=total, speed_class=0, first_in_class=True)
 
 
+class _StopAfterGpus(Exception):
+    """Raised by the fake client: the loop got past the GPU decision."""
+
+
 def _drain(gen) -> list[str]:
     # The OpenAI loop is cut short on purpose (see _common_mocks) — that
-    # raises AFTER the gpus/enumerate decision we want to observe, so we
-    # swallow it and inspect the marker.
+    # raises AFTER the gpus/enumerate decision we want to observe. Any other
+    # error means the loop ended before it, and the test must fail.
     async def run() -> list[str]:
         out: list[str] = []
         try:
             async for item in gen:
                 out.append(item)
-        except Exception:  # noqa: BLE001
-            pass
-        return out
+        except _StopAfterGpus:
+            return out
+        raise AssertionError("the loop ended before the client was built")
     return asyncio.run(run())
 
 
@@ -51,14 +55,13 @@ def _common_mocks(monkeypatch, enum_marker: dict):
         return [_gpu("GPU-enum", "RTX 8000", 7.5, 49152)]
     monkeypatch.setattr(ai_agent, "enumerate_gpus", fake_enum)
 
-    # Kill the OpenAI loop right after GPU resolution: importing openai
-    # inside the function and constructing AsyncOpenAI raises → __AI_ERROR__,
-    # but only AFTER the gpus/enumerate decision we want to observe.
+    # Kill the OpenAI loop right after GPU resolution: constructing AsyncOpenAI
+    # raises, but only AFTER the gpus/enumerate decision we want to observe.
     import openai
 
     class _Boom:
         def __init__(self, *a, **k):
-            raise RuntimeError("stop after gpu resolution")
+            raise _StopAfterGpus
     monkeypatch.setattr(openai, "AsyncOpenAI", _Boom)
 
 

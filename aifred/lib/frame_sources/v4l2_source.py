@@ -609,12 +609,9 @@ def _configure_native_jpeg(cap: cv2.VideoCapture) -> bool:
     fcc = _fourcc_str(cap).strip().upper()
     if fcc not in _NATIVE_JPEG_FOURCCS:
         return False
-    # 0.0 disables the implicit decode-to-RGB step in cv2's V4L2 backend.
-    ok = cap.set(cv2.CAP_PROP_CONVERT_RGB, 0.0)
-    if not ok:
-        # Some drivers don't honour the property — fall back gracefully.
-        return False
-    return True
+    # 0.0 disables the implicit decode-to-RGB step in cv2's V4L2 backend. Some drivers don't
+    # honour the property (False): the reader then decodes and re-encodes.
+    return cap.set(cv2.CAP_PROP_CONVERT_RGB, 0.0)
 
 
 def _read_frame(

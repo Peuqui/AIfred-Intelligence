@@ -67,7 +67,8 @@ class CalculatorPlugin:
                         raise ValueError(f"Unsupported operator: {uop_type.__name__}")
                     return unary_ops[uop_type](_eval(node.operand))
                 else:
-                    raise ValueError(f"Unsupported expression: {ast.dump(node)}")
+                    # The model's input, not a wrong argument type: ValueError like the others.
+                    raise ValueError(f"Unsupported expression: {ast.dump(node)}")  # noqa: TRY004
 
             log_message(f"🔢 calculate: {expression}")
             try:
@@ -79,7 +80,7 @@ class CalculatorPlugin:
                     result_str = f"{result:.10g}"
                 log_message(f"✅ calculate: {expression} = {result_str}")
                 return f"{expression} = {result_str}"
-            except Exception as e:
+            except (SyntaxError, ValueError, ArithmeticError, RecursionError) as e:
                 log_message(f"❌ calculate failed: {e}")
                 return json.dumps({"error": f"Cannot evaluate '{expression}': {e}"})
 
