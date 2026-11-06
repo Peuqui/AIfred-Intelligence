@@ -132,10 +132,10 @@ sieht die anderen nicht.
 
 **IMMER nach Code-Änderungen ausführen - KEINE Ausnahmen!**
 
-ruff und mypy kommen aus `~/.venv/devtools/bin/`, nicht aus dem Projekt-venv: Dort
-liegen ältere Versionen (mypy 1.19.1, ruff 0.15.8), und mypy 1.19.1 bewertet
-`@rx.event(background=True)` anders als 2.4. Die Typen des Projekts bekommt mypy
-über `--python-executable`.
+ruff und mypy kommen aus `~/.venv/devtools/bin/`; im Projekt-venv sind sie seit
+06.11.2026 nicht mehr installiert (die alten Versionen dort bewerteten
+`@rx.event(background=True)` anders). Die Typen des Projekts und die Stubs
+(`types-*` in `requirements.txt`) bekommt mypy über `--python-executable`.
 
 ```bash
 # 1. Syntax-Check (schnell, immer zuerst)
