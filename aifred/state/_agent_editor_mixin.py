@@ -1325,30 +1325,27 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.editor_dirty_confirm = False
         return rx.toast.success(f"{self.editor_display_name} gespeichert", duration=2000)
 
-    def delete_agent_editor(self, agent_id: str) -> None:
-        """Delete an agent (with confirmation)."""
+    def delete_agent_editor(self, agent_id: str) -> EventSpec | None:
+        """Delete an agent (with confirmation), then show the first remaining one."""
         if self.editor_delete_confirm != agent_id:
             # First click: ask for confirmation
             self.editor_delete_confirm = agent_id
-            return
+            return None
 
         # Second click: actually delete
-        from ..lib.agent_config import delete_agent
-
-        try:
-            delete_agent(agent_id)
-            self.add_debug(f"\U0001f5d1\ufe0f Agent '{agent_id}' deleted")  # type: ignore[attr-defined]
-        except ValueError as e:
-            self.add_debug(f"\u26a0\ufe0f {e}")  # type: ignore[attr-defined]
+        from ..lib.agent_config import delete_agent, load_agents_raw
 
         self.editor_delete_confirm = ""
+        try:
+            delete_agent(agent_id)
+        except ValueError as e:
+            self.add_debug(f"\u26a0\ufe0f {e}")
+            return None  # nothing deleted: stay on this agent
+        self.add_debug(f"\U0001f5d1\ufe0f Agent '{agent_id}' deleted")
         self._refresh_agent_dropdown()
-
-        # Select first remaining agent
-        from ..lib.agent_config import load_agents_raw
-        raw = load_agents_raw()
-        if raw:
-            self._select_agent_for_editor(next(iter(raw)))
+        # The canonical agents cannot be deleted, so one always remains.
+        self._load_agent_into_state(next(iter(load_agents_raw())))
+        return self._push_editor_dom()
 
     def clear_agent_memory(self, agent_id: str) -> EventSpec | None:
         """Clear an agent's long-term memory (confirm on first click, delete on second)."""
@@ -1367,7 +1364,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             return rx.toast.error("AgentMemory unavailable", duration=3000, position="top-center")
 
         # Get display name for logs/toasts
-        from ..lib.multi_agent import get_agent_config
+        from ..lib.agent_config import get_agent_config
         agent_cfg = get_agent_config(agent_id)
         agent_name = agent_cfg.display_name if agent_cfg else agent_id.capitalize()
 
