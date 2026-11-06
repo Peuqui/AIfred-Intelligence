@@ -15,7 +15,7 @@ from ..theme import COLORS
 from .helpers import overlay_scaffold
 
 
-def _icon_for(entry_is_dir: rx.Var, entry_is_symlink: rx.Var) -> rx.Component:  # type: ignore[type-arg]
+def _icon_for(entry_is_dir: rx.Var, entry_is_symlink: rx.Var) -> rx.Component:
     """Folder/file icon, with a small overlay if symlink."""
     return rx.hstack(
         rx.cond(
@@ -33,7 +33,7 @@ def _icon_for(entry_is_dir: rx.Var, entry_is_symlink: rx.Var) -> rx.Component:  
     )
 
 
-def _entry_row(entry: rx.Var) -> rx.Component:  # type: ignore[type-arg]
+def _entry_row(entry: rx.Var) -> rx.Component:
     """One row in the file list."""
     return rx.hstack(
         _icon_for(entry["is_dir"], entry["is_symlink"]),

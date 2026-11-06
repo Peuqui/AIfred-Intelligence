@@ -101,7 +101,7 @@ class WebScraperTool(BaseTool):
                 resp.close()
                 if not location:
                     return resp
-                current = requests.compat.urljoin(current, location)  # type: ignore[attr-defined]
+                current = requests.compat.urljoin(current, location)
                 continue
             self._read_capped(resp)
             return resp

@@ -4,7 +4,7 @@ LLM Backend Factory
 Easy switching between different LLM backends (Ollama, vLLM, llama.cpp, etc.)
 """
 
-from typing import ClassVar
+from typing import ClassVar, Literal, overload
 from .base import LLMBackend, LLMMessage, LLMOptions, LLMResponse
 from .ollama import OllamaBackend
 from .vllm import vLLMBackend
@@ -29,6 +29,33 @@ class BackendFactory:
         "llamacpp": LlamaCppBackend,   # llama.cpp via llama-swap (GGUF, direct)
         "cloud_api": CloudAPIBackend,  # Cloud APIs (Claude, Qwen, DeepSeek, Kimi)
     }
+
+    # A caller that knows the backend type gets its class: its own methods
+    # (e.g. calibrate_max_context_generator) exist only there, not on LLMBackend.
+    @overload
+    @classmethod
+    def create(cls, backend_type: Literal["ollama"], base_url: str | None = None,
+               api_key: str | None = None, provider: str | None = None) -> OllamaBackend: ...
+
+    @overload
+    @classmethod
+    def create(cls, backend_type: Literal["vllm"], base_url: str | None = None,
+               api_key: str | None = None, provider: str | None = None) -> vLLMBackend: ...
+
+    @overload
+    @classmethod
+    def create(cls, backend_type: Literal["llamacpp"], base_url: str | None = None,
+               api_key: str | None = None, provider: str | None = None) -> LlamaCppBackend: ...
+
+    @overload
+    @classmethod
+    def create(cls, backend_type: Literal["cloud_api"], base_url: str | None = None,
+               api_key: str | None = None, provider: str | None = None) -> CloudAPIBackend: ...
+
+    @overload
+    @classmethod
+    def create(cls, backend_type: str, base_url: str | None = None,
+               api_key: str | None = None, provider: str | None = None) -> LLMBackend: ...
 
     @classmethod
     def create(

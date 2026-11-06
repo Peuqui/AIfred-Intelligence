@@ -434,7 +434,7 @@ def image_upload_section() -> rx.Component:
                             position="absolute",
                             top="4px",
                             left="4px",
-                            on_click=AIState.open_crop_modal(idx),  # type: ignore[call-arg, func-returns-value]
+                            on_click=AIState.open_crop_modal(idx),
                             title=t("crop_tooltip"),
                         ),
                         # Remove-Button (rechts oben) - größer für Touch
@@ -446,7 +446,7 @@ def image_upload_section() -> rx.Component:
                             position="absolute",
                             top="4px",
                             right="4px",
-                            on_click=AIState.remove_pending_image(idx),  # type: ignore[call-arg, func-returns-value]
+                            on_click=AIState.remove_pending_image(idx),
                         ),
                         position="relative",
                     )

@@ -120,7 +120,7 @@ from ._vision_preview_mixin import VisionPreviewMixin
 from ._vision_settings_mixin import VisionSettingsMixin
 
 
-class AIState(  # type: ignore[misc]
+class AIState(
     AuthMixin,
     ImageMixin,
     DocumentMixin,
@@ -195,19 +195,19 @@ class AIState(  # type: ignore[misc]
         if _llm_hist and effective_limit > 0:
             estimated_tokens = estimate_tokens_from_llm_history(_llm_hist)
             utilization = (estimated_tokens / effective_limit) * 100
-            self.add_debug(  # type: ignore[attr-defined]
+            self.add_debug(
                 f"   \u2514\u2500 History: {format_number(estimated_tokens)} / "
                 f"{format_number(effective_limit)} tok ({int(utilization)}%)"
             )
             if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
-                self.add_debug(  # type: ignore[attr-defined]
+                self.add_debug(
                     f"\u26a0\ufe0f History compression will trigger on next message "
                     f"(>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)"
                 )
         elif not _llm_hist:
-            self.add_debug("   \u2514\u2500 History: empty")  # type: ignore[attr-defined]
+            self.add_debug("   \u2514\u2500 History: empty")
         else:
-            self.add_debug(f"   \u2514\u2500 Effective limit: {format_number(effective_limit)} tokens")  # type: ignore[attr-defined]
+            self.add_debug(f"   \u2514\u2500 Effective limit: {format_number(effective_limit)} tokens")
 
     # ── Methods (only those NOT in any mixin) ────────────────────
 
@@ -667,7 +667,7 @@ class AIState(  # type: ignore[misc]
             # lands in the chat anyway).
             if source == "file":
                 from ..lib.i18n import t as _t
-                self.add_agent_panel(  # type: ignore[attr-defined]
+                self.add_agent_panel(
                     agent="aifred",
                     content=_t("stt_bubble_started", lang=self.ui_language,
                                filename=filename, size=size_display, engine="GPU"),
@@ -783,7 +783,7 @@ class AIState(  # type: ignore[misc]
                         # resolving them to the names used in the recording.
                         bubble_key = ("stt_bubble_saved_speakers"
                                       if "[SPEAKER_" in user_text else "stt_bubble_saved")
-                        self.add_agent_panel(  # type: ignore[attr-defined]
+                        self.add_agent_panel(
                             agent="aifred",
                             content=_t(bubble_key, lang=self.ui_language,
                                        transcript_link=transcript_link,
@@ -812,7 +812,7 @@ class AIState(  # type: ignore[misc]
                 # can work with it. Never the input field, never auto-send.
                 if source == "file":
                     from ..lib.i18n import t as _t
-                    self.add_agent_panel(  # type: ignore[attr-defined]
+                    self.add_agent_panel(
                         agent="aifred",
                         content=_t("stt_bubble_transcript", lang=self.ui_language,
                                    filename=filename, size=size_display,

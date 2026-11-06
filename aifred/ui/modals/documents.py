@@ -102,7 +102,7 @@ def _doc_file_row(item: rx.Var) -> rx.Component:
                     on_key_down=lambda key: rx.cond(
                         key == "Enter",
                         AIState.doc_confirm_rename(),
-                        rx.cond(key == "Escape", AIState.doc_cancel_rename(), rx.noop()),  # type: ignore[arg-type]
+                        rx.cond(key == "Escape", AIState.doc_cancel_rename(), rx.noop()),
                     ),
                     size="1", font_size="12px", width="150px",
                     auto_focus=True,
@@ -299,7 +299,7 @@ def _doc_remote_row(item: rx.Var) -> rx.Component:
             on_click=rx.cond(
                 is_folder,
                 AIState.doc_open_remote_folder(file_id, name),
-                rx.noop(),  # type: ignore[arg-type]
+                rx.noop(),
             ),
         ),
         rx.spacer(),
@@ -386,7 +386,7 @@ def _doc_remote_toolbar() -> rx.Component:
         rx.input(
             value=AIState.doc_remote_query_input,
             on_change=AIState.set_doc_remote_query_input,
-            on_key_down=lambda key: rx.cond(key == "Enter", AIState.doc_remote_search(), rx.noop()),  # type: ignore[arg-type]
+            on_key_down=lambda key: rx.cond(key == "Enter", AIState.doc_remote_search(), rx.noop()),
             placeholder=t("doc_remote_search_placeholder"),
             size="1", font_size="12px", width="220px",
         ),
@@ -569,7 +569,7 @@ def document_manager_page() -> rx.Component:
                             on_key_down=lambda key: rx.cond(
                                 key == "Enter",
                                 AIState.doc_confirm_create_folder(),
-                                rx.cond(key == "Escape", AIState.doc_cancel_create_folder(), rx.noop()),  # type: ignore[arg-type]
+                                rx.cond(key == "Escape", AIState.doc_cancel_create_folder(), rx.noop()),
                             ),
                             placeholder=t("doc_folder_name"),
                             size="1", font_size="12px", width="160px",

@@ -26,7 +26,7 @@ resolution tied to its hardware capability (a 4K overview cam vs a
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
@@ -101,6 +101,14 @@ def _build_resolution_options(src: Any, available: bool) -> list[dict[str, str]]
 
 class VisionPreviewMixin(rx.State, mixin=True):
     """UI state for the multi-source vision preview popup."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        def _persist_source_setting(self, source_id: str, key: str, value: Any) -> None: ...
+        def _refresh_vision_settings(self) -> None: ...
+        async def _refresh_vlm_loaded(self) -> None: ...
 
     # The complete list of detected sources (filled on page-load + rescan)
     vision_preview_sources: list[dict[str, Any]] = []  # [{id, label, available}]
@@ -354,7 +362,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # Echten Ollama-Status für das Power-Toggle abfragen — ohne
         # das zeigt der Button immer „nicht geladen", selbst wenn ein
         # anderes Tool das VLM schon im VRAM hat.
-        await self._refresh_vlm_loaded()  # type: ignore[attr-defined]
+        await self._refresh_vlm_loaded()
         self._refresh_sources()
         self.vision_preview_cache_buster += 1
         briefings_map = {
@@ -1046,7 +1054,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
     def _persist_source_resolution(self, source_id: str, resolution: str) -> None:
         """Write the per-source resolution choice to vision_store.sources."""
         try:
-            self._persist_source_setting(source_id, "resolution", resolution)  # type: ignore[attr-defined]
+            self._persist_source_setting(source_id, "resolution", resolution)
         except Exception as e:  # noqa: BLE001
             logger.warning("vision-preview resolution persist failed: %s", e)
             self.vision_preview_status = f"⚠️ Persistierung fehlgeschlagen: {e}"

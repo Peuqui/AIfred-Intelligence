@@ -53,7 +53,7 @@ def resolve_agent_temperature(state: 'AIState', agent: str) -> float:
     Sokrates/Salomo adding their offset on top.
     """
     from .agent_settings import get_agent_setting
-    if state.temperature_mode == "manual":  # type: ignore[has-type]
+    if state.temperature_mode == "manual":
         return float(get_agent_setting(state, agent, "temperature"))
     aifred_temp = float(get_agent_setting(state, "aifred", "temperature"))
     if agent in ("sokrates", "salomo"):
@@ -234,7 +234,7 @@ async def _stream_agent_to_history(
 
     # State setup: UI styling, vLLM model loading, TTS init
     state._set_current_agent(agent)
-    state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+    state._streaming_sub().current_ai_response = ""
 
     # SSOT for the toolkit debug line: every browser-mode stream (standard,
     # debate, tribunal, symposion) passes through here — callers must NOT
@@ -365,7 +365,7 @@ async def _stream_agent_to_history(
 
     # Clear streaming state (cleanup BEFORE yield)
     state._js_chunk_buffer = ""
-    state._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+    state._streaming_sub().current_ai_response = ""
     state._set_current_agent("")
 
     # Return result as final yield (dict = result, None = UI update)
@@ -497,7 +497,7 @@ def _setup_debate_contexts(
     # misses the YAML entry and triggers the 32K fallback.
     from .agent_settings import get_agent_base_model_id
     from .research.context_utils import get_agent_num_ctx
-    aifred_base = state.agent_tuning["aifred"].model_id  # type: ignore[attr-defined,has-type]
+    aifred_base = state.agent_tuning["aifred"].model_id
     sokrates_base = get_agent_base_model_id(state, "sokrates")
     salomo_base = get_agent_base_model_id(state, "salomo")
     main_llm_ctx, aifred_source = get_agent_num_ctx("aifred", state, aifred_base, fallback=32768)
@@ -519,7 +519,7 @@ def _setup_debate_contexts(
 
     # Temperatures
     alfred_temp = state.agent_tuning["aifred"].temperature
-    if state.temperature_mode == "manual":  # type: ignore[has-type]
+    if state.temperature_mode == "manual":
         sokrates_temp = state.agent_tuning["sokrates"].temperature
         salomo_temp = state.agent_tuning["salomo"].temperature
     else:
@@ -699,7 +699,7 @@ async def _run_agent_direct_response(
 
         # Full toolkit: memory + all plugin tools
         from .agent_memory import prepare_agent_toolkit
-        memory_enabled = state.agent_memory_enabled  # type: ignore[attr-defined]
+        memory_enabled = state.agent_memory_enabled
 
         # System prompt (memory layer depends on incognito toggle)
         system_prompt = get_prompt_func(lang=detected_lang, memory=memory_enabled)
@@ -720,7 +720,7 @@ async def _run_agent_direct_response(
             state.add_debug(f"🧠 Memory context injected ({mem_tok:,} tok, before question)")
         if not memory_enabled:
             state.add_debug("🔒 Incognito mode (no memory)")
-        yield  # type: ignore[misc]  # Flush debug messages (RAG, memory, toolkit)
+        yield  # Flush debug messages (RAG, memory, toolkit)
 
         # Build messages with agent's perspective
         messages: list[dict[str, Any]] = build_messages_from_llm_history(
@@ -788,7 +788,7 @@ async def _run_agent_direct_response(
             if isinstance(item, dict):
                 result = item
             else:
-                yield  # type: ignore[misc]
+                yield
 
         if not result:
             yield
@@ -804,7 +804,7 @@ async def _run_agent_direct_response(
         research_sources = getattr(state, "_research_sources_html", "")
         if research_sources:
             formatted_response = f"{research_sources}\n\n{formatted_response}"
-            state._research_sources_html = ""  # type: ignore[attr-defined]
+            state._research_sources_html = ""
 
         # Add to chat history
         panel_meta = {**metadata_dict, "audio_urls": audio_urls}

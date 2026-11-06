@@ -89,7 +89,7 @@ def _read_image(file_path: Path, session_id: str) -> tuple[dict[str, Any], list[
     return {"filename": file_path.name, "type": "image", "image_url": url}, [url]
 
 
-def _chroma_client():  # type: ignore[no-untyped-def]
+def _chroma_client():
     """ChromaDB-Client für die Admin-Tools — über die repo-weite
     Factory-SSOT (lib/chroma_client.py)."""
     from ....lib.chroma_client import chroma_client
@@ -825,7 +825,7 @@ class WorkspacePlugin:
                 # Get sample metadata for context
                 sample = col.peek(limit=1)
                 metadatas = sample.get("metadatas") if sample else None
-                meta_keys = list(metadatas[0].keys()) if metadatas and len(metadatas) > 0 else []  # type: ignore[index]
+                meta_keys = list(metadatas[0].keys()) if metadatas and len(metadatas) > 0 else []
                 result.append({
                     "name": col.name,
                     "entries": count,

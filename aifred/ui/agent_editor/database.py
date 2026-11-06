@@ -27,7 +27,7 @@ def _database_view() -> rx.Component:
                     rx.text(t("db_documents"), font_size="14px", font_weight="bold", color=COLORS["text_soft"]),
                     rx.spacer(),
                     rx.badge(
-                        AIState.db_documents.length(),  # type: ignore[union-attr]
+                        AIState.db_documents.length(),
                         variant="soft",
                         color_scheme="orange",
                     ),
@@ -37,7 +37,7 @@ def _database_view() -> rx.Component:
                         on_request=AIState.confirm_clear_db,
                         on_confirm=AIState.clear_db_index,
                         on_cancel=AIState.confirm_clear_db,
-                        count=AIState.db_documents.length(),  # type: ignore[union-attr]
+                        count=AIState.db_documents.length(),
                     ),
                     spacing="2",
                     width="100%",
@@ -48,7 +48,7 @@ def _database_view() -> rx.Component:
 
                 # Document list
                 rx.cond(
-                    AIState.db_documents.length() > 0,  # type: ignore[union-attr]
+                    AIState.db_documents.length() > 0,
                     rx.vstack(
                         rx.foreach(
                             AIState.db_documents,

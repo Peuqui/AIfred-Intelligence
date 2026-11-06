@@ -102,7 +102,7 @@ def _cleanup_vision_db_events(cutoff: datetime) -> int:
         return 0
     cutoff_iso = cutoff.isoformat(timespec="seconds")
     try:
-        with store._conn() as conn:  # type: ignore[attr-defined]
+        with store._conn() as conn:
             cur = conn.execute(
                 "DELETE FROM events WHERE timestamp < ? AND "
                 "event_type IN ('motion', 'face_known', 'face_unsure', 'face_unknown')",

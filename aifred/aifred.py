@@ -93,7 +93,7 @@ def _audio_player_element() -> rx.Component:
     }
     return rx.el.audio(
         **common_kwargs,
-        **data_attrs,  # type: ignore[arg-type]
+        **data_attrs,
     )
 
 

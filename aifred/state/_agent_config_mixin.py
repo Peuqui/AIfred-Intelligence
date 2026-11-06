@@ -65,6 +65,27 @@ _FEATURE_EMOJI: dict[str, str] = {
 class AgentConfigMixin(rx.State, mixin=True):
     """Mixin for per-agent configuration and sampling parameters."""
 
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        _min_agent_context_limit: int
+        available_models_dict: dict[str, str]
+        backend_id: str
+        backend_type: str
+        enable_tts: bool
+        temperature_mode: str
+        ui_language: str
+
+        @property
+        def _effective_automatik_id(self) -> str: ...
+        def _label_for(self, agent: str, model_id: str) -> str: ...
+        def _log_history_utilization(self, effective_limit: int) -> None: ...
+        def _persist_session_config(self) -> None: ...
+        def _save_settings(self) -> None: ...
+        def _show_model_calibration_info(self, model_id: str): ...
+        def add_debug(self, message: str) -> None: ...
+
     # ── Per-Agent Tuning (SSOT: one bucket per agent id) ──────────
     agent_tuning: dict[str, AgentTuning] = default_agent_tuning()
 
@@ -118,9 +139,9 @@ class AgentConfigMixin(rx.State, mixin=True):
             emoji = _FEATURE_EMOJI[feature]
 
         status = "ON" if new_val else "OFF"
-        self.add_debug(f"{emoji} {agent.capitalize()} {feature}: {status}")  # type: ignore[attr-defined]
+        self.add_debug(f"{emoji} {agent.capitalize()} {feature}: {status}")
 
-        self._save_settings()  # type: ignore[attr-defined]
+        self._save_settings()
 
     # ── Thinking Mode (dropdown: off / on / effort level) ─────────
 
@@ -128,7 +149,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         """(off_label, on_label, default_label) in the current UI language.
         Effort levels stay raw — they are the template's proper names (e.g. "max")."""
         from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        lang = self.ui_language if self.ui_language != "auto" else "de"
         return (
             t("thinking_mode_off", lang=lang),
             t("thinking_mode_on", lang=lang),
@@ -157,8 +178,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         model_id = get_agent_base_model_id(self, agent)
         set_thinking_mode(self, agent, model_id, mode)
         emoji = _FEATURE_EMOJI["thinking"]
-        self.add_debug(f"{emoji} {agent.capitalize()} thinking on {model_id}: {mode}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"{emoji} {agent.capitalize()} thinking on {model_id}: {mode}")
+        self._save_settings()
 
     def _agent_thinking_mode(self, agent: str) -> str:
         """Dropdown label of the agent's thinking choice on the model it runs on."""
@@ -277,8 +298,8 @@ class AgentConfigMixin(rx.State, mixin=True):
                 float_val = float(value)
                 set_agent_setting(self, agent, "repeat_penalty", max(1.0, min(2.0, float_val)))
             final_val = get_agent_setting(self, agent, param)
-            self.add_debug(f"\U0001f3b2 {agent.capitalize()} {param}={final_val}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
+            self.add_debug(f"\U0001f3b2 {agent.capitalize()} {param}={final_val}")
+            self._save_settings()
         except (ValueError, TypeError):
             pass
 
@@ -308,7 +329,7 @@ class AgentConfigMixin(rx.State, mixin=True):
                 "repeat_penalty": DEFAULT_REPEAT_PENALTY,
             }
 
-        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+        if self.backend_type == "llamacpp":
             # Try to get model-specific values from llama-swap YAML
             # Agents with empty model_id inherit from AIfred
             from ..lib.agent_settings import get_agent_base_model_id
@@ -330,7 +351,7 @@ class AgentConfigMixin(rx.State, mixin=True):
                         "repeat_penalty": yaml_sampling.get("repeat_penalty", LLAMASERVER_DEFAULT_REPEAT_PENALTY),
                     }
 
-        elif self.backend_type == "vllm":  # type: ignore[attr-defined]
+        elif self.backend_type == "vllm":
             # Modell-Defaults aus der generation_config.json des Checkpoints —
             # das vLLM-Pendant zu den GGUF-Sampling-Flags im llama-swap-cmd.
             from ..lib.agent_settings import get_agent_base_model_id
@@ -348,7 +369,7 @@ class AgentConfigMixin(rx.State, mixin=True):
                         # denen der k-Sweep misst (vllm_probe.generation_defaults).
                         defaults = generation_defaults(Path(entry["gguf_path"]))
                 except (OSError, ValueError, KeyError) as e:
-                    self.add_debug(f"⚠️ generation_config.json unreadable for {model_id}: {e}")  # type: ignore[attr-defined]
+                    self.add_debug(f"⚠️ generation_config.json unreadable for {model_id}: {e}")
 
         if include_temperature:
             set_agent_setting(self, agent, "temperature", defaults["temperature"])
@@ -363,7 +384,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         reset_model = get_agent_base_model_id(self, agent)
         model_info = f" → {reset_model} defaults" if reset_model else ""
         temp_info = f"temp={defaults['temperature']}, " if include_temperature else ""
-        self.add_debug(  # type: ignore[attr-defined]
+        self.add_debug(
             f"{get_agent_label(agent)} sampling reset{model_info}: "
             f"{temp_info}top_k={int(defaults['top_k'])}, "
             f"top_p={defaults['top_p']}, min_p={defaults['min_p']}, "
@@ -416,11 +437,11 @@ class AgentConfigMixin(rx.State, mixin=True):
         suffix = resolve_effective_suffix(
             LLAMASWAP_CONFIG_PATH,
             base_id,
-            self.backend_type,  # type: ignore[attr-defined]
+            self.backend_type,
             speed_on=get_agent_setting(self, agent, "speed_mode"),
             has_speed_variant=get_agent_setting(self, agent, "has_speed_variant"),
-            tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
-            tts_engine=planned_tts_engine(base_id) if self.enable_tts else "",  # type: ignore[attr-defined]
+            tts_active=bool(self.enable_tts),
+            tts_engine=planned_tts_engine(base_id) if self.enable_tts else "",
         )
         return base_id + suffix
 
@@ -456,8 +477,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.agent_settings import get_agent_setting, set_agent_setting
         new_val = not get_agent_setting(self, agent, "speed_mode")
         set_agent_setting(self, agent, "speed_mode", new_val)
-        self.add_debug(f"\U0001f500 {agent.capitalize()} mode: {self._speed_mode_debug_str(agent, new_val)}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f500 {agent.capitalize()} mode: {self._speed_mode_debug_str(agent, new_val)}")
+        self._save_settings()
 
     def _speed_mode_debug_str(self, agent: str, speed_on: bool) -> str:
         """Build the speed-toggle debug string from the profile that ACTUALLY
@@ -472,7 +493,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.research.context_utils import get_model_native_context
         base_id = get_agent_base_model_id(self, agent)
         effective = self._effective_model_id(agent)
-        ctx = get_model_native_context(effective, self.backend_type)  # type: ignore[attr-defined]
+        ctx = get_model_native_context(effective, self.backend_type)
         ctx_str = format_number(ctx) if ctx > 0 else "n/a"
         suffix = (
             effective[len(base_id):].lstrip("-")
@@ -496,7 +517,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Convert UI string to float
         factor = float(value.replace("x", ""))
         set_agent_setting(self, "aifred", "rope_factor", factor)
-        self.add_debug(f"\U0001f39a️ AIfred RoPE Factor: {value}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f39a️ AIfred RoPE Factor: {value}")
 
         # Save to VRAM cache (per-model setting)
         aifred_model_id: str = get_agent_setting(self, "aifred", "model_id")
@@ -514,51 +535,51 @@ class AgentConfigMixin(rx.State, mixin=True):
 
             # SSOT in lib/model_vram_cache — thin wrapper binds backend_type
             def format_model_with_ctx(model_display: str, model_id: str) -> str:
-                return _format_model_with_ctx(model_display, model_id, self.backend_type)  # type: ignore[attr-defined]
+                return _format_model_with_ctx(model_display, model_id, self.backend_type)
 
             # Re-display all agent models with updated context limits
             from ..lib.agent_config import get_agent_label
-            self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(get_agent_setting(self, 'aifred', 'model'), aifred_model_id)}")  # type: ignore[attr-defined]
+            self.add_debug(f"   {get_agent_label('aifred')}: {format_model_with_ctx(get_agent_setting(self, 'aifred', 'model'), aifred_model_id)}")
             if self.multi_agent_mode != "standard":
                 for secondary in ("sokrates", "salomo"):
                     sec_id: str = get_agent_setting(self, secondary, "model_id")
                     if sec_id:
-                        self.add_debug(f"   {get_agent_label(secondary)}: {format_model_with_ctx(get_agent_setting(self, secondary, 'model'), sec_id)}")  # type: ignore[attr-defined]
+                        self.add_debug(f"   {get_agent_label(secondary)}: {format_model_with_ctx(get_agent_setting(self, secondary, 'model'), sec_id)}")
 
             # Update cached min context limit
             context_limits: list[int] = []
             for chat_agent in ("aifred", "sokrates", "salomo"):
                 model_id = get_agent_setting(self, chat_agent, "model_id")
                 if model_id:
-                    if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+                    if self.backend_type == "llamacpp":
                         ctx = get_llamacpp_calibration(model_id)
-                    elif self.backend_type == "vllm":  # type: ignore[attr-defined]
+                    elif self.backend_type == "vllm":
                         from ..lib.operating_points import get_vllm_entry_context
                         ctx = get_vllm_entry_context(model_id)
                     else:
                         ctx = get_ollama_calibrated_max_context(model_id, get_rope_factor_for_model(model_id))
                     if ctx:
                         context_limits.append(ctx)
-            self._min_agent_context_limit = min(context_limits) if context_limits else 0  # type: ignore[attr-defined]
+            self._min_agent_context_limit = min(context_limits) if context_limits else 0
 
             # Show history utilization and warn if compression will trigger
-            self._log_history_utilization(self._min_agent_context_limit)  # type: ignore[attr-defined]
+            self._log_history_utilization(self._min_agent_context_limit)
 
             # Warn if no calibration exists for this mode
             if factor >= 2.0:
                 extended_ctx = get_ollama_calibrated_max_context(aifred_model_id, rope_factor=2.0)
                 if extended_ctx is None:
-                    self.add_debug("⚠️ No RoPE 2x calibration found - please calibrate first!")  # type: ignore[attr-defined]
+                    self.add_debug("⚠️ No RoPE 2x calibration found - please calibrate first!")
             else:
                 native_ctx = get_ollama_calibrated_max_context(aifred_model_id, rope_factor=1.0)
                 if native_ctx is None:
-                    self.add_debug("⚠️ No native calibration found - please calibrate first!")  # type: ignore[attr-defined]
+                    self.add_debug("⚠️ No native calibration found - please calibrate first!")
 
     def set_automatik_rope_factor(self, value: str) -> None:
         """Set RoPE scaling factor for Automatik-LLM."""
         factor = float(value.replace("x", ""))
         self.automatik_rope_factor = factor
-        effective_auto = self._effective_automatik_id  # type: ignore[attr-defined]
+        effective_auto = self._effective_automatik_id
         if effective_auto:
             from ..lib.model_vram_cache import set_rope_factor_for_model
             set_rope_factor_for_model(effective_auto, factor)
@@ -605,8 +626,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         try:
             from ..lib.agent_settings import get_agent_setting, set_agent_setting
             set_agent_setting(self, agent, "temperature", max(0.0, min(2.0, float(value))))
-            self.add_debug(f"\U0001f321️ {agent.capitalize()} temperature={get_agent_setting(self, agent, 'temperature')}")  # type: ignore[attr-defined]
-            self._save_settings()  # type: ignore[attr-defined]
+            self.add_debug(f"\U0001f321️ {agent.capitalize()} temperature={get_agent_setting(self, agent, 'temperature')}")
+            self._save_settings()
         except (ValueError, TypeError):
             pass
 
@@ -633,7 +654,7 @@ class AgentConfigMixin(rx.State, mixin=True):
             # These modes always use AIfred + Sokrates + Salomo
             self.active_agent = "aifred"
 
-        self._persist_session_config()  # type: ignore[attr-defined]
+        self._persist_session_config()
 
         mode_labels = {
             "standard": "Standard",
@@ -642,28 +663,28 @@ class AgentConfigMixin(rx.State, mixin=True):
             "tribunal": "Tribunal",
             "symposion": "Symposion",
         }
-        self.add_debug(f"\U0001f916 Discussion mode: {mode_labels.get(mode, mode)}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f916 Discussion mode: {mode_labels.get(mode, mode)}")
 
     def increase_debate_rounds(self) -> None:
         """Increase max debate rounds by 1 (max 10)."""
         if self.max_debate_rounds < 10:
             self.max_debate_rounds += 1
-            self._save_settings()  # type: ignore[attr-defined]
-            self.add_debug(f"\U0001f504 Max debate rounds: {self.max_debate_rounds}")  # type: ignore[attr-defined]
+            self._save_settings()
+            self.add_debug(f"\U0001f504 Max debate rounds: {self.max_debate_rounds}")
 
     def decrease_debate_rounds(self) -> None:
         """Decrease max debate rounds by 1 (min 1)."""
         if self.max_debate_rounds > 1:
             self.max_debate_rounds -= 1
-            self._save_settings()  # type: ignore[attr-defined]
-            self.add_debug(f"\U0001f504 Max debate rounds: {self.max_debate_rounds}")  # type: ignore[attr-defined]
+            self._save_settings()
+            self.add_debug(f"\U0001f504 Max debate rounds: {self.max_debate_rounds}")
 
     def toggle_consensus_type(self, checked: bool) -> None:
         """Toggle consensus type between majority (off) and unanimous (on)."""
         self.consensus_type = "unanimous" if checked else "majority"
-        self._save_settings()  # type: ignore[attr-defined]
+        self._save_settings()
         type_label = "3/3 unanimous" if checked else "2/3 majority"
-        self.add_debug(f"\U0001f5f3️ Consensus type: {type_label}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f5f3️ Consensus type: {type_label}")
 
     @rx.var
     def is_unanimous_consensus(self) -> bool:
@@ -675,14 +696,14 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Get tooltip text for consensus toggle based on current state and language."""
         from ..lib.i18n import t
         if self.consensus_type == "unanimous":
-            return t("consensus_toggle_tooltip_on", lang=self.ui_language)  # type: ignore[attr-defined]
-        return t("consensus_toggle_tooltip_off", lang=self.ui_language)  # type: ignore[attr-defined]
+            return t("consensus_toggle_tooltip_on", lang=self.ui_language)
+        return t("consensus_toggle_tooltip_off", lang=self.ui_language)
 
     @rx.var(deps=["ui_language"], auto_deps=False)
     def speed_switch_tooltip(self) -> str:
         """Localized tooltip for the Ctx/Speed switch."""
         from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        lang = self.ui_language if self.ui_language != "auto" else "de"
         return t("speed_switch_tooltip", lang=lang)
 
     @rx.var(deps=["ui_language"], auto_deps=False)
@@ -690,11 +711,11 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Get localized multi-agent mode options as [key, label] pairs for dropdown."""
         from ..lib.i18n import TranslationManager
         return [
-            ["standard", TranslationManager.get_text("multi_agent_standard", self.ui_language)],  # type: ignore[attr-defined]
-            ["critical_review", TranslationManager.get_text("multi_agent_critical_review", self.ui_language)],  # type: ignore[attr-defined]
-            ["auto_consensus", TranslationManager.get_text("multi_agent_auto_consensus", self.ui_language)],  # type: ignore[attr-defined]
-            ["tribunal", TranslationManager.get_text("multi_agent_tribunal", self.ui_language)],  # type: ignore[attr-defined]
-            ["symposion", TranslationManager.get_text("multi_agent_symposion", self.ui_language)],  # type: ignore[attr-defined]
+            ["standard", TranslationManager.get_text("multi_agent_standard", self.ui_language)],
+            ["critical_review", TranslationManager.get_text("multi_agent_critical_review", self.ui_language)],
+            ["auto_consensus", TranslationManager.get_text("multi_agent_auto_consensus", self.ui_language)],
+            ["tribunal", TranslationManager.get_text("multi_agent_tribunal", self.ui_language)],
+            ["symposion", TranslationManager.get_text("multi_agent_symposion", self.ui_language)],
         ]
 
     # Core agents used in fixed multi-agent modes
@@ -732,9 +753,9 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Toggle agent memory on/off (incognito mode)."""
         self.agent_memory_enabled = not self.agent_memory_enabled
         if self.agent_memory_enabled:
-            self.add_debug("🔓 Agent memory enabled")  # type: ignore[attr-defined]
+            self.add_debug("🔓 Agent memory enabled")
         else:
-            self.add_debug("🔒 Incognito mode (no memory)")  # type: ignore[attr-defined]
+            self.add_debug("🔒 Incognito mode (no memory)")
 
     def set_active_agent(self, agent_id: str) -> None:
         """Set which agent responds to messages. In Symposion mode, toggles multi-select."""
@@ -748,8 +769,8 @@ class AgentConfigMixin(rx.State, mixin=True):
         from ..lib.agent_config import get_agent_config
         cfg = get_agent_config(agent_id)
         label = cfg.display_name if cfg else agent_id.capitalize()
-        self.add_debug(f"🎯 Active agent: {label}")  # type: ignore[attr-defined]
-        self._persist_session_config()  # type: ignore[attr-defined]
+        self.add_debug(f"🎯 Active agent: {label}")
+        self._persist_session_config()
 
     def toggle_symposion_agent(self, agent_id: str) -> None:
         """Toggle an agent's participation in Symposion mode."""
@@ -759,14 +780,14 @@ class AgentConfigMixin(rx.State, mixin=True):
         if agent_id in self.symposion_agents:
             # Don't allow deselecting the last agent
             if len(self.symposion_agents) <= 1:
-                self.add_debug(f"🏛️ Symposion: {label} is the last agent, cannot be removed")  # type: ignore[attr-defined]
+                self.add_debug(f"🏛️ Symposion: {label} is the last agent, cannot be removed")
                 return
             self.symposion_agents = [a for a in self.symposion_agents if a != agent_id]
-            self.add_debug(f"🏛️ Symposion: {label} removed")  # type: ignore[attr-defined]
+            self.add_debug(f"🏛️ Symposion: {label} removed")
         else:
             self.symposion_agents = self.symposion_agents + [agent_id]
-            self.add_debug(f"🏛️ Symposion: {label} added")  # type: ignore[attr-defined]
-        self._persist_session_config()  # type: ignore[attr-defined]
+            self.add_debug(f"🏛️ Symposion: {label} added")
+        self._persist_session_config()
 
     @rx.var(deps=["symposion_agents"], auto_deps=False)
     def symposion_agent_positions(self) -> dict[str, int]:
@@ -807,11 +828,11 @@ class AgentConfigMixin(rx.State, mixin=True):
         """Optionen der Sekundaer-Agenten: Sentinel zuerst, dann alle Modelle."""
         from ..lib.i18n import t
         from ..state._backend_mixin import SAME_AS_AIFRED
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        lang = self.ui_language if self.ui_language != "auto" else "de"
         return [{"id": SAME_AS_AIFRED, "label": t("sokrates_llm_same", lang=lang),
                  "badge": "", "color": ""}] + [
             {"id": mid, "label": label, "badge": "", "color": ""}
-            for mid, label in self.available_models_dict.items()  # type: ignore[attr-defined]
+            for mid, label in self.available_models_dict.items()
         ]
 
     def _model_select_id(self, agent: str) -> str:
@@ -842,7 +863,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         if model_id == SAME_AS_AIFRED:
             model_id = ""
         set_agent_setting(self, agent, "model_id", model_id)
-        set_agent_setting(self, agent, "model", self._label_for(agent, model_id))  # type: ignore[attr-defined]
+        set_agent_setting(self, agent, "model", self._label_for(agent, model_id))
 
         if not model_id:
             # "(wie AIfred-LLM)" selected -- clear speed variant
@@ -850,14 +871,14 @@ class AgentConfigMixin(rx.State, mixin=True):
             set_agent_setting(self, agent, "speed_mode", False)
 
         # Load all model parameters from cache
-        if self.backend_id == "ollama" and model_id:  # type: ignore[attr-defined]
+        if self.backend_id == "ollama" and model_id:
             from ..lib.model_vram_cache import get_model_parameters
             params = get_model_parameters(model_id)
             set_agent_setting(self, agent, "rope_factor", params["rope_factor"])
             set_agent_setting(self, agent, "max_context", params["max_context"])
             set_agent_setting(self, agent, "is_hybrid", params["is_hybrid"])
             set_agent_setting(self, agent, "supports_thinking", params["supports_thinking"])
-        elif self.backend_type == "llamacpp" and model_id:  # type: ignore[attr-defined]
+        elif self.backend_type == "llamacpp" and model_id:
             from ..lib.calibration import model_has_speed_variant
             from ..lib.model_vram_cache import (
                 get_llamacpp_calibration,
@@ -875,14 +896,14 @@ class AgentConfigMixin(rx.State, mixin=True):
         # Reset sampling params to model defaults
         self._reset_agent_sampling(agent)
 
-        self._save_settings()  # type: ignore[attr-defined]
+        self._save_settings()
         emoji = self._SECONDARY_MODEL_EMOJI.get(agent, "\U0001f916")
         if model_id:
             from ..lib.agent_settings import get_agent_setting as _get
-            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: {_get(self, agent, 'model')}")  # type: ignore[attr-defined]
-            self._show_model_calibration_info(model_id)  # type: ignore[attr-defined]
+            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: {_get(self, agent, 'model')}")
+            self._show_model_calibration_info(model_id)
         else:
-            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: (same as Main-LLM)")  # type: ignore[attr-defined]
+            self.add_debug(f"{emoji} {agent.capitalize()}-LLM: (same as Main-LLM)")
 
     # ================================================================
     # GENERIC EVENT HANDLERS (rx.foreach rows pass the agent id)
@@ -919,7 +940,7 @@ class AgentConfigMixin(rx.State, mixin=True):
 
     def reset_agent_sampling_for(self, agent: str) -> None:
         self._reset_agent_sampling(agent)
-        self._save_settings()  # type: ignore[attr-defined]
+        self._save_settings()
 
     def toggle_agent_personality_for(self, agent: str, _value: bool | None = None) -> None:
         self._toggle_agent_feature(agent, "personality")
@@ -1006,7 +1027,7 @@ class AgentConfigMixin(rx.State, mixin=True):
         """
         from ..lib.agent_settings import get_agent_setting
         from ..lib.i18n import t
-        lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+        lang = self.ui_language if self.ui_language != "auto" else "de"
         rows: list[AgentModelRow] = []
         for entry in self._ui_agent_list(include_vision=False):
             agent = entry["id"]

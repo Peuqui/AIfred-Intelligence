@@ -77,7 +77,7 @@ class AgentMemory:
             self._collections[agent_id] = self._client.get_or_create_collection(
                 name=f"agent_memory_{agent_id}",
                 metadata={"agent": agent_id, "embedding_model": OLLAMA_EMBEDDING_MODEL},
-                embedding_function=self._embed_fn,  # type: ignore[arg-type]
+                embedding_function=self._embed_fn,
             )
         return self._collections[agent_id]
 
@@ -142,7 +142,7 @@ class AgentMemory:
 
         if not memory_type:
             existing = col.get(ids=[full_id], include=["metadatas"])
-            memory_type = existing["metadatas"][0].get("type", "")  # type: ignore[index]
+            memory_type = existing["metadatas"][0].get("type", "")
 
         now = datetime.now(UTC).isoformat()
         col.update(
@@ -176,7 +176,7 @@ class AgentMemory:
         full_id = self._resolve_id(agent_id, memory_id)
 
         existing = col.get(ids=[full_id], include=["metadatas"])
-        summary = existing["metadatas"][0].get("summary", "")  # type: ignore[index]
+        summary = existing["metadatas"][0].get("summary", "")
         col.delete(ids=[full_id])
         log_message(f"AgentMemory({agent_id}): deleted {full_id[:8]} {summary[:60]}")
         return f"Memory {full_id[:8]} deleted: {summary}"
@@ -242,12 +242,12 @@ class AgentMemory:
         )
 
         memories = []
-        for i, dist in enumerate(results["distances"][0]):  # type: ignore[index]
+        for i, dist in enumerate(results["distances"][0]):
             if dist > AGENT_MEMORY_DISTANCE_THRESHOLD:
                 continue
-            meta = results["metadatas"][0][i]  # type: ignore[index]
+            meta = results["metadatas"][0][i]
             memories.append({
-                "id": results["ids"][0][i],  # type: ignore[index]
+                "id": results["ids"][0][i],
                 "summary": meta.get("summary", ""),
                 "content": meta.get("content", ""),
                 "type": meta.get("type", ""),
@@ -270,7 +270,7 @@ class AgentMemory:
                 "type": meta.get("type", ""),
                 "date": meta.get("date", ""),
             }
-            for i, meta in enumerate(all_data["metadatas"])  # type: ignore[union-attr]
+            for i, meta in enumerate(all_data["metadatas"])
         ]
         entries.sort(key=lambda e: e["date"], reverse=True)
         return entries

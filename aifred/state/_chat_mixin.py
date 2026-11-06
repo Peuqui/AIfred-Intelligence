@@ -11,7 +11,7 @@ import json
 import re
 from collections.abc import AsyncGenerator, Sequence
 from datetime import datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 from reflex.event import EventSpec
@@ -20,9 +20,58 @@ from ..lib.config import DEBUG_MESSAGES_MAX, LLAMASWAP_BACKENDS
 from ..lib.context_manager import strip_thinking_blocks
 from ..lib.logging_utils import log_message
 
+if TYPE_CHECKING:
+    from ..lib.agent_tuning import AgentTuning
+
 
 class ChatMixin(rx.State, mixin=True):
     """Mixin for chat message sending and AI response streaming."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        _js_chunk_buffer: str
+        _last_detected_language: str
+        _pending_audio_urls: list[str]
+        active_agent: str
+        agent_memory_enabled: bool
+        agent_tuning: dict[str, AgentTuning]
+        all_sources: list[dict[str, Any]]
+        backend_type: str
+        backend_url: str
+        cloud_api_provider: str
+        enable_tts: bool
+        failed_sources: list[dict[str, str]]
+        logged_in_user: str
+        multi_agent_mode: str
+        pending_images: list[dict[str, str]]
+        session_id: str
+        symposion_agents: list[str]
+        ui_language: str
+        used_sources: list[dict[str, Any]]
+
+        def _abort_streaming_tts(self) -> None: ...
+        def _chat_sub(self): ...
+        def _clear_chat_internal(self, silent: bool = False): ...
+        @property
+        def _effective_automatik_id(self) -> str: ...
+        def _effective_model_id(self, agent: str) -> str: ...
+        async def _ensure_backend_initialized(self) -> None: ...
+        async def _generate_session_title(self, title_model_override: str = "") -> None: ...
+        def _image_describer(self) -> tuple[str, str, bool]: ...
+        def _image_tuning_bucket(self, model_id: str) -> str: ...
+        def _init_streaming_tts(self, agent: str = "aifred") -> None: ...
+        def _persist_session_config(self) -> None: ...
+        def _save_current_session(self): ...
+        def _spawn_tts_finalize(self) -> None: ...
+        def _streaming_sub(self): ...
+        def _tts_streaming_wanted(self, agent: str = "aifred") -> bool: ...
+        async def _wait_for_tts_finalize(self) -> None: ...
+        def clear_pending_images(self) -> None: ...
+        def flush_stream_to_ui(self) -> bool: ...
+        def refresh_session_list(self): ...
+        def stream_text_to_ui(self, chunk: str) -> bool: ...
     # Ladezeit des letzten Cold Starts (Sekunden), gemessen am ersten
     # LLM-Aufruf nach der Erkennung; add_agent_panel haengt sie an die
     # naechste Antwort und setzt sie zurueck — Warmstarts tragen nichts.
@@ -148,14 +197,14 @@ class ChatMixin(rx.State, mixin=True):
 
         # Mode label mapping (without round number)
         mode_labels = {
-            "auto_consensus": t("auto_consensus_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "auto_consensus": t("auto_consensus_label", lang=self.ui_language).rstrip(":"),
             "tribunal": "Tribunal",  # Same in both languages
             "direct": "",  # No label — direct is the default mode now
-            "refinement": t("refinement_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
-            "synthesis": t("salomo_synthesis_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
-            "verdict": t("salomo_verdict_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
-            "critical_review": t("critical_review_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
-            "advocatus_diaboli": t("advocatus_diaboli_label", lang=self.ui_language).rstrip(":"),  # type: ignore[attr-defined]
+            "refinement": t("refinement_label", lang=self.ui_language).rstrip(":"),
+            "synthesis": t("salomo_synthesis_label", lang=self.ui_language).rstrip(":"),
+            "verdict": t("salomo_verdict_label", lang=self.ui_language).rstrip(":"),
+            "critical_review": t("critical_review_label", lang=self.ui_language).rstrip(":"),
+            "advocatus_diaboli": t("advocatus_diaboli_label", lang=self.ui_language).rstrip(":"),
             "symposion": "Symposion",  # Same in both languages
             "error": "Error",  # Same in both languages
             "standard": "",  # No label for standard mode
@@ -196,9 +245,9 @@ class ChatMixin(rx.State, mixin=True):
         # Skip for "standard" mode, when mode already includes the prefix,
         # or when mode equals multi_agent_mode (prevents "[Critical Review: Critical Review R1]")
         mode_prefix = ""
-        if self.multi_agent_mode != "standard" and mode not in ["auto_consensus", "tribunal", "devils_advocate", "symposion"] and mode != self.multi_agent_mode:  # type: ignore[attr-defined]
+        if self.multi_agent_mode != "standard" and mode not in ["auto_consensus", "tribunal", "devils_advocate", "symposion"] and mode != self.multi_agent_mode:
             # Get localized multi-agent mode label
-            multi_mode_label = self._get_mode_label(self.multi_agent_mode, None)  # type: ignore[attr-defined]
+            multi_mode_label = self._get_mode_label(self.multi_agent_mode, None)
             if multi_mode_label:
                 mode_prefix = f"{multi_mode_label}: "
 
@@ -303,7 +352,7 @@ class ChatMixin(rx.State, mixin=True):
         # These are trigger words for the Multi-Agent system, already parsed by count_lgtm_votes()
         # Now we make them human-readable in the UI (and TTS will speak what's displayed)
         # Uses detected language (from Intent Detection) for correct localization
-        lang = self._last_detected_language or get_language()  # type: ignore[attr-defined, has-type]
+        lang = self._last_detected_language or get_language()
         content = re.sub(r'\[LGTM\]', t("consensus_agreed", lang=lang), content, flags=re.IGNORECASE)
         content = re.sub(r'\[WEITER\]', t("consensus_continue", lang=lang), content, flags=re.IGNORECASE)
 
@@ -319,10 +368,10 @@ class ChatMixin(rx.State, mixin=True):
 
         # 5. Create new message entry (dict-based format)
         # Include audio URLs if streaming TTS generated them
-        if self._pending_audio_urls:  # type: ignore[attr-defined, has-type]
-            msg_metadata["audio_urls"] = self._pending_audio_urls.copy()  # type: ignore[attr-defined, has-type]
-            log_message(f"🔊 add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")  # type: ignore[attr-defined, has-type]
-            self._pending_audio_urls: list[str] = []  # type: ignore[attr-defined, var-annotated]
+        if self._pending_audio_urls:
+            msg_metadata["audio_urls"] = self._pending_audio_urls.copy()
+            log_message(f"🔊 add_agent_panel: Stored {len(self._pending_audio_urls)} audio URLs in message metadata")
+            self._pending_audio_urls: list[str] = []
 
         # Store agent's playback rate for HTML export (browser speed setting, per-agent)
         # Always set when audio_urls are present, regardless of source
@@ -355,7 +404,7 @@ class ChatMixin(rx.State, mixin=True):
             self._sync_to_llm_history(agent, content)
 
         # 7. Save session (async, non-blocking)
-        self._save_current_session()  # type: ignore[attr-defined]
+        self._save_current_session()
 
     # ── Multi-Agent Dispatch ─────────────────────────────────────────
 
@@ -385,10 +434,10 @@ class ChatMixin(rx.State, mixin=True):
         # to the single-agent path and then landed in the else-branch below,
         # spawning an unrequested Sokrates analysis (which also swapped the
         # model, because Sokrates resolves to the base variant).
-        if self.multi_agent_mode in ("standard", "symposion") or not ai_text or skip_analysis:  # type: ignore[attr-defined]
+        if self.multi_agent_mode in ("standard", "symposion") or not ai_text or skip_analysis:
             return
 
-        if self.multi_agent_mode == "tribunal":  # type: ignore[attr-defined]
+        if self.multi_agent_mode == "tribunal":
             self.add_debug("⚖️ Multi-Agent: Tribunal startet...")
             yield
             async for _ in run_tribunal(self, user_msg, ai_text, detected_language):  # type: ignore[arg-type]
@@ -459,14 +508,14 @@ class ChatMixin(rx.State, mixin=True):
             llm_client = LLMClient(backend_type=BACKEND_TYPE, base_url=remote[0])
             model_id = remote[1]
         else:
-            llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)  # type: ignore[attr-defined]
+            llm_client = LLMClient(backend_type=self.backend_type, base_url=self.backend_url)
         try:
             response = await llm_client.chat(
                 model=model_id,
                 messages=[{"role": "user", "content": content}],
                 options=LLMOptions(
-                    temperature=self.agent_tuning[settings_bucket].temperature,  # type: ignore[attr-defined]
-                    num_ctx=self.agent_tuning[settings_bucket].max_context or None,  # type: ignore[attr-defined]
+                    temperature=self.agent_tuning[settings_bucket].temperature,
+                    num_ctx=self.agent_tuning[settings_bucket].max_context or None,
                     enable_thinking=enable_thinking,
                     reasoning_effort=reasoning_effort,
                 ),
@@ -501,15 +550,15 @@ class ChatMixin(rx.State, mixin=True):
         """
         from ..lib.llm_engine import call_llm
 
-        effective_vision_id = self._effective_model_id("aifred")  # type: ignore[attr-defined]
+        effective_vision_id = self._effective_model_id("aifred")
 
         # VL acts as the active agent (memory, tools, personality)
-        acting_agent = self.active_agent or "aifred"  # type: ignore[attr-defined]
+        acting_agent = self.active_agent or "aifred"
         self._set_current_agent(acting_agent)
         from ..lib.agent_config import get_agent_config
         _acting_cfg = get_agent_config(acting_agent)
         _acting_name = _acting_cfg.display_name if _acting_cfg else acting_agent.capitalize()
-        self.add_debug(f"📷 VL acting as: {_acting_name}")  # type: ignore[attr-defined]
+        self.add_debug(f"📷 VL acting as: {_acting_name}")
         yield
 
         # Full toolkit like the text path — without this, call_llm falls back
@@ -520,17 +569,17 @@ class ChatMixin(rx.State, mixin=True):
         memory_ctx, vl_toolkit = await prepare_agent_toolkit(
             acting_agent, user_msg,
             lang=detected_language,
-            memory_enabled=self.agent_memory_enabled,  # type: ignore[attr-defined]
+            memory_enabled=self.agent_memory_enabled,
             research_tools_enabled=True,
             state=self,
-            session_id=self.session_id,  # type: ignore[attr-defined]
+            session_id=self.session_id,
         )
         if vl_toolkit:
-            self.add_debug(f"🔧 Toolkit: {[t.name for t in vl_toolkit.tools]} for {_acting_name}")  # type: ignore[attr-defined]
+            self.add_debug(f"🔧 Toolkit: {[t.name for t in vl_toolkit.tools]} for {_acting_name}")
             yield
 
-        if self._tts_streaming_wanted("aifred"):  # type: ignore[attr-defined]
-            self._init_streaming_tts(agent="aifred")  # type: ignore[attr-defined]
+        if self._tts_streaming_wanted("aifred"):
+            self._init_streaming_tts(agent="aifred")
 
         result_data = None
         async for item in call_llm(
@@ -541,13 +590,13 @@ class ChatMixin(rx.State, mixin=True):
             detected_intent=detected_intent,
             detected_language=detected_language,
             temperature_mode="manual",
-            temperature=self.agent_tuning["aifred"].temperature,  # type: ignore[attr-defined]
-            backend_type=self.backend_type,  # type: ignore[attr-defined]
-            backend_url=self.backend_url,  # type: ignore[attr-defined]
+            temperature=self.agent_tuning["aifred"].temperature,
+            backend_type=self.backend_type,
+            backend_url=self.backend_url,
             state=self,
             multimodal_content=content_parts,
             vision_task_addon=vision_task_addon,
-            provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,  # type: ignore[attr-defined]
+            provider=self.cloud_api_provider if self.backend_type == "cloud_api" else None,
             agent=acting_agent,
             external_toolkit=vl_toolkit,
             memory_ctx=memory_ctx if memory_ctx else None,
@@ -556,13 +605,13 @@ class ChatMixin(rx.State, mixin=True):
                 self.add_debug(item["message"])
                 yield
             elif item["type"] == "content":
-                if self.stream_text_to_ui(item["text"]):  # type: ignore[attr-defined]
+                if self.stream_text_to_ui(item["text"]):
                     yield
             elif item["type"] == "progress":
                 if item.get("clear", False):
-                    self.clear_progress()  # type: ignore[attr-defined]
+                    self.clear_progress()
                 else:
-                    self.set_progress(  # type: ignore[attr-defined]
+                    self.set_progress(
                         phase=item.get("phase", ""),
                         current=item.get("current", 0),
                         total=item.get("total", 0),
@@ -570,14 +619,14 @@ class ChatMixin(rx.State, mixin=True):
                 yield
             elif item["type"] == "result":
                 # Flush remaining buffer to state
-                if self.flush_stream_to_ui():  # type: ignore[attr-defined]
+                if self.flush_stream_to_ui():
                     yield
                 result_data = item["data"]
 
         # Separator after VL inference (consistent with all other inference paths)
         from ..lib.logging_utils import CONSOLE_SEPARATOR, console_separator
         console_separator()
-        self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+        self.add_debug(CONSOLE_SEPARATOR)
         yield
 
         if result_data:
@@ -592,7 +641,7 @@ class ChatMixin(rx.State, mixin=True):
                 ch.llm_history = list(ch.llm_history) + [returned_llm[-1]]
             self._chat_sub().chat_history = result_data["history"]
 
-        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+        self._streaming_sub().current_ai_response = ""
         self.current_user_message = ""
         self.is_generating = False
         yield
@@ -603,10 +652,10 @@ class ChatMixin(rx.State, mixin=True):
         # Push Bus (kind="session_title").
         from ._base import track_orphan_task
         track_orphan_task(asyncio.create_task(
-            self._generate_session_title(title_model_override=effective_vision_id)  # type: ignore[attr-defined]
+            self._generate_session_title(title_model_override=effective_vision_id)
         ))
-        self._save_current_session()  # type: ignore[attr-defined]
-        self.refresh_session_list()  # type: ignore[attr-defined]
+        self._save_current_session()
+        self.refresh_session_list()
         yield
 
     # ── Main Send Message ────────────────────────────────────────────
@@ -630,30 +679,30 @@ class ChatMixin(rx.State, mixin=True):
         # BASE model_id, not the already-resolved _effective_model_id, or
         # we get a double-suffix lookup that misses the YAML entry.
         context_limits: list[int] = []
-        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined, arg-type]
+        aifred_ctx, _ = get_agent_num_ctx("aifred", self, self.agent_tuning["aifred"].model_id)  # type: ignore[arg-type]
         context_limits.append(aifred_ctx)
 
-        if self.multi_agent_mode != "standard":  # type: ignore[attr-defined]
-            if self.agent_tuning["sokrates"].model_id:  # type: ignore[attr-defined]
-                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.agent_tuning["sokrates"].model_id)  # type: ignore[attr-defined, arg-type]
+        if self.multi_agent_mode != "standard":
+            if self.agent_tuning["sokrates"].model_id:
+                sokrates_ctx, _ = get_agent_num_ctx("sokrates", self, self.agent_tuning["sokrates"].model_id)  # type: ignore[arg-type]
                 context_limits.append(sokrates_ctx)
-            if self.agent_tuning["salomo"].model_id:  # type: ignore[attr-defined]
-                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.agent_tuning["salomo"].model_id)  # type: ignore[attr-defined, arg-type]
+            if self.agent_tuning["salomo"].model_id:
+                salomo_ctx, _ = get_agent_num_ctx("salomo", self, self.agent_tuning["salomo"].model_id)  # type: ignore[arg-type]
                 context_limits.append(salomo_ctx)
 
         context_limit = min(context_limits) if context_limits else 4096
         # Mit DEMSELBEN Schalter messen, mit dem _run_agent_direct_response
         # den Prompt gleich baut.
         system_prompt_tokens = get_max_direct_prompt_tokens(
-            self.multi_agent_mode,  # type: ignore[attr-defined]
+            self.multi_agent_mode,
             detected_language,
-            memory=self.agent_memory_enabled,  # type: ignore[attr-defined]
+            memory=self.agent_memory_enabled,
         )
 
         compression_model = get_largest_compression_model(
-            aifred_model=self._effective_model_id("aifred"),  # type: ignore[attr-defined]
-            sokrates_model=self._effective_model_id("sokrates"),  # type: ignore[attr-defined]
-            salomo_model=self._effective_model_id("salomo"),  # type: ignore[attr-defined]
+            aifred_model=self._effective_model_id("aifred"),
+            sokrates_model=self._effective_model_id("sokrates"),
+            salomo_model=self._effective_model_id("salomo"),
         )
 
         async for event in summarize_history_if_needed(
@@ -678,7 +727,7 @@ class ChatMixin(rx.State, mixin=True):
                 yield
 
 
-    async def send_message(self, text: str = "") -> AsyncGenerator[None, None]:  # type: ignore[misc]
+    async def send_message(self, text: str = "") -> AsyncGenerator[None, None]:
         """Send message to LLM with optional web research.
 
         Args:
@@ -686,12 +735,12 @@ class ChatMixin(rx.State, mixin=True):
                   Empty when called programmatically — reads from current_user_input.
         """
         # Must be logged in to send messages
-        if not self.logged_in_user:  # type: ignore[attr-defined]
+        if not self.logged_in_user:
             self.add_debug("⚠️ Please log in first")
             return
 
         # If no text but images present, use default prompt
-        has_pending_images = len(self.pending_images) > 0  # type: ignore[attr-defined]
+        has_pending_images = len(self.pending_images) > 0
         # Text from call_script callback (UI click) or current_user_input (injection/transcription)
         user_text = (text or self.current_user_input).strip()
 
@@ -715,14 +764,14 @@ class ChatMixin(rx.State, mixin=True):
             )
             return
 
-        await self._ensure_backend_initialized()  # type: ignore[attr-defined]
+        await self._ensure_backend_initialized()
 
         # No main model selected — e.g. the configured one was deleted and
         # got cleared on backend switch (we clear rather than silently
         # substitute). Stop here with a clear hint instead of crashing
         # downstream on an empty model id.
-        if not self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
-            self.add_debug("⚠️ No model selected — pick one in the settings panel")  # type: ignore[attr-defined]
+        if not self.agent_tuning["aifred"].model_id:
+            self.add_debug("⚠️ No model selected — pick one in the settings panel")
             return
 
         # Coverage check: warn (debug console + log) when the active
@@ -731,7 +780,7 @@ class ChatMixin(rx.State, mixin=True):
         # back to the next-best profile, which can OOM on first VLM
         # inference — surfacing the mismatch here gives the user a
         # chance to open the calibration matrix.
-        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+        if self.backend_type == "llamacpp":
             try:
                 from ..lib.calibration import diagnose_uncalibrated_combo
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
@@ -745,10 +794,10 @@ class ChatMixin(rx.State, mixin=True):
                 _vlm_key_chat = get_active_vlm_key() if _vlm_active_chat else ""
                 _warn = diagnose_uncalibrated_combo(
                     LLAMASWAP_CONFIG_PATH,
-                    self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
-                    tts_active=bool(self.enable_tts),  # type: ignore[attr-defined]
-                    tts_engine=planned_tts_engine(self.agent_tuning["aifred"].model_id) if self.enable_tts else "",  # type: ignore[attr-defined]
-                    gpu_tts_engines=gpu_engine_keys() if self.enable_tts else set(),  # type: ignore[attr-defined]
+                    self.agent_tuning["aifred"].model_id,
+                    tts_active=bool(self.enable_tts),
+                    tts_engine=planned_tts_engine(self.agent_tuning["aifred"].model_id) if self.enable_tts else "",
+                    gpu_tts_engines=gpu_engine_keys() if self.enable_tts else set(),
                     vlm_active=_vlm_active_chat,
                     vlm_key=_vlm_key_chat,
                 )
@@ -766,7 +815,7 @@ class ChatMixin(rx.State, mixin=True):
         # Textarea is already cleared client-side by the call_script in on_click
         self.is_generating = True
         self._set_current_agent("")
-        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+        self._streaming_sub().current_ai_response = ""
 
         # Cleanup bookkeeping referenced by the finally block — must exist
         # BEFORE the try so every abort point (including the early yields
@@ -787,24 +836,24 @@ class ChatMixin(rx.State, mixin=True):
             user_msg = user_text
             self.current_user_input = ""  # Clear state (for injection/transcription path)
             self.current_user_message = user_msg
-            self.used_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
-            self.failed_sources: list[dict[str, str]] = []  # type: ignore[attr-defined, var-annotated]
-            self.all_sources: list[dict[str, Any]] = []  # type: ignore[attr-defined, var-annotated]
+            self.used_sources: list[dict[str, Any]] = []
+            self.failed_sources: list[dict[str, str]] = []
+            self.all_sources: list[dict[str, Any]] = []
 
             display_user_msg = user_msg
             if has_pending_images:
                 from ..lib.formatting import build_thumbnail_row
                 image_html = build_thumbnail_row(
-                    [img.get("url", "") for img in self.pending_images if img.get("url")]  # type: ignore[attr-defined]
+                    [img.get("url", "") for img in self.pending_images if img.get("url")]
                 )
 
                 if not user_msg or user_msg.strip() == "":
                     # Image-only upload
-                    if len(self.pending_images) == 1:  # type: ignore[attr-defined]
-                        display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"  # type: ignore[attr-defined]
+                    if len(self.pending_images) == 1:
+                        display_user_msg = f"{image_html}\n\n📷 {self.pending_images[0].get('name', 'Image')}"
                     else:
-                        img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])  # type: ignore[attr-defined]
-                        display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"  # type: ignore[attr-defined]
+                        img_names = ", ".join([img.get("name", "unknown") for img in self.pending_images])
+                        display_user_msg = f"{image_html}\n\n📷 {len(self.pending_images)} images: {img_names}"
                 else:
                     # Text + images
                     display_user_msg = f"{image_html}\n\n{user_msg}" if image_html else user_msg
@@ -819,7 +868,7 @@ class ChatMixin(rx.State, mixin=True):
                     "mode": "",
                     "round_num": 0,
                     "metadata": {
-                        "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []  # type: ignore[attr-defined]
+                        "images": [{"name": img.get("name", ""), "url": img.get("url", "")} for img in self.pending_images] if has_pending_images else []
                     },
                     "timestamp": datetime.now().isoformat(),
                     "time_display": datetime.now().strftime("%d.%m. \u2014 %H:%M"),
@@ -839,7 +888,7 @@ class ChatMixin(rx.State, mixin=True):
             # the big model when that is vision-capable).
             llm_user_content = user_msg
             if has_pending_images:
-                _img_urls = [img.get("url", "") for img in self.pending_images if img.get("url")]  # type: ignore[attr-defined]
+                _img_urls = [img.get("url", "") for img in self.pending_images if img.get("url")]
                 if _img_urls:
                     from ..lib.message_builder import image_marker
                     _marker = image_marker(_img_urls)
@@ -867,10 +916,10 @@ class ChatMixin(rx.State, mixin=True):
             # Click-Stack) und dann sich selbst entfernt.
             # The reading of the reply is opened where its text starts to flow (one place per path:
             # ``_stream_agent_to_history`` for every agent, ``_process_vision_request`` for VL Direct).
-            if self._tts_streaming_wanted("aifred"):  # type: ignore[attr-defined]
-                await self._wait_for_tts_finalize()  # type: ignore[attr-defined]
+            if self._tts_streaming_wanted("aifred"):
+                await self._wait_for_tts_finalize()
                 from ..lib.api import browser_queue_clear
-                browser_queue_clear(self.session_id)  # type: ignore[attr-defined]
+                browser_queue_clear(self.session_id)
             # SSE stream (re)start — idempotent if already connected.
             yield rx.call_script(  # type: ignore[misc]
                 f"if(window.startBrowserStream) startBrowserStream('{self.session_id}');"
@@ -883,8 +932,8 @@ class ChatMixin(rx.State, mixin=True):
             # Register this coroutine in the pipeline registry so external stop
             # commands (UI stop button, future cross-channel stop) can cancel it.
             _pipeline_task = asyncio.current_task()
-            if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
-                register_pipeline(self.session_id, _pipeline_task)  # type: ignore[attr-defined]
+            if _pipeline_task is not None and self.session_id:
+                register_pipeline(self.session_id, _pipeline_task)
 
             # ============================================================
             # IMAGES: who looks at them (SSOT _image_describer)
@@ -897,29 +946,29 @@ class ChatMixin(rx.State, mixin=True):
             # ============================================================
             if has_pending_images:
                 import copy
-                local_images = copy.deepcopy(self.pending_images)  # type: ignore[attr-defined]
-                self.clear_pending_images()  # type: ignore[attr-defined]
+                local_images = copy.deepcopy(self.pending_images)
+                self.clear_pending_images()
 
                 # Use UI language (no Intent Detection)
                 from ..lib.prompt_loader import get_language, load_prompt
                 detected_language = get_language()
-                self._last_detected_language = detected_language  # type: ignore[attr-defined]
+                self._last_detected_language = detected_language
 
                 from ..lib.vision_routing import NoVisionModelError, eviction_notice
                 try:
-                    _eff_vl, _vl_bucket, _vl_evicts = self._image_describer()  # type: ignore[attr-defined]
+                    _eff_vl, _vl_bucket, _vl_evicts = self._image_describer()
                 except NoVisionModelError as exc:
                     _eff_vl, _vl_bucket, _vl_evicts = "", "", False
-                    self.add_debug(f"⚠️ Vision: {exc} — the image goes on without a description")  # type: ignore[attr-defined]
+                    self.add_debug(f"⚠️ Vision: {exc} — the image goes on without a description")
                     yield
                 if _vl_evicts:
-                    self.add_debug(eviction_notice(_eff_vl))  # type: ignore[attr-defined]
+                    self.add_debug(eviction_notice(_eff_vl))
                     yield
 
                 # Cold start warning (llama-swap: llamacpp + vllm; a describer of another
                 # machine loads there, this llama-swap knows nothing about it)
                 from ..lib.remote_describers import endpoint as _remote_endpoint
-                if _eff_vl and self.backend_type in LLAMASWAP_BACKENDS and _remote_endpoint(_eff_vl) is None:  # type: ignore[attr-defined]
+                if _eff_vl and self.backend_type in LLAMASWAP_BACKENDS and _remote_endpoint(_eff_vl) is None:
                     from ..lib.service_status import LlamaSwapError
                     try:
                         running = await self._llamaswap_running_models()
@@ -928,13 +977,13 @@ class ChatMixin(rx.State, mixin=True):
                         log_message(f"⚠️ VL cold-start check: llama-swap does not answer: {exc}", "warning")
                         running = None
                     if running is not None and _eff_vl not in running:
-                        self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")  # type: ignore[attr-defined]
+                        self.add_debug(f"🔄 VL Model Cold Start ({_eff_vl}) — loading...")
                         yield
 
                 img_count = len(local_images)
-                _symposion = self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2  # type: ignore[attr-defined]
-                if _eff_vl == self._effective_model_id("aifred") and not _symposion:  # type: ignore[attr-defined]
-                    self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {_eff_vl}")  # type: ignore[attr-defined]
+                _symposion = self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2
+                if _eff_vl == self._effective_model_id("aifred") and not _symposion:
+                    self.add_debug(f"📷 VL Direct ({img_count} image(s)) → {_eff_vl}")
                     yield
 
                     # Build multimodal content (images + text) for call_llm()
@@ -947,7 +996,7 @@ class ChatMixin(rx.State, mixin=True):
                     # Qwen3-VL respects /no_think prefix (Ollama ignores API think param for VL).
                     # Same agent and model as the request below (_process_vision_request).
                     from ..lib.agent_settings import THINKING_OFF, thinking_mode
-                    if thinking_mode(self, self.active_agent or "aifred", _eff_vl) == THINKING_OFF:  # type: ignore[attr-defined]
+                    if thinking_mode(self, self.active_agent or "aifred", _eff_vl) == THINKING_OFF:
                         content_parts.append({"type": "text", "text": "/no_think"})
 
                     # Images first (VL models handle it best this way)
@@ -1001,21 +1050,21 @@ class ChatMixin(rx.State, mixin=True):
                     return  # VL Direct complete
 
                 if _eff_vl:
-                    self.add_debug(f"📷 Image description ({img_count} image(s)) → {_eff_vl}")  # type: ignore[attr-defined]
+                    self.add_debug(f"📷 Image description ({img_count} image(s)) → {_eff_vl}")
                     yield
                     from ..lib.vision_routing import Describer, describe_with_second_attempt
 
                     def _choose_again() -> Describer:
-                        model, _bucket, evicts = self._image_describer()  # type: ignore[attr-defined]
+                        model, _bucket, evicts = self._image_describer()
                         if evicts:
-                            self.add_debug(eviction_notice(model))  # type: ignore[attr-defined]
+                            self.add_debug(eviction_notice(model))
                         return Describer(model, evicts)
 
                     description = await describe_with_second_attempt(
                         Describer(_eff_vl, _vl_evicts), _choose_again,
                         lambda d: self._describe_images(
                             local_images, user_msg.strip(), detected_language, d.model,
-                            self._image_tuning_bucket(d.model),  # type: ignore[attr-defined]
+                            self._image_tuning_bucket(d.model),
                         ),
                     )
                     _block = load_prompt("vision/image_description_block", lang=detected_language, description=description)
@@ -1026,8 +1075,8 @@ class ChatMixin(rx.State, mixin=True):
 
             # Create LLM client once - used for ALL LLM operations
             llm_client = LLMClient(
-                backend_type=self.backend_type,  # type: ignore[attr-defined]
-                base_url=self.backend_url,  # type: ignore[attr-defined]
+                backend_type=self.backend_type,
+                base_url=self.backend_url,
             )
 
             # ============================================================
@@ -1037,17 +1086,17 @@ class ChatMixin(rx.State, mixin=True):
             # When different models: use AUTOMATIK_LLM_NUM_CTX from config.py
             from ..lib.config import AUTOMATIK_LLM_NUM_CTX
             from ..lib.formatting import format_number
-            effective_auto = self._effective_automatik_id  # type: ignore[attr-defined]
-            if effective_auto == self._effective_model_id("aifred"):  # type: ignore[attr-defined]
+            effective_auto = self._effective_automatik_id
+            if effective_auto == self._effective_model_id("aifred"):
                 # Same model: MUST send same num_ctx as preload to prevent Ollama reload!
                 # Ollama uses MODEL DEFAULT (not currently loaded context) when num_ctx is omitted.
                 # Omitting num_ctx causes Ollama to reload with default → then main inference
                 # sends calibrated num_ctx → Ollama reloads AGAIN. Two unnecessary reloads!
-                auto_num_ctx: int | None = self.agent_tuning["aifred"].max_context if self.agent_tuning["aifred"].max_context else None  # type: ignore[attr-defined]
+                auto_num_ctx: int | None = self.agent_tuning["aifred"].max_context if self.agent_tuning["aifred"].max_context else None
                 log_message(f"🔧 Automatik = AIfred ({effective_auto}) → num_ctx={auto_num_ctx} (match preload)")
 
                 # Warning if AIfred context is below recommended Automatik threshold
-                effective_ctx = self.agent_tuning["aifred"].max_context or 0  # type: ignore[attr-defined]
+                effective_ctx = self.agent_tuning["aifred"].max_context or 0
                 if effective_ctx > 0 and effective_ctx < AUTOMATIK_LLM_NUM_CTX:
                     self.add_debug(
                         f"⚠️ Automatik Context ({format_number(effective_ctx)}) < recommended ({format_number(AUTOMATIK_LLM_NUM_CTX)}) - Automatik tasks may be less reliable"
@@ -1063,7 +1112,7 @@ class ChatMixin(rx.State, mixin=True):
             # llama-swap loads models on-demand — first request triggers cold start.
             # Check /running BEFORE the first LLM call so the user knows why it's slow.
             # ============================================================
-            if self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
+            if self.backend_type in LLAMASWAP_BACKENDS:
                 from ..lib.service_status import LlamaSwapError
                 try:
                     running_models = await self._llamaswap_running_models()
@@ -1110,7 +1159,7 @@ class ChatMixin(rx.State, mixin=True):
                 is_pure_command = False
                 _reason = "URL-only" if _is_url_only else "image-only"
                 self.add_debug(f"🎯 Intent: {detected_intent} ({_reason}), Lang: {detected_language.upper()} (UI)")
-                self._last_detected_language = detected_language  # type: ignore[attr-defined]
+                self._last_detected_language = detected_language
             else:
                 # Beim Cold Start laedt das Backend das Modell fuer diesen
                 # ersten LLM-Aufruf und misst die Ladezeit; sie landet als
@@ -1142,7 +1191,7 @@ class ChatMixin(rx.State, mixin=True):
                     f"🎯 {format_intent_result(detected_intent, addressed_to, detected_language)}"
                     f", Switch: {switch_str}, PureCmd: {pure_str}"
                 )
-                self._last_detected_language = detected_language  # type: ignore[attr-defined]
+                self._last_detected_language = detected_language
 
             # ============================================================
             # MODE SWITCH HANDLER
@@ -1162,11 +1211,11 @@ class ChatMixin(rx.State, mixin=True):
                 # Apply to state (so the rest of the pipeline uses the new mode).
                 # ``_parse_mode_switch`` only ever returns agent / multi keys.
                 if "active_agent" in mode_switch_updates:
-                    self.active_agent = mode_switch_updates["active_agent"]  # type: ignore[attr-defined]
+                    self.active_agent = mode_switch_updates["active_agent"]
                 if "multi_agent_mode" in mode_switch_updates:
-                    self.multi_agent_mode = mode_switch_updates["multi_agent_mode"]  # type: ignore[attr-defined]
+                    self.multi_agent_mode = mode_switch_updates["multi_agent_mode"]
                 if "symposion_agents" in mode_switch_updates:
-                    self.symposion_agents = list(mode_switch_updates["symposion_agents"])  # type: ignore[attr-defined]
+                    self.symposion_agents = list(mode_switch_updates["symposion_agents"])
 
                 # Persist to session file (SSOT) — no _last_session_mtime update
                 # yet because _save_current_session below will do it
@@ -1186,7 +1235,7 @@ class ChatMixin(rx.State, mixin=True):
                     confirm_parts = [summary]
                     if "active_agent" not in mode_switch_updates:
                         from ..lib.agent_config import get_agent_config
-                        _active = self.active_agent  # type: ignore[attr-defined]
+                        _active = self.active_agent
                         _cfg = get_agent_config(_active)
                         _name = _cfg.display_name if _cfg else _active.capitalize()
                         confirm_parts.append(f"Agent: {_name}")
@@ -1242,9 +1291,9 @@ class ChatMixin(rx.State, mixin=True):
             # the active_agent fallback) persists as the new active_agent so
             # subsequent unaddressed turns route to the same agent. The user
             # switches simply by addressing someone else.
-            if addressed_to and addressed_to != self.active_agent:  # type: ignore[attr-defined]
-                self.active_agent = addressed_to  # type: ignore[attr-defined]
-                self._persist_session_config()  # type: ignore[attr-defined]
+            if addressed_to and addressed_to != self.active_agent:
+                self.active_agent = addressed_to
+                self._persist_session_config()
 
             # Sticky routing is suspended in symposion mode: there the agent
             # SELECTION decides who speaks (run_symposion for >=2, the
@@ -1253,10 +1302,10 @@ class ChatMixin(rx.State, mixin=True):
             # "Direct addressing: X" before the symposion override kicks in.
             if (
                 not addressed_to
-                and self.active_agent != "aifred"  # type: ignore[attr-defined]
-                and self.multi_agent_mode != "symposion"  # type: ignore[attr-defined]
+                and self.active_agent != "aifred"
+                and self.multi_agent_mode != "symposion"
             ):
-                addressed_to = self.active_agent  # type: ignore[attr-defined]
+                addressed_to = self.active_agent
 
             responding_agent = addressed_to or "aifred"
 
@@ -1284,7 +1333,7 @@ class ChatMixin(rx.State, mixin=True):
             from ..lib.multi_agent import run_generic_agent_direct_response
 
             # Symposion mode: all selected agents respond in sequence
-            if self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2:  # type: ignore[attr-defined]
+            if self.multi_agent_mode == "symposion" and len(self.symposion_agents) >= 2:
                 from ..lib.multi_agent import run_symposion
                 async for _ in run_symposion(self, user_msg, detected_language):  # type: ignore[arg-type]
                     yield
@@ -1295,9 +1344,9 @@ class ChatMixin(rx.State, mixin=True):
                 # With exactly one selected agent THAT agent must answer
                 # (not whoever happens to be active); with zero we fall
                 # back to the normal addressing logic, visibly.
-                if self.multi_agent_mode == "symposion":  # type: ignore[attr-defined]
-                    if len(self.symposion_agents) == 1:  # type: ignore[attr-defined]
-                        responding_agent = self.symposion_agents[0]  # type: ignore[attr-defined]
+                if self.multi_agent_mode == "symposion":
+                    if len(self.symposion_agents) == 1:
+                        responding_agent = self.symposion_agents[0]
                         self.add_debug(
                             f"🏛️ Symposion with a single agent → direct response by {responding_agent}"
                         )
@@ -1336,10 +1385,10 @@ class ChatMixin(rx.State, mixin=True):
             if _last.get("role") == "assistant":
                 ai_text = _last.get("content", "")
 
-            self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+            self._streaming_sub().current_ai_response = ""
             self.current_user_message = ""
             self.is_generating = False
-            self._save_current_session()  # type: ignore[attr-defined]
+            self._save_current_session()
             yield
 
         except asyncio.CancelledError:
@@ -1355,8 +1404,8 @@ class ChatMixin(rx.State, mixin=True):
             raise
         except Exception as e:  # noqa: BLE001 — the chat turn's boundary: any failure becomes the visible answer
             error_msg = f"Error: {e!s}"
-            self._js_chunk_buffer = ""  # type: ignore[attr-defined]
-            self._streaming_sub().current_ai_response = error_msg  # type: ignore[attr-defined]
+            self._js_chunk_buffer = ""
+            self._streaming_sub().current_ai_response = error_msg
 
             # APPEND error as separate panel
             # Note: User panel was already created above with user_msg/display_user_msg
@@ -1386,8 +1435,8 @@ class ChatMixin(rx.State, mixin=True):
 
             # Unregister from pipeline registry — only if this is still the
             # registered task (a newer pipeline may have superseded us).
-            if _pipeline_task is not None and self.session_id:  # type: ignore[attr-defined]
-                unregister_pipeline(self.session_id, _pipeline_task)  # type: ignore[attr-defined]
+            if _pipeline_task is not None and self.session_id:
+                unregister_pipeline(self.session_id, _pipeline_task)
 
             # Streaming-TTS finalize for every path that skipped the
             # multi-agent finish (vision fast path, pure-command return,
@@ -1397,9 +1446,9 @@ class ChatMixin(rx.State, mixin=True):
             # A cancelled reply (stop, supersession, client gone) is not
             # read to the end: its reading is aborted, so the service stops.
             if _cancelled or _client_gone:
-                self._abort_streaming_tts()  # type: ignore[attr-defined]
+                self._abort_streaming_tts()
             else:
-                self._spawn_tts_finalize()  # type: ignore[attr-defined]
+                self._spawn_tts_finalize()
 
             # Partial-response rescue: when the handler is aborted
             # mid-stream (CancelledError from the stop button or pipeline
@@ -1416,10 +1465,10 @@ class ChatMixin(rx.State, mixin=True):
                 self._chat_sub().chat_history[-1]
                 if self._chat_sub().chat_history else {}
             )
-            _partial = self._streaming_sub().current_ai_response  # type: ignore[attr-defined]
+            _partial = self._streaming_sub().current_ai_response
             if _last_entry.get("role") != "assistant" and _partial.strip():
                 from ..lib.i18n import t
-                _lang = self.ui_language if self.ui_language != "auto" else "de"  # type: ignore[attr-defined]
+                _lang = self.ui_language if self.ui_language != "auto" else "de"
                 self.add_agent_panel(
                     agent=self.current_agent or "aifred",
                     content=f"{_partial}\n\n{t('generation_interrupted', lang=_lang)}",
@@ -1438,8 +1487,8 @@ class ChatMixin(rx.State, mixin=True):
                 yield  # Let React update is_generating=False (button re-enables via Reflex binding)
             # NOTE: TTS polling stops automatically via data-polling attribute (MutationObserver)
             # Clear pending images after sending
-            if len(self.pending_images) > 0:  # type: ignore[attr-defined]
-                self.clear_pending_images()  # type: ignore[attr-defined]
+            if len(self.pending_images) > 0:
+                self.clear_pending_images()
 
             # TTS: handled by _queue_tts_for_agent (line ~390) — no duplicate here
 
@@ -1452,35 +1501,35 @@ class ChatMixin(rx.State, mixin=True):
                 # with a reasoning model and must not block the handler (and
                 # the 500ms debug-refresh timer). The title reaches the
                 # browser via the Browser Push Bus (kind="session_title").
-                effective_id = self._effective_model_id("aifred")  # type: ignore[attr-defined]
+                effective_id = self._effective_model_id("aifred")
                 from ._base import track_orphan_task
                 track_orphan_task(asyncio.create_task(
-                    self._generate_session_title(title_model_override=effective_id)  # type: ignore[attr-defined]
+                    self._generate_session_title(title_model_override=effective_id)
                 ))
 
             # Auto-Save: Session nach jeder Chat-Nachricht speichern
             # IMPORTANT: Save BEFORE refresh so message_count is up-to-date
-            self._save_current_session()  # type: ignore[attr-defined]
+            self._save_current_session()
 
             # Refresh session list to update sorting (last_seen changed) and message count
-            self.refresh_session_list()  # type: ignore[attr-defined]
+            self.refresh_session_list()
             if not _client_gone:
                 yield
 
             # Final cleanup: Clear streaming state
             self._set_current_agent("")
-            self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
+            self._streaming_sub().current_ai_response = ""
 
     # ── Clear Chat ───────────────────────────────────────────────────
 
     def clear_chat(self) -> None:
         """UI Event Handler: Clear chat history (shows debug message)."""
-        if not self.logged_in_user:  # type: ignore[attr-defined]
+        if not self.logged_in_user:
             self.add_debug("⚠️ Bitte zuerst anmelden")
             return
         from ._tts_streaming_mixin import abort_tts_reading
-        abort_tts_reading(self.session_id)  # type: ignore[attr-defined]
-        self._clear_chat_internal(silent=False)  # type: ignore[attr-defined]
+        abort_tts_reading(self.session_id)
+        self._clear_chat_internal(silent=False)
 
     # ── Save Session Memory ──────────────────────────────────────────
 
@@ -1492,10 +1541,10 @@ class ChatMixin(rx.State, mixin=True):
 
         from ..lib.agent_memory import get_agent_memory
 
-        if not self.logged_in_user:  # type: ignore[attr-defined]
+        if not self.logged_in_user:
             return
 
-        history = self._chat_sub().chat_history  # type: ignore[attr-defined]
+        history = self._chat_sub().chat_history
         if len(history) < 2:
             yield rx.toast.info("Not enough messages to summarize", duration=3000, position="top-center")
             return
@@ -1537,7 +1586,7 @@ class ChatMixin(rx.State, mixin=True):
 
         # Generate summary via LLM
         from ..lib.llm_client import LLMClient
-        model = self._effective_model_id("aifred")  # type: ignore[attr-defined]
+        model = self._effective_model_id("aifred")
 
         summary_prompt = (
             "Summarize this conversation in 4-5 sentences. "
@@ -1552,12 +1601,12 @@ class ChatMixin(rx.State, mixin=True):
             cfg = get_agent_config(aid)
             agent_names.append(cfg.display_name if cfg else aid.capitalize())
 
-        self.add_debug(f"📌 Generating session summary ({len(history)} messages) for: {', '.join(agent_names)}")  # type: ignore[attr-defined]
+        self.add_debug(f"📌 Generating session summary ({len(history)} messages) for: {', '.join(agent_names)}")
         yield None
 
         llm_client = LLMClient(
-            backend_type=self.backend_type,  # type: ignore[attr-defined]
-            base_url=self.backend_url,  # type: ignore[attr-defined]
+            backend_type=self.backend_type,
+            base_url=self.backend_url,
         )
         try:
             summary = ""
@@ -1581,7 +1630,7 @@ class ChatMixin(rx.State, mixin=True):
                 return
 
             # Store/update per agent — check duplicates individually
-            sid = self.session_id  # type: ignore[attr-defined]
+            sid = self.session_id
             stored_count = 0
             updated_count = 0
             for aid in participating_agents:
@@ -1604,11 +1653,11 @@ class ChatMixin(rx.State, mixin=True):
             if updated_count:
                 parts.append(f"{updated_count} updated")
             status = ", ".join(parts)
-            self.add_debug(f"📌 Session memory: {status} — {summary[:100]}...")  # type: ignore[attr-defined]
+            self.add_debug(f"📌 Session memory: {status} — {summary[:100]}...")
             yield rx.toast.success(f"Session memory: {status}", duration=3000, position="top-center")
 
         except Exception as e:  # noqa: BLE001 — the pin button's boundary: any failure is shown as a toast
-            self.add_debug(f"❌ Session pin failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ Session pin failed: {e}")
             yield rx.toast.error(f"Error: {e}", duration=3000, position="top-center")
         finally:
             await llm_client.close()

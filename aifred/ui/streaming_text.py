@@ -20,7 +20,7 @@ class StreamingText(Span):
     text: Var[str]
 
     @classmethod
-    def create(cls, *children, **props):  # type: ignore[override]
+    def create(cls, *children, **props):
         if "id" not in props:
             raise ValueError("StreamingText requires an explicit 'id' prop")
         return super().create(*children, **props)

@@ -19,7 +19,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
@@ -89,6 +89,15 @@ def _save_alert_rules(rules: list[dict[str, Any]]) -> None:
 
 class VisionSettingsMixin(rx.State, mixin=True):
     """UI state for the Vision-Plugin settings modal."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        ui_language: str
+        vision_preview_sources: list[dict[str, Any]]
+
+        def _persist_source_alias(self, source_id: str, alias: str) -> None: ...
 
     vision_settings_open: bool = False
     # Presets für den Pro-Kamera "Min. Event-Abstand"-Regler (Hintergrund-
@@ -207,7 +216,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         from ..lib.remote_describers import overview, split
         from ..lib.vlm_vram_cache import get_any, measured_at
 
-        lang = self.ui_language  # type: ignore[attr-defined]
+        lang = self.ui_language
         machines = overview()
         by_host = {m.host.name: m for m in machines}
         rows: list[dict[str, Any]] = []
@@ -270,7 +279,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
                 entries[index] = Entry(entries[index].source, bool(enabled))
         self._edit_describer_list(change)
 
-    @rx.event(background=True)  # type: ignore[operator]
+    @rx.event(background=True)
     async def measure_remote_describer(self, source: str):
         """Burn-in of the describer ``<machine>/<model>`` there (vlm_stress_prewarm.stress_prewarm_remote)."""
         import asyncio
@@ -613,7 +622,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             return
         new_alias = value.strip() if isinstance(value, str) else ""
         try:
-            self._persist_source_alias(source_id, new_alias)  # type: ignore[attr-defined]
+            self._persist_source_alias(source_id, new_alias)
         except Exception as e:  # noqa: BLE001
             logger.warning("alias persist failed for %s: %s", source_id, e)
             return

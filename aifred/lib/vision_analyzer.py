@@ -265,7 +265,7 @@ async def _analyze_via_ollama(
     elif isinstance(response, dict):
         resp_dict = response
     else:
-        resp_dict = dict(response)  # type: ignore[arg-type]
+        resp_dict = dict(response)
 
     text = str(resp_dict.get("response", "")).strip()
     metadata = {

@@ -20,7 +20,7 @@ def _storage_entry_row(entry: rx.Var) -> rx.Component:
     return rx.box(
         rx.hstack(
             rx.checkbox(
-                checked=AIState.storage_selected.contains(entry["id"]),  # type: ignore[union-attr]
+                checked=AIState.storage_selected.contains(entry["id"]),
                 on_change=AIState.storage_toggle_select(entry["id"]),
                 color_scheme="orange",
                 flex_shrink="0",
@@ -126,7 +126,7 @@ def _storage_view() -> rx.Component:
                         font_size="12px", color=COLORS["text_secondary"], flex_grow="1",
                     ),
                     rx.badge(
-                        AIState.storage_files.length(),  # type: ignore[union-attr]
+                        AIState.storage_files.length(),
                         variant="soft", color_scheme="orange",
                     ),
                     rx.tooltip(
@@ -141,10 +141,10 @@ def _storage_view() -> rx.Component:
                 ),
                 # Bulk-Aktionen: alle auswählen / ausgewählte löschen / alles löschen
                 rx.cond(
-                    AIState.storage_files.length() > 0,  # type: ignore[union-attr]
+                    AIState.storage_files.length() > 0,
                     bulk_delete_bar(
-                        total_count=AIState.storage_files.length(),  # type: ignore[union-attr]
-                        selected_count=AIState.storage_selected.length(),  # type: ignore[union-attr]
+                        total_count=AIState.storage_files.length(),
+                        selected_count=AIState.storage_selected.length(),
                         on_select_all=AIState.storage_select_all,
                         on_clear_selection=AIState.storage_clear_selection,
                         on_delete_selected=AIState.storage_delete_selected,
@@ -155,7 +155,7 @@ def _storage_view() -> rx.Component:
                     ),
                 ),
                 rx.cond(
-                    AIState.storage_files.length() > 0,  # type: ignore[union-attr]
+                    AIState.storage_files.length() > 0,
                     rx.vstack(
                         rx.foreach(AIState.storage_files, _storage_entry_row),
                         spacing="2", width="100%",

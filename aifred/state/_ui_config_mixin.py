@@ -6,11 +6,27 @@ STT configuration, and general UI state.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import reflex as rx
 
 
 class UIConfigMixin(rx.State, mixin=True):
     """Mixin for UI configuration and STT."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        _min_agent_context_limit: int
+        auto_refresh_enabled: bool
+        backend_type: str
+
+        def _effective_model_id(self, agent: str) -> str: ...
+        def _log_history_utilization(self, effective_limit: int) -> None: ...
+        def _save_settings(self) -> None: ...
+        def _ui_agent_list(self, include_vision: bool = True) -> list[dict[str, str]]: ...
+        def add_debug(self, message: str) -> None: ...
 
     # ── Temperature ───────────────────────────────────────────────
     # Per-agent temperature lives in agent_tuning (SSOT) — no global var.
@@ -37,8 +53,8 @@ class UIConfigMixin(rx.State, mixin=True):
 
     def toggle_auto_refresh(self) -> None:
         """Toggle auto-scroll for all areas (Debug Console, Chat History, AI Response)."""
-        self.auto_refresh_enabled = not self.auto_refresh_enabled  # type: ignore[has-type]
-        self._save_settings()  # type: ignore[attr-defined]
+        self.auto_refresh_enabled = not self.auto_refresh_enabled
+        self._save_settings()
 
     # ================================================================
     # TEMPERATURE
@@ -51,9 +67,9 @@ class UIConfigMixin(rx.State, mixin=True):
             checked: True = manual mode (user slider), False = auto mode (Intent-Detection)
         """
         self.temperature_mode = "manual" if checked else "auto"
-        self._save_settings()  # type: ignore[attr-defined]
+        self._save_settings()
         mode_label = "Manual" if checked else "Auto"
-        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {mode_label}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f321\ufe0f Temperature Mode: {mode_label}")
 
     # ================================================================
     # CONTEXT WINDOW CONTROL
@@ -82,9 +98,9 @@ class UIConfigMixin(rx.State, mixin=True):
             from ..lib.agent_config import get_agent_config
             cfg = get_agent_config(agent)
             display = cfg.display_name if cfg else agent.capitalize()
-            self.add_debug(f"\U0001f527 Manual Context ({display}): {format_number(num_value)}")  # type: ignore[attr-defined]
+            self.add_debug(f"\U0001f527 Manual Context ({display}): {format_number(num_value)}")
         except (ValueError, TypeError):
-            self.add_debug(f"\u274c Invalid Context value: {value}")  # type: ignore[attr-defined]
+            self.add_debug(f"\u274c Invalid Context value: {value}")
 
     def set_agent_num_ctx_manual(self, agent: str, value: str) -> None:
         """Generic manual-context input handler (foreach rows pass the id).
@@ -94,7 +110,7 @@ class UIConfigMixin(rx.State, mixin=True):
         """
         self._set_num_ctx_manual(agent, value)
         if agent == "vision":
-            self._save_settings()  # type: ignore[attr-defined]
+            self._save_settings()
 
     def _toggle_num_ctx_manual(self, agent: str, enabled: bool) -> None:
         """Toggle manual context for an agent."""
@@ -102,13 +118,13 @@ class UIConfigMixin(rx.State, mixin=True):
         from ..lib.agent_settings import set_agent_setting
         set_agent_setting(self, agent, "num_ctx_manual_enabled", enabled)
         status = "Manual" if enabled else "Auto"
-        self.add_debug(f"{get_agent_label(agent)} Context: {status}")  # type: ignore[attr-defined]
+        self.add_debug(f"{get_agent_label(agent)} Context: {status}")
 
     def toggle_agent_num_ctx_manual(self, agent: str, enabled: bool) -> None:
         """Generic manual-context toggle handler (foreach rows pass the id)."""
         self._toggle_num_ctx_manual(agent, enabled)
         if agent == "vision":
-            self._save_settings()  # type: ignore[attr-defined]
+            self._save_settings()
 
     def _auto_ctx_for_agent(self, agent: str) -> int:
         """Auto (calibrated) context for an agent's model — backend-aware.
@@ -123,17 +139,17 @@ class UIConfigMixin(rx.State, mixin=True):
         model_id: str = get_agent_setting(self, agent, "model_id")
         if not model_id:
             return 0
-        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+        if self.backend_type == "llamacpp":
             from ..lib.calibration import parse_llamaswap_config
             from ..lib.config import LLAMASWAP_CONFIG_PATH
             from ..lib.model_vram_cache import get_llamacpp_calibration
-            effective = self._effective_model_id(agent) or model_id  # type: ignore[attr-defined]
+            effective = self._effective_model_id(agent) or model_id
             yaml_models = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH)
             yaml_ctx = int(yaml_models.get(effective, {}).get("current_context", 0))
             if yaml_ctx > 0:
                 return yaml_ctx
             return get_llamacpp_calibration(effective) or 0
-        if self.backend_type == "vllm":  # type: ignore[attr-defined]
+        if self.backend_type == "vllm":
             from ..lib.operating_points import get_vllm_entry_context
             return get_vllm_entry_context(model_id)
         from ..lib.model_vram_cache import (
@@ -167,11 +183,11 @@ class UIConfigMixin(rx.State, mixin=True):
                 return model_display[:-1] + f", {ctx_str} ctx, {mode_str})"
             return f"{model_display} ({ctx_str} ctx, {mode_str})"
 
-        self.add_debug("\U0001f4ca Context configuration:")  # type: ignore[attr-defined]
+        self.add_debug("\U0001f4ca Context configuration:")
 
         from ..lib.agent_config import get_agent_label
         from ..lib.agent_settings import get_agent_setting
-        for entry in self._ui_agent_list():  # type: ignore[attr-defined]
+        for entry in self._ui_agent_list():
             agent = entry["id"]
             # AIfred is always shown; the others only with an own model
             if agent != "aifred" and not get_agent_setting(self, agent, "model_id"):
@@ -183,7 +199,7 @@ class UIConfigMixin(rx.State, mixin=True):
                 agent_ctx = self._auto_ctx_for_agent(agent)
                 mode = "auto"
             model_display = get_agent_setting(self, agent, "model")
-            self.add_debug(f"   {get_agent_label(agent)}: {format_model_with_ctx(model_display, agent_ctx, mode)}")  # type: ignore[attr-defined]
+            self.add_debug(f"   {get_agent_label(agent)}: {format_model_with_ctx(model_display, agent_ctx, mode)}")
             # Vision context is NOT added to effective_limits - separate from chat context
             if agent != "vision" and agent_ctx > 0:
                 effective_limits.append(agent_ctx)
@@ -192,7 +208,7 @@ class UIConfigMixin(rx.State, mixin=True):
         effective_limit = min(effective_limits) if effective_limits else 0
 
         # Update cached min context limit
-        self._min_agent_context_limit = effective_limit  # type: ignore[has-type]
+        self._min_agent_context_limit = effective_limit
 
         # Show history utilization and warn if compression will trigger
         self._log_history_utilization(effective_limit)
@@ -203,11 +219,11 @@ class UIConfigMixin(rx.State, mixin=True):
         # surfaces UI/engine divergence (e.g. a manual per-agent temperature
         # that silently does not take effect).
         from ..lib.multi_agent import resolve_agent_temperature
-        self.add_debug(f"\U0001f39b️ Sampling ({self.temperature_mode}):")  # type: ignore[attr-defined]
-        for entry in self._ui_agent_list():  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f39b️ Sampling ({self.temperature_mode}):")
+        for entry in self._ui_agent_list():
             agent = entry["id"]
             temp = resolve_agent_temperature(self, agent)  # type: ignore[arg-type]
-            self.add_debug(  # type: ignore[attr-defined]
+            self.add_debug(
                 f"   {get_agent_label(agent)}: temp {format_number(temp, 2)}, "
                 f"top_k {int(get_agent_setting(self, agent, 'top_k', 40))}, "
                 f"top_p {format_number(get_agent_setting(self, agent, 'top_p', 0.9), 2)}, "
@@ -223,16 +239,16 @@ class UIConfigMixin(rx.State, mixin=True):
         """Toggle show transcription mode."""
         self.show_transcription = not self.show_transcription
         mode = "Edit text" if self.show_transcription else "Send directly"
-        self.add_debug(f"\U0001f3a4 Transcription: {mode}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f3a4 Transcription: {mode}")
+        self._save_settings()
 
     def toggle_enter_sends_message(self) -> None:
         """Toggle whether Enter sends the message or inserts a newline."""
         self.enter_sends_message = not self.enter_sends_message
         mode = "Enter sends" if self.enter_sends_message else "Enter = newline"
-        self.add_debug(f"⏎ Text input: {mode}")  # type: ignore[attr-defined]
-        self._save_settings()  # type: ignore[attr-defined]
+        self.add_debug(f"⏎ Text input: {mode}")
+        self._save_settings()
 
-    def toggle_audio_recording(self):  # type: ignore[no-untyped-def]
+    def toggle_audio_recording(self):
         """Toggle audio recording (calls JavaScript MediaRecorder)."""
         return rx.call_script("toggleRecording()")

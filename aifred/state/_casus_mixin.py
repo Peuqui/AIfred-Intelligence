@@ -11,7 +11,7 @@ Liest direkt aus ``VisionStore`` (keine API), Writes ebenfalls.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
@@ -37,6 +37,12 @@ _FILTER_TYPE_MAP: dict[str, list[str]] = {
 
 class CasusMixin(rx.State, mixin=True):
     """UI state for the Casus event-management modal."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        vlm_model_loaded: bool
 
     casus_open: bool = False
     # Aktuelle Seite an Events (filter-/seitenbasiert nachgeladen).
@@ -140,7 +146,7 @@ class CasusMixin(rx.State, mixin=True):
         try:
             from ..lib.vision_prewarm import is_vlm_loaded
             model = getattr(self, "vision_model_value", None)
-            self.vlm_model_loaded = await is_vlm_loaded(model)  # type: ignore[attr-defined]
+            self.vlm_model_loaded = await is_vlm_loaded(model)
         except Exception:  # noqa: BLE001
             pass
 
@@ -217,7 +223,7 @@ class CasusMixin(rx.State, mixin=True):
 
     # ── Bulk-VLM-Analyse ─────────────────────────────────────────
 
-    @rx.event(background=True)  # type: ignore[operator]
+    @rx.event(background=True)
     async def casus_bulk_start(self):
         """Bulk-Worker: alle Events ohne description durch pHash-Dedup
         clustern, pro Cluster einen VLM-Call, Beschreibung auf alle

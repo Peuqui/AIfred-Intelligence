@@ -190,8 +190,8 @@ class DiscordChannel(BaseChannel):
             # Beide Rechte prüfen: der USER braucht manage_messages
             # (Autorisierung), der BOT braucht es auch (Fähigkeit) —
             # sonst wirft purge() nach bereits gesendeter Response Forbidden.
-            perms = interaction.channel.permissions_for(interaction.user)  # type: ignore[union-attr, arg-type]
-            bot_perms = interaction.channel.permissions_for(interaction.guild.me)  # type: ignore[union-attr]
+            perms = interaction.channel.permissions_for(interaction.user)  # type: ignore[arg-type]
+            bot_perms = interaction.channel.permissions_for(interaction.guild.me)
             if not perms.manage_messages or not bot_perms.manage_messages:
                 who = "user" if not perms.manage_messages else "bot"
                 await interaction.response.send_message(
@@ -348,12 +348,12 @@ class DiscordChannel(BaseChannel):
             self.channel_log("Discord Plugin: empty reply — nothing to send", "warning")
             return []
         if not chunks:
-            sent = await channel.send(None, file=file)  # type: ignore[union-attr]
+            sent = await channel.send(None, file=file)
             return [sent.id]
         sent_ids: list[int] = []
         for i, chunk in enumerate(chunks):
             kwargs = {"file": file} if (i == 0 and file) else {}
-            sent = await channel.send(chunk, **kwargs)  # type: ignore[union-attr]
+            sent = await channel.send(chunk, **kwargs)
             sent_ids.append(sent.id)
         return sent_ids
 

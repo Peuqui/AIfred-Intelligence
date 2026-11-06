@@ -4,13 +4,31 @@ Image Mixin – handles image upload, crop, camera detection, and mobile detecti
 Part of the AIfred State refactoring (aifred/state/ package).
 """
 
+from typing import TYPE_CHECKING
+
 import reflex as rx
 
 from ..lib.config import MAX_IMAGES_PER_MESSAGE
 
+if TYPE_CHECKING:
+    from ..lib.agent_tuning import AgentTuning
+
 
 class ImageMixin(rx.State, mixin=True):
     """Mixin for image upload, crop, help modals, and device detection."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        agent_tuning: dict[str, AgentTuning]
+        debug_messages: list[str]
+        logged_in_user: str
+        session_id: str
+        vision_models_cache: list[str]
+
+        def _chat_sub(self): ...
+        def add_debug(self, message: str) -> None: ...
 
     # ------------------------------------------------------------------
     # State variables
@@ -92,12 +110,12 @@ class ImageMixin(rx.State, mixin=True):
 
     def on_camera_click(self):
         """Debug message when camera button is clicked"""
-        self.add_debug("\U0001f4f7 Opening camera...")  # type: ignore[attr-defined]
+        self.add_debug("\U0001f4f7 Opening camera...")
         yield
 
     def on_file_picker_click(self):
         """Debug message when file picker button is clicked"""
-        self.add_debug("\U0001f5bc\ufe0f Opening file picker...")  # type: ignore[attr-defined]
+        self.add_debug("\U0001f5bc\ufe0f Opening file picker...")
         yield
 
     async def handle_image_upload(self, files: list[rx.UploadFile]):
@@ -120,8 +138,8 @@ class ImageMixin(rx.State, mixin=True):
 
         # POST /_upload reaches this handler with any client token, a fresh one gives a state
         # without login: nothing may touch the disk before this check.
-        if not self.logged_in_user:  # type: ignore[attr-defined]
-            self.add_debug("⚠️ Image upload rejected: not logged in")  # type: ignore[attr-defined]
+        if not self.logged_in_user:
+            self.add_debug("⚠️ Image upload rejected: not logged in")
             return
 
         # Show loading state immediately
@@ -130,23 +148,23 @@ class ImageMixin(rx.State, mixin=True):
         # Log upload start with file count
         file_count = len(files) if hasattr(files, '__len__') else 1
         source = "camera" if from_camera else "file picker"
-        self.add_debug(f"\U0001f4e4 Uploading {file_count} image(s) from {source}...")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f4e4 Uploading {file_count} image(s) from {source}...")
         yield  # Update UI to show spinner
 
         try:
             # Check if vision model selected
-            if not self.agent_tuning["vision"].model:  # type: ignore[attr-defined]
+            if not self.agent_tuning["vision"].model:
                 self.image_upload_warning = "\u26a0\ufe0f Please select a Vision model in settings first."
-                self.add_debug("\u26a0\ufe0f Image upload blocked: No vision model selected")  # type: ignore[attr-defined]
+                self.add_debug("\u26a0\ufe0f Image upload blocked: No vision model selected")
                 return
 
             # Check if vision_model is in the vision models cache (metadata-validated)
-            if self.agent_tuning["vision"].model_id not in self.vision_models_cache:  # type: ignore[attr-defined]
+            if self.agent_tuning["vision"].model_id not in self.vision_models_cache:
                 self.image_upload_warning = (
                     "\u26a0\ufe0f Selected Vision model doesn't support images. "
                     "Please choose a different Vision model from the dropdown."
                 )
-                self.add_debug("\u26a0\ufe0f Image upload blocked: Non-vision model selected")  # type: ignore[attr-defined]
+                self.add_debug("\u26a0\ufe0f Image upload blocked: Non-vision model selected")
                 return
 
             # Clear previous warning
@@ -173,7 +191,7 @@ class ImageMixin(rx.State, mixin=True):
                 # tree data/upload/images/<session>/ — SSOT save_session_upload.
                 ext = filename.rsplit(".", 1)[1].lower() if "." in filename else "jpg"
                 stem = "camera" if from_camera else (filename.rsplit(".", 1)[0] if "." in filename else filename)
-                image_path = save_session_upload(content, self.session_id, stem, ext)  # type: ignore[attr-defined]
+                image_path = save_session_upload(content, self.session_id, stem, ext)
                 image_url = get_image_url(image_path)
                 saved_name = image_path.name
 
@@ -190,7 +208,7 @@ class ImageMixin(rx.State, mixin=True):
                     },
                 ]
 
-                self.add_debug(f"\U0001f4f7 Image uploaded: {saved_name} ({image_path.stat().st_size // 1024} KB)")  # type: ignore[attr-defined]
+                self.add_debug(f"\U0001f4f7 Image uploaded: {saved_name} ({image_path.stat().st_size // 1024} KB)")
                 yield  # Update UI after each image
 
         finally:
@@ -202,7 +220,7 @@ class ImageMixin(rx.State, mixin=True):
         """Remove image from pending uploads"""
         if 0 <= index < len(self.pending_images):
             removed = self.pending_images.pop(index)
-            self.add_debug(f"\U0001f5d1\ufe0f Image removed: {removed['name']}")  # type: ignore[attr-defined]
+            self.add_debug(f"\U0001f5d1\ufe0f Image removed: {removed['name']}")
 
             # Clear warning if it was about model compatibility
             if self.image_upload_warning.startswith("\u26a0\ufe0f Selected model"):
@@ -214,7 +232,7 @@ class ImageMixin(rx.State, mixin=True):
         self.pending_images = []
         self.image_upload_warning = ""
         if count > 0:
-            self.add_debug(f"📷 {count} pending image(s) cleared")  # type: ignore[attr-defined]
+            self.add_debug(f"📷 {count} pending image(s) cleared")
 
     # ------------------------------------------------------------------
     # Multi-Agent Help Modal Handlers
@@ -268,7 +286,7 @@ class ImageMixin(rx.State, mixin=True):
             self.crop_box_height = 100.0
             self.crop_rotation = 0
             self.crop_modal_open = True
-            self.add_debug(f"\u2702\ufe0f Crop mode opened for: {self.pending_images[index]['name']}")  # type: ignore[attr-defined]
+            self.add_debug(f"\u2702\ufe0f Crop mode opened for: {self.pending_images[index]['name']}")
 
     def cancel_crop(self) -> None:
         """Schliesst Modal ohne Aenderung"""
@@ -298,7 +316,7 @@ class ImageMixin(rx.State, mixin=True):
         image_path = Path(image_data.get("path", ""))
 
         if not image_path.exists():
-            self.add_debug("\u274c Rotate failed: Image file not found")  # type: ignore[attr-defined]
+            self.add_debug("\u274c Rotate failed: Image file not found")
             return
 
         try:
@@ -344,10 +362,10 @@ class ImageMixin(rx.State, mixin=True):
             self.crop_box_width = 100.0
             self.crop_box_height = 100.0
 
-            self.add_debug(f"\U0001f504 Image rotated {direction} 90\u00b0")  # type: ignore[attr-defined]
+            self.add_debug(f"\U0001f504 Image rotated {direction} 90\u00b0")
 
         except (ValueError, FileNotFoundError, AttributeError) as e:
-            self.add_debug(f"\u274c Rotate failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"\u274c Rotate failed: {e}")
 
     async def apply_crop_with_coords(self, coords_json: str) -> None:
         """Applies crop with coordinates from JavaScript (JSON String)"""
@@ -360,7 +378,7 @@ class ImageMixin(rx.State, mixin=True):
             height = float(coords.get("height", 100))
             await self._do_apply_crop(x, y, width, height)
         except (json.JSONDecodeError, ValueError, TypeError) as e:
-            self.add_debug(f"\u274c Crop failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"\u274c Crop failed: {e}")
             self.cancel_crop()
 
     async def _do_apply_crop(self, x: float, y: float, width: float, height: float) -> None:
@@ -377,7 +395,7 @@ class ImageMixin(rx.State, mixin=True):
         )
 
         if self.crop_image_index < 0 or self.crop_image_index >= len(self.pending_images):
-            self.add_debug("\u274c Crop failed: Invalid image index")  # type: ignore[attr-defined]
+            self.add_debug("\u274c Crop failed: Invalid image index")
             self.cancel_crop()
             return
 
@@ -389,7 +407,7 @@ class ImageMixin(rx.State, mixin=True):
             with open(image_path, 'rb') as f:
                 original_bytes = f.read()
         except FileNotFoundError as e:
-            self.add_debug(f"\u274c Crop failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"\u274c Crop failed: {e}")
             self.cancel_crop()
             return
 
@@ -424,7 +442,7 @@ class ImageMixin(rx.State, mixin=True):
             new_path = save_image_to_file(
                 cropped_bytes, self.session_id, crop_name,
                 base_dir=UPLOAD_IMAGES_DIR,
-            )  # type: ignore[attr-defined]
+            )
             new_url = get_image_url(new_path)
 
             # Delete old file
@@ -447,9 +465,9 @@ class ImageMixin(rx.State, mixin=True):
                 *self.pending_images[idx + 1:],
             ]
 
-            self.add_debug(f"\u2702\ufe0f Image cropped: {width:.0f}% x {height:.0f}% \u2192 {px_width} x {px_height} px")  # type: ignore[attr-defined]
+            self.add_debug(f"\u2702\ufe0f Image cropped: {width:.0f}% x {height:.0f}% \u2192 {px_width} x {px_height} px")
         else:
-            self.add_debug(f"\u2139\ufe0f No crop needed: {image_data['name']}")  # type: ignore[attr-defined]
+            self.add_debug(f"\u2139\ufe0f No crop needed: {image_data['name']}")
 
         # Close modal
         self.cancel_crop()
@@ -467,9 +485,9 @@ class ImageMixin(rx.State, mixin=True):
         self._camera_detection_done = True
 
         if available:
-            self.add_debug("\U0001f4f7 Browser supports camera access")  # type: ignore[attr-defined]
+            self.add_debug("\U0001f4f7 Browser supports camera access")
         else:
-            self.add_debug("\u26a0\ufe0f Browser does not support camera access")  # type: ignore[attr-defined]
+            self.add_debug("\u26a0\ufe0f Browser does not support camera access")
 
     def set_is_mobile(self, is_mobile: bool) -> None:
         """Set mobile device detection based on User-Agent and touch capabilities (called from JavaScript)"""
@@ -480,9 +498,9 @@ class ImageMixin(rx.State, mixin=True):
         self._mobile_detection_done = True
 
         device_type = "\U0001f4f1 Mobile" if is_mobile else "\U0001f5a5\ufe0f Desktop"
-        self.add_debug(f"{device_type} device detected")  # type: ignore[attr-defined]
+        self.add_debug(f"{device_type} device detected")
 
         # Add separator after browser/device detection (marks end of startup)
         from ..lib.logging_utils import console_separator
         console_separator()  # File log
-        self.debug_messages = [*self.debug_messages, "\u2500" * 20]  # type: ignore[attr-defined]  # UI
+        self.debug_messages = [*self.debug_messages, "\u2500" * 20]  # UI

@@ -195,7 +195,7 @@ def session_list_display() -> rx.Component:
                 # Tick for bulk delete; must not open the session
                 rx.checkbox(
                     checked=AIState.selected_session_ids.contains(session["session_id"]),
-                    on_click=AIState.toggle_session_selection(session["session_id"]).stop_propagation,  # type: ignore[call-arg, attr-defined]
+                    on_click=AIState.toggle_session_selection(session["session_id"]).stop_propagation,
                     size="1",
                     color_scheme="orange",
                     cursor="pointer",
@@ -259,7 +259,7 @@ def session_list_display() -> rx.Component:
                     size="1",
                     variant="ghost",
                     color_scheme="red",
-                    on_click=AIState.delete_session(session["session_id"]).stop_propagation,  # type: ignore[call-arg, attr-defined]
+                    on_click=AIState.delete_session(session["session_id"]).stop_propagation,
                     cursor="pointer",
                 ),
                 spacing="2",
@@ -278,7 +278,7 @@ def session_list_display() -> rx.Component:
                 "background_color": COLORS["card_bg"],
             },
             cursor="pointer",
-            on_click=AIState.switch_session(session["session_id"]),  # type: ignore[call-arg]
+            on_click=AIState.switch_session(session["session_id"]),
             width="100%",
         )
 

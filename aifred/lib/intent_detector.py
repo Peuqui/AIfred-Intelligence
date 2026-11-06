@@ -354,7 +354,7 @@ def get_temperature_for_intent(intent: str) -> float:
         "KREATIV": INTENT_TEMPERATURE_KREATIV,
         "GEMISCHT": INTENT_TEMPERATURE_GEMISCHT
     }
-    return temp_map.get(intent, INTENT_TEMPERATURE_FAKTISCH)  # type: ignore[no-any-return]
+    return temp_map.get(intent, INTENT_TEMPERATURE_FAKTISCH)
 
 
 def get_temperature_label(intent: str) -> str:

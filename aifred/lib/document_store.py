@@ -458,7 +458,7 @@ class DocumentStore:
                 "description": "AIfred uploaded documents",
                 "embedding_model": OLLAMA_EMBEDDING_MODEL,
             },
-            embedding_function=self._embed_fn,  # type: ignore[arg-type]
+            embedding_function=self._embed_fn,
         )
 
     def reconnect(self) -> None:
@@ -474,7 +474,7 @@ class DocumentStore:
         try:
             self._collection = self._client.get_collection(
                 name=DOCUMENT_COLLECTION,
-                embedding_function=self._embed_fn,  # type: ignore[arg-type]
+                embedding_function=self._embed_fn,
             )
         except NotFoundError:
             log_message(
@@ -775,7 +775,7 @@ class DocumentStore:
                 if neighbor_data and neighbor_data.get("documents"):
                     for i, doc in enumerate(neighbor_data["documents"]):
                         meta = (neighbor_data["metadatas"][i]
-                                if neighbor_data.get("metadatas") else {})  # type: ignore[index]
+                                if neighbor_data.get("metadatas") else {})
                         hits.append({
                             "content": doc,
                             "filename": meta.get("filename", ""),

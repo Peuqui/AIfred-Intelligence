@@ -5,9 +5,12 @@ Handles session CRUD, title generation, session restore, and session list.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
+
+if TYPE_CHECKING:
+    from ..lib.agent_tuning import AgentTuning
 
 
 def _successor_session(order: list[str], current: str, deleted: set[str]) -> str | None:
@@ -28,6 +31,42 @@ def _successor_session(order: list[str], current: str, deleted: set[str]) -> str
 class SessionMixin(rx.State, mixin=True):
     """Mixin for session management - CRUD, titles, restore."""
 
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        _last_detected_language: str
+        _last_session_mtime: float
+        _min_agent_context_limit: int
+        active_agent: str
+        agent_tuning: dict[str, AgentTuning]
+        all_sources: list[dict[str, Any]]
+        current_user_message: str
+        debate_in_progress: bool
+        debate_round: int
+        debate_user_interjection: str
+        debug_messages: list[str]
+        failed_sources: list[dict[str, str]]
+        image_upload_warning: str
+        is_generating: bool
+        logged_in_user: str
+        multi_agent_mode: str
+        pending_images: list[dict[str, str]]
+        show_sokrates_panel: bool
+        sokrates_contra_args: str
+        sokrates_critique: str
+        sokrates_pro_args: str
+        symposion_agents: list[str]
+        used_sources: list[dict[str, Any]]
+
+        def _chat_sub(self): ...
+        def _normalize_upload_urls(self) -> None: ...
+        def _restore_audio_state(self) -> None: ...
+        def _set_current_agent(self, agent_id: str) -> None: ...
+        def _stop_media(self) -> None: ...
+        def _streaming_sub(self): ...
+        def add_debug(self, message: str) -> None: ...
+
     # ── State Variables ──────────────────────────────────────────────
     session_id: str = ""  # Session ID from cookie (32 hex chars)
     session_restored: bool = False  # True if chat history was loaded from session
@@ -40,21 +79,21 @@ class SessionMixin(rx.State, mixin=True):
 
     # ── Session CRUD ─────────────────────────────────────────────────
 
-    def new_session(self):  # type: ignore[return]
+    def new_session(self):
         """Create a new empty session and switch to it."""
         from ..lib.logging_utils import log_message
         from ..lib.session_storage import create_empty_session, generate_session_id
 
         # Must be logged in to create session
-        if not self.logged_in_user:  # type: ignore[attr-defined]
-            self.add_debug("Not logged in")  # type: ignore[attr-defined]
+        if not self.logged_in_user:
+            self.add_debug("Not logged in")
             return
 
         # Note: No save here - sessions are auto-saved after each inference
 
         # Generate new device ID and create empty session file with owner
         new_id = generate_session_id()
-        create_empty_session(new_id, owner=self.logged_in_user)  # type: ignore[attr-defined]
+        create_empty_session(new_id, owner=self.logged_in_user)
 
         # The reading of the session we leave stops with it
         from ._tts_streaming_mixin import abort_tts_reading
@@ -67,7 +106,7 @@ class SessionMixin(rx.State, mixin=True):
 
         # Reuse clear_chat() for state reset (avoids duplication)
         # silent=True: Avoid confusing "Chat cleared" message on new session creation
-        self._clear_chat_internal(silent=True)  # type: ignore[attr-defined]
+        self._clear_chat_internal(silent=True)
 
         # Refresh session list
         self.refresh_session_list()
@@ -78,7 +117,7 @@ class SessionMixin(rx.State, mixin=True):
         from ..lib.browser_storage import set_session_id_script
         return rx.call_script(set_session_id_script(new_id))
 
-    def switch_session(self, session_id: str):  # type: ignore[return]
+    def switch_session(self, session_id: str):
         """Switch to a different session.
 
         Loads the target session and updates state.
@@ -87,21 +126,21 @@ class SessionMixin(rx.State, mixin=True):
         from ..lib.logging_utils import log_message
         from ..lib.session_storage import load_session, touch_session
 
-        self.add_debug(f"switch_session called: {session_id[:8] if session_id else 'None'}...")  # type: ignore[attr-defined]
+        self.add_debug(f"switch_session called: {session_id[:8] if session_id else 'None'}...")
 
         # If already on this session but chat_history is empty, reload it
         # (can happen when session_id was set from cookie but data wasn't loaded)
         if session_id == self.session_id:
             if self._chat_sub().chat_history:
-                self.add_debug("Already on this session, skipping")  # type: ignore[attr-defined]
+                self.add_debug("Already on this session, skipping")
                 return
             else:
-                self.add_debug("Same session but empty history, reloading...")  # type: ignore[attr-defined]
+                self.add_debug("Same session but empty history, reloading...")
 
         # Load target session
         session = load_session(session_id)
         if session is None:
-            self.add_debug(f"Session {session_id[:8]}... not found, switching to newest")  # type: ignore[attr-defined]
+            self.add_debug(f"Session {session_id[:8]}... not found, switching to newest")
             # Session was deleted - switch to newest interactive session or
             # create new (channel sessions are not auto-adopted).
             self.refresh_session_list()
@@ -113,14 +152,14 @@ class SessionMixin(rx.State, mixin=True):
         # belongs to a different account. Sessions without an owner field
         # (pre-account legacy) are allowed but logged — not silently passed.
         session_owner = str(session.get("owner", "")).lower()
-        current_user = str(self.logged_in_user or "").lower()  # type: ignore[attr-defined]
+        current_user = str(self.logged_in_user or "").lower()
         if session_owner and session_owner != current_user:
             log_message(
                 f"Refused switch to session {session_id[:8]}...: owned by "
                 f"'{session_owner}', not '{current_user or '(anonymous)'}'",
                 "warning",
             )
-            self.add_debug("Access denied: session belongs to another account")  # type: ignore[attr-defined]
+            self.add_debug("Access denied: session belongs to another account")
             return
         if not session_owner:
             log_message(
@@ -152,9 +191,9 @@ class SessionMixin(rx.State, mixin=True):
 
         from ..lib.session_storage import get_session_path
         try:
-            self._last_session_mtime = _os.path.getmtime(get_session_path(session_id))  # type: ignore[attr-defined]
+            self._last_session_mtime = _os.path.getmtime(get_session_path(session_id))
         except (OSError, ValueError):
-            self._last_session_mtime = 0.0  # type: ignore[attr-defined]
+            self._last_session_mtime = 0.0
 
         # Clear stale debug messages from the previous session before
         # _restore_session merges saved ones with whatever is currently
@@ -165,19 +204,19 @@ class SessionMixin(rx.State, mixin=True):
         self.session_restored = True
 
         chat_history = self._chat_sub().chat_history
-        self.add_debug(f"Loaded {len(chat_history)} messages")  # type: ignore[attr-defined]
+        self.add_debug(f"Loaded {len(chat_history)} messages")
 
         # Clear streaming state
-        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-        self.current_user_message = ""  # type: ignore[attr-defined]
-        self._set_current_agent("")  # type: ignore[attr-defined]
+        self._streaming_sub().current_ai_response = ""
+        self.current_user_message = ""
+        self._set_current_agent("")
 
         # Note: No refresh_session_list() needed here - opening a session does
         # not change the picker order, and the highlighting is based on
         # session_id, which is already updated above.
 
         log_message(f"Switched to session: {session_id[:8]}...")
-        self.add_debug(f"Switched to session: {self.current_session_title or session_id[:8]}...")  # type: ignore[attr-defined]
+        self.add_debug(f"Switched to session: {self.current_session_title or session_id[:8]}...")
 
         # Update session cookie for TTS SSE (so custom.js can open SSE on page reload)
         from ..lib.browser_storage import set_session_id_script
@@ -202,20 +241,20 @@ class SessionMixin(rx.State, mixin=True):
     def cancel_delete_all_sessions(self) -> None:
         self.session_confirm_delete_all = False
 
-    def delete_all_sessions(self):  # type: ignore[return]
+    def delete_all_sessions(self):
         """Delete every session of this account; a new one opens."""
         self.session_confirm_delete_all = False
         return self._delete_sessions([str(s["session_id"]) for s in self.available_sessions])
 
-    def delete_session(self, session_id: str):  # type: ignore[return]
+    def delete_session(self, session_id: str):
         """Delete one session (owner-only), the open one included."""
         return self._delete_sessions([session_id])
 
-    def delete_selected_sessions(self):  # type: ignore[return]
+    def delete_selected_sessions(self):
         """Delete every session ticked in the picker."""
         return self._delete_sessions(list(self.selected_session_ids))
 
-    def _delete_sessions(self, session_ids: list[str]):  # type: ignore[return]
+    def _delete_sessions(self, session_ids: list[str]):
         """Delete sessions owner-only; if the open one goes, move on.
 
         The open session is followed by the nearest remaining session below it
@@ -228,15 +267,15 @@ class SessionMixin(rx.State, mixin=True):
         from ._tts_streaming_mixin import discard_tts_backend_state
 
         # Must be logged in to delete a session, and only the owner may.
-        owner = self.logged_in_user  # type: ignore[attr-defined]
+        owner = self.logged_in_user
         if not owner:
-            self.add_debug("Not logged in")  # type: ignore[attr-defined]
+            self.add_debug("Not logged in")
             return
 
         current = self.session_id
-        if current in session_ids and self.is_generating:  # type: ignore[attr-defined]
+        if current in session_ids and self.is_generating:
             # The running inference saves into this session when it finishes.
-            self.add_debug("Cannot delete the current session while a response is generating")  # type: ignore[attr-defined]
+            self.add_debug("Cannot delete the current session while a response is generating")
             return
 
         # Picker order before deleting decides who follows the open session.
@@ -256,17 +295,17 @@ class SessionMixin(rx.State, mixin=True):
                     f"not owned by '{owner}' or not found",
                     "warning",
                 )
-                self.add_debug(f"Failed to delete session {session_id[:8]}...")  # type: ignore[attr-defined]
+                self.add_debug(f"Failed to delete session {session_id[:8]}...")
 
         self.selected_session_ids = [s for s in self.selected_session_ids if s not in deleted]
         if deleted:
-            self.add_debug(f"{len(deleted)} session(s) deleted")  # type: ignore[attr-defined]
+            self.add_debug(f"{len(deleted)} session(s) deleted")
         self._refresh_available_sessions()
 
         if current not in deleted:
             return
         # Its audio files are gone with it; don't let the player hang on them.
-        self._stop_media()  # type: ignore[attr-defined]
+        self._stop_media()
         successor = _successor_session(order, current, set(deleted))
         if successor is None:
             return self.new_session()
@@ -287,7 +326,7 @@ class SessionMixin(rx.State, mixin=True):
         """
         from ..lib.session_storage import most_recently_seen_session_id
 
-        session_id = most_recently_seen_session_id(self.logged_in_user)  # type: ignore[attr-defined]
+        session_id = most_recently_seen_session_id(self.logged_in_user)
         if session_id is None:
             self.new_session()
             return False
@@ -314,9 +353,9 @@ class SessionMixin(rx.State, mixin=True):
         # Initialize mtime tracker so the tick-handler doesn't trigger
         # an immediate reload on the session we just loaded
         try:
-            self._last_session_mtime = _os.path.getmtime(get_session_path(session_id))  # type: ignore[attr-defined]
+            self._last_session_mtime = _os.path.getmtime(get_session_path(session_id))
         except (OSError, ValueError):
-            self._last_session_mtime = 0.0  # type: ignore[attr-defined]
+            self._last_session_mtime = 0.0
 
         if session and session.get("data"):
             self._restore_session(session)
@@ -332,15 +371,15 @@ class SessionMixin(rx.State, mixin=True):
             if _llm_hist:
                 estimated_tokens = estimate_tokens_from_llm_history(_llm_hist)
 
-                if self._min_agent_context_limit > 0:  # type: ignore[attr-defined]
-                    utilization = (estimated_tokens / self._min_agent_context_limit) * 100  # type: ignore[attr-defined]
-                    self.add_debug(f"   \u2514\u2500 History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")  # type: ignore[attr-defined]
+                if self._min_agent_context_limit > 0:
+                    utilization = (estimated_tokens / self._min_agent_context_limit) * 100
+                    self.add_debug(f"   \u2514\u2500 History: {format_number(estimated_tokens)} / {format_number(self._min_agent_context_limit)} tok ({int(utilization)}%)")
 
                     # Warn if compression will trigger on next message
                     if utilization >= HISTORY_COMPRESSION_TRIGGER * 100:
-                        self.add_debug(f"History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")  # type: ignore[attr-defined]
+                        self.add_debug(f"History compression will trigger on next message (>{int(HISTORY_COMPRESSION_TRIGGER * 100)}%)")
                 else:
-                    self.add_debug(f"   \u2514\u2500 History: {format_number(estimated_tokens)} tokens")  # type: ignore[attr-defined]
+                    self.add_debug(f"   \u2514\u2500 History: {format_number(estimated_tokens)} tokens")
         else:
             self.session_restored = False
 
@@ -365,12 +404,12 @@ class SessionMixin(rx.State, mixin=True):
             if stored and isinstance(stored[0], (list, tuple)):
                 # Old tuple format - Clean Break, ignore old sessions
                 self._chat_sub().chat_history = []
-                self.add_debug("Old session format detected - starting fresh")  # type: ignore[attr-defined]
+                self.add_debug("Old session format detected - starting fresh")
             else:
                 # New dict format - use directly
                 self._chat_sub().chat_history = stored if stored else []
                 # Normalize URLs to relative paths (fixes port-dependent image loading)
-                self._normalize_upload_urls()  # type: ignore[attr-defined]
+                self._normalize_upload_urls()
 
         # DUAL-HISTORY (v2.13.0+): llm_history laden
         # WICHTIG: Auch leere Listen setzen (fuer API-Clear)!
@@ -385,8 +424,8 @@ class SessionMixin(rx.State, mixin=True):
         # This keeps chronological order: session messages < startup/login messages
         if "debug_messages" in data:
             if data["debug_messages"]:
-                startup_messages = self.debug_messages.copy()  # type: ignore[attr-defined]
-                self.debug_messages = data["debug_messages"] + startup_messages  # type: ignore[attr-defined]
+                startup_messages = self.debug_messages.copy()
+                self.debug_messages = data["debug_messages"] + startup_messages
             # Empty list = new/cleared session — keep startup messages as-is
 
         # Session title wiederherstellen
@@ -401,15 +440,15 @@ class SessionMixin(rx.State, mixin=True):
         stored_config = data.get("config")
         if isinstance(stored_config, dict):
             config.update(stored_config)
-        self.active_agent = config["active_agent"]  # type: ignore[attr-defined]
-        self.multi_agent_mode = config["multi_agent_mode"]  # type: ignore[attr-defined]
-        self.symposion_agents = list(config["symposion_agents"])  # type: ignore[attr-defined]
+        self.active_agent = config["active_agent"]
+        self.multi_agent_mode = config["multi_agent_mode"]
+        self.symposion_agents = list(config["symposion_agents"])
 
         # Audio-Player-State aus Runtime-Memory restaurieren (nicht aus
         # Session-File). Tab-Reload setzt den Reflex-State auf Default
         # zurueck, der Server-Prozess haelt aber einen Snapshot pro
         # session_id im Memory. Bei Service-Restart ist der weg.
-        self._restore_audio_state()  # type: ignore[attr-defined]
+        self._restore_audio_state()
 
         # Note: Don't refresh_session_list() here - it's called once in on_load()
         # and only needs updating when new messages are sent (via _save_current_session)
@@ -432,7 +471,7 @@ class SessionMixin(rx.State, mixin=True):
         from ..lib.session_storage import get_session_path, update_chat_data
 
         # DEBUG-PERSISTENCE: Keep only last N entries
-        debug_to_save = self.debug_messages[-DEBUG_LOG_MAX_ENTRIES:] if self.debug_messages else []  # type: ignore[attr-defined]
+        debug_to_save = self.debug_messages[-DEBUG_LOG_MAX_ENTRIES:] if self.debug_messages else []
 
         update_chat_data(
             session_id=self.session_id,
@@ -440,14 +479,14 @@ class SessionMixin(rx.State, mixin=True):
             chat_summaries=None,  # Aktuell nicht persistiert
             llm_history=self._chat_sub().llm_history,
             debug_messages=debug_to_save,
-            is_generating=self.is_generating,  # type: ignore[attr-defined]
-            owner=self.logged_in_user  # type: ignore[attr-defined]
+            is_generating=self.is_generating,
+            owner=self.logged_in_user
         )
 
         # Update mtime tracker so our own write doesn't trigger a reload
         # in the tick-handler (SSOT: we are the writer, skip self-sync)
         try:
-            self._last_session_mtime = _os.path.getmtime(  # type: ignore[attr-defined]
+            self._last_session_mtime = _os.path.getmtime(
                 get_session_path(self.session_id)
             )
         except (OSError, ValueError):
@@ -470,14 +509,14 @@ class SessionMixin(rx.State, mixin=True):
 
         update_session_config(
             self.session_id,
-            active_agent=self.active_agent,  # type: ignore[attr-defined]
-            multi_agent_mode=self.multi_agent_mode,  # type: ignore[attr-defined]
-            symposion_agents=list(self.symposion_agents),  # type: ignore[attr-defined]
+            active_agent=self.active_agent,
+            multi_agent_mode=self.multi_agent_mode,
+            symposion_agents=list(self.symposion_agents),
         )
 
         # Update mtime tracker so our own write doesn't trigger reload
         try:
-            self._last_session_mtime = _os.path.getmtime(  # type: ignore[attr-defined]
+            self._last_session_mtime = _os.path.getmtime(
                 get_session_path(self.session_id)
             )
         except OSError:
@@ -496,12 +535,12 @@ class SessionMixin(rx.State, mixin=True):
         from ..lib.session_storage import list_sessions
 
         # Only show sessions owned by logged in user
-        self.available_sessions = list_sessions(owner=self.logged_in_user)  # type: ignore[attr-defined]
+        self.available_sessions = list_sessions(owner=self.logged_in_user)
         # Ticks of sessions that are gone (deleted in another tab) go with them
         listed = {s["session_id"] for s in self.available_sessions}
         self.selected_session_ids = [s for s in self.selected_session_ids if s in listed]
 
-    def refresh_session_list(self):  # type: ignore[return]
+    def refresh_session_list(self):
         """Refresh the list of available sessions for the session picker.
 
         Also synchronizes current session if it was modified externally
@@ -523,14 +562,14 @@ class SessionMixin(rx.State, mixin=True):
             # If message counts differ, reload session from server
             # SKIP during generation: local state is ahead of disk (user message
             # added before LLM call, session saved only after response).
-            if not self.is_generating:  # type: ignore[attr-defined]
+            if not self.is_generating:
                 session = load_session(self.session_id)
                 if session and session.get("data"):
                     server_count = len(session["data"].get("chat_history", []))
                     local_count = len(self._chat_sub().chat_history)
 
                     if server_count != local_count:
-                        self.add_debug(f"Session changed externally ({local_count} -> {server_count}), reloading...")  # type: ignore[attr-defined]
+                        self.add_debug(f"Session changed externally ({local_count} -> {server_count}), reloading...")
                         self._restore_session(session)
                         self.session_restored = True
 
@@ -555,24 +594,24 @@ class SessionMixin(rx.State, mixin=True):
         ch = self._chat_sub()
         ch.chat_history = []
         ch.llm_history = []
-        self._streaming_sub().current_ai_response = ""  # type: ignore[attr-defined]
-        self.current_user_message = ""  # type: ignore[attr-defined]
+        self._streaming_sub().current_ai_response = ""
+        self.current_user_message = ""
         self.debug_messages = []
-        self.pending_images = []  # type: ignore[attr-defined, var-annotated]
-        self.image_upload_warning = ""  # type: ignore[attr-defined]
+        self.pending_images = []
+        self.image_upload_warning = ""
 
         # Player komplett raeumen: Chat-Loeschen ist eine explizite User-Aktion,
         # ein laufendes Hoerbuch oder eine ausstehende Folder-Queue duerfen
         # nicht in die naechste Inferenz hineinwirken (TTS-Ende -> alter Track
         # resumiert ungewollt). Cleart auch den Runtime-Persist-Snapshot.
-        self._stop_media()  # type: ignore[attr-defined]
+        self._stop_media()
 
         # TTS Audio-Dateien aufraeumen
         from ..lib.audio_processing import cleanup_old_tts_audio
         try:
             cleanup_old_tts_audio(max_age_hours=0)  # 0 = alle loeschen
         except OSError as e:
-            self.add_debug(f"TTS cleanup failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"TTS cleanup failed: {e}")
 
         # Session-Bilder aufraeumen (data/images/{session_id}/)
         if self.session_id:
@@ -580,9 +619,9 @@ class SessionMixin(rx.State, mixin=True):
             try:
                 deleted = cleanup_session_images(self.session_id)
                 if deleted > 0:
-                    self.add_debug(f"{deleted} session image(s) deleted")  # type: ignore[attr-defined]
+                    self.add_debug(f"{deleted} session image(s) deleted")
             except OSError as e:
-                self.add_debug(f"Image cleanup failed: {e}")  # type: ignore[attr-defined]
+                self.add_debug(f"Image cleanup failed: {e}")
 
         # Session-Audio aufraeumen (data/audio/{session_id}/)
         if self.session_id:
@@ -590,9 +629,9 @@ class SessionMixin(rx.State, mixin=True):
             try:
                 deleted = cleanup_session_audio(self.session_id)
                 if deleted > 0:
-                    self.add_debug(f"{deleted} session audio file(s) deleted")  # type: ignore[attr-defined]
+                    self.add_debug(f"{deleted} session audio file(s) deleted")
             except OSError as e:
-                self.add_debug(f"Audio cleanup failed: {e}")  # type: ignore[attr-defined]
+                self.add_debug(f"Audio cleanup failed: {e}")
 
         # Sandbox-Output aufraeumen (data/sandbox_output/{session_id}/)
         if self.session_id:
@@ -600,23 +639,23 @@ class SessionMixin(rx.State, mixin=True):
             try:
                 deleted = cleanup_session_sandbox(self.session_id)
                 if deleted > 0:
-                    self.add_debug(f"{deleted} sandbox output(s) deleted")  # type: ignore[attr-defined]
+                    self.add_debug(f"{deleted} sandbox output(s) deleted")
             except OSError as e:
-                self.add_debug(f"Sandbox cleanup failed: {e}")  # type: ignore[attr-defined]
+                self.add_debug(f"Sandbox cleanup failed: {e}")
 
         # Clear Web-Quellen State (Sources Collapsible)
-        self.used_sources = []  # type: ignore[attr-defined, var-annotated]
-        self.failed_sources = []  # type: ignore[attr-defined, var-annotated]
-        self.all_sources = []  # type: ignore[attr-defined, var-annotated]
+        self.used_sources = []
+        self.failed_sources = []
+        self.all_sources = []
 
         # Clear Sokrates Multi-Agent state
-        self.sokrates_critique = ""  # type: ignore[attr-defined]
-        self.sokrates_pro_args = ""  # type: ignore[attr-defined]
-        self.sokrates_contra_args = ""  # type: ignore[attr-defined]
-        self.show_sokrates_panel = False  # type: ignore[attr-defined]
-        self.debate_round = 0  # type: ignore[attr-defined]
-        self.debate_user_interjection = ""  # type: ignore[attr-defined]
-        self.debate_in_progress = False  # type: ignore[attr-defined]
+        self.sokrates_critique = ""
+        self.sokrates_pro_args = ""
+        self.sokrates_contra_args = ""
+        self.show_sokrates_panel = False
+        self.debate_round = 0
+        self.debate_user_interjection = ""
+        self.debate_in_progress = False
 
         # Clear session title (new session has no title yet)
         self.current_session_title = ""
@@ -627,9 +666,9 @@ class SessionMixin(rx.State, mixin=True):
             update_session_title(self.session_id, "")  # Empty title = will regenerate
 
         if not silent:
-            self.add_debug("Chat cleared")  # type: ignore[attr-defined]
+            self.add_debug("Chat cleared")
             # Separator after clear operation
-            self.add_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+            self.add_debug(CONSOLE_SEPARATOR)
             from ..lib.logging_utils import console_separator
             console_separator()  # Log-File
 
@@ -707,19 +746,19 @@ class SessionMixin(rx.State, mixin=True):
 
         # Determine num_ctx override to avoid Ollama reload
         num_ctx_override = 0
-        if title_model_override == self.agent_tuning["vision"].model_id and self.agent_tuning["vision"].model_id:  # type: ignore[attr-defined]
+        if title_model_override == self.agent_tuning["vision"].model_id and self.agent_tuning["vision"].model_id:
             from ..lib.research.context_utils import get_agent_num_ctx
-            num_ctx_override, _ = get_agent_num_ctx("vision", self, self.agent_tuning["vision"].model_id)  # type: ignore[attr-defined, arg-type]
-        elif self.agent_tuning["aifred"].max_context:  # type: ignore[attr-defined]
-            num_ctx_override = self.agent_tuning["aifred"].max_context  # type: ignore[attr-defined]
+            num_ctx_override, _ = get_agent_num_ctx("vision", self, self.agent_tuning["vision"].model_id)  # type: ignore[arg-type]
+        elif self.agent_tuning["aifred"].max_context:
+            num_ctx_override = self.agent_tuning["aifred"].max_context
 
-        self.add_debug("Generating session title...")  # type: ignore[attr-defined]
+        self.add_debug("Generating session title...")
 
         title = await generate_session_title(
             user_text=first_user_msg,
             ai_response=first_ai_response,
             session_id=title_sid,
-            lang=self._last_detected_language or "",  # type: ignore[attr-defined]
+            lang=self._last_detected_language or "",
             model_override=title_model_override,
             num_ctx_override=num_ctx_override,
         )
@@ -743,7 +782,7 @@ class SessionMixin(rx.State, mixin=True):
             import os as _os
 
             from ..lib.session_storage import get_session_path
-            self._last_session_mtime = _os.path.getmtime(  # type: ignore[attr-defined]
+            self._last_session_mtime = _os.path.getmtime(
                 get_session_path(title_sid)
             )
         except (OSError, ValueError):
@@ -759,21 +798,21 @@ class SessionMixin(rx.State, mixin=True):
             # sidebar still renders "Unbenannter Chat" from `available_sessions`
             # on the next state push, overwriting the patched title.
             patched = []
-            for session in self.available_sessions:  # type: ignore[attr-defined]
+            for session in self.available_sessions:
                 if session.get("session_id") == title_sid:
                     patched.append({**session, "title": title})
                 else:
                     patched.append(session)
-            self.available_sessions = patched  # type: ignore[attr-defined]
-            self.add_debug(f"Session title: {title}")  # type: ignore[attr-defined]
+            self.available_sessions = patched
+            self.add_debug(f"Session title: {title}")
             # Reflex-independent live push: a background task pushes no state
             # delta — announce the title over the Browser Push Bus so
             # custom.js patches it into the session-list entry at once.
             try:
                 browser_push(title_sid, kind="session_title", url=title)
             except Exception as e:
-                self.add_debug(f"⚠️ session_title push failed: {e}")  # type: ignore[attr-defined]
+                self.add_debug(f"⚠️ session_title push failed: {e}")
         else:
-            self.add_debug("Session title: empty response")  # type: ignore[attr-defined]
+            self.add_debug("Session title: empty response")
         console_separator()
-        self.add_debug("────────────────────")  # type: ignore[attr-defined]
+        self.add_debug("────────────────────")

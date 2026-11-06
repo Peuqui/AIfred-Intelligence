@@ -12,7 +12,7 @@ import asyncio
 import re
 from collections.abc import AsyncGenerator
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import TYPE_CHECKING, Any, TypedDict
 
 import reflex as rx
 
@@ -20,6 +20,9 @@ from datetime import datetime
 
 from ..lib.config import DEBUG_MESSAGES_MAX
 from ..lib.logging_utils import CONSOLE_SEPARATOR, log_message
+
+if TYPE_CHECKING:
+    from ..lib.agent_tuning import AgentTuning
 
 # Meldungs-Puffer des Kalibrier-Background-Tasks. Der Wrapper
 # (calibrate_context) drainiert ihn alle ~2 s in seinem
@@ -167,6 +170,23 @@ def _parse_calibration_result(msg: str) -> dict:
 class CalibrationMixin(rx.State, mixin=True):
     """Mixin for context calibration and server restart."""
 
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        agent_tuning: dict[str, AgentTuning]
+        available_models: list[str]
+        available_models_dict: dict[str, str]
+        backend_id: str
+        backend_switching: bool
+        backend_type: str
+        backend_url: str
+        debug_messages: list[str]
+        ui_language: str
+
+        def _save_current_session(self): ...
+        def add_debug(self, message: str) -> None: ...
+
     # ------------------------------------------------------------------
     # State vars
     # ------------------------------------------------------------------
@@ -239,7 +259,7 @@ class CalibrationMixin(rx.State, mixin=True):
         s["calibration_allow_hybrid"] = self.calibration_allow_hybrid
         save_settings(s)
         state = "enabled" if self.calibration_allow_hybrid else "disabled"
-        self.add_debug(f"⚙️ Hybrid calibration mode: {state}")  # type: ignore[attr-defined]
+        self.add_debug(f"⚙️ Hybrid calibration mode: {state}")
 
     def set_calibration_mode(self, value: str) -> None:
         """Persist the chosen calibration mode.
@@ -255,7 +275,7 @@ class CalibrationMixin(rx.State, mixin=True):
         s = load_settings() or {}
         s["calibration_mode"] = value
         save_settings(s)
-        self.add_debug(f"⚙️ Calibration-Modus: {value}")  # type: ignore[attr-defined]
+        self.add_debug(f"⚙️ Calibration-Modus: {value}")
 
     @rx.var
     def has_dashscope_key(self) -> bool:
@@ -286,7 +306,7 @@ class CalibrationMixin(rx.State, mixin=True):
         Gruen = gemeinsam vermessen UND es passte. Rot = vermessen und es
         passte NICHT (die Karte wuerde unter Last ueberlaufen).
         """
-        if self.backend_id != "vllm":  # type: ignore[attr-defined]
+        if self.backend_id != "vllm":
             return []
         from aifred.lib import sidechannel_vram_cache
         from aifred.lib.i18n import t as _t
@@ -295,7 +315,7 @@ class CalibrationMixin(rx.State, mixin=True):
         from aifred.lib.operating_points import is_vllm_calibrated
 
         engines = _calibration_engine_keys()
-        model_id = self.agent_tuning["aifred"].model_id or ""  # type: ignore[attr-defined]
+        model_id = self.agent_tuning["aifred"].model_id or ""
         base_calibrated = bool(model_id) and is_vllm_calibrated(model_id)
 
         def _row(vlm_key: str, label: str) -> CalibrationRow:
@@ -343,7 +363,7 @@ class CalibrationMixin(rx.State, mixin=True):
         UI blockiert. Die installierten Engines und die Cache-Werte
         reichen fuer die Anzeige.
         """
-        if self.backend_id != "vllm":  # type: ignore[attr-defined]
+        if self.backend_id != "vllm":
             return []
         from aifred.lib import vlm_vram_cache
         from aifred.lib.formatting import format_number
@@ -398,9 +418,9 @@ class CalibrationMixin(rx.State, mixin=True):
         Auto-deps ist aus: Reflex kann die Dateipruefung in
         ``is_vllm_calibrated`` nicht introspizieren.
         """
-        if self.backend_id != "vllm":  # type: ignore[attr-defined]
+        if self.backend_id != "vllm":
             return False
-        model_id = self.agent_tuning["aifred"].model_id or ""  # type: ignore[attr-defined]
+        model_id = self.agent_tuning["aifred"].model_id or ""
         if not model_id:
             return False
         from aifred.lib.operating_points import is_vllm_calibrated
@@ -556,7 +576,7 @@ class CalibrationMixin(rx.State, mixin=True):
         update or when the Ollama backend changes its VRAM behaviour."""
         from ..lib import vlm_vram_cache
         count = vlm_vram_cache.clear()
-        self.add_debug(  # type: ignore[attr-defined]
+        self.add_debug(
             f"🧹 VLM VRAM cache cleared ({count} entries) — "
             f"next calibration will re-measure via stress-prewarm"
         )
@@ -582,7 +602,7 @@ class CalibrationMixin(rx.State, mixin=True):
         Wrapped in a broad except: persistence is best-effort, must
         never break the calibration loop."""
         try:
-            self._save_current_session()  # type: ignore[attr-defined]
+            self._save_current_session()
         except Exception:  # noqa: BLE001
             pass
 
@@ -696,9 +716,9 @@ class CalibrationMixin(rx.State, mixin=True):
             from ..lib.calibration_gate import request_cancel
             self.calibration_cancel = True
             request_cancel()
-            self.add_debug("🛑 Calibration cancel requested...")  # type: ignore[attr-defined]
+            self.add_debug("🛑 Calibration cancel requested...")
 
-    @rx.event(background=True)  # type: ignore[operator]
+    @rx.event(background=True)
     async def calibrate_context(self):
         """
         Calibrate maximum context window for current model.
@@ -719,12 +739,12 @@ class CalibrationMixin(rx.State, mixin=True):
         import time as _time
 
         async with self:
-            if self.backend_type not in ("ollama", "llamacpp", "vllm"):  # type: ignore[attr-defined]
-                self.add_debug("⚠️ Calibration only for Ollama, llama.cpp and vLLM")  # type: ignore[attr-defined]
+            if self.backend_type not in ("ollama", "llamacpp", "vllm"):
+                self.add_debug("⚠️ Calibration only for Ollama, llama.cpp and vLLM")
                 return
 
-            if not self.agent_tuning["aifred"].model_id:  # type: ignore[attr-defined]
-                self.add_debug("⚠️ No model selected")  # type: ignore[attr-defined]
+            if not self.agent_tuning["aifred"].model_id:
+                self.add_debug("⚠️ No model selected")
                 return
 
             # Ohne angehakte Zelle setzt der llama.cpp-Zweig weiter unten
@@ -736,11 +756,11 @@ class CalibrationMixin(rx.State, mixin=True):
             # vLLM-Gitter anhakbar.
             if not any(self.calibration_matrix.values()):
                 from ..lib.i18n import t as _t
-                self.add_debug(  # type: ignore[attr-defined]
+                self.add_debug(
                     "⚠️ Calibration aborted: no matrix cell selected"
                 )
                 return rx.toast.warning(
-                    _t("calibration_no_cell_selected", lang=self.ui_language),  # type: ignore[attr-defined]
+                    _t("calibration_no_cell_selected", lang=self.ui_language),
                     duration=8000, position="top-center",
                 )
 
@@ -751,15 +771,15 @@ class CalibrationMixin(rx.State, mixin=True):
             # frisch geseedete Eintraege ohne Profil kalibrierbar sind.
             global _vllm_cal_target
             _vllm_cal_target = None
-            if self.backend_type == "vllm":  # type: ignore[attr-defined]
+            if self.backend_type == "vllm":
                 from pathlib import Path as _Path
                 from ..lib.calibration.llamaswap_io import parse_llamaswap_config
                 from ..lib.config import LLAMASWAP_CONFIG_PATH
-                _op_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
+                _op_model_id = self.agent_tuning["aifred"].model_id
                 _entry = parse_llamaswap_config(LLAMASWAP_CONFIG_PATH).get(_op_model_id)
                 _op_ckpt = _Path(_entry["gguf_path"]) if _entry else None
                 if _op_ckpt is None or not _op_ckpt.exists():
-                    self.add_debug(  # type: ignore[attr-defined]
+                    self.add_debug(
                         f"❌ vLLM checkpoint missing for {_op_model_id} — "
                         f"cannot calibrate ({_op_ckpt})"
                     )
@@ -767,7 +787,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 _vllm_cal_target = (_op_ckpt, str(_op_model_id))
 
             if self.is_calibrating:
-                self.add_debug("⚠️ Calibration already in progress")  # type: ignore[attr-defined]
+                self.add_debug("⚠️ Calibration already in progress")
                 return
 
             # Process-wide guard: is_calibrating is per browser session —
@@ -782,7 +802,7 @@ class CalibrationMixin(rx.State, mixin=True):
             if is_calibration_active():
                 self.add_debug(
                     "⚠️ Calibration already running in another session"
-                )  # type: ignore[attr-defined]
+                )
                 return
 
             self.is_calibrating = True
@@ -791,7 +811,7 @@ class CalibrationMixin(rx.State, mixin=True):
             # Session im Fenster zwischen Check und Set beide Guards
             # passieren (TOCTOU) und zwei Läufe teilen sich Gate + Buffer.
             set_calibration_active(True)
-            self.add_debug(f"🔧 Starting calibration for {self.agent_tuning["aifred"].model_id}...")  # type: ignore[attr-defined]
+            self.add_debug(f"🔧 Starting calibration for {self.agent_tuning["aifred"].model_id}...")
 
         _cal_debug_buffer.clear()  # Reste eines Vorlaufs verwerfen
         gen = self._calibrate_context_impl()
@@ -836,8 +856,8 @@ class CalibrationMixin(rx.State, mixin=True):
         Reassign statt append — Reflex reagiert nur auf Identitätswechsel."""
         if not _cal_debug_buffer:
             return
-        self.debug_messages = [  # type: ignore[attr-defined]
-            *self.debug_messages, *_cal_debug_buffer,  # type: ignore[attr-defined]
+        self.debug_messages = [
+            *self.debug_messages, *_cal_debug_buffer,
         ][-DEBUG_MESSAGES_MAX:]
         _cal_debug_buffer.clear()
 
@@ -847,7 +867,7 @@ class CalibrationMixin(rx.State, mixin=True):
         können dann alt, teilerneuert oder ganz weg sein."""
         from ..lib.model_vram_cache import load_cache
 
-        model_id = str(self.agent_tuning["aifred"].model_id or "")  # type: ignore[attr-defined]
+        model_id = str(self.agent_tuning["aifred"].model_id or "")
         if not model_id:
             return
         entry = (load_cache() or {}).get(model_id) or {}
@@ -941,7 +961,7 @@ class CalibrationMixin(rx.State, mixin=True):
         # vorhandenen Betriebspunkt behalten und nur die angehakten
         # Seitenkanal-Paare einzubrennen (das ist oben schon passiert).
         if not self.calibration_matrix.get("|", False):
-            self._cal_debug(  # type: ignore[attr-defined]
+            self._cal_debug(
                 "⏭️ Skipping base — keeping the persisted operating point"
             )
             yield
@@ -1055,7 +1075,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 await _inner.aclose()
             return
 
-        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+        if self.backend_type == "llamacpp":
             _inner = self._calibrate_llamacpp()
             try:
                 async for _ in _inner:
@@ -1074,23 +1094,22 @@ class CalibrationMixin(rx.State, mixin=True):
             from ..lib.model_vram_cache import add_ollama_calibration
             from ..lib.gpu_utils import get_gpu_model_name
 
-            backend = BackendFactory.create(
-                self.backend_type,  # type: ignore[attr-defined]
-                base_url=self.backend_url  # type: ignore[attr-defined]
-            )
+            # vLLM and llama.cpp have their own branches above; calibration runs only for
+            # ollama, llamacpp and vllm, so what reaches this point is Ollama.
+            backend = BackendFactory.create("ollama", base_url=self.backend_url)
 
             # Get native context limit first
-            native_ctx, _ = await backend.get_model_context_limit(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
+            native_ctx, _ = await backend.get_model_context_limit(self.agent_tuning["aifred"].model_id)
             calibration_results = {}
 
             # === STEP 1: Calibrate Native (1.0x) ===
-            self._cal_debug("📐 Calibrating Native (1.0x)...")  # type: ignore[attr-defined]
+            self._cal_debug("📐 Calibrating Native (1.0x)...")
             yield
 
             calibrated_ctx = None
             is_hybrid_mode = False  # Track if 1.0x resulted in hybrid mode
-            async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
+            async for progress_msg in backend.calibrate_max_context_generator(
+                self.agent_tuning["aifred"].model_id,
                 rope_factor=1.0
             ):
                 if progress_msg.startswith("__RESULT__:"):
@@ -1101,7 +1120,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     if len(parts) > 2 and parts[2] == "hybrid":
                         is_hybrid_mode = True
                 else:
-                    self._cal_debug(f"📊 {progress_msg}")  # type: ignore[attr-defined]
+                    self._cal_debug(f"📊 {progress_msg}")
                     yield
 
             # === STEP 2: Check calibration result ===
@@ -1110,29 +1129,29 @@ class CalibrationMixin(rx.State, mixin=True):
 
             # Check for calibration failure (model doesn't fit)
             if not calibrated_ctx or calibrated_ctx == 0:
-                self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
-                self._cal_debug("❌ Calibration failed - model doesn't fit in memory")  # type: ignore[attr-defined]
-                self._cal_debug("   → Skipping RoPE calibration")  # type: ignore[attr-defined]
+                self._cal_debug(CONSOLE_SEPARATOR)
+                self._cal_debug("❌ Calibration failed - model doesn't fit in memory")
+                self._cal_debug("   → Skipping RoPE calibration")
                 yield
                 skip_rope_calibration = True
             elif calibrated_ctx < native_ctx:
                 # Memory is the bottleneck (VRAM or RAM) - RoPE scaling won't help
                 # This applies to BOTH GPU-only and Hybrid mode
                 skip_rope_calibration = True
-                self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+                self._cal_debug(CONSOLE_SEPARATOR)
                 if is_hybrid_mode:
-                    self._cal_debug(f"🔀 Hybrid mode: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")  # type: ignore[attr-defined]
-                    self._cal_debug("   → RAM is the limit - RoPE scaling won't increase context")  # type: ignore[attr-defined]
+                    self._cal_debug(f"🔀 Hybrid mode: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")
+                    self._cal_debug("   → RAM is the limit - RoPE scaling won't increase context")
                 else:
-                    self._cal_debug(f"⚡ VRAM-limited: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")  # type: ignore[attr-defined]
-                    self._cal_debug("   → VRAM is the limit - RoPE scaling won't increase context")  # type: ignore[attr-defined]
-                self._cal_debug(f"   → Auto-setting RoPE 1.5x and 2.0x to {format_number(calibrated_ctx)}")  # type: ignore[attr-defined]
+                    self._cal_debug(f"⚡ VRAM-limited: {format_number(calibrated_ctx)} < {format_number(native_ctx)} native")
+                    self._cal_debug("   → VRAM is the limit - RoPE scaling won't increase context")
+                self._cal_debug(f"   → Auto-setting RoPE 1.5x and 2.0x to {format_number(calibrated_ctx)}")
                 yield
             elif is_hybrid_mode:
                 # Hybrid mode but native context fits - RoPE might give us more!
-                self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
-                self._cal_debug(f"🔀 Hybrid mode: {format_number(calibrated_ctx)} (native fits)")  # type: ignore[attr-defined]
-                self._cal_debug("   → Testing if RoPE scaling can extend context further...")  # type: ignore[attr-defined]
+                self._cal_debug(CONSOLE_SEPARATOR)
+                self._cal_debug(f"🔀 Hybrid mode: {format_number(calibrated_ctx)} (native fits)")
+                self._cal_debug("   → Testing if RoPE scaling can extend context further...")
                 yield
                 # Don't skip - let it calibrate RoPE 1.5x and 2.0x
 
@@ -1142,7 +1161,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 gpu_model = get_gpu_model_name() or "Unknown"
                 for rope_factor in [1.5, 2.0]:
                     add_ollama_calibration(
-                        model_name=self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
+                        model_name=self.agent_tuning["aifred"].model_id,
                         max_context_gpu_only=calibrated_ctx,
                         native_context=native_ctx,
                         gpu_model=gpu_model,
@@ -1158,13 +1177,13 @@ class CalibrationMixin(rx.State, mixin=True):
                 prev_ctx = calibration_results.get(1.0, CALIBRATION_MIN_CONTEXT)
 
                 for rope_factor in [1.5, 2.0]:
-                    self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
-                    self._cal_debug(f"📐 Calibrating RoPE {rope_factor}x...")  # type: ignore[attr-defined]
+                    self._cal_debug(CONSOLE_SEPARATOR)
+                    self._cal_debug(f"📐 Calibrating RoPE {rope_factor}x...")
                     yield
 
                     rope_calibrated_ctx = None
-                    async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
-                        self.agent_tuning["aifred"].model_id,  # type: ignore[attr-defined]
+                    async for progress_msg in backend.calibrate_max_context_generator(
+                        self.agent_tuning["aifred"].model_id,
                         rope_factor=rope_factor,
                         min_context=prev_ctx,  # Start from previous result (1.0x or 1.5x)
                         force_hybrid=is_hybrid_mode  # Continue in hybrid mode if 1.0x was hybrid
@@ -1177,28 +1196,28 @@ class CalibrationMixin(rx.State, mixin=True):
                             # Update prev_ctx for next iteration (2.0x uses 1.5x result)
                             prev_ctx = rope_calibrated_ctx
                         else:
-                            self._cal_debug(f"📊 {progress_msg}")  # type: ignore[attr-defined]
+                            self._cal_debug(f"📊 {progress_msg}")
                             yield
 
             # Summary
-            self._cal_debug("═" * 20)  # type: ignore[attr-defined]
+            self._cal_debug("═" * 20)
             mode_info = " (Hybrid)" if is_hybrid_mode else ""
-            self._cal_debug(f"✅ Calibration complete for {self.agent_tuning["aifred"].model_id}{mode_info}:")  # type: ignore[attr-defined]
+            self._cal_debug(f"✅ Calibration complete for {self.agent_tuning["aifred"].model_id}{mode_info}:")
             for factor, ctx in calibration_results.items():
                 label = "Native" if factor == 1.0 else f"RoPE {factor}x"
                 suffix = " (auto)" if skip_rope_calibration and factor > 1.0 else ""
-                self._cal_debug(f"   {label}: {format_number(ctx)} tok{suffix}")  # type: ignore[attr-defined]
-            self._cal_debug("   → Values will be used automatically based on RoPE setting")  # type: ignore[attr-defined]
+                self._cal_debug(f"   {label}: {format_number(ctx)} tok{suffix}")
+            self._cal_debug("   → Values will be used automatically based on RoPE setting")
 
             # Test thinking capability if calibration was successful (shared helper)
             if calibration_results.get(1.0, 0) > 0:
-                async for _ in self._test_and_save_thinking(backend, self.agent_tuning["aifred"].model_id):  # type: ignore[attr-defined]
+                async for _ in self._test_and_save_thinking(backend, self.agent_tuning["aifred"].model_id):
                     yield
 
-            self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+            self._cal_debug(CONSOLE_SEPARATOR)
 
         except Exception as e:
-            self._cal_debug(f"❌ Calibration failed: {type(e).__name__}: {e}")  # type: ignore[attr-defined]
+            self._cal_debug(f"❌ Calibration failed: {type(e).__name__}: {e}")
 
         finally:
             # Background-Task: State-Write nur im Lock (der Wrapper setzt
@@ -1220,8 +1239,8 @@ class CalibrationMixin(rx.State, mixin=True):
 
         Shared between Ollama and llama.cpp calibration flows.
         """
-        self._cal_debug("─" * 20)  # type: ignore[attr-defined]
-        self._cal_debug("🧠 Testing reasoning capability...")  # type: ignore[attr-defined]
+        self._cal_debug("─" * 20)
+        self._cal_debug("🧠 Testing reasoning capability...")
         yield
 
         try:
@@ -1233,20 +1252,20 @@ class CalibrationMixin(rx.State, mixin=True):
             # Update state for ALL agents using this model (State-WRITE →
             # im Background-Task nur unter Lock erlaubt)
             async with self:
-                if self.agent_tuning["aifred"].model_id == model_id:  # type: ignore[attr-defined]
-                    self.agent_tuning["aifred"].supports_thinking = supports_thinking  # type: ignore[attr-defined]
-                if self.agent_tuning["sokrates"].model_id == model_id:  # type: ignore[attr-defined]
-                    self.agent_tuning["sokrates"].supports_thinking = supports_thinking  # type: ignore[attr-defined]
-                if self.agent_tuning["salomo"].model_id == model_id:  # type: ignore[attr-defined]
-                    self.agent_tuning["salomo"].supports_thinking = supports_thinking  # type: ignore[attr-defined]
+                if self.agent_tuning["aifred"].model_id == model_id:
+                    self.agent_tuning["aifred"].supports_thinking = supports_thinking
+                if self.agent_tuning["sokrates"].model_id == model_id:
+                    self.agent_tuning["sokrates"].supports_thinking = supports_thinking
+                if self.agent_tuning["salomo"].model_id == model_id:
+                    self.agent_tuning["salomo"].supports_thinking = supports_thinking
 
             if supports_thinking:
-                self._cal_debug("✅ Reasoning mode: Supported (<think> tags)")  # type: ignore[attr-defined]
+                self._cal_debug("✅ Reasoning mode: Supported (<think> tags)")
             else:
-                self._cal_debug("⚠️ Reasoning mode: Not supported")  # type: ignore[attr-defined]
+                self._cal_debug("⚠️ Reasoning mode: Not supported")
 
         except (OSError, RuntimeError, ValueError) as e:
-            self._cal_debug(f"⚠️ Thinking test failed: {e}")  # type: ignore[attr-defined]
+            self._cal_debug(f"⚠️ Thinking test failed: {e}")
 
     # ------------------------------------------------------------------
     # llama.cpp calibration
@@ -1289,7 +1308,7 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib.formatting import format_number
 
         combo = f" × {tts_backend}" if tts_backend else ""
-        self._cal_debug(f"   ⚡ {vlm_label}{combo} speed flavour...")  # type: ignore[attr-defined]
+        self._cal_debug(f"   ⚡ {vlm_label}{combo} speed flavour...")
         yield
 
         # 🎯 Isolated mode: the speed GPU subset is disjoint from every
@@ -1313,7 +1332,7 @@ class CalibrationMixin(rx.State, mixin=True):
             if tts_backend else f"-vlm-{vlm_key}-speed"
         )
         if side_channel_disjoint(_speed_uuids, _side_uuids, len(_sf_gpus())):
-            self._cal_debug(  # type: ignore[attr-defined]
+            self._cal_debug(
                 f"   🎯 Isolated mode: speed GPU set disjoint from "
                 f"side-channel GPU(s) — reusing speed result "
                 f"(ctx {format_number(speed_ctx)}, no probes)"
@@ -1330,7 +1349,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 tts_backend=tts_backend,
                 speed=True,
             ):
-                self._cal_debug(  # type: ignore[attr-defined]
+                self._cal_debug(
                     f"   ✅ {vlm_label}{combo} speed variant: "
                     f"{model_id}{_iso_suffix} (isolated, "
                     f"ctx {format_number(speed_ctx)})"
@@ -1339,7 +1358,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     model_id, f"{model_id}{_iso_suffix}", speed_ctx,
                 )
             else:
-                self._cal_debug(  # type: ignore[attr-defined]
+                self._cal_debug(
                     f"   ⚠️ Could not write {vlm_label}{combo} speed variant"
                 )
             yield
@@ -1376,7 +1395,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     vs_num_gpus = r["num_gpus"]
                     vs_uuids = r["uuids"]
             else:
-                self._cal_debug(f"   {_calib_line(msg)}")  # type: ignore[attr-defined]
+                self._cal_debug(f"   {_calib_line(msg)}")
                 yield
 
         suffix = (
@@ -1384,7 +1403,7 @@ class CalibrationMixin(rx.State, mixin=True):
             if tts_backend else f"-vlm-{vlm_key}-speed"
         )
         if not vs_ok:
-            self._cal_debug(  # type: ignore[attr-defined]
+            self._cal_debug(
                 f"   ⏭️ {vlm_label}{combo} speed flavour skipped (no smaller fit)"
             )
             # Drop a stale speed flavour from an earlier run so the resolver
@@ -1395,7 +1414,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 LLAMASWAP_CONFIG_PATH, model_id, vlm_key,
                 tts_backend=tts_backend, speed=True,
             ):
-                self._cal_debug(  # type: ignore[attr-defined]
+                self._cal_debug(
                     f"   🧹 Removed stale {vlm_label}{combo} speed profile"
                 )
             remove_model_from_cache(f"{model_id}{suffix}")
@@ -1414,13 +1433,13 @@ class CalibrationMixin(rx.State, mixin=True):
             tts_backend=tts_backend,
             speed=True,
         ):
-            self._cal_debug(  # type: ignore[attr-defined]
+            self._cal_debug(
                 f"   ✅ {vlm_label}{combo} speed variant: {model_id}{suffix} "
                 f"(ctx {format_number(vs_ctx)}, split {vs_split})"
             )
             _write_variant_cache_entry(model_id, f"{model_id}{suffix}", vs_ctx)
         else:
-            self._cal_debug(  # type: ignore[attr-defined]
+            self._cal_debug(
                 f"   ⚠️ Could not write {vlm_label}{combo} speed variant"
             )
         yield
@@ -1452,18 +1471,15 @@ class CalibrationMixin(rx.State, mixin=True):
         try:
             from ..backends import BackendFactory
 
-            backend = BackendFactory.create(
-                self.backend_type,  # type: ignore[attr-defined]
-                base_url=self.backend_url  # type: ignore[attr-defined]
-            )
+            backend = BackendFactory.create("llamacpp", base_url=self.backend_url)
 
             # Step 0: Kill orphaned calibration servers left over from a previous
             # interrupted calibration, and have GPU-Orc clear the STT and TTS workers (the
             # calibration reserves the burn-in peak of the planned engine instead of loading it).
             from ..lib.config import LLAMACPP_CALIBRATION_PORT
-            self._cal_debug("🧹 Cleaning up VRAM (orphaned servers, STT/TTS workers)...")  # type: ignore[attr-defined]
+            self._cal_debug("🧹 Cleaning up VRAM (orphaned servers, STT/TTS workers)...")
             yield
-            await asyncio.to_thread(_free_cards_for_calibration, self._cal_debug)  # type: ignore[attr-defined]
+            await asyncio.to_thread(_free_cards_for_calibration, self._cal_debug)
             # Kill any llama-server still running on calibration port
             try:
                 result = subprocess.run(
@@ -1471,7 +1487,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     capture_output=True, timeout=5,
                 )
                 if result.returncode == 0:
-                    self._cal_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")  # type: ignore[attr-defined]
+                    self._cal_debug(f"   Killed orphaned server on port {LLAMACPP_CALIBRATION_PORT}")
             except (subprocess.SubprocessError, FileNotFoundError):
                 pass
             # Unload any models currently held in Ollama VRAM (embedding
@@ -1498,15 +1514,15 @@ class CalibrationMixin(rx.State, mixin=True):
                                     json={"model": _name, "prompt": "",
                                           "keep_alive": 0},
                                 )
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   ✅ Ollama: unloaded {_name}"
                                 )
                         else:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 "   ℹ️ Ollama: no models loaded"
                             )
                     else:
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"   ⚠️ Ollama /api/ps returned {_ps.status_code}"
                         )
             except Exception as _e:  # noqa: BLE001
@@ -1515,11 +1531,11 @@ class CalibrationMixin(rx.State, mixin=True):
                 # kein Problem. Andere Fehler weiterhin im Wortlaut zeigen.
                 _msg = str(_e)
                 if "Connection refused" in _msg or "Errno 111" in _msg:
-                    self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(
                         "   ℹ️ Ollama not running — unload not needed"
                     )
                 else:
-                    self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(
                         f"   ⚠️ Ollama unload skipped: {_e}"
                     )
 
@@ -1528,16 +1544,16 @@ class CalibrationMixin(rx.State, mixin=True):
             # the check wait out the full drain timeout (observed: 748 MB
             # on each card until llama-swap was stopped). All AIfred GPU
             # consumers (TTS docker, Ollama, llama-swap) are now down.
-            self._cal_debug("🛑 Stopping llama-swap service...")  # type: ignore[attr-defined]
+            self._cal_debug("🛑 Stopping llama-swap service...")
             yield
             try:
                 from ..lib.process_utils import stop_llama_swap
                 stop_llama_swap()
                 llama_swap_stopped = True
-                self._cal_debug("   llama-swap stopped")  # type: ignore[attr-defined]
+                self._cal_debug("   llama-swap stopped")
             except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
-                self._cal_debug(f"⚠️ Could not stop llama-swap: {e}")  # type: ignore[attr-defined]
-                self._cal_debug("   Continuing anyway (VRAM may be limited)")  # type: ignore[attr-defined]
+                self._cal_debug(f"⚠️ Could not stop llama-swap: {e}")
+                self._cal_debug("   Continuing anyway (VRAM may be limited)")
             yield
 
             # Verify NO compute process is left on the GPUs before probing.
@@ -1565,7 +1581,7 @@ class CalibrationMixin(rx.State, mixin=True):
             waited = 0.0
             procs = await _gpu_procs()
             while procs and waited < _DRAIN_TIMEOUT:
-                self._cal_debug(  # type: ignore[attr-defined]
+                self._cal_debug(
                     f"   ⏳ GPU still busy ({'; '.join(procs)}) — waiting…"
                 )
                 yield
@@ -1578,14 +1594,14 @@ class CalibrationMixin(rx.State, mixin=True):
                 # (TTS docker, Ollama, llama-swap) were already shut down, so
                 # this is most likely a FOREIGN program — we must NOT kill it,
                 # only warn with its name so the user can free the GPU.
-                self._cal_debug(  # type: ignore[attr-defined]
+                self._cal_debug(
                     f"   ⚠️ GPU STILL has running processes after "
                     f"{format_number(waited)}s: {'; '.join(procs)} — AIfred's "
                     f"own consumers were stopped, so this is likely a foreign "
                     f"program. NOT killing it; free the GPU and recalibrate."
                 )
             else:
-                self._cal_debug("   ✅ No GPU processes running — VRAM ready")  # type: ignore[attr-defined]
+                self._cal_debug("   ✅ No GPU processes running — VRAM ready")
             yield
 
             # Matrix-driven calibration: every variant the user wants
@@ -1635,21 +1651,21 @@ class CalibrationMixin(rx.State, mixin=True):
                                 if vlm_vram_cache.get(c["model_id"], VLM_NUM_CTX) is None]
                 if missing_vlms:
                     _labels = ", ".join(c["label"] for c in missing_vlms)
-                    self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(
                         f"🔥 Pre-burn-in VLM (missing cache: {_labels})"
                     )
                     yield
                     try:
                         _gpu_idx = pick_vlm_gpu()
                     except RuntimeError as _e:
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"   ⚠️ VLM GPU pick failed: {_e}"
                         )
                         _gpu_idx = -1
                     if _gpu_idx >= 0:
                         for _vc in missing_vlms:
                             _mid = _vc["model_id"]
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   🔥 {_vc['label']} stress prewarm on GPU{_gpu_idx}..."
                             )
                             yield
@@ -1670,7 +1686,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                         await asyncio.sleep(0.3)
                                     _peak = await _v_task
                                 except Exception as _e:  # noqa: BLE001
-                                    self._cal_debug(  # type: ignore[attr-defined]
+                                    self._cal_debug(
                                         f"   ❌ {_vc['label']} prewarm error: {_e}"
                                     )
                                     _burnin_failures.append(
@@ -1679,11 +1695,11 @@ class CalibrationMixin(rx.State, mixin=True):
                                 else:
                                     if _peak is not None and _peak > 0:
                                         vlm_vram_cache.put(_mid, VLM_NUM_CTX, _peak)
-                                        self._cal_debug(  # type: ignore[attr-defined]
+                                        self._cal_debug(
                                             f"   ✅ {_vc['label']}: peak {_peak} MiB cached"
                                         )
                                     else:
-                                        self._cal_debug(  # type: ignore[attr-defined]
+                                        self._cal_debug(
                                             f"   ❌ {_vc['label']}: prewarm failed"
                                         )
                                         _burnin_failures.append(
@@ -1707,13 +1723,13 @@ class CalibrationMixin(rx.State, mixin=True):
             # problem now than write a calibration profile based on
             # idle-only or fallback values that OOM in production.
             if _burnin_failures:
-                self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
-                self._cal_debug(  # type: ignore[attr-defined]
+                self._cal_debug(CONSOLE_SEPARATOR)
+                self._cal_debug(
                     "❌ Burn-in failed — calibration aborted. Issues:"
                 )
                 for _f in _burnin_failures:
-                    self._cal_debug(f"   • {_f}")  # type: ignore[attr-defined]
-                self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(f"   • {_f}")
+                self._cal_debug(
                     "Check container logs (and verify voice/language "
                     "config for the failing engine), then restart "
                     "the calibration."
@@ -1722,7 +1738,7 @@ class CalibrationMixin(rx.State, mixin=True):
                 # llama-swap wieder hochfahren, sonst hängt das System
                 from ..lib.process_utils import start_llama_swap
                 start_llama_swap()
-                self._cal_debug("🔄 llama-swap restarted")  # type: ignore[attr-defined]
+                self._cal_debug("🔄 llama-swap restarted")
                 return
 
             # Step 2: Run calibration (flow.py phases A, 1, E, D — see its docstring)
@@ -1745,7 +1761,7 @@ class CalibrationMixin(rx.State, mixin=True):
             speed_uuid_csv = ""
             # Calibrate the base model — speed variant is created in Phase E
             # (model_id is always base ID — SSOT, no suffix stripping needed)
-            calibration_model_id = self.agent_tuning["aifred"].model_id  # type: ignore[attr-defined]
+            calibration_model_id = self.agent_tuning["aifred"].model_id
 
             # Picker option "Basis-Kalibrierung" deselected → reuse the
             # existing base+speed values from llama-swap.yaml + vram cache
@@ -1768,8 +1784,8 @@ class CalibrationMixin(rx.State, mixin=True):
                 base_entry = cfg.get(calibration_model_id, {})
                 cache_info = get_llamacpp_calibration_info(calibration_model_id)
                 if not base_entry or not cache_info:
-                    self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
-                    self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(CONSOLE_SEPARATOR)
+                    self._cal_debug(
                         "❌ Base-calibration skip requested, but no existing "
                         "calibration found in llama-swap.yaml + cache. "
                         "Enable 'Basis-Kalibrierung' in the picker and retry."
@@ -1809,14 +1825,14 @@ class CalibrationMixin(rx.State, mixin=True):
                     s_cvd = (speed_entry.get("env") or {}).get("CUDA_VISIBLE_DEVICES", "")
                     speed_num_gpus = len([x for x in s_cvd.split(",") if x]) if s_cvd else 0
                     speed_kv_quant = str(speed_entry.get("kv_cache_quant") or calibration_kv)
-                self._cal_debug(  # type: ignore[attr-defined]
+                self._cal_debug(
                     f"⏭️ Skipping base — reusing ctx={format_number(calibrated_ctx)}, "
                     f"ngl={calibrated_ngl}, mode={calibrated_mode}, kv={calibration_kv}"
                 )
                 yield
 
             if not skip_base:
-                async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
+                async for progress_msg in backend.calibrate_max_context_generator(
                     calibration_model_id,
                 ):
                     if progress_msg.startswith("__RESULT__:"):
@@ -1853,20 +1869,20 @@ class CalibrationMixin(rx.State, mixin=True):
                         else:
                             speed_split_cuda0 = int(speed_payload)
                     else:
-                        self._cal_debug(_calib_line(progress_msg))  # type: ignore[attr-defined]
+                        self._cal_debug(_calib_line(progress_msg))
                         yield
 
             # Step 3: Process result
             if not calibrated_ctx or calibrated_ctx == 0:
-                self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
-                self._cal_debug("❌ Calibration failed")  # type: ignore[attr-defined]
+                self._cal_debug(CONSOLE_SEPARATOR)
+                self._cal_debug("❌ Calibration failed")
                 yield
                 return
 
-            self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+            self._cal_debug(CONSOLE_SEPARATOR)
             mode_str = f" (hybrid, ngl={calibrated_ngl})" if calibrated_mode == "hybrid" else ""
             _icon, _verb = ("⏭️", "Reused") if skip_base else ("✅", "Calibrated")
-            self._cal_debug(  # type: ignore[attr-defined]
+            self._cal_debug(
                 f"{_icon} {_verb}: {format_number(calibrated_ctx)} tokens{mode_str}"
             )
 
@@ -1888,7 +1904,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     if update_llamaswap_reasoning_format(
                         LLAMASWAP_CONFIG_PATH, calibration_model_id
                     ):
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             "   --reasoning-format deepseek written to config"
                         )
 
@@ -1897,19 +1913,19 @@ class CalibrationMixin(rx.State, mixin=True):
             # source of those values in the first place, so re-writing them
             # would be a no-op.
             if not skip_base:
-                self._cal_debug("📝 Updating llama-swap config...")  # type: ignore[attr-defined]
+                self._cal_debug("📝 Updating llama-swap config...")
                 updated_ctx = update_llamaswap_context(
                     LLAMASWAP_CONFIG_PATH,
                     calibration_model_id,
                     calibrated_ctx
                 )
                 if updated_ctx:
-                    self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(
                         f"   -c {format_number(calibrated_ctx)} written to "
                         f"{LLAMASWAP_CONFIG_PATH.name}"
                     )
                 else:
-                    self._cal_debug("⚠️ Could not update -c in llama-swap config")  # type: ignore[attr-defined]
+                    self._cal_debug("⚠️ Could not update -c in llama-swap config")
 
                 # Write the calibrated ngl to YAML.
                 # Previous logic downgraded ngl to hybrid for "swap safety", but that
@@ -1926,15 +1942,15 @@ class CalibrationMixin(rx.State, mixin=True):
                 )
                 if updated_ngl:
                     mode_label = "hybrid mode" if yaml_ngl < 99 else "gpu mode"
-                    self._cal_debug(f"   -ngl {yaml_ngl} written ({mode_label})")  # type: ignore[attr-defined]
+                    self._cal_debug(f"   -ngl {yaml_ngl} written ({mode_label})")
                 else:
-                    self._cal_debug("⚠️ Could not update -ngl in llama-swap config")  # type: ignore[attr-defined]
+                    self._cal_debug("⚠️ Could not update -ngl in llama-swap config")
 
                 # Write speed variant YAML entry (only for multi-GPU models with valid split)
                 if speed_split_cuda0 <= 0:
                     async with self:
-                        self.agent_tuning["aifred"].has_speed_variant = False  # type: ignore[attr-defined]
-                        self.agent_tuning["aifred"].speed_mode = False  # type: ignore[attr-defined]
+                        self.agent_tuning["aifred"].has_speed_variant = False
+                        self.agent_tuning["aifred"].speed_mode = False
                 if speed_split_cuda0 > 0:
                     added_speed = add_llamaswap_speed_variant(
                         LLAMASWAP_CONFIG_PATH,
@@ -1951,7 +1967,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         gpu_info_str = f", {speed_num_gpus} GPUs" if speed_num_gpus else ""
                         kv_info_str = f", KV={speed_kv_quant}" if speed_kv_quant != "f16" else ""
                         split_display = speed_layer_split or f"{speed_split_cuda0}:{speed_split_rest}"
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"   ⚡ Speed variant: {calibration_model_id}-speed "
                             f"(split {split_display}, "
                             f"ctx {format_number(speed_split_context)}{gpu_info_str}{kv_info_str})"
@@ -1971,9 +1987,9 @@ class CalibrationMixin(rx.State, mixin=True):
                         )
                         # Toggle immediately visible without restart
                         async with self:
-                            self.agent_tuning["aifred"].has_speed_variant = True  # type: ignore[attr-defined]
+                            self.agent_tuning["aifred"].has_speed_variant = True
                     else:
-                        self._cal_debug("⚠️ Could not write speed variant to llama-swap config")  # type: ignore[attr-defined]
+                        self._cal_debug("⚠️ Could not write speed variant to llama-swap config")
                 yield
 
             # Step 5: TTS variant calibration. No TTS container is loaded: the
@@ -1994,12 +2010,12 @@ class CalibrationMixin(rx.State, mixin=True):
                 for tts_backend in installed_gpu_engine_keys():
                     tts_label = engine_label_short(tts_backend)
                     if not self.calibration_matrix.get(f"|{tts_backend}", False):
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"⏭️ Skipping {tts_label} (deselected in picker)"
                         )
                         yield
                         continue
-                    self._cal_debug(f"🔊 {tts_label} variant calibration...")  # type: ignore[attr-defined]
+                    self._cal_debug(f"🔊 {tts_label} variant calibration...")
                     yield
 
                     # Isolated-mode shortcut: the LLM's GPU set (base and/or
@@ -2075,7 +2091,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             for u in _llm_uuids
                         ) or "all"
                         _tts_name = uuid_to_name.get(tts_uuid, "?")
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"   🎯 Isolated mode ({_cand['label']}): "
                             f"LLM on {_llm_label}, "
                             f"{tts_label} on {_tts_name}({tts_uuid[:12]}…) "
@@ -2094,7 +2110,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         )
                         if added:
                             iso_done[_cand["label"]] = True
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ✅ {tts_label} variant: "
                                 f"{calibration_model_id}-tts-{_cand['tts_suffix']} "
                                 f"(isolated, ctx {format_number(_cand['ctx'])})"
@@ -2109,7 +2125,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 _cand["ctx"],
                             )
                         else:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ⚠️ Could not write {tts_label} "
                                 f"{_cand['label']} variant to config"
                             )
@@ -2118,7 +2134,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     if iso_done and all(iso_done.values()):
                         continue  # every candidate satisfied via isolated mode
 
-                    self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(
                         f"   🔊 {tts_label}: container not loaded — "
                         f"calibration reserves the burn-in peak"
                     )
@@ -2167,7 +2183,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             and _all_gpus and _tts_uuid
                             and any(s > 0 for s in _base_split)
                         ):
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ⚡ Trying fast path: derive {tts_label} variant "
                                 f"from base (skip Phase-1 search)..."
                             )
@@ -2203,10 +2219,10 @@ class CalibrationMixin(rx.State, mixin=True):
                                         approx_num_gpus = _r["num_gpus"]
                                         approx_uuids = _r["uuids"]
                                 else:
-                                    self._cal_debug(f"   {_calib_line(_msg)}")  # type: ignore[attr-defined]
+                                    self._cal_debug(f"   {_calib_line(_msg)}")
                                     yield
                     except (OSError, ValueError, KeyError) as _e:
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"   ⚠️ Fast-path approximation failed: {_e} — "
                             f"falling back to full re-calibration"
                         )
@@ -2228,7 +2244,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             cuda_visible_devices=approx_uuids,
                         )
                         if added:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ✅ {tts_label} variant (fast path): "
                                 f"{calibration_model_id}-tts-{tts_backend} "
                                 f"(ctx {format_number(approx_ctx)}, "
@@ -2292,7 +2308,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                                 _approx_sp_num_gpus = _r2["num_gpus"]
                                                 _approx_sp_uuids = _r2["uuids"]
                                         else:
-                                            self._cal_debug(f"   {_calib_line(_msg2)}")  # type: ignore[attr-defined]
+                                            self._cal_debug(f"   {_calib_line(_msg2)}")
                                             yield
                                     if _approx_sp_ok:
                                         speed_added = add_llamaswap_tts_variant(
@@ -2306,7 +2322,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                             cuda_visible_devices=_approx_sp_uuids,
                                         )
                                         if speed_added:
-                                            self._cal_debug(  # type: ignore[attr-defined]
+                                            self._cal_debug(
                                                 f"   ⚡ {tts_label} speed variant (fast path): "
                                                 f"{calibration_model_id}-tts-{tts_backend}-speed "
                                                 f"(ctx {format_number(_approx_sp_ctx)}, "
@@ -2335,22 +2351,22 @@ class CalibrationMixin(rx.State, mixin=True):
                                                 speed_split=_sp_cuda0,
                                             )
                                         else:
-                                            self._cal_debug(  # type: ignore[attr-defined]
+                                            self._cal_debug(
                                                 f"   ⚠️ Could not write {tts_label} speed variant to config"
                                             )
                                 except (OSError, ValueError, KeyError) as _sp_e:
-                                    self._cal_debug(  # type: ignore[attr-defined]
+                                    self._cal_debug(
                                         f"   ⚠️ {tts_label} speed fast-path failed: {_sp_e}"
                                     )
                                     yield
                         else:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ⚠️ Could not write {tts_label} variant to config"
                             )
                         yield
                         continue  # skip full re-calibration
 
-                    self._cal_debug(f"   {tts_label}: fast path didn't fit — running full calibration...")  # type: ignore[attr-defined]
+                    self._cal_debug(f"   {tts_label}: fast path didn't fit — running full calibration...")
                     yield
 
                     tts_ctx = None
@@ -2377,7 +2393,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     _fallback_tts_uuid = _get_tts_uuid()
                     from ..lib.tts_service import gpu_engine_needs
                     _fallback_reserve_mb = gpu_engine_needs()[tts_backend]
-                    async for progress_msg in backend.calibrate_max_context_generator(  # type: ignore[attr-defined]
+                    async for progress_msg in backend.calibrate_max_context_generator(
                         calibration_model_id, dry_run=True, min_kv=calibration_kv,
                         known_thinking=known_thinking,
                         tts_gpu_uuid=_fallback_tts_uuid,
@@ -2402,9 +2418,9 @@ class CalibrationMixin(rx.State, mixin=True):
                                 tts_speed_kv = kv_part
                                 tts_speed_uuids = uuid_part
                             except (ValueError, IndexError):
-                                self._cal_debug(f"   ⚠️ Could not parse {tts_label} speed payload: {payload[:80]}")  # type: ignore[attr-defined]
+                                self._cal_debug(f"   ⚠️ Could not parse {tts_label} speed payload: {payload[:80]}")
                         else:
-                            self._cal_debug(f"   {_calib_line(progress_msg)}")  # type: ignore[attr-defined]
+                            self._cal_debug(f"   {_calib_line(progress_msg)}")
                             yield
 
                     if tts_ctx and tts_ctx > 0:
@@ -2419,7 +2435,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             cuda_visible_devices=tts_uuids,
                         )
                         if added:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ✅ {tts_label} variant: {calibration_model_id}-tts-{tts_backend} "
                                 f"(ctx {format_number(tts_ctx)})"
                             )
@@ -2448,7 +2464,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                     tts_speed_ctx,
                                 )
                         else:
-                            self._cal_debug(f"   ⚠️ Could not write {tts_label} variant to config")  # type: ignore[attr-defined]
+                            self._cal_debug(f"   ⚠️ Could not write {tts_label} variant to config")
 
                         # Also persist the speed variant for this TTS backend if found.
                         # Result key: <model>-tts-<backend>-speed (e.g. ...-tts-xtts-speed)
@@ -2480,18 +2496,18 @@ class CalibrationMixin(rx.State, mixin=True):
                                 cuda_visible_devices=tts_speed_uuids,
                             )
                             if speed_added:
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   ⚡ {tts_label} speed variant: "
                                     f"{calibration_model_id}-tts-{tts_backend}-speed "
                                     f"(split {tts_speed_split}, ctx {format_number(tts_speed_ctx)}, "
                                     f"{tts_speed_num_gpus} GPUs)"
                                 )
                             else:
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   ⚠️ Could not write {tts_label} speed variant to config"
                                 )
                     else:
-                        self._cal_debug(f"   ❌ {tts_label} variant calibration failed")  # type: ignore[attr-defined]
+                        self._cal_debug(f"   ❌ {tts_label} variant calibration failed")
                         # A failed calibration must not leave a stale variant
                         # behind: an earlier run may have written a
                         # <model>-tts-<backend> profile that no longer fits the
@@ -2513,7 +2529,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             if remove_llamaswap_tts_variant(
                                 LLAMASWAP_CONFIG_PATH, calibration_model_id, _suffix,
                             ):
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   🧹 Removed stale profile "
                                     f"{calibration_model_id}-tts-{_suffix}"
                                 )
@@ -2637,7 +2653,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         continue
                     vlm_model_id = vlm_choice["model_id"]
                     vlm_label = vlm_choice["label"]
-                    self._cal_debug(f"👁️ {vlm_label} variant calibration...")  # type: ignore[attr-defined]
+                    self._cal_debug(f"👁️ {vlm_label} variant calibration...")
                     yield
 
                     # Resolve reserve for this specific model — bypasses
@@ -2647,11 +2663,11 @@ class CalibrationMixin(rx.State, mixin=True):
                             VLM_NUM_CTX, model_id_override=vlm_model_id,
                         )
                     except Exception as e:  # noqa: BLE001
-                        self._cal_debug(f"   ⚠️ VLM reserve resolution failed for {vlm_label}: {e}")  # type: ignore[attr-defined]
+                        self._cal_debug(f"   ⚠️ VLM reserve resolution failed for {vlm_label}: {e}")
                         yield
                         continue
                     if not _vlm_u or _vlm_mb <= 0:
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"   ⚠️ {vlm_label}: could not determine reserve — skipping"
                         )
                         yield
@@ -2667,7 +2683,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     _vlm_gpu_label = gpu_uuid_labels().get(
                         _vlm_u, f"GPU{_vlm_pos} ({_vlm_name})"
                     )
-                    self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(
                         f"   📌 {vlm_label} reserve: {_vlm_mb} MB on "
                         f"{_vlm_gpu_label}"
                     )
@@ -2675,7 +2691,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
                     if not (_full_cmd_v and _gguf_path_v.exists()
                             and _all_gpus_v and any(s > 0 for s in _base_split_v)):
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"   ⚠️ {vlm_label}: base config incomplete, skipping"
                         )
                         yield
@@ -2692,7 +2708,7 @@ class CalibrationMixin(rx.State, mixin=True):
                     if side_channel_disjoint(
                         _base_uuids_v, [_vlm_u], len(_all_gpus_v),
                     ):
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"   🎯 Isolated mode: LLM set disjoint from "
                             f"{vlm_label} GPU ({_vlm_gpu_label}) — reusing "
                             f"base result (ctx {format_number(calibrated_ctx)}, "
@@ -2708,7 +2724,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             cuda_visible_devices=",".join(_base_uuids_v),
                             source_model_id=calibration_model_id,
                         ):
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ✅ {vlm_label} variant: "
                                 f"{calibration_model_id}-vlm-{vlm_key} "
                                 f"(isolated, ctx {format_number(calibrated_ctx)})"
@@ -2738,7 +2754,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 ):
                                     yield
                         else:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ⚠️ Could not write {vlm_label} variant to config"
                             )
                         yield
@@ -2776,7 +2792,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 _vlm_num_gpus = _r_v["num_gpus"]
                                 _vlm_uuids = _r_v["uuids"]
                         else:
-                            self._cal_debug(f"   {_calib_line(_msg_v)}")  # type: ignore[attr-defined]
+                            self._cal_debug(f"   {_calib_line(_msg_v)}")
                             yield
 
                     if _vlm_ok:
@@ -2791,7 +2807,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             cuda_visible_devices=_vlm_uuids,
                         )
                         if added_v:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ✅ {vlm_label} variant: "
                                 f"{calibration_model_id}-vlm-{vlm_key} "
                                 f"(ctx {format_number(_vlm_ctx)}, split {_vlm_split})"
@@ -2802,11 +2818,11 @@ class CalibrationMixin(rx.State, mixin=True):
                                 _vlm_ctx,
                             )
                         else:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ⚠️ Could not write {vlm_label} variant to config"
                             )
                     else:
-                        self._cal_debug(f"   ❌ {vlm_label} variant calibration failed")  # type: ignore[attr-defined]
+                        self._cal_debug(f"   ❌ {vlm_label} variant calibration failed")
                         from ..lib.model_vram_cache import (
                             record_calibration_failure,
                             remove_model_from_cache,
@@ -2814,7 +2830,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         if remove_llamaswap_vlm_variant(
                             LLAMASWAP_CONFIG_PATH, calibration_model_id, vlm_key,
                         ):
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   🧹 Removed stale {vlm_label} profile"
                             )
                         remove_model_from_cache(
@@ -2885,7 +2901,7 @@ class CalibrationMixin(rx.State, mixin=True):
                             continue
                         vlm_model_id_c = vlm_choice_c["model_id"]
                         vlm_label_c = vlm_choice_c["label"]
-                        self._cal_debug(  # type: ignore[attr-defined]
+                        self._cal_debug(
                             f"🔊👁️ {tts_label_c} × {vlm_label_c} combo calibration..."
                         )
                         yield
@@ -2895,11 +2911,11 @@ class CalibrationMixin(rx.State, mixin=True):
                                 VLM_NUM_CTX, model_id_override=vlm_model_id_c,
                             )
                         except Exception as e:  # noqa: BLE001
-                            self._cal_debug(f"   ⚠️ Combo resolve failed: {e}")  # type: ignore[attr-defined]
+                            self._cal_debug(f"   ⚠️ Combo resolve failed: {e}")
                             yield
                             continue
                         if not _vu or _vmb <= 0:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ⚠️ {vlm_label_c}: could not determine reserve — "
                                 f"skipping combo with {tts_label_c}"
                             )
@@ -2909,7 +2925,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         if not (_full_cmd_v and _gguf_path_v.exists()
                                 and _all_gpus_v and _tts_uuid_c
                                 and any(s > 0 for s in _base_split_v)):
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 "   ⚠️ combo: base config / TTS GPU missing, skipping"
                             )
                             yield
@@ -2933,7 +2949,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 _side_total = _side_gpu.total_mb
                                 _side_needed = tts_reserve_c + _vmb
                                 if _side_needed > _side_total:
-                                    self._cal_debug(  # type: ignore[attr-defined]
+                                    self._cal_debug(
                                         f"   ❌ {tts_label_c} × {vlm_label_c} "
                                         f"combo: needs {_side_needed} MB on "
                                         f"{_side_gpu.name} ({_side_total} MB total) — "
@@ -2958,7 +2974,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                         vlm_key_c,
                                         tts_backend=tts_backend_c,
                                     ):
-                                        self._cal_debug(  # type: ignore[attr-defined]
+                                        self._cal_debug(
                                             f"   🧹 Removed stale "
                                             f"{tts_label_c}+{vlm_label_c} "
                                             f"profile from llama-swap.yaml"
@@ -2993,7 +3009,7 @@ class CalibrationMixin(rx.State, mixin=True):
                         if side_channel_disjoint(
                             _base_uuids_v, [_tts_uuid_c, _vu], len(_all_gpus_v),
                         ):
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   🎯 Isolated mode: LLM set disjoint from "
                                 f"{tts_label_c} + {vlm_label_c} GPUs — reusing "
                                 f"base result (ctx {format_number(calibrated_ctx)}, "
@@ -3010,7 +3026,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 source_model_id=calibration_model_id,
                                 tts_backend=tts_backend_c,
                             ):
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   ✅ {tts_label_c}+{vlm_label_c} combo: "
                                     f"{calibration_model_id}-tts-{tts_backend_c}"
                                     f"-vlm-{vlm_key_c} (isolated, "
@@ -3042,7 +3058,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                     ):
                                         yield
                             else:
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   ⚠️ Could not write {tts_label_c}+"
                                     f"{vlm_label_c} combo to config"
                                 )
@@ -3081,7 +3097,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                     _c_num_gpus = _r_c["num_gpus"]
                                     _c_uuids = _r_c["uuids"]
                             else:
-                                self._cal_debug(f"   {_calib_line(_msg_c)}")  # type: ignore[attr-defined]
+                                self._cal_debug(f"   {_calib_line(_msg_c)}")
                                 yield
 
                         if _c_ok:
@@ -3097,7 +3113,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 tts_backend=tts_backend_c,
                             )
                             if added_c:
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   ✅ {tts_label_c}+{vlm_label_c} combo: "
                                     f"{calibration_model_id}-tts-{tts_backend_c}-vlm-{vlm_key_c} "
                                     f"(ctx {format_number(_c_ctx)}, split {_c_split})"
@@ -3109,11 +3125,11 @@ class CalibrationMixin(rx.State, mixin=True):
                                     _c_ctx,
                                 )
                             else:
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   ⚠️ Could not write {tts_label_c}+{vlm_label_c} combo to config"
                                 )
                         else:
-                            self._cal_debug(  # type: ignore[attr-defined]
+                            self._cal_debug(
                                 f"   ❌ {tts_label_c}+{vlm_label_c} combo failed"
                             )
                             from ..lib.model_vram_cache import (
@@ -3126,7 +3142,7 @@ class CalibrationMixin(rx.State, mixin=True):
                                 vlm_key_c,
                                 tts_backend=tts_backend_c,
                             ):
-                                self._cal_debug(  # type: ignore[attr-defined]
+                                self._cal_debug(
                                     f"   🧹 Removed stale {tts_label_c}+{vlm_label_c} profile"
                                 )
                             remove_model_from_cache(
@@ -3168,22 +3184,22 @@ class CalibrationMixin(rx.State, mixin=True):
             self._persist_calibration_progress()
 
             # Step 6: Restart llama-swap
-            self._cal_debug("🔄 Restarting llama-swap service...")  # type: ignore[attr-defined]
+            self._cal_debug("🔄 Restarting llama-swap service...")
             from ..lib.process_utils import start_llama_swap
             if start_llama_swap():
                 llama_swap_stopped = False
-                self._cal_debug("   llama-swap started")  # type: ignore[attr-defined]
+                self._cal_debug("   llama-swap started")
             else:
-                self._cal_debug("⚠️ Could not restart llama-swap")  # type: ignore[attr-defined]
+                self._cal_debug("⚠️ Could not restart llama-swap")
             yield
 
             # Step 6: Save thinking result (tested during calibration)
             if thinking_tested:
                 from ..lib.model_vram_cache import set_thinking_support_for_model
-                set_thinking_support_for_model(self.agent_tuning["aifred"].model_id, supports_thinking)  # type: ignore[attr-defined]
+                set_thinking_support_for_model(self.agent_tuning["aifred"].model_id, supports_thinking)
                 async with self:
-                    self.agent_tuning["aifred"].supports_thinking = supports_thinking  # type: ignore[attr-defined]
-                self._cal_debug(  # type: ignore[attr-defined]
+                    self.agent_tuning["aifred"].supports_thinking = supports_thinking
+                self._cal_debug(
                     f"🧠 Reasoning: {'yes' if supports_thinking else 'no'} "
                     f"(tested during calibration)"
                 )
@@ -3195,14 +3211,14 @@ class CalibrationMixin(rx.State, mixin=True):
                     calibration_model_id, force=True,
                 )
                 if _levels:
-                    self._cal_debug(  # type: ignore[attr-defined]
+                    self._cal_debug(
                         f"🧠 Reasoning-effort levels: {', '.join(_levels)}"
                     )
 
-            self._cal_debug(CONSOLE_SEPARATOR)  # type: ignore[attr-defined]
+            self._cal_debug(CONSOLE_SEPARATOR)
 
         except Exception as e:
-            self._cal_debug(f"❌ Calibration failed: {type(e).__name__}: {e}")  # type: ignore[attr-defined]
+            self._cal_debug(f"❌ Calibration failed: {type(e).__name__}: {e}")
 
         finally:
             # Always restart llama-swap if we stopped it
@@ -3241,7 +3257,7 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib.formatting import format_number
 
         # model_id is always base ID (SSOT — no suffix stripping needed)
-        if self.backend_type == "llamacpp":  # type: ignore[attr-defined]
+        if self.backend_type == "llamacpp":
             from ..lib.model_vram_cache import get_llamacpp_calibration
             from ..lib.calibration import parse_llamaswap_config
             from ..lib.config import LLAMASWAP_CONFIG_PATH
@@ -3254,16 +3270,16 @@ class CalibrationMixin(rx.State, mixin=True):
             if yaml_ctx > 0:
                 if cached and cached != yaml_ctx:
                     # Cache and YAML disagree — show YAML (truth) and warn
-                    self.add_debug(  # type: ignore[attr-defined]
+                    self.add_debug(
                         f"   🎯 Configured: {format_number(yaml_ctx)} tokens "
                         f"(cache shows {format_number(cached)} — re-calibrate to sync)"
                     )
                 else:
-                    self.add_debug(f"   🎯 Calibrated: {format_number(yaml_ctx)} tokens")  # type: ignore[attr-defined]
+                    self.add_debug(f"   🎯 Calibrated: {format_number(yaml_ctx)} tokens")
             elif cached:
-                self.add_debug(f"   🎯 Calibrated: {format_number(cached)} tokens")  # type: ignore[attr-defined]
+                self.add_debug(f"   🎯 Calibrated: {format_number(cached)} tokens")
             else:
-                self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")  # type: ignore[attr-defined]
+                self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")
 
             # Show tensor-split (layer distribution) from llama-swap config
             total_gpus = self._show_tensor_split_info(model_id, format_number)
@@ -3277,7 +3293,7 @@ class CalibrationMixin(rx.State, mixin=True):
             self._show_speed_split_info(model_id, format_number, total_gpus)
             return
 
-        if self.backend_type != "ollama":  # type: ignore[attr-defined]
+        if self.backend_type != "ollama":
             return
 
         from ..lib.model_vram_cache import get_ollama_calibrated_max_context
@@ -3294,11 +3310,11 @@ class CalibrationMixin(rx.State, mixin=True):
                 parts.append(f"RoPE 1.5x: {format_number(rope_1_5x_ctx)}")
             if rope_2x_ctx is not None:
                 parts.append(f"RoPE 2x: {format_number(rope_2x_ctx)}")
-            self.add_debug(f"   🎯 Calibrated: {', '.join(parts)}")  # type: ignore[attr-defined]
+            self.add_debug(f"   🎯 Calibrated: {', '.join(parts)}")
         else:
-            self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")  # type: ignore[attr-defined]
+            self.add_debug("   ⚠️ Not calibrated - please run calibration for optimal context")
 
-    def _show_tensor_split_info(self, model_id: str, format_number) -> int:  # type: ignore[type-arg]
+    def _show_tensor_split_info(self, model_id: str, format_number) -> int:
         """Show base tensor-split from llama-swap config in debug console.
 
         Returns total GPU count from tensor-split (0 if not found).
@@ -3322,12 +3338,12 @@ class CalibrationMixin(rx.State, mixin=True):
         split_str = ":".join(f"{r:g}" for r in ratios)
         active = sum(1 for r in ratios if r > 0)
         total = len(ratios)
-        self.add_debug(  # type: ignore[attr-defined]
+        self.add_debug(
             f"   📊 Layer split: {split_str} ({active}/{total} GPUs)"
         )
         return total
 
-    def _show_speed_split_info(self, model_id: str, format_number, total_gpus: int = 0) -> None:  # type: ignore[type-arg]
+    def _show_speed_split_info(self, model_id: str, format_number, total_gpus: int = 0) -> None:
         """Show the speed-variant tensor-split from the llama-swap config.
 
         Reads the ``{model_id}-speed`` entry directly (like the base split in
@@ -3360,7 +3376,7 @@ class CalibrationMixin(rx.State, mixin=True):
         total = total_gpus or len(ratios)
         ctx = int(speed_info.get("current_context", 0))
         ctx_str = f", ctx={format_number(ctx)}" if ctx else ""
-        self.add_debug(  # type: ignore[attr-defined]
+        self.add_debug(
             f"   ⚡ Speed split: {split_str} ({active}/{total} GPUs){ctx_str}"
         )
 
@@ -3377,26 +3393,26 @@ class CalibrationMixin(rx.State, mixin=True):
         from ..lib.model_manager import sort_models_grouped
 
         # Prevent concurrent restarts
-        if self.backend_switching:  # type: ignore[has-type]
-            self.add_debug("⚠️ Backend restart already in progress, please wait...")  # type: ignore[attr-defined]
+        if self.backend_switching:
+            self.add_debug("⚠️ Backend restart already in progress, please wait...")
             return
 
-        self.backend_switching = True  # type: ignore[attr-defined]
+        self.backend_switching = True
         yield  # Update UI to disable buttons
 
         try:
-            backend_name = self.backend_type.upper()  # type: ignore[attr-defined]
-            self.add_debug(f"🔄 Restarting {backend_name} service...")  # type: ignore[attr-defined]
+            backend_name = self.backend_type.upper()
+            self.add_debug(f"🔄 Restarting {backend_name} service...")
             yield  # Update UI
 
-            if self.backend_type == "ollama":  # type: ignore[attr-defined]
+            if self.backend_type == "ollama":
                 from ..lib.process_utils import restart_service
                 restart_service("ollama", check=True)
-                self.add_debug(f"✅ {backend_name} service restarted")  # type: ignore[attr-defined]
+                self.add_debug(f"✅ {backend_name} service restarted")
                 yield  # Update UI after restart
 
                 # Wait for Ollama to be ready (active polling with retry)
-                self.add_debug("⏳ Waiting for Ollama API to be ready...")  # type: ignore[attr-defined]
+                self.add_debug("⏳ Waiting for Ollama API to be ready...")
                 yield  # Update UI
 
                 max_retries = 10
@@ -3404,7 +3420,7 @@ class CalibrationMixin(rx.State, mixin=True):
 
                 for attempt in range(max_retries):
                     try:
-                        endpoint = f'{self.backend_url}/api/tags'  # type: ignore[attr-defined]
+                        endpoint = f'{self.backend_url}/api/tags'
                         response = httpx.get(endpoint, timeout=2.0)
 
                         if response.status_code == 200:
@@ -3416,18 +3432,18 @@ class CalibrationMixin(rx.State, mixin=True):
                                 for m in data.get("models", [])
                             }
                             # Sort by model family, then by size
-                            self.available_models_dict = sort_models_grouped(unsorted_dict)  # type: ignore[attr-defined]
+                            self.available_models_dict = sort_models_grouped(unsorted_dict)
                             # Keep list for compatibility (DEPRECATED)
-                            self.available_models = list(self.available_models_dict.values())  # type: ignore[attr-defined]
+                            self.available_models = list(self.available_models_dict.values())
 
                             # Update global state — the mapping is the source
                             # every reader needs, the label list only a view.
                             from . import _base
-                            _base._global_backend_state["available_models"] = self.available_models  # type: ignore[attr-defined]
-                            _base._global_backend_state["available_models_dict"] = self.available_models_dict  # type: ignore[attr-defined]
+                            _base._global_backend_state["available_models"] = self.available_models
+                            _base._global_backend_state["available_models_dict"] = self.available_models_dict
 
                             elapsed_time = (attempt + 1) * 0.5
-                            self.add_debug(f"✅ Ollama ready after {elapsed_time:.1f}s ({len(self.available_models)} models found)")  # type: ignore[attr-defined]
+                            self.add_debug(f"✅ Ollama ready after {elapsed_time:.1f}s ({len(self.available_models)} models found)")
                             ollama_ready = True
                             break
                     except httpx.RequestError:
@@ -3438,34 +3454,34 @@ class CalibrationMixin(rx.State, mixin=True):
                         yield  # Update UI during polling
 
                 if not ollama_ready:
-                    self.add_debug("⚠️ Ollama API might not be ready yet (timeout after 5s)")  # type: ignore[attr-defined]
+                    self.add_debug("⚠️ Ollama API might not be ready yet (timeout after 5s)")
                     yield
 
-            elif self.backend_type in LLAMASWAP_BACKENDS:  # type: ignore[attr-defined]
+            elif self.backend_type in LLAMASWAP_BACKENDS:
                 # llama-swap: restart via systemctl (system service) —
                 # traegt auch die vLLM-Eintraege (gleiche Sicht, gleicher Dienst)
                 from ..lib.process_utils import restart_llama_swap
                 if restart_llama_swap():
-                    self.add_debug("✅ llama-swap restarted (autoscan running...)")  # type: ignore[attr-defined]
+                    self.add_debug("✅ llama-swap restarted (autoscan running...)")
                 else:
-                    self.add_debug("⚠️ llama-swap restart failed")  # type: ignore[attr-defined]
+                    self.add_debug("⚠️ llama-swap restart failed")
                 yield
 
                 # Wait for llama-swap to be ready (ExecStartPre/autoscan may take a few seconds)
-                self.add_debug("⏳ Waiting for llama-swap to be ready...")  # type: ignore[attr-defined]
+                self.add_debug("⏳ Waiting for llama-swap to be ready...")
                 yield
 
                 max_retries = 40  # up to 20s — autoscan ExecStartPre can take time
                 llamacpp_ready = False
                 # backend_url already includes /v1 (see config.BACKEND_URLS) —
                 # append only /models, not /v1/models.
-                models_url = f"{str(self.backend_url).rstrip('/')}/models"  # type: ignore[attr-defined]
+                models_url = f"{str(self.backend_url).rstrip('/')}/models"
                 for attempt in range(max_retries):
                     try:
                         response = httpx.get(models_url, timeout=2.0)
                         if response.status_code == 200:
                             elapsed = (attempt + 1) * 0.5
-                            self.add_debug(f"✅ llama-swap ready after {elapsed:.1f}s")  # type: ignore[attr-defined]
+                            self.add_debug(f"✅ llama-swap ready after {elapsed:.1f}s")
                             llamacpp_ready = True
                             break
                     except httpx.RequestError:
@@ -3475,13 +3491,13 @@ class CalibrationMixin(rx.State, mixin=True):
                         yield
 
                 if not llamacpp_ready:
-                    self.add_debug("⚠️ llama-swap might not be ready yet (timeout after 20s)")  # type: ignore[attr-defined]
+                    self.add_debug("⚠️ llama-swap might not be ready yet (timeout after 20s)")
                 yield
 
         except Exception as e:
-            self.add_debug(f"❌ {backend_name} restart failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ {backend_name} restart failed: {e}")
         finally:
-            self.backend_switching = False  # type: ignore[attr-defined]
+            self.backend_switching = False
             yield  # Re-enable buttons
 
 
@@ -3494,7 +3510,7 @@ class CalibrationMixin(rx.State, mixin=True):
         import threading
 
         try:
-            self.add_debug("🔄 Restarting AIfred service...")  # type: ignore[attr-defined]
+            self.add_debug("🔄 Restarting AIfred service...")
 
             # Schedule systemd restart in background thread
             # This allows us to return rx.call_script() BEFORE the service dies
@@ -3508,7 +3524,7 @@ class CalibrationMixin(rx.State, mixin=True):
             thread = threading.Thread(target=delayed_restart, daemon=True)
             thread.start()
 
-            self.add_debug("✅ AIfred service restart initiated")  # type: ignore[attr-defined]
+            self.add_debug("✅ AIfred service restart initiated")
 
         except Exception as e:
-            self.add_debug(f"❌ AIfred service restart failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ AIfred service restart failed: {e}")

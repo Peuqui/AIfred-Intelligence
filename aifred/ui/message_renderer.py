@@ -69,7 +69,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
     return rx.hstack(
         # Play button - disabled during TTS regeneration
         rx.el.button(
-            rx.icon("volume-2", size=18),  # type: ignore[operator]
+            rx.icon("volume-2", size=18),
             type="button",
             title=t("audio_play_tooltip"),
             disabled=AIState.tts_regenerating,
@@ -94,7 +94,7 @@ def render_bubble_audio_buttons(msg: dict) -> rx.Component:
             rx.cond(
                 AIState.tts_regenerating,
                 rx.spinner(size="1"),
-                rx.icon("refresh-cw", size=16),  # type: ignore[operator]
+                rx.icon("refresh-cw", size=16),
             ),
             on_click=lambda: AIState.resynthesize_bubble_tts(msg.get("timestamp", "")),  # type: ignore[misc]
             title=t("audio_generate_tooltip"),

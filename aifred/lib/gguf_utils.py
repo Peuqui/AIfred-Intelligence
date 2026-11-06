@@ -32,7 +32,7 @@ class ReasoningInfo:
 _GGUF_NUMERIC_INT_TYPES = frozenset({0, 1, 2, 3, 4, 5, 7, 10, 11})
 
 
-def _is_numeric_scalar(field) -> bool:  # type: ignore[no-untyped-def]
+def _is_numeric_scalar(field) -> bool:
     """True if ``field`` is a GGUF scalar with an integer/bool value type."""
     types = getattr(field, "types", None)
     if not types:

@@ -487,7 +487,7 @@ def _scheduler_view() -> rx.Component:
 
                 # Job list
                 rx.cond(
-                    AIState.scheduler_job_list.length() > 0,  # type: ignore[union-attr]
+                    AIState.scheduler_job_list.length() > 0,
                     rx.vstack(
                         rx.foreach(
                             AIState.scheduler_job_list,

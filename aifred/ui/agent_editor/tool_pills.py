@@ -83,7 +83,7 @@ def _tool_group(group: rx.Var) -> rx.Component:
             ),
             rx.switch(
                 checked=all_on,
-                on_change=lambda v: AIState.set_editor_tool_group(names, v),  # type: ignore[arg-type]
+                on_change=lambda v: AIState.set_editor_tool_group(names, v),
                 color_scheme="orange",
                 size="1",
                 transform="scale(0.85)",

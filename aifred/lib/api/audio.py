@@ -14,7 +14,7 @@ from .app import api_app
 _audio_active: dict[str, str] = {}
 
 
-def _audio_resolver():  # type: ignore[no-untyped-def]
+def _audio_resolver():
     """Build a fresh SourceResolver: filesystem-discovery + http_streams.
 
     Mirrors the plugin's _make_resolver() — local sources come from the
@@ -118,10 +118,10 @@ async def audio_file(request: Request, key: str):
 
         length = end - start + 1
 
-        async def iter_range():  # type: ignore[no-untyped-def]
+        async def iter_range():
             # File I/O via to_thread — a stalling medium (NFS, USB) must not
             # block the whole event loop.
-            def _open_seeked():  # type: ignore[no-untyped-def]
+            def _open_seeked():
                 f = open(file_path, "rb")
                 f.seek(start)
                 return f
@@ -147,7 +147,7 @@ async def audio_file(request: Request, key: str):
         return StreamingResponse(iter_range(), status_code=206, media_type=media_type, headers=headers)
 
     # Full file response (with Accept-Ranges so the browser can seek later)
-    async def iter_full():  # type: ignore[no-untyped-def]
+    async def iter_full():
         f = await asyncio.to_thread(open, file_path, "rb")
         try:
             while True:

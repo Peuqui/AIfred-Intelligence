@@ -31,7 +31,7 @@ def _get_notification_path() -> Path:
         from .config import DATA_DIR
         _NOTIFICATION_FILE = DATA_DIR / "message_hub" / "notification.json"
         _NOTIFICATION_FILE.parent.mkdir(parents=True, exist_ok=True)
-    return _NOTIFICATION_FILE  # type: ignore[no-any-return]
+    return _NOTIFICATION_FILE
 
 
 def write_hub_notification(
@@ -106,7 +106,7 @@ class HubNotifier:
       ``done``/``error`` on its own exit.
     """
 
-    def __init__(self, write_fn):  # type: ignore[no-untyped-def]
+    def __init__(self, write_fn):
         self._write = write_fn
         self.failed = False
         self.delegated = False

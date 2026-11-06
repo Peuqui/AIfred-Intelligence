@@ -14,11 +14,14 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
 from ..lib.config import TTS_AUTOPLAY_DEFAULT, TTS_DEFAULT_ENGINE
+
+if TYPE_CHECKING:
+    from ..lib.agent_tuning import AgentTuning
 
 
 def _lang(state: Any) -> str:
@@ -40,6 +43,17 @@ def _entry_at(entries: list[dict[str, Any]], index: int) -> dict[str, Any]:
 
 class TTSConfigMixin(rx.State, mixin=True):
     """Mixin for TTS configuration, the list editor and voice settings."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        agent_tuning: dict[str, AgentTuning]
+        editor_agent_id: str
+
+        def _save_settings(self) -> None: ...
+        def _write_settings_file(self, settings: dict[str, Any]) -> None: ...
+        def add_debug(self, message: str) -> None: ...
 
     # ── TTS Settings ──────────────────────────────────────────────
     enable_tts: bool = False
@@ -89,7 +103,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         reserved = ""
         try:
             listed = entries()
-            reserved = planned_tts_engine(self.agent_tuning["aifred"].model_id)  # type: ignore[attr-defined]
+            reserved = planned_tts_engine(self.agent_tuning["aifred"].model_id)
         except TTSSuiteError:
             service_down = True
             listed = tuple(stored_entries())
@@ -125,13 +139,13 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     def set_enable_tts(self, enabled: bool):
         self.enable_tts = enabled
-        self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"🔊 TTS: {'enabled' if enabled else 'disabled'}")  # type: ignore[attr-defined]
+        self._save_settings()
+        self.add_debug(f"🔊 TTS: {'enabled' if enabled else 'disabled'}")
 
     def toggle_tts_autoplay(self):
         self.tts_autoplay = not self.tts_autoplay
-        self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")  # type: ignore[attr-defined]
+        self._save_settings()
+        self.add_debug(f"🔊 TTS Auto-Play: {'enabled' if self.tts_autoplay else 'disabled'}")
 
     # ── List editing (settings.json) ──────────────────────────────
 
@@ -156,7 +170,7 @@ class TTSConfigMixin(rx.State, mixin=True):
             check_stored_settings(settings)
         except (TTSSuiteError, ValueError, KeyError) as error:
             return [toast("error", f"TTS: {_error_text(error, _lang(self))}")]
-        self._write_settings_file(settings)  # type: ignore[attr-defined]
+        self._write_settings_file(settings)
         self.tts_list_revision += 1
         return []
 
@@ -187,7 +201,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         for event in await self._edit_tts_lists(change):
             yield event
 
-    @rx.event(background=True)  # type: ignore[operator]
+    @rx.event(background=True)
     async def check_tts_status(self):
         """Show the list as the catalog reports it now (read only)."""
         from ..lib.toast import toast
@@ -208,7 +222,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         async with self:
             self.tts_status_checking = False
             self.tts_list_revision += 1
-            self.add_debug(f"🔊 TTS status read ({len(offered)} catalog rows)")  # type: ignore[attr-defined]
+            self.add_debug(f"🔊 TTS status read ({len(offered)} catalog rows)")
 
     # ── Per-agent mute and language ───────────────────────────────
 
@@ -217,7 +231,7 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     def _set_tts_agent(self, agent: str, key: str, value: Any) -> None:
         self.tts_agents = {**self.tts_agents, agent: {**self.tts_agents.get(agent, {}), key: value}}
-        self._save_settings()  # type: ignore[attr-defined]
+        self._save_settings()
 
     # ── Agent Editor TTS State ───────────────────────────────────
     # The editor configures each agent's voice per engine; whether that
@@ -243,7 +257,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         from ..lib.i18n import tts_key_to_label
         from ..lib.tts_client import TTSSuiteUnreachable
         from ..lib.tts_service import unreachable_text
-        if not self.tts_agent_enabled(self.editor_agent_id):  # type: ignore[attr-defined]
+        if not self.tts_agent_enabled(self.editor_agent_id):
             return tts_key_to_label("off", lang=_lang(self))
         try:
             return tts_key_to_label(self.editor_tts_engine, lang=_lang(self))
@@ -287,7 +301,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Dropdown value: label of the agent's language override ("Auto" =
         follow the detected/UI language)."""
         from ..lib.config import TTS_LANGUAGE_CODE_TO_LABEL
-        agent = self.editor_agent_id  # type: ignore[attr-defined]
+        agent = self.editor_agent_id
         code = str(self.tts_agents.get(agent, {}).get("language", "") or "auto")
         return TTS_LANGUAGE_CODE_TO_LABEL.get(code, "Auto")
 
@@ -299,7 +313,7 @@ class TTSConfigMixin(rx.State, mixin=True):
 
     def set_editor_agent_tts_language(self, label: str) -> None:
         from ..lib.config import TTS_LANGUAGE_LABEL_TO_CODE
-        self._set_tts_agent(self.editor_agent_id, "language", TTS_LANGUAGE_LABEL_TO_CODE.get(label, "auto"))  # type: ignore[attr-defined]
+        self._set_tts_agent(self.editor_agent_id, "language", TTS_LANGUAGE_LABEL_TO_CODE.get(label, "auto"))
 
     def _load_editor_tts_settings(self) -> None:
         """Load the edited agent's voice settings for the edited engine:
@@ -307,7 +321,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         from ..lib.agent_config import get_tts_voice_default
         from ..lib.settings import persisted_settings
 
-        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        agent_id = self.editor_agent_id
         if not agent_id:
             self._editor_tts_settings = {}
             return
@@ -318,7 +332,7 @@ class TTSConfigMixin(rx.State, mixin=True):
         """Persist the edited agent's voice settings for the edited engine."""
         from ..lib.settings import load_settings
 
-        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        agent_id = self.editor_agent_id
         if not agent_id:
             return
         settings = load_settings() or {}
@@ -327,14 +341,14 @@ class TTSConfigMixin(rx.State, mixin=True):
             key: self._editor_tts_settings[key]
             for key in ("voice", "speed", "pitch") if key in self._editor_tts_settings
         }
-        self._write_settings_file(settings)  # type: ignore[attr-defined]
+        self._write_settings_file(settings)
 
     def set_editor_tts_engine(self, label: str):
         """'Off' mutes the agent (every engine); an engine unmutes it and
         loads its voice settings for that engine."""
         from ..lib.i18n import tts_label_to_key
         from ..lib.toast import toast
-        agent_id = self.editor_agent_id  # type: ignore[attr-defined]
+        agent_id = self.editor_agent_id
         try:
             key = tts_label_to_key(label)
         except ValueError as error:   # the dropdown's one line while the service does not answer
@@ -418,8 +432,8 @@ class TTSConfigMixin(rx.State, mixin=True):
         engine = self.narrator_voice_engine
         # Re-assign the dict so Reflex flags it dirty.
         self.narrator_voices = {**self.narrator_voices, engine: voice}
-        self._save_settings()  # type: ignore[attr-defined]
-        self.add_debug(f"🔊 Narrator voice ({engine}): {voice}")  # type: ignore[attr-defined]
+        self._save_settings()
+        self.add_debug(f"🔊 Narrator voice ({engine}): {voice}")
 
     def open_narrator_settings(self) -> None:
         self.narrator_settings_open = True

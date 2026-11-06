@@ -105,27 +105,52 @@ Die History-Kompression verwendet folgende Schwellenwerte (konfigurierbar in `co
   yield f"Model: {size_mb / 1024:.1f} GB"
   ```
 
+### State-Mixins und mypy (seit 06.11.2026)
+`AIState` setzt sich aus Mixins zusammen; mypy prüft jedes Mixin für sich und
+sieht die anderen nicht.
+- **Was ein Mixin von einem anderen benutzt** (Feld oder Methode), deklariert es
+  am Anfang der Klasse unter `if TYPE_CHECKING:`, wörtlich wie die echte
+  Definition (Typ, Signatur, Dekoratoren). Wo `AIState` die Mixins zusammensetzt,
+  prüft mypy jede Deklaration gegen die echte Definition.
+- **Kein `# type: ignore[attr-defined]`** für solche Zugriffe. Für `aifred/state/`
+  gilt keine Ausnahme in `mypy.ini`, und `warn_unused_ignores` meldet jede
+  Ausnahme, die nichts mehr unterdrückt.
+- `tests/test_state_attribute_references.py` prüft jeden Zugriff `self.X` gegen
+  die zusammengesetzte Klasse; er fängt auch eine Deklaration ohne echte Definition.
+- **Methoden, die nur State-Code aufruft, sind privat** (`_name`). Jede öffentliche
+  Methode ist ein Event-Handler, den jeder verbundene Client mit eigenen
+  Argumenten auslösen kann (06.11.: `picker_open_for` setzte so Sandbox-Wurzel,
+  Fähigkeiten und Rückruf des Datei-Pickers).
+- Eine mit `@rx.event` dekorierte Methode ist für mypy ein `EventNamespace` und
+  lässt sich aus State-Code nicht direkt aufrufen („not callable“). Das nackte
+  `@rx.event` tut zur Laufzeit nichts; nötig ist es nur mit Optionen wie
+  `background=True`.
+
 ---
 
 ## ⚠️ Code-Qualitätsprüfungen (PFLICHT!)
 
 **IMMER nach Code-Änderungen ausführen - KEINE Ausnahmen!**
 
+ruff und mypy kommen aus `~/.venv/devtools/bin/`, nicht aus dem Projekt-venv: Dort
+liegen ältere Versionen (mypy 1.19.1, ruff 0.15.8), und mypy 1.19.1 bewertet
+`@rx.event(background=True)` anders als 2.4. Die Typen des Projekts bekommt mypy
+über `--python-executable`.
+
 ```bash
 # 1. Syntax-Check (schnell, immer zuerst)
 python3 -m py_compile aifred/DATEI.py
 
 # 2. Linting mit Ruff
-source venv/bin/activate && ruff check aifred/DATEI.py
+~/.venv/devtools/bin/ruff check aifred/DATEI.py
 
-# 3. Type-Checking mit mypy
-source venv/bin/activate && mypy aifred/DATEI.py --ignore-missing-imports
+# 3. Type-Checking mit mypy (ganzes Paket, rund 40 s)
+~/.venv/devtools/bin/mypy aifred/ --python-executable venv/bin/python --ignore-missing-imports
 ```
 
 **Mehrere Dateien auf einmal:**
 ```bash
-source venv/bin/activate && ruff check aifred/state/ aifred/aifred.py aifred/lib/context_manager.py
-source venv/bin/activate && mypy aifred/state/ aifred/aifred.py --ignore-missing-imports
+~/.venv/devtools/bin/ruff check aifred/state/ aifred/aifred.py aifred/lib/context_manager.py
 ```
 
 **Bekannte Ignores (NICHT beheben):**

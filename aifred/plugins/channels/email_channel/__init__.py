@@ -352,7 +352,7 @@ class EmailChannel(BaseChannel):
         triggers a timeout instead of hanging forever.
         """
         tag = b"A001"
-        await asyncio.to_thread(imap.send, tag + b" IDLE\r\n")  # type: ignore[arg-type]
+        await asyncio.to_thread(imap.send, tag + b" IDLE\r\n")
 
         try:
             response = await asyncio.wait_for(
@@ -370,7 +370,7 @@ class EmailChannel(BaseChannel):
         # Use a short timeout so we don't wait for the outer watchdog.
         try:
             await asyncio.wait_for(
-                asyncio.to_thread(imap.send, b"DONE\r\n"),  # type: ignore[arg-type]
+                asyncio.to_thread(imap.send, b"DONE\r\n"),
                 timeout=10,
             )
             await asyncio.wait_for(

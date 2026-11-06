@@ -107,9 +107,9 @@ async def execute_research(
     #   resident on the side-channel GPU → CUDA OOM the moment the
     #   BASE profile tries to allocate its full layer footprint on
     #   that GPU. Mirrors the chat path's ``state._effective_model_id``.
-    automatik_model_id_base = state.automatik_model_id or state.agent_tuning["aifred"].model_id  # type: ignore[has-type]
+    automatik_model_id_base = state.automatik_model_id or state.agent_tuning["aifred"].model_id
     automatik_num_ctx, _ = get_agent_num_ctx("aifred", state, automatik_model_id_base)
-    automatik_model_id = state._effective_automatik_id  # type: ignore[attr-defined]
+    automatik_model_id = state._effective_automatik_id
 
     llm_client = LLMClient(backend_type=state.backend_type, base_url=state.backend_url)
     if state.backend_type == "ollama":
@@ -118,8 +118,8 @@ async def execute_research(
         automatik_llm_client = llm_client
 
     # Init result state
-    state._research_context = ""  # type: ignore[attr-defined]
-    state._research_sources_html = ""  # type: ignore[attr-defined]
+    state._research_context = ""
+    state._research_sources_html = ""
     state._research_note = ""
 
     try:
@@ -150,7 +150,7 @@ async def execute_research(
         if not related_urls:
             if _is_network_outage(tool_results):
                 state.add_debug("⚠️ Search unreachable — network/DNS failure (not 'no results')")
-                state._research_context = WEB_SEARCH_NETWORK_ERROR  # type: ignore[attr-defined]
+                state._research_context = WEB_SEARCH_NETWORK_ERROR
             else:
                 state.add_debug("⚠️ No URLs found")
             state._research_note = research_note(0, queries, lang)
@@ -187,7 +187,7 @@ async def execute_research(
         # ==============================================================
         model_id = state._effective_model_id("aifred")
         # BASE id for the lookup — get_agent_num_ctx resolves the suffix itself
-        preload_num_ctx, _ = get_agent_num_ctx("aifred", state, state.agent_tuning["aifred"].model_id)  # type: ignore[has-type]
+        preload_num_ctx, _ = get_agent_num_ctx("aifred", state, state.agent_tuning["aifred"].model_id)
         failed_sources: list[dict[str, Any]] = []
 
         async for item in orchestrate_scraping(
@@ -248,8 +248,8 @@ async def execute_research(
         )
 
         state.add_debug(f"✅ Research: {len(context)} chars, {len(used_sources)} sources")
-        state._research_context = context  # type: ignore[attr-defined]
-        state._research_sources_html = sources_html  # type: ignore[attr-defined]
+        state._research_context = context
+        state._research_sources_html = sources_html
         # The llm_history line of this research — even if the model's
         # synthesis degenerates, the follow-up turn then knows it DID
         # research and for what (no false "I didn't search").

@@ -26,8 +26,8 @@ def _ctx_column(
     per Request nicht mehr änderbar; Toggle + Input greifen also nicht
     und werden grau."""
     from ..helpers import agent_emoji_var
-    input_disabled = ~enabled_var | extra_disabled  # type: ignore[operator]
-    input_active = enabled_var & ~extra_disabled  # type: ignore[operator]
+    input_disabled = ~enabled_var | extra_disabled
+    input_active = enabled_var & ~extra_disabled
     return rx.vstack(
         rx.hstack(
             agent_emoji_var(emoji, size="13px"),

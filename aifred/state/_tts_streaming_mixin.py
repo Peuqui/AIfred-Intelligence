@@ -13,7 +13,7 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass, field
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
@@ -80,6 +80,23 @@ def take_tts_notices(session_id: str) -> list[tuple[str, str]]:
 class TTSStreamingMixin(rx.State, mixin=True):
     """Mixin for the spoken reply: reading, playlist, bubble audio and re-synthesis."""
 
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        _last_detected_language: str
+        enable_tts: bool
+        media_paused_for_tts: bool
+        session_id: str
+        tts_agents: dict[str, dict[str, Any]]
+        tts_autoplay: bool
+        ui_language: str
+
+        def _chat_sub(self): ...
+        def _save_current_session(self): ...
+        def add_debug(self, message: str) -> None: ...
+        def tts_agent_enabled(self, agent: str) -> bool: ...
+
     # ── State Variables ──────────────────────────────────────────────
 
     # TTS Audio Output
@@ -124,10 +141,10 @@ class TTSStreamingMixin(rx.State, mixin=True):
         Returns a two-letter ISO code ("de", "en", "zh", …) — the language of the
         reading request.
         """
-        override = str(self.tts_agents.get(agent, {}).get("language", "") or "").lower()  # type: ignore[attr-defined]
+        override = str(self.tts_agents.get(agent, {}).get("language", "") or "").lower()
         if override and override != "auto":
             return override
-        return str(self._last_detected_language or self.ui_language)  # type: ignore[attr-defined]
+        return str(self._last_detected_language or self.ui_language)
 
     # ============================================================
     # THE READING OF A REPLY
@@ -135,7 +152,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
     _ui_yield_ts: float = 0.0  # Timestamp of last UI yield
 
-    def _streaming_sub(self):  # type: ignore[override]
+    def _streaming_sub(self):
         """Get StreamingState substate instance (sync, for current_ai_response)."""
         from aifred.state._streaming_state import StreamingState
         return self._get_state_from_cache(StreamingState)
@@ -166,7 +183,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         self._js_chunk_buffer += chunk
 
         if self._tts_streaming_active:
-            reading = get_tts_backend_state(self.session_id).reading  # type: ignore[attr-defined]
+            reading = get_tts_backend_state(self.session_id).reading
             if reading is not None:
                 reading.feed(chunk)
 
@@ -175,14 +192,14 @@ class TTSStreamingMixin(rx.State, mixin=True):
             self._ui_yield_ts = now
             batch = self._js_chunk_buffer
             self._js_chunk_buffer = ""
-            self._streaming_sub().current_ai_response += batch  # type: ignore[attr-defined]
+            self._streaming_sub().current_ai_response += batch
             return True
         return False
 
     def flush_stream_to_ui(self) -> bool:
         """Flush remaining buffer to current_ai_response. Call at end of streaming."""
         if self._js_chunk_buffer:
-            self._streaming_sub().current_ai_response += self._js_chunk_buffer  # type: ignore[attr-defined]
+            self._streaming_sub().current_ai_response += self._js_chunk_buffer
             self._js_chunk_buffer = ""
             return True
         return False
@@ -194,9 +211,9 @@ class TTSStreamingMixin(rx.State, mixin=True):
         How much the service reads at once (sentence, paragraph, whole) is its unit's business,
         not a reason to read the reply in another way.
         """
-        if not (self.enable_tts and self.tts_autoplay):  # type: ignore[attr-defined]
+        if not (self.enable_tts and self.tts_autoplay):
             return False
-        return self.tts_agent_enabled(agent)  # type: ignore[attr-defined, no-any-return]
+        return self.tts_agent_enabled(agent)
 
     def _pause_media_for_tts(self) -> None:
         """Auto-pause media playback before the first TTS entry goes to the browser. Position is
@@ -210,7 +227,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         queue like the audio URLs.
         """
         if getattr(self, "media_audio_url", "") != "" and not getattr(self, "media_paused_for_tts", False):
-            self.media_paused_for_tts = True  # type: ignore[attr-defined]
+            self.media_paused_for_tts = True
 
     def _init_streaming_tts(self, agent: str = "aifred") -> None:
         """Start the reading of a new reply (the text follows via ``stream_text_to_ui``).
@@ -220,16 +237,16 @@ class TTSStreamingMixin(rx.State, mixin=True):
         from ..lib.api import browser_push
 
         log_message(f"🔊 TTS Init: Starting reading for agent={agent}")
-        tts_state = get_tts_backend_state(self.session_id)  # type: ignore[attr-defined]
+        tts_state = get_tts_backend_state(self.session_id)
         if tts_state.reading is not None:
             tts_state.reading.abort()  # a reading that is still open would wait for text for ever
         reading = BrowserReading(
-            session_id=self.session_id,  # type: ignore[attr-defined]
+            session_id=self.session_id,
             agent=agent,
             language=self._resolve_tts_language(agent),
             ui_language=_lang(self),
             push=browser_push,
-            report=self.add_debug,  # type: ignore[attr-defined]
+            report=self.add_debug,
             notify=lambda kind, message: tts_state.notices.append((kind, message)),
             on_first_output=self._pause_media_for_tts,
         )
@@ -243,7 +260,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         """The reply was cancelled (or the client is gone): end its reading, so the service stops."""
         if not self._tts_streaming_active:
             return
-        abort_tts_reading(self.session_id)  # type: ignore[attr-defined]
+        abort_tts_reading(self.session_id)
         self._tts_streaming_active = False
 
     def _spawn_tts_finalize(self) -> None:
@@ -257,7 +274,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
         if not self._tts_streaming_active or self._tts_finalize_spawned:
             return
         self._tts_finalize_spawned = True
-        tts_state = get_tts_backend_state(self.session_id)  # type: ignore[attr-defined]
+        tts_state = get_tts_backend_state(self.session_id)
         reading = tts_state.reading
         assert reading is not None, "streaming TTS without a reading"
         reading.finish()
@@ -269,7 +286,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
     async def _wait_for_tts_finalize(self) -> None:
         """Let the previous reply's reading finish before a new reply starts speaking: both put
         their audio on the same playlist, so they would interleave."""
-        task = get_tts_backend_state(self.session_id).finalize_task  # type: ignore[attr-defined]
+        task = get_tts_backend_state(self.session_id).finalize_task
         if task is not None and not task.done():
             log_message("🔊 TTS Init: waiting for the previous reply's reading")
             await task
@@ -281,13 +298,13 @@ class TTSStreamingMixin(rx.State, mixin=True):
         from ..lib.audio_processing import save_audio_to_session
 
         if len(reading.audio_urls) > 1:
-            self.add_debug(f"🔗 TTS: Combining {len(reading.audio_urls)} audio chunks...")  # type: ignore[attr-defined]
-        combined = await asyncio.to_thread(save_audio_to_session, list(reading.audio_urls), self.session_id)  # type: ignore[attr-defined]
+            self.add_debug(f"🔗 TTS: Combining {len(reading.audio_urls)} audio chunks...")
+        combined = await asyncio.to_thread(save_audio_to_session, list(reading.audio_urls), self.session_id)
         if combined is None:
-            self.add_debug(f"⚠️ TTS: Combining {len(reading.audio_urls)} chunks failed")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ TTS: Combining {len(reading.audio_urls)} chunks failed")
             return []
         if len(reading.audio_urls) > 1:
-            self.add_debug(f"🔗 TTS: Combined {len(reading.audio_urls)} chunks → replay ready")  # type: ignore[attr-defined]
+            self.add_debug(f"🔗 TTS: Combined {len(reading.audio_urls)} chunks → replay ready")
         log_message(f"🔊 TTS Finalize: Saved to session → {combined}")
         return [combined]
 
@@ -320,7 +337,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             return
 
         try:
-            ch = self._chat_sub()  # type: ignore[attr-defined]
+            ch = self._chat_sub()
             history = list(ch.chat_history)
             target = -1
             for i in range(len(history) - 1, -1, -1):
@@ -373,18 +390,18 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 # bubble without playback, then bubble_audio finds the same one.
                 if browser_speech:
                     browser_push(
-                        self.session_id,  # type: ignore[attr-defined]
+                        self.session_id,
                         kind="bubble_browser_speech",
                         url=json.dumps(browser_speech, ensure_ascii=False),
                     )
                 if audio_urls:
                     browser_push(
-                        self.session_id,  # type: ignore[attr-defined]
+                        self.session_id,
                         kind="bubble_audio",
                         url=audio_urls[0],
                     )
                 browser_push(
-                    self.session_id,  # type: ignore[attr-defined]
+                    self.session_id,
                     kind="bubble_tts_note",
                     url=tts_note,
                 )
@@ -393,7 +410,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             # Persist so a session reload still has the audio URL.
             try:
-                self._save_current_session()  # type: ignore[attr-defined]
+                self._save_current_session()
             except Exception as e:  # noqa: BLE001 — background task: an error here would vanish, it is logged
                 log_message(f"🔊 TTS Background: session save failed: {e}")
         except Exception as e:  # noqa: BLE001 — background task: an error here would vanish, it is logged
@@ -442,7 +459,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
             "text": text,
             "language": tts_language,
             "ui_language": _lang(self),
-            "session_id": str(self.session_id),  # type: ignore[attr-defined]
+            "session_id": str(self.session_id),
         }
 
 
@@ -554,11 +571,11 @@ class TTSStreamingMixin(rx.State, mixin=True):
         _ch.chat_history = new_history
 
         if save_session:
-            self._save_current_session()  # type: ignore[attr-defined]
+            self._save_current_session()
 
         return True
 
-    @rx.event(background=True)  # type: ignore[operator]
+    @rx.event(background=True)
     async def resynthesize_bubble_tts(self, timestamp: str):
         """Read one chat bubble aloud, section by section, and keep the audio (background event).
 
@@ -588,22 +605,22 @@ class TTSStreamingMixin(rx.State, mixin=True):
                     break
 
             if bubble_index is None:
-                self.add_debug(f"⚠️ TTS Re-Synth: Message not found (timestamp: {timestamp})")  # type: ignore[attr-defined]
+                self.add_debug(f"⚠️ TTS Re-Synth: Message not found (timestamp: {timestamp})")
                 return
 
             if _ch.chat_history[bubble_index].get("role") != "assistant":
-                self.add_debug("⚠️ TTS Re-Synth: Message is not an assistant response")  # type: ignore[attr-defined]
+                self.add_debug("⚠️ TTS Re-Synth: Message is not an assistant response")
                 return
 
             self.tts_regenerating = True
             target_index = bubble_index
-            yield rx.call_script("stopTts()")  # type: ignore[misc]
+            yield rx.call_script("stopTts()")
 
         try:
             async with self:
                 request = self._extract_bubble_tts_request(target_index)
                 if request is not None:
-                    self.add_debug(  # type: ignore[attr-defined]
+                    self.add_debug(
                         f"🔄 TTS: Reading bubble {target_index} aloud ({request['agent']})..."
                     )
                     # Here, under the lock: the reading itself may not write state. The finalize of
@@ -625,12 +642,12 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             async with self:
                 if success:
-                    self.add_debug(f"✅ TTS: Bubble {target_index} read aloud")  # type: ignore[attr-defined]
+                    self.add_debug(f"✅ TTS: Bubble {target_index} read aloud")
                 else:
-                    self.add_debug(f"⚠️ TTS: Bubble {target_index} got no audio")  # type: ignore[attr-defined]
+                    self.add_debug(f"⚠️ TTS: Bubble {target_index} got no audio")
         except (FileNotFoundError, ValueError, RuntimeError) as e:
             async with self:
-                self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
+                self.add_debug(f"❌ TTS Error: {e}")
             log_message(f"❌ TTS regeneration error: {e}")
         finally:
             async with self:
@@ -639,7 +656,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 if reading is None or get_tts_backend_state(reading.session_id).reading is reading:
                     self._tts_streaming_active = False
 
-    @rx.event(background=True)  # type: ignore[operator]
+    @rx.event(background=True)
     async def resynthesize_all_tts(self):
         """Re-synthesize TTS for all assistant messages (background event —
         gleiche Struktur wie resynthesize_bubble_tts: Lock nur für kurze
@@ -656,7 +673,7 @@ class TTSStreamingMixin(rx.State, mixin=True):
 
             _ch = self._chat_sub()
             if not _ch.chat_history:
-                self.add_debug("⚠️ TTS Re-Synth: No chat history available")  # type: ignore[attr-defined]
+                self.add_debug("⚠️ TTS Re-Synth: No chat history available")
                 return
 
             assistant_indices = [
@@ -664,22 +681,22 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 if msg.get("role") == "assistant"
             ]
             if not assistant_indices:
-                self.add_debug("⚠️ TTS Re-Synth: No assistant messages found")  # type: ignore[attr-defined]
+                self.add_debug("⚠️ TTS Re-Synth: No assistant messages found")
                 return
 
             self.tts_regenerating = True
-            yield rx.call_script("stopTts()")  # type: ignore[misc]
+            yield rx.call_script("stopTts()")
 
         total = len(assistant_indices)
         async with self:
-            self.add_debug(f"🔄 TTS Re-Synth: Regenerating all {total} bubbles...")  # type: ignore[attr-defined]
+            self.add_debug(f"🔄 TTS Re-Synth: Regenerating all {total} bubbles...")
 
         try:
             success_count = 0
             failed_bubbles = []
             for i, bubble_idx in enumerate(assistant_indices):
                 async with self:
-                    self.add_debug(f"🔄 Processing bubble {i+1}/{total}...")  # type: ignore[attr-defined]
+                    self.add_debug(f"🔄 Processing bubble {i+1}/{total}...")
                     request = self._extract_bubble_tts_request(bubble_idx)
 
                 synthesized = await self._synthesize_bubble_audio(request) if request is not None else None
@@ -697,25 +714,25 @@ class TTSStreamingMixin(rx.State, mixin=True):
                 else:
                     failed_bubbles.append(i + 1)
                     async with self:
-                        self.add_debug(f"⚠️ Bubble {i+1}/{total} failed (chat index {bubble_idx})")  # type: ignore[attr-defined]
+                        self.add_debug(f"⚠️ Bubble {i+1}/{total} failed (chat index {bubble_idx})")
 
             async with self:
                 # Save session once after all regenerations.
-                self._save_current_session()  # type: ignore[attr-defined]
+                self._save_current_session()
                 if failed_bubbles:
-                    self.add_debug(f"⚠️ TTS: {success_count}/{total} bubbles regenerated — failed: {failed_bubbles}")  # type: ignore[attr-defined]
+                    self.add_debug(f"⚠️ TTS: {success_count}/{total} bubbles regenerated — failed: {failed_bubbles}")
                 else:
-                    self.add_debug(f"✅ TTS: {success_count}/{total} bubbles regenerated")  # type: ignore[attr-defined]
+                    self.add_debug(f"✅ TTS: {success_count}/{total} bubbles regenerated")
 
         except TTSSuiteError as error:
             log_message(f"❌ TTS regeneration: service error: {error}", "error")
             async with self:
-                self._save_current_session()  # type: ignore[attr-defined]  # what was regenerated so far stays
-                self.add_debug(f"❌ TTS Error: {type(error).__name__}: {error}")  # type: ignore[attr-defined]
+                self._save_current_session()  # what was regenerated so far stays
+                self.add_debug(f"❌ TTS Error: {type(error).__name__}: {error}")
                 yield toast("error", reading_failure_text(error, _lang(self)))
         except (FileNotFoundError, ValueError, RuntimeError) as e:
             async with self:
-                self.add_debug(f"❌ TTS Error: {e}")  # type: ignore[attr-defined]
+                self.add_debug(f"❌ TTS Error: {e}")
             log_message(f"❌ TTS regeneration error: {e}")
         finally:
             async with self:

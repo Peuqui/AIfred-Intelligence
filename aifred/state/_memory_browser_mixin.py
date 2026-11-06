@@ -42,6 +42,16 @@ async def _deindex(filename: str) -> FileOpResult:
 class MemoryBrowserMixin(rx.State, mixin=True):
     """Mixin for memory/database browsing and agent bundle export/import."""
 
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        agent_editor_mode: str
+        editor_agent_id: str
+
+        def _refresh_agent_dropdown(self) -> None: ...
+        def add_debug(self, message: str) -> None: ...
+
     # Database tab: the document index, one entry per document (not per chunk)
     db_documents: list[dict[str, Any]] = []
     db_clear_confirm: bool = False  # Confirmation state for clear-all
@@ -127,7 +137,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         from ..lib import file_manager as fm
         result = await asyncio.to_thread(fm.list_indexed)
         if not result.success:
-            self.add_debug(f"❌ DB browse error: {result.detail}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ DB browse error: {result.detail}")
         docs = result.metadata.get("documents", []) if result.success else []
         self.db_documents = sorted(docs, key=_by_path)
 
@@ -146,10 +156,10 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         self.db_clear_confirm = False
         store = get_document_store()
         if store is None:
-            self.add_debug("❌ Clear failed: document store not available")  # type: ignore[attr-defined]
+            self.add_debug("❌ Clear failed: document store not available")
             return
         removed = await asyncio.to_thread(store.clear)
-        self.add_debug(f"🗑️ Document index cleared: {removed} chunks")  # type: ignore[attr-defined]
+        self.add_debug(f"🗑️ Document index cleared: {removed} chunks")
         await self._refresh_db_documents()
         if self.db_orphans_visible:
             await self._reload_db_orphans()
@@ -174,7 +184,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         if self.db_orphans_visible:
             await self._reload_db_orphans()
         if not result.success:
-            self.add_debug(f"⚠️ {result.detail}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ {result.detail}")
             yield rx.toast.error(result.detail, duration=8000, position="top-center")
 
     async def db_delete_all_orphans(self) -> AsyncGenerator[EventSpec | None, None]:
@@ -189,7 +199,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         await self._reload_db_orphans()
         await self._refresh_db_documents()
         for detail in failed:
-            self.add_debug(f"⚠️ {detail}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ {detail}")
             yield rx.toast.error(detail, duration=8000, position="top-center")
 
     def _load_memory_collections(self) -> None:
@@ -214,7 +224,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
                 if col.name.startswith("agent_memory_"):
                     counts[col.name.removeprefix("agent_memory_")] = col.count()
         except Exception as e:
-            self.add_debug(f"❌ Memory browser error: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ Memory browser error: {e}")
 
         # Agents sorted alphabetically
         self.memory_browser_collections = [
@@ -259,8 +269,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
 
             data = col.get(include=["metadatas", "documents"])
             for i, doc_id in enumerate(data["ids"]):
-                meta = data["metadatas"][i] if data["metadatas"] else {}  # type: ignore[index]
-                doc = data["documents"][i] if data["documents"] else ""  # type: ignore[index]
+                meta = data["metadatas"][i] if data["metadatas"] else {}
+                doc = data["documents"][i] if data["documents"] else ""
                 entries.append({
                     "id": doc_id,
                     "date": _meta_str(meta, "date")[:19],
@@ -270,7 +280,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
                     "session_id": _meta_str(meta, "session_id"),
                 })
         except Exception as e:
-            self.add_debug(f"❌ Memory browse error: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ Memory browse error: {e}")
 
         entries.sort(key=lambda e: e.get("date", ""), reverse=True)
         self.memory_browser_entries = entries
@@ -285,9 +295,9 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         try:
             col = memory._collection(self.memory_browser_agent)
             col.delete(ids=[entry_id])
-            self.add_debug(f"🗑️ Memory entry deleted: {entry_id[:8]}...")  # type: ignore[attr-defined]
+            self.add_debug(f"🗑️ Memory entry deleted: {entry_id[:8]}...")
         except Exception as e:
-            self.add_debug(f"❌ Delete failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ Delete failed: {e}")
 
         # Refresh collections first so browse_memory_agent reads the updated
         # count — otherwise the display value mismatches the options list.
@@ -310,9 +320,9 @@ class MemoryBrowserMixin(rx.State, mixin=True):
 
         try:
             count = memory.clear(self.memory_browser_agent)
-            self.add_debug(f"🗑️ {count} memory entries deleted ({self.memory_browser_agent})")  # type: ignore[attr-defined]
+            self.add_debug(f"🗑️ {count} memory entries deleted ({self.memory_browser_agent})")
         except Exception as e:
-            self.add_debug(f"❌ Delete failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ Delete failed: {e}")
 
         self._load_memory_collections()
         self.browse_memory_agent(self.memory_browser_agent)
@@ -357,10 +367,10 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         summary = self.memory_edit_summary.strip()
         content = self.memory_edit_content.strip()
         if not summary or not content:
-            self.add_debug("❌ Memory entry needs a summary and a content")  # type: ignore[attr-defined]
+            self.add_debug("❌ Memory entry needs a summary and a content")
             return
         if not summary_fits_index(summary):
-            self.add_debug(  # type: ignore[attr-defined]
+            self.add_debug(
                 f"❌ Memory summary must be one line of at most "
                 f"{AGENT_MEMORY_SUMMARY_MAX_CHARS} characters"
             )
@@ -375,9 +385,9 @@ class MemoryBrowserMixin(rx.State, mixin=True):
                 memory_type=entry["type"],
                 session_id=entry["session_id"],
             )
-            self.add_debug(f"✏️ Memory entry updated: {entry['id'][:8]}...")  # type: ignore[attr-defined]
+            self.add_debug(f"✏️ Memory entry updated: {entry['id'][:8]}...")
         except Exception as e:
-            self.add_debug(f"❌ Update failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"❌ Update failed: {e}")
             return
 
         self._load_memory_collections()
@@ -413,7 +423,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         else:
             self.bundle_export_selected = [*self.bundle_export_selected, agent_id]
 
-    def confirm_bundle_export(self):  # type: ignore[no-untyped-def]
+    def confirm_bundle_export(self):
         """Trigger a browser download via the /api/agents/export endpoint."""
         if not self.bundle_export_selected:
             return
@@ -436,7 +446,7 @@ class MemoryBrowserMixin(rx.State, mixin=True):
         self.bundle_import_conflict = "rename"
         self.bundle_import_error = ""
 
-    async def handle_bundle_upload(self, files: list) -> None:  # type: ignore[no-untyped-def]
+    async def handle_bundle_upload(self, files: list) -> None:
         """Reflex on_drop callback — read ZIP, peek manifest, open modal."""
         import base64
         from ..lib.agent_bundle import peek_bundle
@@ -505,8 +515,8 @@ class MemoryBrowserMixin(rx.State, mixin=True):
             return
 
         for w in warnings:
-            self.add_debug(f"📦 {w}")  # type: ignore[attr-defined]
-        self.add_debug(  # type: ignore[attr-defined]
+            self.add_debug(f"📦 {w}")
+        self.add_debug(
             f"✅ Agenten importiert: {', '.join(effective_ids)}"
         )
 

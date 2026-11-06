@@ -23,6 +23,7 @@ from ..lib.settings import (
 
 if TYPE_CHECKING:
     from ..lib.plugin_base import CredentialField
+    from ..lib.agent_tuning import AgentTuning
 
 
 def _translate_cred_key(key: str, plugin: object, lang: str) -> str | None:
@@ -47,6 +48,47 @@ def _translated_options(field: CredentialField, plugin: object, lang: str) -> li
 
 class SettingsMixin(rx.State, mixin=True):
     """Mixin for settings persistence and UI configuration."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        _backend_initialized: bool
+        active_agent: str
+        agent_tuning: dict[str, AgentTuning]
+        auto_refresh_enabled: bool
+        automatik_model: str
+        automatik_model_id: str
+        automatik_rope_factor: float
+        available_backends_dict: dict[str, str]
+        available_models_dict: dict[str, str]
+        backend_id: str
+        backend_type: str
+        calibration_allow_hybrid: bool
+        calibration_mode: str
+        cloud_api_provider: str
+        consensus_type: str
+        current_backend_label: str
+        enable_tts: bool
+        enable_yarn: bool
+        enter_sends_message: bool
+        max_debate_rounds: int
+        multi_agent_mode: str
+        narrator_voices: dict[str, str]
+        show_transcription: bool
+        symposion_agents: list[str]
+        temperature_mode: str
+        tts_agents: dict[str, dict[str, Any]]
+        tts_autoplay: bool
+        tts_list_revision: int
+        tts_pitch: str
+        tts_playback_rate: str
+        yarn_factor: float
+
+        def _refresh_editor_tools(self) -> None: ...
+        def add_debug(self, message: str) -> None: ...
+        async def force_disarm_vigilantia(self) -> None: ...
+        async def initialize_backend(self) -> bool: ...
 
     # ── User Settings ─────────────────────────────────────────────
     ui_language: str = "de"  # "de" or "en" - for UI language
@@ -103,69 +145,69 @@ class SettingsMixin(rx.State, mixin=True):
         # Prevents saving stale IDs from a different backend during transitions
         # (e.g., backend_id already switched but model_ids not yet validated).
         aifred_model_id: str = get_agent_setting(self, "aifred", "model_id")
-        if aifred_model_id and self.backend_id and self.available_models_dict:  # type: ignore[attr-defined, has-type]
+        if aifred_model_id and self.backend_id and self.available_models_dict:
             # tuning buckets always contain base IDs (SSOT — speed suffix is
             # computed). Keys are agent ids ("" = inherits AIfred); the
             # Automatik (not an agent) keeps its own entry.
-            if aifred_model_id in self.available_models_dict:  # type: ignore[attr-defined, has-type]
+            if aifred_model_id in self.available_models_dict:
                 models_out = {
                     agent: tuning.model_id
-                    for agent, tuning in self.agent_tuning.items()  # type: ignore[attr-defined]
+                    for agent, tuning in self.agent_tuning.items()
                 }
-                models_out["automatik"] = self.automatik_model_id  # type: ignore[attr-defined, has-type]
-                backend_models[self.backend_id] = models_out  # type: ignore[attr-defined, has-type]
+                models_out["automatik"] = self.automatik_model_id
+                backend_models[self.backend_id] = models_out
 
         # Only save self.backend_type if backend is fully initialized.
         # Prevents the class default "ollama" from overwriting the persisted
         # backend_type when _save_settings() fires during startup
         # (e.g., vision model auto-select, capabilities check).
-        if self._backend_initialized:  # type: ignore[attr-defined, has-type]
-            saved_backend_type = self.backend_type  # type: ignore[attr-defined, has-type]
+        if self._backend_initialized:
+            saved_backend_type = self.backend_type
         else:
-            saved_backend_type = existing.get("backend_type", self.backend_type)  # type: ignore[attr-defined, has-type]
+            saved_backend_type = existing.get("backend_type", self.backend_type)
 
         settings: dict[str, Any] = {
             "backend_type": saved_backend_type,
-            "cloud_api_provider": self.cloud_api_provider,  # type: ignore[attr-defined, has-type]
+            "cloud_api_provider": self.cloud_api_provider,
             # Calibration mode (legacy/ai) — MUST be re-emitted here, else any
             # unrelated settings save would drop the key and silently revert
             # the AI calibration toggle to legacy on the next run.
-            "calibration_mode": self.calibration_mode or "legacy",  # type: ignore[attr-defined, has-type]
+            "calibration_mode": self.calibration_mode or "legacy",
             # NOTE: multi_agent_mode is per-session now (session_storage.DEFAULT_SESSION_CONFIG)
             # NOTE: per-agent tuning (temperature, sampling, thinking,
             # personality, speed) is appended below as "agent_tuning"
-            "temperature_mode": self.temperature_mode,  # type: ignore[attr-defined, has-type]
+            "temperature_mode": self.temperature_mode,
             "ui_language": self.ui_language,  # UI language (de/en)
             "user_name": self.user_name,  # User's name for personalized responses
             "user_gender": self.user_gender,  # Gender for salutation (male/female)
             "backend_models": backend_models,  # Merged: preserves all backends
             # Multi-Agent debate params (still global)
-            "max_debate_rounds": self.max_debate_rounds,  # type: ignore[attr-defined, has-type]
-            "consensus_type": self.consensus_type,  # type: ignore[attr-defined, has-type]
+            "max_debate_rounds": self.max_debate_rounds,
+            "consensus_type": self.consensus_type,
             # NOTE: Modell-Felder (auch sokrates/salomo) leben ausschließlich
             # in backend_models — eine zweite flache Wahrheit gab es bis
             # 2026-07-17 und sie hat den Message-Hub-Pfad verfehlt.
             # vLLM YaRN Settings (only enable/disable, factor is calculated dynamically)
-            "enable_yarn": self.enable_yarn,  # type: ignore[attr-defined, has-type]
+            "enable_yarn": self.enable_yarn,
             # NOTE: yarn_factor is NOT saved - always starts at 1.0, system calibrates maximum
             # NOTE: vllm_max_tokens and vllm_native_context are NEVER saved!
             # They are calculated dynamically on every vLLM startup based on VRAM
             # TTS/STT Settings
-            "enable_tts": self.enable_tts,  # type: ignore[attr-defined, has-type]
-            "tts_autoplay": self.tts_autoplay,  # type: ignore[attr-defined, has-type]
-            "tts_agents": self.tts_agents,  # type: ignore[attr-defined, has-type]
-            "narrator_voices": self.narrator_voices,  # type: ignore[attr-defined, has-type]
-            "tts_playback_rate": self.tts_playback_rate,  # type: ignore[attr-defined, has-type]
-            "tts_pitch": self.tts_pitch,  # type: ignore[attr-defined, has-type]
-            "show_transcription": self.show_transcription,  # type: ignore[attr-defined, has-type]
-            "enter_sends_message": self.enter_sends_message,  # type: ignore[attr-defined, has-type]
+            "enable_tts": self.enable_tts,
+            "tts_autoplay": self.tts_autoplay,
+            "tts_agents": self.tts_agents,
+            "narrator_voices": self.narrator_voices,
+            "tts_playback_rate": self.tts_playback_rate,
+            "tts_pitch": self.tts_pitch,
+            "show_transcription": self.show_transcription,
+            "enter_sends_message": self.enter_sends_message,
             # Written only by their own editors (agent editor, escalation list
             # menu) — taken from the file here so this save never drops them.
             "tts_agent_voices_per_engine": existing.get("tts_agent_voices_per_engine", {}),
             "tts_toggles_per_engine": existing.get("tts_toggles_per_engine", {}),
             "tts_escalation": persisted_settings()["tts_escalation"],
             # UI Settings
-            "auto_scroll": self.auto_refresh_enabled,  # type: ignore[attr-defined, has-type]
+            "auto_scroll": self.auto_refresh_enabled,
             # Message Hub settings: written only by their own switches
             # (_save_channel_setting). Taken from the file here, so a session
             # that has not loaded them yet can never wipe them.
@@ -179,7 +221,7 @@ class SettingsMixin(rx.State, mixin=True):
         # reset on restart — deliberate, see llm_params UI hint).
         from ..lib.agent_settings import PERSISTED_TUNING_FIELDS
         agent_tuning_out: dict[str, dict[str, Any]] = {}
-        for agent, tuning in self.agent_tuning.items():  # type: ignore[attr-defined]
+        for agent, tuning in self.agent_tuning.items():
             entry = {field: getattr(tuning, field) for field in PERSISTED_TUNING_FIELDS}
             if agent == "vision":
                 entry["num_ctx_manual"] = tuning.num_ctx_manual
@@ -227,26 +269,26 @@ class SettingsMixin(rx.State, mixin=True):
             return
 
         # Core settings
-        self.temperature_mode = settings.get("temperature_mode", self.temperature_mode)  # type: ignore[attr-defined, has-type]
+        self.temperature_mode = settings.get("temperature_mode", self.temperature_mode)
 
         # NOTE: multi_agent_mode, active_agent, symposion_agents
         # are now per-session config, NOT global settings. They are loaded from
         # the session file in _restore_session().
 
         # Multi-Agent debate params (still global)
-        self.max_debate_rounds = settings.get("max_debate_rounds", self.max_debate_rounds)  # type: ignore[attr-defined, has-type]
-        self.consensus_type = settings.get("consensus_type", self.consensus_type)  # type: ignore[attr-defined, has-type]
+        self.max_debate_rounds = settings.get("max_debate_rounds", self.max_debate_rounds)
+        self.consensus_type = settings.get("consensus_type", self.consensus_type)
 
         # Calibration mode (legacy / ai-qwen-*) + hybrid permission
-        self.calibration_mode = settings.get("calibration_mode", "legacy")  # type: ignore[attr-defined]
-        self.calibration_allow_hybrid = settings.get("calibration_allow_hybrid", False)  # type: ignore[attr-defined]
+        self.calibration_mode = settings.get("calibration_mode", "legacy")
+        self.calibration_allow_hybrid = settings.get("calibration_allow_hybrid", False)
 
         # NOTE: model ids live exclusively in backend_models (loaded at
         # backend init) — no flat model keys in settings.json anymore.
         from ..lib.agent_settings import set_agent_setting
 
         # RoPE factors (agents: in the tuning dict; automatik: own field)
-        self.automatik_rope_factor = settings.get("automatik_rope_factor", self.automatik_rope_factor)  # type: ignore[attr-defined, has-type]
+        self.automatik_rope_factor = settings.get("automatik_rope_factor", self.automatik_rope_factor)
 
         # Sampling params + personality (per-agent). Deliberately only this
         # subset of PERSISTED_TUNING_FIELDS — reload serves API-driven
@@ -254,7 +296,7 @@ class SettingsMixin(rx.State, mixin=True):
         # (same behavior as before the loop-ification).
         saved_tuning = settings.get("agent_tuning", {})
         for agent, entry in saved_tuning.items():
-            if agent not in self.agent_tuning:  # type: ignore[attr-defined]
+            if agent not in self.agent_tuning:
                 continue
             for field in ("temperature", "top_k", "top_p", "min_p", "repeat_penalty", "rope_factor"):
                 if field in entry:
@@ -264,11 +306,11 @@ class SettingsMixin(rx.State, mixin=True):
                 set_agent_setting(self, agent, "personality", entry["personality"])
 
         # TTS settings
-        self.enable_tts = settings.get("enable_tts", self.enable_tts)  # type: ignore[attr-defined, has-type]
-        self.tts_autoplay = settings.get("tts_autoplay", self.tts_autoplay)  # type: ignore[attr-defined, has-type]
-        self.tts_agents = settings.get("tts_agents", self.tts_agents)  # type: ignore[attr-defined, has-type]
-        self.narrator_voices = settings.get("narrator_voices", self.narrator_voices)  # type: ignore[attr-defined, has-type]
-        self.tts_list_revision += 1  # type: ignore[attr-defined, has-type]
+        self.enable_tts = settings.get("enable_tts", self.enable_tts)
+        self.tts_autoplay = settings.get("tts_autoplay", self.tts_autoplay)
+        self.tts_agents = settings.get("tts_agents", self.tts_agents)
+        self.narrator_voices = settings.get("narrator_voices", self.narrator_voices)
+        self.tts_list_revision += 1
 
         # UI language
         new_ui_lang = settings.get("ui_language", self.ui_language)
@@ -294,12 +336,12 @@ class SettingsMixin(rx.State, mixin=True):
             # Update global locale for number formatting
             from ..lib.formatting import set_ui_locale
             set_ui_locale(lang)
-            self.add_debug(f"\U0001f310 UI Language changed to: {lang}")  # type: ignore[attr-defined, has-type]
+            self.add_debug(f"\U0001f310 UI Language changed to: {lang}")
 
             # Save to settings
             self._save_settings()
         else:
-            self.add_debug(f"\u274c Invalid language: {lang}. Use 'de' or 'en'")  # type: ignore[attr-defined, has-type]
+            self.add_debug(f"\u274c Invalid language: {lang}. Use 'de' or 'en'")
 
     # ================================================================
     # USER PROFILE
@@ -313,7 +355,7 @@ class SettingsMixin(rx.State, mixin=True):
         """Save user name when input loses focus."""
         self.user_name = name.strip()
         if self.user_name:
-            self.add_debug(f"\U0001f464 User name: {self.user_name}")  # type: ignore[attr-defined, has-type]
+            self.add_debug(f"\U0001f464 User name: {self.user_name}")
         self._save_settings()
 
     def set_user_gender(self, gender: str | list[str]) -> None:
@@ -322,7 +364,7 @@ class SettingsMixin(rx.State, mixin=True):
         if isinstance(gender, list):
             gender = gender[0] if gender else "male"
         self.user_gender = gender
-        self.add_debug(f"\U0001f464 Gender: {'\u2642 male' if gender == 'male' else '\u2640 female'}")  # type: ignore[attr-defined, has-type]
+        self.add_debug(f"\U0001f464 Gender: {'\u2642 male' if gender == 'male' else '\u2640 female'}")
         self._save_settings()
 
     # ================================================================
@@ -333,11 +375,11 @@ class SettingsMixin(rx.State, mixin=True):
         """Load default settings from config.py and apply them to state."""
         from ..lib.settings import reset_to_defaults
 
-        self.add_debug("\U0001f4be Loading default settings from config.py...")  # type: ignore[attr-defined, has-type]
+        self.add_debug("\U0001f4be Loading default settings from config.py...")
         yield  # Update UI immediately
 
         if reset_to_defaults():
-            self.add_debug("\u2705 Default settings saved to file")  # type: ignore[attr-defined, has-type]
+            self.add_debug("\u2705 Default settings saved to file")
             yield
 
             # Reload settings from file (all values MUST be present after reset_to_defaults())
@@ -345,41 +387,41 @@ class SettingsMixin(rx.State, mixin=True):
             if saved_settings:
                 # Update state with loaded settings (only attributes that exist in state)
                 # No fallbacks needed - reset_to_defaults() ensures all values are present
-                self.backend_type = saved_settings["backend_type"]  # type: ignore[attr-defined, has-type]
-                self.backend_id = self.backend_type  # type: ignore[attr-defined, has-type]
-                self.current_backend_label = self.available_backends_dict.get(  # type: ignore[attr-defined, has-type]
-                    self.backend_id, self.backend_id  # type: ignore[attr-defined, has-type]
+                self.backend_type = saved_settings["backend_type"]
+                self.backend_id = self.backend_type
+                self.current_backend_label = self.available_backends_dict.get(
+                    self.backend_id, self.backend_id
                 )
 
                 # NOTE: multi_agent_mode is per-session.
                 # Reset to clean defaults (matches DEFAULT_SESSION_CONFIG).
                 from ..lib.session_storage import DEFAULT_SESSION_CONFIG
-                self.multi_agent_mode = DEFAULT_SESSION_CONFIG["multi_agent_mode"]  # type: ignore[attr-defined, has-type]
-                self.active_agent = DEFAULT_SESSION_CONFIG["active_agent"]  # type: ignore[attr-defined, has-type]
-                self.symposion_agents = list(DEFAULT_SESSION_CONFIG["symposion_agents"])  # type: ignore[attr-defined, has-type]
+                self.multi_agent_mode = DEFAULT_SESSION_CONFIG["multi_agent_mode"]
+                self.active_agent = DEFAULT_SESSION_CONFIG["active_agent"]
+                self.symposion_agents = list(DEFAULT_SESSION_CONFIG["symposion_agents"])
 
-                self.temperature_mode = saved_settings["temperature_mode"]  # type: ignore[attr-defined, has-type]
-                self.enable_tts = saved_settings["enable_tts"]  # type: ignore[attr-defined, has-type]
-                self.enable_yarn = saved_settings["enable_yarn"]  # type: ignore[attr-defined, has-type]
-                self.yarn_factor = saved_settings["yarn_factor"]  # type: ignore[attr-defined, has-type]
+                self.temperature_mode = saved_settings["temperature_mode"]
+                self.enable_tts = saved_settings["enable_tts"]
+                self.enable_yarn = saved_settings["enable_yarn"]
+                self.yarn_factor = saved_settings["yarn_factor"]
 
                 # IMPORTANT: Set model names from defaults (prevents fallback to available_models[0])
                 # The "model" and "automatik_model" keys come from get_default_settings()
-                self.agent_tuning["aifred"].model = saved_settings.get("model", self.agent_tuning["aifred"].model)  # type: ignore[attr-defined, has-type]
-                self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)  # type: ignore[attr-defined, has-type]
+                self.agent_tuning["aifred"].model = saved_settings.get("model", self.agent_tuning["aifred"].model)
+                self.automatik_model = saved_settings.get("automatik_model", self.automatik_model)
 
-                self.add_debug("\U0001f504 Settings reloaded from file")  # type: ignore[attr-defined, has-type]
+                self.add_debug("\U0001f504 Settings reloaded from file")
                 yield
 
                 # Reinitialize backend with new settings
-                await self.initialize_backend()  # type: ignore[attr-defined, has-type]
-                self.add_debug("\u2705 All settings applied successfully")  # type: ignore[attr-defined, has-type]
+                await self.initialize_backend()
+                self.add_debug("\u2705 All settings applied successfully")
                 yield
             else:
-                self.add_debug("\u26a0\ufe0f Failed to reload settings from file")  # type: ignore[attr-defined, has-type]
+                self.add_debug("\u26a0\ufe0f Failed to reload settings from file")
                 yield
         else:
-            self.add_debug("\u274c Failed to load default settings")  # type: ignore[attr-defined, has-type]
+            self.add_debug("\u274c Failed to load default settings")
             yield  # Update UI even on error
 
     # ================================================================
@@ -424,7 +466,7 @@ class SettingsMixin(rx.State, mixin=True):
         self._set_channel_toggle(channel_name, "monitor", value)
         display = plugin_display_name(plugin, "en") if plugin else channel_name
         status = "enabled" if value else "disabled"
-        self.add_debug(f"📨 {display} {status}")  # type: ignore[attr-defined, has-type]
+        self.add_debug(f"📨 {display} {status}")
 
         # For always_reply channels: toggle also controls the listener
         if plugin and plugin.always_reply:
@@ -449,7 +491,7 @@ class SettingsMixin(rx.State, mixin=True):
         self._set_channel_toggle(channel_name, "listener", value)
         display = plugin_display_name(plugin, "en") if plugin else channel_name
         status = "enabled" if value else "disabled"
-        self.add_debug(f"📨 {display} Monitor {status}")  # type: ignore[attr-defined, has-type]
+        self.add_debug(f"📨 {display} Monitor {status}")
 
         from ..lib.message_hub import message_hub
         if value and plugin:
@@ -468,7 +510,7 @@ class SettingsMixin(rx.State, mixin=True):
         self._set_channel_toggle(channel_name, "auto_reply", value)
         display = channel_name.capitalize()
         status = "enabled" if value else "disabled"
-        self.add_debug(f"📨 {display} Auto-Reply {status}")  # type: ignore[attr-defined, has-type]
+        self.add_debug(f"📨 {display} Auto-Reply {status}")
 
     # ================================================================
     # MESSAGE HUB — GENERIC CREDENTIALS MODAL
@@ -513,7 +555,7 @@ class SettingsMixin(rx.State, mixin=True):
                     plugin_settings = {}
 
         # Pre-fill values: secrets from os.environ, config from settings.json
-        lang = self.ui_language  # type: ignore[attr-defined]
+        lang = self.ui_language
         values: dict[str, str] = {}
         field_descriptors: list[dict[str, str]] = []
 
@@ -657,7 +699,7 @@ class SettingsMixin(rx.State, mixin=True):
                 scope_list = []
 
         try:
-            page_host = self.router.page.host  # type: ignore[attr-defined]
+            page_host = self.router.page.host
         except Exception:
             page_host = ""
         if page_host:
@@ -692,7 +734,7 @@ class SettingsMixin(rx.State, mixin=True):
         try:
             valid = await oauth_broker.verify_connection(provider)
         except httpx.HTTPError as exc:
-            self.add_debug(  # type: ignore[attr-defined]
+            self.add_debug(
                 f"⚠️ OAuth verify skipped for {provider} (provider unreachable): {exc}"
             )
             return
@@ -702,11 +744,11 @@ class SettingsMixin(rx.State, mixin=True):
         plugin_key = self.channel_credentials_editing
         plugin = get_channel(plugin_key) or get_tool_plugin(plugin_key)
         self.oauth_auth_url = self._build_oauth_auth_url(provider, plugin)
-        self.add_debug(  # type: ignore[attr-defined]
+        self.add_debug(
             f"⚠️ OAuth grant for {provider} was revoked at the provider — reconnect required"
         )
 
-    async def start_oauth_connection(self):  # type: ignore[no-untyped-def]
+    async def start_oauth_connection(self):
         """Set status to ``connecting`` and poll ``is_connected`` for up to 5 min.
 
         The actual login tab is opened by the Connect-Link in the modal
@@ -736,17 +778,17 @@ class SettingsMixin(rx.State, mixin=True):
             if self._oauth_grant_current(provider, plugin):
                 self.oauth_connect_status = "connected"
                 self.oauth_rights_missing = False
-                self.add_debug(  # type: ignore[attr-defined]
+                self.add_debug(
                     f"✅ {display}: OAuth connected — plugin available."
                 )
                 return
 
         self.oauth_connect_status = "error"
-        self.add_debug(  # type: ignore[attr-defined]
+        self.add_debug(
             f"⚠️ {display}: OAuth not completed — please try again."
         )
 
-    async def disconnect_oauth(self) -> None:  # type: ignore[no-untyped-def]
+    async def disconnect_oauth(self) -> None:
         """Remove stored OAuth tokens for the current plugin."""
         from ..lib.oauth import oauth_broker
         from ..lib.plugin_registry import get_channel, get_tool_plugin
@@ -764,7 +806,7 @@ class SettingsMixin(rx.State, mixin=True):
         self.oauth_auth_url = self._build_oauth_auth_url(provider, plugin)
 
         plugin_name = plugin_display_name(plugin, "en") if plugin is not None else provider
-        self.add_debug(f"🔌 {plugin_name}: OAuth disconnected.")  # type: ignore[attr-defined]
+        self.add_debug(f"🔌 {plugin_name}: OAuth disconnected.")
 
     def save_channel_credentials(self):
         """Write credentials to .env (secrets) and plugin settings.json (config).
@@ -780,7 +822,7 @@ class SettingsMixin(rx.State, mixin=True):
 
         plugin_name = self.channel_credentials_editing
         env_path = str(PROJECT_ROOT / ".env")
-        lang = self.ui_language  # type: ignore[attr-defined]
+        lang = self.ui_language
 
         # Determine if this is a channel or tool plugin
         channel = get_channel(plugin_name)
@@ -839,11 +881,11 @@ class SettingsMixin(rx.State, mixin=True):
                     try:
                         tool_saver(plugin_settings)
                     except Exception as exc:
-                        self.add_debug(  # type: ignore[attr-defined]
+                        self.add_debug(
                             f"⚠️ {display}: failed to write settings: {exc}"
                         )
 
-        self.add_debug(f"🔧 {display} settings saved")  # type: ignore[attr-defined, has-type]
+        self.add_debug(f"🔧 {display} settings saved")
 
         # Prepare values for apply_credentials (all fields, regardless of storage)
         saved_values = {}
@@ -919,7 +961,7 @@ class SettingsMixin(rx.State, mixin=True):
         if not current and plugin is not None:
             oauth_provider = getattr(plugin, "oauth_provider", None)
             if oauth_provider and not self._oauth_grant_current(oauth_provider, plugin):
-                self.add_debug(  # type: ignore[attr-defined]
+                self.add_debug(
                     f"🔐 {plugin_display_name(plugin, 'en')}: connect via the gear icon "
                     f"first — the toggle becomes active afterwards."
                 )
@@ -933,21 +975,21 @@ class SettingsMixin(rx.State, mixin=True):
             # (e.g. "Vigilantia"), as it appears in the plugin menu.
             plugin = get_tool_plugin(plugin_name)
             display = plugin_display_name(plugin, "en") if plugin else plugin_name
-            self.add_debug(f"🔌 {display} enabled")  # type: ignore[attr-defined]
+            self.add_debug(f"🔌 {display} enabled")
         else:
             display = plugin_display_name(plugin, "en") if plugin else plugin_name
             # Vision: disarm the Watcher FIRST — force_disarm writes the
             # vision settings.json, which is gone once disable_plugin moves
             # the package to disabled/ (that caused the FileNotFoundError).
             if plugin_name == "vision":
-                await self.force_disarm_vigilantia()  # type: ignore[attr-defined]
+                await self.force_disarm_vigilantia()
             if is_plugin_enabled(plugin_name):
                 disable_plugin(plugin_name, "tool")
-            self.add_debug(f"🔌 {display} disabled")  # type: ignore[attr-defined]
+            self.add_debug(f"🔌 {display} disabled")
 
         toggles[plugin_name] = "1" if new_enabled else ""
         self.tool_plugin_toggles = toggles
-        self._refresh_editor_tools()  # type: ignore[attr-defined]
+        self._refresh_editor_tools()
 
     # ================================================================
     # TRANSLATION HELPER

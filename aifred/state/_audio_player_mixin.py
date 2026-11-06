@@ -19,7 +19,7 @@ mpv (audio_manager is for target=local/freeecho2 only).
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
@@ -45,6 +45,26 @@ def discard_audio_runtime_state(session_id: str) -> None:
 
 class AudioPlayerMixin(rx.State, mixin=True):
     """Mixin: browser media playback state."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        agent_editor_mode: str
+
+        def _picker_open_for(
+            self,
+            title: str,
+            root: str,
+            start_at: str = "",
+            mode: str = "pick_folder",
+            caps: dict[str, bool] | None = None,
+            file_filter: list[str] | None = None,
+            show_files: bool = True,
+            callback_event: str = "",
+            callback_args: dict[str, str] | None = None,
+            symlink_target_must_be_under_root: bool = True,
+        ) -> None: ...
 
     # ── Media (audio_player tool target=browser) ────────────────────
     media_audio_url: str = ""        # /api/audio/file?key=... or http stream
@@ -284,7 +304,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.agent_editor_mode = "plugins"
         return rx.redirect("/agent-editor")
 
-    @rx.event(background=True)  # type: ignore[operator]
+    @rx.event(background=True)
     async def audio_index_rebuild_source(self, source: str, force: bool = False):
         """Trigger an index rebuild for one source (background, non-blocking)."""
         import asyncio as _asyncio
@@ -395,7 +415,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         specific subfolders) — but symlinks must keep their targets
         inside the sandbox, otherwise it's an escape vector.
         """
-        self._picker_open_for(  # type: ignore[attr-defined]
+        self._picker_open_for(
             title="Neue Audio-Source hinzufügen",
             root=self._audio_picker_root(),
             start_at="",

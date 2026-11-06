@@ -186,7 +186,7 @@ def _memory_view() -> rx.Component:
                         ),
                         rx.spacer(),
                         rx.badge(
-                            AIState.filtered_memory_entries.length(),  # type: ignore[union-attr]
+                            AIState.filtered_memory_entries.length(),
                             variant="soft",
                             color_scheme="orange",
                         ),
@@ -196,7 +196,7 @@ def _memory_view() -> rx.Component:
                             on_request=AIState.request_clear_memory,
                             on_confirm=AIState.clear_browsed_memory,
                             on_cancel=AIState.cancel_clear_memory,
-                            count=AIState.memory_browser_entries.length(),  # type: ignore[union-attr]
+                            count=AIState.memory_browser_entries.length(),
                         ),
                         spacing="2",
                         align="center",
@@ -216,7 +216,7 @@ def _memory_view() -> rx.Component:
                         text_align="center",
                     ),
                     rx.cond(
-                        AIState.filtered_memory_entries.length() > 0,  # type: ignore[union-attr]
+                        AIState.filtered_memory_entries.length() > 0,
                         rx.vstack(
                             rx.foreach(
                                 AIState.filtered_memory_entries,

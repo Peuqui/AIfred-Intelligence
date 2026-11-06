@@ -201,7 +201,7 @@ async def call_llm(
         yield {"type": "debug", "message": f"📊 {agent_label}: {format_number(input_tokens)} / {format_number(final_num_ctx)} tokens (max: {format_number(model_limit)})"}
 
         # Build LLM options via central builder (all sampling params from state).
-        llm_options = build_llm_options(state, agent, model_choice, final_temperature, final_num_ctx)  # type: ignore[arg-type]
+        llm_options = build_llm_options(state, agent, model_choice, final_temperature, final_num_ctx)
 
         # Console: LLM starts (with MoE/Dense architecture + calibration info)
         from .gpu_utils import is_moe_model

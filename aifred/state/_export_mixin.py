@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from typing import TYPE_CHECKING
 
 import reflex as rx
 
@@ -11,6 +12,17 @@ from ..theme import css_variables
 
 class ExportMixin(rx.State, mixin=True):
     """Handles exporting the chat history as a standalone HTML file."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        current_session_title: str
+        session_id: str
+        user_name: str
+
+        def _chat_sub(self): ...
+        def add_debug(self, message: str) -> None: ...
 
     # ------------------------------------------------------------------
     # Public API
@@ -37,15 +49,15 @@ class ExportMixin(rx.State, mixin=True):
 
         _ch = self._chat_sub()
         if not _ch.chat_history:
-            self.add_debug("⚠️ No chat to export")  # type: ignore[attr-defined]
+            self.add_debug("⚠️ No chat to export")
             return None
 
         # Build HTML document
         timestamp = datetime.now().strftime("%Y-%m-%d %H:%M")
-        chat_title: str = self.current_session_title or ""  # type: ignore[attr-defined]
+        chat_title: str = self.current_session_title or ""
 
         # Get username for display
-        display_name = self.user_name if self.user_name else "User"  # type: ignore[attr-defined]
+        display_name = self.user_name if self.user_name else "User"
 
         # Import localization for failed sources + export toolbar labels
         from ..lib.prompt_loader import get_language
@@ -87,7 +99,7 @@ class ExportMixin(rx.State, mixin=True):
         safe_title = re.sub(r'[^\w\- ]', '', chat_title).strip().replace(" ", "_")[:50]
         download_filename = f"AIfred-Chat-{safe_title}.html" if safe_title else "AIfred-Chat.html"
 
-        self.add_debug(  # type: ignore[attr-defined]
+        self.add_debug(
             f"📋 Chat exported as HTML ({len(_ch.chat_history)} messages)",
         )
         return preview_url, download_filename
@@ -500,7 +512,7 @@ class ExportMixin(rx.State, mixin=True):
                     re.DOTALL | re.IGNORECASE,
                 )
 
-            def replace_match(match: re.Match) -> str:  # type: ignore[type-arg]
+            def replace_match(match: re.Match) -> str:
                 placeholder = f"HTML_BLOCK_{counter[0]}"
                 placeholders[placeholder] = match.group(0)
                 counter[0] += 1
@@ -542,7 +554,7 @@ class ExportMixin(rx.State, mixin=True):
     def _add_target_blank_to_links(html: str) -> str:
         """Add target="_blank" to all <a> tags that don't have it yet."""
 
-        def add_target(match: re.Match) -> str:  # type: ignore[type-arg]
+        def add_target(match: re.Match) -> str:
             tag: str = match.group(0)
             if "target=" in tag:
                 return tag

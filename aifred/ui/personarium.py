@@ -249,7 +249,7 @@ def _untagged_card(ev: rx.Var) -> rx.Component:
         # über dem Bild statt daneben, damit das Kartenraster gleich breit
         # bleibt.
         rx.checkbox(
-            checked=AIState.personarium_untagged_selected.contains(eid),  # type: ignore[union-attr]
+            checked=AIState.personarium_untagged_selected.contains(eid),
             on_change=AIState.personarium_toggle_untagged(eid),
             color_scheme="orange",
             align_self="start",
@@ -461,8 +461,8 @@ def personarium_modal() -> rx.Component:
             rx.cond(
                 AIState.personarium_untagged.length() > 0,
                 bulk_delete_bar(
-                    total_count=AIState.personarium_untagged.length(),  # type: ignore[union-attr]
-                    selected_count=AIState.personarium_untagged_selected.length(),  # type: ignore[union-attr]
+                    total_count=AIState.personarium_untagged.length(),
+                    selected_count=AIState.personarium_untagged_selected.length(),
                     on_select_all=AIState.personarium_select_all_untagged,
                     on_clear_selection=AIState.personarium_clear_untagged_selection,
                     on_delete_selected=AIState.personarium_dismiss_selected,

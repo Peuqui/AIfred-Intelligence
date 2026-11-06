@@ -457,7 +457,7 @@ class FreeEcho2Channel:
             return None
         return stream.stream_start_offset_sec
 
-    def notify_flow(self, target_id: str, state: str) -> None:  # type: ignore[override]
+    def notify_flow(self, target_id: str, state: str) -> None:
         """Bridge ruft das auf wenn der FreeEcho.2 einen flow-Frame schickt.
 
         ``state`` = "pause" → Pump des Streams blockt → mpv blockt am

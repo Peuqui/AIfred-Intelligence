@@ -6,7 +6,7 @@ Part of the AIfred State refactoring (aifred/state/ package).
 
 import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable, Sequence
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 from reflex.event import EventSpec
@@ -14,6 +14,15 @@ from reflex.event import EventSpec
 
 class DocumentMixin(rx.State, mixin=True):
     """Mixin for document file explorer and management."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        logged_in_user: str
+        ui_language: str
+
+        def add_debug(self, message: str) -> None: ...
 
     # State variables
     is_uploading_document: bool = False
@@ -138,7 +147,7 @@ class DocumentMixin(rx.State, mixin=True):
         # without this a stale name could be deleted in the wrong folder.
         listed = {item["name"] for item in items if item.get("type") != "folder"}
         self.doc_selected_files = [n for n in self.doc_selected_files if n in listed]
-        self.add_debug(f"📂 _refresh_file_list: folder={self.doc_current_folder!r}, {len(items)} items: {[i['name'] for i in items]}")  # type: ignore[attr-defined]
+        self.add_debug(f"📂 _refresh_file_list: folder={self.doc_current_folder!r}, {len(items)} items: {[i['name'] for i in items]}")
 
     def doc_navigate_folder(self, folder_name: str) -> None:
         """Navigate into a subfolder."""
@@ -191,7 +200,7 @@ class DocumentMixin(rx.State, mixin=True):
         from ..lib.document_sources import document_sources
         from ..lib.i18n import t
 
-        lang = self.ui_language  # type: ignore[attr-defined]
+        lang = self.ui_language
         self.doc_source_options = [{"key": "local", "label": t("doc_source_local", lang=lang)}] + [
             {"key": key, "label": source.label(lang)} for key, source in document_sources().items()
         ]
@@ -219,9 +228,9 @@ class DocumentMixin(rx.State, mixin=True):
         except (LookupError, DocumentSourceError) as failed:
             self.doc_file_list = []
             self.doc_source_writable = False
-            self.add_debug(f"⚠️ Document source {self.doc_source}: {failed}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ Document source {self.doc_source}: {failed}")
             return rx.toast.error(
-                t("doc_source_failed", lang=self.ui_language, error=str(failed)),  # type: ignore[attr-defined]
+                t("doc_source_failed", lang=self.ui_language, error=str(failed)),
                 duration=6000, position="top-center",
             )
         indexed = await asyncio.to_thread(chunks_per_document)
@@ -317,7 +326,7 @@ class DocumentMixin(rx.State, mixin=True):
         name = self.doc_new_folder_name.strip()
         result = fm.create_folder(self.doc_current_folder, name)
         if not result.success:
-            self.add_debug(f"⚠️ create_folder: {result.detail}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ create_folder: {result.detail}")
         self.doc_creating_folder = False
         self.doc_new_folder_name = ""
         self._refresh_file_list()
@@ -360,7 +369,7 @@ class DocumentMixin(rx.State, mixin=True):
             fm.rename, self.doc_current_folder, old_name, new_name, sync_index=True
         )
         if not result.success:
-            self.add_debug(f"⚠️ rename: {result.detail}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ rename: {result.detail}")
         self.doc_rename_target = ""
         self.doc_rename_value = ""
         self._refresh_file_list()
@@ -369,7 +378,7 @@ class DocumentMixin(rx.State, mixin=True):
     # UPLOAD
     # ================================================================
 
-    async def handle_document_upload(self, files: list[rx.UploadFile]) -> AsyncGenerator[EventSpec | None, None]:  # type: ignore[override]
+    async def handle_document_upload(self, files: list[rx.UploadFile]) -> AsyncGenerator[EventSpec | None, None]:
         """Handle document file upload — save to current folder."""
         from pathlib import Path
 
@@ -381,8 +390,8 @@ class DocumentMixin(rx.State, mixin=True):
 
         # POST /_upload reaches this handler with any client token, a fresh one gives a state
         # without login: nothing may touch the disk before this check.
-        if not self.logged_in_user:  # type: ignore[attr-defined]
-            self.add_debug("⚠️ Document upload rejected: not logged in")  # type: ignore[attr-defined]
+        if not self.logged_in_user:
+            self.add_debug("⚠️ Document upload rejected: not logged in")
             return
 
         self.is_uploading_document = True
@@ -401,7 +410,7 @@ class DocumentMixin(rx.State, mixin=True):
                 # (Path.name discards "../" and absolute prefixes).
                 filename = Path(raw_filename).name
                 if not filename or filename in (".", ".."):
-                    self.add_debug(f"⚠️ Document rejected (bad filename): {raw_filename!r}")  # type: ignore[attr-defined]
+                    self.add_debug(f"⚠️ Document rejected (bad filename): {raw_filename!r}")
                     yield  # type: ignore[misc]
                     continue
                 suffix = Path(filename).suffix.lower()
@@ -409,10 +418,10 @@ class DocumentMixin(rx.State, mixin=True):
                 # Validate extension
                 if suffix not in DOCUMENT_ALLOWED_EXTENSIONS:
                     self.document_upload_status = t(
-                        "doc_upload_invalid_type", lang=self.ui_language,  # type: ignore[attr-defined]
+                        "doc_upload_invalid_type", lang=self.ui_language,
                         filename=filename, allowed=", ".join(DOCUMENT_ALLOWED_EXTENSIONS),
                     )
-                    self.add_debug(f"\u26a0\ufe0f Document rejected: {filename} (type {suffix})")  # type: ignore[attr-defined]
+                    self.add_debug(f"\u26a0\ufe0f Document rejected: {filename} (type {suffix})")
                     yield  # type: ignore[misc]
                     continue
 
@@ -427,10 +436,10 @@ class DocumentMixin(rx.State, mixin=True):
                     mime = mimetypes.guess_type(filename)[0] or "application/octet-stream"
                     await get_document_source(self.doc_source).upload(self._open_remote_folder_id(), filename, content, mime)
                     self.document_upload_status = t(
-                        "doc_upload_saved", lang=self.ui_language,  # type: ignore[attr-defined]
+                        "doc_upload_saved", lang=self.ui_language,
                         filename=filename,
                     )
-                    self.add_debug(f"\U0001f4c4 Document uploaded to {self.doc_source}: {filename}")  # type: ignore[attr-defined]
+                    self.add_debug(f"\U0001f4c4 Document uploaded to {self.doc_source}: {filename}")
                     yield  # type: ignore[misc]
                     continue
 
@@ -440,25 +449,25 @@ class DocumentMixin(rx.State, mixin=True):
                 try:
                     file_path.relative_to(target_root)
                 except ValueError:
-                    self.add_debug(f"⚠️ Document rejected (path escape): {raw_filename!r}")  # type: ignore[attr-defined]
+                    self.add_debug(f"⚠️ Document rejected (path escape): {raw_filename!r}")
                     yield  # type: ignore[misc]
                     continue
                 file_path.write_bytes(content)
                 uploaded.append(f"{self.doc_current_folder}/{filename}".lstrip("/"))
 
                 self.document_upload_status = t(
-                    "doc_upload_saved", lang=self.ui_language,  # type: ignore[attr-defined]
+                    "doc_upload_saved", lang=self.ui_language,
                     filename=filename,
                 )
-                self.add_debug(f"\U0001f4c4 Document uploaded: {filename}")  # type: ignore[attr-defined]
+                self.add_debug(f"\U0001f4c4 Document uploaded: {filename}")
                 yield  # type: ignore[misc]
 
             # Refresh file list
-            yield await self._refresh_open_source()  # type: ignore[misc]
+            yield await self._refresh_open_source()
 
         except Exception as e:  # noqa: BLE001 — the user sees the failure
             self.document_upload_status = f"\u274c {e}"
-            self.add_debug(f"\u274c Document upload failed: {e}")  # type: ignore[attr-defined]
+            self.add_debug(f"\u274c Document upload failed: {e}")
 
         finally:
             self.is_uploading_document = False
@@ -476,7 +485,7 @@ class DocumentMixin(rx.State, mixin=True):
     # INDEX / DEINDEX
     # ================================================================
 
-    @rx.event(background=True)  # type: ignore[operator]
+    @rx.event(background=True)
     async def doc_index_uploaded(self, rel_paths: list[str]):
         """Index what was just uploaded to the documents folder, so the search finds it.
         In the background: a long PDF takes its time and must not hold up the session.
@@ -492,7 +501,7 @@ class DocumentMixin(rx.State, mixin=True):
             name = Path(rel_path).name
             async with self:
                 self.document_upload_status = t(
-                    "doc_upload_indexing", lang=self.ui_language,  # type: ignore[attr-defined]
+                    "doc_upload_indexing", lang=self.ui_language,
                     filename=name,
                 )
             try:
@@ -523,7 +532,7 @@ class DocumentMixin(rx.State, mixin=True):
 
         for i, (name, index_file) in enumerate(files, 1):
             self.document_upload_status = t(
-                "doc_index_folder_progress", lang=self.ui_language,  # type: ignore[attr-defined]
+                "doc_index_folder_progress", lang=self.ui_language,
                 current=i, total=total, name=name,
             )
             yield None
@@ -534,15 +543,15 @@ class DocumentMixin(rx.State, mixin=True):
                 chunks_total += int(result.metadata.get("chunks", 0) or 0)
             else:
                 failed += 1
-                self.add_debug(f"⚠️ index: {name}: {result.detail}")  # type: ignore[attr-defined]
+                self.add_debug(f"⚠️ index: {name}: {result.detail}")
 
         final_msg = t(
-            "doc_index_folder_done", lang=self.ui_language,  # type: ignore[attr-defined]
+            "doc_index_folder_done", lang=self.ui_language,
             indexed=indexed, total=total, chunks=chunks_total,
         )
         if failed:
-            final_msg += t("doc_index_folder_failed_suffix", lang=self.ui_language, failed=failed)  # type: ignore[attr-defined]
-        self.add_debug(f"📚 Bulk-Index '{where}': {indexed}/{total} files, {chunks_total} chunks")  # type: ignore[attr-defined]
+            final_msg += t("doc_index_folder_failed_suffix", lang=self.ui_language, failed=failed)
+        self.add_debug(f"📚 Bulk-Index '{where}': {indexed}/{total} files, {chunks_total} chunks")
         self.document_upload_status = ""
         yield await self._refresh_open_source()
         yield rx.toast.success(final_msg, duration=7000, position="top-center")
@@ -552,13 +561,13 @@ class DocumentMixin(rx.State, mixin=True):
         from ..lib.i18n import t
 
         if result.success:
-            self.add_debug(f"✅ Indexed: {filename} ({result.metadata.get('chunks', 0)} chunks)")  # type: ignore[attr-defined]
+            self.add_debug(f"✅ Indexed: {filename} ({result.metadata.get('chunks', 0)} chunks)")
             msg = t(
-                "doc_upload_success", lang=self.ui_language,  # type: ignore[attr-defined]
+                "doc_upload_success", lang=self.ui_language,
                 filename=filename, chunks=result.metadata.get("chunks", 0),
             )
             return rx.toast.success(msg, duration=5000, position="top-center")
-        self.add_debug(f"⚠️ index: {result.detail}")  # type: ignore[attr-defined]
+        self.add_debug(f"⚠️ index: {result.detail}")
         return rx.toast.error(result.detail, duration=5000, position="top-center")
 
     async def doc_index_folder(self):
@@ -574,13 +583,13 @@ class DocumentMixin(rx.State, mixin=True):
         base = (DOCUMENTS_DIR / self.doc_current_folder).resolve() \
             if self.doc_current_folder else DOCUMENTS_DIR.resolve()
         if not base.is_dir():
-            self.document_upload_status = t("doc_index_folder_not_found", lang=self.ui_language)  # type: ignore[attr-defined]
+            self.document_upload_status = t("doc_index_folder_not_found", lang=self.ui_language)
             yield
             return
 
         files = sorted(p for p in base.rglob("*") if p.is_file())
         if not files:
-            self.document_upload_status = t("doc_index_folder_empty", lang=self.ui_language)  # type: ignore[attr-defined]
+            self.document_upload_status = t("doc_index_folder_empty", lang=self.ui_language)
             yield
             return
 
@@ -602,7 +611,7 @@ class DocumentMixin(rx.State, mixin=True):
             entries = await files_below(get_document_source(self.doc_source), self._open_remote_folder_id())
         except (LookupError, DocumentSourceError) as failed:
             yield rx.toast.error(
-                t("doc_source_failed", lang=self.ui_language, error=str(failed)),  # type: ignore[attr-defined]
+                t("doc_source_failed", lang=self.ui_language, error=str(failed)),
                 duration=6000, position="top-center",
             )
             return
@@ -613,7 +622,7 @@ class DocumentMixin(rx.State, mixin=True):
         ]
         if not indexing:
             yield rx.toast.warning(
-                t("doc_index_folder_empty", lang=self.ui_language),  # type: ignore[attr-defined]
+                t("doc_index_folder_empty", lang=self.ui_language),
                 duration=5000, position="top-center",
             )
             return
@@ -627,7 +636,7 @@ class DocumentMixin(rx.State, mixin=True):
 
         rel_path = f"{self.doc_current_folder}/{filename}".lstrip("/")
         self.document_upload_status = t(
-            "doc_upload_indexing", lang=self.ui_language,  # type: ignore[attr-defined]
+            "doc_upload_indexing", lang=self.ui_language,
             filename=filename,
         )
         yield  # type: ignore[misc]
@@ -648,7 +657,7 @@ class DocumentMixin(rx.State, mixin=True):
         from ..lib.i18n import t
 
         self.document_upload_status = t(
-            "doc_upload_indexing", lang=self.ui_language,  # type: ignore[attr-defined]
+            "doc_upload_indexing", lang=self.ui_language,
             filename=name,
         )
         yield None
@@ -665,10 +674,10 @@ class DocumentMixin(rx.State, mixin=True):
         from ..lib.i18n import t
 
         result = await fm.deindex_file(source_index_name(self.doc_source, file_id))
-        self.add_debug(f"\U0001f4e4 Deindexed: {name}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f4e4 Deindexed: {name}")
         yield await self._refresh_remote_list()
         yield rx.toast.success(
-            t("doc_deindex_success", lang=self.ui_language,  # type: ignore[attr-defined]
+            t("doc_deindex_success", lang=self.ui_language,
               filename=name, chunks=result.metadata.get("chunks_removed", 0)),
             duration=5000, position="top-center",
         )
@@ -683,10 +692,10 @@ class DocumentMixin(rx.State, mixin=True):
         count = result.metadata.get("chunks_removed", 0)
 
         msg = t(
-            "doc_deindex_success", lang=self.ui_language,  # type: ignore[attr-defined]
+            "doc_deindex_success", lang=self.ui_language,
             filename=filename, chunks=count,
         )
-        self.add_debug(f"\U0001f4e4 Deindexed: {filename} ({count} chunks)")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f4e4 Deindexed: {filename} ({count} chunks)")
         self.document_upload_status = ""
         self._refresh_file_list()
         yield rx.toast.success(msg, duration=5000, position="top-center")
@@ -762,7 +771,7 @@ class DocumentMixin(rx.State, mixin=True):
             chunks_total += result.metadata.get("chunks_removed", 0)
             if not result.success:
                 failed.append(filename)
-                self.add_debug(f"⚠️ {result.detail}")  # type: ignore[attr-defined]
+                self.add_debug(f"⚠️ {result.detail}")
 
         deleted = len(selection) - len(failed)
         actions: list[str] = []
@@ -772,12 +781,12 @@ class DocumentMixin(rx.State, mixin=True):
             actions.append("Disk")
         action_str = " + ".join(actions) if actions else "nothing"
 
-        self.add_debug(  # type: ignore[attr-defined]
+        self.add_debug(
             f"\U0001f5d1️ Batch delete in {folder or '/'}: "
             f"{deleted}/{len(selection)} files, {action_str}"
         )
         if failed:
-            self.add_debug(f"⚠️ Failed: {', '.join(failed)}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ Failed: {', '.join(failed)}")
 
         self.doc_delete_batch = False
         self.document_upload_status = ""
@@ -785,13 +794,13 @@ class DocumentMixin(rx.State, mixin=True):
 
         if failed:
             yield rx.toast.warning(
-                t("doc_delete_batch_failed", lang=self.ui_language,  # type: ignore[attr-defined]
+                t("doc_delete_batch_failed", lang=self.ui_language,
                   failed=len(failed), count=len(selection)),
                 duration=8000, position="top-center",
             )
         else:
             yield rx.toast.success(
-                t("doc_delete_batch_done", lang=self.ui_language,  # type: ignore[attr-defined]
+                t("doc_delete_batch_done", lang=self.ui_language,
                   count=deleted, actions=action_str),
                 duration=5000, position="top-center",
             )
@@ -826,7 +835,7 @@ class DocumentMixin(rx.State, mixin=True):
             )
 
         if not result.success:
-            self.add_debug(f"⚠️ {result.detail}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ {result.detail}")
             self.doc_delete_target = ""
             self.doc_delete_is_folder = False
             yield rx.toast.error(result.detail, duration=8000, position="top-center")
@@ -842,10 +851,10 @@ class DocumentMixin(rx.State, mixin=True):
         action_str = " + ".join(actions) if actions else "nothing"
 
         msg = t(
-            "doc_delete_done", lang=self.ui_language,  # type: ignore[attr-defined]
+            "doc_delete_done", lang=self.ui_language,
             filename=target_name, actions=action_str,
         )
-        self.add_debug(f"\U0001f5d1\ufe0f Deleted {target_name}: {action_str}")  # type: ignore[attr-defined]
+        self.add_debug(f"\U0001f5d1\ufe0f Deleted {target_name}: {action_str}")
 
         self.doc_delete_target = ""
         self.doc_delete_is_folder = False

@@ -8,11 +8,19 @@ Sandbox-Outputs) MANUELL: auflisten, öffnen, in den GitHub-Showcase
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import reflex as rx
 
 
 class StorageMixin(rx.State, mixin=True):
     """State für den Speicher-Tab im Agent-Editor."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        def add_debug(self, message: str) -> None: ...
 
     storage_files: list[dict] = []
     # ID, für die gerade eine Lösch-Bestätigung aussteht (zweistufig).
@@ -57,9 +65,9 @@ class StorageMixin(rx.State, mixin=True):
         """Datei endgültig löschen + Liste neu laden."""
         from ..lib.storage_manager import delete_managed_file
         if delete_managed_file(file_id):
-            self.add_debug(f"🗑️ Storage: deleted {file_id}")  # type: ignore[attr-defined]
+            self.add_debug(f"🗑️ Storage: deleted {file_id}")
         else:
-            self.add_debug(f"⚠️ Storage: delete failed for {file_id}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ Storage: delete failed for {file_id}")
         self.load_storage_files()
 
     @rx.event
@@ -87,7 +95,7 @@ class StorageMixin(rx.State, mixin=True):
             return
         from ..lib.storage_manager import delete_managed_files
         n = delete_managed_files(list(self.storage_selected))
-        self.add_debug(f"🗑️ Storage: {n} selected files deleted")  # type: ignore[attr-defined]
+        self.add_debug(f"🗑️ Storage: {n} selected files deleted")
         self.load_storage_files()
 
     @rx.event
@@ -104,7 +112,7 @@ class StorageMixin(rx.State, mixin=True):
         """ALLE verwalteten Dateien löschen (nach Bestätigung) + neu laden."""
         from ..lib.storage_manager import delete_managed_files
         n = delete_managed_files([str(f["id"]) for f in self.storage_files])
-        self.add_debug(f"🗑️ Storage: all {n} files deleted")  # type: ignore[attr-defined]
+        self.add_debug(f"🗑️ Storage: all {n} files deleted")
         self.load_storage_files()
 
     @rx.event
@@ -114,6 +122,6 @@ class StorageMixin(rx.State, mixin=True):
         name = copy_to_showcase(file_id)
         if name:
             self.storage_last_showcase = name
-            self.add_debug(f"📺 Storage: copied to showcase: {name}")  # type: ignore[attr-defined]
+            self.add_debug(f"📺 Storage: copied to showcase: {name}")
         else:
-            self.add_debug(f"⚠️ Storage: showcase copy failed for {file_id}")  # type: ignore[attr-defined]
+            self.add_debug(f"⚠️ Storage: showcase copy failed for {file_id}")

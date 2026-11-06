@@ -291,7 +291,7 @@ def _tts_list_threshold_editor() -> rx.Component:
     )
 
 
-def _source_row(src: rx.Var) -> rx.Component:  # type: ignore[type-arg]
+def _source_row(src: rx.Var) -> rx.Component:
     """Single row per source — type icon, label, target, indexed-count, action buttons."""
     is_busy = (AIState.audio_settings_busy_source == src["label"]) & (
         AIState.audio_settings_busy != ""

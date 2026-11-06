@@ -51,7 +51,7 @@ def _finite_seconds(value: Any, field_name: str) -> tuple[float, str | None]:
 # TTS-Listen-Filter, FreeEcho2-Voice-Resume).
 
 
-def _make_resolver():  # type: ignore[no-untyped-def]
+def _make_resolver():
     """Build a fresh SourceResolver: filesystem-discovery + http_streams."""
     from ....lib.audio_sources import SourceResolver
     return SourceResolver(build_configured_source_map())

@@ -13,7 +13,7 @@ mit dem Vorschau-Popup, das schon SSE-verdrahtet ist.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 
@@ -29,6 +29,14 @@ _FEED_LIMIT = 10
 
 class VigilantiaFeedMixin(rx.State, mixin=True):
     """UI state for the Vigilantia live feed accordion in the main tab."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        vigilantia_sources: list[dict[str, Any]]
+
+        def _reload_vigilantia_sources(self) -> None: ...
 
     # Sichtbarkeits-Setting für den Popover-Knopf in der Research-Modi-
     # Zeile. Default an — der Knopf ist klein, das Badge meldet sich nur
@@ -99,7 +107,7 @@ class VigilantiaFeedMixin(rx.State, mixin=True):
             if not self.vigilantia_sources and hasattr(
                 self, "_reload_vigilantia_sources"
             ):
-                self._reload_vigilantia_sources()  # type: ignore[attr-defined]
+                self._reload_vigilantia_sources()
         except Exception:  # noqa: BLE001
             pass
         try:

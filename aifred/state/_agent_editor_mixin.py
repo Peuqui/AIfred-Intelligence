@@ -7,7 +7,7 @@ and the scheduler job editor.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import reflex as rx
 from reflex.event import EventSpec
@@ -17,6 +17,29 @@ from ..lib.config import TTS_DEFAULT_ENGINE
 
 class AgentEditorMixin(rx.State, mixin=True):
     """Mixin for the agent editor page and scheduler job editing."""
+
+    if TYPE_CHECKING:
+        # Members of other AIState mixins used here. mypy checks each mixin on its own and sees
+        # them only through these declarations; where AIState combines the mixins it checks them
+        # against the real definitions.
+        _agents_json_revision: int
+        audit_log_entries: list[dict[str, str]]
+        channel_allowlists: dict[str, str]
+        channel_security_tiers: dict[str, int]
+        db_clear_confirm: bool
+        editor_tts_engine: str
+        tool_plugin_toggles: dict[str, str]
+        tts_list_revision: int
+        ui_language: str
+
+        def _load_editor_tts_settings(self) -> None: ...
+        def add_debug(self, message: str) -> None: ...
+        @rx.event(background=True)
+        async def check_tts_status(self): ...
+        async def db_load_documents(self) -> None: ...
+        def load_storage_files(self) -> None: ...
+        def load_stt_settings(self) -> None: ...
+        def open_memory_browser(self) -> None: ...
 
     # Editor modal visibility
     agent_editor_open: bool = False
@@ -131,7 +154,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         """Set the cloud model for a system-role agent."""
         if value:
             self.editor_model = value
-            self.editor_dirty = True  # type: ignore[attr-defined]
+            self.editor_dirty = True
 
     # Static registry; explicit empty deps avoid the lazy-import auto-dep warning.
     @rx.var(deps=[], auto_deps=False)
@@ -164,7 +187,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         if provider != self.editor_cloud_provider:
             self.editor_cloud_provider = provider
             self.editor_model = ""  # different provider → old model invalid
-            self.editor_dirty = True  # type: ignore[attr-defined]
+            self.editor_dirty = True
             async for _ in self.refresh_editor_cloud_models():
                 yield
 
@@ -199,7 +222,7 @@ class AgentEditorMixin(rx.State, mixin=True):
     def toggle_editor_system_reasoning(self) -> None:
         """Flip the reasoning toggle for a system-role agent."""
         self.editor_system_reasoning = not self.editor_system_reasoning
-        self.editor_dirty = True  # type: ignore[attr-defined]
+        self.editor_dirty = True
 
     def _refresh_agent_dropdown(self) -> None:
         """Refresh the agent dropdown items from config.
@@ -252,7 +275,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         spoken-output switch on the main page)."""
         self._agent_editor_needs_init = True
         self._agent_editor_start_tab = "tts"
-        self.tts_list_revision += 1  # type: ignore[attr-defined]
+        self.tts_list_revision += 1
         return rx.redirect("/agent-editor")
 
     def on_load_agent_editor(self):
@@ -289,7 +312,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         if self.agent_editor_mode == "config":
             yield self._push_editor_dom()
         elif self.agent_editor_mode == "tts":
-            yield type(self).check_tts_status  # type: ignore[attr-defined]
+            yield type(self).check_tts_status
 
     # Dirty flag — set on any keystroke in editor fields
     editor_dirty: bool = False
@@ -370,7 +393,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             self.open_memory_browser()
         elif tab == "database":
             self.db_clear_confirm = False
-            yield type(self).db_load_documents  # type: ignore[attr-defined]
+            yield type(self).db_load_documents
         elif tab == "storage":
             # Speicher-Tab: lokale Datei-Stores (Exporte + Sandbox) laden.
             self.load_storage_files()
@@ -380,8 +403,8 @@ class AgentEditorMixin(rx.State, mixin=True):
         elif tab == "tts":
             # TTS-Tab: Liste frisch aus settings.json (ein anderer Weg kann sie geändert haben),
             # dann den Status der Einträge prüfen.
-            self.tts_list_revision += 1  # type: ignore[attr-defined]
-            yield type(self).check_tts_status  # type: ignore[attr-defined]
+            self.tts_list_revision += 1
+            yield type(self).check_tts_status
         elif tab == "plugins":
             # Load tool toggles + channel allowlists for the plugins tab.
             # list_all_plugins() (not discover_tools) so DISABLED tool plugins
@@ -1007,7 +1030,7 @@ class AgentEditorMixin(rx.State, mixin=True):
         self.editor_dirty = False
         self._editor_typed = []
         self.editor_reset_confirm = False
-        self.editor_prompt_lang = self.ui_language  # type: ignore[attr-defined]
+        self.editor_prompt_lang = self.ui_language
 
         # Automatik-LLM: no AgentConfig — load prompts directly from directory
         if agent_id == "automatik":
@@ -1042,8 +1065,8 @@ class AgentEditorMixin(rx.State, mixin=True):
         # Load TTS settings for this agent — start with the topmost enabled
         # engine of the escalation list (the one most likely to speak).
         from ..lib.tts_service import first_enabled_key
-        self.editor_tts_engine = first_enabled_key() or TTS_DEFAULT_ENGINE  # type: ignore[attr-defined]
-        self._load_editor_tts_settings()  # type: ignore[attr-defined]
+        self.editor_tts_engine = first_enabled_key() or TTS_DEFAULT_ENGINE
+        self._load_editor_tts_settings()
 
         self._load_editor_prompt(self.editor_prompt_tab)
 
@@ -1264,7 +1287,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             # Automatik-LLM: only save prompt files, no agents.json entry
             self._save_editor_prompt_to_disk()
             self.editor_dirty_confirm = False
-            self.add_debug("\u2705 Automatik-LLM prompt saved")  # type: ignore[attr-defined]
+            self.add_debug("\u2705 Automatik-LLM prompt saved")
             return rx.toast.success("Automatik-LLM gespeichert", duration=2000)
 
         if self.editor_agent_id:
@@ -1293,16 +1316,16 @@ class AgentEditorMixin(rx.State, mixin=True):
 
             # Bump revision so file-IO-backed @rx.var (e.g. calibration_ai_label
             # in CalibrationMixin) re-evaluates and reflects the new value.
-            self._agents_json_revision = self._agents_json_revision + 1  # type: ignore[attr-defined]
+            self._agents_json_revision = self._agents_json_revision + 1
 
-            self.add_debug(  # type: ignore[attr-defined]
+            self.add_debug(
                 f"\u2705 Agent '{self.editor_display_name}' saved"
             )
         else:
             # Create new agent
             agent_id = vals.get("agent_id", "").strip().lower().replace(" ", "_")
             if not agent_id:
-                self.add_debug("\u26a0\ufe0f Agent-ID is required")  # type: ignore[attr-defined]
+                self.add_debug("\u26a0\ufe0f Agent-ID is required")
                 return None
 
             create_agent(
@@ -1312,7 +1335,7 @@ class AgentEditorMixin(rx.State, mixin=True):
                 description=self._editor_description,
                 role=self.editor_role,
             )
-            self.add_debug(  # type: ignore[attr-defined]
+            self.add_debug(
                 f"\u2705 Agent '{self.editor_display_name}' created"
             )
             # Select the newly created agent in the dropdown
@@ -1372,7 +1395,7 @@ class AgentEditorMixin(rx.State, mixin=True):
             count = memory.clear(agent_id)
             if count == 0:
                 return rx.toast.info(f"{agent_name}: memory already empty", duration=3000, position="top-center")
-            self.add_debug(f"🗑️ {agent_name}: {count} memories cleared")  # type: ignore[attr-defined]
+            self.add_debug(f"🗑️ {agent_name}: {count} memories cleared")
             return rx.toast.success(f"{agent_name}: {count} memories cleared", duration=3000, position="top-center")
         except Exception as e:
             return rx.toast.error(f"Error: {e}", duration=3000, position="top-center")
