@@ -1,9 +1,9 @@
 """Generic file/folder picker — Reflex modal component.
 
 Used by callers that need a path selection. Uses the FilePickerMixin
-state. Configured per-call via AIState.picker_open_for(...). On pick,
-a callback event (registered by the caller) is dispatched with the
-chosen relative path.
+state. State code opens it per call with ``_picker_open_for(...)`` (private:
+it sets the sandbox root, so no client may call it). On pick, a callback
+event (registered by the caller) is dispatched with the chosen relative path.
 """
 
 from __future__ import annotations

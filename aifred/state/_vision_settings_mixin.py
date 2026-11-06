@@ -1106,8 +1106,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
         except Exception as e:  # noqa: BLE001
             logger.warning("force_disarm_vigilantia side-effect failed: %s", e)
 
-    @rx.event
-    async def refresh_vlm_loaded(self) -> None:
+    async def _refresh_vlm_loaded(self) -> None:
         """Status frisch von Ollama abfragen. Wird vom on_load des
         Vorschau-Popups gerufen, damit der Power-Button den realen
         Zustand zeigt."""
@@ -1115,7 +1114,7 @@ class VisionSettingsMixin(rx.State, mixin=True):
             from ..lib.vision_prewarm import is_vlm_loaded
             self.vlm_model_loaded = await is_vlm_loaded(self.vision_model_value)
         except Exception as e:  # noqa: BLE001
-            logger.debug("refresh_vlm_loaded failed: %s", e)
+            logger.debug("_refresh_vlm_loaded failed: %s", e)
             self.vlm_model_loaded = False
 
     @rx.event

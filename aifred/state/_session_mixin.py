@@ -266,7 +266,7 @@ class SessionMixin(rx.State, mixin=True):
         if current not in deleted:
             return
         # Its audio files are gone with it; don't let the player hang on them.
-        self.stop_media()  # type: ignore[attr-defined]
+        self._stop_media()  # type: ignore[attr-defined]
         successor = _successor_session(order, current, set(deleted))
         if successor is None:
             return self.new_session()
@@ -565,7 +565,7 @@ class SessionMixin(rx.State, mixin=True):
         # ein laufendes Hoerbuch oder eine ausstehende Folder-Queue duerfen
         # nicht in die naechste Inferenz hineinwirken (TTS-Ende -> alter Track
         # resumiert ungewollt). Cleart auch den Runtime-Persist-Snapshot.
-        self.stop_media()  # type: ignore[attr-defined]
+        self._stop_media()  # type: ignore[attr-defined]
 
         # TTS Audio-Dateien aufraeumen
         from ..lib.audio_processing import cleanup_old_tts_audio

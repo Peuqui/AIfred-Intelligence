@@ -2,7 +2,7 @@
 
 Used by callers that need a path from the user (audio source-add, document-
 manager browse, future video-source-add). The picker is configured per-call
-via ``picker_open_for`` — root sandbox, capability flags, file filter,
+via ``_picker_open_for`` — root sandbox, capability flags, file filter,
 mode (pick_folder|pick_file), and a callback event name that gets dispatched
 on the chosen path.
 
@@ -90,8 +90,10 @@ class FilePickerMixin(rx.State, mixin=True):
 
     # ── Open / Close ─────────────────────────────────────
 
-    @rx.event
-    def picker_open_for(
+    # Private on purpose: a public method is an event handler any client can call with its own
+    # arguments. This one sets the sandbox root, the capabilities and the callback; only state
+    # code may open the picker.
+    def _picker_open_for(
         self,
         title: str,
         root: str,

@@ -139,8 +139,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         self.media_queue = []
         self._persist_audio_state()
 
-    @rx.event
-    def stop_media(self) -> None:
+    def _stop_media(self) -> None:
         """Stop playback, clear media slot AND any pending queue."""
         self.media_audio_url = ""
         self.media_state_key = ""
@@ -396,7 +395,7 @@ class AudioPlayerMixin(rx.State, mixin=True):
         specific subfolders) — but symlinks must keep their targets
         inside the sandbox, otherwise it's an escape vector.
         """
-        self.picker_open_for(  # type: ignore[attr-defined]
+        self._picker_open_for(  # type: ignore[attr-defined]
             title="Neue Audio-Source hinzufügen",
             root=self._audio_picker_root(),
             start_at="",

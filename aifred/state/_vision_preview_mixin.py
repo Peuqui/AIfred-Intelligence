@@ -354,7 +354,7 @@ class VisionPreviewMixin(rx.State, mixin=True):
         # Echten Ollama-Status für das Power-Toggle abfragen — ohne
         # das zeigt der Button immer „nicht geladen", selbst wenn ein
         # anderes Tool das VLM schon im VRAM hat.
-        await self.refresh_vlm_loaded()  # type: ignore[attr-defined]
+        await self._refresh_vlm_loaded()  # type: ignore[attr-defined]
         self._refresh_sources()
         self.vision_preview_cache_buster += 1
         briefings_map = {
